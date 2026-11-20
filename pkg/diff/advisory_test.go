@@ -2,6 +2,7 @@ package diff
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -178,5 +179,34 @@ func TestInferredAdvisorySummaryCountsMore(t *testing.T) {
 func TestSpecDiffOtherKindIsNothing(t *testing.T) {
 	if got := specDiff("graphql", "a", "b", fstest.MapFS{}, fstest.MapFS{}); got != nil {
 		t.Errorf("specDiff %+v", got)
+	}
+}
+
+// TestInferredAdvisoryRedacted pins that an advisory carries only spec-diff
+// findings and the record's relative path: no inferred configuration value,
+// sensitive or not, leaks into it.
+func TestInferredAdvisoryRedacted(t *testing.T) {
+	c := bareContract()
+	fs := func(secret, spec string) fstest.MapFS {
+		fsys := recordFS("a", specField("api", "openapi", "openapi/v1.yaml"),
+			field("configuration.DB_PASSWORD", secret, ".env:1"), field("configuration.LOG_LEVEL", secret+"-level", ".env:2"))
+		fsys["openapi/v1.yaml"] = &fstest.MapFile{Data: []byte(spec)}
+		return fsys
+	}
+	r := Compare(context.Background(), c, c, fs("old-s3cret", usersV1), fs("new-s3cret", usersV2))
+	if len(r.Advisories) != 1 {
+		t.Fatalf("advisories %+v", r.Advisories)
+	}
+	a := r.Advisories[0]
+	if a.Source != "openapi/v1.yaml:1" {
+		t.Errorf("source %q, want the record's relative path", a.Source)
+	}
+	for _, ch := range a.Changes {
+		if strings.HasPrefix(ch.Path, "inferred.") {
+			t.Errorf("a record path in the advisory: %+v", ch)
+		}
+		if v := fmt.Sprint(ch.OldValue, ch.NewValue, ch.Reason); strings.Contains(v, "s3cret") {
+			t.Errorf("a configuration value in the advisory: %+v", ch)
+		}
 	}
 }
