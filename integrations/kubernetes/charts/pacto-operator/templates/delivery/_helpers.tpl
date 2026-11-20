@@ -120,6 +120,10 @@ to "" (the exact group T). Unset, whoever may update the Stage's workload answer
 {{- $types := dict -}}
 {{- range .Values.delivery.gates.providers }}{{ $_ := set $types .name .type }}{{ end -}}
 {{- if $types }}{{ $_ := set $p "gateProviders" $types }}{{ end -}}
+{{- /* Keyless approvers: a signer without subjects would let any address its
+issuer vouches for approve, so it fails the render. */ -}}
+{{- range $i.signers }}{{ if not .subjects }}{{ fail (printf "delivery.identities.signers: the signer for issuer %q needs subjects, the regular expression an approver's whole email must match" .issuer) }}{{ end }}{{ end -}}
+{{- if $i.signers }}{{ $_ := set $p "signers" $i.signers }}{{ end -}}
 {{- $p | toJson -}}
 {{- end }}
 
@@ -241,4 +245,38 @@ planning needs. (dict "ctx" $ "approver" true) adds creating Approvals.
 - apiGroups: [pacto.trianalab.io]
   resources: [pactos]
   verbs: [get, list]
+{{- end }}
+
+{{/*
+The trust config the promoter and clients verify publisher pins with: this
+cluster's recorder, by its keyless identity or its public key, for the pin
+streams (pins/<domain>/<name>) only. Empty when the recorder is off, when no
+delivery.publishers block exists (reused 6.x values) or when an Ed25519 or
+KMS recorder names no public key.
+*/}}
+{{- define "pacto-operator.delivery.pinSigner" -}}
+{{- $r := .Values.delivery.recorder }}
+{{- if and $r.enabled (kindIs "map" .Values.delivery.publishers) }}
+{{- $k := $r.signing.keyless }}
+{{- $streams := list "pins/*/*" }}
+{{- if $k.enabled }}
+{{- toYaml (dict "keys" (list (dict "name" "recorder" "identity" $k.identity "issuer" $k.issuer "trustedRoot" $k.trustedRoot "streams" $streams))) }}
+{{- else if dig "publicKey" "" $r.signing }}
+{{- toYaml (dict "keys" (list (dict "name" "recorder" "publicKey" $r.signing.publicKey "streams" $streams))) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+The data of the publishers ConfigMap the promoter mounts at
+/etc/pacto/publishers, as YAML: the delivery policy's signers, the Sigstore
+trusted root and the pin signer, each only when set. Empty when none is.
+*/}}
+{{- define "pacto-operator.delivery.publishersData" -}}
+{{- $p := .Values.delivery.publishers | default dict }}
+{{- $data := dict }}
+{{- with dig "policySigners" "" $p }}{{ $_ := set $data "policy-signers.yaml" . }}{{ end }}
+{{- with dig "trustedRoot" "" $p }}{{ $_ := set $data "trusted_root.json" . }}{{ end }}
+{{- with include "pacto-operator.delivery.pinSigner" . }}{{ $_ := set $data "pin-signer.yaml" . }}{{ end }}
+{{- if $data }}{{ toYaml $data }}{{ end }}
 {{- end }}

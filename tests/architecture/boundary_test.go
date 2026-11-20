@@ -50,6 +50,7 @@ var corePackages = []string{
 	"github.com/trianalab/pacto/v4/pkg/graph/...",
 	"github.com/trianalab/pacto/v4/pkg/impact/...",
 	"github.com/trianalab/pacto/v4/pkg/oci/...",
+	"github.com/trianalab/pacto/v4/pkg/orgindex/...",
 	"github.com/trianalab/pacto/v4/pkg/otelobserver/...",
 	"github.com/trianalab/pacto/v4/pkg/probe/...",
 	"github.com/trianalab/pacto/v4/pkg/readiness/...",
@@ -221,15 +222,15 @@ func TestContractIsTheLeaf(t *testing.T) {
 	}
 }
 
-// TestWorkloadShapeReadsNoCluster keeps internal/workloadshape a standard
+// TestWorkloadShapeReadsNoCluster keeps pkg/workloadshape a standard
 // library leaf: it reads a decoded workload object, so a folder reader that
 // must never reach a cluster may share it with the cluster source.
 func TestWorkloadShapeReadsNoCluster(t *testing.T) {
-	const self = "github.com/trianalab/pacto/v4/internal/workloadshape"
+	const self = "github.com/trianalab/pacto/v4/pkg/workloadshape"
 	for _, dep := range deps(t, self) {
 		for _, bad := range []string{"k8s.io/", "sigs.k8s.io/", "github.com/trianalab/pacto/"} {
 			if strings.HasPrefix(dep, bad) && dep != self {
-				t.Errorf("boundary violation: internal/workloadshape reaches %q; it imports only the standard library", dep)
+				t.Errorf("boundary violation: pkg/workloadshape reaches %q; it imports only the standard library", dep)
 			}
 		}
 	}
@@ -262,14 +263,17 @@ func TestCorePackagesHaveNoKubernetesOrIntegrationDeps(t *testing.T) {
 // the repository: what Pacto infers for a contract comes from files, never
 // from a cluster or runtime observation, so internal/discover reaches no
 // Kubernetes client, runtime watcher, fleet source or the pactify package
-// that drafts from a cluster.
+// that drafts from a cluster. internal/ci, which plans a repository for a CI
+// run, is held to the same fence.
 func TestDiscoverReadsNoClusterOrRuntime(t *testing.T) {
 	const mod = "github.com/trianalab/pacto/v4/"
 	forbidden := []string{"k8s.io/", "sigs.k8s.io/", mod + "internal/k8sclient", mod + "internal/runtimewatch", mod + "pkg/runtimefacts", mod + "internal/fleetsrc", mod + "internal/pactify"}
-	for _, dep := range deps(t, mod+"internal/discover") {
-		for _, bad := range forbidden {
-			if strings.HasPrefix(dep, bad) {
-				t.Errorf("boundary violation: internal/discover reaches %q; discovery reads the folder only", dep)
+	for _, pkg := range []string{"internal/discover", "internal/ci"} {
+		for _, dep := range deps(t, mod+pkg) {
+			for _, bad := range forbidden {
+				if strings.HasPrefix(dep, bad) {
+					t.Errorf("boundary violation: %s reaches %q; discovery and the CI plan read the repository only", pkg, dep)
+				}
 			}
 		}
 	}

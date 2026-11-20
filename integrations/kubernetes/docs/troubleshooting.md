@@ -293,11 +293,45 @@ kubectl get stages.delivery.pacto.trianalab.io -A \
   -o custom-columns=NAME:.metadata.name,RECORDS:.status.conditions[?(@.type=="RecordStoreReady")].reason
 ```
 
-`ReferrersUnsupported` means the streams repository's registry does not serve
-the OCI Referrers API, and the message starts with
-`the registry has no Referrers API`. The recorder has no tag fallback, so the
-Stage stays below the automatic levels. GHCR and released `distribution` behave
-this way. Move `delivery.recorder.streamsRepository`, and the versions and
-contracts your Stages apply, to a registry that serves the API natively, such as
-zot. [Check it works](delivery-records.md#check-it-works) lists the other
-reasons.
+`RegistryUnavailable` means the registry did not answer or the recorder could
+not tell whether it serves the OCI Referrers API; the message quotes the
+registry. When it reads `the registry served the Referrers API for this stream
+and no longer does`, the Stage recorded `native` and the registry now answers
+as one without the API. The recorder never moves such a Stage to
+[write-once tags](delivery-records.md#write-once-tags) on its own; check the
+registry's configuration: `status.stream.registryMode` is `native` and may not
+narrow, and the records admission policy refuses that change to everyone, the
+recorder included. `WriteOnceTags` is healthy: the registry serves no
+Referrers API, so records are written as tags.
+[Check it works](delivery-records.md#check-it-works) lists the other reasons.
+
+A Stage that follows a new upstream Stage reads `no record was found for this
+stream` until the upstream Stage writes its first record, and offers no
+candidate until then.
+
+## CI says a target snapshot is unverified or stale
+
+`pacto impact` in CI prints one `Targets:` line per cluster snapshot it read.
+Read what the line ends with:
+
+| The line says | Why | Fix |
+|---|---|---|
+| `unverified` | The job has no delivery trust config | Set `PACTO_DELIVERY_TRUST` or pass `--delivery-trust` |
+| `signed by <key> (not scoped to this cluster)` | The trust entry has no `streams` naming the cluster's UID, or is a bare PEM | Add `streams: ["<uid>/*/*"]` to the recorder's entry |
+| `stale` | The snapshot is older than 15 minutes | Check the recorder logs for `target snapshot not published`: push credentials for `<registry>/pacto-targets` or a snapshot over 8 MiB |
+| `unavailable, not used` | A pinned tag is missing, or the signature or cluster does not match | Check the recorder runs in that cluster and that the trust entry holds its current public key |
+
+A `Registry:` line that says `no pacto-targets` means no cluster published:
+check that the chart's top-level `registry` value is set, or the recorder
+logs `target snapshot off`. See
+[Target snapshot](delivery-records.md#target-snapshot).
+
+## An approval does not count
+
+With the recorder on, an Approval counts only once its record is written,
+and an Approval for a person's signed record only once that record
+verifies. Read the Approval's `status.record`; when it is empty, the recorder
+has not signed it. The recorder signs only Approvals made after it first saw
+the approval admission policy, and it keeps that moment in memory, so an
+Approval made before a recorder restart never gets a record: approve again.
+[Signed approvals](delivery-signed-approvals.md) has the rest.

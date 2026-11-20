@@ -279,6 +279,9 @@ Controller arguments derived from values
 {{- with .Values.dashboard.externalCatalog }}
 - --dashboard-external-catalog={{ . }}
 {{- end }}
+{{- if include "pacto-operator.fingerprints" . }}
+- --dashboard-fingerprints-configmap={{ include "pacto-operator.fullname" . }}-fingerprints
+{{- end }}
 {{- with .Values.dashboard.delivery }}
 {{- with include "pacto-operator.dashboardDeliveryNamespace" $ }}
 - --dashboard-delivery-namespace={{ . }}
@@ -638,4 +641,16 @@ renders "true" or nothing. helm template sees only what --api-versions names.
 */}}
 {{- define "pacto-operator.apiServed" -}}
 {{- if (index . 0).Capabilities.APIVersions.Has (index . 1) }}true{{- end }}
+{{- end }}
+
+{{/*
+The installation's workload manager and promoter fingerprints as the YAML the
+dashboard and the promoter read with --fingerprints; empty when both lists are.
+*/}}
+{{- define "pacto-operator.fingerprints" -}}
+{{- with .Values.fingerprints }}
+{{- if or .managers .promoters }}
+{{- toYaml (dict "managers" (.managers | default list) "promoters" (.promoters | default list)) }}
+{{- end }}
+{{- end }}
 {{- end }}

@@ -33,7 +33,52 @@ const (
 	UseInferredServices = "inferred-services"
 	// UseDeclaredTargets: Pacto reads declared targets from what the row read.
 	UseDeclaredTargets = "declared-targets"
+	// ProviderHelm is the row of the Helm releases a workload source grouped
+	// workloads by, read from their release annotations.
+	ProviderHelm = "helm"
+	// HelmReleaseKind is the kind of the Helm row's counts. A release is read
+	// from workload annotations, so a reader must be allowed to list every
+	// workload kind in its namespace to see one.
+	HelmReleaseKind = "Helm release"
+	// UseServiceGrouping: Pacto groups inferred services by what the row read.
+	UseServiceGrouping = "service-grouping"
+	// ProviderArgoCD is the row of the Argo CD Applications a workload source
+	// listed to name the repository behind a group.
+	ProviderArgoCD = "argocd"
+	// ProviderFlux is the row of the Flux Kustomizations, HelmReleases and
+	// GitRepositories a workload source listed for the same reason.
+	ProviderFlux = "flux"
+	// UseRepositoryProvenance: Pacto names the repository a group deploys
+	// from out of what the row read.
+	UseRepositoryProvenance = "repository-provenance"
+	// UsePromotion: the row's product promotes versions in this installation.
+	// Its evidence starts with PromotionOwnedBy.
+	UsePromotion = "promotion"
+	// UseReporting: the row's product reports provisioning or usage to Pacto,
+	// the reporting adapters row family.
+	UseReporting = "reporting"
+	// ProviderRegistryPrefix prefixes the id of the row of a registry host an
+	// OCI source read: registry:ghcr.io.
+	ProviderRegistryPrefix = "registry:"
+	// UseNativeReferrers: Pacto attaches records there as OCI 1.1 referrers.
+	UseNativeReferrers = "native-referrers"
+	// UseWriteOnceTags: the registry serves no Referrers API, so Pacto writes
+	// one write-once, content-addressed tag per record there.
+	UseWriteOnceTags = "write-once-tags"
+	// UseIndexListedByCatalog: Pacto lists repositories there through _catalog.
+	UseIndexListedByCatalog = "index-listed-by-catalog"
+	// UseIndexListedByTag: the registry refuses _catalog, so Pacto lists by tag.
+	UseIndexListedByTag = "index-listed-by-tag"
 )
+
+// LimitationRegistryProbeFailed: Pacto could not probe a registry host, so it
+// does not know which mode it would use there.
+const LimitationRegistryProbeFailed = "REGISTRY_PROBE_FAILED"
+
+// PromotionOwnedBy starts the evidence of every promotion row whose product
+// was found, followed by the product: the phrase a delivery back-off reads. A
+// row Pacto could not check is partial, says so and never starts with it.
+const PromotionOwnedBy = "promotion owned by "
 
 // A Provider is a system Pacto detected and read evidence from, never an
 // offering provider. A source reports its rows in [Collection.Providers]; ids
@@ -70,6 +115,9 @@ type Provider struct {
 	// producer that read and found nothing passes a non-nil empty Counts.
 	Counts          []ProviderCount `json:"-"`
 	UnreadableKinds []string        `json:"-"`
+	// Services are the services whose revisions a registry row's host served;
+	// Restrict drops the row when every one is hidden. Never serialised.
+	Services []ServiceKey `json:"-"`
 }
 
 // ProviderObject is one object a provider row's evidence names. Namespace is
@@ -98,7 +146,7 @@ func ingestProviders(snap *FleetSnapshot, sourceID string, col *Collection) {
 	for _, p := range col.Providers {
 		p.UsedFor, p.Objects, p.Limitations = slices.Clone(p.UsedFor), slices.Clone(p.Objects), slices.Clone(p.Limitations)
 		p.Counts, p.UnreadableKinds = slices.Clone(p.Counts), slices.Clone(p.UnreadableKinds)
-		p.Details = slices.Clone(p.Details)
+		p.Details, p.Services = slices.Clone(p.Details), slices.Clone(p.Services)
 		if p.AsOf != nil {
 			at := *p.AsOf
 			p.AsOf = &at
@@ -141,19 +189,29 @@ func checkDetectedClusters(snap *FleetSnapshot) {
 	}
 }
 
-// finalizeProviders runs once every source state is final. It drops the rows
-// of an unavailable source, never lets a row claim better health than its
-// source, gives every row that is not available a reason, renders counted
-// evidence, sorts by source then id, keeps the first of a duplicate and caps
-// the objects of each row.
+// finalizeProviders runs once every source state is final. It adds the
+// reporting adapter rows, drops the rows of an unavailable source, never lets
+// a row claim better health than its source, gives every row that is not
+// available a reason, renders counted evidence, sorts by source then id, keeps
+// the first of a duplicate and caps the objects of each row.
 func finalizeProviders(snap *FleetSnapshot) {
+	snap.Providers = finalizeRows(append(snap.Providers, reportingRows(snap.Provisioning)...), sourceStates(snap.Sources))
+}
+
+// sourceStates is the least healthy status of each source id.
+func sourceStates(sources []SourceState) map[string]SourceStatus {
 	state := map[string]SourceStatus{}
-	for _, st := range snap.Sources {
+	for _, st := range sources {
 		if cur, ok := state[st.ID]; !ok || sourceHealthRank(st.Status) < sourceHealthRank(cur) {
 			state[st.ID] = st.Status
 		}
 	}
-	rows := slices.DeleteFunc(snap.Providers, func(p Provider) bool { return state[p.Source] == SourceUnavailable })
+	return state
+}
+
+// finalizeRows is finalizeProviders over rows and the source states.
+func finalizeRows(rows []Provider, state map[string]SourceStatus) []Provider {
+	rows = slices.DeleteFunc(rows, func(p Provider) bool { return state[p.Source] == SourceUnavailable })
 	slices.SortStableFunc(rows, func(a, b Provider) int { return cmp.Or(cmp.Compare(a.Source, b.Source), cmp.Compare(a.ID, b.ID)) })
 	rows = slices.CompactFunc(rows, func(a, b Provider) bool { return a.Source == b.Source && a.ID == b.ID })
 	for i := range rows {
@@ -183,7 +241,53 @@ func finalizeProviders(snap *FleetSnapshot) {
 			p.Objects = p.Objects[:MaxProviderObjects]
 		}
 	}
-	snap.Providers = rows
+	return rows
+}
+
+// reportingAdapterID prefixes the id of every row reportingRows makes.
+const reportingAdapterID = "reporting-adapter/"
+
+// restrictedProviders is rows restricted by restrictProviders, with the
+// reporting adapter rows made again from out's restricted provisioning
+// reports, so a view never names an adapter or producer its reports hide. A
+// row an evidence source reported from its trust config (a producer the
+// installation allows to report) names no report and stays for every viewer:
+// the Evidence Server lists those producers to anyone on GET /producers.
+func restrictedProviders(out *FleetSnapshot, rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNames []string, visible func(string) bool, workloadVisible func(namespace, kind string) bool) []Provider {
+	rows = slices.DeleteFunc(slices.Clone(rows), func(p Provider) bool { return strings.HasPrefix(p.ID, reportingAdapterID) })
+	rows = append(restrictProviders(rows, hiddenSvc, hiddenNames, visible, workloadVisible, out.Clusters), finalizeRows(reportingRows(out.Provisioning), sourceStates(out.Sources))...)
+	slices.SortStableFunc(rows, func(a, b Provider) int { return cmp.Or(cmp.Compare(a.Source, b.Source), cmp.Compare(a.ID, b.ID)) })
+	return rows
+}
+
+// reportingRows are the reporting adapter rows of recs, the matched
+// provisioning reports: one per source and adapter, an adapter being the slug,
+// producer and signing offeringAdapters groups reporters by, so a signed and
+// an unsigned report of one producer are two rows.
+func reportingRows(recs []ProvisioningRecord) []Provider {
+	type rowKey struct {
+		source, provider, producer string
+		verified                   bool
+	}
+	seen := map[rowKey]bool{}
+	var rows []Provider
+	for _, r := range recs {
+		k := rowKey{r.Source, r.Provider, r.Producer, r.Verified}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		ev, id := "reports provisioning in the unsigned target-state file", reportingAdapterID+r.Provider+"/"+r.Producer
+		if r.Verified {
+			ev, id = "reports provisioning in signed envelopes", id+"/signed"
+		}
+		if r.Producer != "" {
+			ev += " as producer " + r.Producer
+		}
+		rows = append(rows, Provider{ID: id, Source: r.Source,
+			Name: cmp.Or(r.Provider, "unnamed adapter"), Evidence: ev, UsedFor: []string{UseReporting}})
+	}
+	return rows
 }
 
 // countsEvidence is WorkloadEvidence over per-namespace counts.
@@ -202,8 +306,9 @@ var workloadKindOrder = []string{"Deployment", "StatefulSet", "DaemonSet", "Cron
 // WorkloadEvidence is the one wording of counted evidence: "412 Deployments,
 // 3 StatefulSets". A kind read with 0 is omitted, a kind that could not be
 // read everywhere is "<Kind>s unreadable" (never 0), or "at least 12
-// Deployments (some unreadable)" when some were read, and "no workloads found"
-// means every kind was read and held nothing.
+// Deployments (some unreadable)" when some were read. When every kind was read
+// and held nothing it says "no GitRepositories or Kustomizations found", or
+// "no workloads found" when it names no kind other than the workload kinds.
 func WorkloadEvidence(counts map[string]int, unreadable []string) string {
 	kinds := map[string]bool{}
 	for k := range counts {
@@ -218,21 +323,26 @@ func WorkloadEvidence(counts map[string]int, unreadable []string) string {
 		}
 		return len(workloadKindOrder)
 	}
-	var parts []string
+	var parts, none []string
 	for _, k := range slices.SortedFunc(maps.Keys(kinds), func(a, b string) int { return cmp.Or(cmp.Compare(rank(a), rank(b)), cmp.Compare(a, b)) }) {
 		switch n := counts[k]; {
 		case slices.Contains(unreadable, k) && n > 0:
 			parts = append(parts, "at least "+kindCount(n, k)+" (some unreadable)")
 		case slices.Contains(unreadable, k):
-			parts = append(parts, k+"s unreadable")
+			parts = append(parts, PluralKind(k)+" unreadable")
 		case n > 0:
 			parts = append(parts, kindCount(n, k))
+		case rank(k) == len(workloadKindOrder):
+			none = append(none, PluralKind(k))
 		}
 	}
-	if len(parts) == 0 {
-		return "no workloads found"
+	switch {
+	case len(parts) > 0:
+		return strings.Join(parts, ", ")
+	case len(none) > 0:
+		return "no " + strings.Join(none, " or ") + " found"
 	}
-	return strings.Join(parts, ", ")
+	return "no workloads found"
 }
 
 // kindCount is "1 Deployment" or "n Deployments".
@@ -240,11 +350,20 @@ func kindCount(n int, kind string) string {
 	if n == 1 {
 		return "1 " + kind
 	}
-	return strconv.Itoa(n) + " " + kind + "s"
+	return strconv.Itoa(n) + " " + PluralKind(kind)
+}
+
+// PluralKind is the one plural of a kind: "GitRepositories", "Deployments".
+func PluralKind(k string) string {
+	if strings.HasSuffix(k, "y") && len(k) > 1 && !strings.ContainsRune("aeiouAEIOU", rune(k[len(k)-2])) {
+		return k[:len(k)-1] + "ies"
+	}
+	return k + "s"
 }
 
 // restrictProviders is rows as a reader visible and workloadVisible say yes
-// to sees them. Every row stays; what changes is cloned. An object in a
+// to sees them. Every row stays, except a registry row whose every service is
+// in hiddenSvc; what changes is cloned. An object in a
 // namespace the reader may not read goes, a cluster-scoped one included unless
 // visible("") says yes, and ObjectsTotal keeps the count. A count stays only
 // when the reader may read its namespace and list its kind there (a nil
@@ -255,7 +374,7 @@ func kindCount(n int, kind string) string {
 // stays. A row that is not available and lost every reason gets a degraded
 // one, so it still says why. Evidence a producer wrote that names a hidden
 // name is masked; evidence rendered from counts names none.
-func restrictProviders(rows []Provider, hiddenNames []string, visible func(string) bool, workloadVisible func(namespace, kind string) bool, clusters []ClusterRecord) []Provider {
+func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNames []string, visible func(string) bool, workloadVisible func(namespace, kind string) bool, clusters []ClusterRecord) []Provider {
 	if rows == nil {
 		return nil
 	}
@@ -266,25 +385,30 @@ func restrictProviders(rows []Provider, hiddenNames []string, visible func(strin
 	for _, c := range clusters {
 		shown[c.ID], shown[c.Name] = true, true
 	}
-	out := make([]Provider, len(rows))
+	out := make([]Provider, 0, len(rows))
 	for i, p := range rows {
+		if allServicesHidden(p, hiddenSvc) {
+			continue
+		}
 		if !shown[p.Cluster] {
 			p.Evidence, p.Limitations = hideDetectedCluster(p)
 			p.Cluster = ""
 		}
-		p.Objects = slices.DeleteFunc(slices.Clone(p.Objects), func(o ProviderObject) bool { return !visible(o.Namespace) })
-		if len(p.Objects) < len(rows[i].Objects) {
-			p.ObjectsTotal = cmp.Or(p.ObjectsTotal, len(rows[i].Objects))
-		}
-		hidden := 0
+		p.Objects, p.ObjectsTotal = restrictObjects(p, visible, workloadVisible)
+		hidden := map[string]int{}
 		p.Counts = slices.DeleteFunc(slices.Clone(p.Counts), func(c ProviderCount) bool {
 			if countVisible(c, visible, workloadVisible) {
 				return false
 			}
-			hidden += c.N
+			hidden[c.Kind] += c.N
 			return true
 		})
 		p.Evidence = restrictedEvidence(p, hidden, hiddenNames)
+		if len(rows[i].Objects) > 0 && len(p.Objects) == 0 && !slices.ContainsFunc(rows[i].Objects, func(o ProviderObject) bool { return !workloadKind(o.Kind) }) {
+			// Every object was a workload the reader may not list: the
+			// evidence a producer wrote about them goes too.
+			p.Evidence = p.Name + " found in a namespace you cannot read"
+		}
 		redactDetected(&p, len(rows[i].Objects), visible)
 		p.Limitations = slices.DeleteFunc(slices.Clone(p.Limitations), func(l Limitation) bool {
 			return l.Code != LimitationProviderSourceDegraded && (hiddenByScope(l, visible) || mentionsHidden(l.Message))
@@ -293,9 +417,15 @@ func restrictProviders(rows []Provider, hiddenNames []string, visible func(strin
 			p.Limitations = []Limitation{{Code: LimitationProviderSourceDegraded, Source: p.Source,
 				Message: "source " + p.Source + " reported this row as " + string(p.Status) + "; the reason is hidden by your permissions"}}
 		}
-		out[i] = p
+		out = append(out, p)
 	}
 	return out
+}
+
+// allServicesHidden reports whether p names services and hiddenSvc hides
+// every one of them, so the row goes with them.
+func allServicesHidden(p Provider, hiddenSvc map[ServiceKey]bool) bool {
+	return len(p.Services) > 0 && !slices.ContainsFunc(p.Services, func(k ServiceKey) bool { return !hiddenSvc[k] })
 }
 
 // hideDetectedCluster is the evidence and limitations of p without the
@@ -333,21 +463,30 @@ func detectedNarrowed(p Provider, visible func(string) bool) bool {
 	return p.Provenance == ProvenanceInferred && !visible("") && (p.Scope == ScopeCluster || p.ObjectsTotal > len(p.Objects))
 }
 
-// restrictedEvidence is the evidence of p, already narrowed, with hidden
-// counts left out: counted evidence is rendered again with the hidden total,
-// and evidence a producer wrote is masked when it names a hidden name.
-func restrictedEvidence(p Provider, hidden int, hiddenNames []string) string {
-	suffix := " (+" + strconv.Itoa(hidden) + " hidden by your permissions)"
+// restrictedEvidence is the evidence of p, already narrowed, with the counts
+// hidden per kind left out: counted evidence is rendered again with the hidden
+// total, and evidence a producer wrote is masked when it names a hidden name.
+// A row left with only zero counts says how many are hidden instead of none
+// found, so it never says both.
+func restrictedEvidence(p Provider, hidden map[string]int, hiddenNames []string) string {
+	total := 0
+	for _, n := range hidden {
+		total += n
+	}
+	suffix := " (+" + strconv.Itoa(total) + " hidden by your permissions)"
 	switch {
 	case p.Counts == nil && p.UnreadableKinds == nil:
 		if slices.ContainsFunc(hiddenNames, func(n string) bool { return mentionsWord(p.Evidence, n) }) {
 			return "hidden by your permissions"
 		}
 		return p.Evidence
-	case hidden == 0:
+	case total == 0:
 		return countsEvidence(p.Counts, p.UnreadableKinds)
-	case len(p.Counts) == 0 && len(p.UnreadableKinds) == 0:
+	case len(p.UnreadableKinds) > 0:
+	case len(p.Counts) == 0:
 		return "none you may see" + suffix
+	case !slices.ContainsFunc(p.Counts, func(c ProviderCount) bool { return c.N > 0 }):
+		return WorkloadEvidence(hidden, nil) + " in namespaces hidden from you"
 	}
 	return countsEvidence(p.Counts, p.UnreadableKinds) + suffix
 }
@@ -376,10 +515,49 @@ func nameByte(b byte) bool {
 	return strings.IndexByte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._", b) >= 0
 }
 
-// countVisible reports whether a reader may see c: read its namespace and
-// list its kind there. A nil workloadVisible lists nothing.
+// restrictObjects is the objects of p a reader may see and the row's objects
+// total: an object needs read of its namespace (the cluster scope for one
+// with none), and a workload also list of its kind there. A hidden workload
+// goes uncounted, since a count of workloads is workload data too; any other
+// hidden object keeps the total.
+// ponytail: a capped row that loses a workload drops its total, so a list cut
+// at MaxProviderObjects may then read whole; count the visible workloads
+// before the cap if a row ever needs both.
+func restrictObjects(p Provider, visible func(string) bool, workloadVisible func(namespace, kind string) bool) ([]ProviderObject, int) {
+	kept := slices.DeleteFunc(slices.Clone(p.Objects), func(o ProviderObject) bool { return !objectVisible(o, visible, workloadVisible) })
+	workloads := 0
+	for _, o := range p.Objects {
+		if workloadKind(o.Kind) && !objectVisible(o, visible, workloadVisible) {
+			workloads++
+		}
+	}
+	switch other := len(p.Objects) - len(kept) - workloads; {
+	case workloads > 0 && other > 0:
+		return kept, len(kept) + other
+	case workloads > 0:
+		return kept, 0
+	case other > 0:
+		return kept, cmp.Or(p.ObjectsTotal, len(p.Objects))
+	}
+	return kept, p.ObjectsTotal
+}
+
+// workloadKind reports whether kind is one of the workload kinds an inferred
+// service runs as.
+func workloadKind(kind string) bool { return slices.Contains(workloadKindOrder, kind) }
+
+// objectVisible reports whether a reader may see o: read of its namespace,
+// and for a workload list of its kind there (a nil workloadVisible lists
+// nothing).
+func objectVisible(o ProviderObject, visible func(string) bool, workloadVisible func(namespace, kind string) bool) bool {
+	return visible(o.Namespace) && (!workloadKind(o.Kind) || workloadVisible != nil && workloadVisible(o.Namespace, o.Kind))
+}
+
+// countVisible reports whether a reader may see c: a zero count discloses
+// nothing, any other needs read of its namespace and list of its kind there.
+// A nil workloadVisible lists nothing.
 func countVisible(c ProviderCount, visible func(string) bool, workloadVisible func(namespace, kind string) bool) bool {
-	return visible(c.Namespace) && workloadVisible != nil && workloadVisible(c.Namespace, c.Kind)
+	return c.N == 0 || visible(c.Namespace) && workloadVisible != nil && workloadVisible(c.Namespace, c.Kind)
 }
 
 // providersNarrowed reports whether a reader visible and workloadVisible say
@@ -387,7 +565,7 @@ func countVisible(c ProviderCount, visible func(string) bool, workloadVisible fu
 // row redacted.
 func providersNarrowed(s *FleetSnapshot, visible func(string) bool, workloadVisible func(namespace, kind string) bool) bool {
 	return slices.ContainsFunc(s.Providers, func(p Provider) bool {
-		return detectedNarrowed(p, visible) || slices.ContainsFunc(p.Objects, func(o ProviderObject) bool { return !visible(o.Namespace) }) ||
+		return detectedNarrowed(p, visible) || slices.ContainsFunc(p.Objects, func(o ProviderObject) bool { return !objectVisible(o, visible, workloadVisible) }) ||
 			slices.ContainsFunc(p.Counts, func(c ProviderCount) bool { return !countVisible(c, visible, workloadVisible) })
 	})
 }

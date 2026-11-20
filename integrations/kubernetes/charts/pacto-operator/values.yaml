@@ -32,6 +32,12 @@ global:
     # -- Run as UID 65532 (nonroot in distroless)
     runAsUser: 65532
 
+# -- The installation registry (host[/path], no scheme), such as
+# `ghcr.io/acme`. The delivery recorder publishes the cluster's signed target
+# snapshot to `<registry>/pacto-targets`, which `pacto impact` reads in CI; empty
+# publishes none. Later releases derive more repositories from it.
+registry: ""
+
 # -- Number of controller replicas
 replicaCount: 1
 
@@ -480,6 +486,31 @@ nodeAgent:
       # and connections it tracks, and the kernel ring buffer is charged here.
       memory: 256Mi
 
+# The workload managers and promoters this installation runs, as data: Pacto
+# ships no code for any of them. Optional; nothing needs it to work. The chart
+# renders it into a ConfigMap the dashboard and the delivery promoter read as
+# --fingerprints. Each entry names a product and exactly one matcher.
+fingerprints:
+  # -- Tools that apply workloads, each named by a `fieldManager`, a `label` or
+  # an `annotation` key it leaves on a workload. A workload one of them manages
+  # reads `external: <product>`, and the delivery promoter runs the gates and
+  # writes no pointer for it.
+  managers: []
+  # -- Tools that promote versions, each named by a `crd` (`<plural>.<group>`)
+  # the cluster serves, or a `label` or `annotation` key on a workload. Data
+  # sources reads `promotion owned by <product>` for each one found. These
+  # three are examples of an open list: add any IDP's promoter, public or
+  # private, as one more entry, or set it to null for none.
+  promoters:
+    - product: Kargo
+      crd: stages.kargo.akuity.io
+    - product: Kargo
+      crd: warehouses.kargo.akuity.io
+    - product: Argo CD Image Updater
+      annotation: argocd-image-updater.argoproj.io/image-list
+    - product: Flux ImageUpdateAutomation
+      crd: imageupdateautomations.image.toolkit.fluxcd.io
+
 # -- Node selector for the controller pod
 nodeSelector: {}
 # -- Tolerations for the controller pod
@@ -556,6 +587,28 @@ delivery:
       # repositories, for a private registry. Without it the promoter reads only public ones.
       secretName: ""
 
+  # Who may publish a version a Stage with `candidates.registry` accepts. These are the only trust
+  # inputs the chart holds: the publisher rule's registry, the Sigstore root and the bootstrap
+  # delivery policy. A signer no rule covers is confirmed once per service in the delivery inbox, and
+  # the recorder writes that confirmation to the registry as a signed pin.
+  publishers:
+    # -- The registry (`host/org`) the installation's services publish to. On `ghcr.io` and
+    # `registry.gitlab.com` the promoter derives a rule from it: the organization's CI on the default
+    # branch. Empty: no publisher rule, so only the signed policy or a person's confirmation in the
+    # delivery inbox accepts a signer
+    registry: ""
+    # -- The default branch whose CI the derived rule accepts
+    defaultBranch: main
+    # -- A signed delivery policy (`repository:tag`) whose publisher rules replace the derived rule
+    # once verified. Needs `policySigners`
+    policy: ""
+    # -- The keys that sign the delivery policy, as a trust config in YAML with `role: policy` keys
+    # (`keys: [{publicKey: <PEM>, role: policy}]`). Public keys only
+    policySigners: ""
+    # -- A Sigstore trusted root (`trusted_root.json`) publisher signatures must chain to, for a
+    # private Sigstore. Empty uses public-good Sigstore
+    trustedRoot: ""
+
   metrics:
     # -- Expose the promoter's metrics (plain HTTP, port 8080) through a Service. The recorder's come with `delivery.recorder.monitoring`
     enabled: true
@@ -624,14 +677,31 @@ delivery:
     # -- Deprecated: people and agents are told apart by how they sign in. When set, anyone in none
     # of these groups is an agent.
     humanGroups: []
+    # -- Issuers whose keyless certificates may sign an approval (`pacto delivery approve`). Each
+    # entry has `issuer` (the OIDC issuer URL), `clientID` (the OIDC client the CLI logs in with),
+    # `usernamePrefix` (put before the certificate's email to name the Kubernetes user),
+    # `subjects` (required: a regular expression every approver's whole email must match, anchored
+    # at both ends, for example `[^@]+@acme\.com`), `fulcioURL`, `timestampURL` and `trustedRoot` (the Sigstore
+    # trusted_root.json the certificate chains to). Empty, keyless approvals never count and the
+    # CLI records Approvals in the cluster. Privacy: public-good Fulcio logs every certificate,
+    # the approver's email included, to Certificate Transparency.
+    signers: []
 
   recorder:
     # -- Run the recorder, which writes a signed record of every concluded operation to the registry
     # as OCI referrers. Off by default. When on, the promoter leaves the record finalizer to it. The
-    # registry must support the OCI Referrers API natively (GHCR and released `distribution` do not).
+    # recorder detects whether the registry serves the OCI Referrers API and otherwise writes one
+    # write-once, content-addressed tag per record in the streams repository. It also signs every
+    # Approval into the registry, and the promoter then counts an Approval only once its record is
+    # written. Upgrade the CLIs and the promoters that follow these streams first: an older reader
+    # refuses an operation record that names its approvals' records.
     enabled: false
     # -- Repository (`host/path`) that holds one anchor per Stage stream. Required when enabled.
     streamsRepository: ""
+    # -- Repository (`host/path`) a person's client pushes signed approvals to, one anchor per Stage
+    # stream. Empty is `<streamsRepository>-approvals`. Approvers need push access here and only here:
+    # only the recorder pushes to the streams repository.
+    approvalsRepository: ""
     # -- How long a registry or signer failure backs off (a Go duration)
     poll: 30s
     # -- Elect one active recorder
@@ -681,6 +751,10 @@ delivery:
         # -- The Sigstore trusted root (`trusted_root.json`) naming that Fulcio and timestamp authority.
         # Required with keyless: without it a self-signed certificate could name the recorder's identity.
         trustedRoot: ""
+      # -- The recorder's public key (PEM) for an Ed25519 or KMS recorder, so the promoter and clients
+      # verify the publisher pins it writes. Keyless signing needs none: its identity names the signer.
+      # Empty with an Ed25519 or KMS recorder: no new publisher can be confirmed
+      publicKey: ""
     # -- Keep a recorded operation this long after it concluded, then delete it: its record holds what
     # happened. The operation a Stage runs is never deleted. `0s` keeps them all (a Go duration).
     operationTTL: 168h

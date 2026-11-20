@@ -40,14 +40,14 @@ jq -r '.results[] | .service as $s | .unknown[] | "\($s): \(.)"' plan.json
 
 | Input | Contract fields |
 |---|---|
-| `Dockerfile` (or `Dockerfile.*`, `*.Dockerfile`) | an image artifact under `publish.artifacts`, built from the Dockerfile |
-| Kubernetes YAML with a Deployment, StatefulSet, DaemonSet, Job or CronJob | `service.name` from the workload, `service.version` from the image tag, the registry from the image, `workload` and a manifests artifact that copies the YAML files |
+| `Dockerfile` (or `Dockerfile.*`, `*.Dockerfile`) | `publish.build` in the inferred record: [`pacto ci --publish`](publish-from-ci.md) builds the image with it |
+| Kubernetes YAML with a Deployment, StatefulSet, DaemonSet, Job or CronJob | `service.name` and `workload` from the workload; `publish.deploy` in the inferred record, and a `found` line naming the image tag as the version a first publish can declare |
 | The `team` label on the workload | `service.owner.team` |
 | The workload's environment, with the ConfigMaps in the folder that it reads | a configuration schema at `configuration/schema.json` with each key and its type, no values; sensitive keys are `writeOnly` |
 | An environment value that names another in-cluster service | `dependencies`, each with `compatibility: unknown` and, from that service's contract in `--fleet`, a proposed range in a comment |
 | A readiness, liveness or startup probe | a `health` capability |
 | An OpenAPI document at any path in the folder | one `openapi` interface; AsyncAPI and gRPC files go to the inferred record |
-| `kustomization.yaml` | the manifests artifact keeps the folder layout, and init asks you to set the Kustomization's `spec.path` |
+| `kustomization.yaml` | `publish.deploy` in the inferred record: the deploy artifact keeps the folder layout |
 
 These fill in the contract. Init also reads Helm charts, Kustomize, Compose,
 CODEOWNERS, `catalog-info.yaml` and environment files into the inferred record
@@ -98,18 +98,16 @@ helm template --include-crds ledger services/ledger/chart \
   > services/ledger/k8s/rendered.yaml
 ```
 
-The contract then publishes the rendered file, so render again when the chart
-changes. To publish the chart itself, add it under `publish.artifacts` as a
-`chart` ([Publish](contract-reference/publish.md)).
+Once init has written the contract, delete the rendered file:
+[`pacto ci --publish`](publish-from-ci.md) publishes the chart itself as the
+deploy artifact, and a folder with both a chart and manifests is a finding
+that asks for a `publish` section.
 
 **Compose files.** Init reads the image, ports and environment keys of
 `compose.yaml` into the inferred record, and a Compose-only folder still gets
-the blank template. The blank template writes a publish section with
-`bundle: oci://<registry>/<name>` and `sign.key: cosign.key`. Pass `--registry`
-to set the registry, or replace the `registry.example` placeholder that
-`unknown` names before you run `pacto publish`
-([Publish](contract-reference/publish.md)). Pass `--describe-only` to leave the
-publish section out.
+the blank template. The blank template writes no publish section and no
+`service.version`: [`pacto ci --publish`](publish-from-ci.md) derives both,
+publishing to the registry it resolves or the one `--registry` names.
 
 ## 3. Write the contracts
 
@@ -178,18 +176,64 @@ workload in the namespace that no Pacto resource describes, in
 `<dir>/<ns>/<name>`, from your current kubeconfig context. Without
 `--namespace` it reads every namespace, `kube-system` included. It lists
 Services, EndpointSlices, Pactos and node runtime observations in every
-namespace even with `--namespace`, so your identity needs cluster-wide `list`
-on them. It needs that permission even when the Pacto CRDs are not installed.
+namespace even with `--namespace`. It never lists or reads a Secret or a
+ConfigMap.
+
+- The read lists each kind of object in pages and stops at `--max-items` items
+  per kind (10000 by default).
+- `--call-window` sets how far back a call counts as a dependency (24h by
+  default).
+- A run `--max-items` stopped while listing workloads prints a `Continue:`
+  line with the same command and `--continue <token>`. Another kind of object
+  cut short stays `partial`, and a resumed run lists it again. Run it to resume the read where it
+  stopped. A token made for other namespaces is refused.
+- A kind of object your identity may not list reads as `failed` with
+  `forbidden`, and the run goes on. The run fails only when it reads no
+  workload at all.
+- The `Coverage:` line names each kind of object the read did not see whole,
+  with its state, `partial` or `failed`, and a reason. A draft built from a
+  partial read can miss dependencies and callers, so treat what it lacks as
+  unknown.
 
 Each draft holds a `manifests.yaml` with the workload and its Services as the
 cluster returns them, without namespace, uid or status. It also holds a
 `pacto.yaml` and a `.pactoignore`. `--plan` writes nothing. A workload that a
-Pacto targets is skipped. A container environment variable that sets a
+Pacto targets is skipped. When the Pactos were not all read, the draft of a
+workload says under `Unknown` that a Pacto may already describe it. A container environment variable that sets a
 sensitive key to a literal value is read in the draft from the Secret
 `<name>-env`; create it before you apply the draft with
 `kubectl -n <ns> create secret generic <name>-env --from-env-file=<file>`, from
 a file of `KEY=value` lines. When such a value is a URL, the draft no longer
 lists the service it names as a dependency, and next steps ask you to add it.
+A literal secret in a container's `command` or `args`, such as
+`--db-password=hunter2`, moves to the same Secret: the draft reads it through
+`$(DB_PASSWORD)` from an environment variable of that container.
+
+### The inferred record of a draft
+
+Each draft also holds a `pacto.inferred.yaml`, completed by the engine
+`pacto ci` uses, with one entry per field Pacto could tell
+([Inferred record](contract-reference/inferred-record.md#cluster-facts)).
+
+- Each entry names its source: `manifest` or `label` for what the draft's
+  `manifests.yaml` shows, `runtime` for what the pods ran and called, and
+  `fleet` for the versions the Pactos of a called Service report.
+- Each cluster entry carries `asOf`, when it was read. A `runtime` or `fleet`
+  entry also carries its completeness: `partial` when not every node the
+  workload ran on was observed or a source was cut short.
+- `coverage` gives the state of each kind of object read, and `hidden` counts
+  the callers and Services a read on behalf of a viewer may not show.
+- The running image digest of each container is recorded as
+  `image.digest[<container>]`. It is never declared and never becomes a
+  deploy artifact.
+- A proposed range sits in a `proposed` value beside
+  `compatibility: unknown`, never declared.
+- When the draft folder already holds a `pacto.inferred.yaml`, it is kept and
+  next steps say to delete it to record what the cluster shows now.
+- `pacto validate`, `pacto explain` and `pacto publish` recompute the record
+  from the folder, so the cluster facts stay in the draft. A published bundle
+  whose record carries cluster facts fails validation with
+  `INFERRED_RECORD_INVALID`.
 
 ### Dependencies of a draft
 
@@ -209,6 +253,11 @@ one.
 The MCP tool `pacto_create` with `pactify: true` and `paths` plans the same
 contracts for an agent. It plans only, unless the agent sets `dry_run` to
 false ([AI assistants](mcp-integration.md)).
+
+- With `cluster`, it takes `max_items`, `call_window` and `continue`, the
+  `--max-items`, `--call-window` and `--continue` flags. A read stopped by
+  `max_items` returns `continue`, and the next call passes it back to resume
+  the read.
 
 ## What's next
 

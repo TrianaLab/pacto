@@ -70,7 +70,7 @@ func (c Cluster) detectApplier(ctx context.Context, stage *dv1.Stage, now time.T
 		case err != nil:
 			in.Unread = append(in.Unread, what+": "+err.Error())
 		default:
-			in.Targets = append(in.Targets, delivery.ApplierTarget{Workload: what, Manager: workloadmanager.Detect(o)})
+			in.Targets = append(in.Targets, delivery.ApplierTarget{Workload: what, Manager: c.Managers.Detect(o)})
 		}
 	}
 	in.Kustomizations, in.Unread = c.detectKustomizations(ctx, in.Targets, in.Unread)

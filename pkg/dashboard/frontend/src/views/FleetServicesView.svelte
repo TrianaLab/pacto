@@ -43,7 +43,7 @@
   // `team-a` finds `team-a-platform` too) and `ownerKey` is exact canonical IDENTITY.
   // The text box writes the first; picking a suggestion, or arriving from an owner
   // page or a per-owner ranking row, writes the second.
-  let { text = '', owner = '', ownerKey = '', ownership = '', gap = '', status = '', domain = '', businessDomain = '', capability = '', offering = '', consumes = '', phase = '', createdFrom = '', declaration = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  let { text = '', owner = '', ownerKey = '', ownership = '', gap = '', status = '', domain = '', businessDomain = '', capability = '', offering = '', consumes = '', phase = '', createdFrom = '', declaration = '', group = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   // The created-from values that name no golden path (B5), in words.
@@ -52,7 +52,7 @@
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   // Natural name order by default, so service-2 comes before service-10.
   const order = $derived(sort || 'name');
-  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || gap || status || domain || businessDomain || capability || offering || consumes || phase || createdFrom || declaration));
+  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || gap || status || domain || businessDomain || capability || offering || consumes || phase || createdFrom || declaration || group));
 
   // The search box is a local draft synced from the URL; it commits on submit so
   // typing does not spam browser history. It re-syncs when the URL text changes
@@ -83,6 +83,7 @@
     phase: (consumes && phase) || undefined,
     createdFrom: createdFrom || undefined,
     declaration: declaration || undefined,
+    group: group || undefined,
     // Golden paths have their own tab and stay out of the service population.
     template: 'exclude',
     offset: pageOffset || undefined,
@@ -95,9 +96,9 @@
   // retaining them across a filter change would be showing one query's answer under
   // another query's heading, so `list` is gated on the tag matching. A page turn is the
   // exception: the old page stays, under a "Loading another page" line, until the next lands.
-  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${gap}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${declaration}@@${pageOffset}@@${pageLimit}@@${order}`);
+  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${gap}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${declaration}@@${group}@@${pageOffset}@@${pageLimit}@@${order}`);
   // listIdentity is the same question without its page: a page turn keeps the rows.
-  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${gap}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${declaration}@@${order}`);
+  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${gap}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${declaration}@@${group}@@${order}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -132,6 +133,7 @@
       phase: patch.consumes === '' ? '' : patch.phase ?? phase,
       createdFrom: patch.createdFrom ?? createdFrom,
       declaration: patch.declaration ?? declaration,
+      group: patch.group ?? group,
       offset: off,
       limit: limitParam(lim, limit, PAGE_SIZE),
       sort: (patch.sort ?? sort) || undefined,
@@ -196,6 +198,8 @@
     createdFrom ? { key: 'createdFrom', label: 'Created from', value: ORIGIN_WORDS[createdFrom] ?? createdFrom } : null,
     domain ? { key: 'domain', label: 'Registry', value: domain } : null,
     declaration ? { key: 'declaration', label: 'Declaration', value: DECLARATION_WORDS[declaration] ?? declaration } : null,
+    // The key is rule/namespace/name; the rows carry its words.
+    group ? { key: 'group', label: 'Group', value: list?.entities?.find((r) => r.group?.key === group)?.group?.label ?? group } : null,
   ].filter(Boolean));
 
   // The Domain box holds the domain's name, "No domain" for the (none) filter or
@@ -508,7 +512,7 @@
         <li class="sv-item pl-row" class:pl-row--marked={ref.declaration === 'inferred'} class:sv-inferred={ref.declaration === 'inferred'} animate:flip={{ duration: dur(MOTION.row) }}>
           {#if ref.declaration === 'inferred'}
             <EntityLink {ref} showStatus={false} showKind={false}>
-              <span class="pl-owner sv-image" title={ref.image || 'No image read'}><bdi>{ref.image || 'No image read'}</bdi></span>
+              <span class="pl-owner sv-image" title={ref.image || 'No image read'}><bdi>{ref.image || 'No image read'}</bdi>{#if ref.group}<span class="sv-group t-meta" title={ref.group.label}><bdi>{ref.group.label}</bdi></span>{/if}</span>
               <span class="pl-num">inferred</span>
             </EntityLink>
             <ProvenanceMark label={`Inferred service: from its ${ref.secondary || 'workload'}`} text={`Inferred from the ${ref.secondary || 'workload'} ${ref.label} in ${ref.scope || 'an unknown namespace'}: ${ref.declarationUnverified ? 'Pacto could not read the Pacto targets there, so a contract may describe it.' : 'no contract describes it.'}`} />
@@ -560,6 +564,8 @@
   /* An inferred row is muted through the AA-safe text token, never a fade (axe fails faded text). */
   .sv-inferred :global(.ei-label), .sv-inferred :global(.ei-context), .sv-inferred .pl-owner { color: var(--c-text-3); }
   .sv-image { font-family: var(--font-mono); }
+  /* The group line sits under the image in the same cell, muted and cut with an ellipsis. */
+  .sv-group { display: block; font-family: var(--font-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sv-inferred > :global(.prov-mark) { margin-right: var(--sp-3); }
   /* The list, the row and the pager are the shared .pl-* rules in styles/components.css.
      The .sv-* names stay on the markup because the tests address rows by them. */

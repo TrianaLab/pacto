@@ -25,6 +25,7 @@ import (
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 )
 
 // immediately asks to run again right away: the next step needs no wait.
@@ -64,6 +65,9 @@ type OperationReconciler struct {
 	// Records says the recorder runs and owns the record finalizer of every
 	// operation that got a seq.
 	Records bool
+	// RecordOptions opens the approvals repository a view of a keyless
+	// approval names its record in (pull only).
+	RecordOptions ocireferrer.Options
 	// RecordedTTL deletes a recorded operation this long after it concluded;
 	// zero keeps every operation.
 	RecordedTTL time.Duration
@@ -278,6 +282,12 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 	if op.Spec.Facet == delivery.FacetLevel {
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.Unverified,
 			reason: "LevelChanged: " + op.Spec.Stage + " moved from " + op.Spec.Params.From + " to " + op.Spec.Params.To})
+	}
+	if op.Spec.Facet == delivery.FacetTrust {
+		// Confirming a signer moves nothing: the recorder pins it, and the
+		// digest that brought it is never verified by it.
+		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.Unverified,
+			reason: "SignerConfirmed: a person confirmed that " + op.Spec.Params.Publisher.Subject + " may publish " + stage.Spec.Service.Name})
 	}
 	waiting := ""
 	err := r.casStage(ctx, stage, func(s *dv1.Stage) error {

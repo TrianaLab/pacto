@@ -1,0 +1,3 @@
+resources:
+  - base
+  - github.com/acme/shared//base?ref=v1

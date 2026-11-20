@@ -525,6 +525,40 @@ migration in the [changelog](https://pacto.run/latest/changelog/):
   See the
   [`@pacto/k8s-module` changelog](https://pacto.run/latest/changelog/#pactok8s-module).
 
-## No Automated Migration Tool
+## Raising pactoVersion with pacto migrate
 
-Pacto 2.0 does NOT provide a `pacto migrate` command. This document is the authoritative migration guide. The contract shape changes are intentional refinements that require human review (particularly around the mandatory `required` field semantics for dependencies and configurations).
+Within 2.x, `pacto migrate` raises every `pacto.yaml` in a repository to the
+newest `pactoVersion`. Run it with no arguments at the repository root, or
+name the directories to read. It raises the version token, removes a
+leftover `delivery` section and any `build` block that detection reproduces,
+leaves every other byte as written and prints one line per file and a
+summary:
+
+```text
+billing/pacto.yaml:  kept at 2.3: ENVIRONMENT_VALUES_MISSING at environments[0].file: ...
+legacy/pacto.yaml:   pactoVersion "1.0" is not migrated automatically; see https://github.com/TrianaLab/pacto/blob/main/MIGRATION.md
+orders/pacto.yaml:   already current (2.5)
+payments/pacto.yaml: set pactoVersion to "2.5" (was "2.3")
+archive:             skipped (from .pactoignore:1)
+1 rewritten, 1 current, 1 kept, 1 manual, 1 skipped
+```
+
+- `--dry-run` prints the same lines and writes nothing.
+- `--to` raises to an older supported version instead of the newest.
+- A file whose raise would add a validation finding keeps its version, and its
+  line names the finding.
+- Folders a root `.pactoignore` names and folders deeper than 8 levels are
+  listed as skipped.
+- A read-only `pacto.yaml` is reported as `cannot write` and left alone. The
+  command exits 1 only when a file cannot be read or written.
+- A leftover `delivery` section is removed: the Stage's `spec.applyRef` names
+  the applier.
+- A `publish.artifacts[].build` block is removed when `pacto ci --publish`
+  detects the same tool and image, and the section holds no other image
+  artifact (detection builds one image per folder). Any other block stays,
+  the version still rises, and the line says what detection would use.
+
+Moving a contract from 1.x to 2.0 stays the manual migration this document
+describes, because the contract shape changes. Those changes are intentional
+refinements that require human review (particularly around the mandatory
+`required` field semantics for dependencies and configurations).

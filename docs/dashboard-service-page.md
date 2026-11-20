@@ -139,8 +139,8 @@ The page of a [golden path](golden-paths.md) adds a **Golden path** section:
   name the path's newest revision by digest when a registry served it, or its
   folder when it was read from local files, or says why no command is
   available;
-- **Signature** shows the path's signature check. Verified names the signer
-  the path's own contract declares, which no trust config checked;
+- **Signature** shows the path's signature check: who signed it and whether
+  a publisher rule, pin or policy accepts that signer;
 - **Plugins** lists the generate plugins the path names;
 - **Requirements** lists the offerings and references the path asks for, each
   reference that does not resolve and how many are on services you may not
@@ -171,25 +171,34 @@ cannot read shows why too.
 ## Bundle signatures and referrers
 
 Only a registry source checks signatures. When the dashboard reads a revision
-from a registry, it lists the OCI referrers attached to the revision's digest
-and verifies its Sigstore signature against the signer the revision's own
-contract declares in `publish.sign`. Revisions read from a local directory, the
+from a registry, it lists the OCI referrers attached to the revision's digest,
+reads who signed each Sigstore signature and checks that signer against a
+publisher rule, a person's pin or a signed delivery policy
+([which publishers Pacto accepts](integrations/kubernetes/delivery-security.md#which-publishers-pacto-accepts)).
+`publish.sign` never decides. Revisions read from a local directory, the
 cache or a catalog read **Not checked**.
 
 | Status | When |
 |---|---|
-| `verified` | A Sigstore bundle verifies against the keyless identity and issuer the contract's `publish.sign` declares |
-| `unverified` | A signature was read and does not verify against that identity and issuer. The page shows the declared identity as the **Expected signer**, because who signed it is not known |
+| `verified` | A signature verifies and its signer is accepted by the installation's rule, a pin, a verified policy or, for an [external system](external-catalog-reference.md), its release signer |
+| `unverified` | A signature verifies, and no rule, pin or policy accepts its signer. The page names who signed in the reason and the rule's identity as the **Expected signer** |
 | `unsigned` | No Sigstore bundle is attached to the digest, or the attached bundles hold no signature |
-| `unknown` | Pacto could not decide: the registry could not list the referrers or returned only their first page, the revision has no digest, the contract names no signer or signs with a key or KMS key, the trusted root could not be fetched, or the checks ran out of time. The reason is shown |
+| `unknown` | Pacto could not decide: the registry could not list the referrers or returned only their first page, the revision has no digest, the trusted root could not be fetched, the checks ran out of time or the rule was `inferred`. The reason is shown |
 
-`verified` means the identity the contract itself declares signed the bundle.
-It is a signature check and makes no trust decision: anyone who can push a
-bundle can declare their own identity, so the signer is always shown beside it.
-Delivery pins who may sign a bundle in Flux's `OCIRepository` `spec.verify`. A
-key or KMS signer reads `unknown` because the bundle carries no public key and
+- `source` says what decided: `rule`, `pin`, `policy`, `release`,
+  `inferred` or `none`, shown as a mark on the revision page's **Checked
+  against** row.
+- When the dashboard reads the installation's `publishers.json` and pins from
+  the cluster, it judges as the promoter does. Without them it infers a rule
+  from where the revision lives, such as `ghcr.io/acme`, and an accepted
+  signer reads `unknown` with source `inferred`: that rule matches any
+  organization's CI on its own artifacts, so it never makes a signature
+  verified.
+
+A key or KMS signer reads `unknown` because the bundle carries no public key and
 the dashboard never calls a contract's KMS. Legacy cosign `.sig` tags are not
-read. GHCR works through the referrers tag schema.
+read. On GHCR it reads `pacto publish`'s `pacto-sig-` tags, never the
+`sha256-<hex>` index.
 
 Each result is cached for 5 minutes, and a failed check for 1 minute. The
 checks of one refresh share a 20 second budget. `pacto fleet` runs the same check on

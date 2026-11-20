@@ -4,14 +4,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// Operation type ids: the four Tier 0 types, freeze, autonomy and acknowledge.
+// Operation type ids: the four Tier 0 types, freeze, autonomy, acknowledge and trust.
 const (
 	TypePromote  = "delivery.pacto.trianalab.io/promote"
 	TypeRollback = "delivery.pacto.trianalab.io/rollback"
@@ -22,6 +24,9 @@ const (
 	// TypeAcknowledge accepts one unrecordable stand-in in the upstream
 	// stream a Stage follows, so the Stage offers versions again.
 	TypeAcknowledge = "delivery.pacto.trianalab.io/acknowledge"
+	// TypeTrust asks a person to confirm a CI identity no publisher rule,
+	// pin or policy covers; once it succeeds the recorder pins it.
+	TypeTrust = "delivery.pacto.trianalab.io/trust"
 )
 
 // Gate ids.
@@ -30,8 +35,8 @@ const (
 	GateImpact   = "pacto.impact"
 	GateContract = "pacto.contract"
 	// GatePublished admits a promote only of a version `pacto publish`
-	// published: signed (Flux verified it on the candidate source) and
-	// carrying its contract.
+	// published: signed (Flux or the registry watch verified it on the
+	// candidate source) and carrying its contract.
 	GatePublished = "pacto.published"
 	// GateSuites holds a promote of a version that does not ship a suite
 	// one of the Stage's checks runs.
@@ -41,9 +46,8 @@ const (
 	// name, or values that fail their configuration schemas.
 	GateEnvironment = "pacto.environment"
 	// GateApplier refuses a promote while the Stage's applier is not the
-	// manager that owns the workloads it delivers (status.applier), or the
-	// version's contract names another applier: Pacto never writes a pointer
-	// another manager may overwrite.
+	// manager that owns the workloads it delivers (status.applier): Pacto
+	// never writes a pointer another manager may overwrite.
 	GateApplier = "pacto.applier"
 	// GateAutonomy judges a change of level.
 	GateAutonomy = "pacto.autonomy"
@@ -196,6 +200,18 @@ var tier0 = []OperationType{
 		ApprovalDeadline:  defaultApprovalDeadline,
 		ExecutionDeadline: defaultExecutionDeadline,
 	},
+	{
+		ID: TypeTrust, Version: "1.0.0", Facet: FacetTrust,
+		Description:       "Confirm that a CI identity no publisher rule, pin or policy covers may publish the Stage's service. The promoter raises it from the registry watch; once a person approves, the recorder writes a signed pin the watch reads, and a later different signer asks again.",
+		Params:            []string{"to", "publisher"},
+		Raisers:           []ActorClass{ClassController},
+		PreGates:          []string{},
+		VerifyGates:       []string{},
+		ApprovalFloor:     "always a person who may update the workload of the service's first Stage (and, when owner teams narrow who may answer, in the team of the service running there); an agent never decides",
+		Cancellable:       "until approved",
+		ApprovalDeadline:  defaultApprovalDeadline,
+		ExecutionDeadline: defaultExecutionDeadline,
+	},
 }
 
 // AdmitAcknowledge says why an acknowledge cannot be admitted on a Stage, or
@@ -285,6 +301,80 @@ type ClassPolicy struct {
 	// client's plan reads which checks run on an eval provider as the
 	// promoter's does.
 	GateProviders map[string]string `json:"gateProviders,omitempty"`
+	// Signers are the issuers whose keyless certificates may sign an
+	// approval. Empty, keyless approvals never count.
+	Signers []PersonSigner `json:"signers,omitempty"`
+}
+
+// PersonSigner is one issuer whose keyless certificates may sign an
+// approval, and how a client signs with it.
+type PersonSigner struct {
+	// Issuer is the OIDC issuer URL the certificate names.
+	Issuer string `json:"issuer"`
+	// ClientID is the OIDC client a person's client logs in with.
+	ClientID string `json:"clientID,omitempty"`
+	// UsernamePrefix is put before the certificate's email to name the
+	// Kubernetes user the approval is checked as.
+	UsernamePrefix string `json:"usernamePrefix,omitempty"`
+	// Subjects is the regular expression an approver's whole email must
+	// match (it is anchored at both ends); required, since an issuer vouches
+	// for addresses that are no approver.
+	Subjects string `json:"subjects"`
+	// FulcioURL and TimestampURL are where a client gets its certificate
+	// and its signed timestamp.
+	FulcioURL    string `json:"fulcioURL,omitempty"`
+	TimestampURL string `json:"timestampURL,omitempty"`
+	// TrustedRoot is the Sigstore trusted_root.json the certificate chains to.
+	TrustedRoot string `json:"trustedRoot,omitempty"`
+}
+
+// SignerFor is the configured signer of issuer.
+func (p ClassPolicy) SignerFor(issuer string) (PersonSigner, bool) {
+	i := slices.IndexFunc(p.Signers, func(s PersonSigner) bool { return s.Issuer == issuer })
+	if i < 0 {
+		return PersonSigner{}, false
+	}
+	return p.Signers[i], true
+}
+
+// ApproverIdentity is who a keyless approval from issuer's certificate
+// naming san speaks for: usernamePrefix+san with no groups, since a
+// certificate names none. A URI SAN (a CI workflow), a SAN outside the
+// signer's subjects or in a machine domain, or an identity ClassifyBy calls
+// no person is ClassBySignerURI, an agent; any other is ClassByUser. An
+// issuer with no configured signer is an error.
+func ApproverIdentity(issuer, san string, p ClassPolicy) (Identity, ClassSource, error) {
+	s, ok := p.SignerFor(issuer)
+	switch {
+	case !ok:
+		return Identity{}, "", fmt.Errorf("no approver signer is configured for the issuer %s", issuer)
+	case san == "":
+		return Identity{}, "", errors.New("the certificate names no subject")
+	case s.Subjects == "":
+		return Identity{}, "", fmt.Errorf("the signer for %s has no subjects, so it vouches for nobody", issuer)
+	}
+	// Anchored: an unanchored @acme\.com would also take eve@acme.com.evil.io.
+	re, err := regexp.Compile("^(?:" + s.Subjects + ")$")
+	if err != nil {
+		return Identity{}, "", fmt.Errorf("the subjects of the signer for %s: %w", issuer, err)
+	}
+	id := Identity{User: s.UsernamePrefix + san}
+	lower := strings.ToLower(san)
+	machine := strings.HasSuffix(lower, "gserviceaccount.com") || strings.Contains(lower, ".svc.id.goog")
+	if class, _ := p.ClassifyBy(id); strings.Contains(san, "://") || machine || !re.MatchString(san) || class != ClassHuman {
+		return id, ClassBySignerURI, nil
+	}
+	return id, ClassByUser, nil
+}
+
+// KeylessRefusal is the guard every keyless approval path asks before
+// ApprovalRefusalAsking: a signer ApproverIdentity calls an agent never
+// approves. IsHuman alone would call a URI SAN a person.
+func KeylessRefusal(id Identity, source ClassSource) (code, why string) {
+	if source == ClassBySignerURI {
+		return "AgentsMayNotApprove", "agents cannot approve: " + id.User + " is " + sourcePhrase(source)
+	}
+	return "", ""
 }
 
 // PlanGates is GateProviders as PlanInput.Gates: planning only asks a
@@ -396,6 +486,9 @@ const (
 	ClassBySystemUser ClassSource = "system-user"
 	// ClassByUser: any other authenticated identity, a person.
 	ClassByUser ClassSource = "user"
+	// ClassBySignerURI: a keyless signer whose certificate names a workload
+	// or an address outside the approvers' subjects (ApproverIdentity).
+	ClassBySignerURI ClassSource = "signer-uri"
 )
 
 // Classify derives the actor class (ClassifyBy without its source).
@@ -456,4 +549,42 @@ func intersects(a, b []string) bool {
 		}
 	}
 	return false
+}
+
+// PublishersKey is the key of the PolicyConfigMap that holds the
+// installation's publisher trust config (PublisherConfig) as JSON, so every
+// client derives the rule the promoter judges with.
+const PublishersKey = "publishers.json"
+
+// PublisherConfig is the chart's delivery.publishers as it publishes them:
+// the registry the default rule derives from, the signed policy and its
+// signers, the repository pins are read from and the one-key trust config
+// that verifies them. TrustedRoot only says whether a private Sigstore root
+// is mounted into the promoter.
+type PublisherConfig struct {
+	Registry          string `json:"registry"`
+	DefaultBranch     string `json:"defaultBranch"`
+	Policy            string `json:"policy"`
+	PolicySigners     string `json:"policySigners"`
+	StreamsRepository string `json:"streamsRepository"`
+	PinSigner         string `json:"pinSigner"`
+	TrustedRoot       bool   `json:"trustedRoot"`
+}
+
+// ParsePublishers reads a published PublisherConfig.
+func ParsePublishers(b []byte) (PublisherConfig, error) {
+	var c PublisherConfig
+	if err := json.Unmarshal(b, &c); err != nil {
+		return PublisherConfig{}, fmt.Errorf("the publisher trust config: %w", err)
+	}
+	return c, nil
+}
+
+// Rule is the installation's default publisher rule (DeriveRule), or why
+// there is none.
+func (c PublisherConfig) Rule() (PublisherRule, string) {
+	if c.Registry == "" {
+		return PublisherRule{}, "no publisher registry is configured (delivery.publishers.registry), so the first signer of each service is confirmed by a person"
+	}
+	return DeriveRule(c.Registry, c.DefaultBranch)
 }

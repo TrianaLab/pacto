@@ -179,8 +179,9 @@ func TestUnreadDependencyHasNoProposal(t *testing.T) {
 	}
 }
 
-// TestPactoVersionRaisedForUndeclaredRange: a written dependency needs 2.5,
-// the first version that holds compatibility unknown; nothing else raises it.
+// TestPactoVersionRaisedForUndeclaredRange: every contract init writes is at
+// the current pactoVersion, the first that leaves service.version to pacto ci
+// --publish, whatever else it holds.
 func TestPactoVersionRaisedForUndeclaredRange(t *testing.T) {
 	plain := writeTree(t, t.TempDir(), map[string]string{"Dockerfile": "FROM scratch\n"})
 	inferred := []Inferred{{Name: "payments", Ref: paymentsRef, Versions: []string{"2.3.1"}, Where: "calls seen to the Service shop/payments"}}
@@ -190,9 +191,9 @@ func TestPactoVersionRaisedForUndeclaredRange(t *testing.T) {
 		want string
 	}{
 		{"dependency", Options{Dir: fixtureDir(t, "invoices")}, "2.5"},
-		{"none", Options{Dir: plain}, "2.1"},
-		{"domain without dependency", Options{Dir: plain, Domain: "payments"}, "2.4"},
-		{"blank with inferred", Options{Dir: t.TempDir(), Name: "blank", Inferred: inferred}, "2.1"},
+		{"none", Options{Dir: plain}, "2.5"},
+		{"domain without dependency", Options{Dir: plain, Domain: "payments"}, "2.5"},
+		{"blank with inferred", Options{Dir: t.TempDir(), Name: "blank", Inferred: inferred}, "2.5"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.opts.Plan, tt.opts.DescribeOnly = true, true

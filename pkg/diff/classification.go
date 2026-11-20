@@ -73,12 +73,6 @@ var rules = map[classificationKey]Classification{
 	{"state.dataCriticality", Added}:           NonBreaking,
 	{"state.dataCriticality", Removed}:         NonBreaking,
 
-	// Delivery applier (2.5): how the promoter delivers, never what a
-	// consumer calls.
-	{"delivery.applier", Added}:    NonBreaking,
-	{"delivery.applier", Modified}: NonBreaking,
-	{"delivery.applier", Removed}:  NonBreaking,
-
 	// Capabilities (v2: health/metrics/extension)
 	{"capabilities", Added}:   NonBreaking,
 	{"capabilities", Removed}: PotentialBreaking,

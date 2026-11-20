@@ -123,7 +123,7 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 		ce, cw := s.closureFindings(ctx, ref, bundle, resolver)
 		stages = append(stages, validation.RanStage("closure", validation.ValidationResult{Errors: ce, Warnings: cw}))
 	}
-	stages = s.withBehind(ctx, stages, bundle.Contract, asWritten, resolver)
+	stages = s.withBehind(ctx, stages, bundle.Contract, asWritten, resolver, local)
 
 	return implied(newValidateResult(ref, opts, rawYAML, stages...), bundle), nil
 }
@@ -153,7 +153,8 @@ func withExpiredEnvironments(stages []validation.Stage, c *contract.Contract, no
 // already fails anywhere cannot tell, so the raise is never judged keeping.
 // c is the contract after overrides; only a pacto.yaml that cannot be read
 // falls back to its version. A skipped structural stage still carries it.
-func (s *Service) withBehind(ctx context.Context, stages []validation.Stage, c *contract.Contract, fsys fs.FS, resolver validation.BundleResolver) []validation.Stage {
+// local says the bundle is a file on disk that pacto migrate can rewrite.
+func (s *Service) withBehind(ctx context.Context, stages []validation.Stage, c *contract.Contract, fsys fs.FS, resolver validation.BundleResolver, local bool) []validation.Stage {
 	merged := validation.Merged(stages)
 	failing := !merged.IsValid()
 	check := validation.UpgradeCheck(ctx, fsys, resolver, s.env().now())
@@ -177,7 +178,7 @@ func (s *Service) withBehind(ctx context.Context, stages []validation.Stage, c *
 	if !behind || (err == nil && up.Kept == nil && up.To == up.From) {
 		return stages // at or past current as written, or no pactoVersion written
 	}
-	w := contract.ValidationWarning{Path: "pactoVersion", Code: string(finding.CodeContractBehind), Message: behindMessage(c, declared, current, up, err)}
+	w := contract.ValidationWarning{Path: "pactoVersion", Code: string(finding.CodeContractBehind), Message: behindMessage(c, declared, current, up, err, local)}
 	for i := range stages {
 		if stages[i].Name == "structural" {
 			stages[i].Warnings = append(stages[i].Warnings, w)
@@ -186,15 +187,30 @@ func (s *Service) withBehind(ctx context.Context, stages []validation.Stage, c *
 	return stages
 }
 
-// behindMessage says that the declared pactoVersion is behind current and
-// what raising it does, given the Upgrade result up and its error.
-func behindMessage(c *contract.Contract, declared, current string, up contract.Upgraded, err error) string {
+// behindMessage says that the declared pactoVersion is behind current, what
+// raising it does, given the Upgrade result up and its error, and what pacto
+// ci does with it. A run that already fails says only that: pacto ci refuses
+// an invalid contract. When the raise keeps the meaning of a local file, it
+// also names pacto migrate.
+func behindMessage(c *contract.Contract, declared, current string, up contract.Upgraded, err error, local bool) string {
 	head := fmt.Sprintf("pactoVersion %q is behind %q; ", declared, current)
+	// pacto ci publishes a kept behind contract only through its own publish
+	// section: it derives none below the current pactoVersion (behindOK).
+	asWritten := "; pacto ci publishes it as written"
+	if c.Publish == nil {
+		asWritten = fmt.Sprintf("; pacto ci cannot publish it as written with no publish section, so it fails until pactoVersion is %q", current)
+	}
 	switch {
-	case err != nil:
+	case errors.Is(err, validation.ErrUnverified):
 		return head + err.Error()
+	case err != nil:
+		return head + err.Error() + asWritten
 	case up.Kept != nil:
-		return head + fmt.Sprintf("setting pactoVersion: %q would add %s at %s, so review that first", current, up.Kept.Code, up.Kept.Path)
+		return head + fmt.Sprintf("setting pactoVersion: %q would add %s at %s, so review that first", current, up.Kept.Code, up.Kept.Path) + asWritten
+	}
+	hint := ""
+	if local {
+		hint = migrateHint
 	}
 	var refs []string
 	for _, cfg := range c.Configurations {
@@ -203,10 +219,14 @@ func behindMessage(c *contract.Contract, declared, current string, up contract.U
 		}
 	}
 	if len(refs) > 0 && !validation.RefValuesAllowed(up.From) && validation.RefValuesAllowed(current) {
-		return head + fmt.Sprintf("setting pactoVersion: %q adds no validation finding; the operator then also accepts ContractOverrides values for its ref configurations (%s)", current, strings.Join(refs, ", "))
+		return head + fmt.Sprintf("setting pactoVersion: %q adds no validation finding; the operator then also accepts ContractOverrides values for its ref configurations (%s); pacto ci publishes it as %s when it next publishes this service, if its own check agrees", current, strings.Join(refs, ", "), current) + hint
 	}
-	return head + fmt.Sprintf("setting pactoVersion: %q keeps what this contract means", current)
+	return head + fmt.Sprintf("setting pactoVersion: %q keeps what this contract means; pacto ci publishes it as %s when it next publishes this service, if its own check agrees", current, current) + hint
 }
+
+// migrateHint ends a CONTRACT_BEHIND message whose raise keeps the meaning of
+// a local pacto.yaml.
+const migrateHint = "; run `pacto migrate` to rewrite the file"
 
 // failedStage is the stage name, failed with err under code.
 func failedStage(name, code string, err error) validation.Stage {

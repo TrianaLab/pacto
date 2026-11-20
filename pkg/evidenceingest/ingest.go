@@ -472,6 +472,52 @@ type Handler struct {
 	maxTargets, maxFindings int
 	// cluster is the cluster this server runs in, echoed on GET /targets.
 	cluster *ClusterDTO
+	// adapters are the producers the trust config allows to report a
+	// provider-scoped kind, listed on GET /producers.
+	adapters []ProducerAdapter
+}
+
+// ProducerAdapter is a producer the trust config allows to report
+// provisioning or usage (ResourceProvisioned or ResourceUsage): a reporting
+// adapter. Producer is the producer id its key is bound to, or "key <id>" for
+// an unbound key.
+type ProducerAdapter struct {
+	Producer string   `json:"producer"`
+	Kinds    []string `json:"kinds"`
+}
+
+// ProducersResponse is the body of GET /producers. Adapters is additive: an
+// older server sends producers alone.
+type ProducersResponse struct {
+	Producers []string          `json:"producers"`
+	Adapters  []ProducerAdapter `json:"adapters,omitempty"`
+}
+
+// ReportingAdapters are the producers of ts allowed to report a
+// provider-scoped kind, sorted by producer, each with its kinds.
+func ReportingAdapters(ts evidenceenvelope.MapTrustStore) []ProducerAdapter {
+	kinds := map[string][]string{}
+	for id, e := range ts {
+		for _, k := range providerScopedKinds {
+			if e.KindAllowed(k) {
+				p := cmp.Or(e.ProducerID, "key "+id)
+				kinds[p] = append(kinds[p], string(k))
+			}
+		}
+	}
+	out := make([]ProducerAdapter, 0, len(kinds))
+	for p, ks := range kinds {
+		slices.Sort(ks)
+		out = append(out, ProducerAdapter{Producer: p, Kinds: slices.Compact(ks)})
+	}
+	slices.SortFunc(out, func(a, b ProducerAdapter) int { return cmp.Compare(a.Producer, b.Producer) })
+	return out
+}
+
+// WithAdapters sets the reporting adapters GET /producers lists.
+func (h *Handler) WithAdapters(adapters []ProducerAdapter) *Handler {
+	h.adapters = adapters
+	return h
 }
 
 // WithCluster sets the cluster this server runs in, echoed on GET /targets.
@@ -499,6 +545,7 @@ func NewHandler(acceptor *Acceptor, producers []string, ready func(context.Conte
 const (
 	EnvelopesPath = "/api/evidence/v1/envelopes"
 	TargetsPath   = "/api/evidence/v1/targets"
+	ProducersPath = "/api/evidence/v1/producers"
 )
 
 // Routes registers the ingestion endpoints on mux under /api/evidence/v1.
@@ -506,7 +553,7 @@ func (h *Handler) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+EnvelopesPath, h.handleEnvelope)
 	mux.HandleFunc("GET /api/evidence/v1/health", h.handleHealth)
 	mux.HandleFunc("GET /api/evidence/v1/ready", h.handleReady)
-	mux.HandleFunc("GET /api/evidence/v1/producers", h.handleProducers)
+	mux.HandleFunc("GET "+ProducersPath, h.handleProducers)
 	mux.HandleFunc("GET "+TargetsPath, h.handleTargets)
 }
 
@@ -558,7 +605,7 @@ func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleProducers(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string][]string{"producers": h.producers})
+	writeJSON(w, http.StatusOK, ProducersResponse{Producers: h.producers, Adapters: h.adapters})
 }
 
 // TargetsSchemaVersion identifies the read-only evidence-source DTO wire model.

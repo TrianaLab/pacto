@@ -29,21 +29,23 @@ func TestPublishedBundleCarriesNoCredential(t *testing.T) {
 	_ = os.WriteFile(deploy, []byte(strings.ReplaceAll(string(data), "registry.example/shop", host)), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0o644)
 
-	r, err := pactify.Init(context.Background(), pactify.Options{Dir: dir, Owner: "shop", Registry: host, NoTransparencyLog: true}, os.WriteFile)
+	r, err := pactify.Init(context.Background(), pactify.Options{Dir: dir, Owner: "shop", Registry: host}, os.WriteFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	signingKey(t, dir)
+	// The folder's manifests set credential literals, so a derived deploy
+	// artifact is refused: publish the contract alone, signed with a key
+	// outside the folder.
+	keys := t.TempDir()
+	keyFiles(t, keys)
+	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	section := "publish:\n  bundle: oci://" + host + "/checkout\n  sign: {key: " + filepath.Join(keys, "cosign.key") + ", transparencyLog: false}\n"
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), append(raw, section...), 0o644)
 	res, err := publishService(&fakeRun{}, reg).Publish(context.Background(), PublishOptions{Path: dir, Revision: "r1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
-	c, err := contract.Parse(strings.NewReader(string(raw)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := reg.Pull(t.Context(), strings.TrimPrefix(c.Publish.Bundle, "oci://")+"@"+res.Digests[publish.BundleItem])
+	b, err := reg.Pull(t.Context(), host+"/checkout@"+res.Digests[publish.BundleItem])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +53,7 @@ func TestPublishedBundleCarriesNoCredential(t *testing.T) {
 	for _, f := range r.Files {
 		got, err := fs.ReadFile(b.FS, f.Path)
 		if err != nil {
-			continue // cosign.key, .pactoignore: generated, never published
+			continue // generated, never published
 		}
 		checked++
 		schema = schema || f.Path == "configuration/schema.json"

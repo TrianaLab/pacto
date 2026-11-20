@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"k8s.io/client-go/dynamic"
@@ -41,15 +42,20 @@ func createTool() *mcpsdk.Tool {
 			"an SDK, Terraform or key-name source is possible only. 'externalSummary' is the plan line. " +
 			"'catalog' names each catalog that classified as '<origin> <digest>' (the same list as inferred.inputs.catalog), " +
 			"suffixed ' (embedded)' only when the server assembled no catalog. " +
-			"The contract gets a publish section for pacto publish unless describe_only is set: " +
-			"set describe_only when you are asked to describe or document a service. " +
+			"The contract has no publish section and no service.version: pacto ci --publish derives both. " +
+			"describe_only changes only the Next lines, which then say how to validate the contract instead of how to publish it: " +
+			"set it when you are asked to describe or document a service. " +
 			"pactify returns in 'inferred' what the folder shows beyond pacto.yaml, each field with its source, confidence (likely: a file states it; possible: a naming convention) " +
 			"and the sources it outranks (keys and types only, never a value), and in 'inferred.findings' what discovery could not read or choose " +
 			"(codes DISCOVERY_UNSUPPORTED_FILE, DISCOVERY_AMBIGUOUS, DISCOVERY_CHART_DEPENDENCY_UNLOCKED, DISCOVERY_UNREADABLE, DISCOVERY_UNRESOLVED, DISCOVERY_TRUNCATED, each with its source and message). " +
 			"On a folder that already holds pacto.yaml, pactify completes it without changing it; for a new contract 'inferred' is what the pacto.yaml it plans leaves out. " +
 			"pacto pack and pacto publish put 'inferred' in the bundle as pacto.inferred.yaml only when pacto.yaml declares pactoVersion 2.5: " +
-			"a new contract below 2.5 says so in Next. Completion needs pactoVersion 2.5 (or none) and never runs with cluster: an existing contract below 2.5 keeps mode 'pactify' with no 'inferred' " +
+			"a new contract below 2.5 says so in Next. Completion needs pactoVersion 2.5 (or none): an existing contract below 2.5 keeps mode 'pactify' with no 'inferred' " +
 			"and a Next step, so no 'inferred' there means not completed, never nothing to add. " +
+			"With cluster each draft is completed too and writes its 'inferred' as pacto.inferred.yaml: cluster fields carry asOf, runtime and fleet fields a completeness, " +
+			"a proposed range is 'proposed', never declared, and the result's 'coverage' says which sources the read saw whole. " +
+			"max_items bounds each source (a source cut short reads partial). Only a read max_items stopped while listing workloads returns 'continue', which the next call passes back as continue; " +
+			"any other source cut short stays partial, with no 'continue', and a resumed read lists it again in full up to max_items. " +
 			"It only adds files; dry_run plans and writes nothing. For an AI agent, see pacto_schema. " +
 			"With from it creates the service from a golden path like `pacto init --from` (over stdio only): " +
 			"golden paths are listed by pacto mcp --fleet (pacto_fleet_entities template=only) or pacto fleet entities --template. " +
@@ -58,7 +64,7 @@ func createTool() *mcpsdk.Tool {
 			"name":                         {Type: "string", Description: "Service name (DNS-compatible, e.g. 'payment-api')"},
 			"description":                  {Type: "string", Description: "Natural-language description; infers interfaces and workload only, never state (set stores_data and friends explicitly)"},
 			"path":                         {Type: "string", Description: "Output directory (defaults to service name)"},
-			"version":                      {Type: "string", Description: "Service version (defaults to '0.1.0')"},
+			"version":                      {Type: "string", Description: "Service version; leave it empty to let pacto ci --publish derive it"},
 			"owner":                        {Type: "string", Description: "The team that owns the service, as a bare team name such as 'billing': usually the team label on its workloads. With pactify it defaults to that label"},
 			"domain":                       {Type: "string", Description: "Business domain (service.domain), such as payments; raises pactoVersion to 2.4"},
 			"interfaces":                   {Type: "string", Description: "JSON array of interfaces: [{name, type, visibility?}]"},
@@ -72,17 +78,20 @@ func createTool() *mcpsdk.Tool {
 			"metadata":                     {Type: "string", Description: "JSON object of metadata key-value pairs"},
 			"dry_run":                      {Type: "boolean", Description: "If true, validate and return result without writing files"},
 			"pactify":                      {Type: "boolean", Description: "Read the existing service folder at path (Dockerfile, Kubernetes manifests, Helm charts, Kustomize, Compose, interface specs, catalog-info.yaml, GitOps objects, and CODEOWNERS from the enclosing repository root) and plan its contract like `pacto init`; uses name, owner, path and dry_run, and ignores the intent arguments"},
-			"describe_only":                {Type: "boolean", Description: "With pactify: write a contract that only describes the service, with no publish section and no signing key. Use it when you are asked to describe or document a service; leave it off to also prepare pacto publish"},
-			"delivery":                     {Type: "boolean", Description: "With pactify or from: also plan the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization (needs the publish section, so not with describe_only; with from, the golden path must publish manifests under publish.deploy)"},
+			"describe_only":                {Type: "boolean", Description: "With pactify: the Next lines say how to validate the contract, never how to publish it, and delivery is refused. Use it when you are asked to describe or document a service"},
+			"delivery":                     {Type: "boolean", Description: "With pactify or from: also plan, for a manifests deploy, the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; for a chart deploy no applier object, and the Next line names the Stage spec.applyRef (not with describe_only; with pactify the deploy artifact is the one pacto ci --publish assembles from the folder; with from, the golden path must publish a manifests or chart artifact under publish.deploy)"},
 			"registry":                     {Type: "string", Description: "With pactify: where to publish, as host/path (default: read from the workload's image)"},
 			"environments":                 {Type: "string", Description: "With delivery: JSON array of environments in promotion order (default [\"test\",\"prod\"]); each is declared in pacto.yaml with an empty values file and gets a Stage"},
-			"no_transparency_log":          {Type: "boolean", Description: "With pactify: write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)"},
+			"no_transparency_log":          {Type: "boolean", Description: "With from only: write transparencyLog: false under the golden path's publish.sign"},
 			"insecure_registry":            {Type: "boolean", Description: "With delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)"},
 			"registry_secret":              {Type: "string", Description: "With delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with"},
 			"fleet_roots":                  {Type: "string", Description: "With pactify: JSON array of folders of other services' contracts, searched for the services that use this one"},
 			"paths":                        {Type: "string", Description: "With pactify: JSON array of service folders, each planned like path and named after its folder (name is ignored); dry_run defaults to true"},
 			"cluster":                      {Type: "boolean", Description: "With pactify: draft a contract for every workload in the current kubeconfig context that no Pacto describes, into path/<namespace>/<name>, with each service it was seen calling as a dependency with compatibility unknown and a proposed range, in a comment, from the lowest version the Pactos describing it report when they agree on one contract; dry_run defaults to true"},
 			"namespaces":                   {Type: "string", Description: "With cluster: JSON array of namespaces to read (default: every namespace)"},
+			"max_items":                    {Type: "integer", Description: "With cluster: the most items read per kind of object; a kind cut short reads as partial (default 10000)"},
+			"call_window":                  {Type: "string", Description: "With cluster: how far back a call counts as a dependency, as a Go duration such as 24h (at least 1m, default 24h)"},
+			"continue":                     {Type: "string", Description: "With cluster: the 'continue' token a read max_items stopped while listing workloads returned; resumes the read where it left off"},
 			"from":                         {Type: "string", Description: "A golden path to create the service from: an oci:// reference or a directory. Takes name, owner (required), domain, path, registry, values, set, run_plugins, describe_only, delivery and its options, and dry_run"},
 			"values":                       {Type: "string", Description: "With from: JSON object merged over the golden path's contract, such as {\"service\": {\"summary\": \"Gift card balances\"}}; a null removes a field"},
 			"set":                          {Type: "string", Description: "With from: JSON array of key=value strings applied after values, such as [\"service.summary=Gift card balances\"]"},
@@ -123,6 +132,9 @@ type createArgs struct {
 	Paths                     string `json:"paths"`
 	Cluster                   bool   `json:"cluster"`
 	Namespaces                string `json:"namespaces"`
+	MaxItems                  int    `json:"max_items"`
+	CallWindow                string `json:"call_window"`
+	Continue                  string `json:"continue"`
 	From                      string `json:"from"`
 	Values                    string `json:"values"`
 	Set                       string `json:"set"`
@@ -140,6 +152,9 @@ func createHandler(a Authoring, served func(string) bool, version string) mcpsdk
 		}
 		if args.Pactify {
 			return pactifyFolder(ctx, args, base)
+		}
+		if args.Cluster || args.Namespaces != "" || args.MaxItems != 0 || args.CallWindow != "" || args.Continue != "" {
+			return nil, nil, errors.New("cluster, namespaces, max_items, call_window and continue go with pactify")
 		}
 		input := CreateInput{
 			Name:                      args.Name,
@@ -180,6 +195,10 @@ func createHandler(a Authoring, served func(string) bool, version string) mcpsdk
 // completed folder's record names version and no commit: the server may run
 // outside a checkout. base holds the Pacto version and the server's catalog.
 func pactifyFolder(ctx context.Context, args createArgs, base pactify.Options) (*mcpsdk.CallToolResult, any, error) {
+	cluster, err := clusterArgs(args)
+	if err != nil {
+		return nil, nil, err
+	}
 	plan := args.Paths != "" || args.Cluster
 	if args.DryRun != nil {
 		plan = *args.DryRun
@@ -189,7 +208,6 @@ func pactifyFolder(ctx context.Context, args createArgs, base pactify.Options) (
 		InsecureRegistry: args.InsecureRegistry, RegistrySecret: args.RegistrySecret, PactoVersion: base.PactoVersion,
 		Catalog: base.Catalog, CatalogUnavailable: base.CatalogUnavailable}
 	var paths []string
-	cluster := pactify.ClusterOptions{Out: args.Path}
 	if err := unmarshalFields([]jsonField{
 		{"environments", args.Environments, &opts.Environments},
 		{"fleet_roots", args.FleetRoots, &opts.FleetRoots},
@@ -202,12 +220,11 @@ func pactifyFolder(ctx context.Context, args createArgs, base pactify.Options) (
 		opts.Dir, opts.Name = "", "" // each service is named after its folder or workload
 	}
 	var b *pactify.Bulk
-	var err error
 	switch {
 	case args.Cluster:
 		var dyn dynamic.Interface
 		if dyn, err = newDynamic(); err == nil {
-			b, err = pactify.Cluster(ctx, dyn, opts, cluster, os.WriteFile)
+			b, err = pactifyCluster(ctx, dyn, opts, cluster, os.WriteFile)
 		}
 	case args.Paths != "":
 		b, err = pactify.Many(ctx, opts, paths, os.WriteFile)
@@ -231,6 +248,30 @@ func pactifyFolder(ctx context.Context, args createArgs, base pactify.Options) (
 	res.IsError = true
 	res.Content = append(res.Content, &mcpsdk.TextContent{Text: err.Error()})
 	return res, nil, nil
+}
+
+// clusterArgs is the cluster read pacto_create asks for, written at path;
+// the namespaces, bound, window and resume token go only with cluster, and
+// are refused here in the words of the tool's arguments.
+func clusterArgs(args createArgs) (pactify.ClusterOptions, error) {
+	c := pactify.ClusterOptions{Out: args.Path, MaxItems: args.MaxItems, Continue: args.Continue}
+	switch {
+	case !args.Cluster && (args.Namespaces != "" || args.MaxItems != 0 || args.CallWindow != "" || args.Continue != ""):
+		return c, errors.New("namespaces, max_items, call_window and continue go with cluster")
+	case args.MaxItems < 0:
+		return c, errors.New("max_items must not be negative")
+	case args.CallWindow == "":
+		return c, nil
+	}
+	d, err := time.ParseDuration(args.CallWindow)
+	switch {
+	case err != nil:
+		return c, fmt.Errorf("call_window %q is not a duration such as 24h", args.CallWindow)
+	case d < time.Minute:
+		return c, fmt.Errorf("call_window %q is shorter than the 1m minimum", args.CallWindow)
+	}
+	c.CallWindow = d
+	return c, nil
 }
 
 // errFromOverHTTP refuses pacto_create from on a server with no Initializer:
@@ -285,6 +326,7 @@ func fromConflicts(args createArgs) []string {
 		{"data_loss_impact", args.DataLossImpact != ""}, {"config_properties", args.ConfigProperties != ""},
 		{"metadata", args.Metadata != ""}, {"pactify", args.Pactify}, {"paths", args.Paths != ""},
 		{"cluster", args.Cluster}, {"namespaces", args.Namespaces != ""}, {"fleet_roots", args.FleetRoots != ""},
+		{"max_items", args.MaxItems != 0}, {"call_window", args.CallWindow != ""}, {"continue", args.Continue != ""},
 	} {
 		if a.set {
 			bad = append(bad, a.name)
@@ -295,6 +337,10 @@ func fromConflicts(args createArgs) []string {
 
 // newDynamic is the cluster client the cluster argument reads with.
 var newDynamic = k8sclient.NewDynamic
+
+// pactifyCluster drafts the cluster's workloads; a package variable so tests
+// read the options it is given.
+var pactifyCluster = pactify.Cluster
 
 // --- pacto_edit ---
 
@@ -333,7 +379,6 @@ func editTool() *mcpsdk.Tool {
 			"add_policy_refs":              {Type: "string", Description: "JSON array of policy references to add: [{name?, ref}]"},
 			"remove_dependencies":          {Type: "string", Description: "JSON array of dependency refs to remove: [\"ref1\", \"ref2\"]; an external dependency with no ref is removed by name"},
 			"workload":                     {Type: "string", Description: "New workload type", Enum: []string{"service", "job", "scheduled"}},
-			"applier":                      {Type: "string", Description: "The manager that applies the service's workloads: auto (the default) adopts the manager that already owns each workload, argocd or flux require that manager. Sets delivery.applier; needs pactoVersion 2.5. An empty string removes the delivery section"},
 			"stores_data":                  {Type: "boolean", Description: "Whether the service stores data"},
 			"data_survives_restart":        {Type: "boolean", Description: "Whether data must survive pod restarts"},
 			"data_shared_across_instances": {Type: "boolean", Description: "Whether data is shared across instances"},
@@ -369,7 +414,6 @@ type editArgs struct {
 	AddDependencies           string  `json:"add_dependencies"`
 	RemoveDependencies        string  `json:"remove_dependencies"`
 	Workload                  *string `json:"workload"`
-	Applier                   *string `json:"applier"`
 	StoresData                *bool   `json:"stores_data"`
 	DataSurvivesRestart       *bool   `json:"data_survives_restart"`
 	DataSharedAcrossInstances *bool   `json:"data_shared_across_instances"`
@@ -391,7 +435,6 @@ func editHandler(validate Validator, opts EditOptions) mcpsdk.ToolHandlerFor[edi
 			Offering:                  args.Offering,
 			Summary:                   args.Summary,
 			Workload:                  args.Workload,
-			Applier:                   args.Applier,
 			StoresData:                args.StoresData,
 			DataSurvivesRestart:       args.DataSurvivesRestart,
 			DataSharedAcrossInstances: args.DataSharedAcrossInstances,

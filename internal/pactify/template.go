@@ -41,12 +41,16 @@ func TemplateOptions(opts Options) error {
 		return errors.New("a service created from a golden path needs the team that owns it: pass --owner")
 	case len(opts.FleetRoots) > 0:
 		return errors.New("creating from a golden path reads no other services' contracts: drop --fleet")
-	case len(opts.Inferred) > 0:
+	case len(opts.Inferred) > 0 || opts.Cluster != nil:
 		return errors.New("creating from a golden path reads no running workload: drop --cluster")
 	}
 	_, err := environments(opts) // the delivery options, checked before the path is read
 	return err
 }
+
+// signKey is where a service created from a golden path keeps its own
+// signing key: the path's signer is never carried over.
+const signKey = "cosign.key"
 
 // fromTemplate plans pacto.yaml and the path's files from the golden path:
 // identity reset, publish rewritten, the caller's values applied, the template
@@ -400,7 +404,7 @@ func (p *planner) deliveryStep() {
 	step := fleet.CreationStep{Step: fleet.StepDelivery, Status: fleet.StepStatusPlanned, Detail: "the Pacto resource and Stages: " + strings.Join(added, ", ")}
 	switch {
 	case !p.deliveryPlanned:
-		step.Status, step.Detail = fleet.StepStatusUnknown, "no cluster pieces: the golden path publishes no manifests for Flux to apply (publish.deploy)"
+		step.Status, step.Detail = fleet.StepStatusUnknown, "no cluster pieces: the golden path publishes no manifests (publish.deploy)"
 	case len(files) < 1+len(p.envs):
 		step.Status, step.Detail = fleet.StepStatusUnknown, "the Pacto resource only: "+strings.Join(files, ", ")+
 			"; no Stage, since nothing deployed says which version runs: tag the image with the version you deploy and run pacto init --delivery again"

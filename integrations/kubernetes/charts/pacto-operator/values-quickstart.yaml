@@ -31,7 +31,7 @@ zot:
     create: true
     storage: 8Gi
   mountConfig: true
-  # zot serves the OCI Referrers API natively, which the delivery recorder needs.
+  # zot serves the OCI Referrers API natively, so delivery records are referrers.
   configFiles:
     config.json: |-
       {

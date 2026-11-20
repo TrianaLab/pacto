@@ -54,15 +54,15 @@ func newValidateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				return err
 			}
 
-			if err := printValidateResult(cmd, result, format); err != nil {
-				return err
-			}
-
+			var failed error
 			if !result.Valid {
-				return fmt.Errorf("validation failed with %d error(s)", len(result.Errors))
+				failed = fmt.Errorf("validation failed with %d error(s)", len(result.Errors))
 			}
-
-			return nil
+			if format == "json" {
+				return printJSONExit(cmd, result, failed)
+			}
+			_ = printValidateResult(cmd, result, format) // ponytail: text and markdown output never fail
+			return failed
 		},
 	}
 

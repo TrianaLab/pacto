@@ -11,7 +11,6 @@
 package workloadmanager
 
 import (
-	"slices"
 	"strings"
 )
 
@@ -74,19 +73,12 @@ var strong = []fingerprint{argoTracking, fluxHelmRelease, fluxKustomization, hel
 // a Stage applier reads Unknown. Add a row when a team reports one.
 var weak = []fingerprint{helmManager, argoInstance, unsupportedMark, unsupportedManager, managerFallback}
 
-// Detect names the manager of o.
-func Detect(o Object) Manager {
-	var hits []Manager
-	for _, f := range strong {
-		if m, ok := f(o); ok {
-			hits = append(hits, m)
-		}
-	}
-	// Flux's helm-controller installs through Helm: the release annotations
-	// under its labels are the same chain.
-	if slices.ContainsFunc(hits, func(m Manager) bool { return m.Name == FluxHelmRelease }) {
-		hits = slices.DeleteFunc(hits, func(m Manager) bool { return m.Name == Helm })
-	}
+// Detect names the manager of o with the built-in fingerprints only.
+func Detect(o Object) Manager { return Detector{}.Detect(o) }
+
+// pickManager is the one manager of hits, the strong signals o carries:
+// ambiguous when they are more than one, else the first weak signal.
+func pickManager(hits []Manager, o Object) Manager {
 	switch {
 	case len(hits) == 1:
 		return hits[0]
@@ -112,6 +104,8 @@ func Describe(m Manager) string {
 		return "unmanaged"
 	case Ambiguous:
 		return "ambiguous (" + m.Evidence + ")"
+	case External:
+		return "external: " + m.Product + " (" + m.Evidence + ")"
 	}
 	owner := m.OwnerKind
 	if m.OwnerName != "" {

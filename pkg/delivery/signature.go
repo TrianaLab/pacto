@@ -11,10 +11,11 @@ const (
 
 // SignatureEvidence is what the Stages that name one digest say about its
 // signature. It is signed when a Stage names the digest in status.published
-// (Flux verified its signature on the candidate OCIRepository) or
-// status.offered (it passed pacto.published there). It is unsigned only when
-// an entry Stage, fed by an OCIRepository and whose published list never
-// reached its cap, holds the digest and no Stage names it signed. Otherwise
+// (Flux or the registry watch verified its signature) or status.offered (it
+// passed pacto.published there). It is unsigned only when an entry Stage
+// whose published list never reached its cap holds the digest, no Stage names
+// it signed and, for a Stage fed by the registry watch, no publisher check
+// accepted it (its verdict is unsigned or refused). Otherwise
 // Pacto cannot tell: a downstream Stage, one fed by another cluster's records
 // or a published list that may have dropped it says nothing.
 type SignatureEvidence struct{ Signed, Unsigned bool }
@@ -23,7 +24,19 @@ type SignatureEvidence struct{ Signed, Unsigned bool }
 func (e *SignatureEvidence) Add(st StageObject, digest string) {
 	ss := st.Status
 	e.Signed = e.Signed || slices.Contains(ss.Published, digest) || slices.Contains(ss.Offered, digest)
-	e.Unsigned = e.Unsigned || (st.Spec.Candidates.OCIRepositoryRef != nil && len(ss.Published) < MaxPublished)
+	entry := st.Spec.Candidates.OCIRepositoryRef != nil || (st.Spec.Candidates.Registry != nil && refusedByWatch(ss.Publisher, digest))
+	e.Unsigned = e.Unsigned || (entry && len(ss.Published) < MaxPublished)
+}
+
+// refusedByWatch reports whether the registry watch's verdict on digest is
+// unsigned or refused: no publisher check accepted it.
+func refusedByWatch(p *PublisherStatus, digest string) bool {
+	if p == nil {
+		return false
+	}
+	return slices.ContainsFunc(p.Verdicts, func(v PublisherVerdict) bool {
+		return v.Digest == digest && (v.Verdict == VerdictUnsigned || v.Verdict == VerdictRefused)
+	})
 }
 
 // Signature is signed, unsigned or unknown.

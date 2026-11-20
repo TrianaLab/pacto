@@ -422,6 +422,10 @@ type fakeClusterClient struct {
 	workloads map[string]string
 }
 
+func (c *fakeClusterClient) PreferredVersions(context.Context, ...string) (map[string]string, error) {
+	return nil, nil
+}
+
 func (c *fakeClusterClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
 	return &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"}, nil
 }
@@ -951,5 +955,16 @@ func TestDetectionAloneIsNoDataSource(t *testing.T) {
 	_, err := runDashboard(t, app.NewService(nil, nil), viper.New(), t.TempDir(), "--port", "0", "--detected", "/tmp/detected.json")
 	if err == nil || !strings.Contains(err.Error(), "no data sources detected") {
 		t.Fatalf("err = %v, want the no data sources refusal", err)
+	}
+}
+
+// TestFleetAndDashboardSetRegistryProbe: both surfaces probe the registries
+// their OCI refs read, so each shows a Registry row per host.
+func TestFleetAndDashboardSetRegistryProbe(t *testing.T) {
+	if fleetOptions(newFleetCommand(app.NewService(nil, nil), viper.New(), deps{}, &runRecorder{})).RegistryProbe == nil {
+		t.Error("the fleet CLI sets no registry probe")
+	}
+	if dashboardFleetOptions("", nil, nil, nil, dashboardSources{}).RegistryProbe == nil {
+		t.Error("the dashboard sets no registry probe")
 	}
 }

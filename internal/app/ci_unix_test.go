@@ -1,0 +1,55 @@
+//go:build unix
+
+package app
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestCIPlanNotesUnreadableFolder(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every folder")
+	}
+	root := t.TempDir()
+	writeCIFile(t, root, "a/pacto.yaml", "service:\n  name: a\n")
+	locked := filepath.Join(root, "locked")
+	if err := os.Mkdir(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	p, _, err := NewService(nil, nil).CIPlan(context.Background(), CIOptions{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Rows) != 1 || len(p.Notes) != 1 || !strings.HasPrefix(p.Notes[0], "unreadable, skipped: ") || p.Unreadable != 1 {
+		t.Fatalf("rows %+v, notes %v", p.Rows, p.Notes)
+	}
+	// The folder may hide a service, so the plan never reads clear.
+	if p.Exit != 2 || p.Gate != "unverified" {
+		t.Fatalf("exit %d, gate %s, reason %q", p.Exit, p.Gate, p.Reason)
+	}
+}
+
+func TestCIIncompleteFolderUnverified(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every folder")
+	}
+	root := t.TempDir()
+	writeCIFile(t, root, "a/pacto.yaml", "service:\n  name: a\n")
+	locked := filepath.Join(root, "a", "locked")
+	if err := os.Mkdir(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	p, _, err := NewService(nil, nil).CIPlan(context.Background(), CIOptions{Root: root, Registry: "r.example/acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Rows) != 1 || p.Rows[0].Impact.Text != "unverified (inferred values unknown)" || len(p.Rows[0].Errors) == 0 {
+		t.Fatalf("rows %+v", p.Rows)
+	}
+}

@@ -11,10 +11,20 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"oras.land/oras-go/v2/registry/remote"
+
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/override"
 )
+
+// offlineService pushes to store and opens no registry for the organization
+// index, so a push to a ghcr.io reference never leaves the machine.
+func offlineService(store oci.BundleStore) *Service {
+	svc := NewService(store, nil)
+	svc.sys.refusalRepo = func(string) (*remote.Repository, error) { return nil, errors.New("offline") }
+	return svc
+}
 
 func TestPush_Success(t *testing.T) {
 	dir := writeTestBundle(t)
@@ -23,7 +33,7 @@ func TestPush_Success(t *testing.T) {
 			return "", &oci.ArtifactNotFoundError{Ref: "ghcr.io/acme/svc:1.0.0"}
 		},
 	}
-	svc := NewService(store, nil)
+	svc := offlineService(store)
 	result, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -53,7 +63,7 @@ func TestPush_NilStore(t *testing.T) {
 func TestPush_InvalidContract(t *testing.T) {
 	dir := writeInvalidBundle(t)
 	store := &mockBundleStore{}
-	svc := NewService(store, nil)
+	svc := offlineService(store)
 	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
 	if err == nil {
 		t.Error("expected error for invalid contract")
@@ -62,7 +72,7 @@ func TestPush_InvalidContract(t *testing.T) {
 
 func TestPush_FileNotFound(t *testing.T) {
 	store := &mockBundleStore{}
-	svc := NewService(store, nil)
+	svc := offlineService(store)
 	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: "/nonexistent/dir"})
 	if err == nil {
 		t.Error("expected error for nonexistent directory")
@@ -79,7 +89,7 @@ func TestPush_StoreError(t *testing.T) {
 			return "", fmt.Errorf("push failed")
 		},
 	}
-	svc := NewService(store, nil)
+	svc := offlineService(store)
 	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
 	if err == nil {
 		t.Error("expected error from store")
@@ -120,7 +130,7 @@ func TestPush_AutoTagFromVersion(t *testing.T) {
 			return "sha256:abc123", nil
 		},
 	}
-	svc := NewService(store, nil)
+	svc := offlineService(store)
 	result, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc", Path: dir})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -220,7 +230,7 @@ capabilities:
 		t.Fatal(err)
 	}
 	store := &mockBundleStore{}
-	svc := NewService(store, nil)
+	svc := offlineService(store)
 	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
 	if err == nil {
 		t.Fatal("expected error for local dependency")
@@ -262,7 +272,7 @@ func TestRejectLocalRefs_PolicyRef(t *testing.T) {
 
 func TestPush_RejectsLocalRef(t *testing.T) {
 	store := &mockBundleStore{}
-	svc := NewService(store, nil)
+	svc := offlineService(store)
 	_, err := svc.Push(context.Background(), PushOptions{Ref: "../local-path", Path: "."})
 	if err == nil {
 		t.Error("expected error for local ref")
@@ -281,7 +291,7 @@ func TestPush_ExplicitTagKept(t *testing.T) {
 			return "sha256:abc123", nil
 		},
 	}
-	svc := NewService(store, nil)
+	svc := offlineService(store)
 	result, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:custom", Path: dir})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -306,7 +316,7 @@ func TestPush_OverridesPersistInBundle(t *testing.T) {
 			return "sha256:abc123", nil
 		},
 	}
-	svc := NewService(store, nil)
+	svc := offlineService(store)
 	result, err := svc.Push(context.Background(), PushOptions{
 		Ref:  "oci://ghcr.io/acme/svc",
 		Path: dir,
@@ -345,7 +355,7 @@ func TestPush_AlreadyExists(t *testing.T) {
 		},
 		PullFn: func(context.Context, string) (*contract.Bundle, error) { return other, nil },
 	}
-	svc := NewService(store, nil)
+	svc := offlineService(store)
 	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
 	if err == nil {
 		t.Fatal("expected error when artifact already exists")
@@ -370,7 +380,7 @@ func TestPush_AlreadyExistsWithForce(t *testing.T) {
 			return "sha256:existingdigest", nil
 		},
 	}
-	svc := NewService(store, nil)
+	svc := offlineService(store)
 	result, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir, Force: true})
 	if err != nil {
 		t.Fatalf("unexpected error with --force: %v", err)
@@ -387,7 +397,7 @@ func TestPush_ResolveNonNotFoundError(t *testing.T) {
 			return "", &oci.AuthenticationError{Ref: "ghcr.io/acme/svc:1.0.0", Err: fmt.Errorf("401")}
 		},
 	}
-	svc := NewService(store, nil)
+	svc := offlineService(store)
 	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
 	if err == nil {
 		t.Fatal("expected error for authentication failure")
@@ -428,7 +438,7 @@ capabilities:
 		t.Fatal(err)
 	}
 	store := &mockBundleStore{}
-	svc := NewService(store, nil)
+	svc := offlineService(store)
 	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
 	if err == nil {
 		t.Fatal("expected error for local config ref")
@@ -482,7 +492,7 @@ capabilities:
 		},
 	}
 
-	svc := NewService(store, nil)
+	svc := offlineService(store)
 	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
 	if err == nil {
 		t.Fatal("expected push to reject contract that violates remote policy")
@@ -568,7 +578,7 @@ func TestIsNotFound(t *testing.T) {
 // TestPush_Identical: the same content again is a successful no-op.
 func TestPush_Identical(t *testing.T) {
 	dir := writeTestBundle(t)
-	svc := NewService(&mockBundleStore{}, nil)
+	svc := offlineService(&mockBundleStore{})
 	b, err := svc.ResolveBundle(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
@@ -616,13 +626,13 @@ func TestPush_ChecksGuarantees(t *testing.T) {
 			return "sha256:abc123", nil
 		},
 	}
-	_, err = NewService(store, nil).Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/checkout", Path: write("{interface: events, delivery: at-most-once}")})
+	_, err = offlineService(store).Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/checkout", Path: write("{interface: events, delivery: at-most-once}")})
 	if err == nil || !strings.Contains(err.Error(), "GUARANTEE_UNMET") || pushed {
 		t.Fatalf("an unmet required guarantee refuses the push: err %v, pushed %v", err, pushed)
 	}
 
 	store.ListTagsFn = func(context.Context, string) ([]string, error) { return nil, errors.New("registry down") }
-	res, err := NewService(store, nil).Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/checkout", Path: write("{interface: events, delivery: at-least-once}")})
+	res, err := offlineService(store).Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/checkout", Path: write("{interface: events, delivery: at-least-once}")})
 	if err != nil {
 		t.Fatalf("an unreachable provider does not refuse the push: %v", err)
 	}
@@ -647,7 +657,7 @@ func TestPushFailsOnUnresolvableConfigRef(t *testing.T) {
 			return nil, &oci.ArtifactNotFoundError{Ref: ref}
 		},
 	}
-	svc := NewService(store, nil)
+	svc := offlineService(store)
 	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/orders:1.0.0", Path: dir})
 	if err == nil || err.Error() != "contract validation failed with 1 error(s)" {
 		t.Fatalf("expected a refused push, got %v", err)

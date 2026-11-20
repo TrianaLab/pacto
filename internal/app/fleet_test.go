@@ -346,6 +346,12 @@ type fakeFleetK8sClient struct {
 	gotContext string
 	// workloads is the list JSON of each workload resource; missing: none.
 	workloads map[string]string
+	versions  map[string]string
+}
+
+// PreferredVersions serves the groups of versions; none by default.
+func (f *fakeFleetK8sClient) PreferredVersions(context.Context, ...string) (map[string]string, error) {
+	return f.versions, nil
 }
 
 func (f *fakeFleetK8sClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
@@ -578,5 +584,63 @@ func TestFleetK8sProviderRows(t *testing.T) {
 		if want[p.ID] != p.Source || p.Cluster != "eu-prod" {
 			t.Errorf("row %s from %q in cluster %q; want source %q in eu-prod", p.ID, p.Source, p.Cluster, want[p.ID])
 		}
+	}
+}
+
+func TestFleetK8sGroupingRows(t *testing.T) {
+	svc := NewService(nil, nil)
+	svc.sys.newK8s = func() (k8sclient.K8sClient, error) {
+		return &fakeFleetK8sClient{
+			disc:     &k8sclient.CRDDiscovery{Found: true, Version: "v1alpha1", ResourceName: "pactos"},
+			listData: []byte(`{"items":[]}`),
+			identity: kubecluster.Identity{ID: "uid-1", Name: "eu-prod", NameSource: kubecluster.NameFromContext},
+			versions: map[string]string{"argoproj.io": "v1alpha1", "helm.toolkit.fluxcd.io": "v2"},
+			workloads: map[string]string{"deployments": `{"items":[{"metadata":{"name":"cart","namespace":"shop",` +
+				`"annotations":{"meta.helm.sh/release-name":"cart","meta.helm.sh/release-namespace":"shop"}}}]}`},
+		}, nil
+	}
+	svc.sys.kubeContext = func() string { return "eu-prod" }
+	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeK8s: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workloads := "uid-1" + workloadsSuffix
+	want := map[string]string{fleet.ProviderPactoCRD: "uid-1", fleet.ProviderKubernetesWorkloads: workloads,
+		fleet.ProviderHelm: workloads, fleet.ProviderArgoCD: workloads, fleet.ProviderFlux: workloads}
+	if len(snap.Providers) != len(want) {
+		t.Fatalf("providers = %+v", snap.Providers)
+	}
+	for _, p := range snap.Providers {
+		if want[p.ID] != p.Source || p.Cluster != "eu-prod" {
+			t.Errorf("row %s from %q in cluster %q; want source %q in eu-prod", p.ID, p.Source, p.Cluster, want[p.ID])
+		}
+	}
+}
+
+func TestConsumerSourcesOrder(t *testing.T) {
+	all := FleetOptions{
+		LocalRoots:         []string{"."},
+		TargetStateFiles:   []string{"t.yaml"},
+		EvidenceURLs:       []string{"https://u:p@e.example/?token=x"},
+		MiraURLs:           []string{"https://m.example"},
+		ObservationSources: TraceFileSources([]string{"traces.json"}),
+		CatalogRoots:       []string{"oci://r.example/acme/web:1.0.0"},
+		OCIRefs:            []string{"r.example/acme/api:1.0.0"},
+		IncludeCache:       true,
+		IncludeK8s:         true,
+		K8sNamespaces:      []string{"a", "b"},
+	}
+	want := []string{
+		"--root oci://r.example/acme/web:1.0.0", "--oci r.example/acme/api:1.0.0", "--cache", "--k8s (namespace a,b)",
+		"--evidence-url https://e.example/ (redacted)", "--mira-source https://m.example", "--target-state t.yaml", "--traces traces.json",
+	}
+	if got := all.ConsumerSources(); !slices.Equal(got, want) {
+		t.Fatalf("got %q\nwant %q", got, want)
+	}
+	if got := (FleetOptions{IncludeK8s: true}).ConsumerSources(); !slices.Equal(got, []string{"--k8s (all namespaces)"}) {
+		t.Fatalf("k8s = %q", got)
+	}
+	if got := (FleetOptions{LocalRoots: []string{"."}}).ConsumerSources(); len(got) != 0 {
+		t.Fatalf("local only = %q", got)
 	}
 }

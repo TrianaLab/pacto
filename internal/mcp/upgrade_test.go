@@ -118,8 +118,6 @@ func TestEditMinVersionTable(t *testing.T) {
 		{"nothing", EditInput{Name: s}, ""},
 		{"undeclared range", EditInput{AddDependencies: []DependencyInput{{Name: "a", Ref: "oci://r/a"}}}, "2.5"},
 		{"explicit unknown", EditInput{AddDependencies: []DependencyInput{{Name: "a", Ref: "oci://r/a", Compatibility: contract.CompatibilityUnknown}}}, "2.5"},
-		{"applier", EditInput{Applier: s}, "2.5"},
-		{"applier clear", EditInput{Applier: strPtr("")}, ""},
 		{"domain", EditInput{Domain: s}, "2.4"},
 		{"offering", EditInput{Offering: s}, "2.4"},
 		{"summary", EditInput{Summary: s}, "2.4"},
@@ -149,10 +147,11 @@ func TestCreateMinVersion(t *testing.T) {
 		input CreateInput
 		want  string
 	}{
-		{"plain", CreateInput{Name: "a"}, "2.0"},
-		{"external", CreateInput{Dependencies: []DependencyInput{{Name: "m", External: true, Version: "v1"}}}, "2.1"},
-		{"domain", CreateInput{Domain: "payments"}, "2.4"},
-		{"undeclared range", CreateInput{Domain: "payments", Dependencies: []DependencyInput{{Name: "a", Ref: "oci://r/a"}}}, "2.5"},
+		{"plain", CreateInput{Name: "a", Version: "1.0.0"}, "2.0"},
+		{"no version", CreateInput{Name: "a"}, "2.5"},
+		{"external", CreateInput{Version: "1.0.0", Dependencies: []DependencyInput{{Name: "m", External: true, Version: "v1"}}}, "2.1"},
+		{"domain", CreateInput{Version: "1.0.0", Domain: "payments"}, "2.4"},
+		{"undeclared range", CreateInput{Version: "1.0.0", Domain: "payments", Dependencies: []DependencyInput{{Name: "a", Ref: "oci://r/a"}}}, "2.5"},
 	} {
 		if got := createMinVersion(tc.input); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)

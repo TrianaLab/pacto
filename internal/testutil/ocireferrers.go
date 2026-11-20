@@ -31,6 +31,25 @@ type ReferrersOptions struct {
 	// implements no Referrers API does. It is how a client's fallback-forbidden
 	// posture is proven.
 	Unsupported bool
+	// CatalogStatus serves that status on /v2/_catalog: 404 for a registry
+	// without _catalog, 500 for one that fails. Zero serves the catalog.
+	CatalogStatus int
+	// NameUnknown serves 404 NAME_UNKNOWN from the referrers endpoint, an
+	// answer that says the repository is missing, never that Referrers is.
+	NameUnknown bool
+	// ReferrersContentType serves a 200 with this content type and an HTML
+	// body from the referrers endpoint, as a maintenance or captive-proxy page does.
+	ReferrersContentType string
+	// Challenge serves 401 with this WWW-Authenticate on GET /v2/ only.
+	Challenge string
+	// TagsLink adds the Link header go-containerregistry's tag listing never
+	// sets: a next page whenever a response held exactly ?n= tags. Without
+	// it a client stops after the first page.
+	TagsLink bool
+	// TagsUnknownLast answers a tag listing whose ?last= names no tag the
+	// repository holds with 200 and null tags, as GHCR does (seen live on
+	// ghcr.io, 2026-11). Listings from a held tag paginate as TagsLink.
+	TagsUnknownLast bool
 }
 
 // NewReferrersRegistry returns an in-process OCI registry whose Referrers
@@ -56,7 +75,27 @@ type referrersRegistry struct {
 	opts  ReferrersOptions
 }
 
+// serveOverride answers the requests opts reshape outside the referrers
+// endpoint, reporting whether it did.
+func (r *referrersRegistry) serveOverride(w http.ResponseWriter, req *http.Request) bool {
+	switch {
+	case r.opts.Challenge != "" && req.URL.Path == "/v2/":
+		w.Header().Set("WWW-Authenticate", r.opts.Challenge)
+		w.WriteHeader(http.StatusUnauthorized)
+	case r.opts.CatalogStatus != 0 && req.URL.Path == "/v2/_catalog":
+		http.Error(w, `{"errors":[{"code":"UNSUPPORTED"}]}`, r.opts.CatalogStatus)
+	case (r.opts.TagsLink || r.opts.TagsUnknownLast) && req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/tags/list"):
+		r.tagsWithLink(w, req)
+	default:
+		return false
+	}
+	return true
+}
+
 func (r *referrersRegistry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if r.serveOverride(w, req) {
+		return
+	}
 	repo, target, ok := parseReferrersPath(req.URL.Path)
 	if !ok || req.Method != http.MethodGet {
 		r.inner.ServeHTTP(w, req)
@@ -64,6 +103,15 @@ func (r *referrersRegistry) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 	}
 	if r.opts.Unsupported {
 		http.Error(w, `{"errors":[{"code":"UNSUPPORTED"}]}`, http.StatusNotFound)
+		return
+	}
+	if r.opts.NameUnknown {
+		http.Error(w, `{"errors":[{"code":"NAME_UNKNOWN"}]}`, http.StatusNotFound)
+		return
+	}
+	if r.opts.ReferrersContentType != "" {
+		w.Header().Set("Content-Type", r.opts.ReferrersContentType)
+		_, _ = w.Write([]byte("<html>maintenance</html>"))
 		return
 	}
 	descs, err := r.referrersOf(repo, target)
@@ -87,6 +135,44 @@ func (r *referrersRegistry) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 	}
 	w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	_, _ = w.Write(body)
+}
+
+// tagsWithLink serves the inner, sorted tag listing paginated here: tags
+// after ?last=, at most ?n= of them, and a next-page Link header when more
+// remain. The inner handler returns every tag when ?last= sorts past them all.
+func (r *referrersRegistry) tagsWithLink(w http.ResponseWriter, req *http.Request) {
+	rec := httptest.NewRecorder()
+	r.inner.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, req.URL.Path, nil))
+	var page struct {
+		Name string   `json:"name"`
+		Tags []string `json:"tags"`
+	}
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &page) != nil {
+		w.WriteHeader(rec.Code)
+		_, _ = w.Write(rec.Body.Bytes())
+		return
+	}
+	q := req.URL.Query()
+	if last := q.Get("last"); last != "" {
+		i := sort.SearchStrings(page.Tags, last)
+		held := i < len(page.Tags) && page.Tags[i] == last
+		if held {
+			i++
+		}
+		page.Tags = page.Tags[i:]
+		if r.opts.TagsUnknownLast && !held {
+			_, _ = w.Write([]byte(`{"tags":null}`))
+			return
+		}
+	}
+	if n, err := strconv.Atoi(q.Get("n")); err == nil && n > 0 && len(page.Tags) > n {
+		page.Tags = page.Tags[:n]
+		next := url.Values{"n": {strconv.Itoa(n)}, "last": {page.Tags[n-1]}}
+		w.Header().Set("Link", fmt.Sprintf(`<%s?%s>; rel="next"`, req.URL.Path, next.Encode()))
+	}
+	body, _ := json.Marshal(page)
+	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(body)
 }
 

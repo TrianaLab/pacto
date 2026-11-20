@@ -9,11 +9,9 @@ package delivery
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 
@@ -26,22 +24,24 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 )
 
-// Errors the recorder tells apart.
-var (
-	// errUnsupported: the registry has no native Referrers API. Records are
-	// unsupported there; there is no tag fallback.
-	errUnsupported = errors.New("the registry has no Referrers API")
-)
-
-// RecordStore writes operation records as OCI referrers and reads a stream
-// back from its anchor. It holds no state: the registry is the store.
+// RecordStore writes operation records and reads a stream back from its
+// anchor: as OCI referrers where the streams registry serves the Referrers
+// API, and as one write-once tag per record in the streams repository where
+// it does not. It holds no state: the registry is the store.
 type RecordStore struct {
 	// Streams is the repository ("host/path") holding one anchor per stream.
 	Streams string
-	Options ocireferrer.Options
-	Verify  delivery.Verifier
+	// Approvals is the repository a person's client pushes signed approvals
+	// to, anchored per stream like Streams; only the recorder pushes to
+	// Streams.
+	Approvals string
+	Options   ocireferrer.Options
+	Verify    delivery.Verifier
+	// Prober probes each registry host once; nil is ocireferrer.Probes.
+	Prober *ocireferrer.Prober
 }
 
 // place is one subject a record is attached to.
@@ -50,6 +50,9 @@ type place struct {
 	desc ocispec.Descriptor
 	// stream is set on an anchor: the stream whose records it holds.
 	stream string
+	// mode is how records are attached here: native referrers, or (on an
+	// anchor only) write-once tags.
+	mode capabilities.ReferrersMode
 }
 
 // locations are where one record goes. Anchor is always set; the others are
@@ -77,22 +80,36 @@ func (s *RecordStore) open(path string, insecureHosts ...string) (*remote.Reposi
 	return ocireferrer.Open(path, opts)
 }
 
-// AnchorTag is the tag that keeps a stream's anchor from being collected by a
-// registry that removes untagged manifests.
-func AnchorTag(stream string) string {
-	sum := sha256.Sum256([]byte(stream))
-	return "stream-" + hex.EncodeToString(sum[:])
+// anchor makes sure the stream's anchor exists and returns it with the mode
+// its registry takes records in. The anchor is a deterministic manifest, so
+// writing it again changes nothing.
+func (s *RecordStore) anchor(ctx context.Context, stream string) (*place, error) {
+	return s.anchorIn(ctx, s.Streams, stream)
 }
 
-// anchor makes sure the stream's anchor exists and returns it. The anchor is
-// a deterministic manifest, so writing it again changes nothing.
-func (s *RecordStore) anchor(ctx context.Context, stream string) (*place, error) {
-	repo, err := s.open(s.Streams)
+// AnchorApprovals anchors stream in the approvals repository and returns
+// where a client pushes a signed approval of it: "<repository>@<digest>".
+func (s *RecordStore) AnchorApprovals(ctx context.Context, stream string) (string, error) {
+	if _, err := s.anchorIn(ctx, s.Approvals, stream); err != nil {
+		return "", err
+	}
+	return deliveryrecord.AnchorRef(s.Approvals, stream), nil
+}
+
+// Push writes bundle, a signed approval or intent record of predicate for
+// the operation uid, on the stream anchor a, and returns where it is.
+func (s *RecordStore) Push(ctx context.Context, a *place, predicate string, bundle []byte, uid string) (string, error) {
+	return deliveryrecord.Push(ctx, a.repo, a.stream, a.mode, predicate, bundle, map[string]string{deliveryrecord.AnnUID: uid})
+}
+
+// anchorIn makes sure stream's anchor exists in the repository path.
+func (s *RecordStore) anchorIn(ctx context.Context, path, stream string) (*place, error) {
+	repo, err := s.open(path)
 	if err != nil {
 		return nil, err
 	}
 	art := deliveryrecord.Anchor(stream)
-	tag := AnchorTag(stream)
+	tag := deliveryrecord.AnchorTag(stream)
 	if got, err := repo.Resolve(ctx, tag); err != nil || got.Digest != art.ManifestDesc.Digest {
 		if err := ocireferrer.Push(ctx, repo, art); err != nil {
 			return nil, err
@@ -101,23 +118,49 @@ func (s *RecordStore) anchor(ctx context.Context, stream string) (*place, error)
 			return nil, err
 		}
 	}
-	if err := ocireferrer.Enumerate(ctx, repo, art.ManifestDesc); err != nil {
-		return nil, classify(err)
+	caps, err := s.prober().Probe(ctx, repo, art.ManifestDesc.Digest.String(), true)
+	if err != nil {
+		return nil, err
 	}
-	return &place{repo: repo, desc: art.ManifestDesc, stream: stream}, nil
+	// The cheapest proof that the stream lists in its mode.
+	if caps.Referrers == capabilities.ReferrersNative {
+		err = ocireferrer.Enumerate(ctx, repo, art.ManifestDesc)
+	} else {
+		_, err = ocireferrer.Tags(ctx, repo, tag+"-")
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &place{repo: repo, desc: art.ManifestDesc, stream: stream, mode: caps.Referrers}, nil
 }
 
-func classify(err error) error {
-	if errors.Is(err, errdef.ErrUnsupported) {
-		return fmt.Errorf("%w: %w", errUnsupported, err)
+func (s *RecordStore) prober() *ocireferrer.Prober {
+	if s.Prober != nil {
+		return s.Prober
 	}
-	return err
+	return ocireferrer.Probes
 }
 
-// Probe proves the streams repository answers native referrers discovery.
-func (s *RecordStore) Probe(ctx context.Context) error {
-	_, err := s.anchor(ctx, "pacto-delivery-recorder-probe")
-	return err
+// Probe proves the streams repository can be written and listed, and
+// reports what its registry supports.
+func (s *RecordStore) Probe(ctx context.Context) (capabilities.Capabilities, error) {
+	a, err := s.anchor(ctx, "pacto-delivery-recorder-probe")
+	if err != nil {
+		return capabilities.Capabilities{}, err
+	}
+	// Answered from the prober's cache: anchor just probed this host.
+	return s.prober().Probe(ctx, a.repo, a.desc.Digest.String(), true)
+}
+
+// Mode is the registry mode Probe reports, such as
+// "referrers=native listing=catalog", or empty when the probe fails. The target
+// snapshot records it.
+func (s *RecordStore) Mode(ctx context.Context) string {
+	caps, err := s.Probe(ctx)
+	if err != nil {
+		return ""
+	}
+	return caps.Mode()
 }
 
 // list reads every record on the anchor that a key trusted for the stream
@@ -130,7 +173,7 @@ func (s *RecordStore) Probe(ctx context.Context) error {
 func (s *RecordStore) list(ctx context.Context, anchor *place) (recs []stored, ignored []string, err error) {
 	l, err := deliveryrecord.ListStream(ctx, anchor.repo, anchor.stream, s.Verify)
 	if err != nil {
-		return nil, nil, classify(err)
+		return nil, nil, err
 	}
 	return l.Records, l.Unreadable, nil
 }
@@ -139,7 +182,43 @@ func (s *RecordStore) list(ctx context.Context, anchor *place) (recs []stored, i
 // apply repository, the contract to names in its own repository and the
 // anchor. A digest the registry does not hold, or one that is not a digest
 // (a refusal can name anything), is skipped; any other failure is returned.
+// A placement outside the streams repository is kept only where its host
+// serves the Referrers API: the recorder never tags a user's apply or
+// contract repository, so a host without Referrers gets no placement. A
+// failed probe is returned, so the write is retried instead of losing the
+// placement for good.
 func (s *RecordStore) locate(ctx context.Context, anchor *place, apply *source, from, to string) (locations, error) {
+	l, err := s.candidates(ctx, anchor, apply, from, to)
+	if err != nil {
+		return l, err
+	}
+	for _, p := range []**place{&l.to, &l.from, &l.contract} {
+		if *p, err = s.native(ctx, *p); err != nil {
+			return l, err
+		}
+	}
+	return l, nil
+}
+
+// native returns p when its host serves the Referrers API, nil when it
+// does not, and the probe error when the probe could not tell.
+func (s *RecordStore) native(ctx context.Context, p *place) (*place, error) {
+	if p == nil {
+		return nil, nil
+	}
+	caps, err := s.prober().Probe(ctx, p.repo, p.desc.Digest.String(), false)
+	switch {
+	case err != nil:
+		return nil, err
+	case caps.Referrers != capabilities.ReferrersNative:
+		return nil, nil
+	}
+	p.mode = capabilities.ReferrersNative
+	return p, nil
+}
+
+// candidates finds every subject a record of from→to could attach to.
+func (s *RecordStore) candidates(ctx context.Context, anchor *place, apply *source, from, to string) (locations, error) {
 	l := locations{anchor: anchor}
 	if apply == nil {
 		return l, nil
@@ -196,21 +275,28 @@ func resolve(ctx context.Context, repo *remote.Repository, digest string) (*plac
 
 // write attaches bundle to every location and confirms each is listed:
 // subjects first and the anchor last, so a record on the anchor means every
-// placement exists.
+// placement exists. The anchor placement goes in the stream's mode; the
+// others are native referrers (locate kept only those). Each placement's
+// AnnRegistryMode says how that copy was written.
 func (s *RecordStore) write(ctx context.Context, bundle []byte, st delivery.Statement, l locations) error {
+	chain := st.Predicate.Chain
 	ann := map[string]string{
 		deliveryrecord.AnnBundleContent: "dsse-envelope",
 		deliveryrecord.AnnPredicateType: delivery.PredicateOperation,
 		deliveryrecord.AnnUID:           st.Predicate.Intent.UID,
-		deliveryrecord.AnnStream:        st.Predicate.Chain.Stream,
-		deliveryrecord.AnnSeq:           strconv.FormatInt(st.Predicate.Chain.Seq, 10),
+		deliveryrecord.AnnStream:        chain.Stream,
+		deliveryrecord.AnnSeq:           strconv.FormatInt(chain.Seq, 10),
 	}
-	for _, p := range []*place{l.to, l.from, l.contract, l.anchor} {
+	build := func(p *place) ocireferrer.Artifact {
+		subject, a := p.desc, maps.Clone(ann)
+		a[deliveryrecord.AnnRegistryMode] = string(p.mode)
+		return ocireferrer.Build(delivery.BundleMediaType, delivery.BundleMediaType, bundle, &subject, a)
+	}
+	for _, p := range []*place{l.to, l.from, l.contract} {
 		if p == nil {
 			continue
 		}
-		subject := p.desc
-		art := ocireferrer.Build(delivery.BundleMediaType, delivery.BundleMediaType, bundle, &subject, ann)
+		art := build(p)
 		if err := ocireferrer.Push(ctx, p.repo, art); err != nil {
 			return err
 		}
@@ -218,5 +304,6 @@ func (s *RecordStore) write(ctx context.Context, bundle []byte, st delivery.Stat
 			return err
 		}
 	}
-	return nil
+	a := l.anchor
+	return deliveryrecord.PutRecord(ctx, a.repo, a.desc, a.stream, chain.Seq, build(a), a.mode)
 }

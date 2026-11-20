@@ -59,3 +59,36 @@ func TestDeliveryViewHelpSaysWhatIsLeftOut(t *testing.T) {
 	expect(t, strings.Contains(long, "leaves out, without naming them, those outside your permissions") &&
 		!strings.Contains(long, "every namespace you can list"), "help: %s", long)
 }
+
+// TestDeliveryTrustView: pacto delivery trust prints the trust route's
+// answer, flags passed as its parameters.
+func TestDeliveryTrustView(t *testing.T) {
+	d := readDeps(nil)
+	id := baseDashboardIdentity(&rest.Config{Host: "https://k"}, d, nil, delivery.PolicyNamespace)
+	api := newDashDelivery(id, actFor(t, d), "")
+	h := dashboard.NewServer(dashboard.Options{Delivery: func(*http.Request) (dashboard.DeliveryAPI, error) { return api, nil }}).APIHandler()
+	out, err := runDelivery(t, d, "json", "trust", "--limit", "5")
+	expect(t, err == nil && strings.Contains(out, `"ruleSource"`), "trust: %s %v", out, err)
+	sameAnswer(t, "trust", out, routeBody(t, h, context.Background(), "/api/delivery/trust?limit=5"), "asOf")
+}
+
+// TestDeliveryTrustPositionalService: the one optional argument of
+// pacto delivery trust is --service; a second is refused.
+func TestDeliveryTrustPositionalService(t *testing.T) {
+	d := readDeps(nil)
+	id := baseDashboardIdentity(&rest.Config{Host: "https://k"}, d, nil, delivery.PolicyNamespace)
+	api := newDashDelivery(id, actFor(t, d), "")
+	h := dashboard.NewServer(dashboard.Options{Delivery: func(*http.Request) (dashboard.DeliveryAPI, error) { return api, nil }}).APIHandler()
+	out, err := runDelivery(t, d, "json", "trust", "payments")
+	expect(t, err == nil, "trust payments: %v", err)
+	sameAnswer(t, "trust payments", out, routeBody(t, h, context.Background(), "/api/delivery/trust?service=payments"), "asOf")
+	_, err = runDelivery(t, d, "json", "trust", "payments", "orders")
+	wantErr(t, err, "accepts at most 1 arg")
+	_, err = runDelivery(t, d, "json", "trust", "payments", "--service", "orders")
+	wantErr(t, err, "give the service once")
+	out, err = runDelivery(t, d, "json", "trust", "payments", "--service", "payments")
+	expect(t, err == nil, "trust payments --service payments: %v", err)
+	sameAnswer(t, "trust payments --service payments", out, routeBody(t, h, context.Background(), "/api/delivery/trust?service=payments"), "asOf")
+	_, err = runDelivery(t, d, "json", "published", "payments")
+	wantErr(t, err, "unknown command")
+}

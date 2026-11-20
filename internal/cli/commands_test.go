@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -152,16 +154,62 @@ func TestPushCommand_Success(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(store, nil)
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
-	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir})
+	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir, "--index", "none"})
 	var out bytes.Buffer
 	root.SetOut(&out)
+	root.SetErr(&out)
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("push failed: %v", err)
 	}
 
-	if !strings.Contains(out.String(), "Pushed test-svc@1.0.0") {
+	// --index none reaches the push: no index text at all.
+	if !strings.Contains(out.String(), "Pushed test-svc@1.0.0") || strings.Contains(out.String(), "ndex") {
 		t.Errorf("expected push output, got %q", out.String())
+	}
+}
+
+// TestPushCommand_IndexWarning: an index entry that cannot be written is a
+// warning on stderr, and the push still exits 0.
+func TestPushCommand_IndexWarning(t *testing.T) {
+	store := &testutil.MockBundleStore{ResolveFn: notFoundResolveFn}
+	bundleDir := testutil.WriteTestBundle(t)
+	root := cli.NewRootCommand(app.NewService(store, nil), cli.VersionInfo{Version: "test"})
+	// 127.0.0.1:1 refuses the registry probe and the index write.
+	root.SetArgs([]string{"push", "oci://127.0.0.1:1/acme/svc:1.0.0", "--path", bundleDir, "--index", "127.0.0.1:1/acme/pacto-index"})
+	var out, stderr bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&stderr)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("push failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "Pushed test-svc@1.0.0") || strings.Contains(out.String(), "Index:") ||
+		!strings.Contains(stderr.String(), "warning: not indexed in 127.0.0.1:1/acme/pacto-index: ") {
+		t.Errorf("stdout %q stderr %q", out.String(), stderr.String())
+	}
+}
+
+// TestIndexFlagRefusesAnotherName: --index names <registry>/pacto-index or
+// none, refused at parse time on push, publish and the shared fleet flag,
+// since every entry is bound to that fixed name.
+func TestIndexFlagRefusesAnotherName(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	for _, cmd := range [][]string{
+		{"push", "oci://ghcr.io/acme/contracts/ledger:1.0.0", "--path", bundleDir},
+		{"publish", bundleDir},
+		{"impact", "oci://ghcr.io/acme/contracts/ledger:1.0.0", bundleDir},
+	} {
+		for _, v := range []string{"ghcr.io/acme/indexes", "oci://ghcr.io/acme/pacto-index:latest", "ghcr.io/acme/pacto-index@sha256:" + strings.Repeat("a", 64), "pacto-index"} {
+			store := &testutil.MockBundleStore{ResolveFn: notFoundResolveFn}
+			root := cli.NewRootCommand(app.NewService(store, nil), cli.VersionInfo{Version: "test"})
+			root.SetArgs(append(slices.Clone(cmd), "--index", v))
+			root.SetOut(io.Discard)
+			root.SetErr(io.Discard)
+			err := root.Execute()
+			if err == nil || !strings.Contains(err.Error(), "--index must name <registry>/pacto-index with no tag or digest, or none") {
+				t.Errorf("%s --index %s: %v", cmd[0], v, err)
+			}
+		}
 	}
 }
 
@@ -210,7 +258,7 @@ func TestPushCommand_Identical(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
-	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir})
+	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir, "--index", "none"})
 	var out bytes.Buffer
 	root.SetOut(&out)
 	if err := root.Execute(); err != nil {
@@ -233,7 +281,7 @@ func TestPushCommand_AlreadyExistsWithForce(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(store, nil)
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
-	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir, "--force"})
+	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir, "--force", "--index", "none"})
 	var out bytes.Buffer
 	root.SetOut(&out)
 
@@ -622,6 +670,29 @@ state:
 	err := root.Execute()
 	if err == nil {
 		t.Error("expected validate command to fail for invalid contract")
+	}
+}
+
+// TestValidateRemovedDeliveryHint: a contract that still carries the delivery
+// section fails to load with PARSE_ERROR and says where the applier lives now.
+func TestValidateRemovedDeliveryHint(t *testing.T) {
+	dir := t.TempDir()
+	content := "pactoVersion: \"" + contract.Current() + "\"\nservice:\n  name: svc\n  version: 1.0.0\ndelivery:\n  applier: argocd\n"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	root := cli.NewRootCommand(app.NewService(nil, nil), cli.VersionInfo{Version: "test"})
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs([]string{"validate", dir})
+	if err := root.Execute(); err == nil {
+		t.Fatal("validate passed a contract with a delivery section")
+	}
+	for _, want := range []string{"PARSE_ERROR", "the Stage's spec.applyRef names the applier; delete the section; run pacto migrate to remove it)"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, out.String())
+		}
 	}
 }
 

@@ -587,6 +587,24 @@ describe('BundleProvenance', () => {
     expect(target.textContent).toContain('Signature bundlesUnknown');
     expect(target.textContent).not.toContain('Signature bundles0');
   });
+
+  it('says once what the signature was checked against, the reason in the mark, inferred muted', () => {
+    const bundle = (source: string) => ({ source: 'oci', checkedAt: '', signature: { status: source === 'inferred' ? 'unknown' : 'verified', signer: 'https://github.com/acme/pay/.github/workflows/ci.yml@refs/heads/main', source, reason: `why ${source}`, bundles: 1 }, referrers: { items: [], count: 0, total: 0, truncated: false } });
+    comp = mount(BundleProvenance, { target, props: { bundle: bundle('rule') } });
+    const row = target.querySelector('[data-testid="bundle-checked-against"]') as HTMLElement;
+    expect(row.textContent).toContain('Checked againstrule');
+    expect(row.querySelectorAll('.prov-mark').length).toBe(1);
+    expect(row.textContent).toContain('why rule');
+    expect(row.classList.contains('bp-muted')).toBe(false);
+    expect(target.textContent).toContain('Signed by https://github.com/acme/pay/.github/workflows/ci.yml@refs/heads/main');
+    // The signer is named once in the card.
+    expect(target.textContent?.split('https://github.com/acme/pay/.github/workflows/ci.yml@refs/heads/main').length).toBe(2);
+    unmount(comp); comp = null; target.innerHTML = '';
+    comp = mount(BundleProvenance, { target, props: { bundle: bundle('inferred') } });
+    const inferred = target.querySelector('[data-testid="bundle-checked-against"]') as HTMLElement;
+    expect(inferred.classList.contains('bp-muted')).toBe(true);
+    expect(inferred.textContent).toContain('no installation rule was read');
+  });
 });
 
 // C6/section 9: every identity is isolated in <bdi>, so a name carrying a right-to-left

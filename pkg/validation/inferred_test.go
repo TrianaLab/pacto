@@ -106,10 +106,93 @@ func TestValidateInferredRecordDigestMismatch(t *testing.T) {
 	}
 }
 
+// TestBundleRecordWithFolderProposalRefused: a proposal citing a folder file,
+// with that file at its real digest, is forged and never reaches a reader.
+func TestBundleRecordWithFolderProposalRefused(t *testing.T) {
+	data, c := parseString(t, "pactoVersion: \"2.5\"\n")
+	rec := goodRecord()
+	f := rec.Fields[0]
+	rec.Fields = append(rec.Fields, contract.Inferred{Field: "dependencies[ledger].compatibility", Value: "compatibility unknown", Proposed: ">=0.0.0",
+		Source: f.Source, Confidence: contract.ConfidenceLikely})
+	r := validation.Validate(c, data, recordBundle(rec))
+	if got := codesAt(r, contract.InferredRecordFile); !reflect.DeepEqual(got, []string{"INFERRED_RECORD_INVALID"}) {
+		t.Fatalf("codes = %v, errors %+v", got, r.Errors)
+	}
+}
+
 func TestValidateWithoutRecordUnchanged(t *testing.T) {
 	data, c := parseString(t, "pactoVersion: \"2.4\"\nservice:\n  name: orders\n  version: 1.0.0\n")
 	fsys := fstest.MapFS{"deploy/app.yaml": &fstest.MapFile{Data: []byte(deployYAML)}}
 	if r := validation.Validate(c, data, fsys); !r.IsValid() {
 		t.Fatalf("errors: %+v", r.Errors)
+	}
+}
+
+// migratedBundle is a bundle whose pacto.yaml declares the current version
+// beside a record holding one migration, from and to as given.
+func migratedBundle(t *testing.T, from, to string) ([]byte, *contract.Contract, fstest.MapFS) {
+	t.Helper()
+	data, c := parseString(t, "pactoVersion: \""+contract.Current()+"\"\n")
+	rec := goodRecord()
+	rec.Migrations = []contract.InferredMigration{{From: from, To: to, Source: "pacto.yaml", By: "pacto ci test"}}
+	fsys := recordBundle(rec)
+	fsys["pacto.yaml"] = &fstest.MapFile{Data: data}
+	return data, c, fsys
+}
+
+func TestValidateMigratedRecordValid(t *testing.T) {
+	v := contract.SupportedVersions
+	data, c, fsys := migratedBundle(t, v[len(v)-2], contract.Current())
+	if r := validation.Validate(c, data, fsys); !r.IsValid() {
+		t.Fatalf("errors: %+v", r.Errors)
+	}
+}
+
+func TestValidateMigratedRecordStale(t *testing.T) {
+	v := contract.SupportedVersions
+	// The entry says pacto.yaml was published as the previous version, but it
+	// declares the current one: a stale or hand-edited record.
+	data, c, fsys := migratedBundle(t, v[len(v)-3], v[len(v)-2])
+	r := validation.Validate(c, data, fsys)
+	if got := codesAt(r, contract.InferredRecordFile); !reflect.DeepEqual(got, []string{"INFERRED_RECORD_INVALID"}) {
+		t.Fatalf("codes = %v, errors %+v", got, r.Errors)
+	}
+}
+
+func TestBundleRecordWithClusterSourceRefused(t *testing.T) {
+	data, c := parseString(t, "pactoVersion: \"2.5\"\n")
+	cluster := func(r *contract.InferredRecord) {
+		r.Inputs.Cluster = &contract.InferredClusterInput{AsOf: "2026-11-14T10:02:00Z", Object: "shop/Deployment/invoices", CallWindow: "24h"}
+	}
+	cases := map[string]func(*contract.InferredRecord){
+		"field source": func(r *contract.InferredRecord) {
+			cluster(r)
+			r.Fields = append(r.Fields, contract.Inferred{Field: "dependencies[ledger].compatibility", Value: "compatibility unknown",
+				Source: "cluster:fleet reported versions 2.3.1", Confidence: contract.ConfidenceLikely, AsOf: "2026-11-14T09:58:12Z",
+				Completeness: contract.CoveragePartial, Proposed: "^2.3.0"})
+		},
+		"input": cluster,
+		"coverage": func(r *contract.InferredRecord) {
+			cluster(r)
+			r.Coverage = []contract.InferredCoverage{{Source: "pods", State: contract.CoverageComplete}}
+		},
+		"hidden": func(r *contract.InferredRecord) {
+			cluster(r)
+			r.Hidden = &contract.InferredHidden{Services: 1}
+		},
+	}
+	for name, edit := range cases {
+		t.Run(name, func(t *testing.T) {
+			rec := goodRecord()
+			edit(rec)
+			// The record parses: it is refused as a bundle record, not as malformed.
+			if _, err := contract.ParseInferredRecord(rec.Marshal()); err != nil {
+				t.Fatal(err)
+			}
+			r := validation.Validate(c, data, recordBundle(rec))
+			if got := codesAt(r, contract.InferredRecordFile); !reflect.DeepEqual(got, []string{"INFERRED_RECORD_INVALID"}) {
+				t.Fatalf("codes = %v, errors %+v", got, r.Errors)
+			}
+		})
 	}
 }

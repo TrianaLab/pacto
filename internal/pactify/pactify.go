@@ -3,9 +3,9 @@
 // registry the caller gave. A folder that already
 // holds a service gets a contract read from its Dockerfile and Kubernetes
 // manifests: its environment as a configuration schema, the services its
-// environment points at as dependencies, its probe as a health check and,
-// unless DescribeOnly, a publish section. With Delivery it also gets the
-// cluster pieces that ship it. Planning changes nothing. Applying only adds files and lines:
+// environment points at as dependencies and its probe as a health check; no
+// publish section and no service.version, which pacto ci --publish derives.
+// With Delivery it also gets the cluster pieces that ship it. Planning changes nothing. Applying only adds files and lines:
 // a file that is already there is the user's and is never rewritten, so
 // running it twice is safe. With Template the folder gets a contract created
 // from a golden path: its identity reset, the caller's values applied, its
@@ -52,12 +52,13 @@ type Options struct {
 	FleetRoots []string
 	// Plan only plans: nothing is written.
 	Plan bool
-	// DescribeOnly writes a contract that only describes the service: no
-	// publish section, so no signing key and nothing for pacto publish.
+	// DescribeOnly writes a contract that only describes the service: its
+	// Next lines say how to validate it, never how to publish it.
 	DescribeOnly bool
-	// NoTransparencyLog writes transparencyLog: false under publish.sign, for
-	// a key whose signatures do not belong in the public transparency log
-	// (a throwaway key, or offline signing).
+	// NoTransparencyLog writes transparencyLog: false under the golden path's
+	// publish.sign, with Template only, for a key whose signatures do not
+	// belong in the public transparency log (a throwaway key, or offline
+	// signing).
 	NoTransparencyLog bool
 	// InsecureRegistry makes the Flux OCIRepositories Delivery writes read the
 	// registry over plain HTTP (spec.insecure), for a local registry only.
@@ -70,6 +71,12 @@ type Options struct {
 	// one is written with compatibility unknown; one with Versions gets a
 	// proposed range from the lowest, in a comment.
 	Inferred []Inferred
+	// Cluster are the facts the cluster read shows about the workload this
+	// draft is read from: with them, the draft (or a kept pactoVersion 2.5
+	// pacto.yaml) is completed from the folder and the cluster, and the
+	// record is planned as pacto.inferred.yaml. Set only by Cluster; CI
+	// completion never sets it. Template refuses it.
+	Cluster *discover.ClusterFacts
 	// Template creates the contract from a golden path. It needs Owner and
 	// refuses Delivery, FleetRoots and Inferred.
 	Template *Template
@@ -82,10 +89,6 @@ type Options struct {
 	// Commit and PactoVersion are the inputs an inferred record names: the
 	// folder's commit and the Pacto completing it. Empty is omitted.
 	Commit, PactoVersion string
-
-	// cluster marks a draft read from the cluster, which is never completed:
-	// what runs there never reaches the inferred record.
-	cluster bool
 }
 
 // Template is the golden path a service is created from, already read and,
@@ -277,7 +280,6 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 // cannot all be written and validates a contract created from a golden path
 // over everything planned.
 func (p *planner) finish(ctx context.Context) error {
-	p.transparencyLog()
 	p.consumers()
 	if p.opts.Delivery {
 		p.delivery()
@@ -303,10 +305,10 @@ func environments(opts Options) ([]string, error) {
 		}
 	}
 	if opts.DescribeOnly && opts.Delivery {
-		return nil, fmt.Errorf("delivery ships what publish builds, and describe-only writes no publish section: drop one of the two")
+		return nil, fmt.Errorf("describe-only writes no Stages or Pacto resource: drop one of the two")
 	}
-	if opts.DescribeOnly && opts.NoTransparencyLog {
-		return nil, fmt.Errorf("transparencyLog goes under publish.sign, and describe-only writes no publish section: drop one of the two")
+	if opts.NoTransparencyLog && (opts.DescribeOnly || opts.Template == nil) {
+		return nil, fmt.Errorf("transparencyLog goes under a golden path's publish.sign: drop it, or create the service from one; to keep a key's signatures out of the log, pass --sign-key and --no-transparency-log to pacto publish")
 	}
 	if opts.InsecureRegistry && !opts.Delivery {
 		return nil, fmt.Errorf("an insecure registry changes only the Flux OCIRepositories that delivery writes, so it needs delivery")
@@ -342,14 +344,15 @@ type planner struct {
 	sc   *discover.Scan
 	opts Options
 	envs []string
-	// pub is the publish section written or found; the cluster pieces read it.
+	// pub is the publish section the contract declares, or the one pacto ci
+	// --publish derives (pubDerived); the cluster pieces read it.
 	pub             *contract.Publish
 	snap            *fleet.FleetSnapshot // the contracts in FleetRoots, nil when none were given
 	schema          string               // the configuration schema written, "" when none
 	openapi         string               // the OpenAPI file discovery found, "" when none
 	ports           []int                // the container ports discovery found, in order
 	stages          []validation.Stage   // what validating a contract created from a golden path found
-	contractNew     bool
+	pubDerived      bool
 	deliveryPlanned bool
 }
 

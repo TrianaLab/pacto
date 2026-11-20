@@ -244,7 +244,11 @@ type signedRegistry struct {
 
 func pushGoldenPath(t *testing.T, key ed25519.PrivateKey) *signedRegistry {
 	t.Helper()
-	reg := provenanceTestRegistry(t)
+	return pushGoldenPathTo(t, provenanceTestRegistry(t), key)
+}
+
+func pushGoldenPathTo(t *testing.T, reg *provRegistry, key ed25519.PrivateKey) *signedRegistry {
+	t.Helper()
 	client := oci.NewClient(anonymous, oci.WithInsecureRegistries(reg.host))
 	c, err := contract.Parse(strings.NewReader(goldenPathYAML))
 	if err != nil {
@@ -319,6 +323,18 @@ func TestVerifyTemplateSignature(t *testing.T) {
 	signed.failWhen(func(r *http.Request) bool { return strings.Contains(r.URL.Path, "/referrers/") })
 	if _, err := signed.svc.verifyTemplate(t.Context(), signed.repo, signed.digest, &delivery.TrustConfig{Keys: []delivery.TrustedKey{templateKey(t, "platform", pub)}}); err == nil {
 		t.Error("a referrers error verified")
+	}
+}
+
+// TestTemplateVerifyReadsSigTags: a golden path signed on a registry
+// without the Referrers API verifies through its pacto-sig tag.
+func TestTemplateVerifyReadsSigTags(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	signed := pushGoldenPathTo(t, provenanceTestRegistryOf(t, false), key)
+	step, err := signed.svc.verifyTemplate(t.Context(), signed.repo, signed.digest, &delivery.TrustConfig{Keys: []delivery.TrustedKey{templateKey(t, "platform", pub)}})
+	if err != nil || step.Status != fleet.StepStatusDone {
+		t.Fatalf("%+v %v", step, err)
 	}
 }
 

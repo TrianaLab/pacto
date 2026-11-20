@@ -6,13 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/internal/pactify"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/override"
 )
@@ -20,6 +23,10 @@ import (
 // initDynamic is the cluster client pacto init --cluster reads with.
 // ponytail: a package variable so tests swap it; move it into deps when root.go next changes.
 var initDynamic = k8sclient.NewDynamic
+
+// initCluster drafts the cluster's workloads; a package variable so tests
+// read the options it is given.
+var initCluster = pactify.Cluster
 
 func newInitCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	var opts app.InitOptions
@@ -59,13 +66,17 @@ with --cluster: Pacto never changes it and lists what the folder adds, which
 pacto pack and pacto publish put in pacto.inferred.yaml. An older pacto.yaml
 is not completed, and the plan says to raise its pactoVersion.
 
-Either contract also gets a publish section, for pacto publish, with its
-bundle under --registry (default: the workload's image registry, else the
-registry.example placeholder). To describe the service and leave delivery out,
-pass --describe-only: the contract then has no publish section and needs no
-signing key. --delivery also writes the cluster pieces: the Pacto resource
-that checks the running service, and per environment a Stage with the Flux
-OCIRepository and Kustomization it applies through. Each Stage starts at
+Neither contract has a publish section or a service.version: pacto ci
+--publish derives both, and the image tag is named under Found as the version
+to declare for a first publish. --describe-only changes only the next steps,
+which say how to validate the contract instead of how to publish it.
+--delivery also writes the cluster pieces, reading the repositories pacto ci
+--publish publishes to under --registry (default: the workload's image
+registry, else the registry.example placeholder): the Pacto resource that
+checks the running service, and per environment a Stage with the Flux
+OCIRepository and Kustomization it applies through. Each Stage verifies an
+identity that matches nothing until you set the one pacto ci --publish signs
+as. Each Stage starts at
 observe: it plans every new version and moves nothing, and the OCIRepository
 stays pinned to the tag you deploy, so GitOps keeps applying what it did. The
 last environment's Stage also asks a person to approve every promote.
@@ -82,8 +93,13 @@ describes yet, in <out>/<namespace>/<name>: its manifests are read from the
 cluster, and the services its pods were seen calling become dependencies with
 compatibility unknown and a proposed range, in a comment, from the lowest
 version the Pactos describing each one report, when they agree on one
-contract. Ranges are proposed, never declared: declare each one. Drafts are only written, never published, and a
-draft that is not valid fails the command.
+contract. Ranges are proposed, never declared: declare each one. Each draft also gets
+pacto.inferred.yaml, completed by the engine pacto ci uses, with when each
+cluster fact was read and whether every node was observed. --max-items bounds
+each kind of object read; a kind cut short is listed under Coverage, and a run
+it stopped while listing workloads prints the command that resumes with
+--continue. Drafts are only
+written, never published, and a draft that is not valid fails the command.
 
 With --from the service is created from a golden path: an oci:// reference or
 a directory whose contract declares service.template. The path's contract is
@@ -109,7 +125,7 @@ changes nothing.`,
   pacto init --plan
   pacto init --describe-only --owner billing
   pacto init --delivery --owner payments --fleet ../contracts
-  pacto init --delivery --no-transparency-log --insecure-registry
+  pacto init --delivery --insecure-registry
   pacto init --delivery --registry-secret registry-creds
   pacto init services/checkout services/payments --plan
   pacto init --cluster --namespace shop --out drafts
@@ -123,18 +139,17 @@ changes nothing.`,
 			if err := fromChecks(from, trust, runPlugins, fromCluster, len(args), overrides); err != nil {
 				return err
 			}
+			if err := clusterChecks(fromCluster, len(args), cluster); err != nil {
+				return err
+			}
 			switch {
-			case fromCluster && len(args) > 0:
-				return errors.New("--cluster reads the cluster, not folders: drop the folders")
-			case !fromCluster && (cluster.Out != "" || len(cluster.Namespaces) > 0):
-				return errors.New("--out and --namespace go with --cluster")
 			case fromCluster:
 				dyn, err := initDynamic()
 				if err != nil {
 					return err
 				}
 				_ = svc.InitCatalog(cmd.Context(), &opts) // ponytail: the ref was checked above, so it cannot fail
-				b, err := pactify.Cluster(cmd.Context(), dyn, opts, cluster, os.WriteFile)
+				b, err := initCluster(cmd.Context(), dyn, opts, cluster, os.WriteFile)
 				return printBulk(cmd, b, err, format)
 			case len(args) > 1:
 				opts.PactoVersion = cmp.Or(svc.Version, "dev") // ponytail: no commit per folder; app.Init names one for a single folder
@@ -155,20 +170,23 @@ changes nothing.`,
 	}
 	f := cmd.Flags()
 	f.BoolVar(&opts.Plan, "plan", false, "show what would be added and change nothing")
-	f.BoolVar(&opts.DescribeOnly, "describe-only", false, "write a contract that only describes the service: no publish section, so no signing key")
-	f.BoolVar(&opts.Delivery, "delivery", false, "also declares each --env in pacto.yaml with an empty values file, and writes the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization")
+	f.BoolVar(&opts.DescribeOnly, "describe-only", false, "write a contract that only describes the service: its next steps say how to validate it, never how to publish it")
+	f.BoolVar(&opts.Delivery, "delivery", false, "also declares each --env in pacto.yaml with an empty values file, and writes the cluster pieces of a manifests deploy: the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; a chart deploy gets no applier object")
 	f.StringVar(&opts.Name, "name", "", "service name (default: the workload's name, then the folder's)")
 	f.StringVar(&opts.Owner, "owner", "", "the team that owns the service, as a bare name such as billing (default: the workload's team label)")
 	f.StringVar(&opts.Domain, "domain", "", "business domain, such as payments")
 	f.StringVar(&opts.Registry, "registry", "", "where to publish, as host/path (default: read from the workload's image)")
 	f.StringSliceVar(&opts.Environments, "env", []string{"test", "prod"}, "environments for --delivery: declared in the contract and given a Stage each, in promotion order")
-	f.BoolVar(&opts.NoTransparencyLog, "no-transparency-log", false, "write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)")
+	f.BoolVar(&opts.NoTransparencyLog, "no-transparency-log", false, "with --from: write transparencyLog: false under the golden path's publish.sign")
 	f.BoolVar(&opts.InsecureRegistry, "insecure-registry", false, "with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)")
 	f.StringVar(&opts.RegistrySecret, "registry-secret", "", "with --delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with")
 	f.StringSliceVar(&opts.FleetRoots, "fleet", nil, "folders of other services' contracts to find the services that use this one")
 	f.BoolVar(&fromCluster, "cluster", false, "draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context")
 	f.StringSliceVar(&cluster.Namespaces, "namespace", nil, "with --cluster: a namespace to read; repeat it for more (default: every namespace)")
 	f.StringVar(&cluster.Out, "out", "", "with --cluster: the folder the drafts go in, one <namespace>/<name> folder each")
+	f.IntVar(&cluster.MaxItems, "max-items", 0, "with --cluster: the most items read per kind of object; a kind cut short reads as partial (default 10000)")
+	f.DurationVar(&cluster.CallWindow, "call-window", 0, "with --cluster: how far back a call counts as a dependency (at least 1m, default 24h)")
+	f.StringVar(&cluster.Continue, "continue", "", "with --cluster: resume the read where a run --max-items stopped while listing workloads left off")
 	f.StringVar(&from, "from", "", "a golden path to create the service from: an oci:// reference or a directory")
 	f.StringVar(&trust, "trust", "", "the trust config the golden path's signature is verified with: a PEM public key or a trust config file (default $PACTO_DELIVERY_TRUST)")
 	f.StringSliceVar(&runPlugins, "run-plugins", nil, "run these plugins the golden path names, by name (see the plan's plugin steps); each step prints the binary it runs")
@@ -193,6 +211,17 @@ func fromChecks(from, trust string, runPlugins []string, fromCluster bool, folde
 	return nil
 }
 
+// clusterChecks refuses folders with --cluster, and its options without it.
+func clusterChecks(fromCluster bool, folders int, c pactify.ClusterOptions) error {
+	switch {
+	case fromCluster && folders > 0:
+		return errors.New("--cluster reads the cluster, not folders: drop the folders")
+	case !fromCluster && (c.Out != "" || len(c.Namespaces) > 0 || c.MaxItems != 0 || c.CallWindow != 0 || c.Continue != ""):
+		return errors.New("--out, --namespace, --max-items, --call-window and --continue go with --cluster")
+	}
+	return nil
+}
+
 // initOne pactifies one folder, or creates it from the golden path from.From
 // with the trust config the --trust flag or the environment names.
 func initOne(cmd *cobra.Command, svc *app.Service, opts app.InitOptions, from app.InitFrom, trust string) (*app.InitResult, error) {
@@ -211,11 +240,11 @@ func initOne(cmd *cobra.Command, svc *app.Service, opts app.InitOptions, from ap
 // PEM key given to --trust is a template key for every repository, since the
 // flag says what it is for; one in $PACTO_DELIVERY_TRUST stays a record key.
 func templateTrust(flag string) (*delivery.TrustConfig, error) {
-	t, err := deliveryTrust(flag)
+	t, err := app.DeliveryTrust(flag)
 	if err != nil || t == nil || flag == "" {
 		return t, err
 	}
-	raw, _ := os.ReadFile(flag) // ponytail: deliveryTrust just read it
+	raw, _ := os.ReadFile(flag) // ponytail: app.DeliveryTrust just read it
 	if bytes.HasPrefix(bytes.TrimSpace(raw), []byte("-----BEGIN")) {
 		t.Keys[0].Role = delivery.RoleTemplate
 	}
@@ -229,10 +258,7 @@ func printBulk(cmd *cobra.Command, b *pactify.Bulk, err error, format string) er
 		return err
 	}
 	if format == "json" {
-		if perr := printJSON(cmd, b); perr != nil {
-			return perr
-		}
-		return err
+		return printJSONExit(cmd, b, err)
 	}
 	w := cmd.OutOrStdout()
 	for _, r := range b.Results {
@@ -267,5 +293,69 @@ func printBulk(cmd *cobra.Command, b *pactify.Bulk, err error, format string) er
 		_, _ = fmt.Fprintf(tw, "%s\t\tskipped: a Pacto describes it\t\t\n", s)
 	}
 	_ = tw.Flush()
+	printReadCoverage(cmd, b)
 	return err
+}
+
+// printReadCoverage prints, after the summary, the sources a cluster read did
+// not see whole, what the person may not read (counted, never named) and the
+// command that resumes a read the item bound stopped.
+func printReadCoverage(cmd *cobra.Command, b *pactify.Bulk) {
+	w := cmd.OutOrStdout()
+	var cut []string
+	for _, c := range b.Coverage {
+		if c.State != contract.CoverageComplete {
+			cut = append(cut, fmt.Sprintf("%s %s (%s)", c.Source, c.State, c.Reason))
+		}
+	}
+	if len(cut) > 0 {
+		_, _ = fmt.Fprintln(w, "Coverage: "+strings.Join(cut, ", "))
+	}
+	var hidden contract.InferredHidden
+	for _, r := range b.Results {
+		if r != nil && r.Inferred != nil && r.Inferred.Hidden != nil {
+			hidden.Callers += r.Inferred.Hidden.Callers
+			hidden.Services += r.Inferred.Hidden.Services
+		}
+	}
+	if hidden != (contract.InferredHidden{}) {
+		_, _ = fmt.Fprintf(w, "Hidden: %d callers and %d services you may not read\n", hidden.Callers, hidden.Services)
+	}
+	if b.Continue != "" {
+		_, _ = fmt.Fprintln(w, "Continue: "+resumeCommand(cmd, b.Continue))
+	}
+}
+
+// resumeCommand is the pacto init command that ran, with the flags it was
+// given and --continue token in place of any it had.
+func resumeCommand(cmd *cobra.Command, token string) string {
+	parts := []string{"pacto init"}
+	cmd.Flags().Visit(func(f *pflag.Flag) {
+		switch v := f.Value.(type) {
+		case pflag.SliceValue:
+			for _, s := range v.GetSlice() {
+				parts = append(parts, "--"+f.Name, shellWord(s))
+			}
+		default:
+			switch {
+			case f.Name == "continue":
+			case f.Value.Type() == "bool" && f.Value.String() == "true":
+				parts = append(parts, "--"+f.Name)
+			case f.Value.Type() == "bool":
+				parts = append(parts, "--"+f.Name+"=false")
+			default:
+				parts = append(parts, "--"+f.Name, shellWord(f.Value.String()))
+			}
+		}
+	})
+	return strings.Join(append(parts, "--continue", token), " ")
+}
+
+// shellWord quotes s for a POSIX shell when it holds anything but plain
+// path characters.
+func shellWord(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_./:=,@") == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

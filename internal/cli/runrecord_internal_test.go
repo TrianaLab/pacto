@@ -104,8 +104,7 @@ func runRoot(t *testing.T, d deps, out io.Writer, args ...string) (string, strin
 	}
 	root.SetOut(out)
 	root.SetErr(stderr)
-	root.SetArgs(args)
-	err := root.Execute()
+	err := Execute(context.Background(), root, args)
 	return stdout.String(), stderr.String(), err
 }
 
@@ -478,7 +477,7 @@ func TestMCPNeverRecords(t *testing.T) {
 	var got app.PublishOptions
 	var calls []statsCall
 	d := recDeps(publishDeps(&publish.Result{Plan: publishPlan(true), Actions: []string{"pushed"}}, nil, &got), &calls, nil)
-	if _, err := mcpPublish(app.NewService(nil, nil), d)(t.Context(), "svc", "r", false); err != nil || len(calls) != 0 {
+	if _, err := mcpPublish(app.NewService(nil, nil), d)(t.Context(), pactomcp.PublishArgs{Path: "svc", Revision: "r"}, false); err != nil || len(calls) != 0 {
 		t.Fatalf("err %v, calls %d", err, len(calls))
 	}
 	oldDir, newDir := impactDirs(t, true)

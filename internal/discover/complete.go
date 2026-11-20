@@ -22,7 +22,7 @@ import (
 
 // Version is the discovery version an inferred record names. Bump it when
 // what Complete infers from the same folder changes.
-const Version = "3"
+const Version = "5"
 
 // Complete is CompleteIn with the repository root found from dir.
 func Complete(dir string, declared *contract.Contract, in contract.InferredInputs, cat *externalcatalog.Catalog) (*contract.InferredRecord, error) {
@@ -70,6 +70,7 @@ func completeWith(dir, repoDir string, declared *contract.Contract, planned map[
 	c.health()
 	c.configuration()
 	c.dependencies(name)
+	built := c.publish(dir, name)
 	for _, e := range reading.entries {
 		if !c.declared(e.Inferred) {
 			c.entries = append(c.entries, e)
@@ -89,7 +90,7 @@ func completeWith(dir, repoDir string, declared *contract.Contract, planned map[
 			declaredDependency(c.d, strings.TrimSuffix(strings.TrimPrefix(field, "dependencies["), "]"))
 	}, c.declaredExternal, cited)
 	fields = append(fields, xfields...)
-	unidentified = append(append(unidentified, unread...), clients...)
+	unidentified = append(append(append(unidentified, unread...), clients...), built...)
 	slices.SortFunc(fields, func(a, b contract.Inferred) int { return strings.Compare(a.Field, b.Field) })
 	findings := slices.DeleteFunc(slices.Clone(reading.Findings), func(f contract.InferredFinding) bool {
 		return f.Code == CodeAmbiguous && slices.ContainsFunc(reading.ambiguousSpecs[f.Source], c.declaredRef)
@@ -163,10 +164,16 @@ func citeSources(dir, repoDir string, cited map[string]bool) ([]contract.Inferre
 // as computed). A contract before pactoVersion 2.5 is
 // left as read.
 func CompleteBundle(b *contract.Bundle, dir string, in contract.InferredInputs, cat *externalcatalog.Catalog) error {
+	return CompleteBundleIn(b, dir, "", in, cat)
+}
+
+// CompleteBundleIn is CompleteBundle in the repository root repoDir (""
+// finds it, as CompleteIn does).
+func CompleteBundleIn(b *contract.Bundle, dir, repoDir string, in contract.InferredInputs, cat *externalcatalog.Catalog) error {
 	if validation.InferredRecordNeedsRaise(b.Contract.PactoVersion) {
 		return nil
 	}
-	rec, err := Complete(dir, b.Contract, in, cat)
+	rec, err := CompleteIn(dir, repoDir, b.Contract, in, cat)
 	if err != nil || rec == nil {
 		b.FS = contract.WithoutInferredRecord(b.FS)
 		return err

@@ -198,7 +198,7 @@ func TestCompleteNothingInferred(t *testing.T) {
 // capability bound to nothing.
 func TestCompleteHealthWithoutPath(t *testing.T) {
 	dir := writeTree(t, t.TempDir(), map[string]string{"k8s/app.yaml": "apiVersion: apps/v1\nkind: Job\nmetadata: {name: x}\nspec:\n  template:\n    spec:\n      containers:\n        - name: x\n          livenessProbe: {tcpSocket: {port: 80}}\n"})
-	rec := complete(t, dir, nil)
+	rec := complete(t, dir, &contract.Contract{Publish: &contract.Publish{}})
 	if got := fieldNames(rec); !slices.Equal(got, []string{"capabilities[health]", "workload"}) {
 		t.Fatalf("fields = %q", got)
 	}

@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -201,8 +202,8 @@ func TestApplyPublishesOnceAndResumes(t *testing.T) {
 	tools := newTools()
 	res, err := Apply(ctx, reg, tools, in)
 	expect(t, err == nil, "publish: %v", err)
-	got = line(res.Deploy != "", len(res.SBOMs), len(tools.signed))
-	expect(t, got == "true 1 5", "result: %+v signed %v", res, tools.signed)
+	got = line(res.Deploy != "", len(res.SBOMs), len(tools.signed), len(res.Images))
+	expect(t, got == "true 1 6 1", "result: %+v signed %v", res, tools.signed) // the images record is the sixth
 	deploy, _ := reg.Head(ctx, host+"/deploy/payments:1.0.0")
 	ann := deploy.Annotations
 	got = strings.Join([]string{ann[delivery.ContractAnnotation], ann[AnnotationRevision], ann[AnnotationVersion]}, " ")
@@ -343,7 +344,7 @@ func TestVersionRule(t *testing.T) {
 	b.Contract.Capabilities = nil
 	base := bundleOf(host0, "0.2.0", "job")
 	base.Contract.Capabilities = []contract.Capability{{Type: "health"}}
-	ch := versionCheck(ctx, stubBaseline{reg0, base}, b, &Plan{Version: "0.3.0"})
+	ch := versionCheck(ctx, stubBaseline{reg0, base}, Repo(b.Contract.Publish.Bundle), b, &Plan{Version: "0.3.0"})
 	if !ch.Passed || !strings.Contains(ch.Message, "could not tell") {
 		t.Fatalf("potentially breaking: %+v", ch)
 	}
@@ -478,10 +479,6 @@ func TestPlanChecks(t *testing.T) {
 	nopub.Contract.Publish = nil
 	p := MakePlan(ctx, reg, Input{Bundle: nopub})
 	expect(t, !p.Ready && failedCheck(p) == "publish", "no publish section: %+v", p)
-	nosign := bundleOf(host, "1.0.0", workloadService)
-	nosign.Contract.Publish.Sign = nil
-	p = MakePlan(ctx, reg, Input{Bundle: nosign, Revision: "r"})
-	expect(t, failedCheck(p) == "sign", "no sign: %+v", p.Checks)
 	p = MakePlan(ctx, reg, Input{Bundle: b})
 	expect(t, failedCheck(p) == "revision", "no revision: %+v", p.Checks)
 	clash := bundleOf(host, "1.0.0", workloadService)
@@ -495,7 +492,7 @@ func TestPlanChecks(t *testing.T) {
 	docker.Contract.Publish.Artifacts[0].Build = contract.PublishBuild{Dockerfile: &contract.DockerfileBuild{Context: "."}}
 	p = MakePlan(ctx, reg, Input{Bundle: docker, Revision: "r"})
 	expect(t, failedCheck(p) == "sbom" && strings.Contains(p.Checks[2].Message, "writes no SBOM file"), "an SBOM on a dockerfile build: %+v", p.Checks)
-	for _, s := range []contract.PublishSign{{KMS: "awskms:///a"}, {Keyless: true, Identity: "ci@acme", Issuer: "https://issuer"}} {
+	for _, s := range []contract.PublishSign{{KMS: "awskms:///a"}, {Keyless: true, Identity: "ci@acme", Issuer: "https://issuer"}, {Keyless: true}} {
 		c := signCheck(&contract.Publish{Sign: &s})
 		expect(t, c.Passed, "sign %+v: %+v", s, c)
 	}
@@ -780,7 +777,8 @@ func TestApplyNeverSignsForeignContent(t *testing.T) {
 	head, _ := reg.Head(ctx, host+"/payments@"+d)
 	h, _ := v1.NewHash(d)
 	subject := v1.Descriptor{MediaType: types.MediaType(head.MediaType), Size: head.Size, Digest: h}
-	foreign, err := reg.Write(ctx, host+"/payments", sbomArtifact(SPDXType, []byte(`{"forged":true}`), subject, nil))
+	forgedSBOM, _ := referrerArtifact(SPDXType, []byte(`{"forged":true}`), subject, nil)
+	foreign, err := reg.Write(ctx, host+"/payments", forgedSBOM)
 	expect(t, err == nil, "foreign SBOM: %v", err)
 	ours, err := attachSBOM(ctx, reg, tools, contract.PublishSign{Key: "k"}, "sbom/api.spdx.json", host+"/payments", d, "1.0.0", "abc123", &Result{})
 	expect(t, err == nil && ours != foreign, "the foreign SBOM was reused: %s %v", ours, err)
@@ -889,4 +887,83 @@ func TestCodeownersChangeIsNotIdentical(t *testing.T) {
 	pushBundle(t, reg, host, "1.0.0", withOwners("* @acme/a\n"))
 	it := bundleItem(MakePlan(ctx, reg, Input{Bundle: withOwners("* @acme/b\n"), Revision: "abc123"}))
 	expect(t, it.State == Conflict && it.Reason == "only the inferred record changed since 1.0.0, so a patch is enough"+NextVersion, "bundle: %+v", it)
+}
+
+// TestSignCheckNilSignKeyless: a publish section with no sign signs keyless as
+// the identity the CI's OIDC token names, so the plan passes its sign check.
+func TestSignCheckNilSignKeyless(t *testing.T) {
+	host, reg := newRegistry(t)
+	nosign := bundleOf(host, "1.0.0", workloadService)
+	nosign.Contract.Publish.Sign = nil
+	p := MakePlan(context.Background(), reg, Input{Bundle: nosign, Revision: "r"})
+	expect(t, failedCheck(p) == "" && p.Checks[0] == Check{Name: "sign", Passed: true, Message: "signed keyless as the CI identity the OIDC token names"},
+		"no sign: %+v", p.Checks)
+	expect(t, SignOf(nil) == contract.PublishSign{} && SignOf(nosign.Contract.Publish) == contract.PublishSign{}, "the zero signer")
+	expect(t, signMethod(contract.PublishSign{Keyless: true}) == "keyless (identity from the OIDC token)", "method")
+}
+
+// imagesBundle is a 2.5 contract for payments at 1.0.0 publishing only its
+// bundle to host.
+func imagesBundle(host string) *contract.Bundle {
+	y := "pactoVersion: \"2.5\"\nservice: {name: payments, version: 1.0.0}\npublish:\n  bundle: oci://" + host + "/pacto/payments\n  sign: {key: cosign.key}\n"
+	c, err := contract.Parse(strings.NewReader(y))
+	if err != nil {
+		panic(err)
+	}
+	return &contract.Bundle{Contract: c, RawYAML: []byte(y), FS: fstest.MapFS{"pacto.yaml": {Data: []byte(y)}}}
+}
+
+// TestImagesReferrerDeterministic: the images record lists each image,
+// sorted by name, as a referrer of the bundle signed with it. A second run
+// that finds no record it signed writes the same bytes again, so the bundle
+// still has one images record; a run that finds it signed reuses it.
+func TestImagesReferrerDeterministic(t *testing.T) {
+	ctx := context.Background()
+	host, reg := newRegistry(t)
+	supplied := []ImageRecord{
+		{Name: "worker", Repository: "r.io/worker", Digest: "sha256:" + strings.Repeat("b", 64), Source: "k8s/worker.yaml:9"},
+		{Name: "image", Repository: "r.io/api", Digest: "sha256:" + strings.Repeat("a", 64), Source: "flag:--image"},
+	}
+	in := Input{Bundle: imagesBundle(host), Revision: "abc123", Images: supplied}
+	tools := newTools()
+	res, err := Apply(ctx, reg, tools, in)
+	expect(t, err == nil && res.ImagesRecord != "", "publish: %v %+v", err, res)
+	expect(t, tools.signed[host+"/pacto/payments@"+res.ImagesRecord], "the images record is not signed: %v", tools.signed)
+	body, _, err := reg.Layer(ctx, host+"/pacto/payments", res.ImagesRecord)
+	want := `{"images":[{"name":"image","repository":"r.io/api","digest":"sha256:` + strings.Repeat("a", 64) + `","source":"flag:--image"},` +
+		`{"name":"worker","repository":"r.io/worker","digest":"sha256:` + strings.Repeat("b", 64) + `","source":"k8s/worker.yaml:9"}]}`
+	expect(t, err == nil && string(body) == want, "body %s %v", body, err)
+	refs := ImageRefs(res.Images)
+	expect(t, slices.Equal(refs, []string{"r.io/api@sha256:" + strings.Repeat("a", 64), "r.io/worker@sha256:" + strings.Repeat("b", 64)}), "refs %v", refs)
+	again, err := Apply(ctx, reg, tools, in)
+	expect(t, err == nil && len(again.Actions) == 0 && again.ImagesRecord == res.ImagesRecord, "resume wrote again: %v %v", err, again.Actions)
+	fresh, err := Apply(ctx, reg, newTools(), in)
+	expect(t, err == nil && fresh.ImagesRecord == res.ImagesRecord, "two runs, two records: %s %s %v", res.ImagesRecord, fresh.ImagesRecord, err)
+	have, _ := reg.Referrers(ctx, host+"/pacto/payments", res.Digests[BundleItem], ImagesType)
+	expect(t, slices.Equal(have, []string{res.ImagesRecord}), "referrers %v", have)
+}
+
+// TestPublishWithoutImagesWritesNoImagesRecord: a publish that deploys no
+// image attaches no images record.
+func TestPublishWithoutImagesWritesNoImagesRecord(t *testing.T) {
+	host, reg := newRegistry(t)
+	ctx := context.Background()
+	res, err := Apply(ctx, reg, newTools(), Input{Bundle: imagesBundle(host), Revision: "abc123"})
+	expect(t, err == nil && res.ImagesRecord == "" && res.Images == nil, "publish: %v %+v", err, res)
+	have, err := reg.Referrers(ctx, host+"/pacto/payments", res.Digests[BundleItem], ImagesType)
+	expect(t, err == nil && len(have) == 0, "referrers %v %v", have, err)
+}
+
+// TestImagesRecordFailures: an images record that cannot be attached fails
+// the publish before any tag is written.
+func TestImagesRecordFailures(t *testing.T) {
+	ctx := context.Background()
+	for _, fail := range []string{"referrers", "head-sbom"} {
+		host, client := newRegistry(t)
+		in := Input{Bundle: imagesBundle(host), Revision: "abc123", Images: []ImageRecord{{Name: "image", Repository: "r.io/x", Digest: "sha256:" + strings.Repeat("a", 64)}}}
+		_, err := Apply(ctx, brokenRegistry{client, fail}, newTools(), in)
+		expect(t, err != nil && strings.Contains(err.Error(), "the images record"), "%s: %v", fail, err)
+		tags, _ := client.Tags(ctx, host+"/pacto/payments")
+		expect(t, len(tags) == 0, "%s: tagged %v", fail, tags)
+	}
 }

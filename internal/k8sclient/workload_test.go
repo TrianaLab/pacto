@@ -11,7 +11,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 
-	"github.com/trianalab/pacto/v4/internal/workloadshape"
+	"github.com/trianalab/pacto/v4/pkg/workloadshape"
 )
 
 func TestWorkloadGVRsCoverKinds(t *testing.T) {

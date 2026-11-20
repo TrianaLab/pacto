@@ -323,17 +323,7 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 		ReconciledAt:        observed,
 		CreatedAt:           parseK8sTime(item.Metadata.CreationTimestamp),
 	}
-	if tg := item.Spec.Target; tg != nil {
-		// The CRD's documented default: the workload is the Deployment named
-		// like the Service.
-		ref := fleet.WorkloadRef{Kind: "Deployment", Name: tg.ServiceName}
-		if w := tg.WorkloadRef; w != nil {
-			ref = fleet.WorkloadRef{Kind: cmp.Or(w.Kind, ref.Kind), Name: cmp.Or(w.Name, ref.Name)}
-		}
-		if ref.Name != "" {
-			t.Workload = &ref
-		}
-	}
+	t.Workload = item.Spec.Target.Workload()
 	if st.EvaluationCoverage != nil {
 		t.Coverage = &fleet.Coverage{
 			Evaluated: int(st.EvaluationCoverage.Evaluated),
@@ -412,13 +402,7 @@ type k8sItem struct {
 
 // k8sSpec decodes spec.target: the Service and workload a Pacto observes.
 type k8sSpec struct {
-	Target *struct {
-		ServiceName string `json:"serviceName"`
-		WorkloadRef *struct {
-			Kind string `json:"kind"`
-			Name string `json:"name"`
-		} `json:"workloadRef"`
-	} `json:"target"`
+	Target *delivery.PactoTargetView `json:"target"`
 }
 
 type k8sMetadata struct {

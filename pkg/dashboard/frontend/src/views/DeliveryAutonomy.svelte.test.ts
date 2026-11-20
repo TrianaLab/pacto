@@ -22,7 +22,8 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 import { ApiError } from '../lib/api.ts';
 import { session as auth, loadSession } from '../lib/session.svelte.ts';
 import { deliveryAutonomyUrl } from '../lib/router.ts';
-import { shadowLabel, heldButRan, levelLabel, levelHelp, proposalText, blockerLabel, blockerService, changeSummary, typeLabel } from '../lib/delivery.ts';
+import { shadowLabel, heldButRan, levelLabel, levelHelp, proposalText, blockerLabel, blockerService, typeLabel } from '../lib/delivery.ts';
+import { changeSummary } from '../lib/changeFigure.ts';
 // @ts-expect-error — Svelte component has no declaration file
 import DeliveryAutonomyView from './DeliveryAutonomyView.svelte';
 // @ts-expect-error — Svelte component has no declaration file

@@ -93,6 +93,7 @@ func deliveryDeps(user string, dynErr error) deps {
 		)
 		// The caller may update every workload unless a test says otherwise.
 		c.PrependReactor("create", "selfsubjectaccessreviews", mayUpdateWorkloads)
+		c.PrependReactor("create", "subjectaccessreviews", mayUpdateWorkloads)
 		c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"userInfo": map[string]any{
 				"username": user, "groups": []any{"team-payments"},
@@ -529,9 +530,9 @@ func TestDeliveryApproveFreshLogin(t *testing.T) {
 	fail(func(d *deps) {
 		d.clusterConfig = func() (*rest.Config, error) { return nil, errors.New("no kubeconfig") }
 	}, "no kubeconfig")
-	fail(func(d *deps) { t.Setenv(trustEnv, "/nonexistent/trust.pem") }, "trust")
+	fail(func(d *deps) { t.Setenv(app.TrustEnv, "/nonexistent/trust.pem") }, "trust")
 	// The issuer's CA bundle is read before the login starts.
-	t.Setenv(trustEnv, "")
+	t.Setenv(app.TrustEnv, "")
 	if _, err := runDelivery(t, approveDeps("alice", nil), "text", "approve", "-n", "prod", "held", "--oidc-issuer-url", "https://idp",
 		"--oidc-ca-file", "/nonexistent/ca.crt"); err == nil || !strings.Contains(err.Error(), "CA bundle") {
 		t.Fatalf("an unreadable CA bundle: %v", err)
@@ -719,14 +720,14 @@ func TestBlameOldRecordNotRecorded(t *testing.T) {
 }
 
 // TestPrintPlanApplierLine: a promote plan names its applier from the
-// pacto.applier citation, observed, declared and contract kept apart, or says
+// pacto.applier citation, observed and declared kept apart, or says
 // the promoter did not report one.
 func TestPrintPlanApplierLine(t *testing.T) {
 	var b strings.Builder
 	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: []delivery.Verdict{{Gate: delivery.GateApplier,
 		Result: delivery.Pass, Citation: map[string]string{"observed": "Argo CD (Application payments, tracking annotation)",
-			"declared": "Application payments", "contract": "auto", "state": "Adopted"}}}}})
-	if want := "applier:   Argo CD (Application payments, tracking annotation), Adopted; declared Application payments; contract auto\n"; !strings.Contains(b.String(), want) {
+			"declared": "Application payments", "state": "Adopted"}}}}})
+	if want := "applier:   Argo CD (Application payments, tracking annotation), Adopted; declared Application payments\n"; !strings.Contains(b.String(), want) {
 		t.Fatalf("want %q in\n%s", want, b.String())
 	}
 	b.Reset()

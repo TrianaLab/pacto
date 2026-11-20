@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/trianalab/pacto/v4/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/workloadshape"
 )
 
 // inferredInput is one workload a source reported, with the cluster its
@@ -70,13 +71,14 @@ func addInferredServices(snap *FleetSnapshot, inputs []inferredInput) {
 
 // droppedFieldsPhrase marks the per-source count of workloads whose fields
 // were left out, so a restricted view can rebuild it.
-const droppedFieldsPhrase = " held a control character or a value past its bound in their image, ports or probes"
+const droppedFieldsPhrase = " held a control character or a value past its bound in their image, ports, probes, group or repositories"
 
-// inferredSnapshotLimitations is one DECLARATION_UNVERIFIED and one count of
-// dropped fields per source, from the state each inferred record carries:
-// one per record would fill every answer's bounded limitations.
+// inferredSnapshotLimitations is one DECLARATION_UNVERIFIED, one count of
+// dropped fields and one count of ungrouped workloads per source, from the
+// state each inferred record carries: one per record would fill every
+// answer's bounded limitations.
 func inferredSnapshotLimitations(snap *FleetSnapshot) []Limitation {
-	unverified, namespaces, dropped := map[string]int{}, map[string]map[string]bool{}, map[string]int{}
+	unverified, namespaces, dropped, ambiguous := map[string]int{}, map[string]map[string]bool{}, map[string]int{}, map[string]int{}
 	for _, s := range snap.Services {
 		w := s.Workload
 		if w == nil {
@@ -90,6 +92,7 @@ func inferredSnapshotLimitations(snap *FleetSnapshot) []Limitation {
 			namespaces[w.Source][w.Cluster+"/"+w.Namespace] = true
 		}
 		dropped[w.Source] += b2i(len(w.Dropped) > 0)
+		ambiguous[w.Source] += b2i(w.Group != nil && w.Group.Ambiguous != "")
 	}
 	var out []Limitation
 	for _, src := range slices.Sorted(maps.Keys(unverified)) {
@@ -104,6 +107,14 @@ func inferredSnapshotLimitations(snap *FleetSnapshot) []Limitation {
 			out = append(out, Limitation{
 				Code: LimitationSourceRecordInvalid, Source: src,
 				Message: "workloads from source " + src + " (" + strconv.Itoa(dropped[src]) + ")" + droppedFieldsPhrase + "; those fields were left out",
+			})
+		}
+	}
+	for _, src := range slices.Sorted(maps.Keys(ambiguous)) {
+		if ambiguous[src] > 0 {
+			out = append(out, Limitation{
+				Code: LimitationServiceGroupAmbiguous, Source: src,
+				Message: strconv.Itoa(ambiguous[src]) + " workloads from source " + src + " stay ungrouped because two groups of one rule claim them",
 			})
 		}
 	}
@@ -151,8 +162,8 @@ func mergeInferred(snap *FleetSnapshot, existing, rec *ServiceRecord, source str
 	}
 }
 
-// declarationVerified reports whether a Kubernetes source read the Pacto
-// targets of a (cluster, namespace) completely: it read every namespace and is
+// declarationVerified reports whether a Kubernetes source or a target snapshot
+// read the Pacto targets of a (cluster, namespace) completely: it read every namespace and is
 // available, it read that namespace and names no failure there, or it found
 // no Pacto CRD, so no Pacto target exists there.
 func declarationVerified(snap *FleetSnapshot) func(cluster, namespace string) bool {
@@ -176,7 +187,7 @@ func declarationVerified(snap *FleetSnapshot) func(cluster, namespace string) bo
 	}
 	return func(cluster, namespace string) bool {
 		return slices.ContainsFunc(snap.Sources, func(st SourceState) bool {
-			return st.Kind == SourceKindKubernetes && (!snap.clusterKeyed || clusterOf[st.ID] == cluster) && read(st, namespace)
+			return (st.Kind == SourceKindKubernetes || st.Kind == SourceKindTargetSnapshot) && (!snap.clusterKeyed || clusterOf[st.ID] == cluster) && read(st, namespace)
 		})
 	}
 }
@@ -200,7 +211,7 @@ func inferredServiceRecord(in inferredInput, multi bool) (*ServiceRecord, []Limi
 	}
 	name := K8sCaller(cluster, r.Namespace, r.Kind, r.Name)
 	w := &InferredWorkload{Source: in.source, Cluster: in.cluster, Namespace: r.Namespace, Kind: r.Kind, Name: r.Name, ObservedAt: copyTime(r.ObservedAt)}
-	w.Dropped = readShape(w, r)
+	w.Dropped = append(readShape(w, r), readGroup(w, r, cluster)...)
 	return &ServiceRecord{
 		Key: NewServiceKey(name), Name: name, Declaration: DeclarationInferred, Workload: w,
 		Sources: []string{in.source}, BusinessDomainUnknown: true, SummaryUnknown: true,
@@ -236,6 +247,114 @@ func readShape(w *InferredWorkload, r RawInferredService) (dropped []string) {
 	return dropped
 }
 
+// groupRuleWorkload is the fallback group: the workload alone.
+const groupRuleWorkload = "workload"
+
+// noGroupingFrom is where the fallback group was read from.
+const noGroupingFrom = "no grouping label or annotation"
+
+// droppedGroupFrom is where the fallback group was read from when the group a
+// source sent was left out.
+const droppedGroupFrom = "a grouping value Pacto read but left out (invalid)"
+
+// groupRules are the rules a group may name, in precedence order. The first
+// four are pkg/workloadmanager's manager names.
+var groupRules = []string{"argocd", "flux-kustomization", "flux-helmrelease", "helm", "part-of", "instance", groupRuleWorkload}
+
+// repositoryKinds are the GitOps kinds a repository may be read from.
+var repositoryKinds = []string{"Application", "GitRepository", "Kustomization", "HelmRelease"}
+
+// readGroup sets the group, repositories and repository reason of r that
+// pass cleanText on w and returns the field paths of those it dropped. A
+// group that fails, or none, becomes the workload's own group, rebuilt from
+// its validated identity; cluster prefixes the key in a snapshot with several
+// clusters.
+func readGroup(w *InferredWorkload, r RawInferredService, cluster string) (dropped []string) {
+	g := InferredGroup{Rule: groupRuleWorkload, Namespace: w.Namespace, Name: w.Kind + "/" + w.Name, From: noGroupingFrom}
+	switch src := r.Group; {
+	case src == nil:
+	case src.Rule == groupRuleWorkload && cleanText(src.Ambiguous, 2*MaxInferredPathRunes):
+		g.Ambiguous = src.Ambiguous
+	case validGroup(*src):
+		g = InferredGroup{Rule: src.Rule, Namespace: src.Namespace, Name: src.Name, From: src.From}
+	default:
+		g.From = droppedGroupFrom
+		dropped = append(dropped, "group")
+	}
+	g.Key = strings.Join([]string{g.Rule, g.Namespace, g.Name}, "/")
+	if cluster != "" {
+		g.Key = cluster + "/" + g.Key
+	}
+	g.Label = groupLabel(g)
+	w.Group = &g
+	return append(dropped, readRepositories(w, r)...)
+}
+
+// validGroup reports whether a group other than the workload's own may be
+// stored.
+func validGroup(g InferredGroup) bool {
+	return g.Rule != groupRuleWorkload && slices.Contains(groupRules, g.Rule) && g.Name != "" && g.Ambiguous == "" &&
+		cleanText(g.Namespace, MaxInferredPathRunes) && cleanText(g.Name, MaxInferredPathRunes) && cleanText(g.From, MaxInferredPathRunes)
+}
+
+// readRepositories copies the first MaxInferredRepositories repositories of
+// r that may be stored, and its repository reason, into w and returns the
+// field paths of those it dropped.
+func readRepositories(w *InferredWorkload, r RawInferredService) (dropped []string) {
+	for i, repo := range r.Repositories {
+		if i < MaxInferredRepositories && validRepository(repo) {
+			w.Repositories = append(w.Repositories, repo)
+		} else {
+			dropped = append(dropped, "repositories["+strconv.Itoa(i)+"]")
+		}
+	}
+	if cleanText(r.RepositoryUnknown, 2*MaxInferredPathRunes) {
+		w.RepositoryUnknown = r.RepositoryUnknown
+		for _, sc := range r.RepositoryUnknownFrom {
+			// An object Pacto cannot check hides the reason from every viewer.
+			if !cleanText(sc.Namespace, MaxInferredPathRunes) || !slices.Contains(repositoryKinds, sc.Kind) {
+				sc = WorkloadScope{}
+			}
+			w.repositoryUnknownFrom = append(w.repositoryUnknownFrom, sc)
+		}
+	} else {
+		dropped = append(dropped, "repositoryUnknown")
+	}
+	return dropped
+}
+
+// validRepository reports whether a repository may be stored.
+func validRepository(r InferredRepository) bool {
+	return r.URL != "" && cleanText(r.URL, MaxInferredImageRunes) && cleanText(r.Path, MaxInferredPathRunes) &&
+		cleanText(r.From, MaxInferredPathRunes) && cleanText(r.Namespace, MaxInferredPathRunes) && slices.Contains(repositoryKinds, r.Kind)
+}
+
+// groupLabel is the one wording of a group, such as "Argo CD Application
+// shop/cart".
+func groupLabel(g InferredGroup) string {
+	where := g.Name
+	if g.Namespace != "" {
+		where = g.Namespace + "/" + g.Name
+	}
+	switch g.Rule {
+	case "argocd":
+		return "Argo CD Application " + where
+	case "flux-kustomization":
+		return "Flux Kustomization " + where
+	case "flux-helmrelease":
+		return "Flux HelmRelease " + where
+	case "helm":
+		return "Helm release " + where
+	case "part-of", "instance":
+		return g.Rule + " " + g.Name + " in " + g.Namespace
+	case groupRuleWorkload:
+		if g.Ambiguous != "" {
+			return "Ungrouped"
+		}
+	}
+	return "This workload only"
+}
+
 // cleanText reports whether an untrusted value may be stored: at most limit
 // runes and no control character.
 func cleanText(v string, limit int) bool {
@@ -262,6 +381,12 @@ func inferredLimitations(s *ServiceRecord) []Limitation {
 		out = append(out, Limitation{
 			Code: LimitationSourceRecordInvalid, Source: w.Source,
 			Message: "workload " + s.Name + " " + field + " holds a control character or is too long; it was left out",
+		})
+	}
+	if w.Group != nil && w.Group.Ambiguous != "" {
+		out = append(out, Limitation{
+			Code: LimitationServiceGroupAmbiguous, Source: w.Source,
+			Message: s.Name + " stays ungrouped: " + w.Group.Ambiguous,
 		})
 	}
 	return out
@@ -371,6 +496,31 @@ func (w *InferredWorkload) Lines() []string {
 		}
 		out = append(out, line+from(p.From))
 	}
+	return append(out, w.groupLines(from)...)
+}
+
+// groupLines renders the group and repositories of w: where Pacto read each,
+// or why it stays ungrouped or its repository is unknown. The group's key is
+// on a line of its own, so a person can copy it into the group filter.
+func (w *InferredWorkload) groupLines(from func(string) string) []string {
+	var out []string
+	switch g := w.Group; {
+	case g == nil:
+	case g.Ambiguous != "":
+		out = append(out, "  ungrouped: "+g.Ambiguous)
+	default:
+		out = append(out, "  group "+g.Label+from(g.From), "  group key "+g.Key+" (pacto fleet entities --group takes it)")
+	}
+	for _, r := range w.Repositories {
+		line := "  repository " + r.URL
+		if r.Path != "" {
+			line += " path " + r.Path
+		}
+		out = append(out, line+" (from "+r.From+")")
+	}
+	if w.RepositoryUnknown != "" {
+		out = append(out, "  repository unknown: "+w.RepositoryUnknown)
+	}
 	return out
 }
 
@@ -401,4 +551,31 @@ func (d *ServiceDetailData) InferredLines(asOf time.Time) []string {
 		out = append(out, "  - ["+l.Limitation.Code+"] "+l.Limitation.Message)
 	}
 	return out
+}
+
+// InferredServiceOf is the inferred service of one decoded workload object
+// (Kind is Deployment, StatefulSet, DaemonSet or CronJob): its identity, its
+// creation time and its shape, each value's path prefixed with the kind. The
+// caller sets the group and repositories it can read.
+func InferredServiceOf(kind string, obj map[string]any, now time.Time) RawInferredService {
+	meta, _ := obj["metadata"].(map[string]any)
+	name, _ := meta["name"].(string)
+	ns, _ := meta["namespace"].(string)
+	in := RawInferredService{Namespace: ns, Kind: kind, Name: name, ObservedAt: &now}
+	if created, _ := meta["creationTimestamp"].(string); created != "" {
+		if t, err := time.Parse(time.RFC3339, created); err == nil {
+			in.CreatedAt = &t
+		}
+	}
+	shape := workloadshape.ReadWorkloadShape(kind, name, obj)
+	if shape.Image != "" {
+		in.Image = &InferredValue{Value: shape.Image, From: kind + " " + shape.ImageFrom}
+	}
+	for _, p := range shape.Ports {
+		in.Ports = append(in.Ports, InferredPort{Port: p.Number, Name: p.Name, Protocol: p.Protocol, From: kind + " " + p.From})
+	}
+	for _, p := range shape.Probes {
+		in.Probes = append(in.Probes, InferredProbe{Kind: p.Kind, Path: p.Path, Port: p.Port, From: kind + " " + p.From})
+	}
+	return in
 }

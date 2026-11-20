@@ -23,6 +23,10 @@ type nsFakeClient struct {
 	asked []string
 }
 
+func (f *nsFakeClient) PreferredVersions(context.Context, ...string) (map[string]string, error) {
+	return nil, errors.New("the CRD source never discovers GitOps APIs")
+}
+
 func (f *nsFakeClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
 	return &k8sclient.CRDDiscovery{Found: f.found, ResourceName: "pactos"}, nil
 }

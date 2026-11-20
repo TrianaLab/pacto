@@ -7,6 +7,9 @@ release:
   name: d
   namespace: pacto-system
 set:
+  # This suite pins exact argument and volume lists; the fingerprints
+  # defaults have their own suite (fingerprints_test.yaml).
+  fingerprints: null
   delivery.enabled: true
 capabilities:
   apiVersions:
@@ -43,6 +46,9 @@ tests:
             - --leader-elect=true
             - --poll=30s
             - --streams-repository=registry.example/pacto/streams
+            - --approvals-repository=registry.example/pacto/streams-approvals
+            - --admission-policies=d-pacto-operator-delivery-approval
+            - --identities=/etc/pacto/identities/policy.json
             - --signing-key-file=/etc/pacto/signing/key.pem
         template: templates/delivery/recorder.yaml
         documentSelector: {path: kind, value: Deployment}
@@ -68,6 +74,50 @@ tests:
             secret:
               secretName: recorder-push
               items: [{key: .dockerconfigjson, path: config.json}]
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+
+  - it: passes a separate approvals repository and guards on-behalf signing by the approval policy
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.approvalsRepository: registry.example/pacto/approvals
+      delivery.recorder.signing.kms: awskms:///alias/r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --approvals-repository=registry.example/pacto/approvals
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --admission-policies=d-pacto-operator-delivery-approval
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+
+  - it: reads the identity policy for the approver signers it verifies keyless approvals against
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.kms: awskms:///alias/r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --identities=/etc/pacto/identities/policy.json
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: identities, mountPath: /etc/pacto/identities, readOnly: true}
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: identities, configMap: {name: pacto-delivery-identities}}
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - exists:
+          path: spec.template.metadata.annotations["checksum/identities"]
         template: templates/delivery/recorder.yaml
         documentSelector: {path: kind, value: Deployment}
 
@@ -101,7 +151,10 @@ tests:
           content: {apiGroups: [source.toolkit.fluxcd.io], resources: [ocirepositories], verbs: [get]}
       - contains:
           path: rules
-          content: {apiGroups: [delivery.pacto.trianalab.io], resources: [stages/status, operations/status], verbs: [get, update]}
+          content: {apiGroups: [delivery.pacto.trianalab.io], resources: [stages/status, operations/status, approvals/status], verbs: [get, update]}
+      - contains:
+          path: rules
+          content: {apiGroups: [admissionregistration.k8s.io], resources: [validatingadmissionpolicies, validatingadmissionpolicybindings], verbs: [get]}
 
   - it: reads a HelmRelease Stage's applier when HelmReleases are served
     set:
@@ -204,6 +257,79 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content: {name: PACTO_INSECURE_REGISTRIES, value: "reg:5000"}
+
+  - it: publishes the target snapshot to <registry>/pacto-targets and names its publisher
+    set:
+      registry: ghcr.io/acme
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.kms: awskms:///alias/pacto
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --targets-repository=ghcr.io/acme/pacto-targets
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICE_ACCOUNT, valueFrom: {fieldRef: {fieldPath: spec.serviceAccountName}}}
+
+  - it: publishes no target snapshot without the top-level registry value
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.kms: awskms:///alias/pacto
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[8]
+          pattern: targets-repository
+      - lengthEqual:
+          path: spec.template.spec.containers[0].args
+          count: 8
+
+  - it: carries the Evidence Server targets in the target snapshot when the Evidence Server is on
+    set:
+      registry: ghcr.io/acme
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects: ["oci://registry.example/contracts@sha256:0000000000000000000000000000000000000000000000000000000000000000"]
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.kms: awskms:///alias/pacto
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-url=http://pacto-evidence.pacto-system.svc:8686
+
+  - it: reads no Evidence Server without one
+    set:
+      registry: ghcr.io/acme
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.kms: awskms:///alias/pacto
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-url=http://pacto-evidence.pacto-system.svc:8686
+      - lengthEqual:
+          path: spec.template.spec.containers[0].args
+          count: 9
+
+  - it: refuses a registry with a scheme
+    set:
+      registry: oci://x
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?i)registry.*does not match pattern"
 
   - it: refuses no streams repository
     set:

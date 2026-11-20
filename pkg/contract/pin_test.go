@@ -153,3 +153,44 @@ func TestPinVersionRefusesNonMapping(t *testing.T) {
 		}
 	}
 }
+
+// TestPinServiceVersion: the derived version is declared under service, as a
+// line where the text allows it and re-encoded otherwise; a declared version
+// is left as written.
+func TestPinServiceVersion(t *testing.T) {
+	for raw, want := range map[string]string{
+		"":                                        "service:\n  version: 1.4.3\n",
+		"pactoVersion: \"2.5\"\n":                 "service:\n  version: 1.4.3\npactoVersion: \"2.5\"\n",
+		"service:\n  name: x\n":                   "service:\n  version: 1.4.3\n  name: x\n",
+		"service:\r\n    name: x\r\n":             "service:\r\n    version: 1.4.3\r\n    name: x\r\n",
+		"\ufeffservice:\n  name: x\n":             "\ufeffservice:\n  version: 1.4.3\n  name: x\n",
+		"service: {name: x}\n":                    "service: {name: x, version: 1.4.3}\n",
+		"{service: {name: x}}":                    "{service: {name: x, version: 1.4.3}}\n",
+		"{pactoVersion: \"2.5\"}":                 "{pactoVersion: \"2.5\", service: {version: 1.4.3}}\n",
+		"service:\n":                              "service:\n  version: 1.4.3\n",
+		"service:\n  name: x\n  version: 1.0.0\n": "service:\n  name: x\n  version: 1.0.0\n",
+	} {
+		out, err := contract.PinServiceVersion([]byte(raw), "1.4.3")
+		if err != nil {
+			t.Errorf("%q: %v", raw, err)
+			continue
+		}
+		var doc struct {
+			Service struct{ Version string } `yaml:"service"`
+		}
+		if err := yaml.Unmarshal(bytes.TrimPrefix(out, []byte("\ufeff")), &doc); err != nil {
+			t.Errorf("%q pinned to %q: %v", raw, out, err)
+		}
+		if !strings.Contains(raw, "1.0.0") && doc.Service.Version != "1.4.3" {
+			t.Errorf("%q pinned to %q: version %q", raw, out, doc.Service.Version)
+		}
+		if string(out) != want {
+			t.Errorf("%q: got %q, want %q", raw, out, want)
+		}
+	}
+	for _, raw := range []string{"- a\n", "service: [a]\n", "service: x\n", "a: [\n"} {
+		if _, err := contract.PinServiceVersion([]byte(raw), "1.4.3"); err == nil {
+			t.Errorf("%q: pinned", raw)
+		}
+	}
+}

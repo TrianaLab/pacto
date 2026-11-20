@@ -26,9 +26,12 @@ Present in every cluster-wide install, including one with every managed componen
 | `"" (core)` | `pods` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `services` | `get`, `list`, `watch` | *not name-restricted* |
 | `apps` | `deployments`, `replicasets`, `statefulsets`, `daemonsets` | `get`, `list`, `watch` | *not name-restricted* |
+| `argoproj.io` | `applications` | `list` | *not name-restricted* |
 | `batch` | `cronjobs`, `jobs` | `get`, `list`, `watch` | *not name-restricted* |
 | `discovery.k8s.io` | `endpointslices` | `get`, `list`, `watch` | *not name-restricted* |
 | `gateway.networking.k8s.io` | `httproutes` | `get`, `list`, `watch` | *not name-restricted* |
+| `helm.toolkit.fluxcd.io` | `helmreleases` | `list` | *not name-restricted* |
+| `kustomize.toolkit.fluxcd.io` | `kustomizations` | `list` | *not name-restricted* |
 | `networking.k8s.io` | `ingresses` | `get`, `list`, `watch` | *not name-restricted* |
 | `pacto.trianalab.io` | `noderuntimeobservations` | `delete`, `get`, `list`, `watch` | *not name-restricted* |
 | `pacto.trianalab.io` | `pactorevisions` | `create`, `get`, `list`, `watch` | *not name-restricted* |
@@ -37,6 +40,7 @@ Present in every cluster-wide install, including one with every managed componen
 | `pacto.trianalab.io` | `pactos/finalizers` | `update` | *not name-restricted* |
 | `pacto.trianalab.io` | `pactos/status` | `get`, `patch`, `update` | *not name-restricted* |
 | `rbac.authorization.k8s.io` | `clusterroles`, `clusterrolebindings` | `delete`, `get` | `pacto-dashboard` |
+| `source.toolkit.fluxcd.io` | `gitrepositories` | `list` | *not name-restricted* |
 
 No ClusterRole grants Secrets. The operator reads a pull Secret or a Secret that backs a configuration with `get` in the release namespace and in each of `controller.watchNamespaces`, and anywhere else only the Secrets `controller.secretGrants` names (`namespace/name`), each through a Role limited to that Secret.
 
@@ -134,9 +138,13 @@ Rendered with `--set 'controller.watchNamespaces={payments,ledger}'`. The chart 
 | --- | --- | --- | --- |
 | `"" (core)` | `services` | `get`, `list`, `watch` | *not name-restricted* |
 | `apps` | `deployments`, `statefulsets`, `daemonsets` | `list` | *not name-restricted* |
+| `argoproj.io` | `applications` | `list` | *not name-restricted* |
 | `authorization.k8s.io` | `localsubjectaccessreviews` | `create` | *not name-restricted* |
 | `batch` | `cronjobs` | `list` | *not name-restricted* |
+| `helm.toolkit.fluxcd.io` | `helmreleases` | `list` | *not name-restricted* |
+| `kustomize.toolkit.fluxcd.io` | `kustomizations` | `list` | *not name-restricted* |
 | `pacto.trianalab.io` | `pactos`, `pactorevisions` | `get`, `list`, `watch` | *not name-restricted* |
+| `source.toolkit.fluxcd.io` | `gitrepositories` | `list` | *not name-restricted* |
 
 `pacto-operator-watch` (`Role` in each watched namespace):
 

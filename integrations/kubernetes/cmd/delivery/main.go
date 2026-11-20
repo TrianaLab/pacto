@@ -14,15 +14,19 @@ See LICENSE file in the project root for full license text.
 package main
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"path"
 	"slices"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/sigstore/sigstore-go/pkg/root"
+	"github.com/sigstore/sigstore-go/pkg/tuf"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -43,7 +47,9 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing"
+	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
 )
 
 var version = "dev"
@@ -97,6 +103,30 @@ func runPromoter(args []string) error {
 	upstreamTrust := fs.String("upstream-trust-config", "",
 		"A trust config (YAML) of the recorder keys of other clusters, per stream glob. "+
 			"Stages with candidates.upstreamRecords promote only on records these keys signed.")
+	pubRegistry := fs.String("publishers-registry", "",
+		"The registry (host/org) the installation's services publish to. Stages with candidates.registry accept a "+
+			"version only when its Sigstore signature comes from the publisher rule derived from it: on ghcr.io and "+
+			"registry.gitlab.com the organization's CI on the default branch. "+
+			"Empty: no rule, so only the signed delivery policy or a person's confirmation (a pin) accepts a signer.")
+	pubBranch := fs.String("publishers-default-branch", "main",
+		"The default branch whose CI the derived publisher rule accepts.")
+	pubRoot := fs.String("publishers-trusted-root", "",
+		"A Sigstore trusted root (trusted_root.json) publisher signatures must chain to. Empty fetches public-good "+
+			"Sigstore's root through TUF, caching nothing on disk.")
+	pubPolicy := fs.String("publishers-policy", "",
+		"The signed delivery policy (repository:tag) whose publisher rules replace the derived rule once verified. "+
+			"One that never verified gives no rule: only pinned signers are accepted. Empty: none.")
+	pubPolicySigners := fs.String("publishers-policy-signers", "",
+		"A trust config (YAML) whose role: policy keys sign the delivery policy. Required with --publishers-policy.")
+	recordsRepo := fs.String("records-repository", "",
+		"The recorder's streams repository (host/path), where it writes the identity pins of confirmed signers. "+
+			"Empty reads no pins.")
+	pinSignerConfig := fs.String("pin-signer-config", "",
+		"A trust config (YAML) naming this cluster's recorder key or keyless identity for streams pins/*/*: "+
+			"the pins the recorder writes verify under it. Empty: no new signer can be confirmed.")
+	recordTrustConfig := fs.String("record-trust-config", "",
+		"The recorder's trust config (YAML, delivery.recorder.trust): only its keys that list an explicit pins/ "+
+			"stream also verify pins.")
 	admissionPolicies := fs.String("admission-policies", "",
 		"Comma-separated ValidatingAdmissionPolicies (each with a binding of the same name) the promoter trusts. "+
 			"While one is missing, fails open or is not bound with Deny to every object, no operation is admitted, "+
@@ -107,6 +137,10 @@ func runPromoter(args []string) error {
 	statsDockerConfig := fs.String("stats-docker-config", "",
 		"A directory holding a config.json with push credentials for --stats-repository. "+
 			"Empty uses the promoter's own registry credentials.")
+	fingerprints := fs.String("fingerprints", "",
+		"A file (YAML or JSON) of the workload managers and promoters this installation runs, "+
+			"as the chart's fingerprints value. A workload a configured manager applies reads external: <product>, "+
+			"and the promoter writes no pointer for it.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -116,11 +150,7 @@ func runPromoter(args []string) error {
 	if err != nil {
 		return err
 	}
-	user := *controllerUser
-	if user == "" {
-		user = delivery.ServiceAccountUser(os.Getenv("POD_NAMESPACE"), os.Getenv("SERVICE_ACCOUNT"))
-	}
-	policy, err := delivery.LoadClassPolicy(*identities, user)
+	user, policy, err := promoterPolicy(*controllerUser, *identities)
 	if err != nil {
 		return err
 	}
@@ -139,8 +169,12 @@ func runPromoter(args []string) error {
 	if err != nil {
 		return err
 	}
+	managers, err := loadManagers(*fingerprints)
+	if err != nil {
+		return err
+	}
 	cluster := delivery.Cluster{Client: mgr.GetClient(), Cache: mgr.GetCache(), CacheApplications: *argocd,
-		NoFlux: !*flux, FluxHelm: *fluxHelm,
+		NoFlux: !*flux, FluxHelm: *fluxHelm, Managers: managers,
 		Registry: func(hosts ...string) core.Registry {
 			return oci.NewClient(keychain, oci.WithInsecureRegistries(slices.Concat(insecure, hosts)...))
 		}}
@@ -149,6 +183,14 @@ func runPromoter(args []string) error {
 			return err
 		}
 	}
+	pubs, err := publishers(*pubRegistry, *pubBranch, *pubRoot, keychain, insecure, *resync)
+	if err != nil {
+		return err
+	}
+	if err := trustSources(pubs, policy, ocireferrer.Options{Keychain: keychain, Insecure: insecure}, *records, *pubPolicy,
+		*pubPolicySigners, *recordsRepo, *pinSignerConfig, *recordTrustConfig); err != nil {
+		return err
+	}
 	gates := delivery.NewGates(cluster, configured)
 	stats, err := addStats(mgr, *statsRepository, *statsDockerConfig, keychain, insecure, clusterID)
 	if err != nil {
@@ -156,8 +198,9 @@ func runPromoter(args []string) error {
 	}
 	if err := (&delivery.OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Workers: *workers, Gates: gates, Now: time.Now, Poll: *poll, Records: *records,
-		Freshness:   *authFreshness,
-		RecordedTTL: *recordedTTL,
+		RecordOptions: ocireferrer.Options{Keychain: keychain, Insecure: insecure},
+		Freshness:     *authFreshness,
+		RecordedTTL:   *recordedTTL,
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
 		Events:            mgr.GetEventRecorderFor("pacto-delivery"),
 		Stats:             stats,
@@ -167,10 +210,16 @@ func runPromoter(args []string) error {
 	if err := (&delivery.StageReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Workers: *workers, ClusterID: clusterID, Gates: gates, Now: time.Now,
 		Resync: *resync, AdmissionPolicies: delivery.SplitList(*admissionPolicies), Freshness: *authFreshness,
+		Publishers: pubs,
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
 		Events: mgr.GetEventRecorderFor("pacto-delivery")}).SetupWithManager(mgr); err != nil {
 		return err
 	}
+	return startPromoter(mgr, user)
+}
+
+// startPromoter adds the promoter's health checks and runs the manager.
+func startPromoter(mgr manager.Manager, user string) error {
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		return err
 	}
@@ -179,6 +228,17 @@ func runPromoter(args []string) error {
 	}
 	ctrl.Log.Info("starting the Pacto delivery promoter", "version", version, "controllerUser", user)
 	return mgr.Start(ctrl.SetupSignalHandler())
+}
+
+// promoterPolicy resolves the promoter's own apiserver username (derived from
+// POD_NAMESPACE and SERVICE_ACCOUNT when user is empty) and loads the identity
+// policy for it.
+func promoterPolicy(user, identities string) (string, core.ClassPolicy, error) {
+	if user == "" {
+		user = delivery.ServiceAccountUser(os.Getenv("POD_NAMESPACE"), os.Getenv("SERVICE_ACCOUNT"))
+	}
+	policy, err := delivery.LoadClassPolicy(identities, user)
+	return user, policy, err
 }
 
 // addStats runs a run record emitter when repository is set and returns its
@@ -229,6 +289,21 @@ func runRecorder(args []string) error {
 			"such as the old key during a rotation.")
 	sink := fs.String("cdevents-sink", "", "A URL to POST a CDEvent to for every record written and when a Stage "+
 		"is created or deleted (environment.created, environment.deleted), best effort.")
+	approvals := fs.String("approvals-repository", "",
+		"The repository (host/path) a person's client pushes signed approvals to, one anchor per stream. "+
+			"Empty is <streams-repository>-approvals.")
+	admissionPolicies := fs.String("admission-policies", "",
+		"Comma-separated ValidatingAdmissionPolicy names (each bound by a binding of the same name) that must "+
+			"guard Approvals before the recorder signs one on its creator's behalf; empty signs none.")
+	identities := fs.String("identities", "",
+		"The identity policy as JSON, the one the promoter reads: its approver signers are the issuers whose keyless "+
+			"approval records the recorder views. Empty views none.")
+	targets := fs.String("targets-repository", "",
+		"The repository (<registry>/pacto-targets) the recorder publishes the cluster's signed target snapshot to "+
+			"every 5 minutes, tagged cluster-<uid>. Empty publishes none.")
+	evidenceURL := fs.String("evidence-url", "",
+		"The installation's Evidence Server base URL. Each target snapshot then carries the targets it accepted "+
+			"from any producer. Empty carries none.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -249,6 +324,10 @@ func runRecorder(args []string) error {
 		return err
 	}
 	verify, _ := signing.TrustVerifier(trust) // RecorderTrust checked it
+	policy, err := delivery.LoadClassPolicy(*identities, "")
+	if err != nil {
+		return err
+	}
 	mgr, err := newManager(*metricsAddr, *probeAddr, *leaderElect, "pacto-delivery-recorder", 0, 0)
 	if err != nil {
 		return err
@@ -259,31 +338,68 @@ func runRecorder(args []string) error {
 	}
 	keychain := oci.NewKeychain(oci.EnvCredentialOptions())
 	insecure := oci.EnvInsecureRegistries()
-	store := &delivery.RecordStore{Streams: *streams, Verify: verify,
+	store := &delivery.RecordStore{Streams: *streams, Approvals: cmp.Or(*approvals, *streams+"-approvals"), Verify: verify,
 		Options: ocireferrer.Options{Keychain: keychain, Insecure: insecure}}
 	cluster := delivery.Cluster{Client: mgr.GetClient()}
 	recorder := &delivery.Recorder{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster, Store: store,
-		Signer: signer, Trust: trust.Digest(), ClusterID: clusterID, Now: time.Now, Poll: *poll, GapGrace: time.Minute}
+		Signer: signer, Trust: trust.Digest(), ClusterID: clusterID, Now: time.Now, Poll: *poll, GapGrace: time.Minute,
+		AdmissionPolicies: delivery.SplitList(*admissionPolicies), Policy: policy}
 	if *sink != "" {
 		recorder.Events = &delivery.Events{Sink: *sink, Source: "/pacto-delivery/" + clusterID}
 	}
 	if err := recorder.SetupWithManager(mgr); err != nil {
 		return err
 	}
+	if err := addTargets(mgr, *targets, ocireferrer.Options{Keychain: keychain, Insecure: insecure},
+		&delivery.TargetPublisher{Client: mgr.GetAPIReader(), Signer: signer, ClusterID: clusterID,
+			Publisher: delivery.ServiceAccountUser(os.Getenv("POD_NAMESPACE"), os.Getenv("SERVICE_ACCOUNT")),
+			Mode:      store.Mode, EvidenceURL: *evidenceURL, HTTP: &http.Client{Timeout: 10 * time.Second},
+			Now: time.Now, Interval: core.TargetSnapshotInterval,
+			Log: ctrl.Log.WithName("targets")}); err != nil {
+		return err
+	}
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		return err
 	}
-	// Ready only while the streams repository answers native referrers
-	// discovery: a registry without it can never hold records.
+	// Ready while the streams repository can be written and listed in
+	// either mode: native referrers, or write-once tags where the registry
+	// serves no Referrers API.
 	if err := mgr.AddReadyzCheck("records", func(req *http.Request) error {
 		ctx, cancel := context.WithTimeout(req.Context(), 10*time.Second)
 		defer cancel()
-		return store.Probe(ctx)
+		_, err := store.Probe(ctx)
+		return err
 	}); err != nil {
 		return err
 	}
 	ctrl.Log.Info("starting the Pacto delivery recorder", "version", version, "streams", *streams)
 	return mgr.Start(ctrl.SetupSignalHandler())
+}
+
+// targetsRepository is the target snapshot repository of the installation
+// registry: <registry>/pacto-targets.
+func targetsRepository(registry string) string {
+	return registry + "/" + core.TargetSnapshotRepository
+}
+
+// addTargets runs p against repository, or logs that the snapshot is off when
+// repository is empty. A repository that is not <registry>/pacto-targets fails
+// startup.
+func addTargets(mgr manager.Manager, repository string, opts ocireferrer.Options, p *delivery.TargetPublisher) error {
+	if repository == "" {
+		ctrl.Log.Info("target snapshot off: set the top-level registry value")
+		return nil
+	}
+	if repository != targetsRepository(path.Dir(repository)) {
+		return fmt.Errorf("--targets-repository %q: want <registry>/%s", repository, core.TargetSnapshotRepository)
+	}
+	repo, err := ocireferrer.Open(repository, opts)
+	if err != nil {
+		return fmt.Errorf("--targets-repository: %w", err)
+	}
+	p.Repo = repo
+	ctrl.Log.Info("target snapshot on", "repository", repository)
+	return mgr.Add(p)
 }
 
 // newManager builds a manager whose client makes qps requests a second,
@@ -315,6 +431,90 @@ func kubeClusterID(mgr ctrl.Manager) (string, error) {
 		return "", err
 	}
 	return kubecluster.ID(context.Background(), dyn)
+}
+
+// loadManagers is the manager detector of the fingerprints file, the
+// built-in one when file is empty.
+func loadManagers(file string) (workloadmanager.Detector, error) {
+	if file == "" {
+		return workloadmanager.Detector{}, nil
+	}
+	f, err := os.Open(file)
+	if err != nil {
+		return workloadmanager.Detector{}, err
+	}
+	defer func() { _ = f.Close() }()
+	fp, err := workloadmanager.ParseFingerprints(f)
+	return workloadmanager.Detector{Extra: fp.Managers}, err
+}
+
+// publishers is the registry watch of the Stages with candidates.registry,
+// judging against the rule derived from registry, or nil when registry is
+// empty. A trusted root file that cannot be read fails startup.
+func publishers(registry, branch, trustedRoot string, keychain authn.Keychain, insecure []string,
+	resync time.Duration) (*delivery.Publishers, error) {
+	fetch := func() (root.TrustedMaterial, error) { return signing.PublicGoodRootReadOnly(tuf.DefaultMirror) }
+	if trustedRoot != "" {
+		raw, err := os.ReadFile(trustedRoot)
+		if err != nil {
+			return nil, err
+		}
+		tr, err := root.NewTrustedRootFromJSON(raw)
+		if err != nil {
+			return nil, fmt.Errorf("--publishers-trusted-root: %w", err)
+		}
+		fetch = func() (root.TrustedMaterial, error) { return tr, nil }
+	}
+	// No registry derives no rule: the policy and pins still judge (TOFU).
+	rule, why := core.PublisherConfig{Registry: registry, DefaultBranch: branch}.Rule()
+	return &delivery.Publishers{Root: fetch, Rule: rule, HasRule: why == "", NoRule: why, Resync: resync, Now: time.Now,
+		Reg: func(hosts ...string) publish.Registry {
+			return publish.NewClient(keychain, slices.Concat(insecure, hosts)...)
+		}}, nil
+}
+
+// trustSources sets what the registry watch reads beside the derived rule:
+// the signed delivery policy and the pins the recorder writes, and why a new
+// signer cannot be confirmed when it cannot. A policy with no policy key, or
+// a trust config that cannot be read, fails startup.
+func trustSources(p *delivery.Publishers, policy core.ClassPolicy, opts ocireferrer.Options, records bool,
+	policyRef, policySigners, recordsRepo, pinSigner, recordTrust string) error {
+	if policyRef != "" {
+		raw, err := os.ReadFile(policySigners)
+		if err != nil {
+			return fmt.Errorf("--publishers-policy-signers: %w", err)
+		}
+		if p.PolicyVerify, err = core.PolicyVerifier(raw, signing.OpenKey); err != nil {
+			return fmt.Errorf("--publishers-policy-signers: %w", err)
+		}
+		p.Policy = policyRef
+	}
+	var raws [2][]byte
+	for i, f := range []string{pinSigner, recordTrust} {
+		if f == "" {
+			continue
+		}
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			return err
+		}
+		raws[i] = raw
+	}
+	verify, ok, err := delivery.PinVerifier(raws[0], raws[1])
+	if err != nil {
+		return err
+	}
+	if recordsRepo != "" && ok {
+		p.Pins = delivery.PinReader(recordsRepo, opts, verify, policy)
+	}
+	switch {
+	case !records:
+		p.CannotPin = "confirming a new signer needs the recorder (delivery.recorder.enabled)"
+	case recordsRepo == "" || pinSigner == "":
+		p.CannotPin = "confirming a new signer needs delivery.recorder.signing.publicKey or keyless recorder signing, " +
+			"so the promoter can verify the pins the recorder writes"
+	}
+	return nil
 }
 
 // upstreamReader reads what a Stage in another cluster verified from its

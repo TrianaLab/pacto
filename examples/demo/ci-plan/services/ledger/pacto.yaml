@@ -1,0 +1,12 @@
+# Written for pactoVersion 2.4: pacto ci raises it in memory and publishes it
+# as the current version.
+pactoVersion: "2.4"
+service:
+  name: ledger
+  version: 1.1.0
+  owner:
+    team: payments
+interfaces:
+  - name: api
+    type: openapi
+    ref: openapi/v1.yaml

@@ -114,6 +114,16 @@ it does not. `--insecure-ignore-tlog` is expected: the recorder never writes to 
 log, because records name your services. The signature alone proves the
 record is unchanged.
 
+### On a registry without the Referrers API
+
+```bash
+# .status.stream.registryMode is write-once-tags: records are write-once tags
+# in the streams repository, and oras discover lists nothing.
+# List the Stage's record tags, then use "$REPO:<tag>" in place of "$REPO@$REC".
+STREAM=$(printf %s "<the Stage's .status.stream.id>" | sha256sum | cut -d' ' -f1)
+oras repo tags "$REPO" | grep "^stream-$STREAM-"
+```
+
 ## Check the whole history
 
 Each Stage's records are numbered 1, 2, 3 and so on (`.predicate.chain.seq`).

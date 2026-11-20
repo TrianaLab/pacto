@@ -37,7 +37,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
-var readRoutes = []string{"caller", "inbox", "environments", "autonomy", "published", "refusals"}
+var readRoutes = []string{"caller", "inbox", "environments", "autonomy", "published", "refusals", "trust"}
 
 // readDeps is deliveryDeps whose cluster serves delivery, keeps no records
 // and holds a second Stage, in staging. tune adjusts each caller client.

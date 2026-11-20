@@ -25,10 +25,11 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/ignore"
+	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
-// blankBody is the blank contract below service and above publish.
+// blankBody is the blank contract below service.
 const blankBody = `
 interfaces:
   - name: api
@@ -82,9 +83,6 @@ const blankSchema = `{
 }
 `
 
-// signKey is where a new contract's signing key lives.
-const signKey = "cosign.key"
-
 // contract plans pacto.yaml: created from the golden path, else kept when it
 // is there, else blank or read from the folder.
 func (p *planner) contract(ctx context.Context) error {
@@ -124,19 +122,18 @@ func (p *planner) contract(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// A draft read from the cluster is never completed: what runs there never
-	// reaches the inferred record. The folder's files are still named.
-	if p.opts.cluster {
+	// A cluster draft's folder files are named from all the folder holds.
+	if p.opts.Cluster != nil {
 		p.discoveryLines(all)
 		p.externals(all)
-		return nil
 	}
 	return p.completePlanned(in)
 }
 
 // completePlanned puts in r.Inferred what the folder shows beyond the
-// pacto.yaml init plans to write, and names it in Found and Unknown. Only a
-// pactoVersion 2.5 contract publishes it, so an older one says so in Next.
+// pacto.yaml init plans to write, and names it in Found and Unknown. A
+// cluster draft is completed from the folder and the cluster instead
+// (completeCluster).
 func (p *planner) completePlanned(in contract.InferredInputs) error {
 	planned := map[string]string{}
 	for _, f := range p.r.Files {
@@ -150,6 +147,9 @@ func (p *planner) completePlanned(in contract.InferredInputs) error {
 	}
 	c.Service.Name = p.r.Service
 	cat, _ := p.catalog()
+	if p.opts.Cluster != nil {
+		return p.completeCluster(c, planned, in)
+	}
 	rec, err := discover.CompletePlanned(p.r.Dir, c, planned, in, cat)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", p.r.Dir, err)
@@ -157,9 +157,6 @@ func (p *planner) completePlanned(in contract.InferredInputs) error {
 	p.r.Inferred = rec
 	p.discoveryLines(rec)
 	p.externals(rec)
-	if rec != nil && len(rec.Fields) > 0 && validation.InferredRecordNeedsRaise(c.PactoVersion) {
-		p.next("pacto.yaml declares pactoVersion %s, so pacto pack publishes none of what Pacto inferred: set pactoVersion: \"2.5\" to publish it in %s", c.PactoVersion, contract.InferredRecordFile)
-	}
 	return nil
 }
 
@@ -190,7 +187,6 @@ func (p *planner) blankContract() error {
 
 // pactifiedContract plans the contract read from the folder, and its files.
 func (p *planner) pactifiedContract(fields []contract.Inferred) error {
-	p.contractNew = true
 	p.ports = discoveredPorts(fields)
 	text := p.pactified()
 	files := p.environmentFiles()
@@ -309,12 +305,11 @@ func (p *planner) environments(b *strings.Builder) {
 	}
 }
 
-// blank writes the contract of a folder with no service in it: the owner,
-// domain and registry the caller gave, and placeholders named in Unknown.
+// blank writes the contract of a folder with no service in it: the owner
+// and domain the caller gave, and placeholders named in Unknown.
 func (p *planner) blank() string {
-	name := p.r.Service
 	var b strings.Builder
-	fmt.Fprintf(&b, "pactoVersion: %q\nservice:\n  name: %s\n  version: 0.1.0\n", p.pactoVersion(), discover.Quote(name))
+	fmt.Fprintf(&b, "pactoVersion: %q\nservice:\n  name: %s\n", contract.Current(), discover.Quote(p.r.Service))
 	p.owner(&b, p.opts.Owner, "no team was given")
 	p.domain(&b)
 	b.WriteString(blankBody)
@@ -322,34 +317,7 @@ func (p *planner) blank() string {
 		b.WriteString("\n")
 		p.environments(&b)
 	}
-	if p.opts.DescribeOnly {
-		return b.String()
-	}
-	registry := strings.Trim(strings.TrimPrefix(p.opts.Registry, "oci://"), "/")
-	if registry == "" {
-		registry = "registry.example"
-		p.unknown("registry: no --registry was given, so registry.example is a placeholder; pass --registry")
-	}
-	b.WriteString("\n")
-	p.publish(&b, registry, registry, "")
-	p.publishOnlyNext()
 	return b.String()
-}
-
-// pactoVersion is the lowest version that holds what init writes: 2.5 for
-// the compatibility unknown every dependency pactify writes has, else 2.4 for
-// a domain, else 2.3 for the environments --delivery declares, else 2.1 for
-// publish.
-func (p *planner) pactoVersion() string {
-	switch {
-	case p.r.Mode == modePactify && len(p.r.Dependencies) > 0:
-		return "2.5"
-	case p.opts.Domain != "":
-		return "2.4"
-	case p.opts.Delivery:
-		return "2.3"
-	}
-	return "2.1"
 }
 
 // owner writes service.owner, or a commented one and an Unknown line saying
@@ -373,24 +341,6 @@ func (p *planner) domain(b *strings.Builder) {
 	}
 }
 
-// publishOnlyNext points a contract that only describes the service at
-// --describe-only.
-func (p *planner) publishOnlyNext() {
-	p.next("the publish section is for pacto publish only: for a contract that only describes %s, run pacto init --describe-only instead (describe_only: true with pacto_create)", p.r.Service)
-}
-
-// transparencyLog says, when transparencyLog: false was asked for, that a
-// contract init did not write (the user's own) does not carry it.
-func (p *planner) transparencyLog() {
-	if !p.opts.NoTransparencyLog {
-		return
-	}
-	if p.pub != nil && p.pub.Sign != nil && p.pub.Sign.TransparencyLog != nil && !*p.pub.Sign.TransparencyLog {
-		return
-	}
-	p.next("pacto.yaml was not written by this run, so it does not keep signatures out of the transparency log: add transparencyLog: false under publish.sign")
-}
-
 // existing reads what the cluster pieces need from the user's own contract
 // and returns it, or nil when it cannot be read.
 func (p *planner) existing(data []byte) *contract.Contract {
@@ -409,21 +359,22 @@ func (p *planner) existing(data []byte) *contract.Contract {
 			p.next("pacto.yaml declares no environment %s: add them with pacto_edit add_environments so the pacto.environment gate checks their values", strings.Join(missing, ", "))
 		}
 	}
-	if c.Publish == nil && !p.opts.DescribeOnly {
-		bump := ""
-		if validation.PublishNeedsRaise(c.PactoVersion) {
-			bump = "set pactoVersion: \"2.1\" and "
-		}
-		p.next("pacto.yaml has no publish section, so pacto publish refuses it: %sadd publish "+
-			"(see Pactify a service in the docs), or move pacto.yaml aside and run pacto init again to have one written", bump)
+	if c.Publish != nil || p.opts.DescribeOnly {
+		return c
+	}
+	if cur, behind := contract.Behind(c.PactoVersion); behind {
+		p.next("pacto.yaml declares no publish section, and pacto ci --publish derives one only for pactoVersion %s: set pactoVersion: %q, or add publish (see Pactify a service in the docs)", cur, cur)
+	} else if p.opts.Delivery {
+		w := cmp.Or(p.sc.Workload, &discover.Workload{})
+		p.pub, p.pubDerived = p.derivedPub(p.registry(w, p.r.Service)), true
 	}
 	return c
 }
 
 // complete puts what the folder shows beyond the user's contract c in
 // r.Inferred, never changing c. Only a pactoVersion 2.5 contract is
-// completed, and never from the cluster: discover.Complete reads the folder
-// alone.
+// completed, from the folder alone unless the cluster facts of a cluster
+// draft are given.
 func (p *planner) complete(c *contract.Contract) error {
 	in := contract.InferredInputs{Commit: p.opts.Commit, Pacto: p.opts.PactoVersion}
 	// Complete leaves out the service itself under the name this run reports,
@@ -443,9 +394,9 @@ func (p *planner) complete(c *contract.Contract) error {
 	case validation.InferredRecordNeedsRaise(c.PactoVersion):
 		p.next("pacto.yaml declares pactoVersion %s; set pactoVersion: \"2.5\" to have Pacto complete it", c.PactoVersion)
 		return nil
-	case len(p.opts.Inferred) > 0 || p.opts.cluster:
-		p.next("what runs in the cluster never completes pacto.yaml: run pacto init %s without --cluster to complete it", p.r.Dir)
-		return nil
+	case p.opts.Cluster != nil:
+		p.r.Mode = modeComplete
+		return p.completeCluster(&named, nil, in)
 	}
 	p.r.Mode, p.r.Inferred = modeComplete, rec
 	if rec == nil || len(rec.Fields) == 0 { // a record of findings alone completes no value
@@ -458,6 +409,39 @@ func (p *planner) complete(c *contract.Contract) error {
 		shown = len(all.Fields)
 	}
 	p.found("pacto.yaml declares %d of the values Pacto reads in this folder's manifests and specs; Pacto completed %d in %s, published with the bundle", shown-len(rec.Fields), len(rec.Fields), contract.InferredRecordFile)
+	return nil
+}
+
+// completeCluster puts in r.Inferred what the folder, read against declared
+// and the files planned, and the cluster show beyond declared, and plans it
+// as pacto.inferred.yaml: the cluster facts cannot be read again from the
+// folder later. A record already there is kept.
+func (p *planner) completeCluster(declared *contract.Contract, planned map[string]string, in contract.InferredInputs) error {
+	cat, _ := p.catalog()
+	rec, err := discover.CompleteCluster(p.r.Dir, declared, planned, in, cat, *p.opts.Cluster)
+	if err != nil { // ponytail: the folder was read a moment ago; only one changing underneath fails here
+		return fmt.Errorf("reading %s: %w", p.r.Dir, err)
+	}
+	p.r.Inferred = rec
+	if rec == nil {
+		return nil
+	}
+	n := 0
+	for _, f := range rec.Fields {
+		if strings.HasPrefix(f.Source, "cluster:") {
+			n++
+		}
+	}
+	if p.file(contract.InferredRecordFile, string(rec.Marshal())) == Keep {
+		// The result says what the folder holds: the kept record, nil when it
+		// does not parse.
+		data, _ := os.ReadFile(filepath.Join(p.r.Dir, contract.InferredRecordFile))
+		p.r.Inferred, _ = contract.ParseInferredRecord(data)
+		p.found("the cluster read at %s was not written: %s from an earlier read was kept", rec.Inputs.Cluster.AsOf, contract.InferredRecordFile)
+		p.next("%s is from an earlier read: delete it and run again to record what the cluster shows now", contract.InferredRecordFile)
+		return nil
+	}
+	p.found("Pacto completed %d values from the cluster in %s (read %s)", n, contract.InferredRecordFile, rec.Inputs.Cluster.AsOf)
 	return nil
 }
 
@@ -488,26 +472,16 @@ func (p *planner) next(format string, a ...any) {
 	p.r.Next = append(p.r.Next, fmt.Sprintf(format, a...))
 }
 
-// versionAndRegistry reads the version from the image tag and the registry
-// from the image (or --registry), naming placeholders in Unknown. imgRepo is
-// the image repository, "" when the image names none Pacto can push to.
-func (p *planner) versionAndRegistry(w *discover.Workload, name string) (version, registry, imgRepo string) {
-	tag := ""
+// registry reads the registry from the image (or --registry), naming a
+// placeholder in Unknown. imgRepo is the image repository, "" when the image
+// names none Pacto can push to.
+func (p *planner) registry(w *discover.Workload, name string) (registry, imgRepo string) {
 	if w.Image != "" {
-		imgRepo, tag = discover.ImageRepo(w.Image)
+		imgRepo, _ = discover.ImageRepo(w.Image)
 		if !refRE.MatchString("oci://" + imgRepo) {
 			imgRepo = ""
 		}
 	}
-
-	version = "0.1.0"
-	if v, err := semver.StrictNewVersion(strings.TrimPrefix(tag, "v")); err == nil {
-		version = v.String()
-		p.found("version %s, from the image tag in %s", version, w.File)
-	} else {
-		p.unknown("version: no image tag is a version (x.y.z), so 0.1.0 is a placeholder")
-	}
-
 	registry = strings.Trim(strings.TrimPrefix(p.opts.Registry, "oci://"), "/")
 	switch {
 	case registry != "":
@@ -521,7 +495,25 @@ func (p *planner) versionAndRegistry(w *discover.Workload, name string) (version
 		registry = "registry.example"
 		p.unknown("registry: no image says where %s is published, so registry.example is a placeholder; pass --registry", name)
 	}
-	return version, registry, imgRepo
+	return registry, imgRepo
+}
+
+// derivedPub is the publish section pacto ci --publish derives for the
+// folder, kept for the cluster pieces and never written: the repositories
+// publish.Layout names under registry and the folder's one deploy source,
+// manifests (or a kustomization) or a chart.
+func (p *planner) derivedPub(registry, imgRepo string) *contract.Publish {
+	bundle, _, deploy := publish.Layout(registry, p.r.Service, imgRepo)
+	pub := &contract.Publish{Bundle: "oci://" + bundle}
+	if bp, _ := discover.Build(p.r.Dir, p.sc); bp.Deploy != nil {
+		typ := contract.ArtifactManifests
+		if bp.Deploy.Kind == discover.DeployChart {
+			typ = contract.ArtifactChart
+		}
+		pub.Deploy = typ
+		pub.Artifacts = []contract.PublishArtifact{{Name: typ, Type: typ, Ref: "oci://" + deploy}}
+	}
+	return pub
 }
 
 // hubLibrary reports whether repo is a Docker Hub official image
@@ -529,7 +521,8 @@ func (p *planner) versionAndRegistry(w *discover.Workload, name string) (version
 func hubLibrary(repo string) bool { return strings.HasPrefix(repo, "docker.io/library/") }
 
 // pactified writes the contract the folder describes. Every value it could
-// not read is left out or marked, and named in Unknown.
+// not read is left out or marked, and named in Unknown. It writes no
+// service.version and no publish section: pacto ci --publish derives both.
 func (p *planner) pactified() string {
 	sc, name, w := p.sc, p.r.Service, p.sc.Workload
 	if w == nil {
@@ -537,16 +530,19 @@ func (p *planner) pactified() string {
 	} else {
 		p.found("%s %s in %s", w.Kind, w.Name, w.File)
 	}
-	version, registry, imgRepo := p.versionAndRegistry(w, name)
+	if v := p.deployedTag(); v != "" {
+		p.found("first publish: %s is the image tag in %s; declare service.version to publish it, or pacto ci --publish derives 1.0.0", v, w.File)
+	}
+	registry, imgRepo := p.registry(w, name)
 
 	var b strings.Builder
 	files := strings.Join(append(nonEmpty(sc.Dockerfile), sc.Manifests...), ", ")
-	next := "see what publishing would do: pacto publish --plan"
+	next := "see what publishing would do: pacto ci"
 	if p.opts.DescribeOnly {
 		next = "validate it: pacto validate"
 	}
 	fmt.Fprintf(&b, "# Written by pacto init from %s.\n# Check it, then %s\n", files, next)
-	fmt.Fprintf(&b, "pactoVersion: %q\nservice:\n  name: %s\n  version: %s\n", p.pactoVersion(), discover.Quote(name), discover.Quote(version))
+	fmt.Fprintf(&b, "pactoVersion: %q\nservice:\n  name: %s\n", contract.Current(), discover.Quote(name))
 	team := p.opts.Owner
 	if team == "" && w.Team != "" {
 		team = w.Team
@@ -571,9 +567,9 @@ func (p *planner) pactified() string {
 	// Bundles live beside the images, at registry/<name>, unless the image is
 	// there already (the usual org/name layout): then they go under
 	// registry/contracts, so a bundle tag never lands on the image.
-	bundles := registry
-	if imgRepo == registry+"/"+name {
-		bundles = registry + "/contracts"
+	bundle, _, _ := publish.Layout(registry, name, imgRepo)
+	bundles := path.Dir(bundle)
+	if bundles != registry {
 		p.found("contract bundles under %s, as the image %s already holds %s/%s", bundles, w.Image, registry, name)
 	}
 	p.health(&b, p.openapi != "")
@@ -583,8 +579,7 @@ func (p *planner) pactified() string {
 	if p.opts.DescribeOnly {
 		return b.String()
 	}
-	p.publish(&b, bundles, registry, imgRepo)
-	p.publishOnlyNext()
+	p.pub, p.pubDerived = p.derivedPub(registry, imgRepo), true
 	for _, f := range sc.Secrets {
 		p.next("%s holds a Secret's values, so it is left out of the published manifests, which anyone who can pull them reads; "+
 			"supply it another way (a SealedSecret, an ExternalSecret or SOPS) and move any other objects in it to their own file", f)
@@ -822,147 +817,6 @@ func literalValues(n int) (values, them string) {
 	return "literal values", "them"
 }
 
-// publish writes the publish section and keeps it for the cluster pieces.
-func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string) {
-	sc, name := p.sc, p.r.Service
-	p.pub = &contract.Publish{Bundle: "oci://" + bundles + "/" + name, Sign: &contract.PublishSign{Key: signKey}}
-	fmt.Fprintf(b, "publish:\n  bundle: %s\n", p.pub.Bundle)
-	if len(sc.Manifests) > 0 {
-		p.pub.Deploy = "manifests"
-		b.WriteString("  deploy: manifests\n")
-	}
-	if sc.Dockerfile != "" || len(sc.Manifests) > 0 {
-		b.WriteString("  artifacts:\n")
-	}
-	pin := imgRepo
-	if df := sc.Dockerfile; df != "" {
-		if imgRepo == "" || hubLibrary(imgRepo) {
-			imgRepo = registry + "/images/" + name
-		}
-		fmt.Fprintf(b, "    - name: api\n      type: image\n      ref: oci://%s\n      build:\n        dockerfile:\n          context: %s\n", imgRepo, discover.Quote(path.Dir(df)))
-		if path.Base(df) != "Dockerfile" {
-			fmt.Fprintf(b, "          file: %s\n", discover.Quote(df))
-		}
-		p.found("%s builds the image %s", df, imgRepo)
-		if len(sc.Dockerfiles) > 1 {
-			p.unknown("several Dockerfiles (%s): pacto init used %s", strings.Join(sc.Dockerfiles, ", "), df)
-		}
-	}
-	if len(sc.Manifests) > 0 {
-		cmd, kept := p.copyManifests()
-		cmd += p.pinImage(pin, imgRepo, kept)
-		if p.opts.Delivery {
-			cmd += ` && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml`
-		}
-		ref := "oci://" + registry + "/deploy/" + name
-		p.pub.Artifacts = append(p.pub.Artifacts, contract.PublishArtifact{Name: "manifests", Type: contract.ArtifactManifests, Ref: ref})
-		fmt.Fprintf(b, "    - name: manifests\n      type: manifests\n      ref: %s\n      build:\n        command: [sh, -c, %s]\n", ref, discover.Quote(cmd))
-	}
-	fmt.Fprintf(b, "  sign:\n    key: %s\n", signKey)
-	if p.opts.NoTransparencyLog {
-		f := false
-		p.pub.Sign.TransparencyLog = &f
-		b.WriteString("    transparencyLog: false\n")
-	}
-	if _, err := os.Stat(filepath.Join(p.r.Dir, signKey)); err != nil {
-		p.next("put the signing key at %s: a cosign PEM private key, decrypted with COSIGN_PASSWORD", signKey)
-	}
-}
-
-// pinImage is the build step that rewrites, in the published copy of every
-// manifest that deploys the workload's image (the workload's own, and a Job
-// or CronJob beside it), that image to the image this publish built, by
-// digest (PACTO_REF_API@PACTO_DIGEST_API). Each version then deploys its own
-// image, all of it, and nobody raises the tag by hand. pin is the workload's
-// image repository, "" when it names none Pacto can push to; built is the
-// image the Dockerfile builds; kept says the manifests keep their folders.
-func (p *planner) pinImage(pin, built string, kept bool) string {
-	w := p.sc.Workload
-	if p.sc.Dockerfile == "" || w == nil {
-		return ""
-	}
-	if pin == "" || !imageRE.MatchString(w.Image) {
-		p.next("%s does not deploy %s, the image the Dockerfile builds, so its image is published as written, not pinned to the one each version builds", w.File, built)
-		return ""
-	}
-	// The match is the whole value of an image: field, block or flow style,
-	// never a substring, so a label, a name or another image that shares the
-	// text is left alone. An image written in a form the match does not read
-	// (a JSON manifest, say) is not pinned, and init says so; a build that
-	// pinned nothing, as the file changed since, fails rather than ship the
-	// tag unpinned.
-	img := strings.ReplaceAll(w.Image, ".", `\.`)
-	field := regexp.MustCompile(`(?m)(^|[{,\s])image:\s*["']?` + img + `["']?\s*([,}#]|$)`)
-	// named is any image field, YAML or JSON, that holds the image: a file
-	// that has one the match does not read is told it is not pinned; a file
-	// that only shares the text (a Service's name, a label) is not.
-	named := regexp.MustCompile(`image["']?\s*:\s*["']?` + regexp.QuoteMeta(w.Image) + `(["'\s,}#]|$)`)
-	var cmd string
-	var pinned []string
-	for _, m := range p.sc.Manifests {
-		raw, _ := os.ReadFile(filepath.Join(p.r.Dir, m))
-		if !field.Match(raw) {
-			if named.Match(raw) {
-				p.next("%s names %s in a form pacto init cannot rewrite (write it as `image: %s`), so its image is published as written, not pinned to the one each version builds", m, w.Image, w.Image)
-			}
-			continue
-		}
-		out := path.Base(m)
-		if kept {
-			out = m
-		}
-		pinned = append(pinned, m)
-		cmd += fmt.Sprintf(` && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"']?)%s([\"']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" %s > "$PACTO_OUT"/%s`+
-			` && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/%s || { echo "pacto: no image: %s line to pin" >&2; exit 1; }; }`,
-			img, shq(m), shq(out), shq(out), w.Image)
-	}
-	if len(pinned) > 0 {
-		verb := "deploys"
-		if len(pinned) > 1 {
-			verb = "deploy"
-		}
-		p.found("the published %s %s the image each version builds, pinned by digest", strings.Join(pinned, ", "), verb)
-	}
-	return cmd
-}
-
-// copyManifests is the build command that copies the manifests into
-// $PACTO_OUT. Each file is named, never globbed: a YAML file added later (a
-// Secret, say) is not shipped unseen. A kustomize layout, or files that share
-// a name, keep their folders, since flattened one would overwrite the other.
-func (p *planner) copyManifests() (string, bool) {
-	byDir := map[string][]string{}
-	var dirs, all []string
-	seen := map[string]bool{}
-	keep := len(p.sc.Kustomize) > 0
-	for _, m := range p.sc.Manifests {
-		d := path.Dir(m)
-		if byDir[d] == nil {
-			dirs = append(dirs, d)
-		}
-		byDir[d] = append(byDir[d], shq(m))
-		all = append(all, shq(m))
-		keep = keep || seen[path.Base(m)]
-		seen[path.Base(m)] = true
-	}
-	if !keep {
-		return "cp " + strings.Join(all, " ") + ` "$PACTO_OUT"/`, false
-	}
-	cmds := make([]string, len(dirs))
-	for i, d := range dirs {
-		out, mkdir := `"$PACTO_OUT"/`+shq(d)+"/", ""
-		if d == "." {
-			out = `"$PACTO_OUT"/`
-		} else {
-			mkdir = "mkdir -p " + out + " && "
-		}
-		cmds[i] = mkdir + "cp " + strings.Join(byDir[d], " ") + " " + out
-	}
-	p.unknown("the folder Flux builds: the manifests keep their folders (%s), as they use kustomize or share file names; "+
-		"set spec.path of the Kustomization that applies them to it", strings.Join(dirs, ", "))
-	return strings.Join(cmds, " && "), true
-}
-
 // readFleet reads the contracts in FleetRoots, once, for the dependencies
 // and the consumers.
 func (p *planner) readFleet(ctx context.Context) error {
@@ -1037,7 +891,8 @@ func refRepo(ref string) string {
 	return ref
 }
 
-// ignore keeps the signing key, and the cluster pieces, out of the bundle.
+// ignore keeps the cluster pieces, and a signing key the contract names in
+// the folder (a golden path's, or the user's own), out of the bundle.
 func (p *planner) ignore() {
 	var need []string
 	if p.pub != nil && p.pub.Sign != nil && p.pub.Sign.Key != "" && filepath.IsLocal(p.pub.Sign.Key) {
@@ -1091,20 +946,7 @@ func (p *planner) currentIgnore(i int) ([]byte, bool, error) {
 	return data, false, err
 }
 
-var (
-	refRE  = regexp.MustCompile(`^oci://[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+$`)
-	safeRE = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
-	// imageRE is an image reference with nothing sh or sed would read.
-	imageRE = regexp.MustCompile(`^[A-Za-z0-9._/:@-]+$`)
-)
-
-// shq quotes s for sh when it needs it.
-func shq(s string) string {
-	if safeRE.MatchString(s) {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
+var refRE = regexp.MustCompile(`^oci://[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+$`)
 
 func nonEmpty(s string) []string {
 	if s == "" {

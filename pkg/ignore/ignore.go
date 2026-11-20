@@ -23,6 +23,7 @@ var DefaultPatterns = []string{
 	".git/",
 	".pactoignore",
 	".DS_Store",
+	"pacto-plan.md", // the plan pacto ci writes on GitLab CI
 }
 
 // alwaysKeep can never be ignored regardless of user patterns.
@@ -33,17 +34,26 @@ type rule struct {
 	negate   bool
 	dirOnly  bool
 	anchored bool
+	line     int // 1-based line in the .pactoignore file; 0 for DefaultPatterns
 }
 
 // Matcher decides whether a bundle-relative path is ignored.
 type Matcher struct{ rules []rule }
 
 // New builds a Matcher from DefaultPatterns plus extra patterns (e.g. the
-// lines of a .pactoignore file). Later patterns take precedence.
+// lines of a .pactoignore file). Later patterns take precedence. Each extra
+// line is numbered by its index, so blank and comment lines keep the rule's
+// number equal to its line in the file.
 func New(extra []string) *Matcher {
 	m := &Matcher{}
-	for _, line := range append(append([]string{}, DefaultPatterns...), extra...) {
+	for _, line := range DefaultPatterns {
 		if r, ok := parseRule(line); ok {
+			m.rules = append(m.rules, r)
+		}
+	}
+	for i, line := range extra {
+		if r, ok := parseRule(line); ok {
+			r.line = i + 1
 			m.rules = append(m.rules, r)
 		}
 	}
@@ -80,20 +90,26 @@ func parseRule(line string) (rule, bool) {
 // Ignored reports whether slashPath (bundle-relative, '/'-separated, never
 // "." or leading "/") is excluded from the bundle.
 func (m *Matcher) Ignored(slashPath string, isDir bool) bool {
+	_, ignored := m.IgnoredBy(slashPath, isDir)
+	return ignored
+}
+
+// IgnoredBy is Ignored plus the line of the deciding rule: the last matching
+// one, 0 when that is a DefaultPatterns rule or when nothing matches.
+func (m *Matcher) IgnoredBy(slashPath string, isDir bool) (line int, ignored bool) {
 	if alwaysKeep[slashPath] {
-		return false
+		return 0, false
 	}
 	nameSegs := strings.Split(slashPath, "/")
-	ignored := false
 	for _, r := range m.rules {
 		if r.dirOnly && !isDir {
 			continue
 		}
 		if matchSegs(r.segs, nameSegs) {
-			ignored = !r.negate
+			line, ignored = r.line, !r.negate
 		}
 	}
-	return ignored
+	return line, ignored
 }
 
 func matchSegs(pat, name []string) bool {

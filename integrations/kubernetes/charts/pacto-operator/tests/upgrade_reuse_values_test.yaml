@@ -9,6 +9,9 @@ suite: upgrade with reused 6.x values
 templates:
   - templates/deployment.yaml
   - templates/clusterrole.yaml
+set:
+  # 6.x values carry no fingerprints key: --reuse-values keeps it absent.
+  fingerprints: null
 tests:
   - it: should render the 6.x arguments for 6.x default values
     template: templates/deployment.yaml

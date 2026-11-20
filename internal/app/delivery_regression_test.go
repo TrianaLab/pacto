@@ -13,7 +13,9 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	k8stesting "k8s.io/client-go/testing"
 
+	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
@@ -73,6 +75,24 @@ func TestRegressionReadsManualRollback(t *testing.T) {
 	reg := d.RegressionEvidence(context.Background(), regressedB)
 	if len(reg.Evidence) != 1 || reg.Evidence[0].Kind != impact.RegressionRollback {
 		t.Fatalf("a manual rollback off the digest is evidence: %+v", reg)
+	}
+}
+
+// TestRegressionEvidenceReadsWriteOnceTagStream: a rollback off the regressed
+// digest recorded as a write-once tag, on a registry without the Referrers
+// API, is cited from the Stage's stream.
+func TestRegressionEvidenceReadsWriteOnceTagStream(t *testing.T) {
+	e := newRecordEnvOn(t, testutil.ReferrersOptions{Unsupported: true})
+	e.tagged = true
+	r1 := e.attach("delivery/streams", e.anchor, move(1, "", "boot", "", dlB))
+	rb := move(2, r1, "rb", dlB, dlA)
+	rb.Type = &delivery.RecordType{ID: delivery.TypeRollback}
+	r2 := e.attach("delivery/streams", e.anchor, rb)
+	e.setStream(map[string]any{"stream": map[string]any{"id": recStream, "seq": int64(2), "recordedSeq": int64(2), "head": r2,
+		"anchor": deliveryrecord.AnchorRef(e.host+"/delivery/streams", recStream)}})
+	reg := e.d.RegressionEvidence(context.Background(), regressedB)
+	if len(reg.Evidence) != 1 || reg.Evidence[0].Kind != impact.RegressionRollback || reg.Evidence[0].Record != r2 || reg.Unavailable != "" {
+		t.Fatalf("the tagged rollback is evidence: %+v", reg)
 	}
 }
 

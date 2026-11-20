@@ -472,3 +472,21 @@ func TestAutonomyServiceFilter(t *testing.T) {
 	_, au = call(t, http.MethodGet, base+"/api/delivery/autonomy?service=payments&level=observe", nil)
 	expect(t, fmt.Sprint(au["byLevel"]) == want && page(au["page"])["total"] == float64(0), "level narrows the Stages only: %v", au)
 }
+
+// A service's publisher line comes from the Stage of that service and
+// domain that watches the registry: only the watch writes status.publisher.
+func TestPublishedPublisherFromRegistryStage(t *testing.T) {
+	ps := &delivery.PublisherStatus{Source: "rule", Verdicts: []delivery.PublisherVerdict{{Digest: dNext, Verdict: "accepted", Source: "rule"}}}
+	flux := stage("prod", "flux", "payments", delivery.StageStatus{Publisher: &delivery.PublisherStatus{Source: "policy"}})
+	flux.Spec.Candidates = delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "oci"}}
+	watch := stage("test", "watch", "payments", delivery.StageStatus{Publisher: ps})
+	watch.Spec.Candidates = delivery.Candidates{Registry: &delivery.RegistryCandidates{}}
+	other := watch
+	other.Spec.Service.Domain = "acme"
+	stages := []delivery.StageObject{flux, watch}
+	expect(t, publisherOf(stages, publishedKey{"payments", ""}) == ps, "the registry Stage's status, never a Flux-fed one")
+	expect(t, publisherOf([]delivery.StageObject{flux, other}, publishedKey{"payments", ""}) == nil, "another domain's watch is not this service's")
+	op := operation("prod", "t", "watch", held())
+	op.Spec.Type, op.Spec.Params.Publisher = delivery.TypeTrust, &delivery.PublisherIdentity{Subject: "s", Issuer: "i"}
+	expect(t, inboxItem(op).Publisher == op.Spec.Params.Publisher, "a trust item names the signer it asks about")
+}

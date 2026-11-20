@@ -1,0 +1,9 @@
+<project>
+  <build>
+    <plugins>
+      <plugin>
+        <artifactId>jib-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>

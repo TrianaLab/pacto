@@ -14,6 +14,9 @@ import (
 // Known reports whether v is a pactoVersion this Pacto supports.
 func Known(v string) bool { return slices.Contains(SupportedVersions, v) }
 
+// Supported lists SupportedVersions for a message, oldest first.
+func Supported() string { return strings.Join(SupportedVersions, ", ") }
+
 // Behind returns Current() and whether v is a supported pactoVersion older
 // than it. An unknown or empty v is never behind.
 func Behind(v string) (current string, behind bool) {
@@ -21,13 +24,22 @@ func Behind(v string) (current string, behind bool) {
 	return Current(), i >= 0 && i < len(SupportedVersions)-1
 }
 
+// Older reports whether v sorts before w in SupportedVersions. An unknown v
+// is older than every supported w.
+func Older(v, w string) bool {
+	return slices.Index(SupportedVersions, v) < slices.Index(SupportedVersions, w)
+}
+
+// MigrationGuideURL is the guide a person follows to move a 1.x contract to 2.x.
+const MigrationGuideURL = "https://github.com/TrianaLab/pacto/blob/main/MIGRATION.md"
+
 // ErrManualMigration is returned by Upgrade for a 1.x contract: moving it to
 // 2.x changes its shape, which a person does by following MIGRATION.md.
 type ErrManualMigration struct{ Version string }
 
 // Error says why the version is not raised and where the migration guide is.
 func (e *ErrManualMigration) Error() string {
-	return fmt.Sprintf("pactoVersion %q is not migrated automatically: moving from 1.x to 2.x changes the contract's shape and needs a person; follow https://github.com/TrianaLab/pacto/blob/main/MIGRATION.md", e.Version)
+	return fmt.Sprintf("pactoVersion %q is not migrated automatically: moving from 1.x to 2.x changes the contract's shape and needs a person; follow %s", e.Version, MigrationGuideURL)
 }
 
 // ErrComparable marks an [UpgradeCheck] error from a run that reached every
@@ -87,7 +99,7 @@ func Upgrade(raw []byte, to string, check UpgradeCheck) (Upgraded, error) {
 	case !Known(to):
 		return kept, &ParseError{Path: "pactoVersion", Message: fmt.Sprintf("cannot upgrade to unsupported pactoVersion %q", to)}
 	case !Known(from):
-		return kept, &ParseError{Path: "pactoVersion", Message: fmt.Sprintf("unsupported pactoVersion %q; supported: %s", from, strings.Join(SupportedVersions, ", "))}
+		return kept, &ParseError{Path: "pactoVersion", Message: fmt.Sprintf("unsupported pactoVersion %q; supported: %s", from, Supported())}
 	case slices.Index(SupportedVersions, from) >= slices.Index(SupportedVersions, to):
 		return kept, nil
 	}

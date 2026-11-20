@@ -89,10 +89,12 @@ type OperationList struct {
 }
 
 // +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
 // +kubebuilder:resource:categories=pacto-delivery
 // +kubebuilder:printcolumn:name="Operation",type=string,JSONPath=`.spec.operation`
 // +kubebuilder:printcolumn:name="Decision",type=string,JSONPath=`.spec.decision`
 // +kubebuilder:printcolumn:name="By",type=string,JSONPath=`.spec.by`
+// +kubebuilder:printcolumn:name="Recorded",type=string,JSONPath=`.status.record.ref`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // Approval is a human decision on one operation. It matches only on the
@@ -104,6 +106,9 @@ type Approval struct {
 	// +required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="an approval is immutable"
 	Spec delivery.ApprovalSpec `json:"spec"`
+	// Status names the approval's signed record. Only the recorder writes it.
+	// +optional
+	Status delivery.ApprovalStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true

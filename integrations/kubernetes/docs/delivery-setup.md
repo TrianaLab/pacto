@@ -12,10 +12,26 @@ Plans, approvals and who may do what are in
 ## Registry
 
 The two automatic levels need [signed records](delivery-records.md#install),
-and records need a registry that serves the OCI Referrers API natively. The
-recorder attaches each record to its streams repository and to the versions
-and contract it touched, so keep all of them on such a registry. GHCR does not
-serve the API.
+and records work on any OCI registry. The recorder probes the streams
+repository: where it serves the OCI Referrers API, records are referrers;
+where it does not, as on GHCR and CNCF distribution, they are
+[write-once tags](delivery-records.md#write-once-tags) in the streams
+repository.
+
+- The recorder chooses the mode by itself, and a Stage that recorded
+  `native` never narrows to tags.
+- With tags, records attached to versions cannot be listed, so what a plan
+  says a version did on other Stages stays partial.
+- Without the Referrers API, `pacto publish` also gives each signature and
+  SBOM a write-once `pacto-sig-<subject hex>-<12 hex>` tag, and Pacto reads
+  only those, never the shared `sha256-<hex>` tag.
+- Only the recorder pushes to the streams repository. People who approve
+  from the CLI need push only on the approvals repository
+  (`delivery.recorder.approvalsRepository`, default
+  `<streamsRepository>-approvals`). The recorder also pushes there, once
+  `delivery.identities.signers` lists a signer. The promoter's
+  `delivery.promoter.registryCredentials` need pull there: an approval record
+  it cannot read does not count.
 
 ## Install
 
@@ -30,8 +46,10 @@ Delivery is the `pacto-operator` chart's `delivery` section, off by default. Tur
   `--api-versions`. `true` or `false` decide regardless of the API.
 - The promoter moves versions through the manager that already applies each
   workload ([which manager applies a Stage](delivery-reach.md#which-manager-applies-a-stage)).
-  The first Stage of a service needs Flux's source controller to verify new
-  versions.
+  The first Stage of a service admits new versions through the promoter's
+  registry watch (`spec.candidates.registry`, judged against
+  `delivery.publishers`) or a Flux `OCIRepository` with `spec.verify`. A
+  cluster that runs only Argo CD uses the registry watch and needs no Flux.
 
 It needs no identity values: whoever may update a Stage's workload decides
 ([who may decide](delivery-identity.md#who-may-decide)).
@@ -91,6 +109,7 @@ recorder's their own Service, ServiceMonitor and
 | `pacto_delivery_stage_frozen` | 1 while a Stage is frozen |
 | `pacto_delivery_stage_watched` | 0 while the newest re-check of the running version did not pass |
 | `pacto_delivery_records_pending` | concluded operations per stream that have no record yet (recorder) |
+| `pacto_delivery_unverified_approval_records` | approval records in an approvals repository that do not verify, each counted once; the recorder never turns them into an Approval (recorder) |
 | `pacto_delivery_stats_dropped_total` | [run records](delivery-run-records.md) not published, by `reason`: `queue-full`, `namespace-full` (one namespace already holds a quarter of the queue), `publish-failed` (logged with the operation, and the record in flight when the promoter stops), `no-stage` (the operation had no Stage, so no service to file it under) or `shutdown` (still queued, or concluded, after the promoter began to stop). Every reason reads 0 from startup. A `shutdown` drop is counted by a process about to exit, so its lasting trace is the promoter's log line `run records not published at shutdown` |
 
 The promoter emits a Kubernetes Event on an operation when it waits on a person
@@ -148,8 +167,7 @@ flowchart LR
   fail their schemas. A contract with no environments passes it.
   `pacto.applier` refuses a promote while the Stage's
   [`status.applier`](delivery-reach.md#which-manager-applies-a-stage) reads
-  `Conflict` or `Unknown`, or while the version's contract names a
-  `delivery.applier` the Stage does not apply through.
+  `Conflict` or `Unknown`.
 - After: the Pacto contract check counts only when
   `status.evaluatedRevision` names this version's contract digest and the
   current workload generation. `Compliant` and `Warning` pass, `NonCompliant`
@@ -213,9 +231,48 @@ beside the pointer.
 The [security model](delivery-security.md) lists what each admission policy
 checks and what stays open.
 
+## Publishers
+
+- A service's first Stage reads new versions from the registry by default:
+  set `spec.candidates.registry`, and the promoter watches the repository the
+  Stage's applier takes versions from, or `candidates.registry.repository`.
+- A Stage names at most one candidate source: `registry`, `ociRepositoryRef`,
+  `upstreamStage` or `upstreamRecords`.
+- The promoter accepts a version only from a publisher it knows
+  ([which publishers Pacto accepts](delivery-security.md#which-publishers-pacto-accepts)).
+
+```yaml
+spec:
+  service: {name: payments}
+  applyRef: {name: payments}
+  candidates:
+    registry: {}   # or {repository: ghcr.io/acme/payments-deploy}
+```
+
+| Value | What it sets |
+|---|---|
+| `delivery.publishers.registry` | The `host/org` your services publish to. On `ghcr.io` and `registry.gitlab.com` the promoter derives a rule from it; empty, only the policy or a person's confirmation in the inbox accepts a signer |
+| `delivery.publishers.defaultBranch` | The branch whose CI the derived rule accepts (`main`) |
+| `delivery.publishers.policy` | A signed delivery policy (`repository:tag`) that replaces the derived rule |
+| `delivery.publishers.policySigners` | The trust config whose `role: policy` keys sign that policy |
+| `delivery.publishers.trustedRoot` | A `trusted_root.json` for a private Sigstore; empty uses public-good Sigstore |
+| `delivery.recorder.signing.publicKey` | The PEM public key of an Ed25519 or KMS recorder, so the promoter verifies the pins it writes. Keyless recorder signing needs none |
+
+- GHCR serves no Referrers API; the watch reads `pacto publish`'s write-once
+  `pacto-sig-` tags there, so GHCR works with no extra value.
+- Clients read the same configuration from `publishers.json` in the
+  `pacto-delivery-identities` ConfigMap in `delivery.namespace`.
+- A Stage whose registry cannot be listed has `Ready` `False` with the reason
+  `RegistryUnreadable`, and one without a trusted root
+  `PublisherUnverifiable`; nothing is published meanwhile.
+- When a policy narrows, a digest among the newest 20 tags that is no longer
+  accepted leaves `status.published`. One older than those 20 stays there
+  until 50 newer versions push it out: the watch reads only the newest tags.
+
 ## Set up a Stage
 
-The candidate `OCIRepository` follows the deploy artifact's repository and its
+With Flux, a first Stage can follow a candidate `OCIRepository` instead. It
+follows the deploy artifact's repository and its
 `spec.verify` names the publisher, so Flux checks every signature. The Stage
 lists each digest Flux verified in `status.published` and refuses anything else
 as `NotPublished`. Without a `secretRef` or `matchOIDCIdentity` Flux accepts a

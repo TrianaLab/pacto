@@ -134,9 +134,11 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				miraURLs:        miraURLs,
 				externalCatalog: externalCatalog,
 				detected:        v.GetString("dashboard.detected"),
+				fingerprints:    v.GetString("dashboard.fingerprints"),
 			}
 
 			fopts := dashboardFleetOptions(dir, repos, namespaces, observation, det)
+			fopts.Provenance.Trust = publisherTrust(cmd, d)
 			configured := configuredSources(fopts)
 			if answersNothing(configured) {
 				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no cached bundles and no Kubernetes configuration", dir)
@@ -207,6 +209,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().Int("port", 3000, "port for the dashboard server")
 	cmd.Flags().String("namespace", "", "Kubernetes namespaces to read, comma-separated (empty = all namespaces); delivery reads narrow to it only when it names one")
 	cmd.Flags().String("detected", "", "what the operator detected, shown as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (also PACTO_DASHBOARD_DETECTED)")
+	cmd.Flags().String("fingerprints", "", "a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers (also PACTO_DASHBOARD_FINGERPRINTS)")
 	cmd.Flags().String("cors-origin", "", "explicit cross-origin allowed to call the API (default: same-origin only)")
 	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)")
 	cmd.Flags().StringArray("trace-source", nil, "named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)")
@@ -231,7 +234,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 		"a public repository is read anonymously, otherwise with the dashboard's registry credentials")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.Flags().String("delivery-trust", "", "the trust config delivery records are verified with, so History reads signed records "+
-		"(the recorder's PEM public key or a YAML trust config; default $"+trustEnv+")")
+		"(the recorder's PEM public key or a YAML trust config; default $"+app.TrustEnv+")")
 
 	// Bind to viper so flags can be overridden via PACTO_DASHBOARD_* env vars.
 	_ = v.BindPFlag("dashboard.host", cmd.Flags().Lookup("host"))
@@ -243,6 +246,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.mira-sources", cmd.Flags().Lookup("mira-source"))
 	_ = v.BindPFlag("dashboard.external-catalog", cmd.Flags().Lookup("external-catalog"))
 	_ = v.BindPFlag("dashboard.detected", cmd.Flags().Lookup("detected"))
+	_ = v.BindPFlag("dashboard.fingerprints", cmd.Flags().Lookup("fingerprints"))
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-display-name", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
 		"oidc-username-claim", "oidc-username-prefix", "oidc-groups-claim", "oidc-groups-prefix",
 		"session-idle-timeout", "session-max-age", "token-login", "allow-anonymous", "review", "mira-url", "delivery-namespace", "delivery-trust"} {
@@ -337,6 +341,9 @@ type dashboardSources struct {
 	// detected is what the operator detected (--detected,
 	// PACTO_DASHBOARD_DETECTED): a k8s: ConfigMap ref or a file.
 	detected string
+	// fingerprints is the installation's workload manager and promoter
+	// fingerprints file (--fingerprints, PACTO_DASHBOARD_FINGERPRINTS).
+	fingerprints string
 }
 
 // localRootHasBundle reports whether dir looks like a place contracts live: a
@@ -643,7 +650,7 @@ func dashboardFleetOptions(dir string, repos []string, namespaces []string, obse
 	// safe thing to render as fresh.
 	// One provenance checker for the dashboard's life: every refresh copies
 	// these options and keeps the pointer, so its memo outlives each refresh.
-	fopts := app.FleetOptions{FreshnessWindow: fleet.RecentEvidenceWindow, Provenance: app.NewProvenanceChecker(), LongRunning: true}
+	fopts := app.FleetOptions{FreshnessWindow: fleet.RecentEvidenceWindow, Provenance: app.NewProvenanceChecker(), RegistryProbe: app.NewRegistryProbe(), LongRunning: true}
 	if det.local && dir != "" {
 		fopts.LocalRoots = []string{dir}
 	}
@@ -675,5 +682,6 @@ func dashboardFleetOptions(dir string, repos []string, namespaces []string, obse
 	fopts.MiraURLs = det.miraURLs
 	fopts.ExternalCatalogRef = det.externalCatalog
 	fopts.Detected = det.detected
+	fopts.Fingerprints = det.fingerprints
 	return fopts
 }

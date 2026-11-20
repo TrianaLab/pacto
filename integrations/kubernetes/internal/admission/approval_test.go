@@ -56,3 +56,48 @@ func TestApprovalAdmissionClassifies(t *testing.T) {
 		})
 	}
 }
+
+// recorderGroups are the groups the apiserver gives the recorder's service
+// account.
+var recorderGroups = []string{"system:serviceaccounts", "system:serviceaccounts:pacto-delivery", "system:authenticated"}
+
+// view is the Approval the recorder creates for a keyless approval record:
+// the person the certificate names, no groups, the record and its verified
+// signing time.
+func view() *unstructured.Unstructured {
+	return obj("delivery.pacto.trianalab.io/v1alpha1", "Approval", uniq("view"), nil, map[string]any{
+		"operation": "p1", "operationUID": "0f6c2a1e-5b7d-4c3a-9e2f-1a2b3c4d5e6f", "intentDigest": digestA,
+		"decision": "approve", "by": "oidc:alice@acme.com", "record": "reg/approvals@" + digestB, "signedAt": "2026-11-18T10:00:00Z",
+	})
+}
+
+// TestApprovalAdmissionRecorderNeedsRecord: the recorder is a service
+// account, so an Approval it creates that is not a view is an agent's.
+func TestApprovalAdmissionRecorderNeedsRecord(t *testing.T) {
+	err := as(recorder, recorderGroups...).Create(t.Context(), approval(recorder, recorderGroups[:2]...))
+	denied(t, err, "agents cannot approve")
+}
+
+// TestApprovalAdmissionRecorderViewPassesGroupsAndAuthTime: the recorder's
+// view names someone else, has no groups and no login time, and passes.
+func TestApprovalAdmissionRecorderViewPassesGroupsAndAuthTime(t *testing.T) {
+	allowed(t, as(recorder, recorderGroups...).Create(t.Context(), view()))
+	v := view()
+	v.Object["spec"].(map[string]any)["authTime"] = "2026-11-18T09:59:00Z"
+	allowed(t, as(recorder, recorderGroups...).Create(t.Context(), v))
+}
+
+// TestApprovalAdmissionPersonCannotSetRecord: a person never sets
+// spec.record or spec.signedAt, so nobody passes a record off as checked by
+// the recorder.
+func TestApprovalAdmissionPersonCannotSetRecord(t *testing.T) {
+	const msg = "spec.record and spec.signedAt are set only by the Pacto delivery recorder"
+	for _, field := range []string{"record", "signedAt"} {
+		a := approval("dana@example.com")
+		a.Object["spec"].(map[string]any)[field] = view().Object["spec"].(map[string]any)[field]
+		denied(t, as("dana@example.com", "system:authenticated").Create(t.Context(), a), msg)
+	}
+	v := view()
+	v.Object["spec"].(map[string]any)["by"] = "dana@example.com"
+	denied(t, as("dana@example.com", "system:authenticated").Create(t.Context(), v), msg)
+}

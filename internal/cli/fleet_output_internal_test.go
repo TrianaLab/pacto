@@ -182,7 +182,7 @@ func TestPrintTemplateText_Branches(t *testing.T) {
 	var b bytes.Buffer
 	printTemplateText(&b, "", &fleet.TemplateDetail{
 		Signature:              &fleet.BundleSignature{Status: fleet.SignatureVerified, Signer: "ci@acme"},
-		SignatureNote:          "self-declared",
+		SignatureNote:          "checked against a publisher rule",
 		UnresolvedRequirements: fleet.UnresolvedDependenciesPreview{Total: 1, Items: []fleet.UnresolvedDependency{{Ref: "oci://r/redis", Reason: "no provider"}}},
 		CreatedServices:        fleet.RefPreview{Total: 3, Count: 1, Truncated: true, Items: []fleet.EntityRef{{Label: "gift-cards"}}},
 		HiddenCreatedServices:  2,
@@ -190,7 +190,7 @@ func TestPrintTemplateText_Branches(t *testing.T) {
 		InstantiateReason:      "no digest-pinned reference",
 	})
 	for _, want := range []string{
-		"Golden path: -\n", "Signature: verified, signed by ci@acme\n  self-declared\n",
+		"Golden path: -\n", "Signature: verified, signed by ci@acme\n  checked against a publisher rule\n",
 		"Unresolved requirements:\n  oci://r/redis: no provider\nHidden requirements: 1 on services you may not see\n",
 		"Created services:\n  gift-cards\n  2 more\n  2 created services you may not see\n",
 		"Create a service: no digest-pinned reference\n",
@@ -243,6 +243,19 @@ func TestPrintTallies(t *testing.T) {
 	printDependents(&buf, &fleet.ServiceDetailData{Dependents: fleet.RefPreview{Total: 3}, HiddenDependents: 2, DependentsStatus: fleet.ComplianceTally{Compliant: 1, NonCompliant: 1, Invalid: 1}})
 	if want := "Dependents: 3 (1 compliant, 1 non-compliant, 0 unknown, 1 other)\n2 dependents you may not see\n"; buf.String() != want {
 		t.Errorf("dependents text = %q, want %q", buf.String(), want)
+	}
+}
+
+func TestFleetGetPrintsMigratedFrom(t *testing.T) {
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
+	rev := &fleet.RevisionDetailData{PactoVersion: "2.5", MigratedFrom: "2.4"}
+	if err := printFleetEntity(cmd, &fleet.EntityDetail{Entity: fleet.EntityRef{Kind: fleet.KindRevision}, Revision: rev}, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if want := "Pacto version: 2.5 (migrated from 2.4, inferred)\n"; !strings.Contains(buf.String(), want) {
+		t.Errorf("revision text lacks %q:\n%s", want, buf.String())
 	}
 }
 

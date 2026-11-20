@@ -3,14 +3,16 @@
 # Pacto contract check and Flux, running end to end on a local cluster; then
 # phase 2 ("health"), phase 3 ("publishing"), phase 5 ("ordering"), phase 4
 # ("dashboard and identity", in delivery-identity.sh), phase 6 ("records"),
-# phase 7 ("ladder", in delivery-ladder.sh) and phase 8 ("appliers", in
-# delivery-appliers.sh), described where each starts below.
+# phase 7 ("ladder", in delivery-ladder.sh), phase 8 ("appliers", in
+# delivery-appliers.sh) and phase 9 ("registrytags", in
+# delivery-registry-tags.sh), described where each starts below.
 # DELIVERY_SKIP_CORE=1, DELIVERY_SKIP_HEALTH=1, DELIVERY_SKIP_PUBLISH=1,
 # DELIVERY_SKIP_ORDER=1, DELIVERY_SKIP_IDENTITY=1, DELIVERY_SKIP_RECORDS=1,
-# DELIVERY_SKIP_LADDER=1 and DELIVERY_SKIP_APPLIERS=1 skip those scenarios (the
-# setup still runs); phase 4 needs phase 1, and phase 6 needs phases 1 and 3.
+# DELIVERY_SKIP_LADDER=1, DELIVERY_SKIP_APPLIERS=1 and DELIVERY_SKIP_REGISTRYTAGS=1
+# skip those scenarios (the setup still runs); phase 4 needs phase 1, phase 6
+# needs phases 1 and 3, and phase 9 needs phase 1 and runs after all the others.
 #
-# DELIVERY_PHASES=core,health,publish,ordering,identity,records,ladder,appliers (any subset)
+# DELIVERY_PHASES=core,health,publish,ordering,identity,records,ladder,appliers,registrytags (any subset)
 # runs only the named phases plus the ones they need, by setting the skip switch
 # of every other phase; CI runs one phase per shard. DELIVERY_DRY_RUN=1 prints
 # which phases would run and stops before touching Docker or a cluster.
@@ -101,7 +103,7 @@ KIND_POLL=1
 # Every version a phase ships waits on this scan, so the run keeps it short.
 CANDIDATE_INTERVAL=2s
 
-PHASES="core health publish ordering identity records ladder appliers"
+PHASES="core health publish ordering identity records ladder appliers registrytags"
 # skip_var PHASE — the name of the phase's skip switch.
 skip_var() { echo "DELIVERY_SKIP_$(tr '[:lower:]' '[:upper:]' <<<"${1/ordering/order}")"; }
 if [ -n "${DELIVERY_PHASES:-}" ]; then
@@ -110,8 +112,8 @@ if [ -n "${DELIVERY_PHASES:-}" ]; then
     [[ " $PHASES " == *" $p "* ]] || fail "unknown phase '$p' in DELIVERY_PHASES (phases: $PHASES)"
   done
   # What each phase needs: identity ships core's F again; records reads core's
-  # and publish's operations.
-  [[ "$want" == *,identity,* || "$want" == *,records,* ]] && want+="core,"
+  # and publish's operations; registrytags narrows a Stage core recorded.
+  [[ "$want" == *,identity,* || "$want" == *,records,* || "$want" == *,registrytags,* ]] && want+="core,"
   [[ "$want" == *,records,* ]] && want+="publish,"
   for p in $PHASES; do
     sw="$(skip_var "$p")"
@@ -119,7 +121,7 @@ if [ -n "${DELIVERY_PHASES:-}" ]; then
   done
 fi
 # shellcheck disable=SC2034  # the skip switches are read through skip_var
-[ -n "${DELIVERY_SKIP_CORE:-}" ] && DELIVERY_SKIP_IDENTITY=1 && DELIVERY_SKIP_RECORDS=1
+[ -n "${DELIVERY_SKIP_CORE:-}" ] && DELIVERY_SKIP_IDENTITY=1 && DELIVERY_SKIP_RECORDS=1 && DELIVERY_SKIP_REGISTRYTAGS=1
 # shellcheck disable=SC2034
 [ -n "${DELIVERY_SKIP_PUBLISH:-}" ] && DELIVERY_SKIP_RECORDS=1
 if [ -n "${DELIVERY_DRY_RUN:-}" ]; then
@@ -161,7 +163,10 @@ dump_delivery() {
 #   - records runs after core and publish, whose operations it reads, and its
 #     audit of every operation and Stage of the run after every phase;
 #   - health, publish and ordering start once core has its operator back
-#     (item 8 stops the operator, which every phase's contract check needs).
+#     (item 8 stops the operator, which every phase's contract check needs);
+#   - registrytags is not scheduled here: it moves the run's one recorder to
+#     another registry, so it runs alone after every phase and the records
+#     audit (see the end of this script).
 # What a later phase reads from an earlier one is handed over with `share`.
 STATE="$(mktemp -d)"
 share() { local v; for v in "$@"; do printf '%s=%q\n' "$v" "${!v}"; done >> "$STATE/shared.env"; }
@@ -192,7 +197,7 @@ stop() { kill_tree "$1"; wait "$1" 2>/dev/null || true; }
 stop_phases() { local p v; for p in $RUNNING; do for v in PID TAIL; do v="${v}_$p"; [ -z "${!v:-}" ] || stop "${!v}"; done; done; RUNNING=""; }
 run_phases() {
   local p d ready rc pending="" pid tail
-  for p in $PHASES; do phase_runs "$p" && pending+=" $p"; done
+  for p in $PHASES; do [ "$p" = registrytags ] || ! phase_runs "$p" || pending+=" $p"; done
   if [ -n "${DELIVERY_SEQUENTIAL:-}" ]; then
     for p in $pending; do
       ( phase_body "$p" )
@@ -302,6 +307,8 @@ EXTRA_IMAGES=()
 phase_runs health && { pull_pinned "$MIRA_IMG"; EXTRA_IMAGES+=("${MIRA_IMG%@*}"); }
 # The ladder's uncontracted caller runs agnhost too.
 { phase_runs health || phase_runs ladder; } && { pull_pinned "$AGNHOST"; EXTRA_IMAGES+=("${AGNHOST%@*}"); }
+# The registrytags phase records on distribution, which serves no Referrers API.
+phase_runs registrytags && { pull_pinned "$PACTO_NOREFERRERS_REGISTRY_IMAGE"; EXTRA_IMAGES+=("${PACTO_NOREFERRERS_REGISTRY_IMAGE%@*}"); }
 MIRA_IMG="${MIRA_IMG%@*}" AGNHOST="${AGNHOST%@*}" PAUSE_IMG="${PAUSE_IMG%@*}"
 phase_runs identity && for img in "$DEX_IMG" "$KC_IMG"; do infra "pull $img" docker pull -q "$img" >/dev/null; done
 PACTO="$(build_pacto)"
@@ -378,6 +385,7 @@ helm upgrade --install pacto-operator "$OP_CHART" -n "$NS" ${OP_HEALTH[@]+"${OP_
   --set delivery.enabled=true --set delivery.createNamespace=false --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
   --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never \
   --set "delivery.insecureRegistries[0]=$REG_HOST" --set delivery.promoter.poll=2s \
+  --set registry="$REG_HOST" \
   --set delivery.recorder.enabled=true --set delivery.recorder.streamsRepository="$REG_HOST/$STREAMS_REPO" --set delivery.recorder.poll=5s \
   --set delivery.stats.repository="$REG_HOST/$STATS_REPO" \
   --set delivery.recorder.signing.ed25519.secretName=recorder-key --set delivery.recorder.signing.allowOperatorReadableKey=true --wait --timeout 240s >/dev/null || fail "the pacto-operator chart did not roll out" &
@@ -1608,8 +1616,10 @@ YAML
 billing_contract 1.0.0 service
 printf 'cosign.key\nrender.sh\n' > "$PUB/.pactoignore"
 git -C "$PUB" init -q && git -C "$PUB" add -A && git -C "$PUB" -c user.email=ci@e.com -c user.name=ci commit -qm billing
+# The runner's CI context stays out: publish refuses a pull request pipeline,
+# and this harness also runs on pull requests.
 pub() {
-  (cd "$PUB" && HTTP_PROXY="http://127.0.0.1:${LOCAL_REG_PORT}" PACTO_INSECURE_REGISTRIES="$REG_HOST" COSIGN_PASSWORD="" \
+  (cd "$PUB" && env -u GITHUB_ACTIONS -u GITLAB_CI HTTP_PROXY="http://127.0.0.1:${LOCAL_REG_PORT}" PACTO_INSECURE_REGISTRIES="$REG_HOST" COSIGN_PASSWORD="" \
     BILLING_BUNDLE="${REG_HOST}/demo/billing" "$PACTO" publish "$@")
 }
 tags() { oras repo tags --plain-http "127.0.0.1:${LOCAL_REG_PORT}/$1" 2>/dev/null | sort | tr '\n' ' ' || true; }
@@ -2020,6 +2030,7 @@ source "$(dirname "$0")/delivery-records.sh"
 phase_records() {
   section "phase 6: the recorder catches up, and a forged record stops the stream"
   records_store
+  records_targets
 }
 # Phase 7 runs beside the others, in its own namespace.
 # shellcheck source=tests/acceptance/kind/delivery-ladder.sh
@@ -2027,6 +2038,9 @@ source "$(dirname "$0")/delivery-ladder.sh"
 # Phase 8 runs beside the others, in its own namespaces.
 # shellcheck source=tests/acceptance/kind/delivery-appliers.sh
 source "$(dirname "$0")/delivery-appliers.sh"
+# Phase 9 runs alone, last: it moves the recorder to distribution.
+# shellcheck source=tests/acceptance/kind/delivery-registry-tags.sh
+source "$(dirname "$0")/delivery-registry-tags.sh"
 phase_audit() {
   records_audit
   stats_audit
@@ -2036,6 +2050,7 @@ phase_audit() {
 timing_end
 run_phases
 if phase_runs records; then ( phase_body audit ); fi
+if phase_runs registrytags; then ( phase_body registrytags ); fi
 TIMING_PHASE=teardown
 kill "$REG_PF_PID" 2>/dev/null || true
 echo "DELIVERY PASS"

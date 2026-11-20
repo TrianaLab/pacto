@@ -42,7 +42,7 @@
 .fig-wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
 .fig-stage > :not(.fig-wires) { position: relative; z-index: 1; }
 .fig-foot { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: var(--sp-4); margin-top: var(--sp-4); container-type: inline-size; }
-.fig figcaption { margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--c-border); font-size: var(--text-sm); color: var(--c-text-2); max-width: 90ch; }
+.fig figcaption { margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--c-border); font-size: var(--text-sm); color: var(--c-text-2); max-width: 90ch; overflow-wrap: anywhere; }
 .step-now { margin: var(--sp-2) 0 0; color: var(--c-text-2); }
 /* L3 (r5): Compact folds the drawing away and keeps the answer (aside and caption), so
    the list starts higher on daily visits. */

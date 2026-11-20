@@ -98,7 +98,7 @@ func validateAt(t *testing.T, svc *Service, opts ValidateOptions) *ValidateResul
 func TestValidateBehindIsInfoAndValid(t *testing.T) {
 	dir := writeTree(t, "s", map[string]string{"s/pacto.yaml": "pactoVersion: '" + prevVersion + "'\nservice: {name: s, version: 1.0.0}\n"})
 	r := validateAt(t, NewService(nil, nil), ValidateOptions{Path: dir})
-	want := `pactoVersion "` + prevVersion + `" is behind "` + contract.Current() + `"; setting pactoVersion: "` + contract.Current() + `" keeps what this contract means`
+	want := `pactoVersion "` + prevVersion + `" is behind "` + contract.Current() + `"; setting pactoVersion: "` + contract.Current() + `" keeps what this contract means; pacto ci publishes it as ` + contract.Current() + ` when it next publishes this service, if its own check agrees` + migrateHint
 	if got := behind(t, r); !r.Valid || got != want {
 		t.Fatalf("valid=%v message %q", r.Valid, got)
 	}
@@ -205,5 +205,78 @@ func TestValidateBehindGuaranteeFailureNeverSaysKeeps(t *testing.T) {
 	got := behind(t, r)
 	if r.Valid || !strings.HasSuffix(got, validation.ErrUnverified.Error()) {
 		t.Fatalf("valid=%v message %q", r.Valid, got)
+	}
+}
+
+// TestBehindMessageNamesPactoCI pins what CONTRACT_BEHIND says pacto ci does:
+// a raise publishes as current if pacto ci's own check agrees, a kept raise
+// or an error publishes as written, and a run that already fails is told
+// only to fix it.
+func TestBehindMessageNamesPactoCI(t *testing.T) {
+	cur := contract.Current()
+	raises := "; pacto ci publishes it as " + cur + " when it next publishes this service, if its own check agrees"
+	ref := &contract.Contract{Configurations: []contract.Configuration{{Name: "db", Ref: "../pg"}}}
+	head := `pactoVersion "2.3" is behind "` + cur + `"; `
+	unverified := validation.Unverified(contract.ValidationError{Code: "X", Message: "bad"})
+	pub := &contract.Contract{Publish: &contract.Publish{}}
+	kept := contract.Upgraded{From: "2.3", To: "2.3", Kept: &contract.ValidationError{Code: "ENVIRONMENT_VALUES_MISSING", Path: "environments[0]"}}
+	keptText := `setting pactoVersion: "` + cur + `" would add ENVIRONMENT_VALUES_MISSING at environments[0], so review that first`
+	noSection := `; pacto ci cannot publish it as written with no publish section, so it fails until pactoVersion is "` + cur + `"`
+	for _, tc := range []struct {
+		name string
+		c    *contract.Contract
+		up   contract.Upgraded
+		err  error
+		want string
+	}{
+		{"raised", &contract.Contract{}, contract.Upgraded{From: "2.3", To: cur}, nil, head + `setting pactoVersion: "` + cur + `" keeps what this contract means` + raises},
+		{"operator", ref, contract.Upgraded{From: "2.3", To: cur}, nil, head + `setting pactoVersion: "` + cur + `" adds no validation finding; the operator then also accepts ContractOverrides values for its ref configurations (db)` + raises},
+		{"kept", pub, kept, nil, head + keptText + "; pacto ci publishes it as written"},
+		{"error", pub, contract.Upgraded{From: "2.3"}, errors.New("boom"), head + "boom; pacto ci publishes it as written"},
+		// With no publish section pacto ci derives none below current: it fails the row.
+		{"kept, no section", &contract.Contract{}, kept, nil, head + keptText + noSection},
+		{"error, no section", &contract.Contract{}, contract.Upgraded{From: "2.3"}, errors.New("boom"), head + "boom" + noSection},
+		{"unverified", &contract.Contract{}, contract.Upgraded{From: "2.3"}, unverified, head + unverified.Error()},
+	} {
+		if got := behindMessage(tc.c, "2.3", cur, tc.up, tc.err, false); got != tc.want {
+			t.Errorf("%s:\n got %q\nwant %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestBehindMessageNamesMigrate pins where CONTRACT_BEHIND names pacto
+// migrate: on the two keeping branches of a local file only. A kept raise or
+// a failing run would stay as written, and a registry bundle has no file to
+// rewrite.
+func TestBehindMessageNamesMigrate(t *testing.T) {
+	dir := writeTree(t, "s", map[string]string{"s/pacto.yaml": "pactoVersion: '" + prevVersion + "'\nservice: {name: s, version: 1.0.0}\n"})
+	if got := behind(t, validateAt(t, NewService(nil, nil), ValidateOptions{Path: dir})); !strings.HasSuffix(got, "; pacto ci publishes it as "+contract.Current()+" when it next publishes this service, if its own check agrees; run `pacto migrate` to rewrite the file") {
+		t.Fatalf("local keeping: %q", got)
+	}
+	if got := behind(t, validateAt(t, NewService(&mockBundleStore{}, nil), ValidateOptions{Path: refPair(t, openSchema, nil)})); !strings.HasSuffix(got, migrateHint) {
+		t.Fatalf("local operator: %q", got)
+	}
+	invalid := writeTree(t, "s", map[string]string{"s/pacto.yaml": "pactoVersion: '" + prevVersion + "'\nservice: {name: s, version: 1.0.0}\nconfigurations:\n  - {name: app, schema: missing.json, required: false}\n"})
+	b := testBundle()
+	b.RawYAML = nil
+	b.FS.(fstest.MapFS)["pacto.yaml"] = &fstest.MapFile{Data: []byte("pactoVersion: '" + prevVersion + "'\nservice: {name: test-svc, version: 1.0.0}\n")}
+	oci := NewService(&mockBundleStore{PullFn: func(context.Context, string) (*contract.Bundle, error) { return b, nil }}, nil)
+	for name, r := range map[string]*ValidateResult{
+		"kept":    validateAt(t, NewService(&mockBundleStore{}, nil), ValidateOptions{Path: refPair(t, strictSchema, nil)}),
+		"invalid": validateAt(t, NewService(nil, nil), ValidateOptions{Path: invalid}),
+		"oci":     validateAt(t, oci, ValidateOptions{Path: "oci://ghcr.io/acme/svc:1.0.0"}),
+	} {
+		if got := behind(t, r); strings.Contains(got, "pacto migrate") || (name == "oci" && !strings.Contains(got, "keeps what")) {
+			t.Errorf("%s: %q", name, got)
+		}
+	}
+}
+
+// TestBehindDeclaredBuildKeepsMeaning: validate judges a behind file with a
+// declared build the way pacto migrate does, so it names migrate.
+func TestBehindDeclaredBuildKeepsMeaning(t *testing.T) {
+	dir := writeTree(t, "", buildFolder(prevVersion, dockerBuild, map[string]string{"Dockerfile": "FROM scratch\n"}))
+	if got := behind(t, validateAt(t, NewService(nil, nil), ValidateOptions{Path: dir})); !strings.HasSuffix(got, migrateHint) {
+		t.Fatalf("%q", got)
 	}
 }

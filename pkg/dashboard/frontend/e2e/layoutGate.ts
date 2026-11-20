@@ -101,6 +101,32 @@ export function installScaleFixture(): void {
   const ORIGIN_PATHS: [string, number, number][] = [['load/path-a', 1800, 120], ['load/path-b', 900, 40], ['load/path-c', 320, 50]];
   const ORIGIN_LISTS = new Map<string, number>([...ORIGIN_PATHS.map(([k, n]) => [k, n] as [string, number]), ['(unresolved)', 80], ['(none)', 1300]]);
 
+  const TRUST = 'delivery.pacto.trianalab.io/trust';
+  const signerPrefix = `https://github.com/trianalab/${WORDS.join('-')}-${WORDS.join('-')}`;
+  const signer = {
+    issuer: 'https://token.actions.githubusercontent.com', ci: true, class: 'ci',
+    subject: `${signerPrefix.slice(0, 200 - '/.github/workflows/hotfix.yml@refs/heads/hotfix'.length)}/.github/workflows/hotfix.yml@refs/heads/hotfix`,
+    repository: signerPrefix.slice(0, 120),
+  };
+  const newSigner = (route: string, doc: Record<string, unknown>) => {
+    if (route === '/api/delivery/inbox' && Array.isArray(doc.held)) {
+      doc.held.unshift({ namespace: 'test', name: 'pay-agent-promote-17', stage: 'payments', service: longName('audit-log'), type: TRUST, phase: 'Held', decision: 'approve', owners: [], publisher: signer });
+      const pg = doc.heldPage as { total: number } | undefined;
+      if (pg) pg.total += 1; // the inbox reads its totals, not the page
+    }
+    if (route === '/api/delivery/operations/test/pay-agent-promote-17') {
+      const e = doc.explanation as { spec: Record<string, unknown> } | undefined;
+      const op = doc.operation as { spec: Record<string, unknown> } | undefined;
+      for (const spec of [e?.spec, op?.spec]) if (spec) Object.assign(spec, { type: TRUST, params: { ...(spec.params as object), publisher: signer } });
+    }
+    const first = (doc.services as Record<string, unknown>[] | undefined)?.[0];
+    if (route === '/api/delivery/published' && first) {
+      first.publisher = { source: 'rule', pins: 1, pinAt: '2026-11-01T09:00:00Z', policyRef: `ghcr.io/trianalab/${longName('delivery-policy')}:latest`,
+        rule: { issuer: signer.issuer, subject: `^https://github\\.com/trianalab/[^/]+/\\.github/workflows/[^@]+@refs/heads/${longName('main')}$`, repository: '^https://github\\.com/trianalab/[^/]+$' },
+        verdicts: Array.from({ length: 20 }, (_, i) => ({ digest: `sha256:${String(i).padStart(64, '0')}`, version: `1.${i}.0-${longName(`rc-${i}`)}`, verdict: i % 3 ? 'new-signer' : 'accepted', source: i % 3 ? 'none' : 'pin',
+          identity: signer, reason: longName(`signed by ${signer.subject}, which no publisher rule, pin or policy covers ${i}`), at: '2026-11-01T10:00:00Z' })) };
+    }
+  };
   const amend = (method: string, path: string, doc: Record<string, unknown>, body: string | null) => {
     const [route, query = ''] = path.split('?');
     const q = new URLSearchParams(query);
@@ -211,7 +237,12 @@ export function installScaleFixture(): void {
       const ag = doc.aggregate as Record<string, unknown> | undefined;
       if (ag) { ag.matched = 12400; ag.services = 0; ag.inferredServices = 12400; }
       for (const r of (doc.entities as Record<string, unknown>[] | undefined) ?? []) {
-        if (r.declaration === 'inferred') r.image = `registry.example.com/${longName(`inferred-image-${String(r.key)}`).replace(/[^a-z0-9-]/g, '')}@sha256:${'9f8e'.repeat(16)}`;
+        if (r.declaration !== 'inferred') continue;
+        r.image = `registry.example.com/${longName(`inferred-image-${String(r.key)}`).replace(/[^a-z0-9-]/g, '')}@sha256:${'9f8e'.repeat(16)}`;
+        // 509-S3: a 200-character group label and a 300-character repository URL.
+        const g = (r.group ?? { rule: 'argocd', namespace: 'shop', name: 'shop', from: 'annotation argocd.argoproj.io/tracking-id', key: 'argocd/shop/shop' }) as Record<string, unknown>;
+        r.group = { ...g, label: `Argo CD Application ${longName(`group-${String(r.key)}`)}`.padEnd(200, 'x').slice(0, 200) };
+        r.repository = `https://github.com/${longName(`repository-${String(r.key)}`)}`.padEnd(300, 'y').slice(0, 300);
       }
     }
     // Detected providers at scale (509-S2): 30 rows from 4 sources in 3 clusters, long
@@ -331,6 +362,15 @@ export function installScaleFixture(): void {
       Object.assign(rec, { class: 'unclassified', joinedBy: 'normalized-name', consumersTotal: 120, sourcesTotal: 140, hiddenConsumers: 3 });
       x.foldedInto = 'other-egress';
     }
+    // 509-S3: an inferred service's Group and Repository facts at their longest.
+    const groupWorkload = (doc.service as Record<string, Record<string, unknown>> | undefined)?.workload;
+    if (route === '/api/fleet/entities/service' && groupWorkload && (window as unknown as { __groupLongValues?: boolean }).__groupLongValues) {
+      const long = (seed: string, n: number) => `${seed}-${'segment/'.repeat(Math.ceil(n / 8))}`.slice(0, n);
+      groupWorkload.group = { ...(groupWorkload.group as Record<string, unknown>), label: long('Argo CD Application shop', 200), from: long('annotation argocd.argoproj.io/tracking-id', 300) };
+      groupWorkload.repositories = [0, 1, 2, 3, 4].map((i) => ({ url: long(`https://github.com/example/${i}`, 300), path: long(`deploy/${i}`, 300),
+        from: long(`Application argocd/shop spec.sources[${i}].repoURL`, 300), namespace: 'argocd', kind: 'Application' }));
+      groupWorkload.repositoryUnknown = long('the source is Helm chart', 300);
+    }
     if (route === '/api/fleet/entities/offering') {
       const off = doc.offering as Record<string, Record<string, unknown>>;
       const prov = off?.providers as { items: Record<string, unknown>[]; total: number; count: number; truncated: boolean } | undefined;
@@ -416,6 +456,11 @@ export function installScaleFixture(): void {
         }
       }
     }
+    // A new publisher waiting for a person (511-S3), on the routes that set
+    // __pactoNewSigner: a CI signer whose subject is 200 characters long, the held trust
+    // change it raises (the demo's held change, so its link lands) and a publisher line
+    // with 20 verdicts.
+    if (flags.__pactoNewSigner) newSigner(route, doc);
     // The inbox figure at fleet scale: 60 environments with long names, a declared chain
     // through some of them and counts in the thousands. Only the figure's tallies change;
     // the lists stay the engine's, and the figure caps itself at seven stations.
@@ -597,6 +642,14 @@ export function installScaleFixture(): void {
       if (rev) {
         // A declared pactoVersion behind this Pacto adds a badge to the Pacto version fact.
         rev.pactoVersionCurrent = '2.5'; delete rev.pactoVersionUnknown;
+        // pacto ci published this revision from an older pactoVersion: 'plain' is the
+        // current version migrated; any other value adds a synthetic newer Pacto, the
+        // row at its longest (version, muted text, behind badge, mark).
+        const migrated = (window as unknown as { __migrated?: string }).__migrated;
+        if (migrated) {
+          rev.pactoVersion = rev.pactoVersionCurrent; rev.migratedFrom = '2.4';
+          if (migrated === 'plain') delete rev.pactoVersionCurrent; else rev.pactoVersionCurrent = '99.0';
+        }
         rev.breaks = { total: 25, count: 20, truncated: true, hidden: 3, items: Array.from({ length: 20 }, (_, i) => ({
           consumer: longName(`break-consumer-${i}`), reason: longName(`break-reason-${i}`), expires: '2026-12-14',
           ...(i % 2 ? { service: { kind: 'service', key: `default/break-consumer-${i}`, label: `break-consumer-${i}` } } : {}) })) };
@@ -975,7 +1028,7 @@ export function installScaleFixture(): void {
   // inferredUnreadable answers every service and revision as one whose inferred record
   // Pacto could not read: the service has no record field, the revision keeps only the
   // values a local read infers on its own (pactoVersion, service.name).
-  const flags = window as unknown as { __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean };
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1983,6 +2036,15 @@ const createdService = async (page: Page) => {
 
 // `list` marks list views, where L3 holds the list within 600px or the figure folds.
 export type Route = { name: string; hash?: string; list?: boolean; open?: (page: Page) => Promise<void> };
+// 509-S3: the grouped inferred service billing-worker, reached through its real href.
+async function openGroupedInferred(page: Page): Promise<void> {
+  await page.goto('/#/fleet/services?declaration=inferred&group=argocd%2Fshop%2Fshop');
+  const a = page.locator('main a[href*="/fleet/services/"][href*="billing-worker"]').first();
+  await expect(a).toBeVisible({ timeout: 20_000 });
+  await page.goto(`/${await a.getAttribute('href')}`);
+  await expect(page.locator('[data-testid="inferred-workload"]')).toBeVisible({ timeout: 30_000 });
+}
+
 export const ROUTES: Route[] = [
   { name: 'overview', hash: '#/fleet' },
   { name: 'overview watched namespaces', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __scoped?: boolean }).__scoped = true; }); await page.goto('/#/fleet'); await page.reload(); } }, // reload: the init script only runs on a new document
@@ -2050,6 +2112,17 @@ export const ROUTES: Route[] = [
   { name: 'revision list', list: true, hash: '#/fleet/revisions?service=payments-service' },
   { name: 'revision entity', open: firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/') },
   { name: 'revision entity, implicit contract', open: firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/') },
+  {
+    // pacto ci raised the authored pactoVersion in memory: muted text, behind badge and
+    // the provenance mark that ends the row. Reload: the init script runs on a new document.
+    name: 'revision entity, migrated contract',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __migrated?: string }).__migrated = 'layout'; });
+      await firstLink('#/fleet/revisions?service=api-gateway', '/fleet/revisions/')(page);
+      await page.reload();
+      await expect(page.locator('.re-fact').filter({ hasText: 'migrated from 2.4' })).toBeVisible({ timeout: 30_000 });
+    },
+  },
   { name: 'service entity, implicit contract', hash: '#/fleet/services/newsletter-service' },
   {
     // A collapsed PreviewSection mounts nothing and the gate skips closed disclosures:
@@ -2194,6 +2267,14 @@ export const ROUTES: Route[] = [
   { name: 'golden path entity', open: firstLink('#/fleet/golden-paths?sort=name', '/fleet/services/') },
   { name: 'service created from a golden path', open: createdService },
   { name: 'delivery inbox', list: true, hash: '#/delivery/inbox' },
+  {
+    name: 'delivery inbox, new signer',
+    open: async (page) => {
+      await page.evaluate(() => { (window as unknown as { __pactoNewSigner?: boolean }).__pactoNewSigner = true; });
+      await page.goto('/#/delivery/inbox');
+      await expect(page.locator('a.dl-decide', { hasText: 'Confirm identity' }).first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
   { name: 'delivery environments', list: true, hash: '#/delivery/environments' },
   { name: 'delivery environments of one service', hash: '#/delivery/environments?service=payments' },
   { name: 'delivery history', list: true, hash: '#/delivery/history' },
@@ -2261,10 +2342,29 @@ export const ROUTES: Route[] = [
   },
   { name: 'delivery autonomy', list: true, hash: '#/delivery/autonomy' },
   { name: 'delivery publish', list: true, hash: '#/delivery/publish' },
+  {
+    name: 'delivery publish, publisher line',
+    open: async (page) => {
+      await page.evaluate(() => { (window as unknown as { __pactoNewSigner?: boolean }).__pactoNewSigner = true; });
+      await page.goto('/#/delivery/publish');
+      const fold = page.getByTestId('published-publisher-checks').first();
+      await fold.locator('summary').click();
+      await expect(fold.locator('li')).toHaveCount(5, { timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
   { name: 'delivery change', hash: '#/delivery/changes/prod/payments-promote-2' },
   { name: 'delivery change held', hash: '#/delivery/changes/test/pay-agent-promote-17' },
+  {
+    name: 'delivery change, new signer',
+    open: async (page) => {
+      await page.evaluate(() => { (window as unknown as { __pactoNewSigner?: boolean }).__pactoNewSigner = true; });
+      await page.goto('/#/delivery/changes/test/pay-agent-promote-17');
+      await expect(page.getByTestId('change-publisher')).toBeVisible({ timeout: 30_000 });
+    },
+  },
   { name: 'service page with Stages', open: serviceWithStages('#/fleet/services/registry.example%252Fstory%2Fpayments') },
-  { name: 'service page, Stage running nothing yet', open: serviceWithStages('#/fleet/services/audit-log') },
+  { name: 'service page, Stage waiting on a new signer', open: serviceWithStages('#/fleet/services/audit-log') },
   {
     name: 'service page, Why card open',
     open: async (page) => {
@@ -2445,6 +2545,19 @@ export const ROUTES: Route[] = [
       await expect(a).toBeVisible({ timeout: 20_000 });
       await page.goto(`/${await a.getAttribute('href')}`);
       await expect(page.locator('[data-testid="inferred-workload"]')).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  // 509-S3: the Services list filtered to one Argo CD Application, a grouped inferred
+  // service and its Group and Repository facts at their longest.
+  { name: 'services group filter', list: true, hash: '#/fleet/services?declaration=inferred&group=argocd%2Fshop%2Fshop' },
+  { name: 'inferred entity grouped', open: openGroupedInferred },
+  {
+    name: 'inferred entity long values',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __groupLongValues?: boolean }).__groupLongValues = true; });
+      await openGroupedInferred(page);
+      await page.reload(); // the init script only runs on a new document
+      await expect(page.locator('[data-testid="inferred-repository"]')).toBeVisible({ timeout: 30_000 });
     },
   },
   // 509-S4: a runtime-inferred edge on the graph, the Replaces line and a replaced key.

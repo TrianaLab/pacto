@@ -50,9 +50,16 @@ test.describe('revision validation rail (G2)', () => {
     await page.goto(`/${href}`);
     const skip = page.locator(FIGURE).getByRole('button', { name: 'Skip to final frame' });
     await expect.poll(() => state(page), { timeout: 20_000 }).toMatch(/playing|done/);
-    if ((await state(page)) === 'playing') {
-      await expect(skip).toBeEnabled();
-      await skip.click();
+    // Check and click in one task: a narration that ends between a read and a
+    // Playwright click leaves the click waiting on a disabled Skip until the timeout.
+    const skipped = await page.locator(FIGURE).evaluate((fig) => {
+      if (fig.getAttribute('data-narration') !== 'playing') return null;
+      const b = [...fig.querySelectorAll('button')].find((x) => x.textContent?.trim() === 'Skip to final frame');
+      b?.click();
+      return b?.getAttribute('aria-disabled') ?? 'missing';
+    });
+    if (skipped !== null) {
+      expect(skipped).toBe('false');
       await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
     }
     await expect.poll(() => state(page)).toBe('done');

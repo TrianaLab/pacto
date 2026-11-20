@@ -4,6 +4,9 @@ templates:
   - templates/delivery/rbac.yaml
   - templates/delivery/identities.yaml
 set:
+  # This suite pins exact argument and volume lists; the fingerprints
+  # defaults have their own suite (fingerprints_test.yaml).
+  fingerprints: null
   delivery.enabled: true
 capabilities:
   apiVersions:

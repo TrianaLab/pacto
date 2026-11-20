@@ -57,6 +57,7 @@ These patterns are always applied, even when no `.pactoignore` file exists:
 - `.git/`
 - `.pactoignore`
 - `.DS_Store`
+- `pacto-plan.md`, the plan `pacto ci` writes on GitLab CI
 
 **Note:** `pacto.lock` is **not** in the default ignore list. When a lockfile is present it ships inside the bundle by default (see [the lockfile](lockfile.md)). To keep it out of a pushed bundle, add an explicit `pacto.lock` line to `.pactoignore`.
 
@@ -84,6 +85,27 @@ The same rule applies to `configurations[].schema`, `policies[].schema` and any 
 
 ---
 
+## At the repository root
+
+A `.pactoignore` at the repository root also hides folders from discovery. A
+directory pattern there, such as `services/legacy/`, keeps that folder out of
+`pacto ci`, `pacto fleet --local` and `pacto dashboard --local`. `pacto ci`
+names each folder it skips and the line that skipped it:
+
+```text
+skipped: services/legacy (from .pactoignore:1)
+```
+
+Discovery also stops 8 levels below the root, and `pacto ci` and
+`pacto migrate` name each folder that limit cuts, as
+`skipped: <folder> (from depth limit 8)`. Hidden folders, `node_modules` and
+`vendor` are skipped without a line.
+
+Only folders are matched, so `pacto.yaml` is still always kept inside a
+bundle. When the repository root is itself a service, its bundle and discovery
+share this one file. A root `.pactoignore` that cannot be read stops these
+commands with an error.
+
 ---
 
 ## Commands affected
@@ -93,6 +115,7 @@ The same rule applies to `configurations[].schema`, `policies[].schema` and any 
 - **`pacto pack`**: files matching ignore patterns are excluded from the tar.gz archive
 - **`pacto push`**: files matching ignore patterns are excluded from the OCI artifact
 - **`pacto init`**: files matching ignore patterns are not read when it drafts a contract from the folder, so none of them lands in the `manifests` artifact's build command
+- **`pacto ci`** and **`pacto fleet --local`**: folders matching a directory pattern of the root `.pactoignore` are not searched for services
 
 Every command that loads a local bundle reads through the ignore filter, so ignored files are invisible to all of them. The commands that validate the bundle (`validate`, `pack`, `push`) hard-fail on a missing referenced file, while `graph`, `diff`, `doc` and `explain` do not see the file and produce incomplete output. Only `pacto pack` and `pacto push` additionally package the filtered file set into the shipped artifact.
 

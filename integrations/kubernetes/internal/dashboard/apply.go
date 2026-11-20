@@ -55,6 +55,23 @@ func clusterRoleAC(scoped bool) runtime.ApplyConfiguration {
 				WithAPIGroups("batch").
 				WithResources("cronjobs").
 				WithVerbs("list"),
+			// Service grouping and repository provenance: the dashboard lists the GitOps objects that group inferred services; it reads no Secret or Helm release.
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("argoproj.io").
+				WithResources("applications").
+				WithVerbs("list"),
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("kustomize.toolkit.fluxcd.io").
+				WithResources("kustomizations").
+				WithVerbs("list"),
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("helm.toolkit.fluxcd.io").
+				WithResources("helmreleases").
+				WithVerbs("list"),
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("source.toolkit.fluxcd.io").
+				WithResources("gitrepositories").
+				WithVerbs("list"),
 		)
 	}
 	return rbacv1ac.ClusterRole(Name).
@@ -215,6 +232,13 @@ const (
 	detectedKey       = "detected.json"
 )
 
+// The managed dashboard reads the installation's fingerprints from this file.
+const (
+	fingerprintsEnvVar    = "PACTO_DASHBOARD_FINGERPRINTS"
+	fingerprintsMountPath = "/etc/pacto/fingerprints"
+	fingerprintsKey       = "fingerprints.yaml"
+)
+
 // deploymentAC returns a server-side apply configuration for the dashboard Deployment.
 func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	env := []*corev1ac.EnvVarApplyConfiguration{
@@ -293,6 +317,15 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 			corev1ac.ConfigMapVolumeSource().WithName(cfg.DetectedConfigMap).
 				WithItems(corev1ac.KeyToPath().WithKey(detectedKey).WithPath(detectedKey)).
 				WithOptional(true)))
+	}
+
+	if cfg.FingerprintsConfigMap != "" {
+		env = append(env, corev1ac.EnvVar().WithName(fingerprintsEnvVar).WithValue(fingerprintsMountPath+"/"+fingerprintsKey))
+		volumeMounts = append(volumeMounts,
+			corev1ac.VolumeMount().WithName("fingerprints").WithMountPath(fingerprintsMountPath).WithReadOnly(true))
+		volumes = append(volumes, corev1ac.Volume().WithName("fingerprints").WithConfigMap(
+			corev1ac.ConfigMapVolumeSource().WithName(cfg.FingerprintsConfigMap).
+				WithItems(corev1ac.KeyToPath().WithKey(fingerprintsKey).WithPath(fingerprintsKey))))
 	}
 
 	if len(cfg.OCISecrets) > 0 {

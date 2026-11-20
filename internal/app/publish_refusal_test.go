@@ -80,16 +80,13 @@ func TestKeepRefusalFailures(t *testing.T) {
 	env := (&Service{}).env()
 	tools := newExecTools(t.TempDir(), nil, nil)
 	b := &contract.Bundle{Contract: &contract.Contract{Publish: &contract.Publish{Bundle: "oci://reg/pacto/payments"}}}
-	if got := keepRefusal(t.Context(), env, tools, b, publish.Plan{}); got != "" {
+	if got := keepRefusal(t.Context(), env, tools, b, b.Contract.Publish, publish.Plan{}); got != "" {
 		t.Fatalf("no version refusal: %q", got)
-	}
-	if got := keepRefusal(t.Context(), env, tools, b, refused); !strings.Contains(got, "publish.sign is not configured") {
-		t.Fatalf("unsigned: %q", got)
 	}
 	b.Contract.Publish.Sign = &contract.PublishSign{Key: "missing.key"}
 	notKept := func(why string) {
 		t.Helper()
-		if got := keepRefusal(t.Context(), env, tools, b, refused); !strings.HasPrefix(got, "the refusal was not kept in reg/pacto/payments: ") {
+		if got := keepRefusal(t.Context(), env, tools, b, b.Contract.Publish, refused); !strings.HasPrefix(got, "the refusal was not kept in reg/pacto/payments: ") {
 			t.Fatalf("%s: %q", why, got)
 		}
 	}

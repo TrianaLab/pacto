@@ -27,6 +27,17 @@ tests:
       - notMatchRegexRaw:
           pattern: kubectl get stages -A
 
+  - it: names the target snapshot repository and asks for its own read ACL
+    set:
+      registry: ghcr.io/acme
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+    asserts:
+      - matchRegexRaw:
+          pattern: ghcr\.io/acme/pacto-targets:cluster-<uid>
+      - matchRegexRaw:
+          pattern: give it its own read ACL
+
   - it: says the delivery namespace is for cluster admins only
     asserts:
       - matchRegexRaw:
@@ -69,3 +80,15 @@ tests:
     asserts:
       - notMatchRegexRaw:
           pattern: delivery\.argocd\.enabled=auto grants
+
+  - it: says a new signer is confirmed in the inbox when no publisher rule is set
+    asserts:
+      - matchRegexRaw:
+          pattern: "No publisher rule: the first signer of each service is confirmed in the delivery inbox"
+
+  - it: says nothing about a missing publisher rule when the registry is set
+    set:
+      delivery.publishers.registry: ghcr.io/acme
+    asserts:
+      - notMatchRegexRaw:
+          pattern: No publisher rule

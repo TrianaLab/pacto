@@ -124,8 +124,8 @@ named after it.
 - **Kargo** wins at promoting Freight through a pipeline of Stages and leaves
   the deploying to a GitOps agent,
   [Core concepts](https://docs.kargo.io/user-guide/core-concepts/). In a pull
-  request, Pacto lists which of the consumer contracts you name with `--root`
-  would reject the new version
+  request, Pacto lists which consumers would reject the new version, from the
+  target snapshot your clusters publish or the contracts you name with `--root`
   ([who breaks](ci.md#on-every-pull-request-who-breaks)).
 - **Argo CD** wins at syncing Git state to target clusters and showing where the
   live state differs, [Argo CD overview](https://argo-cd.readthedocs.io/en/stable/).
@@ -159,9 +159,9 @@ named after it.
   check as unverified ([impact](impact.md)).
 - **oasdiff** wins at listing the changes between two OpenAPI specs that break
   existing clients, from the command line or in CI,
-  [oasdiff README](https://github.com/oasdiff/oasdiff). Given the consumer
-  contracts you name with `--root`, Pacto lists the consumers whose accepted
-  range rejects the new version
+  [oasdiff README](https://github.com/oasdiff/oasdiff). From the consumers
+  your clusters' target snapshots name, or the contracts you name with `--root`,
+  Pacto lists those whose accepted range rejects the new version
   ([who breaks](ci.md#on-every-pull-request-who-breaks)).
 - **buf** wins at checking a Protobuf schema against a past version for source,
   JSON or wire-format breaks, [buf README](https://github.com/bufbuild/buf).

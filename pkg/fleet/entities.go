@@ -77,6 +77,9 @@ type EntityFilter struct {
 	// leaves them out (DeclarationDeclared), keeping every other kind. Empty
 	// keeps every service, inferred ones marked.
 	Declaration string
+	// Group keeps the inferred SERVICES whose group key (InferredGroup.Key)
+	// equals it.
+	Group string
 	// CreatedFrom keeps the SERVICES whose declared origin resolves to this golden
 	// path service key; NoOrigin keeps those that declare no origin and
 	// UnresolvedOrigin those whose origin resolves to no golden path in this view.
@@ -168,6 +171,27 @@ const (
 	TemplateOnly    = "only"
 	TemplateExclude = "exclude"
 )
+
+// validGroupFilter reports whether s is a group filter value.
+func validGroupFilter(s string) bool { return cleanText(s, MaxInferredGroupKeyRunes) }
+
+// groupMatches reports whether an entity passes the group filter: an empty
+// filter keeps every entity, a set one only the inferred services of that group.
+func groupMatches(filter string, r EntityRef) bool {
+	return filter == "" || r.Group != nil && r.Group.Key == filter
+}
+
+// inferredListFacts is the image, group and first repository URL an inferred
+// service's list row shows.
+func inferredListFacts(w *InferredWorkload) (image string, group *InferredGroup, repository string) {
+	if w.Image != nil {
+		image = w.Image.Value
+	}
+	if len(w.Repositories) > 0 {
+		repository = w.Repositories[0].URL
+	}
+	return image, w.Group, repository
+}
 
 // validDeclarationFilter reports whether s is a declaration filter value.
 func validDeclarationFilter(s string) bool {
@@ -483,6 +507,7 @@ func validateEntityFilter(f EntityFilter) error {
 		{"consumes", f.Consumes, "not an offering slug", validBusinessDomain},
 		{"template", f.Template, "not a template filter (only, exclude)", validTemplateFilter},
 		{"declaration", f.Declaration, "not a declaration (declared, inferred)", validDeclarationFilter},
+		{"group", f.Group, "longer than 1024 characters or holds a control character", validGroupFilter},
 		{"createdFrom", f.CreatedFrom, "not a service key, (none) or (unresolved)", validCreatedFrom},
 		{"phase", f.Phase, "not a provisioning phase (requested, provisioning, ready, failed, deleting, unknown)", validPhaseBucket},
 		{"lifecycle", f.Lifecycle, "not a lifecycle filter (deprecated, sunset)", validLifecycleFilter},
@@ -571,6 +596,7 @@ func validateFilterCombos(f EntityFilter) error {
 		{"capability", f.Capability, []EntityKind{KindService}},
 		{"template", f.Template, []EntityKind{KindService, KindRevision}},
 		{"declaration", f.Declaration, []EntityKind{KindService}},
+		{"group", f.Group, []EntityKind{KindService}},
 		{"createdFrom", f.CreatedFrom, []EntityKind{KindService}},
 		{"domain", f.Domain, []EntityKind{KindService, KindRevision, KindTarget}},
 		{"businessDomain", f.BusinessDomain, []EntityKind{KindService, KindRevision, KindTarget, KindDomain, KindOwner}},
@@ -711,8 +737,8 @@ func (q *Query) offeringListRefs() ([]EntityRef, map[string]*offeringFacts) {
 func (q *Query) serviceListRef(s *ServiceRecord, created OriginCount) EntityRef {
 	ref := serviceEntityRef(s)
 	ref.Targets = len(s.Targets)
-	if s.Inferred() && s.Workload.Image != nil {
-		ref.Image = s.Workload.Image.Value
+	if s.Inferred() {
+		ref.Image, ref.Group, ref.Repository = inferredListFacts(s.Workload)
 	}
 	if s.Template {
 		ref.Created, ref.NonCompliant, ref.Signature = created.Services, created.NonCompliant, q.pathSignature(s)
@@ -812,7 +838,7 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter, x crossKind) bool {
 		(f.Source == "" || q.entityFromSource(r, f.Source)) &&
 		q.matchServiceState(r, f) &&
 		(f.Readiness == "" || q.matchReadinessState(r, f.Readiness)) &&
-		q.matchGoldenPath(r, f) && declarationMatches(f.Declaration, r) &&
+		q.matchGoldenPath(r, f) && declarationMatches(f.Declaration, r) && groupMatches(f.Group, r) &&
 		q.matchOrganization(r, f, x)
 }
 

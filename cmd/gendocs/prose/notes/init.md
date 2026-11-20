@@ -1,8 +1,8 @@
-In an empty folder it scaffolds three files: a valid `pacto.yaml`, a placeholder OpenAPI spec at `interfaces/openapi.yaml` and a configuration JSON Schema at `configuration/schema.json`. It also plans a `.pactoignore` that keeps the signing key out of the bundle.
+In an empty folder it scaffolds three files: a valid `pacto.yaml`, a placeholder OpenAPI spec at `interfaces/openapi.yaml` and a configuration JSON Schema at `configuration/schema.json`.
 
 The folder's last part becomes `service.name`, which must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, so `pacto init fleet/checkout-web` writes a contract for `checkout-web` in `fleet/checkout-web`. Pass `--name` to choose another name.
 
-`--owner` becomes `service.owner.team`; without it the owner is a commented placeholder and Unknown names it. `--domain` becomes `service.domain` and raises `pactoVersion` to `2.4`. The contract gets a publish section with `bundle: oci://<registry>/<name>` and `sign.key: cosign.key`: the registry is `--registry`, else the `registry.example` placeholder that Unknown names. `--describe-only` leaves the publish section out.
+`--owner` becomes `service.owner.team`; without it the owner is a commented placeholder and Unknown names it. `--domain` becomes `service.domain`. The contract gets no `publish` section and no `service.version`: [`pacto ci --publish`](publish-from-ci.md) derives both and publishes to the registry its own `--registry` names.
 
 All three files are required **by the scaffolded contract**, because its `interfaces:` and `configurations:` sections point at the other two files. If you delete a directory, also delete the section that references it, or validation fails with `FILE_NOT_FOUND`. A contract that declares neither section needs only `pacto.yaml`, so drop the section and the directory together.
 

@@ -1,0 +1,2 @@
+pactoVersion: "2.3"
+service: {name: deep, version: 0.1.0}

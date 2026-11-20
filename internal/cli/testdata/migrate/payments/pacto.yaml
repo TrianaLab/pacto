@@ -1,0 +1,3 @@
+# Payments owns card capture and refunds.
+pactoVersion: '2.3'
+service: {name: payments, version: 1.4.0}

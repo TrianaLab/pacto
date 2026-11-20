@@ -245,6 +245,7 @@ nav:
           - MCP reference: mcp-reference.md
           - MCP publish and delivery tools: mcp-delivery-tools.md
       - Publish reference: publishing.md
+      - Publish from CI: publish-from-ci.md
       - Run record reference: run-record-reference.md
       - Dashboard reference:
           - The service page: dashboard-service-page.md
@@ -256,6 +257,7 @@ nav:
           - Approvals: integrations/kubernetes/delivery-identity.md
           - Agents: integrations/kubernetes/delivery-agents.md
           - Signed records and history: integrations/kubernetes/delivery-records.md
+          - Signed approvals: integrations/kubernetes/delivery-signed-approvals.md
           - Record keys: integrations/kubernetes/delivery-record-keys.md
           - Run records: integrations/kubernetes/delivery-run-records.md
           - Setup and gates: integrations/kubernetes/delivery-setup.md
@@ -272,7 +274,6 @@ nav:
           - Dependencies and state: contract-reference/dependencies-and-state.md
           - Readiness: contract-reference/readiness.md
           - Publish: contract-reference/publish.md
-          - Delivery: contract-reference/delivery.md
           - Checks: contract-reference/checks.md
           - Environments: contract-reference/environments.md
           - Validation layers: contract-reference/validation.md

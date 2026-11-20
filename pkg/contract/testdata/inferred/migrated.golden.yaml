@@ -1,0 +1,12 @@
+format: pacto.inferred/v1
+inputs:
+    commit: 4e1a9c0d
+    pacto: test
+    discovery: "1"
+    sources: []
+fields: []
+migrations:
+    - from: "FROM"
+      to: "TO"
+      source: pacto.yaml
+      by: pacto ci test

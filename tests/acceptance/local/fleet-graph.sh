@@ -139,7 +139,7 @@ go build -o "$WORK/localregistry" "$ROOT/tests/acceptance/local/localregistry"
 REG_PID=$!
 for _ in $(seq 1 50); do curl -fsS "http://${REG_HOST}/v2/" >/dev/null 2>&1 && break; sleep 0.2; done
 PAY_DIGEST="$(PACTO_INSECURE_REGISTRIES="$REG_HOST" "$BIN" push "oci://${REG_HOST}/demo/payments:1.0.0" -p "$WORK/ws/payments" 2>&1 | grep -oE 'sha256:[0-9a-f]{64}' | head -1)"
-[ -n "$PAY_DIGEST" ] && pass "published payments contract $PAY_DIGEST" || fail "could not publish the payments contract"
+if [ -n "$PAY_DIGEST" ]; then pass "published payments contract $PAY_DIGEST"; else fail "could not publish the payments contract"; fi
 CONTRACT_REF="oci://${REG_HOST}/demo/payments@${PAY_DIGEST}"
 
 # Bind the key to the producer it will sign as, so the trust store authorizes it
@@ -199,6 +199,35 @@ else
   pass "out-of-sequence report rejected"
 fi
 stop_server
+
+echo "== 2d. impact finds consumers through the organization index =="
+# Every version pushed to the registry writes one entry to <registry>/pacto-index,
+# so impact finds the declared consumers of a provider with no --root list.
+# pay-old declares pay.proto and push validates the bundle, so the copy carries it.
+cp -R "$WORK/pay-old" "$WORK/idx-pay"
+printf 'syntax = "proto3";\npackage pay;\n' > "$WORK/idx-pay/pay.proto"
+mkdir -p "$WORK/idx-web"
+sed "s|ref: oci://x/payments|ref: oci://${REG_HOST}/idx/payments|" "$WORK/ws/web/pacto.yaml" > "$WORK/idx-web/pacto.yaml"
+PPUSH="$(PACTO_INSECURE_REGISTRIES="$REG_HOST" "$BIN" push "oci://${REG_HOST}/idx/payments:1.0.0" -p "$WORK/idx-pay" 2>&1)"
+assert_contains "$PPUSH" "Index: indexed as ${REG_HOST}/idx/pacto-index:" "payments is indexed"
+WPUSH="$(PACTO_INSECURE_REGISTRIES="$REG_HOST" "$BIN" push "oci://${REG_HOST}/idx/web:1.0.0" -p "$WORK/idx-web" 2>&1)"
+assert_contains "$WPUSH" "Index: indexed as ${REG_HOST}/idx/pacto-index:" "web is indexed"
+n="$(curl -fsS "http://${REG_HOST}/v2/idx/pacto-index/tags/list" | grep -o '"[0-9a-f]\{16\}-1.0.0"' | wc -l | tr -d ' ')"
+if [ "$n" = 2 ]; then pass "the index holds one entry per pushed version"; else fail "the index holds $n entries, expected 2"; fi
+# An empty --local keeps the workspace out: web is found through the index alone.
+mkdir -p "$WORK/empty"
+rc=0
+IOUT="$(PACTO_INSECURE_REGISTRIES="$REG_HOST" "$BIN" impact "oci://${REG_HOST}/idx/payments:1.0.0" "$WORK/pay-new" --local "$WORK/empty" 2>&1)" || rc=$?
+assert_contains "$IOUT" "Consumers: 1 from ${REG_HOST}/idx/pacto-index (listed by tag, 2 services listed, unchecked)" "the index read is reported unchecked"
+assert_contains "$IOUT" "path: ${REG_HOST}%2Fidx/web > " "the index finds web"
+assert_contains "$IOUT" "Classification: BREAKING" "the change is breaking"
+if [ "$rc" = 2 ]; then pass "an unchecked index never clears the change"; else echo "--- output ---"; echo "$IOUT"; fail "impact exited $rc, expected 2"; fi
+rc=0
+NOUT="$(PACTO_INSECURE_REGISTRIES="$REG_HOST" "$BIN" impact "oci://${REG_HOST}/idx/payments:1.0.0" "$WORK/pay-new" --local "$WORK/empty" --index none 2>&1)" || rc=$?
+assert_contains "$NOUT" "organization index not read (--index none)" "--index none reads no index"
+assert_contains "$NOUT" "No affected consumers." "without the index web is not found"
+[ "$rc" = 0 ] || [ "$rc" = 2 ] || { echo "--- output ---"; echo "$NOUT"; fail "impact --index none exited $rc"; }
+pass "impact finds the consumers published to the organization index with no --root"
 
 echo "== 3. observe runtime dependencies from traces =="
 OOUT="$("$BIN" otel observe "$WORK/traces.json")"

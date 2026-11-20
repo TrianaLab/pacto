@@ -174,6 +174,11 @@ to them. People who may update a workload (the built-in edit or admin role in it
 approve its changes. Then:
 
   pacto delivery plan --namespace <ns> --stage <stage> --to sha256:<digest>
+{{- if not (dig "publishers" "registry" "" .Values.delivery) }}
+
+No publisher rule: the first signer of each service is confirmed in the delivery inbox.
+Set delivery.publishers.registry to derive one.
+{{- end }}
 {{- if .Values.delivery.recorder.enabled }}
 
 The recorder writes a signed record of every concluded operation to
@@ -181,5 +186,14 @@ The recorder writes a signed record of every concluded operation to
 records are being written:
 
   kubectl get stages.delivery.pacto.trianalab.io -A -o custom-columns=NAME:.metadata.name,RECORDS:.status.conditions[?(@.type=="RecordStoreReady")].reason
+{{- with .Values.registry }}
+
+The recorder publishes the cluster's signed target snapshot to
+{{ . }}/pacto-targets:cluster-<uid> every 5 minutes, and CI reads it with
+pacto impact. Pull on that repository reads every namespace's Pacto status and
+workload shape regardless of Kubernetes RBAC and, with evidence.enabled, every
+target, provisioning and usage record (cost included) the Evidence Server
+accepted, so give it its own read ACL.
+{{- end }}
 {{- end }}
 {{- end }}

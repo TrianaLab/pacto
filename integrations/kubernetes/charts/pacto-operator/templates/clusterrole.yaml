@@ -62,6 +62,20 @@ rules:
   - apiGroups: [batch]
     resources: [cronjobs, jobs]
     verbs: [get, list, watch]
+  # Service grouping and repository provenance: the dashboard ClusterRole the
+  # operator applies lists them, and Kubernetes lets it grant only what it holds.
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [list]
+  - apiGroups: [kustomize.toolkit.fluxcd.io]
+    resources: [kustomizations]
+    verbs: [list]
+  - apiGroups: [helm.toolkit.fluxcd.io]
+    resources: [helmreleases]
+    verbs: [list]
+  - apiGroups: [source.toolkit.fluxcd.io]
+    resources: [gitrepositories]
+    verbs: [list]
   # Pacto CRDs
   - apiGroups: [pacto.trianalab.io]
     resources: [pactos]

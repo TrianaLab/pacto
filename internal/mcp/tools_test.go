@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -495,7 +496,7 @@ func TestCreateTool_Pactify(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dir, "k8s", "d.yaml"), []byte("apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: fraud}\nspec: {template: {spec: {containers: [{name: fraud, image: 'registry.example/story/images/fraud:1.0.0'}]}}}\n"), 0o644)
 	args := map[string]any{"name": "fraud", "path": dir, "owner": "risk", "pactify": true, "delivery": true,
 		"environments": `["test","prod"]`, "fleet_roots": `[]`, "registry": "registry.example/story", "dry_run": true,
-		"no_transparency_log": true, "insecure_registry": true, "registry_secret": "registry-creds"}
+		"insecure_registry": true, "registry_secret": "registry-creds"}
 
 	res := callTool(t, "pacto_create", args)
 	var plan struct {
@@ -517,8 +518,8 @@ func TestCreateTool_Pactify(t *testing.T) {
 	prod, _ := os.ReadFile(filepath.Join(dir, "delivery", "prod.yaml"))
 	contract, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
 	if !strings.Contains(string(prod), "insecure: true") || !strings.Contains(string(prod), "secretRef:\n    name: registry-creds\n") ||
-		!strings.Contains(string(contract), "transparencyLog: false") || !strings.Contains(string(contract), "  - name: prod\n    file: environments/prod.yaml\n") {
-		t.Fatalf("no_transparency_log, insecure_registry and registry_secret were not written:\n%s\n%s", contract, prod)
+		strings.Contains(string(contract), "publish:") || !strings.Contains(string(contract), "  - name: prod\n    file: environments/prod.yaml\n") {
+		t.Fatalf("insecure_registry and registry_secret were not written:\n%s\n%s", contract, prod)
 	}
 
 	args["environments"] = "not json"
@@ -530,8 +531,17 @@ func TestCreateTool_Pactify(t *testing.T) {
 	}
 }
 
+// TestCreateTool_PactifyNoTransparencyLog: no_transparency_log goes under a
+// golden path's publish.sign, so pactify refuses it.
+func TestCreateTool_PactifyNoTransparencyLog(t *testing.T) {
+	res := callTool(t, "pacto_create", map[string]any{"name": "fraud", "path": t.TempDir(), "pactify": true, "no_transparency_log": true, "dry_run": true})
+	if !res.IsError || !strings.Contains(resultText(t, res), "transparencyLog goes under a golden path's publish.sign") {
+		t.Fatalf("no_transparency_log without from: %s", resultText(t, res))
+	}
+}
+
 // TestCreateTool_PactifyDescribeOnly: describe_only plans a contract with no
-// publish section and no signing key, and refuses delivery.
+// publish section, says nothing about publishing, and refuses delivery.
 func TestCreateTool_PactifyDescribeOnly(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "fraud")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -544,7 +554,7 @@ func TestCreateTool_PactifyDescribeOnly(t *testing.T) {
 		Files []struct{ Path, Content string }
 	}
 	if res.IsError || json.Unmarshal([]byte(resultText(t, res)), &plan) != nil || len(plan.Files) != 1 || strings.Contains(plan.Files[0].Content, "publish:") ||
-		slices.ContainsFunc(plan.Next, func(n string) bool { return !strings.Contains(n, "pacto pack publishes none of what Pacto inferred") }) {
+		slices.ContainsFunc(plan.Next, func(n string) bool { return strings.Contains(n, "publish") }) {
 		t.Fatalf("plan: %s", resultText(t, res))
 	}
 	if res := callTool(t, "pacto_create", map[string]any{"name": "fraud", "path": dir, "pactify": true, "describe_only": true, "delivery": true}); !res.IsError {
@@ -619,16 +629,37 @@ func TestEditToolDescribesRefusedRaises(t *testing.T) {
 	}
 }
 
-// TestSchemaToolServesDeliveryApplier: pacto_schema serves the newest schema,
-// which carries delivery.applier and its values.
-func TestSchemaToolServesDeliveryApplier(t *testing.T) {
+// TestSchemaToolServesNoDeliverySection: delivery left pactoVersion 2.5 before
+// its release, so the newest schema has no top-level delivery property.
+func TestSchemaToolServesNoDeliverySection(t *testing.T) {
 	var parsed schemaResult
 	if err := json.Unmarshal([]byte(resultText(t, callTool(t, "pacto_schema", map[string]any{}))), &parsed); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"delivery"`, `"applier"`, `"argocd"`, `"flux"`} {
-		if !strings.Contains(parsed.JSONSchema, want) {
-			t.Errorf("schema lacks %s", want)
-		}
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal([]byte(parsed.JSONSchema), &schema); err != nil || len(schema.Properties) == 0 {
+		t.Fatalf("schema properties: %v", err)
+	}
+	if _, ok := schema.Properties["delivery"]; ok {
+		t.Error("schema still serves a top-level delivery section")
+	}
+}
+
+// TestEditRefusesApplierArgument: an agent that still sends applier is
+// refused by the tool schema and nothing is written.
+func TestEditRefusesApplierArgument(t *testing.T) {
+	dir := t.TempDir()
+	before := []byte("pactoVersion: \"2.5\"\nservice:\n  name: svc\n  version: 1.0.0\n")
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), before, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := callTool(t, "pacto_edit", map[string]any{"path": dir, "applier": "argocd"})
+	if !result.IsError || !strings.Contains(resultText(t, result), "applier") {
+		t.Errorf("result = %+v, want an error naming applier", result)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); !bytes.Equal(raw, before) {
+		t.Errorf("contract was written:\n%s", raw)
 	}
 }

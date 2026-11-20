@@ -5,7 +5,8 @@ import { installScaleFixture } from './layoutGate';
 // The demo's newsletter-service declares nothing; its pacto.inferred.yaml holds what
 // Pacto read from the folder: the port its Dockerfile exposes, the owner its
 // catalog-info.yaml names over CODEOWNERS and the team label, the environments its
-// values files name and a chart dependency with no Chart.lock. Against the built WASM
+// values files name, the Dockerfile that builds its image, a chart dependency with no
+// Chart.lock and both a chart and manifests to deploy it. Against the built WASM
 // demo: the revision page lists those rows, each with one mark whose note names the
 // source, and the files Pacto did not read sit in one closed disclosure.
 
@@ -55,10 +56,19 @@ test.describe('WASM demo — a service whose folder Pacto reads', () => {
     await expect(row('environments[production].file')).toContainText('chart/values-production.yaml');
     await expect(inferred).not.toContainText('demo-placeholder-password');
 
+    // The build tool Pacto would use: a long value wraps inside its row, never past the block.
+    await expect(row('publish.build')).toContainText('dockerfile (Dockerfile), image ghcr.io/trianalab/newsletter-service');
+    await expect(await note('publish.build')).toContainText('Source: Dockerfile:1.');
+    await page.keyboard.press('Escape');
+    const block = (await inferred.boundingBox())!;
+    const build = (await row('publish.build').boundingBox())!;
+    expect(build.x + build.width).toBeLessThanOrEqual(block.x + block.width + 1);
+
     const findings = page.getByTestId('revision-discovery-findings');
     await expect(findings).not.toHaveAttribute('open', /.*/);
-    await expect(findings.locator('summary')).toContainText('1 discovery finding');
+    await expect(findings.locator('summary')).toContainText('2 discovery findings');
     await findings.locator('summary').click();
+    await expect(findings).toContainText('both chart (chart) and manifests (deploy/deployment.yaml) found; declare publish');
     await expect(findings).toContainText("chart dependency 'redis' has no Chart.lock digest, not read");
     await expect(findings).toContainText('chart/Chart.yaml:5');
     expect(errors).toEqual([]);

@@ -3,7 +3,7 @@
 `pacto.inferred.yaml` holds what Pacto completes for a service from its folder,
 apart from what `pacto.yaml` declares. Pacto writes it into the bundle of a
 `pactoVersion: "2.5"` contract when it packs, pushes or publishes, and never
-into your folder or into `pacto.yaml`. Each value names the file and line it
+into `pacto.yaml`. Only a `--cluster` draft gets a copy in its folder. Each value names the file and line it
 was read from, how sure Pacto is and the YAML that would declare it.
 
 A declared value always wins: Pacto never records a field that `pacto.yaml`
@@ -18,7 +18,7 @@ format: pacto.inferred/v1
 inputs:
   commit: 4e1a9c0d...          # left out when the folder is not a git checkout
   pacto: 4.6.0                 # the Pacto that completed it
-  discovery: "3"               # raised when what Pacto reads from a folder changes
+  discovery: "5"               # raised when what Pacto reads from a folder changes
   sources:                     # every file a field cites, sorted by path
     - {path: deploy/app.yaml, digest: "sha256:..."}
     - {path: openapi/v1.yaml, digest: "sha256:..."}
@@ -66,7 +66,10 @@ findings:                      # what Pacto recognized and could not read
   as an OpenAPI document. A file at the repository root outside the folder,
   only CODEOWNERS, is `repository:<path>:<line>`, relative to the repository
   root. It is not in the bundle, so `inputs.sources` cites it with its digest
-  and a change to it changes the record.
+  and a change to it changes the record. A version derived by
+  `pacto ci --publish` cites `registry:<repo>@sha256:<digest>`, the verified
+  baseline it was raised from, or `registry:<repo>` when the repository held
+  no version. An image passed on the command line cites `flag:--image`.
 - `class: ownerFile` marks a `service.owner` read from CODEOWNERS or
   `catalog-info.yaml`, the only value and the only field it goes on.
   `pacto init` shows it as "attested". The marker only names the file: an
@@ -84,8 +87,9 @@ findings:                      # what Pacto recognized and could not read
 - `confidence` is `likely` (read from a file in the repository) or `possible`.
 - `declare` is the YAML to add to `pacto.yaml`. For a configuration key it is
   the property to add to the configuration's JSON Schema.
-- The record has no timestamp: the same folder at the same commit gives the
-  same bytes.
+- A record completed from a folder has no timestamp: the same folder at the
+  same commit gives the same bytes. Only a `--cluster` draft's record carries
+  read times ([Cluster facts](#cluster-facts)).
 
 | Field | Read from | Recorded unless `pacto.yaml` |
 |---|---|---|
@@ -100,6 +104,9 @@ findings:                      # what Pacto recognized and could not read
 | `capabilities[health]` | A readiness, liveness or startup probe, else the Dockerfile `HEALTHCHECK` | declares a `health` capability |
 | `configuration.<KEY>` | Each environment key, ConfigMaps included | declares the key in a configuration's `values` or schema `properties`, or declares a configuration whose keys Pacto cannot list (a `ref`, or a schema it cannot read or that uses `allOf`, `anyOf`, `oneOf`, `$ref` or `patternProperties`) |
 | `dependencies[<name>]` | A service name inside the cluster in an environment value, or `spec.dependsOn` in `catalog-info.yaml` | declares a dependency of that name or `ref` |
+| `service.version` | The verified baseline and the change since it, when `pacto ci --publish` or `pacto publish` derives it, such as `1.4.3 (1.4.2 + patch, NON_BREAKING)` or `1.0.0 (no versions in <repo>)`. The bundle's `pacto.yaml` carries the same version | declares `service.version` |
+| `publish.build` | The build tool the folder shows, or `image supplied, not built by Pacto: <ref>` for `--image` or a workload image pinned by digest | declares `publish` |
+| `publish.deploy` | The folder's Kustomization, Helm chart or manifests, and the image pinned by digest | declares `publish` |
 
 ### External dependencies
 
@@ -150,6 +157,103 @@ fields:
 - How `pacto init` finds them is in
   [External dependencies](../pactify.md#external-dependencies).
 
+### Migrations
+
+When [`pacto ci`](../ci.md#older-contracts) raises an older `pactoVersion` in
+memory, the bundle's record says so. A record can hold `migrations` and an
+empty `fields`:
+
+```yaml
+format: pacto.inferred/v1
+inputs:
+  commit: 4e1a9c0d...
+  pacto: 4.6.0
+  discovery: "1"
+  sources: []
+fields: []
+migrations:
+  - from: "2.4"                # the version pacto.yaml declares in your folder
+    to: "2.5"                  # the version the bundled copy declares
+    source: pacto.yaml
+    by: pacto ci 4.6.0
+```
+
+- Entries are sorted by `source`, then `from`. Each needs all four keys, a
+  `from` and `to` this Pacto knows with `from` older than `to`, and a `source`
+  no other entry names.
+- Every entry must match the bundle it sits in: `source` is a file in the
+  bundle and the `pactoVersion` it declares equals `to`. A stale or edited
+  entry makes the record `INFERRED_RECORD_INVALID`, and the fleet then shows
+  no migration.
+- `source` is not listed in `inputs.sources`: its bytes are the raised ones.
+
+### Cluster facts
+
+A [`--cluster` draft](../bootstrap-contracts.md#the-inferred-record-of-a-draft)
+writes its record into the draft folder, completed from the folder and then
+from what the cluster showed. A cluster entry is added only for a field the
+folder did not give.
+
+```yaml
+inputs:
+  cluster:
+    asOf: 2026-11-14T10:02:00Z     # when the cluster was read
+    object: shop/Deployment/invoices
+    callWindow: 24h
+    maxItems: 10000
+fields:
+  - field: dependencies[ledger].compatibility
+    value: compatibility unknown
+    proposed: ^2.3.0
+    source: cluster:fleet reported versions 2.3.1
+    confidence: likely
+    asOf: 2026-11-14T09:58:12Z
+    completeness: partial
+    declare: 'compatibility: "^2.3.0"'
+coverage:                          # always in this source order
+  - {source: workloads, state: complete}
+  - {source: endpointslices, state: complete}
+  - {source: runtime-calls, state: partial, reason: 2 of 3 nodes observed}
+hidden: {services: 1, callers: 2}
+```
+
+| Field | Read from | Source | Recorded unless `pacto.yaml` |
+|---|---|---|---|
+| A field of the table above | The draft's `manifests.yaml` | `cluster:manifest <object> <file>:<n>` (or `<file>` alone when the line was not found), or `cluster:label <object> <label key>` for the team label | declares it, as for a folder |
+| `image.digest[<container>]` | The running pods' image digests, sorted and joined | `cluster:runtime pods of <object>` | is never compared: a digest is never declared |
+| `dependencies[<name>]` | A Service the pods were seen calling | `cluster:runtime calls from <object>` | declares a dependency of that name or `ref` |
+| `dependencies[<name>].compatibility` | The versions the Pactos describing the called Service report | `cluster:fleet reported versions <v>[, <v>...]` | declares that dependency with a range |
+
+- `<object>` is always `inputs.cluster.object`, the drafted workload, as
+  `<namespace>/<Kind>/<name>`. A source never names another object, a value,
+  an argument or a URL, and Pacto refuses a record whose source does.
+- `asOf` is required on every cluster entry, in UTC to the second. Entries
+  from `manifests.yaml` and image digests carry the read time. `runtime` and
+  `fleet` entries carry the oldest node observation they rest on.
+- `completeness` is `complete` or `partial`, on `runtime` and `fleet` entries
+  only. It is `partial` when a node the workload ran on was not observed, when
+  a source they rest on was cut short or failed, or when a called Service is
+  hidden. An image digest is `partial` when the pods, ReplicaSets or Jobs list
+  was cut short.
+- `proposed` is a range, on a `dependencies[<name>].compatibility` entry with a
+  `cluster:fleet` source only.
+  The dependency keeps `compatibility: unknown` until a person declares one.
+- `coverage` lists the sources `workloads`, `pods`, `replicasets`, `jobs`,
+  `services`, `endpointslices`, `pactos` and `runtime-calls`, each `complete`,
+  `partial` or `failed`. A source that is not `complete` has a fixed reason
+  that names no namespace and no object: `stopped at the item bound (<n>)`,
+  `forbidden`, `not found`, `timed out`, `the continue token expired`,
+  `listing failed (<HTTP status>)`, `listing failed (no response)` when the
+  API server never answered, `listing failed (malformed observation)`,
+  `<k> of <m> nodes observed`, `no node runtime observations`,
+  `<x> called services you may not read`, `the pods were not all read` or
+  `no running pods observed` when no pod of the workload ran on a node.
+- `hidden` counts the Services the workload called and the callers of its own
+  Services that a read on behalf of a viewer drops. It never names them.
+- Bundle verification refuses these keys until a signed declaration carries
+  them: a bundle whose record holds a cluster source, `inputs.cluster`,
+  `coverage` or `hidden` is `INFERRED_RECORD_INVALID`.
+
 ## When Pacto writes it
 
 - `pacto init` and the MCP tool `pacto_create` (with `pactify: true`) on a
@@ -157,8 +261,11 @@ fields:
   it declares and how many Pacto completed. They write no file: the record is
   generated, so a committed copy would go stale on the next commit.
 - An older `pactoVersion` is never completed, so its bundle keeps the same
-  bytes. `init` says to set `pactoVersion: "2.5"`.
-- A `--cluster` draft never completes a contract: only the folder is read.
+  bytes. `init` says to set `pactoVersion: "2.5"`. `pacto ci` completes a
+  contract it raised in memory and adds a `migrations` entry.
+- A `--cluster` draft completes its contract and writes `pacto.inferred.yaml`
+  into the draft folder, because its cluster facts cannot be read from the
+  folder again. It keeps a record already there.
 - `pacto validate`, `pacto diff`, `pacto explain`, `pacto impact` and
   `pacto fleet --local` compute the record in memory for a local folder.
 - `pacto pack`, `pacto push` and `pacto publish` put a fresh record into the
@@ -174,7 +281,7 @@ When a published tag differs from the new bundle only in its inferred record,
 and both records cite the same files with the same digests, `pacto publish`
 reports the bundle as adopted (`only the inferred record differs ... not
 republished`). Pacto first checks that the tag is signed by the identity in
-`publish.sign`. An unsigned tag, or one signed by someone else, is a conflict
+`publish.sign`, or the CI token's identity when it declares none. An unsigned tag, or one signed by someone else, is a conflict
 that needs the next version.
 
 The cited files are part of the bundle, so editing one changes the bundle and

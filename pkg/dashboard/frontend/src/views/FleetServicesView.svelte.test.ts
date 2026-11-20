@@ -598,4 +598,29 @@ describe('FleetServicesView — inferred services (509-S1)', () => {
     expect(muted?.replace(/^[^{]*\{|\}\s*$/g, '').trim()).toBe('color: var(--c-text-3);');
     unmount(component); document.body.removeChild(target);
   });
+
+  it('filters by group, names the group on its chip and under the image, and the chip clears it', async () => {
+    const group = { rule: 'argocd', namespace: 'shop', name: 'shop', from: 'annotation argocd.argoproj.io/tracking-id', key: 'argocd/shop/shop', label: 'Argo CD Application shop/shop' };
+    entitiesFn.mockResolvedValue(listResp([{ ...inferred, group }], { total: 1 }));
+    const { target, component } = mountView({ declaration: 'inferred', group: 'argocd/shop/shop' });
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    expect(entitiesFn).toHaveBeenLastCalledWith(expect.objectContaining({ declaration: 'inferred', group: 'argocd/shop/shop' }));
+    const line = rows(target)[0].querySelector('.sv-group') as HTMLElement;
+    expect(line.getAttribute('title')).toBe('Argo CD Application shop/shop');
+    expect(line.querySelector('bdi')?.textContent).toBe('Argo CD Application shop/shop');
+    const chip = Array.from(target.querySelectorAll('.chip')).find((c) => c.textContent?.includes('Group')) as HTMLElement;
+    expect(chip.textContent?.replace(/\s+/g, ' ').trim()).toBe('Group: Argo CD Application shop/shop ×');
+    (chip.querySelector('button') as HTMLButtonElement).click();
+    expect(location.hash).toBe('#/fleet/services?declaration=inferred');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('names a group chip by its key when no row carries it', async () => {
+    entitiesFn.mockResolvedValue(listResp([], { total: 0 }));
+    const { target, component } = mountView({ group: 'helm/shop/gone' });
+    await vi.waitFor(() => expect(Array.from(target.querySelectorAll('.chip')).some((c) => c.textContent?.includes('Group'))).toBe(true));
+    const chip = Array.from(target.querySelectorAll('.chip')).find((c) => c.textContent?.includes('Group')) as HTMLElement;
+    expect(chip.textContent?.replace(/\s+/g, ' ').trim()).toBe('Group: helm/shop/gone ×');
+    unmount(component); document.body.removeChild(target);
+  });
 });

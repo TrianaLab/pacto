@@ -561,7 +561,7 @@ func TestLoadAndValidateLocal_ValidationFails(t *testing.T) {
 func TestLoadAndValidateFull_Success(t *testing.T) {
 	dir := writeTestBundle(t)
 	store := &mockBundleStore{}
-	c, rawYAML, bundleFS, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, store, contract.InferredInputs{}, nil)
+	c, rawYAML, bundleFS, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, store, contract.InferredInputs{}, nil, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -578,7 +578,7 @@ func TestLoadAndValidateFull_Success(t *testing.T) {
 
 func TestLoadAndValidateFull_NilStore(t *testing.T) {
 	dir := writeTestBundle(t)
-	c, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil, contract.InferredInputs{}, nil)
+	c, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil, contract.InferredInputs{}, nil, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -588,7 +588,7 @@ func TestLoadAndValidateFull_NilStore(t *testing.T) {
 }
 
 func TestLoadAndValidateFull_FileNotFound(t *testing.T) {
-	_, _, _, err := loadAndValidateFull(context.Background(), "/nonexistent/dir", override.Overrides{}, nil, contract.InferredInputs{}, nil)
+	_, _, _, err := loadAndValidateFull(context.Background(), "/nonexistent/dir", override.Overrides{}, nil, contract.InferredInputs{}, nil, false)
 	if err == nil {
 		t.Error("expected error for nonexistent directory")
 	}
@@ -598,7 +598,7 @@ func TestLoadAndValidateFull_OverrideError(t *testing.T) {
 	dir := writeTestBundle(t)
 	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{
 		SetValues: []string{"no-equals"},
-	}, nil, contract.InferredInputs{}, nil)
+	}, nil, contract.InferredInputs{}, nil, false)
 	if err == nil {
 		t.Error("expected error for invalid override")
 	}
@@ -606,7 +606,7 @@ func TestLoadAndValidateFull_OverrideError(t *testing.T) {
 
 func TestLoadAndValidateFull_ValidationFails(t *testing.T) {
 	dir := writeInvalidBundle(t)
-	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil, contract.InferredInputs{}, nil)
+	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil, contract.InferredInputs{}, nil, false)
 	if err == nil {
 		t.Error("expected error for invalid bundle")
 	}
@@ -641,7 +641,7 @@ capabilities:
 	}
 
 	// With nil store, ref-based policies fail with POLICY_REF_UNRESOLVED
-	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil, contract.InferredInputs{}, nil)
+	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil, contract.InferredInputs{}, nil, false)
 	if err == nil {
 		t.Error("expected error for unresolvable policy ref")
 	}
@@ -692,7 +692,7 @@ capabilities:
 		},
 	}
 
-	c, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, store, contract.InferredInputs{}, nil)
+	c, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, store, contract.InferredInputs{}, nil, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -743,7 +743,7 @@ capabilities:
 		},
 	}
 
-	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, store, contract.InferredInputs{}, nil)
+	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, store, contract.InferredInputs{}, nil, false)
 	if err == nil {
 		t.Error("expected error for policy violation (missing scaling)")
 	}
@@ -826,7 +826,7 @@ func implicitBundle(t *testing.T, raw string) *contract.Bundle {
 }
 
 func TestPublishablePinsVersion(t *testing.T) {
-	b, err := publishable(implicitBundle(t, "service:\n  name: a\n  version: 1.0.0\n"))
+	b, err := publishable(implicitBundle(t, "service:\n  name: a\n  version: 1.0.0\n"), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -848,7 +848,7 @@ func TestPublishablePinsVersion(t *testing.T) {
 
 func TestPublishableKeepsDeclaredVersion(t *testing.T) {
 	in := implicitBundle(t, "pactoVersion: \"2.0\"\nservice:\n  name: a\n  version: 1.0.0\n")
-	if b, err := publishable(in); err != nil || b != in {
+	if b, err := publishable(in, false); err != nil || b != in {
 		t.Fatalf("got %v, %v", b, err)
 	}
 }
@@ -856,7 +856,7 @@ func TestPublishableKeepsDeclaredVersion(t *testing.T) {
 func TestPublishablePinIsDeterministic(t *testing.T) {
 	var digests []string
 	for range 2 {
-		b, err := publishable(implicitBundle(t, "service:\n  name: a\n  version: 1.0.0\n"))
+		b, err := publishable(implicitBundle(t, "service:\n  name: a\n  version: 1.0.0\n"), false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -872,14 +872,14 @@ func TestPublishablePinIsDeterministic(t *testing.T) {
 }
 
 func TestPublishableRefusesMissingVersion(t *testing.T) {
-	_, err := publishable(implicitBundle(t, "service:\n  name: a\n"))
+	_, err := publishable(implicitBundle(t, "service:\n  name: a\n"), false)
 	if !errors.Is(err, ErrPublishNeedsServiceVersion) || !strings.HasPrefix(err.Error(), "PUBLISH_NEEDS_SERVICE_VERSION") {
 		t.Fatalf("got %v", err)
 	}
 }
 
 func TestPublishableRefusesMissingName(t *testing.T) {
-	_, err := publishable(implicitBundle(t, "service:\n  version: 1.0.0\n"))
+	_, err := publishable(implicitBundle(t, "service:\n  version: 1.0.0\n"), false)
 	if !errors.Is(err, ErrPublishNeedsServiceName) || !strings.HasPrefix(err.Error(), "PUBLISH_NEEDS_SERVICE_NAME") {
 		t.Fatalf("got %v", err)
 	}
@@ -891,14 +891,14 @@ func TestPublishablePinFailures(t *testing.T) {
 		"[a]": "not a mapping",
 		"service: {name: a, version: 1.0.0}\nbogus: 1\n": "pinning pactoVersion",
 	} {
-		_, err := publishable(&contract.Bundle{Contract: named, RawYAML: []byte(raw), FS: fstest.MapFS{}})
+		_, err := publishable(&contract.Bundle{Contract: named, RawYAML: []byte(raw), FS: fstest.MapFS{}}, false)
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: got %v", raw, err)
 		}
 	}
 	b := implicitBundle(t, "service:\n  name: a\n  version: 1.0.0\n")
 	b.FS = &errFS{}
-	if _, err := publishable(b); err == nil || !strings.Contains(err.Error(), "pinned bundle FS") {
+	if _, err := publishable(b, false); err == nil || !strings.Contains(err.Error(), "pinned bundle FS") {
 		t.Errorf("got %v", err)
 	}
 }
@@ -910,7 +910,7 @@ func TestLoadAndValidateFullRefusesMissingVersion(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service:\n  name: a\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil, contract.InferredInputs{}, nil)
+	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil, contract.InferredInputs{}, nil, false)
 	if !errors.Is(err, ErrPublishNeedsServiceVersion) {
 		t.Fatalf("got %v", err)
 	}
@@ -952,7 +952,7 @@ func TestPublishableRefusesInferredName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = publishable(b)
+	_, err = publishable(b, false)
 	if !errors.Is(err, ErrPublishNeedsServiceName) || !strings.Contains(err.Error(), "inferred from chart/Chart.yaml:2") {
 		t.Fatalf("got %v", err)
 	}
@@ -970,7 +970,7 @@ func TestOverrideNameClearsInferredName(t *testing.T) {
 
 func TestPublishWithOverrideNamePublishes(t *testing.T) {
 	dir := emptyChartDir(t, "service:\n  version: 1.0.0\n")
-	c, raw, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{SetValues: []string{"service.name=payments"}}, nil, contract.InferredInputs{}, nil)
+	c, raw, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{SetValues: []string{"service.name=payments"}}, nil, contract.InferredInputs{}, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}

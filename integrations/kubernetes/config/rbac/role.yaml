@@ -58,6 +58,12 @@ rules:
   - list
   - watch
 - apiGroups:
+  - argoproj.io
+  resources:
+  - applications
+  verbs:
+  - list
+- apiGroups:
   - authorization.k8s.io
   resources:
   - subjectaccessreviews
@@ -105,6 +111,18 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - helm.toolkit.fluxcd.io
+  resources:
+  - helmreleases
+  verbs:
+  - list
+- apiGroups:
+  - kustomize.toolkit.fluxcd.io
+  resources:
+  - kustomizations
+  verbs:
+  - list
 - apiGroups:
   - networking.istio.io
   resources:
@@ -179,6 +197,12 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - source.toolkit.fluxcd.io
+  resources:
+  - gitrepositories
+  verbs:
+  - list
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

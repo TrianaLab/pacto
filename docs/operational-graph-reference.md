@@ -59,6 +59,18 @@ compliance evidence that a source carries.
 - **Ingested external evidence** (`--evidence-url <url>`): a running [Evidence
   Server](evidence.md)'s read-only contribution over HTTP, exposing a
   remote environment's signed `EvidenceSet` reports as operational targets.
+- **Target snapshots** (`--target-snapshot <oci://ref>`, repeatable): the
+  signed snapshot each cluster's delivery recorder publishes to
+  `<registry>/pacto-targets:cluster-<uid>`, read with registry access and no
+  kubeconfig. A repository reads every `cluster-*` tag (at most 32); a tag or
+  digest pins one cluster. Each snapshot becomes up to three sources with the
+  same cluster: `targets-<uid>` of kind `target-snapshot` (its Pacto
+  resources), `targets-<uid>-workloads` of kind `kubernetes-workloads` (its
+  inferred services) and `targets-<uid>-evidence` of kind `evidence-http` (its
+  Evidence Server's targets). `pacto impact` and `pacto ci` derive the
+  repository from the change's `oci://` ref; see
+  [Where consumers come from](ci.md#where-consumers-come-from) and
+  [Target snapshots](#target-snapshots).
 - **Offline target-state fixtures** (`--target-state`): an unsigned demo and
   test adapter for supplying targets without a cluster.
 - **Offline trace exports** (`--traces`, or `--trace-source NAME=PATH` on `pacto
@@ -78,6 +90,24 @@ compliance evidence that a source carries.
 --fleet` reads all but `--root`, which on `pacto mcp` selects a frozen catalog
 server and takes no other mode. Two are narrower: `impact` takes a single
 `--traces` file, and `--trace-source` is `pacto dashboard` only.
+
+### Target snapshots
+
+Snapshot sources carry:
+
+| Field or code | Meaning |
+|---|---|
+| `ref` | The snapshot read, pinned as `<repository>@<digest>` |
+| `signer` | The trust entry that verified it: its `name`, or `key:<fingerprint>`; empty when unverified. Never the `publisher` the payload claims |
+| `publisher` | Who the payload says published it, such as the recorder's ServiceAccount; a claim, with control characters dropped like the publisher's limitations |
+| `cluster` | The cluster the snapshot describes, its id the `kube-system` UID |
+| `lastSuccessfulSync` | The snapshot's `asOf` |
+| `TARGET_SNAPSHOT_UNVERIFIED` | Read with no delivery trust config (`--delivery-trust` or `$PACTO_DELIVERY_TRUST`); the source is `partial` |
+| `TARGET_SNAPSHOT_UNSCOPED` | Verified only by a key whose `streams` do not name the cluster's UID (a bare PEM included); `partial` |
+| `TARGET_SNAPSHOT_STALE` | Its `asOf` is more than 15 minutes old; `stale` |
+| `TARGET_SNAPSHOT_INVALID` | Missing (a pinned tag), a bad signature, a cluster other than its tag, an unknown predicate or an `asOf` in the future; not used, `unavailable` |
+| `TARGET_SNAPSHOT_BOUND` | More than 32 cluster tags, a snapshot over 8 MiB or the 20 second read timeout; `partial` or `unavailable` |
+| Text line | `pacto fleet status` and `pacto fleet snapshot` print one per source, such as `Source targets-<uid> (target-snapshot): available, ref <repository>@<digest>, signed by <signer>, asOf <time>`; `unverified` replaces the signer when no trust entry verified it, and a source that is not available ends with its reason |
 
 ### Observed calls under a restricted view
 

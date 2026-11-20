@@ -1,7 +1,7 @@
 format: pacto.inferred/v1
 inputs:
     pacto: demo
-    discovery: "3"
+    discovery: "4"
     sources:
         - path: CODEOWNERS
           digest: sha256:a52f034421811e5454b85abaedc944ba60d3e390e6ec2db6ea71e6563bb1f73f
@@ -159,6 +159,17 @@ fields:
       confidence: likely
       outranks:
         - chart/values.yaml:5
+    - field: publish.build
+      value: dockerfile (Dockerfile), image ghcr.io/trianalab/newsletter-service
+      source: Dockerfile:1
+      confidence: likely
+      declare: |
+        publish:
+          bundle: oci://<registry>/contracts/newsletter-service
+          artifacts:
+            - name: image
+              type: image
+              ref: oci://<registry>/newsletter-service
     - field: service.owner
       value: team-growth
       source: catalog-info.yaml:7
@@ -178,6 +189,9 @@ fields:
       declare: |
         workload: service
 findings:
+    - code: DISCOVERY_AMBIGUOUS
+      source: chart/Chart.yaml
+      message: both chart (chart) and manifests (deploy/deployment.yaml) found; declare publish
     - code: DISCOVERY_CHART_DEPENDENCY_UNLOCKED
       source: chart/Chart.yaml:5
       message: chart dependency 'redis' has no Chart.lock digest, not read

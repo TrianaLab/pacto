@@ -128,3 +128,16 @@ func TestDiscoveryOnlyChangeNonBumping(t *testing.T) {
 		t.Fatalf("changes %+v, overall %s", got, r.Classification)
 	}
 }
+
+func TestDiffInferredIgnoresMigrations(t *testing.T) {
+	c := bareContract()
+	f := field("workload", "service", "deploy/app.yaml:3")
+	v := contract.SupportedVersions
+	migrated := &contract.InferredRecord{Format: contract.InferredRecordFormat,
+		Inputs: contract.InferredInputs{Commit: "a", Pacto: "4.6.0", Discovery: "1"}, Fields: []contract.Inferred{f},
+		Migrations: []contract.InferredMigration{{From: v[len(v)-2], To: contract.Current(), Source: "pacto.yaml", By: "pacto ci test"}}}
+	newFS := fstest.MapFS{contract.InferredRecordFile: {Data: migrated.Marshal()}}
+	if got := inferredChanges(Compare(context.Background(), c, c, recordFS("a", f), newFS)); len(got) != 0 {
+		t.Fatalf("a migrations-only difference changed %+v", got)
+	}
+}

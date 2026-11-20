@@ -286,6 +286,11 @@ func readWorkload(rel, kind, name string, doc map[string]any, src func(needle st
 	if kind == "CronJob" {
 		pod = Dig(doc, "spec", "jobTemplate", "spec", "template", "spec")
 	}
+	// Init containers first: a container variable of the same name wins.
+	inits, _ := Dig(pod, "initContainers").([]any)
+	for _, c := range inits {
+		readEnv(w, rel, c, src)
+	}
 	containers, _ := Dig(pod, "containers").([]any)
 	main := 0
 	for i, c := range containers {
@@ -298,33 +303,50 @@ func readWorkload(rel, kind, name string, doc map[string]any, src func(needle st
 			w.Image, _ = Dig(c, "image").(string)
 			w.Probe = readProbe(c, src)
 		}
-		// envFrom first: an env entry of the same name wins, as in Kubernetes.
-		envFrom, _ := Dig(c, "envFrom").([]any)
-		for _, e := range envFrom {
-			prefix, _ := Dig(e, "prefix").(string)
-			if n, ok := Dig(e, "configMapRef", "name").(string); ok {
-				w.Env = append(w.Env, EnvVar{File: rel, Name: prefix, From: "configmap", Ref: n})
-			} else if n, ok := Dig(e, "secretRef", "name").(string); ok {
-				w.Env = append(w.Env, EnvVar{File: rel, Name: prefix, From: "secret", Ref: n, Secret: true})
-			}
-		}
-		env, _ := Dig(c, "env").([]any)
-		for _, e := range env {
-			v := EnvVar{File: rel}
-			v.Name, _ = Dig(e, "name").(string)
-			v.Source = src("name: " + v.Name)
-			v.Value, _ = Dig(e, "value").(string)
-			if n, ok := Dig(e, "valueFrom", "configMapKeyRef", "name").(string); ok {
-				v.From, v.Ref = "configmap", n
-				v.Key, _ = Dig(e, "valueFrom", "configMapKeyRef", "key").(string)
-			} else if n, ok := Dig(e, "valueFrom", "secretKeyRef", "name").(string); ok {
-				v.From, v.Ref, v.Secret = "secret", n, true
-				v.Key, _ = Dig(e, "valueFrom", "secretKeyRef", "key").(string)
-			}
-			w.Env = append(w.Env, v)
-		}
+		readEnv(w, rel, c, src)
 	}
 	return w
+}
+
+// readEnv reads the environment of the container c: envFrom first, then env,
+// so an env entry of the same name wins, as in Kubernetes.
+func readEnv(w *Workload, rel string, c any, src func(needle string) string) {
+	envFrom, _ := Dig(c, "envFrom").([]any)
+	for _, e := range envFrom {
+		prefix, _ := Dig(e, "prefix").(string)
+		if n, ok := Dig(e, "configMapRef", "name").(string); ok {
+			w.Env = append(w.Env, EnvVar{File: rel, Name: prefix, From: "configmap", Ref: n})
+		} else if n, ok := Dig(e, "secretRef", "name").(string); ok {
+			w.Env = append(w.Env, EnvVar{File: rel, Name: prefix, From: "secret", Ref: n, Secret: true})
+		}
+	}
+	env, _ := Dig(c, "env").([]any)
+	for _, e := range env {
+		v := EnvVar{File: rel}
+		v.Name, _ = Dig(e, "name").(string)
+		v.Source = envSource(src, v.Name)
+		v.Value, _ = Dig(e, "value").(string)
+		if n, ok := Dig(e, "valueFrom", "configMapKeyRef", "name").(string); ok {
+			v.From, v.Ref = "configmap", n
+			v.Key, _ = Dig(e, "valueFrom", "configMapKeyRef", "key").(string)
+		} else if n, ok := Dig(e, "valueFrom", "secretKeyRef", "name").(string); ok {
+			v.From, v.Ref, v.Secret = "secret", n, true
+			v.Key, _ = Dig(e, "valueFrom", "secretKeyRef", "key").(string)
+		}
+		w.Env = append(w.Env, v)
+	}
+}
+
+// envSource is where the env entry name is: "name: <name>", or its double or
+// single quoted form, which YAML needs for a name such as NO.
+func envSource(src func(needle string) string, name string) string {
+	var s string
+	for _, q := range []string{"", `"`, "'"} {
+		if s = src("name: " + q + name + q); strings.Contains(s, ":") {
+			break
+		}
+	}
+	return s
 }
 
 // readProbe is a container's first readiness, liveness or startup probe.

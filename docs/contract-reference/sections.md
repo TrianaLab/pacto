@@ -27,8 +27,8 @@ The contract specification version: `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"` 
 - 2.5 makes `pactoVersion`, `service`, `service.name` and `service.version`
   optional (see [the smallest contract](index.md#the-smallest-contract)),
   derives a dependency `name` from its `ref`, defaults `required` to `true`,
-  accepts `compatibility: unknown` and adds an interface `port`,
-  [`breaks`](dependencies-and-state.md#breaks) and [`delivery`](delivery.md).
+  accepts `compatibility: unknown` and adds an interface `port` and
+  [`breaks`](dependencies-and-state.md#breaks).
 
 Each version accepts every contract of the version before it.
 [Versions](../installation.md#versions) lists the Pacto core and operator

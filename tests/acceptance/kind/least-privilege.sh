@@ -87,6 +87,19 @@ can_i() { # VERB RESOURCE AS [kubectl args...] — prints yes or no
   kubectl auth can-i "$verb" "$res" --as="$as" "$@" 2>/dev/null || true
 }
 
+# can_i_crd VERB GROUP RESOURCE AS — prints yes or no, in every namespace, for a
+# resource whose CRD may not be installed. kubectl auth can-i cannot ask that:
+# when discovery does not know the type it drops the group and asks about a
+# core resource literally named "applications.argoproj.io".
+can_i_crd() {
+  local allowed
+  allowed=$(kubectl create --validate=false --as="$4" -o jsonpath='{.status.allowed}' -f - 2>/dev/null <<SSAR || true
+{"apiVersion":"authorization.k8s.io/v1","kind":"SelfSubjectAccessReview","spec":{"resourceAttributes":{"verb":"$1","group":"$2","resource":"$3"}}}
+SSAR
+)
+  [ "$allowed" = "true" ] && echo yes || echo no
+}
+
 assert_operator_healthy() {
   kubectl -n "$NS" rollout status deployment/pacto-operator --timeout=150s >/dev/null || fail "operator Deployment not Available"
   local pods=()
@@ -212,6 +225,15 @@ for res in pods secrets; do
   [ "$(can_i get "$res" "$DASH_AS" --all-namespaces)" = "no" ] || fail "the dashboard may get $res"
 done
 pass "the dashboard may list workloads, never get or watch them, and reads no pods or Secrets"
+# Service grouping and repository provenance: the dashboard lists the four
+# GitOps kinds, list only (the CRDs need not be installed for the review).
+for res in applications.argoproj.io kustomizations.kustomize.toolkit.fluxcd.io helmreleases.helm.toolkit.fluxcd.io gitrepositories.source.toolkit.fluxcd.io; do
+  [ "$(can_i_crd list "${res#*.}" "${res%%.*}" "$DASH_AS")" = "yes" ] || fail "the dashboard may not list $res in every namespace"
+  for verb in get watch; do
+    [ "$(can_i_crd "$verb" "${res#*.}" "${res%%.*}" "$DASH_AS")" = "no" ] || fail "the dashboard may $verb $res; service grouping needs list only"
+  done
+done
+pass "the dashboard may list Argo CD and Flux objects, never get or watch them"
 apply_pacto default lp-pull missing-grant
 eventually 20 reason_is default lp-pull PullSecretNotGranted || fail "lp-pull never reached PullSecretNotGranted (reason '$(condition default lp-pull reason)')"
 [ "$(pacto_status default lp-pull)" = "Unknown" ] || fail "lp-pull contractStatus=$(pacto_status default lp-pull), want Unknown"

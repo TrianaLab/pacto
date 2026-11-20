@@ -11,6 +11,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/orgindex"
 	"github.com/trianalab/pacto/v4/pkg/override"
 )
 
@@ -36,6 +37,9 @@ type PushOptions struct {
 	Path      string
 	Force     bool
 	Overrides override.Overrides
+	// Index is the organization index repository the entry is written to:
+	// "" derives it from the bundle repository, IndexNone writes none.
+	Index string
 }
 
 // PushResult holds the result of the push command.
@@ -49,6 +53,9 @@ type PushResult struct {
 	// Warnings are the guarantees check's warnings, such as a provider it
 	// could not fetch (GUARANTEE_UNVERIFIED).
 	Warnings []contract.ValidationWarning `json:"warnings,omitempty"`
+	// Index says where this version's organization index entry was written,
+	// or why it was not.
+	Index string `json:"index,omitempty"`
 }
 
 // Push validates a contract bundle, builds an OCI artifact, and pushes it to a registry.
@@ -99,6 +106,8 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 			if remote == local || s.onlyRecordDiffers(ctx, ref, remote, bundle) {
 				logging.LoggerFromContext(ctx).Debug("identical artifact already published", "ref", ref, "digest", remote)
 				result.Digest, result.Unchanged = remote, true
+				// An already published version still gets its missing entry.
+				result.Index = s.keepIndexEntry(ctx, bundle, ref, result.Digest, orgindex.Publisher{}, opts.Index)
 				return result, nil
 			}
 			return nil, fmt.Errorf("%w: %s holds %s, not this bundle's %s (use --force to overwrite)", ErrArtifactAlreadyExists, ref, remote, local)
@@ -117,6 +126,8 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 	}
 
 	result.Digest = digest
+	// A push signs nothing, so the entry claims no publisher.
+	result.Index = s.keepIndexEntry(ctx, bundle, ref, digest, orgindex.Publisher{}, opts.Index)
 	return result, nil
 }
 
@@ -182,7 +193,7 @@ func (s *Service) pushable(ctx context.Context, path string, overrides override.
 	if err != nil {
 		return nil, nil, err
 	}
-	c, _, bundleFS, err := loadAndValidateFull(ctx, path, overrides, s.BundleStore, s.localInputs(path, ""), cat)
+	c, _, bundleFS, err := loadAndValidateFull(ctx, path, overrides, s.BundleStore, s.localInputs(path, ""), cat, false)
 	if err != nil {
 		return nil, nil, err
 	}

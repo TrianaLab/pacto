@@ -1,0 +1,12 @@
+billing/pacto.yaml:        kept at 2.3: ENVIRONMENT_VALUES_MISSING at environments[0].file: environment prod: configuration db at /db: required configuration db has no values here and its defaults fail its schema: missing property 'size'
+build-match/pacto.yaml:    removed publish.artifacts[0].build (pacto ci --publish detects the same build)
+build-mismatch/pacto.yaml: already current (no pactoVersion; read as {{current}}); kept publish.artifacts[0].build: detection gives ko ghcr.io/acme/web:1.0; remove it if that is what you want
+draft25/pacto.yaml:        removed delivery (it left pactoVersion 2.5 before its release; the Stage's spec.applyRef names the applier)
+inventory/pacto.yaml:      set pactoVersion to "{{current}}" (was "2.0")
+legacy/pacto.yaml:         pactoVersion "1.0" is not migrated automatically; see https://github.com/TrianaLab/pacto/blob/main/MIGRATION.md
+orders/pacto.yaml:         already current ({{current}})
+payments/pacto.yaml:       set pactoVersion to "{{current}}" (was "2.3")
+pg/pacto.yaml:             set pactoVersion to "{{current}}" (was "2.4")
+archive:                   skipped (from .pactoignore:1)
+deep/1/2/3/4/5/6/7/8:      skipped (from depth limit 8)
+5 rewritten, 2 current, 1 kept, 1 manual, 2 skipped

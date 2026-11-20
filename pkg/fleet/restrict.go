@@ -68,13 +68,27 @@ type WorkloadScope struct {
 
 // InferredWorkloadScopes lists, sorted and unique, the (namespace, kind) pairs
 // of the snapshot's inferred services, of the workloads its replacements
-// replaced or a Pacto target runs as, and of its provider counts: a count is
-// workload data too, so a caller must be allowed to list its kind to see it.
+// replaced or a Pacto target runs as, of the GitOps objects their
+// repositories or repository reasons were read from, and of its provider
+// counts and workload objects: a count is workload data too, so a caller must
+// be allowed to list its kind to see it. A zero count discloses nothing and
+// needs no review.
 func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 	seen := map[WorkloadScope]bool{}
 	for _, s := range q.snap.Services {
-		if s.Inferred() {
-			seen[WorkloadScope{s.Workload.Namespace, s.Workload.Kind}] = true
+		if !s.Inferred() {
+			continue
+		}
+		seen[WorkloadScope{s.Workload.Namespace, s.Workload.Kind}] = true
+		for _, r := range s.Workload.Repositories {
+			if r.Namespace != "" {
+				seen[WorkloadScope{r.Namespace, r.Kind}] = true
+			}
+		}
+		for _, sc := range s.Workload.repositoryUnknownFrom {
+			if sc.Namespace != "" {
+				seen[sc] = true
+			}
 		}
 	}
 	for _, r := range q.snap.Replacements {
@@ -85,7 +99,14 @@ func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 	}
 	for _, p := range q.snap.Providers {
 		for _, c := range p.Counts {
-			seen[WorkloadScope{c.Namespace, c.Kind}] = true
+			if c.N > 0 {
+				seen[WorkloadScope{c.Namespace, c.Kind}] = true
+			}
+		}
+		for _, o := range p.Objects {
+			if workloadKind(o.Kind) && o.Namespace != "" {
+				seen[WorkloadScope{o.Namespace, o.Kind}] = true
+			}
 		}
 	}
 	return slices.SortedFunc(maps.Keys(seen), func(a, b WorkloadScope) int {
@@ -157,7 +178,7 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 		// Only provider rows narrow: they feed no answer's completeness, so
 		// the view stays as complete as q.
 		out := *s
-		out.Providers = restrictProviders(s.Providers, nil, visible, workloadVisible, s.Clusters)
+		out.Providers = restrictProviders(s.Providers, nil, nil, visible, workloadVisible, s.Clusters)
 		out.SnapshotID = computeSnapshotID(&out)
 		return NewQuery(&out)
 	}
@@ -195,7 +216,7 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 	out.hiddenDependents = hiddenDependents
 	out.hiddenReferrers = hiddenReferrers
 	origins, hiddenCreated := restrictOrigins(s, hiddenSvc)
-	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenCounts{hiddenDeps, hiddenDependents, hiddenReferrers}, origins, hiddenCreated)...)
+	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenCounts{hiddenDeps, hiddenDependents, hiddenReferrers}, origins, hiddenCreated, workloadVisible)...)
 	restrictExternals(&out, s)
 	out.targetsHidden = targetsHidden(&out, s.Services, offeringOnly)
 	out.hiddenProviders = hiddenProviders(&out, s.Services, hiddenSvc)
@@ -216,7 +237,7 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 	hiddenNames = append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...)
 	restrictLimitations(&out, s.Limitations, hiddenNames, restricted)
 	restrictScope(&out, visible)
-	out.Providers = restrictProviders(s.Providers, hiddenNames, visible, workloadVisible, out.Clusters)
+	out.Providers = restrictedProviders(&out, s.Providers, hiddenSvc, hiddenNames, visible, workloadVisible)
 	out.Limitations = append(out.Limitations, Limitation{Code: LimitationHiddenByPermissions, Message: hiddenMessage + kindHiddenNote(s, hiddenSvc, hiddenNS)})
 	sortSnapshotLimitations(&out)
 	out.Completeness = CompletenessPartial
@@ -314,7 +335,20 @@ func targetsHidden(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, o
 // workload its replacements replaced (hidden says which workloads they may
 // not see).
 func keepsEveryName(s *FleetSnapshot, restricted bool, hidden func(namespace, kind string) bool) bool {
-	return (!restricted || !hasBareNames(s)) && provisioningVisible(s) && !replacementHidden(s, hidden)
+	return (!restricted || !hasBareNames(s)) && provisioningVisible(s) && !replacementHidden(s, hidden) && !repositoryHidden(s, hidden)
+}
+
+// repositoryHidden reports whether some inferred service of s holds a
+// repository, or a repository reason, read from an object hidden says no to,
+// or from one with no namespace to check.
+func repositoryHidden(s *FleetSnapshot, hidden func(namespace, kind string) bool) bool {
+	for _, svc := range s.Services {
+		if svc.Inferred() && (slices.ContainsFunc(svc.Workload.Repositories, func(r InferredRepository) bool { return r.Namespace == "" || hidden(r.Namespace, r.Kind) }) ||
+			slices.ContainsFunc(svc.Workload.repositoryUnknownFrom, func(sc WorkloadScope) bool { return sc.Namespace == "" || hidden(sc.Namespace, sc.Kind) })) {
+			return true
+		}
+	}
+	return false
 }
 
 // provisioningVisible reports whether every provisioning and usage report of
@@ -434,7 +468,7 @@ func rebuiltLimitation(l Limitation) bool {
 	case LimitationDomainConflict, LimitationOfferingConflict, LimitationOwnerConflict,
 		// A fleet-wide count of reports, counts of clusterless targets and
 		// per-source counts of inferred records.
-		LimitationProvisioningTruncated, LimitationUsageTruncated, LimitationClusterUnknown, LimitationClusterConflict, LimitationDeclarationUnverified:
+		LimitationProvisioningTruncated, LimitationUsageTruncated, LimitationClusterUnknown, LimitationClusterConflict, LimitationDeclarationUnverified, LimitationServiceGroupAmbiguous:
 		return true
 	case LimitationSourceRecordInvalid:
 		// Per-source counts of records that may be hidden.
@@ -623,7 +657,8 @@ func kubePlacementKnown(s *FleetSnapshot) bool {
 
 // targetPlacementKnown reports whether a service with no target in s truly
 // runs nowhere: no source that reports operational targets (Kubernetes, the
-// Evidence Server or a target state file) is unavailable or partial.
+// Evidence Server, a target state file or a target snapshot) is unavailable or
+// partial.
 func targetPlacementKnown(s *FleetSnapshot) bool {
 	id, _ := firstIncompleteTargetSource(s)
 	return id == ""
@@ -637,7 +672,7 @@ func hasTargetSource(s *FleetSnapshot) bool {
 }
 
 // targetSourceKinds are the source kinds that report operational targets.
-var targetSourceKinds = []string{SourceKindKubernetes, SourceKindEvidenceHTTP, SourceKindTargetState}
+var targetSourceKinds = []string{SourceKindKubernetes, SourceKindEvidenceHTTP, SourceKindTargetState, SourceKindTargetSnapshot}
 
 // firstIncompleteTargetSource is the first source reporting operational
 // targets that is not available, and its status; "" when there is none.
@@ -844,7 +879,7 @@ func (h hiddenCounts) referrersBeyondDependents(k ServiceKey) int {
 // that lost a target or a revision, gained a hidden count or changed origin,
 // and returns the names and keys of the hidden ones. It never writes through a
 // record of services. out.Targets and out.Revisions must already be restricted.
-func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, hiddenSvc map[ServiceKey]bool, hidden hiddenCounts, origins map[ServiceKey]*ServiceOrigin, hiddenCreated map[ServiceKey]int) []string {
+func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, hiddenSvc map[ServiceKey]bool, hidden hiddenCounts, origins map[ServiceKey]*ServiceOrigin, hiddenCreated map[ServiceKey]int, workloadVisible func(namespace, kind string) bool) []string {
 	var hiddenNames []string
 	out.Services = make(map[ServiceKey]*ServiceRecord, len(services))
 	out.revisionsHidden = map[ServiceKey]bool{}
@@ -854,7 +889,7 @@ func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord
 			continue
 		}
 		if svc.Inferred() {
-			out.Services[k] = restrictInferred(svc, hidden)
+			out.Services[k] = restrictInferred(svc, hidden, workloadVisible)
 			continue
 		}
 		targets := slices.DeleteFunc(slices.Clone(svc.Targets), func(tk TargetKey) bool { return out.Targets[tk] == nil })
@@ -888,14 +923,27 @@ func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord
 }
 
 // restrictInferred is a visible inferred service as a restricted view holds
-// it: a copy carrying its hidden counts when it has any. Nothing else of it
-// was derived from what the view may hide.
-func restrictInferred(svc *ServiceRecord, hidden hiddenCounts) *ServiceRecord {
-	if hidden.deps[svc.Key] == nil && hidden.dependents[svc.Key] == nil {
+// it: a copy carrying its hidden counts when it has any, and without the
+// repositories read from an object workloadVisible says no to (or one with no
+// namespace), which then reads "hidden by your permissions". A repository
+// reason read from such an object reads the same. The repository is another
+// object's content the dashboard read, so the workload's own read never
+// decides it. Nothing else of it was derived from what the view may hide.
+func restrictInferred(svc *ServiceRecord, hidden hiddenCounts, workloadVisible func(namespace, kind string) bool) *ServiceRecord {
+	listed := func(ns, kind string) bool { return ns != "" && workloadVisible != nil && workloadVisible(ns, kind) }
+	repos := slices.DeleteFunc(slices.Clone(svc.Workload.Repositories), func(r InferredRepository) bool { return !listed(r.Namespace, r.Kind) })
+	reposHidden := len(repos) != len(svc.Workload.Repositories) ||
+		slices.ContainsFunc(svc.Workload.repositoryUnknownFrom, func(sc WorkloadScope) bool { return !listed(sc.Namespace, sc.Kind) })
+	if hidden.deps[svc.Key] == nil && hidden.dependents[svc.Key] == nil && !reposHidden {
 		return svc
 	}
 	cp := *svc
 	cp.HiddenDependencies, cp.HiddenDependents = len(hidden.deps[svc.Key]), len(hidden.dependents[svc.Key])
+	if reposHidden {
+		w := *svc.Workload
+		w.Repositories, w.RepositoryUnknown = repos, "hidden by your permissions"
+		cp.Workload = &w
+	}
 	return &cp
 }
 

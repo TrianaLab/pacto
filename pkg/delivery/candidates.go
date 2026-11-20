@@ -22,8 +22,8 @@ type CandidateVersions struct {
 	// Running is the digest the Stage runs now.
 	// +optional
 	Running string `json:"running,omitempty"`
-	// Source is where the candidates come from: the candidate OCIRepository
-	// or the upstream Stage.
+	// Source is where the candidates come from: the watched registry, the
+	// candidate OCIRepository or the upstream Stage.
 	Source   string             `json:"source"`
 	Versions []CandidateVersion `json:"versions"`
 	// Note says why the list is empty or may be incomplete.
@@ -46,7 +46,8 @@ type CandidateVersion struct {
 
 // CandidateDigests are the digests the published gate admits on stage, newest
 // first: from a candidate OCIRepository the ones Flux verified the signature
-// of, from an upstream Stage the ones it offered and verified. A digest that
+// of, from the registry watch the ones the publisher check accepted, from an
+// upstream Stage the ones it offered and verified. A digest that
 // failed on the Stage is left out: it is never promoted again. upstream is the
 // upstream Stage's status, nil when there is none or it cannot be read.
 func CandidateDigests(stage StageObject, upstream *StageStatus) []string {
@@ -56,7 +57,7 @@ func CandidateDigests(stage StageObject, upstream *StageStatus) []string {
 		if upstream != nil {
 			from = slices.DeleteFunc(slices.Clone(upstream.Offered), func(d string) bool { return !slices.Contains(upstream.Verified, d) })
 		}
-	case c.OCIRepositoryRef != nil:
+	case c.OCIRepositoryRef != nil || c.Registry != nil:
 		from = slices.Clone(stage.Status.Published)
 	}
 	from = slices.DeleteFunc(from, func(d string) bool { return slices.Contains(stage.Status.FailedDigests, d) })
@@ -102,15 +103,26 @@ func candidateSource(c Candidates) string {
 		return "upstream Stage " + upstreamName(c)
 	case c.OCIRepositoryRef != nil:
 		return "candidate OCIRepository " + c.OCIRepositoryRef.Name
+	case c.Registry != nil:
+		return "registry " + watchedRepository(c.Registry)
 	}
 	return ""
+}
+
+// watchedRepository names the repository a registry watch reads.
+func watchedRepository(r *RegistryCandidates) string {
+	if r.Repository != "" {
+		return r.Repository
+	}
+	return "the applier's source repository"
 }
 
 // candidateSourceReasons are the Ready reasons that explain an empty
 // candidate list: the candidate source itself is missing, unverified or
 // untrusted. Unguarded and the applier reasons never do.
 var candidateSourceReasons = []string{ReadyReasonCandidateNotFound, ReadyReasonCandidateUnverified,
-	ReadyReasonUpstreamUntrusted, ReadyReasonUpstreamUnreadable, ReadyReasonNoCandidateSource}
+	ReadyReasonUpstreamUntrusted, ReadyReasonUpstreamUnreadable, ReadyReasonNoCandidateSource,
+	ReadyReasonRegistryUnreadable, ReadyReasonPublisherUnverifiable}
 
 // candidatesNote says why a candidate list is empty or incomplete, or "".
 // When the promoter's Ready condition names a candidate-source problem, an
@@ -127,7 +139,7 @@ func candidatesNote(stage StageObject, upstream *StageStatus, why string, vs []C
 func sourceNote(stage StageObject, upstream *StageStatus, why string, vs []CandidateVersion) string {
 	c := stage.Spec.Candidates
 	switch {
-	case c.UpstreamStage == nil && c.UpstreamRecords == nil && c.OCIRepositoryRef == nil:
+	case c.UpstreamStage == nil && c.UpstreamRecords == nil && c.OCIRepositoryRef == nil && c.Registry == nil:
 		return "this Stage names no candidate source (spec.candidates), so it can promote nothing"
 	case (c.UpstreamStage != nil || c.UpstreamRecords != nil) && upstream == nil && why != "":
 		return why + ", so it offers no candidate"
@@ -135,12 +147,22 @@ func sourceNote(stage StageObject, upstream *StageStatus, why string, vs []Candi
 		return "the upstream Stage " + upstreamName(c) + " does not exist or cannot be read, so it offers no candidate"
 	case slices.ContainsFunc(vs, func(v CandidateVersion) bool { return v.Unreadable != "" }):
 		return "some candidates could not be read, so a version cannot be matched to them: name those by digest"
-	case len(vs) == 0 && c.OCIRepositoryRef != nil:
-		return "Flux has verified no signed version on " + c.OCIRepositoryRef.Name + " yet: publish one with pacto publish"
 	case len(vs) == 0:
-		return "the upstream Stage " + upstreamName(c) + " has offered and verified no version yet: promote one there first"
+		return emptyNote(stage)
 	}
 	return ""
+}
+
+// emptyNote says why the Stage's candidate source offers no version yet.
+func emptyNote(stage StageObject) string {
+	switch c := stage.Spec.Candidates; {
+	case c.OCIRepositoryRef != nil:
+		return "Flux has verified no signed version on " + c.OCIRepositoryRef.Name + " yet: publish one with pacto publish"
+	case c.Registry != nil:
+		return "the registry watch accepted no version yet: see pacto delivery trust " + stage.Spec.Service.Name
+	default:
+		return "the upstream Stage " + upstreamName(c) + " has offered and verified no version yet: promote one there first"
+	}
 }
 
 // Resolve picks the one candidate a version or tag names: the candidates whose

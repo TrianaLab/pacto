@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2329 # poll helpers are invoked by name, which shellcheck cannot see
 # Phase 6 ("records") of the delivery kind acceptance, sourced by delivery.sh,
 # whose state and helpers it reads. records_store runs once phases 1 and 3
 # finished, beside the others; records_audit runs after every phase. The recorder ran
@@ -19,7 +20,11 @@
 #     Stage until the stream is repaired and a person unfreezes it;
 #   - nobody but the recorder can move the stream head;
 #   - every concluded operation under a Stage has exactly one unsigned run
-#     record from the promoter in the stats repository, naming no user.
+#     record from the promoter in the stats repository, naming no user;
+#   - the recorder publishes the cluster's signed target snapshot to
+#     pacto-targets, and pacto impact, with no kubeconfig, finds it from the
+#     provider ref and gates on it only when a key scoped to the cluster
+#     verifies it.
 # The CLI runs on the host: HTTP_PROXY sends its plain-HTTP registry traffic to
 # the port-forward, so the in-cluster names the recorder wrote resolve.
 
@@ -33,10 +38,11 @@ records_init() {
   }
   # anchor_of NS STAGE — the digest of the Stage's stream anchor.
   anchor_of() { local a; a="$(kubectl -n "$1" get stage "$2" -o jsonpath='{.status.stream.anchor}')"; echo "${a##*@}"; }
-  # records_on REPO DIGEST UID — how many records of operation UID are attached to REPO@DIGEST.
+  # records_on REPO DIGEST UID — how many operation records of operation UID are
+  # attached to REPO@DIGEST; the anchor also holds the operation's intent record.
   records_on() {
     oras discover --plain-http --format json "127.0.0.1:${LOCAL_REG_PORT}/$1@$2" \
-      | jq --arg u "$3" '[.. | objects | select((.annotations // {})["dev.pacto.uid"] == $u)] | length'
+      | jq --arg u "$3" '[.. | objects | select((.annotations // {}) | .["dev.pacto.uid"] == $u and .["dev.sigstore.bundle.predicateType"] == "delivery.pacto.trianalab.io/operation/v1")] | length'
   }
   uid_of() { kubectl -n "$1" get operation "$2" -o jsonpath='{.metadata.uid}'; }
 }
@@ -76,6 +82,7 @@ records_store() {
   jq -e --argjson seq "$seq" '.ok and (.records | length) == $seq and ([.records[] | select(.kind == "gap")] | length) == 0' <<<"$out" >/dev/null \
     || fail "after the restart the stream has gaps or duplicates: $out"
   pass "with the recorder down $r1 and $r2 waited; back up, each was recorded once, with no gap"
+  [ "$(kubectl -n "$M" get stage billing -o jsonpath='{.status.stream.registryMode}')" = native ] || fail "registryMode is not native on zot"
 
   # stopped_until_repaired WHAT REPAIR... — the recorder refuses
   # publish-manual/billing's stream and the promoter freezes the Stage: a new
@@ -161,6 +168,45 @@ records_store() {
   pass "the forged record broke the chain; the recorder stopped and the Stage froze until it was removed and alice unfroze it"
 }
 
+# records_targets reads the recorder's target snapshot the way CI does: registry
+# access and no kubeconfig. A BREAKING payments 1.0.0 -> 2.0.0 breaks checkout, which
+# accepts ^1.0.0 only, so a verified snapshot blocks the release (exit 1) and an
+# unverified one leaves the answer partial. Staleness is pinned by unit tests:
+# a kind run cannot wait 15 minutes.
+records_targets() {
+  records_init
+  section "CI reads the recorder's signed target snapshot without a kubeconfig"
+  local uid out rc
+  uid="$(kubectl get namespace kube-system -o jsonpath='{.metadata.uid}')"
+  tagged() { oras repo tags --plain-http "127.0.0.1:${LOCAL_REG_PORT}/pacto-targets" 2>/dev/null | grep -qx "cluster-$uid"; }
+  eventually 40 tagged || fail "the recorder published no pacto-targets:cluster-$uid"
+  {
+    echo "keys:"
+    echo "  - name: recorder"
+    echo "    publicKey: |"
+    sed 's/^/      /' "$RECORDER_PUB"
+    echo "    streams: [\"$uid/*/*\"]"
+  } >"$tmp/targets-trust.yaml"
+  # The gate holds only BREAKING changes, and C200 changes nothing but the
+  # version, so the new revision is a local 2.0.0 that also changes the
+  # workload. It stays local: pushing it would move payments' tags under the
+  # Stages the other phases watch.
+  local breaking; breaking="$(contract_dir payments 2.0.0 job)"
+  impact_ci() {
+    HTTP_PROXY="http://127.0.0.1:${LOCAL_REG_PORT}" PACTO_INSECURE_REGISTRIES="$REG_HOST" KUBECONFIG=/dev/null \
+      "$PACTO" impact "$C100" "$breaking" --local "" 2>&1
+  }
+  rc=0; out="$(PACTO_DELIVERY_TRUST="$tmp/targets-trust.yaml" impact_ci)" || rc=$?
+  grep -q "^Targets: .*cluster ${uid:0:8}, .*, complete, signed by recorder" <<<"$out" || fail "the Targets line is not complete and signed by recorder: $out"
+  [ "$rc" = 1 ] || fail "a verified snapshot with checkout on ^1.0.0 did not block payments 2.0.0 (exit $rc): $out"
+  pass "pacto impact found $REG_HOST/pacto-targets from the provider ref, verified cluster-$uid with a key scoped to it and blocked the release"
+  rc=0; out="$(impact_ci)" || rc=$?
+  grep -q "^Targets: .*unverified" <<<"$out" || fail "an unverified snapshot was not named unverified: $out"
+  grep -q "^warning: answer is partial" <<<"$out" || fail "an unverified snapshot did not leave the answer partial: $out"
+  [ "$rc" != 0 ] || fail "an unverified snapshot cleared the release: $out"
+  pass "without a trust config the snapshot reads unverified, the answer is partial and the release is not cleared (exit $rc)"
+}
+
 # records_audit is the part of phase 6 that reads every operation and every
 # Stage of the run, so it runs once every other phase has finished.
 records_audit() {
@@ -228,7 +274,7 @@ records_audit() {
   local ad manifest layer
   ad="$(anchor_of test payments)"
   manifest="$(oras discover --plain-http --format json "$streams_local@$ad" \
-    | jq -r --arg u "$opc_uid" '[.. | objects | select((.annotations // {})["dev.pacto.uid"] == $u)][0].digest')"
+    | jq -r --arg u "$opc_uid" '[.. | objects | select((.annotations // {}) | .["dev.pacto.uid"] == $u and .["dev.sigstore.bundle.predicateType"] == "delivery.pacto.trianalab.io/operation/v1")][0].digest')"
   layer="$(oras manifest fetch --plain-http "$streams_local@$manifest" | jq -r '.layers[0].digest')"
   oras blob fetch --plain-http --output "$tmp/c.json" "$streams_local@$layer" >/dev/null
   cosign verify-blob-attestation --bundle "$tmp/c.json" --key "$RECORDER_PUB" --type delivery.pacto.trianalab.io/operation/v1 \

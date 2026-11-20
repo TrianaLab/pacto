@@ -98,6 +98,7 @@ type options struct {
 	dashboardDeliveryTrust   dashboard.KeyRef
 	dashboardRepositories    []string
 	dashboardExternalCatalog string
+	dashboardFingerprints    string
 
 	enableEvidence            bool
 	evidenceTrustSecret       string
@@ -193,6 +194,9 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		})
 	fs.StringVar(&o.dashboardExternalCatalog, "dashboard-external-catalog", "",
 		"Organization external catalog the dashboard merges over Pacto's default, as oci://REPOSITORY@sha256:DIGEST.")
+	fs.StringVar(&o.dashboardFingerprints, "dashboard-fingerprints-configmap", "",
+		"ConfigMap in the operator namespace holding the workload manager and promoter fingerprints (fingerprints.yaml) "+
+			"the dashboard reads as --fingerprints.")
 	fs.StringVar(&o.dashboardAuth.ClientID, "dashboard-oidc-client-id", "", "The dashboard's OpenID Connect client id.")
 	fs.StringVar(&o.dashboardAuth.RedirectURL, "dashboard-oidc-redirect-url", "",
 		"The dashboard's /auth/callback as browsers reach it; TLS must terminate in front of it.")
@@ -547,23 +551,24 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 	ident := readClusterIdentity(mgr)
 
 	dashCfg := dashboard.Config{
-		Enabled:            o.enableDashboard,
-		Image:              dashboardImage,
-		Namespace:          namespace,
-		WatchNamespaces:    o.namespaces,
-		OCISecrets:         parsedOCISecrets,
-		OwnerRef:           ownerRef,
-		EvidenceSourceURL:  evidenceSourceURL,
-		InsecureRegistries: insecureRegistries,
-		Observation:        o.dashboardObservation,
-		Resources:          o.dashboardResources,
-		Auth:               o.dashboardAuth,
-		DeliveryNamespace:  o.dashboardDeliveryNS,
-		MiraURL:            o.dashboardMiraURL,
-		StatsRegistry:      o.dashboardStatsRegistry,
-		DeliveryTrust:      o.dashboardDeliveryTrust,
-		Repositories:       o.dashboardRepositories,
-		ExternalCatalog:    o.dashboardExternalCatalog,
+		Enabled:               o.enableDashboard,
+		Image:                 dashboardImage,
+		Namespace:             namespace,
+		WatchNamespaces:       o.namespaces,
+		OCISecrets:            parsedOCISecrets,
+		OwnerRef:              ownerRef,
+		EvidenceSourceURL:     evidenceSourceURL,
+		InsecureRegistries:    insecureRegistries,
+		Observation:           o.dashboardObservation,
+		Resources:             o.dashboardResources,
+		Auth:                  o.dashboardAuth,
+		DeliveryNamespace:     o.dashboardDeliveryNS,
+		MiraURL:               o.dashboardMiraURL,
+		StatsRegistry:         o.dashboardStatsRegistry,
+		DeliveryTrust:         o.dashboardDeliveryTrust,
+		Repositories:          o.dashboardRepositories,
+		ExternalCatalog:       o.dashboardExternalCatalog,
+		FingerprintsConfigMap: o.dashboardFingerprints,
 	}
 	// Detection proposes what the cluster provides in one ConfigMap; it never
 	// changes an argument, a rule or a feature. The managed dashboard mounts it

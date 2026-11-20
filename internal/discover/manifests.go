@@ -8,7 +8,8 @@ import (
 
 // manifests reads each workload in the YAML documents of the file p, a plain
 // manifest outside any chart: every container's ports and environment names,
-// and the main container's image. An environment value is never read.
+// every init container's environment names, and the main container's image.
+// An environment value is never read.
 func (r *reader) manifests(p string, docs []*yaml.Node) {
 	for _, doc := range docs {
 		obj := doc.Content[0]
@@ -30,6 +31,9 @@ func (r *reader) manifests(p string, docs []*yaml.Node) {
 		for i, c := range containers {
 			r.container(p, c, i == main)
 		}
+		for _, c := range items(contract.MapValue(pod, "initContainers")) {
+			r.env(p, c)
+		}
 	}
 }
 
@@ -41,6 +45,12 @@ func (r *reader) container(p string, c *yaml.Node, main bool) {
 	for _, port := range items(contract.MapValue(c, "ports")) {
 		r.port(p, rankManifest, contract.MapValue(port, "containerPort"), scalar(contract.MapValue(port, "protocol")))
 	}
+	r.env(p, c)
+}
+
+// env reads the environment names of one container of the manifest p, as
+// configuration keys, like discover.Scan does for containers and init containers.
+func (r *reader) env(p string, c *yaml.Node) {
 	for _, e := range items(contract.MapValue(c, "env")) {
 		if name := contract.MapValue(e, "name"); scalar(name) != "" {
 			r.addKey(p, name.Line, rankManifest, name.Value)

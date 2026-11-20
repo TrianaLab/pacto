@@ -160,3 +160,23 @@ func TestImpactToolSaysServiceIsOfferingName(t *testing.T) {
 		t.Errorf("description = %s", d)
 	}
 }
+
+// TestImpactToolSaysHTTPReadsNoTargetSnapshot: the description says which
+// servers read the change's target snapshot.
+func TestImpactToolSaysHTTPReadsNoTargetSnapshot(t *testing.T) {
+	d := impactTool().Description
+	if !strings.Contains(d, "'registry', 'targetSnapshots'") || !strings.Contains(d, "an HTTP server reads none until per-cluster review exists") {
+		t.Fatal(d)
+	}
+}
+
+// TestImpactToolDescriptionNamesIndex: the description says how the
+// organization index is read and which servers never read it.
+func TestImpactToolDescriptionNamesIndex(t *testing.T) {
+	d := impactTool().Description
+	for _, want := range []string{"consumerIndex", "CONSUMER_NOT_INDEXED", "CONSUMER_INDEX_UNCHECKED", "Over HTTP the index is never read"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("description lacks %q", want)
+		}
+	}
+}

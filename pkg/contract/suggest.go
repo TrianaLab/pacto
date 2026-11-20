@@ -73,11 +73,21 @@ var contractTypes = func() map[string]reflect.Type {
 	return m
 }()
 
-// suggestFields appends the closest known field to each unknown-field error
-// in a yaml.v3 decode message.
+// removedFields says what replaced a field a pactoVersion dropped before its
+// release, keyed by the yaml.v3 type name and the field.
+// ponytail: one entry; a later removal adds its line.
+var removedFields = map[[2]string]string{
+	{"contract.Contract", "delivery"}: " (delivery left pactoVersion 2.5 before its release: the Stage's spec.applyRef names the applier; delete the section; run pacto migrate to remove it)",
+}
+
+// suggestFields appends what replaced a removed field, or else the closest
+// known field, to each unknown-field error in a yaml.v3 decode message.
 func suggestFields(msg string) string {
 	return unknownFieldRe.ReplaceAllStringFunc(msg, func(m string) string {
 		sub := unknownFieldRe.FindStringSubmatch(m)
+		if hint, ok := removedFields[[2]string{sub[2], sub[1]}]; ok {
+			return m + hint
+		}
 		t, ok := contractTypes[sub[2]]
 		if !ok {
 			return m

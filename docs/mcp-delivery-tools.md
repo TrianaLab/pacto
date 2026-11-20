@@ -11,7 +11,9 @@ checks refuse it, without writing) and `pacto_publish` (publishes the version
 the same way `pacto publish` does, with this process's registry credentials,
 always to a new tag) beside the authoring tools and `pacto_capabilities`,
 which reports the `publish` mode with `writes` true. It runs over stdio
-only.
+only. Both tools take `path` and `revision`; for a contract with no publish
+section they also take `image`, `registry`, `sign_key` and
+`no_transparency_log`, the flags of the same name on `pacto publish`.
 
 ## The delivery server
 
@@ -22,17 +24,27 @@ points at: `pacto_delivery_status`, `pacto_delivery_operation_types`, `pacto_del
 `pacto_delivery_record_get`, `pacto_delivery_record_verify` and
 `pacto_delivery_lifecycle` for everyone, plus
 `pacto_delivery_operation_propose` and `pacto_delivery_cancel` only when the
-cluster says the caller is an agent. Delivery mode has no approve tool. Over
-HTTP the server needs
+cluster says the caller is an agent. Delivery mode has no approve tool on any
+server: agents read approval records with `pacto_delivery_record_get` and
+`pacto_delivery_record_verify`, and a person approves with
+`pacto delivery approve` or the dashboard. Over stdio the two record tools
+also take `ref`, a record reference (`<repository>:<tag>` or
+`<repository>@<digest>`) read with your own registry credentials and no
+kubeconfig, in place of `namespace`, `stage` and `record`; the HTTP server
+has no `ref`. Over HTTP the server needs
 [token exchange](integrations/kubernetes/delivery-agents.md#agents-over-the-network).
 
 ## The delivery read tools
 
-Six read tools answer what the dashboard's delivery views show, with the
+Seven read tools answer what the dashboard's delivery views show, with the
 route's own parameters and answer: `pacto_delivery_caller`,
 `pacto_delivery_inbox`, `pacto_delivery_environments`,
-`pacto_delivery_autonomy`, `pacto_delivery_published` and
-`pacto_delivery_refusals`. They run the dashboard's route code in the server
+`pacto_delivery_autonomy`, `pacto_delivery_published`,
+`pacto_delivery_refusals` and `pacto_delivery_trust`. `pacto_delivery_trust`
+answers which publishers each service accepts: the installation's rule or
+signed policy, the signers a person pinned, the signers waiting for a person
+and the newest verdicts, each naming its source
+([which publishers Pacto accepts](integrations/kubernetes/delivery-security.md#which-publishers-pacto-accepts)). They run the dashboard's route code in the server
 with the caller's identity, so the API server decides what each caller reads.
 With `--fleet` they also follow the caller's fleet view, and the fleet
 `--namespace` limits them to one namespace, as on the dashboard. A list answer

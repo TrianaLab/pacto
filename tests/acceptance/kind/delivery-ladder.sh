@@ -207,7 +207,30 @@ YAML
   while IFS= read -r d; do
     timeout 60 "$PACTO" validate "$(dirname "$d")" >/dev/null || fail "the draft $d does not validate"
   done < <(find "$out" -name pacto.yaml)
-  pass "init --cluster skipped wallet, drafted till and every draft validates"
+  # The draft keeps what the cluster showed in its inferred record, with the read's coverage.
+  [ -f "$out/$L/till/pacto.inferred.yaml" ] || fail "the till draft has no pacto.inferred.yaml: $(ls "$out/$L/till")"
+  grep -qE '^ +cluster:' "$out/$L/till/pacto.inferred.yaml" || fail "the till record has no inputs.cluster: $(cat "$out/$L/till/pacto.inferred.yaml")"
+  grep -qE 'source: workloads' "$out/$L/till/pacto.inferred.yaml" || fail "the till record has no workloads coverage row: $(cat "$out/$L/till/pacto.inferred.yaml")"
+  pass "init --cluster skipped wallet, drafted till with its inferred record and every draft validates"
+
+  section "pacto init --cluster pages under --max-items and resumes with --continue"
+  local out2 token runs=0 drafted=""
+  out2="$(mktemp -d)"
+  bulk="$(timeout 120 "$PACTO" init --cluster --namespace "$L" --out "$out2" --max-items 1 --output-format json)" \
+    || fail "pacto init --cluster --max-items 1 failed: $bulk"
+  token="$(jq -r '.continue // ""' <<<"$bulk")"
+  [ -n "$token" ] || fail "a read stopped at one item printed no continue token: $(jq -c '{coverage, continue}' <<<"$bulk")"
+  drafted="$(jq -r '.results[].service' <<<"$bulk")"
+  while [ -n "$token" ]; do
+    runs=$((runs + 1))
+    [ "$runs" -le 20 ] || fail "--continue never reached the end after 20 runs"
+    bulk="$(timeout 120 "$PACTO" init --cluster --namespace "$L" --out "$out2" --max-items 1 --continue "$token" --output-format json)" \
+      || fail "pacto init --cluster --continue failed: $bulk"
+    token="$(jq -r '.continue // ""' <<<"$bulk")"
+    drafted="$drafted"$'\n'"$(jq -r '.results[].service' <<<"$bulk")"
+  done
+  grep -qx till <<<"$drafted" || fail "the paged runs never drafted till: $drafted"
+  pass "init --cluster read one item at a time, resumed $runs times and drafted till"
   echo "DELIVERY LADDER PASS"
 }
 
@@ -221,7 +244,7 @@ ladder_record() {
   anchor="$(kubectl -n "$1" get stage wallet -o jsonpath='{.status.stream.anchor}')"
   anchor="${anchor##*@}"
   manifest="$(oras discover --plain-http --format json "$streams@$anchor" \
-    | jq -r --arg u "$uid" '[.. | objects | select((.annotations // {})["dev.pacto.uid"] == $u)][0].digest')"
+    | jq -r --arg u "$uid" '[.. | objects | select((.annotations // {}) | .["dev.pacto.uid"] == $u and .["dev.sigstore.bundle.predicateType"] == "delivery.pacto.trianalab.io/operation/v1")][0].digest')"
   layer="$(oras manifest fetch --plain-http "$streams@$manifest" | jq -r '.layers[0].digest')"
   f="$(mktemp)"
   oras blob fetch --plain-http --output "$f" "$streams@$layer" >/dev/null

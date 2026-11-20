@@ -1,0 +1,6 @@
+service: {name: draft, version: 0.1.0}
+# applied by Argo CD
+delivery:
+  applier: argocd
+metadata:
+  team: payments

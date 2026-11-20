@@ -324,7 +324,7 @@ func perCallerBuild(version string, a pactomcp.Authoring, m pactomcp.Modes, read
 func remoteDeliveryClients(cmd *cobra.Command, d deps) (func(dyn dynamic.Interface) *app.Delivery, error) {
 	policyNS, _ := cmd.Flags().GetString("delivery-namespace")
 	path, _ := cmd.Flags().GetString("delivery-trust")
-	trust, err := deliveryTrust(path)
+	trust, err := app.DeliveryTrust(path)
 	if err != nil {
 		return nil, err
 	}
