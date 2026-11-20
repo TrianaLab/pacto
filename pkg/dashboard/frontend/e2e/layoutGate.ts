@@ -258,6 +258,11 @@ export function installScaleFixture(): void {
         objectsTotal: 40,
         limitations: i < 2 ? [{ code: 'PROVIDER_SOURCE_DEGRADED', source: `k8s-${i % 4}`, message: longName(`source-k8s-${i}-is-partial-the-counts-cover-only-what-it-read`) }] : undefined,
       }));
+      // The first row carries an offer (516-S6) whose text runs to 200 characters, so the
+      // line has to wrap under the row at every width, its Set up link included.
+      Object.assign((doc.providers as Record<string, unknown>[])[0], { offers: [{ id: 'argocd-repo-server-plugin',
+        text: `Gate every Argo CD sync with one repo-server plugin ${longName('offer')}`.padEnd(200, 'o').slice(0, 200),
+        doc: 'https://pacto.run/latest/integrations/kubernetes/gitops/#gate-every-argo-cd-sync' }] });
       // Six of them the operator inferred (510-S5): 200-character values, five details,
       // a long hint, and one redacted for a viewer who cannot read its namespace.
       const pad = (s: string) => (s + '-' + 'x'.repeat(200)).slice(0, 200);

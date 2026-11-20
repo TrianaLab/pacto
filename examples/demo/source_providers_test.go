@@ -37,8 +37,13 @@ func TestDemoProviderRows(t *testing.T) {
 		t.Errorf("crd row = %+v", crd)
 	}
 	for _, id := range []string{fleet.ProviderArgoCD, fleet.ProviderFlux, fleet.ProviderHelm} {
-		if _, ok := rows["k8s-production-workloads/"+id]; !ok {
+		row, ok := rows["k8s-production-workloads/"+id]
+		if !ok {
 			t.Errorf("no %s row", id)
+		}
+		// Only the Argo CD row offers a gate (516-S6); the demo copies no wording.
+		if wantOffer := id == fleet.ProviderArgoCD; (len(row.Offers) == 1 && row.Offers[0].Doc == fleet.ArgoSyncGateDoc) != wantOffer {
+			t.Errorf("row %s offers = %+v", id, row.Offers)
 		}
 	}
 	work, ok := rows["k8s-production-workloads/"+fleet.ProviderKubernetesWorkloads]

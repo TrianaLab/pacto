@@ -19,6 +19,8 @@
   // detected": the empty sentence appears only when the server sent no row (hidden
   // inferred rows count) and no Kubernetes source is configured. The Kubernetes facts come from the answer, counted over every
   // source, never from the meta's bounded source list.
+  // A row Pacto has an integration for offers it in one muted line (516-S6); only an
+  // https doc becomes a Set up link.
   let { refreshTick = 0 } = $props();
 
   const loader = createProductLoader(() => api.fleetProviders());
@@ -80,6 +82,9 @@
             </span>
             <bdi class="dp-trunc dp-evidence" title={r.evidence}>{r.evidence}</bdi>
             <span class="dp-used">{(r.usedFor ?? []).map(words).join(', ')}</span>
+            {#each r.offers ?? [] as o (o.id)}
+              <p class="dp-offer t-meta" data-testid="provider-offer"><bdi>{o.text}</bdi>{#if o.doc?.startsWith('https://')}{' '}<a href={o.doc} target="_blank" rel="noopener noreferrer" aria-label={`Set up: ${o.text}`}>Set up</a>{/if}</p>
+            {/each}
             {#if isInferred(r) || r.details?.length}
               {#if r.hint || r.details?.length || why(r)}
                 <details class="disclosure dp-why">
@@ -138,7 +143,7 @@
   .dp-row .dp-name :global(.help-body) { left: 0; right: auto; max-width: min(38ch, 100%); }
   @container (min-width: 48rem) {
     .dp-row { grid-template-columns: minmax(18ch, 1fr) minmax(24ch, 2fr) minmax(16ch, 1fr); align-items: baseline; }
-    .dp-why { grid-column: 1 / -1; }
+    .dp-why, .dp-offer { grid-column: 1 / -1; }
   }
   /* The name keeps at least 12ch: past that the cluster wraps under it rather than
      crowding it out, and either truncates only at the full line width. */
@@ -150,6 +155,9 @@
   .dp-trunc { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dp-evidence { color: var(--c-text-2); }
   .dp-used { color: var(--c-text-2); font-size: var(--text-sm); overflow-wrap: anywhere; min-inline-size: 0; }
+  /* An offer (516-S6) wraps, never truncates; only an https doc becomes a link. */
+  .dp-offer { margin: 0; color: var(--c-text-3); overflow-wrap: anywhere; min-inline-size: 0; }
+  @media (pointer: coarse) { .dp-offer a { display: inline-flex; align-items: center; min-block-size: 44px; } }
   .dp-why ul { margin: var(--sp-1) 0 0; padding-inline-start: var(--sp-4); overflow-wrap: anywhere; }
   /* Muted like .t-meta, which the list does not carry: the standalone "+N more" link
      must keep the 44px touch target that .t-meta exempts. */

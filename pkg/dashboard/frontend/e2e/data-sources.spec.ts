@@ -177,6 +177,22 @@ test.describe('the inventory says what Pacto detected', () => {
     const primary = page.getByRole('navigation', { name: 'Primary' }).first();
     await expect(primary.getByRole('link', { name: /provider/i })).toHaveCount(0);
   });
+
+  test('the Argo CD row offers the sync gate in one muted line, and no other row does', async ({ page }) => {
+    await boot(page, '#/fleet/sources');
+    const block = page.getByTestId('detected-providers');
+    await block.getByRole('button', { name: /^Show all \d+ providers$/ }).click();
+    const argo = block.getByTestId('provider-row').filter({ has: page.locator('.dp-name bdi[title="Argo CD"]') });
+    await expect(argo).toHaveCount(1);
+    const offer = argo.getByTestId('provider-offer');
+    await expect(offer).toHaveCount(1);
+    await expect(offer).toContainText('Gate every Argo CD sync with one repo-server plugin');
+    const link = offer.getByRole('link', { name: 'Set up: Gate every Argo CD sync with one repo-server plugin' });
+    await expect(link).toHaveAttribute('href', 'https://pacto.run/latest/integrations/kubernetes/gitops/#gate-every-argo-cd-sync');
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    await expect(block.getByTestId('provider-offer')).toHaveCount(1);
+  });
 });
 
 test.describe('a source page answers about itself', () => {

@@ -225,6 +225,54 @@ describe('DetectedProviders', () => {
     await vi.waitFor(() => expect(rows(t)).toHaveLength(5));
     expect(text(t.querySelector('[data-testid="providers-truncated"]'))).toBe('Showing 7 of 260 detected providers, reported before inferred, least healthy first.');
   });
+
+  describe('offers (516-S6)', () => {
+    const DOC = 'https://pacto.run/latest/integrations/kubernetes/gitops/#gate-every-argo-cd-sync';
+    const TEXT = 'Gate every Argo CD sync with one repo-server plugin';
+    const offer = (doc = DOC) => ({ id: 'argocd-repo-server-plugin', text: TEXT, doc });
+    const offerLines = (r: HTMLElement) => [...r.querySelectorAll('[data-testid="provider-offer"]')] as HTMLElement[];
+
+    it('renders the offer line on a row that has one', async () => {
+      providersFn.mockResolvedValue(resp([row('argocd', { name: 'Argo CD', offers: [offer()] })]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
+      const lines = offerLines(rows(t)[0]);
+      expect(lines).toHaveLength(1);
+      expect(text(lines[0])).toBe(`${TEXT} Set up`);
+      // Below the evidence, never a disclosure of its own.
+      expect(rows(t)[0].querySelector('details')).toBeNull();
+    });
+
+    it('renders no offer line otherwise', async () => {
+      providersFn.mockResolvedValue(resp([row('flux'), row('helm', { offers: [] })]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
+      expect(t.querySelector('[data-testid="provider-offer"]')).toBeNull();
+    });
+
+    it('the Set up link names the offer and opens a new tab', async () => {
+      providersFn.mockResolvedValue(resp([row('argocd', { offers: [offer()] })]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
+      const a = offerLines(rows(t)[0])[0].querySelector('a') as HTMLAnchorElement;
+      expect(a.getAttribute('href')).toBe(DOC);
+      expect(a.getAttribute('aria-label')).toBe(`Set up: ${TEXT}`);
+      expect(a.getAttribute('target')).toBe('_blank');
+      expect(a.getAttribute('rel')).toBe('noopener noreferrer');
+    });
+
+    it('an offer whose doc is not https renders no link', async () => {
+      providersFn.mockResolvedValue(resp([row('a', { offers: [offer('javascript:alert(1)')] }), row('b', { offers: [offer('http://x')] })]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
+      for (const r of rows(t)) {
+        const [line] = offerLines(r);
+        expect(text(line)).toBe(TEXT);
+        expect(line.querySelector('a')).toBeNull();
+      }
+    });
+  });
+
   describe('inferred rows (510-S5)', () => {
     const AS_OF = new Date(Date.now() - 4 * 60_000).toISOString();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
