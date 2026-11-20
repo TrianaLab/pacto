@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -123,5 +124,62 @@ func TestResultJSONRunningRefsIsEmptyArray(t *testing.T) {
 	b, err := json.Marshal(Result{Running: &RunningBaseline{Refs: []string{}, FirstVersion: true}})
 	if err != nil || !strings.Contains(string(b), `"running":{"refs":[],"firstVersion":true}`) {
 		t.Fatalf("%s %v", b, err)
+	}
+}
+
+// running analyses payments old -> version (same surface) as --running does.
+func running(snap *fleet.FleetSnapshot, old, version string) *Result {
+	return Analyze(context.Background(), svcContract("payments", old, contract.Owner{}), svcContract("payments", version, contract.Owner{}),
+		nil, nil, snap, Options{Running: true})
+}
+
+func TestRunningRangeBlocksWhateverTheClassification(t *testing.T) {
+	res := running(ledgerSnap(t, "^1", true), "1.0.0", "2.0.0")
+	if res.Classification == "BREAKING" || res.Gate != GateBlocked || res.GateCode() != GateCodeConsumersIncompatible ||
+		!strings.Contains(res.GateReason, "the change is NON_BREAKING, but running consumers do not accept payments 2.0.0: ledger") {
+		t.Fatalf("%s gate %s %q %s", res.Classification, res.Gate, res.GateReason, res.GateCode())
+	}
+	// Pair impact keeps holding only BREAKING changes.
+	c := svcContract("payments", "2.0.0", contract.Owner{})
+	if res := Analyze(context.Background(), svcContract("payments", "1.0.0", contract.Owner{}), c, nil, nil, ledgerSnap(t, "^1", true), Options{}); res.Gate != GateClear {
+		t.Fatalf("pair: %s", res.Gate)
+	}
+}
+
+func TestRunningPartialNeverClears(t *testing.T) {
+	down := fleet.NewFailingSource("down", "memory", context.DeadlineExceeded)
+	res := running(ledgerSnap(t, "^1", true, down), "1.0.0", "1.1.0")
+	if res.Gate != GateUnverified || res.GateCode() != GateCodeAnswerPartial || !strings.Contains(res.GateReason, "the answer is partial") {
+		t.Fatalf("gate %s %q %s", res.Gate, res.GateReason, res.GateCode())
+	}
+	if res := running(ledgerSnap(t, "^1", true), "1.0.0", "1.1.0"); res.Gate != GateClear {
+		t.Fatalf("complete: %s %q", res.Gate, res.GateReason)
+	}
+}
+
+func TestFirstVersionStaleBlockNamesNoBreakingChanges(t *testing.T) {
+	old := time.Now().Add(-72 * time.Hour)
+	ledger := svcContract("ledger", "1.0.0", contract.Owner{},
+		contract.Dependency{Name: "payments", Ref: "ghcr.io/x/payments:1.0.0", Required: true, Compatibility: "^1"})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory", &fleet.Collection{
+		Revisions: []fleet.RawRevision{{Bundle: mkBundle(svcContract("payments", "1.0.0", contract.Owner{})), Digest: "sha256:p1"}, {Bundle: mkBundle(ledger), Digest: "sha256:l1"}},
+		Targets:   []fleet.RawTarget{{Scope: "prod", Kind: "deployment", Name: "ledger", Service: "ledger", Compliance: fleet.StatusCompliant, EvidenceAt: &old}},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, res := range []*Result{firstVersion(snap, "2.0.0"), running(snap, "1.0.0", "2.0.0")} {
+		if res.Gate != GateBlocked || strings.Contains(res.GateReason, "breaking changes") || !strings.Contains(res.GateReason, "ledger was last seen") {
+			t.Fatalf("gate %s %q", res.Gate, res.GateReason)
+		}
+	}
+}
+
+func TestRunningNotInFleetIsUnverified(t *testing.T) {
+	c := svcContract("payments", "2.0.0", contract.Owner{})
+	res := Analyze(context.Background(), c, c, nil, nil, ledgerSnap(t, "^2", false), Options{FirstVersion: true, Running: true, NotInFleet: true})
+	if res.Gate != GateUnverified || res.GateCode() != GateCodeServiceNotInFleet || !hasCode(res.Limitations, "SERVICE_NOT_IN_FLEET") ||
+		!strings.Contains(res.GateReason, "payments is in no fleet domain") || strings.Contains(res.GateReason, "readable from the registry") {
+		t.Fatalf("gate %s %q %s", res.Gate, res.GateReason, res.GateCode())
 	}
 }

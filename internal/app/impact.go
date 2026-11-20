@@ -60,10 +60,12 @@ type ImpactOptions struct {
 	// unpublished are the services pacto ci reads from repository folders
 	// never published: no index can hold them, so none is reported missing.
 	unpublished map[fleet.ServiceKey]bool
-	// firstVersion and unreadBaselines are impact's Options.FirstVersion and
-	// Options.UnreadBaselines; only [Service.ImpactRunning] sets them.
+	// firstVersion, unreadBaselines, running and notInFleet are impact's
+	// Options of the same names; only [Service.ImpactRunning] sets them.
 	firstVersion    bool
 	unreadBaselines []string
+	running         bool
+	notInFleet      bool
 }
 
 // Impact builds a fleet snapshot from the configured sources and analyzes the
@@ -346,6 +348,8 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 			Indexed:          indexed,
 			FirstVersion:     opts.firstVersion,
 			UnreadBaselines:  opts.unreadBaselines,
+			Running:          opts.running,
+			NotInFleet:       opts.notInFleet,
 		})
 	res.TargetSnapshots = targetSnapshotStates(snap)
 	return res, nil

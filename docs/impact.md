@@ -229,11 +229,15 @@ pacto impact --running . \
 ```
 
 - **Domain.** A local `<new>` takes the fleet domain holding its service name;
-  several exit `1`, none is `unverified`.
+  several exit `1` (judge the `oci://` reference instead), none is
+  `unverified` with `SERVICE_NOT_IN_FLEET`.
+- **Ranges.** A running consumer whose range rejects `<new>` blocks, whatever
+  the classification. A partial answer never clears.
 - **First version.** With nothing running, a consumer range that rejects
   `<new>` blocks; a complete answer clears.
-- **Unread.** A revision Pacto could not link, pull or trust, a tag-only link
-  and an inferred workload each make the answer `unverified` at best. A failed
+- **Unread.** A revision Pacto could not link, pull or trust, a tag-only link,
+  an inferred workload and a workload source Pacto could not read each make
+  the answer `unverified` at best. A failed
   pull names the ref only, because the registry error can carry credentials.
 - **Hosts.** Revisions are pulled only from the snapshot hosts, an `oci://`
   `<new>` and `PACTO_RUNNING_REGISTRIES` (or `running-registries` in the

@@ -14,6 +14,7 @@
 package impact
 
 import (
+	"cmp"
 	"context"
 	"io/fs"
 	"slices"
@@ -115,6 +116,14 @@ type Options struct {
 	// UnreadBaselines are the running revisions Pacto could not read, link
 	// or trust, in words; the gate never clears over them.
 	UnreadBaselines []string
+	// Running says the old side is a revision that runs (--running): a
+	// running consumer whose range rejects the new version blocks whatever
+	// the classification, and a partial answer never clears.
+	Running bool
+	// NotInFleet says the new revision's service is in no fleet domain, so
+	// consumers that depend on it by registry ref cannot be found: the
+	// answer says SERVICE_NOT_IN_FLEET and never clears.
+	NotInFleet bool
 }
 
 // ConsumerIndex is how the organization index was read for this answer.
@@ -276,6 +285,8 @@ type Result struct {
 	// Options.UnreadBaselines (see runningGate).
 	firstVersion    bool
 	unreadBaselines []string
+	// running is Options.Running.
+	running bool
 	// observationSources are the observation sources an event answer read.
 	observationSources []string
 	// hiddenReferrers counts the services this viewer may not see that may
@@ -373,8 +384,9 @@ func (r *Result) blocks(c AffectedConsumer) bool {
 	return r.breaks(c) || c.policyVerdict == CompatibilityIncompatible && len(c.Targets) > 0
 }
 
-// breaks reports whether a BREAKING change, or a first version (see
-// Options.FirstVersion), breaks a consumer that runs on a known target
+// breaks reports whether a BREAKING change, a first version (see
+// Options.FirstVersion) or any change judged against a running revision
+// (Options.Running), breaks a consumer that runs on a known target
 // through its range or a guarantee it requires.
 func (r *Result) breaks(c AffectedConsumer) bool {
 	verdict := c.CompatibilityVerdict
@@ -382,7 +394,7 @@ func (r *Result) breaks(c AffectedConsumer) bool {
 		// A policy verdict is named by policyFailures: a referrer has no range.
 		verdict = c.rangeVerdict
 	}
-	return (r.Classification == "BREAKING" || r.firstVersion) &&
+	return (r.Classification == "BREAKING" || r.firstVersion || r.running) &&
 		(verdict == CompatibilityIncompatible || len(c.Unmet) > 0) && len(c.Targets) > 0
 }
 
@@ -479,11 +491,20 @@ func (r *Result) blockingGate() (string, string) {
 		if unmet {
 			accept += " or require a guarantee it does not meet"
 		}
+		// A first version or a running revision the diff does not call
+		// BREAKING blocks on a range alone: never say breaking changes.
+		lead := ""
+		switch {
+		case r.firstVersion:
+			lead = r.firstVersionLead() + ": "
+		case r.Classification != "BREAKING":
+			lead = "the change is " + r.Classification + ", but "
+		}
 		switch {
 		case r.anyStale(active):
-			why = append(why, "breaking changes affect consumers that "+accept+": "+r.whereRun(active))
-		case r.firstVersion:
-			why = append(why, r.firstVersionLead()+": running consumers "+accept+": "+strings.Join(active, ", "))
+			why = append(why, cmp.Or(lead, "breaking changes affect ")+"consumers that "+accept+": "+r.whereRun(active))
+		case lead != "":
+			why = append(why, lead+"running consumers "+accept+": "+strings.Join(active, ", "))
 		default:
 			why = append(why, "breaking changes affect active consumers, which run on known targets and "+accept+": "+strings.Join(active, ", "))
 		}
@@ -778,7 +799,13 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	} else {
 		res = analyze(ctx, old, new, oldFS, newFS, snap, opts)
 		res.noteRangeOnlyMatches()
-		res.firstVersion, res.unreadBaselines = opts.FirstVersion, opts.UnreadBaselines
+		res.firstVersion, res.unreadBaselines, res.running = opts.FirstVersion, opts.UnreadBaselines, opts.Running
+		if opts.NotInFleet {
+			res.Limitations = append(res.Limitations, fleet.Limitation{
+				Code: "SERVICE_NOT_IN_FLEET", Source: limitationSource,
+				Message: res.Service + " is in no fleet domain, so consumers that depend on it by registry ref cannot be found",
+			})
+		}
 		if opts.Index != nil {
 			idx := *opts.Index
 			res.ConsumerIndex = &idx

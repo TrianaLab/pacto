@@ -41,11 +41,13 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 			"When no fleet source holds the changed service, the new revision is added " +
 			"to the snapshot so the services that depend on it are found.\n\n" +
 			"With --running, impact judges <new> against the revisions of its service that run on known targets instead of " +
-			"an <old> revision, and keeps the worst gate. A local <new> takes the fleet domain that holds its service name; a " +
-			"name several domains hold exits 1 with their keys. With no running revision the new one is a first version: it " +
+			"an <old> revision, and keeps the worst gate. A running consumer whose range rejects <new> blocks it whatever the " +
+			"classification, and a partial answer never clears. A local <new> takes the fleet domain that holds its service name; a " +
+			"name several domains hold exits 1 with their keys (judge the oci:// reference instead). With no running revision the new one is a first version: it " +
 			"is blocked when a running consumer's range rejects it, and clear only on a complete answer whose running consumers " +
 			"all accept it. A running revision Pacto could not link, pull or trust, one linked by tag only, an inferred workload " +
-			"of the service and a local <new> in no fleet domain each make the answer unverified at best. Running revisions are " +
+			"of the service, a workload source Pacto could not read and a local <new> in no fleet domain each make the answer " +
+			"unverified at best. Running revisions are " +
 			"pulled only from the hosts of the target snapshots and of an oci:// <new>, plus the comma-separated hosts in " +
 			"$PACTO_RUNNING_REGISTRIES.\n\n" +
 			"With --unavailable, --removed or --regressed, impact answers what happens if that " +

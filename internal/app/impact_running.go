@@ -51,19 +51,22 @@ func (s *Service) ImpactRunning(ctx context.Context, opts ImpactOptions, snap *f
 		}
 	}
 	name := newBundle.Contract.Service.Name
-	var unread []string
 	if opts.Domain == "" && !graph.ParseDependencyRef(opts.NewPath).IsOCI() {
 		domain, found, err := runningDomain(snap, name)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w; judge its oci:// reference so Pacto knows its domain (in Argo CD, render a Pacto object whose contractRef names it)", err)
 		}
-		opts.Domain = domain
-		if !found {
-			unread = append(unread, name+" is in no fleet domain; consumers that depend on it by registry ref cannot be found")
-		}
+		opts.Domain, opts.notInFleet = domain, !found
 	}
-	refs, more := runningRefs(snap, fleet.NewServiceKeyDomain(opts.domain(snap, name), name), name, runningHosts(opts))
-	res, err := s.judgeRunning(ctx, opts, snap, newBundle, refs, append(unread, more...))
+	key, allowed := fleet.NewServiceKeyDomain(opts.domain(snap, name), name), runningHosts(opts)
+	refs, unread := runningRefs(snap, key, name, allowed)
+	// The analysis may rebuild the snapshot (an index, a missing service):
+	// running refs read from a snapshot that no longer agrees never clear.
+	drifted := func(s *fleet.FleetSnapshot) bool {
+		again, _ := runningRefs(s, key, name, allowed)
+		return !slices.Equal(again, refs)
+	}
+	res, err := s.judgeRunning(ctx, opts, snap, newBundle, refs, unread, drifted)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +76,10 @@ func (s *Service) ImpactRunning(ctx context.Context, opts ImpactOptions, snap *f
 
 // judgeRunning pulls each running ref and analyses the change against it,
 // keeping the worst gate; with no readable ref it analyses a first version.
-func (s *Service) judgeRunning(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, newBundle *contract.Bundle, refs, unread []string) (*impact.Result, error) {
+// A snapshot the analysis rebuilt whose running refs drifted from refs adds
+// an unread line.
+func (s *Service) judgeRunning(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, newBundle *contract.Bundle, refs, unread []string,
+	drifted func(*fleet.FleetSnapshot) bool) (*impact.Result, error) {
 	type baseline struct {
 		ref    string
 		bundle *contract.Bundle
@@ -91,7 +97,7 @@ func (s *Service) judgeRunning(ctx context.Context, opts ImpactOptions, snap *fl
 	if n := len(unread); n > maxUnreadLines {
 		unread = append(unread[:maxUnreadLines-1:maxUnreadLines-1], strconv.Itoa(n-maxUnreadLines+1)+" more running revisions Pacto could not read")
 	}
-	opts.unreadBaselines = unread
+	opts.unreadBaselines, opts.running = unread, true
 	running := &impact.RunningBaseline{Refs: refs, Unread: unread}
 	if len(read) == 0 {
 		// Nothing to compare with: ranges alone can block, and unread lines
@@ -112,6 +118,10 @@ func (s *Service) judgeRunning(ctx context.Context, opts ImpactOptions, snap *fl
 			var err error
 			if p, err = s.prepareImpact(ctx, o, snap, true, newBundle); err != nil {
 				return nil, err
+			}
+			if p.snap != snap && drifted(p.snap) {
+				running.Unread = append(slices.Clip(running.Unread), "the revisions of "+newBundle.Contract.Service.Name+" that run changed while Pacto read them; run the analysis again")
+				p.opts.unreadBaselines = running.Unread
 			}
 			prepared[ociRepo(o.OldPath)] = p
 		}
@@ -190,6 +200,12 @@ func runningRefs(snap *fleet.FleetSnapshot, key fleet.ServiceKey, name string, a
 	}
 	for _, line := range inferredRunning(snap, name) {
 		note(line)
+	}
+	for _, st := range snap.Sources {
+		// An unread workload set may hide an undeclared revision.
+		if st.Kind == fleet.SourceKindKubernetesWorkloads && st.Status != fleet.SourceAvailable && !st.Advisory {
+			note("the workloads " + st.ID + " reads could not all be read, so an undeclared revision of " + name + " may run there")
+		}
 	}
 	slices.Sort(refs)
 	if n := len(refs); n > MaxRunningRevisions {

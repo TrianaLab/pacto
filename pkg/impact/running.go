@@ -33,9 +33,15 @@ func (r *Result) heldGate() (string, string) {
 }
 
 // runningGate is the gate of a --running answer when no consumer is shown to
-// break: unverified when a running revision could not be read, the
-// first-version gate when none runs, "" otherwise.
+// break: unverified when the service is in no fleet domain or a running
+// revision could not be read, the first-version gate when none runs,
+// unverified when a judged answer is partial (a cluster Pacto could not read
+// may run another revision), "" otherwise.
 func (r *Result) runningGate() (string, string) {
+	if r.notInFleet() {
+		return GateUnverified, r.Service + " is in no fleet domain, so consumers that depend on it by registry ref cannot be found. " +
+			"Judge its oci:// reference so Pacto knows its domain (in Argo CD, render a Pacto object whose contractRef names it), or add the source that holds it"
+	}
 	if n := len(r.unreadBaselines); n > 0 {
 		names := r.unreadBaselines[:min(n, maxUnreadInReason)]
 		why := strings.Join(names, "; ")
@@ -45,10 +51,20 @@ func (r *Result) runningGate() (string, string) {
 		return GateUnverified, "Pacto could not read every revision of " + r.Service + " that runs, so the change cannot clear: " + why +
 			". Make each running revision readable from the registry and run the analysis again"
 	}
-	if r.firstVersion {
+	switch {
+	case r.firstVersion:
 		return r.firstVersionGate()
+	case r.running && r.Completeness != fleet.CompletenessComplete:
+		return GateUnverified, "the answer is partial, so a cluster Pacto could not read may run another revision of " + r.Service +
+			" or a consumer that does not accept " + r.NewVersion + ". Fix the sources named in limitations and run the analysis again"
 	}
 	return "", ""
+}
+
+// notInFleet reports whether a --running answer's service is in no fleet
+// domain (Options.NotInFleet).
+func (r *Result) notInFleet() bool {
+	return (r.running || r.firstVersion) && hasCode(r.Limitations, "SERVICE_NOT_IN_FLEET")
 }
 
 // firstVersionGate is the gate of a first version no consumer is shown to
@@ -101,8 +117,12 @@ func (r *Result) runningCode() string {
 	switch g, _ := r.runningGate(); {
 	case g == "":
 		return ""
+	case r.notInFleet():
+		return GateCodeServiceNotInFleet
 	case len(r.unreadBaselines) > 0:
 		return GateCodeRunningUnread
+	case !r.firstVersion:
+		return GateCodeAnswerPartial
 	case g == GateClear:
 		return GateCodeFirstVersionAccepted
 	}

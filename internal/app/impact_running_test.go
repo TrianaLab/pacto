@@ -250,15 +250,74 @@ func TestImpactRunningAmbiguousDomainRefused(t *testing.T) {
 	other.Domain, other.ResolvedRef = "other.example/team", "other.example/team/payments:1.0.0"
 	e := &runEnv{col: fleet.Collection{Revisions: []fleet.RawRevision{payRev("1.0.0", "sha256:p1"), other}}}
 	_, err := e.run(t, "2.0.0")
-	if amb := (*fleet.AmbiguousError)(nil); !errors.As(err, &amb) {
+	if amb := (*fleet.AmbiguousError)(nil); !errors.As(err, &amb) || !strings.Contains(err.Error(), "judge its oci:// reference") {
 		t.Fatalf("err %v", err)
 	}
 }
 
 func TestImpactRunningNoDomainIsUnverified(t *testing.T) {
 	res := mustRun(t, &runEnv{}, "2.0.0")
-	if res.Gate != impact.GateUnverified || !strings.Contains(res.GateReason, "payments is in no fleet domain") || !res.Running.FirstVersion {
-		t.Fatalf("gate %s %q", res.Gate, res.GateReason)
+	if res.Gate != impact.GateUnverified || res.GateCode() != impact.GateCodeServiceNotInFleet || !res.Running.FirstVersion ||
+		!strings.Contains(res.GateReason, "payments is in no fleet domain") || !strings.Contains(res.GateReason, "oci:// reference") ||
+		len(res.Running.Unread) != 0 {
+		t.Fatalf("gate %s %s %q running %+v", res.Gate, res.GateCode(), res.GateReason, res.Running)
+	}
+}
+
+// threePayments runs payments 3.0.0, whose surface the local folders share,
+// with ledger depending on it with rng.
+func threePayments(rng string) *runEnv {
+	e := &runEnv{col: fleet.Collection{Revisions: []fleet.RawRevision{payRev("3.0.0", "sha256:p3")}, Targets: []fleet.RawTarget{payTarget("pay", "sha256:p3")}}}
+	return e.withLedger(rng)
+}
+
+func TestImpactRunningRangeBlocksAnUnchangedSurface(t *testing.T) {
+	res := mustRun(t, threePayments("^3"), "4.0.0")
+	if res.Classification == "BREAKING" || res.Gate != impact.GateBlocked || res.Running.Judged == "" || res.Running.FirstVersion {
+		t.Fatalf("%s gate %s %q running %+v", res.Classification, res.Gate, res.GateReason, res.Running)
+	}
+}
+
+func TestImpactRunningPartialNeverClears(t *testing.T) {
+	e := threePayments("^3")
+	e.extra = []fleet.Source{fleet.NewFailingSource("cluster-b", "memory", context.DeadlineExceeded)}
+	res := mustRun(t, e, "3.1.0")
+	if res.Gate != impact.GateUnverified || res.GateCode() != impact.GateCodeAnswerPartial || res.Running.Judged == "" {
+		t.Fatalf("gate %s %s %q running %+v", res.Gate, res.GateCode(), res.GateReason, res.Running)
+	}
+	if res := mustRun(t, threePayments("^3"), "3.1.0"); res.Gate != impact.GateClear {
+		t.Fatalf("complete: %s %q", res.Gate, res.GateReason)
+	}
+}
+
+func TestImpactRunningUnreadWorkloadsNeverClear(t *testing.T) {
+	e := &runEnv{col: fleet.Collection{Revisions: []fleet.RawRevision{payRev("1.0.0", "sha256:p1")}},
+		extra: []fleet.Source{fleet.NewFailingSource("k"+workloadsSuffix, fleet.SourceKindKubernetesWorkloads, context.DeadlineExceeded)}}
+	res := mustRun(t, e, "2.0.0")
+	if res.Gate != impact.GateUnverified || res.GateCode() != impact.GateCodeRunningUnread ||
+		!slices.ContainsFunc(res.Running.Unread, func(s string) bool { return strings.Contains(s, "k-workloads reads could not all be read") }) {
+		t.Fatalf("gate %s %s %q running %+v", res.Gate, res.GateCode(), res.GateReason, res.Running)
+	}
+}
+
+func TestImpactRunningRebuiltSnapshotDriftNeverClears(t *testing.T) {
+	// The served snapshot predates the payments target; the rebuild the
+	// index forces finds it.
+	served := threePayments("^4")
+	served.col.Targets = served.col.Targets[1:]
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("mem", "memory", &served.col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := threePayments("^4")
+	store := &mockBundleStore{PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
+		return payBundle(ref[strings.LastIndex(ref, ":")+1:]), nil
+	}}
+	res, err := NewService(store, nil).ImpactRunning(context.Background(), ImpactOptions{NewPath: "oci://" + runReg + "/payments:4.0.0",
+		Fleet: FleetOptions{extraSources: []fleet.Source{fleet.NewMemorySource("mem", "memory", &now.col)}}}, snap)
+	if err != nil || res.Gate != impact.GateUnverified ||
+		!slices.ContainsFunc(res.Running.Unread, func(s string) bool { return strings.Contains(s, "changed while Pacto read them") }) {
+		t.Fatalf("res %+v err %v", res, err)
 	}
 }
 
