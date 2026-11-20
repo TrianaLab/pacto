@@ -11,6 +11,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -50,6 +51,7 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/scope"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/targetsnapshot"
+	core "github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -107,6 +109,7 @@ type options struct {
 	dashboardRepositories    []string
 	dashboardExternalCatalog string
 	dashboardFingerprints    string
+	dashboardOwnerPolicy     string
 
 	enableEvidence            bool
 	evidenceTrustSecret       string
@@ -134,6 +137,8 @@ type options struct {
 	registry             string
 	registryPullSecret   string
 	registryPushPrefixes []string
+
+	ownerPolicy string
 
 	zap zap.Options
 }
@@ -327,6 +332,11 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			o.registryPushPrefixes = append(o.registryPushPrefixes, v)
 			return nil
 		})
+	fs.StringVar(&o.ownerPolicy, "owner-policy", "",
+		"File holding the owner policy (policy.json from the chart's declare block): who may set a service owner. "+
+			"Published in the target snapshot; empty publishes none.")
+	fs.StringVar(&o.dashboardOwnerPolicy, "dashboard-owner-policy-configmap", "",
+		"Immutable ConfigMap in the operator namespace holding the owner policy (policy.json) the dashboard mounts.")
 	o.zap.BindFlags(fs)
 }
 
@@ -612,6 +622,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc authn.Keyc
 		Repositories:          o.dashboardRepositories,
 		ExternalCatalog:       o.dashboardExternalCatalog,
 		FingerprintsConfigMap: o.dashboardFingerprints,
+		OwnerPolicyConfigMap:  o.dashboardOwnerPolicy,
 	}
 	// Detection proposes what the cluster provides in one ConfigMap; it never
 	// changes an argument, a rule or a feature. The managed dashboard mounts it
@@ -735,7 +746,7 @@ func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace, clusterID, evide
 	pub, err := targetsnapshot.ForOperator(targetsnapshot.Config{Registry: o.registry, ClusterID: clusterID,
 		Namespace: namespace, ServiceAccount: os.Getenv("OPERATOR_SERVICE_ACCOUNT"), EvidenceURL: evidenceURL,
 		Watched: o.namespaces, Key: key, Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(),
-		OnPush: func(r detect.PushResult) { lastPush.Store(&r) }})
+		OnPush: func(r detect.PushResult) { lastPush.Store(&r) }, OwnerPolicy: readOwnerPolicy(o.ownerPolicy)})
 	if err != nil {
 		return nil, err
 	}
@@ -748,6 +759,21 @@ func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace, clusterID, evide
 	setupLog.Info("Target snapshot is on", "repository", inst.Targets,
 		"snapshotKeyID", inst.SnapshotKeyID, "snapshotKey", inst.SnapshotKey)
 	return inst, mgr.Add(pub)
+}
+
+// readOwnerPolicy reads the mounted owner policy once at start: the ConfigMap
+// is immutable and content-named, so a chart change rolls the pod. A policy
+// that does not read is logged and none is published, so readers see no policy
+// (unknown) rather than an empty one.
+func readOwnerPolicy(path string) *core.OwnerPolicy {
+	if path == "" {
+		return nil
+	}
+	p, why := core.ReadOwnerPolicy(path)
+	if p == nil {
+		setupLog.Error(errors.New(why), "The owner policy is not published")
+	}
+	return p
 }
 
 // operatorOwnerRef discovers the operator's own Deployment for the ownerReferences of the managed

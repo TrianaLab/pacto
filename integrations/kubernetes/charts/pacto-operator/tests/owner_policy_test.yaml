@@ -1,0 +1,242 @@
+# The declare block (513-S4): who may set a service owner. It renders into an
+# immutable ConfigMap named after its content, which the manager mounts and,
+# with registry set, publishes in its signed target snapshot; the managed
+# dashboard mounts the same ConfigMap. Empty, nothing renders. The names below
+# are the content hashes of the values each case sets: a new name means the
+# rendered policy changed.
+suite: owner policy
+templates:
+  - templates/owner-policy.yaml
+  - templates/deployment.yaml
+  - templates/role.yaml
+  - templates/leader-election-role.yaml
+  - templates/clusterrole.yaml
+  - templates/delivery/rbac.yaml
+  - templates/delivery/recorder.yaml
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: TestDeclareBlockEmptyRendersNothing
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/owner-policy.yaml
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: owner-policy
+        template: templates/deployment.yaml
+      - notExists:
+          path: spec.template.spec.volumes
+        template: templates/deployment.yaml
+      - notExists:
+          path: spec.template.spec.containers[0].volumeMounts
+        template: templates/deployment.yaml
+
+  - it: TestDeclareBlockEmptyRendersNothing with empty lists
+    set:
+      declare.defaultApprovers.bootstrap: []
+      declare.teams: {}
+      declare.emailIssuers: [https://idp.acme.com]
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/owner-policy.yaml
+
+  - it: TestDeclareBootstrapRendersImmutableConfigMap
+    template: templates/owner-policy.yaml
+    set:
+      declare.defaultApprovers.bootstrap:
+        - name: platform-admins
+          issuer: https://accounts.google.com
+          subject: ^admin@acme\.com$
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: pacto-operator-owner-policy-46a4042fb0
+      - equal:
+          path: metadata.namespace
+          value: pacto-operator-system
+      - equal:
+          path: immutable
+          value: true
+      - equal:
+          path: data["policy.json"]
+          value: '{"defaultApprovers":[{"issuer":"https://accounts.google.com","name":"platform-admins","subject":"^admin@acme\\.com$"}],"emailIssuers":[],"teams":{}}'
+
+  - it: TestDeclareBootstrapRendersImmutableConfigMap renames on a content change
+    template: templates/owner-policy.yaml
+    set:
+      declare.defaultApprovers.bootstrap:
+        - name: platform-admins
+          issuer: https://accounts.google.com
+          subject: ^root@acme\.com$
+    asserts:
+      - equal:
+          path: metadata.name
+          value: pacto-operator-owner-policy-93066c77df
+
+  - it: TestDeclareBootstrapRendersImmutableConfigMap with teams and issuers
+    template: templates/owner-policy.yaml
+    set:
+      declare.teams:
+        payments:
+          - name: ana
+            issuer: https://github.com/login/oauth
+            subject: ^ana@acme\.com$
+      declare.emailIssuers: [https://idp.acme.com]
+    asserts:
+      - equal:
+          path: metadata.name
+          value: pacto-operator-owner-policy-39c9227476
+      - equal:
+          path: data["policy.json"]
+          value: '{"defaultApprovers":[],"emailIssuers":["https://idp.acme.com"],"teams":{"payments":[{"issuer":"https://github.com/login/oauth","name":"ana","subject":"^ana@acme\\.com$"}]}}'
+
+  - it: TestDeclareFlagsInControllerArgs
+    template: templates/deployment.yaml
+    set:
+      declare.defaultApprovers.bootstrap:
+        - name: platform-admins
+          issuer: https://accounts.google.com
+          subject: ^admin@acme\.com$
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --owner-policy=/etc/pacto/owner-policy/policy.json
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-owner-policy-configmap=pacto-operator-owner-policy-46a4042fb0
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - name: owner-policy
+              mountPath: /etc/pacto/owner-policy
+              readOnly: true
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - name: owner-policy
+              configMap:
+                name: pacto-operator-owner-policy-46a4042fb0
+
+  - it: TestDeclarePolicyPublishedWithRegistryOnly
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: false
+      declare.defaultApprovers.bootstrap:
+        - name: platform-admins
+          issuer: https://accounts.google.com
+          subject: ^admin@acme\.com$
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry=ghcr.io/acme
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --owner-policy=/etc/pacto/owner-policy/policy.json
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: owner-policy
+            mountPath: /etc/pacto/owner-policy
+            readOnly: true
+        template: templates/deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/recorder.yaml
+
+  # The policy ConfigMap is immutable, and no Role or ClusterRole the chart
+  # binds to a release ServiceAccount may update, patch or delete a ConfigMap
+  # by any name but detection's own: the operator's only ConfigMap writes are
+  # detection's unnamed create (which cannot overwrite an existing ConfigMap)
+  # and its patch of <fullname>-detected. rbac_inventory_test.yaml pins every
+  # rule of role.yaml with the declare block set ('registry with declare').
+  - it: TestDeclareNoConfigMapWriteRole
+    set: &declareEverything
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      dashboard.enabled: true
+      declare.defaultApprovers.bootstrap:
+        - name: platform-admins
+          issuer: https://accounts.google.com
+          subject: ^admin@acme\.com$
+    template: templates/role.yaml
+    documentIndex: 0
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            resourceNames: [pacto-operator-owner-policy-46a4042fb0]
+          any: true
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [configmaps]
+            verbs: [create]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [configmaps]
+            verbs: [get, patch]
+            resourceNames: [pacto-operator-detected]
+
+  - it: TestDeclareNoConfigMapWriteRole leader election
+    set: *declareEverything
+    template: templates/leader-election-role.yaml
+    documentIndex: 0
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            resources: [configmaps]
+          any: true
+
+  - it: TestDeclareNoConfigMapWriteRole cluster role reads only
+    set: *declareEverything
+    template: templates/clusterrole.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: 'rules[?(@.resources[0] == "configmaps")].verbs'
+          value: [get, list, watch]
+
+  - it: TestDeclareNoConfigMapWriteRole delivery roles
+    set: *declareEverything
+    template: templates/delivery/rbac.yaml
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            resources: [configmaps]
+          any: true
+
+  - it: TestDeclareSchemaRefusesOpenSubject
+    template: templates/deployment.yaml
+    set:
+      declare.defaultApprovers.bootstrap:
+        - name: everyone
+          issuer: https://accounts.google.com
+          subject: .*
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?i)subject.*does not match pattern"
+
+  - it: TestDeclareSchemaRefusesOpenSubject without an issuer
+    template: templates/deployment.yaml
+    set:
+      declare.teams:
+        payments:
+          - subject: ^ana@acme\.com$
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?i)issuer.*required"

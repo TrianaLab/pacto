@@ -9,6 +9,7 @@ suite: upgrade with reused 6.x values
 templates:
   - templates/deployment.yaml
   - templates/clusterrole.yaml
+  - templates/owner-policy.yaml
 set:
   # 6.x values carry no fingerprints key: --reuse-values keeps it absent.
   fingerprints: null
@@ -40,6 +41,34 @@ tests:
           - --dashboard-memory-request=128Mi
           - --dashboard-memory-limit=512Mi
           - --dashboard-token-login
+
+  # 6.x values carry no declare key (513-S4): the arguments stay the 6.x list
+  # and no owner policy ConfigMap or volume renders.
+  - it: should render the 6.x arguments for 6.x values with no declare key
+    set:
+      <<: *reuse6x
+      declare: null
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+          - --leader-elect=true
+          - --health-probe-bind-address=:8081
+          - --metrics-bind-address=:8443
+          - --metrics-secure=true
+          - --node-agent-namespace=pacto-node-agent
+          - --enable-dashboard
+          - --dashboard-cpu-request=50m
+          - --dashboard-memory-request=128Mi
+          - --dashboard-memory-limit=512Mi
+          - --dashboard-token-login
+        template: templates/deployment.yaml
+      - notExists:
+          path: spec.template.spec.volumes
+        template: templates/deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/owner-policy.yaml
 
   - it: should render the 6.x arguments for 6.x values with nodeAgent.enabled
     template: templates/deployment.yaml

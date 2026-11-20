@@ -239,6 +239,13 @@ const (
 	fingerprintsKey       = "fingerprints.yaml"
 )
 
+// The managed dashboard reads the chart's owner policy from this file.
+const (
+	ownerPolicyEnvVar    = "PACTO_DASHBOARD_OWNER_POLICY"
+	ownerPolicyMountPath = "/etc/pacto/owner-policy"
+	ownerPolicyKey       = "policy.json"
+)
+
 // deploymentAC returns a server-side apply configuration for the dashboard Deployment.
 func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	env := []*corev1ac.EnvVarApplyConfiguration{
@@ -307,26 +314,8 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	authMounts, authVols := authVolumes(cfg)
 	volumeMounts, volumes = append(volumeMounts, authMounts...), append(volumes, authVols...)
 
-	if cfg.DetectedConfigMap != "" {
-		env = append(env, corev1ac.EnvVar().WithName(detectedEnvVar).WithValue(detectedMountPath+"/"+detectedKey))
-		volumeMounts = append(volumeMounts,
-			corev1ac.VolumeMount().WithName("detected").WithMountPath(detectedMountPath).WithReadOnly(true))
-		// Optional: before the first detection the pod still starts and the
-		// dashboard names the detection source unavailable.
-		volumes = append(volumes, corev1ac.Volume().WithName("detected").WithConfigMap(
-			corev1ac.ConfigMapVolumeSource().WithName(cfg.DetectedConfigMap).
-				WithItems(corev1ac.KeyToPath().WithKey(detectedKey).WithPath(detectedKey)).
-				WithOptional(true)))
-	}
-
-	if cfg.FingerprintsConfigMap != "" {
-		env = append(env, corev1ac.EnvVar().WithName(fingerprintsEnvVar).WithValue(fingerprintsMountPath+"/"+fingerprintsKey))
-		volumeMounts = append(volumeMounts,
-			corev1ac.VolumeMount().WithName("fingerprints").WithMountPath(fingerprintsMountPath).WithReadOnly(true))
-		volumes = append(volumes, corev1ac.Volume().WithName("fingerprints").WithConfigMap(
-			corev1ac.ConfigMapVolumeSource().WithName(cfg.FingerprintsConfigMap).
-				WithItems(corev1ac.KeyToPath().WithKey(fingerprintsKey).WithPath(fingerprintsKey))))
-	}
+	fileEnv, fileMounts, fileVols := configMapFiles(cfg)
+	env, volumeMounts, volumes = append(env, fileEnv...), append(volumeMounts, fileMounts...), append(volumes, fileVols...)
 
 	if len(cfg.OCISecrets) > 0 {
 		volumeMounts = append(volumeMounts,
@@ -426,4 +415,47 @@ func ociSecretAC(cfg Config, data []byte) runtime.ApplyConfiguration {
 		secret.WithOwnerReferences(cfg.OwnerRef)
 	}
 	return secret
+}
+
+// configMapFiles are the operator-namespace ConfigMaps the dashboard reads as
+// kubelet-mounted files (detection, fingerprints, the owner policy), so its
+// ServiceAccount gains no ConfigMap rule.
+func configMapFiles(cfg Config) ([]*corev1ac.EnvVarApplyConfiguration, []*corev1ac.VolumeMountApplyConfiguration,
+	[]*corev1ac.VolumeApplyConfiguration) {
+	var env []*corev1ac.EnvVarApplyConfiguration
+	var mounts []*corev1ac.VolumeMountApplyConfiguration
+	var vols []*corev1ac.VolumeApplyConfiguration
+	if cfg.DetectedConfigMap != "" {
+		env = append(env, corev1ac.EnvVar().WithName(detectedEnvVar).WithValue(detectedMountPath+"/"+detectedKey))
+		mounts = append(mounts,
+			corev1ac.VolumeMount().WithName("detected").WithMountPath(detectedMountPath).WithReadOnly(true))
+		// Optional: before the first detection the pod still starts and the
+		// dashboard names the detection source unavailable.
+		vols = append(vols, corev1ac.Volume().WithName("detected").WithConfigMap(
+			corev1ac.ConfigMapVolumeSource().WithName(cfg.DetectedConfigMap).
+				WithItems(corev1ac.KeyToPath().WithKey(detectedKey).WithPath(detectedKey)).
+				WithOptional(true)))
+	}
+
+	if cfg.FingerprintsConfigMap != "" {
+		env = append(env, corev1ac.EnvVar().WithName(fingerprintsEnvVar).WithValue(fingerprintsMountPath+"/"+fingerprintsKey))
+		mounts = append(mounts,
+			corev1ac.VolumeMount().WithName("fingerprints").WithMountPath(fingerprintsMountPath).WithReadOnly(true))
+		vols = append(vols, corev1ac.Volume().WithName("fingerprints").WithConfigMap(
+			corev1ac.ConfigMapVolumeSource().WithName(cfg.FingerprintsConfigMap).
+				WithItems(corev1ac.KeyToPath().WithKey(fingerprintsKey).WithPath(fingerprintsKey))))
+	}
+
+	if cfg.OwnerPolicyConfigMap != "" {
+		env = append(env, corev1ac.EnvVar().WithName(ownerPolicyEnvVar).WithValue(ownerPolicyMountPath+"/"+ownerPolicyKey))
+		mounts = append(mounts,
+			corev1ac.VolumeMount().WithName("owner-policy").WithMountPath(ownerPolicyMountPath).WithReadOnly(true))
+		// Optional: a missing policy leaves owner changes unverified rather
+		// than wedging the pod in ContainerCreating.
+		vols = append(vols, corev1ac.Volume().WithName("owner-policy").WithConfigMap(
+			corev1ac.ConfigMapVolumeSource().WithName(cfg.OwnerPolicyConfigMap).
+				WithItems(corev1ac.KeyToPath().WithKey(ownerPolicyKey).WithPath(ownerPolicyKey)).
+				WithOptional(true)))
+	}
+	return env, mounts, vols
 }

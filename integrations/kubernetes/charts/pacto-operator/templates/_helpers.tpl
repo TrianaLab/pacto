@@ -103,6 +103,28 @@ The controller's ServiceAccount name.
 {{- end }}
 
 {{/*
+The owner policy JSON (an OwnerPolicy) from the declare block, empty when
+neither defaultApprovers.bootstrap nor teams holds a rule. Nil-safe: a release
+upgraded with --reuse-values from 6.x has no declare key.
+*/}}
+{{- define "pacto-operator.ownerPolicy.json" -}}
+{{- $d := .Values.declare | default dict }}
+{{- $approvers := dig "defaultApprovers" "bootstrap" list $d | default list }}
+{{- $teams := dig "teams" dict $d | default dict }}
+{{- if or $approvers $teams }}
+{{- dict "defaultApprovers" $approvers "teams" $teams "emailIssuers" (dig "emailIssuers" list $d | default list) | toJson }}
+{{- end }}
+{{- end }}
+
+{{/*
+The immutable owner policy ConfigMap, named after its content so only a chart
+upgrade changes what the operator mounts.
+*/}}
+{{- define "pacto-operator.ownerPolicy.name" -}}
+{{- printf "%s-owner-policy-%s" (include "pacto-operator.fullname" .) (include "pacto-operator.ownerPolicy.json" . | sha256sum | trunc 10) }}
+{{- end }}
+
+{{/*
 Controller arguments derived from values
 */}}
 {{- define "pacto-operator.controllerArgs" -}}
@@ -130,6 +152,11 @@ Controller arguments derived from values
 {{- range include "pacto-operator.pushPrefixes" . | fromYamlArray }}
 - --registry-push-prefix={{ . }}
 {{- end }}
+{{- end }}
+{{- /* .Values.declare in the guard: the declare block decides (gen_integration_docs reads guards). */}}
+{{- if and .Values.declare (include "pacto-operator.ownerPolicy.json" .) }}
+- --owner-policy=/etc/pacto/owner-policy/policy.json
+- --dashboard-owner-policy-configmap={{ include "pacto-operator.ownerPolicy.name" . }}
 {{- end }}
 {{- if .Values.controller.stabilizationWindow }}
 - --stabilization-window={{ .Values.controller.stabilizationWindow }}

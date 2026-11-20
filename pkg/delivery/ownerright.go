@@ -3,7 +3,10 @@ package delivery
 import (
 	"errors"
 	"fmt"
+	"os"
 	"slices"
+
+	"github.com/trianalab/pacto/v4/pkg/strictjson"
 )
 
 // MaxOwnerPolicyRules bounds the signer rules of one owner policy, default
@@ -66,4 +69,23 @@ func checkSignerRules(where string, rules []SignerRule) error {
 		}
 	}
 	return nil
+}
+
+// ReadOwnerPolicy reads the owner policy at path, decoded strictly and checked.
+// On any failure it returns nil and the reason: a policy that cannot be read is
+// no policy, never an empty one. The file is a mounted ConfigMap, which
+// Kubernetes bounds at 1 MiB.
+func ReadOwnerPolicy(path string) (*OwnerPolicy, string) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err.Error()
+	}
+	var p OwnerPolicy
+	if err := strictjson.Unmarshal(b, &p); err != nil {
+		return nil, "the owner policy " + path + ": " + err.Error()
+	}
+	if err := p.Check(); err != nil {
+		return nil, "the owner policy " + path + ": " + err.Error()
+	}
+	return &p, ""
 }

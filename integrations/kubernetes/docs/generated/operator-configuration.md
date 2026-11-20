@@ -46,6 +46,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-oidc-redirect-url` | `string` |  | chart value | The dashboard's /auth/callback as browsers reach it; TLS must terminate in front of it. |
 | `-dashboard-oidc-username-claim` | `string` |  | chart value | ID token claim the API server takes the username from; must match its claim mapping (empty: sub). |
 | `-dashboard-oidc-username-prefix` | `string` |  | chart value | Prefix the API server puts before the username; must match its claim mapping (empty: the issuer URL and #; - for none). |
+| `-dashboard-owner-policy-configmap` | `string` |  | chart value | Immutable ConfigMap in the operator namespace holding the owner policy (policy.json) the dashboard mounts. |
 | `-dashboard-repositories` | `value` |  | chart value | Comma-separated oci:// references the dashboard reads beside the contracts it discovers from Pacto resources, such as golden paths, which are never deployed. |
 | `-dashboard-session-idle-timeout` | `duration` |  | chart value | A dashboard session without a request for this long ends (0: 1h). |
 | `-dashboard-session-max-age` | `duration` |  | chart value | A dashboard session ends this long after sign-in, renewed or not (0: 12h). |
@@ -86,6 +87,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-node-agent-memory-request` | `string` |  | chart value | Memory request for the node agent container. Empty uses the built-in default. |
 | `-node-agent-namespace` | `string` | `pacto-node-agent` | always on | Dedicated namespace the node agent runs and publishes in. The operator labels it privileged for Pod Security, so it must not be the operator namespace. |
 | `-node-agent-publish-interval` | `duration` | `30s` | chart value | How often each node agent publishes its node's NodeRuntimeObservation. |
+| `-owner-policy` | `string` |  | chart value | File holding the owner policy (policy.json from the chart's declare block): who may set a service owner. Published in the target snapshot; empty publishes none. |
 | `-registry` | `string` |  | chart value | The installation registry (host/path): Pacto publishes the target snapshot and inferred contracts under it and pushes nowhere else; empty turns those features off. |
 | `-registry-pull-secret` | `string` |  | chart value | namespace/name of the Secret that authenticates to the installation registry; used only under the push prefixes. |
 | `-registry-push-prefix` | `value` |  | chart value | Repeatable: a repository prefix a Pacto component may push under; the chart renders every one. |

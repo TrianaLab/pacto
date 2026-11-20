@@ -569,3 +569,37 @@ func TestDeploymentAC_FingerprintsVolume(t *testing.T) {
 		t.Errorf("env %v mount %v volume %v", env, mount, vol)
 	}
 }
+
+// The dashboard reads the chart's owner policy as a kubelet-mounted file from
+// the immutable ConfigMap the operator names; without one it gets nothing.
+func TestApplyMountsOwnerPolicy(t *testing.T) {
+	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns", OwnerPolicyConfigMap: "pacto-operator-owner-policy-0123456789"}
+	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
+	container := deploy.Spec.Template.Spec.Containers[0]
+	env := slices.ContainsFunc(container.Env, func(e corev1ac.EnvVarApplyConfiguration) bool {
+		return *e.Name == "PACTO_DASHBOARD_OWNER_POLICY" && *e.Value == "/etc/pacto/owner-policy/policy.json"
+	})
+	mount := slices.ContainsFunc(container.VolumeMounts, func(vm corev1ac.VolumeMountApplyConfiguration) bool {
+		return *vm.Name == "owner-policy" && *vm.MountPath == "/etc/pacto/owner-policy" && *vm.ReadOnly
+	})
+	vol := slices.ContainsFunc(deploy.Spec.Template.Spec.Volumes, func(v corev1ac.VolumeApplyConfiguration) bool {
+		return *v.Name == "owner-policy" && v.ConfigMap != nil && *v.ConfigMap.Name == cfg.OwnerPolicyConfigMap &&
+			*v.ConfigMap.Items[0].Key == "policy.json" && *v.ConfigMap.Optional
+	})
+	if !env || !mount || !vol {
+		t.Errorf("env %v mount %v volume %v", env, mount, vol)
+	}
+
+	cfg.OwnerPolicyConfigMap = ""
+	deploy = deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
+	for _, e := range deploy.Spec.Template.Spec.Containers[0].Env {
+		if *e.Name == "PACTO_DASHBOARD_OWNER_POLICY" {
+			t.Error("owner policy env without a ConfigMap")
+		}
+	}
+	for _, v := range deploy.Spec.Template.Spec.Volumes {
+		if *v.Name == "owner-policy" {
+			t.Error("owner policy volume without a ConfigMap")
+		}
+	}
+}

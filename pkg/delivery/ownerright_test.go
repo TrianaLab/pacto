@@ -2,6 +2,8 @@ package delivery
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -39,6 +41,35 @@ func TestOwnerPolicyCheck(t *testing.T) {
 		edit(&p)
 		if err := p.Check(); err == nil || !strings.Contains(err.Error(), name) {
 			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+}
+
+// TestReadOwnerPolicyStrict: the mounted policy decodes strictly and passes
+// Check; an unknown key, an open subject, malformed JSON and a missing file
+// give no policy and the reason.
+func TestReadOwnerPolicyStrict(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	// The chart's rendering (tests/owner_policy_test.yaml): every key present, empty ones included.
+	good := write("good.json", `{"defaultApprovers":[{"issuer":"https://accounts.google.com","name":"platform-admins","subject":"^admin@acme\\.com$"}],"emailIssuers":[],"teams":{}}`)
+	if p, why := ReadOwnerPolicy(good); p == nil || why != "" || p.DefaultApprovers[0].Name != "platform-admins" {
+		t.Fatalf("good policy: %+v %q", p, why)
+	}
+	for name, c := range map[string]struct{ path, want string }{
+		"unknown key":  {write("unknown.json", `{"approvers":[]}`), "approvers"},
+		"open subject": {write("open.json", `{"defaultApprovers":[{"issuer":"https://accounts.google.com","subject":".*"}]}`), "pinned"},
+		"malformed":    {write("bad.json", `{`), "owner policy"},
+		"missing file": {filepath.Join(dir, "absent.json"), "absent.json"},
+	} {
+		if p, why := ReadOwnerPolicy(c.path); p != nil || !strings.Contains(why, c.want) {
+			t.Errorf("%s: %+v %q, want a reason with %q", name, p, why, c.want)
 		}
 	}
 }
