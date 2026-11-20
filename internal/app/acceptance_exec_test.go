@@ -184,8 +184,8 @@ func TestReadAcceptanceDraft(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := e.svc.readAcceptanceDraft(t.Context(), e.repo+":"+tag)
-	if err != nil || got.OnBehalfOf != "ana" || got.Subject != e.subject || got.Record.Service != d.Record.Service {
+	got, signed, err := e.svc.readAcceptanceDraft(t.Context(), e.repo+":"+tag)
+	if err != nil || signed != nil || got.OnBehalfOf != "ana" || got.Subject != e.subject || got.Record.Service != d.Record.Service {
 		t.Fatalf("%v %+v", err, got)
 	}
 	r, err := ocireferrer.Open(e.repo, ocireferrer.Options{Keychain: anonymous})
@@ -202,7 +202,7 @@ func TestReadAcceptanceDraft(t *testing.T) {
 	}
 	for _, ref := range []string{e.repo + ":pacto-accept-draft-9", e.repo + ":1.6.0", e.repo, e.repo + ":pacto-accept-draft-7", e.repo + ":pacto-accept-draft-8"} {
 		var de *DeclareError
-		if _, err := e.svc.readAcceptanceDraft(t.Context(), ref); !errors.As(err, &de) || de.Code != codeDraftNotFound {
+		if _, _, err := e.svc.readAcceptanceDraft(t.Context(), ref); !errors.As(err, &de) || de.Code != codeDraftNotFound {
 			t.Errorf("%s: %v", ref, err)
 		}
 	}
@@ -218,13 +218,13 @@ func TestReadAcceptanceDraftTransportFailures(t *testing.T) {
 	}
 	for _, part := range []string{"/blobs/", "/manifests/"} {
 		e.failWhen(func(r *http.Request) bool { return strings.Contains(r.URL.Path, part) })
-		if _, err := e.svc.readAcceptanceDraft(t.Context(), e.repo+":"+tag); err == nil || errors.As(err, new(*DeclareError)) {
+		if _, _, err := e.svc.readAcceptanceDraft(t.Context(), e.repo+":"+tag); err == nil || errors.As(err, new(*DeclareError)) {
 			t.Fatalf("%s: %v", part, err)
 		}
 	}
 	e.failWhen(nil)
 	e.svc.sys.refusalRepo = func(string) (*remote.Repository, error) { return nil, errors.New("no credentials") }
-	if _, err := e.svc.readAcceptanceDraft(t.Context(), e.repo+":"+tag); err == nil || errors.As(err, new(*DeclareError)) {
+	if _, _, err := e.svc.readAcceptanceDraft(t.Context(), e.repo+":"+tag); err == nil || errors.As(err, new(*DeclareError)) {
 		t.Fatal(err)
 	}
 }

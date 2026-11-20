@@ -134,6 +134,11 @@ the record, and only a record a person who owns the service signs counts.
 Every other signer (--sign-key, an ambient OIDC token in CI) writes a draft,
 pacto-accept-draft-&lt;n&gt;, that a person accepts.
 
+--draft &lt;repo&gt;:pacto-accept-draft-&lt;n&gt; accepts a draft an agent or CI wrote:
+its record is planned again against the registry now, refused when anything
+moved since the draft was written, shown with the person it names in
+on_behalf_of, and signed by you after a Sigstore login.
+
 ```
 pacto accept <service-ref-or-dir> [field...] [flags]
 ```
@@ -149,6 +154,9 @@ pacto accept <service-ref-or-dir> [field...] [flags]
 
   # Accept the break ledger 3.0.0 announces, before it is published
   pacto accept ./reports --break ledger@3.0.0 --from ../ledger
+
+  # Accept the draft an agent wrote, signed after a Sigstore login
+  pacto accept oci://ghcr.io/acme/reports --draft ghcr.io/acme/reports:pacto-accept-draft-1
 ```
 
 **Flags:**
@@ -156,6 +164,7 @@ pacto accept <service-ref-or-dir> [field...] [flags]
 ```
       --break string             accept the break this provider version announces, as <provider>@<version>
       --device[=true|false]      log in with a device code instead of a browser
+      --draft string             accept this acceptance draft, as <repo>:pacto-accept-draft-<n>, signed by you
       --dry-run[=true|false]     print the plan and write nothing
       --field stringArray        a proposed field to accept, as <key> or <key>=<range>; repeat it for more
       --from string              the provider's checkout or oci:// ref to read an unpublished break from

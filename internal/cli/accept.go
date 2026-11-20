@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -41,7 +42,12 @@ in its own bundle repository with your registry credentials. Only your
 interactive Sigstore login (a browser, or a device code with --device) signs
 the record, and only a record a person who owns the service signs counts.
 Every other signer (--sign-key, an ambient OIDC token in CI) writes a draft,
-pacto-accept-draft-<n>, that a person accepts.`,
+pacto-accept-draft-<n>, that a person accepts.
+
+--draft <repo>:pacto-accept-draft-<n> accepts a draft an agent or CI wrote:
+its record is planned again against the registry now, refused when anything
+moved since the draft was written, shown with the person it names in
+on_behalf_of, and signed by you after a Sigstore login.`,
 		Example: `  # Plan accepting every proposed range of reports
   pacto accept oci://ghcr.io/acme/reports --proposed --dry-run
 
@@ -49,7 +55,10 @@ pacto-accept-draft-<n>, that a person accepts.`,
   pacto accept oci://ghcr.io/acme/reports --proposed --intent sha256:...
 
   # Accept the break ledger 3.0.0 announces, before it is published
-  pacto accept ./reports --break ledger@3.0.0 --from ../ledger`,
+  pacto accept ./reports --break ledger@3.0.0 --from ../ledger
+
+  # Accept the draft an agent wrote, signed after a Sigstore login
+  pacto accept oci://ghcr.io/acme/reports --draft ghcr.io/acme/reports:pacto-accept-draft-1`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			acceptSubject(&opts, args[0])
@@ -61,6 +70,7 @@ pacto-accept-draft-<n>, that a person accepts.`,
 				return printAccept(cmd, asJSON, p, err)
 			}
 			opts.Signing.Prompt = func(s string) { _, _ = fmt.Fprintln(cmd.ErrOrStderr(), s) }
+			opts.Signing.FreshLogin = d.freshLogin
 			res, err := d.accept(svc, cmd.Context(), opts)
 			return printAccepted(cmd, asJSON, res, err)
 		},
@@ -71,6 +81,7 @@ pacto-accept-draft-<n>, that a person accepts.`,
 	f.StringVar(&opts.Break, "break", "", "accept the break this provider version announces, as <provider>@<version>")
 	f.StringVar(&opts.From, "from", "", "the provider's checkout or oci:// ref to read an unpublished break from")
 	f.StringVar(&opts.Intent, "intent", "", "the intent digest of the plan you reviewed: a different plan is refused")
+	f.StringVar(&opts.Draft, "draft", "", "accept this acceptance draft, as <repo>:pacto-accept-draft-<n>, signed by you")
 	f.BoolVar(&dryRun, "dry-run", false, "print the plan and write nothing")
 	f.StringVar(&opts.Signing.Key, "sign-key", "", "sign with this key file: a key names no person, so the run writes a draft")
 	f.StringVar(&opts.Signing.OIDCIssuer, "oidc-issuer-url", "https://oauth2.sigstore.dev/auth", "OpenID Connect issuer of the Sigstore login")
@@ -135,6 +146,9 @@ func printAcceptPlan(w io.Writer, p *app.AcceptPlan) {
 		_, _ = fmt.Fprintf(w, "  break: %s %s (announcement %s, %s)\n", b.Provider, b.Version, b.Announcement, expiryText(p.Expires))
 	}
 	_, _ = fmt.Fprintln(w, "who may accept: "+p.WhoMayAccept)
+	if p.Draft != "" {
+		_, _ = fmt.Fprintf(w, "draft: %s, on behalf of %s\n", p.Draft, cmp.Or(p.OnBehalfOf, "nobody named"))
+	}
 	for _, a := range p.Existing {
 		line := fmt.Sprintf("attached: %s by %s (%s)", a.State, a.By, a.Record)
 		if a.Reason != "" {

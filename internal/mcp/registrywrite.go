@@ -12,7 +12,7 @@ import (
 // returns the plan with its intent digest; it writes only with dry_run false
 // and that digest, and an agent's write is a draft a person accepts. Every
 // refusal carries a stable code from WriteRefusal and the command a person
-// runs about it. pacto_declare is its first tool; pacto_publish_plan and
+// runs about it. pacto_declare is its first tool and pacto_accept its second; pacto_publish_plan and
 // pacto_publish stay outside it.
 
 // WriteRefusal is the stable code of a refused registry write. The enum is
@@ -38,6 +38,12 @@ const (
 	RefusalExecuteNeedsStdio      WriteRefusal = "ExecuteNeedsStdio"
 	RefusalBaselineNeedsMigration WriteRefusal = "BaselineNeedsMigration"
 	RefusalBundleRepoMismatch     WriteRefusal = "BundleRepoMismatch"
+	// The pacto_accept codes.
+	RefusalAcceptNothingProposed    WriteRefusal = "AcceptNothingProposed"
+	RefusalFieldNotAcceptable       WriteRefusal = "FieldNotAcceptable"
+	RefusalBreakNotAnnounced        WriteRefusal = "BreakNotAnnounced"
+	RefusalNotPublished             WriteRefusal = "NotPublished"
+	RefusalPersonSigningUnavailable WriteRefusal = "PersonSigningUnavailable"
 )
 
 // writeRefusals is the enum, in the order the output schema lists it.
@@ -45,7 +51,8 @@ var writeRefusals = []WriteRefusal{
 	RefusalPlanStale, RefusalIntentRequired, RefusalWorkloadNotFound, RefusalWorkloadAmbiguous, RefusalAlreadyDeclared,
 	RefusalOwnerNeedsApprovers, RefusalRangeNotProposed, RefusalNoRegistry, RefusalRegistryUnreadable, RefusalVersionConflict,
 	RefusalSignerNotAllowed, RefusalSignerUnverified, RefusalDraftNotFound, RefusalExecuteNeedsStdio,
-	RefusalBaselineNeedsMigration, RefusalBundleRepoMismatch,
+	RefusalBaselineNeedsMigration, RefusalBundleRepoMismatch, RefusalAcceptNothingProposed, RefusalFieldNotAcceptable,
+	RefusalBreakNotAnnounced, RefusalNotPublished, RefusalPersonSigningUnavailable,
 }
 
 // Refused is a refused write: its code, what happened and the command a

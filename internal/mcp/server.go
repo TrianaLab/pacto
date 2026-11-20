@@ -44,14 +44,22 @@ const remoteAuthoringSentence = "Over this HTTP server only pacto_schema is offe
 // with pacto_declare named only when it registers.
 func baseFor(a Authoring) string {
 	switch {
-	case a.Remote && a.Declare != nil:
-		return remoteInstructions + " " + remoteDeclareSentence
 	case a.Remote:
-		return remoteInstructions
-	case a.Declare != nil:
-		return stdioInstructions + " " + declareSentence
+		return remoteInstructions + writeSentences(a, remoteDeclareSentence, remoteAcceptSentence)
 	}
-	return stdioInstructions
+	return stdioInstructions + writeSentences(a, declareSentence, acceptSentence)
+}
+
+// writeSentences names the registry write tools a registers.
+func writeSentences(a Authoring, declare, accept string) string {
+	out := ""
+	if a.Declare != nil {
+		out += " " + declare
+	}
+	if a.Accept != nil {
+		out += " " + accept
+	}
+	return out
 }
 
 // Validator runs the `pacto validate` path for the bundle in dir: lockfile
@@ -104,7 +112,8 @@ type FromRequest struct {
 // server names could not be read.
 //
 // Declare, when set, registers pacto_declare: over stdio it plans and writes
-// drafts, over HTTP it plans with the caller's own credentials only.
+// drafts, over HTTP it plans with the caller's own credentials only. Accept,
+// when set, registers pacto_accept the same way.
 type Authoring struct {
 	Validate           Validator
 	Init               Initializer
@@ -112,6 +121,7 @@ type Authoring struct {
 	Catalog            *externalcatalog.Catalog
 	CatalogUnavailable string
 	Declare            Declarer
+	Accept             Acceptor
 }
 
 // newBareServer builds a server with no tools registered at all. A mode whose
@@ -153,6 +163,9 @@ func registerTools(server *mcpsdk.Server, version string, a Authoring, opts Edit
 	addTool(server, schemaTool(), schemaHandler(a.Remote))
 	if a.Declare != nil {
 		registerDeclare(server, a.Declare, a.Remote)
+	}
+	if a.Accept != nil {
+		registerAccept(server, a.Accept, a.Remote)
 	}
 }
 

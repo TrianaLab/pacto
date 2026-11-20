@@ -90,7 +90,7 @@ const (
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
 // the fleet, delivery, impact and contract surfaces to its concept. A story
 // that adds one adds its row here in the same commit.
-var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows())
+var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), acceptRows())
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
@@ -376,11 +376,32 @@ func declareRows() []surfaceRow {
 	)
 }
 
+// acceptRows map pacto accept and pacto_accept, the agent write contract's
+// second tool: the agent's dry_run and intent_digest are the person's
+// --dry-run and --intent, and an agent's write is a draft a person accepts
+// with --draft.
+func acceptRows() []surfaceRow {
+	const why = "the dashboard's accept plan (POST /api/fleet/accept) is 508-S7 P8"
+	const whyLocal = "a person's local signing: MCP callers are agents and never sign an acceptance"
+	return slices.Concat(
+		[]surfaceRow{
+			{"accept <service-ref-or-dir>", "pacto_accept.service", "", why + "; over MCP a folder is stdio only"},
+			{"accept [field", "", "", "the positional fields are --field without the flag"},
+			{"accept --field", "pacto_accept.fields", "", why},
+			{"accept --intent", "pacto_accept.intent_digest", "", why},
+			{"accept --dry-run", "pacto_accept.dry_run", "", why + "; dry_run defaults to true and false writes a draft, the CLI signs unless --dry-run"},
+			{"", "pacto_accept.on_behalf_of", "", "an MCP caller is an agent and names the person it acts for; the CLI runs as that person; " + why},
+		},
+		alike("accept", "pacto_accept", "", why, "proposed", "break", "from"),
+		alike("accept", "", "", whyLocal, "draft", "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
+			"rekor-url", "trusted-root"),
+	)
+}
+
 // excludedFromSurfaces are the commands no other surface mirrors, each with
 // the reason. Every other command has rows in surfaceRows, so a new command
 // forces a choice: map it, or add it here with a reason.
 var excludedFromSurfaces = map[string]string{
-	"accept":                   "pacto_accept and the dashboard route land in P7 and P8 of 508-S7",
 	"agent":                    "a long-running host daemon that reports what runs on its node; the other surfaces read what it reports",
 	"delivery targets publish": "signs with a local key and pushes a target snapshot, a pipeline step the other surfaces never take",
 	"dashboard":                "starts the dashboard server, which is itself the surface the routes belong to",

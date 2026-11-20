@@ -155,6 +155,12 @@ const (
 	codeSignerNotAllowed       = "SignerNotAllowed"
 	codeSignerUnverified       = "SignerUnverified"
 	codeDraftNotFound          = "DraftNotFound"
+	// The pacto accept codes.
+	codeAcceptNothingProposed    = "AcceptNothingProposed"
+	codeFieldNotAcceptable       = "FieldNotAcceptable"
+	codeBreakNotAnnounced        = "BreakNotAnnounced"
+	codeNotPublished             = "NotPublished"
+	codePersonSigningUnavailable = "PersonSigningUnavailable"
 )
 
 // firstDeclaration is the version of a service its registry holds none of.

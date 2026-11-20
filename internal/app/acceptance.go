@@ -43,14 +43,6 @@ const (
 	publicGoodNote       = "no installation signer policy was read; acceptances judged with public-good issuers"
 )
 
-// The pacto accept refusal codes, beside 513-S3's declare codes.
-const (
-	codeAcceptNothingProposed = "AcceptNothingProposed"
-	codeFieldNotAcceptable    = "FieldNotAcceptable"
-	codeBreakNotAnnounced     = "BreakNotAnnounced"
-	codeNotPublished          = "NotPublished"
-)
-
 // acceptanceStore reads the acceptance records attached to a service's
 // bundle in its own repository, verified with the installation signer
 // policy (else public-good Sigstore) and judged by delivery.JudgeAcceptance.
@@ -387,6 +379,12 @@ type AcceptOptions struct {
 	// writes a draft on behalf of OnBehalfOf.
 	Signing    declareSigning
 	OnBehalfOf string
+	// Agent is a run on an agent's behalf (pacto_accept): it writes a
+	// draft and never logs a person in.
+	Agent bool
+	// Draft is an acceptance draft (<repo>:pacto-accept-draft-<n>) a
+	// person accepts: its record is planned again and signed by them.
+	Draft string
 }
 
 // AcceptPlan is what pacto accept would sign: the record for Service at
@@ -404,6 +402,10 @@ type AcceptPlan struct {
 	Existing     []impact.Acceptance      `json:"existing,omitempty"`
 	Notes        []string                 `json:"notes,omitempty"`
 	IntentDigest string                   `json:"intentDigest"`
+	// Draft and OnBehalfOf are the acceptance draft a person accepts and
+	// the person it asserts it was written for.
+	Draft      string `json:"draft,omitempty"`
+	OnBehalfOf string `json:"onBehalfOf,omitempty"`
 	// owner, repo and record are who may accept, the accepting service's
 	// bundle repository and the record the plan would sign.
 	owner  contract.Owner
@@ -414,6 +416,9 @@ type AcceptPlan struct {
 // AcceptPlan plans one pacto accept run against the accepting service's
 // newest published version and writes nothing.
 func (s *Service) AcceptPlan(ctx context.Context, opts AcceptOptions) (*AcceptPlan, error) {
+	if opts.Draft != "" {
+		return s.planDraft(ctx, opts)
+	}
 	env := s.env()
 	reg := env.publishRegistry()
 	repo, err := acceptRepo(opts)
@@ -461,6 +466,84 @@ func (s *Service) AcceptPlan(ctx context.Context, opts AcceptOptions) (*AcceptPl
 			CLI: acceptCommand(opts, "")}
 	}
 	return p, nil
+}
+
+// planDraft plans accepting the acceptance draft opts.Draft: the draft's
+// record planned again against the registry now, refused PlanStale when
+// anything moved since the draft was written, with the person it is on
+// behalf of and what its signature shows.
+func (s *Service) planDraft(ctx context.Context, opts AcceptOptions) (*AcceptPlan, error) {
+	repo, err := acceptRepo(opts)
+	if err != nil {
+		return nil, err
+	}
+	notFound := &DeclareError{Code: codeDraftNotFound, Message: opts.Draft + " holds no acceptance draft for " + repo, CLI: acceptCommand(AcceptOptions{Ref: repo}, "--proposed --dry-run")}
+	if repoOf(opts.Draft) != repo {
+		return nil, notFound
+	}
+	d, signed, err := s.readAcceptanceDraft(ctx, opts.Draft)
+	if err != nil {
+		return nil, err
+	}
+	if subject, _, _ := strings.Cut(d.Subject, "@"); subject != repo || d.Record.Intent == "" {
+		return nil, notFound
+	}
+	note, err := draftSignature(d, signed, opts.Signing.TrustedRoot)
+	if err != nil {
+		return nil, err
+	}
+	p, err := s.AcceptPlan(ctx, draftOptions(opts, d, repo))
+	if p != nil {
+		p.Draft, p.OnBehalfOf, p.Notes = opts.Draft, d.OnBehalfOf, append(p.Notes, note)
+	}
+	return p, err
+}
+
+// draftOptions is the pacto accept run that plans d's record again: its
+// fields (key=value where the value is not the proposal) or its break, with
+// the intent digest the person reviewed, else the draft's.
+func draftOptions(opts AcceptOptions, d delivery.AcceptanceDraft, repo string) AcceptOptions {
+	o := opts
+	o.Ref, o.Dir, o.Draft, o.Proposed, o.Fields, o.Break = repo, "", "", false, nil, ""
+	o.Intent = cmp.Or(opts.Intent, d.Record.Intent)
+	if b := d.Record.Break; b != nil {
+		_, name := fleet.ParseServiceKey(fleet.ServiceKey(b.Provider))
+		o.Break = name + "@" + b.Version
+	}
+	for _, r := range d.Record.Ranges {
+		f := r.Field
+		if r.Proposed != "" && r.Value != r.Proposed {
+			f += "=" + r.Value
+		}
+		o.Fields = append(o.Fields, f)
+	}
+	return o
+}
+
+// draftSignature says what an acceptance draft's signature shows: nothing
+// for an unsigned draft or a signer naming no identity (its proposer is
+// asserted), else the asker it names, verified. bundle is the signed draft,
+// nil when it is unsigned.
+func draftSignature(d delivery.AcceptanceDraft, bundle []byte, trustedRoot string) (string, error) {
+	a := d.Asker
+	switch {
+	case bundle == nil:
+		return "unsigned draft, proposer asserted", nil
+	case a.Subject == "" || a.Issuer == signerKey:
+		return "the draft's signer names no identity Pacto can check: its proposer is asserted", nil
+	}
+	tm, err := declareRoot(trustedRoot)
+	if err != nil {
+		return "", err
+	}
+	got, _, err := signing.VerifyKeyless(bundle, tm)
+	if err == nil {
+		err = sameSigner(delivery.PublisherIdentity{Subject: a.Subject, Issuer: a.Issuer}, []delivery.PublisherIdentity{got})
+	}
+	if err != nil {
+		return "", &DeclareError{Code: codeSignerUnverified, Message: "the draft is not signed by the asker it names: " + err.Error()}
+	}
+	return "the draft is signed by " + a.Subject + " (" + a.Issuer + ")", nil
 }
 
 // acceptCommand is the pacto accept command that plans opts again, with
@@ -770,7 +853,7 @@ func (s *Service) writeAcceptanceDraft(ctx context.Context, repo string, d deliv
 	// the service's own repository could plant a look-alike, and the person
 	// accepting it verifies its signature anyway.
 	newest := acceptanceDraftPrefix + strconv.Itoa(n-1)
-	if prev, err := s.readAcceptanceDraft(ctx, repo+":"+newest); err == nil {
+	if prev, _, err := s.readAcceptanceDraft(ctx, repo+":"+newest); err == nil {
 		if same, _ := json.Marshal(prev); string(same) == string(payload) {
 			return newest, nil
 		}
@@ -793,46 +876,50 @@ func (s *Service) writeAcceptanceDraft(ctx context.Context, repo string, d deliv
 }
 
 // readAcceptanceDraft reads the acceptance draft ref
-// (<repo>:pacto-accept-draft-<n>), strictly decoded and unverified. A tag
-// that is not there, or does not hold one acceptance draft within the
-// acceptance bounds, is DraftNotFound.
-func (s *Service) readAcceptanceDraft(ctx context.Context, ref string) (delivery.AcceptanceDraft, error) {
+// (<repo>:pacto-accept-draft-<n>), strictly decoded and unverified, and
+// its signed bundle (nil when it is unsigned). A tag that is not there, or
+// does not hold one acceptance draft within the acceptance bounds, is
+// DraftNotFound.
+func (s *Service) readAcceptanceDraft(ctx context.Context, ref string) (delivery.AcceptanceDraft, []byte, error) {
 	repo := repoOf(ref)
 	tag := ref[strings.LastIndex(ref, ":")+1:]
 	notFound := &DeclareError{Code: codeDraftNotFound, Message: "there is no acceptance draft " + ref}
 	if !strings.HasPrefix(tag, acceptanceDraftPrefix) {
-		return delivery.AcceptanceDraft{}, notFound
+		return delivery.AcceptanceDraft{}, nil, notFound
 	}
 	r, err := s.env().refusalRepo(repo)
 	if err != nil {
-		return delivery.AcceptanceDraft{}, err
+		return delivery.AcceptanceDraft{}, nil, err
 	}
 	desc, err := r.Resolve(ctx, tag)
 	if errors.Is(err, errdef.ErrNotFound) {
-		return delivery.AcceptanceDraft{}, notFound
+		return delivery.AcceptanceDraft{}, nil, notFound
 	}
 	var raw []byte
 	if err == nil && desc.Size <= maxAcceptanceManifest {
 		raw, err = content.FetchAll(ctx, r, desc)
 	}
 	if err != nil {
-		return delivery.AcceptanceDraft{}, fmt.Errorf("reading %s: %w", ref, err)
+		return delivery.AcceptanceDraft{}, nil, fmt.Errorf("reading %s: %w", ref, err)
 	}
 	var m ocispec.Manifest
 	_ = json.Unmarshal(raw, &m) // a manifest that does not decode is no draft
 	if m.ArtifactType != delivery.AcceptanceDraftArtifactType || len(m.Layers) != 1 || m.Layers[0].Size > delivery.MaxAcceptanceBytes {
-		return delivery.AcceptanceDraft{}, notFound
+		return delivery.AcceptanceDraft{}, nil, notFound
 	}
 	payload, err := content.FetchAll(ctx, r, m.Layers[0])
 	if err != nil {
-		return delivery.AcceptanceDraft{}, fmt.Errorf("reading %s: %w", ref, err)
+		return delivery.AcceptanceDraft{}, nil, fmt.Errorf("reading %s: %w", ref, err)
 	}
 	d, err := delivery.DecodeAcceptanceDraft(m.Layers[0].MediaType, payload)
 	if err != nil {
 		notFound.Message = ref + " holds no acceptance draft: " + err.Error()
-		return delivery.AcceptanceDraft{}, notFound
+		return delivery.AcceptanceDraft{}, nil, notFound
 	}
-	return d, nil
+	if m.Layers[0].MediaType != delivery.BundleMediaType {
+		payload = nil
+	}
+	return d, payload, nil
 }
 
 // AcceptResult is what pacto accept did: the plan it carried out, who
@@ -864,17 +951,39 @@ func (s *Service) Accept(ctx context.Context, opts AcceptOptions) (*AcceptResult
 	if sign.Policy == nil {
 		sign.Policy = installationSigners(ctx, opts.Trust)
 	}
-	c, err := s.declareSigner(ctx, sign, false)
+	if opts.Draft != "" {
+		// A draft is accepted by a person or not at all: refused before any
+		// signer is built, and again below for a login that names no person.
+		pc, err := plannedSigner(ctx, sign, opts.Agent)
+		if err == nil && !pc.MayDeclare {
+			err = personSigningUnavailable(pc, p.repo, opts.Draft)
+		}
+		if err != nil {
+			return res, err
+		}
+	}
+	c, err := s.declareSigner(ctx, sign, opts.Agent)
 	if err != nil {
 		return res, err
 	}
 	res.Signer = SignerView{Subject: c.Identity.Subject, Issuer: c.Identity.Issuer, Class: string(c.Class), Source: c.Source, Why: c.Why}
 	r := p.record
 	r.Intent = p.IntentDigest
-	if !c.MayDeclare {
+	switch {
+	case !c.MayDeclare && opts.Draft != "":
+		return res, personSigningUnavailable(c, p.repo, opts.Draft)
+	case !c.MayDeclare:
 		return res, s.draftAcceptance(ctx, res, r, c, opts)
 	}
 	return res, s.signAcceptance(ctx, res, r, c, sign.Rules)
+}
+
+// personSigningUnavailable refuses accepting draft with c, a signer that
+// names no person.
+func personSigningUnavailable(c signerChoice, repo, draft string) error {
+	return &DeclareError{Code: codePersonSigningUnavailable, Message: "accepting a draft needs a person's signature: " + c.Why +
+		"; run it without --sign-key and with no ambient OIDC token (SIGSTORE_ID_TOKEN), so you sign after a Sigstore login",
+		CLI: "pacto accept " + repo + " --draft " + draft}
 }
 
 // installationSigners is the installation signer policy trust reads, nil
