@@ -423,7 +423,7 @@ func depsFromContract(c *contract.Contract) []DependencyInfo {
 		d.Requires = dep.Requires
 		if len(dep.Requires) > 0 {
 			d.GuaranteeStatus, d.GuaranteeReason = fleet.GuaranteeUnknown, reasonNotFetched
-			if dep.Ref == "" {
+			if dep.External && dep.Ref == "" {
 				d.GuaranteeReason = reasonNoContract
 			}
 		}

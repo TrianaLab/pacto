@@ -78,7 +78,7 @@ func TestApplyDependencyGraph(t *testing.T) {
 		{Name: "refused", Ref: "oci://r/refused", Requires: req},
 		{Name: "failed", Ref: "oci://r/failed", Requires: req},
 		{Name: "unfetched", Ref: "oci://r/unfetched", Requires: req},
-		{Name: "external", Version: "v1", Requires: req},
+		{Name: "external", External: true, Version: "v1", Requires: req},
 		{Name: "plain", Ref: "oci://r/plain"},
 	}}
 	d := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")

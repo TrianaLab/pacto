@@ -1742,3 +1742,13 @@ func TestDiffOutputShowsInferredSection(t *testing.T) {
 		}
 	}
 }
+
+// TestRefLessRenderersNotExternal: explain says a dependency by name is by
+// name, with its range, never external.
+func TestRefLessRenderersNotExternal(t *testing.T) {
+	var buf bytes.Buffer
+	printExplainDependencies(&buf, []app.ExplainDependency{{Name: "ledger", Compatibility: contract.CompatibilityUnknown, Required: true}})
+	if out := buf.String(); !strings.Contains(out, "  - ledger: by name, compatibility range not declared (required)\n") || strings.Contains(out, "external") {
+		t.Fatalf("out:\n%s", out)
+	}
+}

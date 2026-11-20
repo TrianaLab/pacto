@@ -548,6 +548,17 @@ func TestDependencyRequiredDefaultsTrue(t *testing.T) {
 	}
 }
 
+// TestRefLessDependencyDefaultsToUnknown: a dependency by name with no range
+// reads unknown; an external one and a given range are kept.
+func TestRefLessDependencyDefaultsToUnknown(t *testing.T) {
+	doc := "dependencies:\n  - name: ledger\n  - name: audit\n    compatibility: ^2.0.0\n  - name: model\n    external: true\n    version: \"1\"\n"
+	for _, c := range parseBoth(t, doc) {
+		if got := []string{c.Dependencies[0].Compatibility, c.Dependencies[1].Compatibility, c.Dependencies[2].Compatibility}; got[0] != CompatibilityUnknown || got[1] != "^2.0.0" || got[2] != "" {
+			t.Errorf("compatibility = %q", got)
+		}
+	}
+}
+
 func TestDependencyRequiredFalseKept(t *testing.T) {
 	for _, c := range parseBoth(t, "dependencies:\n  - name: ledger\n    ref: oci://ghcr.io/acme/ledger\n    required: false\n") {
 		if c.Dependencies[0].Required {

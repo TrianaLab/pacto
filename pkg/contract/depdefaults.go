@@ -4,7 +4,9 @@ import "gopkg.in/yaml.v3"
 
 // applyDependencyDefaults fills the parse-time defaults of each dependency from
 // the document it was decoded from: required is true when the mapping has no
-// required key, and an absent name is derived from ref (marked NameFromRef).
+// required key, an absent name is derived from ref (marked NameFromRef), and a
+// dependency by name (no ref, not external) with no compatibility reads
+// unknown, so every reader says the range is unknown instead of unreadable.
 // It reads the node rather than implementing yaml.Unmarshaler on Dependency,
 // which would take every contract with dependencies off knownFields' fast path
 // and drop the unknown-field check inside a dependency.
@@ -21,6 +23,9 @@ func applyDependencyDefaults(root *yaml.Node, c *Contract) {
 		if d.Name == "" {
 			d.Name = DependencyName(d.Ref)
 			d.NameFromRef = d.Name != ""
+		}
+		if d.Ref == "" && !d.External && d.Compatibility == "" {
+			d.Compatibility = CompatibilityUnknown
 		}
 	}
 }

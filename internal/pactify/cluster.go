@@ -616,7 +616,7 @@ func (cl *cluster) facts(w unstructured.Unstructured, deps []Inferred, snap bool
 	asOf, k, m := cl.nodesObserved(w)
 	partial := k < m || f.Hidden.Services > 0 || !cl.complete("pods", "replicasets", "jobs", "services", "endpointslices")
 	for _, d := range deps {
-		f.Calls = append(f.Calls, discover.ClusterCall{Name: d.Name, Ref: d.Ref, Proposed: proposedRange(d.Versions), Versions: reportedVersions(d.Versions),
+		f.Calls = append(f.Calls, discover.ClusterCall{Name: d.Name, Ref: d.Ref, Proposed: contract.ProposedRange(d.Versions), Versions: reportedVersions(d.Versions),
 			AsOf: asOf, Partial: partial || len(d.Unknown) > 0 || !cl.complete("pactos")})
 	}
 	f.Coverage = cl.rows()

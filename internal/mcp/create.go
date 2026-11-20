@@ -86,8 +86,11 @@ type InterfaceInput struct {
 
 // DependencyInput describes a dependency to add.
 type DependencyInput struct {
-	Name          string `json:"name"`
-	Ref           string `json:"ref"`
+	Name string `json:"name"`
+	// Ref is the provider's contract. Leave it out for a service of your own
+	// to depend on it by name (pactoVersion 2.5): Pacto resolves it in the
+	// contract's domain.
+	Ref           string `json:"ref,omitempty"`
 	Required      bool   `json:"required,omitempty"`
 	Compatibility string `json:"compatibility,omitempty"`
 	// External marks a dependency this Pacto system does not deliver. With
@@ -581,8 +584,9 @@ func buildDependenciesList(inputs []DependencyInput) []any {
 
 // dependencyEntry is one dependencies[] entry. An external dependency with no
 // ref carries its version instead of a ref and a range. A dependency given no
-// range is written with compatibility unknown, never a guessed range. An
-// identity is written as given, so validation, not this tool, judges it.
+// ref is by name (pactoVersion 2.5): it is written without one. A dependency
+// given no range is written with compatibility unknown, never a guessed range.
+// An identity is written as given, so validation, not this tool, judges it.
 func dependencyEntry(dep DependencyInput) map[string]any {
 	if dep.Ref == "" && dep.External {
 		entry := map[string]any{"name": dep.Name, "external": true, "version": dep.Version, "required": dep.Required}
@@ -597,9 +601,11 @@ func dependencyEntry(dep DependencyInput) map[string]any {
 	}
 	entry := map[string]any{
 		"name":          dependencyName(dep),
-		"ref":           dep.Ref,
 		"compatibility": compat,
 		"required":      dep.Required, // mandatory in v2 schema; emit true AND false
+	}
+	if dep.Ref != "" { // an empty ref breaks the schema's minLength: 1
+		entry["ref"] = dep.Ref
 	}
 	if dep.External {
 		entry["external"] = true
@@ -2085,8 +2091,12 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 
 	for _, dep := range c.Dependencies {
 		ref := dep.Ref
-		if ref == "" {
+		switch {
+		case ref != "":
+		case dep.External:
 			ref = dep.Name + " (external " + dep.Version + ")"
+		default:
+			ref = dep.Name + " (by name, compatibility " + contract.RangeLabel(dep.Compatibility) + ")"
 		}
 		if reqs := summarizeRequires(dep.Requires); reqs != "" {
 			ref += " (" + reqs + ")"

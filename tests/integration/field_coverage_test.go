@@ -331,6 +331,9 @@ var fieldCoverageCases = []fcCase{
 	invalid("dependencies[].name/needs-2.5", schemaViolation, set("pactoVersion", "2.4"), del("interfaces.0.port"), del("breaks"), del("dependencies.0.name")), // only 2.5 may leave it out
 	warns("dependencies[].ref/valid", "TAG_NOT_DIGEST", set("dependencies.0.ref", "oci://ghcr.io/acme/payments-pacto:1.0.0")),
 	invalid("dependencies[].ref/invalid", "INVALID_OCI_REF", set("dependencies.0.ref", "oci://")),
+	valid("dependencies[].ref/by-name", del("dependencies.0.ref")), // 2.5: resolved by name in the consumer's domain
+	invalid("dependencies[].ref/by-name-with-version", "VERSION_WITHOUT_REF", del("dependencies.0.ref"), set("dependencies.0.version", "1")),
+	invalid("dependencies[].ref/by-name-needs-2.5", needs25, set("pactoVersion", "2.4"), del("interfaces.0.port"), del("breaks"), del("dependencies.0.ref")),
 	valid("dependencies[].required/valid", set("dependencies.0.required", false)),
 	valid("dependencies[].required/absent-is-true", del("dependencies.0.required")),
 	invalid("dependencies[].required/invalid", parseError, set("dependencies.0.required", "maybe")),
@@ -338,9 +341,10 @@ var fieldCoverageCases = []fcCase{
 	valid("dependencies[].compatibility/valid", set("dependencies.0.compatibility", ">=1.2.0 <3.0.0")),
 	invalid("dependencies[].compatibility/invalid", "INVALID_COMPATIBILITY", set("dependencies.0.compatibility", "not-a-range")),
 	valid("dependencies[].compatibility/unknown", set("dependencies.0.compatibility", "unknown")),
+	valid("dependencies[].compatibility/by-name", del("dependencies.0.ref"), del("dependencies.0.compatibility")), // reads unknown
 	invalid("dependencies[].compatibility/needs-2.5", needs25, set("pactoVersion", "2.4"), del("interfaces.0.port"), del("breaks"), set("dependencies.0.compatibility", "unknown")),
 	valid("dependencies[].external/valid", set("dependencies.0.external", true)),
-	invalid("dependencies[].external/invalid", "DEPENDENCY_REF_REQUIRED", del("dependencies.0.ref")),
+	invalid("dependencies[].external/invalid", "DEPENDENCY_REF_REQUIRED", set("pactoVersion", "2.4"), del("interfaces.0.port"), del("breaks"), del("dependencies.0.ref"), set("dependencies.0.version", "1")),
 	invalid("dependencies[].external/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("interfaces.0.port"), del("breaks"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary"), del("publish"), del("checks"), set("dependencies.0.external", true)),
 	valid("dependencies[].requires/valid", del("dependencies.1.requires")),
 	invalid("dependencies[].requires/invalid", unmet, set("dependencies.1.requires.0.dedupeWindow", "1h")),

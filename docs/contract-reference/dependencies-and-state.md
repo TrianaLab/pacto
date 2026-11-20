@@ -41,6 +41,27 @@ derived name. The dashboard and the fleet tools mark it as a
 name from `ref`. An unresolved derived name that matches a changed service
 keeps its impact `partial` (`DERIVED_NAME_CONSUMERS_UNRESOLVED`).
 
+### Depend on a service by name
+
+In a `"2.5"` contract a dependency on a service of your own may leave out
+`ref`. Pacto resolves it by name in your domain, and `pacto ci` proposes the
+`ref` from the organization index:
+
+```yaml
+pactoVersion: "2.5"
+dependencies:
+  - name: ledger                 # resolved in this service's domain
+  - name: fraud
+    compatibility: "^2.0.0"      # optional; without it the range reads unknown
+```
+
+A dependency by name gives no `version`: Pacto reads it from the fleet, and
+`version` beside it fails with `VERSION_WITHOUT_REF`. Without `compatibility`
+the range is `unknown`, so impact cannot tell whether a change breaks this
+service. `pacto graph` shows the dependency as resolved by name, and a catalog
+closure that meets it reads `partial` (`DEPENDENCY_BY_NAME`). An older
+contract fails with `NEEDS_PACTO_2_5`.
+
 ### Unknown compatibility
 
 `compatibility: unknown` says that a range has not been decided yet. It needs
@@ -118,8 +139,9 @@ dependencies:
 With `ref`, versions are compared as usual. Without it, `version` is required:
 it shows in the graph and in [`pacto diff`](diff.md), where any change is
 potentially breaking. Pacto has no contract to compare it with, so anything
-that relies on it is Unknown and never passes. A dependency with no `ref` and no
-`external: true` fails validation with `DEPENDENCY_REF_REQUIRED`. An external
+that relies on it is Unknown and never passes. Before `"2.5"`, a dependency with
+no `ref` and no `external: true` fails validation with `DEPENDENCY_REF_REQUIRED`
+(`NEEDS_PACTO_2_5` when it gives no `version`). An external
 dependency with no `ref` and no `version` fails with `EXTERNAL_VERSION_REQUIRED`.
 
 ### Name an external system

@@ -368,10 +368,13 @@ func printExplainDependencies(w io.Writer, deps []app.ExplainDependency) {
 		if dep.Required {
 			req = "required"
 		}
-		if dep.Ref == "" {
-			_, _ = fmt.Fprintf(w, "  - %s: external, version %s (cannot be checked, %s)\n", dep.Name, dep.Version, req)
-		} else {
+		switch {
+		case dep.Ref != "":
 			_, _ = fmt.Fprintf(w, "  - %s: %s (%s, %s)\n", dep.Name, dep.Ref, contract.RangeLabel(dep.Compatibility), req)
+		case dep.External:
+			_, _ = fmt.Fprintf(w, "  - %s: external, version %s (cannot be checked, %s)\n", dep.Name, dep.Version, req)
+		default:
+			_, _ = fmt.Fprintf(w, "  - %s: by name, compatibility %s (%s)\n", dep.Name, contract.RangeLabel(dep.Compatibility), req)
 		}
 		for _, r := range dep.Requires {
 			_, _ = fmt.Fprintf(w, "      requires from %s\n", r)
