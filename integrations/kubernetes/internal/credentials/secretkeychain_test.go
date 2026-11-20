@@ -327,6 +327,39 @@ func TestTenantRefOutsideRegistryGetsNoInstallationCredential(t *testing.T) {
 	}
 }
 
+// TestTenantPrefixesReachOnlyInferred: the tenant-facing loader's keychain
+// answers a tenant ref under the snapshot, index or delivery repositories
+// with no installation call, and the inferred contracts with one.
+func TestTenantPrefixesReachOnlyInferred(t *testing.T) {
+	calls := swapCloud(t)
+	gets := 0
+	kc, err := OperatorKeychain(countingReader(t, &gets, nil, tokenSecret("t1")), "ci/regcred", TenantPrefixes("ghcr.io/acme"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installation := func(ref string) bool {
+		cands, err := kc.Candidates(repoOf(t, ref))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return slices.ContainsFunc(cands, func(c oci.CredSource) bool { return c.Name == "installation" })
+	}
+	for _, ref := range []string{"ghcr.io/acme/pacto-targets", "ghcr.io/acme/pacto-index", "ghcr.io/acme/pacto-streams", "ghcr.io/acme/pacto-streams-approvals"} {
+		if installation(ref) {
+			t.Errorf("%s reached the installation identity", ref)
+		}
+	}
+	if gets != 0 || *calls != 0 {
+		t.Errorf("Secret Gets = %d, cloud calls = %d; want 0 and 0", gets, *calls)
+	}
+	if !installation("ghcr.io/acme/pacto-inferred/payments") {
+		t.Error("the inferred contracts lost the installation identity")
+	}
+	if TenantPrefixes("") != nil {
+		t.Error("no registry must give no tenant prefix")
+	}
+}
+
 func TestInstallationPrefixesPutTheRegistryFirst(t *testing.T) {
 	got := InstallationPrefixes("ghcr.io/acme", []string{"quay.io/acme/streams", "", "ghcr.io/acme/pacto-targets"})
 	want := append(slices.Clone(installPrefixes), "quay.io/acme/streams")

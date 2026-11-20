@@ -122,6 +122,18 @@ func canonicalRepo(s string) string {
 	return host + "/" + path
 }
 
+// TenantPrefixes is the one repository a tenant-chosen ref (a Pacto's
+// contractRef, its tag listing and its configuration refs) may read with the
+// installation identity: the inferred contracts under registry. The snapshot,
+// index, streams, approvals and stats repositories never serve a tenant ref,
+// so a tenant cannot list their tags with the installation's grants.
+func TenantPrefixes(registry string) []string {
+	if registry == "" {
+		return nil
+	}
+	return []string{canonicalRepo(oci.InstallationRepository(registry, oci.InferredRepository))}
+}
+
 // InstallationPrefixes is every repository the installation may push under:
 // the installation repositories of registry first, then each extra prefix not
 // already listed. OperatorKeychain binds the pull Secret to the host of the

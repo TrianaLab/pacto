@@ -403,10 +403,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// The installation identity (registryPullSecret and the cloud sources) answers only under the push
-	// prefixes, so a tenant's contract ref never rides on it.
+	// The installation identity (registryPullSecret and the cloud sources) answers the tenant-facing
+	// loader only under the inferred contracts, so a tenant's contract ref never rides on it and never
+	// lists the snapshot, index or delivery repositories with it.
 	prefixes := credentials.InstallationPrefixes(o.registry, o.registryPushPrefixes)
-	keychain, err := credentials.OperatorKeychain(mgr.GetAPIReader(), o.registryPullSecret, prefixes, false)
+	keychain, err := credentials.OperatorKeychain(mgr.GetAPIReader(), o.registryPullSecret, credentials.TenantPrefixes(o.registry), false)
 	if err != nil {
 		setupLog.Error(err, "Invalid registry settings")
 		os.Exit(1)
