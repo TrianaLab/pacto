@@ -241,3 +241,20 @@ func TestEntitySearchSkipsRefusedRevisionOwner(t *testing.T) {
 		t.Errorf("payments revisions = %+v %v", l, err)
 	}
 }
+
+// TestRevisionOwnershipMarksBlockedOwner: a revision page shows the owner its
+// pacto.yaml sets, and says when its service does not take it.
+func TestRevisionOwnershipMarksBlockedOwner(t *testing.T) {
+	q := ownedFleet(t, "oci", []ownedRaw{
+		{service: "invoices", version: "1.0.0", team: "billing"},
+		{service: "invoices", version: "2.0.0", team: "payments", declared: true, check: refusedCheck},
+		{service: "invoices", version: "3.0.0", team: "payments", declared: true},
+	}, nil)
+	want := map[string]string{"1.0.0": "", "2.0.0": LimitationOwnerDeclarationRefused, "3.0.0": LimitationOwnerDeclarationUnverified}
+	for _, r := range q.snap.Revisions {
+		info := revisionOwnership(r)
+		if info.Blocked != want[r.Version] || info.Owner == "" {
+			t.Errorf("%s: blocked = %q, owner %q", r.Version, info.Blocked, info.Owner)
+		}
+	}
+}

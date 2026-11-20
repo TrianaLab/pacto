@@ -71,6 +71,9 @@ type OwnershipInfo struct {
 	// Source is where an attested owner was read ([ServiceRecord.OwnerSource]),
 	// set only on a service whose owner is attested.
 	Source string `json:"source,omitempty" doc:"Where an attested owner was read: file and line, commit and the CI identity that signed it. Empty for any other provenance"`
+	// Blocked is set only on a revision whose owner the owner rule refused
+	// or could not check ([ownerBlocked]), so its service does not take it.
+	Blocked string `json:"blocked,omitempty" enum:"OWNER_DECLARATION_REFUSED,OWNER_DECLARATION_UNVERIFIED" doc:"Set on a revision whose owner its service does not take: OWNER_DECLARATION_REFUSED when its signer may not set it, OWNER_DECLARATION_UNVERIFIED when the owner rule could not check it. Empty when the owner counts"`
 }
 
 // RevisionIdentity describes how a revision (or a target's contract reference)
@@ -485,12 +488,15 @@ type OriginDetail struct {
 // in the repository outside it (a CODEOWNERS file), "directory <name>" or
 // "this CLI".
 type InferredField struct {
-	Field      string   `json:"field"`
-	Value      string   `json:"value"`
-	Source     string   `json:"source"`
-	Confidence string   `json:"confidence,omitempty" enum:"likely,possible" doc:"How sure the inference is, set for a field of the inferred record: likely when a file states it, possible when only a convention suggests it"`
-	Class      string   `json:"class,omitempty" enum:"ownerFile" doc:"ownerFile: read from CODEOWNERS or catalog-info.yaml; not verified; never clears a gate"`
-	Outranks   []string `json:"outranks,omitempty" doc:"Lower-ranked sources that gave the same field, at most MaxOutranks"`
+	Field      string `json:"field"`
+	Value      string `json:"value"`
+	Source     string `json:"source"`
+	Confidence string `json:"confidence,omitempty" enum:"likely,possible" doc:"How sure the inference is, set for a field of the inferred record: likely when a file states it, possible when only a convention suggests it"`
+	Class      string `json:"class,omitempty" enum:"ownerFile" doc:"ownerFile: read from CODEOWNERS or catalog-info.yaml; not verified unless attested; never clears a gate"`
+	// Attested is set on a revision's ownerFile service.owner row when its
+	// signature attests that owner ([AttestedOwner]).
+	Attested bool     `json:"attested,omitempty" doc:"Set on the ownerFile service.owner row of a revision whose signature attests it: read at the commit an accepted CI identity signed. It still never clears a gate"`
+	Outranks []string `json:"outranks,omitempty" doc:"Lower-ranked sources that gave the same field, at most MaxOutranks"`
 	// OutranksTotal counts every outranked source when Outranks was bounded.
 	OutranksTotal int    `json:"outranksTotal,omitempty" doc:"Every lower-ranked source, set when outranks lists only the first MaxOutranks"`
 	Provenance    string `json:"provenance" enum:"inferred"`
@@ -499,6 +505,17 @@ type InferredField struct {
 	AsOf         string `json:"asOf,omitempty" doc:"When the cluster fact was read (RFC 3339 UTC)"`
 	Completeness string `json:"completeness,omitempty" enum:"complete,partial" doc:"partial when a node, pod or supporting source went unobserved"`
 	Proposed     string `json:"proposed,omitempty" doc:"A semver range proposed for a dependency's compatibility, never declared"`
+}
+
+// markAttested sets Attested on rev's ownerFile service.owner row when rev's
+// signature attests that owner.
+func markAttested(fields []InferredField, rev *ContractRevision) []InferredField {
+	if _, _, _, ok := AttestedOwner(rev); ok {
+		for i, f := range fields {
+			fields[i].Attested = f.Field == "service.owner" && f.Class == contract.InferredClassOwnerFile
+		}
+	}
+	return fields
 }
 
 // MaxInferredFields bounds the inferred fields a service or revision detail
@@ -580,6 +597,7 @@ func (q *Query) inferredPreview(cur *ContractRevision) InferredPreview {
 	}
 	rev := q.snap.Revisions[cur.Key]
 	items, total := inferredFields(nil, rev.Record)
+	items = markAttested(items, rev)
 	p.Items = append(p.Items, items...)
 	p.Count, p.Total, p.Truncated, p.Unreadable = len(items), total, total > len(items), rev.recordUnreadable
 	return p
@@ -1490,6 +1508,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 	data.PactoVersionCurrent, data.PactoVersionUnknown = pactoVersionStatus(rev.PactoVersion)
 	data.MigratedFrom = migratedFrom(rev)
 	data.Inferred, data.InferredTotal = inferredFields(rev.Inferred, rev.Record)
+	data.Inferred = markAttested(data.Inferred, rev)
 	data.DiscoveryFindings = discoveryFindings(rev.Record)
 	data.InferredCoverage, data.InferredHidden, data.Declaration = declarationDetail(rev)
 	return &EntityDetail{
@@ -2568,6 +2587,9 @@ func revisionOwnership(rev *ContractRevision) *OwnershipInfo {
 	info := ownerInfo(rev.Owner)
 	c := contactsPreview(rev.Owner.ContactSet())
 	info.Contacts = &c
+	if info.Declared {
+		info.Blocked = ownerBlocked(rev)
+	}
 	return info
 }
 

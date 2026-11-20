@@ -68,4 +68,22 @@ describe('OwnershipFact owner provenance', () => {
     expect(attested.target.querySelector('[data-testid="owner-declared-in"]')).toBeNull();
     attested.done();
   });
+
+  it.each([
+    ['OWNER_DECLARATION_REFUSED', 'Not used: refused', 'may not set'],
+    ['OWNER_DECLARATION_UNVERIFIED', 'Not used: unverified', 'could not check'],
+  ])('notes a revision owner the owner rule left out (%s)', (blocked, label, why) => {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const c = mount(OwnershipFact, { target, props: { ownership: { declared: true, owner: 'pay', ref: owner, blocked } } });
+    flushSync();
+    const note = target.querySelector('[data-testid="owner-blocked"]');
+    expect(note?.textContent).toBe(label);
+    expect(note?.getAttribute('title')).toContain(why);
+    unmount(c);
+    target.remove();
+    const plain = render('declared');
+    expect(plain.target.querySelector('[data-testid="owner-blocked"]')).toBeNull();
+    plain.done();
+  });
 });

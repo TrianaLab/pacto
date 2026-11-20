@@ -331,3 +331,34 @@ func TestRestrictOwnerRightMessageFromHiddenRevision(t *testing.T) {
 		t.Error("restriction changed the unrestricted snapshot")
 	}
 }
+
+// TestInferredOwnerRowAttested: the revision page's inferred owner row says
+// the owner is attested when the revision's signature attests it, so the
+// service page and the revision page agree; an unattested row stays plain.
+func TestInferredOwnerRowAttested(t *testing.T) {
+	q := attestedFleet(t, []attRev{{version: "1.0.0", attested: "payments", repo: attRepo}, {version: "2.0.0", attested: "payments"}}, nil)
+	for rk, r := range q.snap.Revisions {
+		d, err := q.EntityDetail(KindRevision, string(rk))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := r.Version == "1.0.0"
+		var rows int
+		for _, f := range d.Revision.Inferred {
+			if f.Class == contract.InferredClassOwnerFile {
+				rows++
+				if f.Attested != want {
+					t.Errorf("%s: attested = %v, want %v", r.Version, f.Attested, want)
+				}
+			}
+		}
+		if rows != 1 {
+			t.Errorf("%s: %d owner rows", r.Version, rows)
+		}
+	}
+	for _, r := range q.snap.Revisions {
+		if items := q.inferredPreview(r).Items; len(items) != 1 || items[0].Attested != (r.Version == "1.0.0") {
+			t.Errorf("%s: service preview = %+v", r.Version, items)
+		}
+	}
+}

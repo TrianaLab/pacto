@@ -3370,8 +3370,10 @@ export interface components {
         "Fleet.InferredField": {
             /** @description When the cluster fact was read (RFC 3339 UTC) */
             asOf?: string;
+            /** @description Set on the ownerFile service.owner row of a revision whose signature attests it: read at the commit an accepted CI identity signed. It still never clears a gate */
+            attested?: boolean;
             /**
-             * @description ownerFile: read from CODEOWNERS or catalog-info.yaml; not verified; never clears a gate
+             * @description ownerFile: read from CODEOWNERS or catalog-info.yaml; not verified unless attested; never clears a gate
              * @enum {string}
              */
             class?: "ownerFile";
@@ -6122,6 +6124,11 @@ export interface components {
             summary: components["schemas"]["Fleet.OwnerSummary"];
         };
         ProductOwnership: {
+            /**
+             * @description Set on a revision whose owner its service does not take: OWNER_DECLARATION_REFUSED when its signer may not set it, OWNER_DECLARATION_UNVERIFIED when the owner rule could not check it. Empty when the owner counts
+             * @enum {string}
+             */
+            blocked?: "OWNER_DECLARATION_REFUSED" | "OWNER_DECLARATION_UNVERIFIED";
             /** @description Why the owners disagree: targets run revisions that declare different owners, two revisions of one version do, or attested revisions were signed from different repositories. Empty when they agree */
             conflictReason?: string;
             conflicts: components["schemas"]["Fleet.StringsPreview"];

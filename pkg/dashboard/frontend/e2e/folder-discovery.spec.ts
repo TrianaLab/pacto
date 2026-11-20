@@ -48,7 +48,9 @@ test.describe('WASM demo — a service whose folder Pacto reads', () => {
     await expect(row('service.owner')).toContainText('team-growth');
     const owner = await note('service.owner');
     await expect(owner).toContainText('Source: catalog-info.yaml:7.');
-    await expect(owner).toContainText('not verified; never clears a gate.');
+    // A verified CI identity signed the commit it was read at: attested, as the service page says.
+    await expect(owner).toContainText('Attested: Read from the repository at the commit a verified CI identity signed; routes reviews, never clears a gate.');
+    await expect(owner).not.toContainText('not verified');
     await expect(owner).toContainText('Outranks CODEOWNERS:4, deploy/deployment.yaml:6.');
     await page.keyboard.press('Escape');
 
