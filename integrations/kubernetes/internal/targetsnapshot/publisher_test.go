@@ -5,7 +5,7 @@ Licensed under the MIT License.
 See LICENSE file in the project root for full license text.
 */
 
-package delivery
+package targetsnapshot
 
 import (
 	"context"
@@ -62,7 +62,7 @@ func podTemplate(c corev1.Container) corev1.PodTemplateSpec {
 // snapshotObjects is a Pacto that targets StatefulSet pay-0 and one workload
 // of each kind the snapshot reads.
 func snapshotObjects() []client.Object {
-	p := pactoObj("pay", "pay", "sha256:"+strings.Repeat("a", 64), "Compliant", 1)
+	p := pactoObj("pay", "pay", "sha256:"+strings.Repeat("a", 64), "Compliant")
 	_ = unstructured.SetNestedMap(p.Object, map[string]any{"serviceName": "pay",
 		"workloadRef": map[string]any{"kind": "StatefulSet", "name": "pay-0"}}, "spec", "target")
 	meta := func(name string) metav1.ObjectMeta { return metav1.ObjectMeta{Namespace: ns, Name: name} }
@@ -86,7 +86,7 @@ func newTargetsEnv(t *testing.T, c client.Reader) *targetsEnv {
 	_, key, _ := ed25519.GenerateKey(rand.Reader)
 	e := &targetsEnv{reg: reg, key: key}
 	e.p = &TargetPublisher{Client: c, Repo: repo, Signer: edSigner(key), ClusterID: snapCluster,
-		Publisher: ServiceAccountUser("pacto-system", "pacto-operator-delivery-recorder"),
+		Publisher: "system:serviceaccount:pacto-system:pacto-operator",
 		Mode:      func(context.Context) string { return "referrers=native listing=catalog" },
 		Now:       func() time.Time { return time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC) }, Interval: time.Minute,
 		Log: funcr.New(func(prefix, args string) {
@@ -127,7 +127,7 @@ func TestTargetPublisherPublishesSnapshot(t *testing.T) {
 	s, _ := e.pushed(t)
 	if s.Cluster != snapCluster || s.AsOf != "2026-11-17T10:00:00Z" || s.Completeness != fleet.CompletenessComplete ||
 		s.RegistryMode != "referrers=native listing=catalog" ||
-		s.Publisher != "system:serviceaccount:pacto-system:pacto-operator-delivery-recorder" || len(s.Limitations) != 0 ||
+		s.Publisher != "system:serviceaccount:pacto-system:pacto-operator" || len(s.Limitations) != 0 ||
 		len(s.Sources) != 2 || s.Sources[0].Kind != fleet.SourceKindKubernetes || s.Sources[1].Kind != fleet.SourceKindKubernetesWorkloads || s.Evidence != nil {
 		t.Fatalf("snapshot: %+v", s)
 	}
@@ -287,25 +287,18 @@ func TestTargetPublisherDefaultTicker(t *testing.T) {
 	}
 }
 
-func TestStoreModeRecordsProbeMode(t *testing.T) {
-	s, _, _ := testStore(t)
-	if got := s.Mode(context.Background()); got != "referrers=native listing=catalog" {
-		t.Fatalf("mode %q", got)
-	}
-	if got := (&RecordStore{Streams: "not a host/x"}).Mode(context.Background()); got != "" {
-		t.Fatalf("a failed probe recorded mode %q", got)
-	}
-}
+// evidenceBody is an Evidence Server targets body with one accepted target.
+const evidenceBody = `{"schemaVersion":"` + evidenceingest.TargetsSchemaVersionCluster + `","generatedAt":"2026-11-17T10:00:00Z",` +
+	`"health":{"status":"ready","subjects":1,"failedSubjects":0,"invalidArtifacts":0},"truncated":false,` +
+	`"targets":[{"subject":"edge","service":"web","producer":"pacto-agent","compliance":"Compliant",` +
+	`"coverage":{"evaluated":0,"required":0},"evidenceAt":"2026-11-17T09:00:00Z","acceptedAt":"2026-11-17T09:00:00Z"}]}`
 
 // TestTargetPublisherUnionsEvidenceTargets: the Evidence Server's targets body
 // rides in the snapshot verbatim as a third section; a body it cannot read,
 // or one a reader could not map, leaves that section partial and the rest
 // published.
 func TestTargetPublisherUnionsEvidenceTargets(t *testing.T) {
-	body := `{"schemaVersion":"` + evidenceingest.TargetsSchemaVersionCluster + `","generatedAt":"2026-11-17T10:00:00Z",` +
-		`"health":{"status":"ready","subjects":1,"failedSubjects":0,"invalidArtifacts":0},"truncated":false,` +
-		`"targets":[{"subject":"edge","service":"web","producer":"pacto-agent","compliance":"Compliant",` +
-		`"coverage":{"evaluated":0,"required":0},"evidenceAt":"2026-11-17T09:00:00Z","acceptedAt":"2026-11-17T09:00:00Z"}]}`
+	body := evidenceBody
 	var mu sync.Mutex
 	answer, status := body, http.StatusOK
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

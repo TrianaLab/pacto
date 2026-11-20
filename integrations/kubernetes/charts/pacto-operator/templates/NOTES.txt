@@ -186,14 +186,15 @@ The recorder writes a signed record of every concluded operation to
 records are being written:
 
   kubectl get stages.delivery.pacto.trianalab.io -A -o custom-columns=NAME:.metadata.name,RECORDS:.status.conditions[?(@.type=="RecordStoreReady")].reason
+{{- end }}
+{{- end }}
 {{- with .Values.registry }}
 
-The recorder publishes the cluster's signed target snapshot to
-{{ . }}/pacto-targets:cluster-<uid> every 5 minutes, and CI reads it with
+The operator publishes the cluster's target snapshot to
+{{ . }}/pacto-targets:cluster-<uid> every 5 minutes, signed with the
+installation key in Secret {{ include "pacto-operator.fullname" $ }}-installation-key, and CI reads it with
 pacto impact. Pull on that repository reads every namespace's Pacto status and
 workload shape regardless of Kubernetes RBAC and, with evidence.enabled, every
 target, provisioning and usage record (cost included) the Evidence Server
 accepted, so give it its own read ACL.
-{{- end }}
-{{- end }}
 {{- end }}

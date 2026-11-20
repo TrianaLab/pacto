@@ -73,6 +73,14 @@ rules:
     resources: [deployments]
     verbs: [get]
     resourceNames: [{{ include "pacto-operator.fullname" . }}]
+  {{- if .Values.registry }}
+  # The installation key: the operator creates
+  # {{ include "pacto-operator.fullname" . }}-installation-key once and never
+  # updates it. Kubernetes cannot scope create by name; get is the rule above.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+  {{- end }}
   {{- if .Values.dashboard.enabled }}
   # Dashboard lifecycle: its ServiceAccount, Service, merged OCI credentials
   # Secret and Deployment.

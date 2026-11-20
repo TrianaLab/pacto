@@ -106,4 +106,5 @@ Read directly by the controller entrypoint (`cmd/main.go`), typically wired thro
 | Variable | Purpose |
 | --- | --- |
 | `OPERATOR_DEPLOYMENT_NAME` | Operator Deployment name, used to set ownerReferences on dashboard resources. |
+| `OPERATOR_SERVICE_ACCOUNT` | Operator ServiceAccount name, written as the publisher the target snapshot claims. |
 | `POD_NAMESPACE` | Namespace the operator (and its managed dashboard) runs in. Required. |

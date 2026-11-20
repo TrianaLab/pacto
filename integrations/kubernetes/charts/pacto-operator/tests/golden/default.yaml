@@ -2397,6 +2397,9 @@ spec:
                   fieldPath: metadata.namespace
             - name: OPERATOR_DEPLOYMENT_NAME
               value: pacto-operator
+            # The publisher the target snapshot claims.
+            - name: OPERATOR_SERVICE_ACCOUNT
+              value: pacto-operator
           args:
             - --leader-elect=true
             - --health-probe-bind-address=:8081

@@ -1,9 +1,13 @@
 # The installation registry (510-S6): the controller flags the top-level
-# registry renders, and the one by-name grant registryPullSecret adds.
+# registry renders, the one by-name grant registryPullSecret adds, and the
+# operator-side target snapshot (delivery_recorder_test.yaml pins that the
+# recorder no longer publishes it).
 suite: registry
 templates:
   - templates/deployment.yaml
   - templates/secret-grants.yaml
+  - templates/role.yaml
+  - templates/watch-namespaces.yaml
 release:
   name: pacto-operator
   namespace: pacto-operator-system
@@ -117,3 +121,57 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "(?i)registryPullSecret.*does not match pattern"
+
+  - it: registry grants the operator secrets create in its namespace
+    template: templates/role.yaml
+    documentIndex: 0
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: pacto-operator-system
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [secrets], verbs: [create]}
+
+  - it: no registry renders no secrets create unless the dashboard is on
+    template: templates/role.yaml
+    documentIndex: 0
+    set:
+      dashboard.enabled: false
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [secrets], verbs: [create]}
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [secrets, serviceaccounts, services], verbs: [create, delete, get, patch, update]}
+
+  - it: the controller carries OPERATOR_SERVICE_ACCOUNT
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: OPERATOR_SERVICE_ACCOUNT, value: pacto-operator}
+
+  - it: registry lets a scoped operator list the DaemonSets of each watched namespace
+    template: templates/watch-namespaces.yaml
+    documentIndex: 0
+    set:
+      registry: ghcr.io/acme
+      controller.watchNamespaces: [team-a]
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [apps], resources: [daemonsets], verbs: [list]}
+
+  - it: a scoped operator without registry lists no DaemonSets
+    template: templates/watch-namespaces.yaml
+    documentIndex: 0
+    set:
+      controller.watchNamespaces: [team-a]
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [apps], resources: [daemonsets], verbs: [list]}

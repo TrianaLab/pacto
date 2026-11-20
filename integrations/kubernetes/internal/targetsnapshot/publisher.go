@@ -5,7 +5,11 @@ Licensed under the MIT License.
 See LICENSE file in the project root for full license text.
 */
 
-package delivery
+// Package targetsnapshot publishes the cluster's signed target snapshot to
+// <registry>/pacto-targets:cluster-<uid>, from the operator, whenever the
+// installation registry is set. Delivery is not needed: one writer per
+// cluster, signed with the installation key.
+package targetsnapshot
 
 import (
 	"cmp"
@@ -14,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -24,6 +29,7 @@ import (
 
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -41,6 +47,9 @@ var snapshotWorkloads = []schema.GroupVersionKind{
 	{Group: "batch", Version: "v1", Kind: "CronJob"},
 }
 
+// gvkPactoList is the Pacto list kind, read unstructured.
+var gvkPactoList = schema.GroupVersionKind{Group: "pacto.trianalab.io", Version: "v1alpha1", Kind: "PactoList"}
+
 // TargetPublisher publishes the cluster's signed target snapshot to
 // <registry>/pacto-targets:cluster-<uid> at once and then every Interval, so CI
 // reads what runs with registry credentials and no kubeconfig. It reads Pactos
@@ -50,8 +59,14 @@ type TargetPublisher struct {
 	Repo      *remote.Repository
 	Signer    core.Signer
 	ClusterID string
-	// Publisher is the recorder ServiceAccount, written as a claim.
+	// Publisher is the operator ServiceAccount, written as a claim.
 	Publisher string
+	// Namespaces, when set, are the only namespaces read (a scoped
+	// operator): the snapshot is then partial with TARGET_SNAPSHOT_SCOPED, so
+	// a reader never takes an unread namespace for an empty one.
+	Namespaces []string
+	// OnPush, when set, receives the result of every publish attempt.
+	OnPush func(detect.PushResult)
 	// Mode is the registry mode the record store detected, empty if unknown.
 	Mode func(context.Context) string
 	// EvidenceURL is the installation's Evidence Server; when set, each
@@ -71,7 +86,7 @@ type TargetPublisher struct {
 // Start publishes at once, then on every tick until ctx ends. A failed publish
 // is logged and retried on the next tick; CI sees the previous snapshot turn
 // stale. The manager runs a plain Runnable only on the elected leader, so one
-// recorder per cluster is the snapshot's writer.
+// operator per cluster is the snapshot's writer.
 func (p *TargetPublisher) Start(ctx context.Context) error {
 	tick := p.Tick
 	if tick == nil {
@@ -81,14 +96,25 @@ func (p *TargetPublisher) Start(ctx context.Context) error {
 	}
 	c := tick(p.Interval)
 	for {
-		if err := p.publish(ctx); err != nil {
-			p.Log.Error(err, "target snapshot not published", "repository", p.Repo.Reference.Repository)
-		}
+		p.attempt(ctx)
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-c:
 		}
+	}
+}
+
+// attempt publishes once, logs a failure and reports the result to OnPush.
+func (p *TargetPublisher) attempt(ctx context.Context) {
+	err := p.publish(ctx)
+	res := detect.PushResult{At: p.Now().UTC(), Ref: p.Repo.Reference.Registry + "/" + p.Repo.Reference.Repository + ":cluster-" + p.ClusterID}
+	if err != nil {
+		res.Error = err.Error()
+		p.Log.Error(err, "target snapshot not published", "repository", p.Repo.Reference.Repository)
+	}
+	if p.OnPush != nil {
+		p.OnPush(res)
 	}
 }
 
@@ -112,6 +138,15 @@ func (p *TargetPublisher) publish(ctx context.Context) error {
 	}
 	workloads := core.SnapshotSource{Kind: fleet.SourceKindKubernetesWorkloads, AsOf: asOf, Completeness: fleet.CompletenessComplete}
 	p.collectWorkloads(ctx, &s, &workloads, now)
+	if len(p.Namespaces) > 0 {
+		scoped := fleet.Limitation{Code: fleet.LimitationTargetSnapshotScoped,
+			Message: "read only namespaces " + strings.Join(p.Namespaces, ", ")}
+		for _, sec := range []*core.SnapshotSource{&pactos, &workloads} {
+			sec.Completeness = fleet.CompletenessPartial
+			sec.Limitations = append(sec.Limitations, scoped)
+		}
+		s.Limitations = append(s.Limitations, scoped)
+	}
 	s.Sources = []core.SnapshotSource{pactos, workloads}
 	if p.EvidenceURL != "" {
 		s.Sources = append(s.Sources, p.collectEvidence(ctx, &s, asOf))
@@ -203,17 +238,34 @@ func (p *TargetPublisher) limit(sec *core.SnapshotSource, what string, err error
 	p.Log.Error(err, "target snapshot read failed", "kind", what)
 	sec.Completeness = fleet.CompletenessPartial
 	sec.Limitations = append(sec.Limitations, fleet.Limitation{Code: fleet.LimitationSourcePartial, Source: what,
-		Message: "the recorder could not read " + what})
+		Message: "the operator could not read " + what})
 }
 
-// list reads every object of the list kind gvk in pages.
+// list reads every object of the list kind gvk in pages: cluster-wide, or in
+// each of Namespaces.
 func (p *TargetPublisher) list(ctx context.Context, gvk schema.GroupVersionKind) ([]unstructured.Unstructured, error) {
+	if len(p.Namespaces) == 0 {
+		return p.listIn(ctx, gvk)
+	}
+	var out []unstructured.Unstructured
+	for _, ns := range p.Namespaces {
+		items, err := p.listIn(ctx, gvk, client.InNamespace(ns))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, items...)
+	}
+	return out, nil
+}
+
+// listIn reads every object of the list kind gvk that opts select, in pages.
+func (p *TargetPublisher) listIn(ctx context.Context, gvk schema.GroupVersionKind, opts ...client.ListOption) ([]unstructured.Unstructured, error) {
 	var out []unstructured.Unstructured
 	cont := ""
 	for {
 		page := &unstructured.UnstructuredList{}
 		page.SetGroupVersionKind(gvk)
-		if err := p.Client.List(ctx, page, client.Limit(snapshotPage), client.Continue(cont)); err != nil {
+		if err := p.Client.List(ctx, page, append(opts, client.Limit(snapshotPage), client.Continue(cont))...); err != nil {
 			return nil, err
 		}
 		out = append(out, page.Items...)

@@ -58,8 +58,7 @@ data:
 # It reads its admission policies to sign an approval on its creator's behalf
 # only while the -approval policy guards approvals. It is the only holder
 # of the signing key and the registry push credentials; it never changes
-# what runs. With the top-level registry value it also publishes the
-# cluster's signed target snapshot to <registry>/pacto-targets.
+# what runs.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -89,17 +88,6 @@ rules:
   - apiGroups: [authorization.k8s.io]
     resources: [subjectaccessreviews]
     verbs: [create]
-  # Reads what runs for the target snapshot; never Secrets, ConfigMaps, pods
-  # or nodes.
-  - apiGroups: [pacto.trianalab.io]
-    resources: [pactos]
-    verbs: [get, list]
-  - apiGroups: [apps]
-    resources: [deployments, statefulsets, daemonsets]
-    verbs: [list]
-  - apiGroups: [batch]
-    resources: [cronjobs]
-    verbs: [list]
   {{- with include "pacto-operator.delivery.rbac.pointerReadRules" . | trim }}{{ . | nindent 2 }}{{ end }}
   {{- include "pacto-operator.rbac.clusterIdentityRule" . | nindent 2 }}
 ---
@@ -187,25 +175,9 @@ spec:
             {{- with $r.cdeventsSink }}
             - {{ printf "--cdevents-sink=%s" . | quote }}
             {{- end }}
-            {{- with .Values.registry }}
-            - {{ printf "--targets-repository=%s/pacto-targets" . | quote }}
-            {{- end }}
-            {{- if .Values.evidence.enabled }}
-            {{- /* The snapshot carries the targets the Evidence Server accepted. */}}
-            - {{ printf "--evidence-url=http://pacto-evidence.%s.svc:8686" .Release.Namespace | quote }}
-            {{- end }}
           env:
             - name: HOME
               value: /tmp
-            # The publisher the target snapshot claims.
-            - name: POD_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
-            - name: SERVICE_ACCOUNT
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.serviceAccountName
             {{- if $r.registryCredentials.secretName }}
             - name: DOCKER_CONFIG
               value: /etc/pacto/registry

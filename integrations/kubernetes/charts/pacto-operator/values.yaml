@@ -33,9 +33,10 @@ global:
     runAsUser: 65532
 
 # -- The installation registry (host[/path], no scheme), such as
-# `ghcr.io/acme`. The delivery recorder publishes the cluster's signed target
-# snapshot to `<registry>/pacto-targets`, which `pacto impact` reads in CI; empty
-# publishes none. Later releases derive more repositories from it.
+# `ghcr.io/acme`. The operator publishes the cluster's target snapshot, signed
+# with the installation key it creates once, to `<registry>/pacto-targets`,
+# which `pacto impact` reads in CI; empty publishes none. It never turns on
+# delivery.
 registry: ""
 
 # -- namespace/name of an existing Secret that authenticates to `registry`, for
