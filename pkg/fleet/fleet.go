@@ -564,6 +564,9 @@ const (
 	// LimitationTargetSnapshotBound: a target snapshot read hit a bound (too
 	// many cluster tags, a snapshot too large or the read timeout).
 	LimitationTargetSnapshotBound = "TARGET_SNAPSHOT_BOUND"
+	// LimitationTargetSnapshotScoped: the publishing operator watches only
+	// some namespaces, so a namespace it did not read is unknown, never empty.
+	LimitationTargetSnapshotScoped = "TARGET_SNAPSHOT_SCOPED"
 )
 
 // Cluster name sources: how a [Cluster] name was found. They mirror the values

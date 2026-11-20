@@ -158,7 +158,7 @@ shown as inferred in the dashboard. `pacto migrate` rewrites the file itself.
 consumers it breaks and whether they run. It finds them through the
 organization index that `pacto publish` and `pacto push` keep at
 `ghcr.io/acme/pacto-index`, so it needs no `--root`, and checks them against
-the signed target snapshot each cluster's delivery recorder publishes. The job
+the signed target snapshot each cluster's operator publishes. The job
 needs the login variables, the delivery trust config and `jq`, never cluster
 credentials:
 
@@ -206,17 +206,17 @@ creates the `pacto-index` package: in its **Manage Actions access** settings,
 grant **write** to each repository that publishes and **read** to each that
 runs impact. Internal visibility shows those names and the dependency graph to
 every organization member, even for packages they cannot read. A publish
-without access still succeeds with a warning.
+without access succeeds with a warning.
 
 ### Where consumers come from
 
-Pacto tries `ghcr.io/acme/pacto-targets`, then `ghcr.io/pacto-targets`, and
-reads every `cluster-<uid>` snapshot in the first that exists (JSON fields
-`registry` and `targetSnapshots`):
+Pacto tries `pacto-targets` under each repository prefix, deepest first,
+and reads every `cluster-<uid>` snapshot in the first that exists (JSON
+fields `registry` and `targetSnapshots`):
 
 ```text
 Registry: ghcr.io/acme (found ghcr.io/acme/pacto-targets, 1 cluster read)
-Targets: ghcr.io/acme/pacto-targets@sha256:4f1c... (cluster 6f1e2a90, asOf 3m, complete, signed by recorder-6f1e2a90 (publisher system:serviceaccount:pacto-system:pacto-operator-delivery-recorder))
+Targets: ghcr.io/acme/pacto-targets@sha256:4f1c... (cluster 6f1e2a90, asOf 3m, complete, signed by installation-6f1e2a90 (publisher system:serviceaccount:pacto-system:pacto-operator))
 ```
 
 Snapshots are pinned by digest; only a verified one clears a `BREAKING`
@@ -225,23 +225,24 @@ change:
 - `unverified`: the job has no trust config. The answer is partial and a
   `BREAKING` change with consumers exits `2`.
 - `not scoped to this cluster`: the key that signed has no `streams` entry for
-  the cluster's UID, so another cluster's recorder could hold it. Partial.
-- `stale`: the snapshot is older than 15 minutes, because its recorder stopped
-  publishing or its tag was moved back. Partial.
+  the cluster's UID, so another cluster's operator could hold it. Partial.
+- `stale`: older than 15 minutes, because its operator stopped publishing
+  or its tag was moved back. Partial.
 - A bad signature, a cluster other than its tag, a registry error or a timeout:
-  the snapshot is not used and the answer is partial.
+  the snapshot is unused and the answer is partial.
 - No `pacto-targets` repository or no cluster tag: the Registry line says so
   (`not found`, `denied (check registry read credentials)` or `no cluster
   tag`) and consumers come only from the sources you name.
 
 The trust config holds one key per cluster, scoped to its `kube-system` UID
-(a bare PEM key is unscoped). Each recorder's key is in
-[Target snapshot](integrations/kubernetes/delivery-records.md#target-snapshot):
+(a bare PEM key is unscoped).
+[Target snapshot](integrations/kubernetes/delivery-records.md#target-snapshot)
+shows where each cluster advertises its key:
 
 ```yaml
 keys:
-  - name: recorder-6f1e2a90
-    streams: ["6f1e2a90-5b7d-4c1e-8a3f-2d6b0e9c7a41/*/*"]
+  - name: installation-6f1e2a90
+    streams: ["6f1e2a90-5b7d-4c1e-8a3f-2d6b0e9c7a41/pacto-targets/snapshot"]
     publicKey: |
       -----BEGIN PUBLIC KEY-----
       ...

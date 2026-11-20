@@ -126,7 +126,7 @@ docker compose -p pacto-demo exec -e PACTO_STATS_REGISTRY=registry:5000/demo/pac
 ## See what CI sees
 
 The `targets` service publishes a signed target snapshot of the demo cluster
-to `registry:5000/demo/pacto-targets` every 5 minutes, as the delivery recorder
+to `registry:5000/demo/pacto-targets` every 5 minutes, as the operator
 does on Kubernetes. `pacto impact` finds it from the provider ref and needs no
 kubeconfig:
 

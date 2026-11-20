@@ -242,8 +242,34 @@ describe('DetectedProviders', () => {
       await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
       const [r, plain] = rows(t);
       expect(r.querySelector('.prov-mark button')?.getAttribute('aria-label')).toBe('Inferred: from cluster-detection');
-      expect(text(r.querySelector('.prov-tip'))).toBe('Inferred from cluster-detection, as of 4 minutes ago, partial. Nothing was turned on.');
+      expect(text(r.querySelector('.prov-tip'))).toBe('Inferred from cluster-detection, as of 4 minutes ago, partial. Nothing was turned on. ghcr.io/acme in 9 of 11 namespaces, 87% of workloads');
       expect(plain.querySelector('.prov-mark')).toBeNull();
+    });
+
+    it('inferred tip carries the evidence', async () => {
+      const evidence = 'shop/ghcr-pull named in the pod specs of 4 running workloads that pulled from ghcr.io; Pacto did not read the Secret';
+      providersFn.mockResolvedValue(resp([inferred('pull-secret', { name: 'Pull Secret', evidence }), inferred('bare', { evidence: '' })]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
+      expect(text(rows(t)[0].querySelector('.prov-tip'))).toContain(`Nothing was turned on. ${evidence}`);
+      expect(text(rows(t)[1].querySelector('.prov-tip'))).toMatch(/Nothing was turned on\.$/);
+    });
+
+    it('declared row gets the declared mark', async () => {
+      const installation = row('installation', { source: 'cluster-detection', provenance: 'declared', asOf: AS_OF, name: 'Installation',
+        evidence: 'registry ghcr.io/acme; tags only under the listed prefixes, referrers by digest elsewhere', details: ['push prefixes ghcr.io/acme/pacto-targets'] });
+      providersFn.mockResolvedValue(resp([installation, inferred('pull-secret', { name: 'Pull Secret' })]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
+      const r = rows(t)[0];
+      expect(r.querySelector('.prov-mark button')?.getAttribute('aria-label')).toBe("Declared: by the operator's configuration");
+      expect(text(r.querySelector('.prov-tip'))).toBe("Declared by the operator's configuration, as of 4 minutes ago, complete.");
+      expect(r.classList.contains('dp-inferred')).toBe(false);
+      expect(text(r.querySelector('details summary'))).toBe('More details');
+      // The Inferred toggle hides the proposal and keeps the declared row.
+      (t.querySelector('[data-testid="providers-inferred-toggle"] input') as HTMLInputElement).click();
+      window.dispatchEvent(new HashChangeEvent('hashchange')); flushSync();
+      expect(rows(t).map((x) => text(x.querySelector('.dp-name bdi')))).toEqual(['Installation']);
     });
 
     it('names an unavailable inferred row as unknown and an available one as complete', async () => {

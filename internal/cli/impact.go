@@ -64,8 +64,9 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 			"Pacto sees only the contracts in those folders, so \"No affected " +
 			"consumers\" is not evidence of safety.\n\n" +
 			"When you pass no --k8s, --target-state, --evidence-url or --target-snapshot, impact reads the signed " +
-			"target snapshot each cluster's delivery recorder publishes (--target-snapshot auto, the default): from " +
-			"the oci:// ref of the change it tries <host>/<first path segment>/pacto-targets, then <host>/pacto-targets, " +
+			"target snapshot each cluster's operator publishes (--target-snapshot auto, the default): from " +
+			"the oci:// ref of the change it tries <prefix>/pacto-targets under each path prefix of its repository, deepest first " +
+			"and at most three segments deep (the registry value the operator publishes under), then <host>/pacto-targets, " +
 			"and prints a Registry line saying where it looked and a Targets line per cluster snapshot it read. " +
 			"auto reads only the clusters whose snapshot exists at that moment, so CI that knows its clusters pins " +
 			"them with --target-snapshot oci://<registry>/pacto-targets:cluster-<uid> (repeatable). --delivery-trust " +

@@ -258,41 +258,9 @@ tests:
           path: spec.template.spec.containers[0].env
           content: {name: PACTO_INSECURE_REGISTRIES, value: "reg:5000"}
 
-  - it: publishes the target snapshot to <registry>/pacto-targets and names its publisher
-    set:
-      registry: ghcr.io/acme
-      delivery.recorder.enabled: true
-      delivery.recorder.streamsRepository: registry.example/pacto/streams
-      delivery.recorder.signing.kms: awskms:///alias/pacto
+  - it: registry renders no --targets-repository on the recorder
     template: templates/delivery/recorder.yaml
     documentSelector: {path: kind, value: Deployment}
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: --targets-repository=ghcr.io/acme/pacto-targets
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content: {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content: {name: SERVICE_ACCOUNT, valueFrom: {fieldRef: {fieldPath: spec.serviceAccountName}}}
-
-  - it: publishes no target snapshot without the top-level registry value
-    set:
-      delivery.recorder.enabled: true
-      delivery.recorder.streamsRepository: registry.example/pacto/streams
-      delivery.recorder.signing.kms: awskms:///alias/pacto
-    template: templates/delivery/recorder.yaml
-    documentSelector: {path: kind, value: Deployment}
-    asserts:
-      - notMatchRegex:
-          path: spec.template.spec.containers[0].args[8]
-          pattern: targets-repository
-      - lengthEqual:
-          path: spec.template.spec.containers[0].args
-          count: 8
-
-  - it: carries the Evidence Server targets in the target snapshot when the Evidence Server is on
     set:
       registry: ghcr.io/acme
       evidence.enabled: true
@@ -301,28 +269,13 @@ tests:
       delivery.recorder.enabled: true
       delivery.recorder.streamsRepository: registry.example/pacto/streams
       delivery.recorder.signing.kms: awskms:///alias/pacto
-    template: templates/delivery/recorder.yaml
-    documentSelector: {path: kind, value: Deployment}
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: --evidence-url=http://pacto-evidence.pacto-system.svc:8686
-
-  - it: reads no Evidence Server without one
-    set:
-      registry: ghcr.io/acme
-      delivery.recorder.enabled: true
-      delivery.recorder.streamsRepository: registry.example/pacto/streams
-      delivery.recorder.signing.kms: awskms:///alias/pacto
-    template: templates/delivery/recorder.yaml
-    documentSelector: {path: kind, value: Deployment}
-    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--(targets-repository|evidence-url)=
       - notContains:
-          path: spec.template.spec.containers[0].args
-          content: --evidence-url=http://pacto-evidence.pacto-system.svc:8686
-      - lengthEqual:
-          path: spec.template.spec.containers[0].args
-          count: 9
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICE_ACCOUNT, valueFrom: {fieldRef: {fieldPath: spec.serviceAccountName}}}
 
   - it: refuses a registry with a scheme
     set:
@@ -338,7 +291,7 @@ tests:
     template: templates/delivery/recorder.yaml
     asserts:
       - failedTemplate:
-          errorPattern: streamsRepository is required
+          errorPattern: "the recorder needs a streams repository: set registry or delivery.recorder.streamsRepository"
 
   - it: refuses no signer or two
     set:

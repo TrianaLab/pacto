@@ -26,10 +26,10 @@ Hand the `edge-eu-west__edge-eu-west-2026.pub` file to the platform and put it i
 
 ## How it works
 
-Traffic goes one way. Pacto never connects to a remote environment; the remote side starts every request and only pushes. Accepted evidence is stored in your contract registry as an OCI 1.1 *referrer*: an artifact attached to the contract revision it is about. The registry is the only store, so the Evidence Server needs no bucket, volume or database. When the dashboard reads a contract revision from a registry, accepted evidence records appear in the referrers list on that revision's page; see [Bundle signatures and referrers](dashboard-service-page.md#bundle-signatures-and-referrers).
+Traffic goes one way: Pacto never connects to a remote environment, which starts every request. Accepted evidence is stored in your contract registry as an OCI 1.1 *referrer*: an artifact attached to the contract revision it is about. The registry is the only store, so the Evidence Server needs no bucket, volume or database. When the dashboard reads a contract revision from a registry, accepted evidence records appear in the referrers list on that revision's page; see [Bundle signatures and referrers](dashboard-service-page.md#bundle-signatures-and-referrers).
 
 !!! warning "GHCR cannot host Pacto evidence"
-    GitHub Container Registry does not serve the native OCI Referrers API, which the Evidence Server requires. GHCR works for contracts; only evidence needs the Referrers endpoint. Publish contracts you want to carry evidence to a conformant registry (zot, Docker Hub, Harbor, ECR, ACR, Artifactory).
+    GitHub Container Registry does not serve the native OCI Referrers API, which the Evidence Server requires. Publish contracts you want to carry evidence to a conformant registry (zot, Docker Hub, Harbor, ECR, ACR, Artifactory).
 
 **The protocol signs evidence *envelopes*:** the wrapper around one report. Every envelope is Ed25519-signed and checked against a trust store (the list of public keys you accept) before it is stored.
 
@@ -117,6 +117,10 @@ Two sources that report one record with two clusters raise `CLUSTER_CONFLICT`.
 The targets endpoint answers `pacto.dev/evidence-source/v5` when it carries a
 cluster, and older readers accept only v2 to v4: upgrade them before you set
 `--cluster-id`. See [Clusters and target keys](operational-graph-clusters.md).
+
+With the operator chart's `registry` set, accepted targets reach CI through
+the operator's signed target snapshot. The server still needs
+`evidence.enabled`, its subjects and its trust config.
 
 ---
 

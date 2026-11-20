@@ -91,7 +91,7 @@ func write(dir string, recs []runrecord.Record) error {
 
 // publish attaches recs to the stats repository at path.
 func publish(ctx context.Context, path string, recs []runrecord.Record) error {
-	repo, err := registry.Open(path, oci.NewKeychain(oci.EnvCredentialOptions()), oci.EnvInsecureRegistries())
+	repo, err := registry.Open(path, oci.NewKeychain(oci.EnvCredentialOptions()), oci.EnvInsecureRegistries(), nil)
 	if err != nil {
 		return err
 	}

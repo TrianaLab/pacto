@@ -90,7 +90,7 @@ owner reference to the operator Deployment. */}}
 {{- end }}
 {{- /* Control characters and bidi controls never reach the terminal. */}}
 {{- $unsafe := `[\x00-\x1f\x7f-\x9f\x{200e}\x{200f}\x{202a}-\x{202e}\x{2066}-\x{2069}]` }}
-{{- $labels := dict "registry" "Registry" "cloud" "Cloud" "sign-in" "Sign-in" "exposure" "Exposure" "metrics" "Metrics" "nodes" "Nodes" }}
+{{- $labels := dict "registry" "Registry" "cloud" "Cloud" "sign-in" "Sign-in" "exposure" "Exposure" "metrics" "Metrics" "nodes" "Nodes" "pull-secret" "Pull Secret" }}
 {{- $entries := get $detected "entries" | default list }}
 {{- if kindIs "slice" $entries }}{{ else }}{{ $entries = list }}{{ end }}
 {{- if $entries }}
@@ -139,6 +139,102 @@ Pacto lists what it detects under Data sources in the dashboard, or run:
 
   kubectl get configmap {{ $detectedName }} -n {{ .Release.Namespace }} -o jsonpath='{.data.detected\.json}'
 {{- end }}
+{{- /* The installation registry (510-S6): which credential pulls, which
+pushes and where, and on upgrade the trust entry CI verifies the snapshot
+with. Without registry, a detected registry and pull Secret are proposals
+only: nothing reads them into a manifest. */}}
+{{- $install := get $detected "installation" | default dict }}
+{{- if kindIs "map" $install }}{{ else }}{{ $install = dict }}{{ end }}
+{{- $last := get $install "lastPush" | default dict }}
+{{- if kindIs "map" $last }}{{ else }}{{ $last = dict }}{{ end }}
+{{- /* Helm reads the ConfigMap before the operator restarts with a new
+registry value: a push to another registry says nothing about this one. */}}
+{{- $registry := trimSuffix "/" (toString .Values.registry) }}
+{{- if ne (trimSuffix "/" (toString (get $install "registry"))) $registry }}{{ $last = dict }}{{ end }}
+{{- $lastError := regexReplaceAll $unsafe (toString (get $last "error")) "" | trunc 256 }}
+{{- $lastRef := regexReplaceAll $unsafe (toString (get $last "ref")) "" | trunc 256 }}
+{{- if not (hasPrefix (printf "%s/pacto-targets:" $registry) $lastRef) }}{{ $lastRef = "" }}{{ end }}
+{{- $lastAt := regexReplaceAll $unsafe (toString (get $last "at")) "" | trunc 64 }}
+{{- with .Values.registry }}
+{{- $recorder := and $.Values.delivery.enabled $.Values.delivery.recorder.enabled (include "pacto-operator.delivery.streamsRepository" $) }}
+{{- $stats := and $.Values.delivery.enabled $.Values.delivery.stats.repository }}
+
+Registry: {{ . }}
+  {{ include "pacto-operator.registryCredential" (dict "root" $ "detected" $detected "pushed" (or $lastError $lastRef)) }}
+{{- if $lastError }}
+  Last snapshot push failed: {{ $lastError }}
+{{- else if $lastRef }}
+  Last snapshot push: {{ $lastRef }}{{ with $lastAt }} at {{ . }}{{ end }}
+{{- end }}
+  The operator publishes the cluster's target snapshot to
+  {{ . }}/pacto-targets:cluster-<uid> every 5 minutes, signed with the
+  installation key in Secret {{ $fullname }}-installation-key, and CI reads it with
+  pacto impact.
+  The operator pushes only to {{ . }}/pacto-targets and
+  {{ . }}/pacto-inferred. CI writes {{ . }}/pacto-index
+{{- if $recorder }}; the recorder writes
+  {{ include "pacto-operator.delivery.streamsRepository" $ }} and its approvals anchors under
+  {{ include "pacto-operator.delivery.approvalsRepository" $ }}
+{{- end }}
+{{- if $stats }}; the promoter writes {{ $stats }}{{ end }}. Every tag,
+  delete and manifest push outside these prefixes is refused:
+{{- range include "pacto-operator.pushPrefixes" $ | fromYamlArray }}
+    {{ . }}
+{{- end }}
+  Outside them only referrers are written, by digest onto an existing
+  manifest: the Evidence Server's records and the recorder's.
+  Pull on {{ . }}/pacto-targets reads every namespace's Pacto status and
+  workload shape regardless of Kubernetes RBAC and, with evidence.enabled, every
+  target, provisioning and usage record (cost included) the Evidence Server
+  accepted, so give it its own read ACL.
+  Delivery is {{ if $.Values.delivery.enabled }}on{{ else }}off: turn it on with delivery.enabled=true{{ end }}.
+{{- /* The key comes from the installation key Secret, which only the
+operator writes; the ConfigMap's snapshotKey is forgeable by any ConfigMap
+writer. */}}
+{{- $keySecret := lookup "v1" "Secret" $.Release.Namespace (printf "%s-installation-key" $fullname) }}
+{{- $key := "" }}
+{{- if eq (dig "metadata" "labels" "app.kubernetes.io/managed-by" "" $keySecret) "pacto-operator" }}
+{{- $key = dig "data" "public.b64" "" $keySecret | toString | b64dec }}
+{{- end }}
+{{- $uid := toString (get $detected "cluster") }}
+{{- if and (regexMatch `^[A-Za-z0-9+/]{1,1000}={0,2}$` $key) (regexMatch `^[A-Za-z0-9-]{1,100}$` $uid) }}
+
+  CI verifies the snapshot with this trust entry:
+
+    - name: installation-{{ trunc 8 $uid }}
+      publicKey: |
+        -----BEGIN PUBLIC KEY-----
+{{- range regexFindAll ".{1,64}" $key -1 }}
+        {{ . }}
+{{- end }}
+        -----END PUBLIC KEY-----
+      streams: ["{{ $uid }}/pacto-targets/snapshot"]
+{{- end }}
+{{- else }}
+{{- $proposedRegistry := "" }}
+{{- $proposedSecret := "" }}
+{{- range $entries }}
+{{- if and (kindIs "map" .) (get . "hint") }}
+{{- $value := toString (get . "value") }}
+{{- if and (eq (toString (get . "kind")) "registry") (regexMatch `^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)*$` $value) (not $proposedRegistry) }}{{ $proposedRegistry = $value }}{{ end }}
+{{- if and (eq (toString (get . "kind")) "pull-secret") (regexMatch `^[a-z0-9]([-a-z0-9]*[a-z0-9])?/[a-z0-9]([-a-z0-9.]*[a-z0-9])?$` $value) (not $proposedSecret) }}{{ $proposedSecret = $value }}{{ end }}
+{{- end }}
+{{- end }}
+{{- if $proposedRegistry }}
+
+To publish the target snapshot and read inferred contracts, set the
+registry (proposal, nothing was turned on):
+
+  helm upgrade {{ .Release.Name }} <chart> -n {{ .Release.Namespace }} --reuse-values --set registry={{ $proposedRegistry }}
+{{- if $proposedSecret }}
+
+Proposed pull Secret (inferred from pod specs; it needs push on
+{{ $proposedRegistry }}/pacto-*, and a pod pull Secret usually grants pull only):
+
+  --set registryPullSecret={{ $proposedSecret }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- if and .Release.IsUpgrade (include "pacto-operator.watchNamespaces" . | fromYamlArray) (not (and .Values.dashboard.enabled (include "pacto-operator.dashboardDeliveryNamespace" .))) }}
 {{- if or (lookup "rbac.authorization.k8s.io/v1" "ClusterRole" "" "pacto-dashboard") (lookup "rbac.authorization.k8s.io/v1" "ClusterRoleBinding" "" "pacto-dashboard") }}
 
@@ -182,18 +278,9 @@ Set delivery.publishers.registry to derive one.
 {{- if .Values.delivery.recorder.enabled }}
 
 The recorder writes a signed record of every concluded operation to
-{{ .Values.delivery.recorder.streamsRepository }} and to the versions it touched. Check that
+{{ include "pacto-operator.delivery.streamsRepository" . }} and to the versions it touched. Check that
 records are being written:
 
   kubectl get stages.delivery.pacto.trianalab.io -A -o custom-columns=NAME:.metadata.name,RECORDS:.status.conditions[?(@.type=="RecordStoreReady")].reason
-{{- with .Values.registry }}
-
-The recorder publishes the cluster's signed target snapshot to
-{{ . }}/pacto-targets:cluster-<uid> every 5 minutes, and CI reads it with
-pacto impact. Pull on that repository reads every namespace's Pacto status and
-workload shape regardless of Kubernetes RBAC and, with evidence.enabled, every
-target, provisioning and usage record (cost included) the Evidence Server
-accepted, so give it its own read ACL.
-{{- end }}
 {{- end }}
 {{- end }}

@@ -15,12 +15,14 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"github.com/google/go-containerregistry/pkg/authn"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -38,14 +40,20 @@ import (
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/controller"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/dashboard"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/detection"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/evidence"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/installkey"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/scope"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/targetsnapshot"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
+	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -122,6 +130,10 @@ type options struct {
 	nodeAgentPullSecrets     []string
 	nodeAgentPublishInterval time.Duration
 	nodeAgentResources       component.Resources
+
+	registry             string
+	registryPullSecret   string
+	registryPushPrefixes []string
 
 	zap zap.Options
 }
@@ -304,6 +316,17 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.DurationVar(&o.nodeAgentPublishInterval, "node-agent-publish-interval", 30*time.Second,
 		"How often each node agent publishes its node's NodeRuntimeObservation.")
 	bindResourceFlags(fs, &o.nodeAgentResources, "node-agent", "node agent")
+	fs.StringVar(&o.registry, "registry", "",
+		"The installation registry (host/path): Pacto publishes the target snapshot and inferred contracts under it "+
+			"and pushes nowhere else; empty turns those features off.")
+	fs.StringVar(&o.registryPullSecret, "registry-pull-secret", "",
+		"namespace/name of the Secret that authenticates to the installation registry; used only under the push prefixes.")
+	fs.Func("registry-push-prefix",
+		"Repeatable: a repository prefix a Pacto component may push under; the chart renders every one.",
+		func(v string) error {
+			o.registryPushPrefixes = append(o.registryPushPrefixes, v)
+			return nil
+		})
 	o.zap.BindFlags(fs)
 }
 
@@ -380,12 +403,27 @@ func main() {
 		os.Exit(1)
 	}
 
+	// The installation identity (registryPullSecret and the cloud sources) answers the tenant-facing
+	// loader only under the inferred contracts, so a tenant's contract ref never rides on it and never
+	// lists the snapshot, index or delivery repositories with it.
+	prefixes := credentials.InstallationPrefixes(o.registry, o.registryPushPrefixes)
+	tenantPrefixes := credentials.TenantPrefixes(o.registry)
+	keychain, err := credentials.OperatorKeychain(mgr.GetAPIReader(), o.registryPullSecret, tenantPrefixes, false)
+	if err != nil {
+		setupLog.Error(err, "Invalid registry settings")
+		os.Exit(1)
+	}
+	// The snapshot publisher's own instance also answers host-only resources: its one repository is
+	// opened behind the push scope.
+	// The settings were checked just above.
+	publishKeychain, _ := credentials.OperatorKeychain(mgr.GetAPIReader(), o.registryPullSecret, prefixes, true)
+
 	pactoReconciler := &controller.PactoReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder()
 		Recorder:                          mgr.GetEventRecorderFor("pacto-controller"),
-		Loader:                            loader.New(),
+		Loader:                            loader.New(loader.WithKeychain(keychain)),
 		StabilizationWindow:               o.stabilizationWindow,
 		MetricsObservation:                o.metricsObservation,
 		Probing:                           o.probing,
@@ -411,7 +449,7 @@ func main() {
 	}
 	// +kubebuilder:scaffold:builder
 
-	if err := addComponents(mgr, &o, operatorNamespace); err != nil {
+	if err := addComponents(mgr, &o, operatorNamespace, publishKeychain); err != nil {
 		setupLog.Error(err, "Failed to set up the managed components")
 		os.Exit(1)
 	}
@@ -518,7 +556,8 @@ func newManager(o *options) (ctrl.Manager, error) {
 
 // addComponents validates the dashboard, Evidence Server and node agent configurations and registers each
 // sub-component with the manager. A disabled component is still registered: its first sync is its cleanup.
-func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
+// kc is the target snapshot publisher's keychain.
+func addComponents(mgr ctrl.Manager, o *options, namespace string, kc authn.Keychain) error {
 	if o.enableDashboard && dashboardImage == "" {
 		return fmt.Errorf("dashboard enabled but no dashboard image was set at build time: " +
 			"this binary was not built with the required -ldflags for dashboard support")
@@ -549,6 +588,10 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 	// The cluster id names the cluster in Evidence Server reports and in what
 	// detection writes; read once.
 	ident := readClusterIdentity(mgr)
+	inst, err := addTargetSnapshot(mgr, o, namespace, ident.ID, evidenceSourceURL, kc)
+	if err != nil {
+		return err
+	}
 
 	dashCfg := dashboard.Config{
 		Enabled:               o.enableDashboard,
@@ -574,7 +617,8 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 	// changes an argument, a rule or a feature. The managed dashboard mounts it
 	// as a file.
 	if d := detection.ForOperator(os.Getenv("OPERATOR_DEPLOYMENT_NAME"), namespace, o.namespaces,
-		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig())); d != nil {
+		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig()),
+		inst, lastPush.Load); d != nil {
 		if err := mgr.Add(d); err != nil {
 			return fmt.Errorf("failed to add detection: %w", err)
 		}
@@ -627,6 +671,11 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		return fmt.Errorf("failed to add evidence reconciler: %w", err)
 	}
 
+	return addNodeAgent(mgr, o, namespace)
+}
+
+// addNodeAgent validates the node agent configuration and registers its reconciler.
+func addNodeAgent(mgr ctrl.Manager, o *options, namespace string) error {
 	nodeAgentCfg := nodeagent.Config{
 		Enabled:           o.enableNodeAgent,
 		Image:             cmp.Or(o.nodeAgentImage, dashboardImage), // the runtime image runs `pacto agent`
@@ -658,6 +707,47 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		return fmt.Errorf("failed to add node agent reconciler: %w", err)
 	}
 	return nil
+}
+
+// lastPush is the target snapshot publisher's last attempt, which detection advertises.
+var lastPush atomic.Pointer[detect.PushResult]
+
+// addTargetSnapshot runs the target snapshot publisher when --registry is set: it ensures the installation
+// key, then publishes <registry>/pacto-targets:cluster-<uid> on the elected leader. It returns the
+// installation detection advertises, nil without --registry. Any missing piece stops the operator at start
+// with its reason.
+func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace, clusterID, evidenceURL string,
+	kc authn.Keychain) (*detect.Installation, error) {
+	if o.registry == "" {
+		setupLog.Info("Target snapshot is off: set the registry value")
+		return nil, nil
+	}
+	deploy := os.Getenv("OPERATOR_DEPLOYMENT_NAME")
+	if deploy == "" {
+		return nil, fmt.Errorf("--registry needs OPERATOR_DEPLOYMENT_NAME: " +
+			"the installation key Secret is named after the operator Deployment")
+	}
+	key, err := installkey.Ensure(context.Background(), mgr.GetAPIReader(), mgr.GetClient(), namespace,
+		installkey.SecretName(deploy))
+	if err != nil {
+		return nil, err
+	}
+	pub, err := targetsnapshot.ForOperator(targetsnapshot.Config{Registry: o.registry, ClusterID: clusterID,
+		Namespace: namespace, ServiceAccount: os.Getenv("OPERATOR_SERVICE_ACCOUNT"), EvidenceURL: evidenceURL,
+		Watched: o.namespaces, Key: key, Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(),
+		OnPush: func(r detect.PushResult) { lastPush.Store(&r) }})
+	if err != nil {
+		return nil, err
+	}
+	inst := &detect.Installation{Registry: o.registry,
+		Targets:     oci.InstallationRepository(o.registry, oci.TargetsRepository),
+		Index:       oci.InstallationRepository(o.registry, oci.IndexRepository),
+		Inferred:    oci.InstallationRepository(o.registry, oci.InferredRepository),
+		Pushes:      credentials.InstallationPrefixes(o.registry, o.registryPushPrefixes),
+		SnapshotKey: installkey.PublicKeyBase64(key), SnapshotKeyID: signing.Hint(key.Public())}
+	setupLog.Info("Target snapshot is on", "repository", inst.Targets,
+		"snapshotKeyID", inst.SnapshotKeyID, "snapshotKey", inst.SnapshotKey)
+	return inst, mgr.Add(pub)
 }
 
 // operatorOwnerRef discovers the operator's own Deployment for the ownerReferences of the managed

@@ -98,13 +98,16 @@ spec:
             - --publishers-policy-signers=/etc/pacto/publishers/policy-signers.yaml
             {{- end }}
             {{- if $pins }}
-            - --records-repository={{ .Values.delivery.recorder.streamsRepository }}
+            - --records-repository={{ include "pacto-operator.delivery.streamsRepository" . }}
             {{- if include "pacto-operator.delivery.pinSigner" . }}
             - --pin-signer-config=/etc/pacto/publishers/pin-signer.yaml
             {{- end }}
             {{- if .Values.delivery.recorder.trust }}
             - --record-trust-config=/etc/pacto/record-trust/trust.yaml
             {{- end }}
+            {{- end }}
+            {{- with .Values.registry }}
+            - --registry={{ . }}
             {{- end }}
             {{- with $stats.repository }}
             - --stats-repository={{ . }}

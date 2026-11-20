@@ -188,6 +188,10 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	if err != nil {
 		return nil, nil, err
 	}
+	if inst := detected.Installation; inst != nil && inst.LastPush != nil {
+		// The last push keeps its age against the detection.
+		inst.LastPush.At = demoNow().Add(inst.LastPush.At.Sub(detected.AsOf))
+	}
 	detected.AsOf, detected.Cluster = demoNow(), prodCluster.ID
 	detection := fleet.NewMemorySource("cluster-detection", fleet.SourceKindDetection, &fleet.Collection{
 		Advisory: true, Providers: detect.ProviderRows(detected, "cluster-detection", demoNow()),

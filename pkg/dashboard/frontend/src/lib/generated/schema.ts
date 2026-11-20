@@ -4087,7 +4087,7 @@ export interface components {
              * @description How many objects the row had before the cap or your permissions narrowed it
              */
             objectsTotal?: number;
-            /** @description inferred for a row Pacto detected; empty for a row a source reported directly */
+            /** @description declared for the operator's Installation row (its configuration); inferred for a row Pacto detected; empty for a row a source reported directly */
             provenance?: string;
             /**
              * @description cluster when the row was read cluster-wide

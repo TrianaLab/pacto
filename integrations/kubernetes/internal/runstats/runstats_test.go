@@ -53,7 +53,7 @@ func promote() *dv1.Operation {
 }
 
 func newEmitter(publish func(context.Context, runrecord.Record) error) *Emitter {
-	e, err := New("unused.example/stats", nil, nil, "cluster-1", "test")
+	e, err := New("unused.example/stats", nil, nil, nil, "cluster-1", "test")
 	if err != nil {
 		panic(err) // a constant that parses
 	}
@@ -63,7 +63,7 @@ func newEmitter(publish func(context.Context, runrecord.Record) error) *Emitter 
 
 func mustNew(t *testing.T, path string) *Emitter {
 	t.Helper()
-	e, err := New(path, nil, nil, "cluster-1", "test")
+	e, err := New(path, nil, nil, nil, "cluster-1", "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func publishAndDrain(t *testing.T, path string, ops ...*dv1.Operation) {
 
 func referrers(t *testing.T, path string) []ocispec.Descriptor {
 	t.Helper()
-	repo, err := rrregistry.Open(path, nil, nil)
+	repo, err := rrregistry.Open(path, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestEmitPublishFailureCountsAndNeverRetries(t *testing.T) {
 func TestNewRefusesABadRepository(t *testing.T) {
 	for _, path := range []string{"UPPER/Case", "https://ghcr.io/acme/stats", "ghcr.io/acme/stats:v1",
 		"ghcr.io/acme/stats@sha256:" + strings.Repeat("0", 64)} {
-		if _, err := New(path, nil, nil, "cluster-1", "test"); err == nil {
+		if _, err := New(path, nil, nil, nil, "cluster-1", "test"); err == nil {
 			t.Errorf("New(%q) must fail at startup", path)
 		}
 	}

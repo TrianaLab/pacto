@@ -36,12 +36,16 @@ const dockerLibrary = "docker.io/library"
 
 // ResolveRegistry picks the registry contracts are published to, with its
 // source, plus notes on rungs that could not answer. Precedence: flag, then
-// [the installation-advertised registry: 510-S6], then GitHub's ghcr.io
-// owner, then GitLab's CI_REGISTRY_IMAGE, then the one registry every image
-// names. Nothing found is none: unknown is never guessed.
-func ResolveRegistry(flag string, ctx Context, images []ImageRef) (Value, []string) {
+// the registry a fresh installation advertisement names (advertised, empty
+// when there is none), then GitHub's ghcr.io owner, then GitLab's
+// CI_REGISTRY_IMAGE, then the one registry every image names. Nothing found
+// is none: unknown is never guessed.
+func ResolveRegistry(flag string, advertised Value, ctx Context, images []ImageRef) (Value, []string) {
 	if flag != "" {
 		return Value{Value: flag, Source: "--registry"}, nil
+	}
+	if advertised.Value != "" {
+		return advertised, nil
 	}
 	var notes []string
 	if ctx.Platform == "github" && ctx.Owner != "" {

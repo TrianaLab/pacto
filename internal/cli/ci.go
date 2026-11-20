@@ -30,6 +30,8 @@ func newCICommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder) *c
 			"prints one plan: the CI platform, the registry and the base, each with its source, then one row per service: " +
 			"whether it changed against its published baseline, the version it would publish, the classification of the change " +
 			"and its impact on the consumers the fleet source flags name.\n\n" +
+			"The registry is --registry, else the registry the installation advertises in what the operator detected (--detected, " +
+			"used only when it is fresh and no PACTO_REGISTRY_* credential is set, since those answer any host), else the CI platform's registry, else the one registry every image names.\n\n" +
 			"On GitHub Actions the plan is also appended to $GITHUB_STEP_SUMMARY; on GitLab CI it is written to " +
 			"pacto-plan.md in $CI_PROJECT_DIR. --output-format json writes the plan as one JSON document.\n\n" +
 			"Without --publish the run is a plan: it reads the registry and the consumer sources you name and writes nothing to them. " +
@@ -116,7 +118,7 @@ func newCICommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder) *c
 			return exitStatus(code, reason)
 		},
 	}
-	cmd.Flags().String("registry", "", "registry the services publish to, for example ghcr.io/acme; default from the CI platform")
+	cmd.Flags().String("registry", "", "registry the services publish to, for example ghcr.io/acme; default from the installation advertisement or the CI platform")
 	cmd.Flags().String("explain", "", "explain one service's row: its folder, baseline, why it changed, its inferred fields and its consumers")
 	cmd.Flags().Bool("publish", false, "publish every changed service, on the merged commit only")
 	cmd.Flags().StringArray("image", nil, "with --publish: the image <service> deploys, pinned by digest, as <service>=<repo>@sha256:...; Pacto builds, signs and copies none. A bare <repo>@sha256:... needs exactly one changed service")

@@ -13,6 +13,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/internal/discover"
+	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
@@ -90,7 +91,16 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 	}
 	folders, images := s.ciFolders(opts.Root, walk.Dirs, opts.revision, cat)
 	var notes []string
-	p.Registry, notes = ci.ResolveRegistry(registry, cctx, images)
+	var advertised ci.Value
+	if registry == "" {
+		// --registry wins: the advertisement is not read at all.
+		var note string
+		advertised, note = s.ciAdvertised(ctx, opts.Fleet.Detected)
+		if note != "" {
+			p.Notes = append(p.Notes, note)
+		}
+	}
+	p.Registry, notes = ci.ResolveRegistry(registry, advertised, cctx, images)
 	p.Notes = append(p.Notes, notes...)
 	p.Notes = append(p.Notes, blockCollisions(folders)...)
 	pl := &ciPlanner{s: s, p: p, reg: s.env().publishRegistry(), allowed: allowedHost(p.Registry), root: opts.Root, revision: opts.revision, cat: cat}
@@ -249,11 +259,49 @@ func blockCollisions(folders []*ciFolder) []string {
 // registry the caller or the CI platform named, never one the repository
 // content names (credentials never follow repository content).
 func allowedHost(reg ci.Value) string {
-	switch reg.Source {
-	case "--registry", "GITHUB_REPOSITORY_OWNER", "CI_REGISTRY_IMAGE":
+	switch {
+	case reg.Source == "--registry", reg.Source == "GITHUB_REPOSITORY_OWNER", reg.Source == "CI_REGISTRY_IMAGE",
+		strings.HasPrefix(reg.Source, advertisedSource):
 		return hostOf(reg.Value)
 	}
 	return ""
+}
+
+// advertisedSource starts the source of a registry read from an available
+// installation advertisement, the only advertised registry the plan may
+// contact.
+const advertisedSource = "the installation advertised at "
+
+// ciAdvertised is the registry the installation advertisement at ref names
+// (--detected), with a note when one was named but cannot be used: only an
+// available detection (fresh and, for k8s:, written by the operator) with an
+// installation block counts, so a stale or unreadable one never picks the
+// registry or the host the plan contacts. Neither does one read while
+// PACTO_REGISTRY_* credentials are set: they answer any host, and a detection
+// a ConfigMap writer can forge must not choose where they are sent.
+func (s *Service) ciAdvertised(ctx context.Context, ref string) (ci.Value, string) {
+	srcs := s.detectionSources(ref)
+	if len(srcs) == 0 {
+		return ci.Value{}, ""
+	}
+	res, st := srcs[0].(*fleetsrc.DetectionSource).Read(ctx)
+	status := string(st.Status)
+	if st.Status == fleet.SourceAvailable && res.Installation == nil {
+		status = "absent"
+	}
+	if status != string(fleet.SourceAvailable) {
+		return ci.Value{}, "installation advertisement " + status + ": not used"
+	}
+	reg, err := ci.NormalizeRegistry(res.Installation.Registry)
+	if err != nil || reg == "" {
+		return ci.Value{}, "installation advertisement invalid: not used"
+	}
+	if env := oci.EnvCredentialOptions(); env.Token != "" || (env.Username != "" && env.Password != "") {
+		// The detection is not signed, and PACTO_REGISTRY_* credentials
+		// answer any host: the advertisement never picks where they go.
+		return ci.Value{}, "installation advertises " + reg + ", not contacted: PACTO_REGISTRY_* credentials answer any host; pass --registry " + reg
+	}
+	return ci.Value{Value: reg, Source: advertisedSource + ref}, ""
 }
 
 // hostOf is a repository reference's registry host.

@@ -17,6 +17,10 @@ type CredentialOptions struct {
 	Username string
 	Password string
 	Token    string
+	// SkipCloud leaves out the Google, ECR and ACR workload-identity sources.
+	// Cluster-side processes set it; they reach the cloud sources only through
+	// CloudKeychain behind their installation prefixes.
+	SkipCloud bool
 }
 
 // EnvCredentialOptions reads the registry credentials Pacto takes from the
@@ -101,6 +105,12 @@ func (k *PactoKeychain) Resolve(target authn.Resource) (authn.Authenticator, err
 	return authn.Anonymous, nil
 }
 
+// Prepend returns a copy of k with kc, named name, tried before every other
+// source. k itself is unchanged.
+func (k *PactoKeychain) Prepend(name string, kc authn.Keychain) *PactoKeychain {
+	return &PactoKeychain{sources: append([]namedKeychain{{name: name, kc: kc}}, k.sources...)}
+}
+
 // Candidates returns all non-anonymous credential sources for the target,
 // in priority order, each tagged with its source name.
 func (k *PactoKeychain) Candidates(target authn.Resource) ([]CredSource, error) {
@@ -118,12 +128,17 @@ func (k *PactoKeychain) Candidates(target authn.Resource) ([]CredSource, error) 
 }
 
 // NewKeychain builds a keychain that tries, in order:
-// 1. Explicit credentials (flags/env vars)
-// 2. Pacto config (~/.config/pacto/config.json)
-// 3. gh CLI token (for GitHub registries)
-// 4. Docker config, credential helpers, and cloud auto-detection
-func NewKeychain(opts CredentialOptions) authn.Keychain {
-	sources := make([]namedKeychain, 0, 4)
+//  1. Explicit credentials (env token, or env user and password)
+//  2. Pacto config (~/.config/pacto/config.json)
+//  3. gh CLI token (GitHub registries only)
+//  4. Docker config and its credential helpers
+//  5. Google workload identity (Artifact Registry and Container Registry only)
+//  6. Amazon ECR workload identity (ECR hosts only)
+//  7. Azure ACR workload identity (ACR hosts only)
+//
+// Sources 5 to 7 are left out when opts.SkipCloud is set.
+func NewKeychain(opts CredentialOptions) *PactoKeychain {
+	sources := make([]namedKeychain, 0, 7)
 
 	if opts.Token != "" {
 		sources = append(sources, namedKeychain{name: "env token", kc: staticKeychain{auth: &authn.AuthConfig{RegistryToken: opts.Token}}})
@@ -134,6 +149,9 @@ func NewKeychain(opts CredentialOptions) authn.Keychain {
 	sources = append(sources, namedKeychain{name: "pacto login", kc: &pactoConfigKeychain{}})
 	sources = append(sources, namedKeychain{name: "gh", kc: &ghKeychain{execCommandFn: exec.Command}})
 	sources = append(sources, namedKeychain{name: "docker", kc: authn.DefaultKeychain})
+	if !opts.SkipCloud {
+		sources = append(sources, cloudSources()...)
+	}
 
 	return &PactoKeychain{sources: sources}
 }

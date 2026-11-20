@@ -41,6 +41,12 @@ rules:
   - apiGroups: [apps]
     resources: [deployments, replicasets, statefulsets]
     verbs: [get, list, watch]
+  {{- if $.Values.registry }}
+  # The target snapshot lists the DaemonSets of each watched namespace.
+  - apiGroups: [apps]
+    resources: [daemonsets]
+    verbs: [list]
+  {{- end }}
   - apiGroups: [batch]
     resources: [cronjobs, jobs]
     verbs: [get, list, watch]

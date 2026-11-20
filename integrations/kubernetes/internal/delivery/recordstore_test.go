@@ -12,6 +12,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 )
 
@@ -204,5 +206,36 @@ func TestRecordStoreWriteFailures(t *testing.T) {
 	reg.fault = nil
 	if (&RecordStore{}).prober() != ocireferrer.Probes {
 		t.Fatal("a store without a prober does not use the process prober")
+	}
+}
+
+func TestRecordStoreRefusesStreamOutsideScope(t *testing.T) {
+	s, reg, _ := testStore(t)
+	s.Options.Scope = oci.NewPushScope("", reg.host+"/delivery/other")
+	if _, err := s.anchor(context.Background(), "s"); !errors.Is(err, oci.ErrOutsidePushScope) {
+		t.Fatalf("anchor outside the scope = %v, want ErrOutsidePushScope", err)
+	}
+}
+
+func TestRecordStoreKeepsNativeReferrerPlacement(t *testing.T) {
+	ctx := context.Background()
+	s, reg, key := testStore(t)
+	s.Options.Scope = oci.NewPushScope("", s.Streams)
+	a, err := s.anchor(ctx, "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := s.locate(ctx, a, &source{repo: reg.host + "/apps/payments", insecure: true}, reg.from, reg.to)
+	if err != nil || l.to == nil {
+		t.Fatalf("locate: %+v %v", l, err)
+	}
+	st := delivery.NewGap("cid", delivery.ObjectMeta{Name: "st"}, 1, delivery.Chain{Stream: "s", Seq: 1}, a.desc.Digest.String(), "t")
+	bundle, _, _ := delivery.SignRecord(ctx, edSigner(key), st)
+	if err := s.write(ctx, bundle, st, locations{to: l.to, anchor: a}); err != nil {
+		t.Fatalf("a referrer on the apply repository outside the scope = %v", err)
+	}
+	var on []ocispec.Descriptor
+	if err := l.to.repo.Referrers(ctx, l.to.desc, "", func(p []ocispec.Descriptor) error { on = append(on, p...); return nil }); err != nil || len(on) != 1 {
+		t.Fatalf("referrers on the apply manifest: %v %v", on, err)
 	}
 }

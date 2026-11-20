@@ -142,7 +142,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `delivery.recorder.signing.keyless.trustedRoot` | `""` | The Sigstore trusted root (`trusted_root.json`) naming that Fulcio and timestamp authority. Required with keyless: without it a self-signed certificate could name the recorder's identity. |
 | `delivery.recorder.signing.kms` | `""` | A KMS key URI (`awskms://`, `gcpkms://`, `azurekms://`, `hashivault://`). The default image includes every provider; an image built with `--build-arg GO_TAGS=` has none, and one built with `GO_TAGS=kms_aws` (or `kms_gcp`, `kms_azure`, `kms_hashivault`) has only that one |
 | `delivery.recorder.signing.publicKey` | `""` | The recorder's public key (PEM) for an Ed25519 or KMS recorder, so the promoter and clients verify the publisher pins it writes. Keyless signing needs none: its identity names the signer. Empty with an Ed25519 or KMS recorder: no new publisher can be confirmed |
-| `delivery.recorder.streamsRepository` | `""` | Repository (`host/path`) that holds one anchor per Stage stream. Required when enabled. |
+| `delivery.recorder.streamsRepository` | `""` | Repository (`host/path`) that holds one anchor per Stage stream. Defaults to `<registry>/pacto-streams` when the top-level `registry` is set; required otherwise when enabled. |
 | `delivery.recorder.trust` | `""` | Other keys whose records the recorder accepts, as a trust config in YAML (`keys: [{publicKey: <PEM>, streams: ["*/prod/*"]}]`): list the old key here while you rotate to a new one, and set `untilSeq` and `untilRecord` on a leaked key to revoke it after the last record it signed. The recorder's own key is always trusted. A record no listed key signed is skipped as untrusted. |
 | `delivery.replicaCount` | `1` | Number of promoter replicas. Only the elected leader acts. |
 | `delivery.resources.limits.memory` | `256Mi` | Memory limit of the promoter |
@@ -216,7 +216,8 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `podAnnotations` | `{}` | Annotations to add to the controller pod |
 | `podLabels` | `{}` | Labels to add to the controller pod |
 | `podSecurityContext` | `{}` | Pod securityContext of the controller (defaults to `global.podSecurityContext`) |
-| `registry` | `""` | The installation registry (host[/path], no scheme), such as `ghcr.io/acme`. The delivery recorder publishes the cluster's signed target snapshot to `<registry>/pacto-targets`, which `pacto impact` reads in CI; empty publishes none. Later releases derive more repositories from it. |
+| `registry` | `""` | The installation registry (host[/path], no scheme), such as `ghcr.io/acme`. The operator publishes the cluster's target snapshot, signed with the installation key it creates once, to `<registry>/pacto-targets`, which `pacto impact` reads in CI; empty publishes none. Delivery stays off until delivery.enabled=true. |
+| `registryPullSecret` | `""` | namespace/name of an existing Secret that authenticates to `registry`, for a registry without workload identity. Pacto proposes one it saw running pods use (helm upgrade notes and Data sources) and never uses it until you name it here. The chart grants get on that Secret only. |
 | `replicaCount` | `1` | Number of controller replicas |
 | `resources.limits.memory` | `256Mi` | Memory limit of the controller. It caches every Deployment, StatefulSet, ReplicaSet, Job, CronJob and Service it targets. |
 | `resources.requests.cpu` | `100m` | CPU request of the controller |

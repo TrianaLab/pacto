@@ -77,7 +77,7 @@ state:
 // detects the registry's Referrers capability on its own.
 func openStats(t *testing.T, path string) *remote.Repository {
 	t.Helper()
-	repo, err := statsregistry.Open(path, nil, nil)
+	repo, err := statsregistry.Open(path, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
