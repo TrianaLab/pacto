@@ -199,9 +199,10 @@ Every published version also writes one entry to the
 version, bundle digest, every dependency reference and the publisher it claims.
 An entry is never overwritten. A failed write prints a warning and the publish
 still succeeds; publishing the current version again writes a missing entry.
-`pacto push` under a tag other than the version writes none. `--index` names
-another `<registry>/pacto-index`, with no tag or digest, and `--index none`
-writes none.
+
+- `--index` names another `<registry>/pacto-index`, with no tag or digest, and
+  `--index none` writes none.
+- `pacto push` under a tag other than the version writes none.
 
 ## In CI and from agents
 
@@ -213,13 +214,15 @@ through MCP: `pacto mcp --publish` adds `pacto_publish_plan` and
 ## Declare a running service
 
 `pacto declare <workload> --registry <registry>` publishes a contract for a
-workload the cluster already runs, without a repository or a build. It drafts
-the contract from the cluster with your kubeconfig credentials, as
-[`pacto init --cluster`](bootstrap-contracts.md#draft-from-a-running-cluster)
-does, or reads `--dir`, a folder that command wrote. Without `--yes` it prints
-the plan and writes nothing; the plan ends with its intent digest, and
-`--intent <digest>` refuses a run whose plan changed since you reviewed it.
+workload the cluster already runs, without a repository or a build.
 
+- **Source.** It drafts the contract from the cluster with your kubeconfig
+  credentials, as
+  [`pacto init --cluster`](bootstrap-contracts.md#draft-from-a-running-cluster)
+  does, or reads `--dir`, a folder that command wrote.
+- **Plan.** Without `--yes` it prints the plan and writes nothing; the plan
+  ends with its intent digest, and `--intent <digest>` refuses a run whose
+  plan changed since you reviewed it.
 - **Contract only.** The bundle holds `pacto.yaml`, the files it references
   and `pacto.inferred.yaml`. Nothing is built and no deploy tag is written:
   the plan reads `deploy: none`, or the deploy artifact of the published
