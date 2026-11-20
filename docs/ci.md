@@ -206,16 +206,13 @@ creates the `pacto-index` package: in its **Manage Actions access** settings,
 grant **write** to each repository that publishes and **read** to each that
 runs impact. Internal visibility shows those names and the dependency graph to
 every organization member, even for packages they cannot read. A publish
-without access still succeeds with a warning.
+without access succeeds with a warning.
 
 ### Where consumers come from
 
-Pacto tries `pacto-targets` under each path prefix of the repository,
-deepest first. For `ghcr.io/acme/<service>` it tries
-`ghcr.io/acme/pacto-targets`, then `ghcr.io/pacto-targets`. With the registry
-value `europe-docker.pkg.dev/acme/pacto` it tries
-`europe-docker.pkg.dev/acme/pacto/pacto-targets` first. It reads every `cluster-<uid>` snapshot in the first that exists (JSON fields
-`registry` and `targetSnapshots`):
+Pacto tries `pacto-targets` under each repository prefix, deepest first,
+and reads every `cluster-<uid>` snapshot in the first that exists (JSON
+fields `registry` and `targetSnapshots`):
 
 ```text
 Registry: ghcr.io/acme (found ghcr.io/acme/pacto-targets, 1 cluster read)
@@ -229,10 +226,10 @@ change:
   `BREAKING` change with consumers exits `2`.
 - `not scoped to this cluster`: the key that signed has no `streams` entry for
   the cluster's UID, so another cluster's operator could hold it. Partial.
-- `stale`: the snapshot is older than 15 minutes, because its operator stopped
-  publishing or its tag was moved back. Partial.
+- `stale`: older than 15 minutes, because its operator stopped publishing
+  or its tag was moved back. Partial.
 - A bad signature, a cluster other than its tag, a registry error or a timeout:
-  the snapshot is not used and the answer is partial.
+  the snapshot is unused and the answer is partial.
 - No `pacto-targets` repository or no cluster tag: the Registry line says so
   (`not found`, `denied (check registry read credentials)` or `no cluster
   tag`) and consumers come only from the sources you name.
