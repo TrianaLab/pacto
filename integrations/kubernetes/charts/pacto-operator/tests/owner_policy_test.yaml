@@ -125,6 +125,82 @@ tests:
               configMap:
                 name: pacto-operator-owner-policy-46a4042fb0
 
+  - it: TestDeclareTrustedRootFallsBackToPublishers
+    set:
+      delivery.publishers.trustedRoot: '{"mediaType":"publishers"}'
+      declare.defaultApprovers.bootstrap:
+        - name: platform-admins
+          issuer: https://accounts.google.com
+          subject: ^admin@acme\.com$
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --trusted-root=/etc/pacto/owner-policy/trusted_root.json
+        template: templates/deployment.yaml
+      - equal:
+          path: data["trusted_root.json"]
+          value: '{"mediaType":"publishers"}'
+        template: templates/owner-policy.yaml
+      - notEqual:
+          path: metadata.name
+          value: pacto-operator-owner-policy-46a4042fb0
+        template: templates/owner-policy.yaml
+
+  - it: TestDeclareTrustedRootFallsBackToPublishers declare wins
+    set:
+      delivery.publishers.trustedRoot: '{"mediaType":"publishers"}'
+      declare.trustedRoot: '{"mediaType":"declare"}'
+      declare.defaultApprovers.bootstrap:
+        - name: platform-admins
+          issuer: https://accounts.google.com
+          subject: ^admin@acme\.com$
+    asserts:
+      - equal:
+          path: data["trusted_root.json"]
+          value: '{"mediaType":"declare"}'
+        template: templates/owner-policy.yaml
+
+  - it: TestDeclareTrustedRootFallsBackToPublishers none without a root or a policy
+    set:
+      delivery.publishers.trustedRoot: '{"mediaType":"publishers"}'
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: trusted-root|publishers-
+        template: templates/deployment.yaml
+
+  - it: TestDeclareTrustedRootFallsBackToPublishers absent by default
+    set:
+      declare.defaultApprovers.bootstrap:
+        - name: platform-admins
+          issuer: https://accounts.google.com
+          subject: ^admin@acme\.com$
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: trusted-root|publishers-
+        template: templates/deployment.yaml
+      - notExists:
+          path: data["trusted_root.json"]
+        template: templates/owner-policy.yaml
+
+  - it: TestDeclarePublisherRuleInControllerArgs
+    template: templates/deployment.yaml
+    set:
+      delivery.publishers.registry: ghcr.io/acme
+      delivery.publishers.defaultBranch: trunk
+      declare.defaultApprovers.bootstrap:
+        - name: platform-admins
+          issuer: https://accounts.google.com
+          subject: ^admin@acme\.com$
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --publishers-registry=ghcr.io/acme
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --publishers-default-branch=trunk
+
   - it: TestDeclarePolicyPublishedWithRegistryOnly
     set:
       registry: ghcr.io/acme

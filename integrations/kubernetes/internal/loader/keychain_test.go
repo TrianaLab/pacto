@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 )
@@ -61,5 +62,22 @@ func TestRangeResolverUsesNoInstallationCredentialOutsidePrefix(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Errorf("installation source calls = %d, want 0", calls)
+	}
+}
+
+// TestLoaderKeychainIsWhatItPullsWith: a Pacto's pull credentials answer
+// first, the loader's own keychain behind them.
+func TestLoaderKeychainIsWhatItPullsWith(t *testing.T) {
+	own := staticKeychain{auth: &authn.AuthConfig{Username: "own"}}
+	l := New(WithKeychain(own))
+	if l.Keychain(nil) != authn.Keychain(own) {
+		t.Fatal("no pull credentials: the loader's own keychain")
+	}
+	a, err := l.Keychain(&authn.AuthConfig{Username: "cr"}).Resolve(name.MustParseReference("r.example/app:1").Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg, _ := a.Authorization(); cfg.Username != "cr" {
+		t.Fatalf("the Pacto's credentials answer first: %+v", cfg)
 	}
 }

@@ -12,4 +12,7 @@ metadata:
 immutable: true
 data:
   policy.json: {{ . | quote }}
+  {{- with include "pacto-operator.ownerPolicy.trustedRoot" $ }}
+  trusted_root.json: {{ . | quote }}
+  {{- end }}
 {{- end }}

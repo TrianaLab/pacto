@@ -117,11 +117,20 @@ upgraded with --reuse-values from 6.x has no declare key.
 {{- end }}
 
 {{/*
-The immutable owner policy ConfigMap, named after its content so only a chart
-upgrade changes what the operator mounts.
+The Sigstore trusted root owner changes are verified against: declare.trustedRoot,
+else delivery.publishers.trustedRoot; empty uses public-good Sigstore.
+*/}}
+{{- define "pacto-operator.ownerPolicy.trustedRoot" -}}
+{{- $d := .Values.declare | default dict }}
+{{- dig "trustedRoot" "" $d | default (dig "publishers" "trustedRoot" "" (.Values.delivery | default dict)) }}
+{{- end }}
+
+{{/*
+The immutable owner policy ConfigMap, named after its content (the policy and
+the trusted root) so only a chart upgrade changes what the operator mounts.
 */}}
 {{- define "pacto-operator.ownerPolicy.name" -}}
-{{- printf "%s-owner-policy-%s" (include "pacto-operator.fullname" .) (include "pacto-operator.ownerPolicy.json" . | sha256sum | trunc 10) }}
+{{- printf "%s-owner-policy-%s" (include "pacto-operator.fullname" .) (printf "%s%s" (include "pacto-operator.ownerPolicy.json" .) (include "pacto-operator.ownerPolicy.trustedRoot" .) | sha256sum | trunc 10) }}
 {{- end }}
 
 {{/*
@@ -157,6 +166,13 @@ Controller arguments derived from values
 {{- if and .Values.declare (include "pacto-operator.ownerPolicy.json" .) }}
 - --owner-policy=/etc/pacto/owner-policy/policy.json
 - --dashboard-owner-policy-configmap={{ include "pacto-operator.ownerPolicy.name" . }}
+{{- if include "pacto-operator.ownerPolicy.trustedRoot" . }}
+- --trusted-root=/etc/pacto/owner-policy/trusted_root.json
+{{- end }}
+{{- with dig "publishers" "registry" "" (.Values.delivery | default dict) }}
+- --publishers-registry={{ . }}
+- --publishers-default-branch={{ dig "publishers" "defaultBranch" "" ($.Values.delivery | default dict) | default "main" }}
+{{- end }}
 {{- end }}
 {{- if .Values.controller.stabilizationWindow }}
 - --stabilization-window={{ .Values.controller.stabilizationWindow }}

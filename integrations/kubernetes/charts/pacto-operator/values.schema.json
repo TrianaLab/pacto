@@ -1507,7 +1507,8 @@
           "type": ["object", "null"],
           "additionalProperties": { "type": ["array", "null"], "items": { "$ref": "#/$defs/ownerSignerRule" } }
         },
-        "emailIssuers": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1 } }
+        "emailIssuers": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1 } },
+        "trustedRoot": { "type": ["string", "null"], "description": "A Sigstore trusted_root.json owner changes are verified against; empty falls back to delivery.publishers.trustedRoot, else public-good Sigstore." }
       }
     },
     "zot": {

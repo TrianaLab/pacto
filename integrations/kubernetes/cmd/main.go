@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -24,6 +25,8 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/sigstore/sigstore-go/pkg/root"
+	"github.com/sigstore/sigstore-go/pkg/tuf"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -55,6 +58,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	// +kubebuilder:scaffold:imports
 )
@@ -138,7 +142,10 @@ type options struct {
 	registryPullSecret   string
 	registryPushPrefixes []string
 
-	ownerPolicy string
+	ownerPolicy        string
+	trustedRoot        string
+	publishersRegistry string
+	publishersBranch   string
 
 	zap zap.Options
 }
@@ -337,6 +344,15 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			"Published in the target snapshot; empty publishes none.")
 	fs.StringVar(&o.dashboardOwnerPolicy, "dashboard-owner-policy-configmap", "",
 		"Immutable ConfigMap in the operator namespace holding the owner policy (policy.json) the dashboard mounts.")
+	fs.StringVar(&o.trustedRoot, "trusted-root", "",
+		"File holding a Sigstore trusted root (trusted_root.json) that the signatures of an owner change must chain to. "+
+			"Empty fetches public-good Sigstore's root through TUF, caching nothing on disk.")
+	fs.StringVar(&o.publishersRegistry, "publishers-registry", "",
+		"The registry (host/org) the installation's services publish to: its derived publisher rule (the organization's "+
+			"CI on the default branch) is the only CI identity whose signed CODEOWNERS or catalog-info.yaml owner counts "+
+			"as attested when an owner change is judged. Empty: no owner is attested.")
+	fs.StringVar(&o.publishersBranch, "publishers-default-branch", "main",
+		"The default branch whose CI the derived publisher rule accepts.")
 	o.zap.BindFlags(fs)
 }
 
@@ -428,12 +444,19 @@ func main() {
 	// The settings were checked just above.
 	publishKeychain, _ := credentials.OperatorKeychain(mgr.GetAPIReader(), o.registryPullSecret, prefixes, true)
 
+	contractLoader := loader.New(loader.WithKeychain(keychain))
+	owners, err := ownerCheck(&o, contractLoader)
+	if err != nil {
+		setupLog.Error(err, "Invalid owner check settings")
+		os.Exit(1)
+	}
+
 	pactoReconciler := &controller.PactoReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder()
 		Recorder:                          mgr.GetEventRecorderFor("pacto-controller"),
-		Loader:                            loader.New(loader.WithKeychain(keychain)),
+		Loader:                            contractLoader,
 		StabilizationWindow:               o.stabilizationWindow,
 		MetricsObservation:                o.metricsObservation,
 		Probing:                           o.probing,
@@ -444,6 +467,7 @@ func main() {
 		CallerIgnoreNamespaces:            o.callerIgnoreNamespaces,
 		Scoped:                            len(o.namespaces) > 0,
 		ServiceEntries:                    servesServiceEntries(mgr),
+		Owners:                            owners,
 	}
 	if err := pactoReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Pacto")
@@ -774,6 +798,62 @@ func readOwnerPolicy(path string) *core.OwnerPolicy {
 		setupLog.Error(errors.New(why), "The owner policy is not published")
 	}
 	return p
+}
+
+// ownerCheck is what OwnerVerified judges a running bundle's owner change
+// with: the mounted owner policy, the trusted root (--trusted-root, else
+// public-good Sigstore through TUF), the publisher rule derived from
+// --publishers-registry and a registry client with each Pacto's pull
+// credentials. A trusted root file that cannot be read fails startup.
+func ownerCheck(o *options, ld *loader.Loader) (*controller.OwnerCheck, error) {
+	fetch := func() (root.TrustedMaterial, error) { return signing.PublicGoodRootReadOnly(tuf.DefaultMirror) }
+	if o.trustedRoot != "" {
+		raw, err := os.ReadFile(o.trustedRoot)
+		if err != nil {
+			return nil, err
+		}
+		tr, err := root.NewTrustedRootFromJSON(raw)
+		if err != nil {
+			return nil, fmt.Errorf("--trusted-root: %w", err)
+		}
+		fetch = func() (root.TrustedMaterial, error) { return tr, nil }
+	}
+	oc := &controller.OwnerCheck{Root: hourlyRoot(fetch), Now: time.Now,
+		PolicyFrom: "no owner policy is mounted (the chart's declare block is empty)",
+		Registry: func(auth *authn.AuthConfig) publish.Registry {
+			return publish.NewClient(ld.Keychain(auth), oci.EnvInsecureRegistries()...)
+		}}
+	if o.ownerPolicy != "" {
+		oc.Policy, oc.PolicyFrom = core.ReadOwnerPolicy(o.ownerPolicy)
+	}
+	pubs := core.PublisherConfig{Registry: o.publishersRegistry, DefaultBranch: o.publishersBranch}
+	if rule, why := pubs.Rule(); why == "" {
+		oc.Rules = []core.PublisherRule{rule}
+	}
+	return oc, nil
+}
+
+// hourlyRoot is fetch, its last good root reused for an hour: Sigstore
+// rotates keys through TUF. A failed fetch is tried again on the next call.
+// ponytail: one mutex around the fetch; owner checks are rare (a new digest
+// that changes an owner).
+func hourlyRoot(fetch func() (root.TrustedMaterial, error)) func() (root.TrustedMaterial, error) {
+	var mu sync.Mutex
+	var tm root.TrustedMaterial
+	var at time.Time
+	return func() (root.TrustedMaterial, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if tm != nil && time.Since(at) < time.Hour {
+			return tm, nil
+		}
+		got, err := fetch()
+		if err != nil {
+			return nil, err
+		}
+		tm, at = got, time.Now()
+		return tm, nil
+	}
 }
 
 // operatorOwnerRef discovers the operator's own Deployment for the ownerReferences of the managed

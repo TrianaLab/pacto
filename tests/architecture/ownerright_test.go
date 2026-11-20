@@ -15,8 +15,9 @@ import (
 var ownerRightCallers = map[string][]string{
 	// The declare-time check (pacto declare, pacto_declare, the dashboard).
 	"delivery.DecideOwnerRight(": {"internal/app/declare.go"},
-	// The fleet's owner pass over published bundles.
-	"publish.VerifyOwnerRight(": {"internal/app/ownerright.go"},
+	// The fleet's owner pass over published bundles, and the operator's
+	// OwnerVerified condition over running ones.
+	"publish.VerifyOwnerRight(": {"integrations/kubernetes/internal/controller/owner.go", "internal/app/ownerright.go"},
 }
 
 func TestOwnerRightCallers(t *testing.T) {
