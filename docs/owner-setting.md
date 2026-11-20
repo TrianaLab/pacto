@@ -91,8 +91,8 @@ carries a declaration or has a signature other than accepted CI provenance.
 It drops the owner of a version the rule refused (`OWNER_DECLARATION_REFUSED`)
 and of a version it could not check (`OWNER_DECLARATION_UNVERIFIED`, which
 makes the answer partial). The fleet reads only the versions its sources name,
-so a change it finds no earlier owner for reads as unverified. The operator
-marks a running bundle the same way with the
+so a change judged after a version it did not read reads as unverified. The
+operator marks a running bundle the same way with the
 [`OwnerVerified` condition](integrations/kubernetes/owner-policy.md#the-ownerverified-condition).
 
 An unsigned version with no declaration keeps its owner. Whoever can write to
@@ -106,7 +106,7 @@ The owner policy is the operator chart's `declare` block; see
 dashboard and `pacto mcp --owner-policy` over HTTP read it from its
 ConfigMap. `pacto declare` and `pacto mcp` over stdio read it from the signed
 target snapshots beside the registry, verified with the trust config in
-`$PACTO_DELIVERY_TRUST`. They use it only when every cluster's snapshot is
+`--delivery-trust` (default `$PACTO_DELIVERY_TRUST`). They use it only when every cluster's snapshot is
 complete, fresh, signed by a key scoped to that cluster and carries the same
 policy. Anything else (no trust config, a stale or unscoped snapshot, clusters
 that disagree) is no policy, and every owner change reads as

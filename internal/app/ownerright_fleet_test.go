@@ -266,3 +266,21 @@ func TestFleetOwnerPolicyReadsTheMount(t *testing.T) {
 		t.Fatalf("%+v %q", p, why)
 	}
 }
+
+// TestFleetUndecidedCIIsUnverified: with no installation rule read, a CI
+// signer the inferred rule did not accept may or may not publish, so its
+// owner change is unverified, never a refusal.
+func TestFleetUndecidedCIIsUnverified(t *testing.T) {
+	reg := provenanceTestRegistry(t)
+	ci := "https://github.com/other/app/.github/workflows/ci.yml@refs/heads/main"
+	_, s := keylessSigstoreFor(t, sigtest.CIToken(ci, "https://token.actions.githubusercontent.com", "https://github.com/other/app", "refs/heads/main"))
+	ref := pushSigned(t, reg, s)
+	revs := []fleet.ContractRevision{passRev("1.0.0", "payments", "", "", false), passRev("2.0.0", "billing", ref, ci, false)}
+	revs[1].Provenance.Signers[0].Class = string(delivery.ClassCI)
+	revs[1].Provenance.Signers[0].Issuer, revs[1].Provenance.Signature.Issuer = "https://token.actions.githubusercontent.com", "https://token.actions.githubusercontent.com"
+	reads := 0
+	ownerPass(reg, &reads)(t.Context(), revs)
+	if st := stamp(revs[1]); st == nil || st.Allowed || st.Code != delivery.OwnerSignerUnverified || !strings.Contains(st.Message, "no installation publisher rule") {
+		t.Fatalf("undecided CI = %+v", st)
+	}
+}

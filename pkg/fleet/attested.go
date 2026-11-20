@@ -66,13 +66,22 @@ func acceptedSignatureSource(source string) bool {
 // CIPublished reports whether p is a CI identity's publish the owner rule
 // leaves alone, like an unsigned push: a verified accept, or the accept of
 // the rule inferred where no installation rule was read (status unknown).
-// An inferred accept is never attested.
+// An inferred accept is never attested. Where no installation rule was read
+// and the inferred one did not accept, CIUndecided holds instead.
 func CIPublished(p *BundleProvenance) bool {
 	if p == nil {
 		return false
 	}
 	s := p.Signature
 	return (s.Status == SignatureVerified || (s.Status == SignatureUnknown && s.Source == "inferred")) && signerIsCI(p)
+}
+
+// CIUndecided reports whether p is signed by a CI identity no accept
+// covers, read where no installation publisher rule was (ruleRead false):
+// whether it may publish, and so set the owner as a CI publish does, is
+// unknown.
+func CIUndecided(p *BundleProvenance, ruleRead bool) bool {
+	return !ruleRead && p != nil && !CIPublished(p) && signerIsCI(p)
 }
 
 // signerIsCI reports whether the verified signer the signature names is

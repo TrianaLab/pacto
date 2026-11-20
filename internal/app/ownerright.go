@@ -192,7 +192,10 @@ func (p *ProvenanceChecker) stampOwnerRights(ctx context.Context, revs []fleet.C
 			Service: r.Service, Proposed: proposed.Owner, Current: current, Policy: pol.policy, PolicyFrom: pol.from,
 			ClassRules: p.installation(ctx).classes, Now: p.now()})
 		spent[r.Key] = ctx.Err() != nil
-		if historyMatters(v) && hist.unknownBefore(ctx, r) {
+		switch {
+		case v.Code == delivery.OwnerSignerNotPerson && fleet.CIUndecided(r.Provenance, !p.installation(ctx).inferred):
+			v = undecidedCI(r.Service)
+		case historyMatters(v) && hist.unknownBefore(ctx, r):
 			v = unreadHistory(r)
 		}
 		return &v
@@ -224,6 +227,13 @@ func historyMatters(v delivery.OwnerRight) bool {
 		return !strings.HasPrefix(v.Grant, "default-approver:")
 	}
 	return v.Code == delivery.OwnerSignerNotPerson || v.Code == delivery.OwnerSignerNotAllowed
+}
+
+// undecidedCI is the verdict on a CI publish of service no installation
+// rule judged: unverified, never a refusal built on trust nobody read.
+func undecidedCI(service string) delivery.OwnerRight {
+	return delivery.OwnerRight{WorkloadAccess: delivery.WorkloadAccess{Unverified: "no installation publisher rule judged the CI signer"}, Code: delivery.OwnerSignerUnverified,
+		Message: "the owner this version of " + service + " sets is unverified: no installation publisher rule says whether its CI signer may publish it"}
 }
 
 // unreadHistory is the verdict on r when the owner before it was not read.
