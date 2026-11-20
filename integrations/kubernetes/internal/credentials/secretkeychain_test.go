@@ -279,6 +279,16 @@ func TestPrefixKeychainNormalizesDockerHub(t *testing.T) {
 	}
 }
 
+// TestPrefixKeychainAnswersOrasDockerHubHost: ORAS resolves a docker.io
+// request's credential for registry-1.docker.io, which is Docker Hub too.
+func TestPrefixKeychainAnswersOrasDockerHubHost(t *testing.T) {
+	calls := 0
+	k := PrefixKeychain{Prefixes: []string{"docker.io/acme/pacto-targets"}, Inner: fakeCloud{calls: &calls}, AllowHostOnly: true}
+	if a, _ := k.Resolve(regOf(t, "registry-1.docker.io")); a == authn.Anonymous {
+		t.Error("registry-1.docker.io is Docker Hub")
+	}
+}
+
 func TestPrefixKeychainHostOnlyNeedsAllowHostOnly(t *testing.T) {
 	calls := 0
 	k := PrefixKeychain{Prefixes: installPrefixes, Inner: fakeCloud{calls: &calls}}

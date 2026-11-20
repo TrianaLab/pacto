@@ -165,11 +165,13 @@ func hasSubject(req *http.Request) bool {
 	return json.Unmarshal(raw, &m) == nil && m.Subject != nil && m.Subject.Digest != ""
 }
 
-// normalizeRepo lowercases the host and folds index.docker.io into docker.io.
+// normalizeRepo lowercases the host and folds index.docker.io and
+// registry-1.docker.io, the host ORAS sends a docker.io request to, into
+// docker.io.
 func normalizeRepo(repo string) string {
 	host, path, _ := strings.Cut(repo, "/")
 	host = strings.ToLower(host)
-	if host == "index.docker.io" {
+	if host == "index.docker.io" || host == "registry-1.docker.io" {
 		host = "docker.io"
 	}
 	return host + "/" + path

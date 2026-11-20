@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"oras.land/oras-go/v2/registry"
 )
 
 const (
@@ -255,4 +256,24 @@ func TestPushScopeEmptyRegistryIsReferrerOnly(t *testing.T) {
 		t.Fatalf("referrer under an empty scope: %v", err)
 	}
 	_ = resp.Body.Close()
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// TestPushScopeAllowsDockerHubTagOnOrasHost: ORAS sends a docker.io request
+// to registry-1.docker.io, so a scope over docker.io/acme must allow a tag
+// there.
+func TestPushScopeAllowsDockerHubTagOnOrasHost(t *testing.T) {
+	host := registry.Reference{Registry: "docker.io"}.Host()
+	hits := 0
+	inner := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		hits++
+		return &http.Response{StatusCode: http.StatusCreated, Body: io.NopCloser(strings.NewReader(""))}, nil
+	})
+	c := &http.Client{Transport: oci.NewPushScope("docker.io/acme").Guard(inner)}
+	if err := send(t, c, http.MethodPut, "https://"+host+"/v2/acme/pacto-targets/manifests/cluster-uid", plainManifest); err != nil || hits != 1 {
+		t.Fatalf("tag on %s: err=%v hits=%d", host, err, hits)
+	}
 }
