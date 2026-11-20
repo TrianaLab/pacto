@@ -223,3 +223,27 @@ func (g *inferredProviderGroup) item() AttentionItem {
 		NextAction: declare(),
 	}
 }
+
+// Lines is how the CLI and the TUI describe p: the shown revision, who signed
+// it (worded from its actual signature), that a range is never checked
+// against it and how much of the surface it holds.
+func (p *ExternalProvider) Lines() []string {
+	rangeLine := "range checks: unverified (" + p.RangeReason + ")"
+	if len(p.Revisions) == 0 {
+		return []string{p.Repository, rangeLine}
+	}
+	rev := p.Revisions[0]
+	head := p.Repository + ":" + rev.Version + " (" + rev.Digest + ")"
+	if p.RevisionsTotal > 1 {
+		head += ", " + strconv.Itoa(p.RevisionsTotal) + " revisions read"
+	}
+	signer := "unsigned, publisher unknown"
+	if rev.Signature != nil && rev.Signature.Source == SignatureSourceOperator {
+		signer = "signed by this installation's operator from what Pacto sees"
+	}
+	surface := "surface not shown: the record holds none, or some of its sources are outside your view"
+	if s := rev.Surface; s != nil {
+		surface = "surface: hosts " + strconv.Itoa(len(s.Hosts)) + ", ports " + strconv.Itoa(len(s.Ports)) + ", clients " + strconv.Itoa(len(s.Clients))
+	}
+	return []string{head, signer, rangeLine, surface}
+}

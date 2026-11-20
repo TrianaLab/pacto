@@ -555,12 +555,21 @@ func versionNotes(v fleet.ProviderVersion) string {
 		notes = append(notes, l)
 	}
 	if v.RangeStatus != "" {
-		notes = append(notes, v.RangeStatus)
+		notes = append(notes, rangeStatusText(v.RangeStatus, v.RangeReason))
 	}
 	if len(notes) == 0 {
 		return ""
 	}
 	return " [" + strings.Join(notes, ", ") + "]"
+}
+
+// rangeStatusText is a range status followed by the reason code that explains an
+// unknown one, such as INFERRED_PROVIDER.
+func rangeStatusText(status, reason string) string {
+	if reason != "" {
+		return status + ": " + reason
+	}
+	return status
 }
 
 // lifecycleText renders a service lifecycle, empty when there is none.
@@ -825,7 +834,7 @@ func printResource(w io.Writer, u fleet.OfferingUse) {
 func useNotes(u fleet.OfferingUse) string {
 	var s string
 	if u.RangeStatus != "" {
-		s += ", range " + u.RangeStatus
+		s += ", range " + rangeStatusText(u.RangeStatus, u.RangeReason)
 	}
 	if l := lifecycleText(u.ProviderLifecycle); l != "" {
 		s += ", provider " + l
@@ -922,6 +931,9 @@ func printFleetAttention(cmd *cobra.Command, res *fleet.AttentionList, format st
 			action := ""
 			if a := it.NextAction; a != nil {
 				action = fmt.Sprintf(" (action: %s via %s)", a.Verb, a.Tool)
+				if a.Verb == "declare" {
+					action = " (action: declare a contract with pacto declare)"
+				}
 			}
 			if it.Caller != nil {
 				action += " (inferred service " + it.Caller.Key + ")"

@@ -861,3 +861,21 @@ func TestServiceDetailOwnerProvenance(t *testing.T) {
 		t.Errorf("a declared owner is marked:\n%s", b.String())
 	}
 }
+
+// TestTUIExternalProvider: an external with an inferred contract shows the
+// CLI's lines for it.
+func TestTUIExternalProvider(t *testing.T) {
+	rec := fleet.ExternalRecord{Key: "stripe", Class: "vendor-api", Provider: &fleet.ExternalProvider{Repository: "r/pacto-inferred/stripe", RevisionsTotal: 1,
+		RangeStatus: fleet.RangeUnknown, RangeReason: fleet.RangeReasonInferredProvider,
+		Revisions: []fleet.ExternalProviderRevision{{Version: "0.0.1", Digest: "sha256:a"}}}}
+	out := renderDetail(&fleet.EntityDetail{External: &fleet.ExternalDetailData{External: rec}})
+	for _, want := range []string{"Inferred contract", "r/pacto-inferred/stripe:0.0.1 (sha256:a)", "unsigned, publisher unknown", "range checks: unverified (INFERRED_PROVIDER)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("external detail lacks %q:\n%s", want, out)
+		}
+	}
+	rec.Provider = nil
+	if out := renderDetail(&fleet.EntityDetail{External: &fleet.ExternalDetailData{External: rec}}); strings.Contains(out, "Inferred contract") {
+		t.Errorf("no provider still shows the block:\n%s", out)
+	}
+}

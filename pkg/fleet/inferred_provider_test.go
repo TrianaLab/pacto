@@ -485,3 +485,26 @@ func TestExternalRecordJSONKeepsFields(t *testing.T) {
 		}
 	}
 }
+
+// TestExternalProviderLines: the shown revision's own signature words the
+// provenance, the range line always says unverified and a dropped surface
+// says why it is missing.
+func TestExternalProviderLines(t *testing.T) {
+	sig := operatorSig().Signature
+	p := &ExternalProvider{Repository: infRepo, RevisionsTotal: 2, RangeStatus: RangeUnknown, RangeReason: RangeReasonInferredProvider,
+		Revisions: []ExternalProviderRevision{{Version: "0.0.2", Digest: "sha256:b", Surface: infSurface(), Signature: &sig}}}
+	want := []string{infRepo + ":0.0.2 (sha256:b), 2 revisions read", "signed by this installation's operator from what Pacto sees",
+		"range checks: unverified (INFERRED_PROVIDER)", "surface: hosts 1, ports 0, clients 0"}
+	if got := p.Lines(); !reflect.DeepEqual(got, want) {
+		t.Errorf("operator signed:\n%q\nwant\n%q", got, want)
+	}
+	p.RevisionsTotal, p.Revisions[0].Signature, p.Revisions[0].Surface = 1, &BundleSignature{Status: SignatureUnsigned}, nil
+	got := p.Lines()
+	if got[0] != infRepo+":0.0.2 (sha256:b)" || got[1] != "unsigned, publisher unknown" || !strings.HasPrefix(got[3], "surface not shown") {
+		t.Errorf("unsigned: %q", got)
+	}
+	p.Revisions = nil
+	if got := p.Lines(); !reflect.DeepEqual(got, []string{infRepo, "range checks: unverified (INFERRED_PROVIDER)"}) {
+		t.Errorf("no revision: %q", got)
+	}
+}
