@@ -39,6 +39,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/delivery"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/runstats"
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
@@ -130,6 +131,7 @@ func runPromoter(args []string) error {
 		"Comma-separated ValidatingAdmissionPolicies (each with a binding of the same name) the promoter trusts. "+
 			"While one is missing, fails open or is not bound with Deny to every object, no operation is admitted, "+
 			"no approval counts and every Stage is not Ready. Required: with none set, the promoter admits nothing.")
+	registry := fs.String("registry", "", registryUsage)
 	statsRepository := fs.String("stats-repository", "",
 		"A repository (host/path) the promoter publishes an unsigned run record of every concluded operation to, "+
 			"best effort. Empty records none.")
@@ -158,9 +160,7 @@ func runPromoter(args []string) error {
 	if err != nil {
 		return err
 	}
-	creds := oci.EnvCredentialOptions()
-	creds.SkipCloud = true // cluster-side: no host-wide cloud identity
-	keychain := oci.NewKeychain(creds)
+	scope, keychain := writerScope(*registry, *statsRepository)
 	insecure := oci.EnvInsecureRegistries()
 	providers, err := core.ParseProviders(*gateProviders)
 	if err != nil {
@@ -188,18 +188,19 @@ func runPromoter(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := trustSources(pubs, policy, ocireferrer.Options{Keychain: keychain, Insecure: insecure}, *records, *pubPolicy,
-		*pubPolicySigners, *recordsRepo, *pinSignerConfig, *recordTrustConfig); err != nil {
+	recordOpts := ocireferrer.Options{Keychain: keychain, Insecure: insecure, Scope: scope}
+	if err := trustSources(pubs, policy, recordOpts, *records, *pubPolicy, *pubPolicySigners,
+		*recordsRepo, *pinSignerConfig, *recordTrustConfig); err != nil {
 		return err
 	}
 	gates := delivery.NewGates(cluster, configured)
-	stats, err := addStats(mgr, *statsRepository, *statsDockerConfig, keychain, insecure, clusterID)
+	stats, err := addStats(mgr, *statsRepository, *statsDockerConfig, keychain, insecure, scope, clusterID)
 	if err != nil {
 		return err
 	}
 	if err := (&delivery.OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Workers: *workers, Gates: gates, Now: time.Now, Poll: *poll, Records: *records,
-		RecordOptions: ocireferrer.Options{Keychain: keychain, Insecure: insecure},
+		RecordOptions: recordOpts,
 		Freshness:     *authFreshness,
 		RecordedTTL:   *recordedTTL,
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
@@ -242,17 +243,30 @@ func promoterPolicy(user, identities string) (string, core.ClassPolicy, error) {
 	return user, policy, err
 }
 
+// registryUsage is the --registry help of both delivery subcommands.
+const registryUsage = "The installation registry (host/path): this component pushes only under its installation " +
+	"repositories and its own repositories, and reaches them with the cloud workload identity. Empty: only its own."
+
+// writerScope is a delivery writer's push scope over registry and repos,
+// and the keychain that reaches them with the cloud workload identity only
+// under that scope (no pull Secret: that is the operator's alone).
+func writerScope(registry string, repos ...string) (*oci.PushScope, authn.Keychain) {
+	scope := oci.NewPushScope(registry, repos...)
+	kc, _ := credentials.OperatorKeychain(nil, "", scope.Prefixes(), true) // no pull Secret: never fails
+	return scope, kc
+}
+
 // addStats runs a run record emitter when repository is set and returns its
 // Emit, or nil. A bad repository or docker config fails startup.
 func addStats(mgr manager.Manager, repository, dockerConfig string, kc authn.Keychain, insecure []string,
-	clusterID string) (func(*dv1.Operation), error) {
+	scope *oci.PushScope, clusterID string) (func(*dv1.Operation), error) {
 	if repository == "" {
 		return nil, nil
 	}
 	if err := runstats.CheckDockerConfig(dockerConfig); err != nil {
 		return nil, err
 	}
-	e, err := runstats.New(repository, runstats.Keychain(dockerConfig, kc), insecure, clusterID, version)
+	e, err := runstats.New(repository, runstats.Keychain(dockerConfig, kc), insecure, scope, clusterID, version)
 	if err != nil {
 		return nil, err
 	}
@@ -296,6 +310,7 @@ func runRecorder(args []string) error {
 	admissionPolicies := fs.String("admission-policies", "",
 		"Comma-separated ValidatingAdmissionPolicy names (each bound by a binding of the same name) that must "+
 			"guard Approvals before the recorder signs one on its creator's behalf; empty signs none.")
+	registry := fs.String("registry", "", registryUsage)
 	identities := fs.String("identities", "",
 		"The identity policy as JSON, the one the promoter reads: its approver signers are the issuers whose keyless "+
 			"approval records the recorder views. Empty views none.")
@@ -331,12 +346,10 @@ func runRecorder(args []string) error {
 	if err != nil {
 		return err
 	}
-	creds := oci.EnvCredentialOptions()
-	creds.SkipCloud = true // cluster-side: no host-wide cloud identity
-	keychain := oci.NewKeychain(creds)
-	insecure := oci.EnvInsecureRegistries()
-	store := &delivery.RecordStore{Streams: *streams, Approvals: cmp.Or(*approvals, *streams+"-approvals"), Verify: verify,
-		Options: ocireferrer.Options{Keychain: keychain, Insecure: insecure}}
+	approvalsRepo := cmp.Or(*approvals, *streams+"-approvals")
+	scope, keychain := writerScope(*registry, *streams, approvalsRepo)
+	store := &delivery.RecordStore{Streams: *streams, Approvals: approvalsRepo, Verify: verify,
+		Options: ocireferrer.Options{Keychain: keychain, Insecure: oci.EnvInsecureRegistries(), Scope: scope}}
 	cluster := delivery.Cluster{Client: mgr.GetClient()}
 	recorder := &delivery.Recorder{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster, Store: store,
 		Signer: signer, Trust: trust.Digest(), ClusterID: clusterID, Now: time.Now, Poll: *poll, GapGrace: time.Minute,

@@ -16,7 +16,7 @@ data:
   {{- /* The publisher trust config, so every client derives the rule the promoter judges with. */}}
   {{- with .Values.delivery.publishers }}
   {{- $r := $.Values.delivery.recorder }}
-  {{- $json := dict "registry" (dig "registry" "" .) "defaultBranch" (dig "defaultBranch" "" . | default "main") "policy" (dig "policy" "" .) "policySigners" (dig "policySigners" "" .) "streamsRepository" (ternary $r.streamsRepository "" $r.enabled) "pinSigner" (include "pacto-operator.delivery.pinSigner" $) "trustedRoot" (not (empty (dig "trustedRoot" "" .))) }}
+  {{- $json := dict "registry" (dig "registry" "" .) "defaultBranch" (dig "defaultBranch" "" . | default "main") "policy" (dig "policy" "" .) "policySigners" (dig "policySigners" "" .) "streamsRepository" (ternary (include "pacto-operator.delivery.streamsRepository" $) "" $r.enabled) "pinSigner" (include "pacto-operator.delivery.pinSigner" $) "trustedRoot" (not (empty (dig "trustedRoot" "" .))) }}
   publishers.json: {{ toJson $json | quote }}
   {{- end }}
 ---

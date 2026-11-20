@@ -2,7 +2,9 @@ package main
 
 import (
 	"flag"
+	iofs "io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -115,5 +117,58 @@ func TestDashboardExternalCatalogFlag(t *testing.T) {
 	}
 	if o.dashboardExternalCatalog != ref {
 		t.Errorf("dashboardExternalCatalog = %q, want %q", o.dashboardExternalCatalog, ref)
+	}
+}
+
+// registryFlags classifies every chart-rendered flag whose name holds "registry" or "repository": push (the
+// component writes there, so its repository must sit in the push scope and the push prefixes) or read (with
+// the reason).
+var registryFlags = map[string]string{
+	"registry":             "read: names the installation registry; the scope is derived from it",
+	"registry-pull-secret": "read: names the Secret that authenticates to the installation registry",
+	"registry-push-prefix": "read: describes the push scope; it writes nothing",
+	"streams-repository":   "push",
+	"approvals-repository": "push",
+	"stats-repository":     "push",
+	"publishers-registry": "read: the promoter only reads publisher signatures there; " +
+		"the pins it confirms go to the streams repository",
+	"records-repository":       "read: the promoter reads the recorder's pins from the streams repository",
+	"dashboard-stats-registry": "read: the dashboard only reads run records",
+}
+
+var registryFlagPattern = regexp.MustCompile(`--([a-z-]*(?:registry|repository)[a-z-]*)=`)
+
+// chartRegistryFlags returns every --*registry*= or --*repository*= flag in the chart templates.
+func chartRegistryFlags(t *testing.T) map[string]bool {
+	t.Helper()
+	found := map[string]bool{}
+	err := filepath.WalkDir("../charts/pacto-operator/templates", func(path string, d iofs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || (!strings.HasSuffix(path, ".yaml") && !strings.HasSuffix(path, ".tpl")) {
+			return err
+		}
+		raw, err := os.ReadFile(path)
+		for _, m := range registryFlagPattern.FindAllStringSubmatch(string(raw), -1) {
+			found[m[1]] = true
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return found
+}
+
+func TestEveryRegistryFlagIsClassified(t *testing.T) {
+	found := chartRegistryFlags(t)
+	for name := range found {
+		if r := registryFlags[name]; r != "push" && !strings.HasPrefix(r, "read: ") {
+			t.Errorf("chart flag --%s is not classified in registryFlags: push (it must render under the push "+
+				"prefixes) or read: <reason>", name)
+		}
+	}
+	for name := range registryFlags {
+		if !found[name] {
+			t.Errorf("registryFlags entry %q matches no chart flag: remove it", name)
+		}
 	}
 }

@@ -110,7 +110,7 @@ func TestStoryStatsPublishes(t *testing.T) {
 		t.Fatal(err)
 	}
 	want, _ := history(time.Now(), []string{"orders"})
-	repo, err := registry.Open(path, nil, nil)
+	repo, err := registry.Open(path, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

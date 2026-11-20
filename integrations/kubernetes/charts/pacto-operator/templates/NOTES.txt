@@ -182,7 +182,7 @@ Set delivery.publishers.registry to derive one.
 {{- if .Values.delivery.recorder.enabled }}
 
 The recorder writes a signed record of every concluded operation to
-{{ .Values.delivery.recorder.streamsRepository }} and to the versions it touched. Check that
+{{ include "pacto-operator.delivery.streamsRepository" . }} and to the versions it touched. Check that
 records are being written:
 
   kubectl get stages.delivery.pacto.trianalab.io -A -o custom-columns=NAME:.metadata.name,RECORDS:.status.conditions[?(@.type=="RecordStoreReady")].reason

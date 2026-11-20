@@ -1,8 +1,9 @@
 {{- if .Values.delivery.enabled }}
 {{- if .Values.delivery.recorder.enabled }}
 {{- $r := .Values.delivery.recorder }}
-{{- if not $r.streamsRepository }}
-{{- fail "delivery.recorder.streamsRepository is required when the recorder is enabled" }}
+{{- $streams := include "pacto-operator.delivery.streamsRepository" . }}
+{{- if not $streams }}
+{{- fail "the recorder needs a streams repository: set registry or delivery.recorder.streamsRepository" }}
 {{- end }}
 {{- $signers := 0 }}
 {{- if $r.signing.ed25519.secretName }}{{ $signers = add1 $signers }}{{ end }}
@@ -152,8 +153,11 @@ spec:
             - recorder
             - --leader-elect={{ $r.leaderElect }}
             - --poll={{ $r.poll }}
-            - {{ printf "--streams-repository=%s" $r.streamsRepository | quote }}
-            - {{ printf "--approvals-repository=%s" ($r.approvalsRepository | default (printf "%s-approvals" $r.streamsRepository)) | quote }}
+            - {{ printf "--streams-repository=%s" $streams | quote }}
+            - {{ printf "--approvals-repository=%s" (include "pacto-operator.delivery.approvalsRepository" .) | quote }}
+            {{- with .Values.registry }}
+            - {{ printf "--registry=%s" . | quote }}
+            {{- end }}
             - --admission-policies={{ include "pacto-operator.delivery.fullname" . }}-approval
             - --identities=/etc/pacto/identities/policy.json
             {{- if $r.signing.ed25519.secretName }}

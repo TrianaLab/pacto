@@ -568,7 +568,9 @@ upgrade from a release without the key rendering. Empty means cluster-wide.
 {{/*
 Every repository prefix a Pacto component may push under, as a YAML list: the
 installation repositories <registry>/pacto-targets, pacto-index and
-pacto-inferred when registry is set. Empty without registry.
+pacto-inferred when registry is set, then, with delivery on, the recorder's
+streams and approvals repositories and the promoter's stats repository, as
+set (an explicit delivery value may name any repository).
 */}}
 {{- define "pacto-operator.pushPrefixes" -}}
 {{- $out := list }}
@@ -577,7 +579,34 @@ pacto-inferred when registry is set. Empty without registry.
 {{- $out = append $out (printf "%s/%s" $.Values.registry .) }}
 {{- end }}
 {{- end }}
-{{- toYaml $out }}
+{{- if .Values.delivery.enabled }}
+{{- if .Values.delivery.recorder.enabled }}
+{{- with include "pacto-operator.delivery.streamsRepository" . }}
+{{- $out = append $out . }}
+{{- $out = append $out (include "pacto-operator.delivery.approvalsRepository" $) }}
+{{- end }}
+{{- end }}
+{{- with .Values.delivery.stats.repository }}
+{{- $out = append $out . }}
+{{- end }}
+{{- end }}
+{{- toYaml (uniq $out) }}
+{{- end }}
+
+{{/*
+The recorder's streams repository: delivery.recorder.streamsRepository, else
+<registry>/pacto-streams when registry is set, else empty.
+*/}}
+{{- define "pacto-operator.delivery.streamsRepository" -}}
+{{- .Values.delivery.recorder.streamsRepository | default (ternary (printf "%s/pacto-streams" .Values.registry) "" (not (empty .Values.registry))) }}
+{{- end }}
+
+{{/*
+The repository a person's client pushes signed approvals to:
+delivery.recorder.approvalsRepository, else <streams repository>-approvals.
+*/}}
+{{- define "pacto-operator.delivery.approvalsRepository" -}}
+{{- .Values.delivery.recorder.approvalsRepository | default (printf "%s-approvals" (include "pacto-operator.delivery.streamsRepository" .)) }}
 {{- end }}
 
 {{/*

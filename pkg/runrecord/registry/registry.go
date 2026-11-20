@@ -13,6 +13,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/registry/remote"
 
+	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/runrecord"
 )
@@ -24,8 +25,10 @@ import (
 // one, which statistics tolerate and evidence would not. The replaced index is
 // left untagged rather than deleted: GHCR and distribution's default refuse a
 // manifest DELETE, and a refused delete would fail a record already published.
-func Open(path string, kc authn.Keychain, insecure []string) (*remote.Repository, error) {
-	repo, err := ocireferrer.Open(path, ocireferrer.Options{Keychain: kc, Insecure: insecure, AllowTagFallback: true})
+// A non-nil scope refuses every write outside it (a cluster-side writer); a
+// CLI passes nil and publishes wherever its user chooses.
+func Open(path string, kc authn.Keychain, insecure []string, scope *oci.PushScope) (*remote.Repository, error) {
+	repo, err := ocireferrer.Open(path, ocireferrer.Options{Keychain: kc, Insecure: insecure, AllowTagFallback: true, Scope: scope})
 	if err != nil {
 		return nil, err
 	}

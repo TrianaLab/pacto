@@ -8,9 +8,24 @@ templates:
   - templates/secret-grants.yaml
   - templates/role.yaml
   - templates/watch-namespaces.yaml
+  - templates/crds.yaml
+  - templates/delivery/admission.yaml
+  - templates/delivery/deployment.yaml
+  - templates/delivery/fingerprints.yaml
+  - templates/delivery/identities.yaml
+  - templates/delivery/metrics.yaml
+  - templates/delivery/monitoring.yaml
+  - templates/delivery/namespace.yaml
+  - templates/delivery/publishers.yaml
+  - templates/delivery/rbac.yaml
+  - templates/delivery/recorder.yaml
 release:
   name: pacto-operator
   namespace: pacto-operator-system
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    - monitoring.coreos.com/v1/ServiceMonitor
 tests:
   - it: registry renders --registry on the controller
     template: templates/deployment.yaml
@@ -175,3 +190,183 @@ tests:
       - notContains:
           path: rules
           content: {apiGroups: [apps], resources: [daemonsets], verbs: [list]}
+
+  - it: registry alone renders no promoter, no recorder, no delivery RBAC
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/admission.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/fingerprints.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/identities.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/metrics.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/monitoring.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/namespace.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/publishers.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/rbac.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/recorder.yaml
+
+  - it: registry alone installs no delivery CRD
+    template: templates/crds.yaml
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - hasDocuments:
+          count: 3
+      - notMatchRegex:
+          path: metadata.name
+          pattern: delivery\.pacto\.trianalab\.io$
+
+  - it: registry with delivery and the recorder derives the streams repository
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.recorder.enabled: true
+      delivery.recorder.signing.kms: awskms:///alias/r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --streams-repository=ghcr.io/acme/pacto-streams
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --approvals-repository=ghcr.io/acme/pacto-streams-approvals
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry=ghcr.io/acme
+
+  - it: an explicit streamsRepository overrides the derivation
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: quay.io/other/streams
+      delivery.recorder.signing.kms: awskms:///alias/r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --streams-repository=quay.io/other/streams
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --streams-repository=ghcr.io/acme/pacto-streams
+
+  - it: every push flag is under the installation prefixes or an explicit delivery value
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.recorder.enabled: true
+      delivery.recorder.signing.kms: awskms:///alias/r
+      delivery.stats.repository: ghcr.io/acme/stats
+      delivery.publishers.registry: ghcr.io/acme
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --streams-repository=ghcr.io/acme/pacto-streams
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry=ghcr.io/acme
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --publishers-registry=ghcr.io/acme
+        template: templates/delivery/deployment.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --records-repository=ghcr.io/acme/pacto-streams
+        template: templates/delivery/deployment.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --stats-repository=ghcr.io/acme/stats
+        template: templates/delivery/deployment.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry=ghcr.io/acme
+        template: templates/delivery/deployment.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--(streams-repository|approvals-repository|stats-repository|registry|registry-push-prefix)=[^g]
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--(stats-repository|registry|records-repository|publishers-registry)=[^g]
+        template: templates/delivery/deployment.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-push-prefix=ghcr.io/acme/pacto-streams
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-push-prefix=ghcr.io/acme/pacto-streams-approvals
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-push-prefix=ghcr.io/acme/stats
+        template: templates/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-push-prefix=ghcr.io/acme
+        template: templates/deployment.yaml
+
+  - it: the recorder without registry or streamsRepository fails
+    template: templates/delivery/recorder.yaml
+    set:
+      delivery.enabled: true
+      delivery.recorder.enabled: true
+      delivery.recorder.signing.kms: awskms:///alias/r
+    asserts:
+      - failedTemplate:
+          errorPattern: "set registry or delivery.recorder.streamsRepository"
+
+  - it: push prefixes list an explicit stats repository outside registry
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.stats.repository: quay.io/other/stats
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-push-prefix=quay.io/other/stats
+
+  - it: delivery off renders no delivery push prefix
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      delivery.stats.repository: quay.io/other/stats
+      delivery.recorder.streamsRepository: quay.io/other/streams
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--registry-push-prefix=quay\.io

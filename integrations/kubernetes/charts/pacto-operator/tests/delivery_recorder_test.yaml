@@ -291,7 +291,7 @@ tests:
     template: templates/delivery/recorder.yaml
     asserts:
       - failedTemplate:
-          errorPattern: streamsRepository is required
+          errorPattern: "the recorder needs a streams repository: set registry or delivery.recorder.streamsRepository"
 
   - it: refuses no signer or two
     set:

@@ -703,7 +703,8 @@ delivery:
     # written. Upgrade the CLIs and the promoters that follow these streams first: an older reader
     # refuses an operation record that names its approvals' records.
     enabled: false
-    # -- Repository (`host/path`) that holds one anchor per Stage stream. Required when enabled.
+    # -- Repository (`host/path`) that holds one anchor per Stage stream. Defaults to
+    # `<registry>/pacto-streams` when the top-level `registry` is set; required otherwise when enabled.
     streamsRepository: ""
     # -- Repository (`host/path`) a person's client pushes signed approvals to, one anchor per Stage
     # stream. Empty is `<streamsRepository>-approvals`. Approvers need push access here and only here:
