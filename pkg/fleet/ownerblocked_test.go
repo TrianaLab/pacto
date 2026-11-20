@@ -193,3 +193,51 @@ func TestOwnerView(t *testing.T) {
 		t.Error("a revision with no bundle has a view")
 	}
 }
+
+// TestFleetCatalogDeclarationIsUnverified: a catalog root or the org index
+// pulls a declaration from a registry, which no owner pass stamped, so its
+// owner is unverified; a catalog root read from a local folder is its
+// author's own files.
+func TestFleetCatalogDeclarationIsUnverified(t *testing.T) {
+	for _, kind := range []string{"catalog", "index"} {
+		col := &Collection{Revisions: []RawRevision{ownedRaw{service: "invoices", version: "1.3.0", team: "evil", declared: true}.raw(0)}}
+		col.Revisions[0].ResolvedRef = "oci://ghcr.io/acme/invoices@sha256:abc"
+		snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource(kind, kind, col))
+		if err != nil {
+			t.Fatal(err)
+		}
+		q := NewQuery(snap)
+		if s := q.snap.Services[NewServiceKey("invoices")]; !s.Owner.IsEmpty() {
+			t.Errorf("%s: owner = %+v", kind, s.Owner)
+		}
+		if l := limitationsOf(q, LimitationOwnerDeclarationUnverified); len(l) != 1 {
+			t.Errorf("%s: limitations = %v", kind, l)
+		}
+	}
+	q := ownedFleet(t, "catalog", []ownedRaw{{service: "invoices", version: "1.0.0", team: "payments", declared: true}}, nil)
+	if s := q.snap.Services[NewServiceKey("invoices")]; s.Owner.Team != "payments" {
+		t.Errorf("local catalog owner = %+v", s.Owner)
+	}
+}
+
+// TestEntitySearchSkipsRefusedRevisionOwner: entity search reads a
+// revision's owner as the owner page does, so a refused claim never matches.
+func TestEntitySearchSkipsRefusedRevisionOwner(t *testing.T) {
+	q := ownedFleet(t, "oci", []ownedRaw{
+		{service: "invoices", version: "1.0.0", team: "payments"},
+		{service: "invoices", version: "1.3.0", team: "evil", declared: true, check: refusedCheck},
+	}, nil)
+	for _, f := range []EntityFilter{{Kinds: []EntityKind{KindRevision}, OwnerKey: "team:evil"}, {Kinds: []EntityKind{KindRevision}, Owner: "evil"}} {
+		l, err := q.Entities(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(l.Entities) != 0 {
+			t.Errorf("%+v matched %+v", f, l.Entities)
+		}
+	}
+	l, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindRevision}, OwnerKey: "team:payments"})
+	if err != nil || len(l.Entities) != 1 {
+		t.Errorf("payments revisions = %+v %v", l, err)
+	}
+}

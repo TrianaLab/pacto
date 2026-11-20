@@ -428,7 +428,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	for _, raw := range col.Revisions {
 		rev, lims := revisionFrom(raw, src.ID(), now)
 		if rev != nil {
-			rev.registryBacked = slices.Contains(registrySourceKinds, src.Kind())
+			rev.registryBacked = registryBacked(src.Kind(), rev)
 			var ingest bool
 			var declLims []Limitation
 			rev.Record, declLims, ingest = acceptDeclaration(rev, rev.Record, snap.declarationSigners)
@@ -2288,6 +2288,17 @@ func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 // registrySourceKinds are the source kinds whose revisions were published to
 // a registry, so the owner rule's verdict on them applies.
 var registrySourceKinds = []string{"oci", "cache"}
+
+// pullingSourceKinds read a revision from a registry when the resolver
+// pinned it to a digest, and from a local folder otherwise (catalog roots,
+// the org index's closure).
+var pullingSourceKinds = []string{"catalog", "index"}
+
+// registryBacked reports whether rev, read by a source of kind, was pulled
+// from a registry.
+func registryBacked(kind string, rev *ContractRevision) bool {
+	return slices.Contains(registrySourceKinds, kind) || (slices.Contains(pullingSourceKinds, kind) && rev.ResolvedRef != "")
+}
 
 // ownerBlocked is why r's owner claim is not read, "" when it is: a registry
 // revision the owner rule refused (OWNER_DECLARATION_REFUSED), or whose check

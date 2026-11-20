@@ -1135,15 +1135,16 @@ func matchEntityText(r EntityRef, text string) bool {
 // case-insensitive substring over team, DRI and contacts) that attention and the
 // rest of the product layer use - never a bare exact display-string comparison.
 // A service (and the targets that belong to it) is asked through [Query.ownerClaims],
-// so both co-owners of a disputed service can find it; a revision declares its
-// own owner and is asked directly. A source has no owner and never matches.
+// so both co-owners of a disputed service can find it; a revision is asked for
+// the claim the owner page reads ([revisionClaim]), so a claim the owner rule
+// refused never matches. A source has no owner and never matches.
 // Every reference here comes from [candidateRefs], so its key maps to a real record.
 func (q *Query) entityOwnedBy(r EntityRef, owner string) bool {
 	switch r.Kind {
 	case KindService:
 		return q.matchOwner(q.snap.Services[ServiceKey(r.Key)], owner)
 	case KindRevision:
-		return q.snap.Revisions[RevisionKey(r.Key)].Owner.MatchesFilter(owner)
+		return revisionClaim(q.snap, q.snap.Revisions[RevisionKey(r.Key)]).MatchesFilter(owner)
 	case KindTarget:
 		return q.matchOwner(q.snap.Services[ServiceKey(r.ParentService)], owner)
 	case KindOwner:
@@ -1166,7 +1167,7 @@ func (q *Query) entityOwnedByKey(r EntityRef, key string, x crossKind) bool {
 	case KindService:
 		return q.matchOwnerKey(q.snap.Services[ServiceKey(r.Key)], key)
 	case KindRevision:
-		return q.snap.Revisions[RevisionKey(r.Key)].Owner.IsKey(key)
+		return revisionClaim(q.snap, q.snap.Revisions[RevisionKey(r.Key)]).IsKey(key)
 	case KindTarget:
 		return q.matchOwnerKey(q.snap.Services[ServiceKey(r.ParentService)], key)
 	case KindOwner:
