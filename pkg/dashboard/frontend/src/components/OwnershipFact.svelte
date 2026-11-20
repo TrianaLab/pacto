@@ -26,12 +26,14 @@
 
   // unownedHref: where the two unowned states lead (the service page's own `unowned`
   // attention item). declaredIn: the revision whose owner block the service takes, where
-  // its contacts are shown; contacts are never copied onto a service.
+  // its contacts are shown; contacts are never copied onto a service. An attested owner
+  // was read from a repository file, not declared in that revision, so it gets no note:
+  // its tip already says where it was read.
   let { ownership, unownedHref = '', declaredIn = null } = $props();
   // Where the owner comes from, as a discreet mark: a declared owner shows none. An
   // attested owner's tip also says where it was read, in full (the mark wraps it).
   const provenanceText = $derived(
-    ownerProvenanceText(ownership?.provenance) + (ownership?.provenance === 'attested' && ownership?.source ? ` Source: ${ownership.source}.` : ''),
+    ownerProvenanceText(ownership?.provenance) + (ownership?.provenance === 'attested' && ownership?.source ? `. Source: ${ownership.source}.` : ''),
   );
   const unknownTitle = "Pacto could not read this service's contracts, so it cannot tell whether an owner is declared. Pacto counts it as owner unknown, never as unowned.";
 </script>
@@ -55,7 +57,7 @@
 {#if provenanceText}
   <span class="of-prov" data-testid="owner-provenance"><ProvenanceMark label="About owner provenance" text={provenanceText} /></span>
 {/if}
-{#if ownership?.declared && declaredIn}
+{#if ownership?.declared && declaredIn && ownership.provenance !== 'attested'}
   <span class="of-note of-in" data-testid="owner-declared-in" title="Its contacts are on that revision's page">Declared in <EntityLink ref={declaredIn} showStatus={false} showKind={false} /></span>
 {/if}
 

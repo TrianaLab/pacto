@@ -10,10 +10,10 @@ import { ownerProvenanceText } from '../lib/entityLabels.ts';
 
 const owner = { kind: 'owner', key: 'team:pay', label: 'pay', href: '/fleet/owners/team%3Apay' };
 
-function render(provenance?: string, source?: string) {
+function render(provenance?: string, source?: string, declaredIn: unknown = null) {
   const target = document.createElement('div');
   document.body.appendChild(target);
-  const c = mount(OwnershipFact, { target, props: { ownership: { declared: true, owner: 'pay', ref: owner, provenance, source } } });
+  const c = mount(OwnershipFact, { target, props: { declaredIn, ownership: { declared: true, owner: 'pay', ref: owner, provenance, source } } });
   flushSync();
   return { target, done: () => { unmount(c); target.remove(); } };
 }
@@ -51,10 +51,21 @@ describe('OwnershipFact owner provenance', () => {
     const marks = target.querySelectorAll('[data-testid="owner-provenance"]');
     expect(marks).toHaveLength(1);
     const tip = marks[0].querySelector('[role="note"]')?.textContent ?? '';
-    expect(tip).toBe(ownerProvenanceText('attested') + ' Source: ' + source + '.');
+    expect(tip).toBe(ownerProvenanceText('attested') + '. Source: ' + source + '.');
+    expect(tip).toContain('never clears a gate. Source: ');
     expect(tip).toContain('never clears a gate');
     expect(target.querySelectorAll('*').length).toBe(withMark);
     expect(withMark).toBeGreaterThan(base);
     done();
+  });
+
+  it('says where a declared owner was declared, never for an attested one', () => {
+    const rev = { kind: 'revision', key: 'svc@1.0.0', label: 'svc@1.0.0', href: '/fleet/revisions/svc%401.0.0' };
+    const declared = render('declared', undefined, rev);
+    expect(declared.target.querySelector('[data-testid="owner-declared-in"]')?.textContent).toContain('Declared in');
+    declared.done();
+    const attested = render('attested', 'catalog-info.yaml:7', rev);
+    expect(attested.target.querySelector('[data-testid="owner-declared-in"]')).toBeNull();
+    attested.done();
   });
 });

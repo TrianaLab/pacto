@@ -62,6 +62,9 @@ test.describe('WASM demo — attested owner', () => {
       (await (await fetch(`/api/fleet/entities/service?key=${key}`)).json()).service?.ownership, SERVICE);
     expect(ownership?.provenance).toBe('attested');
     expect(ownership?.source).toContain('catalog-info.yaml');
+    // The revision declares no owner, so the page never says the owner was declared there.
+    await expect(page.getByTestId('service-owner').getByTestId('owner-declared-in')).toHaveCount(0);
+    await expect(page.getByTestId('service-owner')).not.toContainText('Declared in');
   });
 
   test.describe('phone, touch', () => {
