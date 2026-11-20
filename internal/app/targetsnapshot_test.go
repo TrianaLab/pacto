@@ -40,7 +40,7 @@ const (
 )
 
 // snapEnv is an in-process registry holding a pacto-targets repository, and
-// the recorder key that signs its snapshots.
+// the installation key that signs its snapshots.
 type snapEnv struct {
 	repo     string
 	key      ed25519.PrivateKey

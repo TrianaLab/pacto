@@ -775,7 +775,7 @@ pacto delivery targets [flags]
 
 Signs a target snapshot document and pushes it to &lt;registry&gt;/pacto-targets:cluster-&lt;cluster&gt;. The document is the JSON predicate of delivery.pacto.trianalab.io/target-snapshot/v1: the cluster UID, its completeness and limitations, the Pacto objects as the read contract and the workloads no Pacto targets. The command sets asOf to now, the publisher to the signing key and the registry mode to the one detected on the cluster's existing tag.
 
-Production clusters publish from the delivery recorder. This command is for demos, tests and installations that build the document themselves.
+Production clusters publish from the operator once the chart's registry value is set. This command is for demos, tests and installations that build the document themselves.
 
 --key takes a PEM private key or a `pacto evidence keygen` seed. After a push the command writes &lt;key&gt;.pub.pem when it is absent; it refuses to publish while that file holds another key. A reader verifies the snapshot only with a trust entry that holds that public key and is scoped to the cluster (streams: ["&lt;cluster&gt;/*/*"]).
 

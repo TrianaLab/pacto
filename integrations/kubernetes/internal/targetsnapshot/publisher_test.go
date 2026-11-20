@@ -102,7 +102,7 @@ func fakeReader(objs ...client.Object) client.WithWatch {
 }
 
 // pushed reads the published snapshot back: the bundle verifies with the
-// recorder's key and opens as a target-snapshot statement.
+// installation key and opens as a target-snapshot statement.
 func (e *targetsEnv) pushed(t *testing.T) (core.TargetSnapshot, []byte) {
 	t.Helper()
 	bundle, _, err := deliveryrecord.FetchTargetSnapshot(context.Background(), e.p.Repo, "cluster-"+snapCluster)

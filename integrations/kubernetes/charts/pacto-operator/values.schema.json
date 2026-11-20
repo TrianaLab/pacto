@@ -316,7 +316,7 @@
     },
     "registry": {
       "type": "string",
-      "description": "The installation registry (host[/path], no scheme); the recorder publishes the target snapshot to <registry>/pacto-targets.",
+      "description": "The installation registry (host[/path], no scheme); the operator publishes the target snapshot to <registry>/pacto-targets.",
       "pattern": "^([a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)*)?$"
     },
     "registryPullSecret": {

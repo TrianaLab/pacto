@@ -21,7 +21,7 @@
 #   - nobody but the recorder can move the stream head;
 #   - every concluded operation under a Stage has exactly one unsigned run
 #     record from the promoter in the stats repository, naming no user;
-#   - the recorder publishes the cluster's signed target snapshot to
+#   - the operator publishes the cluster's signed target snapshot to
 #     pacto-targets, and pacto impact, with no kubeconfig, finds it from the
 #     provider ref and gates on it only when a key scoped to the cluster
 #     verifies it.

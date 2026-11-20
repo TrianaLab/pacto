@@ -19,8 +19,6 @@ const (
 	IndexRepository = "pacto-index"
 	// InferredRepository holds the inferred provider contracts. The operator writes it.
 	InferredRepository = "pacto-inferred"
-	// StreamsRepository holds the delivery record streams. The delivery recorder writes it.
-	StreamsRepository = "pacto-streams"
 )
 
 // maxManifestBytes bounds how much of a manifest body the push scope reads to
