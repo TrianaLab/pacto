@@ -445,21 +445,8 @@ func (s *Service) AcceptPlan(ctx context.Context, opts AcceptOptions) (*AcceptPl
 	}
 	p := &AcceptPlan{Service: string(fleet.NewServiceKeyDomain(contract.OCIDomain(repo), c.Service.Name)), Version: version, Subject: repo + "@" + dgst}
 	r := delivery.AcceptanceRecord{Service: p.Service, Version: version}
-	if opts.Break != "" {
-		r.Kind = delivery.AcceptKindBreak
-		if r.Break, p.Expires, err = acceptBreak(ctx, reg, repo, c, rec, &opts); err != nil {
-			return nil, err
-		}
-		if p.Expires == "" && opts.From != "" && !strings.HasPrefix(opts.From, contract.OCIScheme) {
-			// An undated break in a checkout expires as pacto ci and pacto
-			// impact date it: HEAD's commit time + 30 days.
-			p.Expires, _ = s.checkoutExpiry(ctx, ImpactOptions{NewPath: opts.From, Getenv: opts.Getenv})()
-		}
-	} else {
-		r.Kind = delivery.AcceptKindRanges
-		if r.Ranges, err = acceptFields(rec, opts); err != nil {
-			return nil, err
-		}
+	if err := s.planRecord(ctx, reg, repo, b, rec, &opts, p, &r); err != nil {
+		return nil, err
 	}
 	p.Kind, p.Ranges, p.Break = r.Kind, r.Ranges, r.Break
 	owner := declaredOwner(c, rec)
@@ -480,6 +467,26 @@ func (s *Service) AcceptPlan(ctx context.Context, opts AcceptOptions) (*AcceptPl
 			CLI: acceptCommand(opts, "--intent "+p.IntentDigest)}
 	}
 	return p, nil
+}
+
+// planRecord fills what r accepts: the break opts names, with its expiry
+// in p, else the ranges it selects.
+func (s *Service) planRecord(ctx context.Context, reg publish.Registry, repo string, b *contract.Bundle, rec *contract.InferredRecord, opts *AcceptOptions, p *AcceptPlan, r *delivery.AcceptanceRecord) (err error) {
+	if opts.Break == "" {
+		r.Kind = delivery.AcceptKindRanges
+		r.Ranges, err = acceptFields(rec, *opts)
+		return err
+	}
+	r.Kind = delivery.AcceptKindBreak
+	if r.Break, p.Expires, err = acceptBreak(ctx, reg, repo, b.Contract, rec, opts); err != nil {
+		return err
+	}
+	if p.Expires == "" && opts.From != "" && !strings.HasPrefix(opts.From, contract.OCIScheme) {
+		// An undated break in a checkout expires as pacto ci and pacto impact
+		// date it: HEAD's commit time + 30 days.
+		p.Expires, _ = s.checkoutExpiry(ctx, ImpactOptions{NewPath: opts.From, Getenv: opts.Getenv})()
+	}
+	return nil
 }
 
 // acceptConflict refuses a run that names two kinds of record: one record

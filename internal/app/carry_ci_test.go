@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	"github.com/trianalab/pacto/v4/pkg/signing/testutil"
@@ -181,5 +183,22 @@ func TestCIPlanUnreadableCitationIsUnverified(t *testing.T) {
 	p, _, err := e.svc.CIPlan(t.Context(), e.opts(nil))
 	if r := pubRow(t, p, "reports"); err != nil || r.Impact.Gate != "unverified" || !strings.Contains(r.Impact.Text, "carried acceptances unreadable: ") {
 		t.Fatalf("%v %+v", err, r)
+	}
+}
+
+// TestCIPlanDeclaredPublishedVersionCarriesNothing: a declared version that
+// is already published cannot change content, so an acceptance never turns
+// its unchanged row blocked; it carries with the next version.
+func TestCIPlanDeclaredPublishedVersionCarriesNothing(t *testing.T) {
+	e := newCarryCIEnv(t)
+	e.write(t, map[string]string{"reports/pacto.yaml": e.contract("reports", "1.0.0", "  owner: {team: reporting, dri: ana@acme.com}\ndependencies:\n  - name: ledger\n    required: true\n", "")})
+	p, _, err := e.svc.CIPlan(t.Context(), e.opts(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := pubRow(t, p, "reports")
+	if r.Impact.Gate == impact.GateBlocked || r.Changed != "no" || r.Accepted != 0 ||
+		!slices.Contains(r.Notes, "accepted ranges carry with the next version: bump service.version") {
+		t.Fatalf("%+v", r)
 	}
 }

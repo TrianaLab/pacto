@@ -52,6 +52,9 @@ func carryForward(ctx context.Context, st *acceptanceStore, base carryBase, loca
 	if len(res.Cited) == 0 {
 		return res, nil
 	}
+	if st.note == publicGoodNote {
+		res.Notes = append(res.Notes, publicGoodNote) // what carried was judged without the installation's issuers
+	}
 	rec, _ := contract.ReadInferredRecord(local.FS) // completion just wrote and verified it
 	if rec == nil {
 		rec = &contract.InferredRecord{Format: contract.InferredRecordFormat}
@@ -71,7 +74,8 @@ func carryForward(ctx context.Context, st *acceptanceStore, base carryBase, loca
 // carried are the carryable acceptances of the baseline, oldest first: the
 // ones its record cites, then the ones attached to it. A listing that
 // fails carries nothing new, with a note; a cited record that cannot be
-// read is an error.
+// read is an error. The public-good note is left to carryForward, which
+// adds it only when something carries.
 func carried(ctx context.Context, st *acceptanceStore, base carryBase, service string) ([]delivery.JudgedAcceptance, []string, error) {
 	rec, _ := contract.ReadInferredRecord(base.b.FS) // an unreadable record cites nothing
 	var js []delivery.JudgedAcceptance
@@ -159,6 +163,10 @@ func pinField(raw *[]byte, deps []contract.Dependency, r delivery.AcceptedRange)
 		return err.Error()
 	case bytes.Equal(out, *raw):
 		return "pacto.yaml declares " + r.Field
+	case key == "ref":
+		// A dependency with a ref needs a compatibility: unknown until a
+		// range is accepted (a declared one stays).
+		out, _ = contract.PinDependencyField(out, name, "compatibility", contract.CompatibilityUnknown)
 	}
 	*raw = out
 	for k := range deps {

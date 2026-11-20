@@ -465,7 +465,9 @@ func (pl *ciPlanner) judge(ctx context.Context, f *ciFolder, repo string, declar
 
 // carry folds the acceptances base carries into the folder's bundle, so
 // the plan judges and publish pushes the accepted fields as declared. A
-// cited acceptance that cannot be read leaves the row unverified: false.
+// declared version that is already published pins no range: its contract
+// cannot change. A cited acceptance that cannot be read leaves the row
+// unverified: false.
 func (pl *ciPlanner) carry(ctx context.Context, f *ciFolder, base carryBase) bool {
 	res, err := carryForward(ctx, pl.acceptances(), base, f.b)
 	if err != nil {
@@ -473,7 +475,13 @@ func (pl *ciPlanner) carry(ctx context.Context, f *ciFolder, base carryBase) boo
 		return false
 	}
 	f.row.Notes = append(f.row.Notes, res.Notes...)
-	if res.Bundle != f.b {
+	switch {
+	case res.Bundle == f.b:
+	case res.Pinned > 0 && f.b.Contract.Service.Version == base.version:
+		// The declared version is published: pinning a range would change
+		// its contract. The acceptance is still found on that version.
+		f.row.Notes = append(f.row.Notes, "accepted ranges carry with the next version: bump service.version")
+	default:
 		f.b, f.carried, f.row.Accepted = res.Bundle, true, res.Pinned
 		f.recordImages()
 	}

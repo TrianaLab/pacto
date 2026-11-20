@@ -225,7 +225,8 @@ func insertBeforeLine(bom, body []byte, line int, text string) []byte {
 // PinDependencyField returns raw with key declared as value on the
 // dependency called name, so an accepted field publishes as declared. A
 // dependency that already declares key leaves raw unchanged: the
-// repository wins. A block item whose first key sits on one line gets one
+// repository wins. compatibility: unknown declares no range, so it is
+// replaced in place, keeping the rest of the text. A block item whose first key sits on one line gets one
 // line inserted below it, at its indent; anything else is re-encoded,
 // keeping the BOM and the line endings. A contract with no dependency name
 // is an error.
@@ -238,10 +239,13 @@ func PinDependencyField(raw []byte, name, key, value string) ([]byte, error) {
 	if item == nil {
 		return nil, fmt.Errorf("pin dependencies[%s].%s: the contract declares no dependency %s", name, key, name)
 	}
-	if hasKey(item, key) {
-		return raw, nil
-	}
 	quoted := strconv.Quote(value) // every Go escape is a YAML double-quoted escape
+	if v := valueOf(item, key); v != nil {
+		if key != "compatibility" || v.Kind != yaml.ScalarNode || v.Value != CompatibilityUnknown || value == CompatibilityUnknown {
+			return raw, nil
+		}
+		return replaceUnknown(root, bom, body, v, value, quoted), nil
+	}
 	if first, v := item.Content[0], item.Content[1]; plainBlock(item) && v.Line == first.Line && v.Kind == yaml.ScalarNode &&
 		v.Style&(yaml.LiteralStyle|yaml.FoldedStyle) == 0 && bytes.HasSuffix(body, []byte("\n")) {
 		return insertBeforeLine(bom, body, first.Line+1, strings.Repeat(" ", first.Column-1)+key+": "+quoted), nil
@@ -249,6 +253,27 @@ func PinDependencyField(raw []byte, name, key, value string) ([]byte, error) {
 	item.Content = append(item.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value, Style: yaml.DoubleQuotedStyle})
 	return reencode(root, bom, body), nil
+}
+
+// replaceUnknown returns body with the scalar v replaced by quoted where its
+// text is plain or quoted on its own line; anything else is re-encoded with
+// v set to value.
+func replaceUnknown(root *yaml.Node, bom, body []byte, v *yaml.Node, value, quoted string) []byte {
+	lines := strings.SplitAfter(string(body), "\n")
+	text := v.Value
+	if v.Style&yaml.DoubleQuotedStyle != 0 {
+		text = `"` + text + `"`
+	} else if v.Style&yaml.SingleQuotedStyle != 0 {
+		text = "'" + text + "'"
+	}
+	// ponytail: Column counts runes; a line with a multi-byte rune before the
+	// value misses the text and is re-encoded.
+	at := len(strings.Join(lines[:v.Line-1], "")) + v.Column - 1
+	if at+len(text) <= len(body) && string(body[at:at+len(text)]) == text {
+		return slices.Concat(bom, body[:at], []byte(quoted), body[at+len(text):])
+	}
+	v.Value, v.Style, v.Tag = value, yaml.DoubleQuotedStyle, "!!str"
+	return reencode(root, bom, body)
 }
 
 // dependencyItem is the mapping of the dependency called name under top's

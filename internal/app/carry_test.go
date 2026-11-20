@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -17,6 +18,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/signing/testutil"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // bundleOf is files as a local bundle.
@@ -96,7 +98,12 @@ func TestCarryRepositoryWins(t *testing.T) {
 	r.Ranges = []delivery.AcceptedRange{{Field: "dependencies[billing].compatibility", Value: "^1.4.0"}, {Field: "dependencies[ghost].ref", Value: "oci://x/y"},
 		{Field: "service.owner", Value: "x"}}
 	ref := e.repo + "@" + e.attach(t, attachment{record: r, token: personTok("ana@acme.com"), tag: true})
-	res := e.carry(t, e.store(t))
+	files := e.reportsFiles("1.6.1", false)
+	files["pacto.yaml"] = strings.Replace(files["pacto.yaml"], "compatibility: unknown", `compatibility: "^1.0.0"`, 1)
+	res, err := carryForward(t.Context(), e.store(t), e.base(t), bundleOf(t, files))
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []string{"pacto.yaml declares dependencies[billing].compatibility; acceptance " + ref + " not applied",
 		"pin dependencies[ghost].ref: the contract declares no dependency ghost; acceptance " + ref + " not applied",
 		"service.owner is no dependency ref or compatibility; acceptance " + ref + " not applied"}
@@ -260,5 +267,52 @@ func TestImpactReadsCitedAcceptances(t *testing.T) {
 	e.failWhen(func(r *http.Request) bool { return strings.HasSuffix(r.URL.Path, "/manifests/"+m) })
 	if _, complete := e.reader(t, &fleet.FleetSnapshot{}).read(t.Context(), key); complete {
 		t.Fatal("a cited record that could not be read read complete")
+	}
+}
+
+// TestCarryPinsOverDeclaredUnknown: compatibility: unknown, as pactify and
+// pacto_create write it, declares no range, so the accepted one replaces it.
+func TestCarryPinsOverDeclaredUnknown(t *testing.T) {
+	e := newAcceptEnv(t, false)
+	r := e.rangesRecord()
+	r.Ranges = []delivery.AcceptedRange{{Field: "dependencies[billing].compatibility", Value: "^1.4.0", Proposed: "^1.4.0", Source: snapSrc}}
+	e.attach(t, attachment{record: r, token: personTok("ana@acme.com"), tag: true})
+	res := e.carry(t, e.store(t))
+	raw, _ := fs.ReadFile(res.Bundle.FS, "pacto.yaml")
+	if res.Pinned != 1 || len(res.Cited) != 1 || !strings.Contains(string(raw), "    compatibility: \"^1.4.0\"\n") || strings.Contains(string(raw), "unknown") {
+		t.Fatalf("%+v\n%s", res, raw)
+	}
+}
+
+// TestCarryRefOnlyStaysValid: a ref accepted alone pins compatibility:
+// unknown beside it, so the published pacto.yaml validates when re-read.
+func TestCarryRefOnlyStaysValid(t *testing.T) {
+	e := newAcceptEnv(t, false)
+	r := e.rangesRecord()
+	r.Ranges = []delivery.AcceptedRange{{Field: "dependencies[ledger].ref", Value: "oci://" + e.host + "/acme/ledger", Source: indexSrc}}
+	e.attach(t, attachment{record: r, token: personTok("ana@acme.com"), tag: true})
+	res := e.carry(t, e.store(t))
+	raw, _ := fs.ReadFile(res.Bundle.FS, "pacto.yaml")
+	c, err := contract.Parse(strings.NewReader(string(raw)))
+	if err != nil || res.Pinned != 1 {
+		t.Fatalf("%v %+v", err, res)
+	}
+	if vr := validation.Validate(c, raw, res.Bundle.FS); !vr.IsValid() || c.Dependencies[0].Compatibility != contract.CompatibilityUnknown {
+		t.Fatalf("%+v\n%s", vr.Errors, raw)
+	}
+}
+
+// TestCarryNotesPublicGoodJudgement: what carries under no installation
+// signer policy says it was judged with public-good issuers.
+func TestCarryNotesPublicGoodJudgement(t *testing.T) {
+	e := newAcceptEnv(t, false)
+	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
+	st := newAcceptanceStore(t.Context(), e.svc.env(), nil)
+	st.verify = e.store(t).verify // the test Sigstore stands in for public-good
+	if res := e.carry(t, st); len(res.Cited) != 1 || !slices.Contains(res.Notes, publicGoodNote) {
+		t.Fatalf("%+v", res)
+	}
+	if res := e.carry(t, e.store(t)); slices.Contains(res.Notes, publicGoodNote) {
+		t.Fatalf("an installation policy noted public-good: %+v", res.Notes)
 	}
 }
