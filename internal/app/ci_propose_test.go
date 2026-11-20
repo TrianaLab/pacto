@@ -13,10 +13,12 @@ import (
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/internal/ci"
+	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/orgindex"
 )
 
@@ -206,5 +208,41 @@ func TestCIProposesNoRefWithoutAnIndex(t *testing.T) {
 		if rec, _ := contract.ReadInferredRecord(bundles["a"].FS); rec != nil {
 			t.Fatalf("%+v: record %+v", fo, rec)
 		}
+	}
+}
+
+// TestProposeRefAmbiguousIsFinding pins why a dependency named without a ref
+// needs no INDEX_AMBIGUOUS finding: the index keeps one newest entry per tag
+// prefix, and an entry is used only under its own service's prefix. A second,
+// otherwise confirmable ledger entry written under billing's prefix is
+// refused, so the index names exactly one ledger and one ref is proposed,
+// from ledger's own tag.
+func TestProposeRefAmbiguousIsFinding(t *testing.T) {
+	e := newIdxEnv(t)
+	e.push(t, "ledger", "1.0.0", interfaceYAML, "")
+	v2 := e.push(t, "ledger", "2.0.0", interfaceYAML, IndexNone)
+	key := e.key("ledger")
+	forged := orgindex.Entry{SchemaVersion: orgindex.SchemaVersion, Service: string(key), Name: "ledger", Version: "2.0.0",
+		Bundle: e.ir.host + "/acme/ledger@" + v2.Digest}
+	payload, _ := orgindex.Encode(forged)
+	other, _ := orgindex.Tag(e.key("billing"), "2.0.0")
+	e.forge(t, ocireferrer.Build(orgindex.ArtifactType, orgindex.MediaType, payload, nil, nil), other)
+
+	candidates := indexCandidates("", e.ir.host+"/acme/reports")
+	rd := e.svc.IndexEntries(t.Context(), candidates)
+	n := 0
+	for _, en := range rd.entries {
+		if en.Service == string(key) {
+			n++
+		}
+	}
+	if n != 1 || !strings.Contains(limMessage(rd.lims, orgindex.LimitationEntryInvalid), "names another service or version") {
+		t.Fatalf("%d ledger entries used; limitations %+v", n, rd.lims)
+	}
+	refs := e.svc.indexRefs(t.Context(), candidates, e.ir.host+"/acme", []string{"ledger"})
+	tag, _ := orgindex.Tag(key, "1.0.0")
+	want := map[string]discover.Sourced{"ledger": {Value: "oci://" + e.ir.host + "/acme/ledger", Source: contract.SourceIndex + e.index() + ":" + tag}}
+	if !reflect.DeepEqual(refs, want) {
+		t.Fatalf("refs = %+v, want %+v", refs, want)
 	}
 }
