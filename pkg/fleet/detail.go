@@ -63,11 +63,14 @@ type OwnershipInfo struct {
 	Conflicts StringsPreview   `json:"conflicts"`
 	// ConflictReason says why the owners disagree, set only on a service whose
 	// current claims hold more than one owner (see [conflictReason]).
-	ConflictReason string `json:"conflictReason,omitempty" doc:"Why the owners disagree: targets run revisions that declare different owners, or two revisions of one version do. Empty when they agree"`
+	ConflictReason string `json:"conflictReason,omitempty" doc:"Why the owners disagree: targets run revisions that declare different owners, two revisions of one version do, or attested revisions were signed from different repositories. Empty when they agree"`
 	// Provenance is where a service's owner comes from
 	// ([ServiceRecord.OwnerProvenance]), set only on a service. A revision's
 	// owner is its own declaration and a target's is derived, so neither sets it.
 	Provenance string `json:"provenance,omitempty" enum:"declared,declared-via-target,attested,inferred"`
+	// Source is where an attested owner was read ([ServiceRecord.OwnerSource]),
+	// set only on a service whose owner is attested.
+	Source string `json:"source,omitempty" doc:"Where an attested owner was read: file and line, commit and the CI identity that signed it. Empty for any other provenance"`
 }
 
 // RevisionIdentity describes how a revision (or a target's contract reference)
@@ -1569,7 +1572,7 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 	paths := 0
 	for _, r := range q.snap.Revisions {
 		switch {
-		case !r.Owner.IsKey(key):
+		case !revisionClaim(q.snap, r).IsKey(key):
 		case q.goldenPath(r.ServiceKey):
 			paths++
 		default:
@@ -2365,14 +2368,16 @@ func (q *Query) entitiesFromSource(key string) []EntityRef {
 // older version names another owner, yields an empty preview.
 func serviceOwnership(snap *FleetSnapshot, s *ServiceRecord) *OwnershipInfo {
 	info := ownerInfo(s.Owner)
-	info.Provenance = s.OwnerProvenance
+	info.Provenance, info.Source = s.OwnerProvenance, s.OwnerSource
 	var conflicts []string
-	if claims := serviceOwnerClaims(snap, s); claims.len() > 1 {
+	if ownerDisputed(snap, s) {
 		// A conflict is a disagreement of IDENTITY, and it is spelled out with the
 		// namespace: a revision owned by DRI `alice` beside one owned by team
 		// `alice` would otherwise print as one owner twice.
-		for _, r := range currentOwnerRevisions(snap, s) {
-			if rk, ok := r.Owner.Key(); ok {
+		revs, t := ownerDisputeRevisions(snap, s)
+		for _, r := range revs {
+			o, _ := claimOwner(r, t)
+			if rk, ok := o.Key(); ok {
 				conflicts = append(conflicts, string(r.Key)+": "+rk.Label())
 			}
 		}
@@ -2380,6 +2385,24 @@ func serviceOwnership(snap *FleetSnapshot, s *ServiceRecord) *OwnershipInfo {
 	}
 	info.Conflicts = stringsPreview(conflicts)
 	return info
+}
+
+// ownerDisputeRevisions is the revisions behind a service's disputed owner and
+// the tier their claims are read in: every attested revision when they were
+// signed from different repositories, else [currentOwnerRevisions].
+func ownerDisputeRevisions(snap *FleetSnapshot, s *ServiceRecord) ([]*ContractRevision, claimTier) {
+	if !attestedRepositoriesDisagree(snap, s) {
+		return currentOwnerRevisions(snap, s)
+	}
+	var out []*ContractRevision
+	for _, rk := range s.Revisions {
+		if r := snap.Revisions[rk]; r != nil {
+			if _, ok := claimOwner(r, tierAttested); ok {
+				out = append(out, r)
+			}
+		}
+	}
+	return out, tierAttested
 }
 
 // ownershipUnknown reports whether Pacto cannot tell if the service declares an
@@ -2437,7 +2460,8 @@ func (q *Query) currentRevisionContent(cur *ContractRevision) (*EntityRef, Confi
 // ownerRevision is the newest revision (see [lessRevisionChrono]) that declares an
 // owner, the one [deriveOwner] takes the service owner from; nil when none does.
 func (q *Query) ownerRevision(s *ServiceRecord) *EntityRef {
-	newest := newestOwnerRevision(q.snap, s)
+	t, _ := ownerTier(q.snap, s)
+	newest := newestOwnerRevision(q.snap, s, t)
 	if newest == nil {
 		return nil
 	}

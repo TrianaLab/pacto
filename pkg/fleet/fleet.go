@@ -732,6 +732,8 @@ type ServiceRecord struct {
 	// for the classes and their precedence); empty when Owner is empty and no
 	// inferred owner exists. Owner never holds an inferred value.
 	OwnerProvenance string `json:"ownerProvenance,omitempty" enum:"declared,declared-via-target,attested,inferred"`
+	// OwnerSource is where an attested owner was read (see [AttestedOwner]).
+	OwnerSource string `json:"ownerSource,omitempty" doc:"Where an attested owner was read: file and line, commit and the CI identity that signed it. Empty for any other provenance"`
 	// OfferingProvenance says where Offering comes from: declared by a contract
 	// revision, or observed, reported only by the sources observing its targets.
 	OfferingProvenance string `json:"offeringProvenance,omitempty" enum:"declared,observed"`

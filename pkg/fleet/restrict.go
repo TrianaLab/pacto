@@ -953,7 +953,7 @@ func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord
 		restrictBusinessDomain(out, &cp)
 		restrictOffering(out, &cp)
 		// A target-only owner may have come from a hidden target.
-		cp.Owner, cp.OwnerProvenance = contract.Owner{}, ""
+		cp.Owner, cp.OwnerProvenance, cp.OwnerSource = contract.Owner{}, "", ""
 		deriveOwner(out, &cp)
 		out.Services[k] = &cp
 	}

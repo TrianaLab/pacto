@@ -815,7 +815,7 @@ func (q *Query) owners() []string {
 		}
 	}
 	for _, r := range q.snap.Revisions {
-		if o := r.Owner.KeyString(); o != "" && !q.goldenPath(r.ServiceKey) {
+		if o := revisionClaim(q.snap, r).KeyString(); o != "" && !q.goldenPath(r.ServiceKey) {
 			seen[o] = true
 		}
 	}

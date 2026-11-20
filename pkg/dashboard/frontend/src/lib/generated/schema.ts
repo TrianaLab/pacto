@@ -4465,6 +4465,8 @@ export interface components {
             owner?: components["schemas"]["Contract.Owner"];
             /** @enum {string} */
             ownerProvenance?: "declared" | "declared-via-target" | "attested" | "inferred";
+            /** @description Where an attested owner was read: file and line, commit and the CI identity that signed it. Empty for any other provenance */
+            ownerSource?: string;
             revisions?: string[] | null;
             sources?: string[] | null;
             status?: string;
@@ -6109,7 +6111,7 @@ export interface components {
             summary: components["schemas"]["Fleet.OwnerSummary"];
         };
         ProductOwnership: {
-            /** @description Why the owners disagree: targets run revisions that declare different owners, or two revisions of one version do. Empty when they agree */
+            /** @description Why the owners disagree: targets run revisions that declare different owners, two revisions of one version do, or attested revisions were signed from different repositories. Empty when they agree */
             conflictReason?: string;
             conflicts: components["schemas"]["Fleet.StringsPreview"];
             contacts?: components["schemas"]["Fleet.ContactsPreview"];
@@ -6118,6 +6120,8 @@ export interface components {
             /** @enum {string} */
             provenance?: "declared" | "declared-via-target" | "attested" | "inferred";
             ref?: components["schemas"]["ProductRef"];
+            /** @description Where an attested owner was read: file and line, commit and the CI identity that signed it. Empty for any other provenance */
+            source?: string;
             unknown?: boolean;
         };
         ProductPlacementPreview: {
