@@ -307,3 +307,48 @@ func TestImpactRunningUnreadIsBounded(t *testing.T) {
 		t.Fatalf("unread %d %q", len(u), u[len(u)-1])
 	}
 }
+
+// countingSource counts how often a snapshot build collects it.
+type countingSource struct {
+	fleet.Source
+	collects int
+}
+
+func (c *countingSource) Collect(ctx context.Context) (*fleet.Collection, error) {
+	c.collects++
+	return c.Source.Collect(ctx)
+}
+
+func TestImpactRunningBuildsTheIndexOncePerRepository(t *testing.T) {
+	e := &runEnv{}
+	for i := range 3 {
+		v, d := "1.0."+strconv.Itoa(i), "sha256:p"+strconv.Itoa(i)
+		e.col.Revisions = append(e.col.Revisions, payRev(v, d))
+		e.col.Targets = append(e.col.Targets, payTarget("pay"+strconv.Itoa(i), d))
+	}
+	counter := &countingSource{Source: fleet.NewMemorySource("count", "memory", &fleet.Collection{})}
+	e.extra = []fleet.Source{counter}
+	res := mustRun(t, e, "2.0.0", func(o *ImpactOptions) { o.Fleet.Index = "" })
+	// One build reads the fleet, one more carries the index for the three
+	// revisions of reg.example/acme/payments.
+	if len(res.Running.Refs) != 3 || counter.collects != 2 {
+		t.Fatalf("refs %v collects %d", res.Running.Refs, counter.collects)
+	}
+}
+
+func TestImpactRunningIndexRebuildError(t *testing.T) {
+	e := onePayments()
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("mem", "memory", &e.col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &mockBundleStore{PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) { return payBundle("1.0.0"), nil }}
+	dir := t.TempDir()
+	writeImpactService(t, dir, "payments", "2.0.0")
+	dup := []ObservationSourceSpec{{ID: "x"}, {ID: "x"}}
+	_, err = NewService(store, nil).ImpactRunning(context.Background(), ImpactOptions{NewPath: dir, RunningRegistries: []string{"reg.example"},
+		Fleet: FleetOptions{ObservationSources: dup}}, snap)
+	if err == nil || !strings.Contains(err.Error(), "build fleet snapshot") {
+		t.Fatalf("err %v", err)
+	}
+}

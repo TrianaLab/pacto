@@ -101,10 +101,22 @@ func (s *Service) judgeRunning(ctx context.Context, opts ImpactOptions, snap *fl
 	}
 	var worst *impact.Result
 	var judged baseline
+	// One snapshot per repository: revisions of one repository need the
+	// same index and the same rebuild.
+	prepared := map[string]preparedImpact{}
 	for _, b := range read {
 		o := opts
 		o.OldPath = cmp.Or(b.ref, opts.NewPath)
-		res, err := s.impactOnResolved(ctx, o, snap, true, b.bundle, newBundle)
+		p, ok := prepared[ociRepo(o.OldPath)]
+		if !ok {
+			var err error
+			if p, err = s.prepareImpact(ctx, o, snap, true, newBundle); err != nil {
+				return nil, err
+			}
+			prepared[ociRepo(o.OldPath)] = p
+		}
+		p.opts.OldPath = o.OldPath
+		res, err := s.analyzePrepared(ctx, p, b.bundle, newBundle)
 		if err != nil {
 			return nil, err
 		}

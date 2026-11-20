@@ -154,10 +154,29 @@ func (s *Service) ImpactOnSnapshot(ctx context.Context, opts ImpactOptions, snap
 }
 
 // impactOnResolved is [Service.ImpactOnSnapshot] with the revisions resolved.
-// With addMissing and no index source from the caller, it adds the
-// organization index (Decision 12): one rebuild carries the index and, when
-// no source holds the changed service, the new revision.
 func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, addMissing bool, oldBundle, newBundle *contract.Bundle) (*impact.Result, error) {
+	p, err := s.prepareImpact(ctx, opts, snap, addMissing, newBundle)
+	if err != nil {
+		return nil, err
+	}
+	return s.analyzePrepared(ctx, p, oldBundle, newBundle)
+}
+
+// preparedImpact is the snapshot a change is analysed over, with the options
+// and index answer that built it.
+type preparedImpact struct {
+	opts    ImpactOptions
+	snap    *fleet.FleetSnapshot
+	skipped impact.ConsumerIndex
+	added   bool
+}
+
+// prepareImpact settles the changed service's domain and, with addMissing
+// and no index source from the caller, adds the organization index
+// (Decision 12): one rebuild carries the index and, when no source holds the
+// changed service, the new revision. It reads opts.OldPath only through its
+// repository, so revisions of one repository share the answer.
+func (s *Service) prepareImpact(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, addMissing bool, newBundle *contract.Bundle) (preparedImpact, error) {
 	var skipped impact.ConsumerIndex
 	created := false
 	if opts.Fleet.indexSrc == nil && addMissing {
@@ -182,18 +201,23 @@ func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap
 	if added || created || dropped {
 		var err error
 		if snap, err = s.Fleet(ctx, withNewRevision(opts, newBundle, added)); err != nil {
-			return nil, fmt.Errorf("build fleet snapshot: %w", err)
+			return preparedImpact{}, fmt.Errorf("build fleet snapshot: %w", err)
 		}
 	}
-	ix, indexed := opts.Fleet.indexSrc.result(skipped)
-	if listed := indexed; listed != nil && len(opts.unpublished) > 0 {
-		indexed = func(k fleet.ServiceKey) bool { return listed(k) || opts.unpublished[k] }
+	return preparedImpact{opts: opts, snap: snap, skipped: skipped, added: added}, nil
+}
+
+// analyzePrepared analyses the change over p.
+func (s *Service) analyzePrepared(ctx context.Context, p preparedImpact, oldBundle, newBundle *contract.Bundle) (*impact.Result, error) {
+	ix, indexed := p.opts.Fleet.indexSrc.result(p.skipped)
+	if listed := indexed; listed != nil && len(p.opts.unpublished) > 0 {
+		indexed = func(k fleet.ServiceKey) bool { return listed(k) || p.opts.unpublished[k] }
 	}
-	res, err := s.analyzeImpact(ctx, opts, snap, oldBundle, newBundle, ix, indexed)
+	res, err := s.analyzeImpact(ctx, p.opts, p.snap, oldBundle, newBundle, ix, indexed)
 	if err != nil {
 		return nil, err
 	}
-	res.NewRevisionAdded = added
+	res.NewRevisionAdded = p.added
 	return res, nil
 }
 
