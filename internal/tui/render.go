@@ -413,6 +413,9 @@ func renderConsumer(b *strings.Builder, cons impact.AffectedConsumer) {
 	case cons.Compatibility == contract.CompatibilityUnknown:
 		compat += " (" + contract.RangeLabel(cons.Compatibility) + ")"
 	}
+	if br := cons.Break; br != nil {
+		compat += ", break " + safeText(br.State)
+	}
 	targets := fmt.Sprintf("%d targets", len(cons.Targets))
 	if len(cons.Targets) == 0 {
 		targets = dimStyle.Render("no targets")

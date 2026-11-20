@@ -127,8 +127,12 @@ checkout or a pushed oci:// ref) before it is published.
 
 The plan names every field with its value and source, who may accept (the
 service's declared owner), the acceptances already attached and the intent
-digest. Only a record a person who owns the service signs counts: a CI or
-agent signature is a proposal. This release only plans: --dry-run is required.
+digest. Without --dry-run, the record is signed and attached to that version
+in its own bundle repository with your registry credentials. Only your
+interactive Sigstore login (a browser, or a device code with --device) signs
+the record, and only a record a person who owns the service signs counts.
+Every other signer (--sign-key, an ambient OIDC token in CI) writes a draft,
+pacto-accept-draft-&lt;n&gt;, that a person accepts.
 
 ```
 pacto accept <service-ref-or-dir> [field...] [flags]
@@ -140,20 +144,31 @@ pacto accept <service-ref-or-dir> [field...] [flags]
   # Plan accepting every proposed range of reports
   pacto accept oci://ghcr.io/acme/reports --proposed --dry-run
 
-  # Plan accepting the break ledger 3.0.0 announces, before it is published
-  pacto accept ./reports --break ledger@3.0.0 --from ../ledger --dry-run
+  # Accept the plan you reviewed, signed after a Sigstore login
+  pacto accept oci://ghcr.io/acme/reports --proposed --intent sha256:...
+
+  # Accept the break ledger 3.0.0 announces, before it is published
+  pacto accept ./reports --break ledger@3.0.0 --from ../ledger
 ```
 
 **Flags:**
 
 ```
-      --break string            accept the break this provider version announces, as <provider>@<version>
-      --dry-run[=true|false]    print the plan and write nothing
-      --field stringArray       a proposed field to accept, as <key> or <key>=<range>; repeat it for more
-      --from string             the provider's checkout or oci:// ref to read an unpublished break from
-  -h, --help[=true|false]       help for accept
-      --intent string           the intent digest of the plan you reviewed: a different plan is refused
-      --proposed[=true|false]   accept every proposed dependency range
+      --break string             accept the break this provider version announces, as <provider>@<version>
+      --device[=true|false]      log in with a device code instead of a browser
+      --dry-run[=true|false]     print the plan and write nothing
+      --field stringArray        a proposed field to accept, as <key> or <key>=<range>; repeat it for more
+      --from string              the provider's checkout or oci:// ref to read an unpublished break from
+      --fulcio-url string        Fulcio to get the signing certificate from (default "https://fulcio.sigstore.dev")
+  -h, --help[=true|false]        help for accept
+      --intent string            the intent digest of the plan you reviewed: a different plan is refused
+      --oidc-client-id string    OpenID Connect client of the Sigstore login (default "sigstore")
+      --oidc-issuer-url string   OpenID Connect issuer of the Sigstore login (default "https://oauth2.sigstore.dev/auth")
+      --proposed[=true|false]    accept every proposed dependency range
+      --rekor-url string         Rekor transparency log the signature is recorded in (default "https://rekor.sigstore.dev")
+      --sign-key string          sign with this key file: a key names no person, so the run writes a draft
+      --timestamp-url string     timestamp authority to date the signature with
+      --trusted-root string      Sigstore trusted root JSON to verify with (default: public-good Sigstore)
 ```
 
 ---

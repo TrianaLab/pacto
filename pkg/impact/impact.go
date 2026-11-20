@@ -99,6 +99,9 @@ type Options struct {
 	Index *ConsumerIndex
 	// Indexed reports whether the index lists a service; nil skips both cross-checks.
 	Indexed func(fleet.ServiceKey) bool
+	// Breaks is the break the new revision announces in breaks[] and the
+	// acceptances of its consumers; nil when it announces none.
+	Breaks *BreakInput
 }
 
 // ConsumerIndex is how the organization index was read for this answer.
@@ -162,6 +165,9 @@ type AffectedConsumer struct {
 	// removed service for, bounded to MaxConsumerResources.
 	Resources      []fleet.ProvisioningStatus `json:"resources,omitempty" doc:"What this consumer asked the removed service for, one provisioning status per environment, at most 20"`
 	ResourcesTotal int                        `json:"resourcesTotal,omitempty" doc:"How many provisioning statuses there are, including those beyond the bound"`
+	// Break is where a break the new revision announces for this consumer
+	// stands; nil when it announces none for it.
+	Break *BreakState `json:"break,omitempty" doc:"Where the break the new revision announces for this consumer stands: announced, accepted (it never blocks) or expired"`
 	// policyVerdict is the verdict of checking this consumer's contract
 	// against the changed service's new policy, empty when it references no
 	// policy of it. A failed check holds the change whatever its classification.
@@ -356,6 +362,9 @@ func (r *Result) breaks(c AffectedConsumer) bool {
 		// A policy verdict is named by policyFailures: a referrer has no range.
 		verdict = c.rangeVerdict
 	}
+	if c.Break != nil && c.Break.State == BreakAccepted {
+		return false
+	}
 	return r.Classification == "BREAKING" &&
 		(verdict == CompatibilityIncompatible || len(c.Unmet) > 0) && len(c.Targets) > 0
 }
@@ -398,8 +407,8 @@ func (r *Result) gate() (string, string) {
 		return GateUnverified, "the change is BREAKING and the answer is partial, so consumers Pacto cannot see may break" + r.unmetNote() + ". " +
 			"Fix the sources named in limitations and run the analysis again"
 	}
-	inferred := r.inferredOnlyConsumers()
-	if known := len(r.Consumers) - inferred; known > 0 {
+	inferred, accepted := r.inferredOnlyConsumers(), r.acceptedConsumers()
+	if known := len(r.Consumers) - inferred - len(accepted); known > 0 {
 		n := strconv.Itoa(known) + " consumers depend"
 		if known == 1 {
 			n = "1 consumer depends"
@@ -410,6 +419,9 @@ func (r *Result) gate() (string, string) {
 	}
 	if inferred > 0 {
 		return GateUnverified, "the change is BREAKING and " + inferredNote(inferred, "")
+	}
+	if len(accepted) > 0 {
+		return GateClear, "the change is BREAKING and every consumer accepted it: " + strings.Join(accepted, ", ")
 	}
 	return GateClear, "the change is BREAKING, but no service in the complete fleet snapshot depends on " + r.Service
 }
@@ -844,6 +856,9 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	res.noteUnlisted(snap, q, changed)
 	res.hiddenReferrers = hiddenReferrers(snap.Services[changed], newBundle)
 	res.noteStaleConsumers()
+	if opts.Breaks != nil {
+		res.applyBreaks(snap, opts.Breaks, changed)
+	}
 	return res
 }
 

@@ -131,6 +131,8 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 					Traces:             traces,
 					OnResolved:         rec.hook(cmd, &revs),
 					TargetSnapshotAuto: auto,
+					Acceptances:        true,
+					Getenv:             os.Getenv,
 				})
 			}
 			if err != nil {
@@ -424,8 +426,18 @@ func printImpactConsumers(w io.Writer, result *impact.Result) {
 	}
 	_, _ = fmt.Fprintf(w, "Affected consumers (%d):\n", len(result.Consumers))
 	if result.Event == nil {
+		unaccepted, announced := 0, false
 		for _, c := range result.Consumers {
 			printImpactConsumer(w, result, c)
+			if c.Break != nil {
+				announced = true
+				if c.Break.State != impact.BreakAccepted {
+					unaccepted++
+				}
+			}
+		}
+		if announced {
+			_, _ = fmt.Fprintf(w, "Announced break: %d unaccepted %s\n", unaccepted, map[bool]string{true: "consumer", false: "consumers"}[unaccepted == 1])
 		}
 		return
 	}
@@ -463,6 +475,9 @@ func printImpactConsumer(w io.Writer, result *impact.Result, c impact.AffectedCo
 	_, _ = fmt.Fprintf(w, "  %-28s %-10s confidence=%-12s %-19s owner=%s\n",
 		c.Service, scope, c.Confidence, verdict, orDash(c.Owner))
 	_, _ = fmt.Fprintf(w, "    path: %s  provenance: %s  via: %s\n", strings.Join(c.Path, " > "), orDash(c.Provenance), orDash(strings.Join(c.Via, ",")))
+	if b := c.Break; b != nil {
+		_, _ = fmt.Fprintf(w, "    break: %s\n", breakText(c.Service, b))
+	}
 	for _, m := range c.Unmet {
 		_, _ = fmt.Fprintf(w, "    refused: %s\n", m)
 	}
@@ -482,6 +497,27 @@ func printImpactConsumer(w io.Writer, result *impact.Result, c impact.AffectedCo
 	if c.Note != "" {
 		_, _ = fmt.Fprintf(w, "    note: %s\n", c.Note)
 	}
+}
+
+// breakText says where an announced break stands for consumer.
+func breakText(consumer string, b *impact.BreakState) string {
+	var text string
+	switch {
+	case b.State == impact.BreakExpired:
+		text = "expired " + orDash(b.Expires)
+	case b.State == impact.BreakAccepted && b.By != "":
+		text = "accepted for " + consumer + " (" + b.By + ", " + b.Record + ")"
+	case b.State == impact.BreakAccepted:
+		text = "accepted for " + consumer
+	default:
+		text = "announced for " + consumer + ", not accepted"
+	}
+	for _, more := range []string{b.Reason, b.Route} {
+		if more != "" {
+			text += "; " + more
+		}
+	}
+	return text
 }
 
 // evidenceDetail says how old a target or an observed call was at asOf, or

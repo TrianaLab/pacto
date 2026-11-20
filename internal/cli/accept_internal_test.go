@@ -65,10 +65,6 @@ func TestAcceptDryRunPrintsPlan(t *testing.T) {
 	if _, _, err := runRoot(t, acceptDeps(&got, acceptPlanFixture(), nil), nil, "accept", dir, "--proposed", "--dry-run"); err != nil || got.Dir != dir || got.Ref != "" {
 		t.Fatalf("options = %+v %v", got, err)
 	}
-	// This release only plans.
-	if _, _, err := runRoot(t, acceptDeps(&got, acceptPlanFixture(), nil), nil, "accept", dir, "--proposed"); err == nil || !strings.Contains(err.Error(), "dry-run") {
-		t.Fatalf("a run without --dry-run: %v", err)
-	}
 }
 
 func TestAcceptDryRunPrintsBreak(t *testing.T) {
@@ -114,5 +110,78 @@ func TestAcceptJSONOneDocument(t *testing.T) {
 	dec := json.NewDecoder(strings.NewReader(out))
 	if err == nil || dec.Decode(&doc) != nil || dec.More() || doc["exit"] == nil || doc["refusal"].(map[string]any)["code"] != "NotPublished" {
 		t.Fatalf("err %v\n%s", err, out)
+	}
+}
+
+// acceptedDeps answers accept runs with res (or err) and keeps the options.
+func acceptedDeps(got *app.AcceptOptions, res *app.AcceptResult, err error) deps {
+	d := defaultDeps()
+	d.accept = func(_ *app.Service, _ context.Context, opts app.AcceptOptions) (*app.AcceptResult, error) {
+		*got = opts
+		return res, err
+	}
+	return d
+}
+
+func TestAcceptPrintsUX(t *testing.T) {
+	var got app.AcceptOptions
+	p := acceptPlanFixture()
+	p.Service, p.Existing, p.Notes = "ghcr.io%2Facme/reports", nil, nil
+	res := &app.AcceptResult{Plan: p, Executed: true, State: impact.AcceptCounted, Record: "ghcr.io/acme/reports@sha256:c41e0123456789abcdef",
+		Signer: app.SignerView{Subject: "ana@acme.com", Issuer: "https://accounts.google.com", Class: "human", Source: "login"}}
+	out, _, err := runRoot(t, acceptedDeps(&got, res, nil), nil, "accept", "oci://ghcr.io/acme/reports", "--proposed", "--intent", declareIntent,
+		"--sign-key", "", "--device", "--trusted-root", "root.json")
+	if err != nil || !strings.HasSuffix(out, "accepted 3 ranges for reports 1.6.0, signed by ana@acme.com (https://accounts.google.com)\nrecord ghcr.io/acme/reports@sha256:c41e01234567...\n") {
+		t.Fatalf("err %v\n%s", err, out)
+	}
+	if got.Intent != declareIntent || !got.Signing.Device || got.Signing.TrustedRoot != "root.json" || got.Signing.Prompt == nil {
+		t.Fatalf("options = %+v", got)
+	}
+	got.Signing.Prompt("open this")
+	p.Ranges = p.Ranges[:1]
+	if out, _, _ := runRoot(t, acceptedDeps(&got, res, nil), nil, "accept", "r", "--proposed"); !strings.Contains(out, "accepted 1 range for reports 1.6.0") {
+		t.Fatal(out)
+	}
+	p.Kind, p.Ranges, p.Break = delivery.AcceptKindBreak, nil, &delivery.AcceptedBreak{Provider: "ghcr.io%2Facme/ledger", Version: "3.0.0", Announcement: "sha256:aa"}
+	if out, _, _ := runRoot(t, acceptedDeps(&got, res, nil), nil, "accept", "r", "--break", "ledger@3.0.0"); !strings.Contains(out, "accepted break ledger 3.0.0 for reports, signed by ana@acme.com") {
+		t.Fatal(out)
+	}
+	// JSON is one document with the full record.
+	out, _, err = runRoot(t, acceptedDeps(&got, res, nil), nil, "accept", "r", "--break", "ledger@3.0.0", "--output-format", "json")
+	var doc map[string]any
+	if err != nil || json.Unmarshal([]byte(out), &doc) != nil || doc["record"] != res.Record {
+		t.Fatalf("%v %s", err, out)
+	}
+}
+
+func TestAcceptRoutedPrintsRoute(t *testing.T) {
+	var got app.AcceptOptions
+	res := &app.AcceptResult{Plan: acceptPlanFixture(), Executed: true, State: impact.AcceptRouted, Record: "r@sha256:ab",
+		Reason: "waiting for the owner of reports: bob@acme.com", Signer: app.SignerView{Subject: "ana@acme.com"}}
+	out, _, err := runRoot(t, acceptedDeps(&got, res, nil), nil, "accept", "r", "--proposed")
+	if err != nil || !strings.Contains(out, "routed: ana@acme.com is not the declared owner of reports; the acceptance is kept and waiting for the owner of reports: bob@acme.com\nrecord r@sha256:ab...\n") {
+		t.Fatalf("err %v\n%s", err, out)
+	}
+}
+
+func TestAcceptDraftPrintsCommand(t *testing.T) {
+	var got app.AcceptOptions
+	res := &app.AcceptResult{Plan: acceptPlanFixture(), Executed: true, Draft: "ghcr.io/acme/reports:pacto-accept-draft-1",
+		AcceptCLI: "pacto accept r --draft ghcr.io/acme/reports:pacto-accept-draft-1", Signer: app.SignerView{Class: "ci", Source: "ambient"}}
+	out, _, err := runRoot(t, acceptedDeps(&got, res, nil), nil, "accept", "r", "--proposed")
+	if err != nil || !strings.HasSuffix(out, "draft ghcr.io/acme/reports:pacto-accept-draft-1 written for the owner of reports: ana@acme.com; a person accepts it with pacto accept r --draft ghcr.io/acme/reports:pacto-accept-draft-1\n") {
+		t.Fatalf("err %v\n%s", err, out)
+	}
+}
+
+func TestAcceptRefusedPrintsCommand(t *testing.T) {
+	var got app.AcceptOptions
+	refusal := &app.DeclareError{Code: "PlanStale", Message: "the plan changed", CLI: "pacto accept r --proposed"}
+	out, _, err := runRoot(t, acceptedDeps(&got, &app.AcceptResult{Plan: acceptPlanFixture()}, refusal), nil, "accept", "r", "--proposed")
+	if err == nil || !strings.Contains(out, "intent: ") || strings.Contains(out, "accepted") {
+		t.Fatalf("err %v\n%s", err, out)
+	}
+	if _, _, err := runRoot(t, acceptedDeps(&got, nil, errors.New("boom")), nil, "accept", "r", "--proposed"); err == nil {
+		t.Fatal("an error passed")
 	}
 }

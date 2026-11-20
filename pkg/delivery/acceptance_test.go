@@ -3,9 +3,12 @@ package delivery
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/opencontainers/go-digest"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/impact"
@@ -174,5 +177,47 @@ func TestJudgedAcceptanceForImpact(t *testing.T) {
 	j.Record = acceptanceStatement(AcceptKindRanges).Predicate
 	if j.ForImpact().Break != nil {
 		t.Error("a ranges acceptance names a break")
+	}
+}
+
+func TestAcceptanceStatementRoundTrip(t *testing.T) {
+	r := acceptanceStatement(AcceptKindBreak).Predicate
+	st := NewAcceptanceStatement("reg/reports@sha256:ab", r)
+	if !reflect.DeepEqual(st, acceptanceStatement(AcceptKindBreak)) {
+		t.Fatalf("statement = %+v", st)
+	}
+	b, id, err := SignAcceptance(t.Context(), plainSigner{}, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, gotID, err := OpenAcceptance(b, func([]byte) error { return nil })
+	if err != nil || gotID != id || !reflect.DeepEqual(got, st) {
+		t.Fatalf("open = %+v %s %v", got, gotID, err)
+	}
+}
+
+func TestAcceptanceTagShape(t *testing.T) {
+	subject := digest.FromString("bundle")
+	manifest := digest.FromString("record")
+	tag := AcceptanceTag(subject, manifest)
+	if len(tag) != 90 || tag != AcceptanceTagPrefix+subject.Encoded()+"-"+manifest.Encoded()[:12] {
+		t.Fatalf("tag %q (%d)", tag, len(tag))
+	}
+}
+
+func TestSignAcceptanceDraft(t *testing.T) {
+	d := AcceptanceDraft{Record: acceptanceStatement(AcceptKindRanges).Predicate, Subject: "reg/reports@sha256:ab", OnBehalfOf: "ana"}
+	b, _, err := SignAcceptanceDraft(t.Context(), plainSigner{}, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st struct {
+		Type          string          `json:"_type"`
+		PredicateType string          `json:"predicateType"`
+		Subject       []Subject       `json:"subject"`
+		Predicate     AcceptanceDraft `json:"predicate"`
+	}
+	if _, err := openStatement(b, PredicateAcceptanceDraft, &st); err != nil || st.Predicate.OnBehalfOf != "ana" || st.Subject[0].Digest["sha256"] != "ab" {
+		t.Fatalf("%v %+v", err, st)
 	}
 }

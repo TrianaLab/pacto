@@ -46,11 +46,11 @@ func TestAcceptPlanProposed(t *testing.T) {
 	opts.Proposed = true
 	p := e.plan(t, opts)
 	want := []string{"dependencies[billing].compatibility=^1.4.0", "dependencies[ledger].compatibility=^2.3.0"}
-	if strings.Join(planFields(p), " ") != strings.Join(want, " ") || p.Kind != delivery.AcceptKindRanges || p.Service != "reports" ||
+	if strings.Join(planFields(p), " ") != strings.Join(want, " ") || p.Kind != delivery.AcceptKindRanges || p.Service != e.key("reports") ||
 		p.Version != "1.6.0" || p.Subject != e.subject || p.WhoMayAccept != "the owner of reports: ana@acme.com" || len(p.Notes) != 0 {
 		t.Fatalf("plan = %+v", p)
 	}
-	r := delivery.AcceptanceRecord{Service: "reports", Version: "1.6.0", Kind: delivery.AcceptKindRanges, Ranges: p.Ranges}
+	r := delivery.AcceptanceRecord{Service: e.key("reports"), Version: "1.6.0", Kind: delivery.AcceptKindRanges, Ranges: p.Ranges}
 	if p.IntentDigest != delivery.AcceptanceIntent(r, e.subject) || p.Ranges[0].Source != snapSrc || p.Ranges[0].Proposed != "^1.4.0" {
 		t.Fatalf("plan = %+v", p)
 	}
@@ -65,7 +65,7 @@ func TestAcceptPlanProposed(t *testing.T) {
 
 func TestAcceptPlanListsAttachedAcceptances(t *testing.T) {
 	e := newAcceptEnv(t, false)
-	e.attach(t, attachment{record: rangesRecord(), token: personTok("bob@acme.com"), tag: true})
+	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("bob@acme.com"), tag: true})
 	opts := e.trust()
 	opts.Proposed = true
 	p := e.plan(t, opts)
@@ -135,7 +135,7 @@ func TestAcceptPlanBreakFromUnpublishedProvider(t *testing.T) {
 	opts.Break, opts.From = "ledger@3.0.0", writeDir(t, ledgerFiles("3.0.0", "2026-12-31", "billing", "reports"))
 	p := e.plan(t, opts)
 	entry := contract.Break{Consumers: []string{"reports", "billing"}, Reason: "the v1 API is removed", Expires: "2026-12-31"}
-	want := delivery.AcceptedBreak{Provider: "ledger", Version: "3.0.0", Announcement: delivery.BreakAnnouncement(entry)}
+	want := delivery.AcceptedBreak{Provider: e.key("ledger"), Version: "3.0.0", Announcement: delivery.BreakAnnouncement(entry)}
 	if p.Kind != delivery.AcceptKindBreak || p.Break == nil || *p.Break != want || p.Expires != "2026-12-31" || len(p.Ranges) != 0 {
 		t.Fatalf("plan = %+v %+v", p, p.Break)
 	}
@@ -311,13 +311,13 @@ func TestRepoOf(t *testing.T) {
 func TestAcceptPlanListsBreakAcceptances(t *testing.T) {
 	e := newAcceptEnv(t, false)
 	entry := contract.Break{Consumers: []string{"reports"}, Reason: "the v1 API is removed", Expires: "2026-12-31"}
-	brk := &delivery.AcceptedBreak{Provider: "ledger", Version: "3.0.0", Announcement: delivery.BreakAnnouncement(entry)}
+	brk := &delivery.AcceptedBreak{Provider: e.key("ledger"), Version: "3.0.0", Announcement: delivery.BreakAnnouncement(entry)}
 	record := func(b *delivery.AcceptedBreak) delivery.AcceptanceRecord {
-		return delivery.AcceptanceRecord{Service: "reports", Version: "1.6.0", Kind: delivery.AcceptKindBreak, Break: b}
+		return delivery.AcceptanceRecord{Service: e.key("reports"), Version: "1.6.0", Kind: delivery.AcceptKindBreak, Break: b}
 	}
 	other := *brk
 	other.Announcement = "sha256:00"
-	e.attach(t, attachment{record: rangesRecord(), token: personTok("ana@acme.com"), tag: true})
+	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
 	e.attach(t, attachment{record: record(&other), token: personTok("ana@acme.com"), tag: true})
 	e.attach(t, attachment{record: record(brk), token: personTok("ana@acme.com"), tag: true})
 	opts := e.trust()

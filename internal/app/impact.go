@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -53,6 +54,17 @@ type ImpactOptions struct {
 	// OnResolved is called by [Service.Impact] once both revisions resolve;
 	// nil does nothing. The snapshot paths never call it.
 	OnResolved func(old, new *contract.Bundle)
+	// Acceptances reads the acceptances attached to the consumers a break
+	// in the new revision names, with this process's registry credentials:
+	// the CLI, a stdio MCP server and pacto ci set it, the dashboard and an
+	// HTTP MCP server never do.
+	Acceptances bool
+	// Signers verifies acceptances in place of the installation signer
+	// policy the fleet's provenance checker reads; nil reads that.
+	Signers *delivery.ClassPolicy
+	// Getenv reads SOURCE_DATE_EPOCH for the default expiry of an undated
+	// break in a checkout; nil reads none.
+	Getenv func(string) string
 	// unpublished are the services pacto ci reads from repository folders
 	// never published: no index can hold them, so none is reported missing.
 	unpublished map[fleet.ServiceKey]bool
@@ -301,6 +313,7 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 			NameInferredFrom: nameInferredFrom(oldBundle, newBundle),
 			Index:            ix,
 			Indexed:          indexed,
+			Breaks:           s.breakInput(ctx, opts, newBundle, snap),
 		})
 	res.TargetSnapshots = targetSnapshotStates(snap)
 	return res, nil

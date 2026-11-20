@@ -733,6 +733,8 @@ func gateCases() []gateCase {
 	failingRunning := AffectedConsumer{Service: "ref", CompatibilityVerdict: CompatibilityIncompatible, policyVerdict: CompatibilityIncompatible, Targets: []string{"prod/k8s/ref"}}
 	failingUnplaced := AffectedConsumer{Service: "ref", CompatibilityVerdict: CompatibilityIncompatible, policyVerdict: CompatibilityIncompatible}
 	unchecked := AffectedConsumer{Service: "ref", CompatibilityVerdict: CompatibilityUnknown, policyVerdict: CompatibilityUnknown}
+	accepted := active
+	accepted.Break = &BreakState{State: BreakAccepted, By: "ana@acme.com"}
 	return []gateCase{
 		{name: "non breaking", gate: GateClear, reason: "the change is NON_BREAKING", code: GateCodeNotBreaking, r: Result{Classification: "NON_BREAKING"}},
 		{name: "potential", gate: GateClear, reason: "review the potentially breaking changes by hand", code: GateCodePotentialBreaking, r: Result{Classification: "POTENTIAL_BREAKING"}},
@@ -771,6 +773,10 @@ func gateCases() []gateCase {
 			r: Result{Classification: "NON_BREAKING", Service: "api", Consumers: []AffectedConsumer{unchecked}}},
 		{name: "hidden referrers", gate: GateUnverified, reason: "2 services you may not see may reference api", code: GateCodePolicyUnchecked,
 			r: Result{Classification: "NON_BREAKING", Service: "api", hiddenReferrers: 2}},
+		{name: "every consumer accepted", gate: GateClear, reason: "the change is BREAKING and every consumer accepted it: web (signed by ana@acme.com)", code: GateCodeBreakingAccepted,
+			r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{accepted}}},
+		{name: "one consumer accepted", gate: GateUnverified, reason: "1 consumer depends on api", code: GateCodeConsumersUnchecked,
+			r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{accepted, paper}}},
 		{name: "both", gate: GateBlocked, reason: "do not accept api 2.0.0: web", code: GateCodeConsumersIncompatible,
 			r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Consumers: []AffectedConsumer{active, failingRunning}}},
 	}

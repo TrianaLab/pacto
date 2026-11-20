@@ -17,6 +17,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing/testutil"
@@ -50,19 +51,34 @@ func newAcceptEnv(t *testing.T, referrers bool) *acceptEnv {
 	e := &acceptEnv{prov: p}
 	p.failWhen(func(r *http.Request) bool {
 		e.mu.Lock()
-		defer e.mu.Unlock()
 		e.paths = append(e.paths, r.Method+" "+r.URL.Path)
-		return e.fail != nil && e.fail(r)
+		fail := e.fail
+		e.mu.Unlock()
+		return fail != nil && fail(r)
 	})
 	e.declareEnv = &declareEnv{host: p.host, reg: p.client, ss: testutil.New(t),
 		svc: &Service{sys: sysDeps{publishRegistry: func() publish.Registry { return p.client }, now: func() time.Time { return acceptNow },
 			refusalRepo: func(path string) (*remote.Repository, error) {
 				return ocireferrer.Open(path, ocireferrer.Options{Keychain: anonymous})
 			}}}}
+	e.root = filepath.Join(t.TempDir(), "trusted_root.json")
+	if err := os.WriteFile(e.root, e.ss.RootJSON, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	e.repo = p.host + "/acme/reports"
 	e.digest = e.publishBundle(t, e.repo, "1.6.0", e.reportsFiles("1.6.0", true), nil)
 	e.subject = e.repo + "@" + e.digest
 	return e
+}
+
+// key is the fleet key of name in the env's registry domain.
+func (e *acceptEnv) key(name string) string {
+	return string(fleet.NewServiceKeyDomain(e.host+"/acme", name))
+}
+
+// signing is how the test person signs: the test Sigstore.
+func (e *acceptEnv) signing() declareSigning {
+	return declareSigning{TrustedRoot: e.root, FulcioURL: e.ss.Fulcio, TimestampURL: e.ss.TSA}
 }
 
 // failWhen fails every request f matches; nil fails none.
@@ -160,8 +176,8 @@ func (e *acceptEnv) trust() AcceptOptions {
 }
 
 // rangesRecord accepts ledger's proposed range for reports 1.6.0.
-func rangesRecord() delivery.AcceptanceRecord {
-	return delivery.AcceptanceRecord{Service: "reports", Version: "1.6.0", Kind: delivery.AcceptKindRanges,
+func (e *acceptEnv) rangesRecord() delivery.AcceptanceRecord {
+	return delivery.AcceptanceRecord{Service: e.key("reports"), Version: "1.6.0", Kind: delivery.AcceptKindRanges,
 		Ranges: []delivery.AcceptedRange{{Field: "dependencies[ledger].compatibility", Value: "^2.3.0", Proposed: "^2.3.0", Source: snapSrc}}}
 }
 
@@ -213,7 +229,7 @@ func (e *acceptEnv) attach(t *testing.T, a attachment) string {
 	art := ocireferrer.Build(cmp.Or(a.artifactType, delivery.AcceptanceArtifactType), delivery.AcceptanceArtifactType, bundle, subj, nil)
 	if a.tag {
 		_, tagHex, _ := strings.Cut(cmp.Or(a.tagOf, manifest), ":")
-		err = ocireferrer.PushWriteOnce(ctx, repo, art, acceptanceTagPrefix+tagHex+"-"+art.ManifestDesc.Digest.Encoded()[:12])
+		err = ocireferrer.PushWriteOnce(ctx, repo, art, delivery.AcceptanceTagPrefix+tagHex+"-"+art.ManifestDesc.Digest.Encoded()[:12])
 	} else {
 		err = ocireferrer.Push(ctx, repo, art)
 	}

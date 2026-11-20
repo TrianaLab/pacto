@@ -26,7 +26,7 @@ func (e *acceptEnv) store(t *testing.T) *acceptanceStore {
 // query reads reports 1.6.0's acceptances, owned by ana, stopping at any
 // counted record.
 func (e *acceptEnv) query() acceptanceQuery {
-	return acceptanceQuery{Subject: e.subject, Repo: e.repo, Service: "reports", Version: "1.6.0",
+	return acceptanceQuery{Subject: e.subject, Repo: e.repo, Service: e.key("reports"), Version: "1.6.0",
 		Owner: contract.Owner{DRI: "ana@acme.com"}, Wants: func(impact.Acceptance) bool { return true }}
 }
 
@@ -53,8 +53,8 @@ func hasNote(notes []string, s string) bool {
 
 func TestReadAcceptancesBothForms(t *testing.T) {
 	e := newAcceptEnv(t, true)
-	e.attach(t, attachment{record: rangesRecord(), token: personTok("bob@acme.com")})
-	tagged := e.attach(t, attachment{record: rangesRecord(), token: personTok("ana@acme.com"), tag: true})
+	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("bob@acme.com")})
+	tagged := e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
 	q := e.query()
 	q.Wants = func(impact.Acceptance) bool { return false }
 	got, notes := e.read(t, e.store(t), q)
@@ -67,7 +67,7 @@ func TestReadAcceptancesBothForms(t *testing.T) {
 	}
 	// Without the Referrers API the tags are the whole answer.
 	e = newAcceptEnv(t, false)
-	e.attach(t, attachment{record: rangesRecord(), token: personTok("ana@acme.com"), tag: true})
+	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
 	if got, _ := e.read(t, e.store(t), e.query()); !slices.Equal(states(got), []string{impact.AcceptCounted}) {
 		t.Fatalf("tags only: %v", states(got))
 	}
@@ -75,7 +75,7 @@ func TestReadAcceptancesBothForms(t *testing.T) {
 
 func TestForgedUnsignedAcceptanceIgnored(t *testing.T) {
 	e := newAcceptEnv(t, false)
-	e.attach(t, attachment{record: rangesRecord(), tag: true})
+	e.attach(t, attachment{record: e.rangesRecord(), tag: true})
 	got, notes := e.read(t, e.store(t), e.query())
 	if len(got) != 0 || !hasNote(notes, "it does not verify") {
 		t.Fatalf("read %v %v", states(got), notes)
@@ -85,14 +85,14 @@ func TestForgedUnsignedAcceptanceIgnored(t *testing.T) {
 func TestAcceptanceForOtherSubjectIgnored(t *testing.T) {
 	e := newAcceptEnv(t, true)
 	older := e.publishBundle(t, e.repo, "1.5.0", e.reportsFiles("1.5.0", false), nil)
-	e.attach(t, attachment{record: rangesRecord(), token: personTok("ana@acme.com"), statement: older})
-	r := rangesRecord()
+	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), statement: older})
+	r := e.rangesRecord()
 	r.Version = "1.5.0"
 	e.attach(t, attachment{record: r, token: personTok("ana@acme.com")})
 	r.Version, r.Service = "1.6.0", "billing"
 	e.attach(t, attachment{record: r, token: personTok("ana@acme.com")})
 	got, notes := e.read(t, e.store(t), e.query())
-	if len(got) != 0 || !hasNote(notes, "names another subject") || !hasNote(notes, "accepts for reports 1.5.0") || !hasNote(notes, "accepts for billing 1.6.0") {
+	if len(got) != 0 || !hasNote(notes, "names another subject") || !hasNote(notes, "accepts for "+e.key("reports")+" 1.5.0") || !hasNote(notes, "accepts for billing 1.6.0") {
 		t.Fatalf("read %v %v", states(got), notes)
 	}
 }
@@ -100,7 +100,7 @@ func TestAcceptanceForOtherSubjectIgnored(t *testing.T) {
 func TestAcceptanceTagCopiedToOtherSubjectIgnored(t *testing.T) {
 	e := newAcceptEnv(t, false)
 	older := e.publishBundle(t, e.repo, "1.5.0", e.reportsFiles("1.5.0", false), nil)
-	r := rangesRecord()
+	r := e.rangesRecord()
 	r.Version = "1.5.0"
 	e.attach(t, attachment{record: r, token: personTok("ana@acme.com"), tag: true, manifest: older, tagOf: e.digest})
 	got, notes := e.read(t, e.store(t), e.query())
@@ -111,12 +111,12 @@ func TestAcceptanceTagCopiedToOtherSubjectIgnored(t *testing.T) {
 
 func TestAcceptanceTagSuffixMismatchIgnored(t *testing.T) {
 	e := newAcceptEnv(t, false)
-	d := e.attach(t, attachment{record: rangesRecord(), token: personTok("ana@acme.com"), tag: true})
+	d := e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
 	_, hex, _ := strings.Cut(e.digest, ":")
-	if err := e.reg.Tag(t.Context(), e.repo, d, acceptanceTagPrefix+hex+"-000000000000"); err != nil {
+	if err := e.reg.Tag(t.Context(), e.repo, d, delivery.AcceptanceTagPrefix+hex+"-000000000000"); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.reg.Tag(t.Context(), e.repo, d, acceptanceTagPrefix+hex+"-short"); err != nil {
+	if err := e.reg.Tag(t.Context(), e.repo, d, delivery.AcceptanceTagPrefix+hex+"-short"); err != nil {
 		t.Fatal(err)
 	}
 	q := e.query()
@@ -142,7 +142,7 @@ func TestAcceptanceOnForeignHostNeverRead(t *testing.T) {
 
 func TestOversizedAcceptanceNeverDownloaded(t *testing.T) {
 	e := newAcceptEnv(t, true)
-	big := e.attach(t, attachment{record: rangesRecord(), token: personTok("ana@acme.com"), pad: delivery.MaxAcceptanceBytes})
+	big := e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), pad: delivery.MaxAcceptanceBytes})
 	e.reset()
 	got, notes := e.read(t, e.store(t), e.query())
 	if len(got) != 0 || !hasNote(notes, "its record is larger than") {
@@ -153,7 +153,7 @@ func TestOversizedAcceptanceNeverDownloaded(t *testing.T) {
 	}
 	// A manifest over 4 KiB is never fetched either.
 	e = newAcceptEnv(t, true)
-	r := rangesRecord()
+	r := e.rangesRecord()
 	r.Ranges[0].Source = strings.Repeat("x", 5000)
 	e.attach(t, attachment{record: r, token: personTok("ana@acme.com")})
 	if got, notes := e.read(t, e.store(t), e.query()); len(got) != 1 || len(notes) != 0 {
@@ -175,7 +175,7 @@ func TestOversizedAcceptanceManifestNeverFetched(t *testing.T) {
 func TestReadAcceptancesBounded(t *testing.T) {
 	e := newAcceptEnv(t, false)
 	for i := range delivery.MaxAcceptances + 1 {
-		r := rangesRecord()
+		r := e.rangesRecord()
 		r.Ranges[0].Value = strings.Repeat("^", i+1)
 		e.attach(t, attachment{record: r, tag: true, artifactType: "application/vnd.example.other"})
 	}
@@ -188,11 +188,11 @@ func TestReadAcceptancesBounded(t *testing.T) {
 func TestAcceptanceFloodDoesNotHideCountedRecord(t *testing.T) {
 	e := newAcceptEnv(t, true)
 	for i := range delivery.MaxAcceptances + 1 {
-		r := rangesRecord()
+		r := e.rangesRecord()
 		r.Ranges[0].Value = strings.Repeat("^", i+1)
 		e.attach(t, attachment{record: r, tag: true, detached: true})
 	}
-	e.attach(t, attachment{record: rangesRecord(), token: personTok("ana@acme.com")})
+	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com")})
 	got, notes := e.read(t, e.store(t), e.query())
 	if !slices.Equal(states(got), []string{impact.AcceptCounted}) || hasNote(notes, AcceptancesTruncated) {
 		t.Fatalf("read %v %v", states(got), notes)
@@ -201,7 +201,7 @@ func TestAcceptanceFloodDoesNotHideCountedRecord(t *testing.T) {
 
 func TestAcceptanceListingMemoized(t *testing.T) {
 	e := newAcceptEnv(t, false)
-	e.attach(t, attachment{record: rangesRecord(), token: personTok("ana@acme.com"), tag: true})
+	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
 	st := e.store(t)
 	e.read(t, st, e.query())
 	first := e.requests("/tags/list")
@@ -214,7 +214,7 @@ func TestAcceptanceListingMemoized(t *testing.T) {
 func TestCIClaimCertificateFromUnlistedIssuerIsProposal(t *testing.T) {
 	e := newAcceptEnv(t, false)
 	swapPublicGood(t, e.ss.Root, nil)
-	e.attach(t, attachment{record: rangesRecord(), tag: true,
+	e.attach(t, attachment{record: e.rangesRecord(), tag: true,
 		token: testutil.CIToken("https://gitlab.example.com/acme/reports//.gitlab-ci.yml@refs/heads/main", "https://gitlab.example.com", "https://gitlab.example.com/acme/reports", "refs/heads/main")})
 	q := e.query()
 	q.Owner = contract.Owner{DRI: "https://gitlab.example.com/acme/reports//.gitlab-ci.yml@refs/heads/main"}
@@ -235,7 +235,7 @@ func swapPublicGood(t *testing.T, tm root.TrustedMaterial, err error) {
 func TestNoSignerPolicyNote(t *testing.T) {
 	e := newAcceptEnv(t, false)
 	swapPublicGood(t, e.ss.Root, nil)
-	e.attach(t, attachment{record: rangesRecord(), token: personTok("ana@acme.com"), tag: true})
+	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
 	for name, trust := range map[string]func(context.Context) (Installation, error){
 		"no reader":  nil,
 		"unreadable": func(context.Context) (Installation, error) { return Installation{}, errors.New("no cluster") },
@@ -255,7 +255,7 @@ func TestNoSignerPolicyNote(t *testing.T) {
 
 func TestAcceptanceSignedOutsidePolicyIgnored(t *testing.T) {
 	e := newAcceptEnv(t, false)
-	e.attach(t, attachment{record: rangesRecord(), token: testutil.Token("ana@acme.com", "https://other.example"), tag: true})
+	e.attach(t, attachment{record: e.rangesRecord(), token: testutil.Token("ana@acme.com", "https://other.example"), tag: true})
 	got, notes := e.read(t, e.store(t), e.query())
 	if len(got) != 0 || !hasNote(notes, "not signed by a certificate from "+personIssuer) {
 		t.Fatalf("read %v %v", states(got), notes)
@@ -264,11 +264,13 @@ func TestAcceptanceSignedOutsidePolicyIgnored(t *testing.T) {
 
 func TestReadAcceptancesRegistryFailures(t *testing.T) {
 	e := newAcceptEnv(t, false)
-	e.attach(t, attachment{record: rangesRecord(), token: personTok("ana@acme.com"), tag: true})
+	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
 	for name, fail := range map[string]func(*http.Request) bool{
 		"subject": func(r *http.Request) bool { return strings.HasSuffix(r.URL.Path, "/manifests/"+e.digest) },
 		"listing": func(r *http.Request) bool { return strings.HasSuffix(r.URL.Path, "/tags/list") },
-		"tag":     func(r *http.Request) bool { return strings.Contains(r.URL.Path, "/manifests/"+acceptanceTagPrefix) },
+		"tag": func(r *http.Request) bool {
+			return strings.Contains(r.URL.Path, "/manifests/"+delivery.AcceptanceTagPrefix)
+		},
 		"manifest": func(r *http.Request) bool {
 			return r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/manifests/sha256:")
 		},
@@ -292,7 +294,7 @@ func TestAcceptanceTagGoneIgnored(t *testing.T) {
 	e := newAcceptEnv(t, false)
 	_, hex, _ := strings.Cut(e.digest, ":")
 	st := e.store(t)
-	tag := acceptanceTagPrefix + hex + "-000000000000"
+	tag := delivery.AcceptanceTagPrefix + hex + "-000000000000"
 	st.listings[e.repo+"@"+e.digest] = []acceptanceCandidate{{name: tag, tag: tag}}
 	got, notes := e.read(t, st, e.query())
 	if len(got) != 0 || !hasNote(notes, "listed and is gone") {

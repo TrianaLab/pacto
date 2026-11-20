@@ -4871,6 +4871,8 @@ export interface components {
             };
         };
         "Impact.AffectedConsumer": {
+            /** @description Where the break the new revision announces for this consumer stands: announced, accepted (it never blocks) or expired */
+            break?: components["schemas"]["Impact.BreakState"];
             compatibility?: string;
             compatibilityVerdict: string;
             confidence: string;
@@ -4907,6 +4909,23 @@ export interface components {
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;
             /** @description The edge types that make this service a consumer: dependency, configuration_reference, policy_reference, observed or inferred (named by the consumer's inferred record, never with a known verdict) */
             via?: string[] | null;
+        };
+        "Impact.BreakState": {
+            /** @description Who signed the counted acceptance */
+            by?: string;
+            /** @description When the announcement expires (YYYY-MM-DD); empty when none is recorded */
+            expires?: string;
+            /** @description Why the break is not accepted, in plain words */
+            reason?: string;
+            /** @description Where the counted acceptance is: <repository>@sha256:<hex> */
+            record?: string;
+            /** @description Who may accept for the consumer, when an acceptance waits for its owner */
+            route?: string;
+            /**
+             * @description announced: the provider announces the break and nothing accepts it; accepted: the consumer's declared owner signed a counted acceptance, or its ranges admit the new version; expired: the announcement expired or records no expiry
+             * @enum {string}
+             */
+            state: "announced" | "accepted" | "expired";
         };
         "Impact.ChangesPreview": {
             /** Format: int64 */

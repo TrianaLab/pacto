@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/semver"
 	"github.com/trianalab/pacto/v4/pkg/signing"
@@ -35,9 +37,6 @@ const (
 	// maxAcceptanceManifest is the largest acceptance manifest a reader
 	// fetches; the record layer is bounded by delivery.MaxAcceptanceBytes.
 	maxAcceptanceManifest = 4 << 10
-	// acceptanceTagPrefix starts every write-once acceptance tag:
-	// pacto-accept-<subject hex>-<12 hex of the manifest digest>.
-	acceptanceTagPrefix = "pacto-accept-"
 	// AcceptancesTruncated says the bound was reached before a counted
 	// record was found: the answer reads unverified, never accepted.
 	AcceptancesTruncated = "ACCEPTANCES_TRUNCATED"
@@ -206,7 +205,7 @@ func (st *acceptanceStore) candidates(ctx context.Context, repo *remote.Reposito
 	if err != nil {
 		return nil, err
 	}
-	descs, tags, err := ocireferrer.Attached(ctx, repo, subject, acceptanceTagPrefix+subject.Digest.Encoded()+"-")
+	descs, tags, err := ocireferrer.Attached(ctx, repo, subject, delivery.AcceptanceTagPrefix+subject.Digest.Encoded()+"-")
 	if err != nil {
 		return nil, err
 	}
@@ -334,6 +333,11 @@ type AcceptOptions struct {
 	From     string
 	Intent   string
 	Trust    func(context.Context) (Installation, error)
+	// Signing is how Accept signs: 513-S3's declare signer, where only a
+	// person's interactive login signs the record and every other signer
+	// writes a draft on behalf of OnBehalfOf.
+	Signing    declareSigning
+	OnBehalfOf string
 }
 
 // AcceptPlan is what pacto accept would sign: the record for Service at
@@ -351,6 +355,11 @@ type AcceptPlan struct {
 	Existing     []impact.Acceptance      `json:"existing,omitempty"`
 	Notes        []string                 `json:"notes,omitempty"`
 	IntentDigest string                   `json:"intentDigest"`
+	// owner, repo and record are who may accept, the accepting service's
+	// bundle repository and the record the plan would sign.
+	owner  contract.Owner
+	repo   string
+	record delivery.AcceptanceRecord
 }
 
 // AcceptPlan plans one pacto accept run against the accepting service's
@@ -371,11 +380,11 @@ func (s *Service) AcceptPlan(ctx context.Context, opts AcceptOptions) (*AcceptPl
 	if err != nil {
 		return nil, fmt.Errorf("the inferred record of %s:%s: %w", repo, version, err)
 	}
-	p := &AcceptPlan{Service: string(fleet.NewServiceKeyDomain(c.Service.Domain, c.Service.Name)), Version: version, Subject: repo + "@" + dgst}
+	p := &AcceptPlan{Service: string(fleet.NewServiceKeyDomain(contract.OCIDomain(repo), c.Service.Name)), Version: version, Subject: repo + "@" + dgst}
 	r := delivery.AcceptanceRecord{Service: p.Service, Version: version}
 	if opts.Break != "" {
 		r.Kind = delivery.AcceptKindBreak
-		if r.Break, p.Expires, err = acceptBreak(ctx, reg, c, rec, &opts); err != nil {
+		if r.Break, p.Expires, err = acceptBreak(ctx, reg, repo, c, rec, &opts); err != nil {
 			return nil, err
 		}
 	} else {
@@ -386,7 +395,8 @@ func (s *Service) AcceptPlan(ctx context.Context, opts AcceptOptions) (*AcceptPl
 	}
 	p.Kind, p.Ranges, p.Break = r.Kind, r.Ranges, r.Break
 	owner := declaredOwner(c, rec)
-	p.WhoMayAccept, _ = delivery.OwnerRoute(p.Service, owner)
+	p.WhoMayAccept, _ = delivery.OwnerRoute(c.Service.Name, owner)
+	p.owner, p.repo, p.record = owner, repo, r
 	judged, notes, err := newAcceptanceStore(ctx, env, opts.Trust).readAcceptances(ctx, acceptanceQuery{Subject: p.Subject, Repo: repo,
 		Service: p.Service, Version: version, Owner: owner, Expires: sameBreakExpiry(r.Break, p.Expires), Wants: wantsSame(r.Break)})
 	if err != nil {
@@ -538,7 +548,7 @@ func acceptField(proposals map[string]contract.Inferred, arg string) (delivery.A
 // acceptBreak reads the break opts.Break names (<provider>@<version>) from
 // that provider version, published or in opts.From, and returns what the
 // record names and the break's expiry ("" when none is recorded).
-func acceptBreak(ctx context.Context, reg publish.Registry, c *contract.Contract, rec *contract.InferredRecord, opts *AcceptOptions) (*delivery.AcceptedBreak, string, error) {
+func acceptBreak(ctx context.Context, reg publish.Registry, repo string, c *contract.Contract, rec *contract.InferredRecord, opts *AcceptOptions) (*delivery.AcceptedBreak, string, error) {
 	i := strings.LastIndex(opts.Break, "@")
 	if i <= 0 || i == len(opts.Break)-1 {
 		return nil, "", fmt.Errorf("--break takes <provider>@<version>, not %q", opts.Break)
@@ -547,7 +557,8 @@ func acceptBreak(ctx context.Context, reg publish.Registry, c *contract.Contract
 	notAnnounced := func(msg string) error {
 		return &DeclareError{Code: codeBreakNotAnnounced, Message: msg, CLI: acceptCommand(*opts, "--from <checkout of "+name+" "+version+">")}
 	}
-	pb, bundle, err := breakSource(ctx, reg, providerRepo(c, rec, name), name, version, opts.From)
+	prepo := providerRepo(c, rec, name)
+	pb, bundle, err := breakSource(ctx, reg, prepo, name, version, opts.From)
 	if err != nil || pb == nil {
 		return nil, "", cmp.Or(err, notAnnounced(name+" "+version+" is not published and no --from names its checkout or a pushed ref"))
 	}
@@ -557,7 +568,9 @@ func acceptBreak(ctx context.Context, reg publish.Registry, c *contract.Contract
 	for k, b := range pb.Contract.Breaks {
 		if slices.Contains(b.Consumers, c.Service.Name) {
 			prec, _ := contract.ReadInferredRecord(pb.FS) // an unreadable record proposes no expiry
-			return &delivery.AcceptedBreak{Provider: string(fleet.NewServiceKeyDomain(pb.Contract.Service.Domain, name)), Version: version,
+			// A dependency by name resolves in the consumer's domain.
+			provider := fleet.NewServiceKeyDomain(contract.OCIDomain(cmp.Or(prepo, repo)), name)
+			return &delivery.AcceptedBreak{Provider: string(provider), Version: version,
 				Announcement: delivery.BreakAnnouncement(b), Bundle: bundle}, cmp.Or(b.Expires, recordedExpiry(prec, k)), nil
 		}
 	}
@@ -651,4 +664,168 @@ func wantsSame(b *delivery.AcceptedBreak) func(impact.Acceptance) bool {
 		}
 		return *a.Break == impact.BreakRef{Provider: b.Provider, Version: b.Version, Announcement: b.Announcement}
 	}
+}
+
+// acceptanceDraftPrefix starts every acceptance draft tag.
+const acceptanceDraftPrefix = delivery.AcceptanceDraftTagPrefix
+
+// writeAcceptance attaches the signed acceptance bundle to subject in repo:
+// a native referrer the Referrers API lists, else a write-once tag. It
+// returns where the record is (<repo>@sha256:<hex>). dgst is the subject's
+// manifest digest.
+func (s *Service) writeAcceptance(ctx context.Context, repo, dgst string, bundle []byte) (string, error) {
+	r, err := s.env().refusalRepo(repo)
+	if err != nil {
+		return "", err
+	}
+	subject, err := r.Resolve(ctx, dgst)
+	if err != nil {
+		return "", fmt.Errorf("reading %s@%s: %w", repo, dgst, err)
+	}
+	art := ocireferrer.Build(delivery.AcceptanceArtifactType, delivery.AcceptanceArtifactType, bundle, &subject, nil)
+	caps, err := ocireferrer.Probes.Probe(ctx, r, subject.Digest.String(), false)
+	switch {
+	case err != nil:
+		return "", fmt.Errorf("probing %s: %w", repo, err)
+	case caps.Referrers == capabilities.ReferrersNative:
+		if err = ocireferrer.Push(ctx, r, art); err == nil {
+			err = ocireferrer.Confirm(ctx, r, subject, art.ManifestDesc)
+		}
+	default:
+		err = ocireferrer.PushWriteOnce(ctx, r, art, delivery.AcceptanceTag(subject.Digest, art.ManifestDesc.Digest))
+	}
+	if err != nil {
+		return "", fmt.Errorf("writing the acceptance to %s: %w", repo, err)
+	}
+	return repo + "@" + art.ManifestDesc.Digest.String(), nil
+}
+
+// writeAcceptanceDraft writes d to repo under the next free
+// pacto-accept-draft-<n> tag and returns that tag: signed by signer, or
+// unsigned when it is nil. A number another run took meanwhile is retried
+// once at the next one; a second loss is VersionConflict.
+func (s *Service) writeAcceptanceDraft(ctx context.Context, repo string, d delivery.AcceptanceDraft, signer *signing.Signer) (string, error) {
+	r, err := s.env().refusalRepo(repo)
+	if err != nil {
+		return "", err
+	}
+	payload, _ := json.Marshal(d) // plain data; marshalling cannot fail
+	layer := delivery.AcceptanceDraftArtifactType
+	if signer != nil {
+		if payload, _, err = delivery.SignAcceptanceDraft(ctx, signer, d); err != nil {
+			return "", fmt.Errorf("signing the acceptance draft: %w", err)
+		}
+		layer = delivery.BundleMediaType
+	}
+	tags, err := ocireferrer.Tags(ctx, r, acceptanceDraftPrefix)
+	if err != nil {
+		return "", fmt.Errorf("listing the acceptance drafts in %s: %w", repo, err)
+	}
+	art := ocireferrer.Build(delivery.AcceptanceDraftArtifactType, layer, payload, nil, nil)
+	n := publish.NextDraft(tags, acceptanceDraftPrefix)
+	for try := n; try <= n+1; try++ {
+		tag := acceptanceDraftPrefix + strconv.Itoa(try)
+		if err = ocireferrer.PushWriteOnce(ctx, r, art, tag); !errors.Is(err, ocireferrer.ErrTagTaken) {
+			return tag, err
+		}
+	}
+	return "", &DeclareError{Code: codeVersionConflict, Message: "another run took " + acceptanceDraftPrefix + strconv.Itoa(n) + " and the next draft number in " + repo + ": " + err.Error()}
+}
+
+// AcceptResult is what pacto accept did: the plan it carried out, who
+// signed, and either the record it attached with how it is judged, or the
+// draft it wrote and the command a person accepts it with.
+type AcceptResult struct {
+	Plan      *AcceptPlan `json:"plan,omitempty"`
+	Executed  bool        `json:"executed"`
+	Signer    SignerView  `json:"signer"`
+	Record    string      `json:"record,omitempty"`
+	State     string      `json:"state,omitempty"`
+	Reason    string      `json:"reason,omitempty"`
+	Draft     string      `json:"draft,omitempty"`
+	AcceptCLI string      `json:"acceptCli,omitempty"`
+}
+
+// Accept plans opts and carries it out. Only a person's interactive Sigstore
+// login signs the acceptance, checked to be signed by exactly that person
+// before anything is written; every other signer (a key, an ambient token)
+// writes the next pacto-accept-draft-<n> a person accepts. Both go to the
+// accepting service's own bundle repository with the caller's credentials.
+func (s *Service) Accept(ctx context.Context, opts AcceptOptions) (*AcceptResult, error) {
+	p, err := s.AcceptPlan(ctx, opts)
+	res := &AcceptResult{Plan: p}
+	if err != nil {
+		return res, err
+	}
+	sign := opts.Signing
+	if sign.Policy == nil {
+		sign.Policy = installationSigners(ctx, opts.Trust)
+	}
+	c, err := s.declareSigner(ctx, sign, false)
+	if err != nil {
+		return res, err
+	}
+	res.Signer = SignerView{Subject: c.Identity.Subject, Issuer: c.Identity.Issuer, Class: string(c.Class), Source: c.Source, Why: c.Why}
+	r := p.record
+	r.Intent = p.IntentDigest
+	if !c.MayDeclare {
+		return res, s.draftAcceptance(ctx, res, r, c, opts)
+	}
+	return res, s.signAcceptance(ctx, res, r, c, sign.Rules)
+}
+
+// installationSigners is the installation signer policy trust reads, nil
+// when it reads none: then nobody is refused before signing.
+func installationSigners(ctx context.Context, trust func(context.Context) (Installation, error)) *delivery.ClassPolicy {
+	if trust == nil {
+		return nil
+	}
+	in, err := trust(ctx)
+	if err != nil || len(in.Signers) == 0 {
+		return nil
+	}
+	return &delivery.ClassPolicy{Signers: in.Signers}
+}
+
+// signAcceptance signs r as the person c logged in as, checks the bundle is
+// signed by exactly that person, attaches it to the plan's subject and
+// judges it as readers will.
+func (s *Service) signAcceptance(ctx context.Context, res *AcceptResult, r delivery.AcceptanceRecord, c signerChoice, rules []delivery.SignerClassRule) error {
+	p := res.Plan
+	st := delivery.NewAcceptanceStatement(p.Subject, r)
+	bundle, _, err := delivery.SignAcceptance(ctx, c.Signer, st)
+	if err != nil {
+		return err
+	}
+	got, _, err := signing.VerifyKeyless(bundle, c.Signer.Root)
+	if err == nil {
+		err = sameSigner(c.Identity, []delivery.PublisherIdentity{got})
+	}
+	if err != nil {
+		return &DeclareError{Code: codeSignerUnverified, Message: "nothing was written: " + err.Error()}
+	}
+	_, dgst, _ := strings.Cut(p.Subject, "@")
+	if res.Record, err = s.writeAcceptance(ctx, p.repo, dgst, bundle); err != nil {
+		return err
+	}
+	res.Executed = true
+	res.State, res.Reason = delivery.JudgeAcceptance(st, got, rules, p.owner, p.Expires, s.env().now())
+	return nil
+}
+
+// draftAcceptance writes r as an acceptance draft signed by c (unsigned
+// when c has no signer), on behalf of opts.OnBehalfOf.
+func (s *Service) draftAcceptance(ctx context.Context, res *AcceptResult, r delivery.AcceptanceRecord, c signerChoice, opts AcceptOptions) error {
+	p := res.Plan
+	var signer *signing.Signer
+	if c.Source != signerNone {
+		signer = &c.Signer
+	}
+	tag, err := s.writeAcceptanceDraft(ctx, p.repo, delivery.AcceptanceDraft{Record: r, Subject: p.Subject, OnBehalfOf: opts.OnBehalfOf, Asker: askerOf(c)}, signer)
+	if err != nil {
+		return err
+	}
+	res.Executed, res.Draft = true, p.repo+":"+tag
+	res.AcceptCLI = "pacto accept " + cmp.Or(opts.Dir, opts.Ref) + " --draft " + res.Draft
+	return nil
 }

@@ -19,6 +19,7 @@ const (
 	GateCodeNotBreaking       = "NOT_BREAKING"
 	GateCodePotentialBreaking = "POTENTIAL_BREAKING"
 	GateCodeNoConsumers       = "NO_CONSUMERS"
+	GateCodeBreakingAccepted  = "BREAKING_ACCEPTED"
 )
 
 // GateCode is the stable reason code of the gate of a contract change answer,
@@ -48,8 +49,10 @@ func (r *Result) GateCode() string {
 		return GateCodeServiceNameInferred
 	case r.Completeness != fleet.CompletenessComplete:
 		return GateCodeAnswerPartial
-	case len(r.Consumers) > 0:
+	case len(r.Consumers) > len(r.acceptedConsumers()):
 		return GateCodeConsumersUnchecked
+	case len(r.Consumers) > 0:
+		return GateCodeBreakingAccepted
 	}
 	return GateCodeNoConsumers
 }

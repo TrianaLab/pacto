@@ -1,13 +1,17 @@
 package delivery
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/opencontainers/go-digest"
+
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
@@ -17,8 +21,20 @@ import (
 const (
 	PredicateAcceptance    = "delivery.pacto.trianalab.io/acceptance/v1"
 	AcceptanceArtifactType = "application/vnd.pacto.acceptance.v1+json"
-	AcceptKindRanges       = "ranges"
-	AcceptKindBreak        = "break"
+	// AcceptanceDraftArtifactType is an acceptance a person has not signed
+	// yet: an agent, CI or a key wrote it on someone's behalf.
+	AcceptanceDraftArtifactType = "application/vnd.pacto.acceptance-draft.v1+json"
+	// PredicateAcceptanceDraft is a signed acceptance draft: its signer asks,
+	// it decides nothing.
+	PredicateAcceptanceDraft = "delivery.pacto.trianalab.io/acceptance-draft/v1"
+	// AcceptanceTagPrefix starts every write-once acceptance tag:
+	// pacto-accept-<subject hex>-<12 hex of the manifest digest>.
+	AcceptanceTagPrefix = "pacto-accept-"
+	// AcceptanceDraftTagPrefix starts every acceptance draft tag,
+	// pacto-accept-draft-<n>: never an acceptance tag, whose next part is hex.
+	AcceptanceDraftTagPrefix = "pacto-accept-draft-"
+	AcceptKindRanges         = "ranges"
+	AcceptKindBreak          = "break"
 	// MaxAcceptances is the most acceptance records a reader opens per
 	// subject; MaxAcceptanceBytes the largest record layer it fetches.
 	MaxAcceptances     = 50
@@ -65,6 +81,53 @@ type AcceptanceStatement struct {
 	Subject       []Subject        `json:"subject"`
 	PredicateType string           `json:"predicateType"`
 	Predicate     AcceptanceRecord `json:"predicate"`
+}
+
+// NewAcceptanceStatement builds the statement accepting r on subject
+// (<repository>@sha256:<hex>).
+func NewAcceptanceStatement(subject string, r AcceptanceRecord) AcceptanceStatement {
+	repo, dgst, _ := strings.Cut(subject, "@")
+	algo, hex, _ := strings.Cut(dgst, ":")
+	return AcceptanceStatement{Type: StatementType, Subject: []Subject{{Name: repo, Digest: map[string]string{algo: hex}}},
+		PredicateType: PredicateAcceptance, Predicate: r}
+}
+
+// SignAcceptance signs st and returns the bundle and its id, as SignRecord does.
+func SignAcceptance(ctx context.Context, s Signer, st AcceptanceStatement) (bundle []byte, id string, err error) {
+	return signStatement(ctx, s, st)
+}
+
+// AcceptanceTag is the write-once tag of the acceptance manifest attached to
+// subject, where the registry serves no Referrers API: the prefix, the
+// subject's hex and 12 hex of the manifest digest (OCI tags stop at 128
+// characters).
+func AcceptanceTag(subject, manifest digest.Digest) string {
+	return AcceptanceTagPrefix + subject.Encoded() + "-" + manifest.Encoded()[:12]
+}
+
+// AcceptanceDraft is an acceptance nobody who may decide has signed: the
+// record it would sign, the subject, who it is on behalf of and who asked (the signer of
+// the draft, empty when it is unsigned). The intent digest binds the record
+// to Subject, so the person accepting it signs exactly this. A person accepts it with
+// pacto accept --draft.
+type AcceptanceDraft struct {
+	Record AcceptanceRecord `json:"record"`
+	// Subject is the bundle the record accepts for (<repository>@sha256:<hex>).
+	Subject    string                  `json:"subject"`
+	OnBehalfOf string                  `json:"onBehalfOf,omitempty"`
+	Asker      contract.InferredSigner `json:"asker"`
+}
+
+// SignAcceptanceDraft signs d as an in-toto statement whose subject is the
+// bundle d accepts for, and returns the bundle and its id.
+func SignAcceptanceDraft(ctx context.Context, s Signer, d AcceptanceDraft) (bundle []byte, id string, err error) {
+	st := NewAcceptanceStatement(d.Subject, AcceptanceRecord{})
+	return signStatement(ctx, s, struct {
+		Type          string          `json:"_type"`
+		Subject       []Subject       `json:"subject"`
+		PredicateType string          `json:"predicateType"`
+		Predicate     AcceptanceDraft `json:"predicate"`
+	}{st.Type, st.Subject, PredicateAcceptanceDraft, d})
 }
 
 // OpenAcceptance verifies an acceptance bundle with verify and returns its
@@ -125,7 +188,8 @@ func JudgeAcceptance(st AcceptanceStatement, signer PublisherIdentity, rules []S
 		return impact.AcceptProposal, fmt.Sprintf("signed by %s, a %s signer (%s): a proposal until a person accepts it", signer.Subject, class, by)
 	}
 	if !ownerMatches(owner, signer.Subject) {
-		route, declared := OwnerRoute(st.Predicate.Service, owner)
+		_, name := fleet.ParseServiceKey(fleet.ServiceKey(st.Predicate.Service))
+		route, declared := OwnerRoute(name, owner)
 		if declared {
 			route = "waiting for " + route
 		}

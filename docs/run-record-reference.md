@@ -226,6 +226,7 @@ actor, approver, note, message, citation or correlation id.
 | `NOT_BREAKING` | `clear` |
 | `POTENTIAL_BREAKING` | `clear` |
 | `NO_CONSUMERS` | `clear` |
+| `BREAKING_ACCEPTED` | `clear` |
 
 ## Context fields
 

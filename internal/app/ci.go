@@ -14,6 +14,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -53,6 +54,9 @@ type CIOptions struct {
 	// TargetSnapshotAuto reads the target snapshot beside the registry the
 	// plan reads (D8) when Fleet names no target input, as pacto impact does.
 	TargetSnapshotAuto bool
+	// Signers verifies the acceptances of announced breaks in place of the
+	// installation signer policy; nil reads that.
+	Signers *delivery.ClassPolicy
 }
 
 // firstVersion is the version an undeclared service.version starts at.
@@ -729,7 +733,8 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 			opts.OnResolved(f.row.Service)(f.base, f.b)
 		}
 		// The rebuild that adds the index keeps the planned revisions.
-		io := ImpactOptions{OldPath: "oci://" + f.row.Repository + "@" + f.row.BaselineDigest, NewPath: f.dir, Domain: contract.OCIDomain(f.row.Repository), Fleet: withChanges, unpublished: unpublished}
+		io := ImpactOptions{OldPath: "oci://" + f.row.Repository + "@" + f.row.BaselineDigest, NewPath: f.dir, Domain: contract.OCIDomain(f.row.Repository), Fleet: withChanges, unpublished: unpublished,
+			Acceptances: true, Signers: opts.Signers, Getenv: opts.Getenv}
 		res, err := fenced.impactOnResolved(ctx, io, snap, true, f.base, f.b)
 		if err != nil {
 			f.decide(impact.GateUnverified, "impact: "+err.Error())

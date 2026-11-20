@@ -560,7 +560,7 @@ func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing,
 		// Only a trusted (stdio) server derives the change's target snapshot:
 		// reading another cluster for a signed-in viewer needs a review there.
 		opts := app.ImpactOptions{OldPath: req.OldRef, NewPath: req.NewRef, NewDirName: req.NewDirName, Domain: req.Domain, Fleet: fopts,
-			IncludeObserved: req.IncludeObserved, Traces: traces, TargetSnapshotAuto: trusted && auto}
+			IncludeObserved: req.IncludeObserved, Traces: traces, TargetSnapshotAuto: trusted && auto, Acceptances: trusted}
 		return svc.ImpactOnSnapshot(ctx, opts, snap, addMissing)
 	}
 }
