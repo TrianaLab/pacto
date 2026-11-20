@@ -157,3 +157,14 @@ func TestOwnerPolicyTooManyClusters(t *testing.T) {
 		t.Fatalf("%+v %q", p, why)
 	}
 }
+
+// TestOwnerPolicyDeniedSnapshotIsNamed: a pacto-targets repository that
+// refuses the read credentials is named as such, never as no snapshot.
+func TestOwnerPolicyDeniedSnapshotIsNamed(t *testing.T) {
+	e := newSnapEnv(t)
+	t.Setenv("PACTO_REGISTRY_TOKEN", "ci-token")
+	e.status.Store(http.StatusForbidden)
+	if p, why := e.readOwnerPolicy(t, trustFile(t, e.scoped("rec", snapA))); p != nil || !strings.Contains(why, "refused these credentials a read of "+e.repo) {
+		t.Fatalf("%+v %q", p, why)
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/signing"
@@ -37,14 +38,30 @@ func (s *Service) OwnerPolicy(ctx context.Context, ref, trust string) (*delivery
 	case tc == nil:
 		return nil, "trust missing: no delivery trust config verifies the target snapshots that carry it"
 	}
-	found, _, failing := s.findTargetSnapshot(ctx, "oci://"+ref)
+	found, look, failing := s.findTargetSnapshot(ctx, "oci://"+ref)
 	switch {
 	case failing != nil:
 		return nil, "the target snapshots beside " + ref + " could not be read"
 	case found == "":
-		return nil, "no target snapshot was found beside " + ref
+		return nil, notFoundReason(ref, look)
 	}
 	return s.snapshotOwnerPolicy(ctx, contract.TrimOCIScheme(found), tc)
+}
+
+// notFoundReason says why no target snapshot beside ref was read: a
+// repository that refused the read credentials is named first, since the
+// remedy there is a read grant, not an operator that publishes.
+func notFoundReason(ref string, look *impact.RegistryLookup) string {
+	var denied []string
+	for _, r := range look.Tried {
+		if r.Outcome == impact.RegistryDenied {
+			denied = append(denied, r.Repository)
+		}
+	}
+	if len(denied) > 0 {
+		return "the registry refused these credentials a read of " + strings.Join(denied, ", ") + ", so no target snapshot beside " + ref + " was read"
+	}
+	return "no target snapshot was found beside " + ref
 }
 
 // snapshotOwnerPolicy is the one owner policy every cluster's snapshot in the
