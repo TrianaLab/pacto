@@ -568,7 +568,7 @@ func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing,
 			IncludeObserved: req.IncludeObserved, Traces: traces, TargetSnapshotAuto: trusted && auto}
 		if req.Running {
 			if trusted {
-				opts.RunningRegistries = strings.Split(os.Getenv("PACTO_RUNNING_REGISTRIES"), ",") // as pacto impact reads it
+				opts.RunningRegistries = runningRegistries(cmd)
 			}
 			// Over HTTP the running refs come from the caller's whole view
 			// and only the host of the pinned new_ref is pulled from.

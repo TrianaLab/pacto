@@ -184,7 +184,7 @@ func TestImpactToolDescriptionNamesIndex(t *testing.T) {
 }
 
 func TestMCPImpactRunningRejectsOldRef(t *testing.T) {
-	if _, err := (impactArgs{Running: true, OldRef: "a", NewRef: "b"}).request(); err == nil || !strings.Contains(err.Error(), "leave old_ref empty") {
+	if req, err := (impactArgs{Running: true, OldRef: "a", NewRef: "b"}).request(); err == nil || !strings.Contains(err.Error(), "leave old_ref empty") || req != (ImpactRequest{}) {
 		t.Errorf("err = %v", err)
 	}
 }

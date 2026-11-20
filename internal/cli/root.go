@@ -215,6 +215,9 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 		// Carry the --no-anim decision on the command context (per-invocation),
 		// so concurrent in-process Execute calls never race on shared state.
 		cmd.SetContext(withAnimDisabled(cmd.Context(), v.GetBool("no-anim")))
+		// The running registries as pacto impact reads them (flag-less: env
+		// or config file), so pacto mcp reads the same list.
+		cmd.SetContext(context.WithValue(cmd.Context(), runningRegistriesKey{}, v.GetString("running-registries")))
 
 		// Start async update check
 		if info.Version != "dev" && !envFlag("PACTO_NO_UPDATE_CHECK") {

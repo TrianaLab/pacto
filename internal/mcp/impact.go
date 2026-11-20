@@ -103,8 +103,10 @@ func (a impactArgs) request() (ImpactRequest, error) {
 	event := a.Event != "" || a.Service != "" || a.Offering != "" || a.Revision != ""
 	switch {
 	case a.Running:
+		if err := a.runningErr(event); err != nil {
+			return ImpactRequest{}, err
+		}
 		req.Running = true
-		return req, a.runningErr(event)
 	case pair == event, pair && (a.OldRef == "" || a.NewRef == ""):
 		return ImpactRequest{}, errImpactArgs
 	case event:

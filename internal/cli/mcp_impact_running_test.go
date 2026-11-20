@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -159,5 +160,54 @@ func TestMCPImpactRunningForeignHostIsUnread(t *testing.T) {
 		}) {
 			t.Errorf("%s: gate %s %q running %+v", name, res.Gate, res.GateReason, res.Running)
 		}
+	}
+}
+
+// TestRunningRegistriesMatchCLIAndMCP: pacto mcp reads the running
+// registries root read, the config file included, as pacto impact does.
+func TestRunningRegistriesMatchCLIAndMCP(t *testing.T) {
+	t.Setenv("PACTO_RUNNING_REGISTRIES", "")
+	cfg := filepath.Join(t.TempDir(), "pacto.yaml")
+	writeFiles(t, filepath.Dir(cfg), map[string]string{"pacto.yaml": "running-registries: cfg.example\n"})
+	root := newRootCommand(app.NewService(nil, nil), VersionInfo{Version: "dev"}, defaultDeps())
+	_ = root.PersistentFlags().Set("config", cfg)
+	for _, name := range []string{"impact", "mcp"} {
+		cmd, _, err := root.Find([]string{name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd.SetContext(context.Background())
+		if err := root.PersistentPreRunE(cmd, nil); err != nil {
+			t.Fatal(err)
+		}
+		if got := runningRegistries(cmd); !slices.Equal(got, []string{"cfg.example"}) {
+			t.Errorf("%s: %v", name, got)
+		}
+	}
+	t.Setenv("PACTO_RUNNING_REGISTRIES", "env.example")
+	if got := runningRegistries(newMCPCommand(nil, "v", defaultDeps())); !slices.Equal(got, []string{"env.example"}) {
+		t.Errorf("outside root: %v", got)
+	}
+}
+
+// TestMCPImpactRunningLocalDomain: over stdio a local new_ref takes its
+// domain from the snapshot as pacto impact --running does: a name two
+// domains hold is refused, a name no domain holds is unverified.
+func TestMCPImpactRunningLocalDomain(t *testing.T) {
+	two := &fleet.Collection{Revisions: []fleet.RawRevision{
+		{Bundle: runningPay("1.0.0"), Domain: "reg.example/acme", Digest: runDigest1},
+		{Bundle: runningPay("1.0.0"), Domain: "other.example/team", Digest: runDigest2},
+	}}
+	ambiguous, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("mem", "memory", two))
+	if err != nil {
+		t.Fatal(err)
+	}
+	provide := runningProvider(runningStore(t, ""), true, true)
+	if _, err := provide(context.Background(), ambiguous, pactomcp.ImpactRequest{Running: true, NewRef: newPaymentsDir(t)}); !errors.As(err, new(*fleet.AmbiguousError)) {
+		t.Fatalf("ambiguous: %v", err)
+	}
+	res, err := provide(context.Background(), &fleet.FleetSnapshot{}, pactomcp.ImpactRequest{Running: true, NewRef: newPaymentsDir(t)})
+	if err != nil || res.Gate != impact.GateUnverified || !strings.Contains(res.GateReason, "payments is in no fleet domain") {
+		t.Fatalf("no domain: %+v %v", res, err)
 	}
 }

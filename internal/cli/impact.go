@@ -145,7 +145,7 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 					TargetSnapshotAuto: auto,
 				}
 				if running, _ := cmd.Flags().GetBool("running"); running {
-					opts.RunningRegistries = strings.Split(v.GetString("running-registries"), ",")
+					opts.RunningRegistries = runningRegistries(cmd)
 					result, err = svc.ImpactRunning(cmd.Context(), opts, nil)
 				} else {
 					opts.OldPath = args[0]
@@ -577,4 +577,19 @@ func printRegression(w io.Writer, result *impact.Result) {
 			_, _ = fmt.Fprintf(w, "Delivery evidence not read: %s\n", l.Message)
 		}
 	}
+}
+
+// runningRegistriesKey carries the running-registries value root read
+// (PACTO_RUNNING_REGISTRIES or the config file) on the command context.
+type runningRegistriesKey struct{}
+
+// runningRegistries is the extra registry hosts --running may pull from, as
+// root read them; PACTO_RUNNING_REGISTRIES when cmd never ran through root.
+func runningRegistries(cmd *cobra.Command) []string {
+	if ctx := cmd.Context(); ctx != nil {
+		if v, ok := ctx.Value(runningRegistriesKey{}).(string); ok {
+			return strings.Split(v, ",")
+		}
+	}
+	return strings.Split(os.Getenv("PACTO_RUNNING_REGISTRIES"), ",")
 }
