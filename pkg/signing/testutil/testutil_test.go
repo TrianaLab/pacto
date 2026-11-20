@@ -16,12 +16,12 @@ func TestLeafCertSAN(t *testing.T) {
 	must(t, err)
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	workflow := "https://github.com/acme/payments/.github/workflows/release.yml@refs/heads/main"
-	uri, err := leafCert(workflow, "https://token.actions.githubusercontent.com", "", "", key.Public(), root, rootKey)
+	uri, err := leafCert(workflow, "https://token.actions.githubusercontent.com", "", "", "", key.Public(), root, rootKey)
 	must(t, err)
 	if len(uri.URIs) != 1 || uri.URIs[0].String() != workflow || len(uri.EmailAddresses) != 0 {
 		t.Errorf("URI SAN: %v %v", uri.URIs, uri.EmailAddresses)
 	}
-	email, err := leafCert("ci@acme.example", "https://idp.example", "", "", key.Public(), root, rootKey)
+	email, err := leafCert("ci@acme.example", "https://idp.example", "", "", "", key.Public(), root, rootKey)
 	must(t, err)
 	if len(email.EmailAddresses) != 1 || len(email.URIs) != 0 {
 		t.Errorf("email SAN: %v %v", email.URIs, email.EmailAddresses)

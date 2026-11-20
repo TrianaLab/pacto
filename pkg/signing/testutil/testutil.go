@@ -66,17 +66,25 @@ func CIToken(subjectURI, issuer, repository, ref string) string {
 	return "e30." + base64.RawURLEncoding.EncodeToString(claims) + ".sig"
 }
 
+// CITokenAt is CIToken whose certificate also attests the source commit, as
+// Fulcio does for a GitHub Actions run (OID 1.3.6.1.4.1.57264.1.13).
+func CITokenAt(subjectURI, issuer, repository, ref, commit string) string {
+	claims, _ := json.Marshal(map[string]string{"sub": subjectURI, "iss": issuer, "repository": repository, "ref": ref, "commit": commit})
+	return "e30." + base64.RawURLEncoding.EncodeToString(claims) + ".sig"
+}
+
 // Fulcio's certificate extensions a CI leaf carries: the issuer (v2), the
 // source repository URI and its ref, each a DER UTF8String.
 var (
 	oidIssuerV2      = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 8}
 	oidSourceRepo    = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 12}
 	oidSourceRepoRef = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 14}
+	oidSourceCommit  = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 13}
 )
 
 // ciLeaf is the certificate Fulcio issues a CI workload: a URI SAN and the
 // extensions sigstore-go reads into certificate.Extensions.
-func ciLeaf(subject, issuer, repository, ref string, pub crypto.PublicKey, parent *x509.Certificate, parentKey crypto.Signer) (*x509.Certificate, error) {
+func ciLeaf(subject, issuer, repository, ref, commit string, pub crypto.PublicKey, parent *x509.Certificate, parentKey crypto.Signer) (*x509.Certificate, error) {
 	san, err := url.Parse(subject)
 	if err != nil {
 		return nil, err
@@ -93,6 +101,9 @@ func ciLeaf(subject, issuer, repository, ref string, pub crypto.PublicKey, paren
 	}
 	if repository != "" {
 		tmpl.ExtraExtensions = append(tmpl.ExtraExtensions, ext(oidSourceRepo, repository), ext(oidSourceRepoRef, ref))
+	}
+	if commit != "" {
+		tmpl.ExtraExtensions = append(tmpl.ExtraExtensions, ext(oidSourceCommit, commit))
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, parent, pub, parentKey)
 	if err != nil {
@@ -115,7 +126,7 @@ func New(t testing.TB) *Sigstore {
 	must(t, err)
 
 	fulcio := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var claims struct{ Sub, Iss, Repository, Ref string }
+		var claims struct{ Sub, Iss, Repository, Ref, Commit string }
 		parts := strings.Split(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), ".")
 		raw, _ := base64.RawURLEncoding.DecodeString(parts[min(1, len(parts)-1)])
 		var req struct {
@@ -133,7 +144,7 @@ func New(t testing.TB) *Sigstore {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		leaf, err := leafCert(claims.Sub, claims.Iss, claims.Repository, claims.Ref, pub, inter, interKey)
+		leaf, err := leafCert(claims.Sub, claims.Iss, claims.Repository, claims.Ref, claims.Commit, pub, inter, interKey)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -179,11 +190,11 @@ func New(t testing.TB) *Sigstore {
 // leafCert is the certificate Fulcio issues for sub from iss: a CI leaf (a
 // URI SAN and the source extensions) when sub is a URL or a repository is
 // named, as Fulcio issues for a GitHub workflow, else an email SAN.
-func leafCert(sub, iss, repository, ref string, pub crypto.PublicKey, parent *x509.Certificate, parentKey crypto.Signer) (*x509.Certificate, error) {
+func leafCert(sub, iss, repository, ref, commit string, pub crypto.PublicKey, parent *x509.Certificate, parentKey crypto.Signer) (*x509.Certificate, error) {
 	if repository == "" && !strings.Contains(sub, "://") {
 		return ca.GenerateLeafCert(sub, iss, time.Now().Add(-time.Minute), signerOf{pub}, parent, parentKey)
 	}
-	return ciLeaf(sub, iss, repository, ref, pub, parent, parentKey)
+	return ciLeaf(sub, iss, repository, ref, commit, pub, parent, parentKey)
 }
 
 // signerOf hands ca.GenerateLeafCert a public key: it only calls Public.

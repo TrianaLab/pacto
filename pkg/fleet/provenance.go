@@ -31,6 +31,10 @@ type BundleSignature struct {
 	// Signer and Issuer are who signed, read from the verified certificate.
 	Signer string `json:"signer,omitempty"`
 	Issuer string `json:"issuer,omitempty"`
+	// SignerRepository and SignerCommit are the source repository and commit
+	// an accepted, verified CI certificate was issued for; empty otherwise.
+	SignerRepository string `json:"signerRepository,omitempty" doc:"The source repository an accepted, verified CI signer's certificate attests"`
+	SignerCommit     string `json:"signerCommit,omitempty" doc:"The commit an accepted, verified CI signer's certificate was issued for"`
 	// ExpectedSigner and ExpectedIssuer are the rule or pin the signature was
 	// judged against when Status is unverified.
 	ExpectedSigner string `json:"expectedSigner,omitempty"`

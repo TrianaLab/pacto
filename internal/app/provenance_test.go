@@ -245,7 +245,7 @@ func TestSignatureOfInstallationSources(t *testing.T) {
 	id := &delivery.PublisherIdentity{Subject: provWorkflow, Issuer: provIssuer}
 	for _, src := range []string{delivery.PublisherSourceRule, delivery.PublisherSourcePin, delivery.PublisherSourcePolicy} {
 		sig := signatureOf(delivery.PublisherVerdict{Verdict: delivery.VerdictAccepted, Source: src, Identity: id, Reason: "signed by x"},
-			delivery.PublisherRule{}, fleet.BundleSignature{Bundles: 1})
+			delivery.PublisherRule{}, "", fleet.BundleSignature{Bundles: 1})
 		if sig.Status != fleet.SignatureVerified || sig.Source != src || sig.Signer != provWorkflow || sig.Reason != "Signed by x" {
 			t.Fatalf("%s: %+v", src, sig)
 		}

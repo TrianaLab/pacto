@@ -3,6 +3,7 @@ package publish
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/sigstore/sigstore-go/pkg/root"
@@ -25,8 +26,16 @@ var errSignerRead = errors.New("signer recorded")
 // ErrNoSignature means no signature is attached; any other error with
 // no signer means none could be verified.
 func SignersOf(ctx context.Context, reg Registry, root root.TrustedMaterial, tlog bool, repo, digest string) ([]delivery.PublisherIdentity, error) {
+	signers, _, err := signersOf(ctx, reg, root, tlog, repo, digest)
+	return signers, err
+}
+
+// signersOf is SignersOf with, beside each signer, the commit its
+// certificate was issued for (signing.CommitOf).
+func signersOf(ctx context.Context, reg Registry, root root.TrustedMaterial, tlog bool, repo, digest string) ([]delivery.PublisherIdentity, []string, error) {
 	p := signing.Policy{AnyIdentity: true, Root: root, Tlog: tlog}
 	var signers []delivery.PublisherIdentity
+	var commits []string
 	err := VerifyDigest(ctx, reg, func(b, d []byte) (string, error) {
 		res, err := p.Verify(b, d)
 		if err != nil {
@@ -36,21 +45,31 @@ func SignersOf(ctx context.Context, reg Registry, root root.TrustedMaterial, tlo
 			return pt, nil // VerifyDigest refuses an attestation that is not a signature
 		}
 		signers = append(signers, delivery.Classified(signing.IdentityOf(res), nil))
+		commits = append(commits, signing.CommitOf(res))
 		return "", errSignerRead
 	}, repo, digest)
 	if len(signers) > 0 {
-		return signers, nil
+		return signers, commits, nil
 	}
-	return nil, err
+	return nil, nil, err
 }
 
 // CheckPublisher judges who signed repo@digest against rules and pins: it is
-// SignersOf then delivery.JudgeSigners, and returns the signers it read too.
-// Unsigned and unreadable are never accepted.
+// SignersOf then delivery.JudgeSigners, and returns the signers it read too,
+// and the commit the certificate of the verdict's signer was issued for ("" when
+// none or no signer). Unsigned and unreadable are never accepted.
 func CheckPublisher(ctx context.Context, reg Registry, root root.TrustedMaterial, tlog bool, repo, digest string,
-	service delivery.ServiceRef, source string, rules []delivery.PublisherRule, ruleSource string, pins []delivery.IdentityPin) (delivery.PublisherVerdict, []delivery.PublisherIdentity) {
-	signers, err := SignersOf(ctx, reg, root, tlog, repo, digest)
-	return JudgeRead(digest, signers, err, service, source, rules, ruleSource, pins), signers
+	service delivery.ServiceRef, source string, rules []delivery.PublisherRule, ruleSource string, pins []delivery.IdentityPin) (delivery.PublisherVerdict, []delivery.PublisherIdentity, string) {
+	signers, commits, err := signersOf(ctx, reg, root, tlog, repo, digest)
+	v := JudgeRead(digest, signers, err, service, source, rules, ruleSource, pins)
+	commit := ""
+	if v.Identity != nil {
+		// JudgeSigners judges in order, so the first equal signer is the one judged.
+		if i := slices.Index(signers, *v.Identity); i >= 0 {
+			commit = commits[i]
+		}
+	}
+	return v, signers, commit
 }
 
 // JudgeRead judges what SignersOf read of digest: its signers through

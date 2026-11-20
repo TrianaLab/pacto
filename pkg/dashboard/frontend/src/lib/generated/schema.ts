@@ -2580,6 +2580,10 @@ export interface components {
             issuer?: string;
             reason?: string;
             signer?: string;
+            /** @description The commit an accepted, verified CI signer's certificate was issued for */
+            signerCommit?: string;
+            /** @description The source repository an accepted, verified CI signer's certificate attests */
+            signerRepository?: string;
             /** @enum {string} */
             source?: "rule" | "pin" | "policy" | "inferred" | "release" | "none";
             /** @enum {string} */
