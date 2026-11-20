@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -43,6 +44,14 @@ func TestFleetWiresPublisherTrust(t *testing.T) {
 	noConfig := deps{clusterConfig: func() (*rest.Config, error) { return nil, errors.New("no kubeconfig") }}
 	if publisherTrust(cmd, noConfig, "") != nil {
 		t.Fatal("no cluster config read a cluster")
+	}
+	// With no cluster, a --detected file still names the operator's signer;
+	// an in-cluster advertisement cannot be read.
+	if publisherTrust(cmd, noConfig, "k8s:pacto-system/pacto-operator-detected") != nil {
+		t.Fatal("no cluster read an in-cluster advertisement")
+	}
+	if _, err := publisherTrust(cmd, deps{}, filepath.Join(t.TempDir(), "detected.json"))(context.Background()); !errors.Is(err, app.ErrNoInstallationTrust) {
+		t.Fatalf("a --detected file with no cluster: %v", err)
 	}
 	if _, err := publisherTrust(cmd, cluster(nil, errors.New("unreachable")), "")(context.Background()); err == nil {
 		t.Fatal("a cluster with no client read a config")

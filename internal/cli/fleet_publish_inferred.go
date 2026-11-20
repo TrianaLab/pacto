@@ -23,7 +23,8 @@ func newFleetPublishInferredCommand(svc *app.Service, v *viper.Viper) *cobra.Com
 			contract.ProvenanceInferred + " and signed with --key. It names no consumer, and a range is never checked against it.\n\n" +
 			"Clusters publish from the operator once the chart's registry value is set. This command is for installations that run " +
 			"no operator, such as the Compose demo; never run it against a registry an operator already writes.\n\n" +
-			"--key takes a PEM private key or a `pacto evidence keygen` seed: the installation key readers trust as the operator.",
+			"--key takes a PEM private key or a `pacto evidence keygen` seed. Readers recognise its signature as the operator's only when " +
+			"their --detected advertisement names its public key; otherwise they say the signature could not be checked.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			registry, _ := cmd.Flags().GetString("registry")

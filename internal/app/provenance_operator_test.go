@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -143,6 +144,40 @@ func TestInstallationTrustReadsInferredSigner(t *testing.T) {
 		d.Detected = ref
 		if got := d.inferredSigner(t.Context()); (got != nil) != want || (want && got.PublicKey != delivery.InferredSignerFromAdvertisement(adv).PublicKey) {
 			t.Errorf("%q: %+v", ref, got)
+		}
+	}
+}
+
+// TestOperatorSignerSurvivesUnreadableTrust: delivery off (no identities
+// ConfigMap) or no cluster at all still recognises the operator's signature
+// from the advertisement: never unknown with source none.
+func TestOperatorSignerSurvivesUnreadableTrust(t *testing.T) {
+	now := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
+	key, adv := operatorKey(t)
+	b, _ := json.Marshal(detect.Result{SchemaVersion: detect.SchemaVersion, AsOf: now, Entries: []detect.Entry{},
+		Installation: &detect.Installation{Registry: "ghcr.io/acme", SnapshotKey: adv}})
+	path := filepath.Join(t.TempDir(), "detected.json")
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d := &Delivery{Dynamic: dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()), Detected: path, Now: func() time.Time { return now }}
+	in, err := d.InstallationTrust(t.Context())
+	if err == nil || in.Config.InferredSigner == nil {
+		t.Fatalf("delivery off: %+v %v", in.Config, err)
+	}
+	if in, err := d.DetectionTrust(t.Context()); !errors.Is(err, ErrNoInstallationTrust) || in.Config.InferredSigner == nil {
+		t.Fatalf("no cluster: %+v %v", in.Config, err)
+	}
+
+	keylessSigstore(t)
+	reg := provenanceTestRegistry(t)
+	ref := pushInferred(t, reg, edSigner(key))
+	signer := delivery.InferredSignerFromAdvertisement(adv)
+	for name, err := range map[string]error{"unreadable": errors.New("configmaps \"pacto-delivery-identities\" not found"), "no cluster": ErrNoInstallationTrust} {
+		pc := checkerFor(reg)
+		trusting(pc, delivery.PublisherConfig{InferredSigner: signer}, nil, err)
+		if p := pc.Check(t.Context(), "oci", ref, nil); p.Signature.Source != fleet.SignatureSourceOperator {
+			t.Errorf("%s: %+v", name, p.Signature)
 		}
 	}
 }

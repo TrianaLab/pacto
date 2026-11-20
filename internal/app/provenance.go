@@ -236,7 +236,7 @@ func (p *ProvenanceChecker) judgeSignature(ctx context.Context, repo, digest str
 	notes := []string{t.note}
 	if t.inferred {
 		rule, why := deriveRule(repo, "main")
-		t = &installTrust{source: delivery.PublisherSourceInferred, expect: rule}
+		t = &installTrust{source: delivery.PublisherSourceInferred, expect: rule, operator: t.operator}
 		if why == "" {
 			t.rules = []delivery.PublisherRule{rule}
 		}
@@ -362,8 +362,11 @@ func (p *ProvenanceChecker) installation(ctx context.Context) *installTrust {
 // derived from the configured registry.
 func (p *ProvenanceChecker) readInstallation(ctx context.Context) *installTrust {
 	in, err := p.Trust(ctx)
+	if errors.Is(err, ErrNoInstallationTrust) {
+		return &installTrust{inferred: true, operator: in.Config.InferredSigner}
+	}
 	if err != nil {
-		return &installTrust{inferred: true, failed: true,
+		return &installTrust{inferred: true, failed: true, operator: in.Config.InferredSigner,
 			note:    "the installation's publisher trust config could not be read (" + err.Error() + "), so the rule was inferred from where the revision lives",
 			declare: &fleet.DeclarationSignerPolicy{Unread: err.Error()}}
 	}

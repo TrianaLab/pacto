@@ -1482,7 +1482,7 @@ Builds the fleet snapshot from the source flags and, for every external system i
 
 Clusters publish from the operator once the chart's registry value is set. This command is for installations that run no operator, such as the Compose demo; never run it against a registry an operator already writes.
 
---key takes a PEM private key or a `pacto evidence keygen` seed: the installation key readers trust as the operator.
+--key takes a PEM private key or a `pacto evidence keygen` seed. Readers recognise its signature as the operator's only when their --detected advertisement names its public key; otherwise they say the signature could not be checked.
 
 ```
 pacto fleet publish-inferred [flags]
