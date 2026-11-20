@@ -186,3 +186,30 @@ func TestImpactReadsRangeAcceptances(t *testing.T) {
 		t.Fatalf("%v %+v", complete, accs)
 	}
 }
+
+// TestImpactNotesPublicGoodJudgement: an answer that counts a signed
+// acceptance judged with public-good issuers says so.
+func TestImpactNotesPublicGoodJudgement(t *testing.T) {
+	read := ImpactOptions{Acceptances: true}
+	for _, res := range []*impact.Result{
+		{Ranges: &impact.RangeCoverage{Accepted: 1}},
+		{Consumers: []impact.AffectedConsumer{{Break: &impact.BreakState{State: impact.BreakAccepted, By: "ana@acme.com"}}}},
+	} {
+		notePublicGood(read, res)
+		if len(res.Notes) != 1 || res.Notes[0] != publicGoodNote {
+			t.Errorf("notes %q", res.Notes)
+		}
+	}
+	trusted := read
+	trusted.Signers = &delivery.ClassPolicy{}
+	for _, opts := range []ImpactOptions{{}, trusted} {
+		res := &impact.Result{Ranges: &impact.RangeCoverage{Accepted: 1}}
+		if notePublicGood(opts, res); len(res.Notes) != 0 {
+			t.Errorf("%+v noted %q", opts, res.Notes)
+		}
+	}
+	res := &impact.Result{Consumers: []impact.AffectedConsumer{{Break: &impact.BreakState{State: impact.BreakAccepted}}}}
+	if notePublicGood(read, res); len(res.Notes) != 0 {
+		t.Errorf("a range-accepted break noted %q", res.Notes)
+	}
+}

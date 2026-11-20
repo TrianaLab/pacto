@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -220,6 +221,11 @@ func TestMCPImpactHTTPReadsNoAcceptances(t *testing.T) {
 			if c.Break != nil && c.Break.State == impact.BreakAccepted {
 				t.Errorf("%s: %+v", transport, c.Break)
 			}
+		}
+		// The unread listing is said, never a checked "not accepted".
+		unread := slices.ContainsFunc(res.Notes, func(n string) bool { return strings.HasPrefix(n, impact.NoteAcceptancesNotRead) })
+		if unread == trusted {
+			t.Errorf("%s: notes %q", transport, res.Notes)
 		}
 	}
 }

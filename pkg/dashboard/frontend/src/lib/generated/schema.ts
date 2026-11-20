@@ -5020,11 +5020,11 @@ export interface components {
             by?: string;
             /** @description When the announcement expires (YYYY-MM-DD); empty when none is recorded */
             expires?: string;
-            /** @description Why the break is not accepted, in plain words */
+            /** @description Why the break is not accepted, in plain words; it says when acceptances were not read */
             reason?: string;
             /** @description Where the counted acceptance is: <repository>@sha256:<hex> */
             record?: string;
-            /** @description Who may accept for the consumer, when an acceptance waits for its owner */
+            /** @description Who may accept for the consumer, when an acceptance by someone else waits for its owner */
             route?: string;
             /**
              * @description announced: the provider announces the break and nothing accepts it; accepted: the consumer's declared owner signed a counted acceptance, or its ranges admit the new version; expired: the announcement expired or records no expiry

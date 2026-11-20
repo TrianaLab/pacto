@@ -2,6 +2,7 @@ package impact
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -188,7 +189,7 @@ func TestEventAnswerIgnoresBreaks(t *testing.T) {
 
 func TestExpiredBreakBoundary(t *testing.T) {
 	day := time.Date(2026, 12, 14, 23, 0, 0, 0, time.UTC)
-	if expiredBreak("2026-12-14", day) != "" || expiredBreak("2026-12-13", day) == "" {
+	if ExpiredBreak("2026-12-14", day) != "" || ExpiredBreak("2026-12-13", day) == "" {
 		t.Fatal("an expiry applies through its whole day")
 	}
 }
@@ -222,5 +223,53 @@ func TestBreakStateText(t *testing.T) {
 		if got := tc.b.Text("reports"); got != tc.want {
 			t.Errorf("%+v: %q, want %q", tc.b, got, tc.want)
 		}
+	}
+}
+
+// TestBreakRangePathNeedsTargets: a consumer whose ranges admit the new
+// version but which no target holds may run where no source looks: the
+// announcement never makes the gate more permissive than none.
+func TestBreakRangePathNeedsTargets(t *testing.T) {
+	snap := breakSnap(t, reportsRev{"1.6.0", "sha256:r16", "^3.0.0", false})
+	without := breakLedger(snap, nil)
+	res := breakLedger(snap, announced(future))
+	c := reportsOf(t, res)
+	if res.Gate != GateUnverified || without.Gate != GateUnverified || c.Break.State != BreakAnnounced ||
+		c.Break.Reason != "reports 1.6.0 admits 3.0.0; where it runs is unknown: add a source that knows where services run (for example --target-state)" {
+		t.Fatalf("gate %s (without %s), break %+v", res.Gate, without.Gate, c.Break)
+	}
+	// A counted acceptance needs no target.
+	if c := reportsOf(t, breakLedger(snap, announced(future, counted()))); c.Break.State != BreakAccepted {
+		t.Fatalf("break %+v", c.Break)
+	}
+}
+
+// TestBreakAcceptancesNotRead: with no acceptance reader the break says
+// acceptances were not read, never "not accepted", and the answer notes it.
+func TestBreakAcceptancesNotRead(t *testing.T) {
+	in := announced(future)
+	in.Acceptances = nil
+	res := breakLedger(breakSnap(t, running14), in)
+	c := reportsOf(t, res)
+	text := c.Break.Text("reports")
+	if res.Gate != GateBlocked || c.Break.State != BreakAnnounced || strings.Contains(text, "not accepted") ||
+		text != "announced for reports; "+reasonNotRead || !slices.ContainsFunc(res.Notes, func(n string) bool { return strings.HasPrefix(n, NoteAcceptancesNotRead) }) {
+		t.Fatalf("gate %s, text %q, notes %q", res.Gate, text, res.Notes)
+	}
+	if n := len(res.Notes); n != 1 {
+		t.Fatalf("the note repeats: %q", res.Notes)
+	}
+}
+
+// TestBreakRouteNamesWhoMayAccept: a routed acceptance's route names who
+// may accept, without a second "waiting for"; a proposal is a reason,
+// never a route.
+func TestBreakRouteNamesWhoMayAccept(t *testing.T) {
+	ref := &BreakRef{Provider: "ledger", Version: "3.0.0", Announcement: announcement}
+	routed := Acceptance{State: AcceptRouted, Reason: "waiting for the owner of reports: ana@acme.com", Break: ref}
+	proposal := Acceptance{State: AcceptProposal, Reason: "signed by ci, a ci signer (x): a proposal until a person accepts it", Break: ref}
+	c := reportsOf(t, breakLedger(breakSnap(t, running14), announced(future, routed, proposal)))
+	if c.Break.Route != "the owner of reports: ana@acme.com" || c.Break.Reason != proposal.Reason {
+		t.Fatalf("break %+v", c.Break)
 	}
 }

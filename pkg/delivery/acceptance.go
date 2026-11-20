@@ -229,7 +229,7 @@ func JudgeAcceptance(st AcceptanceStatement, signer PublisherIdentity, rules []S
 		return impact.AcceptRouted, route
 	}
 	if st.Predicate.Kind == AcceptKindBreak {
-		if why := breakExpired(expires, asOf); why != "" {
+		if why := impact.ExpiredBreak(expires, asOf); why != "" {
 			return impact.AcceptExpired, why
 		}
 	}
@@ -267,23 +267,6 @@ func OwnerRoute(service string, owner contract.Owner) (route string, declared bo
 		return service + " declares no owner: declare service.owner with pacto declare, or ask a default approver (whoever may update its workload)", false
 	}
 	return "the owner of " + service + ": " + strings.Join(who, ", "), true
-}
-
-// breakExpired says why a break with expiry expires (YYYY-MM-DD) no longer
-// applies at asOf, "" while it does. No expiry, or one that does not read,
-// is unknown, which never counts.
-func breakExpired(expires string, asOf time.Time) string {
-	if expires == "" {
-		return "expiry unknown: run pacto ci or declare expires"
-	}
-	at, err := time.Parse(time.DateOnly, expires)
-	if err != nil {
-		return "expiry " + expires + " is not a YYYY-MM-DD date"
-	}
-	if !asOf.Before(at.AddDate(0, 0, 1)) {
-		return "the break expired on " + expires
-	}
-	return ""
 }
 
 // ForImpact is j in the shape pkg/impact reads.

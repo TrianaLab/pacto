@@ -128,7 +128,8 @@ func TestPolicyUnknownRangeFailBlocks(t *testing.T) {
 
 func TestPolicyUnknownRangeWarnOnlyNotes(t *testing.T) {
 	snap := coverageSnap(t, map[string]string{"reports": "unknown"})
-	res := changeLedger(snap, Options{Policy: Policy{UnknownRange: PolicyWarn}})
+	none := func(fleet.ServiceKey) ([]Acceptance, bool) { return nil, true }
+	res := changeLedger(snap, Options{Policy: Policy{UnknownRange: PolicyWarn}, Acceptances: none})
 	if res.Gate != GateUnverified || len(res.Notes) != 1 ||
 		res.Notes[0] != "POLICY_WARNING: ledger -> reports range unknown, 1 consumer (policy unknown-range=warn)" {
 		t.Fatalf("gate %s, notes %q", res.Gate, res.Notes)
@@ -209,5 +210,18 @@ func TestParsePolicy(t *testing.T) {
 		if _, err := ParsePolicy([]string{bad}); err == nil {
 			t.Errorf("%s: no error", bad)
 		}
+	}
+}
+
+// TestRangeCoverageNotesUnreadAcceptances: an unknown range counted with no
+// acceptance read says so, so "0 accepted" never reads as checked.
+func TestRangeCoverageNotesUnreadAcceptances(t *testing.T) {
+	res := changeLedger(coverageSnap(t, map[string]string{"reports": "unknown"}), Options{})
+	if res.Ranges.Accepted != 0 || len(res.Notes) != 2 || !strings.HasPrefix(res.Notes[0], NoteAcceptancesNotRead+": ") {
+		t.Fatalf("ranges %+v, notes %q", res.Ranges, res.Notes)
+	}
+	// A declared range needs no acceptance: nothing to note.
+	if res := changeLedger(coverageSnap(t, map[string]string{"reports": "^2.0.0"}), Options{}); len(res.Notes) != 0 {
+		t.Fatalf("notes %q", res.Notes)
 	}
 }

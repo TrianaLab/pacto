@@ -122,6 +122,9 @@ func (r *Result) rangeCoverage(snap *fleet.FleetSnapshot, accs func(fleet.Servic
 		default:
 			cov.AddUnknown(UnknownRange{From: c.Service, To: r.Service, Proposed: proposedRange(snap, key, field)})
 			r.unknownRanges = append(r.unknownRanges, c.Service)
+			if accs == nil {
+				r.noteAcceptancesNotRead() // an unknown range may have a counted acceptance nobody read
+			}
 		}
 	}
 	r.Ranges = cov

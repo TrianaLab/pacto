@@ -322,7 +322,19 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 			Policy:           opts.Policy,
 		})
 	res.TargetSnapshots = targetSnapshotStates(snap)
+	notePublicGood(opts, res)
 	return res, nil
+}
+
+// notePublicGood says when res counts a signed acceptance (a break a person
+// accepted, or a range an acceptance made known) judged with public-good
+// issuers because no installation signer policy was read.
+func notePublicGood(opts ImpactOptions, res *impact.Result) {
+	counted := res.Ranges != nil && res.Ranges.Accepted > 0 ||
+		slices.ContainsFunc(res.Consumers, func(c impact.AffectedConsumer) bool { return c.Break != nil && c.Break.By != "" })
+	if opts.Acceptances && impactTrust(opts) == nil && counted {
+		res.Notes = append(res.Notes, publicGoodNote)
+	}
 }
 
 // nameInferredFrom is where the new, else the old, revision's service.name
