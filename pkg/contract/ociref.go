@@ -13,6 +13,19 @@ var (
 	ociDigestRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$|^sha512:[0-9a-f]{128}$`)
 )
 
+// InferredRepository is the installation repository that holds the inferred
+// contracts of external systems, one per identity: <registry>/pacto-inferred/<identity>.
+const InferredRepository = "pacto-inferred"
+
+// AnnotationProvenance is the manifest annotation that says how a contract
+// came to be; ProvenanceInferred marks one Pacto inferred and published itself.
+// Registry UIs and third-party readers read it; Pacto reads the location and
+// the signer.
+const (
+	AnnotationProvenance = "run.pacto.contract.provenance"
+	ProvenanceInferred   = "inferred"
+)
+
 // ValidOCIDigest reports whether d is a complete sha256 or sha512 digest.
 func ValidOCIDigest(d string) bool { return ociDigestRe.MatchString(d) }
 

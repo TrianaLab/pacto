@@ -283,7 +283,7 @@ func (s *Service) verifyTemplate(ctx context.Context, repo, digest string, trust
 			p, err := signing.PolicyOf(k)
 			if err == nil {
 				var pt string
-				if pt, err = bundleVerifier(p)(b, d); err == nil {
+				if pt, err = publish.PolicyVerifier(p)(b, d); err == nil {
 					signer = keyName(k)
 					return pt, nil
 				}

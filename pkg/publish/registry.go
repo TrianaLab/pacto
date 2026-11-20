@@ -82,7 +82,16 @@ type Client struct {
 // NewClient builds a Client over keychain that reaches insecure hosts over
 // plain HTTP.
 func NewClient(keychain authn.Keychain, insecure ...string) *Client {
-	return &Client{oci: oci.NewClient(keychain, oci.WithInsecureRegistries(insecure...)), keychain: keychain, insecure: insecure}
+	c := NewClientWith(keychain, oci.WithInsecureRegistries(insecure...))
+	c.insecure = insecure
+	return c
+}
+
+// NewClientWith builds a Client over keychain whose image, tag and referrer
+// writes go through an oci.Client built with opts, such as
+// oci.WithTransport(scope.Guard(...)) on a cluster-side writer.
+func NewClientWith(keychain authn.Keychain, opts ...oci.ClientOption) *Client {
+	return &Client{oci: oci.NewClient(keychain, opts...), keychain: keychain}
 }
 
 // sigTagPrefix starts every write-once tag naming a signature or SBOM of

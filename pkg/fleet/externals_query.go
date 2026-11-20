@@ -101,17 +101,28 @@ func (q *Query) GetExternal(key string) (*ExternalView, error) {
 // visible target cannot say which external systems it uses: any of them may
 // be a consumer it does not list. Nil when every target reports.
 func (q *Query) externalsUnreported() []Limitation {
+	n := q.unreportedTargets()
+	if n == 0 {
+		return nil
+	}
+	return []Limitation{{Code: LimitationExternalsUnreported, Source: "fleet",
+		Message: fmt.Sprintf("%d targets do not report the external systems they use, so the consumers listed may be incomplete", n)}}
+}
+
+// ExternalsUnreported reports whether a visible target cannot say which
+// external systems it uses, so any external's consumers may be incomplete.
+func (q *Query) ExternalsUnreported() bool { return q.unreportedTargets() > 0 }
+
+// unreportedTargets counts the visible targets that carry
+// LimitationExternalsUnreported.
+func (q *Query) unreportedTargets() int {
 	n := 0
 	for _, t := range q.snap.Targets {
 		if slices.ContainsFunc(t.Limitations, func(l Limitation) bool { return l.Code == LimitationExternalsUnreported }) {
 			n++
 		}
 	}
-	if n == 0 {
-		return nil
-	}
-	return []Limitation{{Code: LimitationExternalsUnreported, Source: "fleet",
-		Message: fmt.Sprintf("%d targets do not report the external systems they use, so the consumers listed may be incomplete", n)}}
+	return n
 }
 
 // externalMeta is meta for an external answer: partial, citing

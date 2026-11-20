@@ -2,12 +2,16 @@ package publish
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/registry"
@@ -16,6 +20,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	"github.com/trianalab/pacto/v4/pkg/signing/testutil"
 )
@@ -229,4 +234,75 @@ func (oneReferrer) Referrers(context.Context, string, string, string) ([]string,
 
 func (o oneReferrer) Layer(context.Context, string, string) ([]byte, map[string]string, error) {
 	return o.b, map[string]string{deliveryrecord.AnnPredicateType: SignPredicate}, nil
+}
+
+func TestPolicyVerifierPredicateType(t *testing.T) {
+	host, reg := testRegistry(t, true)
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	kp, _ := signing.FromPrivateKey(priv)
+	repo := host + "/acme/x"
+	b := bundleOf(host, "1.0.0", workloadService)
+	d, err := oci.BundleDigest(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, _ := oci.BundleImage(b)
+	h, _ := v1.NewHash(d)
+	if _, err := reg.Write(t.Context(), repo, streamed{img, h}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SignDigest(t.Context(), reg, signing.Keyed(kp, ""), repo, d); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyDigest(t.Context(), reg, PolicyVerifier(signing.Policy{Key: pub}), repo, d); err != nil {
+		t.Errorf("own key: %v", err)
+	}
+	other, _, _ := ed25519.GenerateKey(rand.Reader)
+	if err := VerifyDigest(t.Context(), reg, PolicyVerifier(signing.Policy{Key: other}), repo, d); err == nil {
+		t.Error("another key verified")
+	}
+}
+
+// seenTransport records every request a client sends.
+type seenTransport struct {
+	mu   sync.Mutex
+	reqs []string
+}
+
+func (s *seenTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	s.mu.Lock()
+	s.reqs = append(s.reqs, r.Method+" "+r.URL.Path)
+	s.mu.Unlock()
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+func TestNewClientWithTransport(t *testing.T) {
+	host, _ := testRegistry(t, true)
+	rt := &seenTransport{}
+	reg := NewClientWith(anonymous, oci.WithTransport(rt))
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	kp, _ := signing.FromPrivateKey(priv)
+	repo := host + "/acme/x"
+	b := bundleOf(host, "1.0.0", workloadService)
+	d, _ := oci.BundleDigest(b)
+	img, _ := oci.BundleImage(b)
+	h, _ := v1.NewHash(d)
+	if _, err := reg.Write(t.Context(), repo, streamed{img, h}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Tag(t.Context(), repo, d, "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SignDigest(t.Context(), reg, signing.Keyed(kp, ""), repo, d); err != nil {
+		t.Fatal(err)
+	}
+	var write, tag, referrer bool
+	for _, r := range rt.reqs {
+		write = write || r == "PUT /v2/acme/x/manifests/"+d
+		tag = tag || r == "PUT /v2/acme/x/manifests/1.0.0"
+		referrer = referrer || (strings.HasPrefix(r, "PUT /v2/acme/x/manifests/sha256:") && !strings.HasSuffix(r, d))
+	}
+	if !write || !tag || !referrer {
+		t.Errorf("the transport saw write %v, tag %v, referrer %v: %v", write, tag, referrer, rt.reqs)
+	}
 }

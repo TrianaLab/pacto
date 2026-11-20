@@ -390,6 +390,7 @@ var excludedFromSurfaces = map[string]string{
 	"evidence serve":           "starts the long-running Evidence Server",
 	"evidence sign":            "signs with a local key, which belongs at a shell prompt",
 	"evidence verify":          "verifies a signed evidence file on disk",
+	"fleet publish-inferred":   "writes signed inferred contracts as the installation's publisher; agents and HTTP servers never publish",
 	"export backstage":         "writes a catalog file for a repository; the dashboard serves the same entities at GET /api/backstage/entities outside the OpenAPI document",
 	"generate":                 "runs a code generation plugin over a local contract, a build step",
 	"graph":                    "resolves the dependency tree of a bundle path or ref outside any fleet; the fleet's tree is pacto fleet graph, which pacto_fleet_graph and GET /api/fleet/services/{name}/graph mirror",

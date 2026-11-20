@@ -1476,6 +1476,26 @@ pacto fleet providers [flags]
   -h, --help[=true|false]   help for providers
 ```
 
+### `pacto fleet publish-inferred`
+
+Builds the fleet snapshot from the source flags and, for every external system it knows with at least one consumer, publishes an inferred contract to &lt;registry&gt;/pacto-inferred/&lt;identity&gt;: a pacto.yaml naming the external and a pacto.inferred.yaml listing the hosts, ports and client majors the fleet sees, each with the sources that saw it. A new 0.0.&lt;n&gt; tag is pushed only when that surface changed, annotated run.pacto.contract.provenance: inferred and signed with --key. It names no consumer, and a range is never checked against it.
+
+Clusters publish from the operator once the chart's registry value is set. This command is for installations that run no operator, such as the Compose demo; never run it against a registry an operator already writes.
+
+--key takes a PEM private key or a `pacto evidence keygen` seed: the installation key readers trust as the operator.
+
+```
+pacto fleet publish-inferred [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for publish-inferred
+      --key string          the installation signing key: a PEM private key or a seed that pacto evidence keygen wrote
+      --registry string     registry host and path the installation repositories live under, as <registry>/pacto-inferred/<identity>
+```
+
 ### `pacto fleet reconcile`
 
 Reconciles what the fleet's contracts declare against what runtime traces prove. Reports matched dependencies, declared-but-not-observed (dormant or unseen in the trace window, so possibly still in use) and observed-but-not-declared (shadow dependencies).

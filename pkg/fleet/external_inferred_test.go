@@ -335,11 +335,14 @@ func TestInferredUseCatalogMismatch(t *testing.T) {
 func TestExternalAnswerPartialWhenTargetUnreported(t *testing.T) {
 	svcs := []inferredSvc{{name: "checkout", ns: []string{"shop"}, deps: []string{"stripe"}}, {name: "billing", ns: []string{"shop"}}}
 	q := NewQuery(inferredFleet(t, svcs, nil, nil, nil))
-	if v, _ := q.GetExternal("stripe"); v.Meta.Completeness != CompletenessComplete || hasLimitation(v.Meta.Limitations, LimitationExternalsUnreported) {
+	if v, _ := q.GetExternal("stripe"); v.Meta.Completeness != CompletenessComplete || hasLimitation(v.Meta.Limitations, LimitationExternalsUnreported) || q.ExternalsUnreported() {
 		t.Fatalf("reported fleet = %+v", v.Meta)
 	}
 	lims := map[string][]Limitation{"billing": {{Code: LimitationExternalsUnreported, Message: "status-format"}}}
 	q = NewQuery(inferredFleet(t, svcs, nil, nil, lims))
+	if !q.ExternalsUnreported() {
+		t.Error("a target that does not report its externals is not reported")
+	}
 	v, err := q.GetExternal("external:stripe")
 	if err != nil || v.Meta.Completeness != CompletenessPartial || !hasLimitation(v.Meta.Limitations, LimitationExternalsUnreported) {
 		t.Fatalf("get = %+v, %v", v, err)

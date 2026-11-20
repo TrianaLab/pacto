@@ -378,7 +378,7 @@ func TestPublishAgainNeedsNoBuilderSignerOrCleanCheckout(t *testing.T) {
 }
 
 func keyPolicy(pub crypto.PublicKey) publish.BundleVerifier {
-	return bundleVerifier(signing.Policy{Key: pub})
+	return publish.PolicyVerifier(signing.Policy{Key: pub})
 }
 
 // TestBundleVerifierReturnsTheSignedPredicate: the predicate type comes from

@@ -48,6 +48,7 @@ func newFleetCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder)
 	cmd.AddCommand(newFleetNeighborhoodCommand(svc, v))
 	cmd.AddCommand(newFleetVersionsCommand(svc, v))
 	cmd.AddCommand(newFleetOverviewCommand(svc, v))
+	cmd.AddCommand(newFleetPublishInferredCommand(svc, v))
 	return cmd
 }
 

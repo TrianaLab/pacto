@@ -269,6 +269,8 @@ var vocabulariesWithoutSchemaEnum = map[string]string{
 	"complete,failed,partial": "Coverage*: how completely a cluster read saw a source, in the inferred record",
 	"declared,draft":          "Declaration*: whether a person declared the service or an agent only drafted it, in the inferred record",
 	"agent,ci,human,none":     "SignerClass*: who asked for or signed a declaration, in the inferred record",
+	// An OCI manifest annotation, never a pacto.yaml value.
+	"inferred,run.pacto.contract.provenance": "AnnotationProvenance and its value: the manifest annotation of an inferred contract",
 }
 
 // TestVocabularyParityWithSchema is the DRY gate over contract vocabularies.

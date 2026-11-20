@@ -19,6 +19,18 @@ const maxVerdictReason = 256
 // recorded, so every signature of a digest is read.
 var errSignerRead = errors.New("signer recorded")
 
+// PolicyVerifier verifies a bundle under p and returns the predicate type of
+// the statement its signature covers.
+func PolicyVerifier(p signing.Policy) BundleVerifier {
+	return func(b, d []byte) (string, error) {
+		res, err := p.Verify(b, d)
+		if err != nil {
+			return "", err
+		}
+		return res.Statement.GetPredicateType(), nil
+	}
+}
+
 // SignersOf is every identity whose keyless signature of repo@digest verifies
 // under root, whoever it names, classified by the default rule: who signed is
 // judged by the caller.

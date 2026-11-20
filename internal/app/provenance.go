@@ -486,7 +486,7 @@ func upperFirst(s string) string {
 // verifySigner verifies the bundles against one fixed keyless identity and
 // issuer, under public-good Sigstore.
 func (p *ProvenanceChecker) verifySigner(ctx context.Context, repo, digest string, tm root.TrustedMaterial, sig fleet.BundleSignature, identity, issuer string) fleet.BundleSignature {
-	err := publish.VerifyDigest(ctx, p.reg, bundleVerifier(signing.Policy{Identity: identity, Issuer: issuer, Root: tm, Tlog: rekorURL != ""}), repo, digest)
+	err := publish.VerifyDigest(ctx, p.reg, publish.PolicyVerifier(signing.Policy{Identity: identity, Issuer: issuer, Root: tm, Tlog: rekorURL != ""}), repo, digest)
 	switch {
 	case err == nil:
 		sig.Status, sig.Source, sig.Signer, sig.Issuer = fleet.SignatureVerified, sourceRelease, identity, issuer
