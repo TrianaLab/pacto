@@ -116,7 +116,7 @@ func fleetOf(q *fleet.Query) func(context.Context) (*fleet.Query, error) {
 }
 
 func shopView(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
-	return q.Restrict(func(ns string) bool { return ns == "shop" }, nil), nil
+	return q.Restrict(func(_, ns string) bool { return ns == "shop" }, nil), nil
 }
 
 func statsServer(t *testing.T, opts Options) *httptest.Server {

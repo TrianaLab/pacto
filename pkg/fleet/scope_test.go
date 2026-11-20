@@ -55,7 +55,7 @@ func TestSourceStateKeepsNamespaces(t *testing.T) {
 }
 
 func TestScopedNamespacesAreReviewed(t *testing.T) {
-	if got := scopedFleet(t).Namespaces(); !slices.Equal(got, []string{"ledger", "payments"}) {
+	if got := namespaceNames(scopedFleet(t).Namespaces()); !slices.Equal(got, []string{"ledger", "payments"}) {
 		t.Errorf("Namespaces = %q, want the read ones only: a review where the source could not read is likely refused too", got)
 	}
 }
@@ -77,7 +77,7 @@ func TestMetaSourceNamespacesCapped(t *testing.T) {
 }
 
 func TestRestrictScrubsWatchedNamespaces(t *testing.T) {
-	s := scopedFleet(t).Restrict(func(ns string) bool { return ns == "payments" }, nil).SnapshotForSerialization()
+	s := scopedFleet(t).Restrict(anyCluster(func(ns string) bool { return ns == "payments" }), anyClusterKind(nil)).SnapshotForSerialization()
 	b, err := json.Marshal(struct {
 		Sources     []SourceState
 		Limitations []Limitation
@@ -96,13 +96,13 @@ func TestRestrictScrubsWatchedNamespaces(t *testing.T) {
 }
 
 func TestRestrictKeepsScopedLimitation(t *testing.T) {
-	s := scopedFleet(t).Restrict(func(ns string) bool { return ns == "payments" }, nil).SnapshotForSerialization()
+	s := scopedFleet(t).Restrict(anyCluster(func(ns string) bool { return ns == "payments" }), anyClusterKind(nil)).SnapshotForSerialization()
 	want := "source c1 watches 1 namespace you may read (payments) and 1 more; services in any other namespace are unknown"
 	if got := scopeMessages(s.Limitations, LimitationK8sNamespaceScoped); !slices.Equal(got, []string{want}) {
 		t.Errorf("scope = %q, want %q", got, want)
 	}
 
-	none := scopedFleet(t).Restrict(func(string) bool { return false }, nil).SnapshotForSerialization()
+	none := scopedFleet(t).Restrict(anyCluster(func(string) bool { return false }), anyClusterKind(nil)).SnapshotForSerialization()
 	want = "source c1 watches 2 namespaces you may not read; services in any other namespace are unknown"
 	if got := scopeMessages(none.Limitations, LimitationK8sNamespaceScoped); !slices.Equal(got, []string{want}) {
 		t.Errorf("scope = %q, want %q", got, want)
@@ -113,7 +113,7 @@ func TestRestrictKeepsScopedLimitation(t *testing.T) {
 }
 
 func TestRestrictKeepsReadableUnreadableNamespace(t *testing.T) {
-	s := scopedFleet(t).Restrict(func(ns string) bool { return ns != "ledger" && ns != "" }, nil).SnapshotForSerialization()
+	s := scopedFleet(t).Restrict(anyCluster(func(ns string) bool { return ns != "ledger" && ns != "" }), anyClusterKind(nil)).SnapshotForSerialization()
 	want := []string{"source c1 could not read namespace audit: forbidden"}
 	if got := scopeMessages(s.Limitations, LimitationK8sNamespaceUnreadable); !slices.Equal(got, want) {
 		t.Errorf("unreadable = %q, want %q", got, want)
@@ -122,7 +122,7 @@ func TestRestrictKeepsReadableUnreadableNamespace(t *testing.T) {
 
 func TestRestrictHidesWatchedNamespaceWithoutTargets(t *testing.T) {
 	q := scopedFleet(t)
-	if q.Restrict(func(ns string) bool { return ns == "payments" || ns == "audit" }, nil) == q {
+	if q.Restrict(anyCluster(func(ns string) bool { return ns == "payments" || ns == "audit" }), anyClusterKind(nil)) == q {
 		t.Error("hiding an empty watched namespace must restrict the answer")
 	}
 }
@@ -169,7 +169,7 @@ func TestRestrictRebuildsScopeWhenEveryWatchedNamespaceIsVisible(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := NewQuery(snap).Restrict(func(ns string) bool { return ns == "payments" }, nil).SnapshotForSerialization()
+	s := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns == "payments" }), anyClusterKind(nil)).SnapshotForSerialization()
 	want := []string{"source c1 watches 1 namespace (payments); services in any other namespace are unknown"}
 	if got := scopeMessages(s.Limitations, LimitationK8sNamespaceScoped); !slices.Equal(got, want) {
 		t.Errorf("scope = %q, want %q", got, want)
@@ -180,7 +180,7 @@ func TestRestrictRebuildsScopeWhenEveryWatchedNamespaceIsVisible(t *testing.T) {
 // namespaces gets no names and the total, and the field doc says that shape is
 // a scoped source, never every namespace.
 func TestRestrictHiddenAllReadsAsScoped(t *testing.T) {
-	s := scopedFleet(t).Restrict(func(string) bool { return false }, nil).SnapshotForSerialization()
+	s := scopedFleet(t).Restrict(anyCluster(func(string) bool { return false }), anyClusterKind(nil)).SnapshotForSerialization()
 	b, err := json.Marshal(s.Sources[0])
 	if err != nil {
 		t.Fatal(err)
@@ -199,10 +199,10 @@ func TestRestrictHiddenAllReadsAsScoped(t *testing.T) {
 func TestUnreadableNamespaceHiddenFromRestrictedReader(t *testing.T) {
 	q := scopedFleet(t)
 	visible := map[string]bool{}
-	for _, ns := range q.Namespaces() {
+	for _, ns := range namespaceNames(q.Namespaces()) {
 		visible[ns] = true
 	}
-	s := q.Restrict(func(ns string) bool { return visible[ns] }, nil).SnapshotForSerialization()
+	s := q.Restrict(anyCluster(func(ns string) bool { return visible[ns] }), anyClusterKind(nil)).SnapshotForSerialization()
 	if got := scopeMessages(s.Limitations, LimitationK8sNamespaceUnreadable); len(got) != 0 {
 		t.Errorf("unreadable = %q, want none for a reader whose namespaces were reviewed", got)
 	}
@@ -219,7 +219,7 @@ func TestHiddenByScope(t *testing.T) {
 		{NamespaceUnreadableLimitation("k8s", "a", "forbidden"), false},
 		{Limitation{Code: "X", Message: "b"}, false},
 	} {
-		if got := hiddenByScope(tc.l, visible); got != tc.want {
+		if got := hiddenByScope(tc.l, anyCluster(visible), nil); got != tc.want {
 			t.Errorf("hiddenByScope(%+v) = %v, want %v", tc.l, got, tc.want)
 		}
 	}

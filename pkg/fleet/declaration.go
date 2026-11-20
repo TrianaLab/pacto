@@ -130,22 +130,29 @@ func withoutClusterFacts(rec *contract.InferredRecord) (*contract.InferredRecord
 	return &c, len(rec.Fields) - len(c.Fields)
 }
 
-// declarationScope is the namespace and workload kind of the inferred
-// service rev's declaration came from, false when it has none.
-func declarationScope(rev *ContractRevision) (WorkloadScope, bool) {
+// declarationScope is the namespace, workload kind and cluster of the
+// inferred service rev's declaration came from, false when it has none. The
+// cluster is the declaration's when s knows it, else "": a cluster id no
+// source of s reported is a claim, so it never picks whose review applies.
+func declarationScope(s *FleetSnapshot, rev *ContractRevision) (WorkloadScope, bool) {
 	if rev.Record == nil || rev.Record.Declaration == nil {
 		return WorkloadScope{}, false
 	}
-	_, ns, kind, _, ok := ParseK8sCaller(rev.Record.Declaration.InferredFrom)
-	return WorkloadScope{ns, kind}, ok
+	d := rev.Record.Declaration
+	_, ns, kind, _, ok := ParseK8sCaller(d.InferredFrom)
+	cluster := ""
+	if slices.ContainsFunc(s.Clusters, func(c ClusterRecord) bool { return c.ID == d.Cluster }) {
+		cluster = d.Cluster
+	}
+	return WorkloadScope{ns, kind, cluster}, ok
 }
 
 // declarationSourceHidden reports whether hidden says no to the workload rev's
 // declaration came from: its cluster facts are that workload's data, so they
 // need namespace read and workload read of its kind.
-func declarationSourceHidden(rev *ContractRevision, hidden func(namespace, kind string) bool) bool {
-	sc, ok := declarationScope(rev)
-	return ok && hidden(sc.Namespace, sc.Kind)
+func declarationSourceHidden(s *FleetSnapshot, rev *ContractRevision, hidden func(cluster, namespace, kind string) bool) bool {
+	sc, ok := declarationScope(s, rev)
+	return ok && hidden(sc.Cluster, sc.Namespace, sc.Kind)
 }
 
 // hideClusterDependencies is a clone of rev without the cluster-sourced

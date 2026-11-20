@@ -278,8 +278,8 @@ var ErrReview = errors.New("the apiserver could not review which namespaces you 
 // answer.
 func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Query, error) {
 	who := p.User + "\x00" + strings.Join(slices.Sorted(slices.Values(p.Groups)), "\x00")
-	scopes := q.InferredWorkloadScopes()
-	visible, all, err := v.visible(ctx, p, who, q.Namespaces())
+	scopes := clusterlessScopes(q.InferredWorkloadScopes())
+	visible, all, err := v.visible(ctx, p, who, namespaceNames(q.Namespaces()))
 	var workloads map[fleet.WorkloadScope]bool
 	allWorkloads := false
 	if err == nil {
@@ -311,7 +311,9 @@ func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Qu
 	}
 	// Restricting a large snapshot takes a while, so it runs unlocked: two
 	// people asking at once may both build the same view.
-	r = q.Restrict(nsVisible, func(ns, kind string) bool { return workloads[fleet.WorkloadScope{Namespace: ns, Kind: kind}] })
+	// ponytail: adapter until P4 reviews per cluster.
+	r = q.Restrict(func(_, ns string) bool { return nsVisible(ns) },
+		func(_, ns, kind string) bool { return workloads[fleet.WorkloadScope{Namespace: ns, Kind: kind}] })
 	v.mu.Lock()
 	if v.viewsOf != q.SnapshotID() || len(v.views) >= maxViews {
 		v.viewsOf, v.views = q.SnapshotID(), map[string]*fleet.Query{}
@@ -319,6 +321,30 @@ func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Qu
 	v.views[key] = r
 	v.mu.Unlock()
 	return r, nil
+}
+
+// namespaceNames is the sorted, unique namespaces of pairs, whatever their
+// cluster. ponytail: adapter until P4 reviews per cluster.
+func namespaceNames(pairs []fleet.ClusterNamespace) []string {
+	out := make([]string, 0, len(pairs))
+	for _, cn := range pairs {
+		out = append(out, cn.Namespace)
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// clusterlessScopes is scopes without their cluster, sorted and unique.
+// ponytail: adapter until P4 reviews per cluster.
+func clusterlessScopes(scopes []fleet.WorkloadScope) []fleet.WorkloadScope {
+	out := make([]fleet.WorkloadScope, 0, len(scopes))
+	for _, sc := range scopes {
+		out = append(out, fleet.WorkloadScope{Namespace: sc.Namespace, Kind: sc.Kind})
+	}
+	slices.SortFunc(out, func(a, b fleet.WorkloadScope) int {
+		return cmp.Or(cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Kind, b.Kind))
+	})
+	return slices.Compact(out)
 }
 
 // visible returns, sorted, the namespaces of nss p may read, and whether p

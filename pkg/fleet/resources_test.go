@@ -215,7 +215,7 @@ func hiddenMailFleet(t *testing.T, offering string, reports ...RawProvisioning) 
 		{Scope: "hush", Kind: k, Name: "postgresql", Service: "postgresql", Domain: acme, Compliance: StatusCompliant},
 		{Scope: "shop", Kind: k, Name: "notifier", Service: "notifier", Domain: acme, Digest: testDigest(acme, "notifier", "1.0.0"), Compliance: StatusCompliant},
 	}
-	return NewQuery(provisioningSnap(t, 0, base, reports)).Restrict(func(ns string) bool { return ns != "hush" }, nil)
+	return NewQuery(provisioningSnap(t, 0, base, reports)).Restrict(anyCluster(func(ns string) bool { return ns != "hush" }), anyClusterKind(nil))
 }
 
 func dbReport(r *RawProvisioning) {
@@ -290,7 +290,7 @@ func TestPlacementHiddenProviderIsUnknownNotNone(t *testing.T) {
 // only: restriction leaves them as before and the path's service detail
 // counts no hidden provider.
 func TestTemplateEdgesRestrictedUnchanged(t *testing.T) {
-	r := goldenRestrictFleet(t, templated("http-service", "1.0.0")).Restrict(shopOnly, nil)
+	r := goldenRestrictFleet(t, templated("http-service", "1.0.0")).Restrict(anyCluster(shopOnly), anyClusterKind(nil))
 	d, err := r.EntityDetail(KindService, string(NewServiceKeyDomain(acme, "http-service")))
 	if err != nil {
 		t.Fatal(err)

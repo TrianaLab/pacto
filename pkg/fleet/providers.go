@@ -254,9 +254,9 @@ const reportingAdapterID = "reporting-adapter/"
 // row an evidence source reported from its trust config (a producer the
 // installation allows to report) names no report and stays for every viewer:
 // the Evidence Server lists those producers to anyone on GET /producers.
-func restrictedProviders(out *FleetSnapshot, rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNames []string, visible func(string) bool, workloadVisible func(namespace, kind string) bool) []Provider {
+func restrictedProviders(out *FleetSnapshot, rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNames []string, visible func(cluster, namespace string) bool, workloadVisible func(cluster, namespace, kind string) bool, srcClusters map[string]string) []Provider {
 	rows = slices.DeleteFunc(slices.Clone(rows), func(p Provider) bool { return strings.HasPrefix(p.ID, reportingAdapterID) })
-	rows = append(restrictProviders(rows, hiddenSvc, hiddenNames, visible, workloadVisible, out.Clusters), finalizeRows(reportingRows(out.Provisioning), sourceStates(out.Sources))...)
+	rows = append(restrictProviders(rows, hiddenSvc, hiddenNames, visible, workloadVisible, out.Clusters, srcClusters), finalizeRows(reportingRows(out.Provisioning), sourceStates(out.Sources))...)
 	slices.SortStableFunc(rows, func(a, b Provider) int { return cmp.Or(cmp.Compare(a.Source, b.Source), cmp.Compare(a.ID, b.ID)) })
 	return rows
 }
@@ -375,8 +375,10 @@ func PluralKind(k string) string {
 // names a hidden name, goes; the degraded limitation names no namespace and
 // stays. A row that is not available and lost every reason gets a degraded
 // one, so it still says why. Evidence a producer wrote that names a hidden
-// name is masked; evidence rendered from counts names none.
-func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNames []string, visible func(string) bool, workloadVisible func(namespace, kind string) bool, clusters []ClusterRecord) []Provider {
+// name is masked; evidence rendered from counts names none. Every namespace
+// of a row is read in the row's cluster (see providerCluster; srcClusters maps
+// source ids to cluster ids).
+func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNames []string, visibleIn func(cluster, namespace string) bool, workloadVisibleIn func(cluster, namespace, kind string) bool, clusters []ClusterRecord, srcClusters map[string]string) []Provider {
 	if rows == nil {
 		return nil
 	}
@@ -392,6 +394,7 @@ func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNam
 		if allServicesHidden(p, hiddenSvc) {
 			continue
 		}
+		visible, workloadVisible := inCluster(providerCluster(p, srcClusters), visibleIn, workloadVisibleIn)
 		if !hideCluster(&p, shown) {
 			continue
 		}
@@ -412,7 +415,7 @@ func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNam
 		}
 		redactDetected(&p, len(rows[i].Objects), visible)
 		p.Limitations = slices.DeleteFunc(slices.Clone(p.Limitations), func(l Limitation) bool {
-			return l.Code != LimitationProviderSourceDegraded && (hiddenByScope(l, visible) || mentionsHidden(l.Message))
+			return l.Code != LimitationProviderSourceDegraded && (hiddenByScope(l, visibleIn, srcClusters) || mentionsHidden(l.Message))
 		})
 		if p.Status != SourceAvailable && len(p.Limitations) == 0 {
 			p.Limitations = []Limitation{{Code: LimitationProviderSourceDegraded, Source: p.Source,
@@ -576,11 +579,22 @@ func countVisible(c ProviderCount, visible func(string) bool, workloadVisible fu
 	return c.N == 0 || visible(c.Namespace) && workloadVisible != nil && workloadVisible(c.Namespace, c.Kind)
 }
 
+// inCluster is visible and workloadVisible with their cluster fixed to
+// cluster. A nil workloadVisible stays nil.
+func inCluster(cluster string, visible func(cluster, namespace string) bool, workloadVisible func(cluster, namespace, kind string) bool) (func(string) bool, func(string, string) bool) {
+	vis := func(ns string) bool { return visible(cluster, ns) }
+	if workloadVisible == nil {
+		return vis, nil
+	}
+	return vis, func(ns, kind string) bool { return workloadVisible(cluster, ns, kind) }
+}
+
 // providersNarrowed reports whether a reader visible and workloadVisible say
 // yes to would lose an object or a count of some row of s, or see a detected
-// row redacted.
-func providersNarrowed(s *FleetSnapshot, visible func(string) bool, workloadVisible func(namespace, kind string) bool) bool {
+// row redacted. srcClusters maps source ids to cluster ids.
+func providersNarrowed(s *FleetSnapshot, visibleIn func(cluster, namespace string) bool, workloadVisibleIn func(cluster, namespace, kind string) bool, srcClusters map[string]string) bool {
 	return slices.ContainsFunc(s.Providers, func(p Provider) bool {
+		visible, workloadVisible := inCluster(providerCluster(p, srcClusters), visibleIn, workloadVisibleIn)
 		return detectedNarrowed(p, visible) || slices.ContainsFunc(p.Objects, func(o ProviderObject) bool { return !objectVisible(o, visible, workloadVisible) }) ||
 			slices.ContainsFunc(p.Counts, func(c ProviderCount) bool { return !countVisible(c, visible, workloadVisible) })
 	})

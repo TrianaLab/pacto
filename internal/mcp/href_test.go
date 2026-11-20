@@ -120,7 +120,7 @@ func TestDashboardHrefsUnderView(t *testing.T) {
 		t.Fatal(err)
 	}
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns == "shop" }, nil), nil
+		return q.Restrict(func(_, ns string) bool { return ns == "shop" }, nil), nil
 	}
 	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(fleet.NewQuery(snap)), Opts: FleetOptions{View: view, DashboardURL: "https://dash.example/"}}})
 	for _, c := range []struct {

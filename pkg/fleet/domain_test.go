@@ -271,7 +271,7 @@ func TestAttention_NoBusinessDomainFilter(t *testing.T) {
 
 func TestEntityDetail_DomainRespectsRestriction(t *testing.T) {
 	q := domainFleet(t, RawTarget{Scope: "secret", Kind: SourceKindKubernetes, Name: "pay-secret", Service: "pay", Domain: "ghcr.io/acme", Compliance: StatusCompliant})
-	r := q.Restrict(func(ns string) bool { return ns != "secret" }, nil)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "secret" }), anyClusterKind(nil))
 	d, err := r.EntityDetail(KindDomain, "commerce")
 	if err != nil {
 		t.Fatal(err)
@@ -650,7 +650,7 @@ func TestRestrict_BusinessDomainFromVisibleTargetsOnly(t *testing.T) {
 		{Scope: "secret", Kind: SourceKindKubernetes, Name: "x-secret", Service: "x", BusinessDomain: "payments"},
 		{Scope: "open", Kind: SourceKindKubernetes, Name: "x-open", Service: "x", BusinessDomainKnown: true},
 	}})
-	r := q.Restrict(func(ns string) bool { return ns != "secret" }, nil)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "secret" }), anyClusterKind(nil))
 	s := r.snap.Services[NewServiceKeyDomain("", "x")]
 	if s.BusinessDomain != "" || s.BusinessDomainUnknown {
 		t.Errorf("restricted domain = %q (unknown %v), want No domain", s.BusinessDomain, s.BusinessDomainUnknown)

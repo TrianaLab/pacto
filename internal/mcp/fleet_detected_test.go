@@ -74,7 +74,7 @@ func TestMCPFleetStatusOmitsHint(t *testing.T) {
 // redacted.
 func TestMCPFleetStatusDetectedRestricted(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns == "team-a" }, nil), nil
+		return q.Restrict(func(_, ns string) bool { return ns == "team-a" }, nil), nil
 	}
 	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(detectedQuery(t)), Opts: FleetOptions{View: view}}})
 	text := resultText(t, callToolOn(t, server, "pacto_fleet_status", map[string]any{}))

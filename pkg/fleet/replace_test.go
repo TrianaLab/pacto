@@ -240,14 +240,14 @@ func TestRestrictReplacementNeedsBothSides(t *testing.T) {
 	q := NewQuery(replaceSnap(t, hoursAgo(72), []RawTarget{cartTarget("cart-svc", hoursAgo(1)), workload("web", "front")}))
 	all := func(string) bool { return true }
 	allKinds := func(string, string) bool { return true }
-	if r := q.Restrict(func(ns string) bool { return ns != "web" }, allKinds); len(r.snap.Replacements) != 1 {
+	if r := q.Restrict(anyCluster(func(ns string) bool { return ns != "web" }), anyClusterKind(allKinds)); len(r.snap.Replacements) != 1 {
 		t.Errorf("both sides visible: %+v", r.snap.Replacements)
 	}
 	noDeployments := func(_, kind string) bool { return kind != "Deployment" }
-	if r := q.Restrict(all, noDeployments); len(r.snap.Replacements) != 0 {
+	if r := q.Restrict(anyCluster(all), anyClusterKind(noDeployments)); len(r.snap.Replacements) != 0 {
 		t.Errorf("hidden workload kind: %+v", r.snap.Replacements)
 	}
-	r := q.Restrict(func(ns string) bool { return ns != "shop" }, allKinds)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "shop" }), anyClusterKind(allKinds))
 	if len(r.snap.Replacements) != 0 {
 		t.Errorf("hidden namespace: %+v", r.snap.Replacements)
 	}
@@ -259,7 +259,7 @@ func TestRestrictReplacementNeedsBothSides(t *testing.T) {
 	front := cartTarget("cart-svc", hoursAgo(1))
 	front.Scope, front.Name = "web", "cart-web"
 	q = NewQuery(replaceSnap(t, hoursAgo(72), []RawTarget{cartTarget("cart-svc", hoursAgo(1)), front}))
-	for _, r := range []*Query{q.Restrict(func(ns string) bool { return ns != "shop" }, allKinds), q.Restrict(all, noDeployments)} {
+	for _, r := range []*Query{q.Restrict(anyCluster(func(ns string) bool { return ns != "shop" }), anyClusterKind(allKinds)), q.Restrict(anyCluster(all), anyClusterKind(noDeployments))} {
 		if _, res := r.snap.ObservedNameResolver()(cartName); res != ObservedUnknown {
 			t.Errorf("a hidden workload's name resolves: %v", res)
 		}

@@ -242,7 +242,7 @@ func TestEntityRefCarriesGroupAndRepository(t *testing.T) {
 func TestRestrictDropsHiddenRepositories(t *testing.T) {
 	q := groupFleet(t)
 	before, _ := json.Marshal(q.SnapshotForSerialization())
-	r := q.Restrict(func(ns string) bool { return ns != "argocd" }, func(ns, _ string) bool { return ns != "argocd" })
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "argocd" }), anyClusterKind(func(ns, _ string) bool { return ns != "argocd" }))
 	w := workloadOf(t, r.SnapshotForSerialization(), cartName)
 	if len(w.Repositories) != 0 || w.RepositoryUnknown != "hidden by your permissions" || w.Group.Key != "argocd//cart" {
 		t.Errorf("restricted workload %+v", w)
@@ -260,20 +260,20 @@ func TestRestrictDropsHiddenRepositories(t *testing.T) {
 func TestRestrictDropsRepositoryWithoutApplicationRead(t *testing.T) {
 	q := groupFleet(t)
 	noApps := func(ns, kind string) bool { return ns != "argocd" || kind != "Application" }
-	r := q.Restrict(everyNamespace, noApps)
+	r := q.Restrict(anyCluster(everyNamespace), anyClusterKind(noApps))
 	if r == q {
 		t.Fatal("a repository the viewer may not read kept the whole query")
 	}
 	if w := workloadOf(t, r.SnapshotForSerialization(), cartName); len(w.Repositories) != 0 || w.RepositoryUnknown != "hidden by your permissions" {
 		t.Errorf("restricted workload %+v", w)
 	}
-	if q.Restrict(everyNamespace, everyWorkload) != q {
+	if q.Restrict(anyCluster(everyNamespace), anyClusterKind(everyWorkload)) != q {
 		t.Error("a viewer who may read everything got a copy")
 	}
 	noNS := argoCart()
 	noNS.Repositories[0].Namespace = ""
 	qn := NewQuery(buildClusterSnap(t, workloadsSource("k8s-workloads", nil, noNS)))
-	if w := workloadOf(t, qn.Restrict(everyNamespace, everyWorkload).SnapshotForSerialization(), cartName); len(w.Repositories) != 0 {
+	if w := workloadOf(t, qn.Restrict(anyCluster(everyNamespace), anyClusterKind(everyWorkload)).SnapshotForSerialization(), cartName); len(w.Repositories) != 0 {
 		t.Errorf("a repository with no namespace survived: %+v", w.Repositories)
 	}
 }
@@ -288,30 +288,30 @@ func TestRestrictHidesRepositoryReasonFromHiddenObject(t *testing.T) {
 		return NewQuery(buildClusterSnap(t, workloadsSource("k8s-workloads", nil, in)))
 	}
 	noApps := func(_, kind string) bool { return kind != "Application" }
-	q := unresolved("the source is Helm chart payments-internal, not a Git repository", WorkloadScope{"argocd", "Application"})
-	if !slices.Contains(q.InferredWorkloadScopes(), WorkloadScope{"argocd", "Application"}) {
+	q := unresolved("the source is Helm chart payments-internal, not a Git repository", WorkloadScope{Namespace: "argocd", Kind: "Application"})
+	if !slices.Contains(q.InferredWorkloadScopes(), WorkloadScope{Namespace: "argocd", Kind: "Application"}) {
 		t.Errorf("the reason's object is never reviewed: %v", q.InferredWorkloadScopes())
 	}
-	r := q.Restrict(everyNamespace, noApps)
+	r := q.Restrict(anyCluster(everyNamespace), anyClusterKind(noApps))
 	if r == q {
 		t.Fatal("a reason read from a hidden object kept the whole query")
 	}
 	if w := workloadOf(t, r.SnapshotForSerialization(), cartName); w.RepositoryUnknown != "hidden by your permissions" || w.Group.Key != "argocd//cart" {
 		t.Errorf("restricted workload %+v", w)
 	}
-	if q.Restrict(everyNamespace, everyWorkload) != q {
+	if q.Restrict(anyCluster(everyNamespace), anyClusterKind(everyWorkload)) != q {
 		t.Error("a viewer who may list the Application got a copy")
 	}
 	// No namespace to check, or an object Pacto cannot name, hides it from every viewer.
 	for _, from := range []WorkloadScope{{Kind: "Application"}, {Namespace: "argocd", Kind: "Secret"}} {
-		w := workloadOf(t, unresolved("no Application named cart was read", from).Restrict(everyNamespace, everyWorkload).SnapshotForSerialization(), cartName)
+		w := workloadOf(t, unresolved("no Application named cart was read", from).Restrict(anyCluster(everyNamespace), anyClusterKind(everyWorkload)).SnapshotForSerialization(), cartName)
 		if w.RepositoryUnknown != "hidden by your permissions" {
 			t.Errorf("%+v: reason %q", from, w.RepositoryUnknown)
 		}
 	}
 	// A reason that names no object shows to everyone.
 	q = unresolved("the cluster does not serve Applications")
-	if w := workloadOf(t, q.Restrict(everyNamespace, noApps).SnapshotForSerialization(), cartName); w.RepositoryUnknown != "the cluster does not serve Applications" {
+	if w := workloadOf(t, q.Restrict(anyCluster(everyNamespace), anyClusterKind(noApps)).SnapshotForSerialization(), cartName); w.RepositoryUnknown != "the cluster does not serve Applications" {
 		t.Errorf("public reason %q", w.RepositoryUnknown)
 	}
 }
@@ -331,7 +331,7 @@ func TestInvalidGroupSaysItWasRead(t *testing.T) {
 }
 
 func TestRestrictKeepsGroupOfVisibleWorkload(t *testing.T) {
-	r := groupFleet(t).Restrict(func(ns string) bool { return ns == "shop" }, func(ns, _ string) bool { return ns == "shop" })
+	r := groupFleet(t).Restrict(anyCluster(func(ns string) bool { return ns == "shop" }), anyClusterKind(func(ns, _ string) bool { return ns == "shop" }))
 	snap := r.SnapshotForSerialization()
 	for _, name := range []string{cartName, "k8s:shop/Deployment/worker"} {
 		if g := workloadOf(t, snap, name).Group; g == nil || g.Key != "argocd//cart" || g.From == "" {
@@ -342,17 +342,17 @@ func TestRestrictKeepsGroupOfVisibleWorkload(t *testing.T) {
 
 func TestInferredWorkloadScopesIncludeRepositories(t *testing.T) {
 	got := groupFleet(t).InferredWorkloadScopes()
-	if !slices.Contains(got, WorkloadScope{"argocd", "Application"}) || !slices.Contains(got, WorkloadScope{"shop", "Deployment"}) {
+	if !slices.Contains(got, WorkloadScope{Namespace: "argocd", Kind: "Application"}) || !slices.Contains(got, WorkloadScope{Namespace: "shop", Kind: "Deployment"}) {
 		t.Errorf("scopes %v", got)
 	}
-	if !slices.Contains(groupFleet(t).Namespaces(), "argocd") {
+	if !slices.Contains(namespaceNames(groupFleet(t).Namespaces()), "argocd") {
 		t.Error("the repository namespace is never reviewed")
 	}
 }
 
 func TestRestrictRebuildsGroupAmbiguousCount(t *testing.T) {
 	q := NewQuery(buildClusterSnap(t, workloadsSource("k8s-workloads", nil, ambiguous("shop", "one"), ambiguous("ops", "two"))))
-	r := q.Restrict(func(ns string) bool { return ns != "ops" }, everyWorkload)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "ops" }), anyClusterKind(everyWorkload))
 	got := limitationsWith(r.SnapshotForSerialization(), LimitationServiceGroupAmbiguous)
 	if len(got) != 1 || !strings.HasPrefix(got[0].Message, "1 workloads from source k8s-workloads") {
 		t.Errorf("restricted limitations %+v", got)

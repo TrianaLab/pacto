@@ -72,7 +72,7 @@ func TestMCPFleetSearchInferredRestricted(t *testing.T) {
 		"no workload read": func(ns, _ string) bool { return ns != "shop" },
 	} {
 		view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-			return q.Restrict(func(ns string) bool { return ns != "secretns" }, workloads), nil
+			return q.Restrict(func(_, ns string) bool { return ns != "secretns" }, func(_, ns, kind string) bool { return workloads(ns, kind) }), nil
 		}
 		server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(inferredFleet(t)), Opts: FleetOptions{View: view}}})
 		for _, args := range []map[string]any{{}, {"declaration": "inferred"}, {"text": "vault"}} {

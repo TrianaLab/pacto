@@ -135,7 +135,7 @@ func TestRecordClassIsNotProvenance(t *testing.T) {
 func TestRestrictedRevisionHidesDiscoveredDependency(t *testing.T) {
 	o := validRecordOpts()
 	o.record = recordOf([]contract.Inferred{{Field: "dependencies[notification-worker]", Value: "notification-worker", Source: "deploy/app.yaml:18", Confidence: contract.ConfidencePossible}})
-	r := recordFleet(t, o).Restrict(func(ns string) bool { return ns == "shop" }, nil)
+	r := recordFleet(t, o).Restrict(anyCluster(func(ns string) bool { return ns == "shop" }), anyClusterKind(nil))
 	s := r.SnapshotForSerialization()
 	if slices.ContainsFunc(s.Relationships, func(rel Relationship) bool { return rel.FromService == rNews }) {
 		t.Error("the restricted view names a hidden revision's discovered dependency")

@@ -24,10 +24,21 @@ var errOperationReview = errors.New("the apiserver could not review whether you 
 // real delivery.
 func operationAccess(act *app.Delivery, full *fleet.Query) func(ctx context.Context, nss []string) (func(string) bool, error) {
 	return func(ctx context.Context, nss []string) (func(string) bool, error) {
-		return reviewOperations(ctx, full.Namespaces(), nss, func(ctx context.Context, ns string) (bool, error) {
+		return reviewOperations(ctx, knownNamespaces(full.Namespaces()), nss, func(ctx context.Context, ns string) (bool, error) {
 			return act.Can(ctx, "list", "operations", ns)
 		})
 	}
+}
+
+// knownNamespaces is the sorted, unique namespaces of pairs, whatever their
+// cluster. ponytail: adapter until P5 scopes operation records by cluster.
+func knownNamespaces(pairs []fleet.ClusterNamespace) []string {
+	out := make([]string, 0, len(pairs))
+	for _, cn := range pairs {
+		out = append(out, cn.Namespace)
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // reviewOperations asks may, at most reviewsInFlight at once, about each of

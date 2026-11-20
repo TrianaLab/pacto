@@ -103,7 +103,7 @@ func TestBackstageEntitiesRestrictedView(t *testing.T) {
 	whole := encoded(t, q)
 	rec := backstageGet(t, Options{Fleet: fleetOf(q), View: shopView}, http.MethodGet)
 	body := rec.Body.String()
-	if rec.Code != http.StatusOK || body != encoded(t, q.Restrict(shop, nil)) {
+	if rec.Code != http.StatusOK || body != encoded(t, q.Restrict(func(_, ns string) bool { return shop(ns) }, nil)) {
 		t.Fatalf("got %d %q, want the restricted view's bytes", rec.Code, body)
 	}
 	if !strings.Contains(whole, "secret-svc") || strings.Contains(body, "secret-svc") {
@@ -143,7 +143,7 @@ func TestBackstageEntitiesViewFailure(t *testing.T) {
 // restrictTo is a view that may read only the namespaces named.
 func restrictTo(nss ...string) func(context.Context, *fleet.Query) (*fleet.Query, error) {
 	return func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return slices.Contains(nss, ns) }, nil), nil
+		return q.Restrict(func(_, ns string) bool { return slices.Contains(nss, ns) }, nil), nil
 	}
 }
 
@@ -274,7 +274,7 @@ func TestBackstageEntitiesRestrictedCompleteIs200(t *testing.T) {
 		t.Fatalf("got %d %q, want 200", rec.Code, rec.Body.String())
 	}
 	nothing := func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(string) bool { return false }, nil), nil
+		return q.Restrict(func(_, _ string) bool { return false }, nil), nil
 	}
 	if rec := backstageGet(t, Options{Fleet: fleetOf(q), View: nothing}, http.MethodGet); rec.Code != http.StatusOK || rec.Body.Len() != 0 {
 		t.Fatalf("a view of nothing = %d %q, want an empty 200", rec.Code, rec.Body.String())

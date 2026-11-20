@@ -148,7 +148,7 @@ func TestRestrictHidesInferredEdgeCountsOnce(t *testing.T) {
 	if !slices.ContainsFunc(q.snap.InferredRelationships, func(r Relationship) bool { return r.FromService == NewServiceKey(cartName) && r.ToService == web }) {
 		t.Fatalf("no inferred cart edge to web: %+v", q.snap.InferredRelationships)
 	}
-	r := q.Restrict(everyNamespace, func(_, kind string) bool { return kind != "Deployment" })
+	r := q.Restrict(anyCluster(everyNamespace), anyClusterKind(func(_, kind string) bool { return kind != "Deployment" }))
 	s := r.SnapshotForSerialization()
 	if slices.ContainsFunc(s.InferredRelationships, func(r Relationship) bool { return r.FromService == NewServiceKey(cartName) }) {
 		t.Errorf("the hidden cart keeps its edge: %+v", s.InferredRelationships)

@@ -205,7 +205,7 @@ func (id *dashboardIdentity) operationAccess(full func(context.Context) (*fleet.
 			if err != nil {
 				return nil, err
 			}
-			known = q.Namespaces()
+			known = knownNamespaces(q.Namespaces())
 		}
 		who := sync.OnceValues(func() (subject, error) { return id.subject(ctx) })
 		return reviewOperations(ctx, known, nss, func(ctx context.Context, ns string) (bool, error) {

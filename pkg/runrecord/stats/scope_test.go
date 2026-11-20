@@ -60,7 +60,7 @@ func shopOnly(ns string) bool { return ns == "shop" }
 
 func restrictedScope(t *testing.T) Scope {
 	full := statsFleet(t)
-	return Scope{Restricted: true, Place: FleetPlacement(full, full.Restrict(shopOnly, nil)), OperationVisible: shopOnly}
+	return Scope{Restricted: true, Place: FleetPlacement(full, full.Restrict(func(_, ns string) bool { return shopOnly(ns) }, nil)), OperationVisible: shopOnly}
 }
 
 func unrestrictedScope(t *testing.T) Scope {
@@ -213,7 +213,7 @@ func TestFleetPlacementResolvesEachNameOnce(t *testing.T) {
 // land on the visible service.
 func TestRestrictedBareNameSharedWithHiddenDomainIsHidden(t *testing.T) {
 	full := buildFleet(t, "")
-	sc := Scope{Restricted: true, Place: FleetPlacement(full, full.Restrict(shopOnly, nil)), OperationVisible: shopOnly}
+	sc := Scope{Restricted: true, Place: FleetPlacement(full, full.Restrict(func(_, ns string) bool { return shopOnly(ns) }, nil)), OperationVisible: shopOnly}
 	st := aggBy(set(breaking(diffOf("orders"))), "service", sc)
 	if st.Runs != 0 || !st.Hidden.Present {
 		t.Fatalf("answer = %+v", st)
@@ -240,7 +240,7 @@ func TestRestrictedBareNameSharedWithHiddenDomainIsHidden(t *testing.T) {
 // they are its own unreadable records, never records outside the view.
 func TestRestrictedVisibleServiceOnlySkippedIsSkipped(t *testing.T) {
 	full := statsFleet(t)
-	view := full.Restrict(shopOnly, nil)
+	view := full.Restrict(func(_, ns string) bool { return shopOnly(ns) }, nil)
 	sc := restrictedScope(t)
 	sc.Names = VisibleNames(view)
 	if want := []string{"catalog", "ghost", "orders"}; !reflect.DeepEqual(sc.Names, want) {
