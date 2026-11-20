@@ -241,7 +241,10 @@ workload the cluster already runs, without a repository or a build.
 - **Owner.** Setting, changing or removing `service.owner` takes a person who
   belongs to the current owner, declared or attested, or a default approver;
   anyone else is refused before anything is pushed. An owner read from the
-  workload's team label stays inferred.
+  workload's team label stays inferred. An unsigned version pushed without
+  `pacto declare` keeps its owner: registry write access is the trust
+  boundary for unsigned pushes. See
+  [Who may set a service owner](owner-setting.md).
 - **Drafts.** `pacto declare <workload> --from-draft draft-<n> --yes` accepts a
   draft an agent or CI wrote: the workload is read again under your
   credentials, every declared change the read and the baseline do not back is

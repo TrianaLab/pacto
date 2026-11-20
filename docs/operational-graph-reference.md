@@ -373,8 +373,18 @@ revision declares an owner and no source reports one. A service with no owner
 claim whose contract Pacto cannot read counts as `unknown` instead: the
 dashboard labels it Owner unknown and never No declared owner.
 
-`get` also returns `ownerProvenance`, where the owner comes from: `declared`,
-`declared-via-target`, `attested` or `inferred`.
+`get` also returns where the owner comes from; see
+[Who may set a service owner](owner-setting.md):
+
+| Field or code | Meaning |
+|---|---|
+| `ownerProvenance` | `declared` (a revision's `pacto.yaml`), `attested`, `declared-via-target` (the running contract the operator read) or `inferred`, in that precedence |
+| `ownerSource` | For `attested` only: the file and line, the commit and the CI identity that signed it, such as `CODEOWNERS:7 at a1b2c3, signed by github.com/acme/invoices/.github/workflows/ci.yml` |
+| `provenance.signature.signerRepository`, `signerCommit` | On a revision, the repository and commit an accepted CI signer's certificate names |
+| `provenance.ownerRight` | On a revision, the owner rule's verdict on the owner it sets: `allowed`, `code` and `message` |
+| `OWNER_CONFLICT` | Also raised when attested revisions of the service were signed from different repositories; no attested owner is set |
+| `OWNER_DECLARATION_REFUSED` | A registry revision sets an owner its signer may not set, so its owner is not used |
+| `OWNER_DECLARATION_UNVERIFIED` | A registry revision declares an owner the rule could not check, so its owner is not used and the answer is `partial` |
 
 ## Business domains
 

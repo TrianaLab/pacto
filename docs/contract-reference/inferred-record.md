@@ -72,9 +72,10 @@ findings:                      # what Pacto recognized and could not read
   no version. An image passed on the command line cites `flag:--image`.
 - `class: ownerFile` marks a `service.owner` read from CODEOWNERS or
   `catalog-info.yaml`, the only value and the only field it goes on.
-  `pacto init` shows it as "attested". The marker only names the file: an
-  owner it marks is inferred, unverified, never routes a decision and never
-  clears a gate.
+  `pacto init` shows it as "attested". The marker alone raises no trust: the
+  owner stays inferred unless a CI identity the publisher rule accepts signed
+  the bundle at the commit `inputs.commit` names, which makes it
+  [attested](../owner-setting.md#attested-owners). Neither ever clears a gate.
 - `outranks` lists, sorted, the other sources that gave the same field. The
   ranks are in
   [What Pacto reads from your folder](../pactify.md#what-pacto-reads-from-your-folder).
