@@ -1093,3 +1093,21 @@ func TestProducersEndpointListsAdapters(t *testing.T) {
 		}
 	}
 }
+
+const inferredStripe = "oci://ghcr.io/acme/pacto-inferred/stripe:0.0.2"
+
+// TestProviderScopeRejectsInferredRepository: a scope that covers the
+// inferred contract still never lets provisioning anchor on it (D7).
+func TestProviderScopeRejectsInferredRepository(t *testing.T) {
+	err := acceptScoped(t, scopedContract(inferredStripe), []string{"ghcr.io/acme"}, "configuration", "db")
+	if !errors.Is(err, ErrProviderNotAllowed) || !strings.Contains(err.Error(), "claim the external first") {
+		t.Fatalf("inferred provider = %v, want ErrProviderNotAllowed", err)
+	}
+}
+
+// TestUnscopedKeyRejectsInferredProvider: an unscoped key is refused too.
+func TestUnscopedKeyRejectsInferredProvider(t *testing.T) {
+	if err := acceptScoped(t, scopedContract(inferredStripe), nil, "configuration", "db"); !errors.Is(err, ErrProviderNotAllowed) {
+		t.Fatalf("unscoped inferred provider = %v, want ErrProviderNotAllowed", err)
+	}
+}

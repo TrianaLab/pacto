@@ -26,7 +26,9 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"fleet tools read the operational system and its state. Fleet tools only " +
 	"OBSERVE: they never modify contracts, deploy, invoke services or grant " +
 	"authorization. A dependency marked 'resolved' only names a provider that exists; read its " +
-	"'rangeStatus' before saying the dependency is met. Every fleet answer includes " +
+	"'rangeStatus' before saying the dependency is met; rangeStatus unknown with 'rangeReason' INFERRED_PROVIDER means the " +
+	"provider is an inferred contract (under pacto-inferred, or signed only by this installation's operator), which Pacto never " +
+	"checks a range against, so the dependency is unverified. Every fleet answer includes " +
 	"'asOf' and 'completeness'. Treat a 'partial' or stale answer as incomplete " +
 	"knowledge: when source coverage is incomplete, a missing result means unknown. " +
 	"An external system (a vendor, managed service or legacy host no Pacto contract describes) is kind external, " +
@@ -61,7 +63,7 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"pacto_fleet_entities to list owners, business domains and offerings, pacto_fleet_entity " +
 	"for one of them and pacto_fleet_attention for what needs attention, most severe first. " +
 	"An attention item's nextAction names the operation that fixes it and the tool that makes it (edit-contract: " +
-	"edit the contract, from pacto mcp --transport stdio); Pacto infers it from the item's code, and it grants nothing. " +
+	"edit the contract, from pacto mcp --transport stdio; declare: write a declared contract with pacto_declare); Pacto infers it from the item's code, and it grants nothing. " +
 	"pacto_fleet_neighborhood lists the services around one service with their owners, for the " +
 	"blast radius of a problem. Observed edges from a source of kind mira come from Mira's sampled " +
 	"service map: an edge Mira did not see may still exist. For when a problem started and which " +
@@ -288,14 +290,16 @@ func fleetGetTool() *mcpsdk.Tool {
 		Description: "Inspect a logical service (owner, revisions, targets, dependencies, dependents, tools, skills) " +
 			"or an operational target (compliance, findings, coverage, freshness). A dependency's 'resolved' " +
 			"only says the provider exists in the fleet; its 'rangeStatus' (satisfied, unsatisfied, unknown) " +
-			"says whether the provider version satisfies the declared range. 'owner' has the same shape " +
+			"says whether the provider version satisfies the declared range, and 'rangeReason' INFERRED_PROVIDER says it is unknown because " +
+			"the provider is an inferred contract. 'owner' has the same shape " +
 			"(team, dri, contacts) here and in pacto_fleet_search. A service's 'ownerProvenance' says where its owner " +
 			"comes from: declared (a revision), declared-via-target (the contract a target runs), attested or inferred; " +
 			"an inferred owner never fills 'owner'. Each revision's 'provenance' says whether its " +
 			"bundle signature was checked against a publisher rule, pin or policy (verified, unverified, " +
 			"unsigned, unknown) and lists its OCI referrers, when a registry source checked them; absent means " +
 			"no source checked. Give service as external:<identity> for an external system: its sources (each with " +
-			"its provenance), consumers, the catalog entry that classified it and 'hiddenConsumers' you may not see. " +
+			"its provenance), consumers, the catalog entry that classified it, 'hiddenConsumers' you may not see " +
+			"and 'provider', the inferred contract Pacto published for it, which is never a service. " +
 			"'replaces' lists the inferred services this service replaced when a Pacto target took over their workload; " +
 			"asked for by such an old key, the answer is the declared service with 'replacedFrom'. Read-only.",
 		InputSchema: inputSchema(map[string]property{
@@ -719,7 +723,8 @@ func fleetVersionsTool() *mcpsdk.Tool {
 		Name: "pacto_fleet_versions",
 		Description: "List the versions of each provider of a platform offering, newest first, with whether a " +
 			"target runs each one and the service lifecycle it declares. With 'range', each version carries " +
-			"'rangeStatus' and each provider its 'latestCompatible' version. The list comes from the contract " +
+			"'rangeStatus' and each provider its 'latestCompatible' version; a version only this installation's operator signed is " +
+			"unknown with 'rangeReason' INFERRED_PROVIDER and is never latestCompatible. The list comes from the contract " +
 			"revisions the snapshot holds; the registry may publish others. Each provider names the 'successor' its newest " +
 			"revision declares (unknown when it resolves to no revision); with 'range', the one the newest revision in the " +
 			"range declares, and 'successorRange'. Read-only.",

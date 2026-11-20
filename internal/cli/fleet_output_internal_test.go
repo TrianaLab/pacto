@@ -682,3 +682,41 @@ func TestFleetGetTextOwnerProvenance(t *testing.T) {
 		}
 	}
 }
+
+// TestFleetGetExternalProviderUnsignedWording: only a shown revision this
+// installation's operator signed reads as signed by it; no check reads not
+// checked and another signer reads signed by someone else, never unsigned.
+func TestFleetGetExternalProviderUnsignedWording(t *testing.T) {
+	provider := func(sig *fleet.BundleSignature) fleet.ExternalRecord {
+		return fleet.ExternalRecord{Key: "stripe", Provider: &fleet.ExternalProvider{Repository: "r/pacto-inferred/stripe", RevisionsTotal: 1,
+			RangeStatus: fleet.RangeUnknown, RangeReason: fleet.RangeReasonInferredProvider,
+			Revisions: []fleet.ExternalProviderRevision{{Version: "0.0.1", Digest: "sha256:a", Signature: sig}}}}
+	}
+	var b strings.Builder
+	printExternal(&b, provider(&fleet.BundleSignature{Status: fleet.SignatureUnverified, Source: fleet.SignatureSourceOperator}), "", fleet.ExternalEvidence{})
+	if !strings.Contains(b.String(), "    signed by this installation's operator") || strings.Contains(b.String(), "unsigned") {
+		t.Errorf("operator signed:\n%s", b.String())
+	}
+	for sig, want := range map[*fleet.BundleSignature]string{
+		nil: "    signature not checked, publisher unknown\n",
+		{Status: fleet.SignatureVerified, Source: "rule"}: "    signed, not by this installation's operator (verified)\n",
+		{Status: fleet.SignatureUnsigned, Source: "none"}: "    unsigned, publisher unknown\n",
+	} {
+		b.Reset()
+		printExternal(&b, provider(sig), "", fleet.ExternalEvidence{})
+		if !strings.Contains(b.String(), want) || strings.Contains(b.String(), "signed by this installation's operator") {
+			t.Errorf("signature %+v:\n%s", sig, b.String())
+		}
+	}
+}
+
+// TestFleetVersionsInferredReason: a version row and an offering use print
+// the reason after an unknown range status.
+func TestFleetVersionsInferredReason(t *testing.T) {
+	if got := versionNotes(fleet.ProviderVersion{RangeStatus: fleet.RangeUnknown, RangeReason: fleet.RangeReasonInferredProvider}); got != " [unknown: INFERRED_PROVIDER]" {
+		t.Errorf("version notes = %q", got)
+	}
+	if got := useNotes(fleet.OfferingUse{RangeStatus: fleet.RangeUnknown, RangeReason: fleet.RangeReasonInferredProvider}); got != ", range unknown: INFERRED_PROVIDER" {
+		t.Errorf("use notes = %q", got)
+	}
+}

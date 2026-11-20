@@ -412,7 +412,7 @@ func TestPublishDerivedRelativeSignKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := publish.VerifyDigest(t.Context(), reg, bundleVerifier(signing.Policy{Key: pub}), host+"/acme/payments", res.Digests[publish.BundleItem]); err != nil {
+	if err := publish.VerifyDigest(t.Context(), reg, publish.PolicyVerifier(signing.Policy{Key: pub}), host+"/acme/payments", res.Digests[publish.BundleItem]); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -445,7 +445,7 @@ func TestPublishDerivedWithSignKey(t *testing.T) {
 	if err != nil || check(res.Plan, "sign").Message != "signed with Sigstore (key "+opts.SignKey+")" || check(res.Plan, "build").Message != "no image to build" {
 		t.Fatalf("%v %+v", err, res)
 	}
-	if err := publish.VerifyDigest(t.Context(), reg, bundleVerifier(signing.Policy{Key: pub}), host+"/acme/payments", res.Digests[publish.BundleItem]); err != nil {
+	if err := publish.VerifyDigest(t.Context(), reg, publish.PolicyVerifier(signing.Policy{Key: pub}), host+"/acme/payments", res.Digests[publish.BundleItem]); err != nil {
 		t.Fatal(err)
 	}
 	declared := writePublishBundle(t, host, "")

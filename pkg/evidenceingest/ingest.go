@@ -402,6 +402,10 @@ func checkProvisionedObservation(c contract.Contract, o evidence.Observation, sc
 	if !ok {
 		return fmt.Errorf("the contract declares no configuration reference or dependency %s %q", o.Subject.Kind, o.Subject.Name)
 	}
+	if _, inferred := contract.InferredRef(ref); inferred && slices.Contains(providerScopedKinds, o.Kind) {
+		return fmt.Errorf("%w: %s %q refers to %s: an inferred contract never anchors provisioning or usage evidence; claim the external first",
+			ErrProviderNotAllowed, o.Subject.Kind, o.Subject.Name, ref)
+	}
 	if len(scope) > 0 && slices.Contains(providerScopedKinds, o.Kind) {
 		if repo, ok := providerRepo(ref); !ok || !repoUnder(repo, scope) {
 			return fmt.Errorf("%w: %s %q refers to %s, outside %v", ErrProviderNotAllowed, o.Subject.Kind, o.Subject.Name, cmp.Or(repo, "no provider repository"), scope)

@@ -48,6 +48,7 @@ func newFleetCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder)
 	cmd.AddCommand(newFleetNeighborhoodCommand(svc, v))
 	cmd.AddCommand(newFleetVersionsCommand(svc, v))
 	cmd.AddCommand(newFleetOverviewCommand(svc, v))
+	cmd.AddCommand(newFleetPublishInferredCommand(svc, v))
 	return cmd
 }
 
@@ -151,14 +152,16 @@ var fleetDeps = defaultDeps
 // publisherTrust is the fleet provenance checker's reader of the
 // installation's publisher trust config and pins over the ambient cluster,
 // in the namespace --delivery-namespace names (the chart's default when the
-// command has no such flag). nil when there is no cluster config, so a
-// signature is judged against the rule inferred from where it lives.
-func publisherTrust(cmd *cobra.Command, d deps) func(context.Context) (app.Installation, error) {
-	if d.clusterConfig == nil {
-		return nil
-	}
-	if _, err := d.clusterConfig(); err != nil {
-		return nil
+// command has no such flag). detected (--detected) advertises the
+// operator's signer, which never makes a publisher. With no cluster config a
+// signature is judged against the rule inferred from where it lives: nil, or
+// only the signer a --detected file advertises.
+func publisherTrust(cmd *cobra.Command, d deps, detected string) func(context.Context) (app.Installation, error) {
+	if !hasClusterConfig(d) {
+		if detected == "" || strings.HasPrefix(detected, "k8s:") {
+			return nil
+		}
+		return (&app.Delivery{Detected: detected, Now: time.Now}).DetectionTrust
 	}
 	ns, _ := cmd.Flags().GetString("delivery-namespace")
 	ns = cmp.Or(ns, delivery.PolicyNamespace)
@@ -167,9 +170,18 @@ func publisherTrust(cmd *cobra.Command, d deps) func(context.Context) (app.Insta
 		if err != nil {
 			return app.Installation{}, err
 		}
-		c := &app.Delivery{Dynamic: dyn, Records: d.newRecordRepo, Policy: delivery.DefaultClassPolicy(), PolicyNamespace: ns, Now: time.Now}
+		c := &app.Delivery{Dynamic: dyn, Records: d.newRecordRepo, Policy: delivery.DefaultClassPolicy(), PolicyNamespace: ns, Detected: detected, Now: time.Now}
 		return c.InstallationTrust(ctx)
 	}
+}
+
+// hasClusterConfig reports whether d finds an ambient cluster config.
+func hasClusterConfig(d deps) bool {
+	if d.clusterConfig == nil {
+		return false
+	}
+	_, err := d.clusterConfig()
+	return err == nil
 }
 
 func fleetOptions(cmd *cobra.Command) app.FleetOptions {
@@ -198,7 +210,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	snapshots, _ := cmd.Flags().GetStringArray("target-snapshot")
 	index, _ := cmd.Flags().GetString("index")
 	prov := app.NewProvenanceChecker()
-	prov.Trust = publisherTrust(cmd, fleetDeps())
+	prov.Trust = publisherTrust(cmd, fleetDeps(), detected)
 	return app.FleetOptions{
 		LocalRoots:         local,
 		CatalogRoots:       roots,

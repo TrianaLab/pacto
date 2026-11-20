@@ -37,6 +37,9 @@ func diffContract(old, new *contract.Contract) []Change {
 	changes = append(changes, diffLifecycleAt("service.lifecycle", new.Service.Name, old.Service.Lifecycle, new.Service.Lifecycle)...)
 	changes = append(changes, diffTemplate(old.Service.Template, new.Service.Template)...)
 	changes = append(changes, diffOrigin(old.Service.Origin, new.Service.Origin)...)
+	if old.Service.External != new.Service.External {
+		changes = append(changes, newChange("service.external", strChangeType(old.Service.External, new.Service.External), old.Service.External, new.Service.External))
+	}
 
 	// Workload (top-level in v2)
 	if old.Workload != new.Workload {

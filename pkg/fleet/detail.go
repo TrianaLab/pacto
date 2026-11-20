@@ -841,6 +841,9 @@ type OfferingUse struct {
 	Via           string    `json:"via" enum:"dependency,configuration_reference,policy_reference"`
 	Compatibility string    `json:"compatibility,omitempty"`
 	RangeStatus   string    `json:"rangeStatus,omitempty" enum:"satisfied,unsatisfied,unknown"`
+	// RangeReason is the relationship's own, empty when the revisions give
+	// different ones.
+	RangeReason string `json:"rangeReason,omitempty" enum:"INFERRED_PROVIDER" doc:"Why rangeStatus is unknown: INFERRED_PROVIDER, the provider is an inferred contract"`
 	// ProviderLifecycle is the provider's service lifecycle as the newest
 	// consumer revision's relationship reaches it.
 	ProviderLifecycle *contract.InterfaceLifecycle `json:"providerLifecycle,omitempty"`
@@ -1821,7 +1824,7 @@ func (q *Query) offeringUsesIn(edges []Relationship, match func(provider *Servic
 		keptRev[k] = q.snap.Revisions[rel.FromRevision]
 		uses = append(uses, OfferingUse{
 			Offering: p.Offering, Consumer: q.serviceRef(rel.FromService), Provider: serviceEntityRef(p),
-			Via: rel.Type, Compatibility: rel.Compatibility, RangeStatus: rel.RangeStatus,
+			Via: rel.Type, Compatibility: rel.Compatibility, RangeStatus: rel.RangeStatus, RangeReason: rel.RangeReason,
 			ProviderLifecycle: rel.ProviderLifecycle,
 		})
 	}
@@ -1846,9 +1849,14 @@ func (q *Query) offeringUsesIn(edges []Relationship, match func(provider *Servic
 // status or compatibility the revisions disagree on is unknown.
 func mergeUse(u *OfferingUse, rel *Relationship) {
 	if u.RangeStatus == "" {
-		u.RangeStatus = rel.RangeStatus
-	} else if rel.RangeStatus != "" && rel.RangeStatus != u.RangeStatus {
-		u.RangeStatus = RangeUnknown
+		u.RangeStatus, u.RangeReason = rel.RangeStatus, rel.RangeReason
+	} else if rel.RangeStatus != "" {
+		if rel.RangeStatus != u.RangeStatus {
+			u.RangeStatus = RangeUnknown
+		}
+		if rel.RangeReason != u.RangeReason {
+			u.RangeReason = "" // no common reason
+		}
 	}
 	if rel.Compatibility != u.Compatibility {
 		u.Compatibility = ""

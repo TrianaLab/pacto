@@ -19,6 +19,18 @@ const maxVerdictReason = 256
 // recorded, so every signature of a digest is read.
 var errSignerRead = errors.New("signer recorded")
 
+// PolicyVerifier verifies a bundle under p and returns the predicate type of
+// the statement its signature covers.
+func PolicyVerifier(p signing.Policy) BundleVerifier {
+	return func(b, d []byte) (string, error) {
+		res, err := p.Verify(b, d)
+		if err != nil {
+			return "", err
+		}
+		return res.Statement.GetPredicateType(), nil
+	}
+}
+
 // SignersOf is every identity whose keyless signature of repo@digest verifies
 // under root, whoever it names, classified by the default rule: who signed is
 // judged by the caller.
@@ -46,11 +58,12 @@ func SignersOf(ctx context.Context, reg Registry, root root.TrustedMaterial, tlo
 
 // CheckPublisher judges who signed repo@digest against rules and pins: it is
 // SignersOf then delivery.JudgeSigners, and returns the signers it read too.
-// Unsigned and unreadable are never accepted.
+// Unsigned and unreadable are never accepted; neither is inferred, the
+// installation operator's signer (nil when none is known).
 func CheckPublisher(ctx context.Context, reg Registry, root root.TrustedMaterial, tlog bool, repo, digest string,
-	service delivery.ServiceRef, source string, rules []delivery.PublisherRule, ruleSource string, pins []delivery.IdentityPin) (delivery.PublisherVerdict, []delivery.PublisherIdentity) {
+	service delivery.ServiceRef, source string, rules []delivery.PublisherRule, ruleSource string, pins []delivery.IdentityPin, inferred *delivery.TrustedKey) (delivery.PublisherVerdict, []delivery.PublisherIdentity) {
 	signers, err := SignersOf(ctx, reg, root, tlog, repo, digest)
-	return JudgeRead(digest, signers, err, service, source, rules, ruleSource, pins), signers
+	return JudgeRead(digest, signers, err, service, source, rules, ruleSource, pins, inferred), signers
 }
 
 // JudgeRead judges what SignersOf read of digest: its signers through
@@ -58,11 +71,11 @@ func CheckPublisher(ctx context.Context, reg Registry, root root.TrustedMaterial
 // unknown. The promoter's registry watch reads signers once per digest and
 // judges them on every pass.
 func JudgeRead(digest string, signers []delivery.PublisherIdentity, err error,
-	service delivery.ServiceRef, source string, rules []delivery.PublisherRule, ruleSource string, pins []delivery.IdentityPin) delivery.PublisherVerdict {
+	service delivery.ServiceRef, source string, rules []delivery.PublisherRule, ruleSource string, pins []delivery.IdentityPin, inferred *delivery.TrustedKey) delivery.PublisherVerdict {
 	var v delivery.PublisherVerdict
 	switch {
 	case err == nil:
-		v = delivery.JudgeSigners(service, signers, source, rules, ruleSource, pins)
+		v = delivery.JudgeSigners(service, signers, source, rules, ruleSource, pins, inferred)
 	case errors.Is(err, ErrNoSignature):
 		v = delivery.PublisherVerdict{Verdict: delivery.VerdictUnsigned, Source: delivery.PublisherSourceNone,
 			Reason: "no Sigstore signature is attached to " + digest}

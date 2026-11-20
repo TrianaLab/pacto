@@ -506,7 +506,10 @@ func rebuiltLimitation(l Limitation) bool {
 	case LimitationDomainConflict, LimitationOfferingConflict, LimitationOwnerConflict,
 		// A fleet-wide count of reports, counts of clusterless targets and
 		// per-source counts of inferred records.
-		LimitationProvisioningTruncated, LimitationUsageTruncated, LimitationClusterUnknown, LimitationClusterConflict, LimitationDeclarationUnverified, LimitationServiceGroupAmbiguous:
+		LimitationProvisioningTruncated, LimitationUsageTruncated, LimitationClusterUnknown, LimitationClusterConflict, LimitationDeclarationUnverified, LimitationServiceGroupAmbiguous,
+		// A mismatch names an external identity and a pacto-inferred ref the
+		// view may hide; it becomes a count per source.
+		LimitationInferredIdentityMismatch:
 		return true
 	case LimitationSourceRecordInvalid:
 		// Per-source counts of records that may be hidden.
@@ -529,6 +532,7 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	// limitations x hidden names substring checks, once per snapshot and set of
 	// visible namespaces. Structured subjects on Limitation would make it exact
 	// and linear.
+	mismatches := inferredMismatchCounts(limitations)
 	out.Limitations = slices.DeleteFunc(limitations, func(l Limitation) bool {
 		return rebuiltLimitation(l) || slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
 	})
@@ -542,12 +546,31 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	out.Limitations = append(out.Limitations, clusterUnknownOf(out)...)
 	out.Limitations = append(out.Limitations, clusterRecordProblemsOf(out)...)
 	out.Limitations = append(out.Limitations, inferredSnapshotLimitations(out)...)
+	out.Limitations = append(out.Limitations, mismatches...)
 	for _, src := range slices.Sorted(maps.Keys(unresolved)) {
 		out.Limitations = append(out.Limitations, Limitation{
 			Code: LimitationObservedIdentityUnresolved, Source: src,
 			Message: strconv.Itoa(unresolved[src]) + " names observed by " + src + " are not shown: they carry no namespace to check permissions against",
 		})
 	}
+}
+
+// inferredMismatchCounts is one INFERRED_IDENTITY_MISMATCH per source that
+// raised any, counting them and naming neither identity nor ref: a
+// restricted view cannot tell which of them it may see.
+func inferredMismatchCounts(limitations []Limitation) []Limitation {
+	counts := map[string]int{}
+	for _, l := range limitations {
+		if l.Code == LimitationInferredIdentityMismatch {
+			counts[l.Source]++
+		}
+	}
+	var out []Limitation
+	for _, src := range slices.Sorted(maps.Keys(counts)) {
+		out = append(out, Limitation{Code: LimitationInferredIdentityMismatch, Source: src,
+			Message: strconv.Itoa(counts[src]) + " contracts source " + src + " read under " + contract.InferredRepository + " describe an external other than their repository's; they are attached to no external system and not named in a restricted view"})
+	}
+	return out
 }
 
 // restrictClusters is the clusters some target of targets carries.
@@ -821,7 +844,7 @@ func countPolicyReferrer(referrers map[ServiceKey]map[ServiceKey]bool, rel Relat
 // hideProvider blanks what rel, an edge to a hidden service, says about it.
 func hideProvider(rel *Relationship) {
 	rel.hiddenTo = rel.ToService // keeps tallyServiceEdges collapsing it like a visible provider
-	rel.ToService, rel.ResolvedRevision, rel.Hidden, rel.Reason, rel.RangeStatus = "", "", true, hiddenMessage, ""
+	rel.ToService, rel.ResolvedRevision, rel.Hidden, rel.Reason, rel.RangeStatus, rel.RangeReason = "", "", true, hiddenMessage, "", ""
 	// What the hidden provider offers and deprecates is its own contract.
 	rel.Unmet, rel.DeprecatedInterfaces, rel.ProviderLifecycle = nil, nil, nil
 	if rel.GuaranteeStatus != "" {

@@ -61,6 +61,146 @@ type InferredRecord struct {
 	// Migrations are the contracts pacto ci raised in memory before it
 	// published them: never a contract field, and absent when none was.
 	Migrations []InferredMigration `json:"migrations,omitempty" yaml:"migrations,omitempty"`
+	// Surface is what Pacto sees of the external system an inferred contract
+	// under pacto-inferred describes: absent on every other record. It names
+	// no consumer.
+	Surface *InferredSurface `json:"surface,omitempty" yaml:"surface,omitempty"`
+}
+
+// InferredSurface is the projection of one external system the fleet sees:
+// its identity, class, when it was computed and how completely, the catalog
+// entry that classified it and the hosts, ports and client majors seen, each
+// with the fleet sources that saw it.
+type InferredSurface struct {
+	Identity     string                `json:"identity" yaml:"identity"`
+	Class        string                `json:"class" yaml:"class"`
+	AsOf         string                `json:"asOf" yaml:"asOf"`
+	Completeness *SurfaceCompleteness  `json:"completeness" yaml:"completeness"`
+	Catalog      *InferredCatalogMatch `json:"catalog,omitempty" yaml:"catalog,omitempty"`
+	Hosts        []SurfaceValue        `json:"hosts,omitempty" yaml:"hosts,omitempty"`
+	Ports        []SurfaceValue        `json:"ports,omitempty" yaml:"ports,omitempty"`
+	Clients      []SurfaceValue        `json:"clients,omitempty" yaml:"clients,omitempty"`
+}
+
+// SurfaceCompleteness says whether the snapshot a surface was computed from
+// was complete or partial, with the limitation codes that made it partial.
+type SurfaceCompleteness struct {
+	State       string   `json:"state" yaml:"state"`
+	Limitations []string `json:"limitations,omitempty" yaml:"limitations,omitempty"`
+}
+
+// InferredCatalogMatch is the external catalog entry that classified a
+// surface: the catalog's origin and digest and the entry's id.
+type InferredCatalogMatch struct {
+	Origin string `json:"origin" yaml:"origin"`
+	Digest string `json:"digest" yaml:"digest"`
+	Entry  string `json:"entry" yaml:"entry"`
+}
+
+// SurfaceValue is one host[:port], port or <sdk>/<major> a surface lists,
+// the fleet source ids that saw it, the digest of the catalog that
+// classified it and when it was first and last seen (both empty when no
+// source dated it).
+type SurfaceValue struct {
+	Value     string   `json:"value" yaml:"value"`
+	Sources   []string `json:"sources" yaml:"sources"`
+	Catalog   string   `json:"catalog,omitempty" yaml:"catalog,omitempty"`
+	FirstSeen string   `json:"firstSeen,omitempty" yaml:"firstSeen,omitempty"`
+	LastSeen  string   `json:"lastSeen,omitempty" yaml:"lastSeen,omitempty"`
+}
+
+// The classes a surface may carry: the external catalog's.
+var surfaceClasses = []string{"vendor-api", "managed-cloud", "legacy", "unclassified"}
+
+var (
+	surfacePortRE   = regexp.MustCompile(`^[0-9]{1,5}$`)
+	surfaceClientRE = regexp.MustCompile(`^[A-Za-z0-9@._~:/-]{1,500}/[0-9]{1,9}$`)
+	surfaceSourceRE = regexp.MustCompile(`^[^\s\x00-\x1f\x7f]{1,253}$`)
+)
+
+// checkSurface is why s cannot be a record's surface, or nil: an identity
+// that is no external identity, another class, a missing or malformed asOf
+// or completeness, a malformed catalog match or a malformed list value.
+func checkSurface(s *InferredSurface) error {
+	switch {
+	case s == nil:
+		return nil
+	case !validIdentity(s.Identity):
+		return errors.New("surface.identity is not an external identity")
+	case !slices.Contains(surfaceClasses, s.Class):
+		return fmt.Errorf("surface.class is %q, want vendor-api, managed-cloud, legacy or unclassified", s.Class)
+	case !validAsOf(s.AsOf):
+		return fmt.Errorf("surface.asOf is %q, want an RFC 3339 UTC time in seconds", s.AsOf)
+	case s.Completeness == nil || (s.Completeness.State != CoverageComplete && s.Completeness.State != CoveragePartial):
+		return errors.New("surface.completeness.state must be complete or partial")
+	case !validCatalogMatch(s.Catalog):
+		return errors.New("surface.catalog needs an origin default or organization, a sha256 digest and an entry")
+	}
+	for _, l := range []struct {
+		name string
+		re   *regexp.Regexp
+		vals []SurfaceValue
+	}{{"hosts", inferredHostRE, s.Hosts}, {"ports", surfacePortRE, s.Ports}, {"clients", surfaceClientRE, s.Clients}} {
+		if err := checkSurfaceValues(l.re, l.vals); err != nil {
+			return fmt.Errorf("surface.%s%w", l.name, err)
+		}
+	}
+	return nil
+}
+
+// validCatalogMatch reports whether m is absent or names an origin, a
+// sha256 digest and an entry.
+func validCatalogMatch(m *InferredCatalogMatch) bool {
+	return m == nil || (m.Origin == "default" || m.Origin == "organization") && inferredDigestRE.MatchString(m.Digest) && m.Entry != ""
+}
+
+// checkSurfaceValues is why vals cannot be one surface list whose values re
+// matches, as a suffix of "surface.<list>", or nil.
+func checkSurfaceValues(re *regexp.Regexp, vals []SurfaceValue) error {
+	seen := make(map[string]bool, len(vals))
+	for i, v := range vals {
+		switch {
+		case !re.MatchString(v.Value):
+			return fmt.Errorf("[%d].value is malformed", i)
+		case seen[v.Value]:
+			return fmt.Errorf("[%d].value %q is listed twice", i, v.Value)
+		case len(v.Sources) == 0 || slices.ContainsFunc(v.Sources, func(src string) bool { return !surfaceSourceRE.MatchString(src) }):
+			return fmt.Errorf("[%d].sources must name at least one fleet source id", i)
+		case v.Catalog != "" && !inferredDigestRE.MatchString(v.Catalog):
+			return fmt.Errorf("[%d].catalog is not a sha256 digest", i)
+		case (v.FirstSeen == "") != (v.LastSeen == ""):
+			return fmt.Errorf("[%d] needs both firstSeen and lastSeen, or neither", i)
+		case v.FirstSeen != "" && (!validAsOf(v.FirstSeen) || !validAsOf(v.LastSeen)):
+			return fmt.Errorf("[%d] firstSeen and lastSeen must be RFC 3339 UTC times in seconds", i)
+		case v.FirstSeen > v.LastSeen:
+			return fmt.Errorf("[%d].firstSeen is after lastSeen", i)
+		}
+		seen[v.Value] = true
+	}
+	return nil
+}
+
+// sortedSurface is a copy of s with every list and source sorted.
+func sortedSurface(s *InferredSurface) *InferredSurface {
+	if s == nil {
+		return nil
+	}
+	out := *s
+	if s.Completeness != nil {
+		c := *s.Completeness
+		c.Limitations = slices.Sorted(slices.Values(c.Limitations))
+		out.Completeness = &c
+	}
+	sorted := func(vals []SurfaceValue) []SurfaceValue {
+		vals = slices.Clone(vals)
+		for i := range vals {
+			vals[i].Sources = slices.Sorted(slices.Values(vals[i].Sources))
+		}
+		slices.SortFunc(vals, func(a, b SurfaceValue) int { return strings.Compare(a.Value, b.Value) })
+		return vals
+	}
+	out.Hosts, out.Ports, out.Clients = sorted(s.Hosts), sorted(s.Ports), sorted(s.Clients)
+	return &out
 }
 
 // InferredMigration is one contract file published at another pactoVersion
@@ -247,7 +387,8 @@ var inferredDigestRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 // the record's inputs.cluster object, with its asOf; completeness is only on
 // a runtime or fleet fact, proposed only a range on a
 // dependencies[<name>].compatibility field, and coverage and hidden only
-// with inputs.cluster. A declaration follows checkDeclaration's rules.
+// with inputs.cluster. A declaration follows checkDeclaration's rules, and a
+// surface checkSurface's.
 func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 	var r InferredRecord
 	dec := yaml.NewDecoder(bytes.NewReader(data))
@@ -286,6 +427,9 @@ func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 		}
 	}
 	if err := checkInferredInputs(&r); err != nil {
+		return nil, fmt.Errorf("%s: %w", InferredRecordFile, err)
+	}
+	if err := checkSurface(r.Surface); err != nil {
 		return nil, fmt.Errorf("%s: %w", InferredRecordFile, err)
 	}
 	return &r, nil
@@ -494,7 +638,7 @@ func validDuration(s string) bool {
 // carries a credential, and no error quotes the refused value: the fleet
 // shows it in a limitation.
 func checkInferredExternal(x *InferredExternal) error {
-	if len(x.Identity) > 253 || !inferredIdentityRE.MatchString(x.Identity) || strings.Contains(x.Identity, "..") {
+	if !validIdentity(x.Identity) {
 		return errors.New(".identity is not an external identity")
 	}
 	if x.Catalog != "" && x.Catalog != "default" && x.Catalog != "organization" {
@@ -606,8 +750,9 @@ const repositoryPrefix = "repository:"
 
 // Marshal writes the record with its fields sorted by field then source, its
 // findings truncation first then by code and source, its sources by path, its
-// migrations by source then from, a declaration's ranges by field, and no timestamp, so the same inputs give
-// the same bytes.
+// migrations by source then from, a declaration's ranges by field, a
+// surface's values by value with their sources sorted, and no timestamp, so
+// the same inputs give the same bytes.
 func (r *InferredRecord) Marshal() []byte {
 	out := *r
 	out.Fields = slices.Clone(r.Fields)
@@ -648,6 +793,7 @@ func (r *InferredRecord) Marshal() []byte {
 	slices.SortFunc(out.Migrations, func(a, b InferredMigration) int {
 		return cmp.Or(strings.Compare(a.Source, b.Source), strings.Compare(a.From, b.From))
 	})
+	out.Surface = sortedSurface(r.Surface)
 	data, _ := yaml.Marshal(&out) // strings and slices of them always encode
 	return data
 }

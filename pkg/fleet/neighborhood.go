@@ -205,6 +205,8 @@ type DeclaredClaim struct {
 	// RangeStatus is whether the provider version satisfies this revision's
 	// declared range (see Relationship.RangeStatus).
 	RangeStatus string `json:"rangeStatus,omitempty" enum:"satisfied,unsatisfied,unknown"`
+	// RangeReason is why RangeStatus is unknown (see Relationship.RangeReason).
+	RangeReason string `json:"rangeReason,omitempty" enum:"INFERRED_PROVIDER" doc:"Why rangeStatus is unknown: INFERRED_PROVIDER, the provider is an inferred contract"`
 	// NameFromRef marks a dependency whose name was derived from its ref.
 	NameFromRef bool `json:"nameFromRef,omitempty"`
 	// DependencyBehavior is what this revision's dependency requires of the

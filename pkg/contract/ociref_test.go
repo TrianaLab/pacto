@@ -201,3 +201,24 @@ func TestOCIDomain(t *testing.T) {
 		}
 	}
 }
+
+func TestInferredRef(t *testing.T) {
+	for _, tc := range []struct {
+		ref, want string
+		ok        bool
+	}{
+		{"oci://ghcr.io/acme/pacto-inferred/stripe:0.0.2", "stripe", true},
+		{"ghcr.io/acme/pacto-inferred/aws/rds/1/eu-west-1/db@sha256:" + hex64, "aws/rds/1/eu-west-1/db", true},
+		{"zot:5000/demo/pacto-inferred/host/corp-legacy.example", "host/corp-legacy.example", true},
+		{"ghcr.io/pacto-inferred/x", "", false},
+		{"ghcr.io/acme/payments", "", false},
+		{"ghcr.io/acme/pacto-inferred", "", false},
+		{"ghcr.io/acme/pacto-inferred/Stripe", "Stripe", false},
+		{"ghcr.io/acme/pacto-inferred/a/b/c/d/e/f", "a/b/c/d/e/f", false},
+	} {
+		got, ok := contract.InferredRef(tc.ref)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("InferredRef(%q) = %q, %v; want %q, %v", tc.ref, got, ok, tc.want, tc.ok)
+		}
+	}
+}

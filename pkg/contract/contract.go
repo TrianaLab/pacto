@@ -227,6 +227,11 @@ type Service struct {
 	// Origin is the golden path the service was created from (pactoVersion
 	// 2.4): declared provenance.
 	Origin *Origin `yaml:"origin,omitempty" json:"origin,omitempty"`
+	// External is the canonical identity of the external system the contract
+	// describes (pactoVersion 2.5), for example stripe: the inferred contracts
+	// Pacto's operator publishes under pacto-inferred carry it, and so does a
+	// contract a person declares for an external system.
+	External string `yaml:"external,omitempty" json:"external,omitempty"`
 }
 
 // Template marks a contract as a golden path: an organization's starting point

@@ -384,6 +384,26 @@ export function installScaleFixture(): void {
       Object.assign(rec, { class: 'unclassified', joinedBy: 'normalized-name', consumersTotal: 120, sourcesTotal: 140, hiddenConsumers: 3 });
       x.foldedInto = 'other-egress';
     }
+    // 'external entity, inferred contract' (517-S3): the provider block at its longest, a
+    // 200-character managed-cloud identity, operator-signed, from a partial run with long
+    // limitation codes, with 2,000 hosts, ports and clients (past the 12-row cap), each
+    // with two sources.
+    if (route === '/api/fleet/entities/external' && (window as unknown as { __inferredContract?: boolean }).__inferredContract) {
+      const rec = (doc.external as Record<string, unknown>).external as Record<string, unknown>;
+      const id = `aws/rds/123456789012/eu-west-1/${'orders-db-replica-'.repeat(12)}`.slice(0, 200).replace(/-+$/, '');
+      const seen = '2026-07-29T12:00:00Z';
+      const fifty = (f: (i: number) => string) => Array.from({ length: 2000 }, (_, i) => ({ value: f(i), sources: ['k8s-production', longName(`inferred-source-${i}`)], firstSeen: seen, lastSeen: seen }));
+      rec.provider = {
+        repository: `registry.example.com/acme/pacto-inferred/${id}`, revisionsTotal: 120, rangeStatus: 'unknown', rangeReason: 'INFERRED_PROVIDER',
+        revisions: [{
+          version: '0.0.1234', digest: `sha256:${'9f8e'.repeat(16)}`, ref: `registry.example.com/acme/pacto-inferred/${id}@sha256:${'9f8e'.repeat(16)}`,
+          signature: { status: 'unverified', source: 'operator', bundles: 1 },
+          surface: { identity: id, class: 'managed-cloud', asOf: seen, completeness: { state: 'partial', limitations: ['EXTERNALS_UNREPORTED', 'TARGET_SNAPSHOT_SCOPED', longName('SOURCE_LIMITATION_CODE').toUpperCase()] },
+            hosts: fifty((i) => `${longName(`inferred-host-${i}`).replace(/[^a-z0-9-]/g, '')}.eu-west-1.rds.amazonaws.com:5432`),
+            ports: fifty((i) => String(5000 + i)), clients: fifty((i) => `@aws-sdk/${longName(`client-${i}`).replace(/[^a-z0-9-]/g, '')}/3`) },
+        }],
+      };
+    }
     // 509-S3: an inferred service's Group and Repository facts at their longest.
     const groupWorkload = (doc.service as Record<string, Record<string, unknown>> | undefined)?.workload;
     if (route === '/api/fleet/entities/service' && groupWorkload && (window as unknown as { __groupLongValues?: boolean }).__groupLongValues) {
@@ -2327,6 +2347,20 @@ export const ROUTES: Route[] = [
   { name: 'externals vendor', list: true, hash: '#/fleet/externals?class=vendor-api' },
   { name: 'external entity', hash: '#/fleet/externals/parcel-carrier' },
   { name: 'external entity name only, hidden, folded and truncated', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __externalStates?: boolean }).__externalStates = true; }); await page.goto('/#/fleet/externals/parcel-carrier'); await page.reload(); await expect(page.getByTestId('external-folded-into')).toBeVisible({ timeout: 30_000 }); } }, // reload: the init script only runs on a new document
+  {
+    name: 'external entity, inferred contract',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __inferredContract?: boolean }).__inferredContract = true; });
+      await page.goto('/#/fleet/externals/parcel-carrier');
+      await page.reload(); // the init script only runs on a new document
+      const block = page.getByTestId('external-inferred-contract');
+      await block.locator('summary').first().click();
+      await block.getByText("What this installation's operator saw").click();
+      // G1 measures only what is visible: both summaries are open before it does.
+      await expect(block.locator('.xe-surface li').last()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
   { name: 'graph external focus', hash: '#/fleet/graph/external/parcel-carrier' },
   { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
   {

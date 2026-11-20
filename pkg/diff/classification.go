@@ -207,6 +207,11 @@ var rules = map[classificationKey]Classification{
 	{"dependencies.identity", Added}:    NonBreaking,
 	{"dependencies.identity", Removed}:  NonBreaking,
 	{"dependencies.identity", Modified}: NonBreaking,
+	// service.external only moves which external node the contract joins:
+	// consumers reference the contract by its ref.
+	{"service.external", Added}:    NonBreaking,
+	{"service.external", Removed}:  NonBreaking,
+	{"service.external", Modified}: NonBreaking,
 	// Dropping every requirement can refuse no provider. Adding or changing
 	// one is the PotentialBreaking default.
 	{"dependencies.requires", Removed}: NonBreaking,

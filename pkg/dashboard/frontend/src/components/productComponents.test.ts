@@ -685,3 +685,19 @@ describe('RelationshipList — minimal contract claims', () => {
     expect(target.querySelector('[data-testid="name-from-ref"]')?.textContent).toContain('name from ref');
   });
 });
+
+describe('RelationshipList — inferred provider range', () => {
+  let target: HTMLElement;
+  let comp: ReturnType<typeof mount> | null = null;
+  beforeEach(() => { target = document.createElement('div'); document.body.appendChild(target); });
+  afterEach(() => { if (comp) { unmount(comp); comp = null; } document.body.removeChild(target); });
+
+  it('names the reason in the range badge title', () => {
+    const claim = { requestedRef: 'oci://r/pacto-inferred/stripe', required: true, compatibility: '^2023.10', rangeStatus: 'unknown', rangeReason: 'INFERRED_PROVIDER' };
+    const e = { id: 'e1', from: { kind: 'revision', key: 'd/a@sha256:1', label: 'a 1.0.0' }, to: { kind: 'external', key: 'stripe', label: 'stripe' }, relation: 'dependency', difference: 'matched', declaredClaims: { total: 1, count: 1, truncated: false, items: [claim] } };
+    comp = mount(RelationshipList, { target, props: { items: [e], showClaims: true } });
+    const badge = target.querySelector('.rel-claim .tag')!;
+    expect(badge.textContent).toContain('Range unknown');
+    expect(badge.getAttribute('title')).toBe('Unverified: inferred contract');
+  });
+});

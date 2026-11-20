@@ -9,6 +9,7 @@ import {
   provenanceLabel, provenanceIsImplied,
   sourceHealthTallyParts, sourceHealthSentence,
   collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED, serviceKeyName, replacesTip, ownerProvenanceText,
+  attentionCause, nextActionWords,
 } from './entityLabels.ts';
 
 describe('acceptsLabel', () => {
@@ -295,5 +296,12 @@ describe('ownerProvenanceText', () => {
     expect(ownerProvenanceText('declared-via-target')).toBe('Declared by the contract a running target reports; no revision Pacto read declares an owner');
     expect(ownerProvenanceText('attested')).toBe('Read from the repository at the commit a verified CI identity signed; routes reviews, never clears a gate');
     expect(ownerProvenanceText('inferred')).toBe('Inferred; Pacto never routes approvals or clears a gate on it');
+  });
+});
+
+describe('inferred provider attention words', () => {
+  it('words the declare next action and the INFERRED_PROVIDER cause', () => {
+    expect(nextActionWords({ verb: 'declare', tool: 'pacto_declare' })).toBe('Fix: declare a contract with pacto_declare');
+    expect(attentionCause('INFERRED_PROVIDER')).not.toBe('INFERRED_PROVIDER');
   });
 });

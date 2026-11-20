@@ -109,7 +109,7 @@ func (s *Service) verifyPull(ctx context.Context, location string, sign contract
 	ref := repo + "@" + digest
 	p, err := pullPolicy(sign, trustedRoot)
 	if err == nil {
-		err = publish.VerifyDigest(ctx, reg, bundleVerifier(p), repo, digest)
+		err = publish.VerifyDigest(ctx, reg, publish.PolicyVerifier(p), repo, digest)
 	}
 	if err != nil {
 		return "", fmt.Errorf("%s is not signed as required, so nothing was pulled: %w", ref, err)

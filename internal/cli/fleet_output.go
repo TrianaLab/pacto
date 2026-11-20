@@ -189,7 +189,7 @@ func inferredSourceLine(s fleet.ExternalInferredSource) string {
 // printExternal is the text of one external system: its identity line, the
 // sources that declare, call or use it (an inferred one with its kind, where
 // it was found and the normalized host, never a value) and the catalog that
-// classified it.
+// classified it, then its inferred contract, when a source read one.
 func printExternal(w io.Writer, rec fleet.ExternalRecord, into fleet.ExternalKey, ev fleet.ExternalEvidence) {
 	consumers := "consumers"
 	if rec.ConsumersTotal == 1 {
@@ -238,6 +238,19 @@ func printExternal(w io.Writer, rec fleet.ExternalRecord, into fleet.ExternalKey
 	}
 	if rec.HiddenConsumers > 0 {
 		_, _ = fmt.Fprintf(w, "  hidden consumers %d\n", rec.HiddenConsumers)
+	}
+	printExternalProvider(w, rec.Provider)
+}
+
+// printExternalProvider is the inferred contract block of an external
+// system; nothing when no source read one.
+func printExternalProvider(w io.Writer, p *fleet.ExternalProvider) {
+	if p == nil {
+		return
+	}
+	_, _ = fmt.Fprintln(w, "  inferred contract")
+	for _, l := range p.Lines() {
+		_, _ = fmt.Fprintln(w, "    "+l)
 	}
 }
 

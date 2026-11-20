@@ -32,6 +32,7 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateServiceLifecycle(c, &result)
 	validateTemplate(c, &result)
 	validateOrigin(c, &result)
+	validateServiceExternal(c, &result)
 	validateConfigurationNamesUnique(c, &result)
 	validatePolicyNamesUnique(c, &result)
 	validateDependencyNamesUnique(c, &result)
@@ -508,6 +509,18 @@ func validateDependencyForm(i int, dep contract.Dependency, result *ValidationRe
 		return true
 	}
 	return false
+}
+
+// validateServiceExternal refuses a service.external the schema pattern
+// admits but that is no canonical external identity, such as the reserved
+// other-egress.
+func validateServiceExternal(c *contract.Contract, result *ValidationResult) {
+	if c.Service.External == "" {
+		return
+	}
+	if err := identityErr(c.Service.External); err != nil {
+		result.AddError("service.external", "INVALID_EXTERNAL_IDENTITY", fmt.Sprintf("service.external: %v", err))
+	}
 }
 
 // identityErr is why id is not a canonical external identity, or nil.

@@ -77,12 +77,22 @@ type Client struct {
 	oci      *oci.Client
 	keychain authn.Keychain
 	insecure []string
+	scope    *oci.PushScope // nil: unguarded (CLI publishes)
 }
 
 // NewClient builds a Client over keychain that reaches insecure hosts over
 // plain HTTP.
 func NewClient(keychain authn.Keychain, insecure ...string) *Client {
 	return &Client{oci: oci.NewClient(keychain, oci.WithInsecureRegistries(insecure...)), keychain: keychain, insecure: insecure}
+}
+
+// NewScopedClient builds a cluster-side Client over keychain: every write
+// (image, tag, signature referrer and write-once signature tag) goes through
+// scope's guard over base (nil is http.DefaultTransport), and insecure hosts
+// are reached over plain HTTP.
+func NewScopedClient(keychain authn.Keychain, scope *oci.PushScope, base http.RoundTripper, insecure ...string) *Client {
+	return &Client{oci: oci.NewClient(keychain, oci.WithInsecureRegistries(insecure...), oci.WithTransport(scope.Guard(base))),
+		keychain: keychain, insecure: insecure, scope: scope}
 }
 
 // sigTagPrefix starts every write-once tag naming a signature or SBOM of
@@ -106,7 +116,7 @@ func SigTag(digest, manifest string) string {
 
 // open opens repo for the write-once writer and the probe.
 func (c *Client) open(repo string) (*orasremote.Repository, error) {
-	return ocireferrer.Open(repo, ocireferrer.Options{Keychain: c.keychain, Insecure: c.insecure})
+	return ocireferrer.Open(repo, ocireferrer.Options{Keychain: c.keychain, Insecure: c.insecure, Scope: c.scope})
 }
 
 // Mode implements Registry.

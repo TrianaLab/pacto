@@ -223,6 +223,7 @@ actor, approver, note, message, citation or correlation id.
 | `SERVICE_NAME_INFERRED` | `unverified` |
 | `ANSWER_PARTIAL` | `unverified` |
 | `CONSUMERS_UNCHECKED` | `unverified` |
+| `INFERRED_PROVIDER` | `unverified` |
 | `NOT_BREAKING` | `clear` |
 | `POTENTIAL_BREAKING` | `clear` |
 | `NO_CONSUMERS` | `clear` |

@@ -771,6 +771,12 @@ func gateCases() []gateCase {
 			r: Result{Classification: "NON_BREAKING", Service: "api", Consumers: []AffectedConsumer{unchecked}}},
 		{name: "hidden referrers", gate: GateUnverified, reason: "2 services you may not see may reference api", code: GateCodePolicyUnchecked,
 			r: Result{Classification: "NON_BREAKING", Service: "api", hiddenReferrers: 2}},
+		// An inferred contract never clears and never blocks, whatever else holds.
+		{name: "inferred provider", gate: GateUnverified, reason: "stripe 0.0.2 is an inferred contract, so no range against it can be verified: 0 of 1 consumer pins a range on it. Declare a contract for it with pacto declare", code: GateCodeInferredProvider,
+			r: Result{Classification: "BREAKING", Service: "stripe", NewVersion: "0.0.2", Consumers: []AffectedConsumer{active},
+				Limitations: []fleet.Limitation{{Code: LimitationInferredProvider}}}},
+		{name: "inferred provider, not breaking", gate: GateUnverified, reason: "0 of 0 consumers pin", code: GateCodeInferredProvider,
+			r: Result{Classification: "NON_BREAKING", Service: "stripe", Completeness: fleet.CompletenessComplete, Limitations: []fleet.Limitation{{Code: LimitationInferredProvider}}}},
 		{name: "both", gate: GateBlocked, reason: "do not accept api 2.0.0: web", code: GateCodeConsumersIncompatible,
 			r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Consumers: []AffectedConsumer{active, failingRunning}}},
 	}
