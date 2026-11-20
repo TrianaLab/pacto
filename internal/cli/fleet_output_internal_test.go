@@ -683,8 +683,9 @@ func TestFleetGetTextOwnerProvenance(t *testing.T) {
 	}
 }
 
-// pacto fleet status names each cluster's status when it knows two or more,
-// the access word winning over the source status.
+// pacto fleet status names each cluster, with the UID --cluster takes, and its
+// status when it knows two or more, the access word winning over the source
+// status; a refused context reads as why it was refused, never unreachable.
 func TestFleetStatusPrintsClusters(t *testing.T) {
 	res := &fleet.StatusResult{Meta: fleet.Meta{Clusters: []fleet.ClusterSummary{
 		{ID: "uid-eu", Name: "eu-prod", Status: fleet.SourceAvailable},
@@ -694,6 +695,12 @@ func TestFleetStatusPrintsClusters(t *testing.T) {
 		{ID: "uid-ca", Name: "ca-prod", Status: fleet.SourcePartial, Access: fleet.ClusterReviewFailed},
 		{ID: "uid-sa", Name: "sa-prod", Status: fleet.SourcePartial},
 		{ID: "uid-me", Name: "me-prod", Status: fleet.SourceAvailable, Access: fleet.ClusterNotReviewable},
+		{Name: "eu-clone", Status: fleet.SourceUnavailable},
+		{Name: "us-ro", Status: fleet.SourceUnavailable},
+		{ID: "uid-x", Name: "uid-x", Status: fleet.SourceAvailable},
+	}, Limitations: []fleet.Limitation{
+		{Code: fleet.LimitationClusterConflict, Source: "eu-clone", Message: "contexts eu-prod and eu-clone reach two servers"},
+		{Code: fleet.LimitationClusterUnknown, Source: "us-ro", Message: "the cluster of context us-ro cannot be told apart"},
 	}}}
 	cmd := &cobra.Command{}
 	var out bytes.Buffer
@@ -702,7 +709,8 @@ func TestFleetStatusPrintsClusters(t *testing.T) {
 	if err := printFleetStatus(cmd, res, "text"); err != nil {
 		t.Fatal(err)
 	}
-	want := "Clusters: eu-prod complete, us-prod no access, ap-prod stale, lab unreachable, ca-prod review failed, sa-prod partial, me-prod not reviewable\n"
+	want := "Clusters: eu-prod (uid-eu) complete, us-prod (uid-us) no access, ap-prod (uid-ap) stale, lab unreachable, ca-prod (uid-ca) review failed, " +
+		"sa-prod (uid-sa) partial, me-prod (uid-me) not reviewable, eu-clone conflicting id, us-ro unidentified, uid-x complete\n"
 	if !strings.Contains(out.String(), want) {
 		t.Errorf("status lacks %q:\n%s", want, out.String())
 	}

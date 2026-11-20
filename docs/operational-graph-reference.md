@@ -133,6 +133,7 @@ limitation per source.
 | Limitation | Raised when |
 |------------|-------------|
 | `CLUSTER_HIDDEN` | The view hides one cluster: you may read no namespace there, its review failed or Pacto cannot review you there ([Multi-cluster](multi-cluster.md)). Its `source` is the cluster id; the answer is partial |
+| `CLUSTER_FILTER_UNKNOWN` | A list filtered by a cluster id that no cluster of the answer has, such as a display name or a retired cluster, so its empty list says nothing about it. Completeness is unchanged |
 
 ### What a target-state fixture looks like
 

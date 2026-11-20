@@ -331,7 +331,7 @@ func printFleetStatus(cmd *cobra.Command, res *fleet.StatusResult, format string
 		}
 		printDetected(w, res.Providers, res.Meta.Sources)
 		printPinnedSources(w, res.Meta.Sources, res.Meta.Limitations)
-		printClusters(w, res.Meta.Clusters)
+		printClusters(w, res.Meta.Clusters, res.Meta.Limitations)
 		warnPartial(cmd, res.Meta)
 		return nil
 	}, nil)
@@ -344,18 +344,45 @@ var clusterWords = map[string]string{
 	string(fleet.SourceAvailable): "complete", string(fleet.SourcePartial): "partial", string(fleet.SourceStale): "stale", string(fleet.SourceUnavailable): "unreachable",
 }
 
-// printClusters prints one Clusters line, "eu-prod complete, us-prod no
-// access", when the answer knows two or more clusters or hides one.
-func printClusters(w io.Writer, clusters []fleet.ClusterSummary) {
+// refusedWords word a cluster Pacto refused to read by why: its limitation
+// code. Its server may have answered, so it never reads unreachable.
+var refusedWords = map[string]string{fleet.LimitationClusterConflict: "conflicting id", fleet.LimitationClusterUnknown: "unidentified"}
+
+// printClusters prints one Clusters line, "eu-prod (uid) complete, us-prod
+// (uid) no access", when the answer knows two or more clusters or hides one.
+// The UID is what --cluster takes; a context Pacto refused (no UID) is worded
+// by its limitation.
+func printClusters(w io.Writer, clusters []fleet.ClusterSummary, lims []fleet.Limitation) {
 	words := make([]string, 0, len(clusters))
 	hidden := false
 	for _, c := range clusters {
 		hidden = hidden || c.Access != ""
-		words = append(words, c.Name+" "+clusterWords[cmp.Or(c.Access, string(c.Status))])
+		words = append(words, clusterLabelOf(c)+" "+clusterWordOf(c, lims))
 	}
 	if len(clusters) >= 2 || hidden {
 		_, _ = fmt.Fprintln(w, "Clusters: "+strings.Join(words, ", "))
 	}
+}
+
+// clusterLabelOf is a cluster's name and, when known, its UID.
+func clusterLabelOf(c fleet.ClusterSummary) string {
+	if c.ID == "" || c.ID == c.Name {
+		return c.Name
+	}
+	return c.Name + " (" + c.ID + ")"
+}
+
+// clusterWordOf is a cluster's status word: why a context with no UID was
+// refused, else clusterWords.
+func clusterWordOf(c fleet.ClusterSummary, lims []fleet.Limitation) string {
+	if c.ID == "" {
+		for _, l := range lims {
+			if word := refusedWords[l.Code]; word != "" && l.Source == c.Name {
+				return word
+			}
+		}
+	}
+	return clusterWords[cmp.Or(c.Access, string(c.Status))]
 }
 
 // printPinnedSources prints one line per source that read a pinned ref (each

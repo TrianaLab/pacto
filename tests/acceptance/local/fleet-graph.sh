@@ -278,7 +278,7 @@ assert_contains "$OOUT1" "Key: prod/kubernetes/payments" "one cluster keeps the 
 
 echo "== 6b. status names each cluster; the cluster filter keeps one =="
 SOUT2="$("$BIN" fleet status --local "$WORK/empty" "${TWO[@]}")"
-assert_contains "$SOUT2" "Clusters: eu-prod complete, us-prod complete" "status prints the Clusters line"
+assert_contains "$SOUT2" "Clusters: eu-prod (uid-eu) complete, us-prod (uid-us) complete" "status prints the Clusters line with the UIDs --cluster takes"
 EOUT="$("$BIN" fleet entities --kind target --cluster uid-eu --local "$WORK/empty" "${TWO[@]}")"
 assert_contains "$EOUT" "1 of 1 entit(ies):" "the cluster filter lists one target"
 assert_contains "$EOUT" "uid-eu/prod/kubernetes/payments" "the eu target keeps its 4-part key"

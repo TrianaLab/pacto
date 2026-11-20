@@ -1339,7 +1339,7 @@ pacto fleet entities [text] [flags]
       --business-domain string           exact business domain, (none) for none or (unknown) for unknown
       --capability string                services whose revisions declare this capability key, such as health or acme.io/cost
       --class string                     with --kind external, external systems of this class (vendor-api, managed-cloud, legacy, unclassified, other-egress)
-      --cluster string                   with --kind target or service, entities in this cluster, by its UID as meta.clusters lists it
+      --cluster string                   entities in this cluster, by its UID as meta.clusters lists it: targets, services with a target or an inferred workload there and revisions a target there runs; other kinds ignore it
       --consumes string                  services that depend on or reference a provider of this platform offering
       --created-from string              services created from this golden path, by key; (none) for no declared origin or (unresolved) for an origin that resolves to no golden path
       --declaration string               inferred keeps only the services Pacto infers from workloads no contract describes; declared leaves them out

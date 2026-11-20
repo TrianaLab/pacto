@@ -191,6 +191,7 @@ func TestEntityFilterCluster(t *testing.T) {
 		NewMemorySource("oci", "local", &Collection{Revisions: []RawRevision{{Bundle: &contract.Bundle{Contract: k, FS: fstest.MapFS{}}, Digest: digest}}}),
 		NewMemorySource("eu", SourceKindKubernetes, &Collection{Cluster: eu, Targets: []RawTarget{pay, workload("shop", "shop")}}),
 		NewMemorySource("us", SourceKindKubernetes, &Collection{Cluster: us, Targets: []RawTarget{workload("prod", "orders")}}),
+		workloadsSource("us-workloads", us, rawInferred("prod", "Deployment", "cart")),
 	))
 	keys := func(kind EntityKind, cluster string) []string {
 		t.Helper()
@@ -212,15 +213,42 @@ func TestEntityFilterCluster(t *testing.T) {
 	}{
 		{KindTarget, clusterA, []string{"eu-prod / prod / payments", "eu-prod / shop / shop"}},
 		{KindTarget, clusterB, []string{"us-prod / prod / orders"}},
-		{KindService, clusterB, []string{"orders"}},
+		{KindService, clusterB, []string{"k8s:" + clusterB + "/prod/Deployment/cart", "orders"}},
 		{KindService, clusterA, []string{"payments", "shop"}},
 		{KindRevision, clusterA, []string{"payments 1.0.0"}},
 		{KindRevision, clusterB, nil},
 		{KindTarget, "no-such-cluster", nil},
-		{KindSource, clusterB, []string{"eu", "oci", "us"}},
+		{KindSource, clusterB, []string{"eu", "oci", "us", "us-workloads"}},
 	} {
 		if got := keys(c.kind, c.cluster); !slices.Equal(got, c.want) {
 			t.Errorf("%s in %s = %v, want %v", c.kind, c.cluster, got, c.want)
 		}
+	}
+}
+
+// TestEntityFilterClusterAnswersHonestly: with no kind, a cluster lists its
+// services, revisions and targets only, never the whole fleet's owners and
+// sources; an id no cluster has (a display name) says so in a limitation.
+func TestEntityFilterClusterAnswersHonestly(t *testing.T) {
+	eu, us := clusterOf(clusterA, "eu-prod", ClusterNameFromContext), clusterOf(clusterB, "us-prod", ClusterNameFromContext)
+	q := NewQuery(buildClusterSnap(t,
+		NewMemorySource("eu", SourceKindKubernetes, &Collection{Cluster: eu, Targets: []RawTarget{workload("prod", "payments")}}),
+		NewMemorySource("us", SourceKindKubernetes, &Collection{Cluster: us, Targets: []RawTarget{workload("prod", "orders")}}),
+	))
+	l, err := q.Entities(EntityFilter{Cluster: clusterB})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range l.Entities {
+		if r.Kind != KindService && r.Kind != KindTarget && r.Kind != KindRevision {
+			t.Errorf("a cluster-only query lists %s %s", r.Kind, r.Label)
+		}
+	}
+	if hasLimitationCode(l.Meta, LimitationClusterFilterUnknown) {
+		t.Error("a known cluster needs no limitation")
+	}
+	l, err = q.Entities(EntityFilter{Kinds: []EntityKind{KindTarget}, Cluster: "eu-prod"})
+	if err != nil || l.Total != 0 || !hasLimitationCode(l.Meta, LimitationClusterFilterUnknown) {
+		t.Errorf("a display name as the id: %v %+v", err, l.Meta.Limitations)
 	}
 }

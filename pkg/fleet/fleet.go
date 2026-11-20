@@ -572,6 +572,11 @@ const (
 	// review failed or nobody can be reviewed there. Source is the cluster id.
 	// It makes the answer partial.
 	LimitationClusterHidden = "CLUSTER_HIDDEN"
+	// LimitationClusterFilterUnknown: a list filtered by a cluster id that no
+	// cluster of the answer has, such as a display name or a retired cluster,
+	// so its empty list says nothing about that cluster. Completeness is
+	// unchanged.
+	LimitationClusterFilterUnknown = "CLUSTER_FILTER_UNKNOWN"
 )
 
 // Cluster name sources: how a [Cluster] name was found. They mirror the values

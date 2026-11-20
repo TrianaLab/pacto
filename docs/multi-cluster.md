@@ -91,10 +91,14 @@ the answer partial.
 
 Every fleet answer lists each cluster in `meta.clusters`, with its status,
 its access word and how many targets it shows. `pacto fleet status` prints a
-`Clusters:` line, such as `Clusters: eu-prod complete, us-prod no access`.
+`Clusters:` line with each cluster's UID, such as
+`Clusters: eu-prod (5b0c...) complete, us-prod (9f1c...) no access`. A context
+Pacto refused to read shows why: `conflicting id` or `unidentified`.
 
 List one cluster's targets, and the services and revisions that run there,
-with its UID:
+with its UID. Inferred services of that cluster are listed too. An id that no
+cluster has, such as a cluster's name, answers an empty list with a
+`CLUSTER_FILTER_UNKNOWN` limitation:
 
 ```sh
 pacto fleet entities --kind target --cluster 9f1c4e2a-... --context eu-prod --context us-prod

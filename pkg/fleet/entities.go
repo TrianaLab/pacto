@@ -66,8 +66,10 @@ type EntityFilter struct {
 	// statuses in this environment; on services alone it is an invalid query.
 	Environment string
 	// Cluster keeps the TARGETS of this cluster id (TargetRecord.Cluster), the
-	// SERVICES with a target there and the REVISIONS a target there runs; owners,
-	// domains and other kinds ignore it. An unknown id answers an empty list.
+	// SERVICES with a target or an inferred workload there and the REVISIONS a
+	// target there runs; owners, domains and other kinds ignore it, and with no
+	// kind asked it lists those three kinds only. An id the answer knows no
+	// cluster of answers an empty list with a CLUSTER_FILTER_UNKNOWN limitation.
 	Cluster string
 	// Capability keeps the SERVICES any of whose read revisions declares a
 	// capability of this type (see [Query.serviceCapabilities]).
@@ -269,6 +271,11 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	if err := validateEntityFilter(f); err != nil {
 		return nil, err
 	}
+	if f.Cluster != "" && len(f.Kinds) == 0 {
+		// Owners and sources ignore Cluster, so every kind would list the
+		// whole fleet's beside one cluster's.
+		f.Kinds = []EntityKind{KindService, KindRevision, KindTarget}
+	}
 	want := kindSet(f.Kinds)
 	refs, offerings := q.candidateRefs(want)
 	consumers := q.offeringConsumers(f.Consumes)
@@ -285,6 +292,10 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	}
 
 	x := q.crossKindSets(f)
+	if f.Cluster != "" && len(x.clusterServices) == 0 && !q.clusterKnown(f.Cluster) {
+		derived = append(derived, Limitation{Code: LimitationClusterFilterUnknown,
+			Message: "no cluster this answer knows has id " + f.Cluster + ", so an empty list says nothing about it; meta.clusters lists the ids"})
+	}
 	filtered := refs[:0:0]
 	for _, r := range refs {
 		if q.entityMatches(r, f, x) && (f.Consumes == "" || r.Kind == KindService && consumers[ServiceKey(r.Key)]) {
@@ -453,8 +464,8 @@ func (q *Query) crossKindSets(f EntityFilter) crossKind {
 	return x
 }
 
-// clusterMembers is the services with a target in cluster and the revisions a
-// target there runs.
+// clusterMembers is the services with a target or an inferred workload in
+// cluster and the revisions a target there runs.
 func (q *Query) clusterMembers(cluster string) (map[ServiceKey]bool, map[RevisionKey]bool) {
 	svc, rev := map[ServiceKey]bool{}, map[RevisionKey]bool{}
 	for _, t := range q.snap.Targets {
@@ -462,7 +473,18 @@ func (q *Query) clusterMembers(cluster string) (map[ServiceKey]bool, map[Revisio
 			svc[t.ServiceKey], rev[t.ContractRevision] = true, true
 		}
 	}
+	for k, s := range q.snap.Services {
+		if s.Inferred() && s.Workload.Cluster == cluster {
+			svc[k] = true
+		}
+	}
 	return svc, rev
+}
+
+// clusterKnown reports whether the answer knows cluster id: a reader's
+// restricted view knows only the clusters it may be told about.
+func (q *Query) clusterKnown(id string) bool {
+	return slices.ContainsFunc(q.snap.Clusters, func(c ClusterRecord) bool { return c.ID == id })
 }
 
 // matchPlacement applies the source and cluster filters.

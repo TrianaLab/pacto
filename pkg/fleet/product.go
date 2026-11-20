@@ -64,7 +64,8 @@ func ProductKinds() []string {
 // (services for template only or inferred, revisions for readiness, targets for scope,
 // sources for sourceKind or sourceHealth, external systems for class); nil, the kind set every surface
 // lists by default, when it names a service, domain or source, so the listing
-// holds that service's revisions and targets as the dashboard's does; else the
+// holds that service's revisions and targets as the dashboard's does, or a
+// cluster, whose listing is then its services, revisions and targets; else the
 // ProductKinds.
 func ListKinds(kind string, f EntityFilter) []EntityKind {
 	switch {
@@ -80,7 +81,7 @@ func ListKinds(kind string, f EntityFilter) []EntityKind {
 		return []EntityKind{KindSource}
 	case f.Class != "":
 		return []EntityKind{KindExternal}
-	case f.Service != "" || f.Domain != "" || f.Source != "":
+	case f.Service != "" || f.Domain != "" || f.Source != "" || f.Cluster != "":
 		return nil
 	}
 	var out []EntityKind
