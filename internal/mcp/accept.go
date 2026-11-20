@@ -8,14 +8,12 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// acceptSentence and remoteAcceptSentence name pacto_accept in the
-// instructions of a server that registers it.
+// acceptSentence names pacto_accept in the instructions of a stdio server
+// that registers it.
 const (
 	acceptSentence = "Use pacto_accept to plan accepting the dependency ranges pacto ci proposed for a published service, or a break a provider announces " +
 		"for it (dry_run defaults to true and returns the plan with its intent_digest and who may accept); with dry_run false and that intent_digest " +
 		"it writes an acceptance draft a person accepts with pacto accept --draft, and it never signs an acceptance."
-	remoteAcceptSentence = "This server also offers pacto_accept, which plans an acceptance; it writes nothing here, and its refusal names " +
-		"the pacto accept command a person runs."
 )
 
 // AcceptArgs are pacto_accept's arguments.
@@ -74,9 +72,10 @@ type acceptedRun struct {
 }
 
 // registerAccept adds pacto_accept under the agent write contract. Every
-// MCP caller is an agent, so a write is always an acceptance draft; remote
-// says the server answers over HTTP, where it only plans.
-func registerAccept(server *mcpsdk.Server, acc Acceptor, remote bool) {
+// MCP caller is an agent, so a write is always an acceptance draft. Only a
+// stdio server registers it: over HTTP it would read and write with this
+// process's registry credentials for every caller.
+func registerAccept(server *mcpsdk.Server, acc Acceptor) {
 	addTool(server, &mcpsdk.Tool{
 		Name:        "pacto_accept",
 		Annotations: writes(false, false, true),
@@ -96,14 +95,13 @@ func registerAccept(server *mcpsdk.Server, acc Acceptor, remote bool) {
 		}, []string{"service"}),
 		OutputSchema: writeResultSchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a AcceptArgs) (*mcpsdk.CallToolResult, any, error) {
-		return accept(ctx, acc, a, remote)
+		return accept(ctx, acc, a)
 	})
 }
 
 // accept plans, or with dry_run false checks the intent digest against a
-// fresh plan and writes the acceptance draft. Over HTTP a write is refused
-// with the command a person runs.
-func accept(ctx context.Context, acc Acceptor, a AcceptArgs, remote bool) (*mcpsdk.CallToolResult, any, error) {
+// fresh plan and writes the acceptance draft.
+func accept(ctx context.Context, acc Acceptor, a AcceptArgs) (*mcpsdk.CallToolResult, any, error) {
 	if !dryRun(a.DryRun) && a.OnBehalfOf == "" {
 		return errorResult(errOnBehalfOfRequired), nil, nil
 	}
@@ -119,10 +117,6 @@ func accept(ctx context.Context, acc Acceptor, a AcceptArgs, remote bool) (*mcps
 	}
 	if refused == nil && !dryRun(a.DryRun) {
 		refused = requireIntent(plan.IntentDigest, a.IntentDigest)
-	}
-	if refused == nil && !dryRun(a.DryRun) && remote {
-		refused = &Refused{Code: RefusalExecuteNeedsStdio, Message: "this HTTP server writes no acceptance: run the command on your machine; " +
-			"it prints the same plan and signs it as you", CLI: a.Command(plan.IntentDigest)}
 	}
 	if refused != nil || dryRun(a.DryRun) {
 		return writeAnswer(out, refused, a.Command(""))

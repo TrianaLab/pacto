@@ -117,16 +117,6 @@ func TestMCPAcceptNeedsOnBehalfOf(t *testing.T) {
 	}
 }
 
-func TestMCPAcceptHTTPExecuteNeedsStdio(t *testing.T) {
-	var execs []AcceptArgs
-	out, res := callAccept(t, Authoring{Remote: true, Accept: stubAcceptor{execs: &execs}}, map[string]any{"service": reportsRef, "break": "ledger@3.0.0",
-		"from": "oci://ghcr.io/acme/ledger:3.0.0", "dry_run": false, "on_behalf_of": "ana", "intent_digest": planDigest})
-	if !res.IsError || len(execs) != 0 || out.Refusal == nil || out.Refusal.Code != RefusalExecuteNeedsStdio ||
-		out.Refusal.CLI != "pacto accept "+reportsRef+" --break ledger@3.0.0 --from oci://ghcr.io/acme/ledger:3.0.0 --intent "+planDigest {
-		t.Fatalf("%+v", out)
-	}
-}
-
 func TestAcceptRefusalsCarryCodeAndCommand(t *testing.T) {
 	for _, code := range []WriteRefusal{RefusalAcceptNothingProposed, RefusalFieldNotAcceptable, RefusalBreakNotAnnounced, RefusalNotPublished,
 		RefusalPersonSigningUnavailable} {
@@ -161,10 +151,15 @@ func TestAcceptNamedOnlyWhenRegistered(t *testing.T) {
 		if strings.Contains(baseFor(a), "pacto_accept") || slices.Contains(authoringNames(a), "pacto_accept") {
 			t.Errorf("%+v names pacto_accept", a)
 		}
-		a.Accept = stubAcceptor{}
-		if !strings.Contains(baseFor(a), "pacto_accept") || !slices.Contains(authoringNames(a), "pacto_accept") ||
-			listTools(t, mustNew("test", a, Modes{}))["pacto_accept"] == nil {
-			t.Errorf("%+v does not name pacto_accept", a)
-		}
+	}
+	a := Authoring{Accept: stubAcceptor{}}
+	if !strings.Contains(baseFor(a), "pacto_accept") || !slices.Contains(authoringNames(a), "pacto_accept") ||
+		listTools(t, mustNew("test", a, Modes{}))["pacto_accept"] == nil {
+		t.Errorf("%+v does not name pacto_accept", a)
+	}
+	// An HTTP server never offers pacto_accept, even when handed one.
+	a.Remote = true
+	if strings.Contains(baseFor(a), "pacto_accept") || listTools(t, mustNew("test", a, Modes{}))["pacto_accept"] != nil {
+		t.Error("an HTTP server offers pacto_accept")
 	}
 }

@@ -45,7 +45,7 @@ const remoteAuthoringSentence = "Over this HTTP server only pacto_schema is offe
 func baseFor(a Authoring) string {
 	switch {
 	case a.Remote:
-		return remoteInstructions + writeSentences(a, remoteDeclareSentence, remoteAcceptSentence)
+		return remoteInstructions + writeSentences(Authoring{Declare: a.Declare}, remoteDeclareSentence, "")
 	}
 	return stdioInstructions + writeSentences(a, declareSentence, acceptSentence)
 }
@@ -164,8 +164,8 @@ func registerTools(server *mcpsdk.Server, version string, a Authoring, opts Edit
 	if a.Declare != nil {
 		registerDeclare(server, a.Declare, a.Remote)
 	}
-	if a.Accept != nil {
-		registerAccept(server, a.Accept, a.Remote)
+	if a.Accept != nil && !a.Remote {
+		registerAccept(server, a.Accept)
 	}
 }
 
