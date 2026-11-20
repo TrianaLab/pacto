@@ -41,6 +41,13 @@ func TestFirstVersionBlocksIncompatibleRunningConsumer(t *testing.T) {
 	}
 }
 
+func TestOnlyUnreadBlockSaysNoneCouldBeRead(t *testing.T) {
+	res := firstVersion(ledgerSnap(t, "^1", true), "2.0.0", "pay runs a revision with no registry ref")
+	if res.Gate != GateBlocked || !strings.Contains(res.GateReason, "no running revision of payments Pacto could read: running consumers do not accept payments 2.0.0: ledger") {
+		t.Fatalf("gate %s %q", res.Gate, res.GateReason)
+	}
+}
+
 func TestFirstVersionClearWhenCompleteAndAccepted(t *testing.T) {
 	res := firstVersion(ledgerSnap(t, "^2", true), "2.0.0")
 	if res.Gate != GateClear || !strings.Contains(res.GateReason, "every consumer that runs accepts 2.0.0") || res.GateCode() != GateCodeFirstVersionAccepted {

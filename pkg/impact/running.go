@@ -55,7 +55,7 @@ func (r *Result) runningGate() (string, string) {
 // reject: clear only on a complete answer whose running consumers all accept
 // the new version.
 func (r *Result) firstVersionGate() (string, string) {
-	lead := "first version of " + r.Service + " on a known target"
+	lead := r.firstVersionLead()
 	if why := r.policyUnchecked(); why != "" {
 		return GateUnverified, lead + "; " + why
 	}
@@ -85,6 +85,15 @@ func (r *Result) firstVersionGate() (string, string) {
 		return GateClear, lead + ": no consumer runs"
 	}
 	return GateClear, lead + ": every consumer that runs accepts " + r.NewVersion
+}
+
+// firstVersionLead opens a first-version reason: no revision of the service
+// runs, or none Pacto could read (the unread lines say which).
+func (r *Result) firstVersionLead() string {
+	if len(r.unreadBaselines) > 0 {
+		return "no running revision of " + r.Service + " Pacto could read"
+	}
+	return "first version of " + r.Service + " on a known target"
 }
 
 // runningCode is the code of runningGate(), "" when it returns no gate.

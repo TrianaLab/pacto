@@ -483,7 +483,7 @@ func (r *Result) blockingGate() (string, string) {
 		case r.anyStale(active):
 			why = append(why, "breaking changes affect consumers that "+accept+": "+r.whereRun(active))
 		case r.firstVersion:
-			why = append(why, "first version of "+r.Service+" on a known target: running consumers "+accept+": "+strings.Join(active, ", "))
+			why = append(why, r.firstVersionLead()+": running consumers "+accept+": "+strings.Join(active, ", "))
 		default:
 			why = append(why, "breaking changes affect active consumers, which run on known targets and "+accept+": "+strings.Join(active, ", "))
 		}
