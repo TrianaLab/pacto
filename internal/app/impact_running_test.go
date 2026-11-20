@@ -296,3 +296,14 @@ func freshNow() *time.Time {
 	now := time.Now()
 	return &now
 }
+
+func TestImpactRunningUnreadIsBounded(t *testing.T) {
+	e := &runEnv{col: fleet.Collection{Revisions: []fleet.RawRevision{payRev("1.0.0", "sha256:p1")}}}
+	for i := range maxUnreadLines + 5 {
+		e.col.Targets = append(e.col.Targets, payTarget("pay"+strconv.Itoa(i), "sha256:none"))
+	}
+	res := mustRun(t, e, "2.0.0")
+	if u := res.Running.Unread; len(u) != maxUnreadLines || u[len(u)-1] != "6 more running revisions Pacto could not read" {
+		t.Fatalf("unread %d %q", len(u), u[len(u)-1])
+	}
+}

@@ -22,6 +22,10 @@ import (
 // really runs more distinct revisions at once.
 const MaxRunningRevisions = 8
 
+// maxUnreadLines bounds the unread lines one answer carries; the last says
+// how many more there were.
+const maxUnreadLines = 32
+
 // ImpactRunning judges the new revision against the revisions of its
 // service that run on known targets, read from snap or, when snap is nil,
 // from a snapshot built from opts.Fleet. opts.OldPath is ignored. Each
@@ -83,6 +87,9 @@ func (s *Service) judgeRunning(ctx context.Context, opts ImpactOptions, snap *fl
 			continue
 		}
 		read = append(read, baseline{ref, b})
+	}
+	if n := len(unread); n > maxUnreadLines {
+		unread = append(unread[:maxUnreadLines-1:maxUnreadLines-1], strconv.Itoa(n-maxUnreadLines+1)+" more running revisions Pacto could not read")
 	}
 	opts.unreadBaselines = unread
 	running := &impact.RunningBaseline{Refs: refs, Unread: unread}
