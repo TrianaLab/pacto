@@ -47,6 +47,9 @@ type CIOptions struct {
 	// migrations, when non-nil, gets each planned folder's migration by its
 	// row's Dir.
 	migrations map[string]CIMigration
+	// proposed, when non-nil, gets the Dir of each row whose bundle holds a
+	// proposal, so publish pushes the bundle the plan judged.
+	proposed map[string]bool
 	// TargetSnapshotAuto reads the target snapshot beside the registry the
 	// plan reads (D8) when Fleet names no target input, as pacto impact does.
 	TargetSnapshotAuto bool
@@ -96,6 +99,7 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 	pl := &ciPlanner{s: s, p: p, reg: s.env().publishRegistry(), allowed: allowedHost(p.Registry), root: opts.Root, revision: opts.revision, cat: cat}
 	for _, f := range folders {
 		pl.plan(ctx, f)
+		f.judged = f.b
 		if opts.Bundles != nil && f.b != nil {
 			opts.Bundles[f.row.Dir] = f.b
 		}
@@ -103,11 +107,12 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 			opts.migrations[f.row.Dir] = f.migration
 		}
 	}
-	results, err := s.ciImpacts(ctx, p, folders, opts, pl.allowed)
+	results, snap, err := s.ciImpacts(ctx, p, folders, opts, pl.allowed)
 	if err != nil {
 		return nil, nil, err
 	}
 	for _, f := range folders {
+		pl.propose(ctx, f, snap, opts)
 		p.Rows = append(p.Rows, f.row)
 	}
 	p.Settle(opts.Root)
@@ -126,6 +131,9 @@ type ciFolder struct {
 	// base is the baseline a changed row's impact runs against; nil when an
 	// earlier rule already decided the row.
 	base *contract.Bundle
+	// judged is the bundle the plan judged and publish pushes: b before
+	// impact replaced it with the planned revision.
+	judged *contract.Bundle
 }
 
 // decide sets the row's impact unless an earlier rule already did.
@@ -663,8 +671,9 @@ const ciChangesSource = "ci-changes"
 // repository, the planned revisions and the consumer sources the caller
 // named, read through a store fenced to the hosts the caller named. A row
 // reads clear only when a consumer source answered, the answer is complete
-// and nothing inferred changed.
-func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder, opts CIOptions, allowed string) (map[string]*impact.Result, error) {
+// and nothing inferred changed. It returns the snapshot it ran over, nil when
+// no row changed.
+func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder, opts CIOptions, allowed string) (map[string]*impact.Result, *fleet.FleetSnapshot, error) {
 	p.ConsumerSources = opts.Fleet.ConsumerSources()
 	repo := &fleet.Collection{}
 	unpublished := map[fleet.ServiceKey]bool{}
@@ -696,7 +705,7 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 		}
 	}
 	if len(todo) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	fo := opts.Fleet
 	if len(fo.LocalRoots) == 0 {
@@ -710,7 +719,7 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 	withChanges.extraSources = append(slices.Clone(fo.extraSources), fleet.NewMemorySource(ciChangesSource, "argument", repo))
 	snap, err := fenced.Fleet(ctx, withChanges)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	p.Snapshot = snapshotInfo(snap)
 	evidence, answered := consumerEvidence(snap), answeringSources(snap)
@@ -732,7 +741,7 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 		f.row.Impact = rowImpact(res, f.b, evidence)
 		f.row.Impact.Sources = answered
 	}
-	return results, nil
+	return results, snap, nil
 }
 
 // fenceHosts are the registry hosts the caller named as consumer sources.
