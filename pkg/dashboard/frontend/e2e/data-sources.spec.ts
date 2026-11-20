@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { boot } from './typographyChecks';
+import { settle } from './ready';
 
 /**
  * Data sources as a product surface: findable from the overview, walkable to a source,
@@ -193,6 +195,22 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     await expect(block.getByTestId('provider-offer')).toHaveCount(1);
   });
+
+  // axe.spec.ts audits Data sources with the rows collapsed, so the offer line (behind
+  // "Show all") is audited here, contrast included, in both palettes.
+  for (const colorScheme of ['dark', 'light'] as const) {
+    test(`the expanded providers block, offer line included, passes axe in ${colorScheme}`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme });
+      await boot(page, '#/fleet/sources');
+      const block = page.getByTestId('detected-providers');
+      await block.getByRole('button', { name: /^Show all \d+ providers$/ }).click();
+      await expect(block.getByTestId('provider-offer')).toHaveCount(1);
+      await settle(page);
+      const r = await new AxeBuilder({ page }).include('[data-testid="detected-providers"]')
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+      expect(r.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) }))).toEqual([]);
+    });
+  }
 });
 
 test.describe('a source page answers about itself', () => {
