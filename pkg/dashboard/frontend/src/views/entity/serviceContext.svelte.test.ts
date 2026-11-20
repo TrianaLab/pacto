@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import { fleetAttentionUrl, fleetServicesUrl, fleetGraphFocusUrl, fleetEntityListUrl } from '../../lib/router.ts';
 import { formatDate } from '../../lib/dateFormat.ts';
+import { session } from '../../lib/session.svelte.ts';
 
 const { detailFn, entitiesFn } = vi.hoisted(() => ({ detailFn: vi.fn(), entitiesFn: vi.fn() }));
 vi.mock('../../lib/api.ts', async (importOriginal) => {
@@ -767,9 +768,11 @@ describe('service page: inferred by Pacto', () => {
       flushSync();
       return r;
     };
+    session.data = { mode: 'local', signedIn: true } as never; // planning reads acceptances: a local or signed-in viewer
     let r = await opened([field(0), proposal]);
     expect(text(fact(r.target, 'accept-proposed'))).toContain('Accept all proposed ranges for payments');
     r.done();
+    session.data = null;
     // A proposed ref or an ordinary inferred field is no range to accept.
     r = await opened([field(0), { ...proposal, field: 'dependencies[ledger].ref', proposed: undefined }]);
     expect(fact(r.target, 'service-inferred')).toBeTruthy();

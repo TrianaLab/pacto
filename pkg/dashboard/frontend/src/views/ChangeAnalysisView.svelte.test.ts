@@ -267,6 +267,20 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     unmount(component); document.body.removeChild(target);
   });
 
+  it('says the range coverage leaves out the consumers hidden by your access', async () => {
+    const res = impactResult();
+    res.ranges = { scope: 'consumers of payments', edges: 3, declared: 3, accepted: 0, unknownTotal: 0 };
+    res.consumers.hidden = 5;
+    impactFn.mockResolvedValue(res);
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-ranges"]')).toBeTruthy());
+    expect(target.querySelector('[data-testid="changes-ranges"]')?.textContent)
+      .toContain('Ranges: 3 declared and 0 accepted of 3 dependency edges (100%); 5 consumers hidden by your access are not counted');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('shows a possible break (inferred) as one muted line in the answer, only with advisories', async () => {
     impactFn.mockResolvedValueOnce(impactResult());
     let { target, component } = mountView({ svc: 'domain-a/payments' });

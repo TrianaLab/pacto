@@ -637,7 +637,7 @@
            and a possible break on an inferred interface, with its details in the mark (a mark in the What changed
            summary would nest a button in a disclosure). -->
       <div class="ca-ranges t-meta" data-testid="changes-ranges">
-        {#if result.ranges}<p><span>{rangesLine(result.ranges)}</span> <ProvenanceMark label="About range coverage" text={[`Counted over ${result.ranges.scope}.`, ...unknownRanges(result.ranges)].join(' ')} /></p>{/if}
+        {#if result.ranges}<p><span>{rangesLine(result.ranges, result.consumers?.hidden ?? 0)}</span> <ProvenanceMark label="About range coverage" text={[`Counted over ${result.ranges.scope}.`, ...unknownRanges(result.ranges)].join(' ')} /></p>{/if}
         {#each result.notes ?? [] as n, ni (ni)}<p data-testid="changes-note">{n}</p>{/each}
         {#if result.advisories?.length}<p data-testid="changes-inferred-advisory"><span>Possible break (inferred), advisory: never blocks or clears</span> <ProvenanceMark label="About the possible break (inferred)" text={result.advisories.map(advisoryText).join(' ')} /></p>{/if}
       </div>
@@ -919,8 +919,13 @@
   .field :global(select) { padding: var(--sp-2) var(--sp-3); min-height: var(--touch-min); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); color: var(--c-text); font: inherit; font-size: var(--text-sm); max-width: 100%; }
   /* Names ellipsize on one line (the whole name is in the link's title) instead of
      breaking mid-word down a narrow column. */
-  .consumer-cell :global(.ei-label) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
-  .consumer-cell :global(.entity-identity) { flex-wrap: nowrap; max-width: 100%; }
+  .consumer-cell :global(.ei-label) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; min-width: 0; max-width: 100%; }
+  /* The context (a registry domain) wraps to a line of its own instead of being
+     squeezed beside a long name. */
+  .consumer-cell :global(.entity-identity) { max-width: 100%; }
+  /* The link holding a name is capped at its cell, so the name ellipsizes inside it
+     instead of running into the next column or out of a card. */
+  .consumer-cell :global(.entity-link), .runs-list :global(.entity-link) { max-width: 100%; }
   .form-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
   .check-field { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--c-text-2); }
   .check-field input:disabled { cursor: not-allowed; }
@@ -960,6 +965,7 @@
   @container ca-consumers (min-width: 66rem) {
     .ca-table { display: grid; grid-template-columns: minmax(18ch, 1.3fr) minmax(14ch, 1fr) minmax(12ch, 0.8fr) minmax(26ch, 2fr) minmax(14ch, 1fr) minmax(12ch, 0.9fr); }
     .ca-table thead, .ca-table tbody, .ca-table tr { display: contents; }
+    .ca-table td { min-width: 0; }
   }
   /* Exclusive of the grid's 66rem, so at exactly that width only one form applies. */
   @container ca-consumers (width < 66rem) {
@@ -973,7 +979,9 @@
   .why-evidence, .why-resources, .runs-list { list-style: none; margin: var(--sp-1) 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); min-width: 0; }
   .why-msg { overflow-wrap: anywhere; }
   .runs-list { margin: 0; }
-  .runs-list :global(.ei-label) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+  .runs-list :global(.ei-label) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; min-width: 0; max-width: 100%; }
+  .runs-list :global(.entity-identity) { max-width: 100%; }
+  .runs-list li { min-width: 0; }
 
   .path-cell { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
   .consumer-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-4); margin: var(--sp-3) 0; }

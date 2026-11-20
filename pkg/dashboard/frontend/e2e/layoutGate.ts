@@ -1034,7 +1034,7 @@ export function installScaleFixture(): void {
   // unverified signer whose namespace the viewer may not read: no rows, no namespace and
   // no hidden count (its cluster facts were already dropped). 'notAllowed' answers it as a
   // checked signature the installation signer policy refuses.
-  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks'; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed' };
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden'; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed' };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1454,6 +1454,13 @@ export function installScaleFixture(): void {
     }
     if (flags.__pactoAccept && method === 'POST' && route === '/api/fleet/accept') {
       return { status: 200, contentType: 'application/json', body: JSON.stringify(acceptAnswer()) };
+    }
+    // Planning reads acceptances, so only a local viewer or a signed-in person is
+    // offered it: the plan routes run as a local viewer, 'forbidden' as an open
+    // dashboard where nobody signs in.
+    if (flags.__pactoAccept && flags.__pactoAccept !== 'breaks' && method === 'GET' && route === '/api/session') {
+      const local = flags.__pactoAccept !== 'forbidden';
+      return { status: 200, contentType: 'application/json', body: JSON.stringify({ mode: local ? 'local' : 'open', login: false, signedIn: local }) };
     }
     const ambiguousQuery = new URLSearchParams(path.split('?')[1] ?? '');
     if (flags.__pactoAmbiguousTarget && method === 'GET' && ambiguousQuery.get('key') === 'scale-ambiguous/kubernetes/payments'
@@ -1929,17 +1936,23 @@ const firstLink = (list: string, href: string) => async (page: Page) => {
 };
 
 /** Opens payments-service with range proposals in its Inferred block (the fixture puts
- *  them there), presses "Accept all proposed ranges" and waits for the plan or refusal. */
-export const acceptPlanRoute = (mode: 'plan' | 'refused') => async (page: Page) => {
+ *  them there), presses "Accept all proposed ranges" and waits for the plan or refusal;
+ *  'forbidden' is a viewer who is not signed in, offered only the CLI dry run. The page
+ *  reloads so the session is read with the flag set. */
+export const acceptPlanRoute = (mode: 'plan' | 'refused' | 'forbidden') => async (page: Page) => {
   const flag = (m: string) => { (window as unknown as { __pactoAccept?: string }).__pactoAccept = m; };
   await page.addInitScript(flag, mode);
-  await page.evaluate(flag, mode);
   await page.goto('/#/fleet/services/payments-service');
+  await page.reload();
   const block = page.getByTestId('service-inferred');
   await expect(block).toBeVisible({ timeout: 30_000 });
   await block.locator('summary').first().click();
-  await block.getByRole('button', { name: /Accept all proposed ranges/ }).click();
-  await expect(block.getByTestId(mode === 'plan' ? 'accept-waiting' : 'accept-refusal')).toBeVisible({ timeout: 30_000 });
+  if (mode === 'forbidden') {
+    await expect(block.getByTestId('accept-sign-in')).toBeVisible({ timeout: 30_000 });
+  } else {
+    await block.getByRole('button', { name: /Accept all proposed ranges/ }).click();
+    await expect(block.getByTestId(mode === 'plan' ? 'accept-waiting' : 'accept-refusal')).toBeVisible({ timeout: 30_000 });
+  }
   await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
 };
 
@@ -2210,6 +2223,11 @@ export const ROUTES: Route[] = [
       await page.getByRole('button', { name: /Compare revisions/ }).click();
       await expect(page.getByTestId('changes-ranges')).toBeVisible({ timeout: 30_000 });
       await expect(page.getByTestId('changes-inferred-advisory')).toBeVisible();
+      // The marks sit in the Affected consumers fold, closed by default: open it so
+      // the gate measures them in the table and the stacked cards.
+      await page.locator('#sec-affected-consumers > summary').click();
+      await expect(page.getByTestId('consumer-break').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
     },
   },
   { name: 'change analysis event idle', hash: '#/fleet/changes/redis?mode=event' },
@@ -2230,6 +2248,7 @@ export const ROUTES: Route[] = [
   { name: 'service entity', hash: '#/fleet/services/payments-service' },
   { name: 'service inferred accept plan', open: acceptPlanRoute('plan') },
   { name: 'service inferred accept refused', open: acceptPlanRoute('refused') },
+  { name: 'service inferred accept forbidden', open: acceptPlanRoute('forbidden') },
   { name: 'revision list', list: true, hash: '#/fleet/revisions?service=payments-service' },
   { name: 'revision entity', open: firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/') },
   { name: 'revision entity, implicit contract', open: firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/') },

@@ -47,6 +47,14 @@ test.describe('accept proposed ranges and announced breaks', () => {
     await expect(block.getByRole('button', { name: 'Copy command' })).toBeVisible();
   });
 
+  test('a viewer who is not signed in is offered only the CLI dry run', async ({ page }) => {
+    await acceptPlanRoute('forbidden')(page);
+    const block = page.getByTestId('service-inferred');
+    await expect(block.getByTestId('accept-sign-in')).toContainText('Sign in to plan accepting the proposed ranges');
+    await expect(block.getByRole('button', { name: /Accept all proposed ranges/ })).toHaveCount(0);
+    await expect(block.getByRole('button', { name: 'Copy command' })).toBeVisible();
+  });
+
   test('Change analysis prints the Ranges line and marks each announced consumer', async ({ page }) => {
     await page.evaluate(() => { (window as unknown as { __pactoAccept?: string }).__pactoAccept = 'breaks'; });
     await page.goto('/#/fleet/changes/payments-service');
@@ -62,6 +70,14 @@ test.describe('accept proposed ranges and announced breaks', () => {
     await page.locator('#sec-affected-consumers > summary').click();
     const marks = page.getByTestId('consumer-break');
     await expect(marks.first()).toBeVisible({ timeout: T });
-    await expect(marks.first().getByRole('button')).toHaveAccessibleName(/^About accepted /);
+    // One mark per state: accepted, announced and expired, each saying what it means.
+    for (const [i, state, tip] of [[0, 'accepted', 'Break accepted: it never blocks. Signed by'], [1, 'announced', 'Break announced: nothing accepts it yet.'],
+      [2, 'expired', 'Break expired or records no expiry: it keeps its verdict.']] as const) {
+      const button = marks.nth(i).getByRole('button');
+      await expect(button).toHaveAccessibleName(new RegExp(`^About ${state} `));
+      await button.click();
+      await expect(page.getByRole('note')).toContainText(tip);
+      await page.keyboard.press('Escape');
+    }
   });
 });

@@ -1,5 +1,6 @@
 <script>
   import { api } from '../lib/api.ts';
+  import { session } from '../lib/session.svelte.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
   import ProvenanceMark from './ProvenanceMark.svelte';
 
@@ -8,15 +9,25 @@
   // command a person runs to sign it. The dashboard never signs and never writes: the
   // command is the action. Acceptances already attached that do not count (waiting for
   // the owner, or signed by CI or an agent) are one muted line each, with a mark.
+  // The plan reads acceptances with the dashboard's credentials, so only a local
+  // viewer or a signed-in person is offered it; anyone else, and a session the
+  // server refuses (a sign-in link), gets one line with the CLI dry run.
   let { serviceKey = '', service = '' } = $props();
+  const planId = $props.id();
+  const DRY_RUN = 'pacto accept <bundle repository> --proposed --dry-run';
 
   let answer = $state(null);
   let error = $state('');
   let loading = $state(false);
+  // asked mounts the disclosure; open is its state, so a press reopens it and
+  // the button's aria-expanded follows a native collapse.
+  let asked = $state(false);
   let open = $state(false);
+  let refused = $state(false);
+  const canPlan = $derived(session.data?.mode === 'local' || !!session.data?.signedIn);
 
   async function plan() {
-    open = true;
+    asked = open = true;
     if (loading) return;
     loading = true;
     error = '';
@@ -24,6 +35,7 @@
       answer = await api.fleetAccept(serviceKey);
     } catch (e) {
       answer = null;
+      refused = e?.status === 403;
       error = e?.status === 404
         ? 'This dashboard does not plan acceptances: run pacto accept <bundle repository> --proposed --dry-run.'
         : (e?.message || 'Pacto could not plan the acceptance.');
@@ -39,16 +51,20 @@
 </script>
 
 <div class="apr t-meta" data-testid="accept-proposed">
-  <button type="button" class="apr-action" onclick={plan} aria-expanded={open}>
+  {#if !canPlan || refused}
+    <p class="apr-note" data-testid="accept-sign-in">Sign in to plan accepting the proposed ranges for <bdi>{service}</bdi>, or plan it with the CLI:</p>
+    <CopyableIdentifier value={DRY_RUN} label="command" />
+  {:else}
+  <button type="button" class="apr-action" onclick={plan} aria-expanded={open} aria-controls={planId}>
     Accept all proposed ranges for <bdi>{service}</bdi>
   </button>
-  {#if open}
-    <details class="apr-plan disclosure" open data-testid="accept-plan">
+  {#if asked}
+    <details class="apr-plan disclosure" bind:open id={planId} data-testid="accept-plan">
       <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>{answer?.refusal ? 'Nothing to accept' : 'Plan'}</summary>
       {#if loading}
         <p class="apr-note">Reading the newest published version…</p>
       {:else if error}
-        <p class="apr-note" role="alert">{error}</p>
+        <p class="apr-error" role="alert">{error}</p>
       {:else if answer?.refusal}
         <p class="apr-text" data-testid="accept-refusal">{answer.refusal.message}</p>
         {#if answer.refusal.command}<CopyableIdentifier value={answer.refusal.command} label="command" />{/if}
@@ -70,6 +86,7 @@
       {/if}
     </details>
   {/if}
+  {/if}
 </div>
 
 <style>
@@ -77,7 +94,8 @@
   .apr-action { align-self: flex-start; max-inline-size: 100%; padding: 0; border: none; background: none; color: var(--c-accent); font: inherit; cursor: pointer; text-decoration: underline; overflow-wrap: anywhere; text-align: start; min-block-size: var(--touch-min); }
   @media (pointer: coarse) { .apr-action { min-block-size: 44px; } }
   .apr-plan > :not(summary) { margin-top: var(--sp-1); }
-  .apr-text, .apr-note, .apr-waiting { margin: 0; overflow-wrap: anywhere; }
+  .apr-text, .apr-note, .apr-error, .apr-waiting { margin: 0; overflow-wrap: anywhere; }
+  .apr-error { color: var(--c-warn); }
   .apr-note, .apr-waiting, .apr-src { color: var(--c-text-3); }
   .apr-waiting { display: flex; align-items: center; gap: var(--sp-2); min-block-size: var(--touch-min); }
   .apr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }

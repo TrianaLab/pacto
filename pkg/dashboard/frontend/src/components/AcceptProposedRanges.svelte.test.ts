@@ -14,10 +14,11 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 // @ts-expect-error — Svelte component has no declaration file
 import AcceptProposedRanges from './AcceptProposedRanges.svelte';
 import { ApiError } from '../lib/api.ts';
+import { session } from '../lib/session.svelte.ts';
 
 let target: HTMLElement;
 let comp: ReturnType<typeof mount> | null = null;
-beforeEach(() => { acceptFn.mockReset(); target = document.createElement('div'); document.body.appendChild(target); });
+beforeEach(() => { acceptFn.mockReset(); session.data = { mode: 'shared', signedIn: true } as never; target = document.createElement('div'); document.body.appendChild(target); });
 afterEach(() => { if (comp) { unmount(comp); comp = null; } document.body.removeChild(target); });
 
 const text = (el: Element | null) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -62,10 +63,48 @@ describe('AcceptProposedRanges', () => {
     acceptFn.mockRejectedValue(new ApiError(404, 'not found'));
     await open();
     expect(text(target.querySelector('[role="alert"]'))).toContain('pacto accept <bundle repository> --proposed --dry-run');
+    expect(target.querySelector('[role="alert"]')?.className).toContain('apr-error');
+    // A session the server refuses (a sign-in link) gets the sign-in line instead.
     acceptFn.mockReset();
     acceptFn.mockRejectedValue(new ApiError(403, 'sign in to plan an acceptance'));
     unmount(comp!); comp = null;
+    comp = mount(AcceptProposedRanges, { target, props: { serviceKey: 'acme/reports', service: 'reports' } });
+    flushSync();
+    (target.querySelector('button.apr-action') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="accept-sign-in"]')).toBeTruthy());
+    expect(target.querySelector('button.apr-action')).toBeNull();
+  });
+
+  it('offers no plan to a viewer who is not signed in, only the CLI dry run', () => {
+    for (const data of [null, { mode: 'open', signedIn: false }, { mode: 'shared', signedIn: false }]) {
+      session.data = data as never;
+      comp = mount(AcceptProposedRanges, { target, props: { serviceKey: 'acme/reports', service: 'reports' } });
+      flushSync();
+      expect(target.querySelector('button.apr-action')).toBeNull();
+      expect(text(target.querySelector('[data-testid="accept-sign-in"]'))).toContain('Sign in to plan accepting the proposed ranges for reports');
+      expect(target.querySelector('[title="pacto accept <bundle repository> --proposed --dry-run"]')).toBeTruthy();
+      unmount(comp); comp = null;
+    }
+    session.data = { mode: 'local', signedIn: false } as never;
+    comp = mount(AcceptProposedRanges, { target, props: { serviceKey: 'acme/reports', service: 'reports' } });
+    flushSync();
+    expect(target.querySelector('button.apr-action')).toBeTruthy();
+  });
+
+  it('reopens a collapsed plan on a second press, and aria-expanded follows the disclosure', async () => {
+    acceptFn.mockResolvedValue({ refusal: { code: 'AcceptNothingProposed', message: 'nothing to accept', command: 'pacto ci --publish .' } });
     await open();
-    expect(text(target.querySelector('[role="alert"]'))).toBe('sign in to plan an acceptance');
+    const btn = target.querySelector('button.apr-action') as HTMLButtonElement;
+    const details = target.querySelector('[data-testid="accept-plan"]') as HTMLDetailsElement;
+    expect(btn.getAttribute('aria-controls')).toBe(details.id);
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+    details.open = false;
+    details.dispatchEvent(new Event('toggle'));
+    flushSync();
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    btn.click();
+    flushSync();
+    expect(details.open).toBe(true);
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
   });
 });
