@@ -248,3 +248,20 @@ func TestParseTargetKeyRejectsOtherShapes(t *testing.T) {
 		}
 	}
 }
+
+func TestNamesService(t *testing.T) {
+	for _, c := range []struct {
+		k, other ServiceKey
+		want     bool
+	}{
+		{NewServiceKeyDomain("ghcr.io/acme", "reports"), NewServiceKeyDomain("ghcr.io/acme", "reports"), true},
+		{NewServiceKey("reports"), NewServiceKeyDomain("ghcr.io/acme", "reports"), true},
+		{NewServiceKeyDomain("ghcr.io/acme", "reports"), NewServiceKeyDomain("ghcr.io/acme", "ledger"), false},
+		{NewServiceKeyDomain("ghcr.io/acme", "reports"), NewServiceKeyDomain("ghcr.io/other", "reports"), false},
+		{NewServiceKey("reports"), NewServiceKeyDomain("ghcr.io/acme", "ledger"), false},
+	} {
+		if got := NamesService(c.k, c.other); got != c.want {
+			t.Errorf("NamesService(%s, %s) = %v", c.k, c.other, got)
+		}
+	}
+}

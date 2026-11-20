@@ -69,6 +69,9 @@ func TestDashboardAcceptPlanCommand(t *testing.T) {
 	for _, rev := range []*fleet.ContractRevision{
 		revision("oci://"+e.repo+"@sha256:"+strings.Repeat("a", 64), nil),
 		revision("", &contract.Publish{Bundle: "oci://" + e.repo}),
+		// The repository the fleet read the revision from wins over the
+		// publish.bundle its contract declares.
+		revision("oci://"+e.repo+":1.6.0", &contract.Publish{Bundle: "oci://" + e.repo + "-hidden"}),
 	} {
 		ans, err := plan(t.Context(), "reports", rev)
 		if err != nil {

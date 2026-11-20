@@ -85,6 +85,11 @@ func (s *Server) fleetAccept(ctx context.Context, in *fleetAcceptInput) (*fleetA
 	if err != nil {
 		return nil, impactHTTPError(err)
 	}
+	// A plan of another service (a contract naming a hidden service's
+	// repository) answers as a hidden one.
+	if ans.Plan != nil && !fleet.NamesService(key, fleet.ServiceKey(ans.Plan.Service)) {
+		return nil, huma.Error404NotFound("no service with this serviceKey")
+	}
 	return &fleetAcceptOutput{Body: ans}, nil
 }
 

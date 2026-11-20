@@ -91,6 +91,16 @@ func ParseServiceKey(k ServiceKey) (domain, name string) {
 	return "", unescapeKeyPart(s)
 }
 
+// NamesService reports whether other, a key built from a bundle repository
+// and the service name its bundle declares, is the service k names: the same
+// name, in k's domain when k has one (a folder source keys a service by its
+// name alone). A contract-declared repository is trusted only through it.
+func NamesService(k, other ServiceKey) bool {
+	d, n := ParseServiceKey(k)
+	od, on := ParseServiceKey(other)
+	return n == on && (d == "" || d == od)
+}
+
 // Replacement records that a declared service took over a service Pacto
 // inferred from a workload, as the cluster showed it: the workload existed
 // before the declaration that links them.

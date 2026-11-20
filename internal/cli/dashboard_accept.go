@@ -41,14 +41,16 @@ func dashboardAcceptPlan(svc *app.Service, trust func(context.Context) (app.Inst
 	}
 }
 
-// revisionRepo is the bundle repository a revision is published to: its
-// publish.bundle, else the oci:// reference it was read from; "" for neither.
+// revisionRepo is the bundle repository a revision is published to: the
+// oci:// reference the fleet read it from, else its publish.bundle (a
+// folder source); "" for neither. The contract only declares publish.bundle,
+// so the plan is checked to be of this service before it is shown.
 func revisionRepo(rev *fleet.ContractRevision) string {
-	if p := rev.Contract.Publish; p != nil && p.Bundle != "" {
-		return repoOf(p.Bundle)
-	}
 	if ref := cmp.Or(rev.ResolvedRef, rev.RequestedRef); strings.HasPrefix(ref, contract.OCIScheme) {
 		return repoOf(ref)
+	}
+	if p := rev.Contract.Publish; p != nil && p.Bundle != "" {
+		return repoOf(p.Bundle)
 	}
 	return ""
 }

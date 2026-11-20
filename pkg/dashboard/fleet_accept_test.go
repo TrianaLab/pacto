@@ -65,6 +65,20 @@ func TestAcceptHiddenServiceNotFound(t *testing.T) {
 	}
 }
 
+func TestAcceptPlanOfAnotherServiceNotFound(t *testing.T) {
+	// A visible contract whose publish.bundle names a hidden service's
+	// repository plans that service: it answers as a hidden one.
+	plan := func(context.Context, fleet.ServiceKey, *fleet.ContractRevision) (AcceptPlanAnswer, error) {
+		return AcceptPlanAnswer{Plan: &AcceptPlanView{Service: "ghcr.io/acme/ledger", WhoMayAccept: "ana@acme.com"}, Command: "pacto accept x"}, nil
+	}
+	base := acceptServer(t, viewerAuth(true, AuthState{}), nil, plan)
+	code, out := call(t, http.MethodPost, base+"/api/fleet/accept", map[string]string{"serviceKey": libKey(t, base)})
+	_, missing := call(t, http.MethodPost, base+"/api/fleet/accept", map[string]string{"serviceKey": "no-such-svc"})
+	if code != http.StatusNotFound || out["detail"] != missing["detail"] {
+		t.Errorf("a plan of another service answered %d %v", code, out)
+	}
+}
+
 func TestAcceptRouteAbsentWithoutProvider(t *testing.T) {
 	base := acceptServer(t, viewerAuth(true, AuthState{}), nil, nil)
 	postJSON(t, base+"/api/fleet/accept", map[string]string{"serviceKey": "x"}, http.StatusNotFound, nil)
