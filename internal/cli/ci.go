@@ -31,7 +31,7 @@ func newCICommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder) *c
 			"whether it changed against its published baseline, the version it would publish, the classification of the change " +
 			"and its impact on the consumers the fleet source flags name.\n\n" +
 			"The registry is --registry, else the registry the installation advertises in what the operator detected (--detected, " +
-			"used only when it is fresh), else the CI platform's registry, else the one registry every image names.\n\n" +
+			"used only when it is fresh and no PACTO_REGISTRY_* credential is set, since those answer any host), else the CI platform's registry, else the one registry every image names.\n\n" +
 			"On GitHub Actions the plan is also appended to $GITHUB_STEP_SUMMARY; on GitLab CI it is written to " +
 			"pacto-plan.md in $CI_PROJECT_DIR. --output-format json writes the plan as one JSON document.\n\n" +
 			"Without --publish the run is a plan: it reads the registry and the consumer sources you name and writes nothing to them. " +

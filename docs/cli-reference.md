@@ -162,7 +162,7 @@ pacto agent [flags]
 
 Walks root (default .) for pacto.yaml, skipping the folders the root .pactoignore names, and prints one plan: the CI platform, the registry and the base, each with its source, then one row per service: whether it changed against its published baseline, the version it would publish, the classification of the change and its impact on the consumers the fleet source flags name.
 
-The registry is --registry, else the registry the installation advertises in what the operator detected (--detected, used only when it is fresh), else the CI platform's registry, else the one registry every image names.
+The registry is --registry, else the registry the installation advertises in what the operator detected (--detected, used only when it is fresh and no PACTO_REGISTRY_* credential is set, since those answer any host), else the CI platform's registry, else the one registry every image names.
 
 On GitHub Actions the plan is also appended to $GITHUB_STEP_SUMMARY; on GitLab CI it is written to pacto-plan.md in $CI_PROJECT_DIR. --output-format json writes the plan as one JSON document.
 

@@ -89,3 +89,38 @@ func TestCIIgnoresUnavailableAdvertisement(t *testing.T) {
 		}
 	}
 }
+
+// TestCIRegistryFlagSkipsAdvertisement: --registry wins, so the advertisement
+// is not read and adds no note, even an unreadable one.
+func TestCIRegistryFlagSkipsAdvertisement(t *testing.T) {
+	root := t.TempDir()
+	writeCIFile(t, root, "reports/pacto.yaml", reportsV1)
+	reg := &fakeCIRegistry{tags: noTags}
+	svc := &Service{sys: sysDeps{publishRegistry: func() publish.Registry { return reg }}}
+	p, _, err := svc.CIPlan(context.Background(), CIOptions{Root: root, Registry: "ghcr.io/acme",
+		Fleet: FleetOptions{Detected: filepath.Join(t.TempDir(), "missing.json")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Registry.Source != "--registry" || slices.ContainsFunc(p.Notes, func(n string) bool { return strings.Contains(n, "installation advertise") }) {
+		t.Fatalf("registry %+v, notes %q", p.Registry, p.Notes)
+	}
+}
+
+// TestCIEnvCredentialsNeverFollowAdvertisement: PACTO_REGISTRY_* credentials
+// answer any host, so a detection a ConfigMap writer can forge never picks
+// the host they go to; the note names the --registry to pass instead.
+func TestCIEnvCredentialsNeverFollowAdvertisement(t *testing.T) {
+	for _, env := range [][2]string{{"PACTO_REGISTRY_TOKEN", "t"}, {"PACTO_REGISTRY_USERNAME", "u"}} {
+		t.Run(env[0], func(t *testing.T) {
+			t.Setenv(env[0], env[1])
+			t.Setenv("PACTO_REGISTRY_PASSWORD", "p")
+			reg := &fakeCIRegistry{tags: noTags}
+			p := advertisedPlan(t, reg, advertisement(t, time.Now(), "evil.example/acme"))
+			if allowedHost(p.Registry) != "" || len(reg.calls) != 0 ||
+				!slices.Contains(p.Notes, "installation advertises evil.example/acme, not contacted: PACTO_REGISTRY_* credentials answer any host; pass --registry evil.example/acme") {
+				t.Fatalf("registry %+v, calls %v, notes %q", p.Registry, reg.calls, p.Notes)
+			}
+		})
+	}
+}

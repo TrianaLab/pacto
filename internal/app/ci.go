@@ -91,9 +91,14 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 	}
 	folders, images := s.ciFolders(opts.Root, walk.Dirs, opts.revision, cat)
 	var notes []string
-	advertised, note := s.ciAdvertised(ctx, opts.Fleet.Detected)
-	if note != "" {
-		p.Notes = append(p.Notes, note)
+	var advertised ci.Value
+	if registry == "" {
+		// --registry wins: the advertisement is not read at all.
+		var note string
+		advertised, note = s.ciAdvertised(ctx, opts.Fleet.Detected)
+		if note != "" {
+			p.Notes = append(p.Notes, note)
+		}
 	}
 	p.Registry, notes = ci.ResolveRegistry(registry, advertised, cctx, images)
 	p.Notes = append(p.Notes, notes...)
@@ -271,7 +276,9 @@ const advertisedSource = "the installation advertised at "
 // (--detected), with a note when one was named but cannot be used: only an
 // available detection (fresh and, for k8s:, written by the operator) with an
 // installation block counts, so a stale or unreadable one never picks the
-// registry or the host the plan contacts.
+// registry or the host the plan contacts. Neither does one read while
+// PACTO_REGISTRY_* credentials are set: they answer any host, and a detection
+// a ConfigMap writer can forge must not choose where they are sent.
 func (s *Service) ciAdvertised(ctx context.Context, ref string) (ci.Value, string) {
 	srcs := s.detectionSources(ref)
 	if len(srcs) == 0 {
@@ -288,6 +295,11 @@ func (s *Service) ciAdvertised(ctx context.Context, ref string) (ci.Value, strin
 	reg, err := ci.NormalizeRegistry(res.Installation.Registry)
 	if err != nil || reg == "" {
 		return ci.Value{}, "installation advertisement invalid: not used"
+	}
+	if env := oci.EnvCredentialOptions(); env.Token != "" || (env.Username != "" && env.Password != "") {
+		// The detection is not signed, and PACTO_REGISTRY_* credentials
+		// answer any host: the advertisement never picks where they go.
+		return ci.Value{}, "installation advertises " + reg + ", not contacted: PACTO_REGISTRY_* credentials answer any host; pass --registry " + reg
 	}
 	return ci.Value{Value: reg, Source: advertisedSource + ref}, ""
 }
