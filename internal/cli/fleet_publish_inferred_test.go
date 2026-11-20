@@ -18,6 +18,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/inferredcontract"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
@@ -46,6 +47,11 @@ func TestFleetPublishInferredPushes(t *testing.T) {
 	h, err := reg.Head(context.Background(), host+"/demo/pacto-inferred/stripe:0.0.1")
 	if err != nil || h == nil || h.Annotations[contract.AnnotationProvenance] != contract.ProvenanceInferred {
 		t.Fatalf("head = %+v, %v", h, err)
+	}
+	// The published bundle validates end to end: a folder rebuilds its record,
+	// a bundle's surface record is checked as pushed.
+	if out, _, err := execFleetStore(t, oci.NewClient(authn.NewMultiKeychain()), "validate", "oci://"+host+"/demo/pacto-inferred/stripe:0.0.1"); err != nil {
+		t.Fatalf("validate the inferred bundle: %v\n%s", err, out)
 	}
 	out, _, err = execFleet(t, "fleet", "publish-inferred", "--registry", host+"/demo", "--key", key, "--local", writeExternalFixture(t))
 	if err != nil || !strings.Contains(out, "0 published, 2 unchanged") {

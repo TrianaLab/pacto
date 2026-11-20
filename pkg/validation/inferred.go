@@ -49,12 +49,13 @@ func InferredRecordNeedsRaise(version string) bool {
 // identity is no canonical external identity, or service.external does not
 // name it.
 func surfaceErr(c *contract.Contract, surface *contract.InferredSurface) error {
-	switch {
-	case surface == nil:
+	if surface == nil {
 		return nil
-	case identityErr(surface.Identity) != nil:
-		return fmt.Errorf("surface.identity: %w", identityErr(surface.Identity))
-	case c.Service.External != surface.Identity:
+	}
+	if err := identityErr(surface.Identity); err != nil {
+		return fmt.Errorf("surface.identity: %w", err)
+	}
+	if c.Service.External != surface.Identity {
 		return fmt.Errorf("surface.identity is %q, so service.external must be %q, has %q", surface.Identity, surface.Identity, c.Service.External)
 	}
 	return nil
