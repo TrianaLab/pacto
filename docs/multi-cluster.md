@@ -117,4 +117,4 @@ records of a service you may read whose Stage is in another cluster, and
 counts them: `12 operation records from other clusters are not shown`. The
 statistics answer carries the count as `hidden.otherClusters`. When the
 dashboard cannot read the sign-in cluster's identity, every record that names
-a cluster is hidden.
+a cluster is hidden, with a `HOME_CLUSTER_UNKNOWN` limitation that counts them.

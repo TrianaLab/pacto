@@ -498,8 +498,31 @@ func TestStatsUnknownHomeClusterHidesClusteredRecords(t *testing.T) {
 	sc := restrictedScope(t)
 	sc.Clusters = []string{}
 	st := aggBy(set(inCluster("shop/orders", "c1"), inCluster("shop/orders", "")), "", sc)
-	if st.Runs != 1 || st.Hidden.OtherClusters != 1 {
+	// Nothing is known to come from another cluster: the limitation says the
+	// sign-in cluster's identity is unknown instead.
+	if st.Runs != 1 || st.Hidden.OtherClusters != 0 || st.Completeness != fleet.CompletenessPartial ||
+		hasLimitation(st, LimitationOtherClusters) || !hasLimitation(st, LimitationHomeClusterUnknown) {
 		t.Fatalf("answer = %+v", st)
+	}
+	if got := homeUnknownMessage(2); got != "Pacto could not read the sign-in cluster's identity, so 2 operation records that name a cluster are not shown" {
+		t.Errorf("message %q", got)
+	}
+}
+
+// TestStatsOtherClustersCountOnlyWhatTheQueryAsks: an other-cluster record
+// outside the window or of a kind not asked counts nowhere.
+func TestStatsOtherClustersCountOnlyWhatTheQueryAsks(t *testing.T) {
+	sc := restrictedScope(t)
+	sc.Clusters = []string{"c1"}
+	old := of("shop/orders", verifiedTo(digest('e'), hoursAgo(24*60)))
+	old.Stage = &runrecord.StageRef{Namespace: "shop", Name: "prod", Cluster: "c2"}
+	st := aggBy(set(old, inCluster("shop/orders", "c1")), "", sc)
+	if st.Hidden.OtherClusters != 0 || hasLimitation(st, LimitationOtherClusters) {
+		t.Fatalf("outside the window: %+v", st)
+	}
+	st = Aggregate(set(inCluster("shop/orders", "c2")), Query{Window: aggWindow, Kinds: []string{runrecord.KindDiff}}, sc, aggNow)
+	if st.Hidden.OtherClusters != 0 || hasLimitation(st, LimitationOtherClusters) {
+		t.Fatalf("a kind not asked: %+v", st)
 	}
 }
 

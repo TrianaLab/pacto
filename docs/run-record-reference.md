@@ -401,6 +401,7 @@ instead of a table of zeros.
 | `LEAD_TIME_UNJOINED` | some promotions have no publish record with their digest, so their lead time is unknown; the answer stays complete |
 | `OUTSIDE_YOUR_VIEW` | some records name services outside your view and are left out of every number, or your view holds no service, so no record is read for you |
 | `OTHER_CLUSTERS_NOT_SHOWN` | operation records of services in your view name a cluster other than the sign-in cluster, where your access was reviewed; they are counted in `hidden.otherClusters` and left out of every number |
+| `HOME_CLUSTER_UNKNOWN` | Pacto could not read the sign-in cluster's identity, so the operation records of services in your view that name a cluster are left out of every number; the message counts them |
 | `COVERAGE_OUTSIDE_YOUR_VIEW` | coverage records exist, or could not be checked, and are hidden from a reader who may see only part of the fleet |
 | `DELIVERY_UNAVAILABLE_OVER_HTTP` | a signed-in HTTP caller whose identity the server could not exchange gets no operation records |
 | `ATTRIBUTION_PARTIAL` | the fleet snapshot owner and domain come from is partial |

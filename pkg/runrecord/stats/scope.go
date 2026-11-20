@@ -16,6 +16,7 @@ const (
 	LimitationAttributionPartial  = "ATTRIBUTION_PARTIAL"
 	LimitationCoverageOutsideView = "COVERAGE_OUTSIDE_YOUR_VIEW"
 	LimitationOtherClusters       = "OTHER_CLUSTERS_NOT_SHOWN"
+	LimitationHomeClusterUnknown  = "HOME_CLUSTER_UNKNOWN"
 )
 
 // The keys of the groups no record value names. The parentheses keep them
@@ -175,6 +176,11 @@ func (sc Scope) sees(r runrecord.Record) bool {
 	return sc.OperationVisible != nil && sc.OperationVisible(ns)
 }
 
+// homeUnknown reports a restricted caller whose sign-in cluster's identity
+// could not be read: every record that names a cluster is hidden, and none is
+// known to come from another cluster.
+func (sc Scope) homeUnknown() bool { return sc.Clusters != nil && len(sc.Clusters) == 0 }
+
 // otherCluster reports whether r is an operation record whose Stage names a
 // cluster the caller's access was not reviewed in.
 func (sc Scope) otherCluster(r runrecord.Record) bool {
@@ -187,11 +193,11 @@ func (sc Scope) otherCluster(r runrecord.Record) bool {
 // of the names in its view and of service, the filter, that Place accepts.
 // outside says whether a record naming a service was left out, coverage
 // whether a fleet-wide coverage record was; neither is ever a count.
-// otherClusters counts only the other-cluster operation records of services
-// the caller can see, once per record id as retries count once; one of a
-// service it cannot place only sets outside.
-func visibleEntries(entries []Entry, skipped map[string]Skipped, service string, sc Scope) (visible []Entry, visibleSkipped Skipped, outside, coverage bool, otherClusters int) {
-	anchors, other := map[string]bool{}, map[string]bool{}
+// other holds only the other-cluster operation records of services the
+// caller can see, for the caller to count those the query asks about; one of
+// a service it cannot place only sets outside.
+func visibleEntries(entries []Entry, skipped map[string]Skipped, service string, sc Scope) (visible []Entry, visibleSkipped Skipped, outside, coverage bool, other []Entry) {
+	anchors := map[string]bool{}
 	for _, e := range entries {
 		r := e.Record
 		switch {
@@ -200,7 +206,7 @@ func visibleEntries(entries []Entry, skipped map[string]Skipped, service string,
 			coverage = true
 		case sc.Restricted && sc.otherCluster(r):
 			if _, ok := sc.place(recordService(r)); ok {
-				other[r.ID] = true
+				other = append(other, e)
 			} else {
 				outside = true
 			}
@@ -212,7 +218,7 @@ func visibleEntries(entries []Entry, skipped map[string]Skipped, service string,
 		}
 	}
 	visibleSkipped, skippedOutside := skippedIn(anchors, skipped, service, sc)
-	return visible, visibleSkipped, outside || skippedOutside, coverage, len(other)
+	return visible, visibleSkipped, outside || skippedOutside, coverage, other
 }
 
 // skippedIn sums the skipped counts of anchors, the visible entries'

@@ -139,7 +139,10 @@ type Stats struct {
 func Aggregate(set RecordSet, q Query, sc Scope, now time.Time) *Stats {
 	st := &Stats{AsOf: now.UTC(), Window: q.Window, Provenance: Provenance, By: q.By, Truncated: set.Truncated}
 	sel := selectRecords(set, q, sc, now)
-	st.Skipped, st.Hidden = sel.skipped, Hidden{Present: sel.outside, OtherClusters: sel.otherClusters}
+	st.Skipped, st.Hidden = sel.skipped, Hidden{Present: sel.outside}
+	if !sc.homeUnknown() {
+		st.Hidden.OtherClusters = sel.otherClusters
+	}
 	st.RecordsRead = len(sel.history)
 	entries, coverage := splitCoverage(sel.inWindow)
 	st.Runs, st.Coverage = len(entries), newestCoverage(coverage, q.Window.Until)
@@ -172,14 +175,17 @@ type selection struct {
 	future   int
 	outside  bool
 	// otherClusters counts visible services' operation records of other
-	// clusters.
+	// clusters that the query asks about.
 	otherClusters int
 	// coverageHidden says a restricted caller was kept from coverage records.
 	coverageHidden bool
 }
 
 func selectRecords(set RecordSet, q Query, sc Scope, now time.Time) selection {
-	visible, skipped, outside, coverage, other := visibleEntries(set.Entries, set.Skipped, q.Service, sc)
+	visible, skipped, outside, coverage, otherAll := visibleEntries(set.Entries, set.Skipped, q.Service, sc)
+	// Only those the query asks about count: in the window, of its kinds and
+	// service, once per record id as retries count once.
+	other := len(dedupe(selectEntries(otherAll, q)))
 	current, future := notFuture(visible, now)
 	skipped.Malformed += future
 	coverage = coverage || sc.Restricted && set.CoverageAnchor
@@ -346,6 +352,16 @@ func otherClustersMessage(n int) string {
 	return fmt.Sprintf("%d operation records from other clusters are not shown", n)
 }
 
+// homeUnknownMessage says how many operation records that name a cluster
+// were left out because the sign-in cluster's identity is unknown.
+func homeUnknownMessage(n int) string {
+	what := "1 operation record that names a cluster is"
+	if n != 1 {
+		what = fmt.Sprintf("%d operation records that name a cluster are", n)
+	}
+	return "Pacto could not read the sign-in cluster's identity, so " + what + " not shown"
+}
+
 func limitations(st *Stats, set RecordSet, sc Scope, sel selection, truncatedBy string) ([]fleet.Limitation, fleet.Completeness) {
 	lims := []fleet.Limitation{}
 	for _, l := range []*fleet.Limitation{
@@ -353,7 +369,8 @@ func limitations(st *Stats, set RecordSet, sc Scope, sel selection, truncatedBy 
 		truncatedLimitation(st.Truncated, truncatedBy, set.UnreadAnchors, sc.Restricted),
 		limitationIf(st.Hidden.Present, LimitationOutsideView, "some run records name services outside your view of the fleet and are left out of every number"),
 		limitationIf(sc.Restricted && len(sc.Names) == 0 && st.Runs == 0 && !st.Hidden.Present, LimitationOutsideView, "your view of the fleet holds no service, so no run record is read for you"),
-		limitationIf(sel.otherClusters > 0, LimitationOtherClusters, otherClustersMessage(sel.otherClusters)),
+		limitationIf(sel.otherClusters > 0 && !sc.homeUnknown(), LimitationOtherClusters, otherClustersMessage(sel.otherClusters)),
+		limitationIf(sel.otherClusters > 0 && sc.homeUnknown(), LimitationHomeClusterUnknown, homeUnknownMessage(sel.otherClusters)),
 		limitationIf(sel.coverageHidden, LimitationCoverageOutsideView, "coverage records count every service, so only a reader who can see every service sees them"),
 		limitationIf(sc.NoDelivery != "", LimitationDeliveryUnavailable, sc.NoDelivery),
 		limitationIf(st.Attribution != nil && st.Attribution.Partial, LimitationAttributionPartial, "the fleet snapshot owner and domain come from is partial; a service it misses groups as unknown"),
