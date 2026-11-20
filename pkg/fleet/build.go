@@ -1294,10 +1294,15 @@ func sourceStateFor(src Source, col *Collection, now time.Time, revCount, target
 
 // unavailableState builds a sanitized unavailable state for a failed source.
 func unavailableState(src Source, err error) SourceState {
-	return SourceState{
+	st := SourceState{
 		ID: src.ID(), Kind: src.Kind(), Status: SourceUnavailable,
 		Error: sanitizeError(err),
 	}
+	if cs, ok := src.(ClusterSource); ok && cs.Cluster() != nil {
+		c := *cs.Cluster()
+		st.Cluster = &c
+	}
+	return st
 }
 
 // sanitizeError maps an arbitrary error into a category code plus a fixed,

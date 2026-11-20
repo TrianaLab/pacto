@@ -363,20 +363,26 @@ func clusterSummaries(s *FleetSnapshot) ([]ClusterSummary, bool) {
 	for _, t := range s.Targets {
 		targets[t.Cluster]++
 	}
-	named := map[string]bool{}
+	named, at := map[string]bool{}, map[string]int{}
 	out := make([]ClusterSummary, 0, len(s.Clusters))
 	for _, c := range s.Clusters {
 		sum := ClusterSummary{ID: c.ID, Name: cmp.Or(c.Name, c.ID), NameSource: c.NameSource, Status: SourceAvailable, Access: c.Access, Targets: targets[c.ID]}
 		for _, src := range c.Sources {
 			named[src] = true
-			if sourceHealthRank(status[src]) < sourceHealthRank(sum.Status) {
-				sum.Status = status[src]
-			}
+			sum.Status = worseStatus(sum.Status, status[src])
 		}
+		at[c.ID] = len(out)
 		out = append(out, sum)
 	}
 	for _, st := range s.Sources {
-		if st.Kind == SourceKindKubernetes && st.Cluster == nil && !named[st.ID] {
+		switch {
+		case named[st.ID]:
+		case st.Cluster != nil:
+			// A live source of a known cluster that failed reported no
+			// collection, so no ClusterRecord names it: it still lowers its
+			// cluster's status.
+			out = foldFailedSource(out, at, st)
+		case st.Kind == SourceKindKubernetes:
 			out = append(out, ClusterSummary{Name: st.ID, Status: st.Status})
 		}
 	}
@@ -385,6 +391,27 @@ func clusterSummaries(s *FleetSnapshot) ([]ClusterSummary, bool) {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return sourceHealthRank(out[i].Status) < sourceHealthRank(out[j].Status) })
 	return out[:MaxMetaClusters], true
+}
+
+// worseStatus is the less healthy of a and b.
+func worseStatus(a, b SourceStatus) SourceStatus {
+	if sourceHealthRank(b) < sourceHealthRank(a) {
+		return b
+	}
+	return a
+}
+
+// foldFailedSource lowers the status of st's cluster in out (at indexes it
+// by id), adding the cluster under its own name when no summary has it.
+func foldFailedSource(out []ClusterSummary, at map[string]int, st SourceState) []ClusterSummary {
+	c := st.Cluster
+	i, ok := at[c.ID]
+	if !ok {
+		i, at[c.ID] = len(out), len(out)
+		out = append(out, ClusterSummary{ID: c.ID, Name: cmp.Or(c.Name, c.ID), NameSource: c.NameSource, Status: SourceAvailable})
+	}
+	out[i].Status = worseStatus(out[i].Status, st.Status)
+	return out
 }
 
 func (q *Query) productMeta() ProductMeta { return q.productMetaWith(nil) }

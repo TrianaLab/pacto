@@ -62,6 +62,13 @@ type Source interface {
 	Collect(ctx context.Context) (*Collection, error)
 }
 
+// ClusterSource is a Source that knows the cluster it reads before reading,
+// so the unavailable state Build records when it fails still names it.
+type ClusterSource interface {
+	Source
+	Cluster() *Cluster
+}
+
 // StaleState is the state of a source that failed now and serves the
 // collection it read at lastSync: stale, with err sanitized so no raw
 // transport text (server URLs, tokens, file paths) reaches a reader.

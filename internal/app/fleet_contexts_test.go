@@ -11,6 +11,7 @@ import (
 
 	"k8s.io/client-go/rest"
 
+	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
@@ -320,5 +321,17 @@ func TestRefusedContextLimitationSurvivesRestrict(t *testing.T) {
 				t.Fatalf("targets %v limitations %+v; want the refusal kept", view.Targets, view.Limitations)
 			}
 		})
+	}
+}
+
+// TestRememberingSourceKeepsItsCluster: a remembered live source still names
+// its cluster, so its first failure lowers that cluster's status.
+func TestRememberingSourceKeepsItsCluster(t *testing.T) {
+	c := &fleet.Cluster{ID: clusterA, Name: "eu-prod"}
+	if r := (&rememberingSource{Source: fleetsrc.NewK8sSource(clusterA, c, nil, nil)}); r.Cluster() != c {
+		t.Error("a remembered live source names its cluster")
+	}
+	if r := (&rememberingSource{Source: fleet.NewMemorySource("m", "memory", nil)}); r.Cluster() != nil {
+		t.Error("a source with no cluster names none")
 	}
 }

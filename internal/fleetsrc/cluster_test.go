@@ -119,3 +119,13 @@ func TestEvidenceHTTPSourceAcceptsV5(t *testing.T) {
 		t.Fatalf("an unknown version is refused by name: %v", err)
 	}
 }
+
+// TestLiveSourcesKnowTheirCluster: a live source names its cluster before it
+// reads, so a failed read still lowers that cluster's status.
+func TestLiveSourcesKnowTheirCluster(t *testing.T) {
+	c := &fleet.Cluster{ID: "uid-eu", Name: "eu-prod"}
+	var k, w fleet.ClusterSource = NewK8sSource("uid-eu", c, nil, nil), NewWorkloadSource("uid-eu-workloads", c, nil, nil)
+	if k.Cluster() != c || w.Cluster() != c {
+		t.Error("a live source names the cluster it was built for")
+	}
+}

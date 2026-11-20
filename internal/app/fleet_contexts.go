@@ -203,6 +203,14 @@ type rememberingSource struct {
 	key  k8sMemo
 }
 
+// Cluster implements [fleet.ClusterSource] for the source it wraps.
+func (r *rememberingSource) Cluster() *fleet.Cluster {
+	if cs, ok := r.Source.(fleet.ClusterSource); ok {
+		return cs.Cluster()
+	}
+	return nil
+}
+
 // Collect implements [fleet.Source].
 func (r *rememberingSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	col, err := r.Source.Collect(ctx)

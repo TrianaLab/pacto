@@ -252,3 +252,42 @@ func TestEntityFilterClusterAnswersHonestly(t *testing.T) {
 		t.Errorf("a display name as the id: %v %+v", err, l.Meta.Limitations)
 	}
 }
+
+// failingClusterSource is a live source of a known cluster that fails.
+type failingClusterSource struct {
+	Source
+	c *Cluster
+}
+
+func (f failingClusterSource) Cluster() *Cluster { return f.c }
+
+// TestClusterSummariesFoldFailedLiveSources: a failed workload source of an
+// identified cluster lowers that cluster's status, and a cluster whose every
+// source failed is listed under its own name, never as complete or as a
+// raw source id.
+func TestClusterSummariesFoldFailedLiveSources(t *testing.T) {
+	k := SourceKindKubernetes
+	eu, us := clusterOf(clusterA, "eu-prod", ClusterNameFromContext), clusterOf(clusterB, "us-prod", ClusterNameFromContext)
+	ap := clusterOf("uid-ap", "ap-prod", ClusterNameFromContext)
+	snap := buildClusterSnap(t,
+		NewMemorySource(clusterA, k, &Collection{Cluster: eu, Targets: []RawTarget{workload("prod", "web")}}),
+		NewMemorySource(clusterB, k, &Collection{Cluster: us, Targets: []RawTarget{workload("prod", "pay")}}),
+		failingClusterSource{NewFailingSource(clusterB+"-workloads", SourceKindKubernetesWorkloads, errors.New("forbidden")), us},
+		failingClusterSource{NewFailingSource("uid-ap", k, errors.New("connection refused")), ap},
+		failingClusterSource{NewFailingSource("uid-ap-workloads", SourceKindKubernetesWorkloads, errors.New("connection refused")), ap},
+	)
+	got, _ := clusterSummaries(snap)
+	want := map[string]ClusterSummary{
+		clusterA: {ID: clusterA, Name: "eu-prod", NameSource: ClusterNameFromContext, Status: SourceAvailable, Targets: 1},
+		clusterB: {ID: clusterB, Name: "us-prod", NameSource: ClusterNameFromContext, Status: SourceUnavailable, Targets: 1},
+		"uid-ap": {ID: "uid-ap", Name: "ap-prod", NameSource: ClusterNameFromContext, Status: SourceUnavailable},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("summaries %+v", got)
+	}
+	for _, c := range got {
+		if c != want[c.ID] {
+			t.Errorf("summary %+v, want %+v", c, want[c.ID])
+		}
+	}
+}
