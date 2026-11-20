@@ -201,6 +201,9 @@ func TestAttestedConflict(t *testing.T) {
 			!strings.Contains(strings.Join(own.Conflicts.Items, ","), other+" (Team)") {
 			t.Errorf("%s: preview = %+v", name, own)
 		}
+		if b, _ := q.ownershipBucket(s); b != OwnershipConflicting {
+			t.Errorf("%s: the tally counts it %s, the limitation says conflicting", name, b)
+		}
 	}
 }
 
