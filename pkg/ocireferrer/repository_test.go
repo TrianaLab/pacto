@@ -3,13 +3,17 @@ package ocireferrer
 import (
 	"encoding/base64"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/retry"
 
 	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 func TestPlainHTTP(t *testing.T) {
@@ -172,5 +176,81 @@ func TestCredentialFunc_ResolvesTheKeychain(t *testing.T) {
 	cred, err := credentialFunc(failingKeychain{})(t.Context(), "ghcr.io")
 	if err != nil || cred.Username != "u" || cred.Password != "p" {
 		t.Fatalf("credential = %+v, %v", cred, err)
+	}
+}
+
+// scopedRepo opens path under a scope rooted at the test registry's /team, plus
+// an unguarded view of the same repository to inspect what was written.
+func scopedRepo(t *testing.T, repoName string) (guarded, plain *remote.Repository) {
+	t.Helper()
+	srv, _ := open(t, testutil.ReferrersOptions{})
+	host := strings.TrimPrefix(srv.URL, "http://")
+	scope := oci.NewPushScope(host + "/team")
+	guarded, err := Open(host+"/team/"+repoName, Options{Scope: scope})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ = Open(host+"/team/"+repoName, Options{})
+	return guarded, plain
+}
+
+func TestOpenScopeRefusesTagOutsideScope(t *testing.T) {
+	repo, plain := scopedRepo(t, "app")
+	ctx := t.Context()
+	art := Build("application/x-anchor", "application/x-layer", []byte("a"), nil, nil)
+	if err := Push(ctx, repo, art); !errors.Is(err, oci.ErrOutsidePushScope) {
+		t.Fatalf("subject-less push outside: err = %v, want ErrOutsidePushScope", err)
+	}
+	if err := Push(ctx, plain, art); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Tag(ctx, art.ManifestDesc, "v1"); !errors.Is(err, oci.ErrOutsidePushScope) {
+		t.Fatalf("tag outside: err = %v, want ErrOutsidePushScope", err)
+	}
+	if _, err := plain.Resolve(ctx, "v1"); err == nil {
+		t.Fatal("the registry holds a tag the scope refused")
+	}
+}
+
+func TestOpenScopeAllowsReferrerOnSubject(t *testing.T) {
+	repo, plain := scopedRepo(t, "app")
+	ctx := t.Context()
+	anchor := Build("application/x-anchor", "application/x-layer", []byte("a"), nil, nil)
+	if err := Push(ctx, plain, anchor); err != nil {
+		t.Fatal(err)
+	}
+	rec := Build("application/x-rec", "application/x-layer", []byte("r"), &anchor.ManifestDesc, nil)
+	if err := Push(ctx, repo, rec); err != nil {
+		t.Fatalf("referrer outside the scope: %v", err)
+	}
+}
+
+func TestOpenScopeAllowsTagInsideScope(t *testing.T) {
+	repo, _ := scopedRepo(t, oci.TargetsRepository)
+	ctx := t.Context()
+	art := Build("application/x-snapshot", "application/x-layer", []byte("s"), nil, nil)
+	if err := Push(ctx, repo, art); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Tag(ctx, art.ManifestDesc, "latest"); err != nil {
+		t.Fatalf("tag inside the scope: %v", err)
+	}
+}
+
+func TestOpenNilScopeUnchanged(t *testing.T) {
+	_, path := open(t, testutil.ReferrersOptions{})
+	repo, err := Open(path, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.Client.(*auth.Client).Client != retry.DefaultClient {
+		t.Fatal("an unscoped repository no longer uses the default retry client")
+	}
+	art := Build("application/x-anchor", "application/x-layer", []byte("a"), nil, nil)
+	if err := Push(t.Context(), repo, art); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Tag(t.Context(), art.ManifestDesc, "v1"); err != nil {
+		t.Fatalf("unscoped tag: %v", err)
 	}
 }
