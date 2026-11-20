@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 func ownerPolicy() OwnerPolicy {
@@ -71,5 +74,116 @@ func TestReadOwnerPolicyStrict(t *testing.T) {
 		if p, why := ReadOwnerPolicy(c.path); p != nil || !strings.Contains(why, c.want) {
 			t.Errorf("%s: %+v %q, want a reason with %q", name, p, why, c.want)
 		}
+	}
+}
+
+// human is a person signer as ClassifySigner places one.
+func human(issuer, subject string) PublisherIdentity {
+	return PublisherIdentity{Issuer: issuer, Subject: subject, Class: ClassHuman}
+}
+
+var (
+	ownerNow      = time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	paymentsOwner = contract.Owner{Team: "payments", DRI: "Lead@Acme.com", Contacts: []contract.OwnerContact{{Type: "email", Value: "oncall@acme.com"}, {Type: "slack", Value: "dev@acme.com"}}}
+	billing       = OwnerClaim{Owner: contract.Owner{Team: "billing"}, Provenance: "declared"}
+	google        = "https://accounts.google.com"
+	githubWeb     = "https://github.com/login/oauth"
+)
+
+func TestOwnerRightTable(t *testing.T) {
+	pol := ownerPolicy()
+	declared := OwnerClaim{Owner: paymentsOwner, Provenance: "declared"}
+	attested := OwnerClaim{Owner: paymentsOwner, Provenance: "attested", Source: "CODEOWNERS:7 at a1b2c3d, signed by github.com/acme/invoices/.github/workflows/ci.yml"}
+	ci := PublisherIdentity{Issuer: "https://token.actions.githubusercontent.com", Subject: "Lead@Acme.com", Class: ClassCI}
+	agent := PublisherIdentity{Issuer: google, Subject: "lead@acme.com", Class: ClassAgent}
+	cases := []struct {
+		name              string
+		signer            PublisherIdentity
+		current, proposed OwnerClaim
+		policy            *OwnerPolicy
+		allowed           bool
+		code, grant       string
+	}{
+		{"unchanged", agent, declared, declared, nil, true, "", "unchanged"},
+		{"agent DRI", agent, declared, billing, &pol, false, OwnerSignerNotPerson, ""},
+		{"CI DRI", ci, declared, billing, &pol, false, OwnerSignerNotPerson, ""},
+		{"workload", PublisherIdentity{Subject: "spiffe://x", Class: ClassAgent}, declared, billing, &pol, false, OwnerSignerNotPerson, ""},
+		{"team rule", human(githubWeb, "ana@acme.com"), declared, billing, &pol, true, "", "declared-owner"},
+		{"DRI email", human(google, "lead@acme.com"), declared, billing, nil, true, "", "declared-owner"},
+		{"DRI unlisted issuer", human("https://idp.example", "lead@acme.com"), declared, billing, &pol, false, OwnerSignerNotAllowed, ""},
+		{"email contact", human(google, "ONCALL@acme.com"), declared, billing, &pol, true, "", "declared-owner"},
+		{"slack contact", human(google, "dev@acme.com"), declared, billing, &pol, false, OwnerSignerNotAllowed, ""},
+		{"attested member", human(githubWeb, "ana@acme.com"), attested, billing, &pol, true, "", "attested-owner"},
+		{"default approver", human(google, "admin@acme.com"), declared, billing, &pol, true, "", "default-approver:platform-admins"},
+		{"first owner", human(githubWeb, "ana@acme.com"), OwnerClaim{}, billing, &pol, false, OwnerSignerNotAllowed, ""},
+		{"no policy", human(githubWeb, "ana@acme.com"), declared, billing, nil, false, OwnerPolicyUnverified, ""},
+		{"via target", human(githubWeb, "ana@acme.com"), OwnerClaim{Owner: paymentsOwner, Provenance: "declared-via-target"}, billing, &pol, false, OwnerSignerNotAllowed, ""},
+		{"inferred", human(google, "lead@acme.com"), OwnerClaim{Owner: paymentsOwner, Provenance: "inferred"}, billing, &pol, false, OwnerSignerNotAllowed, ""},
+		{"removal", human(githubWeb, "bob@acme.com"), declared, OwnerClaim{}, &pol, false, OwnerSignerNotAllowed, ""},
+		{"email issuers listed", human(google, "lead@acme.com"), declared, billing, &OwnerPolicy{EmailIssuers: []string{"https://idp.example"}}, false, OwnerSignerNotAllowed, ""},
+		{"no email subject", human(google, "lead"), OwnerClaim{Owner: contract.Owner{DRI: "lead"}, Provenance: "declared"}, billing, &pol, false, OwnerSignerNotAllowed, ""},
+	}
+	for _, c := range cases {
+		r := DecideOwnerRight("invoices", c.signer, c.current, c.proposed, c.policy, "trust missing", ownerNow)
+		if r.Allowed != c.allowed || r.Code != c.code || r.Grant != c.grant || r.Message == "" {
+			t.Errorf("%s: %+v", c.name, r)
+		}
+		if c.code == OwnerPolicyUnverified && (r.Unverified == "" || !strings.Contains(r.Message, "trust missing")) {
+			t.Errorf("%s: %+v", c.name, r)
+		}
+	}
+}
+
+func TestOwnerRightMessageMatchesUX(t *testing.T) {
+	pol := OwnerPolicy{DefaultApprovers: []SignerRule{{Name: "platform-admins", Issuer: google, Subject: `^admin@acme\.com$`}}}
+	attested := OwnerClaim{Owner: contract.Owner{Team: "payments"}, Provenance: "attested",
+		Source: "CODEOWNERS:7 at a1b2c3, signed by github.com/acme/invoices/.github/workflows/ci.yml"}
+	r := DecideOwnerRight("invoices", human(google, "eve@acme.com"), attested, billing, &pol, "", ownerNow)
+	want := "service.owner is attested as team payments (CODEOWNERS:7 at a1b2c3, signed by github.com/acme/invoices/.github/workflows/ci.yml); " +
+		"only payments members or default approvers (platform-admins) may set it"
+	if r.Message != want {
+		t.Fatalf("got  %q\nwant %q", r.Message, want)
+	}
+	for name, c := range map[string]struct {
+		r    OwnerRight
+		want string
+	}{
+		"declared":   {DecideOwnerRight("invoices", human(google, "eve@acme.com"), OwnerClaim{Owner: contract.Owner{DRI: "lead@acme.com"}, Provenance: "declared"}, billing, nil, "x", ownerNow), "only lead@acme.com may set it"},
+		"declaredAs": {DecideOwnerRight("invoices", human(google, "eve@acme.com"), OwnerClaim{Owner: contract.Owner{Team: "payments"}, Provenance: "declared"}, billing, &pol, "", ownerNow), "service.owner is declared as team payments; only payments members or default approvers (platform-admins) may set it"},
+		"first":      {DecideOwnerRight("invoices", human(google, "eve@acme.com"), OwnerClaim{}, billing, &OwnerPolicy{}, "", ownerNow), "no declared or attested owner yet; nobody (no default approvers are configured) may set the first one"},
+		"contacts":   {DecideOwnerRight("invoices", human(google, "eve@acme.com"), OwnerClaim{Owner: contract.Owner{Contacts: []contract.OwnerContact{{Type: "slack", Value: "#x"}}}, Provenance: "declared"}, billing, &pol, "", ownerNow), "declared as its contacts"},
+		"notPerson":  {DecideOwnerRight("invoices", PublisherIdentity{Class: ClassAgent}, OwnerClaim{}, billing, &pol, "", ownerNow), "only a person may set service.owner, and an unsigned run signs as agent"},
+		"noClass":    {DecideOwnerRight("invoices", PublisherIdentity{Subject: "bot"}, OwnerClaim{}, billing, &pol, "", ownerNow), "bot signs as no person"},
+		"allowed":    {DecideOwnerRight("invoices", human(google, "admin@acme.com"), OwnerClaim{}, billing, &pol, "", ownerNow), "allowed to set service.owner of invoices (default-approver:platform-admins)"},
+	} {
+		if !strings.Contains(c.r.Message, c.want) {
+			t.Errorf("%s: %q lacks %q", name, c.r.Message, c.want)
+		}
+	}
+}
+
+func TestOwnerRightMayAcceptBounded(t *testing.T) {
+	pol := OwnerPolicy{}
+	for i := range 15 {
+		pol.DefaultApprovers = append(pol.DefaultApprovers, SignerRule{Name: fmt.Sprint("r", i%12), Issuer: google, Subject: fmt.Sprintf(`^a%d@b\.c$`, i)})
+	}
+	pol.DefaultApprovers = append(pol.DefaultApprovers, SignerRule{Issuer: google, Subject: `^x@b\.c$`})
+	r := DecideOwnerRight("invoices", human(google, "eve@acme.com"), OwnerClaim{Owner: paymentsOwner, Provenance: "attested"}, billing, &pol, "", ownerNow)
+	if len(r.MayAccept) != maxMayAccept || r.MayAccept[0] != "payments members" || r.MayAccept[1] != "Lead@Acme.com" || r.MayAccept[2] != "r0" {
+		t.Fatalf("%v", r.MayAccept)
+	}
+	if got := mayAccept(OwnerClaim{Owner: paymentsOwner, Provenance: "inferred"}, nil); len(got) != 0 {
+		t.Fatalf("an inferred owner named %v", got)
+	}
+	if r := DecideOwnerRight("invoices", human(google, "x@b.c"), OwnerClaim{}, billing, &pol, "", ownerNow); r.Grant != `default-approver:^x@b\.c$` {
+		t.Fatalf("%+v", r)
+	}
+}
+
+func TestOwnerRightSourceIsRegistryPolicy(t *testing.T) {
+	r := DecideOwnerRight("invoices", human(google, "eve@acme.com"), billing, billing, nil, "", ownerNow)
+	want := WorkloadAccess{Resource: "services", Name: "invoices", Allowed: true, Source: AccessByRegistryPolicy, At: "2026-11-20T10:00:00Z"}
+	if r.WorkloadAccess != want {
+		t.Fatalf("%+v", r.WorkloadAccess)
 	}
 }

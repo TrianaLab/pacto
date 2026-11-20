@@ -2081,7 +2081,7 @@ func domainConflict(name string, conflict []string) []Limitation {
 }
 
 // businessDomainOf is a service's business domain: the service.domain of its
-// newest revision ([lessRevisionChrono]) that is not invalid. An older revision
+// newest revision ([LessRevisionChrono]) that is not invalid. An older revision
 // that declares another domain is a move, not a conflict. When no such revision
 // declares a domain, it is the one the observing sources read from the contracts
 // the service's targets run, as deriveOwner does for owners; sources that report
@@ -2110,7 +2110,7 @@ func declaredServiceValue(snap *FleetSnapshot, s *ServiceRecord, declared func(c
 			continue
 		}
 		isDeclared = isDeclared || declared(r.Contract.Service) != ""
-		if newest == nil || lessRevisionChrono(newest, r) {
+		if newest == nil || LessRevisionChrono(newest, r) {
 			newest = r
 		}
 	}
@@ -2253,7 +2253,7 @@ func validBusinessDomain(d string) bool {
 // always retained on the revisions themselves; the service field is only a
 // documented summary, not the authority.
 //
-// The order is [lessRevisionChrono] reversed, NOT RevisionKey lexicography. A
+// The order is [LessRevisionChrono] reversed, NOT RevisionKey lexicography. A
 // RevisionKey embeds a content digest, so key order is digest order: under it,
 // editing any byte of any bundle could silently change who Pacto says to notify.
 func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
@@ -2435,7 +2435,7 @@ func serviceOwnerClaims(snap *FleetSnapshot, s *ServiceRecord) ownerClaimSet {
 }
 
 // currentOwnerRevisions is the revisions of a service whose owners are its
-// current claims, in [lessRevisionChrono] order: the newest revision that
+// current claims, in [LessRevisionChrono] order: the newest revision that
 // declares an owner, every other revision of that version that declares one,
 // and every revision a target of the service is linked to now (exact or
 // inferred) that declares one.
@@ -2450,7 +2450,7 @@ func currentOwnerRevisions(snap *FleetSnapshot, s *ServiceRecord) ([]*ContractRe
 		}
 	}
 	slices.SortFunc(out, func(a, b *ContractRevision) int {
-		if lessRevisionChrono(a, b) {
+		if LessRevisionChrono(a, b) {
 			return -1
 		}
 		return 1
@@ -2475,14 +2475,14 @@ func sameVersionRevisions(snap *FleetSnapshot, s *ServiceRecord, newest *Contrac
 	return out
 }
 
-// newestOwnerRevision is the newest revision (see [lessRevisionChrono]) of s
+// newestOwnerRevision is the newest revision (see [LessRevisionChrono]) of s
 // that claims an owner in tier t, the one [deriveOwner] takes the service
 // owner from; nil when none does.
 func newestOwnerRevision(snap *FleetSnapshot, s *ServiceRecord, t claimTier) *ContractRevision {
 	var newest *ContractRevision
 	for _, rk := range s.Revisions {
 		r := snap.Revisions[rk]
-		if r == nil || (newest != nil && !lessRevisionChrono(newest, r)) {
+		if r == nil || (newest != nil && !LessRevisionChrono(newest, r)) {
 			continue
 		}
 		if _, ok := claimOwner(r, t); ok {
@@ -3113,7 +3113,7 @@ func joinExternal(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk Revision
 	// bounded by the declarations the snapshot already holds.
 	for i, s := range rec.Sources {
 		if s.Service == src.Service && s.Index == idx {
-			if lessRevisionChrono(snap.Revisions[s.Revision], rev) {
+			if LessRevisionChrono(snap.Revisions[s.Revision], rev) {
 				rec.Sources[i] = src
 			}
 			return key, reason
@@ -3168,7 +3168,7 @@ func supersededSource(snap *FleetSnapshot, src ExternalSource) bool {
 	}
 	return slices.ContainsFunc(snap.Services[src.Service].Revisions, func(k RevisionKey) bool {
 		r := snap.Revisions[k]
-		return r != nil && lessRevisionChrono(rev, r)
+		return r != nil && LessRevisionChrono(rev, r)
 	})
 }
 

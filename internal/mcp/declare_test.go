@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
 const (
@@ -201,7 +203,7 @@ func TestRefusalEnumMatchesApp(t *testing.T) {
 		}
 		return true
 	})
-	want := append(app, string(RefusalIntentRequired), string(RefusalExecuteNeedsStdio))
+	want := append(append(app, string(RefusalIntentRequired), string(RefusalExecuteNeedsStdio)), delivery.OwnerRightCodes...)
 	got := make([]string, len(writeRefusals))
 	for i, c := range writeRefusals {
 		got[i] = string(c)
@@ -210,6 +212,32 @@ func TestRefusalEnumMatchesApp(t *testing.T) {
 	slices.Sort(got)
 	if len(app) < 10 || !slices.Equal(got, want) {
 		t.Fatalf("enum %v\napp + own %v", got, want)
+	}
+}
+
+// TestDeclareToolRefusalCodesEnum: pacto_declare's output schema lists the
+// owner rule's four codes, spelled as pkg/delivery defines them.
+func TestDeclareToolRefusalCodesEnum(t *testing.T) {
+	tools := listTools(t, mustNew("test", Authoring{Declare: stubDeclarer{}}, Modes{}))
+	raw, _ := json.Marshal(tools["pacto_declare"].OutputSchema)
+	var schema struct {
+		Properties struct {
+			Refusal struct {
+				Properties struct {
+					Code struct {
+						Enum []string `json:"enum"`
+					} `json:"code"`
+				} `json:"properties"`
+			} `json:"refusal"`
+		} `json:"properties"`
+	}
+	_ = json.Unmarshal(raw, &schema)
+	enum := schema.Properties.Refusal.Properties.Code.Enum
+	if len(enum) < 4 {
+		t.Fatalf("%s", raw)
+	}
+	if got := enum[len(enum)-4:]; !slices.Equal(got, delivery.OwnerRightCodes) {
+		t.Fatalf("%v", enum)
 	}
 }
 

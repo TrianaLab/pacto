@@ -243,7 +243,7 @@ func revisionLifecycle(r *ContractRevision, now time.Time) string {
 func (q *Query) serviceLifecycleState(s *ServiceRecord) string {
 	var newest *ContractRevision
 	for _, r := range q.revisionsOf(s) {
-		if newest == nil || lessRevisionChrono(newest, r) {
+		if newest == nil || LessRevisionChrono(newest, r) {
 			newest = r
 		}
 	}

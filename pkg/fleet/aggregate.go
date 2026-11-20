@@ -1076,6 +1076,6 @@ func labelsPreview(m map[string]string) RuntimePreview {
 // list sorted by digest is the regression that made revision history unreadable.
 func chronologicalRevisionRefs(revs []*ContractRevision) []EntityRef {
 	ordered := append([]*ContractRevision{}, revs...)
-	sort.Slice(ordered, func(i, j int) bool { return lessRevisionChrono(ordered[j], ordered[i]) })
+	sort.Slice(ordered, func(i, j int) bool { return LessRevisionChrono(ordered[j], ordered[i]) })
 	return revisionRefs(ordered)
 }

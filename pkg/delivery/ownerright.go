@@ -1,11 +1,15 @@
 package delivery
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
 	"slices"
+	"strings"
+	"time"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/strictjson"
 )
 
@@ -88,4 +92,230 @@ func ReadOwnerPolicy(path string) (*OwnerPolicy, string) {
 		return nil, "the owner policy " + path + ": " + err.Error()
 	}
 	return &p, ""
+}
+
+// The owner right refusal codes: stable, published in pacto_declare's
+// refusal enum and on every owner-right verdict.
+const (
+	// OwnerSignerNotPerson: an agent, CI or workload identity never sets an
+	// owner, whoever it acts for.
+	OwnerSignerNotPerson = "OWNER_SIGNER_NOT_PERSON"
+	// OwnerSignerNotAllowed: the person is no member of the current owner
+	// and no default approver.
+	OwnerSignerNotAllowed = "OWNER_SIGNER_NOT_ALLOWED"
+	// OwnerPolicyUnverified: no verified owner policy was read, so who may
+	// set the owner is unknown.
+	OwnerPolicyUnverified = "OWNER_POLICY_UNVERIFIED"
+	// OwnerSignerUnverified: the bundle's signer could not be verified.
+	OwnerSignerUnverified = "OWNER_SIGNER_UNVERIFIED"
+)
+
+// OwnerRightCodes are the owner right refusal codes, in enum order.
+var OwnerRightCodes = []string{OwnerSignerNotPerson, OwnerSignerNotAllowed, OwnerPolicyUnverified, OwnerSignerUnverified}
+
+// DefaultEmailIssuers are the issuers whose email subjects name a person's
+// login when the policy lists none.
+var DefaultEmailIssuers = []string{"https://accounts.google.com", "https://github.com/login/oauth", "https://login.microsoftonline.com"}
+
+// maxMayAccept bounds who a verdict names as able to set the owner.
+const maxMayAccept = 10
+
+// OwnerClaim is a service owner and where it comes from: its provenance
+// (declared, attested, declared-via-target or inferred) and, for an attested
+// owner, the citation it was read at.
+type OwnerClaim struct {
+	Owner      contract.Owner
+	Provenance string
+	Source     string
+}
+
+// OwnerRight is the verdict on one owner-setting signer: the access answer
+// (source registry-policy), the refusal code, what granted it and who may set
+// the owner.
+type OwnerRight struct {
+	WorkloadAccess
+	Code      string   `json:"code,omitempty" enum:"OWNER_SIGNER_NOT_PERSON,OWNER_SIGNER_NOT_ALLOWED,OWNER_POLICY_UNVERIFIED,OWNER_SIGNER_UNVERIFIED" doc:"Why the signer may not set the owner; empty when allowed"`
+	Grant     string   `json:"grant,omitempty" doc:"What allowed it: unchanged, declared-owner, attested-owner or default-approver:<rule name>"`
+	MayAccept []string `json:"mayAccept,omitempty" doc:"Who may set the owner: the owner's members, its DRI and the default approver rules, at most 10"`
+	Message   string   `json:"message" doc:"The verdict as one sentence"`
+}
+
+// DecideOwnerRight decides whether signer may change service's owner from
+// current to proposed (removing it included). In order: an unchanged owner
+// needs no right; a signer who is no person never has it; a member of a
+// current declared or attested owner has it, and so does a default approver.
+// With no verified policy (nil, policyFrom says why) anyone else is
+// unverified, never allowed; otherwise refused.
+func DecideOwnerRight(service string, signer PublisherIdentity, current, proposed OwnerClaim, policy *OwnerPolicy, policyFrom string, now time.Time) OwnerRight {
+	r := OwnerRight{WorkloadAccess: WorkloadAccess{Resource: "services", Name: service, Source: AccessByRegistryPolicy, At: now.UTC().Format(time.RFC3339)},
+		MayAccept: mayAccept(current, policy)}
+	memberSource := current.Provenance == ownerDeclared || current.Provenance == ownerAttested
+	switch {
+	case proposed.Owner.Equal(current.Owner):
+		r.Allowed, r.Grant = true, "unchanged"
+	case !ReadsAsDecision(signer.Class):
+		r.Code = OwnerSignerNotPerson
+	case memberSource && isMember(signer, current.Owner, policy):
+		r.Allowed, r.Grant = true, current.Provenance+"-owner"
+	case policy != nil && approverRule(signer, policy) != "":
+		r.Allowed, r.Grant = true, "default-approver:"+approverRule(signer, policy)
+	case policy == nil:
+		r.Code, r.Unverified = OwnerPolicyUnverified, "no verified owner policy: "+policyFrom
+	default:
+		r.Code = OwnerSignerNotAllowed
+	}
+	r.Message = ownerRightMessage(r, signer, current, policy, policyFrom)
+	return r
+}
+
+// The owner provenances a member of the owner is read from (516-S1's
+// constants in pkg/fleet).
+const (
+	ownerDeclared = "declared"
+	ownerAttested = "attested"
+)
+
+// isMember reports whether signer belongs to owner: a team rule of the
+// policy, or a person's email login equal to the DRI or an email contact.
+func isMember(signer PublisherIdentity, owner contract.Owner, policy *OwnerPolicy) bool {
+	if policy != nil && owner.Team != "" && slices.ContainsFunc(policy.Teams[owner.Team], func(r SignerRule) bool { return ruleMatches(r, signer) }) {
+		return true
+	}
+	if !emailIssuerAllowed(signer.Issuer, policy) || !strings.Contains(signer.Subject, "@") {
+		return false
+	}
+	if strings.EqualFold(signer.Subject, owner.DRI) {
+		return true
+	}
+	return slices.ContainsFunc(owner.Contacts, func(c contract.OwnerContact) bool {
+		return c.Type == "email" && strings.EqualFold(c.Value, signer.Subject)
+	})
+}
+
+// emailIssuerAllowed reports whether issuer's email subjects name people:
+// the policy's email issuers, else DefaultEmailIssuers.
+func emailIssuerAllowed(issuer string, policy *OwnerPolicy) bool {
+	issuers := DefaultEmailIssuers
+	if policy != nil && len(policy.EmailIssuers) > 0 {
+		issuers = policy.EmailIssuers
+	}
+	return slices.Contains(issuers, issuer)
+}
+
+// approverRule is the name (else the subject) of the first default approver
+// rule signer matches, "" for none.
+func approverRule(signer PublisherIdentity, policy *OwnerPolicy) string {
+	for _, r := range policy.DefaultApprovers {
+		if ruleMatches(r, signer) {
+			return cmp.Or(r.Name, r.Subject)
+		}
+	}
+	return ""
+}
+
+// ruleMatches reports whether signer has r's issuer and a subject r pins.
+func ruleMatches(r SignerRule, signer PublisherIdentity) bool {
+	return r.Issuer == signer.Issuer && anchoredMatch(r.Subject, signer.Subject)
+}
+
+// mayAccept is who may set an owner over current: its team's members and
+// DRI, when current is declared or attested, then each default approver
+// rule, deduplicated and bounded.
+func mayAccept(current OwnerClaim, policy *OwnerPolicy) []string {
+	var out []string
+	if current.Provenance == ownerDeclared || current.Provenance == ownerAttested {
+		if current.Owner.Team != "" {
+			out = append(out, current.Owner.Team+" members")
+		}
+		if current.Owner.DRI != "" {
+			out = append(out, current.Owner.DRI)
+		}
+	}
+	if policy != nil {
+		for _, r := range policy.DefaultApprovers {
+			out = append(out, cmp.Or(r.Name, r.Subject))
+		}
+	}
+	out = dedupe(out)
+	return out[:min(len(out), maxMayAccept)]
+}
+
+// dedupe is xs with every repeat after the first dropped, in order.
+func dedupe(xs []string) []string {
+	var out []string
+	for _, x := range xs {
+		if !slices.Contains(out, x) {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+// ownerRightMessage is the verdict as one sentence, one builder per code.
+func ownerRightMessage(r OwnerRight, signer PublisherIdentity, current OwnerClaim, policy *OwnerPolicy, policyFrom string) string {
+	switch r.Code {
+	case "":
+		return "allowed to set service.owner of " + r.Name + " (" + r.Grant + ")"
+	case OwnerSignerNotPerson:
+		return notPersonMessage(signer, current, policy)
+	case OwnerPolicyUnverified:
+		return "who may set service.owner is unknown: no verified owner policy was read (" + policyFrom + "); " + whoMay(current, policy) + " may set it"
+	}
+	return notAllowedMessage(current, policy)
+}
+
+// notPersonMessage refuses a signer who is no person.
+func notPersonMessage(signer PublisherIdentity, current OwnerClaim, policy *OwnerPolicy) string {
+	who := cmp.Or(signer.Subject, "an unsigned run")
+	return "only a person may set service.owner, and " + who + " signs as " + cmp.Or(string(signer.Class), "no person") + "; " +
+		whoMay(current, policy) + " may set it"
+}
+
+// notAllowedMessage refuses a person outside the rule, in the approved UX
+// form: service.owner is attested as team payments (<citation>); only
+// payments members or default approvers (platform-admins) may set it.
+func notAllowedMessage(current OwnerClaim, policy *OwnerPolicy) string {
+	label := ownerLabel(current.Owner)
+	switch current.Provenance {
+	case ownerAttested:
+		return "service.owner is attested as " + label + " (" + current.Source + "); " + whoMay(current, policy) + " may set it"
+	case ownerDeclared:
+		return "service.owner is declared as " + label + "; " + whoMay(current, policy) + " may set it"
+	}
+	return "service.owner has no declared or attested owner yet; " + whoMay(current, policy) + " may set the first one"
+}
+
+// ownerLabel is how a sentence names owner: team payments, DRI ana@acme.com.
+func ownerLabel(o contract.Owner) string {
+	if k, ok := o.Key(); ok {
+		return strings.ToLower(k.KindLabel()) + " " + k.Value
+	}
+	return "its contacts"
+}
+
+// whoMay names who may set the owner over current: only payments members or
+// default approvers (platform-admins).
+func whoMay(current OwnerClaim, policy *OwnerPolicy) string {
+	var parts []string
+	if current.Provenance == ownerDeclared || current.Provenance == ownerAttested {
+		switch {
+		case current.Owner.Team != "":
+			parts = append(parts, current.Owner.Team+" members")
+		case current.Owner.DRI != "":
+			parts = append(parts, current.Owner.DRI)
+		}
+	}
+	var names []string
+	if policy != nil {
+		for _, r := range policy.DefaultApprovers {
+			names = append(names, cmp.Or(r.Name, r.Subject))
+		}
+	}
+	if names = dedupe(names); len(names) > 0 {
+		parts = append(parts, "default approvers ("+strings.Join(names[:min(len(names), maxMayAccept)], ", ")+")")
+	}
+	if len(parts) == 0 {
+		return "nobody (no default approvers are configured)"
+	}
+	return "only " + strings.Join(parts, " or ")
 }

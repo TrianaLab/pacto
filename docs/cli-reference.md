@@ -326,6 +326,7 @@ pacto dashboard [sources...] [flags]
       --oidc-redirect-url string          the dashboard's /auth/callback as browsers reach it (https)
       --oidc-username-claim string        ID token claim the API server takes the username from; must match its claim mapping (default sub)
       --oidc-username-prefix string       prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)
+      --owner-policy string               the mounted owner policy (the chart's declare block as policy.json) that decides who may set a service owner (also PACTO_DASHBOARD_OWNER_POLICY)
       --port int                          port for the dashboard server (default 3000)
       --review string                     how people are reviewed: cluster asks once about every namespace and needs a ClusterRole; local asks in each --namespace only, which a namespaced Role grants, and then services without a namespace show to nobody (also PACTO_DASHBOARD_REVIEW) (default "cluster")
       --session-idle-timeout duration     a session without a request for this long ends (default 1h)
@@ -365,7 +366,11 @@ instead, and the output names the command a person runs to accept it with
 --from-draft. --intent refuses the run when the plan differs from the one you
 reviewed.
 
-A declaration never sets an owner its published baseline does not declare.
+Setting, changing or removing service.owner (in a --dir folder or an
+accepted draft) takes a person who belongs to the current owner, declared or
+attested, or a default approver of the installation's owner policy; anyone
+else is refused before anything is pushed. An owner read from the workload's
+team label stays in pacto.inferred.yaml as inferred.
 
 ```
 pacto declare <service> [flags]
@@ -2065,6 +2070,7 @@ pacto mcp [bundle-ref] [flags]
       --oidc-groups-prefix string     prefix the API server puts before every group; must match its claim mapping
       --oidc-username-claim string    ID token claim the API server takes the username from; must match its claim mapping (default sub)
       --oidc-username-prefix string   prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)
+      --owner-policy string           over HTTP: the mounted owner policy (the chart's declare block as policy.json) that names who may set a service owner in pacto_declare plans; refused over stdio, which reads it from the signed target snapshots
       --port int                      port for HTTP transport (default 8585)
       --publish[=true|false]          expose pacto_publish_plan and pacto_publish beside the authoring tools
       --resource string               with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)

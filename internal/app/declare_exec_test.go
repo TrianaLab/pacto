@@ -613,7 +613,7 @@ func TestFromDraftOwnerRuleReapplied(t *testing.T) {
 	})
 	e.publishBundle(t, e.host+"/acme/invoices", "draft-2", files, nil)
 	e.login(personToken("ana@acme.com"))
-	if _, err := e.svc.Declare(t.Context(), e.fromDraft("draft-2")); refusal(t, err).Code != codeOwnerNeedsApprovers {
+	if _, err := e.svc.Declare(t.Context(), e.fromDraft("draft-2")); refusal(t, err).Code != delivery.OwnerPolicyUnverified {
 		t.Fatal(err)
 	}
 }

@@ -36,6 +36,11 @@ type Service struct {
 	// (pacto init --external-catalog, PACTO_EXTERNAL_CATALOG). Empty is the
 	// default catalog alone.
 	ExternalCatalogRef string
+	// OwnerPolicyPath is the mounted owner policy a server reads (the
+	// dashboard's PACTO_DASHBOARD_OWNER_POLICY, the HTTP MCP server's
+	// --owner-policy). Empty reads the policy from the signed target
+	// snapshots beside the registry.
+	OwnerPolicyPath string
 
 	// sys holds the side effects the methods reach for; read it through env.
 	sys sysDeps

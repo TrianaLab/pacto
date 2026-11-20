@@ -198,7 +198,6 @@ the command a person runs:
 | `WorkloadNotFound` | No workload has that name, or `dir` holds no cluster draft |
 | `WorkloadAmbiguous` | Several workloads have that name: pass `namespace/Kind/name` |
 | `AlreadyDeclared` | A Pacto already describes the workload: change it with `pacto publish` |
-| `OwnerNeedsApprovers` | The contract sets a `service.owner` the baseline does not declare |
 | `RangeNotProposed` | An `accept` name has no proposed range |
 | `NoRegistry` | No `registry`, or over HTTP one outside the installation's registries |
 | `RegistryUnreadable` | Listing or reading the registry failed |
@@ -209,6 +208,14 @@ the command a person runs:
 | `ExecuteNeedsStdio` | An HTTP server only plans: run the `cli` command |
 | `BaselineNeedsMigration` | The baseline is below `pactoVersion: "2.5"`: run `pacto migrate` |
 | `BundleRepoMismatch` | The baseline publishes to another repository than `registry` |
+| `OWNER_SIGNER_NOT_PERSON` | Only a person sets `service.owner`: an agent, CI or workload signer never does, whoever it acts for |
+| `OWNER_SIGNER_NOT_ALLOWED` | The person is no member of the current owner and no default approver |
+| `OWNER_POLICY_UNVERIFIED` | No verified owner policy was read, so who may set `service.owner` is unknown |
+| `OWNER_SIGNER_UNVERIFIED` | No signature of the owner-setting version verified |
+
+A plan that changes `service.owner` lists who may set it in `mayAccept`: the
+current owner's members and the default approvers. An HTTP server leaves it
+out, with a generic refusal, for a caller who may not see the service.
 
 ## Bundle capabilities
 

@@ -364,7 +364,7 @@ type ServiceDetailData struct {
 	// InferredOfferings are suggestions, never declared consumption: an external or
 	// unresolved dependency whose name equals an offering or a provider's name.
 	InferredOfferings []InferredOffering `json:"inferredOfferings"`
-	// CurrentRevision is the newest revision in use (see [lessRevisionChrono]),
+	// CurrentRevision is the newest revision in use (see [LessRevisionChrono]),
 	// else the newest known one; nil when the service has no revision.
 	// Policies and Configurations are what it declares, with local schema
 	// content read when the detail is requested.
@@ -1814,7 +1814,7 @@ func (q *Query) offeringUsesIn(edges []Relationship, match func(provider *Servic
 		if j, ok := seen[k]; ok {
 			u := &uses[j]
 			mergeUse(u, rel)
-			if r := q.snap.Revisions[rel.FromRevision]; r != nil && (keptRev[k] == nil || lessRevisionChrono(keptRev[k], r)) {
+			if r := q.snap.Revisions[rel.FromRevision]; r != nil && (keptRev[k] == nil || LessRevisionChrono(keptRev[k], r)) {
 				keptRev[k], u.ProviderLifecycle = r, rel.ProviderLifecycle
 			}
 			continue
@@ -2005,7 +2005,7 @@ func (q *Query) siblingRevisions(rev *ContractRevision) (prev, next *EntityRef) 
 			revs = append(revs, r)
 		}
 	}
-	sort.Slice(revs, func(i, j int) bool { return lessRevisionChrono(revs[i], revs[j]) })
+	sort.Slice(revs, func(i, j int) bool { return LessRevisionChrono(revs[i], revs[j]) })
 	for i, r := range revs {
 		if r.Key != rev.Key {
 			continue
@@ -2049,7 +2049,7 @@ func (q *Query) revisionPlace(rev *ContractRevision) revisionPlacement {
 		if inUse[r.Key] {
 			active = append(active, r)
 		}
-		if lessRevisionChrono(rev, r) {
+		if LessRevisionChrono(rev, r) {
 			p.position++
 		}
 	}
@@ -2102,7 +2102,7 @@ func (q *Query) revisionEvidenceSources(rev *ContractRevision) ([]EntityRef, Sou
 func newestReadable(revs []*ContractRevision) *ContractRevision {
 	var newest *ContractRevision
 	for _, r := range revs {
-		if readableRevision(r) && (newest == nil || lessRevisionChrono(newest, r)) {
+		if readableRevision(r) && (newest == nil || LessRevisionChrono(newest, r)) {
 			newest = r
 		}
 	}
@@ -2117,10 +2117,10 @@ func serviceLifecycle(rev *ContractRevision) *contract.InterfaceLifecycle {
 	return rev.Contract.Service.Lifecycle
 }
 
-// lessRevisionChrono is the canonical ascending revision order used by
-// siblingRevisions: semver chronology first, the immutable RevisionKey as a
+// LessRevisionChrono is the canonical ascending revision order used by
+// siblingRevisions and the owner-right walk: semver chronology first, the immutable RevisionKey as a
 // deterministic tie-breaker only (see siblingRevisions for the full rationale).
-func lessRevisionChrono(a, b *ContractRevision) bool {
+func LessRevisionChrono(a, b *ContractRevision) bool {
 	if c := semver.Compare(a.Version, b.Version); c != 0 {
 		return c < 0
 	}
@@ -2432,7 +2432,7 @@ func newestInUse(active, all []*ContractRevision) *ContractRevision {
 	}
 	var cur *ContractRevision
 	for _, r := range pick {
-		if cur == nil || lessRevisionChrono(cur, r) {
+		if cur == nil || LessRevisionChrono(cur, r) {
 			cur = r
 		}
 	}
@@ -2457,7 +2457,7 @@ func (q *Query) currentRevisionContent(cur *ContractRevision) (*EntityRef, Confi
 	return &ref, cfgs, pols
 }
 
-// ownerRevision is the newest revision (see [lessRevisionChrono]) that declares an
+// ownerRevision is the newest revision (see [LessRevisionChrono]) that declares an
 // owner, the one [deriveOwner] takes the service owner from; nil when none does.
 func (q *Query) ownerRevision(s *ServiceRecord) *EntityRef {
 	t, _ := ownerTier(q.snap, s)

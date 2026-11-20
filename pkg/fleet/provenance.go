@@ -186,7 +186,7 @@ func mergeProvenance(existing, add *ContractRevision) {
 // revs may be clones: Provenance is exported and survives them.
 func revisionSignatures(revs []*ContractRevision) RevisionSignaturesPreview {
 	ordered := append([]*ContractRevision{}, revs...)
-	sort.Slice(ordered, func(i, j int) bool { return lessRevisionChrono(ordered[j], ordered[i]) })
+	sort.Slice(ordered, func(i, j int) bool { return LessRevisionChrono(ordered[j], ordered[i]) })
 	src, total, trunc := boundSlice(ordered, MaxDetailPreview)
 	items := make([]RevisionSignature, len(src))
 	for i, r := range src {
