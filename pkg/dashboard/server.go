@@ -88,6 +88,12 @@ type Options struct {
 	// snap, the snapshot the caller sees (nil on a host without Fleet). When
 	// nil, the endpoint is not registered.
 	Impact func(ctx context.Context, snap *fleet.FleetSnapshot, old, new string, includeObserved bool) (*impact.Result, error)
+	// AcceptPlan plans accepting every range the current revision rev of
+	// service svc proposes, as pacto accept would, and returns the plan and
+	// the command; it never signs and never writes. The route resolves svc
+	// in the viewer's snapshot first. Nil does not register
+	// /api/fleet/accept.
+	AcceptPlan func(ctx context.Context, svc fleet.ServiceKey, rev *fleet.ContractRevision) (AcceptPlanAnswer, error)
 	// Refresh rebuilds the fleet snapshot for /api/refresh. When nil — as in the
 	// offline WASM demo, whose snapshot is baked in — refresh is a successful no-op.
 	Refresh func(ctx context.Context) error

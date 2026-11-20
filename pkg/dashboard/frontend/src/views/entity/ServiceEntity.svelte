@@ -21,6 +21,7 @@
   import PolicyList from '../../components/PolicyList.svelte';
   import ConfigurationList from '../../components/ConfigurationList.svelte';
   import InferredFieldList from '../../components/InferredFieldList.svelte';
+  import AcceptProposedRanges from '../../components/AcceptProposedRanges.svelte';
   import LifecycleBadge from '../../components/LifecycleBadge.svelte';
   import ResourceList from '../../components/ResourceList.svelte';
   import CopyableIdentifier from '../../components/CopyableIdentifier.svelte';
@@ -97,6 +98,8 @@
       : d.revisions?.items?.[0] ? { ref: d.revisions.items[0], note: 'Latest known' } : null,
   );
   const caps = $derived(d.capabilities ?? { items: [], total: 0, count: 0 });
+  // A range the inferred record proposes for a dependency: the Inferred block offers to accept them all.
+  const proposesRanges = $derived((d.inferredFields?.items ?? []).some((f) => f.proposed && f.field?.endsWith('.compatibility')));
   const unresolved = $derived(d.unresolvedDependencies?.items ?? []);
   const provides = $derived(detail.entity?.offering ?? '');
   const used = $derived(d.consumedOfferings ?? { items: [], total: 0, count: 0 });
@@ -629,6 +632,7 @@
         empty="Pacto could not read the inferred record"
         help="Values Pacto read from the service's folder and keeps apart from the contract. Declare one to make it part of the contract.">
         <InferredFieldList items={d.inferredFields.items ?? []} total={d.inferredFields.total} unreadable={!!d.inferredFields.unreadable} />
+        {#if proposesRanges}<AcceptProposedRanges serviceKey={key} service={self} />{/if}
       </PreviewSection>
     </div>
   {/if}

@@ -246,6 +246,27 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     unmount(component); document.body.removeChild(target);
   });
 
+  it('prints the range coverage and notes in one muted line and marks each announced consumer', async () => {
+    const res = impactResult();
+    res.ranges = { scope: 'consumers of payments', edges: 2, declared: 1, accepted: 0, unknown: [{ from: 'ledger', to: 'payments', proposed: '^1.2.0' }], unknownTotal: 1 };
+    res.notes = ['POLICY_WARNING: payments -> ledger range unknown (policy unknown-range=warn)'];
+    res.consumers.items[0].break = { state: 'accepted', by: 'ana@acme.com', record: 'ghcr.io/acme/billing@sha256:9', expires: '2026-12-01' };
+    impactFn.mockResolvedValue(res);
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-ranges"]')).toBeTruthy());
+    const line = target.querySelector('[data-testid="changes-ranges"]')!;
+    expect(line.textContent).toContain('Ranges: 1 declared and 0 accepted of 2 dependency edges (50%)');
+    expect(line.querySelector('button[aria-label="About range coverage"]')).toBeTruthy();
+    expect(line.textContent).toContain('Counted over consumers of payments. unknown: ledger -> payments (proposed ^1.2.0)');
+    expect(target.querySelector('[data-testid="changes-note"]')?.textContent).toContain('POLICY_WARNING');
+    const marks = target.querySelectorAll('[data-testid="consumer-break"]');
+    expect(marks).toHaveLength(1);
+    expect(marks[0].querySelector('button[aria-label="About accepted billing"]')).toBeTruthy();
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('draws the impact once analysed, the same on every page of the table', async () => {
     impactFn.mockResolvedValueOnce(impactResult({ offset: 0, nextOffset: 100 }));
     const { target, component } = mountView({ svc: 'domain-a/payments' });

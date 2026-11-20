@@ -407,7 +407,7 @@ func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) 
 	if err != nil {
 		return nil, huma.Error422UnprocessableEntity("toRevisionKey", err)
 	}
-	res, err := s.opts.Impact(ctx, q.SnapshotForSerialization(), oldRef, newRef, b.IncludeObserved)
+	res, err := s.opts.Impact(s.withAcceptanceReads(ctx), q.SnapshotForSerialization(), oldRef, newRef, b.IncludeObserved)
 	if err != nil {
 		return nil, impactHTTPError(err)
 	}
@@ -462,6 +462,9 @@ func (s *Server) stubProvidersForSchemaExport() {
 		return nil, errors.New("schema export only")
 	}
 	s.opts.Delivery = func(*http.Request) (DeliveryAPI, error) { return nil, errors.New("schema export only") }
+	s.opts.AcceptPlan = func(context.Context, fleet.ServiceKey, *fleet.ContractRevision) (AcceptPlanAnswer, error) {
+		return AcceptPlanAnswer{}, errors.New("schema export only")
+	}
 	s.opts.Stats = func(context.Context, []string) (stats.RecordSet, error) {
 		return stats.RecordSet{}, errors.New("schema export only")
 	}

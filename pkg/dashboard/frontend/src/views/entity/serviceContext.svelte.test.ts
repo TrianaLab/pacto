@@ -757,6 +757,26 @@ describe('service page: inferred by Pacto', () => {
     done();
   });
 
+  it('offers to accept every proposed range, only when a range is proposed', async () => {
+    const proposal = { field: 'dependencies[ledger].compatibility', value: 'compatibility unknown', proposed: '^2.3.0', source: 'snapshot:reg/s@sha256:1', provenance: 'inferred' };
+    const opened = async (items: unknown[]) => {
+      const r = await render(detail({ inferredFields: preview(items) }));
+      const sec = fact(r.target, 'service-inferred')!.querySelector('details') as HTMLDetailsElement;
+      sec.open = true;
+      sec.dispatchEvent(new Event('toggle'));
+      flushSync();
+      return r;
+    };
+    let r = await opened([field(0), proposal]);
+    expect(text(fact(r.target, 'accept-proposed'))).toContain('Accept all proposed ranges for payments');
+    r.done();
+    // A proposed ref or an ordinary inferred field is no range to accept.
+    r = await opened([field(0), { ...proposal, field: 'dependencies[ledger].ref', proposed: undefined }]);
+    expect(fact(r.target, 'service-inferred')).toBeTruthy();
+    expect(fact(r.target, 'accept-proposed')).toBeNull();
+    r.done();
+  });
+
   it('renders nothing when nothing is inferred', async () => {
     const { target, done } = await render(detail(fields(0)));
     expect(fact(target, 'service-inferred')).toBeNull();

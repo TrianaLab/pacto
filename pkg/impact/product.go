@@ -83,6 +83,9 @@ type ProductConsumer struct {
 	Effect         string                     `json:"effect,omitempty" enum:"breaks,may-degrade,unknown" doc:"What the event does to this consumer: breaks, may-degrade or unknown"`
 	Resources      []fleet.ProvisioningStatus `json:"resources,omitempty" doc:"What this consumer asked the removed service for, one provisioning status per environment, at most 20"`
 	ResourcesTotal int                        `json:"resourcesTotal,omitempty" doc:"How many provisioning statuses there are, including those beyond the bound"`
+	// Break is where an announced break stands for this consumer, as
+	// [AffectedConsumer.Break].
+	Break *BreakState `json:"break,omitempty" doc:"Where the break the new revision announces for this consumer stands: announced, accepted (it never blocks) or expired"`
 }
 
 // TallyBucket is one bucket of a COMPLETE consumer distribution: a canonical
@@ -197,6 +200,10 @@ type Product struct {
 	// event answer, as [Result.Event] and [Result.Regression].
 	Event      *Event               `json:"event,omitempty" doc:"The what-if this answer is about; absent for a contract change"`
 	Regression []RegressionEvidence `json:"regression,omitempty" doc:"The delivery evidence about a regressed revision, at most 50"`
+	// Ranges and Notes are the answer's range coverage and informational
+	// notes, as [Result.Ranges] and [Result.Notes].
+	Ranges *RangeCoverage `json:"ranges,omitempty" doc:"How many direct consumers declare a compatibility range or accepted one, and which ranges stay unknown; absent on an event answer"`
+	Notes  []string       `json:"notes,omitempty" doc:"Informational notes, such as a range policy set to warn; never a limitation"`
 }
 
 // ProductRevisions looks up both revisions, requires them to exist and to belong
@@ -313,6 +320,8 @@ func BuildProductOutcome(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcK
 		GateReason:     res.GateReason,
 		Event:          res.Event,
 		Regression:     slices.Clone(res.Regression),
+		Ranges:         res.Ranges,
+		Notes:          slices.Clone(res.Notes),
 	}
 	p.setSubject(snap, svcKey, res)
 	return p
@@ -379,6 +388,7 @@ func productConsumer(snap *fleet.FleetSnapshot, res *Result, c AffectedConsumer)
 		Effect:               c.Effect,
 		Resources:            slices.Clone(c.Resources),
 		ResourcesTotal:       c.ResourcesTotal,
+		Break:                c.Break,
 	}
 }
 

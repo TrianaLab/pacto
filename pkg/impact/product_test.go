@@ -477,3 +477,17 @@ func TestVerdictOrder(t *testing.T) {
 		}
 	}
 }
+
+// The product answer Change analysis reads carries the range coverage, the
+// notes and each consumer's break state.
+func TestBuildProduct_CarriesBreakStateRangesAndNotes(t *testing.T) {
+	snap := productSnapshot()
+	rev := snap.Revisions["api@1"]
+	bs := &BreakState{State: BreakAccepted, By: "ana@acme.com"}
+	res := &Result{Ranges: &RangeCoverage{Scope: "consumers of api", Edges: 2, Declared: 1}, Notes: []string{"POLICY_WARNING: x"},
+		Consumers: []AffectedConsumer{{Service: "web", Break: bs}}}
+	p := BuildProduct(fleet.ProductMeta{}, snap, rev.ServiceKey, rev, rev, res, 0, 0)
+	if p.Ranges != res.Ranges || len(p.Notes) != 1 || p.Consumers.Items[0].Break != bs {
+		t.Errorf("product = %+v", p)
+	}
+}

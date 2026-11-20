@@ -24,6 +24,8 @@
   import { changeSegments, verdictSegments, confidenceSegments, outcomeSegments } from '../lib/distributions.ts';
   import { OUTCOMES, EFFECTS, EFFECT_META, effectOf } from '../lib/impactFigure.ts';
   import { formatRelative } from '../lib/dateFormat.ts';
+  import ProvenanceMark from '../components/ProvenanceMark.svelte';
+  import { breakText, rangesLine, unknownRanges } from '../lib/acceptance.ts';
 
   // The Change analysis workspace: ONE screen for the two halves of a single question --
   // WHAT CHANGED between two revisions of a service, and WHAT THAT CHANGE AFFECTS in the
@@ -630,6 +632,13 @@
          ranked highlights, so paging the table below never changes it. Its card says what
          changed, who it reaches and what the gate decides; the table stays the full answer. -->
     <ImpactFigure impact={result} autoplay={readerAsked} laneHref={(o) => changesUrl(o)} onlane={showOutcome} />
+    {#if result.ranges || result.notes?.length}
+      <!-- One muted line: the range coverage the answer used, its scope and unknown ranges in the mark, then its notes. -->
+      <div class="ca-ranges t-meta" data-testid="changes-ranges">
+        {#if result.ranges}<p><span>{rangesLine(result.ranges)}</span> <ProvenanceMark label="About range coverage" text={[`Counted over ${result.ranges.scope}.`, ...unknownRanges(result.ranges)].join(' ')} /></p>{/if}
+        {#each result.notes ?? [] as n, ni (ni)}<p data-testid="changes-note">{n}</p>{/each}
+      </div>
+    {/if}
     {#if planOffers}
       <!-- What the caller may already do about this answer: each button plans, nothing is proposed until the panel's second press. -->
       <div class="ca-plan" data-testid="changes-plan"><StageOffers rows={planOffers.rows} service={planOffers.service} match={planOffers.match} onlyAvailable labelPrefix="Plan" correlation={params.correlationID ?? ''} /></div>
@@ -759,6 +768,7 @@
                         {#if c.uncontracted}<bdi class="cell-clip" title={c.service?.label || c.service?.key}>{c.service?.label || c.service?.key}</bdi><span class="badge badge-neutral">uncontracted</span>
                         {:else}<EntityLink ref={c.service} showStatus={false} />{/if}
                         {#if c.direct}<span class="badge badge-info">Direct</span>{:else}<span class="badge badge-neutral">Transitive · depth {c.depth}</span>{/if}
+                        {#if c.break}<span data-testid="consumer-break"><ProvenanceMark label={`About ${c.break.state} ${c.service?.label || c.service?.key}`} text={breakText(c.break)} /></span>{/if}
                       </div>
                     </td>
                     <td data-label="Path" class="path-cell">
@@ -916,6 +926,8 @@
   .consumer-note { margin: var(--sp-1) 0 0; font-size: var(--text-xs); }
   .consumer-range { display: block; margin-top: var(--sp-1); overflow-wrap: anywhere; }
   .ca-stack { border-top: 1px solid var(--c-border); }
+  .ca-ranges { margin-block: var(--sp-2); color: var(--c-text-3); min-inline-size: 0; overflow-wrap: anywhere; }
+  .ca-ranges p { margin: 0; display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
   .ca-plan { display: flex; flex-direction: column; gap: var(--sp-2); min-inline-size: 0; margin-block: var(--sp-3); }
   .ca-fold { border-bottom: 1px solid var(--c-border); padding: var(--sp-2) 0; scroll-margin-top: calc(var(--navbar-h) + var(--sp-4)); }
   .ca-fold > summary h2 { margin: 0; }
