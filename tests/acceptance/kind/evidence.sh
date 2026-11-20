@@ -322,7 +322,63 @@ EV_PF_PID="$(pf "$LOCAL_EV_PORT" svc/pacto-evidence 8686)"
 curl -fsS "http://127.0.0.1:${LOCAL_EV_PORT}/api/evidence/v1/targets" | grep -q '"subject":"checkout"' \
   && pass "previously-ingested evidence survived the disable/re-enable cycle" || fail "evidence did not survive disable/re-enable"
 send_rejected "$WORK/env1.json" "replay protection was rebuilt from the registry after re-enable"
-kill "$EV_PF_PID" "$REG_PF_PID" 2>/dev/null || true
+kill "$EV_PF_PID" 2>/dev/null || true
+
+# registry_value (510-S6): the one registry value publishes the cluster's signed
+# target snapshot from the operator, with no delivery installed, and CI verifies
+# it with the trust entry built from the key the operator advertises.
+registry_value() {
+  echo "== registry_value: the registry value alone publishes the target snapshot and installs no delivery =="
+  local uid key out trust="$WORK/installation-trust.yaml" targets="127.0.0.1:${LOCAL_REG_PORT}/acme/pacto-targets"
+  helm upgrade pacto-operator "$CHART" -n "$NS" "${common_sets[@]}" --set registry="${REG_HOST}/acme" --wait --timeout 180s
+  uid="$(kubectl get namespace kube-system -o jsonpath='{.metadata.uid}')"
+  tagged() { oras repo tags --plain-http "$targets" 2>/dev/null | grep -qx "cluster-$uid"; }
+  eventually 60 tagged || fail "the operator published no ${REG_HOST}/acme/pacto-targets:cluster-$uid"
+  pass "the operator published ${REG_HOST}/acme/pacto-targets:cluster-$uid"
+  advertised() {
+    key="$(kubectl get cm -n "$NS" pacto-operator-detected -o jsonpath='{.data.detected\.json}' | jq -r '.installation.snapshotKey // empty')"
+    [ -n "$key" ]
+  }
+  eventually 30 advertised || fail "the detected ConfigMap advertises no installation.snapshotKey"
+  {
+    echo "keys:"
+    echo "  - name: installation-${uid:0:8}"
+    echo "    publicKey: |"
+    echo "      -----BEGIN PUBLIC KEY-----"
+    fold -w 64 <<<"$key" | sed 's/^/      /'
+    echo "      -----END PUBLIC KEY-----"
+    echo "    streams: [\"$uid/pacto-targets/snapshot\"]"
+  } >"$trust"
+  local newer; newer="$(mktemp -d)"
+  cp -R "$BDIR/." "$newer/"
+  sed -i.bak 's/version: "1.0.0"/version: "1.1.0"/' "$newer/pacto.yaml" && rm -f "$newer/pacto.yaml.bak"
+  out="$(HTTP_PROXY="http://127.0.0.1:${LOCAL_REG_PORT}" PACTO_INSECURE_REGISTRIES="$REG_HOST" KUBECONFIG=/dev/null \
+    PACTO_DELIVERY_TRUST="$trust" "$PACTO_BIN" impact "$CONTRACT_REF" "$newer" --local "" \
+    --target-snapshot "oci://${REG_HOST}/acme/pacto-targets" 2>&1)" || true
+  grep -q "^Targets: .*cluster ${uid:0:8}, .*, complete, signed by installation-${uid:0:8}" <<<"$out" \
+    || fail "the Targets line is not complete and signed by installation-${uid:0:8}: $out"
+  pass "pacto impact verified the operator's snapshot with the advertised installation key"
+  local digest
+  digest="$(oras manifest fetch --plain-http "$targets:cluster-$uid" | jq -r '.layers[0].digest')" \
+    || fail "could not read the manifest of $targets:cluster-$uid"
+  oras blob fetch --plain-http --output - "$targets@$digest" \
+    | jq -e '.dsseEnvelope.payload | @base64d | fromjson | .predicate.evidence != null' >/dev/null \
+    || fail "the snapshot has no evidence section"
+  pass "the snapshot carries the Evidence Server's targets section"
+  [ -z "$(kubectl get deploy -A -l app.kubernetes.io/component=delivery-promoter -o name)" ] \
+    || fail "the registry value installed a delivery promoter"
+  pass "no delivery promoter is installed"
+  if kubectl get crd stages.delivery.pacto.trianalab.io >/dev/null 2>&1; then
+    fail "the registry value installed the Stage CRD"
+  fi
+  pass "no Stage CRD is installed"
+  if kubectl logs -n "$NS" deploy/pacto-operator | grep -q 'outside the installation push scope'; then
+    fail "operator pushed outside the scope"
+  fi
+  pass "the operator pushed nowhere outside the installation push scope"
+}
+registry_value
+kill "$REG_PF_PID" 2>/dev/null || true
 
 echo "== full in-cluster Evidence Server lifecycle acceptance PASSED =="
 keep_or_teardown "$NS" "$CLUSTER"

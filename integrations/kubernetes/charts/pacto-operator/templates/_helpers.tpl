@@ -594,6 +594,53 @@ set (an explicit delivery value may name any repository).
 {{- end }}
 
 {{/*
+The cloud that owns a registry host, the same host predicates pkg/oci puts in
+front of its cloud sources: google (*.pkg.dev, gcr.io, *.gcr.io), aws (ECR and
+public.ecr.aws), azure (*.azurecr.io, .cn, .us), else empty.
+*/}}
+{{- define "pacto-operator.registryHostCloud" -}}
+{{- $h := lower . }}
+{{- if regexMatch `^(([a-z0-9-]+\.)+pkg\.dev|([a-z0-9-]+\.)*gcr\.io)$` $h }}google
+{{- else if regexMatch `^([0-9]{12}\.dkr\.ecr(-fips)?\.[a-z0-9-]+\.amazonaws\.com(\.cn)?|public\.ecr\.aws)$` $h }}aws
+{{- else if regexMatch `^([a-z0-9-]+\.)+azurecr\.(io|cn|us)$` $h }}azure
+{{- end }}
+{{- end }}
+
+{{/*
+The NOTES line that says which credential reaches the installation registry,
+in order: registryPullSecret; the operator ServiceAccount annotation of the
+cloud that owns the registry host (an annotation for another cloud does not
+count); on upgrade, a detected cloud that owns the host; else none. Takes a
+dict: root, detected (the decoded detection, possibly empty) and pushed (the
+detection holds a last push result).
+*/}}
+{{- define "pacto-operator.registryCredential" -}}
+{{- $root := .root }}
+{{- $host := index (splitList "/" $root.Values.registry) 0 }}
+{{- $cloud := include "pacto-operator.registryHostCloud" $host }}
+{{- $keys := dict "google" "iam.gke.io/gcp-service-account" "aws" "eks.amazonaws.com/role-arn" "azure" "azure.workload.identity/client-id" }}
+{{- $names := dict "google" "GKE workload identity" "aws" "EKS IRSA" "azure" "Azure workload identity" }}
+{{- $clouds := dict "GKE" "google" "GCE" "google" "EKS" "aws" "AWS" "aws" "AKS" "azure" "Azure" "azure" }}
+{{- $id := "" }}
+{{- if $cloud }}{{ $id = get ($root.Values.serviceAccount.annotations | default dict) (get $keys $cloud) | toString }}{{ end }}
+{{- $seen := "" }}
+{{- $entries := get .detected "entries" | default list }}
+{{- if kindIs "slice" $entries }}{{ else }}{{ $entries = list }}{{ end }}
+{{- range $entries }}
+{{- if and $cloud (kindIs "map" .) (eq (toString (get . "kind")) "cloud") (eq (get $clouds (toString (get . "value"))) $cloud) }}{{ $seen = toString (get . "value") }}{{ end }}
+{{- end }}
+{{- if $root.Values.registryPullSecret -}}
+Pulls: Secret {{ $root.Values.registryPullSecret }} (registryPullSecret).{{ if not .pushed }} Pushes: unconfirmed until the first snapshot push.{{ end }}
+{{- else if $id -}}
+Pulls and pushes: {{ get $names $cloud }}{{ if ne $cloud "azure" }} ({{ $id }}){{ end }}. No Secret needed.
+{{- else if $seen -}}
+Pulls and pushes: {{ $seen }} workload identity once ServiceAccount {{ $root.Release.Namespace }}/{{ include "pacto-operator.serviceAccountName" $root }} is bound to an identity with registry access{{ if eq $cloud "aws" }} (EKS Pod Identity needs no annotation){{ end }}.
+{{- else -}}
+No credential found for {{ $host }}: set registryPullSecret, or the registry must allow anonymous pull and push.
+{{- end }}
+{{- end }}
+
+{{/*
 The recorder's streams repository: delivery.recorder.streamsRepository, else
 <registry>/pacto-streams when registry is set, else empty.
 */}}

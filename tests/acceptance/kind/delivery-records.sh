@@ -168,24 +168,34 @@ records_store() {
   pass "the forged record broke the chain; the recorder stopped and the Stage froze until it was removed and alice unfroze it"
 }
 
-# records_targets reads the recorder's target snapshot the way CI does: registry
-# access and no kubeconfig. A BREAKING payments 1.0.0 -> 2.0.0 breaks checkout, which
-# accepts ^1.0.0 only, so a verified snapshot blocks the release (exit 1) and an
-# unverified one leaves the answer partial. Staleness is pinned by unit tests:
-# a kind run cannot wait 15 minutes.
+# records_targets reads the operator's target snapshot the way CI does: registry
+# access and no kubeconfig. The operator publishes it because registry is set,
+# signed with the installation key it advertises in its detected ConfigMap, and
+# the trust entry is built from that advertised key (510-S6). A BREAKING
+# payments 1.0.0 -> 2.0.0 breaks checkout, which accepts ^1.0.0 only, so a
+# verified snapshot blocks the release (exit 1) and an unverified or unscoped
+# one leaves the answer partial. Staleness is pinned by unit tests: a kind run
+# cannot wait 15 minutes.
 records_targets() {
   records_init
-  section "CI reads the recorder's signed target snapshot without a kubeconfig"
-  local uid out rc
+  section "CI reads the operator's signed target snapshot without a kubeconfig"
+  local uid out rc key
   uid="$(kubectl get namespace kube-system -o jsonpath='{.metadata.uid}')"
   tagged() { oras repo tags --plain-http "127.0.0.1:${LOCAL_REG_PORT}/pacto-targets" 2>/dev/null | grep -qx "cluster-$uid"; }
-  eventually 40 tagged || fail "the recorder published no pacto-targets:cluster-$uid"
+  eventually 40 tagged || fail "the operator published no pacto-targets:cluster-$uid"
+  advertised() {
+    key="$(kubectl get cm -n "$NS" pacto-operator-detected -o jsonpath='{.data.detected\.json}' | jq -r '.installation.snapshotKey // empty')"
+    [ -n "$key" ]
+  }
+  eventually 30 advertised || fail "the detected ConfigMap advertises no installation.snapshotKey"
   {
     echo "keys:"
-    echo "  - name: recorder"
+    echo "  - name: installation-${uid:0:8}"
     echo "    publicKey: |"
-    sed 's/^/      /' "$RECORDER_PUB"
-    echo "    streams: [\"$uid/*/*\"]"
+    echo "      -----BEGIN PUBLIC KEY-----"
+    fold -w 64 <<<"$key" | sed 's/^/      /'
+    echo "      -----END PUBLIC KEY-----"
+    echo "    streams: [\"$uid/pacto-targets/snapshot\"]"
   } >"$tmp/targets-trust.yaml"
   # The gate holds only BREAKING changes, and C200 changes nothing but the
   # version, so the new revision is a local 2.0.0 that also changes the
@@ -197,9 +207,16 @@ records_targets() {
       "$PACTO" impact "$C100" "$breaking" --local "" 2>&1
   }
   rc=0; out="$(PACTO_DELIVERY_TRUST="$tmp/targets-trust.yaml" impact_ci)" || rc=$?
-  grep -q "^Targets: .*cluster ${uid:0:8}, .*, complete, signed by recorder" <<<"$out" || fail "the Targets line is not complete and signed by recorder: $out"
+  grep -q "^Targets: .*cluster ${uid:0:8}, .*, complete, signed by installation-${uid:0:8}" <<<"$out" || fail "the Targets line is not complete and signed by installation-${uid:0:8}: $out"
   [ "$rc" = 1 ] || fail "a verified snapshot with checkout on ^1.0.0 did not block payments 2.0.0 (exit $rc): $out"
   pass "pacto impact found $REG_HOST/pacto-targets from the provider ref, verified cluster-$uid with a key scoped to it and blocked the release"
+  # The same installation key under an entry not scoped to the cluster
+  # verifies the signature and still reads partial (509-S6 Decision 5).
+  sed "s|\"$uid/pacto-targets/snapshot\"|\"*/pacto-targets/snapshot\"|" "$tmp/targets-trust.yaml" >"$tmp/targets-trust-unscoped.yaml"
+  rc=0; out="$(PACTO_DELIVERY_TRUST="$tmp/targets-trust-unscoped.yaml" impact_ci)" || rc=$?
+  grep -q "^Targets: .*signed by installation-${uid:0:8} (not scoped to this cluster)" <<<"$out" || fail "an unscoped entry was not named unscoped: $out"
+  grep -q "^warning: answer is partial" <<<"$out" || fail "an unscoped entry did not leave the answer partial: $out"
+  pass "the installation key under an entry not scoped to cluster-$uid leaves the answer partial (exit $rc)"
   rc=0; out="$(impact_ci)" || rc=$?
   grep -q "^Targets: .*unverified" <<<"$out" || fail "an unverified snapshot was not named unverified: $out"
   grep -q "^warning: answer is partial" <<<"$out" || fail "an unverified snapshot did not leave the answer partial: $out"
