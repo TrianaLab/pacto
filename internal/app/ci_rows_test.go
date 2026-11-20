@@ -286,6 +286,7 @@ func TestCIFirstPublishGuessedRegistryUnverified(t *testing.T) {
 func countingHost(t *testing.T) (string, *atomic.Int64) {
 	t.Helper()
 	var n atomic.Int64
+	freshProbes(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		n.Add(1)
 		w.WriteHeader(http.StatusNotFound)

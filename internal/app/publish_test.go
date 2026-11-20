@@ -95,6 +95,7 @@ var anonymous = authn.NewMultiKeychain()
 
 func publishRegistry(t *testing.T) (string, publish.Registry) {
 	t.Helper()
+	freshProbes(t)
 	srv := httptest.NewServer(registry.New(registry.Logger(log.New(io.Discard, "", 0))))
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
@@ -570,6 +571,7 @@ func TestExecToolsSignFailures(t *testing.T) {
 		}
 	}
 	// The transparency log is on by default; a log that fails stops signing.
+	freshProbes(t)
 	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadRequest) }))
 	defer down.Close()
 	old := rekorURL

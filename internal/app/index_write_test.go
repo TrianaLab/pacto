@@ -44,6 +44,7 @@ func newIndexReg(t *testing.T) *indexReg {
 	t.Helper()
 	ir := &indexReg{}
 	inner := registry.New(registry.Logger(log.New(io.Discard, "", 0)))
+	freshProbes(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ir.mu.Lock()
 		ir.reqs = append(ir.reqs, r.Method+" "+r.URL.Path)

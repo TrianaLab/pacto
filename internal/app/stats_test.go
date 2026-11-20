@@ -33,6 +33,7 @@ func statsService(t *testing.T, wrap func(http.Handler) http.Handler, records ..
 	if wrap != nil {
 		h = wrap(h)
 	}
+	freshProbes(t)
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")

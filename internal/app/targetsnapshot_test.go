@@ -61,6 +61,7 @@ func newSnapEnv(t *testing.T) *snapEnv {
 	e := &snapEnv{}
 	e.fail.Store("")
 	inner := testutil.NewReferrersRegistry(testutil.ReferrersOptions{})
+	freshProbes(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		e.reqs.Add(1)
 		if code := e.status.Load(); code != 0 {

@@ -66,6 +66,13 @@ func provenanceTestRegistryOf(t *testing.T, referrers bool) *provRegistry {
 	t.Helper()
 	p := &provRegistry{}
 	inner := registry.New(registry.WithReferrersSupport(referrers), registry.Logger(log.New(io.Discard, "", 0)))
+	// Only the registry without referrers gets a fresh prober: a stale native
+	// answer for its port is what breaks it, and the external catalog tests
+	// leave a check reading the prober running past their end, so swapping it
+	// under them is a race.
+	if !referrers {
+		freshProbes(t)
+	}
 	p.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p.requests.Add(1)
 		if f := p.fail.Load(); f != nil && (*f)(r) {

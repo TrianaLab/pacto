@@ -468,6 +468,7 @@ func TestPublishDerivedWithSignKey(t *testing.T) {
 // TestKeepRefusalDerivedSection: a refusal of a section-less contract is
 // kept, signed, in the derived bundle repository.
 func TestKeepRefusalDerivedSection(t *testing.T) {
+	freshProbes(t)
 	srv := httptest.NewServer(testutil.NewReferrersRegistry(testutil.ReferrersOptions{}))
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")

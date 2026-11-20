@@ -35,6 +35,7 @@ import (
 
 func mxPlainRegistry(t *testing.T) string {
 	t.Helper()
+	freshProbes(t)
 	srv := httptest.NewServer(registry.New())
 	t.Cleanup(srv.Close)
 	return strings.TrimPrefix(srv.URL, "http://")
@@ -42,6 +43,7 @@ func mxPlainRegistry(t *testing.T) string {
 
 func mxClosableRegistry(t *testing.T) (host string, stop func()) {
 	t.Helper()
+	freshProbes(t)
 	srv := httptest.NewServer(registry.New())
 	var once sync.Once
 	stop = func() { once.Do(srv.Close) }
@@ -53,6 +55,7 @@ func mxAuthRegistry(t *testing.T, user, pass string) string {
 	t.Helper()
 	reg := registry.New()
 	want := "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
+	freshProbes(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != want {
 			w.Header().Set("WWW-Authenticate", `Basic realm="pacto-test"`)
