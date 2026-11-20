@@ -414,7 +414,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | podAnnotations | object | `{}` | Annotations to add to the controller pod |
 | podLabels | object | `{}` | Labels to add to the controller pod |
 | podSecurityContext | object | `{}` | Pod securityContext of the controller (defaults to `global.podSecurityContext`) |
-| registry | string | `""` | The installation registry (host[/path], no scheme), such as `ghcr.io/acme`. The operator publishes the cluster's target snapshot, signed with the installation key it creates once, to `<registry>/pacto-targets`, which `pacto impact` reads in CI; empty publishes none. It never turns on delivery. |
+| registry | string | `""` | The installation registry (host[/path], no scheme), such as `ghcr.io/acme`. The operator publishes the cluster's target snapshot, signed with the installation key it creates once, to `<registry>/pacto-targets`, which `pacto impact` reads in CI; empty publishes none. Delivery stays off until delivery.enabled=true. |
 | registryPullSecret | string | `""` | namespace/name of an existing Secret that authenticates to `registry`, for a registry without workload identity. Pacto proposes one it saw running pods use (helm upgrade notes and Data sources) and never uses it until you name it here. The chart grants get on that Secret only. |
 | replicaCount | int | `1` | Number of controller replicas |
 | resources.limits.memory | string | `"256Mi"` | Memory limit of the controller. It caches every Deployment, StatefulSet, ReplicaSet, Job, CronJob and Service it targets. |

@@ -152,8 +152,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().Bool("publish", false, "expose pacto_publish_plan and pacto_publish beside the authoring tools")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "in --delivery mode: "+"namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.Flags().String("delivery-trust", "", "the trust config delivery records (in --delivery mode), the golden paths pacto_create creates from and the target snapshots "+
-		"pacto_impact and --target-snapshot read are verified with (the recorder's PEM public key or a YAML trust config; a target snapshot verifies only under a "+
-		"key scoped to its cluster: streams [\"<uid>/*/*\"]; default $"+app.TrustEnv+")")
+		"pacto_impact and --target-snapshot read are verified with (a PEM public key or a YAML trust config: the recorder's key for records, the operator's advertised installation key "+
+		"for a target snapshot, which verifies only under a key scoped to its cluster: streams [\"<uid>/*/*\"]; default $"+app.TrustEnv+")")
 	// Declared before the shared set so this spelling wins: here --root selects a
 	// catalog to discover, not a closure to fold into a snapshot.
 	cmd.Flags().StringArray("root", nil, "contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)")

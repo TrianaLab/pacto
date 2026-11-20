@@ -98,7 +98,7 @@ The recorder detects how your registry stores records, so any registry works:
 delivery:
   recorder:
     enabled: true
-    streamsRepository: registry.example/pacto/streams
+    streamsRepository: registry.example/pacto/streams  # default: <registry>/pacto-streams
     registryCredentials:
       secretName: recorder-push       # a kubernetes.io/dockerconfigjson Secret
     signing:
@@ -107,8 +107,8 @@ delivery:
       allowOperatorReadableKey: true  # the operator can read this Secret too
 ```
 
-The push Secret needs write access to the streams, deploy and contract
-repositories. Create a test key with
+The push Secret needs write
+access to the streams, deploy and contract repositories. Create a test key with
 `openssl genpkey -algorithm ed25519 -out key.pem`. The operator reads every
 Secret, so the chart refuses such a key without `allowOperatorReadableKey`
 and a recorder sharing the promoter's ServiceAccount.
@@ -348,29 +348,30 @@ still checked.
 
 ## Target snapshot
 
-- **Where:** with the chart's top-level `registry` value set, the recorder
+- **Where:** with the chart's top-level `registry` value set, the operator
   publishes the cluster's signed target snapshot to
-  `<registry>/pacto-targets:cluster-<uid>` at start and every 5 minutes.
-  `<uid>` is the `kube-system` namespace UID. With no `registry` it publishes
-  none and logs `target snapshot off: set the top-level registry value`;
-  `delivery.recorder.streamsRepository` never feeds it.
+  `<registry>/pacto-targets:cluster-<uid>` at start and every 5 minutes,
+  whether or not delivery runs. `<uid>` is the `kube-system` namespace UID.
+  With no `registry` it publishes none. The recorder publishes no snapshot.
 - **What:** every target source the installation accepted, each with its own
   `asOf` and completeness: the cluster's Pacto resources (their status),
   workloads no Pacto targets (as inferred services, without env values,
   probes or pod data) and, with `evidence.enabled`, the targets the Evidence
   Server accepted from any producer, `pacto agent` included. A section the
-  recorder reads only in part is published as partial with the others.
-- **Signature:** the recorder's delivery key signs it, and it names the
-  recorder ServiceAccount as its publisher. It is a plain manifest with no
-  subject, so it needs no Referrers API on any registry. The tag moves on each
-  publish; readers treat an `asOf` older than 15 minutes as stale, so a tag
-  moved back to an older snapshot reads stale.
-- **RBAC:** the recorder's ClusterRole adds `get` and `list` on `pactos` and
-  `list` on deployments, statefulsets, daemonsets and cronjobs. It never reads
-  Secrets, ConfigMaps, pods or nodes.
-- **Push:** the `delivery.recorder.registryCredentials` Secret needs push to
-  `<registry>/pacto-targets` too. A snapshot over 8 MiB is logged and not
-  pushed, so readers see the previous one turn stale.
+  operator reads only in part is published as partial with the others.
+- **Signature:** the installation key signs it, and it names the operator
+  ServiceAccount as its publisher. The operator creates that key once, in the
+  Secret `<fullname>-installation-key`, so the snapshot key stays apart from
+  the recorder's delivery key. It is a plain manifest with no subject, so it
+  needs no Referrers API on any registry. The tag moves on each publish;
+  readers treat an `asOf` older than 15 minutes as stale, so a tag moved back
+  to an older snapshot reads stale.
+- **RBAC:** the operator's existing reads of `pactos` and workloads cover
+  it. With `controller.watchNamespaces`, it reads only those namespaces and
+  publishes the snapshot as partial.
+- **Push:** the operator's workload identity or the `registryPullSecret`
+  Secret needs push to `<registry>/pacto-targets`. A snapshot over 8 MiB is
+  logged and not pushed, so readers see the previous one turn stale.
 - **Read audience:** pull on `pacto-targets` reads every namespace's Pacto
   status and workload shape regardless of Kubernetes RBAC and, with
   `evidence.enabled`, every target, provisioning and usage record (cost
@@ -382,16 +383,17 @@ still checked.
   retention.
 - **Readers:** CI verifies a snapshot only under a trust entry scoped to the
   cluster's UID. A bare PEM or an entry with no `streams` trusts every
-  cluster, which another cluster's recorder could sign for, so it reads the
+  cluster, which another cluster's operator could sign for, so it reads the
   snapshot as unscoped and partial. Add one entry per cluster, with the
-  recorder's public key (`openssl pkey -in key.pem -pubout`).
+  advertised `snapshotKey` from the `installation` block of the
+  `<fullname>-detected` ConfigMap (the `helm upgrade` notes print the entry).
   [Where consumers come from](../../ci.md#where-consumers-come-from) shows
   the CI side.
 
 ```yaml
 keys:
-  - name: recorder-6f1e2a90
-    streams: ["6f1e2a90-5b7d-4c1e-8a3f-2d6b0e9c7a41/*/*"]   # or ["<uid>/pacto-targets/snapshot"]
+  - name: installation-6f1e2a90
+    streams: ["6f1e2a90-5b7d-4c1e-8a3f-2d6b0e9c7a41/pacto-targets/snapshot"]
     publicKey: |
       -----BEGIN PUBLIC KEY-----
       ...

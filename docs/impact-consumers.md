@@ -92,10 +92,10 @@ the index; over HTTP and in the dashboard it is never read.
 
 ## Target snapshot consumers
 
-The delivery recorder of each cluster publishes a signed target snapshot to
+The operator of each cluster publishes a signed target snapshot to
 `<registry>/pacto-targets:cluster-<uid>` every 5 minutes, where `<registry>`
 is the operator chart's top-level `registry` value; with no `registry` it
-publishes none. `pacto impact` and `pacto ci` read it with registry read
+publishes none. It publishes whether or not delivery runs. `pacto impact` and `pacto ci` read it with registry read
 access alone, so CI finds the consumers that run without a kubeconfig. See
 [Where consumers come from](ci.md#where-consumers-come-from) for how Pacto
 finds the repository and pins a cluster.
@@ -111,6 +111,20 @@ its own fleet source with its own `asOf` and completeness:
 - `targets-<uid>-evidence`, kind `evidence-http`: the targets the cluster's
   [Evidence Server](evidence.md) accepted from any producer, `pacto agent`
   included. They count as observed targets, as `--evidence-url` does.
+
+The installation key signs the snapshot. Build the cluster's trust entry from
+the `installation` block of the operator's detected ConfigMap, or copy the one
+the `helm upgrade` notes print:
+
+```shell
+kubectl -n pacto-operator-system get configmap pacto-operator-detected \
+  -o jsonpath='{.data.detected\.json}' | jq '{cluster, key: .installation.snapshotKey}'
+```
+
+Wrap `key` at 64 characters between `-----BEGIN PUBLIC KEY-----` and
+`-----END PUBLIC KEY-----` for `publicKey`, name the entry
+`installation-<first 8 characters of cluster>` and scope it with
+`streams: ["<cluster>/pacto-targets/snapshot"]`.
 
 A snapshot counts only when a trust entry scoped to its cluster verified its
 signature and its `asOf` is less than 15 minutes old. Otherwise every section
