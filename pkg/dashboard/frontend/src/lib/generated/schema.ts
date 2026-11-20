@@ -5178,6 +5178,8 @@ export interface components {
             templates?: string[] | null;
         };
         "Impact.RunningBaseline": {
+            /** @description The running revisions with the new revision's digest, left out of the baseline: a revision is never its own baseline */
+            excluded?: string[] | null;
             /** @description No running revision could be judged, so the new revision was compared with itself and only the consumers' ranges speak */
             firstVersion?: boolean;
             /** @description The running revision this answer compared the new one with; empty for a first version */

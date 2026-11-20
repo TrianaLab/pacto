@@ -39,7 +39,7 @@ func runningPay(version string) *contract.Bundle {
 // runningSnap is a fleet where payments 1.0.0, published on runHost, runs on
 // a target, payments 2.0.0 is published on reg.example and ledger, which runs
 // too, depends on payments with ^1.
-func runningSnap(t *testing.T, runHost string) *fleet.FleetSnapshot {
+func runningSnap(t *testing.T, runHost string, extra ...fleet.RawTarget) *fleet.FleetSnapshot {
 	t.Helper()
 	now := time.Now()
 	ledger := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "ledger", Version: "1.0.0"},
@@ -55,6 +55,7 @@ func runningSnap(t *testing.T, runHost string) *fleet.FleetSnapshot {
 			{Scope: "prod", Kind: "deployment", Name: "ledger", Service: "ledger", Domain: "reg.example/acme", Digest: "sha256:" + strings.Repeat("3", 64), Compliance: fleet.StatusCompliant, EvidenceAt: &now},
 		},
 	}
+	col.Targets = append(col.Targets, extra...)
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("mem", "memory", col))
 	if err != nil {
 		t.Fatal(err)
@@ -86,6 +87,9 @@ func runningProvider(svc *app.Service, addMissing, trusted bool) func(context.Co
 	// The snapshot each test passes is the server's whole fleet: no index
 	// rebuilds it from the (empty) source flags.
 	_ = cmd.Flags().Set("index", "none")
+	// No registry lookup for a pacto-targets snapshot either: an oci://
+	// new_ref would otherwise derive one and rebuild the fleet.
+	_ = cmd.Flags().Set("target-snapshot", "off")
 	return mcpImpactProvider(cmd, svc, defaultDeps(), addMissing, trusted)
 }
 
@@ -99,19 +103,49 @@ func newPaymentsDir(t *testing.T) string {
 
 func TestMCPImpactRunningMatchesCLI(t *testing.T) {
 	t.Setenv("PACTO_RUNNING_REGISTRIES", "reg.example")
-	snap, dir := runningSnap(t, "reg.example"), newPaymentsDir(t)
-	svc := runningStore(t, "")
-	got, err := runningProvider(svc, true, true)(context.Background(), snap, pactomcp.ImpactRequest{Running: true, NewRef: dir})
+	// The canary already runs the new digest: it is never its own baseline.
+	canary := fleet.RawTarget{Scope: "prod", Kind: "deployment", Name: "pay-canary", Service: "payments", Domain: "reg.example/acme", Digest: runDigest2,
+		Compliance: fleet.StatusCompliant, EvidenceAt: new(time.Now())}
+	for _, c := range []struct {
+		name, newRef string
+		snap         *fleet.FleetSnapshot
+		excluded     []string
+	}{
+		{"local", newPaymentsDir(t), runningSnap(t, "reg.example"), nil},
+		{"new digest runs", runNewRef, runningSnap(t, "reg.example", canary), []string{runNewRef}},
+	} {
+		svc := runningStore(t, "")
+		got, err := runningProvider(svc, true, true)(context.Background(), c.snap, pactomcp.ImpactRequest{Running: true, NewRef: c.newRef})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := svc.ImpactRunning(context.Background(), app.ImpactOptions{NewPath: c.newRef, RunningRegistries: []string{"reg.example"}, Fleet: app.FleetOptions{Index: app.IndexNone}}, c.snap)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Gate != impact.GateBlocked || got.Gate != want.Gate || got.GateReason != want.GateReason || !reflect.DeepEqual(got.Running, want.Running) ||
+			got.Running.Judged != "oci://reg.example/acme/payments@"+runDigest1 || !slices.Equal(got.Running.Excluded, c.excluded) {
+			t.Fatalf("%s: mcp %s %q %+v, cli %s %q %+v", c.name, got.Gate, got.GateReason, got.Running, want.Gate, want.GateReason, want.Running)
+		}
+	}
+}
+
+func TestRunningPrintsDigest(t *testing.T) {
+	snap := runningSnap(t, "reg.example")
+	for _, r := range snap.Revisions {
+		if r.Digest == runDigest1 {
+			r.ResolvedRef = "reg.example/acme/payments:1.0.0"
+		}
+	}
+	res, err := runningStore(t, "").ImpactRunning(context.Background(), app.ImpactOptions{NewPath: newPaymentsDir(t), RunningRegistries: []string{"reg.example"},
+		Fleet: app.FleetOptions{Index: app.IndexNone}}, snap)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := svc.ImpactRunning(context.Background(), app.ImpactOptions{NewPath: dir, RunningRegistries: []string{"reg.example"}, Fleet: app.FleetOptions{Index: app.IndexNone}}, snap)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Gate != impact.GateBlocked || got.Gate != want.Gate || got.GateReason != want.GateReason || !reflect.DeepEqual(got.Running, want.Running) ||
-		got.Running.Judged != "oci://reg.example/acme/payments@"+runDigest1 {
-		t.Fatalf("mcp %s %q %+v, cli %s %q %+v", got.Gate, got.GateReason, got.Running, want.Gate, want.GateReason, want.Running)
+	var buf strings.Builder
+	printChangeHeader(&buf, res)
+	if want := "judged against oci://reg.example/acme/payments:1.0.0@" + runDigest1; !strings.Contains(buf.String(), want) {
+		t.Fatalf("missing %q in:\n%s", want, buf.String())
 	}
 }
 

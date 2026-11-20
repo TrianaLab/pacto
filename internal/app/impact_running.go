@@ -13,6 +13,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/override"
 )
 
@@ -58,20 +59,60 @@ func (s *Service) ImpactRunning(ctx context.Context, opts ImpactOptions, snap *f
 		}
 		opts.Domain, opts.notInFleet = domain, !found
 	}
+	newDigest, err := s.newRevisionDigest(ctx, opts.NewPath)
+	if err != nil {
+		return nil, err
+	}
 	key, allowed := fleet.NewServiceKeyDomain(opts.domain(snap, name), name), runningHosts(opts)
-	refs, unread := runningRefs(snap, key, name, allowed)
+	refs, excluded, unread := runningRefs(snap, key, name, newDigest, allowed)
 	// The analysis may rebuild the snapshot (an index, a missing service):
 	// running refs read from a snapshot that no longer agrees never clear.
 	drifted := func(s *fleet.FleetSnapshot) bool {
-		again, _ := runningRefs(s, key, name, allowed)
+		again, _, _ := runningRefs(s, key, name, newDigest, allowed)
 		return !slices.Equal(again, refs)
 	}
 	res, err := s.judgeRunning(ctx, opts, snap, newBundle, refs, unread, drifted)
 	if err != nil {
 		return nil, err
 	}
+	res.Running.Excluded = excluded
 	res.Registry = look
 	return res, nil
+}
+
+// newRevisionDigest is the manifest digest of an oci:// new revision, read
+// from the ref or resolved from its tag; "" for a local folder.
+func (s *Service) newRevisionDigest(ctx context.Context, newPath string) (string, error) {
+	parsed := graph.ParseDependencyRef(newPath)
+	if !parsed.IsOCI() {
+		return "", nil
+	}
+	if _, digest := contract.SplitOCIDigest(parsed.Location); digest != "" {
+		return digest, nil
+	}
+	ref, err := oci.ResolveRef(ctx, s.BundleStore, parsed.Location, "")
+	if err == nil {
+		var digest string
+		if digest, err = s.BundleStore.Resolve(ctx, ref); err == nil {
+			return digest, nil
+		}
+	}
+	return "", fmt.Errorf("new revision digest: %w", err)
+}
+
+// excludeNew splits refs into the ones that may be a baseline and the ones
+// whose digest is newDigest: a post-deploy gate verifies after the new
+// revision already runs, and a revision is never its own baseline.
+func excludeNew(refs []string, newDigest string) (kept, excluded []string) {
+	kept = []string{}
+	for _, ref := range refs {
+		if _, d := contract.SplitOCIDigest(ref); newDigest != "" && d == newDigest {
+			excluded = append(excluded, ref)
+			continue
+		}
+		kept = append(kept, ref)
+	}
+	return kept, excluded
 }
 
 // judgeRunning pulls each running ref and analyses the change against it,
@@ -164,12 +205,13 @@ func runningDomain(snap *fleet.FleetSnapshot, name string) (domain string, found
 }
 
 // runningRefs are the distinct registry refs of the revisions the targets
-// of key run, sorted and bounded by MaxRunningRevisions, and the running
-// revisions Pacto cannot judge, in words: a target with no linked revision,
-// a revision with no registry ref, a ref linked by tag (judged, but never
-// proof), a ref on a host allowed rejects, and an inferred workload of the
-// service in any domain.
-func runningRefs(snap *fleet.FleetSnapshot, key fleet.ServiceKey, name string, allowed func(ref string) bool) (refs, unread []string) {
+// of key run, each pinned to its digest, sorted and bounded by
+// MaxRunningRevisions; the refs whose digest is newDigest, left out; and the
+// running revisions Pacto cannot judge, in words: a target with no linked
+// revision, a revision with no registry ref, a ref linked by tag (judged,
+// but never proof), a ref on a host allowed rejects, and an inferred
+// workload of the service in any domain.
+func runningRefs(snap *fleet.FleetSnapshot, key fleet.ServiceKey, name, newDigest string, allowed func(ref string) bool) (refs, excluded, unread []string) {
 	refs = []string{}
 	seen := map[string]bool{}
 	note := func(line string) {
@@ -207,12 +249,14 @@ func runningRefs(snap *fleet.FleetSnapshot, key fleet.ServiceKey, name string, a
 			note("the workloads " + st.ID + " reads could not all be read, so an undeclared revision of " + name + " may run there")
 		}
 	}
+	refs, excluded = excludeNew(refs, newDigest)
 	slices.Sort(refs)
+	slices.Sort(excluded)
 	if n := len(refs); n > MaxRunningRevisions {
 		note(strconv.Itoa(n-MaxRunningRevisions) + " more running revisions were not judged")
 		refs = refs[:MaxRunningRevisions]
 	}
-	return refs, unread
+	return refs, excluded, unread
 }
 
 // targetRef is the registry ref of the revision t runs, "" when Pacto cannot
@@ -226,6 +270,11 @@ func targetRef(snap *fleet.FleetSnapshot, t *fleet.TargetRecord) (ref, why strin
 		return "", string(t.Key) + " runs a revision with no registry ref"
 	}
 	ref = "oci://" + contract.TrimOCIScheme(rev.ResolvedRef)
+	// Pinned so the pull, the answer and the new-digest exclusion all name
+	// the revision the target runs, never what a tag points at now.
+	if _, d := contract.SplitOCIDigest(ref); d == "" && cmp.Or(rev.Digest, t.Digest) != "" {
+		ref += "@" + cmp.Or(rev.Digest, t.Digest)
+	}
 	if t.RevisionMatch != "exact" {
 		why = string(t.Key) + " is linked to " + ref + " by tag, not digest"
 	}

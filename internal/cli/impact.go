@@ -186,7 +186,7 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 		cmd.Flags().String(f, "", impactEventFlagHelp[f])
 	}
 	cmd.Flags().Bool("running", false, "judge <new> against the revisions of its service that run on known targets instead of an <old> revision; "+
-		"with no running revision only consumers' ranges are checked")
+		"a running revision with the new digest is not a baseline; with no running revision only consumers' ranges are checked")
 	cmd.Flags().Bool("include-observed", false, "let observed (runtime) relationships raise consumer confidence")
 	// Declared before the shared set so this narrowing wins: impact takes ONE
 	// trace document and reads it itself (see divergentFleetFlagTypes).
@@ -381,19 +381,24 @@ func printChangeHeader(w io.Writer, result *impact.Result) {
 // printRunning writes what a --running answer judged against; nothing for
 // any other answer.
 func printRunning(w io.Writer, r *impact.RunningBaseline) {
-	switch {
-	case r == nil:
+	if r == nil {
 		return
+	}
+	self := ""
+	if len(r.Excluded) > 0 {
+		self = "; the new revision already runs on a known target and is not its own baseline"
+	}
+	switch {
 	case r.Judged != "":
 		noun := "revisions"
 		if len(r.Refs) == 1 {
 			noun = "revision"
 		}
-		_, _ = fmt.Fprintf(w, "Running: %d %s (judged against %s)\n", len(r.Refs), noun, r.Judged)
+		_, _ = fmt.Fprintf(w, "Running: %d %s (judged against %s)%s\n", len(r.Refs), noun, r.Judged, self)
 	case len(r.Unread) == 0:
-		_, _ = fmt.Fprintln(w, "Running: none on a known target (first version)")
+		_, _ = fmt.Fprintf(w, "Running: none on a known target (first version)%s\n", self)
 	default:
-		_, _ = fmt.Fprintln(w, "Running: none Pacto could read (judged as a first version)")
+		_, _ = fmt.Fprintf(w, "Running: none Pacto could read (judged as a first version)%s\n", self)
 	}
 	if len(r.Unread) > 0 {
 		_, _ = fmt.Fprintf(w, "Not read: %s\n", strings.Join(r.Unread, "; "))

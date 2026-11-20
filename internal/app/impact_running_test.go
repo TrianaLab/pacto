@@ -47,6 +47,12 @@ func ledgerRevs(rng string) ([]fleet.RawRevision, []fleet.RawTarget) {
 		[]fleet.RawTarget{{Scope: "prod", Kind: "deployment", Name: "ledger", Service: "ledger", Domain: runReg, Digest: "sha256:l1", Compliance: fleet.StatusCompliant, EvidenceAt: freshNow()}}
 }
 
+// refVersion is the tag of a pulled ref, any digest dropped.
+func refVersion(ref string) string {
+	ref, _ = contract.SplitOCIDigest(ref)
+	return ref[strings.LastIndex(ref, ":")+1:]
+}
+
 // runEnv is a --running fixture: the fleet sources and the store pulls.
 type runEnv struct {
 	col    fleet.Collection
@@ -73,7 +79,7 @@ func (e *runEnv) run(t *testing.T, version string, mutate ...func(*ImpactOptions
 		if e.fail {
 			return nil, errors.New("401 unauthorized for token s3cr3t")
 		}
-		return payBundle(ref[strings.LastIndex(ref, ":")+1:]), nil
+		return payBundle(refVersion(ref)), nil
 	}}
 	col := e.col
 	opts := ImpactOptions{NewPath: dir, RunningRegistries: []string{"reg.example"},
@@ -99,7 +105,7 @@ func onePayments() *runEnv {
 
 func TestImpactRunningJudgesRunningRevision(t *testing.T) {
 	res := mustRun(t, onePayments().withLedger("^1"), "2.0.0")
-	if res.Gate != impact.GateBlocked || res.Running == nil || res.Running.Judged != "oci://"+runReg+"/payments:1.0.0" || res.OldVersion != "1.0.0" || res.Running.FirstVersion {
+	if res.Gate != impact.GateBlocked || res.Running == nil || res.Running.Judged != "oci://"+runReg+"/payments:1.0.0@sha256:p1" || res.OldVersion != "1.0.0" || res.Running.FirstVersion {
 		t.Fatalf("gate %s %q running %+v old %s", res.Gate, res.GateReason, res.Running, res.OldVersion)
 	}
 }
@@ -109,7 +115,7 @@ func TestImpactRunningWorstGateWins(t *testing.T) {
 	e.col.Revisions = append(e.col.Revisions, payRev("2.0.0", "sha256:p2"))
 	e.col.Targets = append(e.col.Targets, payTarget("pay-canary", "sha256:p2"))
 	res := mustRun(t, e, "2.0.0")
-	if res.Gate != impact.GateBlocked || res.Running.Judged != "oci://"+runReg+"/payments:1.0.0" || len(res.Running.Refs) != 2 {
+	if res.Gate != impact.GateBlocked || res.Running.Judged != "oci://"+runReg+"/payments:1.0.0@sha256:p1" || len(res.Running.Refs) != 2 {
 		t.Fatalf("gate %s running %+v", res.Gate, res.Running)
 	}
 }
@@ -151,7 +157,7 @@ func TestImpactRunningUnlinkedTargetIsUnread(t *testing.T) {
 	for _, tr := range snap.Targets {
 		tr.ContractRevision = "missing"
 	}
-	if _, lines := runningRefs(snap, fleet.NewServiceKeyDomain(runReg, "payments"), "payments", func(string) bool { return true }); len(lines) != 1 ||
+	if _, _, lines := runningRefs(snap, fleet.NewServiceKeyDomain(runReg, "payments"), "payments", "", func(string) bool { return true }); len(lines) != 1 ||
 		!strings.Contains(lines[0], "could not link") {
 		t.Fatalf("unread %v", lines)
 	}
@@ -202,7 +208,7 @@ func TestFirstVersionNotSetWhenInferredRuns(t *testing.T) {
 func TestImpactRunningPullFailureIsUnread(t *testing.T) {
 	e := onePayments()
 	e.fail = true
-	res := unread(t, e, "payments:1.0.0: could not be pulled")
+	res := unread(t, e, "payments:1.0.0@sha256:p1: could not be pulled")
 	if strings.Contains(strings.Join(res.Running.Unread, " ")+res.GateReason, "s3cr3t") {
 		t.Fatalf("error text leaked: %+v", res.Running)
 	}
@@ -211,7 +217,7 @@ func TestImpactRunningPullFailureIsUnread(t *testing.T) {
 func TestImpactRunningForeignHostIsUnread(t *testing.T) {
 	e := onePayments()
 	e.col.Revisions[0].ResolvedRef = "evil.example/acme/payments:1.0.0"
-	unread(t, e, "oci://evil.example/acme/payments:1.0.0: registry not allowed")
+	unread(t, e, "oci://evil.example/acme/payments:1.0.0@sha256:p1: registry not allowed")
 	if len(e.pulled) != 0 {
 		t.Fatalf("pulled %v", e.pulled)
 	}
@@ -311,7 +317,7 @@ func TestImpactRunningRebuiltSnapshotDriftNeverClears(t *testing.T) {
 	}
 	now := threePayments("^4")
 	store := &mockBundleStore{PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
-		return payBundle(ref[strings.LastIndex(ref, ":")+1:]), nil
+		return payBundle(refVersion(ref)), nil
 	}}
 	res, err := NewService(store, nil).ImpactRunning(context.Background(), ImpactOptions{NewPath: "oci://" + runReg + "/payments:4.0.0",
 		Fleet: FleetOptions{extraSources: []fleet.Source{fleet.NewMemorySource("mem", "memory", &now.col)}}}, snap)
@@ -324,7 +330,7 @@ func TestImpactRunningRebuiltSnapshotDriftNeverClears(t *testing.T) {
 func TestImpactRunningOCINewKeepsItsDomain(t *testing.T) {
 	e := onePayments().withLedger("^1")
 	store := &mockBundleStore{PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
-		return payBundle(ref[strings.LastIndex(ref, ":")+1:]), nil
+		return payBundle(refVersion(ref)), nil
 	}}
 	var resolved bool
 	res, err := NewService(store, nil).ImpactRunning(context.Background(), ImpactOptions{NewPath: "oci://" + runReg + "/payments:2.0.0",
@@ -408,6 +414,98 @@ func TestImpactRunningIndexRebuildError(t *testing.T) {
 	_, err = NewService(store, nil).ImpactRunning(context.Background(), ImpactOptions{NewPath: dir, RunningRegistries: []string{"reg.example"},
 		Fleet: FleetOptions{ObservationSources: dup}}, snap)
 	if err == nil || !strings.Contains(err.Error(), "build fleet snapshot") {
+		t.Fatalf("err %v", err)
+	}
+}
+
+// ociNew judges the published payments ref instead of a local folder.
+func ociNew(ref string) func(*ImpactOptions) {
+	return func(o *ImpactOptions) { o.NewPath = ref }
+}
+
+func TestRunningExcludesNewDigest(t *testing.T) {
+	e := onePayments().withLedger("^1")
+	e.col.Revisions = append(e.col.Revisions, payRev("1.1.0", "sha256:p11"))
+	e.col.Targets = append(e.col.Targets, payTarget("pay-canary", "sha256:p11"))
+	res := mustRun(t, e, "1.1.0", ociNew("oci://"+runReg+"/payments:1.1.0@sha256:p11"))
+	r := res.Running
+	if res.Gate != impact.GateClear || r.Judged != "oci://"+runReg+"/payments:1.0.0@sha256:p1" || len(r.Refs) != 1 ||
+		!slices.Equal(r.Excluded, []string{"oci://" + runReg + "/payments:1.1.0@sha256:p11"}) ||
+		countPulls(e.pulled, "p11") != 1 {
+		t.Fatalf("gate %s %q running %+v", res.Gate, res.GateReason, r)
+	}
+}
+
+// countPulls counts the pulls whose ref holds part; the new revision itself
+// is pulled once and never again as a baseline.
+func countPulls(pulled []string, part string) int {
+	n := 0
+	for _, p := range pulled {
+		if strings.Contains(p, part) {
+			n++
+		}
+	}
+	return n
+}
+
+func TestRunningOnlyNewRunsStillBlocks(t *testing.T) {
+	e := &runEnv{col: fleet.Collection{Revisions: []fleet.RawRevision{payRev("2.0.0", "sha256:p2")}, Targets: []fleet.RawTarget{payTarget("pay", "sha256:p2")}}}
+	res := mustRun(t, e.withLedger("^1"), "2.0.0", ociNew("oci://"+runReg+"/payments:2.0.0@sha256:p2"))
+	r := res.Running
+	if res.Gate != impact.GateBlocked || !r.FirstVersion || len(r.Refs) != 0 || len(r.Excluded) != 1 || !strings.Contains(res.GateReason, "ledger") {
+		t.Fatalf("gate %s %q running %+v", res.Gate, res.GateReason, r)
+	}
+}
+
+func TestRunningSkippedFailedRegistryNeighbour(t *testing.T) {
+	// 1.1.0 runs; 1.2.0 removed the api and was held; 1.2.1 keeps the
+	// removal, so it diffs clean against 1.2.0 but breaks against 1.1.0.
+	cut := func(v string) *contract.Bundle {
+		b := payBundle("2.0.0")
+		b.Contract.Service.Version = v
+		return b
+	}
+	e := onePayments().withLedger("^1")
+	e.col.Revisions[0] = payRev("1.1.0", "sha256:p1")
+	e.col.Revisions = append(e.col.Revisions,
+		fleet.RawRevision{Bundle: cut("1.2.0"), Domain: runReg, ResolvedRef: runReg + "/payments:1.2.0", Digest: "sha256:p120"},
+		fleet.RawRevision{Bundle: cut("1.2.1"), Domain: runReg, ResolvedRef: runReg + "/payments:1.2.1", Digest: "sha256:p121"})
+	store := &mockBundleStore{PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
+		if v := refVersion(ref); v != "1.1.0" {
+			return cut(v), nil
+		}
+		return payBundle("1.1.0"), nil
+	}}
+	col := e.col
+	res, err := NewService(store, nil).ImpactRunning(context.Background(), ImpactOptions{NewPath: "oci://" + runReg + "/payments:1.2.1@sha256:p121",
+		Fleet: FleetOptions{Index: IndexNone, extraSources: []fleet.Source{fleet.NewMemorySource("mem", "memory", &col)}}}, nil)
+	if err != nil || res.Gate == impact.GateClear || res.OldVersion != "1.1.0" || res.Classification != "BREAKING" || len(res.Running.Excluded) != 0 {
+		t.Fatalf("res %+v err %v", res, err)
+	}
+}
+
+func TestRunningLocalNewExcludesNothing(t *testing.T) {
+	res := mustRun(t, onePayments(), "1.0.0")
+	if res.Running.Excluded != nil || len(res.Running.Refs) != 1 {
+		t.Fatalf("running %+v", res.Running)
+	}
+}
+
+func TestRunningNewDigestResolvedFromTag(t *testing.T) {
+	e := onePayments()
+	store := &mockBundleStore{
+		PullFn:    func(_ context.Context, ref string) (*contract.Bundle, error) { return payBundle(refVersion(ref)), nil },
+		ResolveFn: func(context.Context, string) (string, error) { return "sha256:p1", nil },
+	}
+	res, err := NewService(store, nil).ImpactRunning(context.Background(), ImpactOptions{NewPath: "oci://" + runReg + "/payments:1.0.0",
+		Fleet: FleetOptions{Index: IndexNone, extraSources: []fleet.Source{fleet.NewMemorySource("mem", "memory", &e.col)}}}, nil)
+	if err != nil || len(res.Running.Excluded) != 1 || !res.Running.FirstVersion {
+		t.Fatalf("res %+v err %v", res, err)
+	}
+	store.ResolveFn = func(context.Context, string) (string, error) { return "", errors.New("head failed") }
+	if _, err := NewService(store, nil).ImpactRunning(context.Background(), ImpactOptions{NewPath: "oci://" + runReg + "/payments:1.0.0",
+		Fleet: FleetOptions{Index: IndexNone, extraSources: []fleet.Source{fleet.NewMemorySource("mem", "memory", &e.col)}}}, nil); err == nil ||
+		!strings.Contains(err.Error(), "new revision digest") {
 		t.Fatalf("err %v", err)
 	}
 }

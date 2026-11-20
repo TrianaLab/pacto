@@ -13,6 +13,7 @@ type RunningBaseline struct {
 	Refs         []string `json:"refs" doc:"The registry refs of the revisions that run on known targets, sorted; empty when none runs"`
 	Judged       string   `json:"judged,omitempty" doc:"The running revision this answer compared the new one with; empty for a first version"`
 	Unread       []string `json:"unread,omitempty" doc:"The running revisions Pacto could not read, link or trust, in words; the gate never clears over them"`
+	Excluded     []string `json:"excluded,omitempty" doc:"The running revisions with the new revision's digest, left out of the baseline: a revision is never its own baseline"`
 	FirstVersion bool     `json:"firstVersion,omitempty" doc:"No running revision could be judged, so the new revision was compared with itself and only the consumers' ranges speak"`
 }
 

@@ -1750,7 +1750,7 @@ pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed
       --regressed string                what happens if <service>@<revision> regressed; an artifact digest reads delivery's recorded failures
       --removed string                  what happens if this service (a fleet service key, or a name only one domain holds) is removed; offering:<name> asks it of every provider of an offering
       --root stringArray                contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
-      --running[=true|false]            judge <new> against the revisions of its service that run on known targets instead of an <old> revision; with no running revision only consumers' ranges are checked
+      --running[=true|false]            judge <new> against the revisions of its service that run on known targets instead of an <old> revision; a running revision with the new digest is not a baseline; with no running revision only consumers' ranges are checked
       --stats-context string            comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
       --stats-file string               write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
       --stats-registry string           publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
