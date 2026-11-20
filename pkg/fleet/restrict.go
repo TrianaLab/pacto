@@ -54,6 +54,25 @@ func (q *Query) Namespaces() []ClusterNamespace {
 	return slices.SortedFunc(maps.Keys(seen), compareClusterNamespace)
 }
 
+// ClusterIDs lists, sorted, every cluster id the snapshot holds something of:
+// its clusters and the clusters of its targets (Kubernetes or not) and its
+// provider rows. A reader's view needs a reviewer for each.
+func (q *Query) ClusterIDs() []string {
+	seen := map[string]bool{}
+	for _, c := range q.snap.Clusters {
+		seen[c.ID] = true
+	}
+	for _, t := range q.snap.Targets {
+		seen[t.Cluster] = true
+	}
+	clusters := clusterOfSource(q.snap)
+	for _, p := range q.snap.Providers {
+		seen[providerCluster(p, clusters)] = true
+	}
+	delete(seen, "")
+	return slices.Sorted(maps.Keys(seen))
+}
+
 func compareClusterNamespace(a, b ClusterNamespace) int {
 	return cmp.Or(cmp.Compare(a.Cluster, b.Cluster), cmp.Compare(a.Namespace, b.Namespace))
 }
@@ -657,7 +676,7 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 var clusterHiddenReasons = map[string]string{
 	ClusterNoAccess:      "you may read no namespace there",
 	ClusterReviewFailed:  "the review failed or took longer than 5s, so its services are hidden",
-	ClusterNotReviewable: "nobody can be reviewed there, so its services are hidden from signed-in readers",
+	ClusterNotReviewable: "Pacto cannot review you there, so its services are hidden",
 }
 
 // clusterLabel names a cluster in a limitation; "" is the one cluster whose

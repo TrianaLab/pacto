@@ -30,7 +30,7 @@ func TestWithClusterAccessNamesHiddenClusters(t *testing.T) {
 	cases := map[string]string{
 		ClusterNoAccess:      "cluster us-prod: you may read no namespace there",
 		ClusterReviewFailed:  "cluster us-prod: the review failed or took longer than 5s, so its services are hidden",
-		ClusterNotReviewable: "cluster us-prod: nobody can be reviewed there, so its services are hidden from signed-in readers",
+		ClusterNotReviewable: "cluster us-prod: Pacto cannot review you there, so its services are hidden",
 	}
 	for access, msg := range cases {
 		t.Run(access, func(t *testing.T) {

@@ -474,6 +474,11 @@ func (v *Viewer) plan(m map[string]Review, route func(string) (string, bool), q 
 			w.scopes, w.shows = append(w.scopes, fleet.WorkloadScope{Namespace: sc.Namespace, Kind: sc.Kind}), true
 		}
 	}
+	// A cluster only a non-Kubernetes target or a provider row carries still
+	// needs a reviewer, or the full-snapshot shortcut would show it unreviewed.
+	for _, c := range q.ClusterIDs() {
+		of(c)
+	}
 	if !v.scoped {
 		for k := range m {
 			if _, ok := route(k); ok && work[k] == nil {
@@ -515,20 +520,19 @@ func (v *Viewer) reviewCluster(ctx context.Context, p Person, who string, w *clu
 	}
 }
 
-// markAccess records why a cluster with items shows nothing: its review
-// failed, or (with several reviewers) p may read nothing there. A failure is
-// logged with the cluster id.
+// markAccess records why a cluster shows nothing: its review failed, or
+// (with several reviewers, for a cluster with items) p may read nothing
+// there. A failure is logged with the cluster id.
 func markAccess(ctx context.Context, access map[string]string, w *clusterWork, several bool) {
 	if w.err != nil {
 		slog.WarnContext(ctx, "reviewing which namespaces a person may read failed", "cluster", w.key, "error", w.err)
 	}
-	if !w.shows {
-		return
-	}
 	switch {
 	case w.err != nil:
+		// Even with no namespace to decide, a failed review hides what has
+		// no namespace, so it is named, never read as a permission denial.
 		access[w.key] = fleet.ClusterReviewFailed
-	case several && !w.sees():
+	case w.shows && several && !w.sees():
 		access[w.key] = fleet.ClusterNoAccess
 	}
 }

@@ -132,7 +132,7 @@ limitation per source.
 
 | Limitation | Raised when |
 |------------|-------------|
-| `CLUSTER_HIDDEN` | The view hides one cluster: you may read no namespace there, its review failed or nobody can be reviewed there ([Multi-cluster](multi-cluster.md)). Its `source` is the cluster id; the answer is partial |
+| `CLUSTER_HIDDEN` | The view hides one cluster: you may read no namespace there, its review failed or Pacto cannot review you there ([Multi-cluster](multi-cluster.md)). Its `source` is the cluster id; the answer is partial |
 
 ### What a target-state fixture looks like
 

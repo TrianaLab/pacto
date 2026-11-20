@@ -3,6 +3,7 @@ package authn
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -129,7 +130,7 @@ func TestViewerClusterlessInMultiIsNotReviewable(t *testing.T) {
 	if err != nil || slices.Contains(services(got), "loose") || !slices.Contains(services(got), "svc-uid-eu") {
 		t.Fatalf("clusterless item with two reviewers: %v, %v", services(got), err)
 	}
-	if s := got.SnapshotForSerialization(); !hasHidden(s, "", "nobody can be reviewed there") {
+	if s := got.SnapshotForSerialization(); !hasHidden(s, "", "Pacto cannot review you there") {
 		t.Errorf("limitations %+v", s.Limitations)
 	}
 }
@@ -245,6 +246,52 @@ func TestViewerShortcutNeedsEveryCluster(t *testing.T) {
 	if err != nil || got == q || !slices.Equal(services(got), []string{"svc-prod-uid-eu", "svc-prod-uid-us", "svc-shop-uid-eu"}) {
 		t.Errorf("cluster-wide in eu only: %v, %v", services(got), err)
 	}
+}
+
+// TestViewerShortcutNeedsEveryClusterOfAnyItem: a cluster only an Evidence
+// Server target or a cluster-scope provider row carries has no reviewer, so a
+// reader cluster-wide everywhere else still gets a restricted view that names
+// it, never the full snapshot.
+func TestViewerShortcutNeedsEveryClusterOfAnyItem(t *testing.T) {
+	yes := &clusterReviewer{allow: func(context.Context, Person, string) (bool, error) { return true, nil }}
+	eu := fleet.NewMemorySource("k8s-uid-eu", fleet.SourceKindKubernetes, &fleet.Collection{Cluster: &fleet.Cluster{ID: "uid-eu", Name: "eu"},
+		Targets: []fleet.RawTarget{{Scope: "prod", Kind: fleet.SourceKindKubernetes, Name: "svc-eu", Service: "svc-eu", EvidenceAt: &clusterTestNow}}})
+	for what, src := range map[string]fleet.Source{
+		"external target": fleet.NewMemorySource("ev", fleet.SourceKindEvidenceHTTP, &fleet.Collection{Targets: []fleet.RawTarget{{Scope: "ci",
+			Kind: "external", Name: "ext-us", Service: "ext-us", EvidenceAt: &clusterTestNow, Cluster: &fleet.Cluster{ID: "uid-us", Name: "us"}}}}),
+		"provider row": fleet.NewMemorySource("detect", "detect", &fleet.Collection{Providers: []fleet.Provider{{ID: "argo-us", Source: "detect",
+			Name: "Argo CD", Evidence: "Argo CD found", Status: fleet.SourceAvailable, Provenance: fleet.ProvenanceInferred,
+			Scope: fleet.ScopeCluster, Cluster: "us", ClusterID: "uid-us"}}}),
+	} {
+		snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return clusterTestNow }}, eu, src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		q := fleet.NewQuery(snap)
+		got, err := NewViewer(byCluster(map[string]Review{"uid-eu": yes.review})).Query(context.Background(), alice, q)
+		if err != nil || got == q || !hasHidden(got.SnapshotForSerialization(), "uid-us", "Pacto cannot review you there") {
+			t.Errorf("%s of a cluster with no reviewer: full %v, %v", what, got == q, err)
+		}
+		if slices.ContainsFunc(slices.Collect(maps.Values(got.SnapshotForSerialization().Targets)), func(tr *fleet.TargetRecord) bool { return tr.Cluster == "uid-us" }) {
+			t.Errorf("%s: the unreviewed cluster's target shows", what)
+		}
+	}
+}
+
+// TestViewerFailedReviewWithoutItemsIsNamed: the only reviewer decides no
+// namespace (a registry-only fleet) and its review fails; the answer names
+// the failure, never a permission denial alone.
+func TestViewerFailedReviewWithoutItemsIsNamed(t *testing.T) {
+	bundle := &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.0",
+		Service: contract.Service{Name: "reg", Version: "1.0.0", Owner: contract.Owner{Team: "t"}}}, FS: fstest.MapFS{}}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+		fleet.NewMemorySource("oci", "oci", &fleet.Collection{Revisions: []fleet.RawRevision{{Bundle: bundle, Digest: "sha256:reg"}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &clusterReviewer{allow: failing(errors.New("timeout"))}
+	got, err := NewViewer(one(r.review)).Query(context.Background(), alice, fleet.NewQuery(snap))
+	checkReviewFailed(t, "a failed review with no namespace to decide", got, err)
 }
 
 // TestViewerShortcutNeedsEveryReviewer: a reviewer with nothing of its own

@@ -319,3 +319,18 @@ func TestRestrictKeepsRefusedSourceClusterLimitations(t *testing.T) {
 		t.Fatalf("cluster limitations = %v, want %v", got, want)
 	}
 }
+
+// TestClusterIDsCoversEveryItemCluster: a cluster only an external target or
+// a provider row carries is listed beside the clusters of the sources.
+func TestClusterIDsCoversEveryItemCluster(t *testing.T) {
+	ext := RawTarget{Scope: "ci", Kind: "external", Name: "ext", Service: "ext", Cluster: clusterOf(clusterB, "us-prod", ClusterNameFromContext)}
+	row := Provider{ID: "argo", Source: "detect", Name: "Argo CD", Evidence: "Argo CD found", Status: SourceAvailable,
+		Provenance: ProvenanceInferred, Scope: ScopeCluster, Cluster: "ap", ClusterID: "uid-ap"}
+	q := NewQuery(buildClusterSnap(t,
+		NewMemorySource("eu", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterA, "eu-prod", ClusterNameFromContext), Targets: []RawTarget{workload("prod", "web")}}),
+		NewMemorySource("ev", SourceKindEvidenceHTTP, &Collection{Targets: []RawTarget{ext}}),
+		NewMemorySource("detect", "detect", &Collection{Providers: []Provider{row}})))
+	if got := q.ClusterIDs(); !slices.Equal(got, slices.Sorted(slices.Values([]string{clusterA, clusterB, "uid-ap"}))) {
+		t.Errorf("cluster ids %v", got)
+	}
+}
