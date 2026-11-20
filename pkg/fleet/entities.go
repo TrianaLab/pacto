@@ -65,6 +65,10 @@ type EntityFilter struct {
 	// With Consumes and Phase it also narrows the consumers to the provisioning
 	// statuses in this environment; on services alone it is an invalid query.
 	Environment string
+	// Cluster keeps the TARGETS of this cluster id (TargetRecord.Cluster), the
+	// SERVICES with a target there and the REVISIONS a target there runs; owners,
+	// domains and other kinds ignore it. An unknown id answers an empty list.
+	Cluster string
 	// Capability keeps the SERVICES any of whose read revisions declares a
 	// capability of this type (see [Query.serviceCapabilities]).
 	Capability string
@@ -416,6 +420,10 @@ func (r EntityRef) RateBase() int {
 // gains domain rows.
 type crossKind struct {
 	ownersInDomain, domainsOfOwner map[string]bool
+	// clusterServices and clusterRevisions are the services with a target in
+	// EntityFilter.Cluster and the revisions a target there runs.
+	clusterServices  map[ServiceKey]bool
+	clusterRevisions map[RevisionKey]bool
 }
 
 func (q *Query) crossKindSets(f EntityFilter) crossKind {
@@ -439,7 +447,42 @@ func (q *Query) crossKindSets(f EntityFilter) crossKind {
 			}
 		}
 	}
+	if f.Cluster != "" {
+		x.clusterServices, x.clusterRevisions = q.clusterMembers(f.Cluster)
+	}
 	return x
+}
+
+// clusterMembers is the services with a target in cluster and the revisions a
+// target there runs.
+func (q *Query) clusterMembers(cluster string) (map[ServiceKey]bool, map[RevisionKey]bool) {
+	svc, rev := map[ServiceKey]bool{}, map[RevisionKey]bool{}
+	for _, t := range q.snap.Targets {
+		if t.Cluster == cluster {
+			svc[t.ServiceKey], rev[t.ContractRevision] = true, true
+		}
+	}
+	return svc, rev
+}
+
+// matchPlacement applies the source and cluster filters.
+func (q *Query) matchPlacement(r EntityRef, f EntityFilter, x crossKind) bool {
+	if f.Source != "" && !q.entityFromSource(r, f.Source) {
+		return false
+	}
+	if f.Cluster == "" {
+		return true
+	}
+	switch r.Kind {
+	case KindTarget:
+		return q.snap.Targets[TargetKey(r.Key)].Cluster == f.Cluster
+	case KindService:
+		return x.clusterServices[ServiceKey(r.Key)]
+	case KindRevision:
+		return x.clusterRevisions[RevisionKey(r.Key)]
+	default:
+		return true
+	}
 }
 
 // NoBusinessDomain is the BusinessDomain filter value for the services known to
@@ -835,7 +878,7 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter, x crossKind) bool {
 		q.matchEntityTextOrClass(r, f) &&
 		(f.Owner == "" || q.entityOwnedBy(r, f.Owner)) &&
 		(f.OwnerKey == "" || q.entityOwnedByKey(r, f.OwnerKey, x)) &&
-		(f.Source == "" || q.entityFromSource(r, f.Source)) &&
+		q.matchPlacement(r, f, x) &&
 		q.matchServiceState(r, f) &&
 		(f.Readiness == "" || q.matchReadinessState(r, f.Readiness)) &&
 		q.matchGoldenPath(r, f) && declarationMatches(f.Declaration, r) && groupMatches(f.Group, r) &&

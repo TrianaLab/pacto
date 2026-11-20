@@ -328,6 +328,62 @@ type ProductMeta struct {
 	// ExternalCatalogs are the catalogs that classified external systems, with
 	// their digest and how far their signature was checked.
 	ExternalCatalogs []ExternalCatalogRef `json:"externalCatalogs,omitempty"`
+	// Clusters is the status of each cluster the answer knows, present only
+	// when it knows one (see [ClusterSummary]).
+	Clusters          []ClusterSummary `json:"clusters,omitempty" doc:"The status of each cluster the answer knows, least healthy first when truncated. Absent when no cluster is known."`
+	ClustersTruncated bool             `json:"clustersTruncated,omitempty" doc:"The snapshot knows more clusters than the answer carries."`
+}
+
+// ClusterSummary is the status of one cluster in an answer: the worst status
+// of the sources that reported it, why a restricted view hides it, and how
+// many targets it shows there. A Kubernetes source that read no cluster
+// identity (a context that failed) is listed with an empty id and its source
+// id as name.
+type ClusterSummary struct {
+	ID         string       `json:"id" doc:"The kube-system namespace UID; empty for a Kubernetes source whose cluster could not be identified."`
+	Name       string       `json:"name" doc:"A display name for the cluster, or the source id when the cluster could not be identified; never an identity."`
+	NameSource string       `json:"nameSource,omitempty" enum:"node-label,context,file,uid" doc:"How the name was found."`
+	Status     SourceStatus `json:"status" enum:"available,partial,stale,unavailable" doc:"The worst status of the sources that reported the cluster."`
+	Access     string       `json:"access,omitempty" enum:"no-access,review-failed,not-reviewable" doc:"Why a restricted view shows nothing of this cluster; empty when it shows what you may read."`
+	Targets    int          `json:"targets" doc:"The targets of this cluster the answer shows."`
+}
+
+// clusterSummaries is the per-cluster status of s, nil when s knows no
+// cluster, capped at MaxMetaClusters (least healthy kept first).
+func clusterSummaries(s *FleetSnapshot) ([]ClusterSummary, bool) {
+	if len(s.Clusters) == 0 {
+		return nil, false
+	}
+	status := map[string]SourceStatus{}
+	for _, st := range s.Sources {
+		status[st.ID] = st.Status
+	}
+	targets := map[string]int{}
+	for _, t := range s.Targets {
+		targets[t.Cluster]++
+	}
+	named := map[string]bool{}
+	out := make([]ClusterSummary, 0, len(s.Clusters))
+	for _, c := range s.Clusters {
+		sum := ClusterSummary{ID: c.ID, Name: cmp.Or(c.Name, c.ID), NameSource: c.NameSource, Status: SourceAvailable, Access: c.Access, Targets: targets[c.ID]}
+		for _, src := range c.Sources {
+			named[src] = true
+			if sourceHealthRank(status[src]) < sourceHealthRank(sum.Status) {
+				sum.Status = status[src]
+			}
+		}
+		out = append(out, sum)
+	}
+	for _, st := range s.Sources {
+		if st.Kind == SourceKindKubernetes && st.Cluster == nil && !named[st.ID] {
+			out = append(out, ClusterSummary{Name: st.ID, Status: st.Status})
+		}
+	}
+	if len(out) <= MaxMetaClusters {
+		return out, false
+	}
+	sort.SliceStable(out, func(i, j int) bool { return sourceHealthRank(out[i].Status) < sourceHealthRank(out[j].Status) })
+	return out[:MaxMetaClusters], true
 }
 
 func (q *Query) productMeta() ProductMeta { return q.productMetaWith(nil) }
@@ -340,6 +396,7 @@ func (q *Query) productMetaWith(derived []Limitation) ProductMeta {
 	// unbounded with the fleet's source or limitation count.
 	srcs, srcTrunc := boundSources(cloneSources(q.snap.Sources))
 	lims, limTrunc := BoundLimitations(append(derived, cloneLimitations(q.snap.Limitations)...))
+	clusters, clusterTrunc := clusterSummaries(q.snap)
 	return ProductMeta{
 		SchemaVersion:        ProductSchemaVersion,
 		SnapshotID:           q.snap.SnapshotID,
@@ -351,6 +408,8 @@ func (q *Query) productMetaWith(derived []Limitation) ProductMeta {
 		Limitations:          lims,
 		LimitationsTruncated: limTrunc,
 		ExternalCatalogs:     slices.Clone(q.snap.ExternalCatalogs),
+		Clusters:             clusters,
+		ClustersTruncated:    clusterTrunc,
 	}
 }
 

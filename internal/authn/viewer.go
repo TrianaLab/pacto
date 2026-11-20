@@ -313,7 +313,8 @@ func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Qu
 	// people asking at once may both build the same view.
 	// ponytail: adapter until P4 reviews per cluster.
 	r = q.Restrict(func(_, ns string) bool { return nsVisible(ns) },
-		func(_, ns, kind string) bool { return workloads[fleet.WorkloadScope{Namespace: ns, Kind: kind}] })
+		func(_, ns, kind string) bool { return workloads[fleet.WorkloadScope{Namespace: ns, Kind: kind}] }).
+		WithClusterAccess(q, nil) // ponytail: P4 fills the access of each reviewed cluster.
 	v.mu.Lock()
 	if v.viewsOf != q.SnapshotID() || len(v.views) >= maxViews {
 		v.viewsOf, v.views = q.SnapshotID(), map[string]*fleet.Query{}

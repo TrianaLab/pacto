@@ -583,7 +583,9 @@ func rebuiltLimitation(l Limitation) bool {
 	case LimitationDomainConflict, LimitationOfferingConflict, LimitationOwnerConflict,
 		// A fleet-wide count of reports, counts of clusterless targets and
 		// per-source counts of inferred records.
-		LimitationProvisioningTruncated, LimitationUsageTruncated, LimitationClusterUnknown, LimitationClusterConflict, LimitationDeclarationUnverified, LimitationServiceGroupAmbiguous:
+		LimitationProvisioningTruncated, LimitationUsageTruncated, LimitationClusterUnknown, LimitationClusterConflict, LimitationDeclarationUnverified, LimitationServiceGroupAmbiguous,
+		// The clusters one reader may not see: WithClusterAccess adds them again.
+		LimitationClusterHidden:
 		return true
 	case LimitationSourceRecordInvalid:
 		// Per-source counts of records that may be hidden.
@@ -625,6 +627,54 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 			Message: strconv.Itoa(unresolved[src]) + " names observed by " + src + " are not shown: they carry no namespace to check permissions against",
 		})
 	}
+}
+
+// clusterHiddenReasons is the CLUSTER_HIDDEN message of each access mark.
+var clusterHiddenReasons = map[string]string{
+	ClusterNoAccess:      "you may read no namespace there",
+	ClusterReviewFailed:  "the review failed or took longer than 5s, so its services are hidden",
+	ClusterNotReviewable: "nobody can be reviewed there, so its services are hidden from signed-in readers",
+}
+
+// WithClusterAccess marks the reviewed clusters a restricted view q shows
+// nothing of: access maps a cluster id to ClusterNoAccess, ClusterReviewFailed
+// or ClusterNotReviewable. Each marked cluster a Kubernetes source of full read
+// is listed again with its mark (a cluster only another source reported stays
+// shown only while a visible target carries it), gets one CLUSTER_HIDDEN
+// limitation and makes the view partial. Cluster names are the server's
+// configuration, so a reader learns which clusters exist, never what is
+// inside. An empty access returns q.
+func (q *Query) WithClusterAccess(full *Query, access map[string]string) *Query {
+	if len(access) == 0 {
+		return q
+	}
+	out := *q.base
+	shown := map[string]bool{}
+	for _, c := range out.Clusters {
+		shown[c.ID] = true
+	}
+	kube := map[string]bool{}
+	for _, st := range full.base.Sources {
+		kube[st.ID] = st.Kind == SourceKindKubernetes
+	}
+	names := map[string]string{}
+	out.Clusters = nil
+	for _, c := range full.base.Clusters {
+		names[c.ID] = cmp.Or(c.Name, c.ID)
+		if shown[c.ID] || access[c.ID] != "" && slices.ContainsFunc(c.Sources, func(s string) bool { return kube[s] }) {
+			c.Access = access[c.ID]
+			out.Clusters = append(out.Clusters, c)
+		}
+	}
+	out.Limitations = slices.Clone(out.Limitations)
+	for _, id := range slices.Sorted(maps.Keys(access)) {
+		out.Limitations = append(out.Limitations, Limitation{Code: LimitationClusterHidden, Source: id,
+			Message: "cluster " + cmp.Or(names[id], id) + ": " + clusterHiddenReasons[access[id]]})
+	}
+	sortSnapshotLimitations(&out)
+	out.Completeness = CompletenessPartial
+	out.SnapshotID = computeSnapshotID(&out)
+	return NewQuery(&out)
 }
 
 // restrictClusters is the clusters some target of targets carries.

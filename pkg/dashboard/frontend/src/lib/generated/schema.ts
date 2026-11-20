@@ -2635,6 +2635,11 @@ export interface components {
             reportedBy?: string;
         };
         "Fleet.ClusterRecord": {
+            /**
+             * @description Why a restricted view shows nothing of this cluster: you may read no namespace there, the review failed or took too long, or nobody can be reviewed there. Empty when the view shows what you may read.
+             * @enum {string}
+             */
+            access?: "no-access" | "review-failed" | "not-reviewable";
             /** @description The kube-system namespace UID: the identity of the cluster. */
             id: string;
             /** @description A display name for the cluster; never an identity. */
@@ -2648,6 +2653,32 @@ export interface components {
             reportedBy?: string;
             /** @description Every source that reported this cluster id. */
             sources: string[] | null;
+        };
+        "Fleet.ClusterSummary": {
+            /**
+             * @description Why a restricted view shows nothing of this cluster; empty when it shows what you may read.
+             * @enum {string}
+             */
+            access?: "no-access" | "review-failed" | "not-reviewable";
+            /** @description The kube-system namespace UID; empty for a Kubernetes source whose cluster could not be identified. */
+            id: string;
+            /** @description A display name for the cluster, or the source id when the cluster could not be identified; never an identity. */
+            name: string;
+            /**
+             * @description How the name was found.
+             * @enum {string}
+             */
+            nameSource?: "node-label" | "context" | "file" | "uid";
+            /**
+             * @description The worst status of the sources that reported the cluster.
+             * @enum {string}
+             */
+            status: "available" | "partial" | "stale" | "unavailable";
+            /**
+             * Format: int64
+             * @description The targets of this cluster the answer shows.
+             */
+            targets: number;
         };
         "Fleet.ComplianceTally": {
             /** Format: int64 */
@@ -3654,6 +3685,10 @@ export interface components {
         "Fleet.Meta": {
             /** Format: date-time */
             asOf: string;
+            /** @description The status of each cluster the answer knows, least healthy first when truncated. Absent when no cluster is known. */
+            clusters?: components["schemas"]["Fleet.ClusterSummary"][] | null;
+            /** @description The snapshot knows more clusters than the answer carries. */
+            clustersTruncated?: boolean;
             completeness: string;
             externalCatalogs?: components["schemas"]["Fleet.ExternalCatalogRef"][] | null;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
@@ -4022,6 +4057,10 @@ export interface components {
         "Fleet.ProductMeta": {
             /** Format: date-time */
             asOf: string;
+            /** @description The status of each cluster the answer knows, least healthy first when truncated. Absent when no cluster is known. */
+            clusters?: components["schemas"]["Fleet.ClusterSummary"][] | null;
+            /** @description The snapshot knows more clusters than the answer carries. */
+            clustersTruncated?: boolean;
             completeness: string;
             externalCatalogs?: components["schemas"]["Fleet.ExternalCatalogRef"][] | null;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
