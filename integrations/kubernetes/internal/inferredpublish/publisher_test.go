@@ -161,9 +161,33 @@ func TestInferredPublisherListErrorPublishesNothingRemoved(t *testing.T) {
 	failPay = false
 	objs[1].(*unstructured.Unstructured).Object["status"].(map[string]any)["externals"] = []any{}
 	_ = r.(client.Client).Update(context.Background(), objs[1])
-	p.run(context.Background()) // a complete read removes it
+	p.run(context.Background()) // a watched-namespaces read never removes it either
+	if got := tags(t, repo); len(got) != 1 {
+		t.Errorf("a scoped read removed a host: tags = %v", got)
+	}
+	cw, _ := publisher(t, host, r, l)
+	cw.Deps.Signer, cw.Deps.Verify = p.Deps.Signer, p.Deps.Verify
+	cw.run(context.Background()) // a complete cluster-wide read removes it
 	if got := tags(t, repo); len(got) != 2 {
 		t.Errorf("tags = %v", got)
+	}
+}
+
+// TestInferredPublisherScopedIsPartial: an operator that watches only some
+// namespaces cannot see the rest, so every surface it writes says partial
+// with TARGET_SNAPSHOT_SCOPED.
+func TestInferredPublisherScopedIsPartial(t *testing.T) {
+	host := testHost(t)
+	p, _ := publisher(t, host, reader(nil, pacto("shop", "checkout", "api.stripe.com")), &logs{}, "shop")
+	p.run(context.Background())
+	b, err := publish.NewClient(authn.DefaultKeychain).Pull(context.Background(), p.Root+"/stripe:0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := contract.ReadInferredRecord(b.FS)
+	if err != nil || rec.Surface == nil || rec.Surface.Completeness.State != contract.CoveragePartial ||
+		!slices.Contains(rec.Surface.Completeness.Limitations, "TARGET_SNAPSHOT_SCOPED") {
+		t.Fatalf("record = %+v, %v", rec, err)
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -28,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/inferredcontract"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/publish"
@@ -116,11 +118,18 @@ func (p *InferredPublisher) Start(ctx context.Context) error {
 }
 
 // run lists the Pactos, builds their snapshot and publishes what changed. A
-// list error makes the snapshot partial, so no published value is removed.
+// list error, or an operator that watches only some namespaces, makes the
+// snapshot partial, so no published value is removed and every surface says
+// partial.
 func (p *InferredPublisher) run(ctx context.Context) {
 	pactos, listErr := p.pactos(ctx)
 	snap, err := delivery.Snapshot(ctx, pactos, listErr, nil, p.Deps.Now())
 	var rep inferredcontract.Report
+	if err == nil && len(p.Namespaces) > 0 {
+		snap.Completeness = fleet.CompletenessPartial
+		snap.Limitations = append(snap.Limitations, fleet.Limitation{Code: fleet.LimitationTargetSnapshotScoped,
+			Message: "read only namespaces " + strings.Join(p.Namespaces, ", ")})
+	}
 	if err == nil {
 		rep, err = inferredcontract.Publish(ctx, p.Deps, p.Root, snap)
 	}
