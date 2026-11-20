@@ -106,7 +106,8 @@ const (
 	// OwnerPolicyUnverified: no verified owner policy was read, so who may
 	// set the owner is unknown.
 	OwnerPolicyUnverified = "OWNER_POLICY_UNVERIFIED"
-	// OwnerSignerUnverified: the bundle's signer could not be verified.
+	// OwnerSignerUnverified: the bundle's signer, or in the fleet the owner
+	// before it, could not be verified.
 	OwnerSignerUnverified = "OWNER_SIGNER_UNVERIFIED"
 )
 

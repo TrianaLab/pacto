@@ -31,7 +31,7 @@ Pacto checks each owner change in this order and stops at the first match:
 | `OWNER_SIGNER_NOT_PERSON` | An agent, CI or workload signer never sets `service.owner` |
 | `OWNER_SIGNER_NOT_ALLOWED` | The person is no member of the current owner and no default approver |
 | `OWNER_POLICY_UNVERIFIED` | No verified owner policy was read, so who may set the owner is unknown |
-| `OWNER_SIGNER_UNVERIFIED` | No signature of a published owner-setting version verified |
+| `OWNER_SIGNER_UNVERIFIED` | No signature of a published owner-setting version verified, or the fleet read no owner before it |
 
 A signer is a member of an owner when a rule of the policy's `teams` entry for
 the owner's team matches it, or when its subject is an email equal to the
@@ -57,7 +57,8 @@ walks the service's published versions in order and takes the owner of the
 last one whose owner was not refused or left unchecked: its declared owner,
 else its attested owner. The baseline a declaration names for itself is never
 the reference. A first owner has no current owner, so setting it takes a
-default approver.
+default approver. With no verified policy nobody can set it, and the service
+stays without an owner.
 
 ## Attested owners
 
@@ -88,9 +89,11 @@ declared owner only.
 The fleet judges every published version that changes the owner and either
 carries a declaration or has a signature other than accepted CI provenance.
 It drops the owner of a version the rule refused (`OWNER_DECLARATION_REFUSED`)
-and of a declaration it could not check (`OWNER_DECLARATION_UNVERIFIED`, which
-makes the answer partial). The operator marks a running bundle the same way
-with the [`OwnerVerified` condition](integrations/kubernetes/owner-policy.md#the-ownerverified-condition).
+and of a version it could not check (`OWNER_DECLARATION_UNVERIFIED`, which
+makes the answer partial). The fleet reads only the versions its sources name,
+so a change it finds no earlier owner for reads as unverified. The operator
+marks a running bundle the same way with the
+[`OwnerVerified` condition](integrations/kubernetes/owner-policy.md#the-ownerverified-condition).
 
 An unsigned version with no declaration keeps its owner. Whoever can write to
 the registry can already push any contract, so registry write access stays

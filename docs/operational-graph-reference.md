@@ -384,7 +384,7 @@ dashboard labels it Owner unknown and never No declared owner.
 | `provenance.ownerRight` | On a revision, the owner rule's verdict on the owner it sets: `allowed`, `code` and `message` |
 | `OWNER_CONFLICT` | Also raised when attested revisions of the service were signed from different repositories; no attested owner is set |
 | `OWNER_DECLARATION_REFUSED` | A registry revision sets an owner its signer may not set, so its owner is not used |
-| `OWNER_DECLARATION_UNVERIFIED` | A registry revision declares an owner the rule could not check, so its owner is not used and the answer is `partial` |
+| `OWNER_DECLARATION_UNVERIFIED` | A registry revision sets an owner the rule could not check (no verified signer or policy, or no earlier owner read), so its owner is not used and the answer is `partial` |
 
 ## Business domains
 

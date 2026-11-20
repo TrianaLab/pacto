@@ -79,6 +79,20 @@ func TestFleetStrippedDeclarationKeysStillChecked(t *testing.T) {
 	}
 }
 
+// TestFleetUnreadHistoryIsUnverified: with no earlier revision read, the
+// owner before an owner-setting version is unknown, so the fleet does not
+// confirm a refusal of it.
+func TestFleetUnreadHistoryIsUnverified(t *testing.T) {
+	reg := provenanceTestRegistry(t)
+	ref := ownerSignedRef(t, reg, "eve@acme.com")
+	revs := []fleet.ContractRevision{passRev("2.0.0", "payments", ref, "eve@acme.com", false)}
+	reads := 0
+	ownerPass(reg, &reads)(t.Context(), revs)
+	if s := stamp(revs[0]); s == nil || s.Allowed || s.Code != delivery.OwnerSignerUnverified || !strings.Contains(s.Message, "the owner before it was not read") {
+		t.Fatalf("unread history = %+v", s)
+	}
+}
+
 // TestFleetBaselineLaunderingRefused: naming an earlier refused declaration
 // as baseline gains nothing: the reference is the effective owner.
 func TestFleetBaselineLaunderingRefused(t *testing.T) {

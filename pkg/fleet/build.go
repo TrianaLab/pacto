@@ -2343,7 +2343,7 @@ func ownerBlockedLimitations(snap *FleetSnapshot, s *ServiceRecord) []Limitation
 	var out []Limitation
 	for _, l := range []Limitation{
 		{Code: LimitationOwnerDeclarationRefused, Message: "set an owner their signer may not set"},
-		{Code: LimitationOwnerDeclarationUnverified, Message: "declare an owner the owner rule could not check"},
+		{Code: LimitationOwnerDeclarationUnverified, Message: "set an owner the owner rule could not check"},
 	} {
 		if n := counts[l.Code]; n > 0 {
 			l.Source, l.Message = "fleet", s.Name+": "+strconv.Itoa(n)+" registry revision(s) "+l.Message+", so that owner is not used"

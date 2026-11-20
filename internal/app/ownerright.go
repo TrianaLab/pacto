@@ -196,6 +196,14 @@ func (p *ProvenanceChecker) stampOwnerRights(ctx context.Context, revs []fleet.C
 			Service: r.Service, Proposed: proposed.Owner, Current: current, Policy: pol.policy, PolicyFrom: pol.from,
 			ClassRules: p.installation(ctx).classes, Now: p.now()})
 		spent[r.Key] = ctx.Err() != nil
+		if !v.Allowed && current.Provenance == "" && (v.Code == delivery.OwnerSignerNotPerson || v.Code == delivery.OwnerSignerNotAllowed) {
+			// ponytail: the fleet reads only the refs its sources name, so no
+			// earlier owner may mean an unread one, and a refusal judged
+			// against it is unconfirmed. Reading the repository's tags here,
+			// as declare does, would confirm it.
+			v.Code, v.Unverified = delivery.OwnerSignerUnverified, "the owner before this version was not read"
+			v.Message = "the owner this version of " + r.Service + " sets is unverified: the owner before it was not read"
+		}
 		return &v
 	})
 	for i := range revs {
