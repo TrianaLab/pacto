@@ -62,7 +62,7 @@ func (q *Query) offeringProviderVersions(s *ServiceRecord, rng string) ProviderV
 	for _, rk := range s.Revisions {
 		revs = append(revs, q.snap.Revisions[rk])
 	}
-	sort.Slice(revs, func(i, j int) bool { return lessRevisionChrono(revs[j], revs[i]) })
+	sort.Slice(revs, func(i, j int) bool { return LessRevisionChrono(revs[j], revs[i]) })
 	out := ProviderVersionsPreview{Range: rng, Completeness: "fleet", Note: providerVersionsNote}
 	items := make([]ProviderVersion, 0, len(revs))
 	for _, r := range revs {

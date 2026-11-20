@@ -107,8 +107,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			if err := checkFleetOnlyFlags(cmd, fleetMode); err != nil {
 				return err
 			}
-			if publishMode && s.transport != "stdio" {
-				return errPublishOverHTTP
+			if err := checkTransportOnly(cmd, svc, s.transport, publishMode); err != nil {
+				return err
 			}
 			if err := mcpRemote(cmd, d, &s); err != nil {
 				return err
@@ -151,9 +151,11 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().String("stats-read-registry", "", "with --fleet: the stats repository pacto_stats reads; it reads and never records. "+
 		"Over stdio the default is $PACTO_STATS_REGISTRY; over HTTP only this flag enables pacto_stats")
 	cmd.Flags().Bool("delivery", false, "expose the Pacto delivery tools over the ambient cluster")
+	cmd.Flags().String("owner-policy", "", "over HTTP: the mounted owner policy (the chart's declare block as policy.json) that names who may set a service owner in pacto_declare plans; "+
+		"refused over stdio, which reads it from the signed target snapshots")
 	cmd.Flags().Bool("publish", false, "expose pacto_publish_plan and pacto_publish beside the authoring tools")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "in --delivery mode: "+"namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
-	cmd.Flags().String("delivery-trust", "", "the trust config delivery records (in --delivery mode), the golden paths pacto_create creates from and the target snapshots "+
+	cmd.Flags().String("delivery-trust", "", "the trust config delivery records (in --delivery mode), the golden paths pacto_create creates from and the target snapshots (the owner policy pacto_declare reads included) "+
 		"pacto_impact and --target-snapshot read are verified with (a PEM public key or a YAML trust config: the recorder's key for records, the operator's advertised installation key "+
 		"for a target snapshot, which verifies only under a key scoped to its cluster: streams [\"<uid>/*/*\"]; default $"+app.TrustEnv+")")
 	// Declared before the shared set so this spelling wins: here --root selects a
@@ -415,6 +417,26 @@ var errDeliveryOverHTTP = errors.New("--delivery over HTTP needs --auth-issuer, 
 var errPublishOverHTTP = errors.New("--publish serves stdio only: over HTTP every caller would publish with this process's " +
 	"registry credentials; run `pacto mcp --publish` beside the agent, under the agent's own credentials")
 
+// checkTransportOnly refuses --publish over HTTP and --owner-policy over
+// stdio, and hands an HTTP server its owner policy mount.
+func checkTransportOnly(cmd *cobra.Command, svc *app.Service, transport string, publishMode bool) error {
+	path, _ := cmd.Flags().GetString("owner-policy")
+	switch {
+	case publishMode && transport != "stdio":
+		return errPublishOverHTTP
+	case path != "" && transport == "stdio":
+		return errOwnerPolicyOverStdio
+	}
+	svc.OwnerPolicyPath = cmp.Or(path, svc.OwnerPolicyPath)
+	return nil
+}
+
+// errOwnerPolicyOverStdio refuses a local owner policy file beside the agent:
+// whoever runs the agent could name themselves an approver, so stdio reads
+// the policy only from the signed target snapshots.
+var errOwnerPolicyOverStdio = errors.New("--owner-policy serves HTTP only: over stdio the owner policy is read from the signed target snapshots, " +
+	"never from a file the agent's user writes")
+
 // mcpAuthoring is what every server's authoring tools get. pacto_create,
 // pacto_edit, pacto_check and the drafting pacto_declare serve stdio only:
 // over HTTP every caller would read and write this process's folders, read
@@ -429,7 +451,7 @@ func mcpAuthoring(cmd *cobra.Command, svc *app.Service) pactomcp.Authoring {
 		trust, _ := cmd.Flags().GetString("delivery-trust")
 		a.Init = mcpInit(svc, trust)
 		a.Catalog, a.CatalogUnavailable = mcpCatalog(cmd, svc)
-		a.Declare = newMCPDeclarer(svc)
+		a.Declare = newMCPDeclarer(svc, trust)
 	}
 	return a
 }

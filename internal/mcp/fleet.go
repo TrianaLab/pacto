@@ -290,7 +290,9 @@ func fleetGetTool() *mcpsdk.Tool {
 			"only says the provider exists in the fleet; its 'rangeStatus' (satisfied, unsatisfied, unknown) " +
 			"says whether the provider version satisfies the declared range. 'owner' has the same shape " +
 			"(team, dri, contacts) here and in pacto_fleet_search. A service's 'ownerProvenance' says where its owner " +
-			"comes from: declared (a revision), declared-via-target (the contract a target runs), attested or inferred; " +
+			"comes from: declared (a revision), declared-via-target (the contract a target runs), attested (read from the " +
+			"repository at the commit a verified CI identity signed; 'ownerSource' names the file and line, commit and signer; " +
+			"routes reviews, never clears a gate) or inferred; " +
 			"an inferred owner never fills 'owner'. Each revision's 'provenance' says whether its " +
 			"bundle signature was checked against a publisher rule, pin or policy (verified, unverified, " +
 			"unsigned, unknown) and lists its OCI referrers, when a registry source checked them; absent means " +

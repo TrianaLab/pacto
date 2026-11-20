@@ -80,7 +80,7 @@ var changeEnvironmentFields = []string{"file", "lifetime", "expires", "owner"}
 // what they declare still reads as present.
 func walkRevisionPairs(recs []*ContractRevision, visit func(prev, r *ContractRevision)) (gaps int) {
 	slices.SortFunc(recs, func(a, b *ContractRevision) int {
-		if lessRevisionChrono(a, b) {
+		if LessRevisionChrono(a, b) {
 			return -1
 		}
 		return 1

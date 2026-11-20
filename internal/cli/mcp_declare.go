@@ -12,6 +12,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/app"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
@@ -25,9 +26,10 @@ type mcpDeclarer struct {
 	base app.DeclareRequest
 }
 
-// newMCPDeclarer signs drafts against public-good Sigstore.
-func newMCPDeclarer(svc *app.Service) mcpDeclarer {
-	var base app.DeclareRequest
+// newMCPDeclarer signs drafts against public-good Sigstore and reads the
+// owner policy from the target snapshots trust verifies.
+func newMCPDeclarer(svc *app.Service, trust string) mcpDeclarer {
+	base := app.DeclareRequest{DeliveryTrust: trust}
 	base.Signing.FulcioURL, base.Signing.RekorURL = signing.PublicFulcio, signing.PublicRekor
 	return mcpDeclarer{svc: svc, base: base}
 }
@@ -141,8 +143,12 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 		p.Signer = app.SignerView{Class: contract.SignerClassAgent, Source: "none",
 			Why: "this HTTP server writes nothing: a person runs the plan's pacto declare command"}
 		p.State, p.AcceptCLI = "", ""
-		if (p.Baseline != nil || len(p.Skipped) > 0 || baselineRefusal(err)) && !r.shows(ctx, p.Service) {
-			p, err = baselineHidden(p), hiddenRefusal(p.Service, err)
+		baseline := p.Baseline != nil || len(p.Skipped) > 0 || baselineRefusal(err)
+		if (baseline || len(p.MayAccept) > 0 || ownerRefusal(err)) && !r.shows(ctx, p.Service) {
+			if baseline {
+				p, err = baselineHidden(p), hiddenRefusal(p.Service, err)
+			}
+			p, err = ownerHidden(p), hiddenOwnerRefusal(err)
 		}
 		p.Notes = append(p.Notes, "a person carries out this plan on their machine with: "+a.Command(p.IntentDigest))
 	}
@@ -167,6 +173,30 @@ func hiddenRefusal(service string, err error) error {
 	}
 	return &app.DeclareError{Code: de.Code, CLI: de.CLI,
 		Message: "the published baseline of " + service + " is hidden: you may not read it in the fleet; run pacto declare on your machine"}
+}
+
+// ownerRefusal reports whether err is a refusal of the owner rule.
+func ownerRefusal(err error) bool {
+	var de *app.DeclareError
+	return errors.As(err, &de) && slices.Contains(delivery.OwnerRightCodes, de.Code)
+}
+
+// ownerHidden is p for a caller who may not see its service: who may set
+// its owner, and every note that names an owner, dropped.
+func ownerHidden(p *app.DeclarePlan) *app.DeclarePlan {
+	p.MayAccept = nil
+	p.Notes = slices.DeleteFunc(p.Notes, func(n string) bool { return strings.Contains(n, "service.owner") })
+	return p
+}
+
+// hiddenOwnerRefusal is err for a caller who may not see the service: an
+// owner refusal names no team, DRI, file, commit or repository.
+func hiddenOwnerRefusal(err error) error {
+	var de *app.DeclareError
+	if !ownerRefusal(err) || !errors.As(err, &de) {
+		return err
+	}
+	return &app.DeclareError{Code: delivery.OwnerSignerNotAllowed, Message: "you may not set the owner of this service", CLI: de.CLI}
 }
 
 // Execute never writes: it names the pacto declare a person runs, replaying

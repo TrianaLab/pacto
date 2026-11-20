@@ -243,8 +243,8 @@ func (p *ProvenanceChecker) judgeSignature(ctx context.Context, repo, digest str
 	}
 	service.Domain = contract.OCIDomain(repo)
 	pins, why, cut := t.pinsOf(ctx, service)
-	v, signers := publish.CheckPublisher(ctx, p.reg, tm, rekorURL != "", repo, digest, service, "", t.rules, t.source, pins)
-	sig = signatureOf(v, t.expect, sig)
+	v, signers, commit := publish.CheckPublisher(ctx, p.reg, tm, rekorURL != "", repo, digest, service, "", t.rules, t.source, pins)
+	sig = signatureOf(v, t.expect, commit, sig)
 	switch {
 	case v.Source == delivery.PublisherSourcePin:
 		sig.Reason = capReason(pinReason(v, service, pins))
@@ -253,6 +253,7 @@ func (p *ProvenanceChecker) judgeSignature(ctx context.Context, repo, digest str
 	}
 	if t.unguarded != "" && sig.Status == fleet.SignatureVerified && sig.Source != delivery.PublisherSourceRule {
 		sig.Status = fleet.SignatureUnknown // the promoter may have moved past this policy or pin
+		sig.SignerRepository, sig.SignerCommit = "", ""
 		notes = append(notes, t.unguarded)
 	}
 	if note := strings.Join(slices.DeleteFunc(append(notes, why), func(s string) bool { return s == "" }), "; "); note != "" {
@@ -449,22 +450,19 @@ func pinReason(v delivery.PublisherVerdict, service delivery.ServiceRef, pins []
 // signatureOf maps a publisher verdict onto the fleet's signature statuses:
 // only a rule, pin or policy accept is verified; an inferred accept is
 // unknown; a signer no rule covers is unverified.
-func signatureOf(v delivery.PublisherVerdict, rule delivery.PublisherRule, sig fleet.BundleSignature) fleet.BundleSignature {
-	if v.Identity != nil {
-		sig.Signer, sig.Issuer = v.Identity.Subject, v.Identity.Issuer
-	}
+func signatureOf(v delivery.PublisherVerdict, rule delivery.PublisherRule, commit string, base fleet.BundleSignature) fleet.BundleSignature {
+	sig := signing.BundleSignatureFor(v, commit)
+	sig.Bundles = base.Bundles
 	switch v.Verdict {
 	case delivery.VerdictAccepted:
-		sig.Source = v.Source
 		if v.Source == delivery.PublisherSourceInferred {
 			sig.Reason = capReason(fmt.Sprintf("Signed by %s, a CI workflow the rule %s covers; no installation rule was read, so it is not verified.", sig.Signer, rule.Name))
 			return sig
 		}
-		sig.Status = fleet.SignatureVerified
 	case delivery.VerdictNewSigner, delivery.VerdictRefused:
-		sig.Status, sig.ExpectedSigner, sig.ExpectedIssuer = fleet.SignatureUnverified, rule.Subject, rule.Issuer
+		sig.ExpectedSigner, sig.ExpectedIssuer = rule.Subject, rule.Issuer
 	case delivery.VerdictUnsigned:
-		sig.Status, v.Reason = fleet.SignatureUnsigned, noSignatureReason(sig.Bundles)
+		v.Reason = noSignatureReason(sig.Bundles)
 	}
 	sig.Reason = capReason(upperFirst(v.Reason))
 	return sig

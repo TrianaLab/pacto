@@ -843,6 +843,15 @@ func TestTUIExternalDetail(t *testing.T) {
 	}
 }
 
+func TestServiceDetailAttestedSource(t *testing.T) {
+	src := "CODEOWNERS:7 at a1b2c3d, signed by github.com/acme/invoices/.github/workflows/ci.yml@refs/heads/main"
+	var b strings.Builder
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Ownership: &fleet.OwnershipInfo{Owner: "payments", Provenance: fleet.OwnerProvenanceAttested, Source: src}}, fleet.CompletenessComplete)
+	if !strings.Contains(b.String(), "payments (attested: "+src+")") {
+		t.Errorf("attested source missing:\n%s", b.String())
+	}
+}
+
 func TestServiceDetailOwnerProvenance(t *testing.T) {
 	for prov, want := range map[string]string{
 		fleet.OwnerProvenanceDeclaredViaTarget: "pay (declared via target)",

@@ -74,6 +74,9 @@ type TargetPublisher struct {
 	// HTTP.
 	EvidenceURL string
 	HTTP        *http.Client
+	// OwnerPolicy, when set, is published as the snapshot's ownerPolicy: who
+	// may set a service owner, signed with the installation key.
+	OwnerPolicy *core.OwnerPolicy
 	Now         func() time.Time
 	Interval    time.Duration
 	// Tick, when set, replaces the ticker (tests).
@@ -126,7 +129,8 @@ func (p *TargetPublisher) publish(ctx context.Context) error {
 	now := p.Now().UTC()
 	asOf := now.Format(time.RFC3339)
 	s := core.TargetSnapshot{Cluster: p.ClusterID, AsOf: asOf, Completeness: fleet.CompletenessComplete,
-		RegistryMode: p.Mode(ctx), Publisher: p.Publisher, Pactos: []core.PactoView{}, Workloads: []fleet.RawInferredService{}}
+		RegistryMode: p.Mode(ctx), Publisher: p.Publisher, Pactos: []core.PactoView{}, Workloads: []fleet.RawInferredService{},
+		OwnerPolicy: p.OwnerPolicy}
 	pactos := core.SnapshotSource{Kind: fleet.SourceKindKubernetes, AsOf: asOf, Completeness: fleet.CompletenessComplete}
 	items, err := p.list(ctx, gvkPactoList)
 	if err == nil {

@@ -2565,6 +2565,8 @@ export interface components {
         "Fleet.BundleProvenance": {
             /** Format: date-time */
             checkedAt: string;
+            /** @description The owner rule's verdict on the owner this revision sets; absent when no check ran */
+            ownerRight?: components["schemas"]["Fleet.OwnerRightCheck"];
             referrers: components["schemas"]["Fleet.ReferrersPreview"];
             referrersUnavailable?: string;
             signature: components["schemas"]["Fleet.BundleSignature"];
@@ -2580,6 +2582,10 @@ export interface components {
             issuer?: string;
             reason?: string;
             signer?: string;
+            /** @description The commit an accepted, verified CI signer's certificate was issued for */
+            signerCommit?: string;
+            /** @description The source repository an accepted, verified CI signer's certificate attests */
+            signerRepository?: string;
             /** @enum {string} */
             source?: "rule" | "pin" | "policy" | "inferred" | "release" | "none";
             /** @enum {string} */
@@ -3364,8 +3370,10 @@ export interface components {
         "Fleet.InferredField": {
             /** @description When the cluster fact was read (RFC 3339 UTC) */
             asOf?: string;
+            /** @description Set on the ownerFile service.owner row of a revision whose signature attests it: read at the commit an accepted CI identity signed. It still never clears a gate */
+            attested?: boolean;
             /**
-             * @description ownerFile: read from CODEOWNERS or catalog-info.yaml; not verified; never clears a gate
+             * @description ownerFile: read from CODEOWNERS or catalog-info.yaml; not verified unless attested; never clears a gate
              * @enum {string}
              */
             class?: "ownerFile";
@@ -3912,6 +3920,15 @@ export interface components {
             services: number;
             /** Format: int64 */
             targets: number;
+        };
+        "Fleet.OwnerRightCheck": {
+            allowed: boolean;
+            /**
+             * @description Why the signer may not set the owner; empty when allowed
+             * @enum {string}
+             */
+            code?: "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED";
+            message?: string;
         };
         "Fleet.OwnerSummary": {
             compliance: components["schemas"]["Fleet.ComplianceTally"];
@@ -4461,6 +4478,8 @@ export interface components {
             owner?: components["schemas"]["Contract.Owner"];
             /** @enum {string} */
             ownerProvenance?: "declared" | "declared-via-target" | "attested" | "inferred";
+            /** @description Where an attested owner was read: file and line, commit and the CI identity that signed it. Empty for any other provenance */
+            ownerSource?: string;
             revisions?: string[] | null;
             sources?: string[] | null;
             status?: string;
@@ -6105,7 +6124,12 @@ export interface components {
             summary: components["schemas"]["Fleet.OwnerSummary"];
         };
         ProductOwnership: {
-            /** @description Why the owners disagree: targets run revisions that declare different owners, or two revisions of one version do. Empty when they agree */
+            /**
+             * @description Set on a revision whose owner its service does not take: OWNER_DECLARATION_REFUSED when its signer may not set it, OWNER_DECLARATION_UNVERIFIED when the owner rule could not check it. Empty when the owner counts
+             * @enum {string}
+             */
+            blocked?: "OWNER_DECLARATION_REFUSED" | "OWNER_DECLARATION_UNVERIFIED";
+            /** @description Why the owners disagree: targets run revisions that declare different owners, two revisions of one version do, or attested revisions were signed from different repositories. Empty when they agree */
             conflictReason?: string;
             conflicts: components["schemas"]["Fleet.StringsPreview"];
             contacts?: components["schemas"]["Fleet.ContactsPreview"];
@@ -6114,6 +6138,8 @@ export interface components {
             /** @enum {string} */
             provenance?: "declared" | "declared-via-target" | "attested" | "inferred";
             ref?: components["schemas"]["ProductRef"];
+            /** @description Where an attested owner was read: file and line, commit and the CI identity that signed it. Empty for any other provenance */
+            source?: string;
             unknown?: boolean;
         };
         ProductPlacementPreview: {

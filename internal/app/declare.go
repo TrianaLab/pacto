@@ -47,6 +47,10 @@ type DeclareRequest struct {
 	CallWindow                          time.Duration
 	Signing                             declareSigning
 	Dynamic                             dynamic.Interface
+	// DeliveryTrust is the trust config the signed target snapshots that
+	// carry the owner policy are verified with ($PACTO_DELIVERY_TRUST when
+	// empty).
+	DeliveryTrust string
 	// Agent is a run on an agent's behalf: it writes a draft, never a
 	// declared record.
 	Agent bool
@@ -67,9 +71,13 @@ type DeclarePlan struct {
 	Cluster      string           `json:"cluster,omitempty"`
 	Baseline     *DeclareBaseline `json:"baseline,omitempty"`
 	// Deploy is the baseline deploy artifact the version reuses, or none.
-	Deploy       string                      `json:"deploy"`
-	Ranges       []DeclaredRange             `json:"ranges"`
-	Owner        string                      `json:"owner,omitempty"`
+	Deploy string          `json:"deploy"`
+	Ranges []DeclaredRange `json:"ranges"`
+	Owner  string          `json:"owner,omitempty"`
+	// MayAccept names who may set the owner this plan changes: the current
+	// owner's members and the default approvers. Empty when the owner does
+	// not change.
+	MayAccept    []string                    `json:"mayAccept,omitempty"`
 	Signer       SignerView                  `json:"signer"`
 	PolicyNote   string                      `json:"policyNote,omitempty"`
 	Coverage     []contract.InferredCoverage `json:"coverage,omitempty"`
@@ -146,7 +154,6 @@ const (
 	codeWorkloadNotFound       = "WorkloadNotFound"
 	codeWorkloadAmbiguous      = "WorkloadAmbiguous"
 	codeAlreadyDeclared        = "AlreadyDeclared"
-	codeOwnerNeedsApprovers    = "OwnerNeedsApprovers"
 	codeRangeNotProposed       = "RangeNotProposed"
 	codeVersionConflict        = "VersionConflict"
 	codeBaselineNeedsMigration = "BaselineNeedsMigration"
@@ -175,6 +182,18 @@ type declaration struct {
 	repo    string
 	input   publish.Input
 	signing declareSigning
+	// owner is the owner change a person's signature must have the right
+	// to make; nil when the owner does not change.
+	owner *ownerCheck
+}
+
+// ownerCheck is an owner change a declaration makes: from the service's
+// effective owner to the proposed one, under the owner policy read (nil, and
+// why, when none was).
+type ownerCheck struct {
+	current, proposed delivery.OwnerClaim
+	policy            *delivery.OwnerPolicy
+	from              string
 }
 
 // PlanDeclare plans declaring one workload: it drafts its contract from the
@@ -222,6 +241,15 @@ type declarePlanner struct {
 	rules    []delivery.PublisherRule
 	baseline *contract.Bundle
 	judged   map[string]bool
+	owned    *ownerCheck
+	// tags and root are the bundle repository's tags and the trusted root
+	// findBaseline read them with (root only when it holds a version).
+	tags []string
+	root root.TrustedMaterial
+	// ownerPol is the owner policy read on first need, and why there is
+	// none (policyFrom is nil until it is read).
+	ownerPol   *delivery.OwnerPolicy
+	policyFrom *string
 }
 
 func (pl *declarePlanner) run(ctx context.Context) (*declaration, error) {
@@ -245,7 +273,7 @@ func (pl *declarePlanner) prepare(ctx context.Context) ([]byte, error) {
 	if err := pl.findBaseline(ctx); err != nil {
 		return nil, err
 	}
-	return pl.edit()
+	return pl.edit(ctx)
 }
 
 // source drafts the workload into the scratch folder, from the cluster or
@@ -421,6 +449,7 @@ func (pl *declarePlanner) findBaseline(ctx context.Context) error {
 	if err != nil {
 		return &DeclareError{Code: codeRegistryUnreadable, Message: "listing the versions in " + pl.repo() + ": " + err.Error()}
 	}
+	pl.tags = tags
 	if len(semver.Filter(tags)) == 0 {
 		return nil
 	}
@@ -459,7 +488,7 @@ func (pl *declarePlanner) countingTag(ctx context.Context, tags []string) (strin
 	if err != nil {
 		return "", "", err
 	}
-	pl.judged = map[string]bool{}
+	pl.root, pl.judged = tm, map[string]bool{}
 	for _, t := range semver.Filter(tags) {
 		if strings.Contains(t, "-") {
 			continue // a candidate is never a baseline
@@ -572,8 +601,8 @@ func (pl *declarePlanner) redraft(ctx context.Context, base *contract.Bundle) er
 
 // edit applies the owner rule and the accepted ranges to the folder's
 // pacto.yaml and record.
-func (pl *declarePlanner) edit() ([]byte, error) {
-	raw, err := pl.owner()
+func (pl *declarePlanner) edit(ctx context.Context) ([]byte, error) {
+	raw, err := pl.owner(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -601,42 +630,70 @@ func withoutDeclaredProposals(fields []contract.Inferred, c *contract.Contract, 
 	})
 }
 
-// owner applies ownerRule: a cluster draft's owner the baseline does not
-// declare leaves pacto.yaml and stays in the record as inferred; a folder's
-// is refused, since the file is the person's.
-func (pl *declarePlanner) owner() ([]byte, error) {
-	planned, rec := pl.folder, pl.rec
-	var base *contract.Contract
-	if pl.baseline != nil {
-		base = pl.baseline.Contract
-	}
-	err := ownerRule(base, planned)
-	pl.plan.Owner = planned.Service.Owner.KeyString()
-	if err == nil {
-		return pl.raw, nil
-	}
-	if pl.req.Dir != "" {
+// owner applies the owner rule against the service's effective owner. An
+// unchanged owner stays. A changed owner in a folder (the person's file, or
+// an accepted draft) stays in pacto.yaml, and a person's signature must have
+// the right to set it before anything is pushed. A cluster draft's new owner
+// leaves pacto.yaml and stays in the record as inferred: a label sets no
+// owner.
+func (pl *declarePlanner) owner(ctx context.Context) ([]byte, error) {
+	planned := pl.folder.Service.Owner
+	current, err := pl.currentOwner(ctx)
+	if err != nil {
 		return nil, err
 	}
+	proposed := delivery.OwnerClaim{Owner: planned, Provenance: fleet.OwnerProvenanceDeclared}
+	pl.plan.Owner = planned.KeyString()
+	if !ownerChange(current, proposed, !planned.IsEmpty(), true) {
+		return pl.raw, nil
+	}
+	if pl.req.Dir == "" && pl.baseline != nil {
+		return pl.keepCurrentOwner(current, planned)
+	}
+	policy, from := pl.ownerPolicy(ctx)
+	right := delivery.DecideOwnerRight(pl.plan.Service, pl.choice.Identity, current, proposed, policy, from, pl.s.env().now())
+	pl.plan.MayAccept = right.MayAccept
+	if pl.req.Dir != "" || planned.IsEmpty() {
+		pl.owned = &ownerCheck{current: current, proposed: proposed, policy: policy, from: from}
+		who := cmp.Or(strings.Join(right.MayAccept, ", "), "the default approvers")
+		if policy == nil {
+			who = strings.Join(append(right.MayAccept, "the default approvers (unknown until a verified owner policy is read)"), ", ")
+		}
+		pl.plan.Notes = append(pl.plan.Notes, "service.owner changes from "+ownerText(current.Owner)+" to "+ownerText(planned)+
+			": only a person among "+who+" may set it")
+		return pl.raw, nil
+	}
+	rec := pl.rec
 	pl.plan.Owner = ""
-	pl.plan.Notes = append(pl.plan.Notes, "service.owner "+planned.Service.Owner.KeyString()+" stays in pacto.inferred.yaml as inferred: "+
-		"setting an owner needs the owner rule of a later release")
-	rec.Fields = append(rec.Fields, ownerField(planned.Service.Owner, rec))
+	pl.plan.Notes = append(pl.plan.Notes, "service.owner "+planned.KeyString()+" stays in pacto.inferred.yaml as inferred: "+
+		"a label sets no owner; declare it in pacto.yaml with --dir to set it")
+	rec.Fields = append(rec.Fields, ownerField(planned, rec))
 	slices.SortFunc(rec.Fields, func(a, b contract.Inferred) int {
 		return cmp.Or(strings.Compare(a.Field, b.Field), strings.Compare(a.Source, b.Source))
 	})
 	return contract.RemoveServiceOwner(pl.raw)
 }
 
-// ownerRule refuses a declaration that sets an owner the baseline does not
-// already declare. 513-S4 replaces it with the owner rule.
-func ownerRule(baseline, planned *contract.Contract) error {
-	o := planned.Service.Owner.KeyString()
-	if o == "" || (baseline != nil && baseline.Service.Owner.KeyString() == o) {
-		return nil
+// keepCurrentOwner is the cluster read's pacto.yaml when the baseline it
+// keeps names an owner that is not the service's effective one (a later
+// candidate changed it, or the baseline's own change was refused): the
+// cluster read changes no owner, so pacto.yaml carries the effective owner
+// when it is declared, and none when it is attested or there is none.
+func (pl *declarePlanner) keepCurrentOwner(current delivery.OwnerClaim, baseline contract.Owner) ([]byte, error) {
+	pl.plan.Owner = ""
+	note := "service.owner " + ownerText(baseline) + " of the baseline is not the current owner (" + ownerText(current.Owner) + ")"
+	if current.Provenance == fleet.OwnerProvenanceDeclared {
+		pl.plan.Owner = current.Owner.KeyString()
+		pl.plan.Notes = append(pl.plan.Notes, note+", so the declaration keeps "+ownerText(current.Owner))
+		return contract.SetServiceOwner(pl.raw, current.Owner)
 	}
-	return &DeclareError{Code: codeOwnerNeedsApprovers, Message: "remove service.owner from pacto.yaml; it stays in pacto.inferred.yaml as inferred. " +
-		"Setting an owner needs the owner rule of a later release"}
+	pl.plan.Notes = append(pl.plan.Notes, note+", so the declaration names none")
+	return contract.RemoveServiceOwner(pl.raw)
+}
+
+// ownerText names an owner in a plan note, none for no owner.
+func ownerText(o contract.Owner) string {
+	return cmp.Or(o.KeyString(), "none")
 }
 
 // ownerField is the owner a cluster draft read from the workload's team
@@ -710,6 +767,7 @@ func (pl *declarePlanner) finish(ctx context.Context, raw []byte, rec *contract.
 	if err != nil {
 		return nil, err
 	}
+	d.owner = pl.owned
 	p.Version, p.Ranges = version, ranges(d.bundle.Contract, rec, accepted)
 	p.IntentDigest = intentDigest(p, raw, accepted, "")
 	d.input = publish.Input{Bundle: d.bundle, Revision: "declare:" + p.IntentDigest, ContractOnly: true, BaselineDeploy: strings.TrimSuffix(p.Deploy, "none"),
@@ -930,11 +988,29 @@ func (s *Service) Declare(ctx context.Context, req DeclareRequest) (*DeclareResu
 	case err != nil:
 		return res, err
 	case c.MayDeclare:
+		if err := s.ownerRight(req, plan, d, c); err != nil {
+			return res, err
+		}
 		return res, s.publishDeclared(ctx, res, d, c)
 	case req.FromDraft != "":
 		return res, &DeclareError{Code: codeSignerNotAllowed, Message: "accepting a draft takes a person's Sigstore login: " + c.Why}
 	}
 	return res, s.writeDraft(ctx, req, res, d, c)
+}
+
+// ownerRight refuses a declaration that changes the owner when the person
+// who logged in has no right to: before anything is built or pushed. An
+// agent's on_behalf_of is never an input.
+func (s *Service) ownerRight(req DeclareRequest, plan *DeclarePlan, d *declaration, c signerChoice) error {
+	if d.owner == nil {
+		return nil
+	}
+	o := d.owner
+	r := delivery.DecideOwnerRight(plan.Service, c.Identity, o.current, o.proposed, o.policy, o.from, s.env().now())
+	if r.Allowed {
+		return nil
+	}
+	return &DeclareError{Code: r.Code, Message: r.Message, CLI: req.command(plan.IntentDigest)}
 }
 
 // checkDeclarable refuses a run whose intent digest is not the fresh plan's,

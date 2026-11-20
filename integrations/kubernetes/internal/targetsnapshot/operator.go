@@ -51,6 +51,9 @@ type Config struct {
 	Reader   client.Reader
 	// OnPush receives the result of every publish attempt.
 	OnPush func(detect.PushResult)
+	// OwnerPolicy is the chart's declare block (--owner-policy); nil publishes
+	// none.
+	OwnerPolicy *core.OwnerPolicy
 }
 
 // ForOperator is the operator's snapshot publisher, or nil when no registry is
@@ -77,7 +80,7 @@ func ForOperator(cfg Config) (manager.Runnable, error) {
 		// The publisher claim, inlined: the operator never links the delivery packages.
 		Publisher:  "system:serviceaccount:" + cfg.Namespace + ":" + cfg.ServiceAccount,
 		Namespaces: cfg.Watched, OnPush: cfg.OnPush, Mode: targetsMode(repo, cfg.ClusterID),
-		EvidenceURL: cfg.EvidenceURL, HTTP: &http.Client{Timeout: 10 * time.Second},
+		EvidenceURL: cfg.EvidenceURL, OwnerPolicy: cfg.OwnerPolicy, HTTP: &http.Client{Timeout: 10 * time.Second},
 		Now: time.Now, Interval: core.TargetSnapshotInterval, Log: ctrl.Log.WithName("targets")}, nil
 }
 

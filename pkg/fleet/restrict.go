@@ -351,9 +351,26 @@ func restrictRevisions(s *FleetSnapshot, hiddenSvc, offeringOnly map[ServiceKey]
 			} else if c := hideClusterDependencies(s, r, hiddenSvc); c != nil {
 				out[k] = c
 			}
+			if offeringOnly[r.ServiceKey] {
+				out[k] = withoutOwnerRightMessage(out[k])
+			}
 		}
 	}
 	return out
+}
+
+// withoutOwnerRightMessage is r with a refused owner verdict's sentence
+// replaced by one that names nobody: it was judged against the owner of
+// every revision, and the view may have dropped the one that names it. The
+// code stays, so the owner is still ignored.
+func withoutOwnerRightMessage(r *ContractRevision) *ContractRevision {
+	if r.Provenance == nil || r.Provenance.OwnerRight == nil || r.Provenance.OwnerRight.Allowed {
+		return r
+	}
+	c := *r
+	c.Provenance = cloneProvenance(r.Provenance)
+	c.Provenance.OwnerRight.Message = "the owner rule did not accept the owner this version sets"
+	return &c
 }
 
 // targetsHidden is offeringOnly plus every visible service of out that lost a
@@ -506,7 +523,8 @@ func rebuiltLimitation(l Limitation) bool {
 	case LimitationDomainConflict, LimitationOfferingConflict, LimitationOwnerConflict,
 		// A fleet-wide count of reports, counts of clusterless targets and
 		// per-source counts of inferred records.
-		LimitationProvisioningTruncated, LimitationUsageTruncated, LimitationClusterUnknown, LimitationClusterConflict, LimitationDeclarationUnverified, LimitationServiceGroupAmbiguous:
+		LimitationProvisioningTruncated, LimitationUsageTruncated, LimitationClusterUnknown, LimitationClusterConflict, LimitationDeclarationUnverified, LimitationServiceGroupAmbiguous,
+		LimitationOwnerDeclarationRefused, LimitationOwnerDeclarationUnverified:
 		return true
 	case LimitationSourceRecordInvalid:
 		// Per-source counts of records that may be hidden.
@@ -536,6 +554,7 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 		_, _, dc := businessDomainOf(out, svc)
 		_, _, oc := offeringOf(out, svc)
 		out.Limitations = append(append(append(out.Limitations, domainConflict(svc.Name, dc)...), offeringConflict(svc.Name, oc)...), ownerConflict(out, svc)...)
+		out.Limitations = append(out.Limitations, ownerBlockedLimitations(out, svc)...)
 	}
 	out.Limitations = append(out.Limitations, droppedReports(out, out.provisioningDropped, LimitationProvisioningTruncated, "provisioning", MaxProvisioningRecords)...)
 	out.Limitations = append(out.Limitations, droppedReports(out, out.usageDropped, LimitationUsageTruncated, "usage", MaxUsageRecords)...)
@@ -953,7 +972,7 @@ func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord
 		restrictBusinessDomain(out, &cp)
 		restrictOffering(out, &cp)
 		// A target-only owner may have come from a hidden target.
-		cp.Owner, cp.OwnerProvenance = contract.Owner{}, ""
+		cp.Owner, cp.OwnerProvenance, cp.OwnerSource = contract.Owner{}, "", ""
 		deriveOwner(out, &cp)
 		out.Services[k] = &cp
 	}

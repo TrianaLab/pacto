@@ -103,6 +103,56 @@ The controller's ServiceAccount name.
 {{- end }}
 
 {{/*
+The owner policy JSON (an OwnerPolicy) from the declare block, empty when
+neither defaultApprovers.bootstrap nor teams holds a rule. Nil-safe: a release
+upgraded with --reuse-values from 6.x has no declare key.
+*/}}
+{{- define "pacto-operator.ownerPolicy.json" -}}
+{{- $d := .Values.declare | default dict }}
+{{- $approvers := dig "defaultApprovers" "bootstrap" list $d | default list }}
+{{- $teams := dig "teams" dict $d | default dict }}
+{{- if or $approvers $teams }}
+{{- dict "defaultApprovers" $approvers "teams" $teams "emailIssuers" (dig "emailIssuers" list $d | default list) | toJson }}
+{{- end }}
+{{- end }}
+
+{{/*
+The Sigstore trusted root owner changes are verified against: declare.trustedRoot,
+else delivery.publishers.trustedRoot; empty uses public-good Sigstore.
+*/}}
+{{- define "pacto-operator.ownerPolicy.trustedRoot" -}}
+{{- $d := .Values.declare | default dict }}
+{{- dig "trustedRoot" "" $d | default (dig "publishers" "trustedRoot" "" (.Values.delivery | default dict)) }}
+{{- end }}
+
+{{/*
+The trust config whose role: policy keys sign the delivery policy, when
+delivery.publishers.policy is set: the owner check classifies signers with
+the verified policy's signer class rules, as the fleet does.
+*/}}
+{{- define "pacto-operator.ownerPolicy.signers" -}}
+{{- $p := dig "publishers" dict (.Values.delivery | default dict) }}
+{{- if dig "policy" "" $p }}{{ dig "policySigners" "" $p }}{{ end }}
+{{- end }}
+
+{{/*
+Whether the manager mounts the owner policy ConfigMap: it holds the owner
+policy or the delivery policy's signers.
+*/}}
+{{- define "pacto-operator.ownerPolicy.mounted" -}}
+{{- if or (include "pacto-operator.ownerPolicy.json" .) (include "pacto-operator.ownerPolicy.signers" .) }}true{{ end }}
+{{- end }}
+
+{{/*
+The immutable owner policy ConfigMap, named after its content (the policy,
+the trusted root and the delivery policy's signers) so only a chart upgrade
+changes what the operator mounts.
+*/}}
+{{- define "pacto-operator.ownerPolicy.name" -}}
+{{- printf "%s-owner-policy-%s" (include "pacto-operator.fullname" .) (printf "%s%s%s" (include "pacto-operator.ownerPolicy.json" .) (include "pacto-operator.ownerPolicy.trustedRoot" .) (include "pacto-operator.ownerPolicy.signers" .) | sha256sum | trunc 10) }}
+{{- end }}
+
+{{/*
 Controller arguments derived from values
 */}}
 {{- define "pacto-operator.controllerArgs" -}}
@@ -130,6 +180,23 @@ Controller arguments derived from values
 {{- range include "pacto-operator.pushPrefixes" . | fromYamlArray }}
 - --registry-push-prefix={{ . }}
 {{- end }}
+{{- end }}
+{{- /* .Values.declare in the guard: the declare block decides (gen_integration_docs reads guards). */}}
+{{- if and .Values.declare (include "pacto-operator.ownerPolicy.json" .) }}
+- --owner-policy=/etc/pacto/owner-policy/policy.json
+- --dashboard-owner-policy-configmap={{ include "pacto-operator.ownerPolicy.name" . }}
+{{- if include "pacto-operator.ownerPolicy.trustedRoot" . }}
+- --trusted-root=/etc/pacto/owner-policy/trusted_root.json
+{{- end }}
+{{- end }}
+{{- /* The owner check reads the publisher rule whether or not a declare block is set: without it every CI publish's owner change reads unverified. */}}
+{{- with dig "publishers" "registry" "" (.Values.delivery | default dict) }}
+- --publishers-registry={{ . }}
+- --publishers-default-branch={{ dig "publishers" "defaultBranch" "" ($.Values.delivery | default dict) | default "main" }}
+{{- end }}
+{{- if include "pacto-operator.ownerPolicy.signers" . }}
+- --publishers-policy={{ .Values.delivery.publishers.policy }}
+- --publishers-policy-signers=/etc/pacto/owner-policy/policy-signers.yaml
 {{- end }}
 {{- if .Values.controller.stabilizationWindow }}
 - --stabilization-window={{ .Values.controller.stabilizationWindow }}

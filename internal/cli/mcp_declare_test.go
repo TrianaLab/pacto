@@ -235,7 +235,7 @@ func TestMCPDeclareCITokenSignsDraft(t *testing.T) {
 	const wf = "acme/invoices/.github/workflows/release.yml@refs/heads/main"
 	t.Setenv("SIGSTORE_ID_TOKEN", testutil.TokenWith(map[string]string{"sub": "https://github.com/" + wf, "iss": "https://token.actions.githubusercontent.com",
 		"job_workflow_ref": wf, "repository": "https://github.com/acme/invoices", "ref": "refs/heads/main"}))
-	decl := newMCPDeclarer(app.NewService(nil, nil))
+	decl := newMCPDeclarer(app.NewService(nil, nil), "")
 	decl.base.Signing.FulcioURL, decl.base.Signing.TimestampURL, decl.base.Signing.RekorURL, decl.base.Signing.TrustedRoot = ss.Fulcio, ss.TSA, "", rootPath
 	server := func() *mcpsdk.Server {
 		s, _ := pactomcp.New("v", pactomcp.Authoring{Declare: decl}, pactomcp.Modes{})
@@ -252,7 +252,7 @@ func TestMCPDeclareCITokenSignsDraft(t *testing.T) {
 
 func TestMCPDeclareRequestErrors(t *testing.T) {
 	newDeclareWorld(t)
-	decl := newMCPDeclarer(app.NewService(nil, nil))
+	decl := newMCPDeclarer(app.NewService(nil, nil), "")
 	ctx := context.Background()
 	for _, a := range []pactomcp.DeclareArgs{{Service: "invoices", CallWindow: "a day"}, {Service: "offering:pay"}} {
 		if _, _, err := decl.Plan(ctx, a); err == nil {

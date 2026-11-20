@@ -897,3 +897,31 @@ func TestOCISourceProvenanceHook(t *testing.T) {
 		}
 	}
 }
+
+// TestOCISourceOwnerRightsHook: the owner pass sees each revision with a
+// digest, after its provenance check, and a verdict it stamps lands on the
+// revision.
+func TestOCISourceOwnerRightsHook(t *testing.T) {
+	store := &fakeStore{
+		bundles: map[string]*contract.Bundle{"ghcr.io/x/a:1.0.0": bundleFor("a"), "ghcr.io/x/b:1.0.0": bundleFor("b")},
+		digest:  map[string]string{"ghcr.io/x/a:1.0.0": validDigest("a")},
+	}
+	s := NewOCISource("reg", store, []string{"ghcr.io/x/a:1.0.0", "ghcr.io/x/b:1.0.0"})
+	s.Provenance = func(context.Context, string, string, *contract.Contract) *fleet.BundleProvenance {
+		return &fleet.BundleProvenance{}
+	}
+	var seen []string
+	s.OwnerRights = func(_ context.Context, source string, revs []fleet.ContractRevision) {
+		for _, r := range revs {
+			seen = append(seen, source+" "+r.Service)
+			r.Provenance.OwnerRight = &fleet.OwnerRightCheck{Allowed: true}
+		}
+	}
+	col, err := s.Collect(t.Context())
+	if err != nil || strings.Join(seen, "|") != "reg a" {
+		t.Fatalf("owner pass saw %q: %v", seen, err)
+	}
+	if col.Revisions[0].Provenance.OwnerRight == nil || col.Revisions[1].Provenance.OwnerRight != nil {
+		t.Errorf("stamps = %+v %+v", col.Revisions[0].Provenance, col.Revisions[1].Provenance)
+	}
+}

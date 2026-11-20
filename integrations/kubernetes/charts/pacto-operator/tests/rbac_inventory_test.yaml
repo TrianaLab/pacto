@@ -3901,6 +3901,91 @@ tests:
         value:
         - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
       documentIndex: 1
+  - it: 'registry with declare: every rule, roleRef and subject of role.yaml is pinned'
+    template: templates/role.yaml
+    set: {registry: ghcr.io/acme, declare.defaultApprovers.bootstrap: [{name: platform-admins, issuer: 'https://accounts.google.com', subject: '^admin@acme\.com$'}]}
+    asserts:
+    - hasDocuments: {count: 2}
+    - equal: {path: kind, value: Role}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-manager}
+      documentIndex: 0
+    - equal: {path: metadata.namespace, value: pacto-operator-system}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resourceNames: [pacto-dashboard]
+          resources: [serviceaccounts, services]
+          verbs: [get, delete]
+        - apiGroups: ['']
+          resourceNames: [pacto-dashboard-oci-creds]
+          resources: [secrets]
+          verbs: [get, delete]
+        - apiGroups: [apps]
+          resourceNames: [pacto-dashboard]
+          resources: [deployments]
+          verbs: [get, delete]
+        - apiGroups: ['']
+          resourceNames: [pacto-evidence]
+          resources: [services]
+          verbs: [get, delete]
+        - apiGroups: [apps]
+          resourceNames: [pacto-evidence]
+          resources: [deployments]
+          verbs: [get, delete]
+        - apiGroups: [apps]
+          resourceNames: [pacto-node-agent]
+          resources: [daemonsets]
+          verbs: [get, delete]
+        - apiGroups: [rbac.authorization.k8s.io]
+          resourceNames: [pacto-node-agent]
+          resources: [roles, rolebindings]
+          verbs: [get, delete]
+        - apiGroups: ['']
+          resourceNames: [pacto-node-agent]
+          resources: [serviceaccounts]
+          verbs: [get, delete]
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: [get]
+        - apiGroups: ['']
+          resources: [configmaps]
+          verbs: [create]
+        - apiGroups: ['']
+          resourceNames: [pacto-operator-detected]
+          resources: [configmaps]
+          verbs: [get, patch]
+        - apiGroups: [apps]
+          resourceNames: [pacto-operator]
+          resources: [deployments]
+          verbs: [get]
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: [create]
+        - apiGroups: ['']
+          resources: [secrets, serviceaccounts, services]
+          verbs: [create, delete, get, patch, update]
+        - apiGroups: [apps]
+          resources: [deployments]
+          verbs: [create, delete, get, patch, update]
+      documentIndex: 0
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-manager}
+      documentIndex: 1
+    - equal: {path: metadata.namespace, value: pacto-operator-system}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-operator-manager}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+      documentIndex: 1
   - it: 'watchNamespaces with registry: every rule, roleRef and subject of watch-namespaces.yaml is pinned'
     template: templates/watch-namespaces.yaml
     set: {controller.watchNamespaces: [payments, ledger], registry: ghcr.io/acme}

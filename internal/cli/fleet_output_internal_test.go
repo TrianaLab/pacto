@@ -667,6 +667,7 @@ func TestPrintServiceReplaces(t *testing.T) {
 func TestFleetGetTextOwnerProvenance(t *testing.T) {
 	for prov, want := range map[string]string{
 		fleet.OwnerProvenanceDeclaredViaTarget: "Owner: pay (declared via target)\n",
+		fleet.OwnerProvenanceAttested:          "Owner: pay (attested: CODEOWNERS:7 at a1b2c3d, signed by ci)\n",
 		fleet.OwnerProvenanceDeclared:          "Owner: pay\n",
 		"":                                     "Owner: pay\n",
 	} {
@@ -674,6 +675,9 @@ func TestFleetGetTextOwnerProvenance(t *testing.T) {
 		var out bytes.Buffer
 		cmd.SetOut(&out)
 		s := &fleet.ServiceRecord{Name: "payments", Owner: contract.Owner{Team: "pay"}, OwnerProvenance: prov}
+		if prov == fleet.OwnerProvenanceAttested {
+			s.OwnerSource = "CODEOWNERS:7 at a1b2c3d, signed by ci"
+		}
 		if err := printFleetService(cmd, &fleet.ServiceView{Service: s}, "text"); err != nil {
 			t.Fatal(err)
 		}
@@ -681,4 +685,19 @@ func TestFleetGetTextOwnerProvenance(t *testing.T) {
 			t.Errorf("%q: want %q in:\n%s", prov, want, out.String())
 		}
 	}
+}
+
+// An attested owner prints where it was read, in full.
+func TestFleetGetPrintsAttestedSource(t *testing.T) {
+	src := "CODEOWNERS:7 at a1b2c3d, signed by github.com/acme/invoices/.github/workflows/ci.yml@refs/heads/main"
+	out := printed(t, func(c *cobra.Command) error {
+		s := &fleet.ServiceRecord{Name: "invoices", Owner: contract.Owner{Team: "payments"}, OwnerProvenance: fleet.OwnerProvenanceAttested, OwnerSource: src}
+		return printFleetService(c, &fleet.ServiceView{Service: s}, "text")
+	})
+	expect(t, strings.Contains(out, "Owner: payments (attested: "+src+")\n"), "attested source missing:\n%s", out)
+	bare := printed(t, func(c *cobra.Command) error {
+		s := &fleet.ServiceRecord{Name: "invoices", Owner: contract.Owner{Team: "payments"}, OwnerProvenance: fleet.OwnerProvenanceAttested}
+		return printFleetService(c, &fleet.ServiceView{Service: s}, "text")
+	})
+	expect(t, strings.Contains(bare, "Owner: payments (attested)\n"), "attested without a source:\n%s", bare)
 }

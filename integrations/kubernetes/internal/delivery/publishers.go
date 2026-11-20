@@ -508,6 +508,14 @@ func (p *Publishers) policy(ctx context.Context, reg publish.Registry, old *deli
 	return &got, h.Digest, "", false
 }
 
+// VerifiedPolicy is the delivery policy its tag names, verified against
+// PolicyVerify, for a reader that keeps no high-water mark (the manager's
+// owner check); nil and why when it cannot be read or verified.
+func (p *Publishers) VerifiedPolicy(ctx context.Context) (*delivery.PublisherPolicy, string) {
+	pol, _, why, _ := p.policy(ctx, p.Reg(), &delivery.PublisherStatus{})
+	return pol, why
+}
+
 // errPolicyRead marks a policy that could not be read, as opposed to one
 // that was read and does not verify.
 var errPolicyRead = errors.New("the policy could not be read")

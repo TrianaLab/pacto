@@ -245,6 +245,23 @@ type RawRevision struct {
 	Provenance *BundleProvenance
 }
 
+// OwnerView is raw as the owner rule reads it, before Build: its service,
+// version, digest, owner, inferred record (read as Build reads it) and
+// provenance, shared with raw so a verdict stamped on it lands on raw. A
+// revision with no digest or contract has no view (false): nothing attached
+// to it can be verified.
+func OwnerView(raw RawRevision) (ContractRevision, bool) {
+	if raw.Digest == "" || raw.Bundle == nil || raw.Bundle.Contract == nil {
+		return ContractRevision{}, false
+	}
+	c := raw.Bundle.Contract
+	key := NewServiceKeyDomain(raw.Domain, c.Service.Name)
+	rec, _ := inferredRecord(raw.Bundle.FS, c, "")
+	return ContractRevision{Key: NewRevisionKey(key, raw.Digest), Service: c.Service.Name, Domain: raw.Domain, ServiceKey: key,
+		Version: c.Service.Version, Digest: raw.Digest, ResolvedRef: raw.ResolvedRef, Owner: c.Service.Owner, Record: rec,
+		Provenance: raw.Provenance}, true
+}
+
 // RawTarget is what an observer source knows about a concrete deployed instance.
 type RawTarget struct {
 	Scope        string

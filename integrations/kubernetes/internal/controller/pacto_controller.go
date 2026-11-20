@@ -93,6 +93,8 @@ type PactoReconciler struct {
 	// ServiceEntries turns on the Istio ServiceEntry reader of status.externals; main sets it when the
 	// cluster serves networking.istio.io/v1 ServiceEntry at startup.
 	ServiceEntries bool
+	// Owners judges a running bundle's owner change (OwnerVerified); nil sets no such condition.
+	Owners *OwnerCheck
 }
 
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactos,verbs=get;list;watch;create;update;patch;delete
@@ -159,7 +161,11 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// 6. Populate contract-derived status fields (from effective contract)
 	pacto.Status.ContractVersion = effectiveContract.Service.Version
+	ownerShown := r.verifyOwner(ctx, pacto, ec, prev)
 	r.populateContractStatus(pacto, &ec.effective, ec.configRefs)
+	if !ownerShown {
+		pacto.Status.Contract.Owner, pacto.Status.Contract.OwnerDisplay = nil, ""
+	}
 
 	// Mark overridden keys in configuration status
 	for i := range pacto.Status.Configurations {
@@ -207,6 +213,8 @@ type effectiveContract struct {
 	// configRefs is what each configuration that names its schema by ref resolved to; nil when the
 	// contract names none.
 	configRefs validation.ConfigRefs
+	// auth is the CR's pull credentials, nil for the operator's own.
+	auth *authn.AuthConfig
 }
 
 // loadFailure is why no effective contract could be produced, phrased for failReconciliation.
@@ -277,7 +285,7 @@ func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pact
 		}
 	}
 
-	return &effectiveContract{loaded: loadResult, effective: effectiveLR, overriddenKeys: overriddenKeys, validation: contractResult, configRefs: configRefs}, nil
+	return &effectiveContract{loaded: loadResult, effective: effectiveLR, overriddenKeys: overriddenKeys, validation: contractResult, configRefs: configRefs, auth: ociAuth}, nil
 }
 
 // configRefTimeout bounds the configuration-ref resolution of one reconcile, so a registry

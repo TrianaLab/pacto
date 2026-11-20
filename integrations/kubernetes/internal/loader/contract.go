@@ -63,6 +63,12 @@ func WithKeychain(kc authn.Keychain) Option {
 	return func(l *Loader) { l.oci.keychain = kc }
 }
 
+// Keychain is the keychain l pulls with for auth (nil: its own), for a client
+// that reads the same registry with the same credentials.
+func (l *Loader) Keychain(auth *authn.AuthConfig) authn.Keychain {
+	return l.oci.effectiveKeychain(auth)
+}
+
 // New creates a Loader with OCI pulling configured.
 func New(opts ...Option) *Loader {
 	l := &Loader{

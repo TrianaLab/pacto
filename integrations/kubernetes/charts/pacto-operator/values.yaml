@@ -861,6 +861,29 @@ delivery:
   # -- Affinity for the promoter pod
   affinity: {}
 
+# Who may set a service owner with `pacto declare`, beside the owner's own
+# members. The chart renders it into an immutable, content-named ConfigMap the
+# operator mounts, so only a person who can upgrade the chart changes it; with
+# `registry` set the operator publishes it inside its signed target snapshot,
+# where CLIs and agents read it. With `bootstrap` and `teams` empty nothing
+# renders and every owner change reads as unverified.
+declare:
+  defaultApprovers:
+    # -- Signers who may set any service owner, as a list of `{name, issuer, subject}`: `issuer` is the
+    # OIDC issuer, compared exactly, and `subject` a pattern anchored with `^` and `$` that matches one
+    # person, for example `^admin@acme\.com$`
+    bootstrap: []
+  # -- Per team, the signers who count as its members, as `team: [{name, issuer, subject}]`. A signing
+  # certificate carries no groups, so without a rule only the owner's DRI or email contacts count
+  teams: {}
+  # -- Issuers whose email subjects match an owner's DRI or email contacts. Empty uses
+  # `https://accounts.google.com`, `https://github.com/login/oauth` and `https://login.microsoftonline.com`
+  emailIssuers: []
+  # -- A Sigstore trusted root (`trusted_root.json`) the signature of a running bundle that changes its owner must
+  # chain to, for an air-gapped install or a private Sigstore. Empty uses `delivery.publishers.trustedRoot`, else
+  # public-good Sigstore. Used only when `defaultApprovers.bootstrap` or `teams` holds a rule
+  trustedRoot: ""
+
 # Optional bundled dependencies for an evaluation install, both off by default.
 # values-quickstart.yaml turns them on and wires them. Every other key under
 # `zot` and `dex` passes through to the upstream chart.

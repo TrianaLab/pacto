@@ -14,6 +14,10 @@ const (
 	// AccessBySelfReview: a client asked a SelfSubjectAccessReview with its
 	// caller's own credentials.
 	AccessBySelfReview = "self-subject-access-review"
+	// AccessByRegistryPolicy: the signed owner policy of the installation
+	// (the chart's declare block, carried by its target snapshot) answered
+	// for an OIDC signer that has no Kubernetes identity.
+	AccessByRegistryPolicy = "registry-policy"
 )
 
 // WorkloadAccess answers the default approver rule: may an identity update
@@ -25,7 +29,7 @@ type WorkloadAccess struct {
 	Namespace  string `json:"namespace" doc:"The namespace of the Stage and its workload"`
 	Allowed    bool   `json:"allowed" doc:"The apiserver allows update on the workload; false when denied or unverified"`
 	Unverified string `json:"unverified,omitempty" doc:"Why nobody could ask: the review failed, timed out or the kind has no resource. Never allowed"`
-	Source     string `json:"source,omitempty" doc:"subject-access-review (the promoter, about another identity) or self-subject-access-review (a client, about its caller)"`
+	Source     string `json:"source,omitempty" doc:"subject-access-review (the promoter, about another identity), self-subject-access-review (a client, about its caller) or registry-policy (the signed owner policy, about a signer)"`
 	At         string `json:"at,omitempty" doc:"When the review was answered (RFC 3339); empty when nobody could ask"`
 }
 
