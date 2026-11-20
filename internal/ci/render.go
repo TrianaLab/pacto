@@ -171,6 +171,7 @@ func header(p *Plan) []string {
 	if p.Index != "" {
 		out = append(out, "Index: "+p.Index)
 	}
+	out = append(out, RangesLines(p.Ranges)...)
 	return append(out, p.Notes...)
 }
 

@@ -29,7 +29,14 @@ func (r *Result) GateCode() string {
 	if r.Event != nil {
 		return ""
 	}
-	if code := r.blockingCode(); code != "" {
+	code := r.blockingCode()
+	if code == GateCodeConsumersIncompatible || code == GateCodePolicyReferrersFailRunning {
+		return code
+	}
+	if policy, _ := r.policyGate(); policy != "" {
+		return policy
+	}
+	if code != "" {
 		return code
 	}
 	if r.policyUnchecked() != "" && r.Classification != "BREAKING" {

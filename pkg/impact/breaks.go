@@ -136,12 +136,7 @@ func expiredBreak(expires string, asOf time.Time) string {
 // running on a target admits it too (or none runs). When only the newest
 // does, why names the running revision that does not.
 func rangeAdmits(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey, version string) (bool, string) {
-	var newest *fleet.ContractRevision
-	for _, rev := range snap.Revisions {
-		if rev.ServiceKey == consumer && (newest == nil || newerRevision(rev, newest)) {
-			newest = rev
-		}
-	}
+	newest := newestRevision(snap, consumer)
 	_, name := fleet.ParseServiceKey(consumer)
 	if newest == nil || !revisionAdmits(snap, newest.Key, changed, version) {
 		return false, ""
@@ -162,6 +157,18 @@ func rangeAdmits(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey, 
 		}
 	}
 	return true, ""
+}
+
+// newestRevision is service's highest-versioned revision, nil when the
+// snapshot holds none.
+func newestRevision(snap *fleet.FleetSnapshot, service fleet.ServiceKey) *fleet.ContractRevision {
+	var newest *fleet.ContractRevision
+	for _, rev := range snap.Revisions {
+		if rev.ServiceKey == service && (newest == nil || newerRevision(rev, newest)) {
+			newest = rev
+		}
+	}
+	return newest
 }
 
 // newerRevision reports whether a's version is higher than b's.

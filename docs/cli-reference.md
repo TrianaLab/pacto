@@ -274,6 +274,7 @@ pacto ci [root] [flags]
       --namespace string                   namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
       --no-transparency-log[=true|false]   with --publish and --sign-key: keep the signatures out of the transparency log
       --oci stringArray                    registry reference to include as a published-baseline revision (repeatable)
+      --policy stringArray                 range policy for a BREAKING change, repeatable: unknown-range=warn|fail and uncontracted=warn|fail:<window> (such as fail:7d); default warn
       --publish[=true|false]               publish every changed service, on the merged commit only
       --registry string                    registry the services publish to, for example ghcr.io/acme; default from the CI platform
       --root stringArray                   contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
@@ -1781,6 +1782,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --oci stringArray                 registry reference to include as a published-baseline revision (repeatable)
       --old-set stringArray             set a value on the old contract (e.g. --old-set service.version=1.0.0)
       --old-values stringArray          values file to merge into the old contract (can be repeated)
+      --policy stringArray              range policy for a BREAKING change, repeatable: unknown-range=warn|fail and uncontracted=warn|fail:<window> (such as fail:7d); default warn
       --regressed string                what happens if <service>@<revision> regressed; an artifact digest reads delivery's recorded failures
       --removed string                  what happens if this service (a fleet service key, or a name only one domain holds) is removed; offering:<name> asks it of every provider of an offering
       --root stringArray                contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)

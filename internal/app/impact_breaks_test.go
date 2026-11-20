@@ -170,3 +170,19 @@ func TestRevisionRepos(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// TestImpactReadsRangeAcceptances: with no break announced, impact still
+// reads a consumer's acceptances, so a counted range counts as accepted.
+func TestImpactReadsRangeAcceptances(t *testing.T) {
+	e := newAcceptEnv(t, false)
+	e.attach(t, attachment{record: e.rangesRecord(), token: personToken("ana@acme.com"), tag: true})
+	if e.svc.impactAcceptances(t.Context(), ImpactOptions{}, &fleet.FleetSnapshot{}, nil) != nil {
+		t.Fatal("a caller that reads no acceptances read them")
+	}
+	pol := &delivery.ClassPolicy{Signers: []delivery.PersonSigner{{Issuer: personIssuer, Subjects: ".*", TrustedRoot: string(e.ss.RootJSON)}}}
+	read := e.svc.impactAcceptances(t.Context(), ImpactOptions{Acceptances: true, Signers: pol}, &fleet.FleetSnapshot{}, nil)
+	accs, complete := read(fleet.ServiceKey(e.key("reports")))
+	if !complete || len(accs) != 1 || accs[0].State != impact.AcceptCounted || len(accs[0].Fields) != 1 || accs[0].Fields[0] != "dependencies[ledger].compatibility" {
+		t.Fatalf("%v %+v", complete, accs)
+	}
+}

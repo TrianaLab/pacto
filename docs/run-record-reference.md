@@ -217,6 +217,8 @@ actor, approver, note, message, citation or correlation id.
 | --- | --- |
 | `CONSUMERS_INCOMPATIBLE` | `blocked` |
 | `POLICY_REFERRERS_FAIL_RUNNING` | `blocked` |
+| `POLICY_UNKNOWN_RANGE` | `blocked` |
+| `POLICY_UNCONTRACTED` | `blocked` |
 | `POLICY_REFERRERS_FAIL_UNPLACED` | `unverified` |
 | `POLICY_UNCHECKED` | `unverified` |
 | `SERVICE_NOT_IN_FLEET` | `unverified` |

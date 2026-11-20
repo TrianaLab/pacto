@@ -5019,6 +5019,20 @@ export interface components {
             /** @description The owner's canonical key (for example team:shop): the ranking groups by it */
             ownerKey?: string;
         };
+        "Impact.Policy": {
+            /**
+             * @description fail holds a BREAKING change while a caller no contract describes was seen within uncontractedWindow
+             * @enum {string}
+             */
+            uncontracted: "warn" | "fail";
+            /** @description How recent an uncontracted call holds the change, as a Go duration such as 168h0m0s */
+            uncontractedWindow?: string;
+            /**
+             * @description fail holds a BREAKING change while a direct consumer's range is unknown and not accepted
+             * @enum {string}
+             */
+            unknownRange: "warn" | "fail";
+        };
         "Impact.ProductChange": {
             classification: string;
             newTruncated?: boolean;
@@ -5028,6 +5042,32 @@ export interface components {
             path: string;
             reason?: string;
             type: string;
+        };
+        "Impact.RangeCoverage": {
+            /**
+             * Format: int64
+             * @description Edges whose range a counted acceptance makes known, not yet declared in the contract
+             */
+            accepted: number;
+            /**
+             * Format: int64
+             * @description Edges whose contract declares a compatibility range
+             */
+            declared: number;
+            /**
+             * Format: int64
+             * @description Dependency edges counted
+             */
+            edges: number;
+            /** @description The edges counted, such as 'consumers of ledger' or 'dependencies of 12 services in .' */
+            scope: string;
+            /** @description Edges whose range is unknown, at most 20 */
+            unknown?: components["schemas"]["Impact.UnknownRange"][] | null;
+            /**
+             * Format: int64
+             * @description How many edges have an unknown range, including those beyond the bound
+             */
+            unknownTotal?: number;
         };
         "Impact.RegistryLookup": {
             /**
@@ -5093,12 +5133,18 @@ export interface components {
             newRevisionAdded?: boolean;
             newVersion?: string;
             nonBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
+            /** @description Informational notes, such as a range policy set to warn; never a limitation */
+            notes?: string[] | null;
             oldVersion?: string;
             /** @description The canonical owner keys of the affected consumers */
             owners?: string[] | null;
+            /** @description The range policy the answer was held to; absent on an event answer */
+            policy?: components["schemas"]["Impact.Policy"];
             potentiallyBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
             /** @description The service keys of the services that provide the offering of an offering event */
             providers?: string[] | null;
+            /** @description How many direct consumers declare a compatibility range or accepted one, and which ranges stay unknown; absent on an event answer */
+            ranges?: components["schemas"]["Impact.RangeCoverage"];
             /** @description Where Pacto looked for a target snapshot when none was named */
             registry?: components["schemas"]["Impact.RegistryLookup"];
             regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
@@ -5116,6 +5162,14 @@ export interface components {
             /** Format: int64 */
             count: number;
             key: string;
+        };
+        "Impact.UnknownRange": {
+            /** @description The consumer */
+            from: string;
+            /** @description The range Pacto proposes from what runs, such as ^2.3.0; inferred, so it never counts */
+            proposed?: string;
+            /** @description The provider it depends on */
+            to: string;
         };
         ImpactRequest: {
             /**

@@ -735,7 +735,17 @@ func gateCases() []gateCase {
 	unchecked := AffectedConsumer{Service: "ref", CompatibilityVerdict: CompatibilityUnknown, policyVerdict: CompatibilityUnknown}
 	accepted := active
 	accepted.Break = &BreakState{State: BreakAccepted, By: "ana@acme.com"}
+	caller := AffectedConsumer{Service: "batch", Uncontracted: true, Evidence: []Evidence{{Kind: EvidenceObservedCall}}}
 	return []gateCase{
+		{name: "policy unknown range", gate: GateBlocked, reason: "api -> web range unknown, 1 consumer FAIL (policy unknown-range=fail)", code: GateCodePolicyUnknownRange,
+			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{paper},
+				unknownRanges: []string{"web"}, Policy: &Policy{UnknownRange: PolicyFail}}},
+		{name: "policy uncontracted", gate: GateBlocked, reason: "1 caller no contract describes calls api: batch FAIL (policy uncontracted=fail:24h0m0s)", code: GateCodePolicyUncontracted,
+			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessPartial, Consumers: []AffectedConsumer{caller},
+				Policy: &Policy{Uncontracted: PolicyFail, UncontractedWindow: "24h0m0s"}}},
+		{name: "policy over unplaced referrers", gate: GateBlocked, reason: "FAIL (policy unknown-range=fail)", code: GateCodePolicyUnknownRange,
+			r: Result{Classification: "BREAKING", Service: "api", Consumers: []AffectedConsumer{paper, failingUnplaced},
+				unknownRanges: []string{"web"}, Policy: &Policy{UnknownRange: PolicyFail}}},
 		{name: "non breaking", gate: GateClear, reason: "the change is NON_BREAKING", code: GateCodeNotBreaking, r: Result{Classification: "NON_BREAKING"}},
 		{name: "potential", gate: GateClear, reason: "review the potentially breaking changes by hand", code: GateCodePotentialBreaking, r: Result{Classification: "POTENTIAL_BREAKING"}},
 		{name: "blocked", gate: GateBlocked, reason: "do not accept api 2.0.0: web", code: GateCodeConsumersIncompatible,

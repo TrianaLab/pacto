@@ -25,6 +25,8 @@ type ImpactRequest struct {
 	IncludeObserved bool
 	TracesPath      string
 	Event           *impact.Event
+	// Policy is the range policy a BREAKING answer is held to.
+	Policy impact.Policy
 }
 
 // impactProvider answers req over snap, the snapshot the fleet tools answer
@@ -42,7 +44,9 @@ func impactTool() *mcpsdk.Tool {
 			"changes, affected consumers (with confidence and compatibility verdict), active targets " +
 			"and owners to review. The answer ends in 'gate' (blocked, unverified or clear) and 'gateReason', " +
 			"the same gate `pacto impact` exits on (1, 2, 0): unverified means Pacto could not show the change " +
-			"is safe, never that it is. A consumer at depth 1 with provenance and confidence 'inferred' (via 'inferred') is named only by " +
+			"is safe, never that it is. 'ranges' is the range coverage of the direct consumers (declared, accepted and unknown ranges, with the range Pacto proposes for each unknown one) " +
+			"and 'policy' the range policy the answer was held to: pass 'policy' as the --policy values of `pacto impact` (unknown-range=warn|fail, uncontracted=warn|fail:<window>); " +
+			"a fail policy blocks a BREAKING change, a warn adds a POLICY_WARNING line to 'notes'. A consumer at depth 1 with provenance and confidence 'inferred' (via 'inferred') is named only by " +
 			"its own inferred record, pacto.inferred.yaml: a direct consumer whose compatibilityVerdict is unknown, which never clears the gate. " +
 			"On a BREAKING change a compatible consumer only matches by range; read " +
 			"its 'note'. 'consumerTallies' counts every consumer by outcome (incompatible includes a consumer that refuses a " +
@@ -70,19 +74,21 @@ func impactTool() *mcpsdk.Tool {
 			"service":          {Type: "string", Description: "The fleet service key the event is about"},
 			"offering":         {Type: "string", Description: "A platform offering instead of 'service': the event is about every provider of it; unavailable or removed only"},
 			"revision":         {Type: "string", Description: "For regressed: the revision that regressed, a version or an artifact digest (sha256:...)"},
+			"policy":           {Type: "array", Items: "string", Description: "Range policy for a BREAKING change, as key=value: unknown-range=warn|fail and uncontracted=warn|fail:<window> (such as fail:7d); default warn"},
 		}, nil),
 	}
 }
 
 type impactArgs struct {
-	OldRef          string `json:"old_ref"`
-	NewRef          string `json:"new_ref"`
-	IncludeObserved bool   `json:"include_observed"`
-	Traces          string `json:"traces"`
-	Event           string `json:"event"`
-	Service         string `json:"service"`
-	Offering        string `json:"offering"`
-	Revision        string `json:"revision"`
+	OldRef          string   `json:"old_ref"`
+	NewRef          string   `json:"new_ref"`
+	IncludeObserved bool     `json:"include_observed"`
+	Traces          string   `json:"traces"`
+	Event           string   `json:"event"`
+	Service         string   `json:"service"`
+	Offering        string   `json:"offering"`
+	Revision        string   `json:"revision"`
+	Policy          []string `json:"policy"`
 }
 
 // errImpactArgs is the answer to a call that names neither a change nor an event.
@@ -90,7 +96,11 @@ var errImpactArgs = errors.New("pass either old_ref and new_ref, or event and se
 
 // request checks the arguments and turns them into an ImpactRequest.
 func (a impactArgs) request() (ImpactRequest, error) {
-	req := ImpactRequest{OldRef: a.OldRef, NewRef: a.NewRef, IncludeObserved: a.IncludeObserved, TracesPath: a.Traces}
+	policy, err := impact.ParsePolicy(a.Policy)
+	if err != nil {
+		return ImpactRequest{}, err
+	}
+	req := ImpactRequest{OldRef: a.OldRef, NewRef: a.NewRef, IncludeObserved: a.IncludeObserved, TracesPath: a.Traces, Policy: policy}
 	pair := a.OldRef != "" || a.NewRef != ""
 	event := a.Event != "" || a.Service != "" || a.Offering != "" || a.Revision != ""
 	switch {

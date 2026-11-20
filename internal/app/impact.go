@@ -55,7 +55,8 @@ type ImpactOptions struct {
 	// nil does nothing. The snapshot paths never call it.
 	OnResolved func(old, new *contract.Bundle)
 	// Acceptances reads the acceptances attached to the consumers a break
-	// in the new revision names, with this process's registry credentials:
+	// in the new revision names, and to the direct consumers whose range is
+	// unknown, with this process's registry credentials:
 	// the CLI, a stdio MCP server and pacto ci set it, the dashboard and an
 	// HTTP MCP server never do.
 	Acceptances bool
@@ -65,6 +66,8 @@ type ImpactOptions struct {
 	// Getenv reads SOURCE_DATE_EPOCH for the default expiry of an undated
 	// break in a checkout; nil reads none.
 	Getenv func(string) string
+	// Policy is the range policy a BREAKING answer is held to (--policy).
+	Policy impact.Policy
 	// unpublished are the services pacto ci reads from repository folders
 	// never published: no index can hold them, so none is reported missing.
 	unpublished map[fleet.ServiceKey]bool
@@ -303,6 +306,7 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 	if err != nil {
 		return nil, fmt.Errorf("parse traces: %w", err)
 	}
+	breaks := s.breakInput(ctx, opts, newBundle, snap)
 	res := impact.Analyze(ctx, oldBundle.Contract, newBundle.Contract, oldBundle.FS, newBundle.FS, snap,
 		impact.Options{
 			// Domain-qualify the changed service from its new reference so impact is
@@ -313,7 +317,9 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 			NameInferredFrom: nameInferredFrom(oldBundle, newBundle),
 			Index:            ix,
 			Indexed:          indexed,
-			Breaks:           s.breakInput(ctx, opts, newBundle, snap),
+			Breaks:           breaks,
+			Acceptances:      s.impactAcceptances(ctx, opts, snap, breaks),
+			Policy:           opts.Policy,
 		})
 	res.TargetSnapshots = targetSnapshotStates(snap)
 	return res, nil

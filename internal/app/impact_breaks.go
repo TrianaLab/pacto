@@ -48,6 +48,20 @@ func (s *Service) breakInput(ctx context.Context, opts ImpactOptions, newBundle 
 	return in
 }
 
+// impactAcceptances reads the acceptances of a consumer for the answer's
+// range coverage: the break reader when there is one, else a reader with no
+// announcement; nil when opts reads none.
+func (s *Service) impactAcceptances(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, breaks *impact.BreakInput) func(fleet.ServiceKey) ([]impact.Acceptance, bool) {
+	switch {
+	case breaks != nil:
+		return breaks.Acceptances
+	case !opts.Acceptances:
+		return nil
+	}
+	r := &acceptanceReader{s: s, snap: snap, in: &impact.BreakInput{}, store: newAcceptanceStore(ctx, s.env(), impactTrust(opts))}
+	return func(k fleet.ServiceKey) ([]impact.Acceptance, bool) { return r.read(ctx, k) }
+}
+
 // checkoutExpiry is the default expiry of an undated break when the new
 // revision is a checkout: HEAD's commit time + 30 days, as pacto ci records
 // it. Anything else has none, which never accepts.

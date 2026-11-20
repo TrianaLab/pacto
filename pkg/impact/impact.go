@@ -102,6 +102,14 @@ type Options struct {
 	// Breaks is the break the new revision announces in breaks[] and the
 	// acceptances of its consumers; nil when it announces none.
 	Breaks *BreakInput
+	// Acceptances reads the judged acceptances attached to a consumer's
+	// revisions and whether that listing is complete; nil reads none. A
+	// counted acceptance of a consumer's compatibility field counts its
+	// range as accepted in the answer's coverage.
+	Acceptances func(consumer fleet.ServiceKey) ([]Acceptance, bool)
+	// Policy is the range policy a BREAKING answer is held to; empty
+	// values default to warn.
+	Policy Policy
 }
 
 // ConsumerIndex is how the organization index was read for this answer.
@@ -260,6 +268,15 @@ type Result struct {
 	TargetSnapshots []fleet.SourceState `json:"targetSnapshots,omitempty" doc:"The signed target snapshots the answer read, pinned by digest"`
 	// ConsumerIndex is how the organization index was read; nil when none was.
 	ConsumerIndex *ConsumerIndex `json:"consumerIndex,omitempty" doc:"How the organization index was read: which repository, how many services it lists and how many depend on the changed service. Absent when no index was read, such as for local folders, over HTTP or in the dashboard"`
+	// Ranges is the range coverage of the changed service's direct consumers.
+	Ranges *RangeCoverage `json:"ranges,omitempty" doc:"How many direct consumers declare a compatibility range or accepted one, and which ranges stay unknown; absent on an event answer"`
+	// Policy is the range policy the answer was held to.
+	Policy *Policy `json:"policy,omitempty" doc:"The range policy the answer was held to; absent on an event answer"`
+	// Notes are informational lines, never a limitation.
+	Notes []string `json:"notes,omitempty" doc:"Informational notes, such as a range policy set to warn; never a limitation"`
+	// unknownRanges names every direct consumer whose range is unknown and
+	// not accepted, beyond the coverage's bound.
+	unknownRanges []string
 	// observationSources are the observation sources an event answer read.
 	observationSources []string
 	// hiddenReferrers counts the services this viewer may not see that may
@@ -383,7 +400,7 @@ func (r *Result) gate() (string, string) {
 	if r.Event != nil {
 		return r.eventGate()
 	}
-	if gate, why := r.blockingGate(); gate != "" {
+	if gate, why := r.heldGate(); gate != "" {
 		return gate, why
 	}
 	if why := r.policyUnchecked(); why != "" && r.Classification != "BREAKING" {
@@ -451,6 +468,20 @@ func inferredNote(n int, lead string) string {
 	}
 	return lead + strconv.Itoa(n) + " services may depend on it, named only by their inferred records, so Pacto cannot check their compatibility: " +
 		"declare each dependency with a compatibility range in those services' pacto.yaml"
+}
+
+// heldGate is the gate when the answer holds the change: blockingGate's
+// blocked, then a fail range policy (blocked), then blockingGate's
+// unverified; "" otherwise.
+func (r *Result) heldGate() (string, string) {
+	gate, why := r.blockingGate()
+	if gate == GateBlocked {
+		return gate, why
+	}
+	if code, policyWhy := r.policyGate(); code != "" {
+		return GateBlocked, "the change is BREAKING: " + policyWhy
+	}
+	return gate, why
 }
 
 // blockingGate is the gate when a consumer is shown to break: blocked when one
@@ -769,6 +800,8 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 			res.noteUnindexed(opts.Indexed)
 			res.noteUnchecked(snap)
 		}
+		res.rangeCoverage(snap, opts.Acceptances)
+		res.applyPolicy(opts.Policy)
 	}
 	if opts.NameInferredFrom != "" && res.nameInferred() == "" {
 		res.Limitations = append(res.Limitations, fleet.Limitation{

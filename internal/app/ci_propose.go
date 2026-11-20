@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/internal/discover"
@@ -157,4 +158,46 @@ func targetRevision(snap *fleet.FleetSnapshot, t *fleet.TargetRecord) *fleet.Con
 		return rev
 	}
 	return snap.Revisions[fleet.NewRevisionKey(t.ServiceKey, t.Digest)]
+}
+
+// ciRanges is the range coverage of every walked service's dependencies on
+// other services: declared when the folder's pacto.yaml declares a range,
+// accepted when a carried acceptance pinned it, else unknown with the range
+// the plan proposes for it.
+func ciRanges(folders []*ciFolder, root string) *impact.RangeCoverage {
+	cov := &impact.RangeCoverage{}
+	n := 0
+	for _, f := range folders {
+		if f.judged == nil {
+			continue
+		}
+		n++
+		rec, _ := contract.ReadInferredRecord(f.judged.FS) // ponytail: completion and propose just wrote it
+		for _, d := range f.judged.Contract.Dependencies {
+			if d.External {
+				continue
+			}
+			cov.Edges++
+			switch {
+			case declaresRange(f.asWritten, d.Name):
+				cov.Declared++
+			case contract.IsRange(d.Compatibility):
+				cov.Accepted++
+			default:
+				cov.AddUnknown(impact.UnknownRange{From: f.row.Service, To: d.Name, Proposed: rec.Proposed("dependencies[" + d.Name + "].compatibility")})
+			}
+		}
+	}
+	services := " services in "
+	if n == 1 {
+		services = " service in "
+	}
+	cov.Scope = "dependencies of " + strconv.Itoa(n) + services + root
+	return cov
+}
+
+// declaresRange reports whether b's pacto.yaml declares a range on its
+// dependency name.
+func declaresRange(b *contract.Bundle, name string) bool {
+	return slices.ContainsFunc(b.Contract.Dependencies, func(d contract.Dependency) bool { return d.Name == name && contract.IsRange(d.Compatibility) })
 }

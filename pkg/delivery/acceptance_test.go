@@ -175,8 +175,8 @@ func TestJudgedAcceptanceForImpact(t *testing.T) {
 		t.Fatalf("ForImpact = %+v", a)
 	}
 	j.Record = acceptanceStatement(AcceptKindRanges).Predicate
-	if j.ForImpact().Break != nil {
-		t.Error("a ranges acceptance names a break")
+	if a := j.ForImpact(); a.Break != nil || len(a.Fields) != len(j.Record.Ranges) || len(a.Fields) == 0 || a.Fields[0] != j.Record.Ranges[0].Field {
+		t.Errorf("a ranges acceptance = %+v", a)
 	}
 }
 

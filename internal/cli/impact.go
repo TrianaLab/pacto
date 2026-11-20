@@ -114,6 +114,10 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 			if err != nil {
 				return err
 			}
+			policy, err := parsePolicy(cmd)
+			if err != nil {
+				return err
+			}
 			start := time.Now()
 			sp := startSpinner(cmd, format, "Analyzing impact")
 			var result *impact.Result
@@ -133,6 +137,7 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 					TargetSnapshotAuto: auto,
 					Acceptances:        true,
 					Getenv:             os.Getenv,
+					Policy:             policy,
 				})
 			}
 			if err != nil {
@@ -174,6 +179,7 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 	addFleetSourceFlags(cmd.Flags())
 	addStatsFlags(cmd)
 	addDiffOverrideFlags(cmd)
+	addPolicyFlag(cmd)
 
 	return cmd
 }
@@ -360,6 +366,9 @@ func printTargetSnapshots(w io.Writer, result *impact.Result) {
 	}
 	if text := ci.IndexText(result); text != "" {
 		_, _ = fmt.Fprintf(w, "Consumers: %s\n", text)
+	}
+	for _, l := range append(ci.RangesLines(result.Ranges), result.Notes...) {
+		_, _ = fmt.Fprintln(w, l)
 	}
 }
 

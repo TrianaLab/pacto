@@ -1033,3 +1033,11 @@ func TestCitedAcceptancesRoundTrip(t *testing.T) {
 		t.Fatalf("%v\n%s", err, bad)
 	}
 }
+
+func TestInferredRecordProposed(t *testing.T) {
+	var none *InferredRecord
+	rec := &InferredRecord{Fields: []Inferred{{Field: "image"}, {Field: "dependencies[ledger].compatibility", Proposed: "^2.3.0"}}}
+	if none.Proposed("x") != "" || rec.Proposed("dependencies[billing].compatibility") != "" || rec.Proposed("dependencies[ledger].compatibility") != "^2.3.0" {
+		t.Fatal("Proposed read the wrong field")
+	}
+}

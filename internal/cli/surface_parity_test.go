@@ -166,6 +166,7 @@ func impactRows() []surfaceRow {
 			{"", "pacto_impact.service", "POST /api/fleet/impact body.serviceKey", "the CLI takes the service as the event flag's value"},
 			{"", "pacto_impact.revision", "POST /api/fleet/impact body.revision", "the CLI takes the revision after @ in --regressed"},
 			{"", "pacto_impact.offering", "POST /api/fleet/impact body.offeringKey", "the CLI takes the offering as offering:<name> in --unavailable or --removed"},
+			{"impact --policy", "pacto_impact.policy", "", "the dashboard answers with the default policy, warn"},
 		},
 		alike("impact", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs",
 			"stats-context", "stats-file", "stats-registry"),
@@ -349,7 +350,7 @@ func evidenceRows() []surfaceRow {
 func ciRows() []surfaceRow {
 	const whyCI = "pacto ci is the CI entry point over a repository and a registry baseline; MCP has no repository-wide plan, pacto_impact answers one revision pair without ci's consumer-source and inferred rules, and the dashboard publishes nothing"
 	return slices.Concat(
-		alike("ci", "", "", whyCI, "registry", "explain"),
+		alike("ci", "", "", whyCI, "registry", "explain", "policy"),
 		alike("ci", "", "", "publishing runs in CI on the merged commit, signed as the CI identity; MCP never publishes and the dashboard publishes nothing", "publish", "image", "sign-key", "no-transparency-log"),
 		alike("ci", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs", "stats-context", "stats-file", "stats-registry"),
 	)

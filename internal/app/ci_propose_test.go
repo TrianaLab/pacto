@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"oras.land/oras-go/v2/registry/remote"
@@ -17,6 +18,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/orgindex"
@@ -244,5 +246,33 @@ func TestProposeRefAmbiguousIsFinding(t *testing.T) {
 	want := map[string]discover.Sourced{"ledger": {Value: "oci://" + e.ir.host + "/acme/ledger", Source: contract.SourceIndex + e.index() + ":" + tag}}
 	if !reflect.DeepEqual(refs, want) {
 		t.Fatalf("refs = %+v, want %+v", refs, want)
+	}
+}
+
+// TestCIRangesOverWalkedServices: pacto ci counts every walked service's
+// dependencies on other services: declared in pacto.yaml, accepted when a
+// carried acceptance pinned the range, else unknown with the proposal.
+func TestCIRangesOverWalkedServices(t *testing.T) {
+	dep := func(name, compat string) contract.Dependency {
+		return contract.Dependency{Name: name, Compatibility: compat}
+	}
+	written := &contract.Bundle{Contract: &contract.Contract{Dependencies: []contract.Dependency{dep("ledger", "^2.0.0"), dep("billing", "unknown"), dep("audit", "unknown")}}}
+	rec := acceptRecordOf(contract.Inferred{Field: "dependencies[audit].compatibility", Value: "compatibility unknown", Proposed: "^3.1.0", Source: snapSrc, Confidence: contract.ConfidenceLikely})
+	judged := &contract.Bundle{Contract: &contract.Contract{Dependencies: []contract.Dependency{dep("ledger", "^2.0.0"), dep("billing", "^1.4.0"), dep("audit", "unknown"),
+		{Name: "stripe", External: true}}}, FS: contract.WithInferredRecord(fstest.MapFS{}, rec.Marshal())}
+	empty := &contract.Bundle{Contract: &contract.Contract{}, FS: fstest.MapFS{}}
+	folders := []*ciFolder{
+		{row: ci.Row{Service: "reports"}, asWritten: written, judged: judged},
+		{row: ci.Row{Service: "broken"}},
+		{row: ci.Row{Service: "ledger"}, asWritten: empty, judged: empty},
+	}
+	cov := ciRanges(folders, ".")
+	want := impact.RangeCoverage{Scope: "dependencies of 2 services in .", Edges: 3, Declared: 1, Accepted: 1, UnknownTotal: 1,
+		Unknown: []impact.UnknownRange{{From: "reports", To: "audit", Proposed: "^3.1.0"}}}
+	if !reflect.DeepEqual(*cov, want) {
+		t.Fatalf("got %+v", *cov)
+	}
+	if got := ciRanges(folders[2:], "repo").Scope; got != "dependencies of 1 service in repo" {
+		t.Errorf("scope %q", got)
 	}
 }

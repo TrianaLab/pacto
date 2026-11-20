@@ -168,6 +168,7 @@ Impact: api 1.0.0 -> 2.0.0
 Classification: BREAKING
 Breaking changes: 2
 Potentially breaking changes: 0
+Ranges: 1 declared and 0 accepted of 1 dependency edges (100%)
 Affected consumers (1):
   web                          direct     confidence=contractual  compat=incompatible owner=frontend
     path: web > api  provenance: declared  via: dependency
@@ -188,6 +189,7 @@ Impact: api 1.0.0 -> 2.0.0
 Classification: BREAKING
 Breaking changes: 2
 Potentially breaking changes: 0
+Ranges: 1 declared and 0 accepted of 1 dependency edges (100%)
 Affected consumers (1):
   web                          direct     confidence=contractual  compat=incompatible owner=frontend
     path: web > api  provenance: declared  via: dependency

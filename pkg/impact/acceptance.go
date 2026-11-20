@@ -33,6 +33,7 @@ type Acceptance struct {
 	Reason   string    `json:"reason,omitempty" doc:"Why the record does not count, or the route to the owner who may accept"`
 	SignedAt time.Time `json:"signedAt,omitzero" doc:"When a timestamp authority or the transparency log saw the record signed"`
 	Break    *BreakRef `json:"break,omitempty" doc:"The break the record accepts, for a break acceptance"`
+	Fields   []string  `json:"fields,omitempty" doc:"The dependency fields the record accepts, such as dependencies[ledger].compatibility, for a ranges acceptance"`
 }
 
 // BreakRef names one announced break: the provider (fleet key), the version

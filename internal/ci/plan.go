@@ -27,9 +27,12 @@ type Plan struct {
 	// indexComplete is whether Index says complete.
 	indexComplete bool
 	Skipped       []Skip `json:"skipped,omitempty"`
-	Rows          []Row  `json:"rows"`
-	Gate          string `json:"gate"`
-	Exit          int    `json:"exit"`
+	// Ranges is the range coverage of every walked service's dependencies
+	// on other services; nil when none was read.
+	Ranges *impact.RangeCoverage `json:"ranges,omitempty"`
+	Rows   []Row                 `json:"rows"`
+	Gate   string                `json:"gate"`
+	Exit   int                   `json:"exit"`
 	// Reason is the line a non-zero exit writes to stderr, "" on exit 0.
 	Reason string `json:"reason"`
 	// Refused is why a publish run as a whole was refused, "" when it ran.

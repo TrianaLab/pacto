@@ -292,5 +292,8 @@ func (j JudgedAcceptance) ForImpact() impact.Acceptance {
 	if b := j.Record.Break; b != nil {
 		a.Break = &impact.BreakRef{Provider: b.Provider, Version: b.Version, Announcement: b.Announcement}
 	}
+	for _, r := range j.Record.Ranges {
+		a.Fields = append(a.Fields, r.Field)
+	}
 	return a
 }

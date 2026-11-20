@@ -59,6 +59,8 @@ type CIOptions struct {
 	// Signers verifies the acceptances of announced breaks in place of the
 	// installation signer policy; nil reads that.
 	Signers *delivery.ClassPolicy
+	// Policy is the range policy each row's BREAKING answer is held to.
+	Policy impact.Policy
 }
 
 // firstVersion is the version an undeclared service.version starts at.
@@ -127,6 +129,7 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 		pl.propose(ctx, f, snap, opts)
 		p.Rows = append(p.Rows, f.row)
 	}
+	p.Ranges = ciRanges(folders, opts.Root)
 	p.Settle(opts.Root)
 	return p, results, nil
 }
@@ -767,7 +770,7 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 		}
 		// The rebuild that adds the index keeps the planned revisions.
 		io := ImpactOptions{OldPath: "oci://" + f.row.Repository + "@" + f.row.BaselineDigest, NewPath: f.dir, Domain: contract.OCIDomain(f.row.Repository), Fleet: withChanges, unpublished: unpublished,
-			Acceptances: true, Signers: opts.Signers, Getenv: opts.Getenv}
+			Acceptances: true, Signers: opts.Signers, Getenv: opts.Getenv, Policy: opts.Policy}
 		res, err := fenced.impactOnResolved(ctx, io, snap, true, f.base, f.b)
 		if err != nil {
 			f.decide(impact.GateUnverified, "impact: "+err.Error())

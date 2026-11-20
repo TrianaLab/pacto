@@ -659,6 +659,20 @@ func validPath(p string) bool {
 // bundle.
 const repositoryPrefix = "repository:"
 
+// Proposed is the value r proposes for field, "" when r is nil or
+// proposes none.
+func (r *InferredRecord) Proposed(field string) string {
+	if r == nil {
+		return ""
+	}
+	for _, f := range r.Fields {
+		if f.Field == field {
+			return f.Proposed
+		}
+	}
+	return ""
+}
+
 // Marshal writes the record with its fields sorted by field then source, its
 // findings truncation first then by code and source, its sources by path, its
 // migrations by source then from, a declaration's ranges by field, and no timestamp, so the same inputs give

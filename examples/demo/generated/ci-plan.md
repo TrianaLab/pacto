@@ -7,6 +7,7 @@
 - `Base: none`
 - `Consumer source: none (IMPACT reads unverified)`
 - `Index: 0 from ghcr.io/acme/pacto-index (listed by tag, 3 services listed, unchecked)`
+- `Ranges: no dependency edges`
 
 | SERVICE | CHANGED | VERSION | CLASSIFICATION | IMPACT | INFERRED |
 |---|---|---|---|---|---|
