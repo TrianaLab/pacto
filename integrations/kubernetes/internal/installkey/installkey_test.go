@@ -52,7 +52,8 @@ func TestEnsureCreatesKeyOnce(t *testing.T) {
 	}
 	s := secretOf(t, c)
 	if s.Labels["app.kubernetes.io/component"] != "installation-key" || s.Labels["app.kubernetes.io/managed-by"] != "pacto-operator" ||
-		s.Labels["app.kubernetes.io/part-of"] != "pacto" || !strings.Contains(string(s.Data[KeyName]), "BEGIN PRIVATE KEY") {
+		s.Labels["app.kubernetes.io/part-of"] != "pacto" || !strings.Contains(string(s.Data[KeyName]), "BEGIN PRIVATE KEY") ||
+		string(s.Data[PublicKeyName]) != PublicKeyBase64(k1) {
 		t.Fatalf("secret %+v", s)
 	}
 	k2, err := Ensure(context.Background(), c, c, ns, name)

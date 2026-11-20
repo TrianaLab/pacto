@@ -31,6 +31,11 @@ import (
 // KeyName is the Secret key that holds the PKCS#8 PEM private key.
 const KeyName = "key.pem"
 
+// PublicKeyName is the Secret key that holds PublicKeyBase64 of the key, so
+// the chart's NOTES print the trust entry from the Secret only the operator
+// writes, never from the detection ConfigMap a ConfigMap writer can forge.
+const PublicKeyName = "public.b64"
+
 // SecretName is the installation key Secret of the operator Deployment
 // fullname.
 func SecretName(fullname string) string { return fullname + "-installation-key" }
@@ -58,7 +63,7 @@ func Ensure(ctx context.Context, r client.Reader, w client.Client, namespace, na
 			"app.kubernetes.io/managed-by": "pacto-operator",
 		}},
 		Type: corev1.SecretTypeOpaque,
-		Data: map[string][]byte{KeyName: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})},
+		Data: map[string][]byte{KeyName: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), PublicKeyName: []byte(PublicKeyBase64(fresh))},
 	}
 	switch err := w.Create(ctx, s); {
 	case err == nil:

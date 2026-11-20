@@ -113,15 +113,18 @@ its own fleet source with its own `asOf` and completeness:
   included. They count as observed targets, as `--evidence-url` does.
 
 The installation key signs the snapshot. Build the cluster's trust entry from
-the `installation` block of the operator's detected ConfigMap, or copy the one
-the `helm upgrade` notes print:
+the public key in the installation key Secret, which only the operator writes,
+or copy the one the `helm upgrade` notes print. The detected ConfigMap names
+the cluster:
 
 ```shell
+kubectl -n pacto-operator-system get secret pacto-operator-installation-key \
+  -o jsonpath='{.data.public\.b64}' | base64 -d
 kubectl -n pacto-operator-system get configmap pacto-operator-detected \
-  -o jsonpath='{.data.detected\.json}' | jq '{cluster, key: .installation.snapshotKey}'
+  -o jsonpath='{.data.detected\.json}' | jq -r .cluster
 ```
 
-Wrap `key` at 64 characters between `-----BEGIN PUBLIC KEY-----` and
+Wrap the key at 64 characters between `-----BEGIN PUBLIC KEY-----` and
 `-----END PUBLIC KEY-----` for `publicKey`, name the entry
 `installation-<first 8 characters of cluster>` and scope it with
 `streams: ["<cluster>/pacto-targets/snapshot"]`.

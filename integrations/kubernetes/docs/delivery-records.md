@@ -385,8 +385,8 @@ still checked.
   cluster's UID. A bare PEM or an entry with no `streams` trusts every
   cluster, which another cluster's operator could sign for, so it reads the
   snapshot as unscoped and partial. Add one entry per cluster, with the
-  advertised `snapshotKey` from the `installation` block of the
-  `<fullname>-detected` ConfigMap (the `helm upgrade` notes print the entry).
+  public key in `public.b64` of the `<fullname>-installation-key` Secret
+  (the `helm upgrade` notes print the entry).
   [Where consumers come from](../../ci.md#where-consumers-come-from) shows
   the CI side.
 

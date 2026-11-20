@@ -536,7 +536,9 @@ tests:
       registry: ghcr.io/acme
     asserts:
       - matchRegexRaw:
-          pattern: "The operator pushes only to ghcr\\.io/acme/pacto-targets and\\s+ghcr\\.io/acme/pacto-inferred\\. CI writes ghcr\\.io/acme/pacto-index\\. Any push\\s+outside these prefixes is refused:\\n    ghcr\\.io/acme/pacto-targets\\n    ghcr\\.io/acme/pacto-index\\n    ghcr\\.io/acme/pacto-inferred\\n"
+          pattern: "The operator pushes only to ghcr\\.io/acme/pacto-targets and\\s+ghcr\\.io/acme/pacto-inferred\\. CI writes ghcr\\.io/acme/pacto-index\\. Every tag,\\s+delete and manifest push outside these prefixes is refused:\\n    ghcr\\.io/acme/pacto-targets\\n    ghcr\\.io/acme/pacto-index\\n    ghcr\\.io/acme/pacto-inferred\\n"
+      - matchRegexRaw:
+          pattern: "Outside them only referrers are written, by digest onto an existing\\s+manifest"
       - matchRegexRaw:
           pattern: ghcr\.io/acme/pacto-targets:cluster-<uid>
       - matchRegexRaw:
@@ -565,7 +567,46 @@ tests:
       - notMatchRegexRaw:
           pattern: Pacto delivery promoter is installed
 
-  - it: notes print the trust entry from the advertised key on upgrade
+  - it: notes print the trust entry from the installation key Secret on upgrade
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    set:
+      registry: ghcr.io/acme
+    kubernetesProvider: &detectedWithKey
+      scheme:
+        "v1/ConfigMap":
+          gvr: {group: "", version: v1, resource: configmaps}
+          namespaced: true
+        "v1/Secret":
+          gvr: {group: "", version: v1, resource: secrets}
+          namespaced: true
+      objects:
+        - kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-detected
+            namespace: pacto-operator-system
+            labels: {app.kubernetes.io/managed-by: pacto-operator}
+            ownerReferences:
+              - {apiVersion: apps/v1, kind: Deployment, name: pacto-operator, uid: u1}
+          data:
+            detected.json: '{"schemaVersion":"1","asOf":"2026-11-16T10:02:00Z","cluster":"5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11","entries":[{"kind":"cloud","value":"GKE","evidence":"on 6 of 6 nodes","source":"nodes","completeness":"complete","scope":"cluster"},{"kind":"registry","value":"ghcr.io/acme","evidence":"in 9 of 11 namespaces, 87% of workloads","source":"running pods","completeness":"complete","hint":"oci://ghcr.io/acme/<service>:<version>","scope":"cluster"},{"kind":"pull-secret","value":"shop/ghcr-pull","evidence":"named in the pod specs of 4 running workloads that pulled from ghcr.io; Pacto did not read the Secret","source":"pod specs","completeness":"complete","hint":"--set registryPullSecret=shop/ghcr-pull","namespaces":["shop"]}],"installation":{"registry":"ghcr.io/acme","targets":"ghcr.io/acme/pacto-targets","index":"ghcr.io/acme/pacto-index","inferred":"ghcr.io/acme/pacto-inferred","snapshotKey":"MCowBQYDK2VwAyEAZm9yZ2VkZm9yZ2VkZm9yZ2VkZm9yZ2VkZm9yZ2VkZm9yZ2U=","snapshotKeyID":"339e2ff9","pushes":["ghcr.io/acme/pacto-targets","ghcr.io/acme/pacto-index","ghcr.io/acme/pacto-inferred"],"lastPush":{"at":"2026-11-16T09:58:00Z","ref":"ghcr.io/acme/pacto-targets:cluster-5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11"}}}'
+        - kind: Secret
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-installation-key
+            namespace: pacto-operator-system
+            labels: {app.kubernetes.io/managed-by: pacto-operator}
+          data:
+            public.b64: TUNvd0JRWURLMlZ3QXlFQU8yb252TTYycEMxaW82alFLbThOYzJVeUZYY2Q0a09tT3NCSW9ZdFoyaWs9
+    asserts:
+      - matchRegexRaw:
+          pattern: "  CI verifies the snapshot with this trust entry:\\n\\n    - name: installation-5b0c6c3e\\n      publicKey: \\|\\n        -----BEGIN PUBLIC KEY-----\\n        MCowBQYDK2VwAyEAO2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=\\n        -----END PUBLIC KEY-----\\n      streams: \\[\"5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11/pacto-targets/snapshot\"\\]"
+
+  # A ConfigMap writer can forge snapshotKey: with no installation key Secret
+  # the notes print no trust entry, whatever the ConfigMap advertises.
+  - it: notes print no trust entry from the ConfigMap alone
     template: templates/NOTES.txt
     release:
       upgrade: true
@@ -573,8 +614,24 @@ tests:
       registry: ghcr.io/acme
     kubernetesProvider: *detected
     asserts:
+      - notMatchRegexRaw:
+          pattern: CI verifies the snapshot
+
+  # Helm reads the ConfigMap before the operator restarts with the new
+  # registry: the old registry's push confirms nothing about the new one.
+  - it: notes ignore a last push to the previous registry
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    set:
+      registry: europe-docker.pkg.dev/acme/pacto
+      registryPullSecret: ns/s
+    kubernetesProvider: *detected
+    asserts:
       - matchRegexRaw:
-          pattern: "  CI verifies the snapshot with this trust entry:\\n\\n    - name: installation-5b0c6c3e\\n      publicKey: \\|\\n        -----BEGIN PUBLIC KEY-----\\n        MCowBQYDK2VwAyEAO2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=\\n        -----END PUBLIC KEY-----\\n      streams: \\[\"5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11/pacto-targets/snapshot\"\\]"
+          pattern: "Pushes: unconfirmed until the first snapshot push"
+      - notMatchRegexRaw:
+          pattern: Last snapshot push
 
   - it: notes print no trust entry on install
     template: templates/NOTES.txt

@@ -319,7 +319,7 @@ Read what the line ends with:
 | `unverified` | The job has no delivery trust config | Set `PACTO_DELIVERY_TRUST` or pass `--delivery-trust` |
 | `signed by <key> (not scoped to this cluster)` | The trust entry has no `streams` naming the cluster's UID, or is a bare PEM | Add `streams: ["<uid>/pacto-targets/snapshot"]` to the cluster's installation entry |
 | `stale` | The snapshot is older than 15 minutes | Check the operator logs for `target snapshot not published`: push credentials for `<registry>/pacto-targets` or a snapshot over 8 MiB |
-| `unavailable, not used` | A pinned tag is missing, or the signature or cluster does not match | Check the operator runs in that cluster with `registry` set and that the trust entry holds its advertised `snapshotKey` |
+| `unavailable, not used` | A pinned tag is missing, or the signature or cluster does not match | Check the operator runs in that cluster with `registry` set and that the trust entry holds the `public.b64` of its installation key Secret |
 
 A `Registry:` line that says `no pacto-targets` means no cluster published:
 check that the chart's top-level `registry` value is set. See

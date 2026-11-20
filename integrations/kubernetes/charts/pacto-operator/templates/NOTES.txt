@@ -147,8 +147,13 @@ only: nothing reads them into a manifest. */}}
 {{- if kindIs "map" $install }}{{ else }}{{ $install = dict }}{{ end }}
 {{- $last := get $install "lastPush" | default dict }}
 {{- if kindIs "map" $last }}{{ else }}{{ $last = dict }}{{ end }}
+{{- /* Helm reads the ConfigMap before the operator restarts with a new
+registry value: a push to another registry says nothing about this one. */}}
+{{- $registry := trimSuffix "/" (toString .Values.registry) }}
+{{- if ne (trimSuffix "/" (toString (get $install "registry"))) $registry }}{{ $last = dict }}{{ end }}
 {{- $lastError := regexReplaceAll $unsafe (toString (get $last "error")) "" | trunc 256 }}
 {{- $lastRef := regexReplaceAll $unsafe (toString (get $last "ref")) "" | trunc 256 }}
+{{- if not (hasPrefix (printf "%s/pacto-targets:" $registry) $lastRef) }}{{ $lastRef = "" }}{{ end }}
 {{- $lastAt := regexReplaceAll $unsafe (toString (get $last "at")) "" | trunc 64 }}
 {{- with .Values.registry }}
 {{- $recorder := and $.Values.delivery.enabled $.Values.delivery.recorder.enabled (include "pacto-operator.delivery.streamsRepository" $) }}
@@ -171,17 +176,26 @@ Registry: {{ . }}
   {{ include "pacto-operator.delivery.streamsRepository" $ }} and its approvals anchors under
   {{ include "pacto-operator.delivery.approvalsRepository" $ }}
 {{- end }}
-{{- if $stats }}; the promoter writes {{ $stats }}{{ end }}. Any push
-  outside these prefixes is refused:
+{{- if $stats }}; the promoter writes {{ $stats }}{{ end }}. Every tag,
+  delete and manifest push outside these prefixes is refused:
 {{- range include "pacto-operator.pushPrefixes" $ | fromYamlArray }}
     {{ . }}
 {{- end }}
+  Outside them only referrers are written, by digest onto an existing
+  manifest: the Evidence Server's records and the recorder's.
   Pull on {{ . }}/pacto-targets reads every namespace's Pacto status and
   workload shape regardless of Kubernetes RBAC and, with evidence.enabled, every
   target, provisioning and usage record (cost included) the Evidence Server
   accepted, so give it its own read ACL.
   Delivery is {{ if $.Values.delivery.enabled }}on{{ else }}off: turn it on with delivery.enabled=true{{ end }}.
-{{- $key := toString (get $install "snapshotKey") }}
+{{- /* The key comes from the installation key Secret, which only the
+operator writes; the ConfigMap's snapshotKey is forgeable by any ConfigMap
+writer. */}}
+{{- $keySecret := lookup "v1" "Secret" $.Release.Namespace (printf "%s-installation-key" $fullname) }}
+{{- $key := "" }}
+{{- if eq (dig "metadata" "labels" "app.kubernetes.io/managed-by" "" $keySecret) "pacto-operator" }}
+{{- $key = dig "data" "public.b64" "" $keySecret | toString | b64dec }}
+{{- end }}
 {{- $uid := toString (get $detected "cluster") }}
 {{- if and (regexMatch `^[A-Za-z0-9+/]{1,1000}={0,2}$` $key) (regexMatch `^[A-Za-z0-9-]{1,100}$` $uid) }}
 

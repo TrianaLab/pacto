@@ -203,7 +203,9 @@ Delivery stays off until `delivery.enabled=true`.
   registry, the snapshot, index and inferred refs and the snapshot key.
 - **Pushes:** the operator pushes only to `pacto-targets` and
   `pacto-inferred`, CI writes `pacto-index` and, with delivery on, the
-  recorder writes `pacto-streams`. Any other push is refused.
+  recorder writes `pacto-streams`. Every other tag, delete and manifest push
+  is refused. Outside these repositories only referrers are written, by
+  digest onto an existing manifest, by the Evidence Server and the recorder.
 - **Read ACL:** pull on `pacto-targets` reads every namespace's Pacto status
   and workload shape, so give that repository its own read ACL.
 - **Installation key:** the operator creates the Secret
