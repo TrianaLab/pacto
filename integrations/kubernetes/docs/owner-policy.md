@@ -43,7 +43,9 @@ The chart renders the policy into the ConfigMap
 `immutable: true` and a name taken from its content. The operator mounts it
 at `/etc/pacto/owner-policy` and passes it to the dashboard it runs. Only a
 `helm upgrade` changes the policy, and no Role in the chart grants a write to
-that ConfigMap.
+that ConfigMap. The operator's one ConfigMap rule without a name is `create`,
+which detection needs for `<fullname>-detected`; `create` cannot replace a
+ConfigMap that already exists.
 
 ## Where CLIs and agents read it
 
