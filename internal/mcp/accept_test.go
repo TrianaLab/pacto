@@ -117,6 +117,13 @@ func TestMCPAcceptNeedsOnBehalfOf(t *testing.T) {
 	}
 }
 
+func TestAcceptCommandNamesEveryArgument(t *testing.T) {
+	a := AcceptArgs{Service: reportsRef, Break: "ledger@3.0.0", From: "oci://ghcr.io/acme/ledger:3.0.0"}
+	if got := a.Command(); got != "pacto accept "+reportsRef+" --break ledger@3.0.0 --from oci://ghcr.io/acme/ledger:3.0.0" {
+		t.Fatal(got)
+	}
+}
+
 func TestAcceptRefusalsCarryCodeAndCommand(t *testing.T) {
 	for _, code := range []WriteRefusal{RefusalAcceptNothingProposed, RefusalFieldNotAcceptable, RefusalBreakNotAnnounced, RefusalNotPublished,
 		RefusalPersonSigningUnavailable} {

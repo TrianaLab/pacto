@@ -28,9 +28,8 @@ type AcceptArgs struct {
 	IntentDigest string   `json:"intent_digest"`
 }
 
-// Command is the pacto accept a person runs for a, with the intent digest
-// when intent is set.
-func (a AcceptArgs) Command(intent string) string {
+// Command is the pacto accept a person runs for a.
+func (a AcceptArgs) Command() string {
 	parts := []string{"pacto accept", a.Service}
 	if a.Proposed {
 		parts = append(parts, "--proposed")
@@ -43,9 +42,6 @@ func (a AcceptArgs) Command(intent string) string {
 	}
 	if a.From != "" {
 		parts = append(parts, "--from", a.From)
-	}
-	if intent != "" {
-		parts = append(parts, "--intent", intent)
 	}
 	return strings.Join(parts, " ")
 }
@@ -119,7 +115,7 @@ func accept(ctx context.Context, acc Acceptor, a AcceptArgs) (*mcpsdk.CallToolRe
 		refused = requireIntent(plan.IntentDigest, a.IntentDigest)
 	}
 	if refused != nil || dryRun(a.DryRun) {
-		return writeAnswer(out, refused, a.Command(""))
+		return writeAnswer(out, refused, a.Command())
 	}
 	if raw, refused, err = acc.Execute(ctx, a); err != nil {
 		return errorResult(err), nil, nil
@@ -133,5 +129,5 @@ func accept(ctx context.Context, acc Acceptor, a AcceptArgs) (*mcpsdk.CallToolRe
 	if run.Draft != "" {
 		out.Draft = &DraftRef{Tag: run.Draft[strings.LastIndex(run.Draft, ":")+1:], Signed: run.Signer.Source != "none"}
 	}
-	return writeAnswer(out, refused, a.Command(""))
+	return writeAnswer(out, refused, a.Command())
 }
