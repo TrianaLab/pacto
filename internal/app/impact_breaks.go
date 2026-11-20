@@ -155,14 +155,17 @@ func (r *acceptanceReader) cited(ctx context.Context, sub acceptanceSubject, ser
 	return out, ok
 }
 
-// subjects is consumer's lookup set; complete is false when a repository's
-// newest version could not be read.
+// subjects is consumer's lookup set, each subject a bundle of consumer
+// itself; complete is false when a repository's newest version could not
+// be read.
 func (r *acceptanceReader) subjects(ctx context.Context, consumer fleet.ServiceKey) ([]acceptanceSubject, bool) {
 	domain, name := fleet.ParseServiceKey(consumer)
 	var out []acceptanceSubject
 	seen := map[string]bool{}
 	add := func(sub acceptanceSubject) {
-		if !seen[sub.subject] {
+		// A repository the contract names is trusted only for the bundle of
+		// this consumer: another service's acceptances never count for it.
+		if self := fleet.NewServiceKeyDomain(contract.OCIDomain(sub.repo), sub.c.Service.Name); !seen[sub.subject] && fleet.NamesService(consumer, self) {
 			seen[sub.subject] = true
 			out = append(out, sub)
 		}

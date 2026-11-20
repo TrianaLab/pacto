@@ -420,6 +420,24 @@ func TestAcceptanceReaderLookupSet(t *testing.T) {
 	}
 }
 
+// TestAcceptanceReaderSkipsAnotherServicesBundle: a consumer whose
+// contract names another service's repository in publish.bundle never
+// reads that service's acceptances as its own.
+func TestAcceptanceReaderSkipsAnotherServicesBundle(t *testing.T) {
+	e := newAcceptEnv(t, false)
+	billing := fleet.ServiceKey(e.key("billing"))
+	c := &contract.Contract{Service: contract.Service{Name: "billing", Version: "1.0.0"}, Publish: &contract.Publish{Bundle: "oci://" + e.repo}}
+	snap := &fleet.FleetSnapshot{Revisions: map[fleet.RevisionKey]*fleet.ContractRevision{"b": {Key: "b", ServiceKey: billing, Version: "1.0.0", Contract: c}}}
+	rd := e.reader(t, snap)
+	rd.in.Announced["billing"] = rd.in.Announced["reports"]
+	brk := delivery.AcceptanceRecord{Service: e.key("reports"), Version: "1.6.0", Kind: delivery.AcceptKindBreak,
+		Break: &delivery.AcceptedBreak{Provider: e.key("ledger"), Version: "3.0.0", Announcement: rd.in.Announced["reports"].Announcement}}
+	e.attach(t, attachment{record: brk, token: personToken("ana@acme.com"), tag: true})
+	if accs, complete := rd.read(t.Context(), billing); !complete || len(accs) != 0 {
+		t.Fatalf("billing read reports's acceptances: %v %+v", complete, accs)
+	}
+}
+
 func TestAcceptSigningFailures(t *testing.T) {
 	e := newAcceptEnv(t, false)
 	e.login(personToken("ana@acme.com"))
