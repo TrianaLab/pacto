@@ -171,8 +171,9 @@ any other host makes the answer unverified.
 | `1`, could not run | Fails | `pacto impact: ERROR` |
 | `2` unverified | Fails unless allowed | `pacto impact: UNVERIFIED` |
 
-A rendered `contractRef` that disagrees with `service.version` fails with
-`pacto plugin: ERROR`. `PACTO_ALLOW_UNVERIFIED` decides exit `2`: `false`
+A rendered `contractRef` whose tag disagrees with `service.version` fails
+with `pacto plugin: ERROR`; a digest `contractRef` has no tag to compare and is
+judged as rendered. `PACTO_ALLOW_UNVERIFIED` decides exit `2`: `false`
 (default, also any unknown value) fails, `true` renders, `per-application`
 renders only for an Application with
 `spec.source.plugin.env: [{name: PACTO_ALLOW_UNVERIFIED, value: "true"}]`.
@@ -186,7 +187,7 @@ ComparisonError  ... plugin pacto: pacto impact: BLOCKED breaking changes affect
 ```
 
 Core installs read the Application's `ComparisonError` condition. The message is the first line of the error, cut at 512 bytes; the full text is
-in the `pacto` container log. Application readers see consumer names, so
+in the `pacto` container log (`PACTO_PLUGIN_LOG` names another file). Application readers see consumer names, so
 registry read on `pacto-targets` plus Application read is the effective
 boundary.
 

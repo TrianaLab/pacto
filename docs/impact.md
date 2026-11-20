@@ -233,9 +233,13 @@ pacto impact --running . \
 - **First version.** With nothing running, a consumer range that rejects
   `<new>` blocks; a complete answer clears.
 - **Unread.** A revision Pacto could not link, pull or trust, a tag-only link
-  and an inferred workload each make the answer `unverified` at best.
+  and an inferred workload each make the answer `unverified` at best. A failed
+  pull names the ref only, because the registry error can carry credentials.
 - **Hosts.** Revisions are pulled only from the snapshot hosts, an `oci://`
-  `<new>` and `PACTO_RUNNING_REGISTRIES`.
+  `<new>` and `PACTO_RUNNING_REGISTRIES` (or `running-registries` in the
+  config file).
+- **Bounds.** At most 8 running revisions are judged and 32 unread lines are
+  listed; the last line counts the rest, and the answer never clears over them.
 
 The answer lists them in `running`.
 
