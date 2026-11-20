@@ -253,6 +253,7 @@ func (p *ProvenanceChecker) judgeSignature(ctx context.Context, repo, digest str
 	}
 	if t.unguarded != "" && sig.Status == fleet.SignatureVerified && sig.Source != delivery.PublisherSourceRule {
 		sig.Status = fleet.SignatureUnknown // the promoter may have moved past this policy or pin
+		sig.SignerRepository, sig.SignerCommit = "", ""
 		notes = append(notes, t.unguarded)
 	}
 	if note := strings.Join(slices.DeleteFunc(append(notes, why), func(s string) bool { return s == "" }), "; "); note != "" {
@@ -452,9 +453,6 @@ func pinReason(v delivery.PublisherVerdict, service delivery.ServiceRef, pins []
 func signatureOf(v delivery.PublisherVerdict, rule delivery.PublisherRule, commit string, base fleet.BundleSignature) fleet.BundleSignature {
 	sig := signing.BundleSignatureFor(v, commit)
 	sig.Bundles = base.Bundles
-	if sig.Source == "" {
-		sig.Source = base.Source
-	}
 	switch v.Verdict {
 	case delivery.VerdictAccepted:
 		if v.Source == delivery.PublisherSourceInferred {
