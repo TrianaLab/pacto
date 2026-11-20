@@ -216,6 +216,29 @@ pull-request step that gates on the JSON. The file `--target-state` expects is
 documented under
 [target-state fixtures](operational-graph-reference.md#what-a-target-state-fixture-looks-like).
 
+### Against what runs
+
+`pacto impact --running <new>` judges `<new>` against every running revision
+of its service, keeping the worst gate, as the
+[Argo CD plugin](integrations/kubernetes/gitops.md#gate-every-argo-cd-sync) does:
+
+```bash
+pacto impact --running . \
+  --target-snapshot oci://ghcr.io/acme/pacto-targets:cluster-<uid> \
+  --delivery-trust trust.yaml
+```
+
+- **Domain.** A local `<new>` takes the fleet domain holding its service name;
+  several exit `1`, none is `unverified`.
+- **First version.** With nothing running, a consumer range that rejects
+  `<new>` blocks; a complete answer clears.
+- **Unread.** A revision Pacto could not link, pull or trust, a tag-only link
+  and an inferred workload each make the answer `unverified` at best.
+- **Hosts.** Revisions are pulled only from the snapshot hosts, an `oci://`
+  `<new>` and `PACTO_RUNNING_REGISTRIES`.
+
+The answer lists them in `running`.
+
 ## The MCP tool and the dashboard
 
 Agents get the same analysis as the read-only `pacto_impact` MCP tool. It belongs

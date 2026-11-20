@@ -60,6 +60,13 @@ view reads no Kubernetes cluster (add --k8s)`. When no source reported a service
 a target, the answer's completeness is `empty`, so the CLI also prints
 `warning: answer is empty` on stderr while it still lists the rows.
 
+A row can carry `offers`: Pacto integrations that fit the detected provider,
+each with an `id`, a one-sentence `text` and a setup guide in `doc`. Pacto
+installs nothing. The Argo CD row offers "Gate every Argo CD sync with one
+repo-server plugin" ([setup](integrations/kubernetes/gitops.md#gate-every-argo-cd-sync)),
+which the CLI prints as an `offer:` line under the row and the dashboard as a
+**Set up** link.
+
 ## Fingerprints
 
 `--fingerprints <file>` on `pacto fleet`, `pacto dashboard`, `pacto mcp` and
