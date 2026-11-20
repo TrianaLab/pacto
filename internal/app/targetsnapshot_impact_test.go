@@ -106,6 +106,21 @@ func TestRegistryRoots(t *testing.T) {
 	}
 }
 
+// TestSnapshotRoots: a GAR registry value has two path segments, and the
+// operator publishes its snapshot under it, so the deeper prefixes come first.
+func TestSnapshotRoots(t *testing.T) {
+	for ref, want := range map[string][]string{
+		"oci://europe-docker.pkg.dev/acme/pacto/reports:1.0.0": {"europe-docker.pkg.dev/acme/pacto", "europe-docker.pkg.dev/acme", "europe-docker.pkg.dev"},
+		"r.example/a/b/c/d/e/svc":                              {"r.example/a/b/c", "r.example/a/b", "r.example/a", "r.example"},
+		"ghcr.io/acme/ledger@sha256:abc":                       {"ghcr.io/acme", "ghcr.io"},
+		"oci://ghcr.io/ledger:1.0.0":                           {"ghcr.io"},
+	} {
+		if got := snapshotRoots(ref); !slices.Equal(got, want) {
+			t.Errorf("%s: %q, want %q", ref, got, want)
+		}
+	}
+}
+
 func TestFindTargetSnapshotFirstWins(t *testing.T) {
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
@@ -124,6 +139,19 @@ func TestFindTargetSnapshotFallsBackToHost(t *testing.T) {
 	found, look, _ := (&Service{}).findTargetSnapshot(t.Context(), e.ordersRef("1.0.0"))
 	if found != "oci://"+hostRepo || !slices.Equal(look.Tried, []impact.RegistryRoot{{Repository: e.repo, Outcome: impact.RegistryNotFound}, {Repository: hostRepo, Outcome: impact.RegistryFound}}) {
 		t.Fatalf("found %q, lookup %+v", found, look)
+	}
+}
+
+// TestFindTargetSnapshotUnderTwoSegmentRegistry: with registry
+// <host>/acme/pacto the operator publishes <host>/acme/pacto/pacto-targets,
+// and a ref under that registry finds it before the shallower roots.
+func TestFindTargetSnapshotUnderTwoSegmentRegistry(t *testing.T) {
+	e := newSnapEnv(t)
+	deep := e.host() + "/acme/pacto/" + delivery.TargetSnapshotRepository
+	pushAt(t, deep, e.key, snapB, ledgerSnapshot(snapB, snapNow))
+	found, look, failed := (&Service{}).findTargetSnapshot(t.Context(), "oci://"+e.host()+"/acme/pacto/reports:1.0.0")
+	if found != "oci://"+deep || failed != nil || !slices.Equal(look.Tried, []impact.RegistryRoot{{Repository: deep, Outcome: impact.RegistryFound}}) {
+		t.Fatalf("found %q, lookup %+v, failed %v", found, look, failed)
 	}
 }
 

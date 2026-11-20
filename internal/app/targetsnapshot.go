@@ -481,6 +481,30 @@ func registryRoots(ref string) []string {
 	return []string{host + "/" + first, host}
 }
 
+// snapshotRoots are where a target snapshot may live: the operator publishes
+// under its registry value at any depth, so every deeper path prefix of the
+// ref's repository, up to maxRootDepth segments and deepest first, comes
+// before the registryRoots. europe-docker.pkg.dev/acme/pacto/reports gives
+// europe-docker.pkg.dev/acme/pacto, then europe-docker.pkg.dev/acme and the
+// host.
+func snapshotRoots(ref string) []string {
+	roots := registryRoots(ref)
+	_, path, _ := strings.Cut(contract.TrimOCIScheme(ref), "/")
+	segs := strings.Split(path, "/")
+	segs = segs[:min(max(len(segs)-1, 0), maxRootDepth)] // the repository itself is no root
+	var deeper []string
+	for n := len(segs); n > 1; n-- {
+		if !slices.Contains(segs[:n], "") {
+			deeper = append(deeper, roots[len(roots)-1]+"/"+strings.Join(segs[:n], "/"))
+		}
+	}
+	return append(deeper, roots...)
+}
+
+// maxRootDepth bounds the path segments a registry root may have, so a deep
+// ref costs at most four lookups.
+const maxRootDepth = 3
+
 // findTargetSnapshot looks for the pacto-targets repository beside the first
 // oci:// ref of refs (D8) and returns it as an oci:// ref, with where it
 // looked. Only a 401, a 403, a 404 and a repository with no cluster tag mean
@@ -497,7 +521,7 @@ func (s *Service) findTargetSnapshot(ctx context.Context, refs ...string) (strin
 	defer cancel()
 	kc := oci.NewKeychain(oci.EnvCredentialOptions())
 	look := &impact.RegistryLookup{Tried: []impact.RegistryRoot{}}
-	for _, root := range registryRoots(refs[i]) {
+	for _, root := range snapshotRoots(refs[i]) {
 		path := root + "/" + delivery.TargetSnapshotRepository
 		repo, err := ocireferrer.Open(path, ocireferrer.Options{Keychain: kc, Insecure: oci.EnvInsecureRegistries()})
 		var tags []string

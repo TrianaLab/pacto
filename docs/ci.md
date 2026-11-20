@@ -210,8 +210,11 @@ without access still succeeds with a warning.
 
 ### Where consumers come from
 
-Pacto tries `ghcr.io/acme/pacto-targets`, then `ghcr.io/pacto-targets`, and
-reads every `cluster-<uid>` snapshot in the first that exists (JSON fields
+Pacto tries `pacto-targets` under each path prefix of the repository,
+deepest first. For `ghcr.io/acme/<service>` it tries
+`ghcr.io/acme/pacto-targets`, then `ghcr.io/pacto-targets`. With the registry
+value `europe-docker.pkg.dev/acme/pacto` it tries
+`europe-docker.pkg.dev/acme/pacto/pacto-targets` first. It reads every `cluster-<uid>` snapshot in the first that exists (JSON fields
 `registry` and `targetSnapshots`):
 
 ```text
