@@ -379,6 +379,7 @@ func declareRows() []surfaceRow {
 // the reason. Every other command has rows in surfaceRows, so a new command
 // forces a choice: map it, or add it here with a reason.
 var excludedFromSurfaces = map[string]string{
+	"accept":                   "pacto_accept and the dashboard route land in P7 and P8 of 508-S7",
 	"agent":                    "a long-running host daemon that reports what runs on its node; the other surfaces read what it reports",
 	"delivery targets publish": "signs with a local key and pushes a target snapshot, a pipeline step the other surfaces never take",
 	"dashboard":                "starts the dashboard server, which is itself the surface the routes belong to",
@@ -870,6 +871,7 @@ func TestUsageErrorsEmitOneJSONDocument(t *testing.T) {
 // registry), which is the case under test. A mapped command without an entry
 // fails the test, so the table is deny-by-default too.
 var jsonRuns = map[string][]string{
+	"accept":                 {"--dry-run", "does-not-exist"},
 	"ci":                     {"."},
 	"declare":                {"invoices", "--dir", "/nonexistent"},
 	"delivery approve":       {"-n", "prod", "held"},

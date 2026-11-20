@@ -111,6 +111,53 @@ Resolution ignores non-semver tags such as `latest` and `main`. Digest-pinned re
 
 ---
 
+## `pacto accept`
+
+Plans an acceptance record for the newest published version of a service:
+a bundle repository (oci://host/path) or the service's checkout, whose
+publish.bundle names it.
+
+--proposed accepts every dependency range pacto ci proposed in the inferred
+record. A field, positional or with --field, accepts one proposed field:
+dependencies[&lt;name&gt;].compatibility, optionally with =&lt;range&gt; to accept another
+range, or dependencies[&lt;name&gt;].ref, which --proposed never accepts. --break
+&lt;provider&gt;@&lt;version&gt; accepts a break the provider announces for this service in
+breaks[], read from that published version, or from --from (the provider's
+checkout or a pushed oci:// ref) before it is published.
+
+The plan names every field with its value and source, who may accept (the
+service's declared owner), the acceptances already attached and the intent
+digest. Only a record a person who owns the service signs counts: a CI or
+agent signature is a proposal. This release only plans: --dry-run is required.
+
+```
+pacto accept <service-ref-or-dir> [field...] [flags]
+```
+
+**Examples:**
+
+```
+  # Plan accepting every proposed range of reports
+  pacto accept oci://ghcr.io/acme/reports --proposed --dry-run
+
+  # Plan accepting the break ledger 3.0.0 announces, before it is published
+  pacto accept ./reports --break ledger@3.0.0 --from ../ledger --dry-run
+```
+
+**Flags:**
+
+```
+      --break string            accept the break this provider version announces, as <provider>@<version>
+      --dry-run[=true|false]    print the plan and write nothing
+      --field stringArray       a proposed field to accept, as <key> or <key>=<range>; repeat it for more
+      --from string             the provider's checkout or oci:// ref to read an unpublished break from
+  -h, --help[=true|false]       help for accept
+      --intent string           the intent digest of the plan you reviewed: a different plan is refused
+      --proposed[=true|false]   accept every proposed dependency range
+```
+
+---
+
 ## `pacto agent`
 
 Runs until interrupted. Watches TCP listeners and outbound connection outcomes with an eBPF program, attributes each socket to the workload that created it (a Kubernetes pod, a container, a systemd unit or a pacto run session, from its cgroup, or from its network namespace when the cgroup names none) and publishes a snapshot every --publish-interval. --sink kubernetes writes the node's NodeRuntimeObservation status (pods only; what the Pacto operator's node agent DaemonSet runs); --sink stdout prints one JSON snapshot per line.

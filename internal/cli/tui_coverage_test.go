@@ -34,6 +34,7 @@ var embodiedByTUI = map[string]string{
 // exclusion is a decision on the record rather than an oversight. Adding a new
 // command forces a choice: give it a verb, or add it here with a reason.
 var excludedFromTUI = map[string]string{
+	"accept":               "plans, and later signs, an acceptance record a person writes to a registry; the TUI never acts",
 	"agent":                "a long-running host daemon",
 	"declare":              "logs a person in to Sigstore, signs and writes to a registry; the TUI never acts",
 	"ci":                   "a CI pipeline step that plans every service of a repository; the TUI never runs it",
