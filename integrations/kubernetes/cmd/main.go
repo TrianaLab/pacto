@@ -671,6 +671,11 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc authn.Keyc
 		return fmt.Errorf("failed to add evidence reconciler: %w", err)
 	}
 
+	return addNodeAgent(mgr, o, namespace)
+}
+
+// addNodeAgent validates the node agent configuration and registers its reconciler.
+func addNodeAgent(mgr ctrl.Manager, o *options, namespace string) error {
 	nodeAgentCfg := nodeagent.Config{
 		Enabled:           o.enableNodeAgent,
 		Image:             cmp.Or(o.nodeAgentImage, dashboardImage), // the runtime image runs `pacto agent`

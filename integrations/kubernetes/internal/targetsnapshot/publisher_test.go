@@ -125,15 +125,32 @@ func TestTargetPublisherPublishesSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	s, _ := e.pushed(t)
+	checkSnapshotHeader(t, s)
+	checkSnapshotWorkloads(t, s)
+	if !strings.Contains(e.logged(), "target snapshot published") {
+		t.Fatalf("logs: %s", e.logged())
+	}
+}
+
+// checkSnapshotHeader asserts the published snapshot's header and its one Pacto.
+func checkSnapshotHeader(t *testing.T, s core.TargetSnapshot) {
+	t.Helper()
 	if s.Cluster != snapCluster || s.AsOf != "2026-11-17T10:00:00Z" || s.Completeness != fleet.CompletenessComplete ||
 		s.RegistryMode != "referrers=native listing=catalog" ||
-		s.Publisher != "system:serviceaccount:pacto-system:pacto-operator" || len(s.Limitations) != 0 ||
-		len(s.Sources) != 2 || s.Sources[0].Kind != fleet.SourceKindKubernetes || s.Sources[1].Kind != fleet.SourceKindKubernetesWorkloads || s.Evidence != nil {
+		s.Publisher != "system:serviceaccount:pacto-system:pacto-operator" || len(s.Limitations) != 0 || s.Evidence != nil {
 		t.Fatalf("snapshot: %+v", s)
+	}
+	if len(s.Sources) != 2 || s.Sources[0].Kind != fleet.SourceKindKubernetes || s.Sources[1].Kind != fleet.SourceKindKubernetesWorkloads {
+		t.Fatalf("sources: %+v", s.Sources)
 	}
 	if len(s.Pactos) != 1 || s.Pactos[0].Metadata.Name != "pay" || s.Pactos[0].Spec.Target.Workload().Name != "pay-0" {
 		t.Fatalf("pactos: %+v", s.Pactos)
 	}
+}
+
+// checkSnapshotWorkloads asserts one workload of each kind snapshotObjects holds.
+func checkSnapshotWorkloads(t *testing.T, s core.TargetSnapshot) {
+	t.Helper()
 	kinds := map[string]string{}
 	for _, w := range s.Workloads {
 		kinds[w.Kind] = w.Name
@@ -141,11 +158,11 @@ func TestTargetPublisherPublishesSnapshot(t *testing.T) {
 			t.Errorf("workload shape: %+v", w)
 		}
 	}
-	if kinds["Deployment"] != "web" || kinds["StatefulSet"] != "pay-0" || kinds["DaemonSet"] != "agent" || kinds["CronJob"] != "nightly" {
-		t.Fatalf("workloads: %v", kinds)
-	}
-	if !strings.Contains(e.logged(), "target snapshot published") {
-		t.Fatalf("logs: %s", e.logged())
+	want := map[string]string{"Deployment": "web", "StatefulSet": "pay-0", "DaemonSet": "agent", "CronJob": "nightly"}
+	for k, n := range want {
+		if kinds[k] != n {
+			t.Fatalf("workloads: %v", kinds)
+		}
 	}
 }
 
@@ -341,9 +358,15 @@ func TestTargetPublisherUnionsEvidenceTargets(t *testing.T) {
 			t.Fatalf("%s: %v", name, err)
 		}
 		s, _ := e.pushed(t)
-		if sec := s.Sources[2]; s.Evidence != nil || s.Completeness != fleet.CompletenessPartial || sec.Completeness != fleet.CompletenessPartial ||
-			len(sec.Limitations) != 1 || len(s.Pactos) != 1 {
-			t.Fatalf("%s: snapshot %+v", name, s)
-		}
+		checkEvidencePartial(t, name, s)
+	}
+}
+
+// checkEvidencePartial asserts an unreadable evidence body left only its section partial.
+func checkEvidencePartial(t *testing.T, name string, s core.TargetSnapshot) {
+	t.Helper()
+	if sec := s.Sources[2]; s.Evidence != nil || s.Completeness != fleet.CompletenessPartial || sec.Completeness != fleet.CompletenessPartial ||
+		len(sec.Limitations) != 1 || len(s.Pactos) != 1 {
+		t.Fatalf("%s: snapshot %+v", name, s)
 	}
 }
