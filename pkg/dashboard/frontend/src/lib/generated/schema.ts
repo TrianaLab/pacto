@@ -4303,20 +4303,26 @@ export interface components {
         "Fleet.Replacement": {
             /**
              * Format: date-time
-             * @description When the Pacto that links them was created.
+             * @description When the Pacto that links them was created; absent on an inferred-from link, whose signed record carries no time.
              */
-            at: string | null;
+            at?: string;
+            /** @description Who signed that revision, read from its verified signature. */
+            by?: string;
             /** @description The key of the inferred service that was replaced. */
             from: string;
             /**
-             * @description How the two are linked: pacto-target when a Pacto target runs as the workload.
+             * @description How the two are linked: pacto-target when a Pacto target runs as the workload, inferred-from when a person's accepted declaration names the inferred service.
              * @enum {string}
              */
-            link: "pacto-target";
+            link: "pacto-target" | "inferred-from";
+            /** @description The revision whose signed inferred record names the replaced service. */
+            revision?: string;
             /** @description The Pacto target that runs as the workload. */
             target?: string;
             /** @description The key of the declared service that replaced it. */
             to: string;
+            /** @description What the replaced inferred service showed, when Pacto read its workload. */
+            workload?: components["schemas"]["Fleet.InferredWorkload"];
         };
         "Fleet.ResourceConsumption": {
             /** Format: date-time */

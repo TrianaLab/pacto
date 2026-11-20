@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -137,5 +138,32 @@ func TestEventOnReplacedKeyDisclosesAlias(t *testing.T) {
 	snap.Services[fleet.NewServiceKey("auth-service")].NameInferred = &contract.Inferred{Field: "service.name", Value: "auth-service", Source: "chart/Chart.yaml:2"}
 	if res := event(snap, EventUnavailable, string(fleet.NewServiceKey(legacy))); limitation(res, LimitationServiceNameInferred) == nil {
 		t.Errorf("no %s in %+v", LimitationServiceNameInferred, res.Limitations)
+	}
+}
+
+func TestImpactSubjectReplacedByInferredFrom(t *testing.T) {
+	ana := contract.InferredSigner{Subject: "ana@acme.com", Issuer: "https://accounts.google.com", Class: contract.SignerClassHuman}
+	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat, Declaration: &contract.InferredDeclaration{
+		State: contract.DeclarationDeclared, Asker: ana, InferredFrom: legacy}}
+	auth := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+	auth.PactoVersion = "2.5"
+	prov := &fleet.BundleProvenance{Source: "test", Signers: []fleet.VerifiedSigner{{Subject: ana.Subject, Issuer: ana.Issuer, Class: ana.Class}}}
+	revs := []fleet.RawRevision{
+		{Bundle: &contract.Bundle{Contract: auth, FS: fstest.MapFS{contract.InferredRecordFile: {Data: rec.Marshal()}}}, Digest: "sha256:auth", Provenance: prov},
+		gwRev(authDep),
+	}
+	policy := &fleet.DeclarationSignerPolicy{Signers: []fleet.PolicySigner{{Issuer: ana.Issuer, Subjects: `[^@]+@acme\.com`}}}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return evidenceNow }, DeclarationSigners: policy},
+		fleet.NewMemorySource("test", "memory", &fleet.Collection{Revisions: revs}), legacyWorkloads())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Replacements) != 1 || snap.Replacements[0].Link != "inferred-from" {
+		t.Fatalf("replacements %+v limitations %+v", snap.Replacements, snap.Limitations)
+	}
+	l := limitation(event(snap, EventUnavailable, string(fleet.NewServiceKey(legacy))), LimitationSubjectReplaced)
+	if l == nil || !strings.Contains(l.Message, "Declared by ana@acme.com from inferred "+legacy) ||
+		!strings.HasSuffix(l.Message, "so this answer is about auth-service") || strings.Contains(l.Message, "Pacto target )") {
+		t.Errorf("limitation %+v", l)
 	}
 }

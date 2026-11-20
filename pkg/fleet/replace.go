@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"cmp"
 	"maps"
 	"slices"
 	"strings"
@@ -96,17 +97,13 @@ func replaceWorkload(snap *FleetSnapshot, wk workloadKey, keys []TargetKey, ins 
 		ambiguousReplacement(snap, "Pacto targets of more than one service ("+strings.Join(names, ", ")+") run as workload "+name+", so it stays an inferred service")
 		return false
 	}
-	if snap.replacedNames == nil {
-		snap.replacedNames = map[string]replacedName{}
-	}
-	snap.replacedNames[name] = replacedName{to: snap.Targets[keys[0]].ServiceKey, workload: wk}
+	var r Replacement
 	t := earliestTarget(snap, keys)
 	created := earliestCreated(ins)
 	if created != nil && t != nil && created.Add(minReplacementGap).Before(*t.createdAt) {
-		snap.Replacements = append(snap.Replacements, Replacement{
-			From: NewServiceKey(name), To: t.ServiceKey, Link: linkPactoTarget, Target: t.Key, At: copyTime(t.createdAt), workload: wk,
-		})
+		r = Replacement{Link: linkPactoTarget, Target: t.Key, At: copyTime(t.createdAt)}
 	}
+	handOver(snap, wk, snap.Targets[keys[0]].ServiceKey, r, ins)
 	return true
 }
 
@@ -172,6 +169,18 @@ func ambiguousCluster(snap *FleetSnapshot, tk TargetKey, wk workloadKey, byWorkl
 // ambiguousReplacement records why an inferred service was not replaced.
 func ambiguousReplacement(snap *FleetSnapshot, message string) {
 	snap.Limitations = append(snap.Limitations, Limitation{Code: LimitationInferredReplacementAmbiguous, Message: message})
+}
+
+// Line is r in words: "Replaces <from> <age> ago (linked by Pacto
+// <namespace>/<name> target)" for a Pacto target, "Declared by <by> from
+// inferred <from> (revision <revision>)" for an inferred-from link.
+func (r Replacement) Line(asOf time.Time) string {
+	_, from := ParseServiceKey(r.From)
+	if r.Link != linkPactoTarget {
+		return "Declared by " + r.By + " from inferred " + from + " (revision " + string(r.Revision) + ")"
+	}
+	_, scope, _, name, _ := ParseTargetKey(r.Target)
+	return "Replaces " + from + " " + Age(asOf.Sub(*cmp.Or(r.At, &asOf))) + " ago (linked by Pacto " + scope + "/" + name + " target)"
 }
 
 // restrictReplacements keeps the replacements whose declared service is

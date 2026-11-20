@@ -63,8 +63,7 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 			_, _ = fmt.Fprintln(w, strings.Join(s.Workload.Lines(), "\n"))
 		}
 		for _, r := range sv.Replaces {
-			from, when := replacementWords(r, sv.Meta.AsOf)
-			_, _ = fmt.Fprintf(w, "Replaces %s %s\n", from, when)
+			_, _ = fmt.Fprintln(w, r.Line(sv.Meta.AsOf))
 		}
 		if more := sv.ReplacesTotal - len(sv.Replaces); more > 0 {
 			_, _ = fmt.Fprintf(w, "  %d more\n", more)
@@ -80,18 +79,16 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 // printReplacedFrom says the answer is about the service that replaced the
 // inferred service asked for, when it is.
 func printReplacedFrom(w io.Writer, r *fleet.Replacement, asOf time.Time) {
-	if r != nil {
-		from, when := replacementWords(*r, asOf)
-		_, _ = fmt.Fprintf(w, "%s was replaced by %s %s\n", from, r.To, when)
+	if r == nil {
+		return
 	}
-}
-
-// replacementWords are the name of the inferred service r replaced and
-// "<age> ago (linked by Pacto <namespace>/<name> target)".
-func replacementWords(r fleet.Replacement, asOf time.Time) (from, when string) {
-	_, from = fleet.ParseServiceKey(r.From)
-	_, scope, _, name, _ := fleet.ParseTargetKey(r.Target)
-	return from, fmt.Sprintf("%s ago (linked by Pacto %s/%s target)", fleet.Age(asOf.Sub(*r.At)), scope, name)
+	line := r.Line(asOf)
+	if r.Target != "" {
+		// "Replaces <from> <when>" reads "<from> was replaced by <to> <when>".
+		_, from := fleet.ParseServiceKey(r.From)
+		line = from + " was replaced by " + string(r.To) + " " + strings.TrimPrefix(line, "Replaces "+from+" ")
+	}
+	_, _ = fmt.Fprintln(w, line)
 }
 
 // printInferredEdges prints the graph's runtime-inferred edges: calls one of

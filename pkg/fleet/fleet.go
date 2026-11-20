@@ -92,16 +92,23 @@ func ParseServiceKey(k ServiceKey) (domain, name string) {
 }
 
 // Replacement records that a declared service took over a service Pacto
-// inferred from a workload, as the cluster showed it: the workload existed
-// before the declaration that links them.
+// inferred from a workload: a Pacto target runs as the workload and the
+// cluster showed the workload existed before it, or a person's accepted
+// declaration names the inferred service it was declared from.
 type Replacement struct {
 	From ServiceKey `json:"from" doc:"The key of the inferred service that was replaced."`
 	To   ServiceKey `json:"to" doc:"The key of the declared service that replaced it."`
-	Link string     `json:"link" enum:"pacto-target" doc:"How the two are linked: pacto-target when a Pacto target runs as the workload."`
+	Link string     `json:"link" enum:"pacto-target,inferred-from" doc:"How the two are linked: pacto-target when a Pacto target runs as the workload, inferred-from when a person's accepted declaration names the inferred service."`
 	// Target is the target that links them.
 	Target TargetKey `json:"target,omitempty" doc:"The Pacto target that runs as the workload."`
-	// At is never nil on a recorded replacement.
-	At *time.Time `json:"at" doc:"When the Pacto that links them was created."`
+	// At is nil on an inferred-from link, whose signed record carries no time.
+	At *time.Time `json:"at,omitempty" doc:"When the Pacto that links them was created; absent on an inferred-from link, whose signed record carries no time."`
+	// Revision and By name the declaration of an inferred-from link.
+	Revision RevisionKey `json:"revision,omitempty" doc:"The revision whose signed inferred record names the replaced service."`
+	By       string      `json:"by,omitempty" doc:"Who signed that revision, read from its verified signature."`
+	// Workload is what the replaced inferred service showed, set on a link
+	// other than pacto-target when a source reported the workload.
+	Workload *InferredWorkload `json:"workload,omitempty" doc:"What the replaced inferred service showed, when Pacto read its workload."`
 	// workload is the replaced workload, which Restrict checks like an
 	// inferred service.
 	workload workloadKey
@@ -424,9 +431,14 @@ const (
 	// Pacto infers a service from, but more than one declared service targets
 	// it or the target's cluster is unknown, so the inferred service stays.
 	LimitationInferredReplacementAmbiguous = "INFERRED_REPLACEMENT_AMBIGUOUS"
-	LimitationDuplicateSourceID            = "DUPLICATE_SOURCE_ID"
-	LimitationRevisionUnresolved           = "REVISION_IDENTITY_UNRESOLVED"
-	LimitationRevisionAmbiguous            = "REVISION_LINK_AMBIGUOUS"
+	// LimitationInferredLinkIgnored: a declaration names the inferred
+	// service it was declared from, but no person's accepted signature
+	// carries it, a Pacto target runs as that workload, or the claim
+	// contradicts where the service runs, so the inferred service stays.
+	LimitationInferredLinkIgnored = "INFERRED_LINK_IGNORED"
+	LimitationDuplicateSourceID   = "DUPLICATE_SOURCE_ID"
+	LimitationRevisionUnresolved  = "REVISION_IDENTITY_UNRESOLVED"
+	LimitationRevisionAmbiguous   = "REVISION_LINK_AMBIGUOUS"
 	// LimitationRevisionDocConflict: two sources contributed the same immutable
 	// revision but disagree about its documents (a different set of paths, or the
 	// same path with different content). There is no honest way to pick a winner —
@@ -1428,6 +1440,10 @@ type FleetSnapshot struct {
 	clusterKeyed bool
 	// declarationSigners is BuildOptions.DeclarationSigners.
 	declarationSigners *DeclarationSignerPolicy
+	// inferredLinkNotes are the limitations replaceByInferredFrom raised
+	// that name a workload, with that workload and the declaring services,
+	// so a restricted view drops those it may not see.
+	inferredLinkNotes []workloadNote
 	// UncontractedCallers are observed callers with no contract of a service
 	// that has one. Sorted by (ToService, Caller).
 	UncontractedCallers []UncontractedCaller `json:"uncontractedCallers,omitempty"`
