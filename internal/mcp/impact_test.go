@@ -120,6 +120,8 @@ func TestImpactToolNeedsPairOrEvent(t *testing.T) {
 		{"event": "unavailable", "service": "redis", "revision": "sha256:abc"},
 		{"event": "removed", "service": "redis", "revision": "1.0.0"},
 		{"event": "unavailable", "service": "redis", "include_observed": true},
+		{"running": true},
+		{"running": true, "old_ref": "a", "new_ref": "b"},
 	} {
 		called := false
 		provide := func(context.Context, *fleet.FleetSnapshot, ImpactRequest) (*impact.Result, error) {
@@ -178,5 +180,33 @@ func TestImpactToolDescriptionNamesIndex(t *testing.T) {
 		if !strings.Contains(d, want) {
 			t.Errorf("description lacks %q", want)
 		}
+	}
+}
+
+func TestMCPImpactRunningRejectsOldRef(t *testing.T) {
+	if _, err := (impactArgs{Running: true, OldRef: "a", NewRef: "b"}).request(); err == nil || !strings.Contains(err.Error(), "leave old_ref empty") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestMCPImpactRunningRejectsEvent(t *testing.T) {
+	for _, a := range []impactArgs{{Event: "removed"}, {Service: "x"}, {Offering: "o"}, {Revision: "1"}} {
+		a.Running, a.NewRef = true, "b"
+		if _, err := a.request(); err == nil || !strings.Contains(err.Error(), "pass no event, service, offering or revision") {
+			t.Errorf("%+v: %v", a, err)
+		}
+	}
+}
+
+// TestMCPImpactRunningRequest: running with new_ref alone reaches the
+// provider as a running request.
+func TestMCPImpactRunningRequest(t *testing.T) {
+	var seen ImpactRequest
+	provide := func(_ context.Context, _ *fleet.FleetSnapshot, req ImpactRequest) (*impact.Result, error) {
+		seen = req
+		return &impact.Result{}, nil
+	}
+	if res := callHandler(t, impactTool(), impactHandler(provide, nil), map[string]any{"running": true, "new_ref": "oci://r/p:2"}); res.IsError || !seen.Running || seen.NewRef != "oci://r/p:2" || seen.OldRef != "" {
+		t.Fatalf("seen %+v error %v", seen, res.IsError)
 	}
 }

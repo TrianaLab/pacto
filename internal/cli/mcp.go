@@ -538,6 +538,11 @@ func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing,
 	}
 	auto, _ := impactSnapshotAuto(cmd) // buildFleetMode refused a mix at startup
 	return func(ctx context.Context, snap *fleet.FleetSnapshot, req pactomcp.ImpactRequest) (*impact.Result, error) {
+		if req.Running && !addMissing {
+			// A hidden target could hide a running revision, and an empty
+			// running set reads as a first version.
+			return nil, errRunningRestricted
+		}
 		req, err := refuseUntrustedImpact(req, trusted, snap)
 		if err != nil {
 			return nil, err
@@ -561,9 +566,21 @@ func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing,
 		// reading another cluster for a signed-in viewer needs a review there.
 		opts := app.ImpactOptions{OldPath: req.OldRef, NewPath: req.NewRef, NewDirName: req.NewDirName, Domain: req.Domain, Fleet: fopts,
 			IncludeObserved: req.IncludeObserved, Traces: traces, TargetSnapshotAuto: trusted && auto}
+		if req.Running {
+			if trusted {
+				opts.RunningRegistries = strings.Split(os.Getenv("PACTO_RUNNING_REGISTRIES"), ",") // as pacto impact reads it
+			}
+			// Over HTTP the running refs come from the caller's whole view
+			// and only the host of the pinned new_ref is pulled from.
+			return svc.ImpactRunning(ctx, opts, snap)
+		}
 		return svc.ImpactOnSnapshot(ctx, opts, snap, addMissing)
 	}
 }
+
+// errRunningRestricted refuses a running question on a server whose answers
+// are restricted to the caller's view.
+var errRunningRestricted = errors.New("running needs every target of the service, and your view hides some")
 
 // refuseUntrustedImpact keeps an HTTP caller from naming a file path, a
 // local ref or a revision outside their fleet view: the server would read
@@ -576,6 +593,16 @@ func refuseUntrustedImpact(req pactomcp.ImpactRequest, trusted bool, snap *fleet
 	case req.TracesPath != "":
 		return req, errors.New("this server answers over HTTP: it reads no file path a caller names")
 	case req.Event != nil:
+		return req, nil
+	case req.Running:
+		if graph.ParseDependencyRef(req.NewRef).IsLocal() {
+			return req, errors.New("this server answers over HTTP: pass an oci:// reference")
+		}
+		pinned, err := pinVisibleRef(snap, req.NewRef)
+		if err != nil {
+			return req, fmt.Errorf("new_ref %w", err)
+		}
+		req.NewRef = pinned
 		return req, nil
 	case graph.ParseDependencyRef(req.OldRef).IsLocal() || graph.ParseDependencyRef(req.NewRef).IsLocal():
 		return req, errors.New("this server answers over HTTP: pass oci:// references")
