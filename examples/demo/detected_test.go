@@ -2,25 +2,33 @@ package main
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
-// TestDemoFleetHasDetectedRows: the demo cluster's detection shows as six
-// current inferred rows from an available advisory source that adds no
+// TestDemoFleetHasDetectedRows: the demo cluster's detection shows as seven
+// current inferred rows (the Pull Secret proposal among them) plus the one
+// declared Installation row, from an available advisory source that adds no
 // snapshot limitation, so the demo's completeness is what its other sources
 // make it.
 func TestDemoFleetHasDetectedRows(t *testing.T) {
 	snap := demoFleet(t)
 	var rows []fleet.Provider
+	declared := 0
 	for _, p := range snap.Providers {
-		if p.Source == "cluster-detection" {
+		if p.Source == "cluster-detection" && p.Provenance == fleet.ProvenanceDeclared {
+			declared++
+			if p.ID != "installation" || p.Status != fleet.SourceAvailable || !strings.Contains(p.Evidence, "ghcr.io/acme") {
+				t.Errorf("declared row %+v", p)
+			}
+		} else if p.Source == "cluster-detection" {
 			rows = append(rows, p)
 		}
 	}
-	if len(rows) != 6 {
-		t.Fatalf("detected rows = %+v, want six", rows)
+	if len(rows) != 7 || declared != 1 {
+		t.Fatalf("detected rows = %+v (%d declared), want seven inferred and one declared", rows, declared)
 	}
 	for _, p := range rows {
 		if p.Provenance != fleet.ProvenanceInferred || p.AsOf == nil || !p.AsOf.Equal(demoClock) || p.Cluster != "production" ||

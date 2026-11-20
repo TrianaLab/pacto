@@ -410,8 +410,10 @@ func fleetStatusTool() *mcpsdk.Tool {
 			"needs_attention includes them). 'total' and 'truncated' say whether the limit cut the list. With no category " +
 			"selected, including empty input, it reports every category. The answer's 'providers' lists what Pacto detected in each " +
 			"source (evidence, usedFor, status, limitations). providers includes what the operator detected (registry, cloud, " +
-			"sign-in, exposure, metrics and nodes) with provenance inferred and asOf; nothing detected is turned on, and a " +
-			"detected value never clears a gate. The OCI source adds one observed 'registry:<host>' row per registry it read " +
+			"sign-in, exposure, metrics, nodes and a Pull Secret proposal) with provenance inferred and asOf, and an Installation " +
+			"row with provenance declared naming the registry, the target snapshot, index and inferred repositories and the push " +
+			"prefixes; nothing detected is turned on, a Pull Secret is never used until a person sets registryPullSecret, and no " +
+			"provider row clears a gate. The OCI source adds one observed 'registry:<host>' row per registry it read " +
 			"contracts from, with no provenance: Pacto probed it itself, usedFor and details give the mode it uses there and asOf " +
 			"when it probed; it is separate from the operator's inferred registry row. Read-only.",
 		InputSchema: inputSchema(map[string]property{

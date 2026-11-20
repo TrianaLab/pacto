@@ -76,6 +76,11 @@ type Detector struct {
 	Cluster, ClusterName string
 	Now                  func() time.Time
 	Interval             time.Duration
+	// Installation is what the operator was configured with when --registry
+	// is set, nil otherwise; LastPush reads the snapshot publisher's last
+	// attempt, nil before the first one.
+	Installation *detect.Installation
+	LastPush     func() *detect.PushResult
 
 	owner       *metav1ac.OwnerReferenceApplyConfiguration
 	warnedOwner bool
@@ -130,8 +135,14 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 	}
 	res := detect.Result{AsOf: d.Now().UTC(), Cluster: d.Cluster, ClusterName: d.ClusterName, Namespaces: d.Namespaces}
 
+	res.Installation = d.installation()
+
 	ws, sampled, err := d.workloads(ctx)
-	res.Entries = append(res.Entries, or(err, "registry", func() detect.Entry { return detect.Registries(ws, sampled, !scoped) }))
+	reg := or(err, "registry", func() detect.Entry { return detect.Registries(ws, sampled, !scoped) })
+	res.Entries = append(res.Entries, reg)
+	if ps := detect.PullSecret(ws, reg, !scoped); ps.Kind != "" {
+		res.Entries = append(res.Entries, ps)
+	}
 
 	if scoped {
 		res.Entries = append(res.Entries, detect.UnknownEntry("cloud", scopedNodes), detect.UnknownEntry("nodes", scopedNodes))
@@ -158,6 +169,20 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 	ingresses, err := d.ingresses(ctx)
 	res.Entries = append(res.Entries, sampledEntry(detect.Exposure(gwServed, classed(errors.Join(gwErr, err)), routes, ingresses, watched), scoped, scopedReason))
 	return res
+}
+
+// installation is a copy of the configured installation with the last push
+// attempt, nil when --registry is not set.
+func (d *Detector) installation() *detect.Installation {
+	if d.Installation == nil {
+		return nil
+	}
+	inst := *d.Installation
+	if p := d.LastPush(); p != nil {
+		last := *p
+		inst.LastPush = &last
+	}
+	return &inst
 }
 
 // scopedReason marks the namespaced entries of a namespace-list install.
@@ -242,6 +267,9 @@ func (d *Detector) workloads(ctx context.Context) ([]detect.Workload, bool, erro
 				}
 				for _, c := range p.Spec.Containers {
 					w.Images = append(w.Images, c.Image)
+				}
+				for _, s := range p.Spec.ImagePullSecrets {
+					w.PullSecrets = append(w.PullSecrets, s.Name)
 				}
 			}
 			if next = l.Continue; next == "" {

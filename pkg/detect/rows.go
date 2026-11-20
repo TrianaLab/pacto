@@ -16,6 +16,7 @@ import (
 var rowNames = map[string]string{
 	"registry": "Registry", "cloud": "Cloud", "sign-in": "Sign-in",
 	"exposure": "Exposure", "metrics": "Metrics", "nodes": "Nodes",
+	"pull-secret": "Pull Secret",
 }
 
 // usedFor says, per kind, what a person may do with the proposal. Nothing is
@@ -27,6 +28,8 @@ var usedFor = map[string]string{
 	"exposure": "proposal for the dashboard route; set it yourself",
 	"metrics":  "read passively; nothing is turned on",
 	"nodes":    "proposal for runtime conformance; nothing is turned on",
+	"pull-secret": "proposal for registryPullSecret: it needs push on <registry>/pacto-*; " +
+		"a pod pull Secret usually grants pull only",
 }
 
 // ProviderRows maps every entry of res to an inferred provider row of source
@@ -35,9 +38,13 @@ var usedFor = map[string]string{
 // DETECTION_<KIND>_UNKNOWN or _PARTIAL limitation, and every namespace and
 // object the entry names becomes a row object, so a restricted view narrows
 // it. Every surface (WASM demo, Compose demo, dashboard, CLI, fleet source)
-// maps a Result through this one function.
+// maps a Result through this one function. An Installation block adds the
+// one declared row; every row built from the entries stays inferred.
 func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
-	rows := make([]fleet.Provider, 0, len(res.Entries))
+	rows := make([]fleet.Provider, 0, len(res.Entries)+1)
+	if res.Installation != nil {
+		rows = append(rows, installationRow(res, source, now))
+	}
 	for _, e := range res.Entries {
 		asOf, cluster := res.AsOf, cmp.Or(res.ClusterName, res.Cluster)
 		p := fleet.Provider{

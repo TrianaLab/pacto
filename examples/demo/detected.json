@@ -58,6 +58,25 @@
       "reason": "not confirmed on the node",
       "details": ["6.1: 6 nodes"],
       "scope": "cluster"
+    },
+    {
+      "kind": "pull-secret",
+      "value": "shop/ghcr-pull",
+      "evidence": "named in the pod specs of 4 running workloads that pulled from ghcr.io; Pacto did not read the Secret",
+      "source": "pod specs",
+      "completeness": "complete",
+      "hint": "--set registryPullSecret=shop/ghcr-pull",
+      "namespaces": ["shop"]
     }
-  ]
+  ],
+  "installation": {
+    "registry": "ghcr.io/acme",
+    "targets": "ghcr.io/acme/pacto-targets",
+    "index": "ghcr.io/acme/pacto-index",
+    "inferred": "ghcr.io/acme/pacto-inferred",
+    "snapshotKey": "MCowBQYDK2VwAyEAO2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=",
+    "snapshotKeyID": "339e2ff917630507b6a423b5ce084e285d1fa65d93b3e27a6195d3bbebc9ae23",
+    "pushes": ["ghcr.io/acme/pacto-targets", "ghcr.io/acme/pacto-index", "ghcr.io/acme/pacto-inferred"],
+    "lastPush": {"at": "2026-11-16T08:58:00Z", "ref": "ghcr.io/acme/pacto-targets:cluster-5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11"}
+  }
 }

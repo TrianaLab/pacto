@@ -67,6 +67,9 @@ type Result struct {
 	// the operator reads every namespace.
 	Namespaces []string `json:"namespaces,omitempty"`
 	Entries    []Entry  `json:"entries"`
+	// Installation is what the operator was configured with when the
+	// registry value is set; nil otherwise.
+	Installation *Installation `json:"installation,omitempty"`
 }
 
 // Entry is one thing the operator detected. Kind is an open string:
@@ -109,6 +112,9 @@ func Decode(data []byte) (Result, error) {
 	if major, _, _ := strings.Cut(res.SchemaVersion, "."); major != SchemaVersion {
 		return Result{}, fmt.Errorf("detection schema version %q is not %s", clean(res.SchemaVersion), SchemaVersion)
 	}
+	if err := checkInstallation(res.Installation); err != nil {
+		return Result{}, err
+	}
 	sanitize(&res)
 	return res, nil
 }
@@ -124,6 +130,18 @@ func Encode(res Result) ([]byte, error) {
 		if len(e.Details) > MaxDetails || len(e.Namespaces) > MaxNamed || len(e.Objects) > MaxNamed {
 			return nil, fmt.Errorf("detection entry %q names more than its bounds allow", e.Kind)
 		}
+	}
+	if err := checkInstallation(res.Installation); err != nil {
+		return nil, err
+	}
+	if res.Installation != nil {
+		inst := *res.Installation
+		inst.Pushes = slices.Clone(inst.Pushes)
+		if inst.LastPush != nil {
+			lp := *inst.LastPush
+			inst.LastPush = &lp
+		}
+		res.Installation = &inst
 	}
 	res.SchemaVersion = SchemaVersion
 	res.Entries = slices.Clone(res.Entries)
@@ -142,6 +160,7 @@ func sanitize(res *Result) {
 	res.Cluster, res.ClusterName = clean(res.Cluster), clean(res.ClusterName)
 	res.Namespaces = cleanAll(res.Namespaces, MaxNamed)
 	res.Entries = capped(res.Entries, MaxEntries)
+	sanitizeInstallation(res.Installation)
 	for i := range res.Entries {
 		e := &res.Entries[i]
 		for _, s := range []*string{&e.Kind, &e.Value, &e.Evidence, &e.Source, &e.Completeness, &e.Reason, &e.Hint, &e.Scope} {

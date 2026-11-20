@@ -162,6 +162,8 @@ pacto agent [flags]
 
 Walks root (default .) for pacto.yaml, skipping the folders the root .pactoignore names, and prints one plan: the CI platform, the registry and the base, each with its source, then one row per service: whether it changed against its published baseline, the version it would publish, the classification of the change and its impact on the consumers the fleet source flags name.
 
+The registry is --registry, else the registry the installation advertises in what the operator detected (--detected, used only when it is fresh), else the CI platform's registry, else the one registry every image names.
+
 On GitHub Actions the plan is also appended to $GITHUB_STEP_SUMMARY; on GitLab CI it is written to pacto-plan.md in $CI_PROJECT_DIR. --output-format json writes the plan as one JSON document.
 
 Without --publish the run is a plan: it reads the registry and the consumer sources you name and writes nothing to them. A run record goes to --stats-file only, one file per impacted service.
@@ -213,7 +215,7 @@ pacto ci [root] [flags]
       --no-transparency-log[=true|false]   with --publish and --sign-key: keep the signatures out of the transparency log
       --oci stringArray                    registry reference to include as a published-baseline revision (repeatable)
       --publish[=true|false]               publish every changed service, on the merged commit only
-      --registry string                    registry the services publish to, for example ghcr.io/acme; default from the CI platform
+      --registry string                    registry the services publish to, for example ghcr.io/acme; default from the installation advertisement or the CI platform
       --root stringArray                   contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --sign-key string                    with --publish: sign the services whose contract declares no publish section with this cosign key file instead of keyless
       --stats-context string               comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named

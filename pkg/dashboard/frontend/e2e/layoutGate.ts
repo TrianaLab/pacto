@@ -269,7 +269,26 @@ export function installScaleFixture(): void {
           hint: `--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs[0].name=${longName(`gateway-${i}`)} --set dashboard.httpRoute.parentRefs[0].namespace=${longName(`infra-${i}`)}` });
         if (i === 7) Object.assign(r, { evidence: 'Registry found in a namespace you cannot read', hint: undefined, details: undefined, objects: undefined, objectsTotal: 3 });
       }
-      doc.total = 30;
+      // The operator's declared Installation row (510-S6), with no scope or objects and
+      // four 256-rune refs plus a 64-character key id in its details, and its inferred
+      // Pull Secret proposal with a 253-character <namespace>/<name> and a long hint.
+      const runes = (s: string) => (s + '/' + 'r'.repeat(256)).slice(0, 256);
+      const secret = `${'n'.repeat(63)}/${'s'.repeat(189)}`;
+      (doc.providers as Record<string, unknown>[]).push({
+        id: 'installation', source: 'cluster-detection', provenance: 'declared', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Installation',
+        evidence: `registry ${runes('ghcr.io/acme')}; pushes only under the listed prefixes`, status: 'available', cluster: clusters[0],
+        usedFor: ['target snapshot, organization index and inferred contracts; set by a person with the registry value'],
+        details: [`target snapshot ${runes('ghcr.io/acme/pacto-targets')}`, `organization index ${runes('ghcr.io/acme/pacto-index')}`,
+          `inferred contracts ${runes('ghcr.io/acme/pacto-inferred')}`, `push prefix ${runes('quay.io/stats/pacto')}`, `snapshot key ${'f'.repeat(64)}`],
+      });
+      (doc.providers as Record<string, unknown>[]).push({
+        id: 'pull-secret', source: 'cluster-detection', provenance: 'inferred', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Pull Secret',
+        evidence: `${secret} named in the pod specs of 4 running workloads that pulled from ghcr.io; Pacto did not read the Secret`,
+        status: 'available', cluster: clusters[0], objects: [{ kind: 'Namespace', namespace: 'n'.repeat(63), name: 'n'.repeat(63) }],
+        usedFor: ['proposal for registryPullSecret: it needs push on <registry>/pacto-*; a pod pull Secret usually grants pull only'],
+        hint: `--set registryPullSecret=${secret}`,
+      });
+      doc.total = 32;
       const meta = doc.meta as Record<string, unknown>;
       meta.sources = [...((meta.sources as unknown[] | undefined) ?? []), ...Array.from({ length: 6 }, (_, i) => ({
         id: longName(`unreadable-cluster-${i}`), kind: 'kubernetes', status: 'unavailable', revisionCount: 0, targetCount: 0,

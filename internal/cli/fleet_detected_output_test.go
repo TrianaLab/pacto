@@ -87,3 +87,23 @@ func TestUnreadDetectionIsNamedInText(t *testing.T) {
 	printIncompleteSources(&overview, stale, false)
 	expect(t, overview.String() == "Detected: detection stale\n", "overview text:\n%s", overview.String())
 }
+
+// TestFleetStatusPrintsInstallation: the installation is one declared line
+// before the inferred block; the Pull Secret proposal stays inferred, with
+// its hint.
+func TestFleetStatusPrintsInstallation(t *testing.T) {
+	rows := detect.ProviderRows(detect.Result{SchemaVersion: "1", AsOf: detectedAsOf,
+		Installation: &detect.Installation{Registry: "ghcr.io/acme", LastPush: &detect.PushResult{At: detectedAsOf}},
+		Entries: []detect.Entry{{Kind: "pull-secret", Value: "shop/ghcr-pull", Evidence: "named in the pod specs of 3 running workloads that pulled from ghcr.io",
+			Completeness: detect.Complete, Hint: "--set registryPullSecret=shop/ghcr-pull", Namespaces: []string{"shop"}}}}, "detection", detectedAsOf)
+	out := statusText(t, &fleet.StatusResult{Providers: rows})
+	for _, want := range []string{
+		"Installation: registry ghcr.io/acme; pushes only under the listed prefixes (declared) [available]\n",
+		"Detected (inferred, as of 2026-11-16T09:00:00Z, nothing turned on):\n  Pull Secret: shop/ghcr-pull named in the pod specs of",
+		"    --set registryPullSecret=shop/ghcr-pull\n",
+	} {
+		expect(t, strings.Contains(out, want), "status text lacks %q:\n%s", want, out)
+	}
+	table, _ := providersText(t, &fleet.ProvidersResult{Providers: rows})
+	expect(t, strings.Contains(table, "Installation (declared)") && strings.Contains(table, "Pull Secret (inferred)"), "providers table:\n%s", table)
+}

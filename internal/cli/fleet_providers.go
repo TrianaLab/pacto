@@ -94,10 +94,11 @@ func providerUsedFor(p fleet.Provider) string {
 	return out + fmt.Sprintf(" (%s: %s)", p.Status, p.Limitations[0].Message)
 }
 
-// providerName is the PROVIDER cell: the name, marked when Pacto detected it.
+// providerName is the PROVIDER cell: the name, marked when Pacto detected it
+// or the operator's configuration declared it.
 func providerName(p fleet.Provider) string {
-	if p.Provenance == fleet.ProvenanceInferred {
-		return p.Name + " (inferred)"
+	if p.Provenance == fleet.ProvenanceInferred || p.Provenance == fleet.ProvenanceDeclared {
+		return p.Name + " (" + p.Provenance + ")"
 	}
 	return p.Name
 }

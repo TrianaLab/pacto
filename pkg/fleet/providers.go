@@ -101,7 +101,8 @@ type Provider struct {
 	Limitations  []Limitation     `json:"limitations,omitempty"`
 	// Provenance, AsOf, Hint, Details and Scope are set on a row Pacto
 	// detected (see pkg/detect); a row a source reported directly leaves them
-	// empty.
+	// empty. The operator's Installation row, from the same detection, is the
+	// one row with Provenance declared.
 	Provenance string     `json:"provenance,omitempty" doc:"inferred for a row Pacto detected; empty for a row a source reported directly"`
 	AsOf       *time.Time `json:"asOf,omitempty" doc:"When the row was detected"`
 	Hint       string     `json:"hint,omitempty" doc:"A command or value for a person to review that would turn the proposal on. Nothing is turned on until a person runs it"`

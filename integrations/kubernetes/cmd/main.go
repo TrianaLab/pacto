@@ -586,7 +586,8 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc authn.Keyc
 	// The cluster id names the cluster in Evidence Server reports and in what
 	// detection writes; read once.
 	ident := readClusterIdentity(mgr)
-	if err := addTargetSnapshot(mgr, o, namespace, ident.ID, evidenceSourceURL, kc); err != nil {
+	inst, err := addTargetSnapshot(mgr, o, namespace, ident.ID, evidenceSourceURL, kc)
+	if err != nil {
 		return err
 	}
 
@@ -614,7 +615,8 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc authn.Keyc
 	// changes an argument, a rule or a feature. The managed dashboard mounts it
 	// as a file.
 	if d := detection.ForOperator(os.Getenv("OPERATOR_DEPLOYMENT_NAME"), namespace, o.namespaces,
-		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig())); d != nil {
+		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig()),
+		inst, lastPush.Load); d != nil {
 		if err := mgr.Add(d); err != nil {
 			return fmt.Errorf("failed to add detection: %w", err)
 		}
@@ -704,34 +706,41 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc authn.Keyc
 var lastPush atomic.Pointer[detect.PushResult]
 
 // addTargetSnapshot runs the target snapshot publisher when --registry is set: it ensures the installation
-// key, then publishes <registry>/pacto-targets:cluster-<uid> on the elected leader. Any missing piece stops
-// the operator at start with its reason.
+// key, then publishes <registry>/pacto-targets:cluster-<uid> on the elected leader. It returns the
+// installation detection advertises, nil without --registry. Any missing piece stops the operator at start
+// with its reason.
 func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace, clusterID, evidenceURL string,
-	kc authn.Keychain) error {
+	kc authn.Keychain) (*detect.Installation, error) {
 	if o.registry == "" {
 		setupLog.Info("Target snapshot is off: set the registry value")
-		return nil
+		return nil, nil
 	}
 	deploy := os.Getenv("OPERATOR_DEPLOYMENT_NAME")
 	if deploy == "" {
-		return fmt.Errorf("--registry needs OPERATOR_DEPLOYMENT_NAME: " +
+		return nil, fmt.Errorf("--registry needs OPERATOR_DEPLOYMENT_NAME: " +
 			"the installation key Secret is named after the operator Deployment")
 	}
 	key, err := installkey.Ensure(context.Background(), mgr.GetAPIReader(), mgr.GetClient(), namespace,
 		installkey.SecretName(deploy))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	pub, err := targetsnapshot.ForOperator(targetsnapshot.Config{Registry: o.registry, ClusterID: clusterID,
 		Namespace: namespace, ServiceAccount: os.Getenv("OPERATOR_SERVICE_ACCOUNT"), EvidenceURL: evidenceURL,
 		Watched: o.namespaces, Key: key, Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(),
 		OnPush: func(r detect.PushResult) { lastPush.Store(&r) }})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	setupLog.Info("Target snapshot is on", "repository", oci.InstallationRepository(o.registry, oci.TargetsRepository),
-		"snapshotKeyID", signing.Hint(key.Public()), "snapshotKey", installkey.PublicKeyBase64(key))
-	return mgr.Add(pub)
+	inst := &detect.Installation{Registry: o.registry,
+		Targets:     oci.InstallationRepository(o.registry, oci.TargetsRepository),
+		Index:       oci.InstallationRepository(o.registry, oci.IndexRepository),
+		Inferred:    oci.InstallationRepository(o.registry, oci.InferredRepository),
+		Pushes:      credentials.InstallationPrefixes(o.registry, o.registryPushPrefixes),
+		SnapshotKey: installkey.PublicKeyBase64(key), SnapshotKeyID: signing.Hint(key.Public())}
+	setupLog.Info("Target snapshot is on", "repository", inst.Targets,
+		"snapshotKeyID", inst.SnapshotKeyID, "snapshotKey", inst.SnapshotKey)
+	return inst, mgr.Add(pub)
 }
 
 // operatorOwnerRef discovers the operator's own Deployment for the ownerReferences of the managed
