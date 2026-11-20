@@ -54,7 +54,7 @@ func (s *Service) ImpactRunning(ctx context.Context, opts ImpactOptions, snap *f
 	if opts.Domain == "" && !graph.ParseDependencyRef(opts.NewPath).IsOCI() {
 		domain, found, err := runningDomain(snap, name)
 		if err != nil {
-			return nil, fmt.Errorf("%w; judge its oci:// reference so Pacto knows its domain (in Argo CD, render a Pacto object whose contractRef names it)", err)
+			return nil, fmt.Errorf("%w; judge its oci:// reference so Pacto knows its domain", err)
 		}
 		opts.Domain, opts.notInFleet = domain, !found
 	}

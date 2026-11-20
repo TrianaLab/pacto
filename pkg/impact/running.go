@@ -40,7 +40,7 @@ func (r *Result) heldGate() (string, string) {
 func (r *Result) runningGate() (string, string) {
 	if r.notInFleet() {
 		return GateUnverified, r.Service + " is in no fleet domain, so consumers that depend on it by registry ref cannot be found. " +
-			"Judge its oci:// reference so Pacto knows its domain (in Argo CD, render a Pacto object whose contractRef names it), or add the source that holds it"
+			"Judge its oci:// reference so Pacto knows its domain, or add the source that holds it"
 	}
 	if n := len(r.unreadBaselines); n > 0 {
 		names := r.unreadBaselines[:min(n, maxUnreadInReason)]
