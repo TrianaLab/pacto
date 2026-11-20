@@ -148,7 +148,9 @@ func TestOwnerRightMessageMatchesUX(t *testing.T) {
 		r    OwnerRight
 		want string
 	}{
-		"declared":   {DecideOwnerRight("invoices", human(google, "eve@acme.com"), OwnerClaim{Owner: contract.Owner{DRI: "lead@acme.com"}, Provenance: "declared"}, billing, nil, "x", ownerNow), "only lead@acme.com may set it"},
+		"declared": {DecideOwnerRight("invoices", human(google, "eve@acme.com"), OwnerClaim{Owner: contract.Owner{DRI: "lead@acme.com"}, Provenance: "declared"}, billing, nil, "x", ownerNow), "; lead@acme.com or the default approvers (unknown until a verified owner policy is read) may set it"},
+		"firstNoPolicy": {DecideOwnerRight("invoices", human(google, "eve@acme.com"), OwnerClaim{}, billing, nil, "trust missing", ownerNow),
+			"no verified owner policy was read (trust missing); the default approvers (unknown until a verified owner policy is read) may set it"},
 		"declaredAs": {DecideOwnerRight("invoices", human(google, "eve@acme.com"), OwnerClaim{Owner: contract.Owner{Team: "payments"}, Provenance: "declared"}, billing, &pol, "", ownerNow), "service.owner is declared as team payments; only payments members or default approvers (platform-admins) may set it"},
 		"first":      {DecideOwnerRight("invoices", human(google, "eve@acme.com"), OwnerClaim{}, billing, &OwnerPolicy{}, "", ownerNow), "no declared or attested owner yet; nobody (no default approvers are configured) may set the first one"},
 		"contacts":   {DecideOwnerRight("invoices", human(google, "eve@acme.com"), OwnerClaim{Owner: contract.Owner{Contacts: []contract.OwnerContact{{Type: "slack", Value: "#x"}}}, Provenance: "declared"}, billing, &pol, "", ownerNow), "declared as its contacts"},

@@ -325,7 +325,8 @@ func ownerLabel(o contract.Owner) string {
 }
 
 // whoMay names who may set the owner over current: only payments members or
-// default approvers (platform-admins).
+// default approvers (platform-admins). With no verified policy the default
+// approvers are unknown, never absent, and the list is never "only".
 func whoMay(current OwnerClaim, policy *OwnerPolicy) string {
 	var parts []string
 	if current.Provenance == ownerDeclared || current.Provenance == ownerAttested {
@@ -344,6 +345,9 @@ func whoMay(current OwnerClaim, policy *OwnerPolicy) string {
 	}
 	if names = dedupe(names); len(names) > 0 {
 		parts = append(parts, "default approvers ("+strings.Join(names[:min(len(names), maxMayAccept)], ", ")+")")
+	}
+	if policy == nil {
+		return strings.Join(append(parts, "the default approvers (unknown until a verified owner policy is read)"), " or ")
 	}
 	if len(parts) == 0 {
 		return "nobody (no default approvers are configured)"
