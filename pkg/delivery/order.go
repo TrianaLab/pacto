@@ -276,6 +276,9 @@ func acceptsWhatRunsHere(snap *fleet.FleetSnapshot, c *contract.Contract, provid
 		if dep.Name == provider {
 			continue
 		}
+		if err := inferredRange(dep); err != nil {
+			return "", err
+		}
 		if dep.External && dep.Ref == "" {
 			return "", fmt.Errorf("it uses %s %s, an external dependency with no contract, so Pacto cannot tell whether it works with it", dep.Name, dep.Version)
 		}
@@ -346,6 +349,9 @@ func acceptsBoth(c *contract.Contract, provider, newVersion, running string) (st
 		if dep.Name != provider {
 			continue
 		}
+		if err := inferredRange(dep); err != nil {
+			return dep.Compatibility, false, err
+		}
 		if dep.Compatibility == contract.CompatibilityUnknown {
 			return dep.Compatibility, false, unknownRange("its range on "+provider, provider+" "+newVersion)
 		}
@@ -410,6 +416,16 @@ func orderQuestion(o *Order) string {
 
 // unknownRange is why Pacto cannot order a delivery over rng, a range that is
 // compatibility: unknown: no version is known to work, so none is admitted.
+// inferredRange is the unknown error of a dependency whose ref names an
+// inferred contract, nil for any other: Pacto never checks a range against
+// what it inferred, whatever version runs.
+func inferredRange(dep contract.Dependency) error {
+	if _, ok := contract.InferredRef(dep.Ref); !ok {
+		return nil
+	}
+	return fmt.Errorf("%s is an inferred contract the operator published; Pacto never checks a range against it", dep.Name)
+}
+
 func unknownRange(rng, what string) error {
 	return fmt.Errorf("%s is not declared (compatibility: unknown), so Pacto cannot tell whether %s works", rng, what)
 }

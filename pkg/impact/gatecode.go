@@ -15,6 +15,7 @@ const (
 	GateCodeServiceNameInferred         = LimitationServiceNameInferred
 	GateCodeAnswerPartial               = "ANSWER_PARTIAL"
 	GateCodeConsumersUnchecked          = "CONSUMERS_UNCHECKED"
+	GateCodeInferredProvider            = LimitationInferredProvider
 	// Clear.
 	GateCodeNotBreaking       = "NOT_BREAKING"
 	GateCodePotentialBreaking = "POTENTIAL_BREAKING"
@@ -27,6 +28,9 @@ const (
 func (r *Result) GateCode() string {
 	if r.Event != nil {
 		return ""
+	}
+	if r.inferredProvider() != "" {
+		return GateCodeInferredProvider
 	}
 	if code := r.blockingCode(); code != "" {
 		return code

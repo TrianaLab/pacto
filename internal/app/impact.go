@@ -168,7 +168,9 @@ func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap
 		skipped = impact.ConsumerIndex{Status: impact.IndexSkipped, Completeness: fleet.CompletenessEmpty,
 			Reason: "a local source holds " + name + ", so its local consumers are read; the index names consumers of " + src.provider.Repo}
 	}
-	added := addMissing && snap.Services[fleet.NewServiceKeyDomain(domain, name)] == nil
+	// An inferred contract is never a fleet service, so it is never added as one.
+	_, inferred := contract.InferredRef(opts.NewPath)
+	added := addMissing && !inferred && snap.Services[fleet.NewServiceKeyDomain(domain, name)] == nil
 	if added || created || dropped {
 		var err error
 		if snap, err = s.Fleet(ctx, withNewRevision(opts, newBundle, added)); err != nil {
@@ -299,11 +301,34 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 			IncludeObserved:  opts.IncludeObserved,
 			ObservedEdges:    observed,
 			NameInferredFrom: nameInferredFrom(oldBundle, newBundle),
+			InferredProvider: inferredProvider(snap, opts.NewPath, fleet.NewServiceKeyDomain(opts.Domain, newBundle.Contract.Service.Name), newBundle.Contract.Service.Version),
 			Index:            ix,
 			Indexed:          indexed,
 		})
 	res.TargetSnapshots = targetSnapshotStates(snap)
 	return res, nil
+}
+
+// inferredProvider is impact's Options.InferredProvider for a new revision
+// read from newPath as version of the service key: the external identity
+// when newPath is under pacto-inferred (the location only, so a
+// claimed contract that keeps service.external or a surface elsewhere is
+// judged), else key's name when only this installation's operator signed that
+// revision in snap, else "".
+func inferredProvider(snap *fleet.FleetSnapshot, newPath string, key fleet.ServiceKey, version string) string {
+	if id, ok := contract.InferredRef(newPath); ok {
+		return id
+	}
+	s := snap.Services[key]
+	if s == nil {
+		return ""
+	}
+	for _, rk := range s.Revisions {
+		if r := snap.Revisions[rk]; r != nil && r.Version == version && r.Provenance != nil && r.Provenance.Signature.Source == fleet.SignatureSourceOperator {
+			return s.Name
+		}
+	}
+	return ""
 }
 
 // nameInferredFrom is where the new, else the old, revision's service.name

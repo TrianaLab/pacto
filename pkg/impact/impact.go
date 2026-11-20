@@ -95,6 +95,15 @@ type Options struct {
 	// so an inferred name may miss every one of them: the answer then carries
 	// SERVICE_NAME_INFERRED and the gate never clears a BREAKING change.
 	NameInferredFrom string
+	// InferredProvider names the provider when the new revision is an
+	// inferred contract: the external identity when its ref is under
+	// pacto-inferred (contract.InferredRef, the location only), or the
+	// changed service's name when only this installation's operator signed
+	// the new revision in the snapshot. Pacto never checks a range against
+	// it: the answer carries INFERRED_PROVIDER, every consumer verdict is
+	// unknown and the gate is unverified, never clear or blocked. Empty
+	// judges the change as usual.
+	InferredProvider string
 	// Index is how the organization index was read; nil when the caller read none.
 	Index *ConsumerIndex
 	// Indexed reports whether the index lists a service; nil skips both cross-checks.
@@ -373,6 +382,9 @@ func (r *Result) breaks(c AffectedConsumer) bool {
 func (r *Result) gate() (string, string) {
 	if r.Event != nil {
 		return r.eventGate()
+	}
+	if why := r.inferredProvider(); why != "" {
+		return GateUnverified, why
 	}
 	if gate, why := r.blockingGate(); gate != "" {
 		return gate, why
@@ -804,7 +816,20 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		}
 	}
 
-	graph := res.dependents(snap, q, fleet.NewServiceKeyDomain(opts.Domain, svc), true)
+	key := fleet.NewServiceKeyDomain(opts.Domain, svc)
+	if opts.InferredProvider != "" {
+		res.Limitations = append(res.Limitations, fleet.Limitation{Code: LimitationInferredProvider, Source: limitationSource,
+			Message: opts.InferredProvider + " is an inferred contract Pacto published from what it sees; Pacto never checks a range against it"})
+		defer res.forceUnknownVerdicts()
+		if snap.Services[key] == nil {
+			// The ref rule: an inferred contract is never a fleet service, so
+			// its consumers are the ranges pinned on its external system.
+			res.Consumers = inferredProviderConsumers(snap, fleet.ExternalKey(opts.InferredProvider))
+			res.collectOwnersAndTargets(snap)
+			return res
+		}
+	}
+	graph := res.dependents(snap, q, key, true)
 	if graph == nil {
 		return res
 	}
