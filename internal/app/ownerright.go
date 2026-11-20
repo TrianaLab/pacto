@@ -280,19 +280,16 @@ func (h *ownerHistory) unknownBefore(ctx context.Context, r *fleet.ContractRevis
 const maxOwnerHistory = 100
 
 // currentOwner is the service's effective owner: OwnerRights over every
-// version findBaseline listed in its bundle repository, each read with its contract, record and
-// the signature the installation's publisher rule judges. A repository with
-// more versions than maxOwnerHistory is refused: an owner read from part of
-// the history is unknown.
+// version findBaseline listed in its bundle repository, each read with its
+// contract, record and the signature the installation's publisher rule
+// judges. A repository with more versions than maxOwnerHistory is read from
+// its newest ones: a version among them that sets the owner as it is (CI or
+// an unsigned push, outsideOwnerRule) makes every older one moot. With none,
+// the owner before them is unknown and the plan is refused as unverified.
 func (pl *declarePlanner) currentOwner(ctx context.Context) (delivery.OwnerClaim, error) {
 	versions := semver.Filter(pl.tags)
-	if len(versions) == 0 {
-		return delivery.OwnerClaim{}, nil
-	}
-	if len(versions) > maxOwnerHistory {
-		return delivery.OwnerClaim{}, &DeclareError{Code: codeRegistryUnreadable, Message: fmt.Sprintf("%s holds %d versions, more than the %d a declaration reads "+
-			"to find the current owner: the owner is unknown", pl.repo(), len(versions), maxOwnerHistory)}
-	}
+	truncated := len(versions) > maxOwnerHistory
+	versions = versions[:min(len(versions), maxOwnerHistory)]
 	revs := make([]fleet.ContractRevision, 0, len(versions))
 	for _, v := range versions {
 		r, err := pl.historyRevision(ctx, pl.root, v)
@@ -303,11 +300,22 @@ func (pl *declarePlanner) currentOwner(ctx context.Context) (delivery.OwnerClaim
 			revs = append(revs, *r)
 		}
 	}
+	if truncated && !slices.ContainsFunc(revs, setsOwnerAsIs) {
+		return delivery.OwnerClaim{}, &DeclareError{Code: delivery.OwnerSignerUnverified, Message: fmt.Sprintf("%s holds %d versions; a declaration reads the newest %d, "+
+			"and none of them sets the owner as a CI publish or an unsigned push does, so the owner before them is unknown", pl.repo(), len(semver.Filter(pl.tags)), maxOwnerHistory)}
+	}
 	current, _ := OwnerRights(ctx, revs, func(ctx context.Context, r *fleet.ContractRevision, current delivery.OwnerClaim) *delivery.OwnerRight {
 		policy, from := pl.ownerPolicy(ctx)
 		return ownerJudge(pl.plan.Service, policy, from, pl.s.env().now())(ctx, r, current)
 	})
 	return current, nil
+}
+
+// setsOwnerAsIs reports whether r sets the effective owner whatever it was
+// before: it claims one and is outside the owner rule.
+func setsOwnerAsIs(r fleet.ContractRevision) bool {
+	_, claims := revisionClaim(&r)
+	return claims && outsideOwnerRule(&r)
 }
 
 // ownerPolicy reads the owner policy once per plan, on first need.

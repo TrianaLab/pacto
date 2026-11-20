@@ -209,13 +209,28 @@ func TestDeclareCISignerCannotSetOwner(t *testing.T) {
 	}
 }
 
-func TestDeclareOwnerHistoryUnreadable(t *testing.T) {
+// TestDeclareLongOwnerHistory: past maxOwnerHistory versions a declaration
+// reads the newest ones. When one of them sets the owner as a CI publish or
+// an unsigned push does, the plan goes on; when none does, the owner before
+// them is unknown and the plan is refused as unverified, never as an
+// unreadable registry.
+func TestDeclareLongOwnerHistory(t *testing.T) {
 	e := newDeclareEnv(t)
 	e.withBaseline(t)
 	for i := range maxOwnerHistory {
-		e.pushImage(t, e.host+"/acme/invoices", fmt.Sprintf("0.0.%d", i))
+		v := fmt.Sprintf("0.0.%d", i)
+		e.publishBundle(t, e.host+"/acme/invoices", v, e.invoicesBaseline(v, ""), nil)
 	}
-	if _, _, err := e.svc.PlanDeclare(t.Context(), e.req()); refusal(t, err).Code != codeRegistryUnreadable {
+	if p, _, err := e.svc.PlanDeclare(t.Context(), e.req()); err != nil || p.Service != "invoices" {
+		t.Fatalf("%+v %v", p, err)
+	}
+	e2 := newDeclareEnv(t)
+	e2.withBaseline(t)
+	signed := e2.signer(t, personToken("eve@acme.com"))
+	for i := range maxOwnerHistory {
+		e2.publishBundle(t, e2.host+"/acme/invoices", fmt.Sprintf("1.5.%d", i), e2.invoicesBaseline(fmt.Sprintf("1.5.%d", i), ledgerDependency), &signed)
+	}
+	if _, _, err := e2.svc.PlanDeclare(t.Context(), e2.req()); refusal(t, err).Code != delivery.OwnerSignerUnverified || !strings.Contains(err.Error(), "the owner before them is unknown") {
 		t.Fatal(err)
 	}
 }
