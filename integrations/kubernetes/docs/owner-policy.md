@@ -45,7 +45,8 @@ at `/etc/pacto/owner-policy` and passes it to the dashboard it runs. Only a
 `helm upgrade` changes the policy, and no Role in the chart grants a write to
 that ConfigMap. The operator's one ConfigMap rule without a name is `create`,
 which detection needs for `<fullname>-detected`; `create` cannot replace a
-ConfigMap that already exists.
+ConfigMap that already exists. A ConfigMap created ahead of a new policy's
+name changes nothing: `helm upgrade` either fails or writes the policy over it.
 
 ## Where CLIs and agents read it
 
@@ -74,5 +75,6 @@ has a signature other than CI provenance the publisher rule accepts. It sets
 | `Unknown` | `OwnerSignerUnverified` | No signature verified, or the policy, the Sigstore root or the previous revision could not be read |
 
 On anything but `True`, `status.contract.owner` stays empty and the fleet
-ignores the owner. The condition is missing for every other Pacto; see
-[Troubleshooting](troubleshooting.md#reading-the-conditions).
+ignores the owner. A bundle that was running before the operator upgrade is
+judged once its digest changes. The condition is missing for every other
+Pacto; see [Troubleshooting](troubleshooting.md#reading-the-conditions).
