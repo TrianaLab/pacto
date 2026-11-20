@@ -58,7 +58,7 @@ type BreakState struct {
 	By      string `json:"by,omitempty" doc:"Who signed the counted acceptance"`
 	Record  string `json:"record,omitempty" doc:"Where the counted acceptance is: <repository>@sha256:<hex>"`
 	Expires string `json:"expires,omitempty" doc:"When the announcement expires (YYYY-MM-DD); empty when none is recorded"`
-	Route   string `json:"route,omitempty" doc:"Who may accept for the consumer, when an acceptance by someone else waits for its owner"`
+	Route   string `json:"route,omitempty" doc:"Whom an acceptance by somebody other than the declared owner waits for, such as 'waiting for the owner of reports: ana@acme.com', or how to get an owner"`
 	Reason  string `json:"reason,omitempty" doc:"Why the break is not accepted, in plain words; it says when acceptances were not read"`
 }
 
@@ -130,7 +130,7 @@ func (r *Result) breakState(snap *fleet.FleetSnapshot, in *BreakInput, changed f
 			st.State, st.By, st.Record, st.Reason = BreakAccepted, a.By, a.Record, ""
 			return st
 		case AcceptRouted:
-			st.Route = strings.TrimPrefix(a.Reason, "waiting for ")
+			st.Route = a.Reason
 		case AcceptProposal:
 			proposal = a.Reason
 		}

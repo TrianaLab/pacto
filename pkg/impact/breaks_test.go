@@ -261,15 +261,15 @@ func TestBreakAcceptancesNotRead(t *testing.T) {
 	}
 }
 
-// TestBreakRouteNamesWhoMayAccept: a routed acceptance's route names who
-// may accept, without a second "waiting for"; a proposal is a reason,
-// never a route.
+// TestBreakRouteNamesWhoMayAccept: a routed acceptance's route names whom
+// it waits for; a proposal is a reason, never a route.
 func TestBreakRouteNamesWhoMayAccept(t *testing.T) {
 	ref := &BreakRef{Provider: "ledger", Version: "3.0.0", Announcement: announcement}
 	routed := Acceptance{State: AcceptRouted, Reason: "waiting for the owner of reports: ana@acme.com", Break: ref}
 	proposal := Acceptance{State: AcceptProposal, Reason: "signed by ci, a ci signer (x): a proposal until a person accepts it", Break: ref}
 	c := reportsOf(t, breakLedger(breakSnap(t, running14), announced(future, routed, proposal)))
-	if c.Break.Route != "the owner of reports: ana@acme.com" || c.Break.Reason != proposal.Reason {
-		t.Fatalf("break %+v", c.Break)
+	if c.Break.Route != routed.Reason || c.Break.Reason != proposal.Reason ||
+		c.Break.Text("reports") != "announced for reports, not accepted; "+proposal.Reason+"; waiting for the owner of reports: ana@acme.com" {
+		t.Fatalf("break %+v: %s", c.Break, c.Break.Text("reports"))
 	}
 }

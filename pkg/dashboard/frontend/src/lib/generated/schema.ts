@@ -5024,7 +5024,7 @@ export interface components {
             reason?: string;
             /** @description Where the counted acceptance is: <repository>@sha256:<hex> */
             record?: string;
-            /** @description Who may accept for the consumer, when an acceptance by someone else waits for its owner */
+            /** @description Whom an acceptance by somebody other than the declared owner waits for, such as 'waiting for the owner of reports: ana@acme.com', or how to get an owner */
             route?: string;
             /**
              * @description announced: the provider announces the break and nothing accepts it; accepted: the consumer's declared owner signed a counted acceptance, or its ranges admit the new version; expired: the announcement expired or records no expiry
