@@ -497,6 +497,20 @@ func TestClusterContractRefs_ExactRefsPrecedeTheirRepository(t *testing.T) {
 	}
 }
 
+// TestClusterContractRefs_ExactRefsPrecedeAcrossClusters: one cluster runs
+// pay:1.0.0 and another pay:1.2.0; the bare repository comes after both exact
+// refs, so neither cluster's pinned target reads as a bare request.
+func TestClusterContractRefs_ExactRefsPrecedeAcrossClusters(t *testing.T) {
+	pacto := func(ref string) *fakeClusterClient {
+		return &fakeClusterClient{listJSON: `{"items":[{"metadata":{"name":"pay","namespace":"prod"},
+		 "status":{"contract":{"serviceName":"pay","resolvedRef":"` + ref + `"}}}]}`}
+	}
+	got := clusterContractRefs([]k8sclient.K8sClient{pacto("r/pay:1.0.0"), pacto("r/pay:1.2.0")}, nil)(context.Background())
+	if !slices.Equal(got, []string{"r/pay:1.2.0", "r/pay:1.0.0", "r/pay"}) {
+		t.Errorf("refs %v, want every exact ref before the bare repository, once", got)
+	}
+}
+
 // TestWithClusterContractRefs proves each refresh asks the cluster again and
 // merges what it reports behind the explicitly configured refs, without
 // duplicating a ref both already name.

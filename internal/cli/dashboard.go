@@ -572,9 +572,14 @@ func clusterContractRefs(clients []k8sclient.K8sClient, namespaces []string) fun
 			if err != nil {
 				continue
 			}
-			slices.Reverse(refs)
 			all = append(all, refs...)
 		}
+		// One sort over every cluster's refs: reversing each cluster's list
+		// alone would let one cluster's bare repository come before another
+		// cluster's exact tag of it.
+		slices.Sort(all)
+		all = slices.Compact(all)
+		slices.Reverse(all)
 		return all
 	}
 }
