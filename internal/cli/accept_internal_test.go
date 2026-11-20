@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
@@ -183,5 +184,35 @@ func TestAcceptRefusedPrintsCommand(t *testing.T) {
 	}
 	if _, _, err := runRoot(t, acceptedDeps(&got, nil, errors.New("boom")), nil, "accept", "r", "--proposed"); err == nil {
 		t.Fatal("an error passed")
+	}
+}
+
+// TestAcceptExpiredPrintsNotCounted: a record signed but judged expired
+// is never printed as accepted.
+func TestAcceptExpiredPrintsNotCounted(t *testing.T) {
+	var got app.AcceptOptions
+	res := &app.AcceptResult{Plan: acceptPlanFixture(), Executed: true, State: impact.AcceptExpired, Record: "r@sha256:ab",
+		Reason: "expiry unknown: run pacto ci or declare expires", Signer: app.SignerView{Subject: "ana@acme.com"}}
+	out, _, err := runRoot(t, acceptedDeps(&got, res, nil), nil, "accept", "r", "--proposed")
+	if err != nil || strings.Contains(out, "accepted 3") || !strings.Contains(out, "signed 3 ranges for reports 1.6.0 as ana@acme.com, but it does not count (expired): expiry unknown") {
+		t.Fatalf("err %v\n%s", err, out)
+	}
+	if got.Getenv == nil {
+		t.Fatal("pacto accept reads SOURCE_DATE_EPOCH")
+	}
+}
+
+// TestMCPAcceptJudgesWithInstallationTrust: pacto_accept plans and drafts
+// with the installation signer policy pacto accept and pacto_impact read.
+func TestMCPAcceptJudgesWithInstallationTrust(t *testing.T) {
+	called := false
+	m := mcpAcceptor{trust: func(context.Context) (app.Installation, error) { called = true; return app.Installation{}, nil }}
+	opts := m.options(pactomcp.AcceptArgs{Service: "oci://ghcr.io/acme/reports", Proposed: true})
+	if opts.Trust == nil || opts.Getenv == nil || !opts.Agent {
+		t.Fatalf("options = %+v", opts)
+	}
+	_, _ = opts.Trust(t.Context())
+	if !called {
+		t.Fatal("pacto_accept does not read the installation policy")
 	}
 }

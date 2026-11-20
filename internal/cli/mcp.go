@@ -429,7 +429,7 @@ func mcpAuthoring(cmd *cobra.Command, svc *app.Service) pactomcp.Authoring {
 		trust, _ := cmd.Flags().GetString("delivery-trust")
 		a.Init = mcpInit(svc, trust)
 		a.Catalog, a.CatalogUnavailable = mcpCatalog(cmd, svc)
-		a.Declare, a.Accept = newMCPDeclarer(svc), mcpAcceptor{svc: svc}
+		a.Declare, a.Accept = newMCPDeclarer(svc), mcpAcceptor{svc: svc, trust: publisherTrust(cmd, fleetDeps())}
 	}
 	return a
 }

@@ -63,7 +63,7 @@ on_behalf_of, and signed by you after a Sigstore login.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			acceptSubject(&opts, args[0])
 			opts.Fields = append(opts.Fields, args[1:]...)
-			opts.Trust = publisherTrust(cmd, d)
+			opts.Trust, opts.Getenv = publisherTrust(cmd, d), os.Getenv
 			asJSON := v.GetString(outputFormatKey) == "json"
 			if dryRun {
 				p, err := d.planAccept(svc, cmd.Context(), opts)
@@ -204,10 +204,13 @@ func acceptOutcome(res *app.AcceptResult) string {
 	}
 	repo, dgst, _ := strings.Cut(res.Record, "@")
 	record := "record " + repo + "@" + dgst[:min(len(dgst), len("sha256:")+12)] + "..."
-	if res.State == impact.AcceptRouted {
+	switch res.State {
+	case impact.AcceptRouted:
 		return "routed: " + res.Signer.Subject + " is not the declared owner of " + name + "; the acceptance is kept and " + res.Reason + "\n" + record
+	case impact.AcceptCounted:
+		return "accepted " + what + ", signed by " + res.Signer.Subject + " (" + res.Signer.Issuer + ")\n" + record
 	}
-	return "accepted " + what + ", signed by " + res.Signer.Subject + " (" + res.Signer.Issuer + ")\n" + record
+	return "signed " + what + " as " + res.Signer.Subject + ", but it does not count (" + res.State + "): " + res.Reason + "\n" + record
 }
 
 // expiryText says when a break expires, or that its expiry is unknown.

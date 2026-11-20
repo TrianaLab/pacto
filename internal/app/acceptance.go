@@ -385,6 +385,12 @@ type AcceptOptions struct {
 	// Draft is an acceptance draft (<repo>:pacto-accept-draft-<n>) a
 	// person accepts: its record is planned again and signed by them.
 	Draft string
+	// Getenv reads SOURCE_DATE_EPOCH for the default expiry of an undated
+	// break read from a checkout, as pacto ci does; nil reads git alone.
+	Getenv func(string) string
+	// draftOf is the draft a replanned run comes from, so every command it
+	// names accepts that draft again.
+	draftOf string
 }
 
 // AcceptPlan is what pacto accept would sign: the record for Service at
@@ -416,6 +422,9 @@ type AcceptPlan struct {
 // AcceptPlan plans one pacto accept run against the accepting service's
 // newest published version and writes nothing.
 func (s *Service) AcceptPlan(ctx context.Context, opts AcceptOptions) (*AcceptPlan, error) {
+	if err := acceptConflict(opts); err != nil {
+		return nil, err
+	}
 	if opts.Draft != "" {
 		return s.planDraft(ctx, opts)
 	}
@@ -441,6 +450,11 @@ func (s *Service) AcceptPlan(ctx context.Context, opts AcceptOptions) (*AcceptPl
 		if r.Break, p.Expires, err = acceptBreak(ctx, reg, repo, c, rec, &opts); err != nil {
 			return nil, err
 		}
+		if p.Expires == "" && opts.From != "" && !strings.HasPrefix(opts.From, contract.OCIScheme) {
+			// An undated break in a checkout expires as pacto ci and pacto
+			// impact date it: HEAD's commit time + 30 days.
+			p.Expires, _ = s.checkoutExpiry(ctx, ImpactOptions{NewPath: opts.From, Getenv: opts.Getenv})()
+		}
 	} else {
 		r.Kind = delivery.AcceptKindRanges
 		if r.Ranges, err = acceptFields(rec, opts); err != nil {
@@ -463,9 +477,25 @@ func (s *Service) AcceptPlan(ctx context.Context, opts AcceptOptions) (*AcceptPl
 	p.IntentDigest = delivery.AcceptanceIntent(r, p.Subject)
 	if opts.Intent != "" && opts.Intent != p.IntentDigest {
 		return p, &DeclareError{Code: codePlanStale, Message: "the plan changed since you reviewed it (intent " + opts.Intent + ", now " + p.IntentDigest + ")",
-			CLI: acceptCommand(opts, "")}
+			CLI: acceptCommand(opts, "--intent "+p.IntentDigest)}
 	}
 	return p, nil
+}
+
+// acceptConflict refuses a run that names two kinds of record: one record
+// accepts ranges or a break, and a draft is accepted as it was written.
+func acceptConflict(opts AcceptOptions) error {
+	ranges := opts.Proposed || len(opts.Fields) > 0
+	var msg string
+	switch {
+	case opts.Draft != "" && (ranges || opts.Break != ""):
+		msg = "--draft accepts the draft as it was written: drop --proposed, --field and --break"
+	case opts.Break != "" && ranges:
+		msg = "one record accepts ranges or a break: run --break and --proposed or --field as two pacto accept commands"
+	default:
+		return nil
+	}
+	return &DeclareError{Code: codeFieldNotAcceptable, Message: msg, CLI: "pacto accept " + cmp.Or(opts.Dir, opts.Ref) + " --proposed --dry-run"}
 }
 
 // planDraft plans accepting the acceptance draft opts.Draft: the draft's
@@ -504,7 +534,7 @@ func (s *Service) planDraft(ctx context.Context, opts AcceptOptions) (*AcceptPla
 // the intent digest the person reviewed, else the draft's.
 func draftOptions(opts AcceptOptions, d delivery.AcceptanceDraft, repo string) AcceptOptions {
 	o := opts
-	o.Ref, o.Dir, o.Draft, o.Proposed, o.Fields, o.Break = repo, "", "", false, nil, ""
+	o.Ref, o.Dir, o.Draft, o.Proposed, o.Fields, o.Break, o.draftOf = repo, "", "", false, nil, "", opts.Draft
 	o.Intent = cmp.Or(opts.Intent, d.Record.Intent)
 	if b := d.Record.Break; b != nil {
 		_, name := fleet.ParseServiceKey(fleet.ServiceKey(b.Provider))
@@ -547,17 +577,23 @@ func draftSignature(d delivery.AcceptanceDraft, bundle []byte, trustedRoot strin
 }
 
 // acceptCommand is the pacto accept command that plans opts again, with
-// extra flags.
+// its --from and extra flags: the draft again for a run from a draft.
 func acceptCommand(opts AcceptOptions, extra string) string {
 	cmd := "pacto accept " + cmp.Or(opts.Dir, opts.Ref)
+	fields := opts.Fields
 	switch {
+	case opts.draftOf != "":
+		cmd, fields = cmd+" --draft "+opts.draftOf, nil
 	case opts.Break != "":
 		cmd += " --break " + opts.Break
 	case opts.Proposed:
 		cmd += " --proposed"
 	}
-	for _, f := range opts.Fields {
+	for _, f := range fields {
 		cmd += " --field '" + f + "'"
+	}
+	if opts.From != "" {
+		cmd += " --from " + opts.From
 	}
 	return strings.TrimSpace(cmd + " " + extra)
 }
@@ -566,7 +602,7 @@ func acceptCommand(opts AcceptOptions, extra string) string {
 // publish.bundle its checkout Dir declares.
 func acceptRepo(opts AcceptOptions) (string, error) {
 	if opts.Dir == "" {
-		return publish.Repo(opts.Ref), nil
+		return repoOf(opts.Ref), nil // a tag or digest names the repository's newest version too
 	}
 	b, err := loadLocalBundle(opts.Dir)
 	if err != nil {
@@ -687,7 +723,9 @@ func acceptBreak(ctx context.Context, reg publish.Registry, repo string, c *cont
 	}
 	name, version := opts.Break[:i], opts.Break[i+1:]
 	notAnnounced := func(msg string) error {
-		return &DeclareError{Code: codeBreakNotAnnounced, Message: msg, CLI: acceptCommand(*opts, "--from <checkout of "+name+" "+version+">")}
+		o := *opts
+		o.From = ""
+		return &DeclareError{Code: codeBreakNotAnnounced, Message: msg, CLI: acceptCommand(o, "--from <checkout of "+name+" "+version+">")}
 	}
 	prepo := providerRepo(c, rec, name)
 	pb, bundle, err := breakSource(ctx, reg, prepo, name, version, opts.From)
@@ -1038,6 +1076,7 @@ func (s *Service) draftAcceptance(ctx context.Context, res *AcceptResult, r deli
 		return err
 	}
 	res.Executed, res.Draft = true, p.repo+":"+tag
-	res.AcceptCLI = "pacto accept " + cmp.Or(opts.Dir, opts.Ref) + " --draft " + res.Draft
+	// The person reads an unpublished break from the same --from.
+	res.AcceptCLI = acceptCommand(AcceptOptions{Dir: opts.Dir, Ref: opts.Ref, From: opts.From, draftOf: res.Draft}, "")
 	return nil
 }
