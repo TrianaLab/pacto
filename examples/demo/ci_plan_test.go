@@ -215,11 +215,9 @@ func (e *ciPlanEnv) acceptBreak(t *testing.T, root string) {
 }
 
 // checkLedger: ledger 3.0.0 is BREAKING and reports' owner accepted it, so
-// reports never blocks; its undated break expires 30 days after the
-// fixture's commit. The row stays unverified: payments infers its
-// service.name, the inferred claim collides with its own published name and
-// is left out of the snapshot, so the answer is partial (unknown is never
-// positive). Declaring payments' name makes the row clear.
+// the row is clear on a complete answer (payments' inferred name is the one
+// its own baseline declares, so it never collides); its undated break
+// expires 30 days after the fixture's commit.
 func checkLedger(t *testing.T, p *ci.Plan, res *impact.Result, root string) {
 	t.Helper()
 	i := slices.IndexFunc(p.Rows, func(r ci.Row) bool { return r.Service == "ledger" })
@@ -227,10 +225,8 @@ func checkLedger(t *testing.T, p *ci.Plan, res *impact.Result, root string) {
 		t.Fatalf("ledger rows %+v, answer %+v", p.Rows, res)
 	}
 	row := p.Rows[i]
-	if row.Impact.Gate != impact.GateUnverified || res.Completeness != fleet.CompletenessPartial || !slices.ContainsFunc(res.Limitations, func(l fleet.Limitation) bool {
-		return l.Code == "SERVICE_NAME_COLLISION" && strings.Contains(l.Message, "service name payments")
-	}) {
-		t.Fatalf("ledger row %+v, limitations %+v", row.Impact, res.Limitations)
+	if row.Impact.Gate != impact.GateClear || res.Completeness != fleet.CompletenessComplete {
+		t.Fatalf("ledger row %+v, completeness %s, limitations %+v", row.Impact, res.Completeness, res.Limitations)
 	}
 	out, err := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output()
 	if err != nil {

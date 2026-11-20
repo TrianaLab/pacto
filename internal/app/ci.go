@@ -738,7 +738,7 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 		// a changed service is found. ponytail: a folder decided before its
 		// repository (invalid, outside the registry) is left out.
 		if f.row.Repository != "" {
-			rev := fleet.RawRevision{Bundle: f.b, Domain: contract.OCIDomain(f.row.Repository), RequestedRef: f.dir}
+			rev := fleet.RawRevision{Bundle: f.b, Domain: contract.OCIDomain(f.row.Repository), RequestedRef: f.dir, Baseline: f.row.BaselineDigest}
 			rev.Digest, _ = lock.HashFS(contract.WithoutInferredRecord(f.b.FS)) // the folder was just read
 			repo.Revisions = append(repo.Revisions, rev)
 			if f.row.BaselineDigest == "" {

@@ -169,3 +169,43 @@ func TestBuildSameBundleTwoSourcesIsNoCollision(t *testing.T) {
 		t.Fatalf("limitations = %+v services = %v", snap.Limitations, snap.Services)
 	}
 }
+
+// A folder pacto ci planned from its published baseline infers the name the
+// baseline declares: it is that service, so nothing collides and the answer
+// stays complete. A Baseline naming a digest no declared claim of that name
+// holds confirms nothing, and a third inferred claimant still collides
+// without taking the confirmed folder with it.
+func TestBuildInferredNameConfirmedByOwnBaseline(t *testing.T) {
+	planned := func(dir, baseline string) RawRevision {
+		r := inferredRev("payments", dir, "chart/Chart.yaml:2")
+		r.Baseline = baseline
+		return r
+	}
+	build := func(revs ...RawRevision) *FleetSnapshot {
+		t.Helper()
+		local := NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{inferredRev("payments", "/r/payments", "chart/Chart.yaml:2")}})
+		changes := NewMemorySource("ci-changes", "argument", &Collection{Revisions: append([]RawRevision{declaredRev("payments", "1.4.2", "sha256:base")}, revs...)})
+		snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, local, changes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snap
+	}
+	snap := build(planned("/r/payments", "sha256:base"))
+	if lims := collisionLims(snap); len(lims) != 0 || snap.Completeness != CompletenessComplete {
+		t.Fatalf("confirmed: limitations = %+v, completeness = %s", lims, snap.Completeness)
+	}
+	if svc := snap.Services[NewServiceKey("payments")]; svc == nil || len(svc.Revisions) != 2 {
+		t.Fatalf("confirmed: service = %+v", svc)
+	}
+	if snap := build(planned("/r/payments", "sha256:other")); len(collisionLims(snap)) == 0 || snap.Completeness != CompletenessPartial {
+		t.Fatalf("unconfirmed: limitations = %+v", snap.Limitations)
+	}
+	snap = build(planned("/r/payments", "sha256:base"), inferredRev("payments", "/r/payments-copy", "directory payments"))
+	if lims := collisionLims(snap); len(lims) != 1 || !strings.Contains(lims[0].Message, "/r/payments-copy") {
+		t.Fatalf("third claimant: limitations = %+v", lims)
+	}
+	if svc := snap.Services[NewServiceKey("payments")]; svc == nil || len(svc.Revisions) != 2 {
+		t.Fatalf("third claimant: service = %+v", svc)
+	}
+}

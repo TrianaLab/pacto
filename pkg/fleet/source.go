@@ -243,6 +243,10 @@ type RawRevision struct {
 	// Provenance is what a registry source found attached to the bundle digest
 	// (signature and referrers), or nil when the source does not check.
 	Provenance *BundleProvenance
+	// Baseline is the digest of the published revision this unpublished one
+	// was planned from (pacto ci), or "". An inferred service.name that
+	// baseline declares is the same service, not a competing claim.
+	Baseline string
 }
 
 // RawTarget is what an observer source knows about a concrete deployed instance.

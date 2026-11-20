@@ -13,7 +13,7 @@
 
 | SERVICE | CHANGED | VERSION | CLASSIFICATION | IMPACT | INFERRED |
 |---|---|---|---|---|---|
-| `ledger` | `yes` | `2.4.0 -> 3.0.0` | `BREAKING` | `unverified (the change is BREAKING and the answer is partial, so consumers Pacto cannot see may break. Fix the sources named in limitations and run the analysis again)` | `1 field` |
+| `ledger` | `yes` | `2.4.0 -> 3.0.0` | `BREAKING` | `clear` | `1 field` |
 | `payments` | `yes` | `1.4.2 -> 1.4.3 (derived)` | `NON_BREAKING` | `unverified (service.name inferred; declare it)` | `6 fields` |
 | `reports` | `no` | - | - | - | `2 fields` |
 
