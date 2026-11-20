@@ -351,9 +351,26 @@ func restrictRevisions(s *FleetSnapshot, hiddenSvc, offeringOnly map[ServiceKey]
 			} else if c := hideClusterDependencies(s, r, hiddenSvc); c != nil {
 				out[k] = c
 			}
+			if offeringOnly[r.ServiceKey] {
+				out[k] = withoutOwnerRightMessage(out[k])
+			}
 		}
 	}
 	return out
+}
+
+// withoutOwnerRightMessage is r with a refused owner verdict's sentence
+// replaced by one that names nobody: it was judged against the owner of
+// every revision, and the view may have dropped the one that names it. The
+// code stays, so the owner is still ignored.
+func withoutOwnerRightMessage(r *ContractRevision) *ContractRevision {
+	if r.Provenance == nil || r.Provenance.OwnerRight == nil || r.Provenance.OwnerRight.Allowed {
+		return r
+	}
+	c := *r
+	c.Provenance = cloneProvenance(r.Provenance)
+	c.Provenance.OwnerRight.Message = "the owner rule did not accept the owner this version sets"
+	return &c
 }
 
 // targetsHidden is offeringOnly plus every visible service of out that lost a

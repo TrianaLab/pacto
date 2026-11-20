@@ -283,3 +283,51 @@ func TestOwnerTierSkipsMissingRevisions(t *testing.T) {
 		t.Error("no service has a claim")
 	}
 }
+
+// A refused verdict on a visible revision was judged against the owner a
+// hidden revision attested: the restricted copy names neither that owner nor
+// its commit or repository, and keeps the code.
+func TestRestrictOwnerRightMessageFromHiddenRevision(t *testing.T) {
+	path := templated("http-service", "1.0.0")
+	path.PactoVersion, path.Service.Owner = "2.5", contract.Owner{Team: "billing"}
+	old := usesPostgres("http-service", "0.9.0")
+	old.PactoVersion, old.Service.Owner = "2.5", contract.Owner{}
+	oldRev := ociRev(acme, old, fstest.MapFS{contract.InferredRecordFile: {Data: attRecord("repository:.github/CODEOWNERS:7", "payments", attCommit).Marshal()}})
+	oldRev.Provenance = attProvenance(attRepo, attCommit)
+	pathRev := ociRev(acme, path, pathFiles)
+	leak := "service.owner is attested as team payments (CODEOWNERS:7 at " + attCommit[:7] + ", signed by " + attRepo + "); only payments members may set it"
+	pathRev.Provenance = &BundleProvenance{Signature: BundleSignature{Status: SignatureVerified},
+		OwnerRight: &OwnerRightCheck{Code: "OWNER_SIGNER_NOT_ALLOWED", Message: leak}}
+	k := SourceKindKubernetes
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
+		NewMemorySource("oci", "oci", &Collection{Revisions: []RawRevision{pathRev, oldRev, postgres()}}),
+		NewMemorySource("k8s", k, &Collection{Targets: []RawTarget{{Scope: "shop", Kind: k, Name: "postgresql", Service: "postgresql", Domain: acme, Compliance: StatusCompliant}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := NewQuery(snap)
+	var full *ContractRevision
+	for _, r := range q.snap.Revisions {
+		if r.Service == "http-service" && r.Version == "1.0.0" {
+			full = r
+		}
+	}
+	if full == nil || full.Provenance.OwnerRight.Message != leak {
+		t.Fatalf("unrestricted revision = %+v", full)
+	}
+	r := q.Restrict(shopOnly, nil).snap.Revisions[full.Key]
+	if r == nil || r.Provenance == nil || r.Provenance.OwnerRight == nil {
+		t.Fatalf("restricted revision = %+v", r)
+	}
+	if got := r.Provenance.OwnerRight; got.Code != "OWNER_SIGNER_NOT_ALLOWED" || got.Allowed {
+		t.Errorf("verdict = %+v", got)
+	}
+	for _, s := range []string{"payments", attCommit[:7], attRepo, "CODEOWNERS"} {
+		if strings.Contains(r.Provenance.OwnerRight.Message, s) {
+			t.Errorf("restricted message %q names %q", r.Provenance.OwnerRight.Message, s)
+		}
+	}
+	if full.Provenance.OwnerRight.Message != leak {
+		t.Error("restriction changed the unrestricted snapshot")
+	}
+}
