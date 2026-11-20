@@ -73,8 +73,7 @@ func ForOperator(cfg Config) (manager.Runnable, error) {
 		return nil, errors.New("the inferred contracts need the installation key")
 	}
 	kp, _ := signing.FromPrivateKey(cfg.Key) // a full-size Ed25519 key always loads
-	reg := publish.NewClientWith(cfg.Keychain, oci.WithInsecureRegistries(cfg.Insecure...),
-		oci.WithTransport(oci.NewPushScope(cfg.Registry).Guard(remote.DefaultTransport)))
+	reg := publish.NewScopedClient(cfg.Keychain, oci.NewPushScope(cfg.Registry), remote.DefaultTransport, cfg.Insecure...)
 	return &InferredPublisher{Reader: cfg.Reader, Root: oci.InstallationRepository(cfg.Registry, oci.InferredRepository),
 		Namespaces: cfg.Watched, Interval: InferredInterval, Log: ctrl.Log.WithName("inferred"),
 		Deps: inferredcontract.Deps{Registry: reg, Signer: signing.Keyed(kp, ""),

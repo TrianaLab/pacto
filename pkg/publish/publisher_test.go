@@ -276,10 +276,10 @@ func (s *seenTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return http.DefaultTransport.RoundTrip(r)
 }
 
-func TestNewClientWithTransport(t *testing.T) {
+func TestNewScopedClientTransport(t *testing.T) {
 	host, _ := testRegistry(t, true)
 	rt := &seenTransport{}
-	reg := NewClientWith(anonymous, oci.WithTransport(rt))
+	reg := NewScopedClient(anonymous, oci.NewPushScope("", host+"/acme"), rt)
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
 	kp, _ := signing.FromPrivateKey(priv)
 	repo := host + "/acme/x"

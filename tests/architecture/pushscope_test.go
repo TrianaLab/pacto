@@ -95,8 +95,8 @@ import (
 
 func f() {
 	_ = publish.NewClient(nil)
-	_ = publish.NewClientWith(nil, oci.WithInsecureRegistries())
-	_ = publish.NewClientWith(nil, oci.WithTransport(g))
+	_ = publish.NewScopedClient(nil, nil, nil)
+	_ = publish.NewScopedClient(nil, oci.NewPushScope(""), nil)
 }
 `
 	if got := unscopedOpens(t, "integrations/kubernetes/x.go", pub, map[string]bool{}); len(got) != 2 || !strings.Contains(got[0], "publish client") {
@@ -161,27 +161,16 @@ func unscopedCall(c *ast.CallExpr, names map[string]string) string {
 		return "registry.Open passes no scope"
 	}
 	if unguardedPublishClient(c, names) {
-		return "a publish client sets no oci.WithTransport guard"
+		return "a publish client sets no push scope"
 	}
 	return ""
 }
 
 // unguardedPublishClient reports a publish.NewClient call, which takes no
-// transport, or a publish.NewClientWith call with no oci.WithTransport option.
+// scope, or a publish.NewScopedClient call with a nil scope.
 func unguardedPublishClient(c *ast.CallExpr, names map[string]string) bool {
 	pub := names["github.com/trianalab/pacto/v4/pkg/publish"]
-	if isCall(c, pub, "NewClient") {
-		return true
-	}
-	if !isCall(c, pub, "NewClientWith") {
-		return false
-	}
-	for _, a := range c.Args {
-		if call, ok := a.(*ast.CallExpr); ok && isCall(call, names["github.com/trianalab/pacto/v4/pkg/oci"], "WithTransport") {
-			return false
-		}
-	}
-	return true
+	return isCall(c, pub, "NewClient") || (isCall(c, pub, "NewScopedClient") && len(c.Args) > 1 && isNil(c.Args[1]))
 }
 
 // importNames maps each import path of f to the name it is used under.
