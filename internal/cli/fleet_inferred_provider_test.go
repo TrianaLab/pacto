@@ -82,29 +82,32 @@ func TestFleetGetExternalProviderJSON(t *testing.T) {
 }
 
 // TestFleetGetExternalProviderText: the text names the repository and the
-// shown version, says no installation signature was checked and that a range
-// is never checked against it.
+// shown version, says its signature could not be checked (never "unsigned":
+// no check said so), that a range is never checked against it and when the
+// surface was computed.
 func TestFleetGetExternalProviderText(t *testing.T) {
 	src, store := inferredProviderFixture(t)
 	out, _, err := execFleetStore(t, store, append([]string{"fleet", "get", "external:stripe"}, src...)...)
 	if err != nil {
 		t.Fatalf("get: %v\n%s", err, out)
 	}
-	for _, want := range []string{"  inferred contract\n", "/demo/pacto-inferred/stripe:0.0.1 (sha256:", "    unsigned, publisher unknown\n",
-		"    range checks: unverified (INFERRED_PROVIDER)\n", "    surface: hosts 0, ports 0, clients 0\n"} {
+	for _, want := range []string{"  inferred contract\n", "/demo/pacto-inferred/stripe:0.0.1 (sha256:", "    signature could not be checked, publisher unknown\n",
+		"    range checks: unverified (INFERRED_PROVIDER)\n", "    surface as of ", ": hosts 0, ports 0, clients 0\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
 		}
 	}
 }
 
-// TestFleetAttentionPrintsDeclareNext: the INFERRED_PROVIDER item says the
-// declare step its nextAction names.
+// TestFleetAttentionPrintsDeclareNext: the INFERRED_PROVIDER item of an
+// external says the step that exists today, never pacto declare, which reads
+// only workloads.
 func TestFleetAttentionPrintsDeclareNext(t *testing.T) {
 	src, store := inferredProviderFixture(t)
 	out, _, err := execFleetStore(t, store, append([]string{"fleet", "attention", "--category", "knowledge"}, src...)...)
 	if err != nil || !strings.Contains(out, "1 service checks a range against stripe's inferred contract") ||
-		!strings.Contains(out, "(action: declare a contract with pacto declare)") {
+		!strings.Contains(out, "(action: declare a contract for it)") || strings.Contains(out, "pacto declare") ||
+		!strings.Contains(out, "Write a contract with service.external: stripe") {
 		t.Errorf("attention = %v:\n%s", err, out)
 	}
 }

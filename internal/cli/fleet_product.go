@@ -931,7 +931,11 @@ func printFleetAttention(cmd *cobra.Command, res *fleet.AttentionList, format st
 			action := ""
 			if a := it.NextAction; a != nil {
 				action = fmt.Sprintf(" (action: %s via %s)", a.Verb, a.Tool)
-				if a.Verb == "declare" {
+				switch {
+				case a.Verb == "declare" && it.Entity.Kind == fleet.KindExternal:
+					// pacto declare reads only workloads: the next step says how.
+					action = " (action: declare a contract for it)"
+				case a.Verb == "declare":
 					action = " (action: declare a contract with pacto declare)"
 				}
 			}

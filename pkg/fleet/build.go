@@ -430,7 +430,9 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 		rev, lims := revisionFrom(raw, src.ID(), now)
 		if rev != nil && divertInferredProvider(snap, rev, src.ID()) {
 			// An inferred contract is never a service: it becomes its
-			// external system's provider.
+			// external system's provider. What reading it could not
+			// establish (its record, say) is still said.
+			snap.Limitations = append(snap.Limitations, lims...)
 			revCount++
 			continue
 		}
@@ -2900,7 +2902,7 @@ func revisionDependencyEdges(snap *FleetSnapshot, cat *externalcatalog.Catalog, 
 	for i, dep := range rev.Contract.Dependencies {
 		var toSvc ServiceKey
 		ok := false
-		inferredKey, inferred := inferredLocation(dep.Ref)
+		inferredKey, inferredPath, inferred := inferredLocation(dep.Ref)
 		// An external dependency with no contract has only a local name, which
 		// may be any unrelated fleet service's: it never resolves. Nor does a
 		// ref to an inferred contract, which is never a service.
@@ -2921,6 +2923,8 @@ func revisionDependencyEdges(snap *FleetSnapshot, cat *externalcatalog.Catalog, 
 			}
 		}
 		switch {
+		case inferred && inferredKey == "":
+			rel.Reason = "the ref names " + contract.InferredRepository + "/" + inferredPath + ", which is no external identity, so it joins no external system and is never a service"
 		case inferred:
 			joinInferredRef(snap, cat, rk, rev, i, dep, inferredKey, &rel)
 		case !ok && dep.External:

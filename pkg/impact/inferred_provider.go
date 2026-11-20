@@ -45,9 +45,11 @@ func (r *Result) forceUnknownVerdicts() {
 	}
 }
 
-// forceUnknown makes c's verdicts unknown and says why.
+// forceUnknown makes c's verdicts unknown and says why. An inferred bundle
+// declares no guarantees, so none it lacks is unmet either: tallies,
+// Blocking and delivery read the same unknown as the verdict.
 func forceUnknown(c *AffectedConsumer) {
-	c.CompatibilityVerdict, c.Note = CompatibilityUnknown, inferredProviderNote
+	c.CompatibilityVerdict, c.Note, c.Unmet = CompatibilityUnknown, inferredProviderNote, nil
 	if c.rangeVerdict != "" {
 		c.rangeVerdict = CompatibilityUnknown
 	}
@@ -63,8 +65,16 @@ func (r *Result) inferredProvider() string {
 	if !hasCode(r.Limitations, LimitationInferredProvider) {
 		return ""
 	}
-	n := len(r.Consumers)
-	return r.Service + " " + r.NewVersion + " is an inferred contract Pacto published from what it sees, so the " +
-		strconv.Itoa(n) + " " + plural(n, "consumer that checks", "consumers that check") +
-		" a range against it cannot be verified. Declare a contract for it with pacto declare and point the ranges at it"
+	n, k := len(r.Consumers), 0
+	for _, c := range r.Consumers {
+		if c.Compatibility != "" {
+			k++
+		}
+	}
+	next := "Declare a contract for it with pacto declare and point the ranges at it"
+	if r.inferredExternal != "" {
+		next = fleet.InferredExternalNextStep(r.inferredExternal)
+	}
+	return r.Service + " " + r.NewVersion + " is an inferred contract, so no range against it can be verified: " +
+		strconv.Itoa(k) + " of " + strconv.Itoa(n) + " " + plural(n, "consumer pins", "consumers pin") + " a range on it. " + next
 }

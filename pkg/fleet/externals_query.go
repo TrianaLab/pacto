@@ -172,6 +172,9 @@ func (q *Query) explainExternal(key string) (*ExplainResult, error) {
 		res.Reasons = append(res.Reasons, Reason{Code: ReasonExternalCatalogMatch,
 			Message: fmt.Sprintf("classified %s by entry %s of the %s catalog %s", rec.Class, rec.Catalog.Entry, rec.Catalog.Origin, rec.Catalog.Digest)})
 	case rec.Folded > 0:
+	case inferredClassRef(rec) != "":
+		res.Reasons = append(res.Reasons, Reason{Code: RangeReasonInferredProvider,
+			Message: "no catalog entry classifies it; it is classified " + rec.Class + " by its inferred contract " + inferredClassRef(rec) + ", which this installation's operator signed"})
 	case rec.JoinedBy == externalcatalog.MatchIdentity:
 		res.Reasons = append(res.Reasons, Reason{Code: ReasonExternalUnclassified, Message: "no catalog entry classifies it; its consumers join through the identity they declare"})
 	case rec.JoinedBy == externalcatalog.MatchHost:

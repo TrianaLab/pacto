@@ -1357,6 +1357,8 @@ type ExternalProvider struct {
 	RevisionsTotal int    `json:"revisionsTotal" doc:"How many revisions were read"`
 	RangeStatus    string `json:"rangeStatus" enum:"unknown" doc:"Always unknown: a range is never checked against an inferred contract"`
 	RangeReason    string `json:"rangeReason" enum:"INFERRED_PROVIDER" doc:"Always INFERRED_PROVIDER"`
+	// SurfaceHidden is set when a restricted view dropped a surface.
+	SurfaceHidden bool `json:"surfaceHidden,omitempty" doc:"True when the caller's view is restricted, so the surface is not shown; absent when the record holds none"`
 }
 
 // ExternalProviderRevision is one revision of an inferred contract.
@@ -1364,9 +1366,10 @@ type ExternalProviderRevision struct {
 	Version string `json:"version" doc:"The 0.0.<n> version: a count of surface changes, never a vendor version"`
 	Digest  string `json:"digest"`
 	Ref     string `json:"ref,omitempty"`
-	// Surface is nil when the record holds none, or when a restricted view
-	// hides a source or consumer it was computed from.
-	Surface   *contract.InferredSurface `json:"surface,omitempty" doc:"What Pacto saw of the external system; absent when the caller's permissions hide any source or consumer it was computed from"`
+	// Surface is set on the shown (first) revision only. It is nil when the
+	// record holds none, or in a restricted view (see
+	// ExternalProvider.SurfaceHidden).
+	Surface   *contract.InferredSurface `json:"surface,omitempty" doc:"What the record says Pacto saw of the external system, on the first revision only; absent when the record holds none or the caller's view is restricted (surfaceHidden)"`
 	Signature *BundleSignature          `json:"signature,omitempty" doc:"The signature check of the revision; absent when no source that read it checks signatures"`
 }
 

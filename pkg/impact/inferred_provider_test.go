@@ -80,7 +80,8 @@ func TestImpactInferredProviderNeverClear(t *testing.T) {
 	c := res.Consumers[0]
 	if res.Completeness != fleet.CompletenessComplete || hasCode(res.Limitations, "SERVICE_NOT_IN_FLEET") ||
 		c.Compatibility != "^2023.10" || !c.Direct || c.Provenance != fleet.ProvenanceDeclared || c.OwnerKey == "" || len(c.Targets) != 1 ||
-		len(res.ActiveTargets) != 1 || !strings.Contains(res.GateReason, "pacto declare") {
+		len(res.ActiveTargets) != 1 || !strings.Contains(res.GateReason, "1 of 1 consumer pins a range on it. Write a contract with service.external: stripe") ||
+		strings.Contains(res.GateReason, "pacto declare") {
 		t.Errorf("answer = %+v", res)
 	}
 }
@@ -143,5 +144,47 @@ func TestInferredProviderConsumerStaleAndPolicy(t *testing.T) {
 	if c := r.Consumers[0]; c.CompatibilityVerdict != CompatibilityUnknown || c.rangeVerdict != CompatibilityUnknown ||
 		c.policyVerdict != CompatibilityUnknown || r.Blocking() != 0 {
 		t.Errorf("forced = %+v", c)
+	}
+}
+
+// TestImpactInferredProviderCountsPinsAndUnreported: a ref-less declarer is a
+// consumer that pins no range, and a target that cannot say which externals
+// it uses makes the consumer list partial.
+func TestImpactInferredProviderCountsPinsAndUnreported(t *testing.T) {
+	col := &fleet.Collection{
+		Revisions: []fleet.RawRevision{inferredStripe("2023.10.16"),
+			{Bundle: mkBundle(svcContract("checkout", "1.0.0", contract.Owner{}, pinned("^2023.10")))},
+			{Bundle: mkBundle(svcContract("payments", "1.0.0", contract.Owner{}, contract.Dependency{Name: "stripe", External: true}))}},
+		Targets: []fleet.RawTarget{{Scope: "prod", Kind: "deployment", Name: "checkout", Service: "checkout", Compliance: fleet.StatusCompliant, EvidenceAt: fresh()}},
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tg := range snap.Targets {
+		tg.Limitations = append(tg.Limitations, fleet.Limitation{Code: fleet.LimitationExternalsUnreported})
+	}
+	res := Analyze(context.Background(), stripeContract("2023.10.15"), stripeContract("2023.10.16"), fstest.MapFS{}, fstest.MapFS{}, snap,
+		Options{Domain: "ghcr.io/acme/pacto-inferred", InferredProvider: "stripe"})
+	if len(res.Consumers) != 2 || !strings.Contains(res.GateReason, "1 of 2 consumers pin a range on it") ||
+		res.Completeness != fleet.CompletenessPartial || !hasCode(res.Limitations, fleet.LimitationExternalsUnreported) {
+		t.Errorf("answer: %q %s %+v", res.GateReason, res.Completeness, res.Limitations)
+	}
+}
+
+// TestForceUnknownClearsUnmet: an inferred bundle declares no guarantees,
+// so none is unmet: nothing blocks and no tally reads incompatible.
+func TestForceUnknownClearsUnmet(t *testing.T) {
+	r := Result{Classification: "BREAKING", Limitations: []fleet.Limitation{{Code: LimitationInferredProvider}}, Consumers: []AffectedConsumer{{Service: "checkout", Owner: "shop", OwnerKey: "team:shop",
+		CompatibilityVerdict: CompatibilityIncompatible, Targets: []string{"prod/k8s/checkout"}, Unmet: []contract.Mismatch{{Interface: "api"}}}}}
+	r.forceUnknownVerdicts()
+	if r.Consumers[0].Unmet != nil || r.Blocking() != 0 {
+		t.Errorf("forced = %+v", r.Consumers[0])
+	}
+	r.tally()
+	for _, o := range r.ConsumerTallies.ByOutcome {
+		if o.Key == OutcomeIncompatible && o.Count != 0 {
+			t.Errorf("tallies = %+v", r.ConsumerTallies)
+		}
 	}
 }

@@ -684,8 +684,8 @@ func TestFleetGetTextOwnerProvenance(t *testing.T) {
 }
 
 // TestFleetGetExternalProviderUnsignedWording: only a shown revision this
-// installation's operator signed reads as signed by it; any other reads
-// unsigned, publisher unknown.
+// installation's operator signed reads as signed by it; no check reads not
+// checked and another signer reads signed by someone else, never unsigned.
 func TestFleetGetExternalProviderUnsignedWording(t *testing.T) {
 	provider := func(sig *fleet.BundleSignature) fleet.ExternalRecord {
 		return fleet.ExternalRecord{Key: "stripe", Provider: &fleet.ExternalProvider{Repository: "r/pacto-inferred/stripe", RevisionsTotal: 1,
@@ -697,10 +697,14 @@ func TestFleetGetExternalProviderUnsignedWording(t *testing.T) {
 	if !strings.Contains(b.String(), "    signed by this installation's operator") || strings.Contains(b.String(), "unsigned") {
 		t.Errorf("operator signed:\n%s", b.String())
 	}
-	for _, sig := range []*fleet.BundleSignature{nil, {Status: fleet.SignatureVerified, Source: "rule"}} {
+	for sig, want := range map[*fleet.BundleSignature]string{
+		nil: "    signature not checked, publisher unknown\n",
+		{Status: fleet.SignatureVerified, Source: "rule"}: "    signed, not by this installation's operator (verified)\n",
+		{Status: fleet.SignatureUnsigned, Source: "none"}: "    unsigned, publisher unknown\n",
+	} {
 		b.Reset()
 		printExternal(&b, provider(sig), "", fleet.ExternalEvidence{})
-		if !strings.Contains(b.String(), "    unsigned, publisher unknown\n") || strings.Contains(b.String(), "signed by this installation's operator") {
+		if !strings.Contains(b.String(), want) || strings.Contains(b.String(), "signed by this installation's operator") {
 			t.Errorf("signature %+v:\n%s", sig, b.String())
 		}
 	}

@@ -869,7 +869,7 @@ func TestTUIExternalProvider(t *testing.T) {
 		RangeStatus: fleet.RangeUnknown, RangeReason: fleet.RangeReasonInferredProvider,
 		Revisions: []fleet.ExternalProviderRevision{{Version: "0.0.1", Digest: "sha256:a"}}}}
 	out := renderDetail(&fleet.EntityDetail{External: &fleet.ExternalDetailData{External: rec}})
-	for _, want := range []string{"Inferred contract", "r/pacto-inferred/stripe:0.0.1 (sha256:a)", "unsigned, publisher unknown", "range checks: unverified (INFERRED_PROVIDER)"} {
+	for _, want := range []string{"Inferred contract", "r/pacto-inferred/stripe:0.0.1 (sha256:a)", "signature not checked, publisher unknown", "range checks: unverified (INFERRED_PROVIDER)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("external detail lacks %q:\n%s", want, out)
 		}

@@ -268,6 +268,9 @@ type Result struct {
 	// hiddenReferrers counts the services this viewer may not see that may
 	// reference the changed service's policy: none of them was checked.
 	hiddenReferrers int
+	// inferredExternal is the external system whose inferred contract the
+	// answer is about (the ref rule); empty otherwise.
+	inferredExternal string
 }
 
 // RegistryLookup is where Pacto looked for a target snapshot: the
@@ -819,12 +822,20 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	key := fleet.NewServiceKeyDomain(opts.Domain, svc)
 	if opts.InferredProvider != "" {
 		res.Limitations = append(res.Limitations, fleet.Limitation{Code: LimitationInferredProvider, Source: limitationSource,
-			Message: opts.InferredProvider + " is an inferred contract Pacto published from what it sees; Pacto never checks a range against it"})
+			Message: opts.InferredProvider + " is an inferred contract under " + contract.InferredRepository + "; Pacto never checks a range against it"})
 		defer res.forceUnknownVerdicts()
 		if snap.Services[key] == nil {
 			// The ref rule: an inferred contract is never a fleet service, so
 			// its consumers are the ranges pinned on its external system.
+			res.inferredExternal = opts.InferredProvider
 			res.Consumers = inferredProviderConsumers(snap, fleet.ExternalKey(opts.InferredProvider))
+			if q.ExternalsUnreported() {
+				// A target that cannot say which external systems it uses may
+				// hide a consumer of this one.
+				res.Completeness = fleet.CompletenessPartial
+				res.Limitations = append(res.Limitations, fleet.Limitation{Code: fleet.LimitationExternalsUnreported, Source: limitationSource,
+					Message: "some targets do not report the external systems they use, so the consumers of " + opts.InferredProvider + " listed may be incomplete"})
+			}
 			res.collectOwnersAndTargets(snap)
 			return res
 		}

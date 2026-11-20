@@ -4,6 +4,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
@@ -11,18 +12,21 @@ import (
 )
 
 // inferredLocation is the external system whose inferred contract ref names:
-// the identity below its pacto-inferred segment, canonical. Only the location
-// marks a contract inferred: content never does.
-func inferredLocation(ref string) (ExternalKey, bool) {
-	id, ok := contract.InferredRef(ref)
-	if !ok {
-		return "", false
+// the identity below its pacto-inferred segment, canonical, and that segment
+// as written. inferred reports whether ref lies under pacto-inferred at all,
+// the one predicate impact and delivery use too: such a ref is never a
+// service. key is empty when the identity does not parse (the reserved
+// other-egress, or a host identity of the wrong arity), so it names no
+// external system either.
+func inferredLocation(ref string) (key ExternalKey, id string, inferred bool) {
+	id, inferred = contract.InferredRef(ref)
+	if !inferred {
+		return "", "", false
 	}
-	parsed, err := externalid.Parse(id)
-	if err != nil {
-		return "", false
+	if parsed, err := externalid.Parse(id); err == nil {
+		key = ExternalKey(parsed)
 	}
-	return ExternalKey(parsed), true
+	return key, id, true
 }
 
 // divertInferredProvider keeps rev out of the services when a source read it
@@ -32,22 +36,34 @@ func inferredLocation(ref string) (ExternalKey, bool) {
 // nothing and raises INFERRED_IDENTITY_MISMATCH. It reports whether rev was
 // diverted.
 func divertInferredProvider(snap *FleetSnapshot, rev *ContractRevision, source string) bool {
-	key, ok := inferredLocation(rev.ResolvedRef)
+	key, path, ok := inferredLocation(rev.ResolvedRef)
 	if !ok {
 		return false
 	}
 	declared := rev.Contract.Service.External
-	if id, err := externalid.Parse(declared); err != nil || ExternalKey(id) != key {
+	if id, err := externalid.Parse(declared); key == "" || err != nil || ExternalKey(id) != key {
+		names := "names " + string(key)
+		if key == "" {
+			names = "names " + path + ", which is no external identity"
+		}
 		snap.Limitations = append(snap.Limitations, Limitation{Code: LimitationInferredIdentityMismatch, Source: source,
-			Message: "the contract at " + rev.ResolvedRef + " says it describes external " + quoteOrNone(declared) + " but its repository names " + string(key) + "; it is attached to no external system"})
+			Message: "the contract at " + rev.ResolvedRef + " says it describes external " + quoteOrNone(declared) + " but its repository " + names + "; it is attached to no external system"})
 		return true
 	}
 	if snap.inferredProviders == nil {
 		snap.inferredProviders = map[ExternalKey][]*ContractRevision{}
 	}
-	if !slices.ContainsFunc(snap.inferredProviders[key], func(r *ContractRevision) bool { return r.Key == rev.Key }) {
-		snap.inferredProviders[key] = append(snap.inferredProviders[key], rev)
+	if i := slices.IndexFunc(snap.inferredProviders[key], func(r *ContractRevision) bool { return r.Key == rev.Key }); i >= 0 {
+		// Another source read the same digest: what it checked fills in what
+		// the first copy lacks, as mergeRevision does for a service.
+		existing := snap.inferredProviders[key][i]
+		mergeProvenance(existing, rev)
+		if existing.Record == nil {
+			existing.Record = rev.Record
+		}
+		return true
 	}
+	snap.inferredProviders[key] = append(snap.inferredProviders[key], rev)
 	return true
 }
 
@@ -60,22 +76,44 @@ func quoteOrNone(s string) string {
 }
 
 // attachInferredProviders makes each diverted inferred contract the Provider
-// of its external system, creating the record when no consumer names it.
+// of its external system, creating the record when no consumer names it. An
+// external no catalog classifies takes the class of the shown revision only
+// when this installation's operator signed it (see [inferredClassRef]).
 func attachInferredProviders(snap *FleetSnapshot, cat *externalcatalog.Catalog) {
 	for key, revs := range snap.inferredProviders {
 		rec := externalRecord(snap, cat, key)
 		rec.Provider = externalProvider(revs)
-		if s := rec.Provider.Revisions[0].Surface; rec.Class == externalcatalog.ClassUnclassified && s != nil && validExternalClass(s.Class) {
+		shown := rec.Provider.Revisions[0]
+		if s := shown.Surface; rec.Class == externalcatalog.ClassUnclassified && s != nil && validExternalClass(s.Class) && operatorSignature(shown.Signature) {
 			rec.Class = s.Class
 		}
 	}
 	snap.inferredProviders = nil
 }
 
+// operatorSignature reports whether sig is this installation's operator's.
+func operatorSignature(sig *BundleSignature) bool {
+	return sig != nil && sig.Source == SignatureSourceOperator
+}
+
+// inferredClassRef is the ref of the inferred contract rec's class came from,
+// "" when a catalog classified it or its class is not the shown revision's.
+func inferredClassRef(rec *ExternalRecord) string {
+	if rec.Catalog != nil || rec.Provider == nil || len(rec.Provider.Revisions) == 0 {
+		return ""
+	}
+	shown := rec.Provider.Revisions[0]
+	if s := shown.Surface; s == nil || s.Class != rec.Class || rec.Class == externalcatalog.ClassUnclassified || !operatorSignature(shown.Signature) {
+		return ""
+	}
+	return shown.Ref
+}
+
 // externalProvider is the provider block of revs: the revisions this
 // installation's operator signed first, then the rest, each newest first, so
 // a hand-pushed unsigned tag is never the one shown. Bounded at
-// MaxExternalSources.
+// MaxExternalSources. Only the shown revision carries its surface: a surface
+// is unbounded, and no reader shows an older one.
 func externalProvider(revs []*ContractRevision) *ExternalProvider {
 	revs = slices.Clone(revs)
 	slices.SortFunc(revs, func(a, b *ContractRevision) int {
@@ -89,9 +127,9 @@ func externalProvider(revs []*ContractRevision) *ExternalProvider {
 	repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(revs[0].ResolvedRef))
 	p := &ExternalProvider{Repository: repo, RevisionsTotal: len(revs), RangeStatus: RangeUnknown, RangeReason: RangeReasonInferredProvider}
 	kept, _, _ := boundSlice(revs, MaxExternalSources)
-	for _, r := range kept {
+	for i, r := range kept {
 		pr := ExternalProviderRevision{Version: r.Version, Digest: r.Digest, Ref: r.ResolvedRef}
-		if r.Record != nil {
+		if i == 0 && r.Record != nil {
 			pr.Surface = r.Record.Surface
 		}
 		if r.Provenance != nil {
@@ -109,19 +147,12 @@ func operatorSigned(rev *ContractRevision) bool {
 	return rev.Provenance != nil && rev.Provenance.Signature.Source == SignatureSourceOperator
 }
 
-// restrictedProvider is rec's provider as r, its restricted copy, shows it.
-// The surface aggregates every consumer's sources, so a view that lost any of
-// them keeps the block without it.
-func restrictedProvider(r, rec *ExternalRecord) *ExternalProvider {
-	if len(r.hidden) > 0 || len(r.Sources) < len(rec.Sources) {
-		return withoutSurface(rec.Provider)
-	}
-	return rec.Provider
-}
-
-// withoutSurface is p as a restricted view sees it when a source or consumer
-// its surface was computed from is hidden: every revision keeps its version,
-// digest, ref and signature, and no surface.
+// withoutSurface is p as a restricted view sees it: every revision keeps its
+// version, digest, ref and signature, and no surface. The surface was
+// computed elsewhere, from consumers and sources (fleet source ids, never
+// namespaces) this view cannot check against what it hides, and values a
+// partial run carried forward name consumers that may have left. So every
+// restricted view drops it, and SurfaceHidden says so.
 func withoutSurface(p *ExternalProvider) *ExternalProvider {
 	if p == nil {
 		return nil
@@ -129,7 +160,9 @@ func withoutSurface(p *ExternalProvider) *ExternalProvider {
 	out := *p
 	out.Revisions = slices.Clone(p.Revisions)
 	for i := range out.Revisions {
-		out.Revisions[i].Surface = nil
+		if out.Revisions[i].Surface != nil {
+			out.Revisions[i].Surface, out.SurfaceHidden = nil, true
+		}
 	}
 	return &out
 }
@@ -218,10 +251,56 @@ func (g *inferredProviderGroup) item() AttentionItem {
 		Entity: g.entity, Service: g.service, Label: label,
 		Severity: severityInfo, Code: RangeReasonInferredProvider, Category: categoryKnowledge,
 		Summary:    "Range checked against an inferred contract",
-		Reason:     joinNames(names) + verb + " a compatibility range on " + g.name + "'s inferred contract, which Pacto published from what it sees; Pacto never checks a range against it",
-		NextStep:   "Declare a contract for " + g.name + " with pacto declare, then point the ranges at it",
+		Reason:     joinNames(names) + verb + " a compatibility range on " + g.name + "'s inferred contract, which lives under " + contract.InferredRepository + "; Pacto never checks a range against it",
+		NextStep:   g.nextStep(),
 		NextAction: declare(),
 	}
+}
+
+// nextStep is the step that fixes g today. A service is declared with pacto
+// declare; pacto declare reads only workloads, so an external system's
+// declared contract is written by hand until pacto claim exists (517-S5).
+func (g *inferredProviderGroup) nextStep() string {
+	if g.service != "" {
+		return "Declare a contract for " + g.name + " with pacto declare, then point the ranges at it"
+	}
+	return InferredExternalNextStep(g.name)
+}
+
+// InferredExternalNextStep is how to replace external id's inferred contract
+// with a declared one today.
+func InferredExternalNextStep(id string) string {
+	return "Write a contract with service.external: " + id + ", publish it outside " + contract.InferredRepository + ", then point the ranges at it"
+}
+
+// SignatureWords says what sig, the signature check of an inferred
+// contract's revision, establishes about who published it. Only a check that
+// ran says unsigned or names a signer; nil means no source checked.
+func SignatureWords(sig *BundleSignature) string {
+	switch {
+	case sig == nil:
+		return "signature not checked, publisher unknown"
+	case sig.Source == SignatureSourceOperator:
+		return "signed by this installation's operator from what Pacto sees"
+	case sig.Status == "unsigned":
+		return "unsigned, publisher unknown"
+	case sig.Status == "unknown" || sig.Status == "":
+		return "signature could not be checked, publisher unknown"
+	case sig.Signer != "":
+		return "signed by " + sig.Signer + ", not this installation's operator (" + sig.Status + ")"
+	}
+	return "signed, not by this installation's operator (" + sig.Status + ")"
+}
+
+// surfaceLine is how Lines describes s, the shown revision's surface: when
+// it was last computed, whether that run saw everything and each list's
+// size.
+func surfaceLine(s *contract.InferredSurface) string {
+	line := "surface as of " + s.AsOf
+	if c := s.Completeness; c != nil && c.State == contract.CoveragePartial {
+		line += ", partial (" + strings.Join(c.Limitations, ", ") + "): some sources did not answer, so values may be carried over from earlier runs"
+	}
+	return line + ": hosts " + strconv.Itoa(len(s.Hosts)) + ", ports " + strconv.Itoa(len(s.Ports)) + ", clients " + strconv.Itoa(len(s.Clients))
 }
 
 // Lines is how the CLI and the TUI describe p: the shown revision, who signed
@@ -237,13 +316,12 @@ func (p *ExternalProvider) Lines() []string {
 	if p.RevisionsTotal > 1 {
 		head += ", " + strconv.Itoa(p.RevisionsTotal) + " revisions read"
 	}
-	signer := "unsigned, publisher unknown"
-	if rev.Signature != nil && rev.Signature.Source == SignatureSourceOperator {
-		signer = "signed by this installation's operator from what Pacto sees"
+	surface := "surface: none recorded in this revision"
+	switch {
+	case rev.Surface != nil:
+		surface = surfaceLine(rev.Surface)
+	case p.SurfaceHidden:
+		surface = "surface hidden: your view is restricted"
 	}
-	surface := "surface not shown: the record holds none, or some of its sources are outside your view"
-	if s := rev.Surface; s != nil {
-		surface = "surface: hosts " + strconv.Itoa(len(s.Hosts)) + ", ports " + strconv.Itoa(len(s.Ports)) + ", clients " + strconv.Itoa(len(s.Clients))
-	}
-	return []string{head, signer, rangeLine, surface}
+	return []string{head, SignatureWords(rev.Signature), rangeLine, surface}
 }

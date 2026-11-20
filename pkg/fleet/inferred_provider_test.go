@@ -120,7 +120,7 @@ func assertStripeProvider(t *testing.T, p *ExternalProvider) {
 }
 
 func TestInferredProviderCreatesExternalWhenNoConsumer(t *testing.T) {
-	q := infFleet(t, []RawRevision{infRev("legacy", "0.0.1", "ghcr.io/acme/pacto-inferred/host/corp-legacy.example", "host/corp-legacy.example", nil,
+	q := infFleet(t, []RawRevision{infRev("legacy", "0.0.1", "ghcr.io/acme/pacto-inferred/host/corp-legacy.example", "host/corp-legacy.example", operatorSig(),
 		&contract.InferredSurface{Identity: "host/corp-legacy.example", Class: "legacy", AsOf: "2026-07-29T12:00:00Z",
 			Completeness: &contract.SurfaceCompleteness{State: "complete"}})})
 	rec := q.snap.Externals["host/corp-legacy.example"]
@@ -397,9 +397,17 @@ func TestInferredProviderAttentionOnePerProvider(t *testing.T) {
 
 func TestInferredProviderAttentionNextActionDeclare(t *testing.T) {
 	items := inferredItems(t, infFleet(t, []RawRevision{stripeProvider()}, svc("checkout", "shop", pinStripe("^2023.10"))))
+	// pacto declare reads only workloads, so an external's step is the one
+	// that exists today: a hand-written contract naming it.
 	if len(items) != 1 || items[0].NextAction == nil || *items[0].NextAction != (NextAction{Verb: "declare", Tool: "pacto_declare"}) ||
-		items[0].NextStep != "Declare a contract for stripe with pacto declare, then point the ranges at it" {
+		items[0].NextStep != "Write a contract with service.external: stripe, publish it outside pacto-inferred, then point the ranges at it" ||
+		strings.Contains(items[0].Reason, "published") {
 		t.Errorf("items = %+v", items)
+	}
+	// A service under the signer rule is declared with pacto declare.
+	items = inferredItems(t, ledgerFleet(t, "^9.0.0", []string{"9.0.0"}, map[string]bool{"9.0.0": true}))
+	if len(items) != 1 || items[0].NextStep != "Declare a contract for ledger with pacto declare, then point the ranges at it" {
+		t.Errorf("service items = %+v", items)
 	}
 }
 
@@ -494,17 +502,160 @@ func TestExternalProviderLines(t *testing.T) {
 	p := &ExternalProvider{Repository: infRepo, RevisionsTotal: 2, RangeStatus: RangeUnknown, RangeReason: RangeReasonInferredProvider,
 		Revisions: []ExternalProviderRevision{{Version: "0.0.2", Digest: "sha256:b", Surface: infSurface(), Signature: &sig}}}
 	want := []string{infRepo + ":0.0.2 (sha256:b), 2 revisions read", "signed by this installation's operator from what Pacto sees",
-		"range checks: unverified (INFERRED_PROVIDER)", "surface: hosts 1, ports 0, clients 0"}
+		"range checks: unverified (INFERRED_PROVIDER)", "surface as of 2026-07-29T12:00:00Z: hosts 1, ports 0, clients 0"}
 	if got := p.Lines(); !reflect.DeepEqual(got, want) {
 		t.Errorf("operator signed:\n%q\nwant\n%q", got, want)
 	}
 	p.RevisionsTotal, p.Revisions[0].Signature, p.Revisions[0].Surface = 1, &BundleSignature{Status: SignatureUnsigned}, nil
 	got := p.Lines()
-	if got[0] != infRepo+":0.0.2 (sha256:b)" || got[1] != "unsigned, publisher unknown" || !strings.HasPrefix(got[3], "surface not shown") {
+	if got[0] != infRepo+":0.0.2 (sha256:b)" || got[1] != "unsigned, publisher unknown" || got[3] != "surface: none recorded in this revision" {
 		t.Errorf("unsigned: %q", got)
+	}
+	p.SurfaceHidden = true
+	if got := p.Lines(); got[3] != "surface hidden: your view is restricted" {
+		t.Errorf("restricted: %q", got)
+	}
+	// A partial run says so, with its codes, so carried-over values never
+	// read as current.
+	s := infSurface()
+	s.Completeness = &contract.SurfaceCompleteness{State: contract.CoveragePartial, Limitations: []string{LimitationExternalsUnreported}}
+	p.Revisions[0].Surface = s
+	if got := p.Lines(); !strings.HasPrefix(got[3], "surface as of 2026-07-29T12:00:00Z, partial (EXTERNALS_UNREPORTED): some sources did not answer") {
+		t.Errorf("partial: %q", got)
 	}
 	p.Revisions = nil
 	if got := p.Lines(); !reflect.DeepEqual(got, []string{infRepo, "range checks: unverified (INFERRED_PROVIDER)"}) {
 		t.Errorf("no revision: %q", got)
+	}
+}
+
+// TestSignatureWordsFollowTheCheck: only a check that ran says unsigned or
+// names a signer; nil and unknown never read unsigned.
+func TestSignatureWordsFollowTheCheck(t *testing.T) {
+	for sig, want := range map[*BundleSignature]string{
+		nil: "signature not checked, publisher unknown",
+		{Status: SignatureUnverified, Source: SignatureSourceOperator}:             "signed by this installation's operator from what Pacto sees",
+		{Status: SignatureUnsigned, Source: "none"}:                                "unsigned, publisher unknown",
+		{Status: "unknown", Source: "none"}:                                        "signature could not be checked, publisher unknown",
+		{Status: "verified", Source: "rule", Signer: "https://github.com/acme/ci"}: "signed by https://github.com/acme/ci, not this installation's operator (verified)",
+		{Status: SignatureUnverified, Source: "inferred"}:                          "signed, not by this installation's operator (unverified)",
+	} {
+		if got := SignatureWords(sig); got != want {
+			t.Errorf("%+v: %q, want %q", sig, got, want)
+		}
+	}
+}
+
+// TestRestrictedViewDropsStaleSurface: a published surface may name values
+// from consumers no longer in the record (an older revision, or a value a
+// partial run carried forward), so every restricted view drops it even when
+// every current source is visible.
+func TestRestrictedViewDropsStaleSurface(t *testing.T) {
+	stale := infSurface()
+	stale.Hosts = append(stale.Hosts, contract.SurfaceValue{Value: "payments-db.internal:5432", Sources: []string{"k8s-ns-a"}})
+	q := infFleet(t, []RawRevision{infRev("stripe", "0.0.2", infRepo, "stripe", operatorSig(), stale)},
+		svc("checkout", "shop", pinStripe("^0.0.1")), svc("vault", "secret"))
+	r := q.Restrict(shopView, nil).snap.Externals["stripe"]
+	if r == nil || r.HiddenConsumers != 0 || !r.Provider.SurfaceHidden || r.Provider.Revisions[0].Surface != nil {
+		t.Fatalf("restricted = %+v", r)
+	}
+	if p := q.snap.Externals["stripe"].Provider; p.SurfaceHidden || p.Revisions[0].Surface == nil {
+		t.Errorf("unrestricted = %+v", p)
+	}
+}
+
+// TestProviderSurfaceOnShownRevisionOnly: an older revision never ships its
+// surface, so the payload stays one surface whatever the revision count.
+func TestProviderSurfaceOnShownRevisionOnly(t *testing.T) {
+	q := infFleet(t, []RawRevision{infRev("stripe", "0.0.1", infRepo, "stripe", operatorSig(), infSurface()), infRev("stripe", "0.0.2", infRepo, "stripe", operatorSig(), infSurface())})
+	p := q.snap.Externals["stripe"].Provider
+	if len(p.Revisions) != 2 || p.Revisions[0].Version != "0.0.2" || p.Revisions[0].Surface == nil || p.Revisions[1].Surface != nil {
+		t.Errorf("provider = %+v", p)
+	}
+}
+
+// TestUnsignedSurfaceNeverClassifies: a hand-pushed revision's class is not
+// the external's; an operator-signed one's is, and explain says where from.
+func TestUnsignedSurfaceNeverClassifies(t *testing.T) {
+	ref := "ghcr.io/acme/pacto-inferred/legacy-mq"
+	s := &contract.InferredSurface{Identity: "legacy-mq", Class: "managed-cloud", AsOf: "2026-07-29T12:00:00Z", Completeness: &contract.SurfaceCompleteness{State: "complete"}}
+	q := infFleet(t, []RawRevision{infRev("legacy-mq", "0.0.99", ref, "legacy-mq", nil, s)})
+	if rec := q.snap.Externals["legacy-mq"]; rec.Class != "unclassified" || inferredClassRef(rec) != "" {
+		t.Errorf("unsigned classified it: %+v", rec)
+	}
+	q = infFleet(t, []RawRevision{infRev("legacy-mq", "0.0.1", ref, "legacy-mq", operatorSig(), s)})
+	ex, err := q.explainExternal("legacy-mq")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range ex.Reasons {
+		found = found || r.Code == RangeReasonInferredProvider && strings.Contains(r.Message, "classified managed-cloud by its inferred contract "+ref+":0.0.1")
+	}
+	if q.snap.Externals["legacy-mq"].Class != "managed-cloud" || !found {
+		t.Errorf("signed: %+v", ex.Reasons)
+	}
+	if inferredClassRef(&ExternalRecord{Catalog: &ExternalCatalogMatch{}}) != "" || inferredClassRef(&ExternalRecord{}) != "" {
+		t.Error("a catalog class or no provider names an inferred contract")
+	}
+}
+
+// TestUnparsableInferredRefNeverAService: a ref under pacto-inferred whose
+// identity does not parse is diverted (never a service) and a dependency on
+// it stays unresolved with its reason, never a checked range.
+func TestUnparsableInferredRefNeverAService(t *testing.T) {
+	for _, repo := range []string{"ghcr.io/acme/pacto-inferred/host/corp.example/api", "ghcr.io/acme/pacto-inferred/other-egress"} {
+		q := infFleet(t, []RawRevision{infRev("api", "1.2.0", repo, "", nil, nil)},
+			svc("checkout", "shop", contract.Dependency{Name: "api", Ref: "oci://" + repo, Compatibility: "^1"}))
+		if q.snap.Services[NewServiceKey("api")] != nil {
+			t.Errorf("%s: became a service", repo)
+		}
+		rel := depEdge(t, q, "checkout", "api")
+		if rel.Resolved || rel.RangeStatus == RangeSatisfied || !strings.Contains(rel.Reason, "no external identity") {
+			t.Errorf("%s: edge = %+v", repo, rel)
+		}
+		if !slices.ContainsFunc(q.snap.Limitations, func(l Limitation) bool { return l.Code == LimitationInferredIdentityMismatch }) {
+			t.Errorf("%s: no mismatch limitation: %+v", repo, q.snap.Limitations)
+		}
+	}
+}
+
+// TestRestrictedViewCountsIdentityMismatches: a mismatch names an external
+// and a ref, so a restricted view only counts them.
+func TestRestrictedViewCountsIdentityMismatches(t *testing.T) {
+	q := infFleet(t, []RawRevision{infRev("db", "0.0.3", "ghcr.io/acme/pacto-inferred/aws/rds/123/eu-west-1/payments-db", "", nil, nil)},
+		svc("checkout", "shop"), svc("vault", "secret"))
+	var got []Limitation
+	for _, l := range q.Restrict(shopView, nil).snap.Limitations {
+		if l.Code == LimitationInferredIdentityMismatch {
+			got = append(got, l)
+		}
+	}
+	if len(got) != 1 || strings.Contains(got[0].Message, "payments-db") || !strings.HasPrefix(got[0].Message, "1 contracts") {
+		t.Errorf("restricted mismatches = %+v", got)
+	}
+}
+
+// TestDivertedRevisionKeepsLimitationsAndMergesCopies: what reading a
+// diverted revision could not establish is said, and a second source's
+// operator signature on the same digest is kept.
+func TestDivertedRevisionKeepsLimitationsAndMergesCopies(t *testing.T) {
+	bad := infRev("stripe", "0.0.1", infRepo, "stripe", nil, nil)
+	bad.Bundle.FS = fstest.MapFS{contract.InferredRecordFile: &fstest.MapFile{Data: []byte("not: [a record")}}
+	q := infFleet(t, []RawRevision{bad})
+	if !slices.ContainsFunc(q.snap.Limitations, func(l Limitation) bool { return l.Code == LimitationInferredRecordUnreadable }) {
+		t.Errorf("record limitation dropped: %+v", q.snap.Limitations)
+	}
+	first := infRev("stripe", "0.0.1", infRepo, "stripe", nil, nil)
+	first.Digest = "sha256:stripe-0.0.1"
+	second := infRev("stripe", "0.0.1", infRepo, "stripe", operatorSig(), infSurface())
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
+		NewMemorySource("cache", SourceKindKubernetes, &Collection{Revisions: []RawRevision{first}}),
+		NewMemorySource("oci", SourceKindKubernetes, &Collection{Revisions: []RawRevision{second}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := snap.Externals["stripe"].Provider.Revisions[0]; r.Signature == nil || r.Signature.Source != SignatureSourceOperator || r.Surface == nil {
+		t.Errorf("merged revision = %+v", r)
 	}
 }
