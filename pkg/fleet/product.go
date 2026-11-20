@@ -827,7 +827,7 @@ func (q *Query) Overview() *Overview {
 		q.addOwnership(&sum.Ownership, s)
 		sum.Knowledge.add(q.serviceKnowledge(s))
 	}
-	sum.KnowledgeItems = len(q.knowledgeAttention())
+	sum.KnowledgeItems = len(q.knowledgeAttention()) + len(q.inferredProviderAttention())
 	sum.Externals, sum.HiddenExternals = len(q.snap.Externals), q.snap.hiddenExternals
 
 	var recent []EvidenceItem
@@ -1048,12 +1048,15 @@ type AttentionItem struct {
 // tool that performs it. Only contract edits are named; the caller's own
 // permissions still decide whether the edit happens.
 type NextAction struct {
-	Verb string `json:"verb" enum:"edit-contract" doc:"The operation: edit-contract changes the contract of the item's service"`
-	Tool string `json:"tool" enum:"pacto_edit" doc:"The MCP tool that performs the operation"`
+	Verb string `json:"verb" enum:"edit-contract,declare" doc:"The operation: edit-contract changes the contract of the item's service; declare writes a declared contract for what only an inferred one describes"`
+	Tool string `json:"tool" enum:"pacto_edit,pacto_declare" doc:"The MCP tool that performs the operation"`
 }
 
 // editContract is the action of every item whose next step is a contract edit.
 func editContract() *NextAction { return &NextAction{Verb: "edit-contract", Tool: "pacto_edit"} }
+
+// declare is the action of an item whose next step is a declared contract.
+func declare() *NextAction { return &NextAction{Verb: "declare", Tool: "pacto_declare"} }
 
 // Attention categories (stable, used for filtering and for overview entry points).
 const (
@@ -1248,6 +1251,7 @@ func (q *Query) collectAttention() []AttentionItem {
 	items = append(items, q.lifecycleAttention()...)
 	items = append(items, q.provisioningAttention()...)
 	items = append(items, q.knowledgeAttention()...)
+	items = append(items, q.inferredProviderAttention()...)
 	items = append(items, q.unownedAttention()...)
 	items = append(items, q.undeclaredAttention()...)
 	items = append(items, q.deployedTemplateAttention()...)

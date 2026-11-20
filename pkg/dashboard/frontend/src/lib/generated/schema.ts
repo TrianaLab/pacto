@@ -1256,6 +1256,11 @@ export interface components {
             source: string;
             value: string;
         };
+        "Contract.InferredCatalogMatch": {
+            digest: string;
+            entry: string;
+            origin: string;
+        };
         "Contract.InferredClient": {
             /** Format: int64 */
             major?: number;
@@ -1285,6 +1290,16 @@ export interface components {
             missing?: string[] | null;
             name?: string;
             type: string;
+        };
+        "Contract.InferredSurface": {
+            asOf: string;
+            catalog?: components["schemas"]["Contract.InferredCatalogMatch"];
+            class: string;
+            clients?: components["schemas"]["Contract.SurfaceValue"][] | null;
+            completeness: components["schemas"]["Contract.SurfaceCompleteness"];
+            hosts?: components["schemas"]["Contract.SurfaceValue"][] | null;
+            identity: string;
+            ports?: components["schemas"]["Contract.SurfaceValue"][] | null;
         };
         "Contract.Interface": {
             /** Format: int64 */
@@ -1411,6 +1426,17 @@ export interface components {
             dataCriticality: string;
             persistence: components["schemas"]["Contract.Persistence"];
             type: string;
+        };
+        "Contract.SurfaceCompleteness": {
+            limitations?: string[] | null;
+            state: string;
+        };
+        "Contract.SurfaceValue": {
+            catalog?: string;
+            firstSeen?: string;
+            lastSeen?: string;
+            sources: string[] | null;
+            value: string;
         };
         "Contract.Template": {
             plugins?: components["schemas"]["Contract.TemplatePlugin"][] | null;
@@ -2782,6 +2808,11 @@ export interface components {
             lockedDigest?: string;
             lockedVersion?: string;
             nameFromRef?: boolean;
+            /**
+             * @description Why rangeStatus is unknown: INFERRED_PROVIDER, the provider is an inferred contract
+             * @enum {string}
+             */
+            rangeReason?: "INFERRED_PROVIDER";
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             reconciliation?: string;
@@ -3219,6 +3250,37 @@ export interface components {
             service: string;
             source: string;
         };
+        "Fleet.ExternalProvider": {
+            /**
+             * @description Always INFERRED_PROVIDER
+             * @enum {string}
+             */
+            rangeReason: "INFERRED_PROVIDER";
+            /**
+             * @description Always unknown: a range is never checked against an inferred contract
+             * @enum {string}
+             */
+            rangeStatus: "unknown";
+            /** @description The pacto-inferred repository the revisions were read from */
+            repository: string;
+            /** @description The revisions, those this installation's operator signed first, each group newest first; at most 50 */
+            revisions: components["schemas"]["Fleet.ExternalProviderRevision"][] | null;
+            /**
+             * Format: int64
+             * @description How many revisions were read
+             */
+            revisionsTotal: number;
+        };
+        "Fleet.ExternalProviderRevision": {
+            digest: string;
+            ref?: string;
+            /** @description The signature check of the revision; absent when no source that read it checks signatures */
+            signature?: components["schemas"]["Fleet.BundleSignature"];
+            /** @description What Pacto saw of the external system; absent when the caller's permissions hide any source or consumer it was computed from */
+            surface?: components["schemas"]["Contract.InferredSurface"];
+            /** @description The 0.0.<n> version: a count of surface changes, never a vendor version */
+            version: string;
+        };
         "Fleet.ExternalRecord": {
             /** @description The aliases of the catalog entry that classified it */
             aliases?: string[] | null;
@@ -3255,6 +3317,8 @@ export interface components {
             key: string;
             /** @description The catalog label, else the name the first visible consumer, by service key, declared */
             label: string;
+            /** @description The inferred contract published for it under pacto-inferred; never a service, and a range is never checked against it */
+            provider?: components["schemas"]["Fleet.ExternalProvider"];
             /** @description The evidence that names this external system, one per consumer and dependency position, each with its own provenance */
             sources: components["schemas"]["Fleet.ExternalSource"][] | null;
             /**
@@ -3276,7 +3340,7 @@ export interface components {
              * @enum {string}
              */
             kind: "contract" | "observed" | "pod-spec" | "repository";
-            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value), keyName (a configuration key name only), sdk (a client library in a manifest) or resource (a Terraform resource or Crossplane object) */
+            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value), keyName (a configuration key name only), sdk (a client library in a manifest), resource (a Terraform resource or Crossplane object) or its inferred contract (a ref to its pacto-inferred repository) */
             match: string;
             /** @enum {string} */
             provenance: "declared" | "observed" | "inferred";
@@ -3669,12 +3733,12 @@ export interface components {
              * @description The MCP tool that performs the operation
              * @enum {string}
              */
-            tool: "pacto_edit";
+            tool: "pacto_edit" | "pacto_declare";
             /**
-             * @description The operation: edit-contract changes the contract of the item's service
+             * @description The operation: edit-contract changes the contract of the item's service; declare writes a declared contract for what only an inferred one describes
              * @enum {string}
              */
-            verb: "edit-contract";
+            verb: "edit-contract" | "declare";
         };
         "Fleet.OCIReferrer": {
             artifactType: string;
@@ -4266,6 +4330,11 @@ export interface components {
             observedSources?: components["schemas"]["Fleet.ObservedSourceStat"][] | null;
             provenance: string;
             providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
+            /**
+             * @description Why rangeStatus is unknown: INFERRED_PROVIDER, the provider is an inferred contract the operator published, never checked against a range
+             * @enum {string}
+             */
+            rangeReason?: "INFERRED_PROVIDER";
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             reason?: string;
@@ -6051,6 +6120,11 @@ export interface components {
             providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             providerOwner?: components["schemas"]["ProductOwnership"];
             provisioning?: components["schemas"]["ProductProvisioningStatus"][] | null;
+            /**
+             * @description Why rangeStatus is unknown: INFERRED_PROVIDER, the provider is an inferred contract
+             * @enum {string}
+             */
+            rangeReason?: "INFERRED_PROVIDER";
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             requested?: components["schemas"]["ProductRequestedConfiguration"][] | null;
@@ -6152,6 +6226,11 @@ export interface components {
         ProductProviderVersion: {
             inUse?: boolean;
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
+            /**
+             * @description INFERRED_PROVIDER on a revision only this installation's operator signed: a range is never checked against it
+             * @enum {string}
+             */
+            rangeReason?: "INFERRED_PROVIDER";
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             revision: components["schemas"]["ProductRef"];

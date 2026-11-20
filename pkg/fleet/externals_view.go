@@ -129,6 +129,7 @@ func restrictExternal(out *FleetSnapshot, rec *ExternalRecord) *ExternalRecord {
 			r.hidden[c] = true
 		}
 	}
+	r.Provider = restrictedProvider(&r, rec)
 	finalizeExternal(&r)
 	return &r
 }

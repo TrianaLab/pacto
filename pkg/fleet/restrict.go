@@ -821,7 +821,7 @@ func countPolicyReferrer(referrers map[ServiceKey]map[ServiceKey]bool, rel Relat
 // hideProvider blanks what rel, an edge to a hidden service, says about it.
 func hideProvider(rel *Relationship) {
 	rel.hiddenTo = rel.ToService // keeps tallyServiceEdges collapsing it like a visible provider
-	rel.ToService, rel.ResolvedRevision, rel.Hidden, rel.Reason, rel.RangeStatus = "", "", true, hiddenMessage, ""
+	rel.ToService, rel.ResolvedRevision, rel.Hidden, rel.Reason, rel.RangeStatus, rel.RangeReason = "", "", true, hiddenMessage, "", ""
 	// What the hidden provider offers and deprecates is its own contract.
 	rel.Unmet, rel.DeprecatedInterfaces, rel.ProviderLifecycle = nil, nil, nil
 	if rel.GuaranteeStatus != "" {
