@@ -4,16 +4,22 @@
   // The Cluster filter of the Services and Targets lists (514-S2): a select over
   // meta.clusters and one caption line naming every cluster the answer cannot show and
   // why. It renders nothing with fewer than two clusters, so a single-cluster install
-  // and the demo see no change. The value is the cluster UID the API filters by.
-  let { clusters = [], value = '', onchange } = $props();
+  // and the demo see no change unless the URL names a cluster. The value is the cluster UID
+  // the API filters by.
+  // truncated is meta.clustersTruncated: the answer lists only the least healthy clusters.
+  let { clusters = [], value = '', truncated = false, onchange } = $props();
 
-  const many = $derived((clusters?.length ?? 0) >= 2);
+  // A cluster set in the URL keeps the filter shown, even when the answer no longer lists it.
+  const many = $derived((clusters?.length ?? 0) >= 2 || !!value);
   // A cluster with no id (a source whose cluster could not be told) cannot be filtered by.
+  const listed = $derived((clusters ?? []).filter((c) => c.id).map((c) => ({ value: c.id, label: c.access ? `${c.name || c.id} (${clusterWord(c)})` : (c.name || c.id) })));
+  // The select shows the filter that is applied: an id the answer does not list gets its own option.
   const options = $derived([
     { value: '', label: 'Any cluster' },
-    ...(clusters ?? []).filter((c) => c.id).map((c) => ({ value: c.id, label: c.access ? `${c.name || c.id} (${clusterWord(c)})` : (c.name || c.id) })),
+    ...listed,
+    ...(value && !listed.some((o) => o.value === value) ? [{ value, label: `${value} (not in this answer)` }] : []),
   ]);
-  const caption = $derived(many ? clusterCaptionParts(clusters, value) : null);
+  const caption = $derived(many ? clusterCaptionParts(clusters ?? [], value, truncated) : null);
 </script>
 
 {#if many}

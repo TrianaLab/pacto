@@ -14,7 +14,7 @@ const REASONS: Record<string, string> = {
   unreachable: 'Pacto could not reach this cluster and has no earlier read, so its services are unknown.',
   'no access': 'You may read no namespace in this cluster, so its services are hidden.',
   'review failed': 'The access review in this cluster failed or took longer than 5s, so its services are hidden until it answers.',
-  'not reviewable': 'Pacto cannot review signed-in readers in this cluster, so its services are hidden from them.',
+  'not reviewable': 'Pacto cannot review you in this cluster, so its services are hidden.',
 };
 
 // The words of a cluster that shows nothing: an access mark or an unreachable cluster.
@@ -35,18 +35,14 @@ export function showClusters(clusters: ClusterSummary[] | null | undefined): boo
   return !!clusters && (clusters.length >= 2 || clusters.some((c) => c.access));
 }
 
-/** clusterCaptionParts: the caption's head and the clusters it names as hidden, for markup. */
-export function clusterCaptionParts(clusters: ClusterSummary[], selected: string): { head: string; hidden: { name: string; word: string }[] } {
+/** clusterCaptionParts: the caption's head and the clusters it names as hidden, for markup.
+ *  truncated (meta.clustersTruncated) says more clusters exist than the answer lists, so the
+ *  head never says "all". */
+export function clusterCaptionParts(clusters: ClusterSummary[], selected: string, truncated = false): { head: string; hidden: { name: string; word: string }[] } {
   const hidden = clusters.filter((c) => HIDES.has(clusterWord(c)));
   const shown = clusters.filter((c) => !hidden.includes(c) && (!selected || c.id === selected)).length;
-  return {
-    head: !selected && !hidden.length ? `Showing all ${clusters.length} clusters` : `Showing ${shown} of ${clusters.length} clusters`,
-    hidden: hidden.map((c) => ({ name: c.name || c.id, word: clusterWord(c) })),
-  };
-}
-
-/** clusterCaption: "Showing 1 of 2 clusters (us-prod: no access)". */
-export function clusterCaption(clusters: ClusterSummary[], selected: string): string {
-  const { head, hidden } = clusterCaptionParts(clusters, selected);
-  return hidden.length ? `${head} (${hidden.map((h) => `${h.name}: ${h.word}`).join(', ')})` : head;
+  const head = truncated
+    ? `Showing ${shown} of the ${clusters.length} listed clusters; more are not listed`
+    : !selected && !hidden.length ? `Showing all ${clusters.length} clusters` : `Showing ${shown} of ${clusters.length} clusters`;
+  return { head, hidden: hidden.map((c) => ({ name: c.name || c.id, word: clusterWord(c) })) };
 }

@@ -9373,7 +9373,7 @@ export interface operations {
                 businessDomain?: string;
                 /** @description Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label; with consumes and phase it also narrows the consumers to statuses in that environment */
                 environment?: string;
-                /** @description Cluster UID as meta.clusters lists it: targets in that cluster, services with a target there and revisions a target there runs */
+                /** @description Cluster UID as meta.clusters lists it: targets in that cluster, services with a target or an inferred workload there and revisions a target there runs */
                 cluster?: string;
                 /** @description Capability key a service's revisions declare (service entities): health, metrics or, for an extension, its namespaced ref such as acme.io/cost */
                 capability?: string;

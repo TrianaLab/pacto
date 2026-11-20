@@ -4,7 +4,7 @@ import { installScaleFixture } from './layoutGate';
 
 // 514-S2: with two or more clusters the Services and Targets lists filter by cluster and
 // caption the clusters the answer cannot show, and Data sources lists each cluster's
-// status. The demo reads one cluster, so the three-cluster answer comes from the scale
+// status. The demo reads one cluster, so the seven-cluster answer comes from the scale
 // fixture behind __pactoMultiCluster; without the flag neither the filter nor the block shows.
 
 const DEMO = '5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11';
@@ -20,11 +20,14 @@ test('the Cluster filter narrows the Services list and captions the hidden clust
   await multiCluster(page);
   await page.goto('/#/fleet/services');
   const caption = page.getByTestId('cluster-caption');
-  await expect(caption).toContainText('Showing 1 of 3 clusters (production-us-east-2', { timeout: 30_000 });
+  await expect(caption).toContainText('Showing 3 of the 7 listed clusters; more are not listed (production-us-east-2', { timeout: 30_000 });
   await expect(caption).toContainText(': no access, production-ap-south-1');
-  await expect(caption).toContainText(': review failed)');
+  await expect(caption).toContainText(': review failed, production-me-central-1');
+  await expect(caption).toContainText(': not reviewable, context-staging-unidentified');
+  await expect(caption).toContainText(': unreachable)');
   const select = page.getByLabel('Filter by cluster');
-  await expect(select.locator('option')).toHaveCount(4);
+  // The context with no id cannot be filtered by: Any cluster plus six.
+  await expect(select.locator('option')).toHaveCount(7);
   await select.selectOption(DEMO);
   await expect(page).toHaveURL(new RegExp(`cluster=${DEMO}`));
   await expect(page.getByTestId('service-list').locator('li').first()).toBeVisible({ timeout: 30_000 });
@@ -51,10 +54,13 @@ test('Data sources lists every cluster with its status word and reason', async (
   await multiCluster(page);
   await page.goto('/#/fleet/sources');
   const chips = page.getByTestId('source-cluster');
-  await expect(chips).toHaveCount(3, { timeout: 30_000 });
-  await expect(chips.locator('.sc-word')).toHaveText(['complete', 'no access', 'review failed']);
+  await expect(chips).toHaveCount(7, { timeout: 30_000 });
+  await expect(chips.locator('.sc-word')).toHaveText(['complete', 'no access', 'review failed', 'partial', 'not reviewable', 'unreachable', 'stale']);
+  await expect(chips.nth(5)).toHaveClass(/tone-err/);
+  await expect(chips.nth(6)).toHaveClass(/tone-warn/);
   await chips.nth(2).getByRole('button').click();
   await expect(chips.nth(2).getByRole('note')).toContainText('took longer than 5s');
+  await expect(page.getByTestId('source-clusters')).toContainText('Showing the 7 least healthy clusters.');
 });
 
 test('the demo reads one cluster and shows neither the filter nor the Clusters block', async ({ page }) => {

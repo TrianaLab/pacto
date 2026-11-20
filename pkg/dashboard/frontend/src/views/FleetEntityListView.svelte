@@ -194,7 +194,7 @@
         <input class="input" type="text" value={environmentFilter} placeholder="exact environment" aria-label="Filter by environment"
           onchange={(e) => { location.hash = urlWith({ environment: e.currentTarget.value.trim() }); }} />
       </label>
-      {#if clusters.length >= 2}<LazyView load={loadClusterFilter} {clusters} value={clusterFilter} onchange={(v) => { location.hash = urlWith({ cluster: v }); }} />{/if}
+      {#if clusters.length >= 2 || clusterFilter}<LazyView load={loadClusterFilter} {clusters} truncated={!!loader.data?.meta?.clustersTruncated} value={clusterFilter} onchange={(v) => { location.hash = urlWith({ cluster: v }); }} />{/if}
     {/if}
     <ListSort value={sort} href={(v) => urlWith({ sort: v })} testid="entity-list-sort"
       options={[['', isRevisions ? (service ? 'Newest version first' : 'By service, newest version first') : 'Default order'], ['name', 'Name'], ['health', 'Least healthy first']]} />

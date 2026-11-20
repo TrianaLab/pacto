@@ -1468,7 +1468,16 @@ export function installScaleFixture(): void {
         { id: '5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11', name: n63('production-eu-west-1'), nameSource: 'context', status: 'available', targets: 12 },
         { id: '9f1c4e2a-7f1a-4c55-9d1e-2b8a4e6f0a12', name: n63('production-us-east-2'), nameSource: 'context', status: 'available', access: 'no-access', targets: 0 },
         { id: '9f1c4e2a-7f1a-4c55-9d1e-2b8a4e6f0a13', name: n63('production-ap-south-1'), nameSource: 'context', status: 'stale', access: 'review-failed', targets: 0 },
+        // Every other state, with the long values a 320px sweep must hold: a partial and a
+        // stale cluster with no mark (warn tone), one nobody can review, and a context
+        // whose identity read failed (no id, named by its source id, err tone).
+        { id: '9f1c4e2a-7f1a-4c55-9d1e-2b8a4e6f0a14', name: n63('production-sa-east-1'), nameSource: 'context', status: 'partial', targets: 4 },
+        { id: '9f1c4e2a-7f1a-4c55-9d1e-2b8a4e6f0a15', name: n63('production-me-central-1'), nameSource: 'context', status: 'available', access: 'not-reviewable', targets: 0 },
+        { id: '', name: n63('context-staging-unidentified'), status: 'unavailable', targets: 0 },
+        { id: '9f1c4e2a-7f1a-4c55-9d1e-2b8a4e6f0a16', name: n63('production-ca-central-1'), nameSource: 'context', status: 'stale', targets: 2 },
       ];
+      // More clusters exist than meta.clusters lists (MaxMetaClusters).
+      (doc.meta as Record<string, unknown>).clustersTruncated = true;
     }
     return { ...res, body: JSON.stringify(doc) };
   };

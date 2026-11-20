@@ -109,7 +109,11 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				}
 			}
 			externalCatalog := v.GetString("dashboard.external-catalog")
-			if err := errors.Join(app.CheckExternalCatalogRef(externalCatalog), app.CheckDetectedRef(v.GetString("dashboard.detected"))); err != nil {
+			// Named contexts outside a pod replace the ambient one, as a source
+			// and as the sign-in cluster.
+			contexts := splitList(v.GetStringSlice("dashboard.context"))
+			includeCurrent, clusterCfg, signInErr := signInCluster(v, contexts, d)
+			if err := errors.Join(app.CheckExternalCatalogRef(externalCatalog), app.CheckDetectedRef(v.GetString("dashboard.detected")), signInErr); err != nil {
 				return err
 			}
 
@@ -125,13 +129,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			// A cluster the ambient configuration cannot even build a client for is
 			// not a source. Reachability is NOT probed here: an unreachable cluster
 			// is reported per refresh, as an unavailable source with a reason, which
-			// is the only place that answer stays true. Named contexts outside a
-			// pod replace the ambient one, as a source and as the sign-in cluster.
-			contexts := splitList(v.GetStringSlice("dashboard.context"))
-			includeCurrent, clusterCfg, err := signInCluster(v, contexts, d)
-			if err != nil {
-				return err
-			}
+			// is the only place that answer stays true.
 			cluster := currentClient(includeCurrent)
 			det := dashboardSources{
 				local:           localRootHasBundle(dir),

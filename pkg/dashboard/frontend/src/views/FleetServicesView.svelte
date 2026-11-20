@@ -426,7 +426,7 @@
       <input class="input" type="text" value={domain} placeholder="exact registry path" aria-label="Filter by registry path"
         onchange={(e) => apply({ domain: e.currentTarget.value.trim() })} />
     </label>
-    {#if clusters.length >= 2}<LazyView load={loadClusterFilter} {clusters} value={cluster} onchange={(v) => apply({ cluster: v })} />{/if}
+    {#if clusters.length >= 2 || cluster}<LazyView load={loadClusterFilter} {clusters} truncated={!!loader.data?.meta?.clustersTruncated} value={cluster} onchange={(v) => apply({ cluster: v })} />{/if}
     <ListSort value={order} href={(v) => urlWith({ sort: v === 'name' ? '' : v })} testid="svc-sort" />
   </div>
 

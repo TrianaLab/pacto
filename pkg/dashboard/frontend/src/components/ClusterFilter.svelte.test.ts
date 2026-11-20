@@ -50,4 +50,22 @@ describe('ClusterFilter', () => {
     expect(caption?.querySelector('bdi')?.getAttribute('title')).toBe('us-prod');
     done();
   });
+
+  it('shows a URL cluster the answer does not list, even beside one cluster', () => {
+    const { target, done } = render({ clusters: [clusters[0]], value: 'uid-gone' });
+    const select = target.querySelector('select') as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(['', 'uid-eu', 'uid-gone']);
+    expect(select.value).toBe('uid-gone');
+    expect(select.options[2].textContent).toBe('uid-gone (not in this answer)');
+    done();
+  });
+
+  it('separates several hidden clusters and never says all when truncated', () => {
+    const three = [...clusters, { id: 'uid-ap', name: 'ap-prod', status: 'stale', access: 'review-failed', targets: 0 }];
+    const { target, done } = render({ clusters: three, truncated: true });
+    const caption = target.querySelector('[data-testid="cluster-caption"]');
+    expect(caption?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Showing 1 of the 3 listed clusters; more are not listed (us-prod: no access, ap-prod: review failed)');
+    done();
+  });
 });

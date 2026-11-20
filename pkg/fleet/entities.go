@@ -279,23 +279,11 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	want := kindSet(f.Kinds)
 	refs, offerings := q.candidateRefs(want)
 	consumers := q.offeringConsumers(f.Consumes)
-	var derived []Limitation
 	if f.Phase != "" {
 		consumers = q.offeringConsumersInPhase(f.Consumes, f.Phase, f.Environment)
 	}
-	if f.Phase != "" && f.Environment != "" {
-		msg := fmt.Sprintf("consumers whose current revision does not declare %s have no provisioning status there", f.Environment)
-		if len(consumers) == 0 && !q.environmentKnown(f.Environment) {
-			msg += fmt.Sprintf("; no visible revision declares %s and no visible target reports it, so an empty list says nothing about it", f.Environment)
-		}
-		derived = []Limitation{{Code: LimitationProvisioningEnvironmentScoped, Message: msg}}
-	}
-
 	x := q.crossKindSets(f)
-	if f.Cluster != "" && len(x.clusterServices) == 0 && !q.clusterKnown(f.Cluster) {
-		derived = append(derived, Limitation{Code: LimitationClusterFilterUnknown,
-			Message: "no cluster this answer knows has id " + f.Cluster + ", so an empty list says nothing about it; meta.clusters lists the ids"})
-	}
+	derived := q.entityLimitations(f, consumers, x)
 	filtered := refs[:0:0]
 	for _, r := range refs {
 		if q.entityMatches(r, f, x) && (f.Consumes == "" || r.Kind == KindService && consumers[ServiceKey(r.Key)]) {
@@ -462,6 +450,24 @@ func (q *Query) crossKindSets(f EntityFilter) crossKind {
 		x.clusterServices, x.clusterRevisions = q.clusterMembers(f.Cluster)
 	}
 	return x
+}
+
+// entityLimitations are the limitations a filter derives at query time: a
+// phase list narrowed to one environment and a cluster id no cluster has.
+func (q *Query) entityLimitations(f EntityFilter, consumers map[ServiceKey]bool, x crossKind) []Limitation {
+	var derived []Limitation
+	if f.Phase != "" && f.Environment != "" {
+		msg := fmt.Sprintf("consumers whose current revision does not declare %s have no provisioning status there", f.Environment)
+		if len(consumers) == 0 && !q.environmentKnown(f.Environment) {
+			msg += fmt.Sprintf("; no visible revision declares %s and no visible target reports it, so an empty list says nothing about it", f.Environment)
+		}
+		derived = []Limitation{{Code: LimitationProvisioningEnvironmentScoped, Message: msg}}
+	}
+	if f.Cluster != "" && len(x.clusterServices) == 0 && !q.clusterKnown(f.Cluster) {
+		derived = append(derived, Limitation{Code: LimitationClusterFilterUnknown,
+			Message: "no cluster this answer knows has id " + f.Cluster + ", so an empty list says nothing about it; meta.clusters lists the ids"})
+	}
+	return derived
 }
 
 // clusterMembers is the services with a target or an inferred workload in

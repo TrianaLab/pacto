@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { clusterWord, clusterReason, clusterCaption, showClusters, type ClusterSummary } from './clusters.ts';
+import { clusterWord, clusterReason, clusterCaptionParts, showClusters, type ClusterSummary } from './clusters.ts';
 
 const c = (id: string, name: string, status: ClusterSummary['status'] = 'available', access?: ClusterSummary['access']): ClusterSummary =>
   ({ id, name, status, targets: 1, ...(access ? { access } : {}) });
@@ -24,26 +24,36 @@ describe('clusterWord', () => {
   });
 });
 
-describe('clusterCaption', () => {
+// caption joins the parts as ClusterFilter's markup does.
+const caption = (clusters: ClusterSummary[], selected: string, truncated = false): string => {
+  const { head, hidden } = clusterCaptionParts(clusters, selected, truncated);
+  return hidden.length ? `${head} (${hidden.map((h) => `${h.name}: ${h.word}`).join(', ')})` : head;
+};
+
+describe('clusterCaptionParts', () => {
   const two = [c('eu', 'eu-prod'), c('us', 'us-prod', 'available', 'no-access')];
 
   it('names the hidden cluster and its reason', () => {
-    expect(clusterCaption(two, 'eu')).toBe('Showing 1 of 2 clusters (us-prod: no access)');
-    expect(clusterCaption(two, '')).toBe('Showing 1 of 2 clusters (us-prod: no access)');
+    expect(caption(two, 'eu')).toBe('Showing 1 of 2 clusters (us-prod: no access)');
+    expect(caption(two, '')).toBe('Showing 1 of 2 clusters (us-prod: no access)');
   });
 
   it('counts an unreachable cluster as hidden and a stale one as shown', () => {
     const three = [c('eu', 'eu-prod'), c('us', 'us-prod', 'unavailable'), c('ap', 'ap-prod', 'stale')];
-    expect(clusterCaption(three, '')).toBe('Showing 2 of 3 clusters (us-prod: unreachable)');
-    expect(clusterCaption(three, 'ap')).toBe('Showing 1 of 3 clusters (us-prod: unreachable)');
+    expect(caption(three, '')).toBe('Showing 2 of 3 clusters (us-prod: unreachable)');
+    expect(caption(three, 'ap')).toBe('Showing 1 of 3 clusters (us-prod: unreachable)');
   });
 
   it('says all when nothing is hidden or selected', () => {
-    expect(clusterCaption([c('eu', 'eu-prod'), c('us', 'us-prod')], '')).toBe('Showing all 2 clusters');
+    expect(caption([c('eu', 'eu-prod'), c('us', 'us-prod')], '')).toBe('Showing all 2 clusters');
+  });
+
+  it('never says all when the answer lists only some clusters', () => {
+    expect(caption([c('eu', 'eu-prod'), c('us', 'us-prod')], '', true)).toBe('Showing 2 of the 2 listed clusters; more are not listed');
   });
 
   it('reads 0 when the selected cluster is hidden', () => {
-    expect(clusterCaption(two, 'us')).toBe('Showing 0 of 2 clusters (us-prod: no access)');
+    expect(caption(two, 'us')).toBe('Showing 0 of 2 clusters (us-prod: no access)');
   });
 });
 
