@@ -78,6 +78,8 @@ test.describe('WASM demo: what the cluster provides', () => {
     await expect(installation).not.toHaveClass(/dp-inferred/);
     await installation.getByRole('button', { name: DECLARED }).click();
     await expect(installation.getByRole('note')).toContainText("Declared by the operator's configuration");
+    // Provenance, asOf and completeness, as the inferred tip carries them.
+    await expect(installation.getByRole('note')).toContainText(/as of .+, complete\./);
     await page.keyboard.press('Escape');
 
     const pull = block.getByTestId('provider-row').filter({ has: page.locator('.dp-name').getByTitle('Pull Secret', { exact: true }) });
