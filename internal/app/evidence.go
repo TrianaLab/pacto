@@ -624,8 +624,12 @@ func (s *Service) buildEvidenceHost(opts ServeOptions) (*http.ServeMux, []string
 	}
 	// The same keychain and plain-HTTP policy `pacto pull` uses: evidence is
 	// written to the contract registry, so it authenticates like a contract does.
+	// The cloud workload-identity sources are skipped: the server writes
+	// referrers onto subjects anywhere, so it carries no host-wide cloud identity.
+	creds := oci.EnvCredentialOptions()
+	creds.SkipCloud = true
 	store, err := evidenceoci.NewStore(subjects, evidenceoci.RepositoryOptions{
-		Keychain: oci.NewKeychain(oci.EnvCredentialOptions()),
+		Keychain: oci.NewKeychain(creds),
 		Insecure: oci.EnvInsecureRegistries(),
 	})
 	if err != nil {

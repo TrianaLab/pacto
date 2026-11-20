@@ -159,7 +159,9 @@ func runPromoter(args []string) error {
 	if err != nil {
 		return err
 	}
-	keychain := oci.NewKeychain(oci.EnvCredentialOptions())
+	creds := oci.EnvCredentialOptions()
+	creds.SkipCloud = true // cluster-side: no host-wide cloud identity
+	keychain := oci.NewKeychain(creds)
 	insecure := oci.EnvInsecureRegistries()
 	providers, err := core.ParseProviders(*gateProviders)
 	if err != nil {
@@ -336,7 +338,9 @@ func runRecorder(args []string) error {
 	if err != nil {
 		return err
 	}
-	keychain := oci.NewKeychain(oci.EnvCredentialOptions())
+	creds := oci.EnvCredentialOptions()
+	creds.SkipCloud = true // cluster-side: no host-wide cloud identity
+	keychain := oci.NewKeychain(creds)
 	insecure := oci.EnvInsecureRegistries()
 	store := &delivery.RecordStore{Streams: *streams, Approvals: cmp.Or(*approvals, *streams+"-approvals"), Verify: verify,
 		Options: ocireferrer.Options{Keychain: keychain, Insecure: insecure}}

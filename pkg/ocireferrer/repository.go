@@ -24,7 +24,8 @@ const maxReferrerPages = 1000
 // file or registry-auth model.
 type Options struct {
 	// Keychain is the shared Pacto keychain (env token, env user/pass, pacto
-	// login, gh, docker). A nil keychain is anonymous access.
+	// login, gh, docker, then the Google, ECR and ACR workload-identity sources
+	// unless the caller skipped them). A nil keychain is anonymous access.
 	Keychain authn.Keychain
 	// Insecure lists registry hosts to reach over plain HTTP, mirroring
 	// [github.com/trianalab/pacto/v4/pkg/oci.WithInsecureRegistries]. Loopback

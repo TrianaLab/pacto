@@ -26,9 +26,13 @@ type OCIPuller struct {
 }
 
 // NewOCIPuller creates an OCIPuller with credentials resolved via the Pacto
-// library keychain (env vars, pacto config, gh CLI, Docker config).
+// library keychain (env vars, pacto config, gh CLI, Docker config). The cloud
+// workload-identity sources are skipped: a tenant's contract ref never rides
+// on the operator's cloud identity.
 func NewOCIPuller() *OCIPuller {
-	p := &OCIPuller{keychain: oci.NewKeychain(oci.EnvCredentialOptions())}
+	creds := oci.EnvCredentialOptions()
+	creds.SkipCloud = true
+	p := &OCIPuller{keychain: oci.NewKeychain(creds)}
 	if hosts := oci.EnvInsecureRegistries(); len(hosts) > 0 {
 		p.clientOpts = []oci.ClientOption{oci.WithInsecureRegistries(hosts...)}
 	}
