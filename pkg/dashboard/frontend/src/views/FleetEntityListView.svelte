@@ -11,6 +11,8 @@
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
+  import LazyView from '../components/LazyView.svelte';
+  import { loadClusterFilter } from '../lib/lazyFigures.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import Pager from '../components/Pager.svelte';
   import ListSort from '../components/ListSort.svelte';
@@ -30,7 +32,7 @@
   // Revisions are returned in the backend's canonical order. This view does not
   // re-sort them: the chronology is the engine's answer, and a client re-sort by key
   // is exactly the digest-ordered version list the redesign was fixing.
-  let { kind = 'revision', service = '', text = '', status = '', scope = '', readiness = '', environment = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  let { kind = 'revision', service = '', text = '', status = '', scope = '', readiness = '', environment = '', cluster = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   const pageOffset = $derived(urlInt(offset));
@@ -41,7 +43,8 @@
   const readinessFilter = $derived(isRevisions ? readiness : '');
   // The mirror case: only a target runs in an environment.
   const environmentFilter = $derived(isRevisions ? '' : environment);
-  const anyFilter = $derived(!!(text || status || scope || readinessFilter || environmentFilter));
+  const clusterFilter = $derived(isRevisions ? '' : cluster);
+  const anyFilter = $derived(!!(text || status || scope || readinessFilter || environmentFilter || clusterFilter));
   const plural = $derived(kind === 'target' ? 'operational targets' : 'contract revisions');
   // The page names the POPULATION, like every sibling list ("Services", "Owners",
   // "Data sources"). It used to take the singular entity kind from kindLabel, so a
@@ -64,6 +67,7 @@
     scope: kind === 'target' && scope ? scope : undefined,
     readiness: readinessFilter || undefined,
     environment: environmentFilter || undefined,
+    cluster: clusterFilter || undefined,
     // Unscoped, the revision list is the population the Overview counts, which
     // leaves golden paths out; a golden path's own page still lists its revisions.
     template: isRevisions && !service ? 'exclude' : undefined,
@@ -75,9 +79,9 @@
   // the filters and the page. refreshTick only re-asks it. Rows are retained across a
   // re-ask and never across a different question, so switching the scoped service can
   // never show one service's revisions under another's heading.
-  const queryIdentity = $derived(`${kind}@@${service}@@${text}@@${status}@@${scope}@@${readinessFilter}@@${environmentFilter}@@${pageOffset}@@${pageLimit}@@${sort}`);
+  const queryIdentity = $derived(`${kind}@@${service}@@${text}@@${status}@@${scope}@@${readinessFilter}@@${environmentFilter}@@${clusterFilter}@@${pageOffset}@@${pageLimit}@@${sort}`);
   // listIdentity is the same question without its page: a page turn keeps the rows.
-  const listIdentity = $derived(`${kind}@@${service}@@${text}@@${status}@@${scope}@@${readinessFilter}@@${environmentFilter}@@${sort}`);
+  const listIdentity = $derived(`${kind}@@${service}@@${text}@@${status}@@${scope}@@${readinessFilter}@@${environmentFilter}@@${clusterFilter}@@${sort}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -101,7 +105,7 @@
   function urlWith(patch, off = 0, lim = pageLimit) {
     return fleetEntityListUrl(kind, {
       service, text: patch.text ?? text, status: patch.status ?? status, scope: patch.scope ?? scope,
-      readiness: patch.readiness ?? readinessFilter, environment: patch.environment ?? environmentFilter, offset: off,
+      readiness: patch.readiness ?? readinessFilter, environment: patch.environment ?? environmentFilter, cluster: patch.cluster ?? clusterFilter, offset: off,
       limit: limitParam(lim, limit, PAGE_SIZE), sort: (patch.sort ?? sort) || undefined,
     });
   }
@@ -113,8 +117,12 @@
     scope ? { key: 'scope', label: 'Scope', value: scope } : null,
     readinessFilter ? { key: 'readiness', label: 'Readiness', value: bucketLabel(READINESS_STATES, readinessFilter) } : null,
     environmentFilter ? { key: 'environment', label: 'Environment', value: environmentFilter } : null,
+    clusterFilter ? { key: 'cluster', label: 'Cluster', value: clusterName(clusterFilter) } : null,
   ].filter(Boolean));
   function removeChip(key) { location.hash = urlWith({ [key]: '' }); }
+  // The latest answer's clusters, kept while the next question loads so the filter stays put.
+  const clusters = $derived(loader.data?.meta?.clusters ?? []);
+  function clusterName(id) { return clusters.find((c) => c.id === id)?.name || id; }
 
   // The inventory over the COMPLETE filtered population, computed by the backend with
   // paging excluded -- so it describes the query, not the 25 rows underneath it.
@@ -186,6 +194,7 @@
         <input class="input" type="text" value={environmentFilter} placeholder="exact environment" aria-label="Filter by environment"
           onchange={(e) => { location.hash = urlWith({ environment: e.currentTarget.value.trim() }); }} />
       </label>
+      {#if clusters.length >= 2}<LazyView load={loadClusterFilter} {clusters} value={clusterFilter} onchange={(v) => { location.hash = urlWith({ cluster: v }); }} />{/if}
     {/if}
     <ListSort value={sort} href={(v) => urlWith({ sort: v })} testid="entity-list-sort"
       options={[['', isRevisions ? (service ? 'Newest version first' : 'By service, newest version first') : 'Default order'], ['name', 'Name'], ['health', 'Least healthy first']]} />
@@ -254,6 +263,7 @@
   .lv-inventory h2 { margin: 0; }
   /* Same track rule as every other chart block in the product. */
   .lv-inv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--sp-4); }
-  .lv-search .input { flex: 1; }
+  /* The input shrinks inside the form, so its Search button never spills out of it. */
+  .lv-search .input { flex: 1; min-width: 0; }
   /* The list, the row and the pager are the shared .pl-* rules in styles/components.css. */
 </style>

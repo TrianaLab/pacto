@@ -898,3 +898,19 @@ describe('fleetServicesUrl declaration (509-S1)', () => {
     expect(fleetServicesUrl({ status: 'Unknown', declaration: '' })).toBe('#/fleet/services?status=Unknown');
   });
 });
+
+describe('cluster filter on the services and targets lists', () => {
+  it('round-trips cluster on the Services list and keeps it across paging', () => {
+    const url = fleetServicesUrl({ status: 'NonCompliant', cluster: 'uid-eu', offset: 25 });
+    expect(url).toBe('#/fleet/services?status=NonCompliant&cluster=uid-eu&offset=25');
+    expect(parseHash(url)).toEqual({ view: 'fleet-services', params: { status: 'NonCompliant', cluster: 'uid-eu', offset: '25' } });
+  });
+
+  it('round-trips cluster on the Targets list and drops it on revisions', () => {
+    const url = fleetEntityListUrl('target', { environment: 'prod', cluster: 'uid-eu', offset: 25 });
+    expect(url).toBe('#/fleet/targets?environment=prod&cluster=uid-eu&offset=25');
+    expect(parseHash(url)).toEqual({ view: 'fleet-entity-list', params: { kind: 'target', environment: 'prod', cluster: 'uid-eu', offset: '25' } });
+    expect(fleetEntityListUrl('revision', { cluster: 'uid-eu' })).toBe('#/fleet/revisions');
+    expect(parseHash('#/fleet/revisions?cluster=uid-eu').params).toEqual({ kind: 'revision' });
+  });
+});

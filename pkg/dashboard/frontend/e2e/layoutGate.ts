@@ -136,7 +136,7 @@ export function installScaleFixture(): void {
     // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
     // keeps the engine's total: the fixture leaves the tallies that link to it (an
     // offering's phases, the non-compliant rankings) alone.
-    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle', 'gap', 'class', 'declaration'].some((k) => q.get(k));
+    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle', 'gap', 'class', 'declaration', 'cluster'].some((k) => q.get(k));
     // The golden path list keeps the engine's paths: a fleet has a handful.
     if (route === '/api/fleet/entities' && Number(q.get('limit') || 25) > 1 && !narrowed && q.get('template') !== 'only') {
       const total = LIST_TOTAL[q.get('kinds') || ''];
@@ -1056,7 +1056,10 @@ export function installScaleFixture(): void {
   // unverified signer whose namespace the viewer may not read: no rows, no namespace and
   // no hidden count (its cluster facts were already dropped). 'notAllowed' answers it as a
   // checked signature the installation signer policy refuses.
-  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed' };
+  // multiCluster (514-S2) answers every entities list as a view over three clusters with
+  // 63-character names: the demo's own cluster, one the reader may not read and one whose
+  // review failed, so the Cluster filter, its caption and the Clusters block render.
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed'; __pactoMultiCluster?: boolean };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1459,6 +1462,14 @@ export function installScaleFixture(): void {
       return res;
     }
     if (declared) clusterFacts(doc);
+    if (flags.__pactoMultiCluster && method === 'GET' && route === '/api/fleet/entities' && doc.meta) {
+      const n63 = (s: string) => `${s}-${'x'.repeat(63)}`.slice(0, 63);
+      (doc.meta as Record<string, unknown>).clusters = [
+        { id: '5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11', name: n63('production-eu-west-1'), nameSource: 'context', status: 'available', targets: 12 },
+        { id: '9f1c4e2a-7f1a-4c55-9d1e-2b8a4e6f0a12', name: n63('production-us-east-2'), nameSource: 'context', status: 'available', access: 'no-access', targets: 0 },
+        { id: '9f1c4e2a-7f1a-4c55-9d1e-2b8a4e6f0a13', name: n63('production-ap-south-1'), nameSource: 'context', status: 'stale', access: 'review-failed', targets: 0 },
+      ];
+    }
     return { ...res, body: JSON.stringify(doc) };
   };
   Object.defineProperty(window, '__pactoServe', {
@@ -2105,6 +2116,15 @@ async function openGroupedInferred(page: Page): Promise<void> {
   await expect(page.locator('[data-testid="inferred-workload"]')).toBeVisible({ timeout: 30_000 });
 }
 
+// 514-S2: a list under the three-cluster fixture, waiting for what it adds.
+function openMultiCluster(hash: string, ready = '[data-testid="cluster-caption"]'): (page: Page) => Promise<void> {
+  return async (page) => {
+    await page.evaluate(() => { (window as unknown as { __pactoMultiCluster?: boolean }).__pactoMultiCluster = true; });
+    await page.goto(`/${hash}`);
+    await expect(page.locator(ready)).toBeVisible({ timeout: 30_000 });
+  };
+}
+
 export const ROUTES: Route[] = [
   { name: 'overview', hash: '#/fleet' },
   { name: 'overview watched namespaces', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __scoped?: boolean }).__scoped = true; }); await page.goto('/#/fleet'); await page.reload(); } }, // reload: the init script only runs on a new document
@@ -2660,6 +2680,11 @@ export const ROUTES: Route[] = [
       await page.evaluate(() => window.scrollTo(0, 0));
     },
   },
+  // 514-S2: three clusters (one hidden by access, one by a failed review) behind the
+  // __pactoMultiCluster flag: the Cluster filter and caption, and the Clusters block.
+  { name: 'services list, multi-cluster', list: true, open: openMultiCluster('#/fleet/services') },
+  { name: 'targets list, multi-cluster filter', list: true, open: openMultiCluster('#/fleet/targets?cluster=5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11') },
+  { name: 'sources, multi-cluster scope', list: true, open: openMultiCluster('#/fleet/sources', '[data-testid="source-clusters"]') },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

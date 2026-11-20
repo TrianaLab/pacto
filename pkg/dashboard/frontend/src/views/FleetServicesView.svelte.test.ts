@@ -623,4 +623,32 @@ describe('FleetServicesView — inferred services (509-S1)', () => {
     expect(chip.textContent?.replace(/\s+/g, ' ').trim()).toBe('Group: helm/shop/gone ×');
     unmount(component); document.body.removeChild(target);
   });
+  it('filters by cluster with two clusters, captions the hidden one and keeps the key on chip removal', async () => {
+    const resp = listResp([svc('domain-a')], { total: 1 });
+    resp.meta.clusters = [
+      { id: 'uid-eu', name: 'eu-prod', status: 'available', targets: 1 },
+      { id: 'uid-us', name: 'us-prod', status: 'available', access: 'no-access', targets: 0 },
+    ];
+    entitiesFn.mockResolvedValue(resp);
+    const { target, component } = mountView({ cluster: 'uid-eu', status: 'Compliant' });
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    expect(entitiesFn).toHaveBeenLastCalledWith(expect.objectContaining({ cluster: 'uid-eu' }));
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="cluster-caption"]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Showing 1 of 2 clusters (us-prod: no access)'));
+    const chip = Array.from(target.querySelectorAll('.chip')).find((c) => c.textContent?.includes('Cluster')) as HTMLElement;
+    expect(chip.textContent?.replace(/\s+/g, ' ').trim()).toBe('Cluster: eu-prod ×');
+    const status = Array.from(target.querySelectorAll('.chip')).find((c) => c.textContent?.includes('Status')) as HTMLElement;
+    (status.querySelector('button') as HTMLButtonElement).click();
+    expect(location.hash).toBe('#/fleet/services?cluster=uid-eu');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('shows no cluster filter with one cluster', async () => {
+    const resp = listResp([svc('domain-a')], { total: 1 });
+    resp.meta.clusters = [{ id: 'uid-eu', name: 'eu-prod', status: 'available', targets: 1 }];
+    entitiesFn.mockResolvedValue(resp);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    expect(target.querySelector('[aria-label="Filter by cluster"]')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
 });

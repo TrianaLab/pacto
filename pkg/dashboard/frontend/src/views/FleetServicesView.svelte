@@ -27,7 +27,7 @@
   import { MOTION, dur } from '../lib/motion.ts';
   import { formatDate } from '../lib/dateFormat.ts';
   import LazyView from '../components/LazyView.svelte';
-  import { loadPostureFigure } from '../lib/lazyFigures.ts';
+  import { loadPostureFigure, loadClusterFilter } from '../lib/lazyFigures.ts';
   import { provenance } from '../lib/provenance.ts';
   import ProvenanceMark from '../components/ProvenanceMark.svelte';
 
@@ -43,7 +43,7 @@
   // `team-a` finds `team-a-platform` too) and `ownerKey` is exact canonical IDENTITY.
   // The text box writes the first; picking a suggestion, or arriving from an owner
   // page or a per-owner ranking row, writes the second.
-  let { text = '', owner = '', ownerKey = '', ownership = '', gap = '', status = '', domain = '', businessDomain = '', capability = '', offering = '', consumes = '', phase = '', createdFrom = '', declaration = '', group = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  let { text = '', owner = '', ownerKey = '', ownership = '', gap = '', status = '', domain = '', businessDomain = '', capability = '', offering = '', consumes = '', phase = '', createdFrom = '', declaration = '', group = '', cluster = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   // The created-from values that name no golden path (B5), in words.
@@ -52,7 +52,7 @@
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   // Natural name order by default, so service-2 comes before service-10.
   const order = $derived(sort || 'name');
-  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || gap || status || domain || businessDomain || capability || offering || consumes || phase || createdFrom || declaration || group));
+  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || gap || status || domain || businessDomain || capability || offering || consumes || phase || createdFrom || declaration || group || cluster));
 
   // The search box is a local draft synced from the URL; it commits on submit so
   // typing does not spam browser history. It re-syncs when the URL text changes
@@ -84,6 +84,7 @@
     createdFrom: createdFrom || undefined,
     declaration: declaration || undefined,
     group: group || undefined,
+    cluster: cluster || undefined,
     // Golden paths have their own tab and stay out of the service population.
     template: 'exclude',
     offset: pageOffset || undefined,
@@ -96,9 +97,9 @@
   // retaining them across a filter change would be showing one query's answer under
   // another query's heading, so `list` is gated on the tag matching. A page turn is the
   // exception: the old page stays, under a "Loading another page" line, until the next lands.
-  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${gap}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${declaration}@@${group}@@${pageOffset}@@${pageLimit}@@${order}`);
+  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${gap}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${declaration}@@${group}@@${cluster}@@${pageOffset}@@${pageLimit}@@${order}`);
   // listIdentity is the same question without its page: a page turn keeps the rows.
-  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${gap}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${declaration}@@${group}@@${order}`);
+  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${gap}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${declaration}@@${group}@@${cluster}@@${order}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -134,6 +135,7 @@
       createdFrom: patch.createdFrom ?? createdFrom,
       declaration: patch.declaration ?? declaration,
       group: patch.group ?? group,
+      cluster: patch.cluster ?? cluster,
       offset: off,
       limit: limitParam(lim, limit, PAGE_SIZE),
       sort: (patch.sort ?? sort) || undefined,
@@ -200,7 +202,10 @@
     declaration ? { key: 'declaration', label: 'Declaration', value: DECLARATION_WORDS[declaration] ?? declaration } : null,
     // The key is rule/namespace/name; the rows carry its words.
     group ? { key: 'group', label: 'Group', value: list?.entities?.find((r) => r.group?.key === group)?.group?.label ?? group } : null,
+    cluster ? { key: 'cluster', label: 'Cluster', value: clusters.find((c) => c.id === cluster)?.name || cluster } : null,
   ].filter(Boolean));
+  // The latest answer's clusters, kept while the next question loads so the filter stays put.
+  const clusters = $derived(loader.data?.meta?.clusters ?? []);
 
   // The Domain box holds the domain's name, "No domain" for the (none) filter or
   // "Domain unknown" for (unknown). A pick commits the domain; typed text commits on
@@ -421,6 +426,7 @@
       <input class="input" type="text" value={domain} placeholder="exact registry path" aria-label="Filter by registry path"
         onchange={(e) => apply({ domain: e.currentTarget.value.trim() })} />
     </label>
+    {#if clusters.length >= 2}<LazyView load={loadClusterFilter} {clusters} value={cluster} onchange={(v) => apply({ cluster: v })} />{/if}
     <ListSort value={order} href={(v) => urlWith({ sort: v === 'name' ? '' : v })} testid="svc-sort" />
   </div>
 
