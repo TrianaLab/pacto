@@ -33,8 +33,12 @@ declare:
 `issuer` is compared exactly. `subject` is a pattern anchored with `^` and `$`
 that matches one identity. A policy holds at most 200 rules.
 
-With `bootstrap` and `teams` both empty the chart renders nothing, and every
-owner change reads as unverified.
+With `bootstrap` and `teams` both empty the chart renders no policy, and a
+person's owner change reads as unverified. An agent or workload signer's
+owner change reads as refused with or without a policy: only a person sets an
+owner. A CI publish that the `delivery.publishers.registry` rule accepts is
+outside the owner rule. A CI signer that rule refuses is refused, and with no
+rule set a CI signer's owner change reads as unverified.
 
 ## The ConfigMap
 
@@ -53,8 +57,8 @@ name changes nothing: `helm upgrade` either fails or writes the policy over it.
 With `registry` set, delivery on or off, the operator publishes the policy as
 the `ownerPolicy` section of the cluster's signed target snapshot in
 `<registry>/pacto-targets`. `pacto declare` and `pacto mcp` over stdio verify
-those snapshots with the trust config in `$PACTO_DELIVERY_TRUST`. They use the
-policy only when every cluster's snapshot is complete, fresh, signed by a key
+those snapshots with the trust config in `--delivery-trust` (default
+`$PACTO_DELIVERY_TRUST`). They use the policy only when every cluster's snapshot is complete, fresh, signed by a key
 scoped to that cluster and carries the same policy. A development cluster's
 approvers therefore never approve owners for the whole fleet: give every
 cluster the same `declare` block. Without `registry` only the operator and its
@@ -72,9 +76,11 @@ has a signature other than CI provenance the publisher rule accepts. It sets
 | `True` | `OwnerSignerAllowed` | A member of the current owner or a default approver signed it |
 | `False` | `OwnerSignerNotPerson` | An agent, CI or workload identity signed it |
 | `False` | `OwnerSignerNotAllowed` | A person outside the owner's members and the default approvers signed it |
-| `Unknown` | `OwnerSignerUnverified` | No signature verified, or the policy, the Sigstore root or the previous revision could not be read |
+| `Unknown` | `OwnerSignerUnverified` | No signature verified, the policy, the Sigstore root or the previous revision could not be read, the Pacto ran no revision before, or no publisher rule says whether its CI signer may publish |
 
 On anything but `True`, `status.contract.owner` stays empty and the fleet
-ignores the owner. A bundle that was running before the operator upgrade is
+ignores the owner. A verdict is kept while the bundle and the policy stay the
+same; a `helm upgrade` that changes the `declare` block or the publisher rule
+judges it again. A bundle that was running before the operator upgrade is
 judged once its digest changes. The condition is missing for every other
 Pacto; see [Troubleshooting](troubleshooting.md#reading-the-conditions).

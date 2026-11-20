@@ -201,6 +201,21 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --publishers-default-branch=trunk
 
+  - it: TestPublisherRuleWithoutDeclare
+    template: templates/deployment.yaml
+    set:
+      delivery.publishers.registry: ghcr.io/acme
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --publishers-registry=ghcr.io/acme
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --publishers-default-branch=main
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --owner-policy=/etc/pacto/owner-policy/policy.json
+
   - it: TestDeclarePolicyPublishedWithRegistryOnly
     set:
       registry: ghcr.io/acme

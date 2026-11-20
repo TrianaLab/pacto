@@ -8,8 +8,11 @@ See LICENSE file in the project root for full license text.
 package controller
 
 import (
+	"cmp"
 	"context"
-	"slices"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -48,32 +51,37 @@ type OwnerCheck struct {
 }
 
 // ownerJudgedPrefix starts the tail of the OwnerVerified message that names
-// the bundle judged and the revision it was judged against, so the next
-// reconcile keeps the verdict of an unchanged bundle and walks past a claim
-// that did not count.
+// the bundle judged, the revision it was judged against and the policy it
+// was judged under, so the next reconcile keeps the verdict of an unchanged
+// bundle and walks past a claim that did not count.
 const ownerJudgedPrefix = " [bundle "
 
 // verifyOwner sets OwnerVerified for a Pacto whose OCI bundle changes the
 // owner of the revision the CR ran before (prev), and reports whether the
-// bundle's owner may be shown. The reference is never the baseline a record
-// names: it is the previously run revision, or, when that one's owner claim
-// was refused or unverified, the reference that one was judged against. An
-// unsigned bundle without declaration keys, or one an accepted CI identity
-// published, is outside the rule (registry write is the trust boundary).
-// The condition is absent for every other Pacto.
+// bundle's owner may be shown. An unsigned bundle without declaration keys,
+// or a CI identity's publish, is outside the rule (registry write is the
+// trust boundary) and never reads its reference. The reference is never the
+// baseline a record names: it is the previously run revision, or, when that
+// one's owner claim was refused or unverified, the reference that one was
+// judged against. With no previous revision, or one whose reference could
+// not be read, the owner before the bundle is unknown: a refusal judged
+// against it reads unverified. The condition is absent for every other
+// Pacto.
 //
-// ponytail: one registry read per new digest (signatures of the bundle and
-// its reference); a verdict is kept while the digest is unchanged. Memoise
-// per digest in the loader cache if many Pactos share one bundle.
+// ponytail: a verdict is kept while the digest and the policy are unchanged,
+// a transient unknown (a root or registry read that failed) is judged again
+// on every reconcile. Memoise per digest in the loader cache if many Pactos
+// share one bundle.
 func (r *PactoReconciler) verifyOwner(ctx context.Context, pacto *pactov1alpha1.Pacto, ec *effectiveContract, prev *pactov1alpha1.PactoStatus) bool {
 	oc, lr := r.Owners, ec.loaded
 	if oc == nil || lr.ResolvedDigest == "" {
 		meta.RemoveStatusCondition(&pacto.Status.Conditions, pactov1alpha1.ConditionOwnerVerified)
 		return true
 	}
-	ref, judge := ownerReference(prev, lr.ResolvedDigest)
+	fp := oc.fingerprint()
+	ref, judge := ownerReference(prev, lr.ResolvedDigest, fp)
 	if !judge {
-		if c := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionOwnerVerified); c != nil && judgedBundle(c) == lr.ResolvedDigest {
+		if c := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionOwnerVerified); c != nil && judged(c).bundle == lr.ResolvedDigest {
 			return c.Status == metav1.ConditionTrue
 		}
 		meta.RemoveStatusCondition(&pacto.Status.Conditions, pactov1alpha1.ConditionOwnerVerified)
@@ -82,36 +90,79 @@ func (r *PactoReconciler) verifyOwner(ctx context.Context, pacto *pactov1alpha1.
 	tm, rootErr := oc.Root()
 	reg := oc.Registry(ec.auth)
 	cur := oc.bundle(ctx, reg, tm, lr)
-	current, err := r.referenceClaim(ctx, oc, reg, tm, ref, ec.auth)
-	if err != nil {
-		r.setOwnerVerified(pacto, metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified,
-			"the owner of the revision this one replaces is unknown: "+err.Error(), lr.ResolvedDigest, ref)
-		return false
-	}
-	proposed, claims := cur.claim()
-	if !ownerChange(current, proposed, claims, cur.declaration()) || cur.outsideRule() {
+	if cur.outsideRule() {
 		meta.RemoveStatusCondition(&pacto.Status.Conditions, pactov1alpha1.ConditionOwnerVerified)
 		return true
 	}
-	v := publish.VerifyOwnerRight(ctx, publish.OwnerRightInput{Registry: reg, Root: tm, TLog: hasTLog(tm), Repo: cur.repo, Digest: cur.digest,
-		Service: lr.Contract.Service.Name, Proposed: proposed.Owner, Current: current, Policy: oc.Policy, PolicyFrom: oc.PolicyFrom, Now: oc.Now()})
+	tail := ownerTail{bundle: lr.ResolvedDigest, ref: ref, policy: fp}
+	current, err := r.referenceClaim(ctx, oc, reg, tm, ref, ec.auth)
+	if err != nil {
+		tail.unread = true
+		r.setOwnerVerified(pacto, metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified,
+			"the owner of the revision this one replaces is unknown: "+err.Error(), tail)
+		return false
+	}
+	proposed, claims := cur.claim()
+	if !ownerChange(current, proposed, claims, cur.declaration()) {
+		meta.RemoveStatusCondition(&pacto.Status.Conditions, pactov1alpha1.ConditionOwnerVerified)
+		return true
+	}
+	v, kept := oc.verdict(ctx, reg, tm, cur, ref, current, proposed)
 	msg := v.Message
 	if rootErr != nil {
 		msg += " (the Sigstore trusted root could not be fetched: " + rootErr.Error() + ")"
 	}
 	status, reason := ownerVerdict(v)
-	r.setOwnerVerified(pacto, status, reason, msg, lr.ResolvedDigest, ref)
+	tail.kept = status != metav1.ConditionUnknown || kept
+	r.setOwnerVerified(pacto, status, reason, msg, tail)
 	return v.Allowed
 }
 
+// verdict judges cur's owner change over current from its certificates. A
+// refusal judged against an unknown reference (ref empty), or a CI signer
+// no installation rule judged, reads unverified. kept says an unknown
+// verdict stays while the bundle and the policy do: only a transient one
+// (a root or a signature read that failed) is judged again.
+func (oc *OwnerCheck) verdict(ctx context.Context, reg publish.Registry, tm root.TrustedMaterial, cur ownerBundle, ref string, current, proposed core.OwnerClaim) (core.OwnerRight, bool) {
+	service := cur.rev.Service
+	v := publish.VerifyOwnerRight(ctx, publish.OwnerRightInput{Registry: reg, Root: tm, TLog: hasTLog(tm), Repo: cur.repo, Digest: cur.digest,
+		Service: service, Proposed: proposed.Owner, Current: current, Policy: oc.Policy, PolicyFrom: oc.PolicyFrom, Now: oc.Now()})
+	refused := v.Code == core.OwnerSignerNotPerson || v.Code == core.OwnerSignerNotAllowed
+	switch {
+	case v.Code == core.OwnerSignerNotPerson && fleet.CIUndecided(cur.rev.Provenance, len(oc.Rules) > 0):
+		v.Code, v.Message = core.OwnerSignerUnverified, "the owner this revision of "+service+" sets is unverified: no installation publisher rule says whether its CI signer may publish it"
+	case ref == "" && refused:
+		v.Code, v.Message = core.OwnerSignerUnverified, "the owner this revision of "+service+" sets is unverified: the owner before it was not read"
+	default:
+		return v, v.Code == core.OwnerPolicyUnverified
+	}
+	return v, true
+}
+
+// fingerprint names what a verdict was judged under: the owner policy and
+// the publisher rules. A helm upgrade that changes either judges a kept
+// verdict again.
+func (oc *OwnerCheck) fingerprint() string {
+	b, _ := json.Marshal(struct {
+		Policy *core.OwnerPolicy
+		Rules  []core.PublisherRule
+	}{oc.Policy, oc.Rules})
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:6])
+}
+
 // ownerReference is the revision (repository@digest) the bundle digest is
-// judged against, empty for none, and false when there is nothing to judge:
-// digest kept its verdict (true or false) from the last reconcile, or ran
-// before without one.
-func ownerReference(prev *pactov1alpha1.PactoStatus, digest string) (string, bool) {
+// judged against, empty when the owner before it is unknown, and false when
+// there is nothing to judge: digest kept its verdict under the policy fp, or
+// ran before without one.
+func ownerReference(prev *pactov1alpha1.PactoStatus, digest, fp string) (string, bool) {
 	c := meta.FindStatusCondition(prev.Conditions, pactov1alpha1.ConditionOwnerVerified)
-	if c != nil && judgedBundle(c) == digest {
-		return judgedReference(c), c.Status == metav1.ConditionUnknown
+	var t ownerTail
+	if c != nil {
+		t = judged(c)
+	}
+	if t.bundle == digest {
+		return t.ref, !t.kept || t.policy != fp
 	}
 	ran := ""
 	if prev.Contract != nil && prev.EvaluatedRevision != nil {
@@ -122,42 +173,59 @@ func ownerReference(prev *pactov1alpha1.PactoStatus, digest string) (string, boo
 		return "", false
 	case ran == "":
 		return "", true
-	case c != nil && judgedBundle(c) == ran && c.Status != metav1.ConditionTrue:
-		return judgedReference(c), true // the claim before did not count: its own reference stays
+	case t.bundle == ran && c.Status != metav1.ConditionTrue && t.unread:
+		return "", true // the reference before could not be read: unknown, never carried
+	case t.bundle == ran && c.Status != metav1.ConditionTrue:
+		return t.ref, true // the claim before did not count: its own reference stays
 	}
 	return repoOf(prev.Contract.ResolvedRef) + "@" + ran, true
 }
 
-// judgedBundle and judgedReference read the tail setOwnerVerified writes;
-// a condition without one names neither.
-func judgedBundle(c *metav1.Condition) string {
-	b, _ := judged(c)
-	return b
+// ownerTail is what the OwnerVerified message's tail records: the bundle
+// judged, the reference ("" for unknown), the policy fingerprint, whether
+// the verdict is kept while both are unchanged and whether the reference
+// could not be read.
+type ownerTail struct {
+	bundle, ref, policy string
+	kept, unread        bool
 }
 
-func judgedReference(c *metav1.Condition) string {
-	_, ref := judged(c)
-	return ref
-}
-
-func judged(c *metav1.Condition) (bundle, ref string) {
+// judged reads the tail setOwnerVerified writes; a condition without one
+// names no bundle.
+func judged(c *metav1.Condition) ownerTail {
 	i := strings.LastIndex(c.Message, ownerJudgedPrefix)
 	if i < 0 {
-		return "", ""
+		return ownerTail{}
 	}
-	tail := strings.TrimSuffix(c.Message[i+len(ownerJudgedPrefix):], "]")
-	bundle, ref, _ = strings.Cut(tail, ", judged against ")
-	if ref == "none" {
-		ref = ""
+	parts := strings.Split(strings.TrimSuffix(c.Message[i+len(ownerJudgedPrefix):], "]"), ", ")
+	t := ownerTail{bundle: parts[0]}
+	for _, p := range parts[1:] {
+		switch {
+		case strings.HasPrefix(p, "judged against "):
+			t.ref = strings.TrimPrefix(p, "judged against ")
+		case strings.HasPrefix(p, "policy "):
+			t.policy = strings.TrimPrefix(p, "policy ")
+		case p == "kept":
+			t.kept = true
+		case p == "unread":
+			t.unread = true
+		}
 	}
-	return bundle, ref
+	if t.ref == "unknown" {
+		t.ref = ""
+	}
+	return t
 }
 
-func (r *PactoReconciler) setOwnerVerified(pacto *pactov1alpha1.Pacto, status metav1.ConditionStatus, reason, msg, digest, ref string) {
-	if ref == "" {
-		ref = "none"
+func (r *PactoReconciler) setOwnerVerified(pacto *pactov1alpha1.Pacto, status metav1.ConditionStatus, reason, msg string, t ownerTail) {
+	tail := ownerJudgedPrefix + t.bundle + ", judged against " + cmp.Or(t.ref, "unknown") + ", policy " + t.policy
+	if t.kept {
+		tail += ", kept"
 	}
-	r.setCondition(pacto, pactov1alpha1.ConditionOwnerVerified, status, reason, msg+ownerJudgedPrefix+digest+", judged against "+ref+"]")
+	if t.unread {
+		tail += ", unread"
+	}
+	r.setCondition(pacto, pactov1alpha1.ConditionOwnerVerified, status, reason, msg+tail+"]")
 }
 
 // ownerVerdict maps an owner right onto the condition's status and reason.
@@ -213,7 +281,7 @@ func (oc *OwnerCheck) bundle(ctx context.Context, reg publish.Registry, tm root.
 	for _, s := range signers {
 		ids = append(ids, fleet.VerifiedSigner{Subject: s.Subject, Issuer: s.Issuer, Class: string(s.Class)})
 	}
-	return ownerBundle{repo: repo, digest: lr.ResolvedDigest, rev: fleet.ContractRevision{Owner: lr.Contract.Service.Owner, Record: rec,
+	return ownerBundle{repo: repo, digest: lr.ResolvedDigest, rev: fleet.ContractRevision{Service: lr.Contract.Service.Name, Owner: lr.Contract.Service.Owner, Record: rec,
 		Provenance: &fleet.BundleProvenance{Signature: signing.BundleSignatureFor(v, commit), Signers: ids}}}
 }
 
@@ -234,14 +302,9 @@ func (b ownerBundle) declaration() bool {
 }
 
 // outsideRule reports whether b's owner claim counts as it is: no
-// declaration, and unsigned or signed by a CI identity a rule accepted.
+// declaration, and unsigned or a CI identity's publish (fleet.CIPublished).
 func (b ownerBundle) outsideRule() bool {
-	p := b.rev.Provenance
-	s := p.Signature
-	ci := s.Status == fleet.SignatureVerified && slices.ContainsFunc(p.Signers, func(v fleet.VerifiedSigner) bool {
-		return v.Subject == s.Signer && v.Issuer == s.Issuer && v.Class == string(core.ClassCI)
-	})
-	return !b.declaration() && (s.Status == fleet.SignatureUnsigned || ci)
+	return !b.declaration() && (b.rev.Provenance.Signature.Status == fleet.SignatureUnsigned || fleet.CIPublished(b.rev.Provenance))
 }
 
 // ownerChange reports whether a claim changes the reference owner current.

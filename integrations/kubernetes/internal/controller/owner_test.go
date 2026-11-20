@@ -231,19 +231,26 @@ func TestOwnerVerifiedFalseWithholdsOwner(t *testing.T) {
 	}
 }
 
-// TestOwnerVerifiedFirstOwnerNeedsDefaultApprover: a first bundle has no
-// reference, so only a default approver sets its owner.
-func TestOwnerVerifiedFirstOwnerNeedsDefaultApprover(t *testing.T) {
+// TestOwnerVerifiedFirstRunIsUnverified: a CR's first bundle has no
+// revision before it, which is no proof the service had no owner: a refusal
+// reads unverified (kept, and the owner withheld), and only a default
+// approver sets its owner.
+func TestOwnerVerifiedFirstRunIsUnverified(t *testing.T) {
 	f := newOwnerFixture(t)
 	p := f.run(f.publish(teamBilling, declarationRecord(), f.person("alice@acme.example")))
-	wantOwnerVerified(t, p, metav1.ConditionFalse, pactov1alpha1.ReasonOwnerSignerNotAllowed)
-	if judgedReference(ownerCondition(p)) != "" || !strings.HasSuffix(ownerCondition(p).Message, "judged against none]") {
-		t.Fatalf("message: %s", ownerCondition(p).Message)
-	}
-	// A condition another writer left without the tail names no bundle: judged again.
+	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified)
 	c := ownerCondition(p)
+	if tl := judged(c); tl.ref != "" || !tl.kept || !strings.Contains(c.Message, "the owner before it was not read") ||
+		strings.Contains(c.Message, "no declared or attested owner yet") || statusOwnerTeam(p) != "" {
+		t.Fatalf("message: %s", c.Message)
+	}
+	f = newOwnerFixture(t)
+	p = f.run(f.publish(teamBilling, declarationRecord(), f.person("admin@acme.example")))
+	wantOwnerVerified(t, p, metav1.ConditionTrue, pactov1alpha1.ReasonOwnerSignerAllowed)
+	// A condition another writer left without the tail names no bundle: judged again.
+	c = ownerCondition(p)
 	c.Message = "edited"
-	if judgedBundle(c) != "" || judgedReference(c) != "" {
+	if tl := judged(c); tl.bundle != "" || tl.ref != "" {
 		t.Fatal("a tail-less message names a bundle")
 	}
 }
@@ -281,6 +288,81 @@ func TestOwnerVerifiedUnknownWhenRootUnreachable(t *testing.T) {
 	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified)
 	if !strings.Contains(ownerCondition(p).Message, "manifest unknown") {
 		t.Fatalf("message: %s", ownerCondition(p).Message)
+	}
+}
+
+// TestOwnerVerifiedGoneReferenceNotSticky: once the reference was garbage
+// collected, a CI publish (outside the rule) shows its owner without reading
+// it, and the next bundle is judged against an unknown owner, never against
+// the reference that is gone.
+func TestOwnerVerifiedGoneReferenceNotSticky(t *testing.T) {
+	f := newOwnerFixture(t)
+	gone := f.publish(teamPayments, nil)
+	f.run(gone)
+	delete(f.bundles, gone)
+	p := f.run(f.publish(teamBilling, declarationRecord(), f.person("eve@acme.example")))
+	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified)
+	if p = f.run(f.publish(teamBilling, nil, f.ci())); ownerCondition(p) != nil || statusOwnerTeam(p) != "billing" {
+		t.Fatalf("a CI publish after a gone reference: %+v %+v", ownerCondition(p), p.Status.Contract)
+	}
+	f = newOwnerFixture(t)
+	gone = f.publish(teamPayments, nil)
+	f.run(gone)
+	delete(f.bundles, gone)
+	f.run(f.publish(teamBilling, declarationRecord(), f.person("eve@acme.example")))
+	p = f.run(f.publish(teamBilling, declarationRecord(), f.person("admin@acme.example")))
+	wantOwnerVerified(t, p, metav1.ConditionTrue, pactov1alpha1.ReasonOwnerSignerAllowed)
+	if strings.Contains(ownerCondition(p).Message, gone) {
+		t.Fatalf("judged against the gone reference: %s", ownerCondition(p).Message)
+	}
+}
+
+// TestOwnerVerifiedPolicyChangeJudgesAgain: a kept verdict is judged again
+// once a helm upgrade changes the owner policy, both ways.
+func TestOwnerVerifiedPolicyChangeJudgesAgain(t *testing.T) {
+	f := newOwnerFixture(t)
+	f.run(f.publish(teamPayments, nil))
+	d := f.publish(teamBilling, declarationRecord(), f.person("bob@acme.example"))
+	wantOwnerVerified(t, f.run(d), metav1.ConditionFalse, pactov1alpha1.ReasonOwnerSignerNotAllowed)
+	withBob := *ownerPolicy
+	withBob.DefaultApprovers = append([]core.SignerRule{{Name: "bob", Issuer: ownerPersonIssuer, Subject: `^bob@acme\.example$`}}, ownerPolicy.DefaultApprovers...)
+	f.r.Owners.Policy = &withBob
+	p := f.run(d)
+	wantOwnerVerified(t, p, metav1.ConditionTrue, pactov1alpha1.ReasonOwnerSignerAllowed)
+	if statusOwnerTeam(p) != "billing" {
+		t.Fatal("the allowed owner is shown")
+	}
+	f.r.Owners.Policy = ownerPolicy
+	wantOwnerVerified(t, f.run(d), metav1.ConditionFalse, pactov1alpha1.ReasonOwnerSignerNotAllowed)
+}
+
+// TestOwnerVerifiedNoPolicyIsKept: with no policy mounted an owner change is
+// unverified for as long as the bundle and the policy stay, and is not
+// judged again on every reconcile.
+func TestOwnerVerifiedNoPolicyIsKept(t *testing.T) {
+	f := newOwnerFixture(t)
+	f.r.Owners.Policy = nil
+	f.run(f.publish(teamPayments, nil))
+	d := f.publish(teamBilling, declarationRecord(), f.person("eve@acme.example"))
+	wantOwnerVerified(t, f.run(d), metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified)
+	roots := 0
+	f.r.Owners.Root = func() (root.TrustedMaterial, error) { roots++; return f.ss.Root, nil }
+	if p := f.run(d); roots != 0 || ownerCondition(p).Status != metav1.ConditionUnknown {
+		t.Fatalf("judged again: %d root reads, %+v", roots, ownerCondition(p))
+	}
+}
+
+// TestOwnerVerifiedCIWithoutRuleIsUnverified: with no publisher rule, whether
+// a CI identity may publish is unknown, so its owner change reads
+// unverified, never a confirmed refusal.
+func TestOwnerVerifiedCIWithoutRuleIsUnverified(t *testing.T) {
+	f := newOwnerFixture(t)
+	f.r.Owners.Rules = nil
+	f.run(f.publish(teamPayments, nil))
+	p := f.run(f.publish(teamBilling, nil, f.ci()))
+	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified)
+	if tl := judged(ownerCondition(p)); !tl.kept || statusOwnerTeam(p) != "" || !strings.Contains(ownerCondition(p).Message, "no installation publisher rule") {
+		t.Fatalf("%+v", ownerCondition(p))
 	}
 }
 

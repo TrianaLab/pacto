@@ -169,10 +169,11 @@ Controller arguments derived from values
 {{- if include "pacto-operator.ownerPolicy.trustedRoot" . }}
 - --trusted-root=/etc/pacto/owner-policy/trusted_root.json
 {{- end }}
+{{- end }}
+{{- /* The owner check reads the publisher rule whether or not a declare block is set: without it every CI publish's owner change reads unverified. */}}
 {{- with dig "publishers" "registry" "" (.Values.delivery | default dict) }}
 - --publishers-registry={{ . }}
 - --publishers-default-branch={{ dig "publishers" "defaultBranch" "" ($.Values.delivery | default dict) | default "main" }}
-{{- end }}
 {{- end }}
 {{- if .Values.controller.stabilizationWindow }}
 - --stabilization-window={{ .Values.controller.stabilizationWindow }}
