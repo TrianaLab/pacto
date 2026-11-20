@@ -99,6 +99,7 @@ type Provider struct {
 	Objects      []ProviderObject `json:"objects,omitempty" doc:"The objects the evidence names, at most 20"`
 	ObjectsTotal int              `json:"objectsTotal,omitempty" doc:"How many objects the row had before the cap or your permissions narrowed it"`
 	Limitations  []Limitation     `json:"limitations,omitempty"`
+	Offers       []ProviderOffer  `json:"offers,omitempty" doc:"Pacto integrations that fit this provider, offered because it was detected; Pacto installs nothing"`
 	// Provenance, AsOf, Hint, Details and Scope are set on a row Pacto
 	// detected (see pkg/detect); a row a source reported directly leaves them
 	// empty. The operator's Installation row, from the same detection, is the
@@ -127,6 +128,40 @@ type ProviderObject struct {
 	Kind      string `json:"kind"`
 	Namespace string `json:"namespace,omitempty"`
 	Name      string `json:"name"`
+}
+
+// ProviderOffer is one Pacto integration a detected provider row offers.
+type ProviderOffer struct {
+	ID   string `json:"id" doc:"Stable offer id"`
+	Text string `json:"text" doc:"One sentence, Gate every <thing> with <mechanism>"`
+	Doc  string `json:"doc" doc:"The setup guide, an https URL"`
+}
+
+// ArgoSyncGateDoc is the setup guide of the Argo CD sync gate.
+const ArgoSyncGateDoc = "https://pacto.run/latest/integrations/kubernetes/gitops/#gate-every-argo-cd-sync"
+
+// providerOffers are the offers finalizeProviders puts on a row by its id.
+var providerOffers = map[string][]ProviderOffer{
+	ProviderArgoCD: {{ID: "argocd-repo-server-plugin", Text: "Gate every Argo CD sync with one repo-server plugin", Doc: ArgoSyncGateDoc}},
+}
+
+// rowOffers is p's offers merged by id with the table's for its id (the
+// table wins), sorted by id, in a new slice. A row that is unavailable
+// offers nothing.
+func rowOffers(p *Provider) []ProviderOffer {
+	if p.Status == SourceUnavailable {
+		return nil
+	}
+	add := providerOffers[p.ID]
+	if len(add) == 0 {
+		return p.Offers
+	}
+	out := slices.DeleteFunc(slices.Clone(p.Offers), func(o ProviderOffer) bool {
+		return slices.ContainsFunc(add, func(a ProviderOffer) bool { return a.ID == o.ID })
+	})
+	out = append(out, add...)
+	slices.SortFunc(out, func(a, b ProviderOffer) int { return cmp.Compare(a.ID, b.ID) })
+	return out
 }
 
 // ProviderCount is how many objects of one kind a source read in one namespace.
@@ -231,6 +266,7 @@ func finalizeRows(rows []Provider, state map[string]SourceStatus) []Provider {
 				Message: "source " + p.Source + " reported this row as " + string(status) + " and gave no reason"})
 		}
 		p.Status = status
+		p.Offers = rowOffers(p)
 		if p.Counts != nil || p.UnreadableKinds != nil {
 			p.Evidence = countsEvidence(p.Counts, p.UnreadableKinds)
 		}
@@ -387,6 +423,8 @@ func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNam
 	for _, c := range clusters {
 		shown[c.ID], shown[c.Name] = true, true
 	}
+	// Offers stay shared with rows: finalize built them and nothing writes
+	// them after, and their static text discloses nothing.
 	out := make([]Provider, 0, len(rows))
 	for i, p := range rows {
 		if allServicesHidden(p, hiddenSvc) {

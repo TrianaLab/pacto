@@ -4154,6 +4154,8 @@ export interface components {
              * @description How many objects the row had before the cap or your permissions narrowed it
              */
             objectsTotal?: number;
+            /** @description Pacto integrations that fit this provider, offered because it was detected; Pacto installs nothing */
+            offers?: components["schemas"]["Fleet.ProviderOffer"][] | null;
             /** @description declared for the operator's Installation row (its configuration); inferred for a row Pacto detected; empty for a row a source reported directly */
             provenance?: string;
             /**
@@ -4172,6 +4174,14 @@ export interface components {
             kind: string;
             name: string;
             namespace?: string;
+        };
+        "Fleet.ProviderOffer": {
+            /** @description The setup guide, an https URL */
+            doc: string;
+            /** @description Stable offer id */
+            id: string;
+            /** @description One sentence, Gate every <thing> with <mechanism> */
+            text: string;
         };
         "Fleet.ProvidersResult": {
             /**
