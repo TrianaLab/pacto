@@ -235,6 +235,7 @@ nav:
       - Operational graph reference: operational-graph-reference.md
       - Operational graph tallies: operational-graph-tallies.md
       - Clusters and target keys: operational-graph-clusters.md
+      - Multi-cluster: multi-cluster.md
       - Inferred services: operational-graph-inferred.md
       - Detected providers: operational-graph-providers.md
       - External catalog reference: external-catalog-reference.md

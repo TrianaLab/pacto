@@ -75,6 +75,11 @@ service or a caller outside Kubernetes, is hidden from everyone, cluster
 administrators included. A `pacto dashboard` or `pacto mcp` you run yourself
 opts in with `--review=local` and `--namespace`.
 
+A dashboard that reads several clusters reviews each person in each cluster
+with that cluster's own credentials, so a grant in one cluster shows nothing
+in another. A failed review hides that cluster and marks the answer partial;
+it never fails the request. See [Multi-cluster](../../multi-cluster.md).
+
 ## Configure the chart
 
 ```yaml

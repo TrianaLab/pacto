@@ -43,6 +43,7 @@ invocation registers.
 - **They expose knowledge only.** They never grant, scope or revoke a permission.
 - **A `nextAction` is a suggestion.** An attention item whose fix is a contract edit names `edit-contract` and `pacto_edit` in `nextAction` ([attention categories](operational-graph-tallies.md#attention-categories)); Pacto infers it from the item's code, and the edit itself decides.
 - **Partial or stale results are incomplete knowledge.** Every answer carries an `asOf` time, a `completeness` value and structured `limitations`. Branch on those before trusting an answer.
+- **Each cluster has its own status.** When the snapshot knows a cluster, every fleet answer's meta lists `clusters`: each cluster's `id`, `name`, `status`, `access` (why a restricted view shows nothing of it) and `targets`. `pacto_fleet_entities` takes `cluster`, a cluster id, to keep that cluster's targets and the services and revisions that run there. See [Multi-cluster](multi-cluster.md).
 - **Under partial coverage, a missing result means unknown.** If a source was unavailable, "not found" means "not known here".
 - **The snapshot refreshes on demand.** A call 30 seconds or more after the last rebuild attempt rebuilds it first, reaching your sources again. Calls inside that interval share one `snapshotId`; a failed rebuild keeps the last good snapshot.
 - **The server keeps no state.** Durable evidence lives in an [Evidence Server](evidence.md); the MCP server's state ends with its process.
