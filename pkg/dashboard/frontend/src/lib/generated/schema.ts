@@ -3270,13 +3270,15 @@ export interface components {
              * @description How many revisions were read
              */
             revisionsTotal: number;
+            /** @description True when the caller's view is restricted, so the surface is not shown; absent when the record holds none */
+            surfaceHidden?: boolean;
         };
         "Fleet.ExternalProviderRevision": {
             digest: string;
             ref?: string;
             /** @description The signature check of the revision; absent when no source that read it checks signatures */
             signature?: components["schemas"]["Fleet.BundleSignature"];
-            /** @description What Pacto saw of the external system; absent when the caller's permissions hide any source or consumer it was computed from */
+            /** @description What the record says Pacto saw of the external system, on the first revision only; absent when the record holds none or the caller's view is restricted (surfaceHidden) */
             surface?: components["schemas"]["Contract.InferredSurface"];
             /** @description The 0.0.<n> version: a count of surface changes, never a vendor version */
             version: string;

@@ -3,8 +3,8 @@ import { appReady } from './ready';
 
 // An inferred external contract (517-S3), against the built WASM demo: the registry
 // mirror holds stripe's inferred contract, which shows as one collapsed block on the
-// stripe external with no signature, so it reads as unsigned and a range is never
-// checked against it.
+// stripe external. No source checked its signature, so it says so (never "unsigned"),
+// and a range is never checked against it.
 
 const T = 20_000;
 
@@ -24,8 +24,8 @@ function inferredAttention() {
       entity: { kind: 'external', key: 'stripe', label: 'Stripe', secondary: 'vendor-api', status: 'Unknown', href: '/fleet/externals/stripe' },
       label: "1 service checks a range against stripe's inferred contract", severity: 'info', code: 'INFERRED_PROVIDER', category: 'knowledge',
       summary: 'Range checked against an inferred contract',
-      reason: "card-payments pins a compatibility range on stripe's inferred contract, which Pacto published from what it sees; Pacto never checks a range against it",
-      nextStep: 'Declare a contract for stripe with pacto declare, then point the ranges at it',
+      reason: "card-payments pins a compatibility range on stripe's inferred contract, which lives under pacto-inferred; Pacto never checks a range against it",
+      nextStep: 'Write a contract with service.external: stripe, publish it outside pacto-inferred, then point the ranges at it',
       nextAction: { verb: 'declare', tool: 'pacto_declare' },
     }, ...(doc.items ?? [])];
     doc.total = (doc.total ?? 0) + 1;
@@ -36,7 +36,7 @@ function inferredAttention() {
 }
 
 test.describe('WASM demo — inferred external contracts', () => {
-  test('stripe shows its inferred contract as unsigned and never range-checked', async ({ page }) => {
+  test('stripe shows its inferred contract as not checked and never range-checked', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await appReady(page, '/#/fleet/externals/stripe');
 
@@ -48,11 +48,12 @@ test.describe('WASM demo — inferred external contracts', () => {
     await block.locator('summary').first().click();
     await expect(block).toContainText('registry.pacto.demo/demo/pacto-inferred/stripe');
     await expect(block).toContainText('version 0.0.1');
-    // The mark's words are on the page, not only in a tooltip: the demo revision has
-    // no provenance, so it reads unsigned.
-    await expect(block).toContainText('Unsigned, publisher unknown; a range is never checked against it');
+    // The mark's words are on the page, not only in a tooltip: no source checked the
+    // demo revision's signature, so it says so.
+    await expect(block).toContainText('Signature not checked, publisher unknown; a range is never checked against it');
 
-    await block.getByText('What Pacto saw').click();
+    await block.getByText('What the record lists').click();
+    await expect(block.getByTestId('inferred-surface-meta')).toContainText(/^Computed .+; (complete|partial)/);
     await expect(block.locator('.xe-surface li').first()).toContainText('api.stripe.com:443');
     await expect(block.locator('.xe-surface li').first()).toContainText('seen by k8s-production');
   });

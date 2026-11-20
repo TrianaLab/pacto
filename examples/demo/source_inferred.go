@@ -38,7 +38,7 @@ func demoInferredSurface() contract.InferredSurface {
 
 // demoInferredRevision is stripe's inferred contract as the registry mirror
 // reads it. It carries no provenance: the demo never claims a signature
-// check it did not run, so the External page words it as unsigned.
+// check it did not run, so the External page says no source checked it.
 //
 // ponytail: built by hand, not with inferredcontract.Bundle, which links
 // pkg/publish and sigstore (and klog) into the wasm build;

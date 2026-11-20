@@ -86,7 +86,8 @@ overwritten.
 `asOf` says when the surface was computed and `completeness` whether the fleet
 snapshot was complete. A partial snapshot never removes a value: the operator
 keeps every value the last revision it signed holds and only adds new ones.
-Removing a value needs a complete snapshot.
+Removing a value needs a complete snapshot. An operator that watches only some
+namespaces always publishes a partial snapshot, with `TARGET_SNAPSHOT_SCOPED`.
 
 At most 20 contracts are pushed per run; the rest wait for the next run.
 
@@ -100,7 +101,8 @@ never the annotation.
 
 An operator signature never makes a publisher. Readers name the operator's
 signer from the `snapshotKey` the `pacto-operator-detected` ConfigMap
-advertises (`--detected` on the CLI). A revision only the operator signed shows
+advertises (`--detected` on the CLI, a file or the ConfigMap), even when
+delivery is off or there is no cluster. A revision only the operator signed shows
 its signature as `unverified` with source `operator`, even when its
 `publish.sign` names the operator. A declared revision that an accepted
 publisher also signed keeps that publisher's verdict. A revision under
@@ -108,7 +110,7 @@ publisher also signed keeps that publisher's verdict. A revision under
 
 Pull access to `pacto-inferred` is a separate audience that the registry's
 ACL governs: restricted views cover Pacto's own answers, never direct registry
-pulls.
+pulls. A restricted view never shows the surface (`surfaceHidden: true`).
 
 ## A range against an inferred contract
 
@@ -137,12 +139,15 @@ contract never clears a gate.
 
 Each external system with such a range raises one attention item,
 `INFERRED_PROVIDER`, in the knowledge category: "2 services check a range
-against stripe's inferred contract". Its next action is `declare`, through the
-`pacto declare` command or the `pacto_declare` MCP tool. Declare a contract for
-the system and point the ranges at its repository: the reason then disappears.
+against stripe's inferred contract". Its next action is `declare`. `pacto
+declare` reads only workloads, so for an external system write a contract with
+`service.external: <identity>`, publish it outside `pacto-inferred` and point
+the ranges at its repository: the reason then disappears.
 
 The External page on the dashboard shows the inferred contract in a collapsed
-block after Consumers, with its surface and the signer.
+block after Consumers: what its signature check established, when the surface
+was computed, whether that run was partial and, for each value, when it was
+last seen. Each list shows its first 12 values.
 
 ## Publish without an operator
 
@@ -155,7 +160,9 @@ pacto fleet publish-inferred --registry ghcr.io/acme --key installation.key \
   --oci oci://ghcr.io/acme/checkout
 ```
 
-`--key` takes a PEM private key or a `pacto evidence keygen` seed. Never run it
+`--key` takes a PEM private key or a `pacto evidence keygen` seed. Readers
+recognise its signature as the operator's only when their `--detected`
+advertisement names its public key. Never run it
 against a registry an operator already writes. No MCP tool publishes inferred
 contracts: agents never sign as the installation.
 

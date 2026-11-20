@@ -1,5 +1,8 @@
 <script>
   import { formatCount, shortDigest } from '../../lib/format.ts';
+  import { formatRelative } from '../../lib/dateFormat.ts';
+  import { cap } from '../../lib/cap.svelte.ts';
+  import ShowAll from '../../components/ShowAll.svelte';
   import { externalClassNoun, externalJoinWords } from '../../lib/entityLabels.ts';
   import { fleetEntityUrl } from '../../lib/router.ts';
   import EntityLink from '../../components/EntityLink.svelte';
@@ -23,15 +26,34 @@
   const signatureWords = (c) => (c.signature === 'verified' ? `signature verified${c.signer ? ` (${c.signer})` : ''}` : `signature ${c.signature || 'unknown'}`);
   // Required and optional describe a declaration; a consumer no contract declares says
   // how Pacto knows it instead.
-  // The inferred contract the operator published for it (517-S3). Its revisions come
-  // operator-signed first, so the first is the one shown, and the mark says what its own
-  // signature proves. A view that hides any source or consumer drops the surface.
+  // The inferred contract under pacto-inferred (517-S3). Its revisions come
+  // operator-signed first, so the first is the one shown, and the mark says only what its
+  // own signature check established (fleet.SignatureWords). A restricted view drops the
+  // surface and says so (surfaceHidden).
   const provider = $derived(rec.provider ?? null);
   const shown = $derived(provider?.revisions?.[0] ?? null);
-  const markTitle = $derived(shown?.signature?.source === 'operator'
-    ? "Published and signed by this installation's operator from what Pacto sees; a range is never checked against it"
-    : 'Unsigned, publisher unknown; a range is never checked against it');
+  const byOperator = $derived(shown?.signature?.source === 'operator');
+  const providerSignature = (sig) => {
+    if (!sig) return 'Signature not checked, publisher unknown';
+    if (sig.source === 'operator') return "Published and signed by this installation's operator from what Pacto sees";
+    if (sig.status === 'unsigned') return 'Unsigned, publisher unknown';
+    if (!sig.status || sig.status === 'unknown') return 'Signature could not be checked, publisher unknown';
+    return `Signed${sig.signer ? ` by ${sig.signer}` : ''}, not by this installation's operator (${sig.status})`;
+  };
+  const markTitle = $derived(`${providerSignature(shown?.signature)}; a range is never checked against it`);
+  // When the surface was computed and whether that run saw everything: a partial run
+  // carries earlier values forward, so they never read as current.
+  const surfaceMeta = $derived.by(() => {
+    const s = shown?.surface;
+    if (!s) return '';
+    const asOf = s.asOf ? `Computed ${formatRelative(s.asOf)}` : 'Computed at an unknown time';
+    return s.completeness?.state === 'partial'
+      ? `${asOf}; partial${s.completeness.limitations?.length ? ` (${s.completeness.limitations.join(', ')})` : ''}: some sources did not answer, so values may be carried over from earlier runs`
+      : `${asOf}; complete`;
+  });
   const SURFACE = [['hosts', 'Hosts'], ['ports', 'Ports'], ['clients', 'Clients']];
+  const caps = { hosts: cap(12), ports: cap(12), clients: cap(12) };
+  const seenWords = (v) => `seen by ${(v.sources ?? []).join(', ')}${v.lastSeen ? `, last seen ${formatRelative(v.lastSeen)}` : ''}`;
   const consumerUse = (c) => (c.provenance === 'observed' ? 'observed only' : c.provenance === 'inferred' ? 'inferred only' : c.required ? 'required' : 'optional');
 </script>
 
@@ -77,20 +99,22 @@
         <p class="t-body-2 xe-wrap"><bdi>{provider.repository}</bdi>{#if shown}, version <bdi>{shown.version}</bdi>{/if} <IdentityBadge label="inferred" title={markTitle} describe /></p>
         {#if shown?.surface}
           <details class="disclosure">
-            <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>What Pacto saw</summary>
+            <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>{byOperator ? "What this installation's operator saw" : 'What the record lists'}</summary>
+            <p class="t-meta" data-testid="inferred-surface-meta">{surfaceMeta}</p>
             {#each SURFACE as [k, label] (k)}
               {#if shown.surface[k]?.length}
-                <h3 class="t-label">{label}</h3>
+                <h3 class="t-label">{label} ({formatCount(shown.surface[k].length)})</h3>
                 <ul class="xe-surface">
-                  {#each shown.surface[k] as v (v.value)}
-                    <li><bdi>{v.value}</bdi> <span class="t-meta xe-sources">seen by {(v.sources ?? []).join(', ')}</span></li>
+                  {#each caps[k].slice(shown.surface[k]) as v (v.value)}
+                    <li><bdi>{v.value}</bdi> <span class="t-meta xe-sources">{seenWords(v)}</span></li>
                   {/each}
                 </ul>
+                <ShowAll cap={caps[k]} total={shown.surface[k].length} noun={label.toLowerCase()} testid={`inferred-surface-${k}-show-all`} />
               {/if}
             {/each}
           </details>
         {:else if shown}
-          <p class="t-meta" data-testid="inferred-surface-hidden">Surface hidden: some sources are outside your view</p>
+          <p class="t-meta" data-testid="inferred-surface-hidden">{provider.surfaceHidden ? 'Surface hidden: your view is restricted' : 'This revision records no surface'}</p>
         {/if}
       </div>
     </details>
