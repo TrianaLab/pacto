@@ -179,8 +179,14 @@ const matchInferredContract = "its inferred contract"
 
 // joinInferredRef joins dependency idx of rev, whose ref names key's inferred
 // contract, to that external system: the consumer is counted on its record,
-// and a declared range is unknown with reason INFERRED_PROVIDER.
-func joinInferredRef(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk RevisionKey, rev *ContractRevision, idx int, dep contract.Dependency, key ExternalKey, rel *Relationship) {
+// and a declared range is unknown with reason INFERRED_PROVIDER. A ref whose
+// identity (path, as written) does not parse joins nothing and stays
+// unresolved with its reason.
+func joinInferredRef(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk RevisionKey, rev *ContractRevision, idx int, dep contract.Dependency, key ExternalKey, path string, rel *Relationship) {
+	if key == "" {
+		rel.Reason = "the ref names " + contract.InferredRepository + "/" + path + ", which is no external identity, so it joins no external system and is never a service"
+		return
+	}
 	recordExternalDeclaration(snap, cat, rk, rev, idx, dep, key, matchInferredContract)
 	rel.ToExternal, rel.Reason = key, inferredRefReason(key)
 	if dep.Compatibility != "" {

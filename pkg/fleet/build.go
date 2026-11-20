@@ -2923,10 +2923,8 @@ func revisionDependencyEdges(snap *FleetSnapshot, cat *externalcatalog.Catalog, 
 			}
 		}
 		switch {
-		case inferred && inferredKey == "":
-			rel.Reason = "the ref names " + contract.InferredRepository + "/" + inferredPath + ", which is no external identity, so it joins no external system and is never a service"
 		case inferred:
-			joinInferredRef(snap, cat, rk, rev, i, dep, inferredKey, &rel)
+			joinInferredRef(snap, cat, rk, rev, i, dep, inferredKey, inferredPath, &rel)
 		case !ok && dep.External:
 			rel.ToExternal, rel.Reason = joinExternal(snap, cat, rk, rev, i, dep)
 		case !ok && dep.NameFromRef:

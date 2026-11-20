@@ -37,20 +37,8 @@ func pinVisibleRef(snap *fleet.FleetSnapshot, ref string) (string, error) {
 			}
 			reason = "; revision " + string(key) + " has no immutable ref: " + ei.Reason()
 		}
-		// An inferred contract is no fleet revision: it is the provider of
-		// an external system the view shows.
-		for _, rec := range snap.Externals {
-			if rec.Provider == nil {
-				continue
-			}
-			for _, pr := range rec.Provider.Revisions {
-				if pr.Ref != ref && (digest == "" || pr.Digest != digest) {
-					continue
-				}
-				if fleet.ClassifyContentIdentity(pr.Ref, pr.Digest).Retrievable() {
-					return pr.Ref, nil
-				}
-			}
+		if pinned := pinInferredRef(snap, ref, digest); pinned != "" {
+			return pinned, nil
 		}
 	}
 	var asOf time.Time
@@ -59,6 +47,23 @@ func pinVisibleRef(snap *fleet.FleetSnapshot, ref string) (string, error) {
 	}
 	return "", errors.New("is not a revision in your fleet view (asOf " + asOf.UTC().Format(time.RFC3339) +
 		"); over HTTP, name a revision you can see, or run pacto impact locally" + reason)
+}
+
+// pinInferredRef is the digest-pinned ref of the inferred contract revision
+// ref (or digest) names on an external system the view shows, "" when none
+// does: an inferred contract is no fleet revision.
+func pinInferredRef(snap *fleet.FleetSnapshot, ref, digest string) string {
+	for _, rec := range snap.Externals {
+		if rec.Provider == nil {
+			continue
+		}
+		for _, pr := range rec.Provider.Revisions {
+			if (pr.Ref == ref || digest != "" && pr.Digest == digest) && fleet.ClassifyContentIdentity(pr.Ref, pr.Digest).Retrievable() {
+				return pr.Ref
+			}
+		}
+	}
+	return ""
 }
 
 // pinVisibleRefs pins an old and a new ref with pinVisibleRef, naming the
