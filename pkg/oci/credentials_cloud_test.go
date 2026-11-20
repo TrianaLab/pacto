@@ -338,3 +338,15 @@ func TestPactoKeychainCandidatesIncludeCloud(t *testing.T) {
 		t.Errorf("Candidates = %v, want [docker acr]", got)
 	}
 }
+
+func TestPrependPutsSourceFirst(t *testing.T) {
+	base := NewKeychain(CredentialOptions{SkipCloud: true})
+	got := base.Prepend("installation", countingKeychain{calls: map[string]int{}})
+	want := []string{"installation", "pacto login", "gh", "docker"}
+	if names := sourceNames(got); strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Errorf("Prepend sources = %v, want %v", names, want)
+	}
+	if names := sourceNames(base); names[0] != "pacto login" {
+		t.Errorf("Prepend changed the original keychain: %v", names)
+	}
+}

@@ -3800,3 +3800,37 @@ tests:
         value:
         - {kind: ServiceAccount, name: pacto-viewer, namespace: pacto-operator-system}
       documentIndex: 4
+  - it: 'registry with registryPullSecret: every rule, roleRef and subject of secret-grants.yaml is pinned'
+    template: templates/secret-grants.yaml
+    set:
+      registry: ghcr.io/acme
+      registryPullSecret: ci/regcred
+    asserts:
+    - hasDocuments: {count: 2}
+    - equal: {path: kind, value: Role}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-secret-grant}
+      documentIndex: 0
+    - equal: {path: metadata.namespace, value: ci}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: [get]
+          resourceNames: [regcred]
+      documentIndex: 0
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-secret-grant}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-operator-secret-grant}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+      documentIndex: 1

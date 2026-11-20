@@ -117,6 +117,20 @@ Controller arguments derived from values
 {{- if or .Values.controller.watchNamespaces .Values.controller.watchNamespace }}
 - --watch-namespaces={{ include "pacto-operator.watchNamespaces" . | fromYamlArray | join "," }}
 {{- end }}
+{{- with .Values.registry }}
+- --registry={{ . }}
+{{- end }}
+{{- with .Values.registryPullSecret }}
+{{- if not $.Values.registry }}
+{{- fail "registryPullSecret needs registry: the Secret is used only under the registry's push prefixes" }}
+{{- end }}
+- --registry-pull-secret={{ . }}
+{{- end }}
+{{- if .Values.registry }}
+{{- range include "pacto-operator.pushPrefixes" . | fromYamlArray }}
+- --registry-push-prefix={{ . }}
+{{- end }}
+{{- end }}
 {{- if .Values.controller.stabilizationWindow }}
 - --stabilization-window={{ .Values.controller.stabilizationWindow }}
 {{- end }}
@@ -552,12 +566,27 @@ upgrade from a release without the key rendering. Empty means cluster-wide.
 {{- end }}
 
 {{/*
+Every repository prefix a Pacto component may push under, as a YAML list: the
+installation repositories <registry>/pacto-targets, pacto-index and
+pacto-inferred when registry is set. Empty without registry.
+*/}}
+{{- define "pacto-operator.pushPrefixes" -}}
+{{- $out := list }}
+{{- with .Values.registry }}
+{{- range list "pacto-targets" "pacto-index" "pacto-inferred" }}
+{{- $out = append $out (printf "%s/%s" $.Values.registry .) }}
+{{- end }}
+{{- end }}
+{{- toYaml $out }}
+{{- end }}
+
+{{/*
 The Secrets granted by name, as a YAML list of {namespace, name}, from
-controller.secretGrants (namespace/name).
+controller.secretGrants and registryPullSecret (both namespace/name).
 */}}
 {{- define "pacto-operator.secretGrants" -}}
 {{- $out := list }}
-{{- range default list .Values.controller.secretGrants | uniq }}
+{{- range concat (default list .Values.controller.secretGrants) (compact (list .Values.registryPullSecret)) | uniq }}
 {{- $parts := splitList "/" . }}
 {{- $out = append $out (dict "namespace" (index $parts 0) "name" (index $parts 1)) }}
 {{- end }}

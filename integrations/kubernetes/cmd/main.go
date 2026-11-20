@@ -38,6 +38,7 @@ import (
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/controller"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/dashboard"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/detection"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/evidence"
@@ -122,6 +123,10 @@ type options struct {
 	nodeAgentPullSecrets     []string
 	nodeAgentPublishInterval time.Duration
 	nodeAgentResources       component.Resources
+
+	registry             string
+	registryPullSecret   string
+	registryPushPrefixes []string
 
 	zap zap.Options
 }
@@ -304,6 +309,17 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.DurationVar(&o.nodeAgentPublishInterval, "node-agent-publish-interval", 30*time.Second,
 		"How often each node agent publishes its node's NodeRuntimeObservation.")
 	bindResourceFlags(fs, &o.nodeAgentResources, "node-agent", "node agent")
+	fs.StringVar(&o.registry, "registry", "",
+		"The installation registry (host/path): Pacto publishes the target snapshot and inferred contracts under it "+
+			"and pushes nowhere else; empty turns those features off.")
+	fs.StringVar(&o.registryPullSecret, "registry-pull-secret", "",
+		"namespace/name of the Secret that authenticates to the installation registry; used only under the push prefixes.")
+	fs.Func("registry-push-prefix",
+		"Repeatable: a repository prefix a Pacto component may push under; the chart renders every one.",
+		func(v string) error {
+			o.registryPushPrefixes = append(o.registryPushPrefixes, v)
+			return nil
+		})
 	o.zap.BindFlags(fs)
 }
 
@@ -380,12 +396,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	// The installation identity (registryPullSecret and the cloud sources) answers only under the push
+	// prefixes, so a tenant's contract ref never rides on it.
+	keychain, err := credentials.OperatorKeychain(mgr.GetAPIReader(), o.registryPullSecret,
+		credentials.InstallationPrefixes(o.registry, o.registryPushPrefixes), false)
+	if err != nil {
+		setupLog.Error(err, "Invalid registry settings")
+		os.Exit(1)
+	}
+
 	pactoReconciler := &controller.PactoReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder()
 		Recorder:                          mgr.GetEventRecorderFor("pacto-controller"),
-		Loader:                            loader.New(),
+		Loader:                            loader.New(loader.WithKeychain(keychain)),
 		StabilizationWindow:               o.stabilizationWindow,
 		MetricsObservation:                o.metricsObservation,
 		Probing:                           o.probing,

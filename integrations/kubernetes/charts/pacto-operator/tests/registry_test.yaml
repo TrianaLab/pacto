@@ -1,0 +1,119 @@
+# The installation registry (510-S6): the controller flags the top-level
+# registry renders, and the one by-name grant registryPullSecret adds.
+suite: registry
+templates:
+  - templates/deployment.yaml
+  - templates/secret-grants.yaml
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+tests:
+  - it: registry renders --registry on the controller
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry=ghcr.io/acme
+
+  - it: no registry renders no --registry
+    template: templates/deployment.yaml
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--registry
+      - hasDocuments:
+          count: 0
+        template: templates/secret-grants.yaml
+
+  - it: registry renders one --registry-push-prefix per installation repository
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-push-prefix=ghcr.io/acme/pacto-targets
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-push-prefix=ghcr.io/acme/pacto-index
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-push-prefix=ghcr.io/acme/pacto-inferred
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--registry-pull-secret
+
+  - it: registryPullSecret renders a Role scoped to that Secret in its namespace
+    template: templates/secret-grants.yaml
+    set:
+      registry: ghcr.io/acme
+      registryPullSecret: ci/regcred
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.namespace
+          value: ci
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [secrets]
+              verbs: [get]
+              resourceNames: [regcred]
+        documentIndex: 0
+      - equal:
+          path: roleRef
+          value:
+            apiGroup: rbac.authorization.k8s.io
+            kind: Role
+            name: pacto-operator-secret-grant
+        documentIndex: 1
+      - equal:
+          path: subjects
+          value:
+            - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+        documentIndex: 1
+
+  - it: registryPullSecret renders --registry-pull-secret
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      registryPullSecret: ci/regcred
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-pull-secret=ci/regcred
+
+  - it: registryPullSecret also in controller.secretGrants renders one Role
+    template: templates/secret-grants.yaml
+    set:
+      registry: ghcr.io/acme
+      registryPullSecret: ci/regcred
+      controller.secretGrants: [ci/regcred, ci/other]
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: rules[0].resourceNames
+          value: [other, regcred]
+        documentIndex: 0
+
+  - it: registryPullSecret without registry fails
+    template: templates/deployment.yaml
+    set:
+      registryPullSecret: ci/regcred
+    asserts:
+      - failedTemplate:
+          errorPattern: registryPullSecret needs registry
+
+  - it: the schema refuses registryPullSecret without a namespace
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      registryPullSecret: regcred
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?i)registryPullSecret.*does not match pattern"

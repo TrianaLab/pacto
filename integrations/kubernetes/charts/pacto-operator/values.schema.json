@@ -319,6 +319,11 @@
       "description": "The installation registry (host[/path], no scheme); the recorder publishes the target snapshot to <registry>/pacto-targets.",
       "pattern": "^([a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)*)?$"
     },
+    "registryPullSecret": {
+      "type": "string",
+      "description": "namespace/name of an existing Secret that authenticates to registry; the chart grants get on that Secret only.",
+      "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?/[a-z0-9]([-a-z0-9.]*[a-z0-9])?$"
+    },
     "replicaCount": {
       "type": "integer",
       "minimum": 1

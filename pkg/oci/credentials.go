@@ -105,6 +105,12 @@ func (k *PactoKeychain) Resolve(target authn.Resource) (authn.Authenticator, err
 	return authn.Anonymous, nil
 }
 
+// Prepend returns a copy of k with kc, named name, tried before every other
+// source. k itself is unchanged.
+func (k *PactoKeychain) Prepend(name string, kc authn.Keychain) *PactoKeychain {
+	return &PactoKeychain{sources: append([]namedKeychain{{name: name, kc: kc}}, k.sources...)}
+}
+
 // Candidates returns all non-anonymous credential sources for the target,
 // in priority order, each tagged with its source name.
 func (k *PactoKeychain) Candidates(target authn.Resource) ([]CredSource, error) {

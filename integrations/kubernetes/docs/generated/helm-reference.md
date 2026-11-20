@@ -217,6 +217,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `podLabels` | `{}` | Labels to add to the controller pod |
 | `podSecurityContext` | `{}` | Pod securityContext of the controller (defaults to `global.podSecurityContext`) |
 | `registry` | `""` | The installation registry (host[/path], no scheme), such as `ghcr.io/acme`. The delivery recorder publishes the cluster's signed target snapshot to `<registry>/pacto-targets`, which `pacto impact` reads in CI; empty publishes none. Later releases derive more repositories from it. |
+| `registryPullSecret` | `""` | namespace/name of an existing Secret that authenticates to `registry`, for a registry without workload identity. Pacto proposes one it saw running pods use (helm upgrade notes and Data sources) and never uses it until you name it here. The chart grants get on that Secret only. |
 | `replicaCount` | `1` | Number of controller replicas |
 | `resources.limits.memory` | `256Mi` | Memory limit of the controller. It caches every Deployment, StatefulSet, ReplicaSet, Job, CronJob and Service it targets. |
 | `resources.requests.cpu` | `100m` | CPU request of the controller |
