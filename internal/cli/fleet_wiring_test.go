@@ -982,3 +982,14 @@ func TestFleetAndDashboardSetRegistryProbe(t *testing.T) {
 		t.Error("the dashboard sets no registry probe")
 	}
 }
+
+// TestMCPSignInLine: an MCP server signs callers in against the current
+// context and warns when --context leaves it unread.
+func TestMCPSignInLine(t *testing.T) {
+	if got := mcpSignInLine(app.FleetOptions{IncludeK8s: true, K8sContexts: []string{"eu"}}); !strings.HasPrefix(got, "Sign-in cluster: the current context") || strings.Contains(got, "--k8s") {
+		t.Errorf("read: %q", got)
+	}
+	if got := mcpSignInLine(app.FleetOptions{K8sContexts: []string{"eu"}}); !strings.Contains(got, "add --k8s") {
+		t.Errorf("unread: %q", got)
+	}
+}

@@ -67,8 +67,11 @@ a person whose user starts with `system:serviceaccount:` or `system:node:`, or
 who is in the `system:serviceaccounts` or `system:nodes` group, in the sign-in
 cluster only. Every other cluster is hidden from them as not reviewable.
 
-The HTTP MCP fleet tools and the MCP delivery reads review callers the same
-way as the dashboard.
+The HTTP MCP fleet tools and the MCP delivery reads review callers in each
+cluster the same way. Their sign-in cluster is always the current context, or
+the in-cluster configuration in a pod, since `--context` adds clusters there.
+`pacto mcp` prints it at start-up and warns when the fleet does not read it;
+add `--k8s` so that ServiceAccount callers see their own cluster.
 
 ## Hidden clusters
 

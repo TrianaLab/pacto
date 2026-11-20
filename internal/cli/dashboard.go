@@ -128,7 +128,10 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			// is the only place that answer stays true. Named contexts outside a
 			// pod replace the ambient one, as a source and as the sign-in cluster.
 			contexts := splitList(v.GetStringSlice("dashboard.context"))
-			includeCurrent, clusterCfg := dashboardClusters(contexts, d)
+			includeCurrent, clusterCfg, err := signInCluster(v, contexts, d)
+			if err != nil {
+				return err
+			}
 			cluster := currentClient(includeCurrent)
 			det := dashboardSources{
 				local:           localRootHasBundle(dir),
@@ -204,7 +207,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				// The per-launch token: delivery actions in this browser need it.
 				addr = identity.auth.LaunchURL(addr)
 			}
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nPacto Dashboard running at %s\nSources: %s\n%sPress Ctrl+C to stop\n", addr, strings.Join(configured, ", "), signInLine(includeCurrent, contexts))
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nPacto Dashboard running at %s\nSources: %s\n%sPress Ctrl+C to stop\n", addr, strings.Join(configured, ", "), signInLine(includeCurrent, contexts, clusterCfg != nil))
 
 			return server.Serve(ctx)
 		},
@@ -604,15 +607,27 @@ func contractRefClients(current k8sclient.K8sClient, contexts []string) []k8scli
 // which cluster people sign in against: named contexts outside a pod replace
 // the current one and the first of them is the sign-in cluster; otherwise
 // the ambient config (the in-cluster one in a pod) is both.
-func dashboardClusters(contexts []string, d deps) (includeCurrent bool, signIn *rest.Config) {
+// The error is why the first named context's config cannot be loaded.
+func dashboardClusters(contexts []string, d deps) (includeCurrent bool, signIn *rest.Config, err error) {
 	if len(contexts) > 0 {
-		if _, err := d.inCluster(); err != nil {
-			cfg, _ := d.contextConfig(contexts[0]) // nil: no sign-in cluster, as without a kubeconfig
-			return false, cfg
+		if _, inErr := d.inCluster(); inErr != nil {
+			cfg, err := d.contextConfig(contexts[0])
+			return false, cfg, err
 		}
 	}
-	cfg, _ := d.clusterConfig()
-	return true, cfg
+	cfg, _ := d.clusterConfig() // nil: no sign-in cluster, as without a kubeconfig
+	return true, cfg, nil
+}
+
+// signInCluster is dashboardClusters, failing start-up when people sign in
+// (OIDC or token sign-in) and the named sign-in cluster cannot be loaded:
+// every reader would otherwise be reviewed nowhere while the banner names it.
+func signInCluster(v *viper.Viper, contexts []string, d deps) (bool, *rest.Config, error) {
+	include, cfg, err := dashboardClusters(contexts, d)
+	if err != nil && (v.GetString("dashboard.oidc-issuer-url") != "" || v.GetBool("dashboard.token-login")) {
+		return false, nil, fmt.Errorf("the sign-in cluster, context %s, cannot be loaded: %w", contexts[0], err)
+	}
+	return include, cfg, nil
 }
 
 // currentClient is the current context's client when the dashboard reads
@@ -626,10 +641,14 @@ func currentClient(include bool) k8sclient.K8sClient {
 }
 
 // signInLine names the sign-in cluster on the startup banner when named
-// contexts replace the current one.
-func signInLine(includeCurrent bool, contexts []string) string {
+// contexts replace the current one, and says so when its config could not be
+// loaded.
+func signInLine(includeCurrent bool, contexts []string, loaded bool) string {
 	if includeCurrent || len(contexts) == 0 {
 		return ""
+	}
+	if !loaded {
+		return "Sign-in cluster: context " + contexts[0] + " cannot be loaded; delivery reads are unavailable\n"
 	}
 	return "Sign-in cluster: context " + contexts[0] + "\n"
 }

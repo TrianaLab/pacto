@@ -616,7 +616,9 @@ func mcpFleetView(cmd *cobra.Command, svc *app.Service, d deps) (pactomcp.FleetV
 	}
 	cluster, _ := d.clusterConfig()
 	home := newHomeCluster(cluster, d)
-	viewer := clusterViewer(fleetEntries(svc, d, mcpFleetOptions(cmd)), home, d, mode, namespaces)
+	fopts := mcpFleetOptions(cmd)
+	_, _ = fmt.Fprint(cmd.ErrOrStderr(), mcpSignInLine(fopts))
+	viewer := clusterViewer(fleetEntries(svc, d, fopts), home, d, mode, namespaces)
 	return func(ctx context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
 		p, ok := personFrom(ctx)
 		if !ok {
@@ -624,6 +626,18 @@ func mcpFleetView(cmd *cobra.Command, svc *app.Service, d deps) (pactomcp.FleetV
 		}
 		return viewer.Query(ctx, p, q)
 	}, home.UID
+}
+
+// mcpSignInLine names the cluster an MCP server signs callers in against:
+// always the current (or in-cluster) configuration, which --context never
+// replaces. ServiceAccount and node identities and operation records are
+// reviewed there only, so it warns when the fleet does not read it.
+func mcpSignInLine(fopts app.FleetOptions) string {
+	line := "Sign-in cluster: the current context; ServiceAccount and node identities and operation records are reviewed there only"
+	if !fopts.IncludeK8s && len(fopts.K8sContexts) > 0 {
+		line += ". The fleet does not read it: add --k8s, or such callers see no cluster"
+	}
+	return line + "\n"
 }
 
 // parseAuthFlags parses repeated name=value credential flags.

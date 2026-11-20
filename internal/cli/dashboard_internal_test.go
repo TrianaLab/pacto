@@ -542,18 +542,38 @@ func TestDashboardContextsReplaceCurrentContext(t *testing.T) {
 	writeKubeconfig(t, dir)
 	d := defaultDeps()
 	d.inCluster = func() (*rest.Config, error) { return nil, errors.New("not in a pod") }
-	include, home := dashboardClusters([]string{"eu", "us"}, d)
-	if include || home == nil || home.Host != "https://eu.invalid:6443" {
+	include, home, err := dashboardClusters([]string{"eu", "us"}, d)
+	if include || err != nil || home == nil || home.Host != "https://eu.invalid:6443" {
 		t.Errorf("outside a pod: current %v, sign-in %+v", include, home)
 	}
-	if include, home := dashboardClusters(nil, d); !include || home == nil || home.Host != "https://dev.invalid:6443" {
+	if include, home, _ := dashboardClusters(nil, d); !include || home == nil || home.Host != "https://dev.invalid:6443" {
 		t.Errorf("no contexts: current %v, sign-in %+v", include, home)
 	}
 	pod := &rest.Config{Host: "https://10.0.0.1:443"}
 	d.inCluster = func() (*rest.Config, error) { return pod, nil }
 	d.clusterConfig = func() (*rest.Config, error) { return pod, nil }
-	if include, home := dashboardClusters([]string{"eu"}, d); !include || home != pod {
+	if include, home, _ := dashboardClusters([]string{"eu"}, d); !include || home != pod {
 		t.Errorf("in a pod: current %v, sign-in %+v", include, home)
+	}
+}
+
+// TestDashboardSignInClusterThatCannotLoad: a mistyped first context fails
+// start-up when people sign in, and the banner says it cannot be loaded
+// otherwise.
+func TestDashboardSignInClusterThatCannotLoad(t *testing.T) {
+	writeKubeconfig(t, isolateHost(t))
+	d := defaultDeps()
+	d.inCluster = func() (*rest.Config, error) { return nil, errors.New("not in a pod") }
+	v := viper.New()
+	if _, cfg, err := signInCluster(v, []string{"eu-prd"}, d); err != nil || cfg != nil {
+		t.Errorf("without sign-in: %v %v", cfg, err)
+	}
+	v.Set("dashboard.oidc-issuer-url", "https://issuer.invalid")
+	if _, _, err := signInCluster(v, []string{"eu-prd"}, d); err == nil || !strings.Contains(err.Error(), "the sign-in cluster, context eu-prd, cannot be loaded") {
+		t.Errorf("with sign-in: %v", err)
+	}
+	if got := signInLine(false, []string{"eu-prd"}, false); !strings.Contains(got, "context eu-prd cannot be loaded") {
+		t.Errorf("banner %q", got)
 	}
 }
 
@@ -571,7 +591,7 @@ func TestDashboardContextsAreFleetSources(t *testing.T) {
 	if got := contractRefClients(&fakeClusterClient{}, []string{"eu", "nope"}); len(got) != 2 {
 		t.Errorf("contract refs read through %d clients, want the current one and eu", len(got))
 	}
-	if signInLine(true, []string{"eu"}) != "" || signInLine(false, nil) != "" || signInLine(false, []string{"eu", "us"}) != "Sign-in cluster: context eu\n" {
+	if signInLine(true, []string{"eu"}, true) != "" || signInLine(false, nil, true) != "" || signInLine(false, []string{"eu", "us"}, true) != "Sign-in cluster: context eu\n" {
 		t.Error("the sign-in line")
 	}
 }
