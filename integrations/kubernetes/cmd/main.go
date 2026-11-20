@@ -407,7 +407,8 @@ func main() {
 	// loader only under the inferred contracts, so a tenant's contract ref never rides on it and never
 	// lists the snapshot, index or delivery repositories with it.
 	prefixes := credentials.InstallationPrefixes(o.registry, o.registryPushPrefixes)
-	keychain, err := credentials.OperatorKeychain(mgr.GetAPIReader(), o.registryPullSecret, credentials.TenantPrefixes(o.registry), false)
+	tenantPrefixes := credentials.TenantPrefixes(o.registry)
+	keychain, err := credentials.OperatorKeychain(mgr.GetAPIReader(), o.registryPullSecret, tenantPrefixes, false)
 	if err != nil {
 		setupLog.Error(err, "Invalid registry settings")
 		os.Exit(1)
