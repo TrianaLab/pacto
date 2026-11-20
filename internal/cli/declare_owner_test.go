@@ -6,18 +6,25 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/viper"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/signing"
+	"github.com/trianalab/pacto/v4/pkg/signing/testutil"
 )
 
 // TestDeclareRefusedPrintsSentence: an owner refusal prints refused: and the
@@ -133,4 +140,84 @@ func TestDeclareRefusalHidesRestrictedServiceOwner(t *testing.T) {
 	if other := errors.New("x"); hiddenOwnerRefusal(other) != other {
 		t.Fatal("a refusal outside the owner rule changed")
 	}
+}
+
+// TestDeclareToolRunsAsAgentAndPerson: an owner change declared through
+// pacto_declare writes a draft that names who may accept it, and the same
+// change through pacto declare under a person's login with no right to set
+// the owner is refused with an owner code before anything is signed.
+func TestDeclareToolRunsAsAgentAndPerson(t *testing.T) {
+	e := newDeclareE2E(t)
+	dir, reg := e.ownerChange(t)
+	decl := newMCPDeclarer(app.NewService(nil, nil))
+	decl.base.Signing.FulcioURL, decl.base.Signing.TimestampURL, decl.base.Signing.RekorURL, decl.base.Signing.TrustedRoot = e.ss.Fulcio, e.ss.TSA, "", e.root
+	server := func() *mcpsdk.Server {
+		s, _ := pactomcp.New("v", pactomcp.Authoring{Declare: decl}, pactomcp.Modes{})
+		return s
+	}
+	agent := declareTwice(t, server, e.args(map[string]any{"dir": dir}))
+	var plan app.DeclarePlan
+	b, _ := json.Marshal(agent.Plan)
+	_ = json.Unmarshal(b, &plan)
+	if agent.Draft == nil || plan.Owner != "team:payments" || !slices.Equal(plan.MayAccept, []string{"billing members"}) {
+		t.Fatalf("%+v\n%s", agent, b)
+	}
+	o, err := e.run(t, "declare", "invoices", "--namespace", "billing", "--dir", dir, "--registry", e.host+"/acme", "--accept", "ledger",
+		"--fulcio-url", e.ss.Fulcio, "--timestamp-url", e.ss.TSA, "--rekor-url", "", "--trusted-root", e.root, "--yes", "--output-format", "json")
+	var person struct {
+		Refusal app.DeclareError `json:"refusal"`
+	}
+	if err == nil || json.Unmarshal([]byte(o), &person) != nil || !strings.HasPrefix(person.Refusal.Code, "OWNER_") || e.logins != 1 {
+		t.Fatalf("%v\n%s", err, o)
+	}
+	if _, err := reg.Pull(t.Context(), e.host+"/acme/invoices:"+plan.Version); err == nil {
+		t.Fatalf("%s was published", plan.Version)
+	}
+}
+
+// ownerChange publishes invoices 1.4.0 declaring team billing, signed by
+// acme's release workflow (the publisher the installation trusts), and
+// returns a folder pacto init --cluster wrote that changes the owner to
+// team payments, with a client of the registry.
+func (e *declareE2E) ownerChange(t *testing.T) (string, *publish.Client) {
+	t.Helper()
+	out := t.TempDir()
+	if o, err := e.run(t, "init", "--cluster", "--namespace", "billing", "--out", out); err != nil {
+		t.Fatalf("%v\n%s", err, o)
+	}
+	dir := filepath.Join(out, "billing", "invoices")
+	raw, err := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned := func(team string) []byte {
+		return []byte(strings.Replace(string(raw), "  # owner:\n  #   team: <the team that owns invoices>\n", "  version: 1.4.0\n  owner:\n    team: "+team+"\n", 1))
+	}
+	cm := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "ConfigMap",
+		"metadata": map[string]any{"name": delivery.PolicyConfigMap, "namespace": delivery.PolicyNamespace},
+		"data": map[string]any{delivery.PolicyKey: `{"signers":[{"issuer":"` + e2eIssuer + `","subjects":".*@acme\\.com"}]}`,
+			delivery.PublishersKey: `{"registry":"ghcr.io/acme"}`}}}
+	if _, err := e.dyn.Resource(schema.GroupVersionResource{Version: "v1", Resource: "configmaps"}).Namespace(delivery.PolicyNamespace).
+		Create(t.Context(), cm, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	base := filepath.Join(t.TempDir(), "invoices")
+	if err := os.MkdirAll(base, 0o755); err != nil || os.WriteFile(filepath.Join(base, "pacto.yaml"), owned("billing"), 0o600) != nil {
+		t.Fatal(err)
+	}
+	if o, err := e.run(t, "push", "oci://"+e.host+"/acme/invoices:1.4.0", "--path", base, "--index", "none"); err != nil {
+		t.Fatalf("%v\n%s", err, o)
+	}
+	reg := publish.NewClient(oci.NewKeychain(oci.EnvCredentialOptions()), e.host)
+	ci := func(context.Context) (string, error) {
+		return testutil.CIToken("https://github.com/acme/invoices/.github/workflows/release.yml@refs/heads/main",
+			"https://token.actions.githubusercontent.com", "https://github.com/acme/invoices", "refs/heads/main"), nil
+	}
+	h, err := reg.Head(t.Context(), e.host+"/acme/invoices:1.4.0")
+	s, serr := signing.Keyless(e.ss.Fulcio, e.ss.TSA, "", ci, e.ss.Root)
+	if err != nil || serr != nil || publish.SignDigest(t.Context(), reg, s, e.host+"/acme/invoices", h.Digest) != nil ||
+		os.WriteFile(filepath.Join(dir, "pacto.yaml"), owned("payments"), 0o600) != nil {
+		t.Fatal(err, serr)
+	}
+	return dir, reg
 }
