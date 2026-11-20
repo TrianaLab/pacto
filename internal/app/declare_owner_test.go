@@ -165,6 +165,40 @@ func TestDeclareClusterLabelStaysInferred(t *testing.T) {
 	}
 }
 
+// TestDeclareClusterKeepsEffectiveOwner: CI handed invoices to payments in
+// a candidate, so the baseline's billing is no longer the owner. A cluster
+// read changes no owner: the declaration keeps payments, with no owner check
+// and no removal.
+func TestDeclareClusterKeepsEffectiveOwner(t *testing.T) {
+	e := newDeclareEnv(t)
+	e.withBaseline(t)
+	e.withOwnerPolicy(t)
+	ci := e.signer(t, acmeCIToken())
+	rc := e.invoicesBaseline("1.5.0-rc.1", "")
+	rc["pacto.yaml"] = strings.Replace(rc["pacto.yaml"], "team: billing", "team: payments", 1)
+	e.publishBundle(t, e.host+"/acme/invoices", "1.5.0-rc.1", rc, &ci)
+	p, d := e.plan(t, e.req())
+	c, err := contract.Parse(strings.NewReader(string(d.raw)))
+	if err != nil || c.Service.Owner.Team != "payments" || p.Owner != "team:payments" || d.owner != nil || len(p.MayAccept) != 0 {
+		t.Fatalf("%v %+v\n%s", err, p, d.raw)
+	}
+	if !slices.ContainsFunc(p.Notes, func(n string) bool {
+		return strings.Contains(n, "team:billing of the baseline is not the current owner (team:payments)")
+	}) {
+		t.Fatalf("%q", p.Notes)
+	}
+}
+
+// TestKeepCurrentOwnerAttested: over an attested owner the declaration
+// names none, which leaves the attested owner as it is.
+func TestKeepCurrentOwnerAttested(t *testing.T) {
+	pl := &declarePlanner{plan: &DeclarePlan{}, raw: []byte("service:\n  name: invoices\n  owner:\n    team: billing\n")}
+	raw, err := pl.keepCurrentOwner(delivery.OwnerClaim{Owner: contract.Owner{Team: "payments"}, Provenance: "attested"}, contract.Owner{Team: "billing"})
+	if err != nil || strings.Contains(string(raw), "owner") || pl.plan.Owner != "" || !strings.HasSuffix(pl.plan.Notes[0], "so the declaration names none") {
+		t.Fatalf("%v %s %+v", err, raw, pl.plan)
+	}
+}
+
 func TestDeclareOwnerRemovalIsSetting(t *testing.T) {
 	e := newDeclareEnv(t)
 	e.withBaseline(t)

@@ -647,13 +647,20 @@ func (pl *declarePlanner) owner(ctx context.Context) ([]byte, error) {
 	if !ownerChange(current, proposed, !planned.IsEmpty(), true) {
 		return pl.raw, nil
 	}
+	if pl.req.Dir == "" && pl.baseline != nil {
+		return pl.keepCurrentOwner(current, planned)
+	}
 	policy, from := pl.ownerPolicy(ctx)
 	right := delivery.DecideOwnerRight(pl.plan.Service, pl.choice.Identity, current, proposed, policy, from, pl.s.env().now())
 	pl.plan.MayAccept = right.MayAccept
 	if pl.req.Dir != "" || planned.IsEmpty() {
 		pl.owned = &ownerCheck{current: current, proposed: proposed, policy: policy, from: from}
+		who := cmp.Or(strings.Join(right.MayAccept, ", "), "the default approvers")
+		if policy == nil {
+			who = strings.Join(append(right.MayAccept, "the default approvers (unknown until a verified owner policy is read)"), ", ")
+		}
 		pl.plan.Notes = append(pl.plan.Notes, "service.owner changes from "+ownerText(current.Owner)+" to "+ownerText(planned)+
-			": only a person among "+cmp.Or(strings.Join(right.MayAccept, ", "), "the default approvers")+" may set it")
+			": only a person among "+who+" may set it")
 		return pl.raw, nil
 	}
 	rec := pl.rec
@@ -664,6 +671,23 @@ func (pl *declarePlanner) owner(ctx context.Context) ([]byte, error) {
 	slices.SortFunc(rec.Fields, func(a, b contract.Inferred) int {
 		return cmp.Or(strings.Compare(a.Field, b.Field), strings.Compare(a.Source, b.Source))
 	})
+	return contract.RemoveServiceOwner(pl.raw)
+}
+
+// keepCurrentOwner is the cluster read's pacto.yaml when the baseline it
+// keeps names an owner that is not the service's effective one (a later
+// candidate changed it, or the baseline's own change was refused): the
+// cluster read changes no owner, so pacto.yaml carries the effective owner
+// when it is declared, and none when it is attested or there is none.
+func (pl *declarePlanner) keepCurrentOwner(current delivery.OwnerClaim, baseline contract.Owner) ([]byte, error) {
+	pl.plan.Owner = ""
+	note := "service.owner " + ownerText(baseline) + " of the baseline is not the current owner (" + ownerText(current.Owner) + ")"
+	if current.Provenance == fleet.OwnerProvenanceDeclared {
+		pl.plan.Owner = current.Owner.KeyString()
+		pl.plan.Notes = append(pl.plan.Notes, note+", so the declaration keeps "+ownerText(current.Owner))
+		return contract.SetServiceOwner(pl.raw, current.Owner)
+	}
+	pl.plan.Notes = append(pl.plan.Notes, note+", so the declaration names none")
 	return contract.RemoveServiceOwner(pl.raw)
 }
 

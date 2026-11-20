@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 )
@@ -101,5 +102,25 @@ func TestRemoveServiceOwner(t *testing.T) {
 	}
 	if _, err := RemoveServiceOwner([]byte("a: [\n")); err == nil {
 		t.Fatal("malformed yaml")
+	}
+}
+
+func TestSetServiceOwner(t *testing.T) {
+	raw := []byte("pactoVersion: \"2.5\"\nservice:\n  name: invoices # the service\n  version: 1.0.0\n  owner:\n    team: billing\n")
+	out, err := SetServiceOwner(raw, Owner{Team: "payments", Contacts: []OwnerContact{{Type: "email", Value: "pay@acme.com"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := Parse(bytes.NewReader(out))
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if c.Service.Owner.Team != "payments" || len(c.Service.Owner.Contacts) != 1 || c.Service.Version != "1.0.0" || !strings.Contains(string(out), "# the service") {
+		t.Fatalf("%s", out)
+	}
+	for _, bad := range []string{"pactoVersion: \"2.5\"\n", "service: [\n"} {
+		if _, err := SetServiceOwner([]byte(bad), Owner{Team: "x"}); err == nil {
+			t.Errorf("%q: no error", bad)
+		}
 	}
 }

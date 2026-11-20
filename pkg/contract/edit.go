@@ -88,6 +88,25 @@ func RemoveServiceOwner(raw []byte) ([]byte, error) {
 	return reencode(root, bom, body), nil
 }
 
+// SetServiceOwner returns raw with service.owner set to o: any declared
+// owner is removed as RemoveServiceOwner removes it, and o is added at the
+// end of service.
+func SetServiceOwner(raw []byte, o Owner) ([]byte, error) {
+	raw, err := RemoveServiceOwner(raw)
+	if err != nil {
+		return nil, err
+	}
+	bom, body, root, top, _ := decodeRoot(raw) // RemoveServiceOwner decoded it already
+	svc := mappingPath(top, "service")
+	if svc == nil || svc.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("set service.owner: pacto.yaml declares no service")
+	}
+	var n yaml.Node
+	_ = n.Encode(o) // ponytail: an Owner is plain strings and a list of them, which always encodes
+	svc.Content = append(svc.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: "owner"}, &n)
+	return reencode(root, bom, body), nil
+}
+
 // mappingPath is the node at the keys under the mapping top, nil when any
 // is absent or top is not a mapping.
 func mappingPath(top *yaml.Node, keys ...string) *yaml.Node {
