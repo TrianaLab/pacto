@@ -78,7 +78,7 @@ func (s *indexSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 func (s *indexSource) collect(ctx context.Context) *fleet.Collection {
 	ctx, cancel := context.WithTimeout(ctx, indexReadTimeout)
 	defer cancel()
-	rd := s.svc.indexRead(ctx, s.candidates)
+	rd := s.svc.IndexEntries(ctx, s.candidates)
 	s.unread = rd.unread
 	roots, pending := s.selectRoots(rd.entries)
 	coll := s.closure(ctx, roots)
@@ -207,13 +207,16 @@ type indexMemo struct {
 	entries map[string]indexCached
 }
 
-// indexRead is the read of the first index among candidates, reused for
-// indexListingTTL. Only a finished read is kept.
+// IndexEntries is the read of the first organization index among
+// candidates: its repository and the valid, confirmed newest entry of each
+// service, reused for indexListingTTL. It is the one index reader: the
+// consumer source and pacto ci's ref proposals both read through it. Only a
+// finished read is kept.
 //
 // ponytail: one fleet rebuild per changed service in pacto ci; give CIPlan
 // one index source that selects for every changed service if a large
 // monorepo makes it slow.
-func (s *Service) indexRead(ctx context.Context, candidates []string) *indexRead {
+func (s *Service) IndexEntries(ctx context.Context, candidates []string) *indexRead {
 	key := strings.Join(candidates, " ")
 	now := s.env().now()
 	m := &s.indexListings
