@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -325,12 +326,44 @@ func TestArgoPluginNoToolFails(t *testing.T) {
 }
 
 func TestArgoPluginBlockedPrintsBlocked(t *testing.T) {
-	r := runPlugin(t, pluginCase{rc: "1", out: impactOut, err: "breaking changes affect active consumers: ledger\n"})
+	r := runPlugin(t, pluginCase{rc: "1", out: impactOut, err: "breaking changes affect active consumers: ledger\n", env: showReason})
 	wantExit(t, r, 1, "pacto impact: BLOCKED breaking changes affect active consumers: ledger, exit 1")
 }
 
+// TestArgoPluginRedactsTheReasonByDefault: a repository writer picks the
+// service judged, and Argo CD shows the render error to every Application
+// reader, so consumers, clusters and refs stay in the sidecar log.
+func TestArgoPluginRedactsTheReasonByDefault(t *testing.T) {
+	const why = "do not accept billing-internal 9.0.0: ledger on prod/ns/ledger\n"
+	for code, verdict := range map[int]string{1: "BLOCKED", 2: "UNVERIFIED"} {
+		r := runPlugin(t, pluginCase{rc: strconv.Itoa(code), out: impactOut, err: why})
+		wantExit(t, r, code, "pacto impact: "+verdict+" (the reason is in the pacto container log of argocd-repo-server)")
+		if strings.Contains(r.stderr, "billing-internal") || strings.Contains(r.stderr, "ledger") {
+			t.Fatalf("the render error leaked the reason: %q", r.stderr)
+		}
+		if logged, _ := os.ReadFile(filepath.Join(r.logDir, "sidecar.log")); string(logged) != why { //nolint:gosec // test temp dir
+			t.Fatalf("the sidecar log lost the reason: %q", logged)
+		}
+	}
+	r := runPlugin(t, pluginCase{rc: "1", err: "service \"api\" is ambiguous: matches a/api, b/api\n"})
+	if strings.Contains(r.stderr, "a/api") {
+		t.Fatalf("the render error leaked the reason: %q", r.stderr)
+	}
+}
+
+// TestArgoPluginReadsTheInstallationConfigOnly: the folder's pacto.yaml is
+// the contract, never Pacto's config, so a repository writer cannot widen
+// running-registries or change any other setting of the gate.
+func TestArgoPluginReadsTheInstallationConfigOnly(t *testing.T) {
+	files := map[string]string{"kustomization.yaml": "resources: []\n", "pacto.yaml": contract20 + "running-registries: evil.example\n"}
+	r := runPlugin(t, pluginCase{files: files, manifests: rendered + pactoObject("oci://r/acme/payments:2.0.0")})
+	if !hasPair(r.args("pacto"), "--config", "/etc/pacto/config.yaml") {
+		t.Fatalf("pacto args %v, want --config /etc/pacto/config.yaml", r.args("pacto"))
+	}
+}
+
 func TestArgoPluginExitTwoFailsByDefault(t *testing.T) {
-	r := runPlugin(t, pluginCase{rc: "2", out: impactOut, err: "unverified: the target snapshot is partial\n"})
+	r := runPlugin(t, pluginCase{rc: "2", out: impactOut, err: "unverified: the target snapshot is partial\n", env: showReason})
 	wantExit(t, r, 2, "pacto impact: UNVERIFIED the target snapshot is partial, exit 2")
 }
 
@@ -371,6 +404,22 @@ func TestArgoPluginRefusesUnpinnedSnapshot(t *testing.T) {
 	unpinned["PACTO_ALLOW_CLUSTER_DISCOVERY"] = "true"
 	wantRendered(t, runPlugin(t, pluginCase{env: unpinned}))
 }
+
+// TestArgoPluginRefusesUnsetSnapshot: no word at all is the most unpinned
+// value, and would fall back to discovering the pacto-targets repository.
+func TestArgoPluginRefusesUnsetSnapshot(t *testing.T) {
+	for _, value := range []string{"", "  "} {
+		r := runPlugin(t, pluginCase{env: map[string]string{"PACTO_TARGET_SNAPSHOT": value}})
+		wantExit(t, r, 1, "pacto plugin: pin each destination cluster")
+		if r.called("pacto") {
+			t.Fatalf("pacto ran with PACTO_TARGET_SNAPSHOT=%q", value)
+		}
+	}
+	wantRendered(t, runPlugin(t, pluginCase{env: map[string]string{"PACTO_TARGET_SNAPSHOT": "", "PACTO_ALLOW_CLUSTER_DISCOVERY": "true"}}))
+}
+
+// showReason is the installation opt-in that puts the reason in the render error.
+var showReason = map[string]string{"PACTO_SHOW_REASON": "true"}
 
 func pactoObject(ref string) string {
 	return "---\napiVersion: pacto.trianalab.io/v1alpha1\nkind: Pacto\nmetadata:\n  name: payments\nspec:\n  contractRef:\n    oci: " + ref + "\n"
@@ -413,7 +462,7 @@ func TestArgoPluginContractRefMismatchFails(t *testing.T) {
 
 func TestArgoPluginMessageIsBounded(t *testing.T) {
 	long := strings.Repeat("ledger, ", 512) + "\nsecond line\n" + strings.Repeat("x", 2048)
-	r := runPlugin(t, pluginCase{rc: "1", out: impactOut, err: long})
+	r := runPlugin(t, pluginCase{rc: "1", out: impactOut, err: long, env: showReason})
 	if r.code != 1 {
 		t.Fatalf("exit %d", r.code)
 	}
@@ -457,7 +506,7 @@ func TestArgoPluginCommandNotFoundIsError(t *testing.T) {
 }
 
 func TestArgoPluginRunFailureIsError(t *testing.T) {
-	r := runPlugin(t, pluginCase{rc: "1", err: "cannot read the target snapshot\n"})
+	r := runPlugin(t, pluginCase{rc: "1", err: "cannot read the target snapshot\n", env: showReason})
 	wantExit(t, r, 1, "pacto impact: ERROR cannot read the target snapshot, exit 1")
 }
 

@@ -20,7 +20,8 @@
 #   - clear: a NON_BREAKING change renders and syncs, and the documented health
 #     customization still judges the Pacto it applied;
 #   - blocked: a BREAKING change a running consumer rejects fails the render
-#     with `pacto impact: BLOCKED` naming that consumer, and nothing is applied;
+#     with `pacto impact: BLOCKED`, the sidecar log names that consumer and
+#     nothing is applied;
 #   - mismatch: a rendered contractRef that disagrees with pacto.yaml fails;
 #   - unverified: a change Pacto cannot clear fails by default, an Application
 #     cannot grant itself the opt-in, and the installation's per-application
@@ -333,11 +334,14 @@ republish
 
 section "blocked: payments 2.0.0 breaks ledger, which runs and accepts ^1.0.0"
 retarget breaking
-blocked() { error_has "pacto impact: BLOCKED" && error_has ledger; }
-eventually 60 blocked || fail "the breaking render was not blocked naming ledger: $(app_error)"
+# The render error is redacted (PACTO_SHOW_REASON=false); the sidecar log
+# carries the reason that names ledger.
+sidecar_log() { kubectl -n "$ARGO_NS" logs deployment/argocd-repo-server -c pacto --since=10m 2>/dev/null || true; }
+blocked() { error_has "pacto impact: BLOCKED" && ! error_has ledger && grep -q ledger <<<"$(sidecar_log)"; }
+eventually 60 blocked || fail "the breaking render was not blocked with ledger in the sidecar log only: $(app_error)"
 held() { [ "$(app_sync)" != Synced ] && [ "$(cluster_ref)" = "$(ref_at 1.1.0)" ]; }
 always 10 held || fail "the blocked change reached the cluster: sync=$(app_sync) ref=$(cluster_ref)"
-pass "BLOCKED naming ledger; the cluster still runs payments 1.1.0: $(app_error)"
+pass "BLOCKED, ledger named in the sidecar log only; the cluster still runs payments 1.1.0: $(app_error)"
 
 section "mismatch: the rendered contractRef disagrees with pacto.yaml"
 retarget mismatch

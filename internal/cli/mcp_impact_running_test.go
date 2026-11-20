@@ -190,6 +190,36 @@ func TestRunningRegistriesMatchCLIAndMCP(t *testing.T) {
 	}
 }
 
+// TestRunningRegistriesIgnoreTheFolderWithConfig: the Argo CD plugin passes
+// --config to an installation file, which may be absent; the folder's
+// pacto.yaml (the contract a repository writer controls) is then never read,
+// so it cannot widen the running-registries allowlist.
+func TestRunningRegistriesIgnoreTheFolderWithConfig(t *testing.T) {
+	t.Setenv("PACTO_RUNNING_REGISTRIES", "")
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{"pacto.yaml": "service: {name: payments, version: 2.0.0}\nrunning-registries: evil.example\n"})
+	t.Chdir(dir)
+	registries := func(config string) []string {
+		root := newRootCommand(app.NewService(nil, nil), VersionInfo{Version: "dev"}, defaultDeps())
+		_ = root.PersistentFlags().Set("config", config)
+		cmd, _, err := root.Find([]string{"impact"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd.SetContext(context.Background())
+		if err := root.PersistentPreRunE(cmd, nil); err != nil {
+			t.Fatal(err)
+		}
+		return runningRegistries(cmd)
+	}
+	if got := registries(""); !slices.Equal(got, []string{"evil.example"}) {
+		t.Fatalf("without --config the folder's pacto.yaml is the config: %v", got)
+	}
+	if got := registries(filepath.Join(dir, "absent", "config.yaml")); slices.Contains(got, "evil.example") {
+		t.Fatalf("--config still read the folder's pacto.yaml: %v", got)
+	}
+}
+
 // TestMCPImpactRunningLocalDomain: over stdio a local new_ref takes its
 // domain from the snapshot as pacto impact --running does: a name two
 // domains hold is refused, a name no domain holds is unverified.

@@ -5,7 +5,9 @@
 `pacto impact --running <new>` and the `running` argument of `pacto_impact`
 judge a contract against the revisions of its service that run on known
 targets, read from the signed target snapshots, instead of an old revision.
-A local `<new>` takes the fleet domain that holds its service name. With no
+A running consumer whose range rejects `<new>` blocks whatever the
+classification, and a partial answer never clears. A local `<new>` takes the
+fleet domain that holds its service name. With no
 running revision the contract is a first version: a running consumer whose
 range rejects it blocks, and it clears only on a complete answer. A running
 revision Pacto could not link, pull or trust, one linked by tag only, an
@@ -23,5 +25,7 @@ The GitOps page documents that plugin: a Config Management Plugin sidecar on
 `argocd-repo-server` that renders each Application folder holding a contract,
 runs `pacto impact --running` on the contract the render applies and hands
 Argo CD the manifests only after a pass, with no edit per Application and no
-Kubernetes RBAC. It also documents a per-Application PreSync Job as the
+Kubernetes RBAC. The plugin refuses an unpinned snapshot, never reads the
+folder's `pacto.yaml` as configuration and keeps the reason in its own log
+unless the installation sets `PACTO_SHOW_REASON=true`. It also documents a per-Application PreSync Job as the
 fallback.

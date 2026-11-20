@@ -27,13 +27,18 @@ data:
     set -u
     fail() { echo "pacto plugin: $*" >&2; exit 1; }
 
+    # Unpinned (no word, or a word without :cluster-) reads only the clusters
+    # that published a tag right now, so a missing one reads as no consumers.
+    pinned=false
     for ref in ${PACTO_TARGET_SNAPSHOT:-}; do
       case "$ref" in
-        *:cluster-*) ;;
-        *) [ "${PACTO_ALLOW_CLUSTER_DISCOVERY:-false}" = true ] ||
-             fail "pin each destination cluster (oci://<registry>/pacto-targets:cluster-<uid>)" ;;
+        *:cluster-*) pinned=true ;;
+        *) pinned=false; break ;;
       esac
     done
+    if [ "$pinned" != true ] && [ "${PACTO_ALLOW_CLUSTER_DISCOVERY:-false}" != true ]; then
+      fail "pin each destination cluster (oci://<registry>/pacto-targets:cluster-<uid>)"
+    fi
 
     work=$(mktemp -d /tmp/pacto-cmp.XXXXXX) || fail "cannot create a temp folder under /tmp"
     trap 'rm -rf "$work"' EXIT
@@ -92,14 +97,21 @@ data:
       esac
     fi
 
-    set -- impact --running --local ""
+    # The installation's config only: the folder's pacto.yaml is the
+    # contract, and would otherwise be read as Pacto's config.
+    set -- impact --running --local "" --config /etc/pacto/config.yaml
     for ref in ${PACTO_TARGET_SNAPSHOT:-}; do set -- "$@" --target-snapshot "$ref"; done
     pacto "$@" "$contract" > "$work/out" 2> "$work/err"
     rc=$?
-    # The full text goes to the sidecar log; the render error carries one
-    # bounded line, because Argo CD shows it to every Application reader.
+    # The full text goes to the sidecar log. Argo CD shows the render error
+    # to every Application reader, and a repository writer picks the service
+    # judged, so the reason (consumers, clusters, refs) stays in the log
+    # unless the installation sets PACTO_SHOW_REASON=true.
     { cat "$work/err" > "${PACTO_PLUGIN_LOG:-/proc/1/fd/2}"; } 2> /dev/null || true
-    reason=$(head -n 1 "$work/err" | sed 's/^unverified: //' | cut -c1-512)
+    reason="(the reason is in the pacto container log of argocd-repo-server)"
+    if [ "${PACTO_SHOW_REASON:-false}" = true ]; then
+      reason=$(head -n 1 "$work/err" | sed 's/^unverified: //' | cut -c1-512)
+    fi
 
     allow=false
     case "${PACTO_ALLOW_UNVERIFIED:-false}" in

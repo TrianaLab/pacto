@@ -43,6 +43,8 @@ spec:
               value: /etc/pacto/trust.yaml
             - name: PACTO_ALLOW_UNVERIFIED
               value: "false"
+            - name: PACTO_SHOW_REASON
+              value: "false"
             - name: PACTO_KUSTOMIZE_BUILD_OPTIONS
               value: ""
           securityContext:

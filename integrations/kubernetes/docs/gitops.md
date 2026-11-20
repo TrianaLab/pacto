@@ -148,7 +148,7 @@ Change one line: `PACTO_TARGET_SNAPSHOT` holds one
 `oci://<registry>/pacto-targets:cluster-<uid>` word per destination cluster,
 published by each cluster's operator (see
 [Target snapshot](delivery-records.md#target-snapshot)). A missing tag reads
-partial. A word without `:cluster-` is refused unless
+partial. An empty value, or a word without `:cluster-`, is refused unless
 `PACTO_ALLOW_CLUSTER_DISCOVERY=true`.
 
 `trust.yaml` holds one entry per cluster, from its installation key and scoped
@@ -160,7 +160,9 @@ or use workload identity. `PACTO_REGISTRY_*` sends its credentials to every
 host Pacto pulls from; the plugin unsets it before Helm or Kustomize. Running
 revisions are pulled only from the snapshot hosts and an `oci://`
 `contractRef`'s host, plus the comma-separated `PACTO_RUNNING_REGISTRIES`;
-any other host makes the answer unverified.
+any other host makes the answer unverified. The plugin reads Pacto settings
+from `/etc/pacto/config.yaml` in the trust ConfigMap, if present, and never
+from the folder's `pacto.yaml`, which is the contract.
 
 ### Exit codes
 
@@ -183,13 +185,18 @@ renders only for an Application with
 ```console
 $ argocd app get payments
 CONDITION        MESSAGE
-ComparisonError  ... plugin pacto: pacto impact: BLOCKED breaking changes affect active consumers, which run on known targets and do not accept payments 2.0.0: ledger, exit 1
+ComparisonError  ... plugin pacto: pacto impact: BLOCKED (the reason is in the pacto container log of argocd-repo-server), exit 1
 ```
 
-Core installs read the Application's `ComparisonError` condition. The message is the first line of the error, cut at 512 bytes; the full text is
-in the `pacto` container log (`PACTO_PLUGIN_LOG` names another file). Application readers see consumer names, so
-registry read on `pacto-targets` plus Application read is the effective
-boundary.
+Core installs read the Application's `ComparisonError` condition. The full
+reason is in the `pacto` container log (`PACTO_PLUGIN_LOG` names another
+file). The plugin judges whatever service the folder or its rendered Pacto
+object names, so anyone who can write to a repository the plugin renders
+could otherwise read consumer names, clusters and refs of any service in the
+snapshot through their own Application. With `PACTO_SHOW_REASON=true` the
+message carries the first line of the reason, cut at 512 bytes: set it only
+when every writer of those repositories may read the snapshot. Either way,
+Application readers see the verdict.
 
 ### Before you install
 
