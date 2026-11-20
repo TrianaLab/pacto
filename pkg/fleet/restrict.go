@@ -594,6 +594,26 @@ func rebuiltLimitation(l Limitation) bool {
 	return false
 }
 
+// unavailableSources are the ids of out's unavailable sources.
+func unavailableSources(out *FleetSnapshot) map[string]bool {
+	ids := map[string]bool{}
+	for _, st := range out.Sources {
+		if st.Status == SourceUnavailable {
+			ids[st.ID] = true
+		}
+	}
+	return ids
+}
+
+// sourceLevelCluster reports whether l is a CLUSTER_UNKNOWN or
+// CLUSTER_CONFLICT about a whole source that read nothing (a refused
+// kubeconfig context): it counts no target, so nothing rebuilds it, and it
+// names only context names, which are server configuration, so the hidden
+// namespace scrub never applies to it.
+func sourceLevelCluster(l Limitation, unavailable map[string]bool) bool {
+	return (l.Code == LimitationClusterUnknown || l.Code == LimitationClusterConflict) && unavailable[l.Source]
+}
+
 // restrictLimitations keeps the limitations that name nothing hidden and
 // rebuilds the domain, offering and owner conflicts from what out still holds.
 // With hideBare, each source's unresolved observed names become one count.
@@ -608,7 +628,11 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	// limitations x hidden names substring checks, once per snapshot and set of
 	// visible namespaces. Structured subjects on Limitation would make it exact
 	// and linear.
+	unavailable := unavailableSources(out)
 	out.Limitations = slices.DeleteFunc(limitations, func(l Limitation) bool {
+		if sourceLevelCluster(l, unavailable) {
+			return false
+		}
 		return rebuiltLimitation(l) || slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
 	})
 	for _, svc := range out.Services {

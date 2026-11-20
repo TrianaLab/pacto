@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"testing"
 	"testing/fstest"
@@ -282,5 +283,39 @@ func TestRestrictDeclarationInferredFromPerCluster(t *testing.T) {
 	// A cluster id no source reported picks no reviewer: the declaration reads clusterless.
 	if got := declTwoClusterFleet(t, "forged").Namespaces(); !slices.Contains(got, ClusterNamespace{"", "news"}) {
 		t.Errorf("an unknown declaration cluster reads as \"\": %v", got)
+	}
+}
+
+// TestRestrictKeepsRefusedSourceClusterLimitations pins that a CLUSTER_UNKNOWN
+// or CLUSTER_CONFLICT about an unavailable source (a refused kubeconfig
+// context) survives restriction even when its text holds a hidden namespace,
+// while a count-style one about a live source is rebuilt.
+func TestRestrictKeepsRefusedSourceClusterLimitations(t *testing.T) {
+	refused := func(id, code string) Source {
+		return NewMemorySource(id, SourceKindKubernetes, &Collection{
+			State:       &SourceState{Status: SourceUnavailable},
+			Limitations: []Limitation{{Code: code, Source: id, Message: "context " + id + " is refused"}},
+		})
+	}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
+		NewMemorySource("eu", SourceKindKubernetes, &Collection{
+			Cluster:     clusterOf(clusterA, "eu-prod", ClusterNameFromContext),
+			Targets:     []RawTarget{workload("prod", "payments")},
+			Limitations: []Limitation{{Code: LimitationClusterUnknown, Source: "eu", Message: "3 targets from source eu carry no cluster id"}},
+		}),
+		refused("us-prod", LimitationClusterUnknown), refused("ap-prod", LimitationClusterConflict))
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := NewQuery(snap).Restrict(func(_, ns string) bool { return ns != "prod" }, everyWorkloadIn).Snapshot()
+	got := map[string]string{}
+	for _, l := range view.Limitations {
+		if l.Code == LimitationClusterUnknown || l.Code == LimitationClusterConflict {
+			got[l.Source] = l.Code
+		}
+	}
+	want := map[string]string{"us-prod": LimitationClusterUnknown, "ap-prod": LimitationClusterConflict}
+	if !maps.Equal(got, want) {
+		t.Fatalf("cluster limitations = %v, want %v", got, want)
 	}
 }

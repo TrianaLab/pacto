@@ -272,3 +272,30 @@ func TestContextWithoutClientOrConfig(t *testing.T) {
 		t.Fatalf("consumer sources = %q", got)
 	}
 }
+
+// TestRefusedContextLimitationSurvivesRestrict pins that a restricted view
+// keeps why a context was refused: its source read nothing, so nothing
+// rebuilds the fixed-text limitation.
+func TestRefusedContextLimitationSurvivesRestrict(t *testing.T) {
+	cases := []struct {
+		name, uid, code, source, text string
+	}{
+		{"unidentified", "", fleet.LimitationClusterUnknown, "us-prod", "the cluster of context us-prod cannot be told apart"},
+		{"conflict", clusterA, fleet.LimitationClusterConflict, "us-prod", "contexts eu-prod and us-prod"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := contextService("", map[string]*fakeFleetK8sClient{"eu-prod": clusterFake(clusterA), "us-prod": clusterFake(tc.uid)},
+				map[string]string{"eu-prod": "https://eu", "us-prod": "https://us"})
+			snap, err := svc.Fleet(context.Background(), FleetOptions{K8sContexts: twoContexts})
+			if err != nil {
+				t.Fatal(err)
+			}
+			hideAll := func(string, string) bool { return false }
+			view := fleet.NewQuery(snap).Restrict(hideAll, func(string, string, string) bool { return false }).Snapshot()
+			if len(view.Targets) != 0 || !hasLimitationText(view.Limitations, tc.code, tc.source, tc.text) {
+				t.Fatalf("targets %v limitations %+v; want the refusal kept", view.Targets, view.Limitations)
+			}
+		})
+	}
+}
