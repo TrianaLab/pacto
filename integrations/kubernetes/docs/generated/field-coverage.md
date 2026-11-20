@@ -19,7 +19,7 @@ The page is generated from `pkg/validation/schema/field-coverage.yaml`. `pkg/val
 | `verified` | A runtime fact can both satisfy and contradict the declaration. | 4 |
 | `partial` | A runtime fact exists, but some values or environments stay unverified. | 16 |
 | `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 131 |
-| `not-applicable` | Identity, container or open object with nothing to verify. | 14 |
+| `not-applicable` | Identity, container or open object with nothing to verify. | 15 |
 
 A runtime check never turns "could not look" into a violation. A check with no usable fact is listed in `status.evaluationCoverage.unverified` and leaves the contract status unchanged.
 
@@ -47,6 +47,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `service.origin` | `static-only` | - | - | - | SCHEMA_VIOLATION; NEEDS_PACTO_2_4 under 2.0 to 2.3 |
 | `service.origin.ref` | `static-only` | - | - | - | SCHEMA_VIOLATION; INVALID_ORIGIN_REF |
 | `service.origin.digest` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `service.external` | `not-applicable` | - | - | - | SCHEMA_VIOLATION, INVALID_EXTERNAL_IDENTITY, NEEDS_PACTO_2_5 before 2.5 |
 | `service.owner` | `static-only` | - | - | - | SCHEMA_VIOLATION when empty |
 | `service.owner.team` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `service.owner.dri` | `static-only` | - | - | - | SCHEMA_VIOLATION |
@@ -438,6 +439,18 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Outcomes | SCHEMA_VIOLATION |
 | Limitations | the fleet links the service to the golden path revision with the same content digest |
 | Tests | unit: `pkg/validation/structural_test.go:TestServiceTemplate24`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service.origin.digest/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.origin.digest/invalid` |
+
+### `service.external`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Canonical identity of the external system the contract describes; pactoVersion 2.5. |
+| Runtime | `not-applicable` |
+| Evidence | identity only; joins the fleet External node |
+| Rule | schema: identity pattern, at most 253 characters, pactoVersion 2.5; cross-field: it must parse as an identity (other-egress is reserved); diff: any change is non-breaking |
+| Outcomes | SCHEMA_VIOLATION, INVALID_EXTERNAL_IDENTITY, NEEDS_PACTO_2_5 before 2.5 |
+| Limitations | Pacto never observes the external system here; the identity only names the node the contract joins |
+| Tests | unit: `pkg/validation/serviceexternal_test.go:TestServiceExternalValid`, `pkg/validation/serviceexternal_test.go:TestServiceExternalNeeds25`, `pkg/validation/serviceexternal_test.go:TestServiceExternalPattern`, `pkg/validation/serviceexternal_test.go:TestServiceExternalReservedRefused`, `pkg/diff/inferredsurface_test.go:TestDiffServiceExternalNonBreaking`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service.external/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.external/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.external/needs-2.5` |
 
 ### `service.owner`
 

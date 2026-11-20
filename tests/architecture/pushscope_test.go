@@ -16,13 +16,15 @@ import (
 // unset, keyed "<file>:<func>", each with the reason.
 var scopeExempt = map[string]string{
 	"integrations/kubernetes/cmd/delivery/main.go:upstreamReader": "reads another cluster's signed records and never writes",
+	"integrations/kubernetes/cmd/delivery/main.go:publishers":     "the registry watch reads candidate signatures and never writes",
 }
 
 // TestEveryClusterSideOpenSetsAScope keeps every cluster-side registry writer
 // behind the one push guard (decision 11): every ocireferrer.Options or
 // evidenceoci.RepositoryOptions literal in the operator module, the evidence
-// store and the Evidence Server sets Scope, and every operator call of the
-// run-record registry.Open passes a scope that is not nil. A new writer added
+// store and the Evidence Server sets Scope, every operator call of the
+// run-record registry.Open passes a scope that is not nil, and every operator
+// publish client routes its writes through oci.WithTransport. A new writer added
 // without a scope fails here, so the chart's push-prefix test still proves
 // where the cluster pushes.
 func TestEveryClusterSideOpenSetsAScope(t *testing.T) {
@@ -84,6 +86,22 @@ func open() {
 	if len(got) != 2 || !strings.Contains(got[0], "sets no Scope") || !strings.Contains(got[1], "registry.Open") {
 		t.Fatalf("violations = %q, want one literal and one registry.Open", got)
 	}
+	pub := `package x
+
+import (
+	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/publish"
+)
+
+func f() {
+	_ = publish.NewClient(nil)
+	_ = publish.NewClientWith(nil, oci.WithInsecureRegistries())
+	_ = publish.NewClientWith(nil, oci.WithTransport(g))
+}
+`
+	if got := unscopedOpens(t, "integrations/kubernetes/x.go", pub, map[string]bool{}); len(got) != 2 || !strings.Contains(got[0], "publish client") {
+		t.Fatalf("publish client violations = %q, want two", got)
+	}
 	alias := "package evidenceoci\n\nfunc f() { _ = RepositoryOptions{} }\n"
 	if got := unscopedOpens(t, "internal/evidenceoci/x.go", alias, map[string]bool{}); len(got) != 1 {
 		t.Fatalf("alias literal violations = %q, want one", got)
@@ -116,9 +134,8 @@ func unscopedOpens(t *testing.T, rel, src string, used map[string]bool) []string
 					bad = "an options literal sets no Scope"
 				}
 			case *ast.CallExpr:
-				if strings.HasPrefix(rel, "integrations/kubernetes/") && isCall(n, names["github.com/trianalab/pacto/v4/pkg/runrecord/registry"], "Open") &&
-					(len(n.Args) != 4 || isNil(n.Args[3])) {
-					bad = "registry.Open passes no scope"
+				if strings.HasPrefix(rel, "integrations/kubernetes/") {
+					bad = unscopedCall(n, names)
 				}
 			}
 			if bad == "" {
@@ -134,6 +151,37 @@ func unscopedOpens(t *testing.T, rel, src string, used map[string]bool) []string
 		})
 	}
 	return out
+}
+
+// unscopedCall is why an operator call writes outside the push guard: a
+// run-record registry.Open with no scope or a publish client with no
+// guarded transport; empty when it does not.
+func unscopedCall(c *ast.CallExpr, names map[string]string) string {
+	if isCall(c, names["github.com/trianalab/pacto/v4/pkg/runrecord/registry"], "Open") && (len(c.Args) != 4 || isNil(c.Args[3])) {
+		return "registry.Open passes no scope"
+	}
+	if unguardedPublishClient(c, names) {
+		return "a publish client sets no oci.WithTransport guard"
+	}
+	return ""
+}
+
+// unguardedPublishClient reports a publish.NewClient call, which takes no
+// transport, or a publish.NewClientWith call with no oci.WithTransport option.
+func unguardedPublishClient(c *ast.CallExpr, names map[string]string) bool {
+	pub := names["github.com/trianalab/pacto/v4/pkg/publish"]
+	if isCall(c, pub, "NewClient") {
+		return true
+	}
+	if !isCall(c, pub, "NewClientWith") {
+		return false
+	}
+	for _, a := range c.Args {
+		if call, ok := a.(*ast.CallExpr); ok && isCall(call, names["github.com/trianalab/pacto/v4/pkg/oci"], "WithTransport") {
+			return false
+		}
+	}
+	return true
 }
 
 // importNames maps each import path of f to the name it is used under.
