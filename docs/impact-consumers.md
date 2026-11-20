@@ -136,8 +136,9 @@ A provider announces a deliberate break in
 - `accepted`: the consumer's declared owner signed a counted acceptance of
   exactly this break (provider, version and the digest of its announcement)
   with [`pacto accept --break`](ci.md#ship-a-breaking-change), or the
-  consumer's own published ranges admit the new version and no revision that
-  refuses it runs on a target. An accepted consumer never blocks.
+  consumer's own published ranges admit the new version, a source shows where
+  it runs and no revision that refuses it runs there. An accepted consumer
+  never blocks.
 - `announced`: nothing accepts it. A record by somebody other than the
   declared owner, or signed by CI or an agent, names who may accept.
 - `expired`: the announcement's `expires`, else the date `pacto ci` recorded
@@ -145,7 +146,9 @@ A provider announces a deliberate break in
   (`expiry unknown: run pacto ci or declare expires`).
 
 A listing of acceptances that could not all be read makes the answer partial
-(`ACCEPTANCES_TRUNCATED`), never accepted.
+(`ACCEPTANCES_TRUNCATED`), never accepted. An HTTP MCP server and a dashboard
+viewer who is not signed in read no acceptances: the answer notes
+`ACCEPTANCES_NOT_READ` and the break reads `acceptances not read`.
 
 ## Range coverage
 

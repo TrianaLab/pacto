@@ -195,10 +195,13 @@ pacto accept oci://ghcr.io/acme/reports --proposed --intent sha256:...
 - A counted range reads `accepted` in the `Ranges:` line at once. The next
   `pacto ci --publish` pins it into the published `pacto.yaml`, where it reads
   declared, and cites the record in `inputs.acceptances`. A range your
-  `pacto.yaml` declares wins.
+  `pacto.yaml` declares wins; `compatibility: unknown` declares none. A
+  declared `service.version` that is already published pins nothing until you
+  bump it.
+- One command accepts ranges or a break, never both.
 - The dashboard's service page offers **Accept all proposed ranges** inside
-  **Inferred by Pacto**: it shows the plan and the `pacto accept` command, and
-  never signs or writes.
+  **Inferred by Pacto** to a signed-in or local viewer: it shows the plan and
+  the `pacto accept` command, and never signs or writes.
 
 - `--policy` on `pacto ci` and `pacto impact` sets how a `BREAKING` change
   treats what no range covers. The default `warn` adds a `POLICY_WARNING`
@@ -341,7 +344,8 @@ breaks:
   published, `--from ../ledger` (its checkout or a pushed `oci://` ref) reads
   the announcement.
 - A consumer also reads `accepted` when its own published ranges admit the
-  new version and no revision that refuses it runs on a target.
+  new version, a source shows where it runs and no revision that refuses it
+  runs there.
 - The gate clears (`BREAKING_ACCEPTED`) once every consumer accepted. Nobody
   overrides a failed check.
 - An announcement without `expires` expires 30 days after the commit time,
