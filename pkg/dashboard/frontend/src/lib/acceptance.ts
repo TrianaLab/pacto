@@ -27,3 +27,15 @@ export function breakText(b: BreakState): string {
   return [words[b.state] ?? `Break ${b.state}.`, b.by && `Signed by ${b.by}.`, b.record && `Record: ${b.record}.`,
     b.expires ? `Expires ${b.expires}.` : 'Expiry unknown.', b.route && `Waiting for ${b.route}.`, b.reason].filter(Boolean).join(' ');
 }
+
+type Advisory = { interface: string; source: string; changes?: { path: string; reason: string }[] | null; consumers?: { service: string }[] | null };
+
+/** The tip of a possible break (inferred): the interface, its source, the first findings, the consumers and the declare hint. */
+export function advisoryText(a: Advisory): string {
+  const changes = a.changes ?? [], consumers = (a.consumers ?? []).map((c) => c.service);
+  const more = changes.length > 3 ? ` and ${changes.length - 3} more` : '';
+  return [`Possible break on inferred interface ${a.interface} (${a.source}).`,
+    changes.length > 0 && `Findings: ${changes.slice(0, 3).map((c) => c.reason).join('; ')}${more}.`,
+    consumers.length > 0 ? `Consumers (inferred, compatibility unknown): ${consumers.join(', ')}.` : 'No consumer is known.',
+    'It never blocks or clears: declare the interface to classify the change.'].filter(Boolean).join(' ');
+}

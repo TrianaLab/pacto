@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
@@ -197,5 +198,20 @@ func TestImpactToolDescriptionNamesIndex(t *testing.T) {
 		if !strings.Contains(d, want) {
 			t.Errorf("description lacks %q", want)
 		}
+	}
+}
+
+func TestMCPImpactCarriesInferredAdvisory(t *testing.T) {
+	want := &impact.Result{Service: "orders", Classification: "NON_BREAKING", Gate: impact.GateUnverified,
+		Advisories: []impact.InferredAdvisory{{Advisory: diff.Advisory{Interface: "api", Source: "openapi.yaml:1"},
+			Consumers: []impact.AdvisoryConsumer{{Service: "web", Confidence: impact.ConfidenceInferred, Compatibility: impact.CompatibilityUnknown}}}}}
+	res := callHandler(t, impactTool(), impactHandler(stubImpact(want, nil, nil), nil), map[string]any{"old_ref": "a", "new_ref": "b"})
+	var out impact.Result
+	decode(t, res, &out)
+	if len(out.Advisories) != 1 || out.Advisories[0].Interface != "api" || out.Advisories[0].Consumers[0] != want.Advisories[0].Consumers[0] {
+		t.Fatalf("advisories %+v", out.Advisories)
+	}
+	if d := impactTool().Description; !strings.Contains(d, "'advisories'") || !strings.Contains(d, "never clears or blocks") || !strings.Contains(d, "INFERRED_POSSIBLE_BREAK") {
+		t.Error("the description does not name the advisory")
 	}
 }

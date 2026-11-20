@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { breakText, rangesLine, unknownRanges } from './acceptance.ts';
+import { advisoryText, breakText, rangesLine, unknownRanges } from './acceptance.ts';
 
 describe('acceptance words', () => {
   it('prints the Ranges line rounded down, or no edges', () => {
@@ -18,5 +18,16 @@ describe('acceptance words', () => {
     expect(breakText({ state: 'announced', expires: '2026-12-01', route: 'the owner of reports', reason: 'x' }))
       .toBe('Break announced: nothing accepts it yet. Expires 2026-12-01. Waiting for the owner of reports. x');
     expect(breakText({ state: 'other', expires: 'd' })).toBe('Break other. Expires d.');
+  });
+});
+
+describe('advisoryText', () => {
+  it('names the interface, the source, the first findings, the consumers and the declare hint', () => {
+    const changes = [1, 2, 3, 4].map((i) => ({ path: `p${i}`, reason: `r${i}` }));
+    expect(advisoryText({ interface: 'api', source: 'a.yaml:1', changes, consumers: [{ service: 'web' }] })).toBe(
+      'Possible break on inferred interface api (a.yaml:1). Findings: r1; r2; r3 and 1 more. Consumers (inferred, compatibility unknown): web. ' +
+      'It never blocks or clears: declare the interface to classify the change.');
+    expect(advisoryText({ interface: 'api', source: 'a.yaml:1' })).toBe(
+      'Possible break on inferred interface api (a.yaml:1). No consumer is known. It never blocks or clears: declare the interface to classify the change.');
   });
 });

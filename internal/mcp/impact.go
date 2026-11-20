@@ -48,6 +48,9 @@ func impactTool() *mcpsdk.Tool {
 			"and 'policy' the range policy the answer was held to: pass 'policy' as the --policy values of `pacto impact` (unknown-range=warn|fail, uncontracted=warn|fail:<window>); " +
 			"a fail policy blocks a BREAKING change, a warn adds a POLICY_WARNING line to 'notes'. A consumer at depth 1 with provenance and confidence 'inferred' (via 'inferred') is named only by " +
 			"its own inferred record, pacto.inferred.yaml: a direct consumer whose compatibilityVerdict is unknown, which never clears the gate. " +
+			"'advisories' are possible breaks on interfaces only pacto.inferred.yaml names: the breaking findings of the spec diff, the inferred source path:line, the direct consumers " +
+			"(inferred, compatibility unknown) and the YAML that declares the interface. An advisory never clears or blocks: a change that is not BREAKING reads unverified " +
+			"with the gate code INFERRED_POSSIBLE_BREAK until the interface is declared. " +
 			"On a BREAKING change a compatible consumer only matches by range; read " +
 			"its 'note'. 'consumerTallies' counts every consumer by outcome (incompatible includes a consumer that refuses a " +
 			"required guarantee) and ranks their owners; state counts from it rather than by counting the list. Over stdio, when no fleet source holds the changed service, the new revision is added to the snapshot " +

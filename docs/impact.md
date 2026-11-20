@@ -203,6 +203,29 @@ $ echo $?
 1
 ```
 
+#### A possible break on an inferred interface
+
+When a spec file is only inferred (an `interfaces[api]`, `interfaces[events]`
+or `interfaces[grpc]` entry in `pacto.inferred.yaml` and no interface of that
+name in `pacto.yaml`), Pacto runs the same spec diff it runs on a declared
+interface, between the old and the new file. Its breaking findings become an
+advisory in `advisories`: the interface, the inferred source `path:line`, the
+findings, the direct consumers (each `inferred`, with compatibility `unknown`)
+and the YAML that declares the interface. The CLI prints one line after the
+gate:
+
+```text
+possible break (inferred) payments api openapi/v1.yaml:1: openapi.paths[/payments].methods[GET].parameters[currency:query] GET /payments query param 'currency' added; consumers (inferred, unknown): web
+```
+
+An advisory never blocks and never clears. It never changes the
+classification or the version `pacto publish` requires. A change that is not
+`BREAKING` reads `unverified` with the gate code `INFERRED_POSSIBLE_BREAK`; a
+`BREAKING` change keeps its own gate. Without the old record or a spec file
+that reads, Pacto reports no advisory. To classify the change, add the `declare` YAML to
+`pacto.yaml`. `pacto diff`, `pacto ci`, `pacto_impact` and Change analysis
+show the same advisory.
+
 #### Gating in CI
 
 In CI that is one of two deliberate choices. Fail on any non-zero exit and an

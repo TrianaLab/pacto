@@ -91,6 +91,9 @@ type Row struct {
 	// Images are the images the published bundle deploys, as
 	// <repository>@<digest>, recorded with it.
 	Images []string `json:"images,omitempty"`
+	// Advisories are the possible breaks on inferred interfaces the row's
+	// impact answer found; they never change its gate or exit code.
+	Advisories []impact.InferredAdvisory `json:"advisories,omitempty"`
 }
 
 // The outcomes of a row in publish mode.

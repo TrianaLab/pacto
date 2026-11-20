@@ -48,16 +48,7 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 		// and both have refs (regardless of ref equality — a spec can be rewritten
 		// behind an unchanged ref).
 		if oldIface.Type == newIface.Type && oldIface.Ref != "" && newIface.Ref != "" {
-			switch oldIface.Type {
-			case contract.InterfaceTypeOpenAPI:
-				changes = append(changes, diffOpenAPI(oldIface.Ref, newIface.Ref, oldFS, newFS)...)
-			case contract.InterfaceTypeAsyncAPI:
-				changes = append(changes, diffAsyncAPI(oldIface.Ref, newIface.Ref, oldFS, newFS)...)
-			case contract.InterfaceTypeGRPC:
-				changes = append(changes, diffGRPC(oldIface.Ref, newIface.Ref, oldFS, newFS)...)
-			case contract.InterfaceTypeMCP:
-				changes = append(changes, diffMCP(oldIface.Ref, newIface.Ref, oldFS, newFS)...)
-			}
+			changes = append(changes, specDiff(oldIface.Type, oldIface.Ref, newIface.Ref, oldFS, newFS)...)
 		}
 	}
 
@@ -68,6 +59,23 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 	}
 
 	return changes
+}
+
+// specDiff compares the spec files of one interface of type kind: the
+// semantic diff of its OpenAPI, AsyncAPI, gRPC or MCP spec, nothing for any
+// other type.
+func specDiff(kind, oldRef, newRef string, oldFS, newFS fs.FS) []Change {
+	switch kind {
+	case contract.InterfaceTypeOpenAPI:
+		return diffOpenAPI(oldRef, newRef, oldFS, newFS)
+	case contract.InterfaceTypeAsyncAPI:
+		return diffAsyncAPI(oldRef, newRef, oldFS, newFS)
+	case contract.InterfaceTypeGRPC:
+		return diffGRPC(oldRef, newRef, oldFS, newFS)
+	case contract.InterfaceTypeMCP:
+		return diffMCP(oldRef, newRef, oldFS, newFS)
+	}
+	return nil
 }
 
 // removedInterface is the Breaking removal of iface. Its reason says so when

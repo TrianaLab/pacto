@@ -174,7 +174,7 @@ func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) 
 		_, _ = fmt.Fprintf(w, "Classification: %s\n", colorClassification(w, result.Classification))
 		_, _ = fmt.Fprintf(w, "Required bump: %s\n", result.RequiredBump)
 
-		if len(result.Changes) == 0 && len(result.DependencyDiffs) == 0 && rendered == "" && !hasSBOM && !hasDepSBOM {
+		if !hasDiffContent(result) && rendered == "" && !hasSBOM && !hasDepSBOM {
 			_, _ = fmt.Fprintln(w, "No changes detected.")
 			return nil
 		}
@@ -204,6 +204,7 @@ func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) 
 		if hasSBOM {
 			printSBOMDiff(w, result.SBOMDiff)
 		}
+		printDiffAdvisories(w, result.Advisories)
 
 		return nil
 	}, func() error {
@@ -211,11 +212,40 @@ func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) 
 	})
 }
 
+// hasDiffContent reports whether the diff has changes, dependency diffs or
+// advisories to print.
+func hasDiffContent(r *app.DiffResult) bool {
+	return len(r.Changes) > 0 || len(r.DependencyDiffs) > 0 || len(r.Advisories) > 0
+}
+
+// printDiffAdvisories prints the possible breaks on inferred interfaces,
+// each with the YAML that declares the interface.
+func printDiffAdvisories(w io.Writer, advisories []diff.Advisory) {
+	if len(advisories) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, "\nPossible breaks (inferred, advisory):")
+	for _, a := range advisories {
+		_, _ = fmt.Fprintf(w, "  possible break (inferred) %s\n  declare it:\n%s", a.Summary(), indent("    ", a.Declare))
+	}
+}
+
+// printDiffAdvisoriesMarkdown is printDiffAdvisories as Markdown.
+func printDiffAdvisoriesMarkdown(w io.Writer, advisories []diff.Advisory) {
+	if len(advisories) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "### Possible breaks (inferred, advisory)\n\n")
+	for _, a := range advisories {
+		_, _ = fmt.Fprintf(w, "- possible break (inferred) `%s`\n\n```yaml\n%s```\n\n", strings.ReplaceAll(a.Summary(), "`", "'"), a.Declare)
+	}
+}
+
 func printDiffMarkdown(cmd *cobra.Command, result *app.DiffResult) error {
 	w := cmd.OutOrStdout()
 	_, _ = fmt.Fprintf(w, "## Contract Diff\n\n**Classification:** `%s`\n\n**Required bump:** `%s`\n\n", result.Classification, result.RequiredBump)
 
-	hasChanges := len(result.Changes) > 0 || len(result.DependencyDiffs) > 0
+	hasChanges := hasDiffContent(result)
 	rendered := graph.RenderDiffTree(result.GraphDiff)
 	hasSBOM := result.SBOMDiff != nil && len(result.SBOMDiff.Changes) > 0
 	hasDepSBOM := hasAnyDepSBOM(result.DependencyDiffs)
@@ -248,6 +278,7 @@ func printDiffMarkdown(cmd *cobra.Command, result *app.DiffResult) error {
 		_, _ = fmt.Fprintf(w, "### SBOM Changes\n\n")
 		printSBOMChangeRows(w, result.SBOMDiff.Changes)
 	}
+	printDiffAdvisoriesMarkdown(w, result.Advisories)
 
 	return nil
 }

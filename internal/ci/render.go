@@ -2,6 +2,7 @@ package ci
 
 import (
 	"fmt"
+	"html"
 	"io"
 	"slices"
 	"strconv"
@@ -24,6 +25,9 @@ func Text(w io.Writer, p *Plan) {
 		_, _ = fmt.Fprintln(tw, strings.Join(rowCells(p, r), "\t"))
 	}
 	_ = tw.Flush()
+	for _, l := range advisoryLines(p) {
+		_, _ = fmt.Fprintln(w, l)
+	}
 	for _, l := range footer(p) {
 		_, _ = fmt.Fprintln(w, l)
 	}
@@ -61,6 +65,7 @@ func Markdown(p *Plan) string {
 		}
 		b.WriteString("| " + strings.Join(cs, " | ") + " |\n")
 	}
+	writeAdvisories(&b, p)
 	writeFooter(&b, p)
 	return b.String()
 }
@@ -73,6 +78,38 @@ func writeFooter(b *strings.Builder, p *Plan) {
 			b.WriteString("- " + code(l) + "\n")
 		}
 	}
+}
+
+// advisoryLines are one line per possible break on an inferred interface.
+func advisoryLines(p *Plan) []string {
+	var out []string
+	for _, r := range p.Rows {
+		for _, a := range r.Advisories {
+			out = append(out, a.Line(r.Service))
+		}
+	}
+	return out
+}
+
+// writeAdvisories writes each advisory as a code-span bullet with the YAML
+// that declares its interface in a details block.
+func writeAdvisories(b *strings.Builder, p *Plan) {
+	for _, r := range p.Rows {
+		for _, a := range r.Advisories {
+			b.WriteString("\n- " + code(a.Line(r.Service)) + "\n\n  <details><summary>Declare " + html.EscapeString(a.Interface) +
+				"</summary>\n\n  ```yaml\n" + indent(a.Declare) + "  ```\n\n  </details>\n")
+		}
+	}
+}
+
+// indent is s with every line indented two spaces, for a list item. A
+// fence inside s becomes quotes, so it cannot close the block.
+func indent(s string) string {
+	var b strings.Builder
+	for _, l := range strings.Split(strings.TrimSuffix(s, "\n"), "\n") {
+		b.WriteString("  " + strings.ReplaceAll(l, "```", "'''") + "\n")
+	}
+	return b.String()
 }
 
 // publishing reports whether p is a publish run: refused, or a row with an

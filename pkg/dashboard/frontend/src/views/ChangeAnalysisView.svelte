@@ -25,7 +25,7 @@
   import { OUTCOMES, EFFECTS, EFFECT_META, effectOf } from '../lib/impactFigure.ts';
   import { formatRelative } from '../lib/dateFormat.ts';
   import ProvenanceMark from '../components/ProvenanceMark.svelte';
-  import { breakText, rangesLine, unknownRanges } from '../lib/acceptance.ts';
+  import { advisoryText, breakText, rangesLine, unknownRanges } from '../lib/acceptance.ts';
 
   // The Change analysis workspace: ONE screen for the two halves of a single question --
   // WHAT CHANGED between two revisions of a service, and WHAT THAT CHANGE AFFECTS in the
@@ -632,11 +632,14 @@
          ranked highlights, so paging the table below never changes it. Its card says what
          changed, who it reaches and what the gate decides; the table stays the full answer. -->
     <ImpactFigure impact={result} autoplay={readerAsked} laneHref={(o) => changesUrl(o)} onlane={showOutcome} />
-    {#if result.ranges || result.notes?.length}
-      <!-- One muted line: the range coverage the answer used, its scope and unknown ranges in the mark, then its notes. -->
+    {#if result.ranges || result.notes?.length || result.advisories?.length}
+      <!-- One muted line: the range coverage the answer used, its scope and unknown ranges in the mark, then its notes
+           and a possible break on an inferred interface, with its details in the mark (a mark in the What changed
+           summary would nest a button in a disclosure). -->
       <div class="ca-ranges t-meta" data-testid="changes-ranges">
         {#if result.ranges}<p><span>{rangesLine(result.ranges)}</span> <ProvenanceMark label="About range coverage" text={[`Counted over ${result.ranges.scope}.`, ...unknownRanges(result.ranges)].join(' ')} /></p>{/if}
         {#each result.notes ?? [] as n, ni (ni)}<p data-testid="changes-note">{n}</p>{/each}
+        {#if result.advisories?.length}<p data-testid="changes-inferred-advisory"><span>Possible break (inferred), advisory: never blocks or clears</span> <ProvenanceMark label="About the possible break (inferred)" text={result.advisories.map(advisoryText).join(' ')} /></p>{/if}
       </div>
     {/if}
     {#if planOffers}

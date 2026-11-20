@@ -221,6 +221,7 @@ actor, approver, note, message, citation or correlation id.
 | `POLICY_UNCONTRACTED` | `blocked` |
 | `POLICY_REFERRERS_FAIL_UNPLACED` | `unverified` |
 | `POLICY_UNCHECKED` | `unverified` |
+| `INFERRED_POSSIBLE_BREAK` | `unverified` |
 | `SERVICE_NOT_IN_FLEET` | `unverified` |
 | `SERVICE_NAME_INFERRED` | `unverified` |
 | `ANSWER_PARTIAL` | `unverified` |

@@ -267,6 +267,34 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     unmount(component); document.body.removeChild(target);
   });
 
+  it('shows a possible break (inferred) as one muted line in the answer, only with advisories', async () => {
+    impactFn.mockResolvedValueOnce(impactResult());
+    let { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-counts"]')).toBeTruthy());
+    expect(target.querySelector('[data-testid="changes-inferred-advisory"]')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+
+    const res = impactResult();
+    res.advisories = [{ interface: 'api', kind: 'openapi', source: 'openapi/v1.yaml:1', declare: 'interfaces:\n  - name: api\n',
+      changes: [{ path: 'openapi.parameters', reason: 'parameter currency added as required' }], consumers: [{ service: 'checkout', confidence: 'inferred', compatibility: 'unknown' }] }];
+    impactFn.mockResolvedValueOnce(res);
+    ({ target, component } = mountView({ svc: 'domain-a/payments' }));
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-inferred-advisory"]')).toBeTruthy());
+    const span = target.querySelector('[data-testid="changes-inferred-advisory"]')!;
+    expect(span.closest('summary')).toBeNull();
+    expect(span.closest('[data-testid="changes-ranges"]')).toBeTruthy();
+    expect(span.textContent).toContain('Possible break (inferred)');
+    expect(span.querySelector('button[aria-label="About the possible break (inferred)"]')).toBeTruthy();
+    expect(span.textContent).toContain('openapi/v1.yaml:1');
+    expect(span.textContent).toContain('Consumers (inferred, compatibility unknown): checkout.');
+    expect(span.textContent).toContain('declare the interface to classify');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('draws the impact once analysed, the same on every page of the table', async () => {
     impactFn.mockResolvedValueOnce(impactResult({ offset: 0, nextOffset: 100 }));
     const { target, component } = mountView({ svc: 'domain-a/payments' });

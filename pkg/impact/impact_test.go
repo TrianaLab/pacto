@@ -747,6 +747,8 @@ func gateCases() []gateCase {
 			r: Result{Classification: "BREAKING", Service: "api", Consumers: []AffectedConsumer{paper, failingUnplaced},
 				unknownRanges: []string{"web"}, Policy: &Policy{UnknownRange: PolicyFail}}},
 		{name: "non breaking", gate: GateClear, reason: "the change is NON_BREAKING", code: GateCodeNotBreaking, r: Result{Classification: "NON_BREAKING"}},
+		{name: "inferred possible break", gate: GateUnverified, reason: "a possible break on inferred interface api (openapi/v1.yaml:4): declare the interface to classify the change",
+			code: GateCodeInferredPossibleBreak, r: Result{Classification: "NON_BREAKING", Advisories: []InferredAdvisory{{Advisory: diff.Advisory{Interface: "api", Source: "openapi/v1.yaml:4"}}}}},
 		{name: "potential", gate: GateClear, reason: "review the potentially breaking changes by hand", code: GateCodePotentialBreaking, r: Result{Classification: "POTENTIAL_BREAKING"}},
 		{name: "blocked", gate: GateBlocked, reason: "do not accept api 2.0.0: web", code: GateCodeConsumersIncompatible,
 			r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Consumers: []AffectedConsumer{active, paper}}},

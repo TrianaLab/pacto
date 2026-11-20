@@ -204,6 +204,9 @@ type Product struct {
 	// notes, as [Result.Ranges] and [Result.Notes].
 	Ranges *RangeCoverage `json:"ranges,omitempty" doc:"How many direct consumers declare a compatibility range or accepted one, and which ranges stay unknown; absent on an event answer"`
 	Notes  []string       `json:"notes,omitempty" doc:"Informational notes, such as a range policy set to warn; never a limitation"`
+	// Advisories are the answer's possible breaks on inferred interfaces, as
+	// [Result.Advisories].
+	Advisories []InferredAdvisory `json:"advisories,omitempty" doc:"Possible breaks on interfaces only pacto.inferred.yaml names: advisory, never part of the classification. A non-BREAKING answer with one reads unverified; it never blocks or clears"`
 }
 
 // ProductRevisions looks up both revisions, requires them to exist and to belong
@@ -322,6 +325,7 @@ func BuildProductOutcome(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcK
 		Regression:     slices.Clone(res.Regression),
 		Ranges:         res.Ranges,
 		Notes:          slices.Clone(res.Notes),
+		Advisories:     slices.Clone(res.Advisories),
 	}
 	p.setSubject(snap, svcKey, res)
 	return p

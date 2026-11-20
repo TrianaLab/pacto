@@ -274,6 +274,8 @@ type Result struct {
 	Policy *Policy `json:"policy,omitempty" doc:"The range policy the answer was held to; absent on an event answer"`
 	// Notes are informational lines, never a limitation.
 	Notes []string `json:"notes,omitempty" doc:"Informational notes, such as a range policy set to warn; never a limitation"`
+	// Advisories are the possible breaks on inferred interfaces.
+	Advisories []InferredAdvisory `json:"advisories,omitempty" doc:"Possible breaks on interfaces only pacto.inferred.yaml names: advisory, never part of the classification. A non-BREAKING answer with one reads unverified; it never blocks or clears"`
 	// unknownRanges names every direct consumer whose range is unknown and
 	// not accepted, beyond the coverage's bound.
 	unknownRanges []string
@@ -404,6 +406,9 @@ func (r *Result) gate() (string, string) {
 		return gate, why
 	}
 	if why := r.policyUnchecked(); why != "" && r.Classification != "BREAKING" {
+		return GateUnverified, why
+	}
+	if why := r.advisoryGate(); why != "" {
 		return GateUnverified, why
 	}
 	switch r.Classification {
@@ -791,6 +796,7 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		res = analyzeEvent(snap, opts)
 	} else {
 		res = analyze(ctx, old, new, oldFS, newFS, snap, opts)
+		res.adviseConsumers()
 		res.noteRangeOnlyMatches()
 		if opts.Index != nil {
 			idx := *opts.Index
@@ -829,6 +835,7 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		OldVersion:       old.Service.Version,
 		NewVersion:       new.Service.Version,
 		Classification:   d.Classification.String(),
+		Advisories:       inferredAdvisories(d.Advisories),
 		Completeness:     snap.ConsumerCompleteness(),
 		Limitations:      append([]fleet.Limitation(nil), snap.Limitations...),
 		Consumers:        []AffectedConsumer{},

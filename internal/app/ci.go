@@ -782,6 +782,7 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 		results[f.row.Service] = res
 		p.NoteIndex(res)
 		f.row.Impact = rowImpact(res, f.b, evidence)
+		f.row.Advisories = res.Advisories
 		f.row.Impact.Sources = answered
 	}
 	return results, snap, nil
@@ -937,6 +938,9 @@ func rowImpact(res *impact.Result, local *contract.Bundle, evidence string) ci.I
 		}
 		return ci.Impact{Gate: impact.GateBlocked, Text: "blocked (" + text + ")", Blocking: names}
 	case impact.GateUnverified:
+		if res.GateCode() == impact.GateCodeInferredPossibleBreak {
+			return unverified("possible break (inferred): interfaces[" + res.Advisories[0].Interface + "]; declare it to classify")
+		}
 		return unverified(res.GateReason)
 	}
 	_, nameInferred := local.NameInferred()

@@ -485,9 +485,9 @@ func TestBuildProduct_CarriesBreakStateRangesAndNotes(t *testing.T) {
 	rev := snap.Revisions["api@1"]
 	bs := &BreakState{State: BreakAccepted, By: "ana@acme.com"}
 	res := &Result{Ranges: &RangeCoverage{Scope: "consumers of api", Edges: 2, Declared: 1}, Notes: []string{"POLICY_WARNING: x"},
-		Consumers: []AffectedConsumer{{Service: "web", Break: bs}}}
+		Consumers: []AffectedConsumer{{Service: "web", Break: bs}}, Advisories: []InferredAdvisory{{}}}
 	p := BuildProduct(fleet.ProductMeta{}, snap, rev.ServiceKey, rev, rev, res, 0, 0)
-	if p.Ranges != res.Ranges || len(p.Notes) != 1 || p.Consumers.Items[0].Break != bs {
+	if p.Ranges != res.Ranges || len(p.Notes) != 1 || p.Consumers.Items[0].Break != bs || len(p.Advisories) != 1 {
 		t.Errorf("product = %+v", p)
 	}
 }

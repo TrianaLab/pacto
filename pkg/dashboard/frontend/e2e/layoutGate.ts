@@ -1433,6 +1433,12 @@ export function installScaleFixture(): void {
     doc.ranges = { scope: `consumers of ${longName('payments-service')}`, edges: 58, declared: 41, accepted: 6, unknownTotal: 11,
       unknown: Array.from({ length: 11 }, (_, i) => ({ from: longName(`consumer-${i}`), to: longName('payments-service'), proposed: `^2.${i}.0` })) };
     doc.notes = [`POLICY_WARNING: ${longName('payments-service')} -> ${longName('reports')} range unknown, 1 consumer (policy unknown-range=warn)`];
+    // A possible break on an inferred interface, with long values: one muted span in What changed.
+    doc.advisories = [{ interface: 'api', kind: 'openapi', source: `services/${longName('payments-service')}/openapi/${longName('v1')}.yaml:1`,
+      declare: `interfaces:\n  - name: api\n    type: openapi\n    ref: openapi/${longName('v1')}.yaml\n`,
+      changes: Array.from({ length: 5 }, (_, i) => ({ path: `openapi.paths[/${longName('payments')}].methods[GET].parameters[${longName(`currency-${i}`)}]`,
+        type: 'added', classification: 'BREAKING', reason: `parameter ${longName(`currency-${i}`)} added as required` })),
+      consumers: Array.from({ length: 12 }, (_, i) => ({ service: longName(`consumer-${i}`), confidence: 'inferred', compatibility: 'unknown' })) }];
   };
   const wrapped: Serve = async (method, path, body) => {
     body = engineBody(path, body);
@@ -2203,6 +2209,7 @@ export const ROUTES: Route[] = [
       await chooseRevision(page, '#impact-new-rev', '2.0.1');
       await page.getByRole('button', { name: /Compare revisions/ }).click();
       await expect(page.getByTestId('changes-ranges')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('changes-inferred-advisory')).toBeVisible();
     },
   },
   { name: 'change analysis event idle', hash: '#/fleet/changes/redis?mode=event' },

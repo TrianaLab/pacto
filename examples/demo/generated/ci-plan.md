@@ -14,9 +14,22 @@
 | SERVICE | CHANGED | VERSION | CLASSIFICATION | IMPACT | INFERRED |
 |---|---|---|---|---|---|
 | `ledger` | `yes` | `2.4.0 -> 3.0.0` | `BREAKING` | `clear` | `1 field` |
-| `payments` | `yes` | `1.4.2 -> 1.4.3 (derived)` | `NON_BREAKING` | `unverified (service.name inferred; declare it)` | `6 fields` |
+| `payments` | `yes` | `1.4.2 -> 1.4.3 (derived)` | `NON_BREAKING` | `unverified (possible break (inferred): interfaces[api]; declare it to classify)` | `6 fields` |
 | `reports` | `no` | - | - | - | `2 fields` |
 
+- `possible break (inferred) payments api openapi/v1.yaml:1: openapi.paths[/payments].methods[GET].parameters[currency:query] GET /payments query param 'currency' added; consumers (inferred, unknown): none`
+
+  <details><summary>Declare api</summary>
+
+  ```yaml
+  interfaces:
+    - name: api
+      type: openapi
+      ref: openapi/v1.yaml
+  ```
+
+  </details>
+
 - `skipped: services/legacy (from .pactoignore:1)`
-- `ledger: break accepted for reports (ana@acme.com, ghcr.io/acme/reports@<digest>); expires 2026-12-14 (commit b287e209fa1c + 30d, inferred)`
+- `ledger: break accepted for reports (ana@acme.com, ghcr.io/acme/reports@<digest>); expires 2026-12-14 (commit 92b546ad6e54 + 30d, inferred)`
 - `payments: baseline unverified in plan mode`

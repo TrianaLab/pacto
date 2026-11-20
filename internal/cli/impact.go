@@ -322,6 +322,9 @@ func printImpactResult(cmd *cobra.Command, result *impact.Result, format string)
 			printRegression(w, result)
 		}
 		_, _ = fmt.Fprintf(w, "Release gate: %s\n", result.Gate)
+		for _, a := range result.Advisories {
+			_, _ = fmt.Fprintln(w, a.Line(result.Service))
+		}
 
 		// The impact result carries completeness inline (not a fleet.Meta), so
 		// wrap it to reuse the shared partial-answer warning.

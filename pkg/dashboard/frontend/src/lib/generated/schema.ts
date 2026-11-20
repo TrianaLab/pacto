@@ -4960,6 +4960,13 @@ export interface components {
              */
             state: "counted" | "routed" | "proposal" | "expired" | "ignored";
         };
+        "Impact.AdvisoryConsumer": {
+            /** @enum {string} */
+            compatibility: "unknown";
+            /** @enum {string} */
+            confidence: "inferred";
+            service: string;
+        };
         "Impact.AffectedConsumer": {
             /** @description Where the break the new revision announces for this consumer stands: announced, accepted (it never blocks) or expired */
             break?: components["schemas"]["Impact.BreakState"];
@@ -5108,6 +5115,20 @@ export interface components {
             /** @description The fact is older than 24h before the snapshot's asOf, or has no time, so it does not count as current */
             stale?: boolean;
         };
+        "Impact.InferredAdvisory": {
+            /** @description The breaking findings of the spec diff. Advisory: a possible break on an inferred interface, never part of the classification */
+            changes: components["schemas"]["Diff.Change"][] | null;
+            /** @description The direct consumers of the changed service the possible break would hit, each inferred with compatibility unknown, bounded to 500 */
+            consumers: components["schemas"]["Impact.AdvisoryConsumer"][] | null;
+            /** @description The YAML that declares the interface in pacto.yaml, so the change is classified */
+            declare: string;
+            /** @description The inferred interface, as pacto.inferred.yaml names it (api, events or grpc) */
+            interface: string;
+            /** @description The spec kind: openapi, asyncapi or grpc */
+            kind: string;
+            /** @description Where Pacto found the spec, as path:line */
+            source: string;
+        };
         "Impact.OwnerTally": {
             /** Format: int64 */
             consumers: number;
@@ -5206,6 +5227,8 @@ export interface components {
         };
         "Impact.Result": {
             activeTargets?: string[] | null;
+            /** @description Possible breaks on interfaces only pacto.inferred.yaml names: advisory, never part of the classification. A non-BREAKING answer with one reads unverified; it never blocks or clears */
+            advisories?: components["schemas"]["Impact.InferredAdvisory"][] | null;
             /** Format: date-time */
             asOf: string;
             breakingChanges?: components["schemas"]["Diff.Change"][] | null;
@@ -5989,6 +6012,8 @@ export interface components {
         };
         ProductImpact: {
             activeTargets: components["schemas"]["ProductRefPreview"];
+            /** @description Possible breaks on interfaces only pacto.inferred.yaml names: advisory, never part of the classification. A non-BREAKING answer with one reads unverified; it never blocks or clears */
+            advisories?: components["schemas"]["Impact.InferredAdvisory"][] | null;
             changedOwner?: components["schemas"]["ProductRef"];
             changes: components["schemas"]["Impact.ChangesPreview"];
             classification: string;
