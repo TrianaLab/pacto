@@ -18,7 +18,8 @@ import (
 // canonical oci:// digest ref matching its recorded digest (a local source, a
 // mutable tag, a mismatched digest) is refused with the reason, as POST
 // /api/fleet/impact refuses it: the server would otherwise resolve whatever
-// the tag points at now with its own credentials.
+// the tag points at now with its own credentials. The inferred contract
+// revisions of a visible external system match the same way.
 func pinVisibleRef(snap *fleet.FleetSnapshot, ref string) (string, error) {
 	reason := ""
 	if snap != nil && ref != "" {
@@ -35,6 +36,21 @@ func pinVisibleRef(snap *fleet.FleetSnapshot, ref string) (string, error) {
 				return rev.ResolvedRef, nil
 			}
 			reason = "; revision " + string(key) + " has no immutable ref: " + ei.Reason()
+		}
+		// An inferred contract is no fleet revision: it is the provider of
+		// an external system the view shows.
+		for _, rec := range snap.Externals {
+			if rec.Provider == nil {
+				continue
+			}
+			for _, pr := range rec.Provider.Revisions {
+				if pr.Ref != ref && (digest == "" || pr.Digest != digest) {
+					continue
+				}
+				if fleet.ClassifyContentIdentity(pr.Ref, pr.Digest).Retrievable() {
+					return pr.Ref, nil
+				}
+			}
 		}
 	}
 	var asOf time.Time
