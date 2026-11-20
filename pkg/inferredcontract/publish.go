@@ -143,6 +143,12 @@ func (r *run) one(ctx context.Context, key fleet.ExternalKey, rep *Report) {
 		rep.Unchanged++
 		return
 	}
+	if !versionTag.MatchString(version) {
+		// A foreign tag at the top of the range: a tag pushed past it could
+		// never be read back, so every later run would try to push it again.
+		fail(fmt.Errorf("the next version %s is past 0.0.999999999, the highest one an inferred contract is read back from; remove the foreign tag above it", version))
+		return
+	}
 	digest, err := r.push(ctx, repo, version, b)
 	if err != nil {
 		fail(err)

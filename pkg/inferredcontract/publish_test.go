@@ -71,6 +71,22 @@ func TestPublishNeverOverwritesTag(t *testing.T) {
 	}
 }
 
+// TestPublishRefusesVersionPastTheRange: after a foreign 0.0.999999999 the
+// next tag could never be read back, so nothing is pushed and the run says
+// why.
+func TestPublishRefusesVersionPastTheRange(t *testing.T) {
+	host, reg := testRegistry(t)
+	d, root := deps(t, reg), host+"/demo/pacto-inferred"
+	d.Registry = hooked{Registry: reg, tags: func(string) []string { return []string{"0.0.999999999"} }}
+	rep := publishOK(t, d, root, stripeFleet(t, []string{"api.stripe.com"}))
+	if len(rep.Published) != 0 || !slices.ContainsFunc(rep.Errors, func(e Entry) bool { return strings.Contains(e.Error, "0.0.1000000000 is past 0.0.999999999") }) {
+		t.Errorf("report = %+v", rep)
+	}
+	if tags, _ := reg.Tags(context.Background(), root+"/stripe"); len(tags) != 0 {
+		t.Errorf("pushed %v", tags)
+	}
+}
+
 func TestPublishSignsUnsignedNewest(t *testing.T) {
 	host, reg := testRegistry(t)
 	d, root := deps(t, reg), host+"/demo/pacto-inferred"
