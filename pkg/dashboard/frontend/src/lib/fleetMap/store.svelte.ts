@@ -43,6 +43,8 @@ export class FleetMapStore {
   loading = $state(false);
   /** Bumped whenever a group page arrives, so a reader can redraw. */
   revision = $state(0);
+  /** The environment-grouped answer, read once per snapshot for the environment picker. */
+  environments = $state.raw<FleetMapAnswer | null>(null);
   groupBy: GroupBy = 'domain';
   environment = '';
 
@@ -74,6 +76,27 @@ export class FleetMapStore {
       if (seq === this.loadSeq) this.error = e instanceof Error ? e.message : String(e);
     } finally {
       if (seq === this.loadSeq) this.loading = false;
+    }
+  }
+
+  private envSeq = 0;
+
+  /**
+   * loadEnvironments reads the environments for the picker: the answer itself
+   * when it is grouped by environment, otherwise that grouping read once per
+   * snapshot. A failure leaves the picker with All environments only.
+   */
+  async loadEnvironments(): Promise<void> {
+    if (this.groupBy === 'environment') { this.environments = this.answer; return; }
+    if (this.envSeq || this.environments?.meta?.snapshotId === this.snapshotId) return;
+    const seq = ++this.envSeq;
+    try {
+      const a = await this.fetchers.map({ groupBy: 'environment' });
+      if (seq === this.envSeq) this.environments = a;
+    } catch {
+      // ponytail: no retry; the next snapshot asks again.
+    } finally {
+      if (seq === this.envSeq) this.envSeq = 0;
     }
   }
 

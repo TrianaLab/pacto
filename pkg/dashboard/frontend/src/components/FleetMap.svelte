@@ -5,14 +5,24 @@
    * Details), pans and pinches, fits what is shown and respects reduced motion.
    * The canvas is an image to assistive technology; the HUD breadcrumbs, the
    * level ladder and the live region carry its words.
+   *
+   * The toolbar groups by domain, owner team or environment, switches the
+   * lens (Both, Expected, Observed) and the Only problems mode, and picks an
+   * environment to dim what does not run there. The map's state lives in the
+   * hash query (groupBy, lens, only, gaps, missing, env): every change is
+   * written through onparams, so a view is shareable.
    */
   import { onMount, onDestroy, untrack } from 'svelte';
   import { FleetMapStore, type GroupBy } from '../lib/fleetMap/store.svelte';
-  import { LENSES, type Lens } from '../lib/fleetMap/lens';
+  import { LENSES, groupCount, summary, type Lens } from '../lib/fleetMap/lens';
+  import { GAP_KINDS, MISSING_SECTIONS, environmentChoices, gapCount, modeFrom, modeParams, toggleGap, type GapKind, type Mode } from '../lib/fleetMap/modes';
+  import { attentionCategoryLabel } from '../lib/entityLabels';
+  import { countOf, formatCount } from '../lib/format';
+  import { setHashParams } from '../lib/hashQuery.svelte';
   import { Grid, circleAt } from '../lib/fleetMap/hit';
   import {
-    render, readPalette, placeNodes, drawMinimap,
-    type DrawnLabel, type MiniTransform, type Palette, type PlacedNode, type Rect,
+    render, readPalette, placeNodes, placeEdges, drawMinimap, LEGEND, EDGE_DASH,
+    type DrawnLabel, type LegendEntry, type MiniTransform, type Palette, type PlacedEdge, type PlacedNode, type Rect,
   } from '../lib/fleetMap/render';
   import {
     Camera, L1, L2, L3, LEVEL_NAMES, NODE_R, clampK, fitK, fitView, gapOf, kForGap, level, toWorld, viewFor, zoomAt,
@@ -20,16 +30,40 @@
   } from '../lib/fleetMap/view';
   import type { GroupPage } from '../lib/fleetMap/store.svelte';
 
+  type Patch = Record<string, string | null>;
   let {
     variant = 'embedded',
     params = {},
     store = new FleetMapStore(),
-  }: { variant?: 'embedded' | 'full'; params?: Record<string, string>; store?: FleetMapStore } = $props();
+    onparams = setHashParams,
+  }: { variant?: 'embedded' | 'full'; params?: Record<string, string>; store?: FleetMapStore; onparams?: (patch: Patch) => void } = $props();
 
   const GROUPINGS: readonly GroupBy[] = ['domain', 'team', 'environment'];
-  const groupBy = $derived<GroupBy>((GROUPINGS as readonly string[]).includes(params.groupBy) ? (params.groupBy as GroupBy) : 'domain');
-  const lens = $derived<Lens>((LENSES as readonly string[]).includes(params.lens) ? (params.lens as Lens) : 'both');
-  const environment = $derived(params.env ?? '');
+  const GROUP_WORDS: Record<GroupBy, string> = { domain: 'Domain', team: 'Owner team', environment: 'Environment' };
+  const LENS_WORDS: Record<Lens, string> = { both: 'Both', expected: 'Expected', observed: 'Observed' };
+  const GAP_WORDS: Record<GapKind, [string, readonly number[], string]> = {
+    'expected-only': ['Expected, not observed', EDGE_DASH.expectedOnly, '--c-info'],
+    'observed-only': ['Observed, not expected', EDGE_DASH.observedOnly, '--c-warn'],
+    insufficient: ['Insufficient evidence', EDGE_DASH.insufficient, '--c-neutral'],
+  };
+  // The view's state: the hash query, overridden by the toolbar until the page passes new params.
+  let q = $derived<Record<string, string>>({ ...params });
+  const groupBy = $derived<GroupBy>((GROUPINGS as readonly string[]).includes(q.groupBy) ? (q.groupBy as GroupBy) : 'domain');
+  const lens = $derived<Lens>((LENSES as readonly string[]).includes(q.lens) ? (q.lens as Lens) : 'both');
+  const mode = $derived<Mode>(modeFrom(q));
+  // Gaps are differences between declared and observed: they read in Both.
+  const shown = $derived<Lens>(mode?.kind === 'gaps' ? 'both' : lens);
+  // Grouped by environment, the columns are the environments: the picker steps aside.
+  const environment = $derived(groupBy === 'environment' ? '' : q.env ?? '');
+
+  /** set changes the view's state and writes it to the hash query. */
+  function set(patch: Patch) {
+    const next = { ...q };
+    for (const [k, v] of Object.entries(patch)) { if (v === null || v === '') delete next[k]; else next[k] = v; }
+    q = next;
+    onparams(patch);
+  }
+  const setMode = (m: Mode) => set(modeParams(m));
 
   let canvas: HTMLCanvasElement | undefined = $state();
   let mini: HTMLCanvasElement | undefined = $state();
@@ -40,6 +74,10 @@
   let fitted = true;
   let pending = 0;
   let hoverGroup: string | null = null;
+  let hoverNode: string | null = null;
+  // The group tooltip, pinned where the pointer entered the bubble so the reader can reach its action.
+  let tip = $state<{ key: string; x: number; y: number } | null>(null);
+  let tipEl: HTMLDivElement | undefined = $state();
   let lastLabels: DrawnLabel[] = [];
   const frames: number[] = [];
   let miniT: MiniTransform | null = null;
@@ -65,24 +103,29 @@
     untrack(() => { void store.load(g, env).then(() => { fit(false); }); });
   });
   $effect(() => {
-    // A new answer, a page arriving or a lens switch redraws.
-    void store.revision; void answer; void lens;
+    // A new answer, a page arriving, a lens, mode or environment switch redraws.
+    void store.revision; void answer; void shown; void mode; void environment;
     request();
   });
 
-  // Placed nodes per page, kept until the page grows or the lens changes.
-  const placed = new WeakMap<GroupPage, { n: number; lens: Lens; nodes: PlacedNode[] }>();
-  function nodesInView(keys: string[]): PlacedNode[] {
-    const out: PlacedNode[] = [];
+  // Placed nodes and edges per page, kept until the page grows or the lens changes.
+  const placed = new WeakMap<GroupPage, { n: number; lens: Lens; nodes: PlacedNode[]; edges: PlacedEdge[] }>();
+  function inView(keys: string[]): { nodes: PlacedNode[]; edges: PlacedEdge[] } {
+    const nodes: PlacedNode[] = [], edges: PlacedEdge[] = [];
     for (const key of keys) {
       const g = byKey.get(key);
       const page = store.page(key);
       if (!g || !page) continue;
       let c = placed.get(page);
-      if (!c || c.n !== page.nodes.length || c.lens !== lens) { c = { n: page.nodes.length, lens, nodes: placeNodes(g, page, lens) }; placed.set(page, c); }
-      out.push(...c.nodes);
+      if (!c || c.n !== page.nodes.length || c.lens !== shown) {
+        const ns = placeNodes(g, page, shown);
+        c = { n: page.nodes.length, lens: shown, nodes: ns, edges: placeEdges(page, ns) };
+        placed.set(page, c);
+      }
+      nodes.push(...c.nodes);
+      edges.push(...c.edges);
     }
-    return out;
+    return { nodes, edges };
   }
 
   function groupsInView(v: View): string[] {
@@ -167,12 +210,12 @@
     const lv = level(gapOf(v.k));
     const keys = groupsInView(v);
     store.request(lv, keys);
-    const nodes = lv >= 1 ? nodesInView(keys) : [];
+    const { nodes, edges } = lv >= 1 ? inView(keys) : { nodes: [], edges: [] };
     drawn = nodes;
     grid = null;
     const res = render(ctx, {
-      groups, ribbons: answer.ribbons ?? [], nodes, view: v, w: vp.w, h: vp.h, dpr, palette, lens,
-      groupBy: answer.groupBy, hoverGroup, reserved: reserved(),
+      groups, ribbons: answer.ribbons ?? [], nodes, edges, view: v, w: vp.w, h: vp.h, dpr, palette, lens: shown,
+      groupBy: answer.groupBy, mode, environment, hoverGroup, hoverNode, reserved: reserved(),
     });
     lastLabels = res.labels;
     frames.push(performance.now() - t0);
@@ -199,6 +242,7 @@
     else if (e.key === 'ArrowRight') pan(-step, 0);
     else if (e.key === 'ArrowUp') pan(0, step);
     else if (e.key === 'ArrowDown') pan(0, -step);
+    else if (e.key === 'Escape' && mode) setMode(null);
     else return;
     e.preventDefault();
   }
@@ -248,9 +292,31 @@
     const v = camera.view;
     const [wx, wy] = toWorld(v, x, y);
     const g = lvl === 0 ? circleAt(groups, wx, wy)?.key ?? null : null;
-    if (g !== hoverGroup) { hoverGroup = g; request(); }
-    const n = nodeAt(wx, wy, v.k);
+    if (g !== hoverGroup) { hoverGroup = g; tip = g ? { key: g, x: Math.max(8, Math.min(x + 12, vp.w - 268)), y: Math.max(8, Math.min(y + 12, vp.h - 180)) } : null; request(); }
+    const n = lvl >= 1 ? nodeAt(wx, wy, v.k) : null;
+    const nk = n?.node.key ?? null;
+    if (nk !== hoverNode) { hoverNode = nk; request(); }
     if (canvas) canvas.style.cursor = g || n ? 'pointer' : '';
+  }
+
+  function unhover(e: PointerEvent) {
+    if (drag || (tipEl && e.relatedTarget instanceof Node && tipEl.contains(e.relatedTarget))) return;
+    if (hoverGroup || hoverNode) { hoverGroup = null; hoverNode = null; request(); }
+    tip = null;
+  }
+
+  /** zoomToGroup frames one group. */
+  function zoomToGroup(g: { x: number; y: number; r: number }) {
+    fitted = false;
+    go(viewFor(vp, g.x, g.y, Math.max(Math.min((vp.w - 80) / (2 * g.r), (vp.h - 120) / (2 * g.r)), kForGap(L1 * 1.3))));
+  }
+
+  /** missingIn dims the complete services and frames the group. */
+  function missingIn(key: string) {
+    tip = null;
+    setMode({ kind: 'missing', section: 'any' });
+    const g = byKey.get(key);
+    if (g) zoomToGroup(g);
   }
 
   function click(x: number, y: number) {
@@ -259,11 +325,12 @@
     const n = nodeAt(wx, wy, v.k);
     if (n) { go(viewFor(vp, n.x, n.y, Math.max(v.k, kForGap(60)))); return; }
     const g = lvl === 0 ? circleAt(groups, wx, wy) : null;
-    if (g) { fitted = false; go(viewFor(vp, g.x, g.y, Math.max(Math.min((vp.w - 80) / (2 * g.r), (vp.h - 120) / (2 * g.r)), kForGap(L1 * 1.3)))); }
+    if (g) { tip = null; zoomToGroup(g); }
   }
 
   function onWheel(e: WheelEvent) {
     e.preventDefault();
+    tip = null;
     zoomBy(...point(e), Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0018)));
   }
 
@@ -279,6 +346,13 @@
     const r = mini.getBoundingClientRect();
     go(viewFor(vp, (e.clientX - r.left - miniT.ox) / miniT.s, (e.clientY - r.top - miniT.oy) / miniT.s, camera.view.k));
   }
+
+  const choices = $derived(environmentChoices(store.environments));
+  const tipGroup = $derived(tip ? byKey.get(tip.key) ?? null : null);
+  /** Legend tones as design tokens. */
+  const TONE: Partial<Record<keyof Palette, string>> = { text2: '--c-text-2', text3: '--c-text-3', err: '--c-err', warn: '--c-warn', info: '--c-info', neutral: '--c-neutral' };
+  const tone = (e: LegendEntry) => `var(${TONE[e.tone] ?? '--c-text-3'})`;
+  const dashOf = (d: readonly number[] | undefined) => (d?.length ? d.join(' ') : undefined);
 
   const live = $derived(`Level ${lvl}, ${LEVEL_NAMES[lvl]}${centre ? `, ${centre}` : ''}`);
 
@@ -314,6 +388,61 @@
   });
 </script>
 
+<section class="fmw" aria-label="Dependency map">
+<div class="fm-tools">
+  <div class="fm-seg" role="group" aria-label="Group by">
+    <span class="fm-seg-label" aria-hidden="true">Group by</span>
+    {#each GROUPINGS as g (g)}
+      <button type="button" aria-pressed={groupBy === g} onclick={() => set({ groupBy: g === 'domain' ? null : g })}>{GROUP_WORDS[g]}</button>
+    {/each}
+  </div>
+  <div class="fm-seg" role="group" aria-label="Show">
+    <span class="fm-seg-label" aria-hidden="true">Show</span>
+    {#each LENSES as l (l)}
+      <!-- A lens other than Both leaves gaps mode: gaps read in Both. -->
+      <button type="button" aria-pressed={shown === l} onclick={() => set({ lens: l === 'both' ? null : l, ...(mode?.kind === 'gaps' && l !== 'both' ? modeParams(null) : {}) })}>{LENS_WORDS[l]}</button>
+    {/each}
+  </div>
+  <button type="button" class="fm-toggle" aria-pressed={mode?.kind === 'problems'} onclick={() => setMode(mode?.kind === 'problems' ? null : { kind: 'problems' })}>Only problems</button>
+  {#if groupBy !== 'environment'}
+    <label class="fm-env">
+      <span>Environment</span>
+      <select value={environment} onfocus={() => store.loadEnvironments()} onpointerenter={() => store.loadEnvironments()}
+        onchange={(e) => set({ env: e.currentTarget.value || null })}>
+        <option value="">All environments</option>
+        {#each choices.filter((c) => !c.preview) as c (c.value)}<option value={c.value}>{c.label}</option>{/each}
+        {#if choices.some((c) => c.preview)}
+          <optgroup label="Previews">
+            {#each choices.filter((c) => c.preview) as c (c.value)}<option value={c.value}>{c.label}</option>{/each}
+          </optgroup>
+        {/if}
+        {#if environment && !choices.some((c) => c.value === environment)}<option value={environment}>{environment}</option>{/if}
+      </select>
+    </label>
+  {/if}
+</div>
+{#if answer}<p class="fm-summary" data-testid="fleet-map-summary">{summary(answer, shown)}</p>{/if}
+{#if mode}
+  <div class="fm-modebar" data-testid="fleet-map-mode">
+    {#if mode.kind === 'problems'}
+      <p><b>Only problems.</b> Services with an error or a warning, and the dependencies that carry one. Everything healthy stays as grey context.</p>
+    {:else if mode.kind === 'gaps'}
+      <p><b>Gaps only.</b> Everything that matches is dimmed.</p>
+      <div class="fm-chips" role="group" aria-label="Kinds of gap">
+        {#each GAP_KINDS as k (k)}
+          {@const [word, dash, col] = GAP_WORDS[k]}
+          <button type="button" class="fm-chip" aria-pressed={mode.gaps.has(k)} onclick={() => mode?.kind === 'gaps' && setMode({ kind: 'gaps', gaps: toggleGap(mode.gaps, k) })}>
+            <svg class="fm-sw" viewBox="0 0 22 12" aria-hidden="true"><line x1="1" y1="6" x2="21" y2="6" stroke="var({col})" stroke-width="2" stroke-dasharray={dashOf(dash)} /></svg>
+            {word}{answer ? ` ${formatCount(gapCount(answer.match, [k]))}` : ''}
+          </button>
+        {/each}
+      </div>
+    {:else}
+      <p><b>Missing contract sections.</b> Services that describe {mode.section === 'any' ? 'every section' : `their ${MISSING_SECTIONS[mode.section] ?? mode.section}`} are dimmed.</p>
+    {/if}
+    <button type="button" class="fm-clear" onclick={() => setMode(null)}>Show everything</button>
+  </div>
+{/if}
 <div class="fm" class:fm-full={variant === 'full'} data-testid="fleet-map">
   <!-- svelte-ignore a11y_no_interactive_element_to_noninteractive_role (the map is an image to assistive technology; it is focusable only for its zoom and pan keys, and its words are the HUD, the ladder and the live region) -->
   <canvas
@@ -328,7 +457,7 @@
     onpointermove={onPointerMove}
     onpointerup={onPointerEnd}
     onpointercancel={onPointerEnd}
-    onpointerleave={() => { if (!drag && hoverGroup) { hoverGroup = null; request(); } }}
+    onpointerleave={unhover}
     onwheel={onWheel}
   ></canvas>
   <div class="fm-hud">
@@ -355,10 +484,68 @@
   {#if store.error}
     <p class="fm-error" role="alert">The map could not load: {store.error}</p>
   {/if}
+  {#if tip && tipGroup}
+    <div class="fm-tip" bind:this={tipEl} data-testid="fleet-map-group-tip" role="group" aria-label={tipGroup.label}
+      style:left="{tip.x}px" style:top="{tip.y}px"
+      onpointerleave={(e) => { if (!(e.relatedTarget instanceof Node && canvas?.contains(e.relatedTarget))) tip = null; }}>
+      <b>{tipGroup.label}</b>
+      <span>{countOf(groupCount(tipGroup, shown), 'service')}</span>
+      <span>{tipGroup.match.percent == null ? 'Pacto observes nothing yet' : `${tipGroup.match.percent}% match · ${tipGroup.match.coverage ?? 0}% observed`}</span>
+      <span>{tipGroup.percentComplete == null ? 'Contract completeness not judged' : `${tipGroup.percentComplete}% contract completeness`}</span>
+      {#each (tipGroup.attention.worst ?? []).slice(0, 3) as w (w.category)}
+        <span class="fm-tip-worst">{attentionCategoryLabel(w.category)} {w.count}</span>
+      {/each}
+      {#if tipGroup.percentComplete != null && tipGroup.percentComplete < 100}
+        <button type="button" onclick={() => missingIn(tipGroup.key)}>What this group is missing</button>
+      {/if}
+    </div>
+  {/if}
   <div class="visually-hidden" aria-live="polite">{live}</div>
 </div>
+<ul class="fm-legend" aria-label="Legend">
+  {#each LEGEND as e (e.key)}
+    <li>
+      <svg class="fm-sw" viewBox="0 0 22 12" aria-hidden="true">
+        {#if e.shape === 'line'}
+          <line x1="1" y1="6" x2="21" y2="6" stroke={tone(e)} stroke-width="2" stroke-dasharray={dashOf(e.dash)} />
+        {:else if e.shape === 'dot'}
+          <circle cx="11" cy="6" r="3.5" fill={tone(e)} />
+        {:else}
+          <circle cx="11" cy="6" r="3.5" fill="none" stroke={tone(e)} stroke-width="1.25" stroke-dasharray={dashOf(e.dash)} />
+          {#if e.shape === 'ring2'}<circle cx="11" cy="6" r="5.5" fill="none" stroke={tone(e)} stroke-width="1" />{/if}
+        {/if}
+      </svg>
+      {#if e.glyph}<span class="fm-glyph" style:color={tone(e)} aria-hidden="true">{e.glyph}</span>{/if}
+      {e.label}
+    </li>
+  {/each}
+</ul>
+</section>
 
 <style>
+  .fmw { display: flex; flex-direction: column; gap: var(--sp-2); min-inline-size: 0; }
+  .fm-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); }
+  .fm-seg { display: inline-flex; align-items: center; border: 1px solid var(--c-border); border-radius: var(--radius-sm); overflow: hidden; background: var(--c-surface); }
+  .fm-seg-label { padding: 0 var(--sp-2); font-size: var(--text-xs); color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.04em; }
+  .fm-seg button, .fm-toggle, .fm-chip, .fm-clear { border: 0; background: none; color: var(--c-text-2); cursor: pointer; padding: 4px 10px; min-block-size: 32px; font-size: var(--text-sm); }
+  .fm-seg button + button { border-inline-start: 1px solid var(--c-border); }
+  .fm-seg button[aria-pressed='true'], .fm-toggle[aria-pressed='true'], .fm-chip[aria-pressed='true'] { color: var(--c-accent); background: var(--c-accent-bg); font-weight: 600; }
+  .fm-toggle, .fm-chip, .fm-clear { border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); }
+  .fm-env { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--c-text-2); }
+  .fm-env select { min-block-size: 32px; max-inline-size: 16rem; }
+  .fm-summary { margin: 0; font-size: var(--text-sm); color: var(--c-text-2); overflow-wrap: anywhere; }
+  .fm-modebar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface-raised); font-size: var(--text-sm); }
+  .fm-modebar p { margin: 0; flex: 1 1 18rem; }
+  .fm-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+  .fm-chip { display: inline-flex; align-items: center; gap: var(--sp-1); }
+  .fm-sw { inline-size: 22px; block-size: 12px; flex: none; }
+  .fm-tip { position: absolute; z-index: 2; display: flex; flex-direction: column; gap: 2px; inline-size: max-content; max-inline-size: 16rem; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface-raised); box-shadow: var(--shadow-md, 0 4px 16px rgb(0 0 0 / 0.25)); font-size: var(--text-sm); color: var(--c-text-2); overflow-wrap: anywhere; }
+  .fm-tip b { color: var(--c-text); }
+  .fm-tip-worst { color: var(--c-text-3); }
+  .fm-tip button { margin-block-start: var(--sp-1); align-self: flex-start; border: 0; background: none; padding: 0; color: var(--c-accent); cursor: pointer; font-size: inherit; text-align: start; }
+  .fm-legend { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); margin: 0; padding: 0; list-style: none; font-size: var(--text-xs); color: var(--c-text-2); }
+  .fm-legend li { display: inline-flex; align-items: center; gap: var(--sp-1); }
+  .fm-glyph { font-weight: 700; }
   .fm { position: relative; block-size: clamp(420px, calc(100dvh - 300px), 1100px); background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-sm); overflow: hidden; }
   .fm.fm-full { block-size: clamp(460px, calc(100dvh - 200px), 1400px); }
   canvas:not(.fm-mini) { display: block; inline-size: 100%; block-size: 100%; touch-action: none; cursor: grab; }
@@ -382,4 +569,5 @@
   .fm-mini[hidden] { display: none; }
   .fm-error { position: absolute; inset-block-start: 50%; inset-inline: var(--sp-4); margin: 0; text-align: center; color: var(--c-err); }
   @media (pointer: coarse) { .fm-zoom button, .fm-ladder button, .fm-crumbs button { min-inline-size: 44px; min-block-size: 44px; } }
+  @media (pointer: coarse) { .fm-seg button, .fm-toggle, .fm-chip, .fm-clear, .fm-env select, .fm-tip button { min-inline-size: 44px; min-block-size: 44px; } }
 </style>

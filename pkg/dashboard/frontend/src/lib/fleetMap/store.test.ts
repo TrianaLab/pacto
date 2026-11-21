@@ -96,4 +96,24 @@ describe('fleet map store', () => {
     s.request(1, ['x']);
     expect(s.page('x')).toBeUndefined();
   });
+
+  it('reads the environments for the picker once per snapshot', async () => {
+    const snapshot = { id: 'snap-1' };
+    const { fetchers } = fakes(snapshot);
+    const s = new FleetMapStore(fetchers);
+    await s.load();
+    await Promise.all([s.loadEnvironments(), s.loadEnvironments()]);
+    await s.loadEnvironments();
+    expect(fetchers.map).toHaveBeenCalledTimes(2);
+    expect(fetchers.map).toHaveBeenLastCalledWith({ groupBy: 'environment' });
+    snapshot.id = 'snap-2';
+    await s.load();
+    await s.loadEnvironments();
+    expect(fetchers.map).toHaveBeenCalledTimes(4);
+    // Grouped by environment, the answer itself lists them.
+    await s.load('environment');
+    await s.loadEnvironments();
+    expect(fetchers.map).toHaveBeenCalledTimes(5);
+    expect(s.environments).toBe(s.answer);
+  });
 });
