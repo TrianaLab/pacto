@@ -124,6 +124,7 @@ func (s *MeshSource) hubbleRow(ctx context.Context, cl meshCluster, asOf time.Ti
 type hubbleRead struct {
 	flows       []flow
 	unavailable uint64 // nodes Relay could not reach
+	nodesKnown  bool   // Relay said how many nodes it could not reach
 	lost        uint64 // flows lost before Relay served them
 	full        bool   // maxHubbleFlows read, so older ones may exist
 }
@@ -151,7 +152,7 @@ func (s *MeshSource) hubbleFetch(ctx context.Context, relay svcInfo, asOf time.T
 	defer func() { _ = conn.Close() }()
 	var read hubbleRead
 	err = rpc(ctx, conn, hubbleStatusMethod, nil, func(frame []byte) (more bool, err error) {
-		read.unavailable, err = decodeStatus(frame)
+		read.unavailable, read.nodesKnown, err = decodeStatus(frame)
 		return false, err
 	})
 	if err != nil {
@@ -229,6 +230,7 @@ func (r hubbleRead) edges(id string, asOf time.Time, namespaces []string) ([]fle
 	earliest := r.earliest()
 	kept := asOf.Sub(earliest)
 	add(fleet.LimitationMeshCoveragePartial, r.unavailable > 0, countOf(int(r.unavailable), "node", "nodes")+" not reachable through Hubble Relay")
+	add(fleet.LimitationMeshCoveragePartial, !r.nodesKnown, "Hubble Relay did not say how many nodes it reaches")
 	add(fleet.LimitationMeshCoveragePartial, r.lost > 0, countOf(int(r.lost), "flow was", "flows were")+" lost before Hubble Relay could serve them")
 	add(fleet.LimitationMeshTelemetryUnread, r.full, "only the newest "+strconv.Itoa(maxHubbleFlows)+" flows of the last hour were read")
 	add(fleet.LimitationMeshTelemetryUnread, earliest.IsZero(), "Hubble Relay served no flow for the last hour")
@@ -481,16 +483,17 @@ func decodeTime(b []byte) (time.Time, error) {
 	return time.Unix(int64(sec), int64(int32(nanos))).UTC(), err
 }
 
-// decodeStatus reads a ServerStatusResponse's num_unavailable_nodes.
-func decodeStatus(b []byte) (uint64, error) {
-	var n uint64
-	err := fields(b, func(num protowire.Number, val []byte, _ uint64) (err error) {
+// decodeStatus reads a ServerStatusResponse's num_unavailable_nodes; known
+// is false when the answer leaves it out, which never reads as zero.
+func decodeStatus(b []byte) (n uint64, known bool, err error) {
+	err = fields(b, func(num protowire.Number, val []byte, _ uint64) (err error) {
 		if num == 6 {
+			known = true
 			n, err = varintField(val, 1)
 		}
 		return err
 	})
-	return n, err
+	return n, known, err
 }
 
 // varintField is the varint field num of the message b, 0 when absent: a

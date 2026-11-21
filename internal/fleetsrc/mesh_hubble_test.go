@@ -37,7 +37,8 @@ type relayStub struct {
 
 func newRelay(t *testing.T, frames ...[]byte) *relayStub {
 	t.Helper()
-	r := &relayStub{lis: bufconn.Listen(1 << 20), frames: frames}
+	// A Relay always says how many nodes it cannot reach, zero included.
+	r := &relayStub{lis: bufconn.Listen(1 << 20), frames: frames, status: pb(6, []byte{})}
 	srv := grpc.NewServer(grpc.UnknownServiceHandler(r.handle), grpc.ForceServerCodec(bytesCodec{}))
 	go func() { _ = srv.Serve(r.lis) }()
 	t.Cleanup(srv.Stop)
@@ -256,6 +257,15 @@ func TestHubbleUnavailableNodesPartial(t *testing.T) {
 	row := hubbleRowOf(t, collectMesh(t, hubbleSource(hubbleMesh(true, defaultRelay), nil, r)))
 	if row.Status != fleet.SourcePartial || row.Evidence != "serves cilium.io; flows read from Hubble Relay" ||
 		!hasMessage(row, fleet.LimitationMeshCoveragePartial, "2 nodes not reachable through Hubble Relay") {
+		t.Errorf("row %+v", row)
+	}
+}
+
+func TestHubbleNodeCountUnknownPartial(t *testing.T) {
+	r := newRelay(t, call(meshNow.Add(-59*time.Minute), cart(), ledger()))
+	r.status = nil
+	row := hubbleRowOf(t, collectMesh(t, hubbleSource(hubbleMesh(true, defaultRelay), nil, r)))
+	if row.Status != fleet.SourcePartial || !hasMessage(row, fleet.LimitationMeshCoveragePartial, "Hubble Relay did not say how many nodes it reaches") {
 		t.Errorf("row %+v", row)
 	}
 }
