@@ -27,7 +27,7 @@ spec:
                 serviceAccountName: pacto-impact
                 containers:
                   - name: pacto-impact
-                    image: ghcr.io/trianalab/pacto/dashboard:4.6.0
+                    image: ghcr.io/trianalab/pacto/dashboard:4.6.1
                     command: [sh, -c]
                     args:
                       - |

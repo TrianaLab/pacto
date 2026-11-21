@@ -5,49 +5,49 @@
         {
           "coordinate": "github.com/trianalab/pacto/v4",
           "kind": "go-module",
-          "tag": "v4.6.0",
+          "tag": "v4.6.1",
           "unit": "core"
         },
         {
           "kind": "binaries",
-          "release": "v4.6.0",
+          "release": "v4.6.1",
           "unit": "cli"
         },
         {
           "coordinate": "ghcr.io/trianalab/pacto/dashboard",
           "kind": "oci-image",
-          "tag": "4.6.0",
+          "tag": "4.6.1",
           "unit": "dashboard-image"
         },
         {
           "coordinate": "ghcr.io/trianalab/pacto/dashboard-contract",
           "kind": "oci-image",
-          "tag": "4.6.0",
+          "tag": "4.6.1",
           "unit": "dashboard-contract-bundle"
         },
         {
           "coordinate": "ghcr.io/trianalab/pacto",
           "kind": "oci-image",
-          "tag": "4.6.0",
+          "tag": "4.6.1",
           "unit": "demo-bundles"
         },
         {
           "coordinate": "ghcr.io/trianalab/pacto/demo",
           "kind": "oci-image",
-          "tag": "4.6.0",
+          "tag": "4.6.1",
           "unit": "demo-compose"
         },
         {
           "coordinate": "ghcr.io/trianalab/pacto/external-catalog",
           "kind": "oci-image",
-          "tag": "4.6.0",
+          "tag": "4.6.1",
           "unit": "external-catalog"
         }
       ],
       "tags": [
-        "v4.6.0"
+        "v4.6.1"
       ],
-      "version": "4.6.0"
+      "version": "4.6.1"
     },
     "kubernetes": {
       "artifacts": [
@@ -89,7 +89,7 @@
       },
       "goModPin": {
         "module": "github.com/trianalab/pacto/v4",
-        "version": "v4.6.0"
+        "version": "v4.6.1"
       },
       "tags": [
         "integrations/kubernetes/v6.6.0"
