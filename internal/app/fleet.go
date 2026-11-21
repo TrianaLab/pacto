@@ -304,9 +304,14 @@ func (s *Service) InstallationConfig(ref string) func(context.Context) (*fleet.I
 		return nil
 	}
 	src := srcs[0].(*fleetsrc.DetectionSource)
+	// A file ref is a path on this host: remote callers read a fixed label.
+	label := "a detection file"
+	if strings.HasPrefix(ref, "k8s:") {
+		label = ref
+	}
 	return func(ctx context.Context) (*fleet.InstallationDeclared, fleet.SourceState) {
 		res, st := src.Read(ctx)
-		return res.Declared(ref), st
+		return res.Declared(label), st
 	}
 }
 
