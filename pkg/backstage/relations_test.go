@@ -540,3 +540,24 @@ func TestCompletenessPerEntity(t *testing.T) {
 		t.Errorf("the golden fixture lacks a kind: %v", kinds)
 	}
 }
+
+// An edge only a caution-only source saw never makes a declared ref
+// declared+observed; on an undeclared ref it still reads observed.
+func TestCautionOnlyEdgeNeverCorroborates(t *testing.T) {
+	recent := fixed.Add(-time.Hour)
+	h := newHand()
+	h.svc("a", ct("a", "1.0.0"))
+	h.svc("b", ct("b", "1.0.0"))
+	h.svc("c", ct("c", "1.0.0"))
+	h.snap.Sources = []fleet.SourceState{{ID: "otlp-receiver", CautionOnly: true}}
+	forged := func(to string) fleet.Relationship {
+		r := observed("a", to, &recent)
+		r.ObservedSources = []fleet.ObservedSourceStat{{Source: "otlp-receiver", Count: 1}}
+		return r
+	}
+	h.rel(dep("a", "1.0.0", "b", ""), forged("b"), forged("c"))
+	want := comp("b") + "=declared," + comp("c") + "=observed@" + recent.Format(time.RFC3339)
+	if got := byKey(t, h.es(), "a").Metadata.Annotations[AnnotationRelationProvenance]; got != want {
+		t.Errorf("relation-provenance = %s, want %s", got, want)
+	}
+}

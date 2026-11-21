@@ -1703,6 +1703,9 @@ type FleetSnapshot struct {
 	// callers can layer observed evidence on top rather than conflating the two.
 	observedReverse map[ServiceKey][]ServiceKey
 	observedForward map[ServiceKey][]ServiceKey
+	// cautionPairs are the observed service pairs only caution-only sources
+	// saw: a graph never labels them declared+observed (see reconcileDeclared).
+	cautionPairs map[[2]ServiceKey]bool
 	// inferredReverse/inferredForward are the adjacency of InferredRelationships
 	// between services, apart from the declared and observed indexes.
 	inferredReverse map[ServiceKey][]ServiceKey
