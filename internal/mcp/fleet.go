@@ -107,6 +107,9 @@ type FleetOptions struct {
 	Reached ReachedReader
 	// Stats registers pacto_stats; nil omits it.
 	Stats StatsProvider
+	// InstallationConfig reads what the operator was configured with, for
+	// pacto_capabilities' installation; nil reads none.
+	InstallationConfig func(context.Context) (*fleet.InstallationDeclared, fleet.SourceState)
 }
 
 // ReachedReader attaches to h when each change of service svc reached its

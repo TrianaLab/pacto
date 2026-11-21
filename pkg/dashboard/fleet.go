@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -33,6 +34,8 @@ type capabilitiesOutput struct {
 		Auth     capabilityAuth `json:"auth" doc:"What this caller's Kubernetes permissions leave out of the fleet views"`
 		MiraURL  string         `json:"miraURL,omitempty" doc:"Mira's address, to link health-check citations and open a service in Mira"`
 		Stats    bool           `json:"stats" doc:"The Metrics page has a stats repository to read"`
+		// Installation is the one answer pacto_capabilities gives too.
+		Installation fleet.Installation `json:"installation" doc:"How this installation runs: its profile, registry, delivery, provisioning engine, clusters and MCP endpoint, each with where Pacto learned it and when"`
 	}
 }
 
@@ -71,7 +74,9 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 	// is published, observed is reported false (we cannot confirm it).
 	q := s.publishedQuery(ctx)
 	out.Body.Observed = q != nil && q.HasObserved()
-	if a := s.authSummary(ctx); a.Mode != "none" {
+	a := s.authSummary(ctx)
+	in := s.installationInput(ctx, a.Mode)
+	if a.Mode != "none" {
 		hidden := hiddenByPermissions(q)
 		out.Body.Auth = capabilityAuth{Hidden: hidden, NothingVisible: hidden && len(q.SnapshotForSerialization().Services) == 0}
 		// A cluster that cannot be asked keeps the tab: its views then say
@@ -79,15 +84,32 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 		// is never served, the cluster is not asked at all. A sign-in link
 		// session sees no Delivery, and is told why only where delivery is
 		// installed: its own sign-in would show it there.
-		if s.opts.Delivery != nil && a.Mode != "open" {
-			installed, err := s.deliveryInstalled(ctx)
-			out.Body.Delivery = (installed || err != nil) && !a.State.FleetOnly
-			out.Body.Auth.FleetOnly = installed && a.State.FleetOnly
+		if in.DeliveryWired {
+			out.Body.Delivery = (in.DeliveryInstalled || in.DeliveryErr != nil) && !a.State.FleetOnly
+			out.Body.Auth.FleetOnly = in.DeliveryInstalled && a.State.FleetOnly
 		}
 	}
 	out.Body.MiraURL = s.opts.MiraURL
 	out.Body.Stats = s.opts.Stats != nil
+	out.Body.Installation = q.Installation(in)
 	return out, nil
+}
+
+// installationInput is what this dashboard knows for capabilities.installation:
+// the operator's configuration and its raw delivery probe, asked in every auth
+// mode that serves delivery (open identifies nobody, so it serves none). It
+// serves no /mcp endpoint.
+func (s *Server) installationInput(ctx context.Context, mode string) fleet.InstallationInput {
+	in := fleet.InstallationInput{DeliveryWired: s.opts.Delivery != nil && mode != "open", MCPSource: "this dashboard serves no /mcp endpoint", Now: time.Now().UTC()}
+	if cfg := s.opts.InstallationConfig; cfg != nil {
+		d, st := cfg(ctx)
+		in.Declared, in.DeclaredState = d, &st
+	}
+	if in.DeliveryWired {
+		in.DeliveryProbed, in.DeliveryInProcess = true, s.opts.DeliveryInstalled == nil
+		in.DeliveryInstalled, in.DeliveryErr = s.deliveryInstalled(ctx)
+	}
+	return in
 }
 
 // hiddenByPermissions reports whether q left out what the caller may not read.

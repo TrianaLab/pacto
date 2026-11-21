@@ -293,6 +293,23 @@ func (s *Service) detectionSources(ref string) []fleet.Source {
 	return []fleet.Source{fleetsrc.NewDetectionK8sSource(id, dyn, ns, name, s.env().now)}
 }
 
+// InstallationConfig reads what the operator was configured with from the
+// detection at ref (as [Service.detectionSources] reads it) on each call, for
+// the installation capability: nil when ref is empty.
+// ponytail: one read per call (one ConfigMap GET for k8s:); cache it with
+// the published snapshot if a profile shows it hot.
+func (s *Service) InstallationConfig(ref string) func(context.Context) (*fleet.InstallationDeclared, fleet.SourceState) {
+	srcs := s.detectionSources(ref)
+	if len(srcs) == 0 {
+		return nil
+	}
+	src := srcs[0].(*fleetsrc.DetectionSource)
+	return func(ctx context.Context) (*fleet.InstallationDeclared, fleet.SourceState) {
+		res, st := src.Read(ctx)
+		return res.Declared(ref), st
+	}
+}
+
 // workloadsSuffix names a cluster's workload source after its Pacto source.
 const workloadsSuffix = "-workloads"
 

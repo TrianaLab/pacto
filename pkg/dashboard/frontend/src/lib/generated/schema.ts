@@ -1177,6 +1177,8 @@ export interface components {
             fleet: boolean;
             /** @description The impact endpoint is served */
             impact: boolean;
+            /** @description How this installation runs: its profile, registry, delivery, provisioning engine, clusters and MCP endpoint, each with where Pacto learned it and when */
+            installation: components["schemas"]["Fleet.Installation"];
             /** @description Mira's address, to link health-check citations and open a service in Mira */
             miraURL?: string;
             /** @description An observation source backs impact analysis */
@@ -3713,6 +3715,130 @@ export interface components {
             repositoryUnknown?: string;
             /** @description The source that read the workload */
             source: string;
+        };
+        "Fleet.Installation": {
+            /** @description The clusters this caller's view reads */
+            clusters: components["schemas"]["Fleet.InstallationClusters"];
+            /** @description Whether Pacto delivery runs, observed by this host, and the appliers inferred from detected rows */
+            delivery: components["schemas"]["Fleet.InstallationDelivery"];
+            /** @description Whether this host serves an MCP endpoint */
+            mcp: components["schemas"]["Fleet.InstallationMCP"];
+            /** @description The profile names the chart rendered, declared by a person */
+            profile: components["schemas"]["Fleet.InstallationProfile"];
+            /** @description The provisioning engine, unknown until a source detects one */
+            provisioning: components["schemas"]["Fleet.InstallationProvisioning"];
+            /** @description The registry value the operator was configured with, declared by a person */
+            registry: components["schemas"]["Fleet.InstallationRegistry"];
+        };
+        "Fleet.InstallationApplier": {
+            /** @description The detected row's id: argocd or flux */
+            manager: string;
+            /** @enum {string} */
+            mode: "adopted" | "idp-flux";
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description The row Pacto inferred it from */
+            source: string;
+        };
+        "Fleet.InstallationClusters": {
+            /**
+             * Format: date-time
+             * @description When the snapshot was generated
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /**
+             * Format: int64
+             * @description Clusters this caller's view reads; null with no snapshot
+             */
+            joined: number | null;
+            /**
+             * Format: int64
+             * @description Cluster join requests waiting for a person; null when not read
+             */
+            pending: number | null;
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description Where Pacto counted them, or why they are null */
+            source: string;
+        };
+        "Fleet.InstallationDelivery": {
+            /** @description What applies the workloads Pacto delivery promotes, inferred from available detected rows; listed only when enabled is true */
+            appliers: components["schemas"]["Fleet.InstallationApplier"][];
+            /**
+             * Format: date-time
+             * @description When it was read
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /** @description Pacto delivery runs here; null when this host cannot tell */
+            enabled: boolean | null;
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description Where Pacto learned it, or why it is null */
+            source: string;
+        };
+        "Fleet.InstallationMCP": {
+            /**
+             * Format: date-time
+             * @description When it was answered
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description This host serves an MCP endpoint */
+            served: boolean;
+            /** @description Which host says so */
+            source: string;
+        };
+        "Fleet.InstallationProfile": {
+            /**
+             * Format: date-time
+             * @description When it was read
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description Where Pacto read it, or why it is null */
+            source: string;
+            /** @description Sorted profile names; null when unknown */
+            value: string[] | null;
+        };
+        "Fleet.InstallationProvisioning": {
+            /**
+             * Format: date-time
+             * @description When it was read
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /** @enum {string} */
+            engine: "crossplane" | "adapter" | "none" | "unknown";
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description Where Pacto learned it, or why it is unknown */
+            source: string;
+        };
+        "Fleet.InstallationRegistry": {
+            /**
+             * Format: date-time
+             * @description When it was read
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description Where Pacto read it, or why it is null */
+            source: string;
+            /** @description The registry value; empty when set to nothing, null when unknown */
+            value: string | null;
         };
         "Fleet.InterfaceDeprecation": {
             deprecated: string;

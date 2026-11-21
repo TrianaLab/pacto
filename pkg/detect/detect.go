@@ -67,8 +67,8 @@ type Result struct {
 	// the operator reads every namespace.
 	Namespaces []string `json:"namespaces,omitempty"`
 	Entries    []Entry  `json:"entries"`
-	// Installation is what the operator was configured with when the
-	// registry value is set; nil otherwise.
+	// Installation is what the operator was configured with; nil from an
+	// operator that predates it.
 	Installation *Installation `json:"installation,omitempty"`
 }
 

@@ -257,8 +257,9 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 		// Under a view the new revision is never added: the rebuild would read
 		// the unrestricted sources.
 		Impact: mcpImpactProvider(cmd, svc, d, view == nil, transport == "stdio"), View: view, DashboardURL: url,
-		Reached: stdioReached(cmd, d, transport),
-		Stats:   mcpStatsProvider(cmd, svc, transport == "stdio", home),
+		Reached:            stdioReached(cmd, d, transport),
+		Stats:              mcpStatsProvider(cmd, svc, transport == "stdio", home),
+		InstallationConfig: svc.InstallationConfig(fopts.Detected),
 	}}, nil
 }
 

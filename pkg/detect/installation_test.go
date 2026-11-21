@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -209,5 +210,25 @@ func TestEncodeLeavesProfileUntouched(t *testing.T) {
 	data, err := Encode(Result{Installation: &Installation{Profile: profile}})
 	if err != nil || profile[0] != "a\u202eb" || !strings.Contains(string(data), `"profile":["ab"]`) {
 		t.Errorf("Encode = %s, %v; caller's profile = %q", data, err, profile)
+	}
+}
+
+func TestResultDeclared(t *testing.T) {
+	if d := (Result{}).Declared("x"); d != nil {
+		t.Errorf("declared without a block = %+v", d)
+	}
+	at := time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC)
+	res := Result{AsOf: at, Cluster: "uid-1", Installation: &Installation{Profile: []string{"hardened", "idp"}, Registry: "ghcr.io/acme"}}
+	d := res.Declared("k8s:pacto/pacto-detected")
+	if !slices.Equal(d.Profile, []string{"hardened", "idp"}) || d.Registry != "ghcr.io/acme" || d.ClusterID != "uid-1" || !d.AsOf.Equal(at) ||
+		d.Source != "the operator's installation block in k8s:pacto/pacto-detected" {
+		t.Errorf("declared = %+v", d)
+	}
+	d.Profile[0] = "changed"
+	if res.Installation.Profile[0] != "hardened" {
+		t.Error("Declared shares the block's profile")
+	}
+	if d := (Result{Installation: &Installation{}}).Declared("x"); d.Profile != nil {
+		t.Errorf("a block with no profile declared %v", d.Profile)
 	}
 }

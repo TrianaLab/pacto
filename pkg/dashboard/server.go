@@ -109,6 +109,9 @@ type Options struct {
 	DeliveryNamespace string
 	// Auth is the identity layer: sign-in, sessions and request guards.
 	Auth *Auth
+	// InstallationConfig reads what the operator was configured with, for
+	// capabilities.installation; nil reads none.
+	InstallationConfig func(context.Context) (*fleet.InstallationDeclared, fleet.SourceState)
 	// MiraURL, when set, turns Mira citations into links and lets a service page open the service in Mira.
 	MiraURL string
 	// Stats reads the run records of the stats repository the Metrics page

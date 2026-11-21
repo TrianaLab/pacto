@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -47,6 +48,17 @@ type Installation struct {
 	// Pushes is every prefix a cluster-side process may push under.
 	Pushes   []string    `json:"pushes,omitempty"`
 	LastPush *PushResult `json:"lastPush,omitempty"`
+}
+
+// Declared is the Installation block as the capability answer reads it, with
+// the cluster it was read in and where: nil without a block.
+func (r Result) Declared(source string) *fleet.InstallationDeclared {
+	inst := r.Installation
+	if inst == nil {
+		return nil
+	}
+	return &fleet.InstallationDeclared{Profile: slices.Clone(inst.Profile), Registry: inst.Registry, ClusterID: r.Cluster, AsOf: r.AsOf,
+		Source: "the operator's installation block in " + source}
 }
 
 // errSnapshotKey refuses an advertised key that is not base64.
