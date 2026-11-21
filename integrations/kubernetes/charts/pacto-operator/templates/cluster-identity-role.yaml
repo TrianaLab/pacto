@@ -1,0 +1,21 @@
+{{- $scoped := include "pacto-operator.watchNamespaces" . | fromYamlArray }}
+{{- if and .Values.registry $scoped (not (and (include "pacto-operator.dashboardEnabled" .) (include "pacto-operator.dashboardDeliveryNamespace" .))) }}
+{{- $name := printf "%s-%s-cluster-identity" (include "pacto-operator.fullname" .) .Release.Namespace }}
+# The cluster id, the kube-system Namespace UID, names the cluster in the
+# target snapshot the operator publishes to registry, and the operator stops
+# without it. A namespace list renders no ClusterRole that carries the read,
+# and Kubernetes authorises get on namespaces/kube-system through a RoleBinding
+# in kube-system, so this Role reads that one Namespace and nothing else. The
+# installer needs RBAC rights in kube-system; leave registry empty to drop it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  namespace: kube-system
+  labels:
+    {{- include "pacto-operator.labels" . | nindent 4 }}
+rules:
+  {{- include "pacto-operator.rbac.clusterIdentityRule" . | nindent 2 }}
+---
+{{ include "pacto-operator.binding" (dict "kind" "RoleBinding" "name" $name "namespace" "kube-system" "labels" (include "pacto-operator.labels" .) "serviceAccount" (include "pacto-operator.serviceAccountName" .) "serviceAccountNamespace" .Release.Namespace) }}
+{{- end }}

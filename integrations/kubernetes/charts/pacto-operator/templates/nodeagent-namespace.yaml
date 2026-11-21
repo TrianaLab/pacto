@@ -4,7 +4,10 @@
 # pods. The chart creates it because the Role below, which lets the operator
 # manage the agent, has to live in it; the operator re-asserts the Pod Security
 # labels on every sync. Disabling the agent removes the namespace and with it
-# everything the agents published.
+# everything the agents published. With nodeAgent.createNamespace false a
+# person creates it first with those labels (absent means true, as on a
+# --reuse-values upgrade from a release without the key).
+{{- if ne (toString .Values.nodeAgent.createNamespace) "false" }}
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -15,6 +18,7 @@ metadata:
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/warn: privileged
 ---
+{{- end }}
 # The operator's lifecycle permissions in the agent namespace. It grants the
 # agents' Role (get, create and patch on their observations and status; get,
 # create, patch and update on their Leases), and Kubernetes only lets it grant

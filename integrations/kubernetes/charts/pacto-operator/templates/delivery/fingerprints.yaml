@@ -1,4 +1,4 @@
-{{- if .Values.delivery.enabled }}
+{{- if include "pacto-operator.deliveryEnabled" . }}
 {{- with include "pacto-operator.fingerprints" . }}
 # The workload managers and promoters this installation runs (fingerprints):
 # a workload a configured manager applies reads external, and the promoter

@@ -1,4 +1,4 @@
-{{- if and .Values.delivery.enabled .Values.delivery.metrics.enabled }}
+{{- if and (include "pacto-operator.deliveryEnabled" .) .Values.delivery.metrics.enabled }}
 {{- $ns := include "pacto-operator.delivery.namespace" . }}
 {{- $labels := include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-metrics") }}
 # The promoter's metrics, plain HTTP on port 8080 (docs/delivery-setup.md lists

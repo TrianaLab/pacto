@@ -39,6 +39,14 @@ global:
 # until delivery.enabled=true.
 registry: ""
 
+# -- Installation profile: default, hardened or idp, or a list such as
+# `{hardened,idp}` (hardened wins where they disagree). hardened needs
+# controller.watchNamespaces and renders no ClusterRole, no managed dashboard,
+# no node agent, no Pacto delivery and no namespace; idp turns probing, metrics
+# observation and Pacto delivery on. See
+# https://pacto.run/latest/integrations/kubernetes/profiles/
+profile: default
+
 # -- namespace/name of an existing Secret that authenticates to `registry`, for
 # a registry without workload identity. Pacto proposes one it saw running pods
 # use (helm upgrade notes and Data sources) and never uses it until you name it
@@ -476,6 +484,9 @@ nodeAgent:
   # and labels it privileged for Pod Security; it must not be the release
   # namespace and must not exist outside this release.
   namespace: pacto-node-agent
+  # -- Create nodeAgent.namespace. Set false to create it yourself first with
+  # the privileged Pod Security labels.
+  createNamespace: true
   # -- How often each agent publishes its node's observation. A Go duration;
   # kernel evidence reads stale after three intervals unless
   # controller.kernelEvidence.staleness says otherwise.

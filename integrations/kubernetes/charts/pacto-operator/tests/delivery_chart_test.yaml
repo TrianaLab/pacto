@@ -290,3 +290,15 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: keeps the delivery Namespace when delivery stops rendering
+    template: templates/delivery/namespace.yaml
+    set:
+      delivery.enabled: true
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep

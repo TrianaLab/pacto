@@ -142,3 +142,58 @@ tests:
           pattern: dashboard\.auth\.tokenSignIn\.enabled=true
       - notMatchRegexRaw:
           pattern: tokenLogin
+
+  - it: hardened with registry says delivery is off by profile
+    set:
+      profile: hardened
+      controller.watchNamespaces: [payments]
+      registry: ghcr.io/acme
+    asserts:
+      - matchRegexRaw:
+          pattern: "Delivery is off: profile hardened renders no Pacto delivery"
+      - notMatchRegexRaw:
+          pattern: "delivery.enabled=true"
+      - matchRegexRaw:
+          pattern: "Profile hardened: no ClusterRole, no managed dashboard, no node agent, no Pacto\ndelivery and no namespace created by the chart"
+      - matchRegexRaw:
+          pattern: "Pacto reads the cluster id through Role pacto-operator-pacto-operator-system-cluster-identity in kube-system"
+      - notMatchRegexRaw:
+          pattern: "Open the dashboard"
+
+  - it: names the kept delivery namespace once delivery no longer renders
+    set:
+      profile: hardened
+      controller.watchNamespaces: [payments]
+    kubernetesProvider:
+      scheme:
+        "v1/Namespace":
+          gvr: {version: v1, resource: namespaces}
+          namespaced: false
+      objects:
+        - kind: Namespace
+          apiVersion: v1
+          metadata:
+            name: pacto-delivery
+            annotations:
+              meta.helm.sh/release-name: pacto-operator
+              helm.sh/resource-policy: keep
+    asserts:
+      - matchRegexRaw:
+          pattern: "Pacto delivery is off. Namespace pacto-delivery was kept with its trust config;\ndelete it with kubectl delete namespace pacto-delivery when you no longer need it."
+
+  - it: says nothing about a delivery namespace another release owns
+    kubernetesProvider:
+      scheme:
+        "v1/Namespace":
+          gvr: {version: v1, resource: namespaces}
+          namespaced: false
+      objects:
+        - kind: Namespace
+          apiVersion: v1
+          metadata:
+            name: pacto-delivery
+            annotations:
+              meta.helm.sh/release-name: other
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "was kept with its trust config"

@@ -406,6 +406,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | metrics.serviceMonitor.interval | string | `""` | Scrape interval |
 | metrics.serviceMonitor.scrapeTimeout | string | `""` | Scrape timeout |
 | nameOverride | string | `""` | Override the chart name |
+| nodeAgent.createNamespace | bool | `true` | Create nodeAgent.namespace. Set false to create it yourself first with the privileged Pod Security labels. |
 | nodeAgent.enabled | bool | `false` | Deploy the node agent DaemonSet. Off by default. |
 | nodeAgent.image | string | `""` | Full image reference of the node agent. Empty uses the runtime image the operator was built with. |
 | nodeAgent.namespace | string | `"pacto-node-agent"` | Dedicated namespace the agents run and publish in. The chart creates it and labels it privileged for Pod Security; it must not be the release namespace and must not exist outside this release. |
@@ -418,6 +419,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | podAnnotations | object | `{}` | Annotations to add to the controller pod |
 | podLabels | object | `{}` | Labels to add to the controller pod |
 | podSecurityContext | object | `{}` | Pod securityContext of the controller (defaults to `global.podSecurityContext`) |
+| profile | string | `"default"` | Installation profile: default, hardened or idp, or a list such as `{hardened,idp}` (hardened wins where they disagree). hardened needs controller.watchNamespaces and renders no ClusterRole, no managed dashboard, no node agent, no Pacto delivery and no namespace; idp turns probing, metrics observation and Pacto delivery on. See https://pacto.run/latest/integrations/kubernetes/profiles/ |
 | registry | string | `""` | The installation registry (host[/path], no scheme), such as `ghcr.io/acme`. The operator publishes the cluster's target snapshot, signed with the installation key it creates once, to `<registry>/pacto-targets`, which `pacto impact` reads in CI; empty publishes none. Delivery stays off until delivery.enabled=true. |
 | registryPullSecret | string | `""` | namespace/name of an existing Secret that authenticates to `registry`, for a registry without workload identity. Pacto proposes one it saw running pods use (helm upgrade notes and Data sources) and never uses it until you name it here. The chart grants get on that Secret only. |
 | replicaCount | int | `1` | Number of controller replicas |
