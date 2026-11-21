@@ -636,14 +636,15 @@
     <nav class="fm-crumbs" aria-label="Where you are">
       {#if layout}
         <button type="button" onclick={leaveFocus}>Whole fleet</button>
-        <span class="fm-sep" aria-hidden="true">›</span><button type="button" onclick={() => toGroup(layout!.group)}><bdi>{focusGroup}</bdi></button>
-        <span class="fm-sep" aria-hidden="true">›</span><bdi>{focusItem ? `${attentionCategoryLabel(focusItem.category)}: ` : ''}{layout.focus.label || layout.focus.name}</bdi>
+        <span class="fm-sep" aria-hidden="true">›</span><button type="button" onclick={() => toGroup(layout!.group)}><bdi title={focusGroup}>{focusGroup}</bdi></button>
+        {@const here = `${focusItem ? `${attentionCategoryLabel(focusItem.category)}: ` : ''}${layout.focus.label || layout.focus.name}`}
+        <span class="fm-sep" aria-hidden="true">›</span><bdi title={here}>{here}</bdi>
       {:else if atFit && !centre}
         <bdi>Whole fleet</bdi>
       {:else}
         <button type="button" onclick={() => fit()}>Whole fleet</button>
       {/if}
-      {#if centre && !layout}<span class="fm-sep" aria-hidden="true">›</span><bdi>{centre}</bdi>{/if}
+      {#if centre && !layout}<span class="fm-sep" aria-hidden="true">›</span><bdi title={centre}>{centre}</bdi>{/if}
     </nav>
     {#if !layout}
       <div class="fm-ladder" role="group" aria-label="Level of detail">
@@ -754,10 +755,12 @@
   canvas:focus-visible { outline: 2px solid var(--c-accent); outline-offset: -2px; }
   .fm-hud { position: absolute; inset-block-start: var(--sp-3); inset-inline-start: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); pointer-events: none; max-inline-size: calc(100% - 5rem); }
   .fm-hud > * { pointer-events: auto; }
-  .fm-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--sp-2); font-size: var(--text-sm); color: var(--c-text-2); background: color-mix(in srgb, var(--c-surface) 88%, transparent); padding: 2px var(--sp-2); border-radius: var(--radius-xs); align-self: flex-start; }
+  .fm-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--sp-2); font-size: var(--text-sm); color: var(--c-text-2); background: color-mix(in srgb, var(--c-surface) 88%, transparent); padding: 2px var(--sp-2); border-radius: var(--radius-xs); align-self: flex-start; max-inline-size: 100%; box-sizing: border-box; }
   .fm-crumbs button { border: 0; background: none; padding: 0; color: var(--c-accent); cursor: pointer; font-size: inherit; }
   .fm-sep { color: var(--c-text-3); }
-  .fm-crumbs bdi { overflow-wrap: anywhere; }
+  /* One line per crumb, elided with its name in the title: a long name never grows the HUD into the zoom buttons. */
+  .fm-crumbs > * { min-inline-size: 0; max-inline-size: 100%; }
+  .fm-crumbs bdi { display: inline-block; max-inline-size: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
   .fm-ladder { display: inline-flex; align-self: flex-start; border: 1px solid var(--c-border); border-radius: var(--radius-pill); overflow: hidden; background: var(--c-surface); font-size: var(--text-xs); }
   .fm-ladder button { border: 0; background: none; padding: 2px 10px; color: var(--c-text-3); cursor: pointer; min-block-size: 26px; }
   .fm-ladder button[aria-current='step'] { color: var(--c-accent); background: var(--c-accent-bg); font-weight: 600; }
@@ -769,6 +772,8 @@
   /* The open rail covers the map's right side (FleetMapRail's min(20rem, 85%)): the HUD and
      the zoom keep to the uncovered part, and on a phone, where the rail is nearly all of
      the map, they step aside until it closes. */
+  /* The closed rail's button takes the top right. */
+  .fm:not(.fm-railed) .fm-hud { max-inline-size: calc(100% - 14rem); }
   .fm-railed .fm-zoom { inset-inline-end: calc(min(20rem, 85%) + var(--sp-3)); }
   .fm-railed .fm-hud { max-inline-size: calc(100% - min(20rem, 85%) - 2 * var(--sp-3)); }
   @media (max-width: 40rem) { .fm-railed .fm-hud, .fm-railed .fm-zoom, .fm-railed .fm-mini { display: none; } }

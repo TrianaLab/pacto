@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FC, edgeDash, edgeLabel, edgeTip, focusView, hitFocus, layoutFocus, renderFocus, type FocusScene } from './focus';
+import { FC, FOCUS_READABLE, edgeDash, edgeLabel, edgeTip, focusView, hitFocus, layoutFocus, renderFocus, type FocusScene } from './focus';
 import { EDGE_DASH, MIN_FONT, type Palette } from './render';
 import { focusAnswer, focusEdge, focusNode, recordingContext } from './testkit';
 
@@ -25,6 +25,19 @@ describe('fleet map focus', () => {
     expect(ledger.col).toBe(1);
     expect(ledger.rect[0]).toBeGreaterThan(centre.rect[0] + centre.rect[2]);
     expect([L.callers, L.callees]).toEqual([2, 1]);
+  });
+
+  it('a diagram too wide for the screen keeps its names readable and none crosses the edge', () => {
+    const L = layoutFocus(focusAnswer());
+    const phone = { w: 280, h: 458 };
+    const v = focusView(L, phone);
+    expect(v.k).toBe(FOCUS_READABLE);
+    const f = renderFocus(recordingContext(), L, { ...scene(L), view: v, ...phone });
+    expect(f.labels.map((l) => l.text)).toContain('payments-0');
+    for (const l of f.labels) {
+      expect(l.x).toBeGreaterThanOrEqual(0);
+      expect(l.x + l.w).toBeLessThanOrEqual(phone.w);
+    }
   });
 
   it('nine per column worst first with N of M', () => {

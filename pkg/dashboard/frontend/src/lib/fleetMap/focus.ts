@@ -144,10 +144,16 @@ function focusBounds(L: FocusLayout): Rect {
 }
 
 /** focusView frames the diagram in the usable canvas, never past zoom 1.15. */
+/** The smallest focus zoom at which a card still has room for its name. */
+export const FOCUS_READABLE = 0.45;
+
 export function focusView(L: FocusLayout, vp: Viewport): View {
   const [x0, y0, x1, y1] = focusBounds(L);
   const usable = Math.max(1, vp.w - (vp.rail ?? 0));
-  const z = Math.max(0.2, Math.min(1.15, (usable - 2 * FIT_MARGIN) / (x1 - x0), (vp.h - 2 * FIT_MARGIN) / (y1 - y0)));
+  const z = Math.min(1.15, (usable - 2 * FIT_MARGIN) / (x1 - x0), (vp.h - 2 * FIT_MARGIN) / (y1 - y0));
+  // Too wide to fit with its names readable (a phone, two hops): the focus card at the
+  // smallest zoom that still names every card, the columns a pan away.
+  if (z < FOCUS_READABLE) return viewFor(vp, 0, 0, FOCUS_READABLE);
   return viewFor(vp, (x0 + x1) / 2, (y0 + y1) / 2, z);
 }
 
@@ -386,7 +392,9 @@ function drawCard(ctx: CanvasRenderingContext2D, c: FocusCard, r: Rect, s: Focus
   const lh = centre ? 20 : 18, max = w - 22;
   // Omit, never squeeze: only the lines that fit the card at this zoom.
   const room = Math.max(0, Math.floor((h - 6) / lh));
-  if (max < 30 || !room) { ctx.globalAlpha = 1; return; }
+  // A card the canvas edge cuts stays unnamed until it is panned into view.
+  const cut = x < 0 || y < 0 || r[2] > s.w || r[3] > s.h;
+  if (max < 30 || !room || cut) { ctx.globalAlpha = 1; return; }
   const take = shown.slice(0, room);
   let yy = y + (h - take.length * lh) / 2 + lh / 2;
   for (const [t, f, col] of take) {
