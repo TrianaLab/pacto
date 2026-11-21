@@ -447,3 +447,42 @@ func TestReceiverRefusedCountRestarts(t *testing.T) {
 		t.Fatalf("protobuf = %d, want 1", r.protobuf.n)
 	}
 }
+
+// The receiver names a callee by rpc.service or host where the winner names
+// the server's service.name: those are the winner's calls, not misses. A
+// callee the winner never saw under a plain name, or a caller it never saw,
+// still is.
+func TestReceiverCalleeAliasIsNoMiss(t *testing.T) {
+	r, live, _ := newTestReceiver(t)
+	post(r, spanBody(map[string][]string{"web": {"payments.v1.PaymentService", "payments.prod.svc.cluster.local:8080"}}))
+	_, graphRow := collectGraph(t, graphWithReceiver(t, live, edge("web", "payments", "3")))
+	col := collectReceiver(t, NewReceiverSource("otlp-receiver", nil, nil, live))
+	if len(col.Observed) != 0 || !strings.Contains(graphRow.Evidence, "won: the OTLP receiver is off") || strings.Contains(rowText(graphRow), "misses") {
+		t.Fatalf("receiver %+v, winner %+v", col, graphRow)
+	}
+	post(r, spanBody(map[string][]string{"cart": {"payments.v1.PaymentService"}, "web": {"payments.v2.Refunds", "ledger"}}))
+	if _, missing := live.verdict(); missing != 2 {
+		t.Fatalf("missing = %d, want the unknown caller's call and the plain callee", missing)
+	}
+}
+
+// Only the latest read counts: a source that read complete and then failed
+// no longer wins, and the receiver turns back on.
+func TestFailedReadNoLongerWins(t *testing.T) {
+	r, live, _ := newTestReceiver(t)
+	post(r, spanBody(map[string][]string{"web": {"payments"}}))
+	collectGraph(t, graphWithReceiver(t, live, edge("web", "payments", "3")))
+	if name, _ := live.verdict(); name != serviceGraphName {
+		t.Fatalf("winner %q", name)
+	}
+	srv, _ := graphServer(t, 500, "")
+	failed, _ := graphSource("tempo", srv.URL)
+	failed.live = live
+	collectGraph(t, failed)
+	if name, _ := live.verdict(); name != "" {
+		t.Fatalf("a failed source still wins: %q", name)
+	}
+	if col := collectReceiver(t, NewReceiverSource("otlp-receiver", nil, nil, live)); len(col.Observed) != 1 || r.offBy != "" {
+		t.Fatalf("receiver %+v off %q", col, r.offBy)
+	}
+}

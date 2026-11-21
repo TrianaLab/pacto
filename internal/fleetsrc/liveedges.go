@@ -3,6 +3,7 @@ package fleetsrc
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -50,6 +51,14 @@ func (l *LiveEdges) markComplete(name string, edges []fleet.ObservedEdge) {
 	l.complete[name] = coverage{at: l.now(), edges: slices.Clone(edges)}
 }
 
+// markIncomplete forgets the source named name: its latest read was not
+// complete, so it no longer wins.
+func (l *LiveEdges) markIncomplete(name string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.complete, name)
+}
+
 // winner is the first source of winnerOrder with complete coverage within
 // winnerWindow and the edges it read, or "" and nil.
 func (l *LiveEdges) winner() (string, []fleet.ObservedEdge) {
@@ -65,15 +74,26 @@ func (l *LiveEdges) winner() (string, []fleet.ObservedEdge) {
 
 // verdict is the source that won and how many calls the receiver saw in its
 // window that the winner's last edges miss: the receiver is off while a
-// winner misses none. Without a receiver nothing is missing.
+// winner misses none. Without a receiver nothing is missing. The receiver
+// names a callee by its peer.service, rpc.service or host and the winner by
+// the server span's service.name, so a call from a caller the winner knows to
+// a dotted callee it never names (payments.v1.PaymentService,
+// b.prod.svc.cluster.local) is the same call under another name, not a miss.
+// ponytail: a dotted service.name the winner never saw is missed too; compare
+// resolved identities if that shows up.
 func (l *LiveEdges) verdict() (string, int) {
 	name, edges := l.winner()
 	if name == "" || l.Receiver == nil {
 		return name, 0
 	}
+	names := map[string]bool{}
+	pairs := map[[2]string]bool{}
+	for _, w := range edges {
+		names[w.From], names[w.To], pairs[[2]string{w.From, w.To}] = true, true, true
+	}
 	missing := 0
 	for _, e := range l.Receiver.window().edges {
-		if !slices.ContainsFunc(edges, func(w fleet.ObservedEdge) bool { return w.From == e.From && w.To == e.To }) {
+		if !pairs[[2]string{e.From, e.To}] && (!names[e.From] || names[e.To] || !strings.ContainsAny(e.To, ".:")) {
 			missing += e.Count
 		}
 	}

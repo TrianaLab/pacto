@@ -106,7 +106,10 @@ func (s *JaegerSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 // why instead.
 func edgeCollection(res detect.Result, e detect.Entry, id string, live detect.LiveState, le *LiveEdges, name string, edges []fleet.ObservedEdge) *fleet.Collection {
 	row := detect.EdgeSourceRow(res, e, id, live)
-	if row.Status == fleet.SourceAvailable {
+	if row.Status != fleet.SourceAvailable {
+		// Only the latest read counts: a backend that failed never wins.
+		le.markIncomplete(name)
+	} else {
 		le.markComplete(name, edges)
 		// The winner's row says what the receiver does about it.
 		if winner, missing := le.verdict(); winner == name && le.Receiver != nil {
