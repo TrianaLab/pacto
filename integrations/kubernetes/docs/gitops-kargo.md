@@ -85,7 +85,11 @@ target, and the worst answer wins. A revision already running with the
 Freight's digest is not its own baseline, so Freight that Argo CD has synced
 is never judged against itself. With no other revision running, only the
 consumers' version ranges speak, and a running consumer that refuses the new
-version still blocks.
+version still blocks. Once every target runs the Freight, the revision it
+replaced is no longer observed, so a breaking change that consumers' ranges
+accept clears here; only the
+[pull request check](../../ci.md#on-every-pull-request-who-breaks), which
+runs before promotion, catches it.
 
 ## Choose where targets come from
 

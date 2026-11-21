@@ -42,6 +42,17 @@ func TestFirstVersionBlocksIncompatibleRunningConsumer(t *testing.T) {
 	}
 }
 
+// TestOnlyNewRunsIsNoFirstVersion: with only the new revision running the
+// reason says so and keeps the first-version code (no new gate branch).
+func TestOnlyNewRunsIsNoFirstVersion(t *testing.T) {
+	c := svcContract("payments", "2.0.0", contract.Owner{})
+	res := Analyze(context.Background(), c, c, nil, nil, ledgerSnap(t, "^2", true), Options{FirstVersion: true, Running: true, NewRevisionRuns: true})
+	if res.Gate != GateClear || strings.Contains(res.GateReason, "first version") || res.GateCode() != GateCodeFirstVersionAccepted ||
+		!strings.Contains(res.GateReason, "only the new revision of payments runs on a known target, so no earlier revision is left to judge it against: every consumer that runs accepts 2.0.0") {
+		t.Fatalf("gate %s %q %s", res.Gate, res.GateReason, res.GateCode())
+	}
+}
+
 func TestOnlyUnreadBlockSaysNoneCouldBeRead(t *testing.T) {
 	res := firstVersion(ledgerSnap(t, "^1", true), "2.0.0", "pay runs a revision with no registry ref")
 	if res.Gate != GateBlocked || !strings.Contains(res.GateReason, "no running revision of payments Pacto could read: running consumers do not accept payments 2.0.0: ledger") {

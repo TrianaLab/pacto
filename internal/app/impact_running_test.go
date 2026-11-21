@@ -346,6 +346,9 @@ func TestImpactRunningRebuiltSnapshotDriftNeverClears(t *testing.T) {
 func TestImpactRunningOCINewKeepsItsDomain(t *testing.T) {
 	e := onePayments().withLedger("^1")
 	store := &mockBundleStore{PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
+		if strings.HasSuffix(ref, "@sha256:abc123") { // the new tag, pinned to what it resolved to
+			return payBundle("2.0.0"), nil
+		}
 		return payBundle(refVersion(ref)), nil
 	}}
 	var resolved bool
@@ -369,6 +372,19 @@ func TestImpactRunningErrors(t *testing.T) {
 	}
 	if _, err := onePayments().run(t, "2.0.0", func(o *ImpactOptions) { o.Traces = []byte("{") }); err == nil {
 		t.Fatal("bad traces")
+	}
+	// An oci:// new ref: no store, a tag Pacto cannot list, a failed pull.
+	newRef := "oci://" + runReg + "/payments"
+	if _, err := NewService(nil, nil).ImpactRunning(context.Background(), ImpactOptions{NewPath: newRef + ":1.0.0"}, nil); err == nil {
+		t.Fatal("no store")
+	}
+	store := &mockBundleStore{ListTagsFn: func(context.Context, string) ([]string, error) { return nil, errors.New("no tags") }}
+	if _, err := NewService(store, nil).ImpactRunning(context.Background(), ImpactOptions{NewPath: newRef}, nil); err == nil || !strings.Contains(err.Error(), "new revision") {
+		t.Fatalf("no tags: %v", err)
+	}
+	store = &mockBundleStore{PullFn: func(context.Context, string) (*contract.Bundle, error) { return nil, errors.New("pull failed") }}
+	if _, err := NewService(store, nil).ImpactRunning(context.Background(), ImpactOptions{NewPath: newRef + ":1.0.0"}, nil); err == nil || !strings.Contains(err.Error(), "new revision") {
+		t.Fatalf("pull: %v", err)
 	}
 }
 
@@ -518,10 +534,74 @@ func TestRunningNewDigestResolvedFromTag(t *testing.T) {
 	if err != nil || len(res.Running.Excluded) != 1 || !res.Running.FirstVersion {
 		t.Fatalf("res %+v err %v", res, err)
 	}
+	// The registry will not say: nothing can be excluded, so never clear.
 	store.ResolveFn = func(context.Context, string) (string, error) { return "", errors.New("head failed") }
-	if _, err := NewService(store, nil).ImpactRunning(context.Background(), ImpactOptions{NewPath: "oci://" + runReg + "/payments:1.0.0",
-		Fleet: FleetOptions{Index: IndexNone, extraSources: []fleet.Source{fleet.NewMemorySource("mem", "memory", &e.col)}}}, nil); err == nil ||
-		!strings.Contains(err.Error(), "new revision digest") {
-		t.Fatalf("err %v", err)
+	res, err = NewService(store, nil).ImpactRunning(context.Background(), ImpactOptions{NewPath: "oci://" + runReg + "/payments:1.0.0",
+		Fleet: FleetOptions{Index: IndexNone, extraSources: []fleet.Source{fleet.NewMemorySource("mem", "memory", &e.col)}}}, nil)
+	if err != nil || res.Gate == impact.GateClear || len(res.Running.Excluded) != 0 || !slices.ContainsFunc(res.Running.Unread, func(l string) bool {
+		return strings.Contains(l, "did not say which digest")
+	}) {
+		t.Fatalf("res %+v err %v", res, err)
+	}
+}
+
+// pinnedRunStore answers PullPinned from its own observation, the way
+// CachedStore serves a cached generation, while Resolve says where the tag
+// points now.
+type pinnedRunStore struct {
+	*mockBundleStore
+	digest string
+}
+
+func (p *pinnedRunStore) PullPinned(ctx context.Context, ref string) (*contract.Bundle, string, error) {
+	b, err := p.Pull(ctx, ref)
+	return b, p.digest, err
+}
+
+// TestRunningExcludesThePulledDigest: the excluded digest is the one of the
+// bytes judged, never a second lookup of the tag.
+func TestRunningExcludesThePulledDigest(t *testing.T) {
+	e := onePayments()
+	e.col.Revisions = append(e.col.Revisions, payRev("2.0.0", "sha256:p2"))
+	e.col.Targets = append(e.col.Targets, payTarget("pay-canary", "sha256:p2"))
+	store := &pinnedRunStore{digest: "sha256:p2", mockBundleStore: &mockBundleStore{
+		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
+			if strings.Contains(ref, "sha256:p1") {
+				return payBundle("1.0.0"), nil
+			}
+			return payBundle("2.0.0"), nil
+		},
+		// The tag moved back to the revision that runs everywhere.
+		ResolveFn: func(context.Context, string) (string, error) { return "sha256:p1", nil },
+	}}
+	res, err := NewService(store, nil).ImpactRunning(context.Background(), ImpactOptions{NewPath: "oci://" + runReg + "/payments:rc",
+		Fleet: FleetOptions{Index: IndexNone, extraSources: []fleet.Source{fleet.NewMemorySource("mem", "memory", &e.col)}}}, nil)
+	if err != nil || res.Running.Judged != "oci://"+runReg+"/payments:1.0.0@sha256:p1" ||
+		!slices.Equal(res.Running.Excluded, []string{"oci://" + runReg + "/payments:2.0.0@sha256:p2"}) || res.Classification != "BREAKING" {
+		t.Fatalf("res %+v err %v", res, err)
+	}
+}
+
+// TestRunningInferredLinkPinsTheObservedDigest: a tag link whose indexed
+// revision digest is the new one, while the target reports other content,
+// is pinned to what the target runs and never excluded.
+func TestRunningInferredLinkPinsTheObservedDigest(t *testing.T) {
+	e := &runEnv{col: fleet.Collection{Revisions: []fleet.RawRevision{payRev("1.1.0", "sha256:p11")}, Targets: []fleet.RawTarget{payTarget("pay", "sha256:old")}}}
+	e.col.Targets[0].ResolvedRef = runReg + "/payments:1.1.0"
+	res := mustRun(t, e, "1.1.0", ociNew("oci://"+runReg+"/payments:1.1.0@sha256:p11"))
+	r := res.Running
+	if len(r.Excluded) != 0 || !slices.Equal(r.Refs, []string{"oci://" + runReg + "/payments:1.1.0@sha256:old"}) || res.Gate == impact.GateClear {
+		t.Fatalf("gate %s running %+v", res.Gate, r)
+	}
+}
+
+// TestRunningOnlyNewRunsSaysSo: with only the new revision running, the
+// reason never calls it a first version.
+func TestRunningOnlyNewRunsSaysSo(t *testing.T) {
+	e := &runEnv{col: fleet.Collection{Revisions: []fleet.RawRevision{payRev("2.0.0", "sha256:p2")}, Targets: []fleet.RawTarget{payTarget("pay", "sha256:p2")}}}
+	res := mustRun(t, e.withLedger("^2"), "2.0.0", ociNew("oci://"+runReg+"/payments:2.0.0@sha256:p2"))
+	if !res.Running.FirstVersion || strings.Contains(res.GateReason, "first version") ||
+		!strings.Contains(res.GateReason, "only the new revision of payments runs on a known target") {
+		t.Fatalf("gate %s %q", res.Gate, res.GateReason)
 	}
 }

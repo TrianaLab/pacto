@@ -5180,11 +5180,11 @@ export interface components {
         "Impact.RunningBaseline": {
             /** @description The running revisions with the new revision's digest, left out of the baseline: a revision is never its own baseline */
             excluded?: string[] | null;
-            /** @description No running revision could be judged, so the new revision was compared with itself and only the consumers' ranges speak */
+            /** @description No running revision other than the new one could be judged, so the new revision was compared with itself and only the consumers' ranges speak */
             firstVersion?: boolean;
             /** @description The running revision this answer compared the new one with; empty for a first version */
             judged?: string;
-            /** @description The registry refs of the revisions that run on known targets, sorted; empty when none runs */
+            /** @description The registry refs of the revisions that run on known targets, sorted, the new revision left out (see excluded); empty when no other revision runs */
             refs: string[] | null;
             /** @description The running revisions Pacto could not read, link or trust, in words; the gate never clears over them */
             unread?: string[] | null;

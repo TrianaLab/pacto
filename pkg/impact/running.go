@@ -10,11 +10,11 @@ import (
 // RunningBaseline is what a --running answer judged the new revision
 // against: the revisions of the changed service that run on known targets.
 type RunningBaseline struct {
-	Refs         []string `json:"refs" doc:"The registry refs of the revisions that run on known targets, sorted; empty when none runs"`
+	Refs         []string `json:"refs" doc:"The registry refs of the revisions that run on known targets, sorted, the new revision left out (see excluded); empty when no other revision runs"`
 	Judged       string   `json:"judged,omitempty" doc:"The running revision this answer compared the new one with; empty for a first version"`
 	Unread       []string `json:"unread,omitempty" doc:"The running revisions Pacto could not read, link or trust, in words; the gate never clears over them"`
 	Excluded     []string `json:"excluded,omitempty" doc:"The running revisions with the new revision's digest, left out of the baseline: a revision is never its own baseline"`
-	FirstVersion bool     `json:"firstVersion,omitempty" doc:"No running revision could be judged, so the new revision was compared with itself and only the consumers' ranges speak"`
+	FirstVersion bool     `json:"firstVersion,omitempty" doc:"No running revision other than the new one could be judged, so the new revision was compared with itself and only the consumers' ranges speak"`
 }
 
 // maxUnreadInReason bounds the unread revisions a gate reason names.
@@ -105,10 +105,14 @@ func (r *Result) firstVersionGate() (string, string) {
 }
 
 // firstVersionLead opens a first-version reason: no revision of the service
-// runs, or none Pacto could read (the unread lines say which).
+// runs, none Pacto could read (the unread lines say which), or only the new
+// revision runs, so no earlier one is left to judge against.
 func (r *Result) firstVersionLead() string {
-	if len(r.unreadBaselines) > 0 {
+	switch {
+	case len(r.unreadBaselines) > 0:
 		return "no running revision of " + r.Service + " Pacto could read"
+	case r.newRevisionRuns:
+		return "only the new revision of " + r.Service + " runs on a known target, so no earlier revision is left to judge it against"
 	}
 	return "first version of " + r.Service + " on a known target"
 }

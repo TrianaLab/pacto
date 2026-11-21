@@ -116,6 +116,10 @@ type Options struct {
 	// UnreadBaselines are the running revisions Pacto could not read, link
 	// or trust, in words; the gate never clears over them.
 	UnreadBaselines []string
+	// NewRevisionRuns says a known target already runs the new revision,
+	// left out of the baseline: a FirstVersion answer then has no earlier
+	// revision to judge against, which is not a first version.
+	NewRevisionRuns bool
 	// Running says the old side is a revision that runs (--running): a
 	// running consumer whose range rejects the new version blocks whatever
 	// the classification, and a partial answer never clears.
@@ -285,6 +289,8 @@ type Result struct {
 	// Options.UnreadBaselines (see runningGate).
 	firstVersion    bool
 	unreadBaselines []string
+	// newRevisionRuns is Options.NewRevisionRuns (see firstVersionLead).
+	newRevisionRuns bool
 	// running is Options.Running.
 	running bool
 	// observationSources are the observation sources an event answer read.
@@ -800,6 +806,7 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		res = analyze(ctx, old, new, oldFS, newFS, snap, opts)
 		res.noteRangeOnlyMatches()
 		res.firstVersion, res.unreadBaselines, res.running = opts.FirstVersion, opts.UnreadBaselines, opts.Running
+		res.newRevisionRuns = opts.NewRevisionRuns
 		if opts.NotInFleet {
 			res.Limitations = append(res.Limitations, fleet.Limitation{
 				Code: "SERVICE_NOT_IN_FLEET", Source: limitationSource,

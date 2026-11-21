@@ -210,3 +210,15 @@ func TestMCPImpactRunningRequest(t *testing.T) {
 		t.Fatalf("seen %+v error %v", seen, res.IsError)
 	}
 }
+
+// TestImpactToolNamesRunningExcluded: the tool and its 'running' argument
+// say why a running digest is missing from running.refs, as the CLI help does.
+func TestImpactToolNamesRunningExcluded(t *testing.T) {
+	tool := impactTool()
+	running := tool.InputSchema.(map[string]any)["properties"].(map[string]any)["running"].(map[string]any)["description"].(string)
+	for _, d := range []string{tool.Description, running} {
+		if !strings.Contains(d, "'running.excluded'") {
+			t.Errorf("lacks running.excluded: %s", d)
+		}
+	}
+}

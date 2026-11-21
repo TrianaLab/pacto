@@ -65,6 +65,7 @@ func impactTool() *mcpsdk.Tool {
 			"'service' then holds the offering's name, the same as 'event.offering'. " +
 			"Pass 'running' with new_ref and no old_ref to judge new_ref against the revisions of its service that run on known targets " +
 			"('running' in the answer names them, the one judged and the ones Pacto could not read, which never let the gate clear); " +
+			"a running revision whose digest is new_ref's is left out of the baseline and listed in 'running.excluded'; " +
 			"with none running, only consumers' ranges are checked, and a server whose answers are restricted to your view refuses it. " +
 			"Read-only: it lists review targets, never recommends or takes actions.",
 		InputSchema: inputSchema(map[string]property{
@@ -76,7 +77,7 @@ func impactTool() *mcpsdk.Tool {
 			"service":          {Type: "string", Description: "The fleet service key the event is about"},
 			"offering":         {Type: "string", Description: "A platform offering instead of 'service': the event is about every provider of it; unavailable or removed only"},
 			"revision":         {Type: "string", Description: "For regressed: the revision that regressed, a version or an artifact digest (sha256:...)"},
-			"running":          {Type: "boolean", Description: "Judge new_ref against the revisions of its service that run on known targets; leave old_ref empty"},
+			"running":          {Type: "boolean", Description: "Judge new_ref against the revisions of its service that run on known targets; one whose digest is new_ref's is left out and listed in 'running.excluded'; leave old_ref empty"},
 		}, nil),
 	}
 }

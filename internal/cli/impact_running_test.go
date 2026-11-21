@@ -107,9 +107,11 @@ func TestImpactRunningPrintsRunningLine(t *testing.T) {
 		{&impact.RunningBaseline{Refs: []string{"a", "b"}, Judged: "a", Unread: []string{"x", "y"}}, "Running: 2 revisions (judged against a)\nNot read: x; y\n"},
 		{&impact.RunningBaseline{Refs: []string{}, FirstVersion: true}, "Running: none on a known target (first version)\n"},
 		{&impact.RunningBaseline{Refs: []string{}, FirstVersion: true, Unread: []string{"x"}}, "Running: none Pacto could read (judged as a first version)\nNot read: x\n"},
-		{&impact.RunningBaseline{Refs: []string{"a"}, Judged: "a", Excluded: []string{"n"}}, "Running: 1 revision (judged against a); the new revision already runs on a known target and is not its own baseline\n"},
+		{&impact.RunningBaseline{Refs: []string{"a"}, Judged: "a", Excluded: []string{"n"}}, "Running: 1 revision (judged against a); the new revision also runs and is not its own baseline\n"},
 		{&impact.RunningBaseline{Refs: []string{}, FirstVersion: true, Excluded: []string{"n", "m"}},
-			"Running: none on a known target (first version); the new revision already runs on a known target and is not its own baseline\n"},
+			"Running: only the new revision, which is not its own baseline (judged as a first version)\n"},
+		{&impact.RunningBaseline{Refs: []string{}, FirstVersion: true, Excluded: []string{"n"}, Unread: []string{"x"}},
+			"Running: none Pacto could read (judged as a first version); the new revision also runs and is not its own baseline\nNot read: x\n"},
 	} {
 		var buf bytes.Buffer
 		cmd := &cobra.Command{}

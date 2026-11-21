@@ -38,7 +38,7 @@ const maxUnreadLines = 32
 // hide a running revision.
 func (s *Service) ImpactRunning(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot) (*impact.Result, error) {
 	opts.OldPath = ""
-	newBundle, err := s.resolveNewRevision(ctx, opts)
+	newBundle, newDigest, err := s.newRevision(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -59,12 +59,14 @@ func (s *Service) ImpactRunning(ctx context.Context, opts ImpactOptions, snap *f
 		}
 		opts.Domain, opts.notInFleet = domain, !found
 	}
-	newDigest, err := s.newRevisionDigest(ctx, opts.NewPath)
-	if err != nil {
-		return nil, err
-	}
 	key, allowed := fleet.NewServiceKeyDomain(opts.domain(snap, name), name), runningHosts(opts)
 	refs, excluded, unread := runningRefs(snap, key, name, newDigest, allowed)
+	if newDigest == "" && graph.ParseDependencyRef(opts.NewPath).IsOCI() {
+		// Nothing can be excluded, so a running revision may be the new one
+		// judged against itself: the answer never clears.
+		unread = append(unread, "the registry did not say which digest "+opts.NewPath+" names, so a running revision may be the new one")
+	}
+	opts.newRevisionRuns = len(excluded) > 0
 	// The analysis may rebuild the snapshot (an index, a missing service):
 	// running refs read from a snapshot that no longer agrees never clear.
 	drifted := func(s *fleet.FleetSnapshot) bool {
@@ -80,39 +82,46 @@ func (s *Service) ImpactRunning(ctx context.Context, opts ImpactOptions, snap *f
 	return res, nil
 }
 
-// newRevisionDigest is the manifest digest of an oci:// new revision, read
-// from the ref or resolved from its tag; "" for a local folder.
-func (s *Service) newRevisionDigest(ctx context.Context, newPath string) (string, error) {
-	parsed := graph.ParseDependencyRef(newPath)
+// newRevision is resolveNewRevision plus, for an oci:// new ref, the
+// manifest digest of the artifact pulled, from the same read
+// (oci.PullPinned): a second lookup of a mutable tag may name other bytes.
+// The digest is "" for a local folder or when the registry would not say.
+func (s *Service) newRevision(ctx context.Context, opts ImpactOptions) (*contract.Bundle, string, error) {
+	parsed := graph.ParseDependencyRef(opts.NewPath)
 	if !parsed.IsOCI() {
-		return "", nil
+		b, err := s.resolveNewRevision(ctx, opts)
+		return b, "", err
 	}
-	if _, digest := contract.SplitOCIDigest(parsed.Location); digest != "" {
-		return digest, nil
-	}
-	ref, err := oci.ResolveRef(ctx, s.BundleStore, parsed.Location, "")
+	read, digest, err := s.pullOCIPinned(ctx, parsed.Location)
+	var b *contract.Bundle
 	if err == nil {
-		var digest string
-		if digest, err = s.BundleStore.Resolve(ctx, ref); err == nil {
-			return digest, nil
-		}
+		b, err = applyOverrides(read, opts.NewOverrides)
 	}
-	return "", fmt.Errorf("new revision digest: %w", err)
+	if err != nil {
+		return nil, "", fmt.Errorf("new revision: %w", err)
+	}
+	return b, digest, nil
 }
 
-// excludeNew splits refs into the ones that may be a baseline and the ones
-// whose digest is newDigest: a post-deploy gate verifies after the new
-// revision already runs, and a revision is never its own baseline.
-func excludeNew(refs []string, newDigest string) (kept, excluded []string) {
-	kept = []string{}
-	for _, ref := range refs {
-		if _, d := contract.SplitOCIDigest(ref); newDigest != "" && d == newDigest {
-			excluded = append(excluded, ref)
-			continue
-		}
-		kept = append(kept, ref)
+// pullOCIPinned is resolveOCIBundle plus the digest of the artifact pulled.
+func (s *Service) pullOCIPinned(ctx context.Context, location string) (*contract.Bundle, string, error) {
+	if err := s.requireBundleStore(); err != nil {
+		return nil, "", err
 	}
-	return kept, excluded
+	resolved, err := oci.ResolveRef(ctx, s.BundleStore, location, "")
+	if err != nil {
+		return nil, "", err
+	}
+	return oci.PullPinned(ctx, s.BundleStore, resolved)
+}
+
+// runsNew reports whether t is observed to run the revision with digest
+// newDigest through ref: a post-deploy gate verifies after the new revision
+// already runs, and a revision is never its own baseline. A tag link counts
+// only when the target's own digest says so, never on the tag alone.
+func runsNew(t *fleet.TargetRecord, ref, newDigest string) bool {
+	_, d := contract.SplitOCIDigest(ref)
+	return newDigest != "" && d == newDigest && (t.RevisionMatch == "exact" || t.Digest == newDigest)
 }
 
 // judgeRunning pulls each running ref and analyses the change against it,
@@ -206,7 +215,8 @@ func runningDomain(snap *fleet.FleetSnapshot, name string) (domain string, found
 
 // runningRefs are the distinct registry refs of the revisions the targets
 // of key run, each pinned to its digest, sorted and bounded by
-// MaxRunningRevisions; the refs whose digest is newDigest, left out; and the
+// MaxRunningRevisions; the refs of the targets observed to run newDigest,
+// left out (runsNew); and the
 // running revisions Pacto cannot judge, in words: a target with no linked
 // revision, a revision with no registry ref, a ref linked by tag (judged,
 // but never proof), a ref on a host allowed rejects, and an inferred
@@ -236,20 +246,21 @@ func runningRefs(snap *fleet.FleetSnapshot, key fleet.ServiceKey, name, newDiges
 			note(ref + ": registry not allowed")
 			continue
 		}
-		if !slices.Contains(refs, ref) {
+		switch {
+		case runsNew(t, ref, newDigest):
+			if !slices.Contains(excluded, ref) {
+				excluded = append(excluded, ref)
+			}
+		case !slices.Contains(refs, ref):
 			refs = append(refs, ref)
 		}
 	}
 	for _, line := range inferredRunning(snap, name) {
 		note(line)
 	}
-	for _, st := range snap.Sources {
-		// An unread workload set may hide an undeclared revision.
-		if st.Kind == fleet.SourceKindKubernetesWorkloads && st.Status != fleet.SourceAvailable && !st.Advisory {
-			note("the workloads " + st.ID + " reads could not all be read, so an undeclared revision of " + name + " may run there")
-		}
+	for _, line := range unreadWorkloads(snap, name) {
+		note(line)
 	}
-	refs, excluded = excludeNew(refs, newDigest)
 	slices.Sort(refs)
 	slices.Sort(excluded)
 	if n := len(refs); n > MaxRunningRevisions {
@@ -271,9 +282,10 @@ func targetRef(snap *fleet.FleetSnapshot, t *fleet.TargetRecord) (ref, why strin
 	}
 	ref = "oci://" + contract.TrimOCIScheme(rev.ResolvedRef)
 	// Pinned so the pull, the answer and the new-digest exclusion all name
-	// the revision the target runs, never what a tag points at now.
-	if _, d := contract.SplitOCIDigest(ref); d == "" && cmp.Or(rev.Digest, t.Digest) != "" {
-		ref += "@" + cmp.Or(rev.Digest, t.Digest)
+	// the revision the target runs: its own digest first, since a tag link's
+	// revision digest is only what the tag pointed at when it was indexed.
+	if _, d := contract.SplitOCIDigest(ref); d == "" && cmp.Or(t.Digest, rev.Digest) != "" {
+		ref += "@" + cmp.Or(t.Digest, rev.Digest)
 	}
 	if t.RevisionMatch != "exact" {
 		why = string(t.Key) + " is linked to " + ref + " by tag, not digest"
@@ -290,6 +302,18 @@ func inferredRunning(snap *fleet.FleetSnapshot, name string) []string {
 		s := snap.Services[sk]
 		if w := s.Workload; s.Inferred() && w != nil && (s.Name == name || w.Name == name || w.Group != nil && w.Group.Name == name) {
 			out = append(out, strings.TrimPrefix(w.Cluster+"/"+w.Namespace+"/"+w.Name, "/")+" runs an undeclared revision of "+name)
+		}
+	}
+	return out
+}
+
+// unreadWorkloads names each workload source Pacto could not fully read:
+// an unread workload set may hide an undeclared revision of name.
+func unreadWorkloads(snap *fleet.FleetSnapshot, name string) []string {
+	var out []string
+	for _, st := range snap.Sources {
+		if st.Kind == fleet.SourceKindKubernetesWorkloads && st.Status != fleet.SourceAvailable && !st.Advisory {
+			out = append(out, "the workloads "+st.ID+" reads could not all be read, so an undeclared revision of "+name+" may run there")
 		}
 	}
 	return out

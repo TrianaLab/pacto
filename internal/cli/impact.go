@@ -384,9 +384,9 @@ func printRunning(w io.Writer, r *impact.RunningBaseline) {
 	if r == nil {
 		return
 	}
-	self := ""
+	also := ""
 	if len(r.Excluded) > 0 {
-		self = "; the new revision already runs on a known target and is not its own baseline"
+		also = "; the new revision also runs and is not its own baseline"
 	}
 	switch {
 	case r.Judged != "":
@@ -394,11 +394,13 @@ func printRunning(w io.Writer, r *impact.RunningBaseline) {
 		if len(r.Refs) == 1 {
 			noun = "revision"
 		}
-		_, _ = fmt.Fprintf(w, "Running: %d %s (judged against %s)%s\n", len(r.Refs), noun, r.Judged, self)
-	case len(r.Unread) == 0:
-		_, _ = fmt.Fprintf(w, "Running: none on a known target (first version)%s\n", self)
+		_, _ = fmt.Fprintf(w, "Running: %d %s (judged against %s)%s\n", len(r.Refs), noun, r.Judged, also)
+	case len(r.Unread) > 0:
+		_, _ = fmt.Fprintf(w, "Running: none Pacto could read (judged as a first version)%s\n", also)
+	case also != "":
+		_, _ = fmt.Fprintln(w, "Running: only the new revision, which is not its own baseline (judged as a first version)")
 	default:
-		_, _ = fmt.Fprintf(w, "Running: none Pacto could read (judged as a first version)%s\n", self)
+		_, _ = fmt.Fprintln(w, "Running: none on a known target (first version)")
 	}
 	if len(r.Unread) > 0 {
 		_, _ = fmt.Fprintf(w, "Not read: %s\n", strings.Join(r.Unread, "; "))
