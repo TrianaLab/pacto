@@ -275,8 +275,8 @@ real kernel, including the "ready but nothing listening" case above.
 `make e2e-runtime-conformance-kind-up` does the same and keeps the cluster, so
 you can run `kubectl get pactos -A` yourself. The other tests:
 
-- `make -C integrations/kubernetes test-ebpf` loads and attaches the real
-  program in a privileged container (needs Docker).
+- `make test-ebpf`, from the repository root, loads and attaches the real
+  socket and DNS programs in a privileged container (needs Docker).
 - `go test ./pkg/validation/ -run TestFieldCoverage` checks the field coverage
   inventory against the schema and the tests it names.
 
