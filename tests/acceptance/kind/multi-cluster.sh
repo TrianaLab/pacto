@@ -118,7 +118,7 @@ targets() {
 want_view() {
   [ "$(targets)" = 200 ] || return 1
   jq -e --arg a "$UID_A" --arg b "$UID_B" '
-    ([.items[] | .key] == [$a + "/mc-a/kubernetes/payments"]) and
+    ([.entities[] | .key] == [$a + "/mc-a/kubernetes/payments"]) and
     .meta.completeness == "partial" and
     ([.meta.sources[] | select(.kind == "kubernetes")] | length) == 2 and
     ([.meta.clusters[] | select(.id == $b) | .access] == ["not-reviewable"]) and
@@ -127,7 +127,7 @@ want_view() {
 }
 eventually 40 want_view || {
   echo "--- last answer (HTTP $(targets)) ---" >&2
-  jq '{items: [.items[]?.key], meta: {completeness: .meta.completeness, clusters: .meta.clusters, sources: [.meta.sources[]? | {id, kind, status}], limitations: .meta.limitations}}' "$WORK/targets.json" >&2 || cat "$WORK/targets.json" >&2
+  jq '{entities: [.entities[]?.key], meta: {completeness: .meta.completeness, clusters: .meta.clusters, sources: [.meta.sources[]? | {id, kind, status}], limitations: .meta.limitations}}' "$WORK/targets.json" >&2 || cat "$WORK/targets.json" >&2
   tail -n 50 "$LOG" >&2
   fail "the reader's view is not mc-a of cluster A alone with cluster B hidden as not-reviewable"
 }
