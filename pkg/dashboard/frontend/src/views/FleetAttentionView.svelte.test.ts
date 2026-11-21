@@ -485,7 +485,7 @@ describe('FleetAttentionView — every category and its cause', () => {
     expect(links[0]?.getAttribute('href')).toBe('#/fleet/services/default%2Fk8s%3Ashop%2FDeployment%2Flegacy-billing?declare=1');
     expect(links[0]?.textContent).toBe('Declare this service');
     expect(links[1]).toBeNull();
-    expect(rows[1].querySelector('.attn-action')?.textContent).toBe(`Fix: declare this service with ${declare.cli}`);
+    expect(rows[1].querySelector('.attn-action')?.textContent).toBe(`Fix: declare the workload with ${declare.cli}`);
     expect(links[2]).toBeNull();
     unmount(component); document.body.removeChild(target);
   });

@@ -1,6 +1,6 @@
 <script>
   import { api } from '../lib/api.ts';
-  import { rangeRows, draftLine, draftMark, signUrl, moved } from '../lib/declare.ts';
+  import { rangeRows, draftLine, draftMark, signUrl, moved, completenessLine } from '../lib/declare.ts';
   import { formatCount } from '../lib/format.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
   import FieldProvenanceRow from './FieldProvenanceRow.svelte';
@@ -40,8 +40,15 @@
   const drafts = $derived(answer?.drafts ?? []);
   const writes = $derived(!!p && !p.unchanged && write.available);
   const fresh = $derived(signing.mode === 'fresh-login');
-  const backSigned = $derived(fresh && !!signed && p?.intentDigest === signed && !result);
+  // Back from a signing login only while the server still holds that login, and
+  // until a refusal (a used or expired login) sends the person to sign again.
+  const backSigned = $derived(fresh && !!signed && !!answer?.signedIn && p?.intentDigest === signed && !result && !refusal);
   const signHref = $derived(fresh && writes && answer?.signTicket ? signUrl(answer.signTicket, serviceKey, p.intentDigest) : '');
+  // A published version ends the panel's actions: nothing is left to sign or save.
+  const done = $derived(!!result && !result.draft);
+  const signs = $derived(!done && ((backSigned && writes) || !!signHref));
+  const noSign = $derived(signing.reason || write.reason || (p?.unchanged ? `nothing changed since ${p.unchanged}` : ''));
+  const completeness = $derived(completenessLine(p));
 
   function adopt(a) {
     answer = a;
@@ -68,7 +75,9 @@
     }
     draft = from;
     await load({ intentDigest: signed || undefined, fromDraft: from || undefined });
-    if (signed && p && p.intentDigest !== signed) movedText = 'The plan changed while you signed in, so sign again';
+    if (!signed || !p || !fresh) return;
+    if (!answer.signedIn) movedText = 'Your signing login expired or was used: check your ranges and sign again';
+    else if (p.intentDigest !== signed) movedText = 'The plan changed while you signed in, so sign again';
   }
 
   $effect(() => {
@@ -83,15 +92,23 @@
     movedText = '';
   }
 
-  function toggle(dep) {
+  // A control that is busy stays focusable (aria-disabled) and does nothing, so a
+  // keyboard reader keeps their place.
+  function toggle(e, dep) {
+    if (loading || busy) {
+      e.preventDefault();
+      return;
+    }
     reset();
     accept = accept.includes(dep) ? accept.filter((a) => a !== dep) : [...accept, dep];
-    load({ accept });
+    load({ accept, fromDraft: draft || undefined });
   }
 
   // Accepting a draft first loads that draft's own plan, so the person reads what
-  // nothing backs before anything is signed.
+  // nothing backs before anything is signed. Its requested ranges come back
+  // unknown: the person ticks the ones they accept.
   function acceptDraft(d) {
+    if (loading) return;
     reset();
     draft = { tag: d.tag, digest: d.digest };
     load({ fromDraft: draft });
@@ -104,23 +121,24 @@
   }
 
   function startSign() {
-    if (draft) sessionStorage.setItem(draftKey(p.intentDigest), JSON.stringify(draft));
+    try { if (draft) sessionStorage.setItem(draftKey(p.intentDigest), JSON.stringify(draft)); } catch { /* the draft is opened again by hand */ }
   }
 
   async function send(mode) {
+    if (busy || loading) return;
     reset();
     busy = true;
     const before = p;
     try {
-      const out = await api.fleetDeclareAccept({ serviceKey, accept: draft ? undefined : accept, intentDigest: before.intentDigest, mode, fromDraft: draft || undefined });
+      const out = await api.fleetDeclareAccept({ serviceKey, accept, intentDigest: before.intentDigest, mode, fromDraft: draft || undefined });
       if (out.refusal?.code === 'PlanStale' && out.plan) {
         adopt(out.plan);
         movedText = `The plan changed since you read it: ${moved(before, out.plan.plan)} moved. Read it again`;
       } else if (out.refusal) {
         refusal = out.refusal;
       } else {
-        if (signed) sessionStorage.removeItem(draftKey(signed));
         result = out;
+        try { if (signed) sessionStorage.removeItem(draftKey(signed)); } catch { /* nothing kept */ }
         if (out.draft) {
           draft = null;
           await load({ accept });
@@ -150,17 +168,18 @@
       <dl class="dp-facts">
         <div><dt>Version</dt><dd><bdi>{p.version}</bdi>{#if p.unchanged} (nothing changed since {p.unchanged}, so nothing is written){/if}</dd></div>
         <div><dt>Deploy</dt><dd><bdi title={p.deploy}>{p.deploy}</bdi></dd></div>
-        <div><dt>Signer</dt><dd data-testid="declare-signer">{#if fresh}You, <bdi title={signing.identity}>{signing.identity}</bdi>, after you sign in again{:else}Nobody signs here: <bdi>{signing.reason}</bdi>{/if}</dd></div>
+        <div><dt>Signer</dt><dd data-testid="declare-signer">{#if signs}You, <bdi title={signing.identity}>{signing.identity}</bdi>, after you sign in again{:else if done}You, <bdi title={signing.identity}>{signing.identity}</bdi>{:else}You do not sign here{#if noSign}: <bdi>{noSign}</bdi>{/if}{/if}</dd></div>
         {#if p.owner}<div><dt>Owner</dt><dd><bdi title={p.owner}>{p.owner}</bdi></dd></div>{/if}
       </dl>
       {#if rows.length}
         <dl class="dp-rows" data-testid="declare-ranges">
           {#each rows as r (r.dependency)}
-            {#snippet box()}<input type="checkbox" class="dp-box" checked={r.checked} disabled={!r.acceptable || !!draft || loading} aria-label={`Accept ${r.label}`} onchange={() => toggle(r.dependency)} />{/snippet}
+            {#snippet box()}<input type="checkbox" class="dp-box" checked={r.checked} disabled={!r.acceptable} aria-disabled={loading || busy ? 'true' : undefined} aria-label={`Accept ${r.label}`} onclick={(e) => toggle(e, r.dependency)} />{/snippet}
             <FieldProvenanceRow label={r.label} value={r.value} mark={r.mark} provenance={r.checked ? 'accepted' : 'inferred'} inferred={!r.checked} control={box} />
           {/each}
         </dl>
       {/if}
+      {#if completeness}<p class="t-meta dp-p" data-testid="declare-completeness">{completeness}</p>{/if}
       {#each p.notes ?? [] as n, i (i)}<p class="t-meta dp-p">{n}</p>{/each}
       {#if p.policyNote}<p class="t-meta dp-p">{p.policyNote}</p>{/if}
       {#if draft && (p.unbacked?.length || p.unbackedUnchecked)}
@@ -174,19 +193,21 @@
       {/if}
       {#if movedText}<p class="dp-p dp-moved" role="status" data-testid="declare-moved">{movedText}</p>{/if}
 
-      <div class="dp-actions">
-        {#if backSigned && writes}
-          <p class="dp-p" data-testid="declare-signed-return">Signed in again as <bdi>{signing.identity}</bdi>.</p>
-          <button type="button" class="btn btn-sm btn-primary" disabled={busy} onclick={() => send('sign')}>Publish {p.version}</button>
-        {:else if signHref}
-          <a class="btn btn-sm btn-primary" href={signHref} onclick={startSign} data-testid="declare-sign">Sign as <bdi>{signing.identity}</bdi></a>
-        {/if}
-        {#if writes && !draft}
-          <button type="button" class="btn btn-sm" disabled={busy || loading} onclick={() => send('draft')} data-testid="declare-save-draft">Save draft</button>
-        {:else if !write.available}
-          <p class="t-meta dp-p" data-testid="declare-no-write">{write.reason}</p>
-        {/if}
-      </div>
+      {#if !done}
+        <div class="dp-actions">
+          {#if backSigned && writes}
+            <p class="dp-p" data-testid="declare-signed-return">Signed in again as <bdi>{signing.identity}</bdi>.</p>
+            <button type="button" class="btn btn-sm btn-primary" aria-disabled={busy ? 'true' : undefined} onclick={() => send('sign')}>Publish {p.version}</button>
+          {:else if signHref}
+            <a class="btn btn-sm btn-primary" href={signHref} onclick={startSign} data-testid="declare-sign">Sign as <bdi>{signing.identity}</bdi></a>
+          {/if}
+          {#if writes && !draft}
+            <button type="button" class="btn btn-sm" aria-disabled={busy || loading ? 'true' : undefined} onclick={() => send('draft')} data-testid="declare-save-draft">Save draft</button>
+          {:else if !write.available}
+            <p class="t-meta dp-p" data-testid="declare-no-write">{write.reason}</p>
+          {/if}
+        </div>
+      {/if}
       {#if result}
         <p class="dp-p" role="status" data-testid="declare-result">
           {#if result.draft}Saved <bdi>{result.tag}</bdi>. A person who may update the workload accepts it from the drafts below or with the command.{:else}Published <bdi>{result.tag}</bdi>{#if result.signed}, signed by you as <bdi>{signing.identity}</bdi>{/if}.{/if}
@@ -221,7 +242,7 @@
               {#if d.state !== 'unreadable'}<ProvenanceMark start label={`Who proposed ${d.tag}`} text={draftMark(d)} />{/if}
               <bdi class="dp-draft">{draftLine(d)}</bdi>
               {#if d.state !== 'unreadable' && d.digest && draft?.tag !== d.tag}
-                <button type="button" class="btn btn-sm" disabled={loading} onclick={() => acceptDraft(d)} aria-label={`Accept ${d.tag}`}>Accept</button>
+                <button type="button" class="btn btn-sm" aria-disabled={loading ? 'true' : undefined} onclick={() => acceptDraft(d)} aria-label={`Accept ${d.tag}`}>Accept</button>
               {/if}
             </li>
           {/each}
@@ -256,5 +277,6 @@
   @media (pointer: coarse) {
     .dp-link, .dp :global(.btn) { min-block-size: 44px; }
     .dp-box { inline-size: 24px; block-size: 24px; }
+    .dp-rows :global(.fpf-control) { min-block-size: 44px; }
   }
 </style>

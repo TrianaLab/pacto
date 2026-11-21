@@ -10,7 +10,8 @@
 </script>
 
 <div class="fpf-row" class:fpf-inferred={inferred} data-provenance={provenance || undefined}>
-  <dt>{@render control?.()}<bdi title={label}>{label}</bdi></dt>
+  <!-- With a control the label wraps it, so the whole label toggles it (a touch target wider than the box). -->
+  <dt>{#if control}<label class="fpf-control">{@render control()}<bdi title={label}>{label}</bdi></label>{:else}<bdi title={label}>{label}</bdi>{/if}</dt>
   <dd><bdi class="fpf-value" title={value}>{value}</bdi> <ProvenanceMark label={`Where ${label} comes from`} text={mark} /></dd>
 </div>
 
@@ -23,6 +24,7 @@
   }
   .fpf-row dt { display: flex; align-items: center; gap: var(--sp-1); color: var(--c-text-2); overflow-wrap: anywhere; min-inline-size: 0; }
   .fpf-row dd { margin: 0; display: flex; align-items: center; gap: var(--sp-2); min-inline-size: 0; }
+  .fpf-control { display: flex; align-items: center; gap: var(--sp-1); min-inline-size: 0; cursor: pointer; }
   .fpf-value { font-family: var(--font-mono); font-size: 0.95em; overflow-wrap: anywhere; min-inline-size: 0; }
   /* Inferred values are muted by colour, never by opacity. */
   .fpf-inferred, .fpf-inferred dt { color: var(--c-text-3); }

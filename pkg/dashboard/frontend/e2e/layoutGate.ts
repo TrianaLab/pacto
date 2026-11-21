@@ -133,6 +133,8 @@ export function installScaleFixture(): void {
     const meta = doc.meta as Record<string, unknown> | undefined;
     if (meta && meta.sourceCounts) meta.sourceCounts = { ...SOURCE_COUNTS };
     if (route === '/api/capabilities' && statsMode() !== 'engine') doc.stats = statsMode() !== 'off';
+    // A host that plans no declaration (513-S6): the inferred page says the command.
+    if (route === '/api/capabilities' && (window as unknown as { __pactoNoDeclare?: boolean }).__pactoNoDeclare) doc.declare = false;
     // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
     // keeps the engine's total: the fixture leaves the tallies that link to it (an
     // offering's phases, the non-compliant rankings) alone.
@@ -460,7 +462,10 @@ export function installScaleFixture(): void {
       if (off && pv) {
         off.observedConsumers = {
           items: Array.from({ length: 30 }, (_, o) => o % 3 === 2
-            ? { caller: longName(`uncontracted-caller-${o}`), provider: pv, provenance: 'observed', uncontracted: true }
+            ? { caller: longName(`uncontracted-caller-${o}`), provider: pv, provenance: 'observed', uncontracted: true,
+              consumer: { kind: 'service', key: `default/k8s:${longName('shop')}/Deployment/${longName(`uncontracted-caller-${o}`)}`, label: longName(`uncontracted-caller-${o}`), declaration: 'inferred',
+                href: `/fleet/services/${encodeURIComponent(`default/k8s:shop/Deployment/uncontracted-caller-${o}`)}` },
+              nextAction: { verb: 'declare', cli: `pacto declare ${longName(`uncontracted-caller-${o}`)} --namespace ${longName('shop')}` } }
             : { consumer: { kind: 'service', key: `domain-load/observed-${o}`, label: longName(`observed-caller-${o}`), href: `/fleet/services/${encodeURIComponent(`domain-load/observed-${o}`)}` },
               provider: pv, provenance: 'observed', lastSeen: '2026-11-08T08:00:00Z', stale: o % 2 === 0, sources: [longName('mira-observation-source')] }),
           total: 412, count: 30, truncated: true,
@@ -1109,7 +1114,7 @@ export function installScaleFixture(): void {
   // multiCluster (514-S2) answers every entities list as a view over three clusters with
   // 63-character names: the demo's own cluster, one the reader may not read and one whose
   // review failed, so the Cluster filter, its caption and the Clusters block render.
-  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden' | 'execute' | 'drafts'; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed'; __pactoMultiCluster?: boolean; __pactoDeclare?: DeclareMode };
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed'; __pactoNoDeclare?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed'; __pactoMultiCluster?: boolean; __pactoDeclare?: DeclareMode };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1495,7 +1500,10 @@ export function installScaleFixture(): void {
       inferredFrom: `k8s:${longName('shop')}/Deployment/${name}`, deploy: `${repo}-deploy@sha256:${'d4'.repeat(32)}`, ranges, owner: longName('billing'),
       signer: { subject: who, class: 'human', source: 'login' }, intentDigest: DECLARE_INTENT,
       notes: [longName('the cluster read is partial: two namespaces could not be listed')], policyNote: longName('the owner policy lets billing set this owner'),
-      contract: { text: contract, truncated: true }, record: { text: `format: pacto.inferred/v1\n${wide}\n` } };
+      contract: { text: contract, truncated: true }, record: { text: `format: pacto.inferred/v1\n${wide}\n` },
+      clusterAsOf: '2026-11-20T10:00:00Z', hidden: { services: 2, callers: 14 },
+      coverage: [{ source: `services in ${longName('shop')}`, state: 'partial', reason: longName('the list was cut short at 10000 items') }, { source: 'deployments', state: 'complete' }],
+      skipped: [{ tag: '0.9.0', why: longName('signed by a key no publisher rule covers') }] };
     if (b.fromDraft) {
       plan.unbacked = Array.from({ length: 5 }, (_, i) => `dependencies[${longName(`provider-${i}`)}].compatibility ^${i + 9}.0.0`);
       plan.unbackedUnchecked = longName('the baseline could not be read, so what backs the draft was only checked against the cluster read');
@@ -1505,15 +1513,22 @@ export function installScaleFixture(): void {
       : { tag: `draft-${27 - i}`, digest: `sha256:${(i % 10).toString().repeat(64)}`, state: 'draft', onBehalfOf: who, signed: i % 2 === 1,
         asker: i % 2 ? { subject: `${longName('ci')}@acme.example`, issuer: 'https://token.actions.githubusercontent.com', class: 'agent' } : { subject: '', issuer: 'none', class: 'agent' },
         requested: deps.slice(0, 3).map((d, j) => `${d} ^${j + 1}.0.0`) });
-    const signed = mode === 'signed';
+    const signed = mode === 'signed' || mode === 'expired';
+    const write = mode === 'nowrite' ? { available: false, reason: longName('the installation gave the dashboard no push credential: run the command') } : { available: true };
     return { plan, drafts, draftsTotal: drafts ? 27 : undefined, command: `${command} --intent ${DECLARE_INTENT}`,
       signing: signed ? { mode: 'fresh-login', identity: who } : { mode: 'none', reason: longName('a token sign-in signs nothing') },
-      write: { available: true }, signTicket: signed ? 't'.repeat(43) : undefined };
+      write, signTicket: signed ? 't'.repeat(43) : undefined, signedIn: mode === 'signed' };
   };
   const declareAcceptAnswer = (body: string | null) => {
     const b = JSON.parse(body || '{}') as { mode?: string };
     const name = longName('legacy-billing');
     const repo = `ghcr.io/${longName('acme')}/${name}`;
+    if (flags.__pactoDeclare === 'stale') {
+      const fresh = declareAnswer(null) as { plan: Record<string, unknown> };
+      fresh.plan.version = `0.2.0-${longName('rc')}`;
+      fresh.plan.intentDigest = `sha256:${'b4'.repeat(32)}`;
+      return { refusal: { code: 'PlanStale', message: 'the plan changed' }, plan: fresh };
+    }
     return b.mode === 'sign' ? { published: `${repo}@sha256:${'e5'.repeat(32)}`, tag: '0.1.0', signed: true }
       : { published: `${repo}@sha256:${'e6'.repeat(32)}`, tag: 'draft-28', draft: true, command: `pacto declare ${name} --registry ghcr.io/${longName('acme')} --from-draft draft-28` };
   };
@@ -1547,12 +1562,18 @@ export function installScaleFixture(): void {
   // What the person can do with the plan here (513-S6): sign with a long identity and
   // save a draft; 'drafts' also lists the acceptance drafts waiting, one unreadable.
   const acceptExecutePlan = (repo: string) => {
-    if (flags.__pactoAccept !== 'execute' && flags.__pactoAccept !== 'drafts') return {};
+    const mode = flags.__pactoAccept;
+    if (mode !== 'execute' && mode !== 'drafts' && mode !== 'nowrite' && mode !== 'nosign' && mode !== 'signed') return {};
     const planExtra = flags.__pactoAccept !== 'drafts' ? {} : { draftsTotal: 27, drafts: Array.from({ length: 20 }, (_, i) => i === 3
       ? { tag: `pacto-accept-draft-${27 - i}`, state: 'unreadable', reason: `${repo}:pacto-accept-draft-${27 - i} holds no acceptance draft: ${longName('decode error')}`, signed: false }
       : { tag: `pacto-accept-draft-${27 - i}`, state: 'draft', onBehalfOf: `${longName('ana')}@acme.example`, asker: i % 2 ? `${longName('ci')}@acme.example` : '', signed: i % 2 === 1,
         ranges: Array.from({ length: 3 }, (_, j) => ({ field: `dependencies[${longName(`provider-${j}`)}].compatibility`, value: `^${j + 2}.${j}.0` })) }) };
-    return { execute: { signing: { mode: 'fresh-login', identity: `${longName('ana')}@acme.example` }, write: { available: true }, signTicket: 'f'.repeat(43) }, planExtra };
+    const who = `${longName('ana')}@acme.example`;
+    const execute = mode === 'nowrite' ? { signing: { mode: 'none', reason: longName('the installation gave the dashboard no push credential: run the command') },
+      write: { available: false, reason: longName('the installation gave the dashboard no push credential: run the command') } }
+      : mode === 'nosign' ? { signing: { mode: 'none', reason: longName('a token sign-in never signs: save a draft or run the command in your terminal') }, write: { available: true } }
+        : { signing: { mode: 'fresh-login', identity: who }, write: { available: true }, signTicket: 'f'.repeat(43), signedIn: true };
+    return { execute, planExtra };
   };
   const acceptExecuteAnswer = (body: string | null) => {
     const repo = `ghcr.io/trianalab/${longName('payments-service')}`;
@@ -2114,8 +2135,21 @@ const firstLink = (list: string, href: string) => async (page: Page) => {
  *  them there), presses "Accept all proposed ranges" and waits for the plan or refusal;
  *  'forbidden' is a viewer who is not signed in, offered only the CLI dry run. The page
  *  reloads so the session is read with the flag set. */
+/** Opens legacy-billing's page on a host that plans no declaration: the inferred page
+ *  says the long pacto declare command instead of the panel (513-S6). */
+const openInferredNoDeclare = async (page: Page) => {
+  await page.addInitScript(() => { (window as unknown as { __pactoNoDeclare?: boolean }).__pactoNoDeclare = true; });
+  await page.goto('/#/fleet/services?declaration=inferred');
+  const a = page.locator('main a[href*="/fleet/services/"][href*="legacy-billing"]').first();
+  await expect(a).toBeVisible({ timeout: 30_000 });
+  await page.goto(`/${await a.getAttribute('href')}`);
+  await page.reload();
+  await expect(page.getByTestId('inferred-next-action')).toBeVisible({ timeout: 30_000 });
+  await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+};
+
 /** The declare fixture's states (513-S6): see declareAnswer in installScaleFixture. */
-export type DeclareMode = 'panel' | 'drafts' | 'refused' | 'signed';
+export type DeclareMode = 'panel' | 'drafts' | 'refused' | 'signed' | 'expired' | 'nowrite' | 'stale' | 'saved';
 
 /** The intent the declare fixture's plan names, which a signing login comes back with. */
 export const DECLARE_INTENT = `sha256:${'b3'.repeat(32)}`;
@@ -2129,7 +2163,7 @@ export const declareRoute = (mode: DeclareMode | '') => async (page: Page) => {
   await page.goto('/#/fleet/services?declaration=inferred');
   const a = page.locator('main a[href*="/fleet/services/"][href*="legacy-billing"]').first();
   await expect(a).toBeVisible({ timeout: 30_000 });
-  const signed = mode === 'signed' ? `&signed=${encodeURIComponent(DECLARE_INTENT)}` : '';
+  const signed = mode === 'signed' || mode === 'expired' ? `&signed=${encodeURIComponent(DECLARE_INTENT)}` : '';
   await page.goto(`/${await a.getAttribute('href')}?declare=1${signed}`);
   await page.reload();
   const panel = page.getByTestId('declare');
@@ -2140,6 +2174,11 @@ export const declareRoute = (mode: DeclareMode | '') => async (page: Page) => {
     await panel.getByTestId('declare-drafts').locator('> summary').click();
     await panel.getByRole('button', { name: /^Accept draft-/ }).first().click();
     await expect(panel.getByTestId('declare-unbacked')).toBeVisible({ timeout: 30_000 });
+  } else if (mode === 'stale' || mode === 'saved') {
+    await panel.getByTestId('declare-save-draft').click();
+    await expect(panel.getByTestId(mode === 'stale' ? 'declare-moved' : 'declare-accept-command')).toBeVisible({ timeout: 30_000 });
+  } else if (mode === 'expired') {
+    await expect(panel.getByTestId('declare-moved')).toBeVisible({ timeout: 30_000 });
   }
   // The pointer leaves the panel: scrolled to the top, a provenance mark would land under
   // it and open its tip over the row beside it.
@@ -2147,16 +2186,18 @@ export const declareRoute = (mode: DeclareMode | '') => async (page: Page) => {
   await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
 };
 
-export const acceptPlanRoute = (mode: 'plan' | 'refused' | 'forbidden' | 'execute' | 'drafts') => async (page: Page) => {
+export const acceptPlanRoute = (mode: 'plan' | 'refused' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed') => async (page: Page) => {
   const flag = (m: string) => { (window as unknown as { __pactoAccept?: string }).__pactoAccept = m; };
   await page.addInitScript(flag, mode);
-  await page.goto('/#/fleet/services/payments-service');
+  await page.goto(mode === 'signed' ? `/#/fleet/services/payments-service?signed=${encodeURIComponent(`sha256:${'a7'.repeat(32)}`)}` : '/#/fleet/services/payments-service');
   await page.reload();
   const block = page.getByTestId('service-inferred');
   await expect(block).toBeVisible({ timeout: 30_000 });
   await block.locator('summary').first().click();
   if (mode === 'forbidden') {
     await expect(block.getByTestId('accept-sign-in')).toBeVisible({ timeout: 30_000 });
+  } else if (mode === 'signed') {
+    await expect(block.getByTestId('accept-signed-return')).toBeVisible({ timeout: 30_000 });
   } else {
     await block.getByRole('button', { name: /Accept all proposed ranges/ }).click();
     await expect(block.getByTestId(mode === 'refused' ? 'accept-refusal' : 'accept-waiting')).toBeVisible({ timeout: 30_000 });
@@ -2476,6 +2517,9 @@ export const ROUTES: Route[] = [
   { name: 'service inferred accept execute', open: acceptPlanRoute('execute') },
   { name: 'service inferred accept drafts', open: acceptPlanRoute('drafts') },
   { name: 'service inferred accept forbidden', open: acceptPlanRoute('forbidden') },
+  { name: 'service inferred accept no write', open: acceptPlanRoute('nowrite') },
+  { name: 'service inferred accept no sign', open: acceptPlanRoute('nosign') },
+  { name: 'service inferred accept signed return', open: acceptPlanRoute('signed') },
   { name: 'revision list', list: true, hash: '#/fleet/revisions?service=payments-service' },
   { name: 'revision entity', open: firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/') },
   { name: 'revision entity, implicit contract', open: firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/') },
@@ -2953,6 +2997,11 @@ export const ROUTES: Route[] = [
   { name: 'inferred entity, declare drafts', open: declareRoute('drafts') },
   { name: 'inferred entity, declare refused', open: declareRoute('refused') },
   { name: 'inferred entity, declare signed return', open: declareRoute('signed') },
+  { name: 'inferred entity, declare login expired', open: declareRoute('expired') },
+  { name: 'inferred entity, declare no write', open: declareRoute('nowrite') },
+  { name: 'inferred entity, declare stale', open: declareRoute('stale') },
+  { name: 'inferred entity, declare saved', open: declareRoute('saved') },
+  { name: 'inferred entity, no declare capability', open: openInferredNoDeclare },
   // 509-S3: the Services list filtered to one Argo CD Application, a grouped inferred
   // service and its Group and Repository facts at their longest.
   { name: 'services group filter', list: true, hash: '#/fleet/services?declaration=inferred&group=argocd%2Fshop%2Fshop' },

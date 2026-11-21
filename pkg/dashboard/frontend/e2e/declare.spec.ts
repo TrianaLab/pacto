@@ -98,6 +98,9 @@ test.describe('declare an inferred service', () => {
       await expect(panel.getByTestId('declare-ranges')).toBeVisible();
       await panel.getByRole('button', { name: 'Publish 0.1.0' }).click();
       await expect(panel.getByTestId('declare-result')).toContainText('Published 0.1.0, signed by you as', { timeout: T });
+      // A published version leaves nothing to sign or save.
+      await expect(panel.getByTestId('declare-sign')).toHaveCount(0);
+      await expect(panel.getByTestId('declare-save-draft')).toHaveCount(0);
     });
 
     test('a refusal shows its message, the reason nothing writes and the command', async ({ page }) => {
@@ -121,6 +124,8 @@ test.describe('declare an inferred service', () => {
       await expect(block.getByTestId('accept-signed-return')).toContainText('Signed in again as', { timeout: T });
       await block.getByRole('button', { name: 'Attach the acceptance' }).click();
       await expect(block.getByTestId('accept-result')).toContainText('signed by you: counted', { timeout: T });
+      await expect(block.getByTestId('accept-sign')).toHaveCount(0);
+      await expect(block.getByTestId('accept-save-draft')).toHaveCount(0);
 
       // A draft accepted across the signing login: its own plan, then Attach, which
       // the person may not do on this workload.
@@ -150,7 +155,8 @@ test.describe('declare on a phone', () => {
     await panel.getByTestId('declare-contract').locator('> summary').click();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
-    for (const target of [panel.getByTestId('declare-save-draft'), panel.getByRole('button', { name: 'Copy command' }).first()]) {
+    // A range's whole label toggles its checkbox, a 44px target with the 24px box inside.
+    for (const target of [panel.getByTestId('declare-save-draft'), panel.getByRole('button', { name: 'Copy command' }).first(), panel.locator('label.fpf-control').first()]) {
       const box = await target.boundingBox();
       expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
     }

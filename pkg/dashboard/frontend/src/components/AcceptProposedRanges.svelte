@@ -70,7 +70,8 @@
 
   const offer = $derived(answer?.plan ? answer.execute ?? null : null);
   const fresh = $derived(offer?.signing?.mode === 'fresh-login' && !!offer?.write?.available);
-  const backSigned = $derived(fresh && !!signed && answer?.plan?.intentDigest === signed && !result);
+  // Back from a signing login only while the server still holds that login.
+  const backSigned = $derived(fresh && !!signed && !!offer?.signedIn && answer?.plan?.intentDigest === signed && !result && !failure);
   const signHref = $derived(fresh && offer?.signTicket ? acceptSignUrl(offer.signTicket, serviceKey, answer.plan.intentDigest) : '');
   const drafts = $derived(answer?.plan?.drafts ?? []);
 
@@ -79,6 +80,7 @@
   }
 
   async function send(mode) {
+    if (busy) return;
     busy = true;
     result = failure = null;
     try {
@@ -145,20 +147,22 @@
         {/if}
         {#each answer.plan.notes ?? [] as n, i (i)}<p class="apr-note">{n}</p>{/each}
         {#if offer}
+          {#if !result}
           <div class="apr-actions" data-testid="accept-execute">
             {#if backSigned}
               <p class="apr-text" data-testid="accept-signed-return">Signed in again as <bdi title={offer.signing.identity}>{offer.signing.identity}</bdi>.</p>
-              <button type="button" class="btn btn-sm btn-primary" disabled={busy} onclick={() => send('sign')}>Attach the acceptance</button>
+              <button type="button" class="btn btn-sm btn-primary" aria-disabled={busy ? 'true' : undefined} onclick={() => send('sign')}>Attach the acceptance</button>
             {:else if signHref}
               <a class="btn btn-sm btn-primary" href={signHref} onclick={startSign} data-testid="accept-sign">Sign as <bdi>{offer.signing.identity}</bdi></a>
             {/if}
             {#if offer.write?.available && !answer.plan.draft}
-              <button type="button" class="btn btn-sm" disabled={busy} onclick={() => send('draft')} data-testid="accept-save-draft">Save draft</button>
+              <button type="button" class="btn btn-sm" aria-disabled={busy ? 'true' : undefined} onclick={() => send('draft')} data-testid="accept-save-draft">Save draft</button>
             {:else if !offer.write?.available}
               <p class="apr-note" data-testid="accept-no-write">{offer.write?.reason}</p>
             {/if}
-            {#if !fresh && offer.write?.available}<p class="apr-note" data-testid="accept-no-sign">Nobody signs here: <bdi>{offer.signing?.reason}</bdi></p>{/if}
+            {#if !fresh && offer.write?.available}<p class="apr-note" data-testid="accept-no-sign">You do not sign here: <bdi>{offer.signing?.reason}</bdi></p>{/if}
           </div>
+          {/if}
           {#if result}
             <p class="apr-text" role="status" data-testid="accept-result">
               {#if result.draft}Saved <bdi title={result.draft}>{result.draft}</bdi>. The owner accepts it from the drafts below or with the command.{:else}Attached <bdi title={result.record}>{result.record}</bdi>, signed by you{#if result.state}: {result.state}{/if}.{/if}

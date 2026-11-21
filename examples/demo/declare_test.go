@@ -177,9 +177,14 @@ func TestDemoDeclareAcceptDraft(t *testing.T) {
 	h := declareDemo(t, &who)
 	saveDraft(t, h, []string{"payments-service"})
 	ref := &dashboard.DraftRef{Tag: "draft-1", Digest: plan(t, h, dashboard.DeclareInput{}).Drafts[0].Digest}
+	// A draft's requested range comes back unknown unless the person accepts it.
 	d := plan(t, h, dashboard.DeclareInput{FromDraft: ref})
-	if !d.Plan.Ranges[0].Accepted || len(d.Plan.Unbacked) != 0 || len(d.Plan.Notes) != 1 || !strings.HasSuffix(d.Command, "--from-draft draft-1") {
+	if d.Plan.Ranges[0].Accepted || len(d.Plan.Unbacked) != 0 || len(d.Plan.Notes) != 2 || !strings.HasSuffix(d.Command, "--from-draft draft-1") {
 		t.Fatalf("%+v %s", d.Plan, d.Command)
+	}
+	kept := plan(t, h, dashboard.DeclareInput{FromDraft: ref, Accept: []string{"payments-service"}})
+	if !kept.Plan.Ranges[0].Accepted || !strings.HasSuffix(kept.Command, "--from-draft draft-1 --accept payments-service") {
+		t.Fatalf("%+v %s", kept.Plan, kept.Command)
 	}
 	signed := accept(t, h, dashboard.DeclareAcceptInput{IntentDigest: d.Plan.IntentDigest, Mode: "sign", FromDraft: ref})
 	moved := plan(t, h, dashboard.DeclareInput{FromDraft: &dashboard.DraftRef{Tag: "draft-1", Digest: "sha256:" + strings.Repeat("0", 64)}})

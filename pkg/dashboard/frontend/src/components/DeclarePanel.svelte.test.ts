@@ -80,7 +80,7 @@ describe('DeclarePanel', () => {
   });
 
   it('back from the signing login re-renders the whole plan from the answer and publishes on a click', async () => {
-    planFn.mockResolvedValue(answer(FRESH, { ranges: [{ dependency: 'ledger', compatibility: '^2.3.0', proposed: '^2.3.0', accepted: true }], state: 'declared' }));
+    planFn.mockResolvedValue(answer({ ...FRESH, signedIn: true }, { ranges: [{ dependency: 'ledger', compatibility: '^2.3.0', proposed: '^2.3.0', accepted: true }], state: 'declared' }));
     acceptFn.mockResolvedValue({ published: 'ghcr.io/acme/cart@sha256:p', tag: '0.1.0', signed: true });
     await render({ signed: 'sha256:i1' });
     expect(planFn).toHaveBeenCalledWith({ serviceKey: KEY, intentDigest: 'sha256:i1', fromDraft: undefined });
@@ -92,10 +92,31 @@ describe('DeclarePanel', () => {
     await vi.waitFor(() => expect(q('[data-testid="declare-result"]')).toBeTruthy());
     expect(acceptFn).toHaveBeenCalledWith({ serviceKey: KEY, accept: ['ledger'], intentDigest: 'sha256:i1', mode: 'sign', fromDraft: undefined });
     expect(text(q('[data-testid="declare-result"]'))).toBe(`Published 0.1.0, signed by you as ${LONG_ID}.`);
+    // A published version leaves nothing to sign or save.
+    expect(q('[data-testid="declare-sign"]')).toBeNull();
+    expect(q('[data-testid="declare-save-draft"]')).toBeNull();
+    expect(button('Publish 0.1.0')).toBeUndefined();
+  });
+
+  it('back from an expired or used signing login says so and offers Sign again, not Publish', async () => {
+    planFn.mockResolvedValue(answer(FRESH));
+    await render({ signed: 'sha256:i1' });
+    expect(text(q('[data-testid="declare-moved"]'))).toBe('Your signing login expired or was used: check your ranges and sign again');
+    expect(q('[data-testid="declare-signed-return"]')).toBeNull();
+    expect(q('[data-testid="declare-sign"]')).toBeTruthy();
+  });
+
+  it('a refused publish brings the Sign link back', async () => {
+    planFn.mockResolvedValue(answer({ ...FRESH, signedIn: true }));
+    acceptFn.mockResolvedValue({ refusal: { code: 'SignerNotAllowed', message: 'sign in again to sign' } });
+    await render({ signed: 'sha256:i1' });
+    button('Publish 0.1.0').click();
+    await vi.waitFor(() => expect(q('[data-testid="refusal"]')).toBeTruthy());
+    expect(q('[data-testid="declare-sign"]')).toBeTruthy();
   });
 
   it('says the plan moved when the signing login came back for another intent', async () => {
-    planFn.mockResolvedValue(answer(FRESH));
+    planFn.mockResolvedValue(answer({ ...FRESH, signedIn: true }));
     await render({ signed: 'sha256:other' });
     expect(text(q('[data-testid="declare-moved"]'))).toBe('The plan changed while you signed in, so sign again');
     expect(q('[data-testid="declare-sign"]')).toBeTruthy();
@@ -106,7 +127,7 @@ describe('DeclarePanel', () => {
     acceptFn.mockResolvedValue({ tag: 'draft-3', draft: true, published: 'ghcr.io/acme/cart@sha256:d', command: 'pacto declare cart --registry ghcr.io/acme --from-draft draft-3' });
     await render();
     expect(q('[data-testid="declare-sign"]')).toBeNull();
-    expect(text(q('[data-testid="declare-signer"]'))).toBe('Nobody signs here: run the command in your terminal to sign');
+    expect(text(q('[data-testid="declare-signer"]'))).toBe('You do not sign here: run the command in your terminal to sign');
     expect(text(q('[data-testid="declare-command"]'))).toContain(COMMAND);
     button('Save draft').click();
     await vi.waitFor(() => expect(q('[data-testid="declare-draft"]')).toBeTruthy());
@@ -122,6 +143,43 @@ describe('DeclarePanel', () => {
     expect(q('[data-testid="declare-save-draft"]')).toBeNull();
     expect(q('[data-testid="declare-sign"]')).toBeNull();
     expect(text(q('[data-testid="declare-command"]'))).toContain(COMMAND);
+    // Signing is never promised where nothing can be signed.
+    expect(text(q('[data-testid="declare-signer"]'))).not.toContain('after you sign in again');
+  });
+
+  it('says how complete the cluster read is', async () => {
+    planFn.mockResolvedValue(answer({}, { clusterAsOf: '2026-11-20T10:00:00Z', coverage: [{ source: 'services', state: 'partial', reason: 'forbidden' }, { source: 'pods', state: 'complete' }],
+      hidden: { services: 2 }, skipped: [{ tag: '1.0.0', why: 'unsigned' }] }));
+    await render();
+    expect(text(q('[data-testid="declare-completeness"]'))).toBe('Cluster read as of 2026-11-20T10:00:00Z: partial (services: forbidden); 2 called services you may not read are not listed; 1 published version was not taken as the baseline (1.0.0)');
+  });
+
+  it('a busy control stays focused and does nothing', async () => {
+    let release: (v: unknown) => void = () => {};
+    planFn.mockResolvedValueOnce(answer()).mockReturnValueOnce(new Promise((r) => { release = r; }));
+    await render();
+    const ledger = q('input[aria-label="Accept ledger range"]') as HTMLInputElement;
+    ledger.focus();
+    ledger.click();
+    flushSync();
+    expect(ledger.disabled).toBe(false);
+    expect(ledger.getAttribute('aria-disabled')).toBe('true');
+    expect(document.activeElement).toBe(ledger);
+    ledger.click();
+    expect(planFn).toHaveBeenCalledTimes(2);
+    expect(button('Save draft').disabled).toBe(false);
+    button('Save draft').click();
+    expect(acceptFn).not.toHaveBeenCalled();
+    release(answer());
+  });
+
+  it('the whole range label toggles its checkbox', async () => {
+    planFn.mockResolvedValue(answer());
+    await render();
+    const label = q('[data-testid="declare-ranges"] label.fpf-control') as HTMLLabelElement;
+    expect(label.querySelector('input[aria-label="Accept ledger range"]')).toBeTruthy();
+    (label.querySelector('bdi') as HTMLElement).click();
+    await vi.waitFor(() => expect(planFn).toHaveBeenCalledTimes(2));
   });
 
   it('replans when a range is checked, one mark per range row and none on the command', async () => {
@@ -139,7 +197,7 @@ describe('DeclarePanel', () => {
     const ledger = q('input[aria-label="Accept ledger range"]') as HTMLInputElement;
     ledger.click();
     await vi.waitFor(() => expect(planFn).toHaveBeenCalledTimes(2));
-    expect(planFn).toHaveBeenLastCalledWith({ serviceKey: KEY, accept: ['ledger'] });
+    expect(planFn).toHaveBeenLastCalledWith({ serviceKey: KEY, accept: ['ledger'], fromDraft: undefined });
     await vi.waitFor(() => expect(target.querySelector('[data-testid="declare-ranges"] .fpf-row')?.classList.contains('fpf-inferred')).toBe(false));
   });
 
@@ -163,6 +221,8 @@ describe('DeclarePanel', () => {
     expect(unbacked.compareDocumentPosition(sign) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(text(unbacked)).toContain('owner set to ana');
     expect(q('[data-testid="declare-save-draft"]')).toBeNull();
+    // The draft's ranges stay acceptable: a tick replans the draft with it.
+    expect((q('input[aria-label="Accept ledger range"]') as HTMLInputElement).disabled).toBe(false);
     sign.addEventListener('click', (e) => e.preventDefault());
     sign.click();
     expect(JSON.parse(sessionStorage.getItem('pacto-declare-draft:sha256:dp') ?? '')).toEqual({ tag: 'draft-2', digest: DRAFTS[0].digest });
@@ -171,13 +231,13 @@ describe('DeclarePanel', () => {
   it('back from signing a draft posts fromDraft with that plan digest', async () => {
     const from = { tag: 'draft-2', digest: DRAFTS[0].digest };
     sessionStorage.setItem('pacto-declare-draft:sha256:dp', JSON.stringify(from));
-    planFn.mockResolvedValue(answer(FRESH, { intentDigest: 'sha256:dp', state: 'declared' }));
+    planFn.mockResolvedValue(answer({ ...FRESH, signedIn: true }, { intentDigest: 'sha256:dp', state: 'declared' }));
     acceptFn.mockResolvedValue({ tag: '0.1.0', signed: true, published: 'r@sha256:x' });
     await render({ signed: 'sha256:dp' });
     expect(planFn).toHaveBeenCalledWith({ serviceKey: KEY, intentDigest: 'sha256:dp', fromDraft: from });
     button('Publish 0.1.0').click();
     await vi.waitFor(() => expect(acceptFn).toHaveBeenCalled());
-    expect(acceptFn).toHaveBeenCalledWith({ serviceKey: KEY, accept: undefined, intentDigest: 'sha256:dp', mode: 'sign', fromDraft: from });
+    expect(acceptFn).toHaveBeenCalledWith({ serviceKey: KEY, accept: [], intentDigest: 'sha256:dp', mode: 'sign', fromDraft: from });
     await vi.waitFor(() => expect(sessionStorage.getItem('pacto-declare-draft:sha256:dp')).toBeNull());
   });
 

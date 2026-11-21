@@ -160,7 +160,7 @@ describe('service page: accept all proposed ranges here', () => {
 
   it('comes back from the signing login to the open plan and attaches on one click', async () => {
     sessionStorage.setItem('pacto-accept-draft:sha256:d', 'pacto-accept-draft-2');
-    acceptFn.mockResolvedValue(answer(fresh, { draft: 'pacto-accept-draft-2', intentDigest: 'sha256:d' }));
+    acceptFn.mockResolvedValue(answer({ ...fresh, signedIn: true }, { draft: 'pacto-accept-draft-2', intentDigest: 'sha256:d' }));
     await render('sha256:d');
     await vi.waitFor(() => expect(fact(target, 'accept-signed-return')).toBeTruthy());
     expect((fact(target, 'service-inferred')!.querySelector('details') as HTMLDetailsElement).open).toBe(true);
@@ -171,6 +171,16 @@ describe('service page: accept all proposed ranges here', () => {
     expect(executeFn).toHaveBeenCalledWith({ serviceKey: KEY, intentDigest: 'sha256:d', mode: 'sign', fromDraft: 'pacto-accept-draft-2' });
     expect(text(fact(target, 'accept-result'))).toContain('Attached ghcr.io/acme/reports@sha256:r, signed by you: counted');
     expect(sessionStorage.getItem('pacto-accept-draft:sha256:d')).toBeNull();
+    expect(fact(target, 'accept-signed-return')).toBeNull();
+    // Attached: nothing is left to sign or save.
+    expect(fact(target, 'accept-sign')).toBeNull();
+    expect(fact(target, 'accept-save-draft')).toBeNull();
+  });
+
+  it('back from an expired signing login offers Sign again, not Attach', async () => {
+    acceptFn.mockResolvedValue(answer(fresh));
+    await render('sha256:i');
+    await vi.waitFor(() => expect(fact(target, 'accept-sign')).toBeTruthy());
     expect(fact(target, 'accept-signed-return')).toBeNull();
   });
 

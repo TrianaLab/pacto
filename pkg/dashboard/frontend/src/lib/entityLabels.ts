@@ -244,7 +244,8 @@ export function attentionCause(code: string | undefined): string {
 /** The words of a next action verb (#472's AttentionItem.nextAction, #562's verbs). */
 const NEXT_ACTION_VERBS: Record<string, string> = {
   'edit-contract': 'edit the contract',
-  declare: 'declare this service',
+  // Subject-neutral: a row's entity may be the called provider, not the workload.
+  declare: 'declare the workload',
   accept: 'accept the proposed ranges',
   claim: 'claim this external system',
   'approve-cluster': 'approve the cluster',

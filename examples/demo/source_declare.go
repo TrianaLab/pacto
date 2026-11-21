@@ -67,13 +67,13 @@ func (d *demoDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, in das
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	ans := &dashboard.DeclareAnswer{Signing: demoSigning(), Write: dashboard.DeclareWrite{Available: true}}
+	// A draft's requested ranges stay unknown unless the person accepts them.
 	accept, from := in.Accept, (*demoDraft)(nil)
 	if in.FromDraft != nil {
 		if from = d.draft(w.Key, *in.FromDraft); from == nil {
 			ans.Refusal = &dashboard.DeclareRefusal{Code: "DraftNotFound", Message: in.FromDraft.Tag + " is not a draft of " + w.Name + " with the digest shown"}
 			return ans, nil
 		}
-		accept = from.accept
 	}
 	if bad := notProposed(w.Name, accept); bad != "" {
 		ans.Refusal = &dashboard.DeclareRefusal{Code: "RangeNotProposed", Message: "the cluster read proposes no range for " + bad, Command: demoCommand(w, nil, "")}
@@ -84,6 +84,9 @@ func (d *demoDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, in das
 	ans.Command = demoCommand(w, accept, ans.Plan.IntentDigest)
 	if from != nil {
 		ans.Command = "pacto declare " + w.Name + " --namespace " + w.Namespace + " --registry " + demoDeclareRegistry + " --from-draft " + from.tag
+		for _, a := range accept {
+			ans.Command += " --accept " + a
+		}
 	}
 	return ans, nil
 }
@@ -236,7 +239,11 @@ func demoPlan(w dashboard.DeclareWorkload, accept []string, who string, from *de
 	if from != nil {
 		intent += from.digest
 		plan.Notes = []string{"A draft is accepted only with a person's signature: run the command in a terminal where you sign in"}
+		for _, r := range requested(from.accept, props) {
+			plan.Notes = append(plan.Notes, "requested by the draft: "+r+"; it stays unknown unless you accept it")
+		}
 	}
+	plan.ClusterAsOf = rec.Inputs.Cluster.AsOf
 	plan.IntentDigest = digestOf(intent)
 	return plan
 }

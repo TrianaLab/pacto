@@ -1121,6 +1121,8 @@ export interface components {
         AcceptExecuteOffer: {
             /** @description Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page>; present only with signing mode fresh-login */
             signTicket?: string;
+            /** @description A fresh signing login for this plan's intent is live: the person signs without logging in again */
+            signedIn?: boolean;
             signing: components["schemas"]["DeclareSigning"];
             write: components["schemas"]["DeclareWrite"];
         };
@@ -1467,6 +1469,12 @@ export interface components {
             message: string;
             source: string;
         };
+        "Contract.InferredHidden": {
+            /** Format: int64 */
+            callers?: number;
+            /** Format: int64 */
+            services?: number;
+        };
         "Contract.InferredResource": {
             missing?: string[] | null;
             name?: string;
@@ -1710,6 +1718,8 @@ export interface components {
             refusal?: components["schemas"]["DeclareRefusal"];
             /** @description Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page>; present only with signing mode fresh-login */
             signTicket?: string;
+            /** @description Back from a signing login: the login for the intentDigest asked about is still live, unused and unexpired */
+            signedIn?: boolean;
             signing: components["schemas"]["DeclareSigning"];
             write: components["schemas"]["DeclareWrite"];
         };
@@ -1745,11 +1755,15 @@ export interface components {
             baseline?: components["schemas"]["DeclareBaseline"];
             bundleRepo: string;
             cluster?: string;
+            /** @description When the cluster read the plan comes from was taken */
+            clusterAsOf?: string;
             /** @description pacto.yaml as it would be published */
             contract: components["schemas"]["DeclareText"];
             coverage?: components["schemas"]["Contract.InferredCoverage"][] | null;
             /** @description The baseline deploy artifact the version reuses, or none */
             deploy: string;
+            /** @description The called Services and callers the person's own credentials could not read: left out of the ranges */
+            hidden?: components["schemas"]["Contract.InferredHidden"];
             inferredFrom: string;
             intentDigest: string;
             /** @description Who may set the owner this plan changes */
@@ -1762,6 +1776,8 @@ export interface components {
             record: components["schemas"]["DeclareText"];
             service: string;
             signer: components["schemas"]["DeclareSigner"];
+            /** @description The published versions never taken as the baseline, and why */
+            skipped?: components["schemas"]["DeclareSkipped"][] | null;
             /** @description declared for a person's login, else draft */
             state: string;
             /** @description Declared changes of an accepted draft that neither the baseline, the cluster read nor an accepted range backs */
@@ -1810,6 +1826,11 @@ export interface components {
             mode: "fresh-login" | "none";
             /** @description Why the person cannot sign here */
             reason?: string;
+        };
+        DeclareSkipped: {
+            signer?: string;
+            tag: string;
+            why: string;
         };
         DeclareText: {
             text: string;

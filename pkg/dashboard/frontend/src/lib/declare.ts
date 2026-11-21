@@ -53,6 +53,31 @@ export function draftMark(d: Draft): string {
   return `Asserted by the proposer, unsigned${d.onBehalfOf ? `: nobody proved ${d.onBehalfOf} asked for it` : ''}`;
 }
 
+type Completeness = {
+  clusterAsOf?: string; coverage?: { source: string; state: string; reason?: string }[] | null;
+  hidden?: { services?: number; callers?: number } | null; skipped?: { tag: string }[] | null;
+};
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** completenessLine says how complete the cluster read behind the proposals is: when it
+ *  was taken, the sources cut short and what the person's own credentials could not
+ *  read, so a partial read never reads as complete. '' when the plan says nothing. */
+export function completenessLine(p: Completeness | null | undefined): string {
+  if (!p) return '';
+  const partial = (p.coverage ?? []).filter((c) => c.state !== 'complete');
+  const parts: string[] = [];
+  if (p.clusterAsOf || p.coverage?.length) {
+    const state = !p.coverage?.length ? 'completeness unknown'
+      : partial.length ? `partial (${partial.map((c) => (c.reason ? `${c.source}: ${c.reason}` : c.source)).join('; ')})` : 'complete';
+    parts.push(`Cluster read${p.clusterAsOf ? ` as of ${p.clusterAsOf}` : ''}: ${state}`);
+  }
+  if (p.hidden?.services) parts.push(`${plural(p.hidden.services, 'called service you may not read is', 'called services you may not read are')} not listed`);
+  if (p.hidden?.callers) parts.push(`${plural(p.hidden.callers, 'caller you may not read is', 'callers you may not read are')} not counted`);
+  if (p.skipped?.length) parts.push(`${plural(p.skipped.length, 'published version was', 'published versions were')} not taken as the baseline (${p.skipped.map((k) => k.tag).join(', ')})`);
+  return parts.join('; ');
+}
+
 /** signUrl starts the signing login with the plan's one-time ticket and comes back to
  *  this service's panel with the intent it was started for. The accepted ranges ride
  *  on the ticket, never on the URL. */

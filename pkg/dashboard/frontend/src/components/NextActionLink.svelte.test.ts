@@ -33,7 +33,7 @@ describe('NextActionLink', () => {
     cleanup?.();
     const declared = render({ action: DECLARE, subject: { ...INFERRED, declaration: 'declared' } });
     expect(declared.querySelector('a')).toBeNull();
-    expect(declared.textContent).toBe(`Fix: declare this service with ${DECLARE.cli}`);
+    expect(declared.textContent).toBe(`Fix: declare the workload with ${DECLARE.cli}`);
     cleanup?.();
     expect(render({ action: null }).textContent).toBe('');
   });

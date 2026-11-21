@@ -233,7 +233,7 @@ describe('InferredServiceEntity', () => {
     it('says the declare command where the host plans no declaration', () => {
       planFn.mockReset();
       const t = render(inferredDetail(declare));
-      expect(t.querySelector('[data-testid="inferred-next-action"]')?.textContent).toBe('Fix: declare this service with pacto declare cart --namespace shop');
+      expect(t.querySelector('[data-testid="inferred-next-action"]')?.textContent).toBe('Fix: declare the workload with pacto declare cart --namespace shop');
       expect(planFn).not.toHaveBeenCalled();
       cleanup?.();
       expect(render(inferredDetail({ nextAction: { verb: 'edit-contract', cli: 'pacto ci' } })).querySelector('[data-testid="inferred-next-action"]')).toBeNull();

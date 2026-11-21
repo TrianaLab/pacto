@@ -311,7 +311,7 @@ describe('ownerProvenanceText', () => {
 
 describe('inferred provider attention words', () => {
   it('words the declare next action and the INFERRED_PROVIDER cause', () => {
-    expect(nextActionWords({ verb: 'declare', cli: 'pacto declare cart --namespace shop' })).toBe('Fix: declare this service with pacto declare cart --namespace shop');
+    expect(nextActionWords({ verb: 'declare', cli: 'pacto declare cart --namespace shop' })).toBe('Fix: declare the workload with pacto declare cart --namespace shop');
     expect(attentionCause('INFERRED_PROVIDER')).not.toBe('INFERRED_PROVIDER');
   });
 });
@@ -322,7 +322,7 @@ describe('nextActionWords', () => {
     expect(nextActionWords({ verb: 'accept', cli: 'pacto accept reports' })).toBe('Fix: accept the proposed ranges with pacto accept reports');
     expect(nextActionWords({ verb: 'claim', cli: 'pacto claim stripe' })).toBe('Fix: claim this external system with pacto claim stripe');
     expect(nextActionWords({ verb: 'approve-cluster', cli: 'kubectl apply -f c.yaml' })).toBe('Fix: approve the cluster with kubectl apply -f c.yaml');
-    expect(nextActionWords({ verb: 'declare' })).toBe('Fix: declare this service');
+    expect(nextActionWords({ verb: 'declare' })).toBe('Fix: declare the workload');
     expect(nextActionWords({ verb: 'future-verb', cli: 'pacto x' })).toBe('Fix: future-verb with pacto x');
     expect(nextActionWords({ verb: 'edit-contract', cli: 'pacto ci', tool: 'pacto_edit' } as never)).not.toContain('pacto_edit');
     expect(nextActionWords(null)).toBe('');
