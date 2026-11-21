@@ -6,6 +6,7 @@
   import LimitationsSection from '../../components/LimitationsSection.svelte';
   import WorkloadFacts from '../../components/WorkloadFacts.svelte';
   import DeclarePanel from '../../components/DeclarePanel.svelte';
+  import { nextActionWords } from '../../lib/entityLabels.ts';
 
   // An inferred service: a workload no contract describes. Pacto read its image, ports
   // and probes, so the page shows those first, each with one mark saying where it was
@@ -51,6 +52,9 @@
     <Fold title="Declare this service" testid="declare-panel" open={!!declareQuery.open} ontoggle={(e) => (toggled = e.currentTarget.open)}>
       <DeclarePanel serviceKey={detail.entity?.key ?? ''} open={declareOpen} signed={declareQuery.signed ?? ''} />
     </Fold>
+  {:else if d.nextAction?.verb === 'declare'}
+    <!-- This host plans no declaration for this caller: the next step is the command a person runs. -->
+    <p class="ie-p ie-next t-body-2" data-testid="inferred-next-action">{nextActionWords(d.nextAction)}</p>
   {/if}
 
   <section class="ie-section" id="sec-workload" data-toc="Workload" aria-labelledby="ie-workload-h">
@@ -84,6 +88,7 @@
   .ie-section { display: flex; flex-direction: column; gap: var(--sp-2); }
   .ie-section h2, .ie-ident, .ie-p { margin: 0; }
   .ie-ident { color: var(--c-text-2); overflow-wrap: anywhere; }
+  .ie-next { overflow-wrap: anywhere; }
   /* Digest references and object paths carry no break point. */
   .ie-value { font-family: var(--font-mono); font-size: 0.95em; overflow-wrap: anywhere; min-width: 0; }
   .ie-paths { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--sp-1); }
