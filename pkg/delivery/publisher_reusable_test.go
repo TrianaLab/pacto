@@ -41,11 +41,13 @@ func TestDeriveRulePatternStillPinned(t *testing.T) {
 	}
 }
 
-// ordersRule is a rule of GitHub's issuer on main that covers another
-// service, so only a pin can accept payments.
+// ordersRule is a rule of GitHub's issuer on main for acme's repositories
+// that accepts only their own release.yml, so only a pin can accept a
+// pacto-actions signer of payments; its Ref still names payments' default
+// branch.
 func ordersRule(t *testing.T) PublisherRule {
 	r := acmeRule(t)
-	r.Services = []string{"orders"}
+	r.Subject = `^https://github\.com/acme/[^/]+/\.github/workflows/release\.yml@refs/heads/main$`
 	return r
 }
 
@@ -66,7 +68,7 @@ func TestPinStoredFullSubjectMatches(t *testing.T) {
 	if pin.Subject != pactoActionsSubject+"@1111" {
 		t.Fatalf("pin %+v", pin)
 	}
-	if pinFor(payments, v2Acme("2222", "refs/heads/main"), []IdentityPin{pin}, []PublisherRule{ordersRule(t)}) == nil {
+	if PinFor(payments, v2Acme("2222", "refs/heads/main"), []IdentityPin{pin}, []PublisherRule{ordersRule(t)}) == nil {
 		t.Fatal("the full stored subject did not match a bumped pin")
 	}
 }
@@ -97,5 +99,22 @@ func TestPinOwnWorkflowStillExact(t *testing.T) {
 	}
 	if got := stableSubject(ciAcme.Subject, ""); got != ciAcme.Subject {
 		t.Fatalf("no repository: %q", got)
+	}
+}
+
+// TestPinUnrelatedRuleRefDoesNotAnchor: a stripped pin subject is tied to a
+// branch only by a rule that applies to this service and repository; a rule
+// for another service, or another repository, naming the caller's branch
+// never makes it match.
+func TestPinUnrelatedRuleRefDoesNotAnchor(t *testing.T) {
+	pins := []IdentityPin{v2Pin("1111")}
+	otherService := ordersRule(t)
+	otherService.Services, otherService.Ref = []string{"legacy-*"}, "refs/heads/release"
+	otherRepo := ordersRule(t)
+	otherRepo.Repository, otherRepo.Ref = `^https://github\.com/beta/[^/]+$`, "refs/heads/release"
+	for name, r := range map[string]PublisherRule{"other service": otherService, "other repository": otherRepo} {
+		if v := JudgePublisher(payments, v2Acme("3333", "refs/heads/release"), "", []PublisherRule{r}, PublisherSourceRule, pins); v.Verdict == VerdictAccepted {
+			t.Errorf("%s: %+v", name, v)
+		}
 	}
 }

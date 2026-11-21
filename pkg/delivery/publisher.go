@@ -269,7 +269,7 @@ func DeriveRule(registry, defaultBranch string) (PublisherRule, string) {
 func JudgePublisher(service ServiceRef, id PublisherIdentity, source string, rules []PublisherRule, ruleSource string, pins []IdentityPin) PublisherVerdict {
 	idc := id
 	v := PublisherVerdict{Identity: &idc, Source: PublisherSourceNone}
-	r, p := ruleCovering(service, id, rules), pinFor(service, id, pins, rules)
+	r, p := ruleCovering(service, id, rules), PinFor(service, id, pins, rules)
 	switch {
 	case id.CI && !sameSource(source, id.Repository):
 		v.Verdict = VerdictRefused
@@ -342,19 +342,19 @@ func servesService(patterns []string, name string) bool {
 	return len(patterns) == 0
 }
 
-// pinFor is the pin of service that names id, or nil. Only a CI identity is
+// PinFor is the pin of service that names id, or nil. Only a CI identity is
 // ever pinned: a person is trusted only by a policy rule. A subject naming a
 // reusable workflow of another repository matches at whatever ref the caller
-// pins it, and only when id's ref is the ref a rule of its issuer requires
-// (the default branch): a pin stores no ref, and such a subject does not tie
-// it to a branch.
-func pinFor(service ServiceRef, id PublisherIdentity, pins []IdentityPin, rules []PublisherRule) *IdentityPin {
+// pins it, and only when id's ref is the ref a rule for this service and
+// repository requires (the default branch): a pin stores no ref, and such a
+// subject does not tie it to a branch.
+func PinFor(service ServiceRef, id PublisherIdentity, pins []IdentityPin, rules []PublisherRule) *IdentityPin {
 	for i, p := range pins {
 		if !id.CI || p.Service != service || p.Issuer != id.Issuer || NormalizeRepo(p.Repository) != NormalizeRepo(id.Repository) {
 			continue
 		}
 		stable := stableSubject(id.Subject, id.Repository)
-		if stableSubject(p.Subject, p.Repository) == stable && (stable == id.Subject || refRuled(id, rules)) {
+		if stableSubject(p.Subject, p.Repository) == stable && (stable == id.Subject || refRuled(service, id, rules)) {
 			return &pins[i]
 		}
 	}
@@ -371,9 +371,14 @@ func stableSubject(subject, repository string) string {
 	return base
 }
 
-// refRuled reports whether a rule of id's issuer requires exactly id's ref.
-func refRuled(id PublisherIdentity, rules []PublisherRule) bool {
-	return slices.ContainsFunc(rules, func(r PublisherRule) bool { return r.Issuer == id.Issuer && r.Ref != "" && r.Ref == id.Ref })
+// refRuled reports whether a rule of id's issuer that applies to service and
+// id's repository requires exactly id's ref: a rule written for another
+// service or repository says nothing about this caller's default branch.
+func refRuled(service ServiceRef, id PublisherIdentity, rules []PublisherRule) bool {
+	return slices.ContainsFunc(rules, func(r PublisherRule) bool {
+		return r.Issuer == id.Issuer && r.Ref != "" && r.Ref == id.Ref &&
+			servesService(r.Services, service.Name) && anchoredMatch(r.Repository, id.Repository)
+	})
 }
 
 // Signed publisher statements: a person's confirmation of one signer, which
