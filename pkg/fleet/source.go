@@ -53,6 +53,10 @@ const SourceKindDetection = "detection"
 // Hubble records. It labels the source only; pkg/fleet never branches on it.
 const SourceKindMesh = "mesh"
 
+// SourceKindTraces is the Kind of a source reading the calls a trace backend
+// the operator detected already records, such as Jaeger's dependencies.
+const SourceKindTraces = "traces"
+
 type Source interface {
 	// ID is the stable identifier of this source instance (e.g. "oci", "k8s",
 	// "local", or a named environment like "production-eu"). Used as provenance.

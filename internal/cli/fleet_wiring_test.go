@@ -232,6 +232,14 @@ func TestDashboardFleetOptions_EvaluatesFreshness(t *testing.T) {
 	}
 }
 
+// TestDashboardFleetOptionsSetsLiveEdges: only the dashboard turns detected
+// trace backends into live edge sources, through one holder for its life.
+func TestDashboardFleetOptionsSetsLiveEdges(t *testing.T) {
+	if fopts := dashboardFleetOptions("", nil, nil, nil, dashboardSources{}); fopts.LiveEdges == nil {
+		t.Fatal("the dashboard set no LiveEdges")
+	}
+}
+
 // TestDashboardFleetOptions_Traces proves --traces / PACTO_DASHBOARD_TRACES wires
 // an observation source into the normal dashboard and enables the fleet alone.
 // The path-only form keeps its ad-hoc positional ids — that compatibility is the

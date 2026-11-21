@@ -745,7 +745,10 @@ func dashboardFleetOptions(dir string, repos []string, namespaces []string, obse
 	// safe thing to render as fresh.
 	// One provenance checker for the dashboard's life: every refresh copies
 	// these options and keeps the pointer, so its memo outlives each refresh.
-	fopts := app.FleetOptions{FreshnessWindow: fleet.RecentEvidenceWindow, Provenance: app.NewProvenanceChecker(), RegistryProbe: app.NewRegistryProbe(), LongRunning: true}
+	// One live-edges holder likewise: which trace source reported complete
+	// coverage must outlive each refresh.
+	fopts := app.FleetOptions{FreshnessWindow: fleet.RecentEvidenceWindow, Provenance: app.NewProvenanceChecker(), RegistryProbe: app.NewRegistryProbe(),
+		LiveEdges: fleetsrc.NewLiveEdges(time.Now), LongRunning: true}
 	if det.local && dir != "" {
 		fopts.LocalRoots = []string{dir}
 	}

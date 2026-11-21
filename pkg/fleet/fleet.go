@@ -456,6 +456,9 @@ const (
 	LimitationSourceUnavailable   = "SOURCE_UNAVAILABLE"
 	LimitationSourceStale         = "SOURCE_STALE"
 	LimitationSourcePartial       = "SOURCE_PARTIAL"
+	// LimitationEdgeSourcePartial: a live edge source read part of the calls
+	// its backend records, or none; its row says why.
+	LimitationEdgeSourcePartial = "EDGE_SOURCE_PARTIAL"
 	// LimitationK8sNamespaceScoped: a Kubernetes source reads a list of
 	// namespaces, so a service in any other namespace is unknown.
 	LimitationK8sNamespaceScoped = "K8S_NAMESPACE_SCOPED"

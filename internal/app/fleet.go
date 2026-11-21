@@ -12,6 +12,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
@@ -86,6 +87,10 @@ type FleetOptions struct {
 	K8sContexts []string
 	// K8sNamespaces scopes the live Kubernetes sources; empty means all namespaces.
 	K8sNamespaces []string
+	// LiveEdges, set only by the dashboard, turns the trace backends the
+	// operator detected into live edge sources sharing it; nil keeps them
+	// detected rows (a laptop cannot reach their in-cluster URLs).
+	LiveEdges *fleetsrc.LiveEdges
 	// Detected adds what the operator detected as inferred provider rows:
 	// k8s:<namespace>/<name> of its ConfigMap, read with the kubeconfig, or a
 	// file holding the same JSON. The source is advisory; --k8s never adds it.
@@ -227,7 +232,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	if opts.IncludeK8s || len(opts.K8sContexts) > 0 {
 		sources = append(sources, s.k8sSources(ctx, opts, fp.Promoters)...)
 	}
-	sources = append(sources, s.detectionSources(opts.Detected)...)
+	sources = append(sources, s.detectionSources(ctx, opts, slices.Concat(sources, snaps, opts.addedSources()))...)
 	sources = append(sources, snaps...)
 	sources = append(sources, opts.addedSources()...)
 	if err := checkSourceIDsAreUnique(sources); err != nil {
@@ -272,25 +277,71 @@ func CheckDetectedRef(ref string) error {
 	return nil
 }
 
-// detectionSources is the advisory detection source of ref, checked by
-// [CheckDetectedRef], none when ref is empty: k8s:NS/NAME reads that
+// detectionReader is the advisory detection source of ref, checked by
+// [CheckDetectedRef], nil when ref is empty: k8s:NS/NAME reads that
 // ConfigMap, anything else is a file. A dynamic client that cannot be built
-// is an unavailable source that says so.
-func (s *Service) detectionSources(ref string) []fleet.Source {
+// is an unavailable source that says so. It is the one reader of a
+// detection: the fleet and pacto ci's installation advertisement both use it.
+func (s *Service) detectionReader(ref string) *fleetsrc.DetectionSource {
 	const id = "detection"
 	rest, ok := strings.CutPrefix(ref, "k8s:")
 	switch {
 	case ref == "":
 		return nil
 	case !ok:
-		return []fleet.Source{fleetsrc.NewDetectionFileSource(id, ref, s.env().now)}
+		return fleetsrc.NewDetectionFileSource(id, ref, s.env().now)
 	}
 	ns, name, _ := strings.Cut(rest, "/")
 	dyn, err := s.env().newDynamic()
 	if err != nil {
-		return []fleet.Source{fleetsrc.NewDetectionFailedSource(id, fmt.Errorf("%w: %w", fleetsrc.ErrDetectionNoCluster, err))}
+		return fleetsrc.NewDetectionFailedSource(id, fmt.Errorf("%w: %w", fleetsrc.ErrDetectionNoCluster, err))
 	}
-	return []fleet.Source{fleetsrc.NewDetectionK8sSource(id, dyn, ns, name, s.env().now)}
+	return fleetsrc.NewDetectionK8sSource(id, dyn, ns, name, s.env().now)
+}
+
+// liveEdgeIDs are, per detected kind a live edge source takes, the id of that
+// source.
+var liveEdgeIDs = map[string]string{"jaeger": "detected-jaeger"}
+
+// detectionSources are the detection sources of opts.Detected. Only the
+// dashboard (opts.LiveEdges set) reads live edges: it reads the detection
+// once, gives each entry a live edge source takes to that source and the rest
+// to the detection source, so each backend is one row. Elsewhere, and when
+// the detection cannot be read, the detection source reads as it always did.
+// assembled are the sources gathered so far.
+func (s *Service) detectionSources(ctx context.Context, opts FleetOptions, assembled []fleet.Source) []fleet.Source {
+	src := s.detectionReader(opts.Detected)
+	switch {
+	case src == nil:
+		return nil
+	case opts.LiveEdges == nil:
+		return []fleet.Source{src}
+	}
+	res, st := src.Read(ctx)
+	if st.Status == fleet.SourceUnavailable {
+		return []fleet.Source{src}
+	}
+	var kinds []string
+	for kind, id := range liveEdgeIDs {
+		// ponytail: a configured source holding the id (a --trace-source
+		// detected-jaeger=...) wins; the backend stays a detected row.
+		if !slices.ContainsFunc(assembled, func(a fleet.Source) bool { return a.ID() == id }) {
+			kinds = append(kinds, kind)
+		}
+	}
+	rest, taken := detect.SplitEdgeKinds(res, kinds)
+	return append([]fleet.Source{fleetsrc.NewDetectionResultSource(src.ID(), rest, s.env().now)}, s.liveEdgeSources(res, taken, opts)...)
+}
+
+// liveEdgeSources are the live edge sources of the taken entries of res.
+func (s *Service) liveEdgeSources(res detect.Result, taken []detect.Entry, opts FleetOptions) []fleet.Source {
+	var out []fleet.Source
+	for _, e := range taken {
+		if e.Kind == "jaeger" {
+			out = append(out, fleetsrc.NewJaegerSource(liveEdgeIDs[e.Kind], res, e, opts.LiveEdges, s.env().now))
+		}
+	}
+	return out
 }
 
 // workloadsSuffix and meshSuffix name a cluster's workload and mesh sources
