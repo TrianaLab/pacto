@@ -16,8 +16,13 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
-// fulcioTrustTTL is how long an answer about Fulcio's trust is kept.
-const fulcioTrustTTL = 10 * time.Minute
+// fulcioTrustTTL is how long an answer about Fulcio's trust is kept;
+// fulcioErrorTTL how long a failure to read it is, so one bad response
+// does not stop signing for long.
+const (
+	fulcioTrustTTL = 10 * time.Minute
+	fulcioErrorTTL = 30 * time.Second
+)
 
 // signFlags are the signing-login settings of pacto dashboard, bound to
 // PACTO_DASHBOARD_* like the sign-in flags.
@@ -55,7 +60,7 @@ type dashboardSigning struct {
 	now      func() time.Time
 
 	mu     sync.Mutex
-	at     time.Time
+	until  time.Time
 	ok     bool
 	reason string
 }
@@ -89,19 +94,23 @@ func (s *dashboardSigning) login() *authn.Signer {
 }
 
 // trusted reports whether Fulcio issues certificates for the sign client's
-// tokens, kept fulcioTrustTTL. An unreadable configuration is untrusted, with
-// the reason.
+// tokens, kept fulcioTrustTTL, and why not. An unreadable configuration is
+// an unknown, never trusted, said as one and kept only fulcioErrorTTL.
 func (s *dashboardSigning) trusted(ctx context.Context) (bool, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.at.IsZero() && s.now().Sub(s.at) < fulcioTrustTTL {
+	if s.now().Before(s.until) {
 		return s.ok, s.reason
 	}
 	ok, reason, err := signing.FulcioTrusts(ctx, s.client, s.fulcio, s.issuer, s.clientID)
-	if err != nil {
-		reason = err.Error()
+	ttl := fulcioTrustTTL
+	switch {
+	case err != nil:
+		reason, ttl = "Pacto could not check whether Fulcio issues certificates for the dashboard's signing login ("+err.Error()+")", fulcioErrorTTL
+	case !ok:
+		reason = "Fulcio does not issue certificates for the dashboard's signing login (" + reason + ")"
 	}
-	s.at, s.ok, s.reason = s.now(), ok, reason
+	s.until, s.ok, s.reason = s.now().Add(ttl), ok, reason
 	return ok, reason
 }
 
@@ -144,7 +153,7 @@ func (s *dashboardSigning) signingMode(ctx context.Context, local bool, method, 
 		return none("a token sign-in never signs: save a draft or run the command in your terminal")
 	}
 	if ok, reason := s.trusted(ctx); !ok {
-		return none("Fulcio does not issue certificates for the dashboard's signing login (" + reason + "): save a draft or run the command in your terminal")
+		return none(reason + ": save a draft or run the command in your terminal")
 	}
 	return dashboard.DeclareSigning{Mode: signModeFreshLogin, Identity: user}
 }

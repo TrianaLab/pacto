@@ -173,3 +173,18 @@ func TestSignNeverUsesSessionToken(t *testing.T) {
 		})
 	}
 }
+
+// TestDashboardSigningFulcioErrorIsUnknown: a failed read of Fulcio's
+// configuration says Pacto could not check, never that Fulcio refuses, and
+// is asked again soon.
+func TestDashboardSigningFulcioErrorIsUnknown(t *testing.T) {
+	s, err := newDashboardSigning(signViper("http://127.0.0.1:1"), mustOIDC(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	s.now = func() time.Time { return now }
+	m := s.signingMode(context.Background(), false, "oidc", "ana@acme.com")
+	expect(t, m.Mode == "none" && strings.HasPrefix(m.Reason, "Pacto could not check whether Fulcio") && !strings.Contains(m.Reason, "does not issue"), "%+v", m)
+	expect(t, s.until.Equal(now.Add(fulcioErrorTTL)), "an error is kept %s, not %s", fulcioErrorTTL, s.until.Sub(now))
+}

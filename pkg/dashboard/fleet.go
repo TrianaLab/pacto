@@ -88,7 +88,8 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 	}
 	out.Body.MiraURL = s.opts.MiraURL
 	out.Body.Stats = s.opts.Stats != nil
-	out.Body.Declare = s.opts.Declare != nil && s.declares(ctx)
+	// A sign-in link session is refused by every declare route.
+	out.Body.Declare = s.opts.Declare != nil && s.declares(ctx) && !s.authState(ctx).FleetOnly
 	return out, nil
 }
 

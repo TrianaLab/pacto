@@ -98,6 +98,7 @@ func TestDeclareCapabilityFalseOnOpenHost(t *testing.T) {
 		{"open host", openAuth(), &fakeDeclarer{}, false},
 		{"local host", viewerAuth(true, AuthState{}), &fakeDeclarer{}, true},
 		{"signed in", viewerAuth(false, AuthState{SignedIn: true}), &fakeDeclarer{}, true},
+		{"sign-in link", viewerAuth(false, AuthState{SignedIn: true, FleetOnly: true}), &fakeDeclarer{}, false},
 		{"no declarer", viewerAuth(true, AuthState{}), nil, false},
 	} {
 		base := declareServer(t, c.auth, nil, c.d)

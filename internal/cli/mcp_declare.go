@@ -352,7 +352,7 @@ func (r remoteDeclarer) shows(ctx context.Context, service string) bool {
 // baseline contract, digests, publish plan or ranges.
 func baselineHidden(p *app.DeclarePlan) *app.DeclarePlan {
 	return &app.DeclarePlan{Service: p.Service, Version: p.Version, BundleRepo: p.BundleRepo, State: p.State, InferredFrom: p.InferredFrom,
-		Cluster: p.Cluster, Signer: p.Signer, PolicyNote: p.PolicyNote, Coverage: p.Coverage, Hidden: p.Hidden, IntentDigest: p.IntentDigest,
+		Cluster: p.Cluster, Signer: p.Signer, PolicyNote: p.PolicyNote, Coverage: p.Coverage, Hidden: p.Hidden, ClusterAsOf: p.ClusterAsOf, IntentDigest: p.IntentDigest,
 		AcceptCLI: p.AcceptCLI, Unchanged: p.Unchanged, Ranges: []app.DeclaredRange{},
 		Notes: []string{"the published baseline of " + p.Service + " is hidden: you may not read it in the fleet"}}
 }

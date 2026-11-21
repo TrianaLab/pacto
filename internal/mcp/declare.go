@@ -30,7 +30,7 @@ var errOnBehalfOfRequired = errors.New("on_behalf_of is required to write a draf
 // reviewed.
 func registerDeclare(server *mcpsdk.Server, d Declarer, remote bool) {
 	dir := "A folder pacto init --cluster wrote, declared instead of a new draft (stdio only)"
-	draft := "Write a draft-<n> a person accepts later, without signing"
+	draft := "Write a draft-<n> a person accepts later, without a person's login: signed only by an ambient OIDC token when one is set"
 	onBehalfOf := "Required with dry_run false: the person you act for (asserted, never verified)"
 	if remote {
 		dir = "Refused over HTTP: the folder would be this server's"

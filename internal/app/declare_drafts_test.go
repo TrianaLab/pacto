@@ -234,3 +234,19 @@ func TestDeclareRequestStoreAndTexts(t *testing.T) {
 		t.Errorf("texts:\n%s\n%s", d.Contract(), d.Record())
 	}
 }
+
+// TestDraftSignedOnlyByItsAsker: a draft signed by someone other than the
+// asker its record names is not listed as signed, and says why.
+func TestDraftSignedOnlyByItsAsker(t *testing.T) {
+	e := newDeclareEnv(t)
+	t.Setenv("SIGSTORE_ID_TOKEN", ciWorkflowToken())
+	req := e.req()
+	req.Draft = true
+	res := e.declare(t, req)
+	_, digest, _ := strings.Cut(res.Published, "@")
+	pl := &declarePlanner{s: e.svc, req: e.req(), reg: e.reg, plan: &DeclarePlan{Service: "invoices"}}
+	ana := contract.InferredSigner{Subject: "ana@acme.com", Issuer: "https://accounts.google.com", Class: contract.SignerClassHuman}
+	if signed, why := pl.draftSigned(t.Context(), digest, ana, e.ss.Root, nil); signed || !strings.Contains(why, "does not prove") {
+		t.Fatalf("%v %q", signed, why)
+	}
+}

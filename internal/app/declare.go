@@ -98,12 +98,14 @@ type DeclarePlan struct {
 	// MayAccept names who may set the owner this plan changes: the current
 	// owner's members and the default approvers. Empty when the owner does
 	// not change.
-	MayAccept    []string                    `json:"mayAccept,omitempty"`
-	Signer       SignerView                  `json:"signer"`
-	PolicyNote   string                      `json:"policyNote,omitempty"`
-	Coverage     []contract.InferredCoverage `json:"coverage,omitempty"`
-	Hidden       *contract.InferredHidden    `json:"hidden,omitempty"`
-	IntentDigest string                      `json:"intentDigest"`
+	MayAccept  []string                    `json:"mayAccept,omitempty"`
+	Signer     SignerView                  `json:"signer"`
+	PolicyNote string                      `json:"policyNote,omitempty"`
+	Coverage   []contract.InferredCoverage `json:"coverage,omitempty"`
+	Hidden     *contract.InferredHidden    `json:"hidden,omitempty"`
+	// ClusterAsOf is when the cluster read the plan comes from was taken.
+	ClusterAsOf  string `json:"clusterAsOf,omitempty"`
+	IntentDigest string `json:"intentDigest"`
 	// AcceptCLI is the command a person runs to accept a draft.
 	AcceptCLI string `json:"acceptCLI,omitempty"`
 	// Unchanged is the baseline version when nothing changed since it: the
@@ -830,6 +832,9 @@ func (pl *declarePlanner) finish(ctx context.Context, raw []byte, rec *contract.
 	accepted := rec.Declaration.Accepted
 	rec.Declaration = pl.declarationBlock(accepted)
 	p.Coverage, p.Hidden = rec.Coverage, rec.Hidden
+	if c := rec.Inputs.Cluster; c != nil {
+		p.ClusterAsOf = c.AsOf
+	}
 	if p.State == contract.DeclarationDraft {
 		p.AcceptCLI = AcceptDraftCLI(p.Service, pl.req.Registry, "<tag>")
 	}

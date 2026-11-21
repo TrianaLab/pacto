@@ -405,3 +405,21 @@ func TestDeclarePlanPrintsDrafts(t *testing.T) {
 		t.Fatalf("%s", out)
 	}
 }
+
+// TestDraftLineNamesOnlyAVerifiedAsker: an asker a signature does not prove
+// is never printed as the draft's author.
+func TestDraftLineNamesOnlyAVerifiedAsker(t *testing.T) {
+	ana := contract.InferredSigner{Subject: "ana@acme.com", Issuer: "https://accounts.google.com", Class: contract.SignerClassHuman}
+	for _, c := range []struct {
+		d    app.DraftView
+		want string
+	}{
+		{app.DraftView{Tag: "draft-4", Asker: ana, Signed: true}, "draft-4 by ana@acme.com"},
+		{app.DraftView{Tag: "draft-4", Asker: ana}, "draft-4 by a person (unsigned)"},
+		{app.DraftView{Tag: "draft-4", Asker: contract.InferredSigner{Class: contract.SignerClassAgent}, OnBehalfOf: "ana"}, "draft-4 by an agent for ana (unsigned)"},
+	} {
+		if got := draftLine(c.d); got != c.want {
+			t.Errorf("draftLine = %q, want %q", got, c.want)
+		}
+	}
+}

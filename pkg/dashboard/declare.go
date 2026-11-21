@@ -125,6 +125,9 @@ type DeclarePlan struct {
 	Signer            DeclareSigner               `json:"signer"`
 	PolicyNote        string                      `json:"policyNote,omitempty"`
 	Coverage          []contract.InferredCoverage `json:"coverage,omitempty"`
+	Hidden            *contract.InferredHidden    `json:"hidden,omitempty" doc:"The called Services and callers the person's own credentials could not read: left out of the ranges"`
+	ClusterAsOf       string                      `json:"clusterAsOf,omitempty" doc:"When the cluster read the plan comes from was taken"`
+	Skipped           []DeclareSkipped            `json:"skipped,omitempty" doc:"The published versions never taken as the baseline, and why"`
 	IntentDigest      string                      `json:"intentDigest"`
 	Unchanged         string                      `json:"unchanged,omitempty" doc:"The baseline version when nothing changed since it: nothing is written"`
 	Notes             []string                    `json:"notes,omitempty"`
@@ -132,6 +135,14 @@ type DeclarePlan struct {
 	UnbackedUnchecked string                      `json:"unbackedUnchecked,omitempty" doc:"Why what backs the draft's changes could not be checked"`
 	Contract          DeclareText                 `json:"contract" doc:"pacto.yaml as it would be published"`
 	Record            DeclareText                 `json:"record" doc:"pacto.inferred.yaml as it would be published"`
+}
+
+// DeclareSkipped is a published version the plan did not take as its
+// baseline.
+type DeclareSkipped struct {
+	Tag    string `json:"tag"`
+	Signer string `json:"signer,omitempty"`
+	Why    string `json:"why"`
 }
 
 // DeclareDraft is one draft-<n> of the service's bundle repository.
@@ -177,6 +188,7 @@ type DeclareAnswer struct {
 	Write       DeclareWrite    `json:"write"`
 	Command     string          `json:"command,omitempty" doc:"The exact pacto declare command a person runs in a terminal"`
 	SignTicket  string          `json:"signTicket,omitempty" doc:"Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page>; present only with signing mode fresh-login"`
+	SignedIn    bool            `json:"signedIn,omitempty" doc:"Back from a signing login: the login for the intentDigest asked about is still live, unused and unexpired"`
 	Refusal     *DeclareRefusal `json:"refusal,omitempty"`
 }
 

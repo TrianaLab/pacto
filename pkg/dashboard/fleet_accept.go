@@ -28,6 +28,7 @@ type AcceptExecuteOffer struct {
 	Signing    DeclareSigning `json:"signing"`
 	Write      DeclareWrite   `json:"write"`
 	SignTicket string         `json:"signTicket,omitempty" doc:"Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page>; present only with signing mode fresh-login"`
+	SignedIn   bool           `json:"signedIn,omitempty" doc:"A fresh signing login for this plan's intent is live: the person signs without logging in again"`
 }
 
 // AcceptDraftView is one acceptance draft of the service, or why it cannot be

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strconv"
 
 	gcrauthn "github.com/google/go-containerregistry/pkg/authn"
 	"github.com/spf13/viper"
@@ -14,6 +15,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/publish"
@@ -44,6 +46,7 @@ type dashboardDeclarer struct {
 	ticket   func(r *http.Request, intent string, accept []string) string
 	take     func(r *http.Request, intent string) (string, bool)
 	accepted func(r *http.Request, intent string) []string
+	live     func(r *http.Request, intent string) bool
 	// trust reads the installation signer policy accepted ranges are judged
 	// by, as the accept plan reads it.
 	trust func(context.Context) (app.Installation, error)
@@ -74,7 +77,7 @@ func newDashboardDeclarer(v *viper.Viper, svc *app.Service, id *dashboardIdentit
 	s.OIDCIssuer = v.GetString("dashboard.oidc-issuer-url")
 	d.base.DeliveryTrust = v.GetString("dashboard.delivery-trust")
 	if l := id.signing.login(); l != nil {
-		d.ticket, d.take, d.accepted = l.Ticket, l.Take, l.Accepted
+		d.ticket, d.take, d.accepted, d.live = l.Ticket, l.Take, l.Accepted, l.Live
 	}
 	return d, nil
 }
@@ -139,10 +142,21 @@ func (d *dashboardDeclarer) clusterConfig(ctx context.Context, cluster string) *
 }
 
 // mode is how the person behind r can sign here: with a fresh login at the
-// identity provider, or not at all and why.
+// identity provider, or not at all and why. A host that cannot write signs
+// nothing either.
 func (d *dashboardDeclarer) mode(r *http.Request) dashboard.DeclareSigning {
 	st := d.id.state(r.Context())
-	return d.id.signing.signingMode(r.Context(), d.id.auth.Local(), st.Method, st.Person.User)
+	m := d.id.signing.signingMode(r.Context(), d.id.auth.Local(), st.Method, st.Person.User)
+	if m.Mode == signModeFreshLogin && !d.CanWrite() {
+		return dashboard.DeclareSigning{Mode: signModeNone, Reason: noPushCredential}
+	}
+	return m
+}
+
+// signedIn reports whether the person behind r holds a live fresh login
+// for intent.
+func (d *dashboardDeclarer) signedIn(r *http.Request, intent string) bool {
+	return intent != "" && d.live != nil && d.live(r, intent)
 }
 
 // Plan implements dashboard.Declarer.
@@ -152,9 +166,10 @@ func (d *dashboardDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, i
 		ans.Write.Reason = noPushCredential
 	}
 	fresh := ans.Signing.Mode == signModeFreshLogin
-	if fresh && in.IntentDigest != "" {
-		// Back from a signing login: the plan is the one the login was
+	if fresh && d.signedIn(r, in.IntentDigest) {
+		// Back from a live signing login: the plan is the one the login was
 		// started for, whatever the page asks.
+		ans.SignedIn = true
 		if acc := d.accepted(r, in.IntentDigest); acc != nil {
 			in.Accept = acc
 		}
@@ -163,42 +178,66 @@ func (d *dashboardDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, i
 	if err != nil {
 		return nil, err
 	}
-	if fresh {
-		// The plan shows the declared version the fresh login will sign.
+	if fresh || in.FromDraft != nil {
+		// The plan shows the declared version a person's login will sign:
+		// the fresh one here, or theirs in the terminal for a draft.
 		req.Login = plannedLogin
 	} else {
 		req.Draft, req.Agent = true, true
 	}
 	p, decl, err := d.svc.PlanDeclare(r.Context(), req)
-	ans.Command = replayCommand(req, "")
+	ans.Command = declareCommand(req, "")
 	if refusal, err := dashRefusal(err); err != nil || refusal != nil {
 		ans.Refusal = refusal
 		return ans, err
 	}
-	ans.Plan, ans.Drafts, ans.DraftsTotal = planView(p, decl), draftViews(p.Drafts), p.DraftsTotal
-	ans.Command = declareCommand(req, p)
+	listed := len(p.Drafts)
+	if ans.Refusal = ownView(p, w, in.FromDraft); ans.Refusal != nil {
+		return ans, nil
+	}
+	ans.Plan, ans.Drafts = planView(p, decl), draftViews(p.Drafts)
+	ans.DraftsTotal = p.DraftsTotal - (listed - len(p.Drafts))
+	ans.Command = declareCommand(req, p.IntentDigest)
 	if fresh && p.Unchanged == "" {
 		ans.SignTicket = d.ticket(r, p.IntentDigest, in.Accept)
 	}
 	return ans, nil
 }
 
+// ownView keeps p to what w's own bundle repository says about w: that
+// repository is keyed by name alone, so another workload with the same name
+// (in a namespace the person may not see) may have written it. A baseline or
+// an accepted draft of another workload refuses with nothing it holds; its
+// other drafts are dropped from the list.
+func ownView(p *app.DeclarePlan, w dashboard.DeclareWorkload, from *dashboard.DraftRef) *dashboard.DeclareRefusal {
+	self := fleet.K8sCaller("", w.Namespace, w.Kind, w.Name)
+	switch {
+	case from != nil && p.InferredFrom != self:
+		return refused("DraftNotFound", "no draft "+from.Tag+" of "+w.Name+" here", "")
+	case p.Baseline != nil && foreign(p.Baseline.From, self, p.Cluster):
+		return refused("NotAllowed", p.BundleRepo+" holds the declarations of another workload named "+w.Name+", so Pacto shows and writes nothing there", "")
+	}
+	p.Drafts = slices.DeleteFunc(p.Drafts, func(v app.DraftView) bool { return foreign(v.From, self, p.Cluster) })
+	return nil
+}
+
+// foreign reports whether f names a workload other than from, or the same
+// one in a cluster other than cluster.
+func foreign(f app.Declared, from, cluster string) bool {
+	return f.InferredFrom != "" && (f.InferredFrom != from || f.Cluster != "" && cluster != "" && f.Cluster != cluster)
+}
+
 // plannedLogin stands for the person's fresh login while a plan is made: a
 // plan never signs, so it is never called.
 func plannedLogin(context.Context) (string, error) { return "", errors.New("a plan never signs") }
 
-// declareCommand is the pacto declare a person runs for p: accepting the
-// draft, or the plan replayed with its intent digest.
-func declareCommand(req app.DeclareRequest, p *app.DeclarePlan) string {
-	if req.FromDraft != "" {
-		return "pacto declare " + req.Service + " --namespace " + req.Namespace + " --registry " + req.Registry + " --from-draft " + req.FromDraft
-	}
-	return replayCommand(req, p.IntentDigest)
-}
-
-// replayCommand is the pacto declare that replays req with intent.
-func replayCommand(req app.DeclareRequest, intent string) string {
+// declareCommand is the pacto declare a person runs for req: accepting its
+// draft with the ranges it accepts, or the plan replayed with intent.
+func declareCommand(req app.DeclareRequest, intent string) string {
 	cmd := "pacto declare " + req.Service + " --namespace " + req.Namespace + " --registry " + req.Registry
+	if req.FromDraft != "" {
+		cmd, intent = cmd+" --from-draft "+req.FromDraft, ""
+	}
 	for _, a := range req.Accept {
 		cmd += " --accept " + a
 	}
@@ -223,8 +262,11 @@ func planView(p *app.DeclarePlan, decl declarationTexts) *dashboard.DeclarePlan 
 	out := &dashboard.DeclarePlan{Service: p.Service, Version: p.Version, BundleRepo: p.BundleRepo, State: p.State, InferredFrom: p.InferredFrom,
 		Cluster: p.Cluster, Deploy: p.Deploy, Ranges: []dashboard.DeclareRange{}, Owner: p.Owner, MayAccept: p.MayAccept,
 		Signer:     dashboard.DeclareSigner{Subject: p.Signer.Subject, Issuer: p.Signer.Issuer, Class: p.Signer.Class, Source: p.Signer.Source, Why: p.Signer.Why},
-		PolicyNote: p.PolicyNote, Coverage: p.Coverage, IntentDigest: p.IntentDigest, Unchanged: p.Unchanged, Notes: p.Notes,
+		PolicyNote: p.PolicyNote, Coverage: p.Coverage, Hidden: p.Hidden, ClusterAsOf: p.ClusterAsOf, IntentDigest: p.IntentDigest, Unchanged: p.Unchanged, Notes: p.Notes,
 		Unbacked: p.Unbacked, UnbackedUnchecked: p.UnbackedUnchecked}
+	for _, k := range p.Skipped {
+		out.Skipped = append(out.Skipped, dashboard.DeclareSkipped(k))
+	}
 	if b := p.Baseline; b != nil {
 		out.Baseline = &dashboard.DeclareBaseline{Version: b.Version, Bundle: b.Bundle, Signer: b.Signer}
 	}
@@ -322,7 +364,7 @@ func (d *dashboardDeclarer) signer(r *http.Request, req *app.DeclareRequest, in 
 	}
 	m := d.mode(r)
 	if m.Mode != signModeFreshLogin {
-		return refused("NotAllowed", "you cannot sign here: "+m.Reason, replayCommand(*req, in.IntentDigest))
+		return refused("NotAllowed", "you cannot sign here: "+m.Reason, declareCommand(*req, in.IntentDigest))
 	}
 	req.Login = plannedLogin
 	return nil
@@ -360,19 +402,25 @@ func (d *dashboardDeclarer) mayUpdate(ctx context.Context, w dashboard.DeclareWo
 }
 
 // ownedBy refuses a bundle repository whose baseline or drafts were inferred
-// from another workload: two workloads with one name share it.
+// from another workload: two workloads with one name share it. A draft whose
+// owner Pacto did not read (unreadable, or past the listed drafts) is no
+// proof of ownership, so it refuses too.
 func ownedBy(p *app.DeclarePlan) *dashboard.DeclareRefusal {
-	other := func(f app.Declared) bool {
-		return f.InferredFrom != "" && (f.InferredFrom != p.InferredFrom || f.Cluster != "" && p.Cluster != "" && f.Cluster != p.Cluster)
-	}
 	froms := []app.Declared{}
 	if p.Baseline != nil {
 		froms = append(froms, p.Baseline.From)
 	}
 	for _, dv := range p.Drafts {
+		if dv.State == "unreadable" {
+			return refused("NotAllowed", "Pacto could not read who "+p.BundleRepo+":"+dv.Tag+" belongs to ("+dv.Reason+"), so it writes nothing there: run the command", "")
+		}
 		froms = append(froms, dv.From)
 	}
-	if i := slices.IndexFunc(froms, other); i >= 0 {
+	if p.DraftsTotal > len(p.Drafts) {
+		return refused("NotAllowed", "Pacto read who the newest "+strconv.Itoa(len(p.Drafts))+" of the "+strconv.Itoa(p.DraftsTotal)+
+			" drafts in "+p.BundleRepo+" belong to, not the rest, so it writes nothing there: run the command", "")
+	}
+	if i := slices.IndexFunc(froms, func(f app.Declared) bool { return foreign(f, p.InferredFrom, p.Cluster) }); i >= 0 {
 		return refused("NotAllowed", p.BundleRepo+" belongs to "+froms[i].InferredFrom, "")
 	}
 	return nil

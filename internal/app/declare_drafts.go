@@ -97,21 +97,28 @@ func (pl *declarePlanner) draftView(ctx context.Context, tag string, tm root.Tru
 		name := strings.TrimSuffix(strings.TrimPrefix(a.Field, "dependencies["), "].compatibility")
 		v.Requested = append(v.Requested, name+" "+a.Range)
 	}
-	v.Signed, v.Reason = pl.draftSigned(ctx, r.Digest, tm, rootErr)
+	v.Signed, v.Reason = pl.draftSigned(ctx, r.Digest, dec.Asker, tm, rootErr)
 	return v
 }
 
-// draftSigned is whether a signature of the draft repo@digest verifies under
-// tm, and why that is unknown when it cannot be checked.
-func (pl *declarePlanner) draftSigned(ctx context.Context, digest string, tm root.TrustedMaterial, err error) (bool, string) {
+// draftSigned is whether the draft repo@digest carries one signature that
+// verifies under tm and is by the asker its record names, and why not when
+// it is signed by someone else or cannot be checked.
+func (pl *declarePlanner) draftSigned(ctx context.Context, digest string, asker contract.InferredSigner, tm root.TrustedMaterial, err error) (bool, string) {
 	var signers []delivery.PublisherIdentity
 	if err == nil {
 		signers, err = publish.SignersOf(ctx, pl.reg, tm, pl.req.Signing.RekorURL != "", pl.repo(), digest)
 	}
-	if len(signers) == 0 && err != nil && !errors.Is(err, publish.ErrNoSignature) {
+	switch {
+	case len(signers) == 0 && err != nil && !errors.Is(err, publish.ErrNoSignature):
 		return false, "its signature could not be checked: " + err.Error()
+	case len(signers) == 0:
+		return false, ""
 	}
-	return len(signers) > 0, ""
+	if err := sameSigner(delivery.PublisherIdentity{Subject: asker.Subject, Issuer: asker.Issuer}, signers); err != nil {
+		return false, "its record names an asker the signature does not prove: " + err.Error()
+	}
+	return true, ""
 }
 
 // trustedRoot is the root findBaseline read, else the request's.

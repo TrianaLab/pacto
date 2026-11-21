@@ -124,6 +124,7 @@ func (h *declareHost) freshLogin(t *testing.T, tok string) {
 		return tok, true
 	}
 	h.d.accepted = func(*http.Request, string) []string { return []string{"ledger"} }
+	h.d.live = func(*http.Request, string) bool { return !taken }
 }
 
 func (h *declareHost) plan(t *testing.T, in dashboard.DeclareInput) *dashboard.DeclareAnswer {
@@ -381,7 +382,7 @@ func TestDashboardDeclareDraftThenAcceptEndToEnd(t *testing.T) {
 	out := h.accept(t, wl, dashboard.DeclareAcceptInput{Accept: []string{"ledger"}, IntentDigest: "x", Mode: "draft", FromDraft: ref})
 	expect(t, out.Refusal != nil && out.Refusal.Code == "NotAllowed", "draft of a draft %+v", out)
 	fromDraft := h.plan(t, dashboard.DeclareInput{Accept: []string{"ledger"}, FromDraft: ref})
-	expect(t, strings.HasSuffix(fromDraft.Command, "--from-draft draft-1") && fromDraft.Plan.IntentDigest != saved.Plan.IntentDigest, "from draft %+v", fromDraft)
+	expect(t, strings.HasSuffix(fromDraft.Command, "--from-draft draft-1 --accept ledger") && fromDraft.Plan.IntentDigest != saved.Plan.IntentDigest, "from draft %+v", fromDraft)
 	signed := h.accept(t, wl, dashboard.DeclareAcceptInput{Accept: []string{"ledger"}, IntentDigest: fromDraft.Plan.IntentDigest, Mode: "sign", FromDraft: ref})
 	expect(t, signed.Refusal == nil && signed.Tag == "0.1.0" && signed.Signed, "accepted %+v", signed)
 	expect(t, slices.Equal(slices.Sorted(slices.Values(h.tags(t))), []string{"0.1.0", "draft-1"}), "tags %v", h.tags(t))
@@ -664,4 +665,89 @@ func TestDeclareAcceptOwnerCheckboxUsesOwnerRule(t *testing.T) {
 	out := h.accept(t, wl, dashboard.DeclareAcceptInput{IntentDigest: fd.Plan.IntentDigest, Mode: "sign", FromDraft: ref})
 	expect(t, out.Refusal != nil && *out.Refusal == want && !out.Signed && !slices.Contains(h.tags(t), "0.1.0"),
 		"the owner refusal reaches the answer unchanged: got %+v want %+v tags %v", out.Refusal, want, h.tags(t))
+}
+
+// addDevInvoices adds a second Deployment named invoices, in dev.
+func (h *declareHost) addDevInvoices(t *testing.T) dashboard.DeclareWorkload {
+	t.Helper()
+	if err := h.w.dyn.Tracker().Add(kubeObject("apps/v1", "Deployment", "dev", "invoices", map[string]any{"spec": map[string]any{
+		"selector": map[string]any{"matchLabels": map[string]any{"app": "invoices"}}, "template": map[string]any{
+			"metadata": map[string]any{"labels": map[string]any{"app": "invoices"}},
+			"spec":     map[string]any{"containers": []any{map[string]any{"name": "invoices", "image": "reg.io/acme/invoices:1.0.0"}}}}}})); err != nil {
+		t.Fatal(err)
+	}
+	dev := wl
+	dev.Namespace = "dev"
+	return dev
+}
+
+// TestDeclarePlanShowsNoOtherWorkloadsDrafts: the plan of dev/invoices lists
+// none of billing/invoices' drafts from the repository they share by name,
+// and accepting one of them answers as a missing draft, with no texts.
+func TestDeclarePlanShowsNoOtherWorkloadsDrafts(t *testing.T) {
+	h := newDeclareHost(t, false, true)
+	p := h.plan(t, dashboard.DeclareInput{Accept: []string{"ledger"}})
+	h.accept(t, wl, dashboard.DeclareAcceptInput{Accept: []string{"ledger"}, IntentDigest: p.Plan.IntentDigest, Mode: "draft"})
+	billing := h.plan(t, dashboard.DeclareInput{})
+	dev := h.addDevInvoices(t)
+	pd, err := h.d.Plan(h.req(), dev, dashboard.DeclareInput{})
+	expect(t, err == nil && pd.Refusal == nil && len(pd.Drafts) == 0 && pd.DraftsTotal == 0, "%v %+v", err, pd)
+	h.freshLogin(t, personToken())
+	ref := &dashboard.DraftRef{Tag: "draft-1", Digest: billing.Drafts[0].Digest}
+	fd, err := h.d.Plan(h.req(), dev, dashboard.DeclareInput{FromDraft: ref})
+	expect(t, err == nil && fd.Plan == nil && fd.Refusal != nil && fd.Refusal.Code == "DraftNotFound", "%v %+v", err, fd)
+}
+
+// TestOwnedByNeedsEveryDraftsOwner: an unreadable draft or one past the
+// listed page is no proof the repository is this workload's.
+func TestOwnedByNeedsEveryDraftsOwner(t *testing.T) {
+	mine := app.Declared{InferredFrom: "k8s:billing/Deployment/invoices"}
+	p := &app.DeclarePlan{BundleRepo: "r/invoices", InferredFrom: mine.InferredFrom, Drafts: []app.DraftView{{Tag: "draft-2", From: mine}}, DraftsTotal: 1}
+	expect(t, ownedBy(p) == nil, "an own repository is refused")
+	p.DraftsTotal = 21
+	expect(t, ownedBy(p) != nil && strings.Contains(ownedBy(p).Message, "newest 1 of the 21"), "an unread draft was taken as proof: %+v", ownedBy(p))
+	p.DraftsTotal = 2
+	p.Drafts = append(p.Drafts, app.DraftView{Tag: "draft-1", State: "unreadable", Reason: "boom"})
+	expect(t, ownedBy(p) != nil && strings.Contains(ownedBy(p).Message, "draft-1"), "an unreadable draft was taken as proof: %+v", ownedBy(p))
+}
+
+// TestDeclarePlanFromDraftWhereNobodySigns: a host that cannot sign plans
+// accepting a draft and names the from-draft command the person runs.
+func TestDeclarePlanFromDraftWhereNobodySigns(t *testing.T) {
+	h := newDeclareHost(t, true, true)
+	p := h.plan(t, dashboard.DeclareInput{Accept: []string{"ledger"}})
+	h.accept(t, wl, dashboard.DeclareAcceptInput{Accept: []string{"ledger"}, IntentDigest: p.Plan.IntentDigest, Mode: "draft"})
+	listed := h.plan(t, dashboard.DeclareInput{})
+	fd := h.plan(t, dashboard.DeclareInput{Accept: []string{"ledger"}, FromDraft: &dashboard.DraftRef{Tag: "draft-1", Digest: listed.Drafts[0].Digest}})
+	expect(t, fd.Signing.Mode == "none" && fd.Plan != nil && strings.HasSuffix(fd.Command, "--from-draft draft-1 --accept ledger") &&
+		!strings.Contains(fd.Command, "--intent"), "%+v", fd)
+}
+
+// TestDeclareSigningNeedsPushCredential: a shared host the installation gave
+// no push credential signs nothing, whatever Fulcio trusts.
+func TestDeclareSigningNeedsPushCredential(t *testing.T) {
+	h := newDeclareHost(t, false, false)
+	h.freshLogin(t, personToken())
+	ans := h.plan(t, dashboard.DeclareInput{})
+	expect(t, ans.Signing.Mode == "none" && ans.Signing.Reason == noPushCredential && ans.SignTicket == "", "%+v", ans)
+}
+
+// TestDeclarePlanSaysWhetherTheLoginIsLive: back from a signing login, the
+// answer says whether that login is still there to sign with.
+func TestDeclarePlanSaysWhetherTheLoginIsLive(t *testing.T) {
+	h := newDeclareHost(t, false, true)
+	h.freshLogin(t, personToken())
+	p := h.plan(t, dashboard.DeclareInput{Accept: []string{"ledger"}})
+	back := h.plan(t, dashboard.DeclareInput{IntentDigest: p.Plan.IntentDigest})
+	expect(t, back.SignedIn && back.Plan.IntentDigest == p.Plan.IntentDigest, "%+v", back)
+	h.d.take(h.req(), p.Plan.IntentDigest)
+	back = h.plan(t, dashboard.DeclareInput{IntentDigest: p.Plan.IntentDigest})
+	expect(t, !back.SignedIn, "a used login is live: %+v", back)
+	expect(t, h.d.AcceptOffer(h.req(), p.Plan.IntentDigest).SignedIn == false, "a used login is offered")
+}
+
+func TestPlanViewCompleteness(t *testing.T) {
+	v := planView(&app.DeclarePlan{Hidden: &contract.InferredHidden{Services: 2}, ClusterAsOf: "2026-11-20T10:00:00Z",
+		Skipped: []app.SkippedTag{{Tag: "1.0.0", Signer: "bob", Why: "unsigned"}}}, nil)
+	expect(t, v.Hidden != nil && v.Hidden.Services == 2 && v.ClusterAsOf == "2026-11-20T10:00:00Z" && len(v.Skipped) == 1 && v.Skipped[0].Tag == "1.0.0", "%+v", v)
 }

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -102,7 +101,7 @@ pacto.inferred.yaml as inferred.`,
 	f.StringSliceVar(&req.Accept, "accept", nil, "a dependency whose proposed range you accept as declared; repeat it for more")
 	f.BoolVar(&yes, "yes", false, "publish the plan (or write a draft) after printing it")
 	f.StringVar(&req.IntentDigest, "intent", "", "the intent digest of the plan you reviewed: a different plan is refused")
-	f.BoolVar(&req.Draft, "draft", false, "write a draft-<n> a person accepts later, without signing")
+	f.BoolVar(&req.Draft, "draft", false, "write a draft-<n> a person accepts later, without a person's login: signed only by --sign-key or an ambient OIDC token when one is set")
 	f.StringVar(&req.FromDraft, "from-draft", "", "accept this draft-<n> tag: the workload is read again and you sign")
 	f.IntVar(&req.MaxItems, "max-items", 0, "the most items read per kind of object; a kind cut short reads as partial (default 10000)")
 	f.DurationVar(&req.CallWindow, "call-window", 0, "how far back a call counts as a dependency (at least 1m, default 24h)")
@@ -271,7 +270,15 @@ func draftLine(d app.DraftView) string {
 	if d.State == "unreadable" {
 		return d.Tag + " unreadable: " + d.Reason
 	}
-	line := d.Tag + " by " + cmp.Or(d.Asker.Subject, "an agent")
+	// Only a signature proves who asked: an unsigned record's asker is a claim.
+	by := "an agent"
+	switch {
+	case d.Signed && d.Asker.Subject != "":
+		by = d.Asker.Subject
+	case d.Asker.Class == contract.SignerClassHuman:
+		by = "a person"
+	}
+	line := d.Tag + " by " + by
 	if d.OnBehalfOf != "" {
 		line += " for " + d.OnBehalfOf
 	}

@@ -103,7 +103,7 @@ func (d *dashboardDeclarer) AcceptOffer(r *http.Request, intent string) dashboar
 	case !o.Write.Available:
 		o.Write.Reason = noPushCredential
 	case o.Signing.Mode == signModeFreshLogin:
-		o.SignTicket = d.ticket(r, intent, nil)
+		o.SignTicket, o.SignedIn = d.ticket(r, intent, nil), d.signedIn(r, intent)
 	}
 	return o
 }

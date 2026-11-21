@@ -269,7 +269,7 @@ func TestMCPDeclareDraftArgument(t *testing.T) {
 		t.Fatalf("%+v %+v %s", plans, execs, resultText(t, res))
 	}
 	stdio := listTools(t, mustNew("test", Authoring{Declare: stubDeclarer{}}, Modes{}))
-	if !strings.Contains(stdio["pacto_declare"].InputSchema.(map[string]any)["properties"].(map[string]any)["draft"].(map[string]any)["description"].(string), "without signing") {
+	if !strings.Contains(stdio["pacto_declare"].InputSchema.(map[string]any)["properties"].(map[string]any)["draft"].(map[string]any)["description"].(string), "without a person's login") {
 		t.Errorf("%+v", stdio["pacto_declare"].InputSchema)
 	}
 }
