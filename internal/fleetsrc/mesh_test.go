@@ -508,6 +508,23 @@ func TestMeshHostilePrometheusCandidateIgnored(t *testing.T) {
 	}
 }
 
+// A tenant who copies the istiod label onto a Service of its own makes no
+// namespace a control plane: its Prometheus and the real one tie, none is
+// asked, and its namespace still counts toward coverage.
+func TestMeshCopiedControlPlaneLabelTrustsNone(t *testing.T) {
+	f := meshClient(true, []string{svcJSON("istio-system", "istiod", "", "app=istiod"), svcJSON("istio-system", "prom-main", "", "app.kubernetes.io/name=prometheus"),
+		svcJSON("a-team", "fake-istiod", "", "app=istiod"), svcJSON("a-team", "prom-a", "", "app.kubernetes.io/name=prometheus")},
+		[]string{nsJSON("istio-system"), nsJSON("a-team")})
+	var asked []string
+	row := istioRow(t, collectMesh(t, meshSource(f, nil, nil, &asked)))
+	if len(asked) != 0 || !hasMessage(row, fleet.LimitationMeshTelemetryUnread, "several Prometheus servers could record this mesh; Pacto cannot tell which one does") {
+		t.Errorf("asked %v row %+v", asked, row)
+	}
+	if !slices.Contains(row.Objects, fleet.ProviderObject{Kind: "Namespace", Namespace: "a-team", Name: "a-team"}) {
+		t.Errorf("the copied label hid a-team from coverage: %+v", row.Objects)
+	}
+}
+
 func TestMeshExternalNameAndSelectorlessIgnored(t *testing.T) {
 	f := meshClient(true, []string{svcJSON("istio-system", "istiod", "", "app=istiod"),
 		svcJSON("monitoring", "prom-ext", "ExternalName", "app=prometheus"), svcJSON("istio-system", "prom-manual", "selectorless", "operated-prometheus=true")}, nil)

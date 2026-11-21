@@ -300,29 +300,55 @@ func listAll(ctx context.Context, c k8sclient.K8sClient, gvr schema.GroupVersion
 	}
 }
 
-// controlPlaneNamespaces are the namespaces holding a control-plane Service
-// of any of kinds.
+// controlPlaneNamespaces are the control-plane namespaces of every mesh of
+// kinds, each found by soleNamespace.
 func controlPlaneNamespaces(services []svcInfo, kinds []meshKind) []string {
 	var out []string
-	for _, svc := range services {
-		if slices.ContainsFunc(kinds, func(k meshKind) bool { return k.controlPlane(svc) }) && !slices.Contains(out, svc.Namespace) {
-			out = append(out, svc.Namespace)
+	for _, k := range kinds {
+		if ns, ok := soleNamespace(services, k.controlPlane); ok && !slices.Contains(out, ns) {
+			out = append(out, ns)
 		}
 	}
 	return out
+}
+
+// soleNamespace is the namespace of the Services match selects when they all
+// sit in one namespace. Anyone who can create a Service can copy a label, so
+// a label found in two or more namespaces marks none of them: a tenant's copy
+// only takes trust away from the real control plane, never gives it.
+// ponytail: an installation whose scope hides the real control plane still
+// trusts a lone copy; a signal tenants cannot write (namespace labels) closes
+// that when a cluster needs it.
+func soleNamespace(services []svcInfo, match func(svcInfo) bool) (string, bool) {
+	ns := ""
+	for _, svc := range services {
+		switch {
+		case !match(svc):
+		case ns == "":
+			ns = svc.Namespace
+		case ns != svc.Namespace:
+			return "", false
+		}
+	}
+	return ns, ns != ""
 }
 
 // meshRead is the row of mesh k, whose evidence names group, and the calls
 // its Prometheus recorded.
 func (s *MeshSource) meshRead(ctx context.Context, cl meshCluster, now time.Time, k meshKind, group string) (fleet.Provider, []fleet.ObservedEdge) {
 	var objects []fleet.ProviderObject
-	var trusted []string
 	for _, svc := range cl.services {
 		if k.controlPlane(svc) {
 			objects = append(objects, serviceObject(svc))
 		}
-		if (k.controlPlane(svc) || k.trusts != nil && k.trusts(svc)) && !slices.Contains(trusted, svc.Namespace) {
-			trusted = append(trusted, svc.Namespace)
+	}
+	var trusted []string
+	for _, match := range []func(svcInfo) bool{k.controlPlane, k.trusts} {
+		if match == nil {
+			continue
+		}
+		if ns, ok := soleNamespace(cl.services, match); ok && !slices.Contains(trusted, ns) {
+			trusted = append(trusted, ns)
 		}
 	}
 	lims := slices.Clone(cl.servicesLim)

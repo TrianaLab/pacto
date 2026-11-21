@@ -68,15 +68,15 @@ func (bytesCodec) Unmarshal(data []byte, v any) error {
 func (bytesCodec) Name() string { return "proto" }
 
 // hubbleRelay is the Hubble Relay Service to read: labelled
-// k8s-app=hubble-relay, else named hubble-relay, in kube-system or a
-// namespace Cilium's own Services sit in; never an ExternalName or a
-// selectorless Service, whose address a tenant chooses.
+// k8s-app=hubble-relay, else named hubble-relay, in kube-system or the one
+// namespace Cilium's own Services sit in (soleNamespace); never an
+// ExternalName or a selectorless Service, whose address a tenant chooses.
 func hubbleRelay(services []svcInfo) (svcInfo, bool) {
 	trusted := []string{"kube-system"}
-	for _, svc := range services {
-		if svc.Labels["k8s-app"] == "cilium" || svc.Labels["app.kubernetes.io/part-of"] == "cilium" {
-			trusted = append(trusted, svc.Namespace)
-		}
+	if ns, ok := soleNamespace(services, func(svc svcInfo) bool {
+		return svc.Labels["k8s-app"] == "cilium" || svc.Labels["app.kubernetes.io/part-of"] == "cilium"
+	}); ok {
+		trusted = append(trusted, ns)
 	}
 	sorted := sortedServices(slices.Clone(services))
 	for _, match := range []func(svcInfo) bool{

@@ -422,6 +422,18 @@ func TestHubbleDecodeRejectsTruncatedFrame(t *testing.T) {
 	}
 }
 
+// A tenant who copies Cilium's label onto a Service of its own gains no trust
+// for its Relay; the Relay in kube-system is still read.
+func TestHubbleCopiedCiliumLabelTrustsNone(t *testing.T) {
+	r := newRelay(t, call(meshNow.Add(-59*time.Minute), cart(), ledger()))
+	collectMesh(t, hubbleSource(hubbleMesh(true, svcJSON("kube-system", "hubble-peer", "", "k8s-app=cilium"),
+		svcJSON("tenant", "fake-cilium", "", "k8s-app=cilium"), relayJSON("tenant", "relay", "grpc", 80, "k8s-app=hubble-relay"),
+		relayJSON("kube-system", "hubble-relay", "grpc", 80)), nil, r))
+	if got := r.dialled(); len(got) == 0 || got[0] != "hubble-relay.kube-system.svc:80" {
+		t.Errorf("dialled %v", got)
+	}
+}
+
 func TestHubbleRelayOutsideCiliumNamespaceIgnored(t *testing.T) {
 	tenant := relayJSON("tenant", "hubble-relay", "grpc", 80, "k8s-app=hubble-relay")
 	for name, svcs := range map[string][]string{
