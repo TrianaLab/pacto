@@ -16,7 +16,7 @@
    */
   import { untrack } from 'svelte';
   import { api } from '../lib/api';
-  import { attentionCategoryLabel, severityLabel } from '../lib/entityLabels';
+  import { attentionCategoryLabel, severityLabel, nextActionWords } from '../lib/entityLabels';
   import { countOf, formatCount, statusLabel } from '../lib/format';
   import { SEVERITY_GLYPH } from '../lib/fleetMap/render';
   import { hashForHref } from '../lib/router';
@@ -115,7 +115,7 @@
       {/if}
       {#each bySeverity as [sev, its] (sev)}
         <section aria-label={severityLabel(sev)}>
-          <h3 class="rail-sev rail-{sev}"><span aria-hidden="true">{SEVERITY_GLYPH[sev]}</span> {severityLabel(sev)}</h3>
+          <h3 class="t-label rail-sev rail-{sev}"><span aria-hidden="true">{SEVERITY_GLYPH[sev]}</span> {severityLabel(sev)}</h3>
           <ul>
             {#each its as it, i (`${it.entity.kind}|${it.entity.key}|${it.code}|${i}`)}
               <li>
@@ -123,6 +123,7 @@
                   <span class="ritem-t"><bdi>{it.entity.label}</bdi> <span class="ritem-c">{attentionCategoryLabel(it.category)}</span></span>
                   <span class="ritem-s">{it.summary}{#if it.source}{' '}via {it.source}{/if}</span>
                   {#if it.nextStep}<span class="ritem-n">Next: {it.nextStep}</span>{/if}
+                  {#if it.nextAction}<span class="ritem-n">{nextActionWords(it.nextAction)}</span>{/if}
                 </button>
                 <!-- The caller with no contract opens its own (inferred) service page. -->
                 {#if it.caller}<p class="ritem-caller" data-testid="attention-caller">from <a href={hashForHref(it.caller.href)}><bdi>{it.caller.label || it.caller.key}</bdi></a></p>{/if}
@@ -150,7 +151,7 @@
   .rail-filtered { margin: 0; padding: var(--sp-2) var(--sp-3); font-size: var(--text-sm); color: var(--c-text-2); border-block-end: 1px solid var(--c-border); overflow-wrap: anywhere; }
   .rail-body { flex: 1; overflow-y: auto; padding: var(--sp-2) var(--sp-3); }
   .rail-body ul { list-style: none; margin: 0 0 var(--sp-3); padding: 0; display: flex; flex-direction: column; gap: 2px; }
-  .rail-sev { margin: var(--sp-2) 0 var(--sp-1); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .rail-sev { margin: var(--sp-2) 0 var(--sp-1); }
   .rail-error span { color: var(--c-err); }
   .rail-warning span { color: var(--c-warn); }
   .rail-info span { color: var(--c-info); }

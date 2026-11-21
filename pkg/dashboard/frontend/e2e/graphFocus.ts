@@ -17,7 +17,10 @@ export async function mapFocus(page: Page, service: string, hops = 1) {
 
 /** revisionGraphUrl is the neighbourhood of one revision of a service, in the revision perspective. */
 export async function revisionGraphUrl(page: Page, service: string): Promise<string> {
-  await appReady(page, '/#/fleet');
+  // Only the engine, not appReady: on a phone viewport the sidebar link it waits for is
+  // folded into the drawer, and the fetch below queues behind __pactoReady anyway.
+  await page.goto('/#/fleet');
+  await page.evaluate(() => (window as unknown as { __pactoReady?: Promise<void> }).__pactoReady);
   const key = await page.evaluate(async (s) => (((await (await fetch(`/api/fleet/entities?kinds=revision&service=${encodeURIComponent(s)}&limit=1`)).json()).entities ?? [])[0]?.key ?? '') as string, service);
   expect(key, `a revision of ${service}`).not.toBe('');
   return `/#/fleet/graph/revision/${encodeURIComponent(key)}?perspective=revision`;

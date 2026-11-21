@@ -150,7 +150,7 @@ test.describe('page scaffold geometry on desktop', () => {
     // Non-vacuity: the sweep must actually have visited both workspaces, or the
     // agreement below is agreement among the pages that were never in dispute.
     expect(sweep.map(([l]) => l)).toEqual(expect.arrayContaining([
-      'Graph discovery', 'Graph focused', 'Change analysis', 'Change analysis (analysed)',
+      'Fleet map', 'Graph focused', 'Change analysis', 'Change analysis (analysed)',
     ]));
 
     // The claim: one distance from the app bar, one content column, one rhythm.

@@ -5,7 +5,7 @@ import FleetMapRail from './FleetMapRail.svelte';
 import { api } from '../lib/api';
 import { reactiveProps } from '../testkit.svelte';
 
-type Item = { entity: { kind: string; key: string; label: string; href: string; parentService?: string }; service?: string; category: string; severity: string; code: string; summary: string; nextStep?: string };
+type Item = { entity: { kind: string; key: string; label: string; href: string; parentService?: string }; service?: string; category: string; severity: string; code: string; summary: string; nextStep?: string; nextAction?: { verb: string; tool: string } };
 const item = (kind: string, key: string, severity = 'error', over: Partial<Item> = {}): Item =>
   ({ entity: { kind, key, label: key, href: `#/fleet/${kind}s/${key}` }, category: 'health', severity, code: `C-${key}`, summary: `${key} summary`, ...over });
 const answer = (items: Item[], total = items.length) =>
@@ -82,7 +82,7 @@ describe('FleetMapRail', () => {
       item('service', 'orders'),
       item('target', 'prod/orders', 'warning', { service: 'orders' }),
       item('revision', 'billing@sha', 'warning', { entity: { kind: 'revision', key: 'billing@sha', label: 'billing 2', href: '#/x', parentService: 'billing' } }),
-      item('owner', 'team-a', 'info', { nextStep: 'Name an owner' }),
+      item('owner', 'team-a', 'info', { nextStep: 'Name an owner', nextAction: { verb: 'declare', tool: 'pacto_declare' } }),
     ]));
     const onfocus = vi.fn();
     const t = renderRail({ onfocus });
@@ -94,6 +94,7 @@ describe('FleetMapRail', () => {
     expect(onfocus.mock.calls.map((c) => c[0])).toEqual(['orders', 'orders', 'billing']);
     expect(onfocus.mock.calls[1][1].entity.kind).toBe('target');
     expect(own.textContent).toContain('Next: Name an owner');
+    expect(own.textContent).toContain('Fix: declare a contract with pacto_declare');
     own.click();
     expect(onfocus).toHaveBeenCalledTimes(3);
     expect(location.hash).toBe('#/fleet/owners/team-a');

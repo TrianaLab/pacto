@@ -2836,11 +2836,10 @@ export const ROUTES: Route[] = [
   {
     name: 'graph inferred edges',
     open: async (page) => {
-      // The text alternative and the drawer of the runtime-inferred edge, whose
-      // uncontracted end carries no break point.
+      // A service focus is the fleet map (509-S12): search-indexer in focus, its
+      // runtime-inferred caller with no contract drawn beside it.
       await page.goto('/#/fleet/graph/service/search-indexer');
-      await page.getByTestId('graph-textalt').locator('summary').click();
-      await expect(page.getByTestId('graph-edge').filter({ hasText: 'nightly-export' }).first()).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('fleet-map-focus')).toContainText('search-indexer', { timeout: 30_000 });
       await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
     },
   },

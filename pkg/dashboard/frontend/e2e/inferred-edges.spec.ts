@@ -19,7 +19,8 @@ test.describe('WASM demo: inferred edges and replaced services', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const edge = (focus.edges ?? []).filter((e: any) => `${e.from.label} ${e.to.label}`.includes('nightly-export'));
     expect(edge).toHaveLength(1);
-    expect(edge[0]).toMatchObject({ inferred: true, observed: true, expected: false });
+    // An inferred runtime call keeps observed=false: its provenance is inferred, not observed.
+    expect(edge[0]).toMatchObject({ inferred: true, expected: false, provenance: 'inferred' });
     // The caller sits in the left column, the service in the centre.
     await expect(page.getByTestId('fleet-map-focus')).toContainText('search-indexer');
   });

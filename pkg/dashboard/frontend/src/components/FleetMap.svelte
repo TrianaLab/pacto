@@ -553,13 +553,13 @@
 <div class="fm-tools">
   <FleetMapSearch onfocus={(key: string) => { focusService(key); canvas?.focus({ preventScroll: true }); }} />
   <div class="fm-seg" role="group" aria-label="Group by">
-    <span class="fm-seg-label" aria-hidden="true">Group by</span>
+    <span class="t-label fm-seg-label" aria-hidden="true">Group by</span>
     {#each GROUPINGS as g (g)}
       <button type="button" aria-pressed={groupBy === g} onclick={() => set({ groupBy: g === 'domain' ? null : g })}>{GROUP_WORDS[g]}</button>
     {/each}
   </div>
   <div class="fm-seg" role="group" aria-label="Show">
-    <span class="fm-seg-label" aria-hidden="true">Show</span>
+    <span class="t-label fm-seg-label" aria-hidden="true">Show</span>
     {#each LENSES as l (l)}
       <!-- A lens other than Both leaves gaps mode: gaps read in Both. -->
       <button type="button" aria-pressed={shown === l} onclick={() => set({ lens: l === 'both' ? null : l, ...(mode?.kind === 'gaps' && l !== 'both' ? modeParams(null) : {}) })}>{LENS_WORDS[l]}</button>
@@ -615,7 +615,7 @@
     <button type="button" class="fm-clear" onclick={() => setMode(null)}>Show everything</button>
   </div>
 {/if}
-<div class="fm" class:fm-full={variant === 'full'} data-testid="fleet-map">
+<div class="fm" class:fm-full={variant === 'full'} class:fm-railed={railShown} data-testid="fleet-map">
   <!-- svelte-ignore a11y_no_interactive_element_to_noninteractive_role (the map is an image to assistive technology; it is focusable only for its zoom and pan keys, and its words are the HUD, the ladder and the live region) -->
   <canvas
     bind:this={canvas}
@@ -726,8 +726,8 @@
 <style>
   .fmw { display: flex; flex-direction: column; gap: var(--sp-2); min-inline-size: 0; }
   .fm-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); }
-  .fm-seg { display: inline-flex; align-items: center; border: 1px solid var(--c-border); border-radius: var(--radius-sm); overflow: hidden; background: var(--c-surface); }
-  .fm-seg-label { padding: 0 var(--sp-2); font-size: var(--text-xs); color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.04em; }
+  .fm-seg { display: inline-flex; flex-wrap: wrap; max-inline-size: 100%; align-items: center; border: 1px solid var(--c-border); border-radius: var(--radius-sm); overflow: hidden; background: var(--c-surface); }
+  .fm-seg-label { padding: 0 var(--sp-2); }
   .fm-seg button, .fm-toggle, .fm-chip, .fm-clear { border: 0; background: none; color: var(--c-text-2); cursor: pointer; padding: 4px 10px; min-block-size: 32px; font-size: var(--text-sm); }
   .fm-seg button + button { border-inline-start: 1px solid var(--c-border); }
   .fm-seg button[aria-pressed='true'], .fm-toggle[aria-pressed='true'], .fm-chip[aria-pressed='true'] { color: var(--c-accent); background: var(--c-accent-bg); font-weight: 600; }
@@ -745,7 +745,7 @@
   .fm-tip-worst { color: var(--c-text-3); }
   .fm-tip button { margin-block-start: var(--sp-1); align-self: flex-start; border: 0; background: none; padding: 0; color: var(--c-accent); cursor: pointer; font-size: inherit; text-align: start; }
   .fm-legend { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); margin: 0; padding: 0; list-style: none; font-size: var(--text-xs); color: var(--c-text-2); }
-  .fm-legend li { display: inline-flex; align-items: center; gap: var(--sp-1); }
+  .fm-legend li { display: inline-flex; align-items: center; gap: var(--sp-2); }
   .fm-glyph { font-weight: 700; }
   .fm { position: relative; block-size: clamp(420px, calc(100dvh - 300px), 1100px); background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-sm); overflow: hidden; }
   .fm.fm-full { block-size: clamp(460px, calc(100dvh - 200px), 1400px); }
@@ -766,6 +766,16 @@
   .fm-zoom button + button { border-block-start: 1px solid var(--c-border); }
   .fm-zoom button:hover { background: var(--c-surface-hover); }
   .fm-zoom .fm-fit { font-size: var(--text-xs); }
+  /* The open rail covers the map's right side (FleetMapRail's min(20rem, 85%)): the HUD and
+     the zoom keep to the uncovered part, and on a phone, where the rail is nearly all of
+     the map, they step aside until it closes. */
+  .fm-railed .fm-zoom { inset-inline-end: calc(min(20rem, 85%) + var(--sp-3)); }
+  .fm-railed .fm-hud { max-inline-size: calc(100% - min(20rem, 85%) - 2 * var(--sp-3)); }
+  @media (max-width: 40rem) { .fm-railed .fm-hud, .fm-railed .fm-zoom, .fm-railed .fm-mini { display: none; } }
+  /* On a phone the closed rail's button takes the top right, so the HUD starts under it. */
+  @media (max-width: 40rem) { .fm:not(.fm-railed) .fm-hud { inset-block-start: calc(var(--sp-3) + 44px + var(--sp-2)); max-inline-size: calc(100% - 2 * var(--sp-3)); } }
+  /* A phone with touch-sized steps cannot fit the four-step pill on one line. */
+  @media (max-width: 40rem) { .fm-ladder { flex-wrap: wrap; max-inline-size: 100%; border-radius: var(--radius-sm); } }
   .fm-mini { position: absolute; inset-block-end: var(--sp-3); inset-inline-start: var(--sp-3); inline-size: 10.5rem; block-size: 7.5rem; border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); cursor: pointer; }
   .fm-mini[hidden] { display: none; }
   .fm-panel { position: absolute; z-index: 2; inset-block-start: 6.5rem; inset-inline-start: var(--sp-3); display: flex; flex-direction: column; gap: 2px; inline-size: max-content; max-inline-size: min(18rem, calc(100% - 2rem)); padding: var(--sp-2) var(--sp-3); padding-inline-end: var(--sp-6, 2rem); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface-raised); font-size: var(--text-sm); color: var(--c-text-2); overflow-wrap: anywhere; }

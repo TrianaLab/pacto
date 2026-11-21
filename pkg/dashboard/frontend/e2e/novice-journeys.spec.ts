@@ -185,7 +185,9 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
     await page.getByRole('navigation', { name: 'Primary' }).first().getByRole('link', { name: 'Operational Graph' }).click();
     await expect(page).toHaveURL(/#\/fleet(\/graph)?$/, { timeout: T });
     await expect(page.getByTestId('fleet-map-summary')).toBeVisible({ timeout: T });
-    await expect(page.getByTestId('fleet-map-live')).toHaveText(/^Level 0, Groups/, { timeout: T });
+    // The level follows density: the demo's few dozen services fit at Services, a
+    // thousands-strong fleet at Groups; neither opens on Names or Details.
+    await expect(page.getByTestId('fleet-map-live')).toHaveText(/^Level [01], (Groups|Services)/, { timeout: T });
     await expect(page.getByTestId('neighborhood-canvas')).toHaveCount(0);
     await expectNoLegacyScreen(page);
   });

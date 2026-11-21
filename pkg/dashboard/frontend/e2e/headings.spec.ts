@@ -227,9 +227,10 @@ test.describe('document structure on every canonical Fleet route', () => {
     // cheap proof that eighteen navigations produced eighteen pages rather than one page
     // audited eighteen times -- the exact failure mode a fragment-only goto introduces.
     // A few routes legitimately share a title (a scoped list is still that list, a
-    // focused graph is still the graph), so the bar is "mostly distinct", not "all".
+    // focused graph is still the graph, the attention link is the Overview with its list
+    // open), so the bar is "mostly distinct", not "all".
     expect(new Set(titles).size, `titles were not distinct enough: ${JSON.stringify(titles)}`)
-      .toBeGreaterThanOrEqual(routes.length - 4);
+      .toBeGreaterThanOrEqual(routes.length - 6);
   });
 
   test('an entity that does not exist still names itself', async ({ page }) => {
