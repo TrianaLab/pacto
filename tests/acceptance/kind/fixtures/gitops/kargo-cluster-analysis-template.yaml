@@ -1,0 +1,92 @@
+# This file is published verbatim in integrations/kubernetes/docs/gitops-kargo.md.
+# Kargo runs it after each promotion: impact exit 0 verifies the Freight, exit 1
+# fails it, exit 2 (unverified) fails it unless allow-unverified is "true".
+# In each Kargo project namespace: kubectl -n <project> create serviceaccount pacto-impact
+apiVersion: argoproj.io/v1alpha1
+kind: ClusterAnalysisTemplate
+metadata:
+  name: pacto-impact
+spec:
+  args:
+    - name: new
+    - name: targets
+      value: snapshot
+    - name: allow-unverified
+      value: "false"
+  metrics:
+    - name: pacto-impact
+      count: 1
+      failureLimit: 0
+      provider:
+        job:
+          spec:
+            backoffLimit: 0
+            template:
+              spec:
+                restartPolicy: Never
+                serviceAccountName: pacto-impact
+                containers:
+                  - name: pacto-impact
+                    image: ghcr.io/trianalab/pacto/dashboard:4.5.0
+                    command: [sh, -c]
+                    args:
+                      - |
+                        set -u
+                        case "$TARGETS" in
+                          snapshot) set -- ;;
+                          k8s) set -- --k8s ;;
+                          *) echo "pacto-impact: targets must be snapshot or k8s, got $TARGETS"; exit 1 ;;
+                        esac
+                        pacto impact --running "$NEW" --local "" "$@"; rc=$?
+                        case "$rc" in
+                          0) exit 0 ;;
+                          2) if [ "$ALLOW_UNVERIFIED" = true ]; then echo "impact exit 2 passes: allow-unverified is true"; exit 0; fi
+                             echo "impact exit 2: unverified fails unless allow-unverified is true"; exit 1 ;;
+                          *) echo "impact exit $rc"; exit 1 ;;
+                        esac
+                    # Args first: a literal below wins over any name an arg could repeat.
+                    env:
+                      - name: NEW
+                        value: "{{args.new}}"
+                      - name: TARGETS
+                        value: "{{args.targets}}"
+                      - name: ALLOW_UNVERIFIED
+                        value: "{{args.allow-unverified}}"
+                      - name: PACTO_INSECURE_REGISTRIES
+                        value: ""
+                      - name: PACTO_NO_UPDATE_CHECK
+                        value: "1"
+                      - name: DOCKER_CONFIG
+                        value: /home/pacto/.docker
+                      - name: PACTO_DELIVERY_TRUST
+                        value: /etc/pacto/trust/trust.yaml
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 65532
+                      readOnlyRootFilesystem: true
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                        drop: [ALL]
+                    volumeMounts:
+                      - name: pacto-cache
+                        mountPath: /home/pacto/.cache
+                      - name: pacto-registry
+                        mountPath: /home/pacto/.docker
+                        readOnly: true
+                      - name: pacto-delivery-trust
+                        mountPath: /etc/pacto/trust
+                        readOnly: true
+                volumes:
+                  - name: pacto-cache
+                    emptyDir: {}
+                  - name: pacto-registry
+                    secret:
+                      secretName: pacto-registry
+                      optional: true
+                      items:
+                        - key: .dockerconfigjson
+                          path: config.json
+                  - name: pacto-delivery-trust
+                    secret:
+                      secretName: pacto-delivery-trust
+                      optional: true

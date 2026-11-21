@@ -171,6 +171,9 @@ assert(pathMajor >= 2 ? majorOf(pin.version) === pathMajor : majorOf(pin.version
     // The Argo CD sync gate fixtures, published verbatim on the GitOps page.
     'tests/acceptance/kind/fixtures/gitops/argocd-repo-server-pacto-patch.yaml',
     'tests/acceptance/kind/fixtures/gitops/argocd-presync-pacto-impact.yaml',
+    // The Kargo ClusterAnalysisTemplate, a YAML fixture published through --8<--;
+    // docs_check (h) scans only *.md, so TestKargoTemplatePinsTheReleasedImage guards it.
+    'tests/acceptance/kind/fixtures/gitops/kargo-cluster-analysis-template.yaml',
   ];
   for (const rel of pages) {
     const after = edit(rel, (s) => {

@@ -1,7 +1,7 @@
 # GitOps promotion gates
 
 Make Flux or Argo CD stop the next rollout step when a service breaks its
-contract. A `NonCompliant` Pacto turns the Kustomization unready or the
+contract. For Kargo, see [Kargo](gitops-kargo.md#kargo). A `NonCompliant` Pacto turns the Kustomization unready or the
 Application Degraded.
 
 The health snippets stop **the next step**: by the time the operator has a
@@ -213,6 +213,12 @@ published bundle, one Job each; exit 1 or 2 fails the sync:
 ```yaml
 --8<-- "tests/acceptance/kind/fixtures/gitops/argocd-presync-pacto-impact.yaml"
 ```
+
+## Kargo
+
+Kargo verifies Freight after each promotion. One shared
+`ClusterAnalysisTemplate` runs `pacto impact --running` on the Freight's
+contract bundle in every Stage: see [Kargo](gitops-kargo.md#kargo).
 
 ## Timing
 
