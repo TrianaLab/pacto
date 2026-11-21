@@ -42,7 +42,7 @@
       <dl class="fpf-rows" data-testid="field-provenance">
         {#each shown as f, i (`${i}:${f.field}`)}
           <div class="fpf-row" class:fpf-inferred={f.provenance === 'inferred'} data-provenance={f.provenance}>
-            <dt><bdi title={f.field}>{fieldLabel(f.field)}</bdi></dt>
+            <dt><bdi title={fieldLabel(f.field)}>{fieldLabel(f.field)}</bdi></dt>
             <dd><bdi class="fpf-value" title={f.value}>{f.value}</bdi> <ProvenanceMark label={`Where ${fieldLabel(f.field)} comes from`} text={fieldProvenanceText(f)} /></dd>
           </div>
         {/each}

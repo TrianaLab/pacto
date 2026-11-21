@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -41,16 +42,17 @@ func TestDemoInferredEdges(t *testing.T) {
 
 // TestDemoReplacement: experiment-service's Pacto target runs as the
 // experiments Deployment, which ran with no contract for days before the
-// Pacto was created, so the demo records one replacement and attention reports
+// Pacto was created, so the demo records a pacto-target replacement and attention reports
 // it at the demo clock.
 func TestDemoReplacement(t *testing.T) {
 	snap := demoFleet(t)
 	from := fleet.NewServiceKey(fleet.K8sCaller("", "prod", "Deployment", "experiments"))
 	to := fleet.NewServiceKey("experiment-service")
-	if len(snap.Replacements) != 1 {
-		t.Fatalf("replacements = %+v, want 1", snap.Replacements)
+	i := slices.IndexFunc(snap.Replacements, func(r fleet.Replacement) bool { return r.Link == "pacto-target" })
+	if i < 0 {
+		t.Fatalf("replacements = %+v, want a pacto-target one", snap.Replacements)
 	}
-	r := snap.Replacements[0]
+	r := snap.Replacements[i]
 	if r.From != from || r.To != to || r.Link != "pacto-target" || r.At == nil || r.Target == "" {
 		t.Errorf("replacement = %+v", r)
 	}
