@@ -388,7 +388,7 @@
   }
   @media (max-width: 40rem) {
     .attn-item { grid-template-columns: minmax(0, 1fr); }
-    .attn-next, .attn-action { text-align: left; }
+    .attn-next, .attn-side :global(.attn-action) { text-align: left; }
   }
   /* The severity rail. Two selectors deep on purpose: .pl-row:hover paints the same 3px
      slot accent, and one stripe cannot mean both "clickable" and "this one is an error".
@@ -418,7 +418,8 @@
   /* A long code breaks at its underscores rather than widening the row. */
   .attn-code { min-width: 0; max-width: 100%; overflow-wrap: anywhere; color: var(--c-text-3); font-family: var(--font-mono); font-size: var(--text-xs); }
   .attn-side { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
-  .attn-action { min-width: 0; overflow-wrap: anywhere; color: var(--c-text-2); font-size: var(--text-xs); text-align: right; }
+  /* NextActionLink renders the action, so the rule reaches into it. */
+  .attn-side :global(.attn-action) { min-width: 0; overflow-wrap: anywhere; color: var(--c-text-2); font-size: var(--text-xs); text-align: right; }
   /* Backend-provided guidance, not a control. Right-aligned grey micro-text with an
      imperative verb read as a link that did nothing when clicked; the "Next" key
      names it as advice, the same way every labelled fact row does. */
