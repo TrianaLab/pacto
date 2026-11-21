@@ -58,6 +58,12 @@ export type ProductAttentionList = JSON200<'fleet-attention'>;
 export type ProductImpact = JSON200<'fleet-impact-post'>;
 /** What accepting every proposed range of a service would sign, and the command that signs it. */
 export type AcceptPlanAnswer = JSON200<'fleet-accept'>;
+/** What declaring an inferred service would publish, the drafts waiting and what this person can do here. */
+export type DeclareAnswer = JSON200<'fleet-declare'>;
+/** What accepting a declaration plan wrote, or why nothing was. */
+export type DeclareAcceptAnswer = JSON200<'fleet-declare-accept'>;
+type DeclareBody = operations['fleet-declare']['requestBody']['content']['application/json'];
+type DeclareAcceptBody = operations['fleet-declare-accept']['requestBody']['content']['application/json'];
 export type ProductRevisionDocument = JSON200<'fleet-revision-document'>;
 export type ProductOfferingVersions = JSON200<'fleet-versions'>;
 export type ProductStats = JSON200<'get-stats'>;
@@ -514,6 +520,12 @@ export const api = {
    *  pacto accept command a person runs. It never signs and never writes. */
   fleetAccept: (serviceKey: string): Promise<AcceptPlanAnswer> =>
     unwrap(client.POST('/api/fleet/accept', { body: { serviceKey } })),
+  /** Plans declaring an inferred service, or accepting one of its drafts. It writes nothing. */
+  fleetDeclare: (body: DeclareBody): Promise<DeclareAnswer> =>
+    unwrap(client.POST('/api/fleet/declare', { body })),
+  /** Signs a reviewed declaration plan, saves it as a draft or accepts a draft, by its intent digest. */
+  fleetDeclareAccept: (body: DeclareAcceptBody): Promise<DeclareAcceptAnswer> =>
+    unwrap(client.POST('/api/fleet/declare/accept', { body })),
   /** Lazily reads ONE document body belonging to exactly this revision. Kept off
    *  the entity detail so a revision page stays bounded. */
   fleetRevisionDocument: (key: string, path: string): Promise<ProductRevisionDocument> =>

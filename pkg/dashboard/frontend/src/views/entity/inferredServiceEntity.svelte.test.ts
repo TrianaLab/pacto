@@ -3,8 +3,13 @@
  * probes) with one mark per value, the calls with both empty states, and every path
  * behind one collapsed fold. No contract section appears.
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
+const { planFn } = vi.hoisted(() => ({ planFn: vi.fn() }));
+vi.mock('../../lib/api.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/api.ts')>();
+  return { ...actual, api: { fleetDeclare: (...a: unknown[]) => planFn(...a) } };
+});
 // @ts-expect-error — Svelte component has no declaration file
 import InferredServiceEntity from './InferredServiceEntity.svelte';
 
@@ -35,9 +40,9 @@ function inferredDetail(patch: Record<string, any> = {}): Record<string, any> {
   };
 }
 
-function render(detail: Record<string, unknown>) {
+function render(detail: Record<string, unknown>, more: Record<string, unknown> = {}) {
   const target = document.createElement('div'); document.body.appendChild(target);
-  const c = mount(InferredServiceEntity, { target, props: { detail } });
+  const c = mount(InferredServiceEntity, { target, props: { detail, ...more } });
   flushSync();
   cleanup = () => { unmount(c); target.remove(); };
   return target;
@@ -202,5 +207,47 @@ describe('InferredServiceEntity', () => {
     const t = render(withWorkload({ group: helm }));
     expect(t.querySelector('[data-testid="inferred-group"]')).not.toBeNull();
     expect(t.querySelector('[data-testid="inferred-repository"]')).toBeNull();
+  });
+
+  describe('Declare this service', () => {
+    const declare = { nextAction: { verb: 'declare', cli: 'pacto declare cart --namespace shop' } };
+    const ANSWER = { plan: { version: '0.1.0', deploy: 'none', ranges: [], signer: { class: 'agent', source: 'none' }, intentDigest: 'sha256:i', contract: { text: '' }, record: { text: '' } },
+      signing: { mode: 'none', reason: 'r' }, write: { available: false, reason: 'w' }, command: 'pacto declare cart' };
+
+    it('draws the fold only with the capability and a declare action, after the identity', () => {
+      planFn.mockReset();
+      expect(render(inferredDetail(declare)).querySelector('[data-testid="declare-panel"]')).toBeNull();
+      cleanup?.();
+      expect(render(inferredDetail(), { canDeclare: true }).querySelector('[data-testid="declare-panel"]')).toBeNull();
+      cleanup?.();
+      expect(render(inferredDetail({ nextAction: { verb: 'edit-contract', cli: 'pacto ci' } }), { canDeclare: true }).querySelector('[data-testid="declare-panel"]')).toBeNull();
+      cleanup?.();
+      const t = render(inferredDetail(declare), { canDeclare: true });
+      const fold = t.querySelector('[data-testid="declare-panel"]') as HTMLDetailsElement;
+      expect(fold.querySelector('summary')?.textContent).toContain('Declare this service');
+      expect(t.querySelector('[data-testid="inferred-identity"]')?.nextElementSibling).toBe(fold);
+      expect(t.querySelectorAll('[data-testid="declare-panel"]')).toHaveLength(1);
+    });
+
+    it('starts closed and asks for no plan until opened', async () => {
+      planFn.mockReset(); planFn.mockResolvedValue(ANSWER);
+      const t = render(inferredDetail(declare), { canDeclare: true });
+      const fold = t.querySelector('[data-testid="declare-panel"]') as HTMLDetailsElement;
+      expect(fold.open).toBe(false);
+      expect(planFn).not.toHaveBeenCalled();
+      fold.open = true;
+      fold.dispatchEvent(new Event('toggle'));
+      flushSync();
+      await vi.waitFor(() => expect(planFn).toHaveBeenCalledTimes(1));
+      expect(planFn.mock.calls[0][0]).toMatchObject({ serviceKey: 'k8s:shop%2FDeployment%2Fcart' });
+    });
+
+    it('opens with declare=1 and carries the signed intent to the panel', async () => {
+      planFn.mockReset(); planFn.mockResolvedValue(ANSWER);
+      const t = render(inferredDetail(declare), { canDeclare: true, declareQuery: { open: true, signed: 'sha256:i' } });
+      expect((t.querySelector('[data-testid="declare-panel"]') as HTMLDetailsElement).open).toBe(true);
+      await vi.waitFor(() => expect(planFn).toHaveBeenCalledTimes(1));
+      expect(planFn.mock.calls[0][0]).toMatchObject({ intentDigest: 'sha256:i' });
+    });
   });
 });

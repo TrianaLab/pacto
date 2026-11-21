@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader, productListState } from '../lib/productLoader.svelte.ts';
   import {
-    attentionCategoryLabel, ATTENTION_CATEGORIES, severityLabel, businessDomainLabel, attentionCause, nextActionWords,
+    attentionCategoryLabel, ATTENTION_CATEGORIES, severityLabel, businessDomainLabel, attentionCause,
   } from '../lib/entityLabels.ts';
   import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
   import { ownerKeyLabel, ownerKeyKind } from '../lib/owners.ts';
@@ -12,6 +12,7 @@
   import EntityCombobox from '../components/EntityCombobox.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityLink from '../components/EntityLink.svelte';
+  import NextActionLink from '../components/NextActionLink.svelte';
   import SeverityBadge from '../components/SeverityBadge.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
@@ -352,8 +353,8 @@
           {#if showNext(i) || it.nextAction}
             <div class="attn-side">
               {#if showNext(i)}<span class="attn-next"><span class="attn-next-k">Next</span>{it.nextStep}</span>{/if}
-              <!-- Words only: every navigable or delivery affordance for it is #472's slot. -->
-              {#if it.nextAction}<span class="attn-action">{nextActionWords(it.nextAction)}</span>{/if}
+              <!-- Words, except declare, which opens the inferred service's Declare panel. -->
+              {#if it.nextAction}<NextActionLink action={it.nextAction} subject={it.caller ?? it.entity} cls="attn-action" />{/if}
             </div>
           {/if}
         </li>

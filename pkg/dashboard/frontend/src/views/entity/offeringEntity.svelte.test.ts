@@ -377,6 +377,26 @@ describe('offering page', () => {
     done();
   });
 
+  it('links only an uncontracted row with an inferred service to its Declare panel', async () => {
+    const pa = provider('postgresql').service;
+    const ghost = ref('service', 'default/k8s:shop/Deployment/legacy-billing', 'legacy-billing', { declaration: 'inferred' });
+    const declare = { verb: 'declare', cli: 'pacto declare legacy-billing --namespace shop' };
+    const { target, done } = await render(detail({
+      observedConsumers: preview([
+        { caller: 'k8s:shop/Deployment/legacy-billing', consumer: ghost, provider: pa, provenance: 'observed', uncontracted: true, nextAction: declare },
+        { caller: 'k8s:shop/Deployment/batch', provider: pa, provenance: 'observed', uncontracted: true, nextAction: declare },
+        { caller: 'billing-v2', provider: pa, provenance: 'observed', uncontracted: true, nextAction: { verb: 'edit-contract', cli: 'pacto ci' } },
+      ]),
+    }));
+    const rows = Array.from(target.querySelectorAll('[data-testid="observed-consumer"]'));
+    const links = rows.map((r) => r.querySelector('[data-testid="next-action-link"]'));
+    expect(links[0]?.getAttribute('href')).toBe('#/fleet/services/default%2Fk8s%3Ashop%2FDeployment%2Flegacy-billing?declare=1');
+    expect(links[1]).toBeNull();
+    expect(links[2]).toBeNull();
+    expect(text(rows[2])).not.toContain('pacto ci');
+    done();
+  });
+
   it('links an uncontracted caller to the inferred service behind it and keeps its uncontracted mark', async () => {
     const pa = provider('postgresql').service;
     const ghost = ref('service', 'default/k8s:shop/Deployment/legacy-billing', 'legacy-billing', { declaration: 'inferred' });

@@ -34,7 +34,8 @@
   // canonical key, knowledge caveat and contextual actions. The kind-specific rich
   // body is delegated to the per-kind component.
   // miraURL: Mira's address, only for a caller whose permissions hide nothing.
-  let { kind = '', entityKey = '', refreshTick = 0, deliveryState = 'unknown', miraURL = '', correlation = '', changesQuery = {} } = $props();
+  // canDeclare and declareQuery reach the inferred service page's Declare panel.
+  let { kind = '', entityKey = '', refreshTick = 0, deliveryState = 'unknown', miraURL = '', correlation = '', changesQuery = {}, canDeclare = false, declareQuery = {} } = $props();
 
   // Four lifecycle events, three behaviours -- the distinction this page used to lack.
   //
@@ -222,7 +223,7 @@
            this body, not the page: without a boundary it left the skeleton up for ever. -->
       <svelte:boundary>
         {#if detail.service && detail.entity?.declaration === 'inferred'}
-          <InferredServiceEntity {detail} />
+          <InferredServiceEntity {detail} {canDeclare} {declareQuery} />
         {:else if detail.service}
           <ServiceEntity {detail} {deliveryState} {refreshTick} {miraURL} {changesQuery} />
         {:else if detail.revision}
