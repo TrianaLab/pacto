@@ -3855,6 +3855,49 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        "Fleet.MatchCounts": {
+            /**
+             * Format: int64
+             * @description Declared, and Pacto can see that it does not run or is not called
+             */
+            expectedOnly: number;
+            /**
+             * Format: int64
+             * @description Declared, and Pacto cannot tell whether it runs or is called
+             */
+            insufficient: number;
+            /**
+             * Format: int64
+             * @description Declared and observed
+             */
+            matched: number;
+            /**
+             * Format: int64
+             * @description Observed, and no contract declares it
+             */
+            observedOnly: number;
+        };
+        "Fleet.MatchTally": {
+            /**
+             * @description partial when a source the tally reads is partial or stale
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
+            /**
+             * Format: int64
+             * @description Services and dependencies Pacto can observe over all counted, rounded down; absent when none is counted
+             */
+            coverage?: number;
+            /** @description Service-to-service dependencies, by match state; a configuration reference and an edge inferred from configuration alone have none */
+            dependencies: components["schemas"]["Fleet.MatchCounts"];
+            /**
+             * Format: int64
+             * @description Matched services and dependencies over those Pacto can observe, rounded down; absent when Pacto observes none
+             */
+            percent?: number;
+            /** @description Services that are no golden path, by match state; an inferred service is observed-only */
+            services: components["schemas"]["Fleet.MatchCounts"];
+        };
         "Fleet.Meta": {
             /** Format: date-time */
             asOf: string;
@@ -4011,6 +4054,8 @@ export interface components {
             compliantTargets: number;
             coverage: components["schemas"]["Fleet.EvaluationCoverage"];
             /** Format: int64 */
+            crossEnvironmentCalls: number;
+            /** Format: int64 */
             degradedSources: number;
             /** Format: int64 */
             domains: number;
@@ -4052,6 +4097,7 @@ export interface components {
             knowledgeItems: number;
             /** Format: int64 */
             lifecycleConsumers: number;
+            match: components["schemas"]["Fleet.MatchTally"];
             /** Format: int64 */
             nonCompliantTargets: number;
             /** Format: int64 */
@@ -5846,7 +5892,7 @@ export interface components {
             /** @description The inferred service of an uncontracted caller, when Pacto sees its workload */
             caller?: components["schemas"]["ProductRef"];
             /** @enum {string} */
-            category: "non-compliant" | "invalid" | "health" | "provisioning" | "unknown" | "stale" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "readiness" | "knowledge" | "unowned";
+            category: "non-compliant" | "invalid" | "cross-environment" | "health" | "provisioning" | "unknown" | "stale" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "readiness" | "knowledge" | "unowned";
             code: string;
             entity: components["schemas"]["ProductRef"];
             label: string;
@@ -7301,14 +7347,28 @@ export interface components {
         };
         "Runrecord.Coverage": {
             completeness: string;
+            contracts?: components["schemas"]["Runrecord.CoverageContracts"];
             knowledge?: components["schemas"]["Runrecord.CoverageKnowledge"];
             links: components["schemas"]["Runrecord.CoverageLinks"];
+            match?: components["schemas"]["Runrecord.CoverageMatch"];
             /** Format: int64 */
             services: number;
             /** Format: date-time */
             snapshotAsOf: string;
             /** Format: int64 */
             uncontracted: number;
+        };
+        "Runrecord.CoverageContracts": {
+            /** Format: int64 */
+            fullyDescribed: number;
+            /** Format: int64 */
+            judged: number;
+            /** Format: int64 */
+            percentComplete?: number;
+            /** Format: int64 */
+            services: number;
+            /** Format: int64 */
+            unknown: number;
         };
         "Runrecord.CoverageKnowledge": {
             /** Format: int64 */
@@ -7331,6 +7391,24 @@ export interface components {
             inferred: number;
             /** Format: int64 */
             unresolved: number;
+        };
+        "Runrecord.CoverageMatch": {
+            /** Format: int64 */
+            dependenciesExpectedOnly: number;
+            /** Format: int64 */
+            dependenciesInsufficient: number;
+            /** Format: int64 */
+            dependenciesMatched: number;
+            /** Format: int64 */
+            dependenciesObservedOnly: number;
+            /** Format: int64 */
+            servicesExpectedOnly: number;
+            /** Format: int64 */
+            servicesInsufficient: number;
+            /** Format: int64 */
+            servicesMatched: number;
+            /** Format: int64 */
+            servicesObservedOnly: number;
         };
         "Runrecord.Gate": {
             reason?: string;

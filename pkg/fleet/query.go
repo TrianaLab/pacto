@@ -1298,6 +1298,8 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 		// Nor does any flag select health or knowledge alone, for the same reason.
 		categoryHealth:    false,
 		categoryKnowledge: false,
+		// Nor cross-environment calls.
+		categoryCrossEnvironment: false,
 	}
 	// No category selected means every category: an empty query from the CLI, an
 	// MCP client or the dashboard asks "what needs attention", never "nothing".

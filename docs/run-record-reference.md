@@ -203,6 +203,21 @@ actor, approver, note, message, citation or correlation id.
 | `coverage.knowledge.withGaps` | integer | with `knowledge` | services with at least one knowledge gap | none |
 | `coverage.knowledge.unknown` | integer | with `knowledge` | services whose knowledge Pacto cannot judge | none |
 | `coverage.knowledge.notDeployed` | integer | with `knowledge` | services with gaps that run nowhere; unknown services are never counted here. The observed services are `knowledge.services` minus `knowledge.unknown` minus `knowledge.notDeployed`, with unknown services shown beside them | none |
+| `coverage.match` | object | when the snapshot carried a match tally | services and dependencies by how what is declared compares with what is observed; absent means unknown, never 0 | none |
+| `coverage.match.servicesMatched` | integer | with `match` | services that are declared and run where Pacto can see | none |
+| `coverage.match.servicesExpectedOnly` | integer | with `match` | services that are declared and run nowhere Pacto can see, counted only when Pacto can see every place | none |
+| `coverage.match.servicesObservedOnly` | integer | with `match` | inferred services: observed, and no contract declares them | none |
+| `coverage.match.servicesInsufficient` | integer | with `match` | services Pacto cannot tell run, never counted as matched | none |
+| `coverage.match.dependenciesMatched` | integer | with `match` | declared dependencies Pacto observed being called | none |
+| `coverage.match.dependenciesExpectedOnly` | integer | with `match` | declared dependencies an observation source did not see being called | none |
+| `coverage.match.dependenciesObservedOnly` | integer | with `match` | calls Pacto observed that no contract declares | none |
+| `coverage.match.dependenciesInsufficient` | integer | with `match` | declared dependencies no observation source can judge | none |
+| `coverage.contracts` | object | when the snapshot carried a contract completeness figure | absent means unknown, never 0 | none |
+| `coverage.contracts.services` | integer | with `contracts` | services the figure counts: `judged` + `unknown` | none |
+| `coverage.contracts.judged` | integer | with `contracts` | services whose contract completeness Pacto can judge | none |
+| `coverage.contracts.unknown` | integer | with `contracts` | services whose contract Pacto cannot read, never counted as complete | none |
+| `coverage.contracts.fullyDescribed` | integer | with `contracts` | judged services whose contract declares every section that applies to them | none |
+| `coverage.contracts.percentComplete` | integer | when a service is judged | mean contract completeness over the judged services, 0 to 100 | none |
 | `coverage.links` | object | always | operational targets by how they link to a contract | none |
 | `coverage.links.exact` | integer | always | targets linked exactly | none |
 | `coverage.links.inferred` | integer | always | targets linked by inference | none |

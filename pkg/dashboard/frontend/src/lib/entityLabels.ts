@@ -193,7 +193,7 @@ export function provenanceIsImplied(difference: string | undefined, provenance: 
 // dimension of triage (declared contract preparedness), not a separate workspace,
 // so this list is also the Overview's set of entry points into the triage view.
 export const ATTENTION_CATEGORIES = [
-  'non-compliant', 'invalid', 'health', 'provisioning', 'unknown', 'stale', 'unresolved', 'out-of-range', 'lifecycle', 'undeclared', 'golden-path', 'readiness', 'knowledge', 'unowned',
+  'non-compliant', 'invalid', 'cross-environment', 'health', 'provisioning', 'unknown', 'stale', 'unresolved', 'out-of-range', 'lifecycle', 'undeclared', 'golden-path', 'readiness', 'knowledge', 'unowned',
 ] as const;
 
 export function attentionCategoryLabel(c: string | undefined): string {
@@ -202,6 +202,7 @@ export function attentionCategoryLabel(c: string | undefined): string {
     case 'unknown': return 'Compliance unknown';
     case 'stale': return 'Stale evidence';
     case 'invalid': return 'Invalid contract';
+    case 'cross-environment': return 'Call across environments';
     case 'health': return 'Health check failing';
     case 'provisioning': return 'Resource provisioning';
     case 'readiness': return 'Readiness gate';
@@ -235,6 +236,8 @@ const ATTENTION_CAUSES: Record<string, string> = {
   NOT_DEPLOYED: 'No source reports an operational target of this service',
   UNVERIFIED_CAPABILITY: 'An extension capability no evaluator checks',
   INFERRED_PROVIDER: 'A dependency range points at an inferred contract, so Pacto never checks it',
+  CROSS_ENVIRONMENT_CALL: 'A workload in one environment calls a workload in another',
+  CROSS_ENVIRONMENT_PREVIEW_CALL: 'A workload calls a workload in a preview environment',
 };
 /** attentionCause words an attention item's code, or returns the code itself. */
 export function attentionCause(code: string | undefined): string {

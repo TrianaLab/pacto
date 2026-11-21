@@ -41,6 +41,8 @@ declare no owner; a service whose contract Pacto cannot read counts in
 | `knowledge` | `described`, `withGaps`, `unknown` | Partitions `services`. A service with two gaps counts in two kinds and once in `withGaps` |
 | `knowledge.gaps` | `noSummary`, `noDomain`, `noInterfaceDocs`, `noReadiness`, `notDeployed`, `unverifiedCapability` | Services per gap kind. `notDeployed` counts only when every source reporting targets is complete |
 | `knowledgeItems` | | How many `knowledge` attention items the gaps and recent takeovers raise; the count on the overview tile |
+| `match` | `services`, `dependencies`, each `matched` · `expectedOnly` · `observedOnly` · `insufficient`; `percent`, `coverage`, `completeness` | How far what the contracts declare is from what runs. `percent` is matched over what Pacto can observe and `coverage` is what Pacto can observe over everything counted; both are absent when their base is 0. An inferred service and a runtime call no contract declares are `observedOnly`; a stale or quarantined target is never proof a service runs |
+| `crossEnvironmentCalls` | | How many `cross-environment` attention items there are; the count on the overview tile |
 | `coverage` | `evaluated`, `required`, `reporting`, `notReporting` | Assertions summed over the targets that report coverage; `notReporting` counts targets whose source reported none |
 | `staleCompliantTargets` | | Of `compliantTargets`, how many rest on stale evidence |
 
@@ -81,6 +83,8 @@ sidebar badge counts only items above `info`.
 |----------|------|----------|
 | `non-compliant` | `NON_COMPLIANT` | error |
 | `invalid` | `INVALID_CONTRACT` | error |
+| `cross-environment` | `CROSS_ENVIRONMENT_CALL`, a workload in one environment calls a workload in another; a warning when last seen outside the recent window | error |
+| `cross-environment` | `CROSS_ENVIRONMENT_PREVIEW_CALL`, the callee's environment is a preview | warning |
 | `health` | `HEALTH_FAILING`, a target whose own health check is failing | warning |
 | `provisioning` | `PROVISIONING_FAILED`, a provider reports a resource Failed | error |
 | `provisioning` | `PROVISIONING_STALE`, the last report about the current revision is stale | warning |

@@ -707,8 +707,14 @@ type OverviewSummary struct {
 	// bounded to overviewScopeLimit. Domains counts the named domains only.
 	ByDomain []DomainTally `json:"byDomain"`
 	Domains  int           `json:"domains"`
-	// lifecycleSeverity grades the lifecycle tile like its worst item.
-	lifecycleSeverity string
+	// Match is how far what the services declare is from what runs.
+	Match MatchTally `json:"match"`
+	// CrossEnvironmentCalls is how many `cross-environment` attention items
+	// there are: observed calls from one environment into another.
+	CrossEnvironmentCalls int `json:"crossEnvironmentCalls"`
+	// lifecycleSeverity grades the lifecycle tile like its worst item, and
+	// crossEnvironmentSeverity the cross-environment tile.
+	lifecycleSeverity, crossEnvironmentSeverity string
 }
 
 // DomainTally counts the services of one business domain, the targets they run
@@ -961,11 +967,13 @@ func (q *Query) Overview() *Overview {
 	q.tallyDomains(sum)
 
 	sum.LifecycleConsumers, sum.lifecycleSeverity = q.lifecycleTally()
+	sum.Match = q.Match()
 	// The lead tile and the attention preview read ONE collection, so the tile
 	// counts exactly the services of the list it opens. The preview carries the
 	// TRUE matched total (al.Total), not the 10-item page size.
 	items := q.collectAttention()
 	sum.ServicesNeedingAttention = q.servicesNeedingAttention(items)
+	sum.CrossEnvironmentCalls, sum.crossEnvironmentSeverity = crossEnvironmentTally(items)
 	al := q.attentionList(items, AttentionFilter{Limit: overviewAttentionLimit})
 	ov.Attention = attentionPreviewFromList(al)
 	// The recent-evidence preview carries the TRUE recent count (== sum.RecentEvidence),
@@ -1085,6 +1093,7 @@ func entryPoints(sum *OverviewSummary, items int) []EntryPoint {
 		// One tile for both kinds of undeclared item, so it opens a list of exactly
 		// Count rows; graded like its most severe item.
 		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships + sum.UncontractedCallers, View: EntryPointAttention, Category: categoryUndeclared, Severity: undeclaredSeverity(sum)},
+		{Label: "Calls across environments", Count: sum.CrossEnvironmentCalls, View: EntryPointAttention, Category: categoryCrossEnvironment, Severity: sum.crossEnvironmentSeverity},
 		{Label: "Gaps in what the contracts say", Count: sum.KnowledgeItems, View: EntryPointAttention, Category: categoryKnowledge, Severity: severityInfo},
 		{Label: "Services with no declared owner", Count: sum.Ownership.Unowned, View: EntryPointAttention, Category: categoryUnowned, Severity: severityInfo},
 		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, View: EntryPointSources, Category: SourceHealthIncomplete, Severity: severityWarning},
@@ -1118,7 +1127,7 @@ type AttentionItem struct {
 	// finding severity).
 	Severity string `json:"severity" enum:"error,warning,info"`
 	Code     string `json:"code"`
-	Category string `json:"category" enum:"non-compliant,invalid,health,provisioning,unknown,stale,unresolved,out-of-range,lifecycle,undeclared,golden-path,readiness,knowledge,unowned"`
+	Category string `json:"category" enum:"non-compliant,invalid,cross-environment,health,provisioning,unknown,stale,unresolved,out-of-range,lifecycle,undeclared,golden-path,readiness,knowledge,unowned"`
 	Summary  string `json:"summary"`
 	Reason   string `json:"reason"`
 	Source   string `json:"source,omitempty"`
@@ -1297,7 +1306,7 @@ type AttentionCategoryCount struct {
 
 // attentionCategoryOrder is the canonical display order of the triage
 // categories, worst first. It mirrors the AttentionItem.Category enum.
-var attentionCategoryOrder = []string{"non-compliant", "invalid", "health", "provisioning", "unknown", "stale", "unresolved", "out-of-range", "lifecycle", "undeclared", "golden-path", "readiness", "knowledge", "unowned"}
+var attentionCategoryOrder = []string{"non-compliant", "invalid", "cross-environment", "health", "provisioning", "unknown", "stale", "unresolved", "out-of-range", "lifecycle", "undeclared", "golden-path", "readiness", "knowledge", "unowned"}
 
 // AttentionCategoriesList returns the canonical display order of the triage
 // categories, worst first, as a fresh copy the caller may modify.
@@ -1342,6 +1351,7 @@ func (q *Query) collectAttention() []AttentionItem {
 	items = append(items, q.inferredProviderAttention()...)
 	items = append(items, q.unownedAttention()...)
 	items = append(items, q.undeclaredAttention()...)
+	items = append(items, q.crossEnvironmentAttention()...)
 	items = append(items, q.deployedTemplateAttention()...)
 	return slices.DeleteFunc(items, func(it AttentionItem) bool { return q.goldenPath(ServiceKey(it.Service)) })
 }

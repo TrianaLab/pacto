@@ -146,7 +146,7 @@
   // filter link so the chart is a triage control, not a picture. Unknown compliance is
   // the neutral hatch, never warn: an open question is not a warning (SPEC 2.2).
   const CATEGORY_TONE = {
-    'non-compliant': 'err', invalid: 'err', health: 'warn', provisioning: 'warn', unknown: 'neutral', stale: 'warn',
+    'non-compliant': 'err', invalid: 'err', 'cross-environment': 'err', health: 'warn', provisioning: 'warn', unknown: 'neutral', stale: 'warn',
     unresolved: 'warn', 'out-of-range': 'warn', lifecycle: 'warn', undeclared: 'warn', 'golden-path': 'warn', readiness: 'info', knowledge: 'info', unowned: 'info',
   };
   const categoryBars = $derived((list?.categories ?? []).map((b) => ({

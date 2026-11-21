@@ -145,3 +145,65 @@ func TestExpectedID(t *testing.T) {
 		t.Fatal("a coverage record with no body falls back to the run id")
 	}
 }
+
+// coverageWithMatch is the fixture with a match tally and a contract
+// completeness figure.
+func coverageWithMatch() Record {
+	r := coverageFixture()
+	r.Coverage.Match = &CoverageMatch{ServicesMatched: 7, ServicesExpectedOnly: 1, ServicesObservedOnly: 2, ServicesInsufficient: 2,
+		DependenciesMatched: 9, DependenciesExpectedOnly: 3, DependenciesObservedOnly: 1, DependenciesInsufficient: 4}
+	r.Coverage.Contracts = &CoverageContracts{Services: 12, Judged: 10, Unknown: 2, FullyDescribed: 4, PercentComplete: new(72)}
+	return r
+}
+
+func TestCoverageRecordCarriesMatchAndContracts(t *testing.T) {
+	r := coverageWithMatch()
+	out, err := Encode(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{`"servicesMatched":7`, `"dependenciesInsufficient":4`, `"fullyDescribed":4`, `"percentComplete":72`} {
+		if !strings.Contains(string(out), key) {
+			t.Errorf("record misses %s: %s", key, out)
+		}
+	}
+	back, err := Parse(out)
+	if err != nil || *back.Coverage.Match != *r.Coverage.Match || *back.Coverage.Contracts.PercentComplete != 72 || back.Coverage.Contracts.Judged != 10 {
+		t.Fatalf("round trip %+v (%v)", back.Coverage, err)
+	}
+}
+
+func TestCoverageRecordRejectsNegativeCounter(t *testing.T) {
+	for name, mutate := range map[string]func(*Coverage){
+		"match":           func(c *Coverage) { c.Match.DependenciesObservedOnly = -1 },
+		"contracts":       func(c *Coverage) { c.Contracts.FullyDescribed = -1 },
+		"percent above":   func(c *Coverage) { c.Contracts.PercentComplete = new(101) },
+		"percent below":   func(c *Coverage) { c.Contracts.PercentComplete = new(-1) },
+		"contracts total": func(c *Coverage) { c.Contracts.Services = -3 },
+	} {
+		r := coverageWithMatch()
+		mutate(r.Coverage)
+		if _, err := Encode(r); err == nil {
+			t.Errorf("%s: encoded", name)
+		}
+	}
+	r := coverageWithMatch()
+	r.Coverage.Contracts.PercentComplete = nil
+	if _, err := Encode(r); err != nil {
+		t.Errorf("no judged service: %v", err)
+	}
+}
+
+func TestCoverageNilMatchIsUnknown(t *testing.T) {
+	out, err := Encode(coverageFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), `"match"`) || strings.Contains(string(out), `"contracts"`) {
+		t.Fatalf("a missing tally is encoded: %s", out)
+	}
+	back, err := Parse(out)
+	if err != nil || back.Coverage.Match != nil || back.Coverage.Contracts != nil {
+		t.Fatalf("a missing tally came back as %+v (%v)", back.Coverage, err)
+	}
+}

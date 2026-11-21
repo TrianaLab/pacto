@@ -452,7 +452,7 @@ describe('FleetAttentionView — every category and its cause', () => {
     const { target, component } = mountView({});
     await vi.waitFor(() => expect(target.querySelector('select[aria-label="Filter by category"]')).toBeTruthy());
     const opts = Array.from(target.querySelectorAll('select[aria-label="Filter by category"] option')).map((o) => (o as HTMLOptionElement).value).filter(Boolean);
-    expect(opts).toEqual(['non-compliant', 'invalid', 'health', 'provisioning', 'unknown', 'stale', 'unresolved', 'out-of-range', 'lifecycle', 'undeclared', 'golden-path', 'readiness', 'knowledge', 'unowned']);
+    expect(opts).toEqual(['non-compliant', 'invalid', 'cross-environment', 'health', 'provisioning', 'unknown', 'stale', 'unresolved', 'out-of-range', 'lifecycle', 'undeclared', 'golden-path', 'readiness', 'knowledge', 'unowned']);
     unmount(component); document.body.removeChild(target);
   });
 
