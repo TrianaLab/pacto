@@ -92,19 +92,28 @@ func (s *JaegerSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 			live.Status = fleet.SourcePartial
 		}
 	}
-	row := detect.EdgeSourceRow(s.res, s.entry, s.id, live)
+	return edgeCollection(s.res, s.entry, s.id, live, s.live, "Jaeger", edges), nil
+}
+
+// edgeCollection is the collection of a live edge source over entry e of
+// res: its one row, the edges it read, advisory and undeclared-only, and a
+// read with complete coverage (an available row) recorded in le under name.
+// The source state is never unavailable: that would drop the row, which says
+// why instead.
+func edgeCollection(res detect.Result, e detect.Entry, id string, live detect.LiveState, le *LiveEdges, name string, edges []fleet.ObservedEdge) *fleet.Collection {
+	row := detect.EdgeSourceRow(res, e, id, live)
 	if row.Status == fleet.SourceAvailable {
-		s.live.markComplete("Jaeger", edges)
+		le.markComplete(name, edges)
 	}
 	state := row.Status
 	if state == fleet.SourceUnavailable {
-		// An unavailable source would drop its row; the row says why instead.
 		state = fleet.SourcePartial
 	}
+	at := live.ReadAt
 	return &fleet.Collection{
 		Advisory: true, Observed: edges, ObservedUndeclaredOnly: true, Providers: []fleet.Provider{row},
 		State: &fleet.SourceState{Status: state, ObservedAt: &at},
-	}, nil
+	}
 }
 
 // candidates is how many Jaeger query Services the entry names.

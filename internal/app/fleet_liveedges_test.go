@@ -21,12 +21,17 @@ import (
 // name.
 func jaegerDetection(t *testing.T) string {
 	t.Helper()
-	b, err := json.Marshal(detect.Result{SchemaVersion: detect.SchemaVersion, AsOf: detectedNow, Entries: []detect.Entry{
-		{Kind: "cloud", Value: "kind", Completeness: detect.Complete},
-		{Kind: "jaeger", Value: "Jaeger", Evidence: "query API on port 16686", Completeness: detect.Complete,
+	return writeDetected(t,
+		detect.Entry{Kind: "cloud", Value: "kind", Completeness: detect.Complete},
+		detect.Entry{Kind: "jaeger", Value: "Jaeger", Evidence: "query API on port 16686", Completeness: detect.Complete,
 			Objects:  []detect.Object{{Kind: "Service", Namespace: "observability", Name: "jaeger-query"}},
-			Endpoint: "http://jaeger-query.observability.invalid.svc:16686"},
-	}})
+			Endpoint: "http://jaeger-query.observability.invalid.svc:16686"})
+}
+
+// writeDetected writes a detection holding entries and returns its path.
+func writeDetected(t *testing.T, entries ...detect.Entry) string {
+	t.Helper()
+	b, err := json.Marshal(detect.Result{SchemaVersion: detect.SchemaVersion, AsOf: detectedNow, Entries: entries})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,5 +150,47 @@ func TestTraceSourceMakesNoSnapshotPartial(t *testing.T) {
 	i := slices.IndexFunc(snap.Sources, func(s fleet.SourceState) bool { return s.ID == "detected-jaeger" })
 	if i < 0 || snap.Sources[i].Status != fleet.SourcePartial || !snap.Sources[i].Advisory || snap.Completeness == fleet.CompletenessPartial {
 		t.Fatalf("sources %+v, completeness %s", snap.Sources, snap.Completeness)
+	}
+}
+
+// TestServiceGraphTakesTempoOnDashboard: on the dashboard a detected Tempo is
+// the row of the service-graph source and the Collector stays a detection
+// row; a Tempo with no Prometheus is partial and says why.
+func TestServiceGraphTakesTempoOnDashboard(t *testing.T) {
+	path := writeDetected(t,
+		detect.Entry{Kind: "otel-collector", Value: "OpenTelemetry Collector", Completeness: detect.Complete},
+		detect.Entry{Kind: "tempo", Value: "Tempo", Completeness: detect.Complete})
+	snap := liveFleet(t, FleetOptions{Detected: path, LiveEdges: fleetsrc.NewLiveEdges(time.Now)})
+	if got := rowsOf(snap, "detection"); !slices.Equal(got, []string{"otel-collector"}) {
+		t.Fatalf("detection rows = %v", got)
+	}
+	i := slices.IndexFunc(snap.Providers, func(p fleet.Provider) bool { return p.Source == "detected-service-graph" })
+	if i < 0 || snap.Providers[i].ID != "tempo" || snap.Providers[i].Name != "Service graph in Prometheus" || snap.Providers[i].Status != fleet.SourcePartial {
+		t.Fatalf("providers = %+v", snap.Providers)
+	}
+}
+
+// TestServiceGraphFromCollectorLeavesItsEntry: with no Tempo, a Collector
+// entry with a Prometheus Endpoint is read through the service graph without
+// being taken; a configured source holding the id, or no Endpoint, builds none.
+func TestServiceGraphFromCollectorLeavesItsEntry(t *testing.T) {
+	col := detect.Entry{Kind: "otel-collector", Completeness: detect.Complete, Endpoint: "http://prometheus.monitoring.svc:9090"}
+	res := detect.Result{Entries: []detect.Entry{col}}
+	opts := FleetOptions{LiveEdges: fleetsrc.NewLiveEdges(time.Now)}
+	svc := detectedService(t)
+	if got := svc.liveEdgeSources(res, nil, true, opts); len(got) != 1 || got[0].ID() != "detected-service-graph" {
+		t.Fatalf("sources = %+v", got)
+	}
+	if got := svc.liveEdgeSources(res, nil, false, opts); len(got) != 0 {
+		t.Fatalf("graph not free: %+v", got)
+	}
+	res.Entries[0].Endpoint = ""
+	if got := svc.liveEdgeSources(res, nil, true, opts); len(got) != 0 {
+		t.Fatalf("no endpoint: %+v", got)
+	}
+	tempo := detect.Entry{Kind: "tempo", Completeness: detect.Complete}
+	res.Entries = []detect.Entry{col, tempo}
+	if got := svc.liveEdgeSources(res, []detect.Entry{tempo}, true, opts); len(got) != 1 {
+		t.Fatalf("tempo and collector built %d sources", len(got))
 	}
 }
