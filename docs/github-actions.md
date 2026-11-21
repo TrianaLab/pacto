@@ -17,14 +17,17 @@ commands in jobs you write.
 ```
 
 The `uses:` line pins a pacto-actions commit, with the release in the
-comment, the form Dependabot rewrites when it bumps the pin. See
+comment, the form Dependabot rewrites when it bumps the pin. The caller runs
+once per workflow run: it plans every service under `path`, and a second call
+in the same run, such as a matrix over folders, collides on its artifact
+names. See
 [Put it in your repository](ci.md) for what the plan shows.
 
 ## Jobs and permissions
 
 | Job | Runs when | Runs | Permissions |
 | --- | --- | --- | --- |
-| `plan` | a pull request | `pacto ci`, then the job summary and one annotation per changed service | `contents: read`, `packages: read` |
+| `plan` | a pull request | `pacto ci`, then the job summary and one annotation per service that does not read as unchanged | `contents: read`, `packages: read` |
 | `publish` | a push to the default branch, with `publish` on | `pacto ci --publish`, one run per repository at a time | `contents: read`, `packages: write`, `id-token: write` |
 | `comment` | a pull request from the same repository, with `comment` on | posts or updates one plan comment | `pull-requests: write` |
 
@@ -44,12 +47,12 @@ installation never holds it.
 | --- | --- | --- |
 | `path` | `.` | root `pacto ci` walks for `pacto.yaml` files |
 | `registry` | empty | registry the services publish to, such as `ghcr.io/acme`; empty resolves it from the platform |
-| `pacto-version` | empty | Pacto release to run; empty runs the release this pacto-actions release pins and checks by sha256; `latest` runs the newest release unpinned |
+| `pacto-version` | empty | Pacto release to run; empty runs the release this pacto-actions release pins and checks by sha256; `latest` runs the newest release unpinned; a release without `pacto ci` stops the job with an error naming this input |
 | `pacto-artifact` | empty | name of an artifact of the same run holding a static linux `pacto`, used instead of the download |
 | `publish` | `true` | publish on a push to the default branch |
 | `comment` | `false` | post the plan as one sticky comment on pull requests from the same repository |
 | `fail-on` | `blocked` | `blocked` fails the plan job on exit `1`; `unverified` also fails it on exit `2` |
-| `transparency-log` | `true` | with `sign-key`, record the signatures in the transparency log |
+| `transparency-log` | `true` | with `sign-key`, record the signatures in the transparency log; keyless signing always records them |
 
 ## Secrets and outputs
 
@@ -67,8 +70,10 @@ The workflow outputs `gate` (`clear`, `blocked` or `unverified`) and
 
 ## Annotations
 
-The plan job annotates each changed service on its `pacto.yaml`: an error when
-it is blocked, a warning when it is unverified and a notice when it is clear.
+The plan job annotates each service that does not read as unchanged on its
+`pacto.yaml`: an error when it is blocked, a warning when it is unverified and
+a notice when it is clear. A service Pacto could not compare, such as one with
+no registry to read, is annotated too.
 GitHub shows at most 10 annotations of each level per step; the job summary
 lists every service.
 
@@ -78,9 +83,9 @@ The composite action `TrianaLab/pacto-actions@<sha>` takes a `command`:
 
 | Command | Runs |
 | --- | --- |
-| `setup` | installs `pacto`, pinned by version and sha256 |
-| `ci` | `pacto ci`, with `gate` and `exit-code` outputs and the `fail-on` input |
-| `publish` | `pacto ci --publish`; the job needs `id-token: write` for keyless signing |
+| `setup` | installs `pacto`, pinned by version and sha256; its `version` input names another release |
+| `ci` | `pacto ci`, with `gate` and `exit-code` outputs and the `fail-on` input; `gate` is empty when Pacto could not plan |
+| `publish` | `pacto ci --publish`, keyless (the job needs `id-token: write`) or as `publish.sign` declares |
 | `impact`, `validate`, `diff`, `doc` | the Pacto command of that name |
 
 A service that builds with ko, Jib or buildpacks runs `command: setup`, its

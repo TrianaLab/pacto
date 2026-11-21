@@ -61,7 +61,8 @@ component to the `include` list:
 
 `pacto-plan` runs in the `test` stage on merge request pipelines and keeps
 the plan as the `pacto plan` artifact. `pacto-publish` runs in the `deploy`
-stage on the default branch with an ID token for keyless signing. The
+stage on the default branch with an ID token for keyless signing; it builds
+with a Docker-in-Docker service, so its runner must allow privileged jobs. The
 `stage-plan` and `stage-publish` inputs name other stages. A self-managed
 instance that blocks `raw.githubusercontent.com` copies `templates/pacto.yml`
 from pacto-actions into a project and includes it from there.

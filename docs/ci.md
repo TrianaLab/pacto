@@ -136,7 +136,8 @@ It exits with that row's code. `--output-format json` prints the plan as JSON.
 directory, which a pull request can change.
 
 - On GitHub Actions the plan is also added to the job summary, and each
-  changed service gets an annotation on its `pacto.yaml`.
+  service that does not read as unchanged gets an annotation on its
+  `pacto.yaml`.
 - On GitLab CI it is written to `pacto-plan.md`, which the component keeps
   as the `pacto plan` merge request artifact.
 

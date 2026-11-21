@@ -8,7 +8,7 @@ working tree: five lines in `.github/workflows/pacto.yml` that call the
 pacto-actions v2 reusable workflow pinned by commit, or one `include` entry
 in `.gitlab-ci.yml` for its GitLab component. It never commits, pushes or
 needs Git write access. The plan job runs `pacto ci` on pull requests,
-annotates each changed service and writes the job summary; the publish job,
+annotates each service that does not read as unchanged and writes the job summary; the publish job,
 the only one with `id-token: write`, runs `pacto ci --publish` on the default
 branch, one run per repository at a time. Pacto's own CI runs the caller over
 a demo monorepo with empty contracts.
