@@ -35,6 +35,7 @@ const (
 	istioGroup         = "networking.istio.io"
 	linkerdGroup       = "linkerd.io"
 	linkerdPolicyGroup = "policy.linkerd.io"
+	ciliumGroup        = "cilium.io"
 )
 
 // meshKind is what tells one mesh apart: how it is found, which of its
@@ -89,7 +90,9 @@ var systemNamespaces = []string{"kube-system", "kube-public", "kube-node-lease"}
 // MeshSource is an advisory [fleet.Source] over the calls a service mesh
 // already records: it finds the mesh through API discovery, finds the
 // Prometheus that records it among the cluster's Services and reads one
-// bounded query. It only lists Services and Namespaces and never writes. Its
+// bounded query; for Cilium it reads Hubble Relay's status and a bounded
+// window of its flows. It only lists Services and Namespaces and never
+// writes. Its
 // silence never counts against a declared call (ObservedUndeclaredOnly), and
 // every gap makes its row partial, never empty-complete.
 type MeshSource struct {
@@ -101,6 +104,8 @@ type MeshSource struct {
 	now        func() time.Time
 	http       *http.Client
 	baseURL    func(namespace, name string, port int32) string
+	// dial opens the connection to Hubble Relay at addr.
+	dial func(ctx context.Context, addr string) (net.Conn, error)
 
 	mu       sync.Mutex
 	last     *fleet.Collection
@@ -121,6 +126,9 @@ func NewMeshSource(id string, cluster *fleet.Cluster, client k8sclient.K8sClient
 		}},
 		baseURL: func(namespace, name string, port int32) string {
 			return "http://" + name + "." + namespace + ".svc:" + strconv.Itoa(int(port))
+		},
+		dial: func(ctx context.Context, addr string) (net.Conn, error) {
+			return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp", addr)
 		},
 	}
 }
@@ -166,24 +174,31 @@ func cloneCollection(c *fleet.Collection) *fleet.Collection {
 }
 
 // read is one real read: discovery, then the Services and Namespaces in
-// scope, then each mesh found.
+// scope, then each mesh found and Hubble.
 func (s *MeshSource) read(ctx context.Context) *fleet.Collection {
 	now := s.now()
 	col := &fleet.Collection{Advisory: true, Cluster: s.cluster}
-	served, err := s.client.PreferredVersions(ctx, istioGroup, linkerdGroup, linkerdPolicyGroup)
+	served, err := s.client.PreferredVersions(ctx, istioGroup, linkerdGroup, linkerdPolicyGroup, ciliumGroup)
 	if err != nil {
 		col.State = &fleet.SourceState{Status: fleet.SourceUnavailable, Error: &fleet.SourceError{
 			Code: "DISCOVERY_FAILED", Message: "API discovery failed, so Pacto cannot tell whether a service mesh runs"}}
 		return col
 	}
 	status := fleet.SourceAvailable
-	if kinds, groups := meshesServed(served); len(kinds) > 0 {
+	kinds, groups := meshesServed(served)
+	_, hubble := served[ciliumGroup]
+	if len(kinds) > 0 || hubble {
 		cl := s.listCluster(ctx)
 		cl.controlPlanes = controlPlaneNamespaces(cl.services, kinds)
-		for i, k := range kinds {
-			row, edges := s.meshRead(ctx, cl, now, k, groups[i])
+		add := func(row fleet.Provider, edges []fleet.ObservedEdge) {
 			col.Providers = append(col.Providers, row)
 			col.Observed = append(col.Observed, edges...)
+		}
+		for i, k := range kinds {
+			add(s.meshRead(ctx, cl, now, k, groups[i]))
+		}
+		if hubble {
+			add(s.hubbleRow(ctx, cl, now))
 		}
 		col.ObservedUndeclaredOnly = true
 		if slices.ContainsFunc(col.Providers, func(p fleet.Provider) bool { return p.Status != fleet.SourceAvailable }) {

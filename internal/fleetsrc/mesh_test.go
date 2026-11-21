@@ -673,7 +673,7 @@ func TestMeshReadsOnlyDiscoveryServicesNamespaces(t *testing.T) {
 			t.Errorf("listed %v", gvr)
 		}
 	}
-	if len(f.gvrs) != 2 || !slices.Equal(f.discovered, []string{istioGroup, "linkerd.io", "policy.linkerd.io"}) {
+	if len(f.gvrs) != 2 || !slices.Equal(f.discovered, []string{istioGroup, "linkerd.io", "policy.linkerd.io", "cilium.io"}) {
 		t.Errorf("listed %v discovered %v", f.gvrs, f.discovered)
 	}
 }
@@ -855,7 +855,7 @@ func TestMeshIstioAndLinkerdTwoRows(t *testing.T) {
 		!slices.ContainsFunc(col.Observed, func(e fleet.ObservedEdge) bool { return e.From == "k8s:shop//cart" }) {
 		t.Errorf("observed %+v", col.Observed)
 	}
-	if !slices.Equal(f.discovered, []string{istioGroup, "linkerd.io", "policy.linkerd.io"}) {
+	if !slices.Equal(f.discovered, []string{istioGroup, "linkerd.io", "policy.linkerd.io", "cilium.io"}) {
 		t.Errorf("discovered %v", f.discovered)
 	}
 }

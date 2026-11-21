@@ -81,6 +81,8 @@ const (
 	ProviderIstio = "istio"
 	// ProviderLinkerd is the row of the Linkerd mesh a mesh source found.
 	ProviderLinkerd = "linkerd"
+	// ProviderHubble is the row of the Cilium Hubble a mesh source found.
+	ProviderHubble = "hubble"
 	// UseObservedEdges: Pacto reads observed calls from what the row read.
 	UseObservedEdges = "observed-edges"
 	// LimitationMeshTelemetryUnread: a mesh was found but the calls it
