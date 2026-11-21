@@ -27,7 +27,8 @@ import (
 const MaxStatusEgress = 32
 
 // observeEgress lists the systems outside the cluster the node agent saw the target's pods call inside the
-// caller window, one entry per identity, and how far that list can be trusted. It returns nothing only when
+// caller window, one entry per identity, with those an Istio egress gateway's access log saw them call when a
+// person turned gateway logs on (WithGatewayLogs), and how far that list can be trusted. It returns nothing only when
 // kernel evidence is off: a worker with no Service calls out too. Every read it cannot make and every call it
 // cannot name lowers the coverage: an external Pacto cannot see is one it cannot rule out.
 func (o *Observer) observeEgress(ctx context.Context, input CollectInput, now time.Time) ([]unversioned.EgressStatus, *unversioned.EgressCoverage) {
@@ -62,7 +63,15 @@ func (o *Observer) observeEgress(ctx context.Context, input CollectInput, now ti
 	}
 	named, unnamed := runtimefacts.ExternalEgress(in.nodes, refs, internal, o.podCIDRs(ctx), now.Add(-freshness))
 	unnamedCoverage(&cov.CallerCoverage, unnamed)
-	out := classifyEgress(named)
+	out := classifyEgress(named, unversioned.EgressSourceKernel)
+	if o.gatewayLogs != nil {
+		gw := o.gatewayLogs.read(ctx, freshness)
+		for _, r := range gw.reasons {
+			partialCoverage(&cov.CallerCoverage, r)
+		}
+		out = append(out, gatewayEgress(gw.lines, targets)...)
+		slices.SortStableFunc(out, func(a, b unversioned.EgressStatus) int { return cmp.Compare(a.Identity, b.Identity) })
+	}
 	if len(out) > MaxStatusEgress {
 		out = out[:MaxStatusEgress]
 		partialCoverage(&cov.CallerCoverage, "truncated")
@@ -163,10 +172,10 @@ func (o *Observer) podCIDRs(ctx context.Context) func(netip.Addr) bool {
 	}
 }
 
-// classifyEgress names each host with the operator's catalog, drops a host that names nothing (a single
+// classifyEgress names each host source saw with the operator's catalog, drops a host that names nothing (a single
 // label, a private suffix) and keeps one entry per identity, the first host in sort order as its example,
 // sorted by identity.
-func classifyEgress(named []runtimefacts.Egress) []unversioned.EgressStatus {
+func classifyEgress(named []runtimefacts.Egress, source string) []unversioned.EgressStatus {
 	cat := externalcatalog.Default()
 	seen := map[string]bool{}
 	var out []unversioned.EgressStatus
@@ -181,7 +190,7 @@ func classifyEgress(named []runtimefacts.Egress) []unversioned.EgressStatus {
 		}
 		seen[string(m.Identity)] = true
 		out = append(out, unversioned.EgressStatus{
-			Identity: string(m.Identity), Class: m.Class, Host: hosts[0].Host, Port: e.Port, Source: unversioned.EgressSourceKernel,
+			Identity: string(m.Identity), Class: m.Class, Host: hosts[0].Host, Port: e.Port, Source: source,
 		})
 	}
 	slices.SortFunc(out, func(a, b unversioned.EgressStatus) int { return cmp.Compare(a.Identity, b.Identity) })

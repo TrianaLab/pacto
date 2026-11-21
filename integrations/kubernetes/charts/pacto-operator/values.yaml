@@ -178,6 +178,13 @@ controller:
     # you control: anyone who can create a listed namespace can call your
     # services from a host-network pod there unseen.
     callerIgnoreNamespaces: [kube-flannel, calico-system, tigera-operator]
+  # -- Istio egress gateway access logs. auto finds Istio egress gateways and
+  # proposes the value; on reads their access log tail, which adds pods/log
+  # get; "off" stops both. on reads the istio-proxy log of the pods labelled
+  # istio=egressgateway in istio-system and grants pods/log get and pods list
+  # in a Role there, never in a ClusterRole. Quote "off": a bare off is YAML
+  # false, and false keeps meaning auto; true means on.
+  egressGatewayLogs: auto
 
 leaderElection:
   # -- Enable leader election for HA deployments

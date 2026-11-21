@@ -233,6 +233,10 @@ Controller arguments derived from values
 {{- end }}
 {{- end }}
 {{- end }}
+{{- /* Absent on an upgrade that reuses 6.x values: no argument, the operator's default is auto. */}}
+{{- if not (kindIs "invalid" .Values.controller.egressGatewayLogs) }}
+- --egress-gateway-logs={{ include "pacto-operator.egressGatewayLogs" . }}
+{{- end }}
 {{- /* Always passed: a disabled agent is pruned from its namespace, and kernel evidence defaults to it. */}}
 - --node-agent-namespace={{ include "pacto-operator.nodeAgentNamespace" . }}
 {{- with .Values.nodeAgent }}
@@ -432,6 +436,21 @@ so it may never be the release namespace.
 {{- fail "nodeAgent.namespace must not be the release namespace: the node agent namespace is labelled privileged for Pod Security" }}
 {{- end }}
 {{- .Values.nodeAgent.namespace }}
+{{- end }}
+
+{{/*
+The egress gateway logs mode: on, off, or auto for anything else (auto, false,
+absent). Values files parse as YAML 1.1, so a bare on arrives as true and a bare
+off as false: true reads on, and false keeps meaning auto (the kernelEvidence
+precedent).
+*/}}
+{{- define "pacto-operator.egressGatewayLogs" -}}
+{{- $v := .Values.controller.egressGatewayLogs }}
+{{- $s := ternary "" (toString $v) (kindIs "invalid" $v) }}
+{{- if or (eq $s "on") (eq $s "true") }}on
+{{- else if eq $s "off" }}off
+{{- else }}auto
+{{- end }}
 {{- end }}
 
 {{/*

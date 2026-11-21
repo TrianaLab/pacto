@@ -96,6 +96,10 @@ type PactoReconciler struct {
 	// CiliumPolicies turns on the Cilium toFQDNs reader of status.externals; main sets it when the
 	// cluster serves cilium.io/v2 CiliumNetworkPolicy at startup.
 	CiliumPolicies bool
+	// GatewayLogs names calls through an Istio egress gateway from its access log; main builds it once, only
+	// when a person set controller.egressGatewayLogs=on, because every reconcile builds a new Observer and
+	// the reader's cache must outlive it. Nil reads no gateway.
+	GatewayLogs *observer.GatewayLogs
 	// Owners judges a running bundle's owner change (OwnerVerified); nil sets no such condition.
 	Owners *OwnerCheck
 }
@@ -331,7 +335,7 @@ func invalidAt(path string, err error) *pactov1alpha1.ValidationResult {
 // (steps 9 to 15), filling the runtime half of the status.
 func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alpha1.Pacto, ec *effectiveContract) {
 	effectiveContract := ec.effective.Contract
-	obs := observer.New(r.Client).WithReader(r.APIReader)
+	obs := observer.New(r.Client).WithReader(r.APIReader).WithGatewayLogs(r.GatewayLogs)
 
 	// 10. Collect runtime evidence (spec section 9.1).
 	probing, metricsObs, readErr := r.observeSettings(ctx, pacto.Namespace)

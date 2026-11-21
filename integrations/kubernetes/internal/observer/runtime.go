@@ -199,6 +199,8 @@ type Observer struct {
 	// run is the memo of the Collect in progress (or the last one), nil before the first. Dimensions
 	// called on their own work without it: every read then goes to the client.
 	run *collectRun
+	// gatewayLogs names calls through an Istio egress gateway (WithGatewayLogs); nil reads none.
+	gatewayLogs *GatewayLogs
 }
 
 // KernelCoverage is how far the node agent's view of the target's pods could be trusted in the last

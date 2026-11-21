@@ -11,14 +11,15 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
-// rowNames are the row names of the kinds Pacto detects today; another kind
+// rowNames are the row names of every kind the operator's detector can emit
+// (TestDetectEntriesFitMaxEntries holds them to [MaxEntries]); another kind
 // is title-cased.
 var rowNames = map[string]string{
 	"registry": "Registry", "cloud": "Cloud", "sign-in": "Sign-in",
 	"exposure": "Exposure", "metrics": "Metrics", "nodes": "Nodes",
 	"pull-secret": "Pull Secret", "otel-collector": "OTel Collector", "tempo": "Tempo",
 	"jaeger": "Jaeger", "datadog": "Datadog", "traces": "Traces",
-	"istio-egress": "Istio egress", "cilium-fqdn": "Cilium FQDN",
+	"istio-egress": "Istio egress", "cilium-fqdn": "Cilium FQDN", "egress-gateway": "Egress gateway",
 }
 
 // usedFor says, per kind, what a person may do with the proposal. Nothing is
@@ -39,6 +40,7 @@ var usedFor = map[string]string{
 	"traces":         observedEdges,
 	"istio-egress":   egressSentence,
 	"cilium-fqdn":    egressSentence,
+	"egress-gateway": egressSentence,
 }
 
 // egressSentence is what an egress reader's row is used for.
@@ -46,7 +48,7 @@ const egressSentence = "reads calls leaving the cluster; nothing is turned on"
 
 // EgressKinds are the kinds whose rows read calls leaving the cluster: their
 // UsedFor carries [fleet.UseExternalEgress] after the sentence.
-var EgressKinds = []string{"istio-egress", "cilium-fqdn"}
+var EgressKinds = []string{"istio-egress", "cilium-fqdn", "egress-gateway"}
 
 // observedEdges is what a trace-backend row is used for.
 const observedEdges = "observed edges, read by the dashboard; nothing is turned on"

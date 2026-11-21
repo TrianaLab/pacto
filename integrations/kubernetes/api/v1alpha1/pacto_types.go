@@ -1041,7 +1041,8 @@ type EgressStatus struct {
 
 // Egress sources.
 const (
-	EgressSourceKernel = "ebpf"
+	EgressSourceKernel     = "ebpf"
+	EgressSourceGatewayLog = "egress-gateway-log"
 )
 
 // EgressCoverage is how far observedEgress can be trusted, with the nodes the

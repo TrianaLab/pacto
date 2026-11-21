@@ -34,6 +34,8 @@ import (
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -131,6 +133,7 @@ type options struct {
 	enableKernelEvidence              bool
 	kernelEvidenceNamespace           string
 	kernelEvidenceStaleness           time.Duration
+	egressGatewayLogs                 string
 	callerIgnoreNamespaces            []string
 
 	enableNodeAgent          bool
@@ -306,6 +309,20 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.DurationVar(&o.kernelEvidenceStaleness, "kernel-evidence-staleness", 0,
 		"How old a node's heartbeat (its Lease renewal, or the observation's lastPublished without a Lease) may be "+
 			"before its evidence reads stale. 0 uses three times the publish interval the node agent reports.")
+	o.egressGatewayLogs = detect.GatewayLogsAuto
+	fs.Func("egress-gateway-logs",
+		"Istio egress gateway access logs, written `=mode`: auto, on or off. on reads the access log tail of the "+
+			"pods labelled istio=egressgateway in istio-system to name the calls that left through them (the chart "+
+			"then grants pods/log get there); auto reads nothing and proposes on in the detected providers; off "+
+			"reads nothing and proposes nothing. auto by default.",
+		func(v string) error {
+			switch v {
+			case detect.GatewayLogsAuto, detect.GatewayLogsOn, detect.GatewayLogsOff:
+				o.egressGatewayLogs = v
+				return nil
+			}
+			return fmt.Errorf("want auto, on or off, got %q", v)
+		})
 	fs.Func("caller-coverage-ignore-namespace",
 		"Namespace whose host-network pods are taken not to call workloads, so they leave a Service's caller "+
 			"coverage complete (repeatable). kube-system and the other cluster namespaces and the node agent's "+
@@ -477,6 +494,7 @@ func main() {
 		Scoped:                            len(o.namespaces) > 0,
 		ServiceEntries:                    servesServiceEntries(mgr),
 		CiliumPolicies:                    servesCiliumPolicies(mgr),
+		GatewayLogs:                       gatewayLogs(o.egressGatewayLogs, mgr.GetConfig()),
 		Owners:                            owners,
 	}
 	if err := pactoReconciler.SetupWithManager(mgr); err != nil {
@@ -531,6 +549,20 @@ func servesServiceEntries(mgr ctrl.Manager) bool {
 func servesCiliumPolicies(mgr ctrl.Manager) bool {
 	_, err := mgr.GetRESTMapper().RESTMapping(schema.GroupKind{Group: "cilium.io", Kind: "CiliumNetworkPolicy"}, "v2")
 	return err == nil
+}
+
+// gatewayLogs is the Istio egress gateway log reader when a person set the mode on, nil otherwise: auto and
+// off read no log.
+func gatewayLogs(mode string, cfg *rest.Config) *observer.GatewayLogs {
+	if mode != detect.GatewayLogsOn {
+		return nil
+	}
+	c, err := corev1client.NewForConfig(cfg)
+	if err != nil {
+		setupLog.Error(err, "Failed to build the egress gateway log reader")
+		os.Exit(1)
+	}
+	return observer.NewGatewayLogs(c)
 }
 
 func newManager(o *options) (ctrl.Manager, error) {
@@ -671,7 +703,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc authn.Keyc
 	// as a file.
 	if d := detection.ForOperator(os.Getenv("OPERATOR_DEPLOYMENT_NAME"), namespace, o.namespaces,
 		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig()),
-		inst, lastPush.Load); d != nil {
+		inst, lastPush.Load, o.egressGatewayLogs); d != nil {
 		if err := mgr.Add(d); err != nil {
 			return fmt.Errorf("failed to add detection: %w", err)
 		}

@@ -90,7 +90,7 @@ func TestCoverageReasonsCoverEgressReasons(t *testing.T) {
 	for _, slug := range []string{"no-agent-data", "agent-data-unreadable", "pods-unreadable", "pactos-unreadable", "services-unreadable",
 		"node-without-agent", "stale-node", "degraded-node", "collection-failed", "shared-netns", "no-running-pods",
 		"dns-unavailable", "ambiguous-peers", "unnamed-public", "unnamed-private-peers", "truncated",
-		"gateway-log-format", "gateway-access-log-off", "not-evaluated", "cilium-unreadable", "fqdn-pattern-unbounded"} {
+		"gateway-log-format", "gateway-access-log-off", "gateway-log-unreadable", "not-evaluated", "cilium-unreadable", "fqdn-pattern-unbounded"} {
 		if coverageReasons[slug] == "" {
 			t.Errorf("no sentence for %s", slug)
 		}

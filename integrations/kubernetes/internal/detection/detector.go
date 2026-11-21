@@ -84,6 +84,8 @@ type Detector struct {
 	// attempt, nil before the first one.
 	Installation *detect.Installation
 	LastPush     func() *detect.PushResult
+	// GatewayLogs is the controller.egressGatewayLogs mode: auto, on or off.
+	GatewayLogs string
 
 	owner       *metav1ac.OwnerReferenceApplyConfiguration
 	warnedOwner bool
@@ -162,6 +164,13 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 
 	istioServed, istioErr := d.Served(istioGV)
 	res.Entries = append(res.Entries, detect.IstioEgress(istioServed, classed(istioErr)))
+	if istioErr == nil && istioServed {
+		// No Istio, no egress gateway: nothing is listed and no entry is written.
+		gateways, err := d.egressGateways(ctx)
+		if gw := detect.EgressGateways(gateways, d.GatewayLogs, classed(err)); gw.Kind != "" {
+			res.Entries = append(res.Entries, gw)
+		}
+	}
 	ciliumServed, ciliumErr := d.Served(ciliumGV)
 	res.Entries = append(res.Entries, detect.CiliumFQDN(ciliumServed, classed(ciliumErr)))
 
@@ -434,6 +443,24 @@ func (d *Detector) services(ctx context.Context) ([]detect.Service, error) {
 				}
 			}
 			out = append(out, svc)
+		}
+	}
+	return out, nil
+}
+
+// egressGateways are the Istio egress gateway pods: labelled istio=egressgateway in istio-system and owned
+// by a Deployment there, the pods the controller trusts with gateway logs on. A labelled pod anywhere else is
+// never listed. One unpaged List: a cluster runs a handful of gateway replicas.
+func (d *Detector) egressGateways(ctx context.Context) ([]detect.Object, error) {
+	l := &corev1.PodList{}
+	if err := d.Reader.List(ctx, l, client.InNamespace(detect.GatewayNamespace), client.MatchingLabels{"istio": "egressgateway"}); err != nil {
+		return nil, err
+	}
+	var out []detect.Object
+	for i := range l.Items {
+		p := &l.Items[i]
+		if o := metav1.GetControllerOf(p); o != nil && ownerObject(p, o).Kind == "Deployment" {
+			out = append(out, detect.Object{Kind: "Pod", Namespace: p.Namespace, Name: p.Name})
 		}
 	}
 	return out, nil

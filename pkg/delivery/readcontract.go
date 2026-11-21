@@ -436,6 +436,7 @@ var coverageReasons = map[string]string{
 	"unnamed-private-peers":    "the workload called a private address outside the cluster that the node agent cannot name",
 	"gateway-log-format":       "the egress gateway's access log is in a format the operator cannot read",
 	"gateway-access-log-off":   "the egress gateway writes no access log",
+	"gateway-log-unreadable":   "the operator could not read the egress gateway's access log",
 }
 
 // InitClusterCommand is the command a hold prints to draft a contract for an

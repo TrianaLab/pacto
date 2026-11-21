@@ -2579,6 +2579,7 @@ spec:
             - --metrics-secure=true
             - --enable-probing=auto
             - --enable-metrics-observation=auto
+            - --egress-gateway-logs=auto
             - --node-agent-namespace=pacto-node-agent
             - --enable-dashboard
             - --dashboard-cpu-request=50m

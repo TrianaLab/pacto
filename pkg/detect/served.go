@@ -64,6 +64,51 @@ func egressAPI(kind, crd, gv string, served bool, err error) Entry {
 	return e
 }
 
+// GatewayNamespace is the one namespace whose egress gateways are trusted:
+// Istio's install namespace. A tenant can label its own pod anywhere else.
+const GatewayNamespace = "istio-system"
+
+// Egress gateway log modes, the values of controller.egressGatewayLogs.
+const (
+	GatewayLogsAuto = "auto"
+	GatewayLogsOn   = "on"
+	GatewayLogsOff  = "off"
+)
+
+// EgressGateways says how the Istio egress gateways (pods labelled
+// istio=egressgateway in istio-system, each in Objects) are read in logs mode:
+// complete when on, partial with the helm command that turns it on when auto,
+// unknown when off. No gateway gives no entry (an empty Kind); a failed list
+// is unknown. The evidence only counts, so it names no namespace, and the
+// entry comes from a cluster-wide read.
+func EgressGateways(gateways []Object, mode string, err error) Entry {
+	const kind = "egress-gateway"
+	var e Entry
+	switch {
+	case err != nil:
+		e = UnknownEntry(kind, "listing the egress gateway pods failed: "+err.Error())
+	case len(gateways) == 0:
+		return Entry{}
+	default:
+		noun := "gateway"
+		if len(gateways) != 1 {
+			noun += "s"
+		}
+		e = Entry{Kind: kind, Evidence: fmt.Sprintf("%d Istio egress %s found; logs: %s", len(gateways), noun, mode),
+			Source: "pods labelled istio=egressgateway", Completeness: Complete, Objects: gateways[:min(len(gateways), MaxNamed)]}
+		switch mode {
+		case GatewayLogsOn:
+		case GatewayLogsOff:
+			e.Completeness, e.Reason = Unknown, "turned off by controller.egressGatewayLogs"
+		default:
+			e.Completeness, e.Reason = Partial, "needs pods/log"
+			e.Hint = "helm upgrade <release> <chart> --reuse-values --set controller.egressGatewayLogs=on"
+		}
+	}
+	e.Scope = fleet.ScopeCluster
+	return e
+}
+
 // SignIn is Dex when its API is served or a Service labelled for it exists
 // (dexServices as namespace/name). None found is partial: an identity
 // provider outside the cluster is not visible from here. watched names the

@@ -96,7 +96,7 @@ func newClient(funcs interceptor.Funcs, objs ...client.Object) client.WithWatch 
 func servedAll(string) (bool, error) { return true, nil }
 
 func newDetector(c client.WithWatch, served func(string) (bool, error), watched ...string) *Detector {
-	d := ForOperator(deploy, opNS, watched, "pacto-node-agent", kubecluster.Identity{ID: "cluster-uid", Name: "kind-pacto"}, c, c, served, nil, nil)
+	d := ForOperator(deploy, opNS, watched, "pacto-node-agent", kubecluster.Identity{ID: "cluster-uid", Name: "kind-pacto"}, c, c, served, nil, nil, detect.GatewayLogsAuto)
 	d.Now = func() time.Time { return now }
 	return d
 }
@@ -357,6 +357,9 @@ func pagedList(pages *int, items int, fill func(l client.ObjectList, i int)) int
 		case *corev1.PodList, *corev1.NodeList:
 			o := &client.ListOptions{}
 			o.ApplyOptions(opts)
+			if o.Namespace == detect.GatewayNamespace { // the egress gateway list, one unpaged read
+				return c.List(ctx, l, opts...)
+			}
 			i := 0
 			if o.Continue != "" {
 				i = len(o.Continue)
@@ -571,7 +574,7 @@ func TestDetectorCopiesLastPush(t *testing.T) {
 	c := newClient(interceptor.Funcs{}, clusterObjects()...)
 	last := &detect.PushResult{At: now, Ref: "ghcr.io/acme/pacto-targets:cluster-cluster-uid"}
 	inst := &detect.Installation{Registry: "ghcr.io/acme"}
-	d := ForOperator(deploy, opNS, nil, "", kubecluster.Identity{ID: "cluster-uid"}, c, c, servedAll, inst, func() *detect.PushResult { return last })
+	d := ForOperator(deploy, opNS, nil, "", kubecluster.Identity{ID: "cluster-uid"}, c, c, servedAll, inst, func() *detect.PushResult { return last }, detect.GatewayLogsAuto)
 	d.Now = func() time.Time { return now }
 	_ = d.Sync(context.Background())
 	_, res := readResult(t, c)
@@ -623,5 +626,58 @@ func TestDetectorReportsCiliumFQDN(t *testing.T) {
 		if e := entry(t, res, "cilium-fqdn"); e.Completeness != c.want || e.Scope != fleet.ScopeCluster || strings.Contains(e.Reason, "10.0.0.1") {
 			t.Errorf("cilium-fqdn = %+v", e)
 		}
+	}
+}
+
+// egressGatewayPod is a running pod labelled istio=egressgateway in ns, owned by the istio-egressgateway
+// Deployment through its ReplicaSet.
+func egressGatewayPod(ns, name string) *corev1.Pod {
+	p := pod(ns, name, "istio-egressgateway-7d9f", "docker.io/istio/proxyv2:1.24.0")
+	p.Labels = map[string]string{"istio": "egressgateway", appsv1.DefaultDeploymentUniqueLabelKey: "7d9f"}
+	return p
+}
+
+func TestDetectorReportsEgressGateway(t *testing.T) {
+	bare := egressGatewayPod(detect.GatewayNamespace, "bare")
+	bare.OwnerReferences = nil
+	objs := append(clusterObjects(), egressGatewayPod(detect.GatewayNamespace, "istio-egressgateway-7d9f-a"), bare)
+	c := newClient(routesInterceptor(), objs...)
+	_ = newDetector(c, servedAll).Sync(context.Background())
+	_, res := readResult(t, c)
+	e := entry(t, res, "egress-gateway")
+	want := []detect.Object{{Kind: "Pod", Namespace: detect.GatewayNamespace, Name: "istio-egressgateway-7d9f-a"}}
+	if e.Completeness != detect.Partial || e.Evidence != "1 Istio egress gateway found; logs: auto" || !slices.Equal(e.Objects, want) ||
+		e.Scope != fleet.ScopeCluster || !strings.Contains(e.Hint, "controller.egressGatewayLogs=on") {
+		t.Errorf("egress-gateway = %+v", e)
+	}
+
+	// Without Istio nothing is listed and no entry is written.
+	c = newClient(routesInterceptor(), objs...)
+	_ = newDetector(c, func(gv string) (bool, error) { return gv != istioGV, nil }).Sync(context.Background())
+	if _, res := readResult(t, c); slices.ContainsFunc(res.Entries, func(e detect.Entry) bool { return e.Kind == "egress-gateway" }) {
+		t.Errorf("entries = %+v", res.Entries)
+	}
+
+	// A list the operator may not make is unknown, never "no gateway".
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "", errors.New("no"))
+	c = newClient(interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, l client.ObjectList, opts ...client.ListOption) error {
+		if lo := (&client.ListOptions{}).ApplyOptions(opts); lo.Namespace == detect.GatewayNamespace {
+			return forbidden
+		}
+		return c.List(ctx, l, opts...)
+	}}, objs...)
+	_ = newDetector(c, servedAll).Sync(context.Background())
+	_, res = readResult(t, c)
+	if e := entry(t, res, "egress-gateway"); e.Completeness != detect.Unknown || !strings.Contains(e.Reason, "Forbidden") {
+		t.Errorf("forbidden egress-gateway = %+v", e)
+	}
+}
+
+func TestDetectorIgnoresForeignEgressGatewayLabel(t *testing.T) {
+	// A tenant labels its own pod in shop: the detector never lists outside istio-system, so there is no gateway.
+	c := newClient(routesInterceptor(), append(clusterObjects(), egressGatewayPod("shop", "tenant"))...)
+	_ = newDetector(c, servedAll).Sync(context.Background())
+	if _, res := readResult(t, c); slices.ContainsFunc(res.Entries, func(e detect.Entry) bool { return e.Kind == "egress-gateway" }) {
+		t.Errorf("entries = %+v", res.Entries)
 	}
 }

@@ -15,6 +15,7 @@ templates:
   - templates/nodeagent-namespace.yaml
   - templates/watch-namespaces.yaml
   - templates/secret-grants.yaml
+  - templates/egress-gateway-logs-rbac.yaml
   - templates/delivery/rbac.yaml
   - templates/delivery/recorder.yaml
   - templates/delivery/identities.yaml
@@ -692,6 +693,10 @@ tests:
     template: templates/watch-namespaces.yaml
     asserts:
     - hasDocuments: {count: 0}
+  - it: 'default: every rule, roleRef and subject of egress-gateway-logs-rbac.yaml is pinned'
+    template: templates/egress-gateway-logs-rbac.yaml
+    asserts:
+    - hasDocuments: {count: 0}
   - it: 'default: every rule, roleRef and subject of secret-grants.yaml is pinned'
     template: templates/secret-grants.yaml
     asserts:
@@ -1085,6 +1090,11 @@ tests:
         value:
         - {kind: ServiceAccount, name: pacto-dashboard, namespace: pacto-operator-system}
       documentIndex: 7
+  - it: 'watchNamespaces: every rule, roleRef and subject of egress-gateway-logs-rbac.yaml is pinned'
+    template: templates/egress-gateway-logs-rbac.yaml
+    set: *id001
+    asserts:
+    - hasDocuments: {count: 0}
   - it: 'watchNamespaces: every rule, roleRef and subject of secret-grants.yaml is pinned'
     template: templates/secret-grants.yaml
     set: *id001
@@ -1482,6 +1492,11 @@ tests:
         value:
         - {kind: ServiceAccount, name: pacto-dashboard, namespace: pacto-operator-system}
       documentIndex: 7
+  - it: 'watchNamespaces with the release namespace: every rule, roleRef and subject of egress-gateway-logs-rbac.yaml is pinned'
+    template: templates/egress-gateway-logs-rbac.yaml
+    set: *id002
+    asserts:
+    - hasDocuments: {count: 0}
   - it: 'watchNamespaces with the release namespace: every rule, roleRef and subject of secret-grants.yaml is pinned'
     template: templates/secret-grants.yaml
     set: *id002
@@ -1746,6 +1761,11 @@ tests:
     - hasDocuments: {count: 0}
   - it: 'delivery: every rule, roleRef and subject of watch-namespaces.yaml is pinned'
     template: templates/watch-namespaces.yaml
+    set: *id003
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'delivery: every rule, roleRef and subject of egress-gateway-logs-rbac.yaml is pinned'
+    template: templates/egress-gateway-logs-rbac.yaml
     set: *id003
     asserts:
     - hasDocuments: {count: 0}
@@ -2463,6 +2483,11 @@ tests:
         value:
         - {kind: ServiceAccount, name: pacto-dashboard, namespace: pacto-operator-system}
       documentIndex: 7
+  - it: 'watchNamespaces with delivery: every rule, roleRef and subject of egress-gateway-logs-rbac.yaml is pinned'
+    template: templates/egress-gateway-logs-rbac.yaml
+    set: *id004
+    asserts:
+    - hasDocuments: {count: 0}
   - it: 'watchNamespaces with delivery: every rule, roleRef and subject of secret-grants.yaml is pinned'
     template: templates/secret-grants.yaml
     set: *id004
@@ -3054,6 +3079,11 @@ tests:
     set: *id005
     asserts:
     - hasDocuments: {count: 0}
+  - it: 'nodeAgent: every rule, roleRef and subject of egress-gateway-logs-rbac.yaml is pinned'
+    template: templates/egress-gateway-logs-rbac.yaml
+    set: *id005
+    asserts:
+    - hasDocuments: {count: 0}
   - it: 'nodeAgent: every rule, roleRef and subject of secret-grants.yaml is pinned'
     template: templates/secret-grants.yaml
     set: *id005
@@ -3320,6 +3350,11 @@ tests:
     - hasDocuments: {count: 0}
   - it: 'metrics observation: every rule, roleRef and subject of watch-namespaces.yaml is pinned'
     template: templates/watch-namespaces.yaml
+    set: *id006
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'metrics observation: every rule, roleRef and subject of egress-gateway-logs-rbac.yaml is pinned'
+    template: templates/egress-gateway-logs-rbac.yaml
     set: *id006
     asserts:
     - hasDocuments: {count: 0}
@@ -3824,6 +3859,13 @@ tests:
         value:
         - {kind: ServiceAccount, name: pacto-viewer, namespace: pacto-operator-system}
       documentIndex: 4
+  - it: 'registry with registryPullSecret: every rule, roleRef and subject of egress-gateway-logs-rbac.yaml is pinned'
+    template: templates/egress-gateway-logs-rbac.yaml
+    set:
+      registry: ghcr.io/acme
+      registryPullSecret: ci/regcred
+    asserts:
+    - hasDocuments: {count: 0}
   - it: 'registry with registryPullSecret: every rule, roleRef and subject of secret-grants.yaml is pinned'
     template: templates/secret-grants.yaml
     set:
@@ -4277,3 +4319,40 @@ tests:
         value:
         - {kind: ServiceAccount, name: pacto-dashboard, namespace: pacto-operator-system}
       documentIndex: 7
+  - it: 'egressGatewayLogs on: every rule, roleRef and subject of egress-gateway-logs-rbac.yaml is pinned'
+    template: templates/egress-gateway-logs-rbac.yaml
+    set:
+      controller.egressGatewayLogs: "on"
+    asserts:
+    - hasDocuments: {count: 2}
+    - equal: {path: kind, value: Role}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-egress-gateway-logs}
+      documentIndex: 0
+    - equal: {path: metadata.namespace, value: istio-system}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [pods]
+          verbs: [list]
+        - apiGroups: ['']
+          resources: [pods/log]
+          verbs: [get]
+      documentIndex: 0
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-egress-gateway-logs}
+      documentIndex: 1
+    - equal: {path: metadata.namespace, value: istio-system}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-operator-egress-gateway-logs}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+      documentIndex: 1
