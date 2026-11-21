@@ -10,8 +10,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/url"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -273,6 +276,22 @@ func (c *k8sGoClient) ListPage(ctx context.Context, gvr schema.GroupVersionResou
 	}
 	data, err := json.Marshal(list)
 	return data, list.GetContinue(), err
+}
+
+// ServiceProxyGet GETs path with query from port of the Service
+// namespace/name through the API server's service proxy, with the client's
+// own credentials, and returns the answer as a stream for the caller to
+// bound and close. A non-2xx answer is an API status error, so
+// apierrors.IsForbidden tells a refused proxy. The client's 5 s timeout bounds
+// the whole read. It is not on [K8sClient]: a client without it cannot proxy.
+func (c *k8sGoClient) ServiceProxyGet(ctx context.Context, namespace, name string, port int32, path string, query url.Values) (io.ReadCloser, error) {
+	req := c.discovery.RESTClient().Get().AbsPath("/api/v1/namespaces", namespace, "services", name+":"+strconv.Itoa(int(port)), "proxy", path)
+	for k, vs := range query {
+		for _, v := range vs {
+			req = req.Param(k, v)
+		}
+	}
+	return req.Stream(ctx)
 }
 
 func (c *k8sGoClient) ClusterIdentity(ctx context.Context, contextName string) (kubecluster.Identity, error) {

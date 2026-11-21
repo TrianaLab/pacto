@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -620,7 +621,7 @@ func failureRows(t *testing.T) []fleet.Provider {
 		p := newProm(t, h)
 		rows = append(rows, istioRow(t, collectMesh(t, meshSource(defaultMesh(true), nil, map[string]*promStub{"istio-system/prom-main": p}, nil))))
 	}
-	rows = append(rows, istioRow(t, collectMesh(t, meshSource(defaultMesh(true), nil, nil, nil))))
+	rows = append(rows, istioRow(t, collectMesh(t, meshSource(defaultMesh(true), nil, nil, nil))), proxyRow(t, forbiddenProxy))
 	hang := newProm(t, func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() })
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -881,4 +882,105 @@ func TestMeshLinkerdScopedAndCrossCluster(t *testing.T) {
 	if !strings.Contains(q, `{direction="outbound",namespace=~"linkerd-viz|shop",dst_namespace=~"linkerd-viz|shop"}`) {
 		t.Errorf("query %q", q)
 	}
+}
+
+// proxyFake is a client outside the cluster that proxies to Prometheus
+// through the API server with get.
+type proxyFake struct {
+	*meshFake
+	get   func(namespace, name string, port int32, path string, query url.Values) (io.ReadCloser, error)
+	asked []string
+}
+
+func (f *proxyFake) ServiceProxyGet(_ context.Context, namespace, name string, port int32, path string, query url.Values) (io.ReadCloser, error) {
+	f.asked = append(f.asked, fmt.Sprintf("%s/%s:%d%s", namespace, name, port, path))
+	return f.get(namespace, name, port, path, query)
+}
+
+func TestMeshPrometheusThroughAPIServerProxy(t *testing.T) {
+	envProxy := newProm(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(502) })
+	t.Setenv("HTTP_PROXY", envProxy.srv.URL)
+	t.Setenv("http_proxy", envProxy.srv.URL)
+	direct := newProm(t, answer(istioAnswer()))
+	f := &proxyFake{meshFake: defaultMesh(false), get: func(_, _ string, _ int32, _ string, q url.Values) (io.ReadCloser, error) {
+		if q.Get("time") != fmt.Sprint(meshNow.Unix()) || !strings.Contains(q.Get("query"), "istio_requests_total") {
+			t.Errorf("query %v", q)
+		}
+		return io.NopCloser(strings.NewReader(istioAnswer())), nil
+	}}
+	s := meshSource(f.meshFake, nil, map[string]*promStub{"istio-system/prom-main": direct}, nil)
+	s.client = f
+	col := collectMesh(t, s)
+	if len(col.Observed) != 2 || direct.count() != 0 || envProxy.count() != 0 || !slices.Equal(f.asked, []string{"istio-system/prom-main:9090/api/v1/query"}) {
+		t.Errorf("observed %+v direct %d env proxy %d asked %v", col.Observed, direct.count(), envProxy.count(), f.asked)
+	}
+	if row := istioRow(t, col); row.Status != fleet.SourceAvailable || len(row.Limitations) != 0 {
+		t.Errorf("row %+v", row)
+	}
+}
+
+// proxyRow is the Istio row of a read through a proxy answering get.
+func proxyRow(t *testing.T, get func(string, string, int32, string, url.Values) (io.ReadCloser, error)) fleet.Provider {
+	t.Helper()
+	f := &proxyFake{meshFake: defaultMesh(false), get: get}
+	s := meshSource(f.meshFake, nil, nil, nil)
+	s.client = f
+	return istioRow(t, collectMesh(t, s))
+}
+
+func forbiddenProxy(string, string, int32, string, url.Values) (io.ReadCloser, error) {
+	return nil, apierrors.NewForbidden(schema.GroupResource{Resource: "services/proxy"}, "prom-main", fmt.Errorf("user alice in istio-system"))
+}
+
+func TestMeshProxyForbiddenIsPartial(t *testing.T) {
+	row := proxyRow(t, forbiddenProxy)
+	if row.Status != fleet.SourcePartial || !hasMessage(row, fleet.LimitationMeshTelemetryUnread, "the Prometheus Pacto found is not reachable from here and you may not proxy to it") {
+		t.Errorf("row %+v", row)
+	}
+	assertNoServiceName(t, row)
+	big := proxyRow(t, func(string, string, int32, string, url.Values) (io.ReadCloser, error) {
+		return io.NopCloser(io.LimitReader(neverEnding('x'), maxPromBody+10)), nil
+	})
+	if !hasMessage(big, fleet.LimitationMeshTelemetryUnread, "the Prometheus Pacto found answered more than 16 MiB") {
+		t.Errorf("row %+v", big)
+	}
+}
+
+func TestMeshNoProxyUnreachableIsPartial(t *testing.T) {
+	s := meshSource(defaultMesh(false), nil, nil, nil)
+	row := istioRow(t, collectMesh(t, s))
+	if row.Status != fleet.SourcePartial || !hasMessage(row, fleet.LimitationMeshTelemetryUnread, "the Prometheus Pacto found is not reachable from here") {
+		t.Errorf("row %+v", row)
+	}
+	assertNoServiceName(t, row)
+	failed := proxyRow(t, func(string, string, int32, string, url.Values) (io.ReadCloser, error) {
+		return nil, fmt.Errorf("dial tcp 10.0.0.1:443: connection refused")
+	})
+	if !hasMessage(failed, fleet.LimitationMeshTelemetryUnread, "the Prometheus Pacto found is not reachable from here") {
+		t.Errorf("row %+v", failed)
+	}
+	assertNoServiceName(t, failed)
+}
+
+// assertNoServiceName fails when a text of row names a Service or namespace
+// of defaultMesh.
+func assertNoServiceName(t *testing.T, row fleet.Provider) {
+	t.Helper()
+	for _, text := range append(messages(row), row.Evidence) {
+		for _, name := range []string{"istio-system", "prom-main", "shop", "istiod", "idle", "10.0.0.1", "alice"} {
+			if strings.Contains(text, name) {
+				t.Errorf("%q names %q", text, name)
+			}
+		}
+	}
+}
+
+// neverEnding is an endless reader of one byte.
+type neverEnding byte
+
+func (b neverEnding) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = byte(b)
+	}
+	return len(p), nil
 }

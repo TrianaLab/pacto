@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -38,22 +40,29 @@ var (
 	errPromUnreachable = errors.New("prometheus unreachable")
 	errPromTooLarge    = errors.New("prometheus answer too large")
 	errPromUnreadable  = errors.New("prometheus answer unreadable")
+	errPromForbidden   = errors.New("prometheus proxy forbidden")
 )
+
+// serviceProxy is a client that reaches a Service through the API server's
+// service proxy with the caller's own credentials.
+type serviceProxy interface {
+	ServiceProxyGet(ctx context.Context, namespace, name string, port int32, path string, query url.Values) (io.ReadCloser, error)
+}
 
 // promStatusError is a Prometheus answer with a status other than 200.
 type promStatusError struct{ code int }
 
 func (e promStatusError) Error() string { return "prometheus answered " + strconv.Itoa(e.code) }
 
-// promQuery runs query at now against cand. Outside the cluster Prometheus
-// is not reachable: a laptop never resolves a .svc name.
+// promQuery runs query at now against cand. Outside the cluster it goes
+// through the API server's service proxy when the client has one: a laptop
+// never resolves a .svc name.
 func (s *MeshSource) promQuery(ctx context.Context, cand svcInfo, query string) ([]promSeries, error) {
+	q := url.Values{"query": {query}, "time": {strconv.FormatInt(s.now().Unix(), 10)}}
 	if !s.inCluster {
-		return nil, errPromUnreachable
+		return s.proxyQuery(ctx, cand, q)
 	}
-	u := s.baseURL(cand.Namespace, cand.Name, servicePort(cand)) + "/api/v1/query?" + url.Values{
-		"query": {query}, "time": {strconv.FormatInt(s.now().Unix(), 10)},
-	}.Encode()
+	u := s.baseURL(cand.Namespace, cand.Name, servicePort(cand)) + "/api/v1/query?" + q.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, errPromUnreachable
@@ -67,6 +76,23 @@ func (s *MeshSource) promQuery(ctx context.Context, cand svcInfo, query string) 
 		return nil, promStatusError{resp.StatusCode}
 	}
 	return readPromBody(resp.Body)
+}
+
+// proxyQuery reads the query q from cand through the client's service proxy.
+func (s *MeshSource) proxyQuery(ctx context.Context, cand svcInfo, q url.Values) ([]promSeries, error) {
+	p, ok := s.client.(serviceProxy)
+	if !ok {
+		return nil, errPromUnreachable
+	}
+	body, err := p.ServiceProxyGet(ctx, cand.Namespace, cand.Name, servicePort(cand), "/api/v1/query", q)
+	switch {
+	case apierrors.IsForbidden(err):
+		return nil, errPromForbidden
+	case err != nil:
+		return nil, err
+	}
+	defer func() { _ = body.Close() }()
+	return readPromBody(body)
 }
 
 // readPromBody decodes a Prometheus instant-vector answer of at most
@@ -140,6 +166,8 @@ func promErrorText(err error) string {
 		return "the Prometheus Pacto found timed out"
 	case errors.Is(err, errPromTooLarge):
 		return "the Prometheus Pacto found answered more than 16 MiB"
+	case errors.Is(err, errPromForbidden):
+		return "the Prometheus Pacto found is not reachable from here and you may not proxy to it"
 	case errors.Is(err, errPromUnreadable):
 		return "the Prometheus Pacto found answered with an unreadable body"
 	default:
