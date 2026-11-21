@@ -82,11 +82,6 @@ done
 SETS=(--set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$TAG" --set image.pullPolicy=Never
       --set fullnameOverride=pacto-operator --set controller.stabilizationWindow=5s)
 
-can_i() { # VERB RESOURCE AS [kubectl args...] — prints yes or no
-  local verb="$1" res="$2" as="$3"; shift 3
-  kubectl auth can-i "$verb" "$res" --as="$as" "$@" 2>/dev/null || true
-}
-
 # can_i_crd VERB GROUP RESOURCE AS — prints yes or no, in every namespace, for a
 # resource whose CRD may not be installed. kubectl auth can-i cannot ask that:
 # when discovery does not know the type it drops the group and asks about a
@@ -166,11 +161,6 @@ assert_detected() { # CLOUD_JQ — the ConfigMap exists, is the operator's and i
   pass "configmap/$DETECTED is the operator's and reads cloud $(cloud_entry)"
 }
 
-# The TokenReview grant is excluded by name: assert_tokenreview_grant checks it
-# exactly, and assert_release_gone's instance-label check still catches a leak.
-pacto_clusterroles() { kubectl get clusterrole,clusterrolebinding -o name | grep '/pacto' | grep -v -- '-dashboard-tokenreview$' || true; }
-count_pacto_clusterroles() { pacto_clusterroles | grep -c . || true; }
-
 assert_tokenreview_grant() { # NS — the release namespace whose dashboard it binds
   local tr
   tr="$(tokenreview "$1")"
@@ -180,18 +170,6 @@ assert_tokenreview_grant() { # NS — the release namespace whose dashboard it b
       .subjects == [{"kind":"ServiceAccount","name":"pacto-dashboard","namespace":$ns}]' >/dev/null \
     || fail "ClusterRoleBinding $tr binds more than pacto-dashboard in $1: $(kubectl get clusterrolebinding "$tr" -o jsonpath='{.subjects}')"
   pass "the only cluster-scoped grant left is create on tokenreviews for $1's pacto-dashboard"
-}
-
-assert_release_gone() { # RELEASE
-  local left
-  left="$(kubectl get role,rolebinding,clusterrole,clusterrolebinding -A -l "app.kubernetes.io/instance=$1" -o name)"
-  [ -z "$left" ] || fail "release $1 left RBAC behind: $left"
-  for kind in role rolebinding clusterrole clusterrolebinding; do
-    left="$(kubectl get "$kind" -A --field-selector metadata.name=pacto-dashboard -o name)"
-    [ -z "$left" ] || fail "a $kind named pacto-dashboard is left: $left"
-  done
-  [ "$(count_pacto_clusterroles)" = "0" ] || fail "ClusterRoles or bindings named pacto* are left: $(pacto_clusterroles)"
-  pass "release $1 left no Role, RoleBinding, ClusterRole or ClusterRoleBinding"
 }
 
 section "SCENARIO 1: the default install reads no Secret cluster-wide"
