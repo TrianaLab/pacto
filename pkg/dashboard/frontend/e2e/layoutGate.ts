@@ -2390,6 +2390,9 @@ export const ROUTES: Route[] = [
       await block.locator('.ifl-more > summary').click();
       await expect(block.locator('.ifl-more [data-testid="inferred-field"]').first()).toBeVisible();
       await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+      // The pointer stays where the last click was: once the page scrolls back, a help
+      // tip can sit under it and hover opens it. Park it in the corner.
+      await page.mouse.move(0, 0);
     },
   },
   {
@@ -2415,6 +2418,7 @@ export const ROUTES: Route[] = [
       await block.locator('summary').first().click();
       await expect(block).toContainText('Pacto could not read the inferred record');
       await page.evaluate(() => window.scrollTo(0, 0));
+      await page.mouse.move(0, 0); // as above: no help tip left open under the pointer
     },
   },
   {
