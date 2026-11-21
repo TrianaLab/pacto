@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/runrecord"
 	"github.com/trianalab/pacto/v4/pkg/runrecord/registry"
 )
@@ -72,12 +73,13 @@ type Emitter struct {
 }
 
 // New returns an emitter that publishes to repository ("<registry>/<repository>")
-// with kc, reaching the hosts in insecure over plain HTTP. It refuses a
-// repository it cannot parse or that names a tag or digest. The repository is
+// with kc, reaching the hosts in insecure over plain HTTP, and refuses every
+// write outside scope (nil writes anywhere). It refuses a repository it cannot
+// parse or that names a tag or digest. The repository is
 // opened once, so its token cache and Referrers API probe outlive a record;
 // kc is still asked on every token exchange.
-func New(repository string, kc authn.Keychain, insecure []string, clusterID, pactoVersion string) (*Emitter, error) {
-	repo, err := registry.Open(repository, kc, insecure)
+func New(repository string, kc authn.Keychain, insecure []string, scope *oci.PushScope, clusterID, pactoVersion string) (*Emitter, error) {
+	repo, err := registry.Open(repository, kc, insecure, scope)
 	if err != nil {
 		return nil, fmt.Errorf("stats repository %q: %w", repository, err)
 	}

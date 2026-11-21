@@ -173,15 +173,15 @@ dashboard:
 ```
 
 Each source is mounted **read-only** at `/var/lib/pacto/observation/<name>/` and
-read as exactly `<mount>/<file>`, with no directory scan and no writes. Give each
-source either `existingClaim` (real exports, written by some other workload) or
+read as exactly `<mount>/<file>`. Give each
+source either `existingClaim` (real exports) or
 `configMap` (small static exports), never both. `name` is the Data Source
 identity and must be unique across *every* source the dashboard assembles, so
 `local`, `catalog`, `target-state`, `evidence-http`, `oci` and `cache` are
 already taken, as is the Kubernetes source's identity: your current kube
 context name, or `k8s` when no context is set. A collision is refused, naming
-both claimants. Whoever owns the storage owns producing and rotating the
-exports: Pacto ships **no OTLP receiver**, so nothing listens on 4317 or 4318.
+both claimants. Pacto ships **no OTLP receiver**: the storage owner produces
+and rotates the exports.
 
 [Sources](../../operational-graph-reference.md#sources) lists every source the graph reads,
 and [Knowledge](../../operational-graph.md#knowledge) tells an unreadable source
@@ -190,6 +190,41 @@ from a stale one.
 ### The Evidence Server is off by default
 
 `evidence.enabled` is `false`. See [The Evidence Server](evidence-server.md).
+
+### Turn on the registry-backed features
+
+`--set registry=europe-docker.pkg.dev/acme/pacto` is the one trust decision.
+Delivery stays off until `delivery.enabled=true`.
+
+- **Snapshot:** the operator publishes the cluster's signed target snapshot to
+  `<registry>/pacto-targets` for CI, with the Evidence Server's accepted
+  targets when `evidence.enabled` is set.
+- **Advertisement:** the `pacto-operator-detected` ConfigMap names the
+  registry, the snapshot, index and inferred refs and the snapshot key.
+- **Pushes:** the operator pushes only to `pacto-targets` and
+  `pacto-inferred`, CI writes `pacto-index` and, with delivery on, the
+  recorder writes `pacto-streams`. Every other tag, delete and manifest push
+  is refused. Outside these repositories only referrers are written, by
+  digest onto an existing manifest, by the Evidence Server and the recorder.
+- **Read ACL:** pull on `pacto-targets` reads every namespace's Pacto status
+  and workload shape, so give that repository its own read ACL.
+- **Installation key:** the operator creates the Secret
+  `pacto-operator-installation-key` once. To rotate the key, delete the
+  Secret and run
+  `kubectl -n pacto-operator-system rollout restart deploy/pacto-operator`.
+  Until the restart the old key still signs. Every reader then updates its
+  trust entry from the new `snapshotKey`.
+- **Proposals:** Pacto proposes a registry and a pull Secret it saw running
+  pods use, in the upgrade notes and on Data sources, and sets neither.
+
+The operator reaches the registry with the pod's workload identity:
+
+| Registry | Credential |
+|---|---|
+| GAR or GCR | GKE workload identity on the operator ServiceAccount |
+| ECR | EKS IRSA or EKS Pod Identity |
+| ACR | Azure workload identity |
+| GHCR or other | `registryPullSecret: <namespace>/<name>`, with push on `<registry>/pacto-*` |
 
 ### Keep the delivery namespace to cluster admins
 

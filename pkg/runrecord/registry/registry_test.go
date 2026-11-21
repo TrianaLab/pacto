@@ -3,6 +3,7 @@ package registry
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -43,7 +44,7 @@ func serve(t *testing.T, wrap func(http.Handler) http.Handler) string {
 }
 
 func TestPublishNativeReferrers(t *testing.T) {
-	repo, err := Open(serve(t, nil), nil, nil)
+	repo, err := Open(serve(t, nil), nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +98,7 @@ func TestPublishTagFallback(t *testing.T) {
 	srv := httptest.NewServer(testutil.NewReferrersRegistry(testutil.ReferrersOptions{Unsupported: true}))
 	t.Cleanup(srv.Close)
 	path := strings.TrimPrefix(srv.URL, "http://") + "/acme/pacto-stats"
-	repo, _ := Open(path, nil, nil)
+	repo, _ := Open(path, nil, nil, nil)
 	ctx := t.Context()
 	desc, err := Publish(ctx, repo, record())
 	if err != nil {
@@ -108,7 +109,7 @@ func TestPublishTagFallback(t *testing.T) {
 	if err != nil || tagged.MediaType != ocispec.MediaTypeImageIndex {
 		t.Fatalf("referrers tag = %+v %v", tagged, err)
 	}
-	fresh, _ := Open(path, nil, nil)
+	fresh, _ := Open(path, nil, nil, nil)
 	var listed []ocispec.Descriptor
 	if err := fresh.Referrers(ctx, anchor, "", func(p []ocispec.Descriptor) error { listed = append(listed, p...); return nil }); err != nil {
 		t.Fatal(err)
@@ -119,7 +120,7 @@ func TestPublishTagFallback(t *testing.T) {
 }
 
 func TestPublishIdempotent(t *testing.T) {
-	repo, _ := Open(serve(t, nil), nil, nil)
+	repo, _ := Open(serve(t, nil), nil, nil, nil)
 	ctx := t.Context()
 	first, err := Publish(ctx, repo, record())
 	if err != nil {
@@ -148,7 +149,7 @@ func TestPublishDenied(t *testing.T) {
 			inner.ServeHTTP(w, r)
 		})
 	})
-	repo, _ := Open(path, nil, nil)
+	repo, _ := Open(path, nil, nil, nil)
 	if _, err := Publish(t.Context(), repo, record()); err == nil || !strings.Contains(err.Error(), "denied") {
 		t.Fatalf("err = %v", err)
 	}
@@ -159,7 +160,7 @@ func TestPublishRefusesInvalid(t *testing.T) {
 	path := serve(t, func(inner http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests.Add(1); inner.ServeHTTP(w, r) })
 	})
-	repo, _ := Open(path, nil, nil)
+	repo, _ := Open(path, nil, nil, nil)
 	r := record()
 	r.Kind = "validate"
 	if _, err := Publish(t.Context(), repo, r); err == nil || requests.Load() != 0 {
@@ -168,7 +169,7 @@ func TestPublishRefusesInvalid(t *testing.T) {
 }
 
 func TestOpenRejectsBadReference(t *testing.T) {
-	if _, err := Open("not a reference", nil, nil); err == nil {
+	if _, err := Open("not a reference", nil, nil, nil); err == nil {
 		t.Fatal("opened a bad reference")
 	}
 }
@@ -194,7 +195,7 @@ func TestPublishTagFails(t *testing.T) {
 	path := serve(t, failPut(func(r *http.Request, _ []byte) bool {
 		return strings.Contains(r.URL.Path, "/manifests/pacto-stats-")
 	}))
-	repo, _ := Open(path, nil, nil)
+	repo, _ := Open(path, nil, nil, nil)
 	if _, err := Publish(t.Context(), repo, record()); err == nil {
 		t.Fatal("a failed tag was not an error")
 	}
@@ -203,7 +204,7 @@ func TestPublishTagFails(t *testing.T) {
 func TestPublishAnchorPushFails(t *testing.T) {
 	anchor := Anchor("payments").ManifestDesc.Digest.String()
 	path := serve(t, failPut(func(r *http.Request, _ []byte) bool { return strings.HasSuffix(r.URL.Path, "/manifests/"+anchor) }))
-	repo, _ := Open(path, nil, nil)
+	repo, _ := Open(path, nil, nil, nil)
 	if _, err := Publish(t.Context(), repo, record()); err == nil {
 		t.Fatal("a failed anchor push was not an error")
 	}
@@ -213,7 +214,7 @@ func TestPublishRecordPushFails(t *testing.T) {
 	path := serve(t, failPut(func(r *http.Request, body []byte) bool {
 		return strings.Contains(r.URL.Path, "/manifests/") && bytes.Contains(body, []byte(`"subject"`))
 	}))
-	repo, _ := Open(path, nil, nil)
+	repo, _ := Open(path, nil, nil, nil)
 	if _, err := Publish(t.Context(), repo, record()); err == nil {
 		t.Fatal("a failed record push was not an error")
 	}
@@ -251,17 +252,40 @@ func TestPublishTagFallbackWithoutDelete(t *testing.T) {
 	second.NewRevision = "c"
 	second.ID = runrecord.ID(second.Kind, second.Service, second.OldRevision, second.NewRevision)
 	for _, r := range []runrecord.Record{record(), second} {
-		repo, _ := Open(path, nil, nil)
+		repo, _ := Open(path, nil, nil, nil)
 		if _, err := Publish(ctx, repo, r); err != nil {
 			t.Fatalf("publish %s: %v", r.NewRevision, err)
 		}
 	}
-	fresh, _ := Open(path, nil, nil)
+	fresh, _ := Open(path, nil, nil, nil)
 	var listed []ocispec.Descriptor
 	if err := fresh.Referrers(ctx, Anchor("payments").ManifestDesc, "", func(p []ocispec.Descriptor) error { listed = append(listed, p...); return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if len(listed) != 2 {
 		t.Fatalf("referrers = %+v", listed)
+	}
+}
+
+func TestRunRecordRegistryHonoursScope(t *testing.T) {
+	path := serve(t, nil)
+	host, _, _ := strings.Cut(path, "/")
+	repo, err := Open(path, nil, nil, oci.NewPushScope(host+"/acme", host+"/acme/elsewhere"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Publish(t.Context(), repo, record()); !errors.Is(err, oci.ErrOutsidePushScope) {
+		t.Fatalf("publish outside the scope = %v, want ErrOutsidePushScope", err)
+	}
+	inside, _ := Open(path, nil, nil, oci.NewPushScope("", path))
+	if _, err := Publish(t.Context(), inside, record()); err != nil {
+		t.Fatalf("publish inside the scope = %v", err)
+	}
+}
+
+func TestRunRecordRegistryNilScopeUnchanged(t *testing.T) {
+	repo, _ := Open(serve(t, nil), nil, nil, nil)
+	if _, err := Publish(t.Context(), repo, record()); err != nil {
+		t.Fatalf("publish with no scope = %v", err)
 	}
 }

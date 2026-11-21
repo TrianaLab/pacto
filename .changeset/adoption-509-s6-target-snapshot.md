@@ -29,15 +29,13 @@ the `pacto_impact` MCP tool over stdio. `pacto mcp` over HTTP refuses
 `--target-snapshot`. `pacto delivery targets publish` signs and pushes a
 snapshot document with a PEM key or a `pacto evidence keygen` seed.
 
-The delivery recorder publishes the cluster's signed snapshot to
+The operator publishes the cluster's signed snapshot to
 `<registry>/pacto-targets:cluster-<uid>` every 5 minutes when the chart's new
 top-level `registry` value is set: the cluster's Pactos, the workloads no
 Pacto targets (without env values or probes) and, with `evidence.enabled`, the
-Evidence Server's targets, each with its own `asOf` and completeness. The
-recorder ClusterRole gains `get` and `list` on `pactos` and `list` on
-deployments, statefulsets, daemonsets and cronjobs. Give `pacto-targets` its
-own read ACL: pull on it reads every namespace's Pacto status and workload
-shape.
+Evidence Server's targets, each with its own `asOf` and completeness. Give
+`pacto-targets` its own read ACL: pull on it reads every namespace's Pacto
+status and workload shape.
 
 The Compose demo runs a `targets` service that publishes a signed snapshot of
 the demo cluster to `registry:5000/demo/pacto-targets` every 5 minutes.

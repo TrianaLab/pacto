@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -37,7 +40,7 @@ const (
 )
 
 // snapEnv is an in-process registry holding a pacto-targets repository, and
-// the recorder key that signs its snapshots.
+// the installation key that signs its snapshots.
 type snapEnv struct {
 	repo     string
 	key      ed25519.PrivateKey
@@ -58,6 +61,7 @@ func newSnapEnv(t *testing.T) *snapEnv {
 	e := &snapEnv{}
 	e.fail.Store("")
 	inner := testutil.NewReferrersRegistry(testutil.ReferrersOptions{})
+	freshProbes(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		e.reqs.Add(1)
 		if code := e.status.Load(); code != 0 {
@@ -669,5 +673,51 @@ func TestFleetReadsTargetSnapshot(t *testing.T) {
 	}
 	if got := snapOpts("", "oci://"+e.repo).ConsumerSources(); !slices.Equal(got, []string{"--target-snapshot oci://" + e.repo}) {
 		t.Fatalf("consumer sources %q", got)
+	}
+}
+
+// operatorTrustKey is the trust entry a reader builds from the snapshot key an
+// installation advertises (the base64 of the public key's DER), scoped to
+// the cluster's snapshot stream when cluster is set.
+func operatorTrustKey(t *testing.T, key ed25519.PrivateKey, cluster string) delivery.TrustedKey {
+	t.Helper()
+	der, _ := x509.MarshalPKIXPublicKey(key.Public())
+	advertised := base64.StdEncoding.EncodeToString(der)
+	raw, err := base64.StdEncoding.DecodeString(advertised)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := delivery.TrustedKey{Name: "installation", PublicKey: string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: raw}))}
+	if cluster != "" {
+		k.Streams = []string{delivery.TargetSnapshotStream(cluster)}
+	}
+	return k
+}
+
+// TestImpactVerifiesOperatorSignedSnapshot: a snapshot the operator signed
+// with its installation key verifies under a trust entry built from the
+// advertised key and scoped to <uid>/pacto-targets/snapshot.
+func TestImpactVerifiesOperatorSignedSnapshot(t *testing.T) {
+	e := newSnapEnv(t)
+	s := ledgerSnapshot(snapA, snapNow)
+	s.Publisher = "system:serviceaccount:pacto-system:pacto-operator"
+	e.push(t, e.key, snapA, s)
+	snap := readSnap(t, &Service{}, snapOpts(trustFile(t, operatorTrustKey(t, e.key, snapA)), "oci://"+e.repo))
+	id := "targets-" + snapA
+	if st := stateOf(t, snap, id); st.Status != fleet.SourceAvailable || st.Signer != "installation" || st.SignerUnscoped ||
+		st.Publisher != s.Publisher || snap.Completeness != fleet.CompletenessComplete {
+		t.Fatalf("source %+v, limitations %+v", st, snap.Limitations)
+	}
+}
+
+// TestImpactOperatorSnapshotUnscopedKeyIsPartial: the same key with no
+// streams is not scoped to the cluster, so the snapshot reads partial.
+func TestImpactOperatorSnapshotUnscopedKeyIsPartial(t *testing.T) {
+	e := newSnapEnv(t)
+	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
+	snap := readSnap(t, &Service{}, snapOpts(trustFile(t, operatorTrustKey(t, e.key, "")), "oci://"+e.repo))
+	id := "targets-" + snapA
+	if st := stateOf(t, snap, id); st.Status != fleet.SourcePartial || !st.SignerUnscoped || !hasLim(snap, id, fleet.LimitationTargetSnapshotUnscoped) {
+		t.Fatalf("source %+v, limitations %+v", st, snap.Limitations)
 	}
 }

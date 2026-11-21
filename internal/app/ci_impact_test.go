@@ -378,6 +378,7 @@ func newRecordedCIRepo(t *testing.T) (*ciRepoEnv, *methodRecorder) {
 	t.Helper()
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	rec := &methodRecorder{methods: map[string]int{}}
+	freshProbes(t)
 	srv := httptest.NewServer(rec.wrap(registry.New(registry.Logger(log.New(io.Discard, "", 0)))))
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")

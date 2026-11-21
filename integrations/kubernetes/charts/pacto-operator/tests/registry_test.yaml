@@ -1,0 +1,675 @@
+# The installation registry (510-S6): the controller flags the top-level
+# registry renders, the one by-name grant registryPullSecret adds, and the
+# operator-side target snapshot (delivery_recorder_test.yaml pins that the
+# recorder no longer publishes it), and the NOTES that say which credential
+# pulls, which pushes and where.
+suite: registry
+templates:
+  - templates/NOTES.txt
+  - templates/deployment.yaml
+  - templates/secret-grants.yaml
+  - templates/role.yaml
+  - templates/watch-namespaces.yaml
+  - templates/crds.yaml
+  - templates/delivery/admission.yaml
+  - templates/delivery/deployment.yaml
+  - templates/delivery/fingerprints.yaml
+  - templates/delivery/identities.yaml
+  - templates/delivery/metrics.yaml
+  - templates/delivery/monitoring.yaml
+  - templates/delivery/namespace.yaml
+  - templates/delivery/publishers.yaml
+  - templates/delivery/rbac.yaml
+  - templates/delivery/recorder.yaml
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    - monitoring.coreos.com/v1/ServiceMonitor
+tests:
+  - it: registry renders --registry on the controller
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry=ghcr.io/acme
+
+  - it: no registry renders no --registry
+    template: templates/deployment.yaml
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--registry
+      - hasDocuments:
+          count: 0
+        template: templates/secret-grants.yaml
+
+  - it: registry renders one --registry-push-prefix per installation repository
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-push-prefix=ghcr.io/acme/pacto-targets
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-push-prefix=ghcr.io/acme/pacto-index
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-push-prefix=ghcr.io/acme/pacto-inferred
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--registry-pull-secret
+
+  - it: registryPullSecret renders a Role scoped to that Secret in its namespace
+    template: templates/secret-grants.yaml
+    set:
+      registry: ghcr.io/acme
+      registryPullSecret: ci/regcred
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.namespace
+          value: ci
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [secrets]
+              verbs: [get]
+              resourceNames: [regcred]
+        documentIndex: 0
+      - equal:
+          path: roleRef
+          value:
+            apiGroup: rbac.authorization.k8s.io
+            kind: Role
+            name: pacto-operator-secret-grant
+        documentIndex: 1
+      - equal:
+          path: subjects
+          value:
+            - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+        documentIndex: 1
+
+  - it: registryPullSecret renders --registry-pull-secret
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      registryPullSecret: ci/regcred
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-pull-secret=ci/regcred
+
+  - it: registryPullSecret also in controller.secretGrants renders one Role
+    template: templates/secret-grants.yaml
+    set:
+      registry: ghcr.io/acme
+      registryPullSecret: ci/regcred
+      controller.secretGrants: [ci/regcred, ci/other]
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: rules[0].resourceNames
+          value: [other, regcred]
+        documentIndex: 0
+
+  - it: registryPullSecret without registry fails
+    template: templates/deployment.yaml
+    set:
+      registryPullSecret: ci/regcred
+    asserts:
+      - failedTemplate:
+          errorPattern: registryPullSecret needs registry
+
+  - it: the schema refuses registryPullSecret without a namespace
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      registryPullSecret: regcred
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?i)registryPullSecret.*does not match pattern"
+
+  - it: registry grants the operator secrets create in its namespace
+    template: templates/role.yaml
+    documentIndex: 0
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: pacto-operator-system
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [secrets], verbs: [create]}
+
+  - it: no registry renders no secrets create unless the dashboard is on
+    template: templates/role.yaml
+    documentIndex: 0
+    set:
+      dashboard.enabled: false
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [secrets], verbs: [create]}
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [secrets, serviceaccounts, services], verbs: [create, delete, get, patch, update]}
+
+  - it: the controller carries OPERATOR_SERVICE_ACCOUNT
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: OPERATOR_SERVICE_ACCOUNT, value: pacto-operator}
+
+  - it: registry lets a scoped operator list the DaemonSets of each watched namespace
+    template: templates/watch-namespaces.yaml
+    documentIndex: 0
+    set:
+      registry: ghcr.io/acme
+      controller.watchNamespaces: [team-a]
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [apps], resources: [daemonsets], verbs: [list]}
+
+  - it: a scoped operator without registry lists no DaemonSets
+    template: templates/watch-namespaces.yaml
+    documentIndex: 0
+    set:
+      controller.watchNamespaces: [team-a]
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [apps], resources: [daemonsets], verbs: [list]}
+
+  - it: registry alone renders no promoter, no recorder, no delivery RBAC
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/admission.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/fingerprints.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/identities.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/metrics.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/monitoring.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/namespace.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/publishers.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/rbac.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/recorder.yaml
+
+  - it: registry alone installs no delivery CRD
+    template: templates/crds.yaml
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - hasDocuments:
+          count: 3
+      - notMatchRegex:
+          path: metadata.name
+          pattern: delivery\.pacto\.trianalab\.io$
+
+  - it: registry with delivery and the recorder derives the streams repository
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.recorder.enabled: true
+      delivery.recorder.signing.kms: awskms:///alias/r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --streams-repository=ghcr.io/acme/pacto-streams
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --approvals-repository=ghcr.io/acme/pacto-streams-approvals
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry=ghcr.io/acme
+
+  - it: an explicit streamsRepository overrides the derivation
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: quay.io/other/streams
+      delivery.recorder.signing.kms: awskms:///alias/r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --streams-repository=quay.io/other/streams
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --streams-repository=ghcr.io/acme/pacto-streams
+
+  - it: every push flag is under the installation prefixes or an explicit delivery value
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.recorder.enabled: true
+      delivery.recorder.signing.kms: awskms:///alias/r
+      delivery.stats.repository: ghcr.io/acme/stats
+      delivery.publishers.registry: ghcr.io/acme
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --streams-repository=ghcr.io/acme/pacto-streams
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry=ghcr.io/acme
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --publishers-registry=ghcr.io/acme
+        template: templates/delivery/deployment.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --records-repository=ghcr.io/acme/pacto-streams
+        template: templates/delivery/deployment.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --stats-repository=ghcr.io/acme/stats
+        template: templates/delivery/deployment.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry=ghcr.io/acme
+        template: templates/delivery/deployment.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--(streams-repository|approvals-repository|stats-repository|registry|registry-push-prefix)=[^g]
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--(stats-repository|registry|records-repository|publishers-registry)=[^g]
+        template: templates/delivery/deployment.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-push-prefix=ghcr.io/acme/pacto-streams
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-push-prefix=ghcr.io/acme/pacto-streams-approvals
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-push-prefix=ghcr.io/acme/stats
+        template: templates/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-push-prefix=ghcr.io/acme
+        template: templates/deployment.yaml
+
+  - it: the recorder without registry or streamsRepository fails
+    template: templates/delivery/recorder.yaml
+    set:
+      delivery.enabled: true
+      delivery.recorder.enabled: true
+      delivery.recorder.signing.kms: awskms:///alias/r
+    asserts:
+      - failedTemplate:
+          errorPattern: "set registry or delivery.recorder.streamsRepository"
+
+  - it: push prefixes list an explicit stats repository outside registry
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.stats.repository: quay.io/other/stats
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-push-prefix=quay.io/other/stats
+
+  - it: delivery off renders no delivery push prefix
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      delivery.stats.repository: quay.io/other/stats
+      delivery.recorder.streamsRepository: quay.io/other/streams
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--registry-push-prefix=quay\.io
+
+  - it: notes name GKE workload identity for a pkg.dev registry with the annotation
+    template: templates/NOTES.txt
+    set:
+      registry: europe-docker.pkg.dev/acme/pacto
+      serviceAccount.annotations:
+        iam.gke.io/gcp-service-account: pacto@acme.iam.gserviceaccount.com
+    asserts:
+      - matchRegexRaw:
+          pattern: "Registry: europe-docker\\.pkg\\.dev/acme/pacto\\n  Pulls and pushes: GKE workload identity \\(pacto@acme\\.iam\\.gserviceaccount\\.com\\)\\. No Secret needed\\."
+
+  - it: notes never claim workload identity for ghcr.io
+    template: templates/NOTES.txt
+    set:
+      registry: ghcr.io/acme
+      serviceAccount.annotations:
+        iam.gke.io/gcp-service-account: pacto@acme.iam.gserviceaccount.com
+        eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/pacto
+    asserts:
+      - notMatchRegexRaw:
+          pattern: workload identity|IRSA|No Secret needed
+      - matchRegexRaw:
+          pattern: "No credential found for ghcr\\.io: set registryPullSecret, or the registry must allow anonymous pull and push\\."
+
+  - it: notes name EKS IRSA for an ECR registry with the annotation
+    template: templates/NOTES.txt
+    set:
+      registry: 123456789012.dkr.ecr.eu-west-1.amazonaws.com/pacto
+      serviceAccount.annotations:
+        eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/pacto
+    asserts:
+      - matchRegexRaw:
+          pattern: "Pulls and pushes: EKS IRSA \\(arn:aws:iam::123456789012:role/pacto\\)\\. No Secret needed\\."
+
+  - it: notes name Azure workload identity for an ACR registry with the annotation
+    template: templates/NOTES.txt
+    set:
+      registry: acme.azurecr.io/pacto
+      serviceAccount.annotations:
+        azure.workload.identity/client-id: 00000000-0000-0000-0000-000000000001
+    asserts:
+      - matchRegexRaw:
+          pattern: "Pulls and pushes: Azure workload identity\\. No Secret needed\\."
+
+  - it: notes do not match a lookalike host to a cloud
+    template: templates/NOTES.txt
+    set:
+      registry: pkg.dev.evil.com/acme
+      serviceAccount.annotations:
+        iam.gke.io/gcp-service-account: pacto@acme.iam.gserviceaccount.com
+    asserts:
+      - matchRegexRaw:
+          pattern: "No credential found for pkg\\.dev\\.evil\\.com"
+
+  - it: notes name the registryPullSecret
+    template: templates/NOTES.txt
+    set:
+      registry: ghcr.io/acme
+      registryPullSecret: ci/regcred
+    asserts:
+      - matchRegexRaw:
+          pattern: "  Pulls: Secret ci/regcred \\(registryPullSecret\\)\\."
+
+  - it: notes do not claim push for a pull Secret
+    template: templates/NOTES.txt
+    set:
+      registry: ghcr.io/acme
+      registryPullSecret: ci/regcred
+      serviceAccount.annotations:
+        iam.gke.io/gcp-service-account: pacto@acme.iam.gserviceaccount.com
+    asserts:
+      - matchRegexRaw:
+          pattern: "Pushes: unconfirmed until the first snapshot push"
+      - notMatchRegexRaw:
+          pattern: Pulls and pushes
+
+  - it: notes print the last push result on upgrade
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    set:
+      registry: ghcr.io/acme
+      registryPullSecret: ci/regcred
+    kubernetesProvider: &detectedFailedPush
+      scheme:
+        "v1/ConfigMap":
+          gvr: {group: "", version: v1, resource: configmaps}
+          namespaced: true
+      objects:
+        - kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-detected
+            namespace: pacto-operator-system
+            labels: {app.kubernetes.io/managed-by: pacto-operator}
+            ownerReferences:
+              - {apiVersion: apps/v1, kind: Deployment, name: pacto-operator, uid: u1}
+          data:
+            detected.json: '{"schemaVersion":"1","asOf":"2026-11-16T10:02:00Z","cluster":"5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11","entries":[{"kind":"cloud","value":"GKE","evidence":"on 6 of 6 nodes","source":"nodes","completeness":"complete","scope":"cluster"}],"installation":{"registry":"ghcr.io/acme","targets":"ghcr.io/acme/pacto-targets","index":"ghcr.io/acme/pacto-index","inferred":"ghcr.io/acme/pacto-inferred","snapshotKey":"MCowBQYDK2VwAyEAO2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=","snapshotKeyID":"339e2ff9","pushes":["ghcr.io/acme/pacto-targets"],"lastPush":{"at":"2026-11-16T09:58:00Z","error":"PUT ghcr.io/acme/pacto-targets: 403 Forbidden"}}}'
+    asserts:
+      - matchRegexRaw:
+          pattern: "  Last snapshot push failed: PUT ghcr\\.io/acme/pacto-targets: 403 Forbidden"
+      - notMatchRegexRaw:
+          pattern: "Pushes: unconfirmed"
+
+  - it: notes print the last successful push on upgrade
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    set:
+      registry: ghcr.io/acme
+    kubernetesProvider: &detected
+      scheme:
+        "v1/ConfigMap":
+          gvr: {group: "", version: v1, resource: configmaps}
+          namespaced: true
+      objects:
+        - kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-detected
+            namespace: pacto-operator-system
+            labels: {app.kubernetes.io/managed-by: pacto-operator}
+            ownerReferences:
+              - {apiVersion: apps/v1, kind: Deployment, name: pacto-operator, uid: u1}
+          data:
+            detected.json: '{"schemaVersion":"1","asOf":"2026-11-16T10:02:00Z","cluster":"5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11","entries":[{"kind":"cloud","value":"GKE","evidence":"on 6 of 6 nodes","source":"nodes","completeness":"complete","scope":"cluster"},{"kind":"registry","value":"ghcr.io/acme","evidence":"in 9 of 11 namespaces, 87% of workloads","source":"running pods","completeness":"complete","hint":"oci://ghcr.io/acme/<service>:<version>","scope":"cluster"},{"kind":"pull-secret","value":"shop/ghcr-pull","evidence":"named in the pod specs of 4 running workloads that pulled from ghcr.io; Pacto did not read the Secret","source":"pod specs","completeness":"complete","hint":"--set registryPullSecret=shop/ghcr-pull","namespaces":["shop"]}],"installation":{"registry":"ghcr.io/acme","targets":"ghcr.io/acme/pacto-targets","index":"ghcr.io/acme/pacto-index","inferred":"ghcr.io/acme/pacto-inferred","snapshotKey":"MCowBQYDK2VwAyEAO2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=","snapshotKeyID":"339e2ff9","pushes":["ghcr.io/acme/pacto-targets","ghcr.io/acme/pacto-index","ghcr.io/acme/pacto-inferred"],"lastPush":{"at":"2026-11-16T09:58:00Z","ref":"ghcr.io/acme/pacto-targets:cluster-5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11"}}}'
+    asserts:
+      - matchRegexRaw:
+          pattern: "  Last snapshot push: ghcr\\.io/acme/pacto-targets:cluster-5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11 at 2026-11-16T09:58:00Z"
+
+  - it: notes list an explicit stats repository outside registry
+    template: templates/NOTES.txt
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.stats.repository: quay.io/other/stats
+    asserts:
+      - matchRegexRaw:
+          pattern: "the promoter writes quay\\.io/other/stats\\."
+      - matchRegexRaw:
+          pattern: "\\n    quay\\.io/other/stats\\n"
+      - matchRegexRaw:
+          pattern: "Delivery is on\\."
+
+  - it: notes say a detected cloud needs the ServiceAccount bound
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    set:
+      registry: europe-docker.pkg.dev/acme/pacto
+    kubernetesProvider: *detected
+    asserts:
+      - matchRegexRaw:
+          pattern: "Pulls and pushes: GKE workload identity once ServiceAccount pacto-operator-system/pacto-operator is bound to an identity with registry access\\."
+      - notMatchRegexRaw:
+          pattern: No Secret needed
+
+  - it: notes list the prefixes and who writes each
+    template: templates/NOTES.txt
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - matchRegexRaw:
+          pattern: "The operator pushes only to ghcr\\.io/acme/pacto-targets and\\s+ghcr\\.io/acme/pacto-inferred\\. CI writes ghcr\\.io/acme/pacto-index\\. Every tag,\\s+delete and manifest push outside these prefixes is refused:\\n    ghcr\\.io/acme/pacto-targets\\n    ghcr\\.io/acme/pacto-index\\n    ghcr\\.io/acme/pacto-inferred\\n"
+      - matchRegexRaw:
+          pattern: "Outside them only referrers are written, by digest onto an existing\\s+manifest"
+      - matchRegexRaw:
+          pattern: ghcr\.io/acme/pacto-targets:cluster-<uid>
+      - matchRegexRaw:
+          pattern: give it its own read ACL
+
+  - it: notes name the recorder and its streams with delivery and the recorder on
+    template: templates/NOTES.txt
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.recorder.enabled: true
+      delivery.recorder.signing.kms: awskms:///alias/r
+    asserts:
+      - matchRegexRaw:
+          pattern: "CI writes ghcr\\.io/acme/pacto-index; the recorder writes\\s+ghcr\\.io/acme/pacto-streams and its approvals anchors under\\s+ghcr\\.io/acme/pacto-streams-approvals\\."
+      - matchRegexRaw:
+          pattern: "\\n    ghcr\\.io/acme/pacto-streams-approvals\\n"
+
+  - it: notes say delivery is off with registry alone
+    template: templates/NOTES.txt
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - matchRegexRaw:
+          pattern: "  Delivery is off: turn it on with delivery\\.enabled=true\\."
+      - notMatchRegexRaw:
+          pattern: Pacto delivery promoter is installed
+
+  - it: notes print the trust entry from the installation key Secret on upgrade
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    set:
+      registry: ghcr.io/acme
+    kubernetesProvider: &detectedWithKey
+      scheme:
+        "v1/ConfigMap":
+          gvr: {group: "", version: v1, resource: configmaps}
+          namespaced: true
+        "v1/Secret":
+          gvr: {group: "", version: v1, resource: secrets}
+          namespaced: true
+      objects:
+        - kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-detected
+            namespace: pacto-operator-system
+            labels: {app.kubernetes.io/managed-by: pacto-operator}
+            ownerReferences:
+              - {apiVersion: apps/v1, kind: Deployment, name: pacto-operator, uid: u1}
+          data:
+            detected.json: '{"schemaVersion":"1","asOf":"2026-11-16T10:02:00Z","cluster":"5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11","entries":[{"kind":"cloud","value":"GKE","evidence":"on 6 of 6 nodes","source":"nodes","completeness":"complete","scope":"cluster"},{"kind":"registry","value":"ghcr.io/acme","evidence":"in 9 of 11 namespaces, 87% of workloads","source":"running pods","completeness":"complete","hint":"oci://ghcr.io/acme/<service>:<version>","scope":"cluster"},{"kind":"pull-secret","value":"shop/ghcr-pull","evidence":"named in the pod specs of 4 running workloads that pulled from ghcr.io; Pacto did not read the Secret","source":"pod specs","completeness":"complete","hint":"--set registryPullSecret=shop/ghcr-pull","namespaces":["shop"]}],"installation":{"registry":"ghcr.io/acme","targets":"ghcr.io/acme/pacto-targets","index":"ghcr.io/acme/pacto-index","inferred":"ghcr.io/acme/pacto-inferred","snapshotKey":"MCowBQYDK2VwAyEAZm9yZ2VkZm9yZ2VkZm9yZ2VkZm9yZ2VkZm9yZ2VkZm9yZ2U=","snapshotKeyID":"339e2ff9","pushes":["ghcr.io/acme/pacto-targets","ghcr.io/acme/pacto-index","ghcr.io/acme/pacto-inferred"],"lastPush":{"at":"2026-11-16T09:58:00Z","ref":"ghcr.io/acme/pacto-targets:cluster-5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11"}}}'
+        - kind: Secret
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-installation-key
+            namespace: pacto-operator-system
+            labels: {app.kubernetes.io/managed-by: pacto-operator}
+          data:
+            public.b64: TUNvd0JRWURLMlZ3QXlFQU8yb252TTYycEMxaW82alFLbThOYzJVeUZYY2Q0a09tT3NCSW9ZdFoyaWs9
+    asserts:
+      - matchRegexRaw:
+          pattern: "  CI verifies the snapshot with this trust entry:\\n\\n    - name: installation-5b0c6c3e\\n      publicKey: \\|\\n        -----BEGIN PUBLIC KEY-----\\n        MCowBQYDK2VwAyEAO2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=\\n        -----END PUBLIC KEY-----\\n      streams: \\[\"5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11/pacto-targets/snapshot\"\\]"
+
+  # A ConfigMap writer can forge snapshotKey: with no installation key Secret
+  # the notes print no trust entry, whatever the ConfigMap advertises.
+  - it: notes print no trust entry from the ConfigMap alone
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    set:
+      registry: ghcr.io/acme
+    kubernetesProvider: *detected
+    asserts:
+      - notMatchRegexRaw:
+          pattern: CI verifies the snapshot
+
+  # Helm reads the ConfigMap before the operator restarts with the new
+  # registry: the old registry's push confirms nothing about the new one.
+  - it: notes ignore a last push to the previous registry
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    set:
+      registry: europe-docker.pkg.dev/acme/pacto
+      registryPullSecret: ns/s
+    kubernetesProvider: *detected
+    asserts:
+      - matchRegexRaw:
+          pattern: "Pushes: unconfirmed until the first snapshot push"
+      - notMatchRegexRaw:
+          pattern: Last snapshot push
+
+  - it: notes print no trust entry on install
+    template: templates/NOTES.txt
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - notMatchRegexRaw:
+          pattern: CI verifies the snapshot
+
+  - it: notes propose --set registry from the detected candidate when registry is unset
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    kubernetesProvider: *detected
+    asserts:
+      - matchRegexRaw:
+          pattern: "To publish the target snapshot and read inferred contracts, set the\\s+registry \\(proposal, nothing was turned on\\):\\n\\n  helm upgrade pacto-operator <chart> -n pacto-operator-system --reuse-values --set registry=ghcr\\.io/acme"
+      - notMatchRegexRaw:
+          pattern: "\\nRegistry: "
+
+  - it: notes propose the pull Secret
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    kubernetesProvider: *detected
+    asserts:
+      - matchRegexRaw:
+          pattern: "Proposed pull Secret \\(inferred from pod specs; it needs push on\\s+ghcr\\.io/acme/pacto-\\*, and a pod pull Secret usually grants pull only\\):\\n\\n  --set registryPullSecret=shop/ghcr-pull"
+      - matchRegexRaw:
+          pattern: "  Pull Secret: shop/ghcr-pull named in the pod specs of 4 running workloads"
+
+  - it: notes propose nothing once registry is set
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    set:
+      registry: ghcr.io/acme
+    kubernetesProvider: *detected
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "proposal, nothing was turned on|Proposed pull Secret"

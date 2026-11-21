@@ -753,6 +753,7 @@ func (f evidenceFixture) serveOptions() ServeOptions {
 // no Referrers API — cannot host it. stop closes it, to simulate an outage.
 func referrersRegistry(t *testing.T) (host string, stop func()) {
 	t.Helper()
+	freshProbes(t)
 	srv := httptest.NewServer(testutil.NewReferrersRegistry(testutil.ReferrersOptions{}))
 	var once sync.Once
 	stop = func() { once.Do(srv.Close) }
@@ -967,6 +968,7 @@ func TestServeEvidence_ReadinessIsBounded(t *testing.T) {
 		arrived:   make(chan struct{}, probes),
 		cancelled: make(chan struct{}, probes),
 	}
+	freshProbes(t)
 	srv := httptest.NewServer(reg)
 	t.Cleanup(srv.Close)
 	f := evidenceFixtureOn(t, srv.Listener.Addr().String())
@@ -1042,6 +1044,7 @@ func TestServeEvidence_ReadinessFollowsTheCaller(t *testing.T) {
 		arrived:   make(chan struct{}, 1),
 		cancelled: make(chan struct{}, 1),
 	}
+	freshProbes(t)
 	srv := httptest.NewServer(reg)
 	t.Cleanup(srv.Close)
 	f := evidenceFixtureOn(t, srv.Listener.Addr().String())

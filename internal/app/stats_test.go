@@ -33,11 +33,12 @@ func statsService(t *testing.T, wrap func(http.Handler) http.Handler, records ..
 	if wrap != nil {
 		h = wrap(h)
 	}
+	freshProbes(t)
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
 	path := host + "/acme/pacto-stats"
-	open := func(p string) (*remote.Repository, error) { return registry.Open(p, nil, []string{host}) }
+	open := func(p string) (*remote.Repository, error) { return registry.Open(p, nil, []string{host}, nil) }
 	repo, err := open(path)
 	if err != nil {
 		t.Fatal(err)

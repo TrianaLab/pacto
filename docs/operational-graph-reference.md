@@ -60,7 +60,7 @@ compliance evidence that a source carries.
   Server](evidence.md)'s read-only contribution over HTTP, exposing a
   remote environment's signed `EvidenceSet` reports as operational targets.
 - **Target snapshots** (`--target-snapshot <oci://ref>`, repeatable): the
-  signed snapshot each cluster's delivery recorder publishes to
+  signed snapshot each cluster's operator publishes to
   `<registry>/pacto-targets:cluster-<uid>`, read with registry access and no
   kubeconfig. A repository reads every `cluster-*` tag (at most 32); a tag or
   digest pins one cluster. Each snapshot becomes up to three sources with the
@@ -99,7 +99,7 @@ Snapshot sources carry:
 |---|---|
 | `ref` | The snapshot read, pinned as `<repository>@<digest>` |
 | `signer` | The trust entry that verified it: its `name`, or `key:<fingerprint>`; empty when unverified. Never the `publisher` the payload claims |
-| `publisher` | Who the payload says published it, such as the recorder's ServiceAccount; a claim, with control characters dropped like the publisher's limitations |
+| `publisher` | Who the payload says published it, such as the operator's ServiceAccount; a claim, with control characters dropped like the publisher's limitations |
 | `cluster` | The cluster the snapshot describes, its id the `kube-system` UID |
 | `lastSuccessfulSync` | The snapshot's `asOf` |
 | `TARGET_SNAPSHOT_UNVERIFIED` | Read with no delivery trust config (`--delivery-trust` or `$PACTO_DELIVERY_TRUST`); the source is `partial` |
@@ -107,6 +107,7 @@ Snapshot sources carry:
 | `TARGET_SNAPSHOT_STALE` | Its `asOf` is more than 15 minutes old; `stale` |
 | `TARGET_SNAPSHOT_INVALID` | Missing (a pinned tag), a bad signature, a cluster other than its tag, an unknown predicate or an `asOf` in the future; not used, `unavailable` |
 | `TARGET_SNAPSHOT_BOUND` | More than 32 cluster tags, a snapshot over 8 MiB or the 20 second read timeout; `partial` or `unavailable` |
+| `TARGET_SNAPSHOT_SCOPED` | The publishing operator watches only the namespaces the message names (`controller.watchNamespaces`), so any other namespace is unknown; `partial` |
 | Text line | `pacto fleet status` and `pacto fleet snapshot` print one per source, such as `Source targets-<uid> (target-snapshot): available, ref <repository>@<digest>, signed by <signer>, asOf <time>`; `unverified` replaces the signer when no trust entry verified it, and a source that is not available ends with its reason |
 
 ### Observed calls under a restricted view

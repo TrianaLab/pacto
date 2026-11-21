@@ -9,6 +9,7 @@ templates:
   - templates/role.yaml
   - templates/deployment.yaml
   - templates/dashboard-ingress.yaml
+  - templates/secret-grants.yaml
 release:
   name: pacto-operator
   namespace: default
@@ -303,7 +304,7 @@ tests:
       - matchRegexRaw:
           pattern: "Pacto lists what it detects under Data sources in the dashboard"
 
-  - it: NOTES prints no --set registry line
+  - it: NOTES prints the --set registry line only as a proposal (510-S6)
     template: templates/NOTES.txt
     release:
       upgrade: true
@@ -324,10 +325,12 @@ tests:
           data:
             detected.json: '{"schemaVersion":"1","asOf":"2026-11-16T10:02:00Z","cluster":"5b0c6c3e","entries":[{"kind":"cloud","value":"GKE","evidence":"on 6 of 6 nodes","source":"node providerID","completeness":"complete","scope":"cluster"},{"kind":"exposure","value":"Gateway API","evidence":"HTTPRoutes in 4 of 5 namespaces attach to the same Gateway","source":"HTTPRoutes","completeness":"complete","hint":"--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs[0].name=public --set dashboard.httpRoute.parentRefs[0].namespace=infra","namespaces":["infra"]},{"kind":"metrics","value":"Prometheus Operator","evidence":"serves monitoring.coreos.com/v1; read passively","source":"API discovery","completeness":"complete"},{"kind":"nodes","value":"kernel 6.1 on 6 of 6 nodes","evidence":"BTF likely (unconfirmed)","source":"nodes","completeness":"partial","reason":"not confirmed on the node","scope":"cluster"},{"kind":"registry","value":"ghcr.io/acme","evidence":"in 9 of 11 namespaces, 87% of workloads","source":"running pods","completeness":"complete","hint":"oci://ghcr.io/acme/<service>:<version>","scope":"cluster"},{"kind":"sign-in","value":"Dex","evidence":"serves dex.coreos.com/v1","source":"API discovery and Services","completeness":"complete"}]}'
     asserts:
-      - notMatchRegexRaw:
-          pattern: "registry="
+      - matchRegexRaw:
+          pattern: "set the\\s+registry \\(proposal, nothing was turned on\\):\\n\\n  helm upgrade pacto-operator <chart> -n default --reuse-values --set registry=ghcr.io/acme"
 
-  - it: a full detection leaves every manifest unchanged
+  - it: a full detection leaves every manifest unchanged, a detected registry and pull Secret included
+    release:
+      upgrade: true
     kubernetesProvider:
       scheme:
         "v1/ConfigMap":
@@ -343,8 +346,11 @@ tests:
             ownerReferences:
               - {apiVersion: apps/v1, kind: Deployment, name: pacto-operator, uid: u1}
           data:
-            detected.json: '{"schemaVersion":"1","asOf":"2026-11-16T10:02:00Z","cluster":"5b0c6c3e","entries":[{"kind":"cloud","value":"GKE","evidence":"on 6 of 6 nodes","source":"node providerID","completeness":"complete","scope":"cluster"},{"kind":"exposure","value":"Gateway API","evidence":"HTTPRoutes in 4 of 5 namespaces attach to the same Gateway","source":"HTTPRoutes","completeness":"complete","hint":"--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs[0].name=public --set dashboard.httpRoute.parentRefs[0].namespace=infra","namespaces":["infra"]},{"kind":"metrics","value":"Prometheus Operator","evidence":"serves monitoring.coreos.com/v1; read passively","source":"API discovery","completeness":"complete"},{"kind":"nodes","value":"kernel 6.1 on 6 of 6 nodes","evidence":"BTF likely (unconfirmed)","source":"nodes","completeness":"partial","reason":"not confirmed on the node","scope":"cluster"},{"kind":"registry","value":"ghcr.io/acme","evidence":"in 9 of 11 namespaces, 87% of workloads","source":"running pods","completeness":"complete","hint":"oci://ghcr.io/acme/<service>:<version>","scope":"cluster"},{"kind":"sign-in","value":"Dex","evidence":"serves dex.coreos.com/v1","source":"API discovery and Services","completeness":"complete"}]}'
+            detected.json: '{"schemaVersion":"1","asOf":"2026-11-16T10:02:00Z","cluster":"5b0c6c3e","entries":[{"kind":"cloud","value":"GKE","evidence":"on 6 of 6 nodes","source":"node providerID","completeness":"complete","scope":"cluster"},{"kind":"exposure","value":"Gateway API","evidence":"HTTPRoutes in 4 of 5 namespaces attach to the same Gateway","source":"HTTPRoutes","completeness":"complete","hint":"--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs[0].name=public --set dashboard.httpRoute.parentRefs[0].namespace=infra","namespaces":["infra"]},{"kind":"metrics","value":"Prometheus Operator","evidence":"serves monitoring.coreos.com/v1; read passively","source":"API discovery","completeness":"complete"},{"kind":"nodes","value":"kernel 6.1 on 6 of 6 nodes","evidence":"BTF likely (unconfirmed)","source":"nodes","completeness":"partial","reason":"not confirmed on the node","scope":"cluster"},{"kind":"registry","value":"ghcr.io/acme","evidence":"in 9 of 11 namespaces, 87% of workloads","source":"running pods","completeness":"complete","hint":"oci://ghcr.io/acme/<service>:<version>","scope":"cluster"},{"kind":"sign-in","value":"Dex","evidence":"serves dex.coreos.com/v1","source":"API discovery and Services","completeness":"complete"},{"kind":"pull-secret","value":"shop/ghcr-pull","evidence":"named in the pod specs of 4 running workloads that pulled from ghcr.io; Pacto did not read the Secret","source":"pod specs","completeness":"complete","hint":"--set registryPullSecret=shop/ghcr-pull","namespaces":["shop"]}],"installation":{"registry":"ghcr.io/acme","snapshotKey":"MCowBQYDK2VwAyEAO2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=","pushes":["ghcr.io/acme/pacto-targets"]}}'
     asserts:
+      - template: templates/secret-grants.yaml
+        hasDocuments:
+          count: 0
       - template: templates/deployment.yaml
         equal:
           path: spec.template.spec.containers[0].args

@@ -371,24 +371,29 @@ func sourceReason(id string, lims []fleet.Limitation) string {
 	return why
 }
 
-// printDetected prints the inferred provider rows, what the operator
-// detected, with each status and first reason and each hint for a person to
+// printDetected prints the declared installation row with its asOf and
+// details, then the inferred
+// provider rows, what the operator detected, with each status and first reason and each hint for a person to
 // review, then one line per advisory source that is not available, so a
 // detection Pacto could not read never reads as nothing detected. Every row
 // of one detection shares its asOf, so the first one is named.
 func printDetected(w io.Writer, rows []fleet.Provider, sources []fleet.SourceState) {
 	defer printAdvisorySources(w, sources)
+	for _, p := range rows {
+		if p.Provenance == fleet.ProvenanceDeclared {
+			_, _ = fmt.Fprintf(w, "%s: %s (declared, as of %s) [%s]\n", p.Name, p.Evidence, asOfText(p.AsOf), p.Status)
+			for _, d := range p.Details {
+				_, _ = fmt.Fprintf(w, "    %s\n", d)
+			}
+		}
+	}
 	header := false
 	for _, p := range rows {
 		if p.Provenance != fleet.ProvenanceInferred {
 			continue
 		}
 		if !header {
-			asOf := "unknown"
-			if p.AsOf != nil {
-				asOf = p.AsOf.UTC().Format(time.RFC3339)
-			}
-			_, _ = fmt.Fprintf(w, "Detected (inferred, as of %s, nothing turned on):\n", asOf)
+			_, _ = fmt.Fprintf(w, "Detected (inferred, as of %s, nothing turned on):\n", asOfText(p.AsOf))
 			header = true
 		}
 		status := string(p.Status)
@@ -400,6 +405,14 @@ func printDetected(w io.Writer, rows []fleet.Provider, sources []fleet.SourceSta
 			_, _ = fmt.Fprintf(w, "    %s\n", p.Hint)
 		}
 	}
+}
+
+// asOfText is a detected row's asOf in RFC 3339, or unknown.
+func asOfText(at *time.Time) string {
+	if at == nil {
+		return "unknown"
+	}
+	return at.UTC().Format(time.RFC3339)
 }
 
 // printAdvisorySources prints one line per advisory source that is not

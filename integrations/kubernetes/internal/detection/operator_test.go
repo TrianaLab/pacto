@@ -15,13 +15,13 @@ import (
 )
 
 func TestForOperatorNilWithoutDeploymentName(t *testing.T) {
-	if d := ForOperator("", opNS, nil, "", kubecluster.Identity{}, nil, nil, servedAll); d != nil {
+	if d := ForOperator("", opNS, nil, "", kubecluster.Identity{}, nil, nil, servedAll, nil, nil); d != nil {
 		t.Errorf("detector = %+v, want nil", d)
 	}
 }
 
 func TestForOperatorNamesAndSkips(t *testing.T) {
-	d := ForOperator(deploy, opNS, []string{"a"}, "agents", kubecluster.Identity{ID: "uid", Name: "prod"}, nil, nil, servedAll)
+	d := ForOperator(deploy, opNS, []string{"a"}, "agents", kubecluster.Identity{ID: "uid", Name: "prod"}, nil, nil, servedAll, nil, nil)
 	if d.Name != cmName || d.DeploymentName != deploy || d.Namespace != opNS || d.Cluster != "uid" || d.ClusterName != "prod" || !slices.Equal(d.Namespaces, []string{"a"}) || d.Now == nil {
 		t.Errorf("detector = %+v", d)
 	}

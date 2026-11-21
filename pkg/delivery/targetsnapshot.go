@@ -29,7 +29,7 @@ const (
 	// TargetSnapshotTagPrefix starts every snapshot tag, so a reader lists
 	// cluster-* tags only.
 	TargetSnapshotTagPrefix = "cluster-"
-	// TargetSnapshotInterval is how often a recorder publishes.
+	// TargetSnapshotInterval is how often the operator publishes.
 	TargetSnapshotInterval = 5 * time.Minute
 	// TargetSnapshotFreshness is the age past which a snapshot reads stale:
 	// three missed publishes.
@@ -169,7 +169,7 @@ func checkRead(asOf string, c fleet.Completeness) error {
 // TargetSnapshotStream is the stream a snapshot of cluster is verified under,
 // <uid>/pacto-targets/snapshot, shaped like a record stream
 // (<cluster>/<namespace>/<stage>) so a trust entry's streams scope it. Every
-// cluster's recorder can write every cluster-* tag, so a snapshot counts as
+// cluster's operator can write every cluster-* tag, so a snapshot counts as
 // verified only under a key scoped to its cluster: one whose streams hold a
 // pattern that starts with the literal UID.
 func TargetSnapshotStream(cluster string) string {

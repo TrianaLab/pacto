@@ -261,14 +261,12 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: "--enable-kernel-evidence"
-      - notContains:
-          path: spec.template.spec.containers[0].args
-          content: "--kernel-evidence-namespace="
-        any: true
-      - notContains:
-          path: spec.template.spec.containers[0].args
-          content: "--kernel-evidence-staleness="
-        any: true
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--kernel-evidence-namespace=
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--kernel-evidence-staleness=
 
   - it: should pass the kernel evidence namespace and staleness when set
     set:
@@ -510,10 +508,9 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --dashboard-oidc-ca-key=ca.crt
-      - notContains:
-          path: spec.template.spec.containers[0].args
-          content: --dashboard-oidc-ca-secret=
-          any: true
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--dashboard-oidc-ca-secret=
 
   - it: should name the identity provider on the sign-in button only when set
     set:
@@ -536,10 +533,9 @@ tests:
         clientID: pacto-dashboard
         redirectURL: https://dash.example/auth/callback
     asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].args
-          content: --dashboard-oidc-display-name=
-          any: true
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--dashboard-oidc-display-name=
 
   - it: should pass the issuer CA bundle from a Secret key
     set:

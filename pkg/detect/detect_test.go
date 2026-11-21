@@ -82,6 +82,8 @@ func row(t *testing.T, rows []fleet.Provider, id string) fleet.Provider {
 	return rows[i]
 }
 
+// TestProviderRowsAreInferred: every row built from the entries is inferred;
+// only the Installation block adds a declared row (TestInstallationRowIsDeclared).
 func TestProviderRowsAreInferred(t *testing.T) {
 	res := Result{AsOf: asOf, Entries: []Entry{
 		{Kind: "registry", Value: "ghcr.io/acme", Evidence: "in 9 of 11 namespaces", Source: "running pods", Completeness: Complete, Hint: "oci://ghcr.io/acme/<service>:<version>", Details: []string{"a", "b"}},

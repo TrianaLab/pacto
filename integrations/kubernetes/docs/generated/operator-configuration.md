@@ -86,6 +86,9 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-node-agent-memory-request` | `string` |  | chart value | Memory request for the node agent container. Empty uses the built-in default. |
 | `-node-agent-namespace` | `string` | `pacto-node-agent` | always on | Dedicated namespace the node agent runs and publishes in. The operator labels it privileged for Pod Security, so it must not be the operator namespace. |
 | `-node-agent-publish-interval` | `duration` | `30s` | chart value | How often each node agent publishes its node's NodeRuntimeObservation. |
+| `-registry` | `string` |  | chart value | The installation registry (host/path): Pacto publishes the target snapshot and inferred contracts under it and pushes nowhere else; empty turns those features off. |
+| `-registry-pull-secret` | `string` |  | chart value | namespace/name of the Secret that authenticates to the installation registry; used only under the push prefixes. |
+| `-registry-push-prefix` | `value` |  | chart value | Repeatable: a repository prefix a Pacto component may push under; the chart renders every one. |
 | `-stabilization-window` | `duration` | `2m0s` | chart value | The stabilization window duration for compliance assertions before they trigger a false condition. Assertions must remain unsatisfied for this entire window before being considered a failure. |
 | `-version` | `bool` |  | no | Print version information and exit. |
 | `-watch-namespace` | `string` |  | no | Deprecated: use --watch-namespaces. Merged into the --watch-namespaces list. |
@@ -103,4 +106,5 @@ Read directly by the controller entrypoint (`cmd/main.go`), typically wired thro
 | Variable | Purpose |
 | --- | --- |
 | `OPERATOR_DEPLOYMENT_NAME` | Operator Deployment name, used to set ownerReferences on dashboard resources. |
+| `OPERATOR_SERVICE_ACCOUNT` | Operator ServiceAccount name, written as the publisher the target snapshot claims. |
 | `POD_NAMESPACE` | Namespace the operator (and its managed dashboard) runs in. Required. |

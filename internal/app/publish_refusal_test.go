@@ -38,6 +38,7 @@ func bumpVersion(t *testing.T, dir, version, workload string) {
 // kept, signed by the publish key, in the contract bundle repository, where
 // the dashboard reads it; a refusal that cannot be kept is said beside it.
 func TestPublishKeepsTheVersionRefusal(t *testing.T) {
+	freshProbes(t)
 	srv := httptest.NewServer(testutil.NewReferrersRegistry(testutil.ReferrersOptions{}))
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
@@ -97,6 +98,7 @@ func TestKeepRefusalFailures(t *testing.T) {
 	signingKey(t, dir)
 	tools = newExecTools(dir, nil, nil)
 	b.Contract.Publish.Sign = &contract.PublishSign{Key: "cosign.key"}
+	freshProbes(t)
 	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadRequest) }))
 	defer down.Close()
 	old := rekorURL

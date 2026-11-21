@@ -21,7 +21,7 @@ var statsReadTimeout = registry.ReadTimeout
 // defaultStatsRepo opens the stats repository run records are read from, with
 // the CLI's credentials and plain-HTTP hosts.
 func defaultStatsRepo(path string) (*remote.Repository, error) {
-	return registry.Open(path, oci.NewKeychain(oci.EnvCredentialOptions()), oci.EnvInsecureRegistries())
+	return registry.Open(path, oci.NewKeychain(oci.EnvCredentialOptions()), oci.EnvInsecureRegistries(), nil)
 }
 
 // StatsRequest is one stats answer to compute.

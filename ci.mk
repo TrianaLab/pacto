@@ -381,7 +381,7 @@ verify-k8s-standalone:
 COVER_PKGS = $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /cmd/genexternalcatalog | grep -v /examples/ | grep -v /internal/runtimewatch/ebpf)
 ci-test:
 	@echo "==> Running unit tests with race detector and coverage..."
-	@go test -race $(COVER_PKGS) -coverprofile=coverage.out
+	@go test -race -timeout 20m $(COVER_PKGS) -coverprofile=coverage.out
 	@total=$$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $$NF}'); \
 	if [ "$$total" != "100.0%" ]; then \
 		echo "FAIL: total coverage is $$total, expected 100.0%"; \

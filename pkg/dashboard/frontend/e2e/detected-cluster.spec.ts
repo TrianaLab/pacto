@@ -4,13 +4,15 @@ import { appReady, settle } from './ready';
 
 // What the demo cluster's operator detected (examples/demo/detected.json, the advisory
 // source cluster-detection in examples/demo/source_fleet.go) against the built WASM
-// demo: six inferred rows inside the Detected providers block of Data sources, each
+// demo: seven inferred rows inside the Detected providers block of Data sources, each
 // with one provenance mark, the registry's proposal behind More details, and one toggle
-// that hides them and says so in the URL. No total row count is asserted: other stories
-// add rows of their own.
+// that hides them and says so in the URL, plus the operator's declared Installation row
+// (510-S6), which the toggle keeps. No total row count is asserted: other stories add
+// rows of their own.
 
 const T = 20_000;
-const DETECTED = ['Registry', 'Cloud', 'Sign-in', 'Exposure', 'Metrics', 'Nodes'];
+const DETECTED = ['Registry', 'Cloud', 'Sign-in', 'Exposure', 'Metrics', 'Nodes', 'Pull Secret'];
+const DECLARED = "Declared: by the operator's configuration";
 
 test.describe('WASM demo: what the cluster provides', () => {
   test('the detected rows are inferred, explain themselves and hide behind one toggle', async ({ page }) => {
@@ -60,6 +62,36 @@ test.describe('WASM demo: what the cluster provides', () => {
     await expect(page).toHaveURL(/inferred=0/);
     await expect(detected).toHaveCount(0);
     await expect(block.getByTestId('providers-inferred-hidden')).toBeVisible();
+  });
+
+  test('the installation is declared and the pull Secret is a muted proposal the toggle hides', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await appReady(page, '/#/fleet/sources');
+    const block = page.getByTestId('detected-providers');
+    await expect(block.getByTestId('provider-row').first()).toBeVisible({ timeout: T });
+    const showAll = block.getByRole('button', { name: /^Show all/ });
+    if (await showAll.isVisible()) await showAll.click();
+
+    const installation = block.getByTestId('provider-row').filter({ has: page.locator('.dp-name').getByTitle('Installation', { exact: true }) });
+    await expect(installation).toHaveCount(1, { timeout: T });
+    await expect(installation.locator('.dp-evidence')).toContainText('ghcr.io/acme');
+    await expect(installation).not.toHaveClass(/dp-inferred/);
+    await installation.getByRole('button', { name: DECLARED }).click();
+    await expect(installation.getByRole('note')).toContainText("Declared by the operator's configuration");
+    // Provenance, asOf and completeness, as the inferred tip carries them.
+    await expect(installation.getByRole('note')).toContainText(/as of .+, complete\./);
+    await page.keyboard.press('Escape');
+
+    const pull = block.getByTestId('provider-row').filter({ has: page.locator('.dp-name').getByTitle('Pull Secret', { exact: true }) });
+    await expect(pull).toHaveClass(/dp-inferred/);
+    await pull.getByRole('button', { name: 'Inferred: from cluster-detection' }).click();
+    await expect(pull.getByRole('note')).toContainText('named in the pod specs of');
+    await page.keyboard.press('Escape');
+
+    await block.getByTestId('providers-inferred-toggle').getByRole('checkbox').uncheck();
+    await expect(page).toHaveURL(/inferred=0/);
+    await expect(pull).toHaveCount(0);
+    await expect(installation).toHaveCount(1);
   });
 
   test('the provenance tip stays inside the viewport at every width', async ({ page }) => {

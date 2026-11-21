@@ -233,6 +233,8 @@ pacto agent [flags]
 
 Walks root (default .) for pacto.yaml, skipping the folders the root .pactoignore names, and prints one plan: the CI platform, the registry and the base, each with its source, then one row per service: whether it changed against its published baseline, the version it would publish, the classification of the change and its impact on the consumers the fleet source flags name.
 
+The registry is --registry, else the registry the installation advertises in what the operator detected (--detected, used only when it is fresh and no PACTO_REGISTRY_* credential is set, since those answer any host), else the CI platform's registry, else the one registry every image names.
+
 On GitHub Actions the plan is also appended to $GITHUB_STEP_SUMMARY; on GitLab CI it is written to pacto-plan.md in $CI_PROJECT_DIR. --output-format json writes the plan as one JSON document.
 
 Without --publish the run is a plan: it reads the registry and the consumer sources you name and writes nothing to them. A run record goes to --stats-file only, one file per impacted service.
@@ -285,7 +287,7 @@ pacto ci [root] [flags]
       --oci stringArray                    registry reference to include as a published-baseline revision (repeatable)
       --policy stringArray                 range policy for a BREAKING change, repeatable: unknown-range=warn|fail and uncontracted=warn|fail:<window> (such as fail:7d); default warn
       --publish[=true|false]               publish every changed service, on the merged commit only
-      --registry string                    registry the services publish to, for example ghcr.io/acme; default from the CI platform
+      --registry string                    registry the services publish to, for example ghcr.io/acme; default from the installation advertisement or the CI platform
       --root stringArray                   contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --sign-key string                    with --publish: sign the services whose contract declares no publish section with this cosign key file instead of keyless
       --stats-context string               comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
@@ -912,7 +914,7 @@ pacto delivery targets [flags]
 
 Signs a target snapshot document and pushes it to &lt;registry&gt;/pacto-targets:cluster-&lt;cluster&gt;. The document is the JSON predicate of delivery.pacto.trianalab.io/target-snapshot/v1: the cluster UID, its completeness and limitations, the Pacto objects as the read contract and the workloads no Pacto targets. The command sets asOf to now, the publisher to the signing key and the registry mode to the one detected on the cluster's existing tag.
 
-Production clusters publish from the delivery recorder. This command is for demos, tests and installations that build the document themselves.
+Production clusters publish from the operator once the chart's registry value is set. This command is for demos, tests and installations that build the document themselves.
 
 --key takes a PEM private key or a `pacto evidence keygen` seed. After a push the command writes &lt;key&gt;.pub.pem when it is absent; it refuses to publish while that file holds another key. A reader verifies the snapshot only with a trust entry that holds that public key and is scoped to the cluster (streams: ["&lt;cluster&gt;/*/*"]).
 
@@ -1737,7 +1739,7 @@ A command that could not run also exits 1, with nothing on stdout. Add --target-
 
 Pacto finds consumers only in the sources you pass, such as --local, --root, --oci, --cache, --k8s, --evidence-url, --traces and the target snapshot. With --local alone Pacto sees only the contracts in those folders, so "No affected consumers" is not evidence of safety.
 
-When you pass no --k8s, --target-state, --evidence-url or --target-snapshot, impact reads the signed target snapshot each cluster's delivery recorder publishes (--target-snapshot auto, the default): from the oci:// ref of the change it tries &lt;host&gt;/<first path segment>/pacto-targets, then &lt;host&gt;/pacto-targets, and prints a Registry line saying where it looked and a Targets line per cluster snapshot it read. auto reads only the clusters whose snapshot exists at that moment, so CI that knows its clusters pins them with --target-snapshot oci://&lt;registry&gt;/pacto-targets:cluster-&lt;uid&gt; (repeatable). --delivery-trust names the trust config that verifies each snapshot; an unverified or stale snapshot never clears a BREAKING change. --target-snapshot off reads none.
+When you pass no --k8s, --target-state, --evidence-url or --target-snapshot, impact reads the signed target snapshot each cluster's operator publishes (--target-snapshot auto, the default): from the oci:// ref of the change it tries &lt;prefix&gt;/pacto-targets under each path prefix of its repository, deepest first and at most three segments deep (the registry value the operator publishes under), then &lt;host&gt;/pacto-targets, and prints a Registry line saying where it looked and a Targets line per cluster snapshot it read. auto reads only the clusters whose snapshot exists at that moment, so CI that knows its clusters pins them with --target-snapshot oci://&lt;registry&gt;/pacto-targets:cluster-&lt;uid&gt; (repeatable). --delivery-trust names the trust config that verifies each snapshot; an unverified or stale snapshot never clears a BREAKING change. --target-snapshot off reads none.
 
 From the same ref impact also reads the consumers published to the organization index, &lt;host&gt;/<first path segment>/pacto-index then &lt;host&gt;/pacto-index, checks them against the target snapshot it reads and prints a Consumers line; --index names another &lt;registry&gt;/pacto-index, --index none reads none, a --root list skips it and a pair of --local folders reads no index.
 
@@ -2115,7 +2117,7 @@ pacto mcp [bundle-ref] [flags]
       --dashboard-url string          with --fleet: base URL of a Pacto dashboard; fleet answers then carry an href to each entity's page there
       --delivery[=true|false]         expose the Pacto delivery tools over the ambient cluster
       --delivery-namespace string     in --delivery mode: namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
-      --delivery-trust string         the trust config delivery records (in --delivery mode), the golden paths pacto_create creates from and the target snapshots pacto_impact and --target-snapshot read are verified with (the recorder's PEM public key or a YAML trust config; a target snapshot verifies only under a key scoped to its cluster: streams ["<uid>/*/*"]; default $PACTO_DELIVERY_TRUST)
+      --delivery-trust string         the trust config delivery records (in --delivery mode), the golden paths pacto_create creates from and the target snapshots pacto_impact and --target-snapshot read are verified with (a PEM public key or a YAML trust config: the recorder's key for records, the operator's advertised installation key for a target snapshot, which verifies only under a key scoped to its cluster: streams ["<uid>/*/*"]; default $PACTO_DELIVERY_TRUST)
       --detected string               add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --exchange-audience string      with --fleet or --delivery over HTTP with --auth-issuer: the audience to exchange for, one the apiserver accepts (default "pacto-cli")

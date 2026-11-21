@@ -92,10 +92,44 @@ func TestMCPFleetStatusDetectedRestricted(t *testing.T) {
 
 func TestFleetStatusDescriptionNamesDetected(t *testing.T) {
 	d := fleetStatusTool().Description
-	for _, want := range []string{"what the operator detected", "provenance inferred", "asOf", "never clears a gate"} {
+	for _, want := range []string{"what the operator detected", "provenance inferred", "asOf", "no provider row clears a gate"} {
 		if !strings.Contains(d, want) {
 			t.Errorf("description lacks %q:\n%s", want, d)
 		}
+	}
+}
+
+// TestFleetStatusToolDescribesInstallation: the one sentence on detected rows
+// names the declared Installation row and the Pull Secret proposal, and
+// replaced the sentence that said every detected row is inferred.
+func TestFleetStatusToolDescribesInstallation(t *testing.T) {
+	d := fleetStatusTool().Description
+	for _, want := range []string{"an Installation row with provenance declared", "push prefixes", "a Pull Secret proposal",
+		"a Pull Secret is never used until a person sets registryPullSecret"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("description lacks %q:\n%s", want, d)
+		}
+	}
+	if strings.Contains(d, "a detected value never clears a gate") || strings.Count(d, "providers includes") != 1 {
+		t.Errorf("the old sentence was joined, not replaced:\n%s", d)
+	}
+}
+
+// TestMCPFleetStatusOmitsPullSecretHint: an agent gets the Pull Secret
+// proposal and the Installation row, never the --set registryPullSecret hint.
+func TestMCPFleetStatusOmitsPullSecretHint(t *testing.T) {
+	rows := detect.ProviderRows(detect.Result{SchemaVersion: "1", AsOf: fixedNow, Installation: &detect.Installation{Registry: "ghcr.io/acme"},
+		Entries: []detect.Entry{{Kind: "pull-secret", Value: "shop/ghcr-pull", Completeness: detect.Complete,
+			Hint: "--set registryPullSecret=shop/ghcr-pull", Scope: fleet.ScopeCluster}}}, "detection", fixedNow)
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fixedNow }},
+		fleet.NewMemorySource("detection", fleet.SourceKindDetection, &fleet.Collection{Advisory: true, Providers: rows}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	text := resultText(t, callHandler(t, fleetStatusTool(), fleetStatusHandler(q), map[string]any{}))
+	if strings.Contains(text, "--set") || !strings.Contains(text, "shop/ghcr-pull") || !strings.Contains(text, `"provenance": "declared"`) {
+		t.Errorf("status:\n%s", text)
 	}
 }
 

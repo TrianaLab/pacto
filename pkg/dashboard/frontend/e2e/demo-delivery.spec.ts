@@ -96,7 +96,13 @@ async function playTour(page: Page, reload: boolean) {
       await expect(page.getByTestId('undo-panel')).toContainText(/Undo payments-promote-\d+ Roll back/, { timeout: T });
       plannedUndo = true;
     }
-    await page.getByTestId('demo-tour-skip').click();
+    // Check and press Skip in one task: a holding step whose answer lands between a read
+    // and a Playwright click hides Skip and shows Continue, and the click would wait on
+    // a hidden button until the test times out. Already answered, Continue below takes it.
+    await page.evaluate(() => {
+      const skip = document.querySelector<HTMLButtonElement>('[data-testid="demo-tour-skip"]');
+      if (skip && !skip.hidden && !skip.disabled) skip.click();
+    });
     await expect
       .poll(async () => (await text.textContent()) !== before || (await next.isVisible()), { timeout: T })
       .toBe(true);

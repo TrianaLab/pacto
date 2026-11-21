@@ -3,6 +3,7 @@ package ocireferrer
 import (
 	"context"
 	"encoding/base64"
+	"net/http"
 	"slices"
 	"strings"
 
@@ -11,6 +12,8 @@ import (
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
 	"oras.land/oras-go/v2/registry/remote/retry"
+
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 // maxReferrerPages bounds one referrers listing. It exists only so a registry
@@ -24,7 +27,8 @@ const maxReferrerPages = 1000
 // file or registry-auth model.
 type Options struct {
 	// Keychain is the shared Pacto keychain (env token, env user/pass, pacto
-	// login, gh, docker). A nil keychain is anonymous access.
+	// login, gh, docker, then the Google, ECR and ACR workload-identity sources
+	// unless the caller skipped them). A nil keychain is anonymous access.
 	Keychain authn.Keychain
 	// Insecure lists registry hosts to reach over plain HTTP, mirroring
 	// [github.com/trianalab/pacto/v4/pkg/oci.WithInsecureRegistries]. Loopback
@@ -39,6 +43,11 @@ type Options struct {
 	// referrers tag. Only run records (pkg/runrecord/registry) set it:
 	// statistics may share a mutable index; evidence must not.
 	AllowTagFallback bool
+	// Scope guards every write on the repository's transport (decision 11): no
+	// tag, delete or subject-less manifest outside the installation prefixes;
+	// only a referrer by digest may be written there. Every cluster-side process
+	// sets it. nil means unguarded (CLI publishes).
+	Scope *oci.PushScope
 }
 
 // Open opens the ORAS repository at path ("<registry>/<repository>"). Unless
@@ -55,8 +64,12 @@ func Open(path string, opts Options) (*remote.Repository, error) {
 	repo.PlainHTTP = plainHTTP(host, opts.Insecure)
 	repo.ReferrerListPageSize = opts.PageSize
 	repo.ReferrerListMaxPages = maxReferrerPages
+	client := retry.DefaultClient
+	if opts.Scope != nil {
+		client = &http.Client{Transport: opts.Scope.Guard(retry.NewTransport(nil))}
+	}
 	repo.Client = &auth.Client{
-		Client:     retry.DefaultClient,
+		Client:     client,
 		Cache:      auth.NewCache(),
 		Credential: credentialFunc(opts.Keychain),
 	}

@@ -86,19 +86,12 @@ func TestNewKeychain_Default(t *testing.T) {
 	}
 }
 
-func TestNewKeychain_ReturnsPactoKeychain(t *testing.T) {
-	kc := oci.NewKeychain(oci.CredentialOptions{})
-	if _, ok := kc.(*oci.PactoKeychain); !ok {
-		t.Errorf("NewKeychain() = %T, want *oci.PactoKeychain", kc)
-	}
-}
-
 func TestPactoKeychain_Candidates_EnvToken(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	t.Setenv("XDG_CONFIG_HOME", "")
 
-	kc := oci.NewKeychain(oci.CredentialOptions{Token: "tok"}).(*oci.PactoKeychain)
+	kc := oci.NewKeychain(oci.CredentialOptions{Token: "tok"})
 	reg, _ := name.NewRegistry("example.com", name.Insecure)
 
 	cands, err := kc.Candidates(reg)
@@ -118,7 +111,7 @@ func TestPactoKeychain_Candidates_EnvUserPass(t *testing.T) {
 	t.Setenv("HOME", dir)
 	t.Setenv("XDG_CONFIG_HOME", "")
 
-	kc := oci.NewKeychain(oci.CredentialOptions{Username: "u", Password: "p"}).(*oci.PactoKeychain)
+	kc := oci.NewKeychain(oci.CredentialOptions{Username: "u", Password: "p"})
 	reg, _ := name.NewRegistry("example.com", name.Insecure)
 
 	cands, err := kc.Candidates(reg)
@@ -147,7 +140,7 @@ func TestPactoKeychain_Candidates_OrderingAndNames(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	kc := oci.NewKeychain(oci.CredentialOptions{Token: "tok"}).(*oci.PactoKeychain)
+	kc := oci.NewKeychain(oci.CredentialOptions{Token: "tok"})
 	reg, _ := name.NewRegistry("example.com", name.Insecure)
 
 	cands, err := kc.Candidates(reg)
@@ -166,7 +159,7 @@ func TestPactoKeychain_Candidates_NoneNonAnon(t *testing.T) {
 	t.Setenv("HOME", dir)
 	t.Setenv("XDG_CONFIG_HOME", "")
 
-	kc := oci.NewKeychain(oci.CredentialOptions{}).(*oci.PactoKeychain)
+	kc := oci.NewKeychain(oci.CredentialOptions{})
 	reg, _ := name.NewRegistry("unknown.example.com", name.Insecure)
 
 	cands, err := kc.Candidates(reg)

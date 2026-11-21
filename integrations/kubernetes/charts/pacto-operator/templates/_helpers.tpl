@@ -117,6 +117,20 @@ Controller arguments derived from values
 {{- if or .Values.controller.watchNamespaces .Values.controller.watchNamespace }}
 - --watch-namespaces={{ include "pacto-operator.watchNamespaces" . | fromYamlArray | join "," }}
 {{- end }}
+{{- with .Values.registry }}
+- --registry={{ . }}
+{{- end }}
+{{- with .Values.registryPullSecret }}
+{{- if not $.Values.registry }}
+{{- fail "registryPullSecret needs registry: the Secret is used only under the registry's push prefixes" }}
+{{- end }}
+- --registry-pull-secret={{ . }}
+{{- end }}
+{{- if .Values.registry }}
+{{- range include "pacto-operator.pushPrefixes" . | fromYamlArray }}
+- --registry-push-prefix={{ . }}
+{{- end }}
+{{- end }}
 {{- if .Values.controller.stabilizationWindow }}
 - --stabilization-window={{ .Values.controller.stabilizationWindow }}
 {{- end }}
@@ -552,12 +566,103 @@ upgrade from a release without the key rendering. Empty means cluster-wide.
 {{- end }}
 
 {{/*
+Every repository prefix a Pacto component may push under, as a YAML list: the
+installation repositories <registry>/pacto-targets, pacto-index and
+pacto-inferred when registry is set, then, with delivery on, the recorder's
+streams and approvals repositories and the promoter's stats repository, as
+set (an explicit delivery value may name any repository).
+*/}}
+{{- define "pacto-operator.pushPrefixes" -}}
+{{- $out := list }}
+{{- with .Values.registry }}
+{{- range list "pacto-targets" "pacto-index" "pacto-inferred" }}
+{{- $out = append $out (printf "%s/%s" $.Values.registry .) }}
+{{- end }}
+{{- end }}
+{{- if .Values.delivery.enabled }}
+{{- if .Values.delivery.recorder.enabled }}
+{{- with include "pacto-operator.delivery.streamsRepository" . }}
+{{- $out = append $out . }}
+{{- $out = append $out (include "pacto-operator.delivery.approvalsRepository" $) }}
+{{- end }}
+{{- end }}
+{{- with .Values.delivery.stats.repository }}
+{{- $out = append $out . }}
+{{- end }}
+{{- end }}
+{{- toYaml (uniq $out) }}
+{{- end }}
+
+{{/*
+The cloud that owns a registry host, the same host predicates pkg/oci puts in
+front of its cloud sources: google (*.pkg.dev, gcr.io, *.gcr.io), aws (ECR and
+public.ecr.aws), azure (*.azurecr.io, .cn, .us), else empty.
+*/}}
+{{- define "pacto-operator.registryHostCloud" -}}
+{{- $h := lower . }}
+{{- if regexMatch `^(([a-z0-9-]+\.)+pkg\.dev|([a-z0-9-]+\.)*gcr\.io)$` $h }}google
+{{- else if regexMatch `^([0-9]{12}\.dkr\.ecr(-fips)?\.[a-z0-9-]+\.amazonaws\.com(\.cn)?|public\.ecr\.aws)$` $h }}aws
+{{- else if regexMatch `^([a-z0-9-]+\.)+azurecr\.(io|cn|us)$` $h }}azure
+{{- end }}
+{{- end }}
+
+{{/*
+The NOTES line that says which credential reaches the installation registry,
+in order: registryPullSecret; the operator ServiceAccount annotation of the
+cloud that owns the registry host (an annotation for another cloud does not
+count); on upgrade, a detected cloud that owns the host; else none. Takes a
+dict: root, detected (the decoded detection, possibly empty) and pushed (the
+detection holds a last push result).
+*/}}
+{{- define "pacto-operator.registryCredential" -}}
+{{- $root := .root }}
+{{- $host := index (splitList "/" $root.Values.registry) 0 }}
+{{- $cloud := include "pacto-operator.registryHostCloud" $host }}
+{{- $keys := dict "google" "iam.gke.io/gcp-service-account" "aws" "eks.amazonaws.com/role-arn" "azure" "azure.workload.identity/client-id" }}
+{{- $names := dict "google" "GKE workload identity" "aws" "EKS IRSA" "azure" "Azure workload identity" }}
+{{- $clouds := dict "GKE" "google" "GCE" "google" "EKS" "aws" "AWS" "aws" "AKS" "azure" "Azure" "azure" }}
+{{- $id := "" }}
+{{- if $cloud }}{{ $id = get ($root.Values.serviceAccount.annotations | default dict) (get $keys $cloud) | toString }}{{ end }}
+{{- $seen := "" }}
+{{- $entries := get .detected "entries" | default list }}
+{{- if kindIs "slice" $entries }}{{ else }}{{ $entries = list }}{{ end }}
+{{- range $entries }}
+{{- if and $cloud (kindIs "map" .) (eq (toString (get . "kind")) "cloud") (eq (get $clouds (toString (get . "value"))) $cloud) }}{{ $seen = toString (get . "value") }}{{ end }}
+{{- end }}
+{{- if $root.Values.registryPullSecret -}}
+Pulls: Secret {{ $root.Values.registryPullSecret }} (registryPullSecret).{{ if not .pushed }} Pushes: unconfirmed until the first snapshot push.{{ end }}
+{{- else if $id -}}
+Pulls and pushes: {{ get $names $cloud }}{{ if ne $cloud "azure" }} ({{ $id }}){{ end }}. No Secret needed.
+{{- else if $seen -}}
+Pulls and pushes: {{ $seen }} workload identity once ServiceAccount {{ $root.Release.Namespace }}/{{ include "pacto-operator.serviceAccountName" $root }} is bound to an identity with registry access{{ if eq $cloud "aws" }} (EKS Pod Identity needs no annotation){{ end }}.
+{{- else -}}
+No credential found for {{ $host }}: set registryPullSecret, or the registry must allow anonymous pull and push.
+{{- end }}
+{{- end }}
+
+{{/*
+The recorder's streams repository: delivery.recorder.streamsRepository, else
+<registry>/pacto-streams when registry is set, else empty.
+*/}}
+{{- define "pacto-operator.delivery.streamsRepository" -}}
+{{- .Values.delivery.recorder.streamsRepository | default (ternary (printf "%s/pacto-streams" .Values.registry) "" (not (empty .Values.registry))) }}
+{{- end }}
+
+{{/*
+The repository a person's client pushes signed approvals to:
+delivery.recorder.approvalsRepository, else <streams repository>-approvals.
+*/}}
+{{- define "pacto-operator.delivery.approvalsRepository" -}}
+{{- .Values.delivery.recorder.approvalsRepository | default (printf "%s-approvals" (include "pacto-operator.delivery.streamsRepository" .)) }}
+{{- end }}
+
+{{/*
 The Secrets granted by name, as a YAML list of {namespace, name}, from
-controller.secretGrants (namespace/name).
+controller.secretGrants and registryPullSecret (both namespace/name).
 */}}
 {{- define "pacto-operator.secretGrants" -}}
 {{- $out := list }}
-{{- range default list .Values.controller.secretGrants | uniq }}
+{{- range concat (default list .Values.controller.secretGrants) (compact (list .Values.registryPullSecret)) | uniq }}
 {{- $parts := splitList "/" . }}
 {{- $out = append $out (dict "namespace" (index $parts 0) "name" (index $parts 1)) }}
 {{- end }}

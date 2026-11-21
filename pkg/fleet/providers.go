@@ -101,8 +101,9 @@ type Provider struct {
 	Limitations  []Limitation     `json:"limitations,omitempty"`
 	// Provenance, AsOf, Hint, Details and Scope are set on a row Pacto
 	// detected (see pkg/detect); a row a source reported directly leaves them
-	// empty.
-	Provenance string     `json:"provenance,omitempty" doc:"inferred for a row Pacto detected; empty for a row a source reported directly"`
+	// empty. The operator's Installation row, from the same detection, is the
+	// one row with Provenance declared.
+	Provenance string     `json:"provenance,omitempty" doc:"declared for the operator's Installation row (its configuration); inferred for a row Pacto detected; empty for a row a source reported directly"`
 	AsOf       *time.Time `json:"asOf,omitempty" doc:"When the row was detected"`
 	Hint       string     `json:"hint,omitempty" doc:"A command or value for a person to review that would turn the proposal on. Nothing is turned on until a person runs it"`
 	Details    []string   `json:"details,omitempty" doc:"Further candidates or facts behind the row, at most 5"`
@@ -363,7 +364,8 @@ func PluralKind(k string) string {
 
 // restrictProviders is rows as a reader visible and workloadVisible say yes
 // to sees them. Every row stays, except a registry row whose every service is
-// in hiddenSvc; what changes is cloned. An object in a
+// in hiddenSvc and a declared row from a cluster the view hides; what changes
+// is cloned. An object in a
 // namespace the reader may not read goes, a cluster-scoped one included unless
 // visible("") says yes, and ObjectsTotal keeps the count. A count stays only
 // when the reader may read its namespace and list its kind there (a nil
@@ -390,9 +392,8 @@ func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNam
 		if allServicesHidden(p, hiddenSvc) {
 			continue
 		}
-		if !shown[p.Cluster] {
-			p.Evidence, p.Limitations = hideDetectedCluster(p)
-			p.Cluster = ""
+		if !hideCluster(&p, shown) {
+			continue
 		}
 		p.Objects, p.ObjectsTotal = restrictObjects(p, visible, workloadVisible)
 		hidden := map[string]int{}
@@ -426,6 +427,21 @@ func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNam
 // every one of them, so the row goes with them.
 func allServicesHidden(p Provider, hiddenSvc map[ServiceKey]bool) bool {
 	return len(p.Services) > 0 && !slices.ContainsFunc(p.Services, func(k ServiceKey) bool { return !hiddenSvc[k] })
+}
+
+// hideCluster takes from p its cluster when shown does not name it, and
+// reports whether p stays. A declared row goes whole: the Installation row's
+// details and push error name the cluster's snapshot tag.
+func hideCluster(p *Provider, shown map[string]bool) bool {
+	if shown[p.Cluster] {
+		return true
+	}
+	if p.Provenance == ProvenanceDeclared && p.Cluster != "" {
+		return false
+	}
+	p.Evidence, p.Limitations = hideDetectedCluster(*p)
+	p.Cluster = ""
+	return true
 }
 
 // hideDetectedCluster is the evidence and limitations of p without the

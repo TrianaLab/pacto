@@ -599,6 +599,23 @@ func checkServeCluster(c *evidenceingest.ClusterDTO) error {
 // Service can shorten it.
 const defaultReadinessTimeout = 3 * time.Second
 
+// evidenceStoreOptions is how the Evidence Server reaches the contract registry:
+// the same keychain and plain-HTTP policy `pacto pull` uses, since evidence is
+// written to the contract registry and authenticates like a contract does. The
+// cloud workload-identity sources are skipped: the server writes referrers onto
+// subjects anywhere, so it carries no host-wide cloud identity. Its push scope
+// is referrer-only (decision 11): it never tags, deletes or writes a
+// subject-less manifest.
+func evidenceStoreOptions() evidenceoci.RepositoryOptions {
+	creds := oci.EnvCredentialOptions()
+	creds.SkipCloud = true
+	return evidenceoci.RepositoryOptions{
+		Keychain: oci.NewKeychain(creds),
+		Insecure: oci.EnvInsecureRegistries(),
+		Scope:    oci.NewPushScope(""),
+	}
+}
+
 // buildEvidenceHost assembles the ingestion HTTP mux over the contract registry:
 // it loads the trust store, parses the configured contract subjects and opens one
 // repository per subject. Nothing is stored locally, so there is no recovery to
@@ -622,12 +639,7 @@ func (s *Service) buildEvidenceHost(opts ServeOptions) (*http.ServeMux, []string
 	if err != nil {
 		return nil, nil, err
 	}
-	// The same keychain and plain-HTTP policy `pacto pull` uses: evidence is
-	// written to the contract registry, so it authenticates like a contract does.
-	store, err := evidenceoci.NewStore(subjects, evidenceoci.RepositoryOptions{
-		Keychain: oci.NewKeychain(oci.EnvCredentialOptions()),
-		Insecure: oci.EnvInsecureRegistries(),
-	})
+	store, err := evidenceoci.NewStore(subjects, evidenceStoreOptions())
 	if err != nil {
 		return nil, nil, err
 	}

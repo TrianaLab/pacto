@@ -1,8 +1,9 @@
 {{- if .Values.delivery.enabled }}
 {{- if .Values.delivery.recorder.enabled }}
 {{- $r := .Values.delivery.recorder }}
-{{- if not $r.streamsRepository }}
-{{- fail "delivery.recorder.streamsRepository is required when the recorder is enabled" }}
+{{- $streams := include "pacto-operator.delivery.streamsRepository" . }}
+{{- if not $streams }}
+{{- fail "the recorder needs a streams repository: set registry or delivery.recorder.streamsRepository" }}
 {{- end }}
 {{- $signers := 0 }}
 {{- if $r.signing.ed25519.secretName }}{{ $signers = add1 $signers }}{{ end }}
@@ -58,8 +59,7 @@ data:
 # It reads its admission policies to sign an approval on its creator's behalf
 # only while the -approval policy guards approvals. It is the only holder
 # of the signing key and the registry push credentials; it never changes
-# what runs. With the top-level registry value it also publishes the
-# cluster's signed target snapshot to <registry>/pacto-targets.
+# what runs.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -89,17 +89,6 @@ rules:
   - apiGroups: [authorization.k8s.io]
     resources: [subjectaccessreviews]
     verbs: [create]
-  # Reads what runs for the target snapshot; never Secrets, ConfigMaps, pods
-  # or nodes.
-  - apiGroups: [pacto.trianalab.io]
-    resources: [pactos]
-    verbs: [get, list]
-  - apiGroups: [apps]
-    resources: [deployments, statefulsets, daemonsets]
-    verbs: [list]
-  - apiGroups: [batch]
-    resources: [cronjobs]
-    verbs: [list]
   {{- with include "pacto-operator.delivery.rbac.pointerReadRules" . | trim }}{{ . | nindent 2 }}{{ end }}
   {{- include "pacto-operator.rbac.clusterIdentityRule" . | nindent 2 }}
 ---
@@ -164,8 +153,11 @@ spec:
             - recorder
             - --leader-elect={{ $r.leaderElect }}
             - --poll={{ $r.poll }}
-            - {{ printf "--streams-repository=%s" $r.streamsRepository | quote }}
-            - {{ printf "--approvals-repository=%s" ($r.approvalsRepository | default (printf "%s-approvals" $r.streamsRepository)) | quote }}
+            - {{ printf "--streams-repository=%s" $streams | quote }}
+            - {{ printf "--approvals-repository=%s" (include "pacto-operator.delivery.approvalsRepository" .) | quote }}
+            {{- with .Values.registry }}
+            - {{ printf "--registry=%s" . | quote }}
+            {{- end }}
             - --admission-policies={{ include "pacto-operator.delivery.fullname" . }}-approval
             - --identities=/etc/pacto/identities/policy.json
             {{- if $r.signing.ed25519.secretName }}
@@ -187,25 +179,9 @@ spec:
             {{- with $r.cdeventsSink }}
             - {{ printf "--cdevents-sink=%s" . | quote }}
             {{- end }}
-            {{- with .Values.registry }}
-            - {{ printf "--targets-repository=%s/pacto-targets" . | quote }}
-            {{- end }}
-            {{- if .Values.evidence.enabled }}
-            {{- /* The snapshot carries the targets the Evidence Server accepted. */}}
-            - {{ printf "--evidence-url=http://pacto-evidence.%s.svc:8686" .Release.Namespace | quote }}
-            {{- end }}
           env:
             - name: HOME
               value: /tmp
-            # The publisher the target snapshot claims.
-            - name: POD_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
-            - name: SERVICE_ACCOUNT
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.serviceAccountName
             {{- if $r.registryCredentials.secretName }}
             - name: DOCKER_CONFIG
               value: /etc/pacto/registry

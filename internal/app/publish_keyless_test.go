@@ -149,6 +149,7 @@ func TestAdoptOnlySignedByTheTokenIdentity(t *testing.T) {
 // kept, signed keyless as the CI identity.
 func TestKeepRefusalNilSignKeyless(t *testing.T) {
 	ss := privateSigstore(t, ciWorkflow)
+	freshProbes(t)
 	srv := httptest.NewServer(testutil.NewReferrersRegistry(testutil.ReferrersOptions{}))
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")

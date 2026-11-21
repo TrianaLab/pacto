@@ -303,7 +303,7 @@ func deriveRegistry(opts PublishOptions, bp discover.BuildPlan) (string, error) 
 	if bp.Image != "" {
 		images = []ci.ImageRef{{Image: bp.Image, Source: bp.ImageSource}}
 	}
-	v, notes := ci.ResolveRegistry(flag, ci.Detect(opts.Getenv), images)
+	v, notes := ci.ResolveRegistry(flag, ci.Value{}, ci.Detect(opts.Getenv), images)
 	if v.Value == "" {
 		return "", fmt.Errorf("no registry to publish to%s: pass --registry", strings.Join(append([]string{""}, notes...), "; "))
 	}

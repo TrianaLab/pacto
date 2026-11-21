@@ -68,7 +68,7 @@ func statsRegistryOf(t *testing.T, seal bool, recs ...runrecord.Record) string {
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
 	path := host + "/acme/pacto-stats"
-	repo, err := registry.Open(path, nil, []string{host})
+	repo, err := registry.Open(path, nil, []string{host}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
