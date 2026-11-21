@@ -433,6 +433,8 @@ github.com/trianalab/pacto/v4 v4.5.0 h1:g+5rLWdr5bRWNyMD6l88Nbwo/eeFrTCC7vI9vxsy
 github.com/trianalab/pacto/v4 v4.5.0/go.mod h1:KiQHvb6diqqT1DRQNvog67yGnLxm7fV1FABuOZwhVZQ=
 github.com/trianalab/pacto/v4 v4.6.0 h1:EKatQkS4icM1EFgUod7cuKIionIOJH7WF09usJTdtVU=
 github.com/trianalab/pacto/v4 v4.6.0/go.mod h1:b9dfy/+n9c/bdcnR1fuRZPe5XmDl1r5H4b56Ugv1dVk=
+github.com/trianalab/pacto/v4 v4.6.1 h1:rIy5lGpVAmk4jKph628c7Sx2yPMdw5Fl8EW6PdKzhbQ=
+github.com/trianalab/pacto/v4 v4.6.1/go.mod h1:b9dfy/+n9c/bdcnR1fuRZPe5XmDl1r5H4b56Ugv1dVk=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 h1:ilQV1hzziu+LLM3zUTJ0trRztfwgjqKnBWNtSRkbmwM=

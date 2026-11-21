@@ -25,13 +25,13 @@ serve beyond loopback unless `PACTO_DASHBOARD_ALLOW_ANONYMOUS=true` allows it.
 # Run with OCI registry sources
 docker run -p 127.0.0.1:3000:3000 -e PACTO_DASHBOARD_ALLOW_ANONYMOUS=true \
   -e PACTO_DASHBOARD_REPO=ghcr.io/org/svc-a,ghcr.io/org/svc-b \
-  ghcr.io/trianalab/pacto/dashboard:4.6.0
+  ghcr.io/trianalab/pacto/dashboard:4.6.1
 
 # Run with registry authentication
 docker run -p 127.0.0.1:3000:3000 -e PACTO_DASHBOARD_ALLOW_ANONYMOUS=true \
   -e PACTO_DASHBOARD_REPO=ghcr.io/org/svc-a \
   -e PACTO_REGISTRY_TOKEN=ghp_xxx \
-  ghcr.io/trianalab/pacto/dashboard:4.6.0
+  ghcr.io/trianalab/pacto/dashboard:4.6.1
 ```
 
 To build the image from a checkout instead, `make docker-build` and
@@ -110,12 +110,12 @@ automatically, with no kubeconfig mount:
 docker run -p 127.0.0.1:3000:3000 -e PACTO_DASHBOARD_ALLOW_ANONYMOUS=true \
   -v ~/.kube/config:/home/pacto/.kube/config:ro \
   -e PACTO_DASHBOARD_NAMESPACE=production \
-  ghcr.io/trianalab/pacto/dashboard:4.6.0
+  ghcr.io/trianalab/pacto/dashboard:4.6.1
 
 # local: a contract directory
 docker run -p 127.0.0.1:3000:3000 -e PACTO_DASHBOARD_ALLOW_ANONYMOUS=true \
   -v /path/to/contracts:/data:ro \
-  ghcr.io/trianalab/pacto/dashboard:4.6.0 dashboard /data
+  ghcr.io/trianalab/pacto/dashboard:4.6.1 dashboard /data
 ```
 
 ## Operational Endpoints
@@ -181,7 +181,7 @@ spec:
     spec:
       containers:
         - name: dashboard
-          image: ghcr.io/trianalab/pacto/dashboard:4.6.0
+          image: ghcr.io/trianalab/pacto/dashboard:4.6.1
           ports:
             - containerPort: 3000
           env:

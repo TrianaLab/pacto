@@ -1,5 +1,11 @@
 # @pacto/core
 
+## 4.6.1
+
+### Patch Changes
+
+- ac3299b: `pacto ci init` now writes a caller pinned to the pacto-actions v2.0.0 release.
+
 ## 4.6.0
 
 ### Minor Changes

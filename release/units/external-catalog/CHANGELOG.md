@@ -1,5 +1,9 @@
 # @pacto/external-catalog
 
+## 4.6.1
+
+No changes in this release.
+
 ## 4.6.0
 
 ### Minor Changes
