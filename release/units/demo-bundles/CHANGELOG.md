@@ -1,5 +1,9 @@
 # @pacto/demo-bundles
 
+## 4.6.0
+
+No changes in this release.
+
 ## 4.5.0
 
 No changes in this release.

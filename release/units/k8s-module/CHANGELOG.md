@@ -1,5 +1,582 @@
 # @pacto/k8s-module
 
+## 6.6.0
+
+### Minor Changes
+
+- e250ce8: An empty `pacto.yaml`, or one line of it, is now a valid contract
+  (pactoVersion 2.5). An absent `pactoVersion` reads as the newest version the
+  CLI supports, and `service`, `service.name` and `service.version` may be left
+  out. Pacto infers the service name from `Chart.yaml`, a Kustomization or a
+  single-service Compose file, the `org.opencontainers.image.title` label, the
+  `app.kubernetes.io/name` label or the folder name, and `pacto validate`, the
+  fleet and the dashboard say where each inferred value came from. An inferred
+  name that another service also claims is dropped from the operational graph
+  with a `SERVICE_NAME_COLLISION` limitation, and an inferred name never clears
+  an impact gate (`SERVICE_NAME_INFERRED`).
+  
+  `pacto pack`, `pacto push` and `pacto publish` refuse a contract that does not
+  declare `service.name` (`PUBLISH_NEEDS_SERVICE_NAME`) or `service.version`
+  (`PUBLISH_NEEDS_SERVICE_VERSION`) and write `pactoVersion` into the bundled
+  `pacto.yaml`. A bundle pulled from a registry, or an inline contract in a Pacto
+  resource, that does not declare all three is rejected; the operator reports
+  `ContractUndeclared`.
+  
+  A dependency may leave out `name`, which is derived from its `ref` and resolves
+  only against a provider published at that repository, and `required`, which
+  defaults to `true`. `compatibility: unknown` records a range nobody decided
+  yet: it is never read as compatible and never clears a gate or a promotion.
+  An interface can declare its `port`, and `breaks[]` announces a deliberate
+  breaking change to the consumers it names. Validation, `pacto diff`, the fleet,
+  the dashboard, MCP and the operator status (`status.interfaces[].port`) read
+  the new fields.
+- ca50460: Every workload a cluster runs shows up in the fleet as an inferred service,
+  with its image, ports and probes; inferred services never satisfy a dependency
+  or clear a gate. A new `kubernetes-workloads` source lists Deployments,
+  StatefulSets, DaemonSets and CronJobs (`list` only) and reads no environment
+  variable, Secret or ConfigMap. Service records carry `declaration`
+  (`declared` or `inferred`); `pacto fleet entities` and `pacto fleet search`
+  take `--declaration`, the fleet MCP tools take `declaration`, the Overview
+  counts `inferredServices` apart and the Services list shows inferred services
+  muted with a filter. An inferred caller of a declared service stays an
+  uncontracted caller and links to its entity. The dashboard ClusterRole and the
+  namespace watch Role gain `list` on the four workload kinds, and the operator
+  ClusterRole gains `daemonsets`.
+- bd0bdc4: Group inferred services the way the cluster already does: by Argo CD
+  Application, Flux Kustomization or HelmRelease, Helm release or
+  app.kubernetes.io labels, with the source repository URL and where Pacto read
+  it. `pacto fleet entities --group`, `pacto_fleet_entities.group` and
+  `GET /api/fleet/entities?group` filter by group; Data sources lists Argo CD,
+  Flux and Helm. The dashboard role lists Argo CD Applications and Flux
+  Kustomizations, HelmReleases and GitRepositories. Data sources also lists who
+  promotes and who reports, from an optional `fingerprints` chart value and
+  `--fingerprints` flag that name an installation's own workload managers and
+  promoters; a workload one of those managers applies reads `external: <product>`
+  in the Stage applier verdict, and the promoter writes no pointer for it.
+- bd0bdc4: Probe each registry once and record the mode Pacto uses. Delivery records now
+  work on registries without the OCI Referrers API, such as GHCR and CNCF
+  distribution, as one write-once, content-addressed tag per record in the
+  streams repository; every reader reads both forms. Stages gain
+  `status.stream.registryMode` and the `RecordStoreReady` reason `WriteOnceTags`;
+  the `ReferrersUnsupported` reason is removed, and a Stage that recorded
+  `native` is never moved to write-once tags on its own. `pacto fleet providers`
+  shows a `Registry <host>` row for every registry an OCI source reads.
+- bd0bdc4: `pacto impact` and `pacto ci` find the consumers that run without cluster
+  credentials. From the change's `oci://` ref they try
+  `<host>/<first path segment>/pacto-targets`, then `<host>/pacto-targets`, read
+  every `cluster-<uid>` snapshot of the first that exists and print a `Registry:`
+  line and one `Targets:` line per snapshot, pinned by digest. `--target-snapshot`
+  (repeatable) names a repository or pins cluster tags or digests, and `off`
+  reads none; `--delivery-trust` or `$PACTO_DELIVERY_TRUST` names the trust
+  config. A snapshot counts only when a key whose `streams` name its cluster's
+  UID verified it and its `asOf` is less than 15 minutes old; otherwise its
+  source reads `partial`, `stale` or `unavailable` with one of
+  `TARGET_SNAPSHOT_UNVERIFIED`, `TARGET_SNAPSHOT_UNSCOPED`,
+  `TARGET_SNAPSHOT_STALE`, `TARGET_SNAPSHOT_INVALID` or `TARGET_SNAPSHOT_BOUND`,
+  and a `BREAKING` change with consumers never clears. No `pacto-targets`
+  repository leaves today's answer and exit code. `--root` in the CI recipe is
+  now optional, for consumers that run nowhere yet.
+  
+  A snapshot becomes up to three fleet sources per cluster: `target-snapshot`
+  for its Pacto resources, `kubernetes-workloads` for its inferred services,
+  which never count as consumers, and `evidence-http` for the targets its
+  Evidence Server accepted. Source states gain `ref`, `signer`, `publisher` and
+  `cluster`, and `impact` answers gain `registry` and `targetSnapshots`, also on
+  the `pacto_impact` MCP tool over stdio. `pacto mcp` over HTTP refuses
+  `--target-snapshot`. `pacto delivery targets publish` signs and pushes a
+  snapshot document with a PEM key or a `pacto evidence keygen` seed.
+  
+  The operator publishes the cluster's signed snapshot to
+  `<registry>/pacto-targets:cluster-<uid>` every 5 minutes when the chart's new
+  top-level `registry` value is set: the cluster's Pactos, the workloads no
+  Pacto targets (without env values or probes) and, with `evidence.enabled`, the
+  Evidence Server's targets, each with its own `asOf` and completeness. Give
+  `pacto-targets` its own read ACL: pull on it reads every namespace's Pacto
+  status and workload shape.
+  
+  The Compose demo runs a `targets` service that publishes a signed snapshot of
+  the demo cluster to `registry:5000/demo/pacto-targets` every 5 minutes.
+- e250ce8: Probing and metrics observation take `auto`, `on` or `off` and default to
+  `auto`, which turns each one on only in namespaces whose owner labels them
+  `pacto.trianalab.io/observe` with `probing`, `metrics` or `probing.metrics`.
+  A namespace owner opts in with `kubectl label ns payments
+  pacto.trianalab.io/observe=probing`, with no chart change, and every other
+  namespace stays passive. The chart values are `controller.probing` and
+  `controller.metricsObservation`; `controller.enableProbing` and
+  `controller.enableMetricsObservation` are deprecated and still honoured, so an
+  upgrade that reuses the earlier release's values renders the same arguments. An
+  explicit `auto` overrides a deprecated `true`. ServiceMonitor and PodMonitor
+  read access still comes with `metricsObservation: on` only.
+  
+  `controller.interfaceNameMatchDiscovery` and `nodeAgent.image` are new, so
+  every operator flag has a chart value or a documented reason, and a test keeps
+  it that way. `controller.kernelEvidence.enabled` takes `auto`, `on` or `"off"`;
+  `false` keeps following `nodeAgent.enabled`.
+  
+  The default install gains a `namespaces get` grant for the label read (in each
+  watched namespace's Role under `controller.watchNamespaces`). The health probe
+  no longer follows ExternalName or selector-less Services. The `RuntimeObserved`
+  message names where each setting came from, and a transient namespace read
+  failure marks it `False`.
+- e250ce8: The operator reads no Secret across the cluster. Its ClusterRole drops
+  `secrets`, and it reads pull secrets and the Secrets behind contract
+  configurations only in the release namespace, in each watched namespace and
+  where the new `controller.secretGrants` names them as `namespace/name` (one Role
+  limited to each named Secret). A Secret-backed configuration it may not read
+  reads `OBSERVATION_UNSUPPORTED`, and the finding names the grant to add; the
+  collection does not fail. A pull secret outside every grant sets
+  `ContractValid=Unknown` with reason `PullSecretNotGranted`. The operator no
+  longer watches Secrets and reads a rotated pull secret within one check
+  interval.
+  
+  `controller.watchNamespaces` takes a list of namespaces and the operator takes
+  `--watch-namespaces`. With a list, the chart renders Roles and RoleBindings in
+  each namespace and no ClusterRole, unless the node agent or the dashboard's
+  delivery views need one. `controller.watchNamespace` and `--watch-namespace`
+  still work as deprecated aliases that join the list, also in an upgrade that
+  reuses the earlier release's values. Moving a cluster-wide install to a list leaves the
+  `pacto-dashboard` ClusterRole and binding behind: the upgrade notes and a
+  `StaleClusterRBAC` Warning event name the `kubectl delete` command. The chart
+  refuses an `ed25519.secretName` recorder key without
+  `allowOperatorReadableKey` whenever a grant reaches the delivery namespace.
+  
+  `--namespace` on `pacto fleet`, `pacto dashboard` and `pacto mcp` and
+  `PACTO_DASHBOARD_NAMESPACE` accept a comma-separated list; one value keeps
+  working. A source that reads a list is always `partial`, names its scope in a
+  `K8S_NAMESPACE_SCOPED` limitation and in `namespaces` on its source state, and
+  names a namespace it could not read in `K8S_NAMESPACE_UNREADABLE`. A restricted
+  view never names a watched namespace the reader may not read. The dashboard
+  Overview says which namespaces the fleet watches. `--review=local` (or
+  `PACTO_DASHBOARD_REVIEW=local`) reviews people with LocalSubjectAccessReviews
+  in the watched namespaces only; the managed dashboard of a namespace-list
+  install without delivery uses it.
+  
+  Upgrade: list each pull secret outside the release namespace in
+  `controller.secretGrants`, or add its namespace to `controller.watchNamespaces`,
+  before upgrading.
+- e250ce8: Delivery tells people from agents by how they sign in and lets whoever may
+  update a Stage's workload decide its held changes, with no identity values.
+  
+  Upgrade effect first. An upgrade that takes the new chart's defaults turns
+  owner-team narrowing and the ownerless protection off unless the install set
+  `delivery.identities.teamGroupPrefix` explicitly: a values file through Argo
+  CD, a Flux HelmRelease or `helm upgrade -f`, and the documented
+  `helm upgrade --reset-then-reuse-values`. To keep the old behaviour, set
+  `delivery.identities.teamGroupPrefix: ""` and
+  `delivery.identities.requireOwnerTeam: true`. Plain `--reuse-values` keeps the
+  old defaults (`""` and `true`) and so keeps narrowing. The promoter emits a
+  `TeamNarrowingOff` Event on each Operation it holds while narrowing is off, so
+  the effect shows on the first held change.
+  
+  - A ServiceAccount, any other `system:` user and an unauthenticated request
+    are agents; every other signed-in identity is a person. `agentGroups` marks
+    automation that signs in through OIDC. The chart no longer refuses delivery
+    with `humanGroups` empty: `allowEmptyHumanGroups` is ignored (the schema
+    still accepts it) and `humanGroups` is a deprecated override.
+  - Approvers need `update` on the Stage's workload, asked as a
+    SubjectAccessReview by the promoter (it gains `create subjectaccessreviews`)
+    and as a SelfSubjectAccessReview by the dashboard and `pacto delivery
+    approve`. The same rule decides a person's unfreeze and acknowledge. Refusals
+    read `CannotUpdateWorkload` and `ApproverUnverified`; a failed review never
+    allows. With delivery on, the chart aggregates delivery reads into the
+    built-in `view`, `edit` and `admin` roles and creating Approvals and
+    Operations into `edit` and `admin`, so people with `edit` or `admin` in a
+    namespace may decide there without an `-approver` binding.
+  - `teamGroupPrefix` defaults to `null`: set, even to `""`, it narrows who may
+    answer to the owner teams. `requireOwnerTeam` defaults to `false`.
+  - Operation and Approval records, `pacto delivery blame` and `history`, the
+    dashboard and MCP delivery answers carry how each actor was classified
+    (`classifiedBy`) and, on each approval, the access phrase, its source and
+    when it was answered (`access`, `accessSource`, `accessAt`). Records stay
+    `operation/v1`, but signed records are parsed strictly: upgrade a promoter
+    that follows another cluster's records (`upstreamTrust`), and the CLI, no
+    later than the recording cluster.
+  - Go API: `delivery.ApprovalRefusal` takes a last `WorkloadAccess` argument,
+    so no caller can skip the rule; `delivery.ApprovalRefusalAsking` asks it only
+    for an approval every other check lets through. `delivery.ApprovalEligible`
+    is removed: use `ApprovalRefusal`, whose empty reason means the approval
+    counts.
+- ca50460: The dashboard asks people to sign in by default, and the install notes print
+  a short-lived sign-in link.
+  
+  Upgrade effect first. After any upgrade, one that reuses the earlier
+  release's values included, the dashboard asks people to sign in.
+  To keep serving without sign-in, set `dashboard.auth.tokenSignIn.enabled=false`
+  and `dashboard.auth.allowAnonymous=true`; the install notes say so when the
+  previous release served without sign-in.
+  
+  - The new chart value `dashboard.auth.tokenSignIn.enabled` defaults to `true`.
+    `dashboard.auth.allowAnonymous` defaults to `false` and passes
+    `--dashboard-allow-anonymous` only when set to `true`.
+    `dashboard.auth.tokenLogin.enabled` is deprecated and ignored; the schema
+    still accepts it.
+  - The install notes print a port-forward and a sign-in link carrying a
+    10-minute token for the chart's read-only `pacto-viewer` ServiceAccount,
+    minted with `--audience pacto-dashboard` and passed after `#`, so the
+    browser sends it to no server in the URL and it reaches no access log or
+    proxy. An expired link says "link expired, run the command again".
+  - A ServiceAccount token signs in only when a TokenReview proves it was minted
+    for the `pacto-dashboard` audience, and its session reads the fleet only:
+    the Delivery tab is hidden and delivery reads answer `SignInLinkReadsFleet`.
+    A ServiceAccount token without the audience is refused with
+    `TokenAudienceRequired`, and a sign-in link with any other token with
+    `SignInLinkNeedsDashboardToken`.
+  - A person's own token (an OIDC ID token, an EKS or static token) signs in as
+    them, and their token session may now approve held changes under the
+    approver rule. ServiceAccount tokens never approve. `TokenCannotDecide` is
+    gone.
+  - The dashboard's ServiceAccount gains `create` on `tokenreviews` through the
+    ClusterRole `<fullname>-<namespace>-dashboard-tokenreview`, also with
+    `controller.watchNamespaces`. `pacto-viewer` gets `get`, `list` and `watch`
+    on Pactos and PactoRevisions through the ClusterRole `<fullname>-viewer`, or a
+    Role in each watched namespace.
+- 73ce984: One chart value, `registry`, turns on the registry-backed features. The operator publishes the cluster's signed target snapshot with its installation key, advertises the registry, snapshot, index and inferred refs, and pushes only under them. Delivery stays opt-in. Pacto reaches GAR, GCR, ECR and ACR with cloud workload identity, and uses a pull Secret only once `registryPullSecret` names it.
+- e250ce8: Pacto detects the manager that owns each Stage's workloads and never promotes
+  through another one. Stages can apply through a Flux HelmRelease.
+  
+  Upgrade effect first. `delivery.argocd.enabled` and `delivery.flux.enabled`
+  default to `auto`. An upgrade that takes the new chart's defaults on a cluster
+  that serves Argo CD Applications grants the promoter `patch` on Applications, limited by
+  admission to `spec.source.targetRevision` of labelled Applications; set
+  `delivery.argocd.enabled=false` to keep it off. Flux access renders as before,
+  plus HelmRelease read, `--flux-helm` and the `applier-helmrelease` admission
+  policy when the cluster serves Flux HelmReleases; the agent, approver and
+  recorder roles gain HelmRelease `get` there too, which includes inline Helm
+  values.
+  
+  - The promoter reads, and never writes, the labels, annotations, field
+    managers and owner references of each workload a Stage's Pactos report, and
+    records the manager in the Stage's new `status.applier` (observed, with
+    evidence, `asOf` and `completeness`) and the `Applier` print column. A
+    manager that contradicts `spec.applyRef` reads `Ready` `False`
+    `ApplierConflict`; an unsupported or ambiguous manager, a workload without
+    its applier's marks or an unreadable one reads `ApplierUnknown`, with the
+    reason a Kustomization could not be read. So does a Pacto the operator has
+    not reconciled, or one that evaluated another workload than the Stage runs.
+    Detection reads a Kustomization outside the Stage namespace only when it
+    applies from the Stage's OCIRepository, and gives one fixed answer for any
+    other the workload's labels name. `status.applier.staleAt` is twice the
+    promoter's resync after `asOf`, so a longer `--resync` never reads stale.
+  - The new `pacto.applier` promote gate fails on a conflict and is Unknown when
+    Pacto cannot tell; both refuse the promote, and nobody can accept them.
+  - `spec.applyRef.kind` accepts `HelmRelease`. The promoter writes the chart
+    digest to the OCIRepository the HelmRelease's `spec.chartRef` names, in the
+    Stage's namespace, and counts a move applied once the HelmRelease is Ready at
+    that digest. `spec.chart` reads `ApplierNotChartRef`.
+  - `pacto delivery status`, `pacto delivery plan`, MCP `pacto_delivery_status`
+    and the dashboard Delivery views print one applier line per service, with the
+    reason when the Stage does not adopt it. `pacto delivery plan` and the
+    candidate list read versions from an Argo CD Application's or a
+    HelmRelease's repository, as the promoter does.
+  - An Operation the promoter cannot read the applier for says
+    `reading the applier`, and a deadline says `the applier did not confirm`,
+    instead of naming an OCIRepository or Flux.
+  - An `app.kubernetes.io/instance` label of `<namespace>_<app>` names the
+    Application in that namespace, as the tracking id does.
+  - The delivery binary gains `--flux` (default `true`) and `--flux-helm`
+    (default `false`). Go API: the new `pkg/workloadmanager` package (`Detect`,
+    `Describe`), `delivery.AdoptApplier`, `delivery.ApplierStatus` and
+    `delivery.GateApplier`.
+- bd0bdc4: Keep approvals and delivery records in the registry on every registry. The
+  recorder signs an `operation-intent/v1` record for every admitted Operation
+  and an `approval/v1` record for every Approval made in the cluster, on behalf
+  of the person admission verified. With `delivery.identities.signers` set,
+  `pacto delivery approve` signs the decision keyless after a fresh login and
+  pushes it to the Stage's approvals repository
+  (`delivery.recorder.approvalsRepository`); it refuses while
+  `SIGSTORE_ID_TOKEN` or a CI token is set. With the recorder on, an approval
+  counts only once its record is written, and a person's signed approval only
+  once the promoter verified it. The recorder anchors the approvals repository
+  only once a signer is set, and a failure there never stops operation
+  records. `pacto delivery record
+  get/verify <ref>` and `approve --intent <ref>` read records with no
+  kubeconfig, and the stdio MCP record tools take `ref`; MCP still has no
+  approve tool. On registries without the OCI Referrers API, approval and
+  intent records use write-once tags, and publisher signatures and SBOMs also
+  get write-once `pacto-sig-<subject hex>-<12 hex>` tags that Pacto reads in
+  place of the shared `sha256-<hex>` index. A recorded `native` registry mode
+  can no longer narrow at admission.
+  
+  Upgrade order: operation records now name each approval's record, and earlier
+  readers decode records strictly. Upgrade the CLIs and every promoter that
+  follows these streams before the recorder.
+- bd0bdc4: Accept a version only from a publisher Pacto knows. A first Stage with
+  `spec.candidates.registry` watches the registry, verifies each new version's
+  Sigstore signature and accepts it only when the signer is the CI the
+  installation's registry names (`delivery.publishers.registry`, a rule derived
+  for `ghcr.io` and `registry.gitlab.com`), an identity a person confirmed for
+  that service or a rule of a signed delivery policy
+  (`delivery.publishers.policy`). It needs no Flux, so an Argo CD-only cluster
+  promotes its first Stage. A new CI signer raises one "Confirm identity" item
+  in the delivery inbox; confirming it writes a signed `identity-pin/v1` record
+  to the registry. An unsigned or unreadable version, or a deploy digest a
+  person signed, never passes. Keyless signers are classified as `human`, `agent` or `ci`, and an
+  approval signed by anything but a person is a proposal that never counts.
+  `pacto delivery trust`, the `pacto_delivery_trust` MCP tool and
+  `GET /api/delivery/trust` show which publishers each service accepts.
+  
+  A fleet signature `status` is now `verified` only when a publisher rule, a
+  pin or a signed policy accepts the signer, and the new `source` field says
+  which. A signer the contract's own `publish.sign` declares is no longer
+  `verified`. `pacto publish` stamps `org.opencontainers.image.source` on the
+  artifacts it builds in CI.
+- 73ce984: Only a member of a service's current owner or a default approver may set,
+  change or remove its service.owner through a declaration, on pacto declare,
+  pacto_declare and (once it can declare) the dashboard; agents and CI signers
+  never do, and on_behalf_of grants nothing. A refused owner change stops before
+  anything is pushed with OWNER_SIGNER_NOT_PERSON, OWNER_SIGNER_NOT_ALLOWED,
+  OWNER_POLICY_UNVERIFIED or OWNER_SIGNER_UNVERIFIED, and an agent's plan lists
+  who may accept it in mayAccept. An owner read from CODEOWNERS or
+  catalog-info.yaml is attested when a CI identity the publisher rule accepts
+  signed the bundle at the commit it was read at: it routes reviews and never
+  clears a gate. The fleet adds ownerSource on services, source on ownership details,
+  signerRepository and signerCommit on bundle signatures and ownerRight on
+  revision provenance, and ignores a refused or unchecked owner with the
+  limitations OWNER_DECLARATION_REFUSED and OWNER_DECLARATION_UNVERIFIED.
+  pacto fleet get and the TUI print where an attested owner was read. The
+  operator chart gains the declare values, rendered into an immutable,
+  content-named ConfigMap the operator mounts, passes to its dashboard and
+  publishes in its signed target snapshot when registry is set; the operator
+  sets the OwnerVerified condition on a running bundle that changes the owner
+  and withholds that owner from status unless its signer is allowed.
+- e250ce8: Every target, caller and record names the cluster it is in. A snapshot that
+  reads a cluster now lists it in `clusters`, and each target carries `cluster`,
+  `clusterName`, `clusterNameSource`, `clusterNameReportedBy` and
+  `clusterRelation`. The live Kubernetes source's id is the cluster UID (its
+  `kube-system` namespace UID) when it can get `namespaces/kube-system`, and the
+  context name otherwise. The display name comes from a node label that names the
+  cluster, then the context name, then the first 8 characters of the UID, and its
+  source is always shown.
+  
+  Target keys and `k8s:` callers gain a leading cluster component only when the
+  snapshot holds two or more clusters, so single-cluster keys, hrefs, callers and
+  MCP answers keep their form. A 3-part key keeps resolving while one cluster
+  matches it; when several do, the dashboard API answers `409 Conflict` with the
+  candidate keys, the dashboard offers a chooser and the CLI and MCP print the
+  candidates. An old dashboard link redirects to the canonical one. Two targets
+  in two clusters never merge. A target with no cluster id in a multi-cluster
+  snapshot raises `CLUSTER_UNKNOWN` and makes its source partial.
+  
+  A `--target-state` file takes an optional `cluster` block with `id` and `name`.
+  `pacto evidence serve` takes `--cluster-id`, `--cluster-name` and
+  `--cluster-name-source`; each accepted record carries the cluster that accepted
+  it, and the targets endpoint answers `pacto.dev/evidence-source/v5` when it
+  carries a cluster; older readers accept only v2 to v4. Two evidence sources that report one record with two
+  clusters raise `CLUSTER_CONFLICT`.
+  
+  The operator reads its cluster identity at start and passes it to the Evidence
+  Server it runs. The operator ClusterRole and the managed dashboard ClusterRole
+  gain get on `namespaces` for `kube-system` only.
+- 73ce984: - `pacto impact --running oci://<repo>@<digest>` never judges a revision against itself: a target already running the new digest is listed in `running.excluded`, so a gate that runs after a deploy, such as a Kargo verification, judges the new revision against the other revisions that run. A promoter fingerprint can carry an `offer` (`id`, `text`, an `https` `doc`), which its Detected providers row lists under `offers` on `pacto fleet providers`, `pacto_fleet_status` and the dashboard's Data sources. The demo shows the Kargo row with its offer.
+  - The chart's default Kargo fingerprints offer "Gate every Kargo promotion with one shared AnalysisTemplate", and the GitOps docs publish that `ClusterAnalysisTemplate`: each Stage adds one `verification` stanza, exit 2 (unverified) fails unless `allow-unverified` is `"true"`, and the template reads the signed target snapshots by default and needs no cluster RBAC.
+- e250ce8: Every vendor API, managed cloud service and legacy host that a contract names
+  is one graph node of the new kind `external`, keyed by a canonical identity such
+  as `stripe`, `aws/rds/123456789012/eu-west-1/orders-db` or
+  `host/corp-legacy.example`. A ref-less `external: true` dependency joins it
+  through its `identity`, else a catalog alias, else a hostname's registrable
+  domain, else its normalized name, so consumers write nothing new. Its
+  relationship carries `toExternal` with `resolved: false`; an external system
+  never gets a range status and never enters impact, dependents or delivery.
+  
+  Each external record lists its sources with their own provenance and match, its
+  consumers and the catalog entry and digest that classified it. A snapshot lists
+  them in `externals` and the catalogs used in `externalCatalogs`, which every
+  answer's meta repeats. One answer names at most 200 external systems and folds
+  the rest into `other-egress`, partial with `EXTERNAL_CAP`. A restricted view
+  counts hidden consumers and hidden external systems and never names them.
+  
+  `pacto fleet get`, `graph` and `explain` and the matching MCP tools take
+  `external:<identity>`; `pacto fleet entities --kind external --class <class>`
+  lists them and a text search adds matching `externals`. The TUI, the dashboard
+  Overview, a new External systems list, an external entity page with its
+  provenance and a distinct graph node show them. The contract graph labels a
+  broken reference "Unresolved ref" and an external system "External system".
+  
+  Pacto embeds a default external catalog. `--external-catalog
+  oci://REPOSITORY@sha256:DIGEST` on `pacto fleet`, `impact`, `mcp`, `stats`,
+  `tui` and `dashboard` (or `PACTO_DASHBOARD_EXTERNAL_CATALOG`) merges an
+  organization catalog pinned by digest; a tag is refused and a catalog that
+  cannot be read makes the answer partial with `EXTERNAL_CATALOG_UNAVAILABLE`.
+  The operator chart value `dashboard.externalCatalog` sets it on the managed
+  dashboard through the new operator flag `--dashboard-external-catalog`.
+  
+  pactoVersion 2.5 adds the optional `dependencies[].identity`, validated with
+  `INVALID_EXTERNAL_IDENTITY` and `IDENTITY_WITHOUT_EXTERNAL`.
+  
+  Each core release publishes the default catalog to
+  `ghcr.io/trianalab/pacto/external-catalog:<core version>` and signs it with
+  Cosign; its digest equals the embedded copy's.
+- e250ce8: Pacto recognizes the vendors, managed services and legacy hosts that a
+  service's configuration, pod spec and traces already name, with no contract
+  edit. Every surface shows the host and port at most: a user name, password,
+  path and query are stripped, a value under a sensitive key is never parsed and
+  no Secret value is ever read.
+  
+  - `pacto init` and `pacto_create` with `pactify` list the externals that the
+    environment, ConfigMaps, Secret and key names and every chart's
+    `values.yaml` name, and write the likely ones as commented entries under
+    `dependencies` for a person to uncomment. The parsed contract does not change.
+  - The operator writes `status.externals`, `status.externalsCoverage` and
+    `status.externalCatalog` at `PactoStatusFormat` 3. It reads the target
+    workload's env names and values, Secret names, `secretKeyRef` key names and
+    the ConfigMap keys the pod spec references, plus the `ExternalName` Services,
+    selectorless Services and Istio `ServiceEntries` of its own namespace that
+    the workload names. `status.externals` shows every reader of a Pacto the
+    normalized hosts that the referenced ConfigMap keys hold.
+  - The operator role gains `get`, `list` and `watch` on
+    `networking.istio.io` `serviceentries`, rendered by the chart only when the
+    cluster serves that API. Without it the coverage reads `partial`, reason
+    `serviceentry-reader-off`.
+  - The fleet joins trace callees that the external catalog recognizes to
+    external systems as `observed` edges, and reads the operator's externals as
+    `inferred` edges with `inferredSources`. Neither enters an index that impact
+    or a gate reads. `NeighborhoodEdge.provenance` gains the value `inferred`
+    and edges gain `inferred: true`. `rpc.system` is now the last OTel callee
+    key.
+  - New limitations: `EXTERNALS_UNREPORTED` (an older, partial or stale
+    operator status), `EXTERNAL_CATALOG_MISMATCH` and
+    `EXTERNAL_USE_UNATTRIBUTED`. `OBSERVED_IDENTITY_UNRESOLVED` stays for names
+    that match more than one service or that are neither a service nor an
+    external system.
+- 73ce984: Pacto publishes an inferred contract for every external system your services call. Once `registry` is set the operator writes `<registry>/pacto-inferred/<identity>` every 5 minutes, signed with the installation key and annotated `run.pacto.contract.provenance: inferred`, and only when the hosts, ports or client majors it sees change; `pacto fleet publish-inferred` does the same where no operator runs. The 2.5 contract field `service.external` names the system and the `pacto.inferred.yaml` section `surface` records what Pacto saw with its sources, catalog digest and first and last seen; it never names a consumer. A range against an inferred contract reads `rangeStatus: unknown` with the new `rangeReason: INFERRED_PROVIDER` and gates as unverified. A revision only the operator signed reads `unverified` with the new signature source `operator` and an `INFERRED_PROVIDER` attention item suggests `pacto declare`. The Compose demo publishes `demo/pacto-inferred/stripe`.
+
+### Patch Changes
+
+- ca50460: Pacto keeps what it infers in pacto.inferred.yaml, a separate bundle file with
+  each value's source, for pactoVersion 2.5 contracts. pacto init and
+  pacto_create complete an existing pacto.yaml without changing it, pacto explain
+  lists each inferred field and the YAML to declare it, a publish that changes
+  only the inferred record is not republished, the diff classifies inferred-only
+  changes as non-breaking and impact never clears a gate on an inferred
+  consumer. The dashboard shows inferred values apart from declared ones.
+- e250ce8: pacto init and pacto_create no longer copy environment values into the
+  inferred configuration schema as defaults; sensitive keys are marked
+  writeOnly, cluster drafts read sensitive literals from a Secret and every
+  schema summary (dashboard, fleet, consume snippet, operator status) shows
+  writeOnly keys as (sensitive). Schema diffs print (sensitive) in place of a
+  sensitive key's schema values; values declared under configurations[].values
+  or in an environment file are shown as written. Existing configuration/schema.json files are left as they are:
+  remove any default that holds a secret and republish.
+- bd0bdc4: `pacto ci --publish` publishes every changed service of a repository on the merged commit, providers first. An undeclared `service.version` is derived from the newest verified version in the registry and the change since it (`1.0.0` for a first publish), and a contract with no `publish` section gets one derived in memory: the image is built with the one tool the folder shows (Skaffold, ko, Jib, buildpacks or a Dockerfile), with no shell, and Pacto assembles the deploy artifact from the folder's manifests, Kustomization or Helm chart, with Secrets left out and the image pinned by digest. Signing is keyless by default, as the identity the GitHub Actions or GitLab `id_tokens` token names; a declared key or KMS key and `--sign-key` still sign with a key. Pull request pipelines and stale checkouts are refused, every tag is read back after it is written, a version lost to a concurrent run is planned again up to 3 times and a failure blocks only the services of the run that depend on it. Each published bundle carries a signed record of the image digests its deploy pins. In `pactoVersion: "2.5"`, `publish.deploy` names a manifests or chart artifact any applier deploys and `publish.artifacts[].build` is optional and deprecated. `pacto init` and MCP `pacto_create` no longer write the shell publish section or the `service.version` placeholder. `pacto publish` gains `--image`, `--registry`, `--sign-key` and `--no-transparency-log`, and MCP `pacto_publish` and `pacto_publish_plan` take them as `image`, `registry`, `sign_key` and `no_transparency_log`.
+- 73ce984: A dependency on a service of your own may leave out ref in a 2.5 contract:
+  Pacto resolves it by name in its domain. pacto ci proposes its ref from the
+  organization index and, from the target snapshot, a ^MAJOR.MINOR.0 range for a
+  dependency whose range is unknown. Both land in pacto.inferred.yaml and
+  publish as compatibility: unknown. pacto accept --proposed (or --field for one
+  field) signs, after the person's interactive Sigstore login, an acceptance
+  record attached to the service's newest published version: a referrer of
+  type application/vnd.pacto.acceptance.v1+json, or a write-once
+  pacto-accept-<subject>-<manifest> tag on a registry without the Referrers API.
+  Only a record signed by the service's declared owner counts; any other
+  signer, and every agent through the new MCP tool pacto_accept, writes a
+  pacto-accept-draft-<n> a person accepts with --draft. pacto ci --publish
+  carries counted ranges into the next version's pacto.yaml and cites each
+  record in inputs.acceptances. pacto accept --break <provider>@<version>
+  accepts a break announced in breaks[], also before the provider publishes
+  (--from); the gate clears with BREAKING_ACCEPTED once every consumer accepted,
+  and an announcement without expires expires 30 days after the commit time.
+  pacto ci, pacto impact, pacto_impact and Change analysis print a Ranges:
+  coverage line, and --policy unknown-range=warn|fail and
+  uncontracted=warn|fail:<window> hold a BREAKING change that no range covers.
+  A changed spec file that is only inferred prints a possible break (inferred)
+  advisory with the YAML that declares the interface: the row reads unverified
+  (INFERRED_POSSIBLE_BREAK) and the classification and version never change.
+  The dashboard service page shows the plan and the pacto accept command for
+  Accept all proposed ranges; it never signs or writes.
+- 73ce984: `pacto ci init` writes the CI caller that runs `pacto ci` into a repository's
+  working tree: five lines in `.github/workflows/pacto.yml` that call the
+  pacto-actions v2 reusable workflow pinned by commit, or one `include` entry
+  in `.gitlab-ci.yml` for its GitLab component. It never commits, pushes or
+  needs Git write access. The plan job runs `pacto ci` on pull requests,
+  annotates each service that does not read as unchanged and writes the job summary; the publish job,
+  the only one with `id-token: write`, runs `pacto ci --publish` on the default
+  branch, one run per repository at a time. Pacto's own CI runs the caller over
+  a demo monorepo with empty contracts.
+  
+  Keyless publishes through the shared reusable workflow keep verifying across
+  pin bumps and stay trusted by the operator's derived publisher rule: Pacto
+  matches the caller repository and branch that Fulcio certifies, never the
+  reusable workflow's commit. A repository moving from its own keyless release
+  workflow keeps its earlier versions verifying. The operator picks the rule up
+  through the core module.
+  
+  The CI guide, a new guide "From an imperative pipeline to one step" and the
+  GitHub Actions reference teach `pacto ci` in place of `pacto push`,
+  `COSIGN_KEY` and hand-raised versions.
+  
+  Until the pacto-actions release that pins a Pacto with `pacto ci`, a caller
+  written by `pacto ci init` adds `with: {pacto-version: <this release>}`.
+- e250ce8: pacto validate and pacto_check report `CONTRACT_BEHIND`, an info finding that
+  never fails a run, when a contract declares an older pactoVersion. Its message
+  says whether raising the version keeps what the contract means, names the
+  finding the raise would add or says Pacto cannot tell until the errors are
+  fixed. pacto_check adds it as a suggestion.
+  
+  pacto_edit raises pactoVersion only when that keeps the contract's meaning and
+  otherwise fails with the finding the raise would add. Its change line now
+  names the old version: `set pactoVersion to "2.4" (was "2.3")`, comes first
+  and replaces the `set pactoVersion "2.1" for the external dependency` line. An
+  edit that needs a raise now fails when the contract already fails validation,
+  does not parse or declares an unknown or 1.x pactoVersion, where it used to
+  overwrite the version.
+  
+  The fleet revision detail gains `pactoVersionCurrent` and
+  `pactoVersionUnknown`, and `pacto fleet entity revision`, the TUI and the
+  dashboard revision page show a behind or unknown version.
+  
+  The operator reads its `ContractOverrides` rule for ref configurations from
+  validation, with no behaviour change, and its finding reference lists
+  `CONTRACT_BEHIND`.
+- bd0bdc4: `pacto ci` publishes a contract that declares an older `pactoVersion` as the current version, raised in memory, when that keeps what the contract means: only the version token of the bundled `pacto.yaml` changes, the bundle records the raise as a `migrations` entry in `pacto.inferred.yaml` and the plan adds one line per migrated or kept contract without changing the exit code. A raise alone does not republish an unchanged service, and the file in the repository is never rewritten. The fleet revision detail reads `2.5 (migrated from 2.4, inferred)`, with the inferred `migratedFrom` JSON key read only from a verified record, in `pacto fleet`, the TUI, MCP `pacto_fleet_get` and the dashboard revision page. The `CONTRACT_BEHIND` message now says when `pacto ci` publishes the contract as the current version.
+- e250ce8: Release CLI binaries, `checksums.txt` and the dashboard, operator and delivery
+  images now carry signed SLSA build-provenance attestations, verifiable with
+  `gh attestation verify`. The images no longer carry BuildKit's unsigned
+  per-platform provenance manifests.
+- e250ce8: pacto init and pacto_create propose dependency ranges and write
+  `compatibility: unknown` instead of declaring a guessed range. The proposal
+  goes in a trailing comment: `^MAJOR.MINOR.0` of the lowest version the
+  reconciled Pactos describing the called Service report, or of the dependency's
+  contract in `--fleet`, and none when nothing was read or those Pactos disagree
+  on the contract. A draft that writes a dependency declares pactoVersion 2.5.
+  pacto_create and pacto_edit write `compatibility: unknown` when an agent gives
+  no range. The CLI, the TUI, `Used by` and the dashboard say "range not
+  declared" for such a dependency.
+  
+  The delivery controller's gate reason says range not declared for a consumer
+  with compatibility unknown.
+- bd0bdc4: pacto init --cluster and pacto_create with cluster complete each draft with
+  the engine pacto ci uses and write a pacto.inferred.yaml into the draft
+  folder. Each value names its source (manifest, label, runtime or fleet), when
+  it was read and, for runtime and fleet facts, whether every node was observed.
+  The running image digest is recorded and never declared, and a proposed range
+  stays a proposal. The cluster read lists each kind of object in pages up to
+  --max-items (max_items), takes --call-window (call_window) and resumes a read
+  the bound stopped with --continue (continue). A kind of object you may not
+  list reads as failed and the run goes on. A literal secret in a container's
+  command or args moves to the draft's Secret. A published bundle whose
+  inferred record carries cluster facts fails validation.
+- 73ce984: pacto declare publishes a contract for a workload the cluster already runs as
+  a contract-only version: 0.1.0 for a first declaration, else the published
+  baseline raised by the change, with the baseline's deploy artifact reused and
+  nothing built. Only a person's interactive Sigstore login (a browser, or a
+  device code with --device) publishes a declared version; a key, an ambient
+  OIDC token or a CI identity writes a write-once draft-<n> tag that a person
+  accepts with --from-draft. The bundle's pacto.inferred.yaml gains a
+  declaration block naming the signer, the inferred workload, the baseline and
+  each proposed range accepted with --accept. pacto pull gains --verify-identity,
+  --verify-issuer and --verify-key. The MCP tool pacto_declare is the first tool
+  of the agent write contract (the existing pacto_publish_plan and pacto_publish
+  stay outside it): it plans by default with an intent digest, always writes a
+  draft carrying on_behalf_of and refuses with a stable code and the command a
+  person runs. The fleet, explain, diff and the dashboard show a declaration's
+  cluster facts, coverage and signer only when the bundle carries a verified
+  signature by that person and the installation signer policy allows them.
+- 89eedf2: The operator no longer writes a Pacto's status on every reconcile that lands in a
+  new second. Each finding's evidence times (`observedAt`, `detectedAt`) are stamped
+  when the evidence is read, so comparing them made almost every reconcile look like a
+  change. They now refresh with the `lastReconciledAt` heartbeat, at least once every
+  half check interval, and a status that is otherwise unchanged is not rewritten.
+
 ## 6.5.0
 
 ### Minor Changes
