@@ -239,6 +239,7 @@ nav:
       - Multi-cluster: multi-cluster.md
       - Inferred services: operational-graph-inferred.md
       - Detected providers: operational-graph-providers.md
+      - Calls a service mesh records: operational-graph-mesh.md
       - External catalog reference: external-catalog-reference.md
       - Inferred contracts: inferred-contracts.md
       - Platform offerings reference: platform-offerings.md

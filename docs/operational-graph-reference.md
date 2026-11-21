@@ -47,6 +47,12 @@ compliance evidence that a source carries.
   edge in `inferredRelationships`, and a Pacto target that takes over one
   records a replacement in `replacements`.
   Both report [detected providers](operational-graph-providers.md).
+- **Service mesh** (`--k8s`): the calls Istio, Linkerd or Cilium Hubble
+  already record in the last hour, read from the cluster's Prometheus or
+  Hubble Relay as `observed` edges of source kind `mesh` (`<cluster>-mesh`).
+  Like operator detection the source is advisory: a partial mesh never makes
+  the answer partial. See
+  [Calls a service mesh records](operational-graph-mesh.md).
 - **Operator detection** (`--detected k8s:<namespace>/<name>` or a file,
   `PACTO_DASHBOARD_DETECTED` for `pacto dashboard`): what the operator
   [detected in a cluster](integrations/kubernetes/detection.md),
