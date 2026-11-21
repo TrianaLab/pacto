@@ -349,16 +349,27 @@ func TestScanSignedRejectedTakeNoBound(t *testing.T) {
 		return ref
 	}
 	real := push(signedApprovalOf(t, ss, alice, o, recStream))
-	// Junk until some lists ahead of the real record.
+	// One junk record that lists ahead of the real one. Records list in
+	// manifest digest order and the real digest is random, so pushing junk
+	// until one happens to land first fails when the real digest is small;
+	// pick the junk by its digest instead.
+	anchor := deliveryrecord.Anchor(recStream).ManifestDesc
+	ann := map[string]string{
+		deliveryrecord.AnnBundleContent: "dsse-envelope", deliveryrecord.AnnPredicateType: delivery.PredicateApproval,
+		deliveryrecord.AnnStream: recStream, deliveryrecord.AnnRegistryMode: string(capabilities.ReferrersWriteOnceTags),
+		deliveryrecord.AnnUID: string(o.UID),
+	}
+	realDigest := real[strings.LastIndex(real, "@")+1:]
 	for i := 0; ; i++ {
-		push([]byte(fmt.Sprintf("junk %d", i)))
-		first, _, err := (&deliveryrecord.Reader{}).ListPredicate(context.Background(), repo, recStream, delivery.PredicateApproval, string(o.UID), 1)
-		if err != nil || i > 50 {
-			t.Fatal(err)
-		}
-		if !strings.HasSuffix(real, first[0].Manifest) {
+		junk := []byte(fmt.Sprintf("junk %d", i))
+		if ocireferrer.Build(delivery.BundleMediaType, delivery.BundleMediaType, junk, &anchor, ann).ManifestDesc.Digest.String() < realDigest {
+			push(junk)
 			break
 		}
+	}
+	first, _, err := (&deliveryrecord.Reader{}).ListPredicate(context.Background(), repo, recStream, delivery.PredicateApproval, string(o.UID), 1)
+	if err != nil || strings.HasSuffix(real, first[0].Manifest) {
+		t.Fatalf("junk does not list ahead of the real record: %v", err)
 	}
 	for range 60 {
 		re.recordApprovals(ar)

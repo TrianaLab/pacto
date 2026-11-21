@@ -136,18 +136,8 @@ func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 		if !s.Inferred() {
 			continue
 		}
-		c := s.Workload.Cluster
-		seen[WorkloadScope{s.Workload.Namespace, s.Workload.Kind, c}] = true
-		for _, r := range s.Workload.Repositories {
-			if r.Namespace != "" {
-				seen[WorkloadScope{r.Namespace, r.Kind, c}] = true
-			}
-		}
-		for _, sc := range s.Workload.repositoryUnknownFrom {
-			if sc.Namespace != "" {
-				seen[WorkloadScope{sc.Namespace, sc.Kind, c}] = true
-			}
-		}
+		seen[WorkloadScope{s.Workload.Namespace, s.Workload.Kind, s.Workload.Cluster}] = true
+		repositoryScopes(s.Workload, seen)
 	}
 	for _, r := range q.snap.Revisions {
 		if sc, ok := declarationScope(q.snap, r); ok {
@@ -156,14 +146,36 @@ func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 	}
 	for _, r := range q.snap.Replacements {
 		seen[r.workload.scope()] = true
+		repositoryScopes(r.Workload, seen)
 	}
 	for _, r := range q.snap.replacedNames {
 		seen[r.workload.scope()] = true
+	}
+	for _, n := range q.snap.inferredLinkNotes {
+		seen[n.workload.scope()] = true
 	}
 	providerScopes(q.snap.Providers, clusterOfSource(q.snap), seen)
 	return slices.SortedFunc(maps.Keys(seen), func(a, b WorkloadScope) int {
 		return cmp.Or(cmp.Compare(a.Cluster, b.Cluster), cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Kind, b.Kind))
 	})
+}
+
+// repositoryScopes adds the (namespace, kind) of every GitOps object w's
+// repositories or repository reasons were read from; none for a nil w.
+func repositoryScopes(w *InferredWorkload, seen map[WorkloadScope]bool) {
+	if w == nil {
+		return
+	}
+	for _, r := range w.Repositories {
+		if r.Namespace != "" {
+			seen[WorkloadScope{r.Namespace, r.Kind, w.Cluster}] = true
+		}
+	}
+	for _, sc := range w.repositoryUnknownFrom {
+		if sc.Namespace != "" {
+			seen[WorkloadScope{sc.Namespace, sc.Kind, w.Cluster}] = true
+		}
+	}
 }
 
 // providerScopes adds the (namespace, kind) of every non-zero provider count
@@ -485,21 +497,17 @@ func keepsEveryName(s *FleetSnapshot, restricted bool, hidden func(cluster, name
 		!slices.ContainsFunc(slices.Collect(maps.Values(s.Revisions)), func(r *ContractRevision) bool { return declarationSourceHidden(s, r, hidden) })
 }
 
-// repositoryHidden reports whether some inferred service of s holds a
+// repositoryHidden reports whether some inferred service or replacement of s holds a
 // repository, or a repository reason, read from an object hidden says no to,
 // or from one with no namespace to check.
 func repositoryHidden(s *FleetSnapshot, hidden func(cluster, namespace, kind string) bool) bool {
+	listed := func(c, ns, kind string) bool { return ns != "" && !hidden(c, ns, kind) }
 	for _, svc := range s.Services {
-		if !svc.Inferred() {
-			continue
-		}
-		c := svc.Workload.Cluster
-		if slices.ContainsFunc(svc.Workload.Repositories, func(r InferredRepository) bool { return r.Namespace == "" || hidden(c, r.Namespace, r.Kind) }) ||
-			slices.ContainsFunc(svc.Workload.repositoryUnknownFrom, func(sc WorkloadScope) bool { return sc.Namespace == "" || hidden(c, sc.Namespace, sc.Kind) }) {
+		if svc.Inferred() && restrictRepositories(svc.Workload, listed) != svc.Workload {
 			return true
 		}
 	}
-	return false
+	return slices.ContainsFunc(s.Replacements, func(r Replacement) bool { return restrictRepositories(r.Workload, listed) != r.Workload })
 }
 
 // provisioningVisible reports whether every provisioning and usage report of
@@ -674,7 +682,7 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 		if sourceLevelCluster(l, unavailable) {
 			return false
 		}
-		return rebuiltLimitation(l) || slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
+		return rebuiltLimitation(l) || slices.Contains(out.hiddenLinkNotes, l) || slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
 	})
 	for _, svc := range out.Services {
 		_, _, dc := businessDomainOf(out, svc)
@@ -1190,22 +1198,33 @@ func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord
 // object's content the dashboard read, so the workload's own read never
 // decides it. Nothing else of it was derived from what the view may hide.
 func restrictInferred(svc *ServiceRecord, hidden hiddenCounts, workloadVisible func(cluster, namespace, kind string) bool) *ServiceRecord {
-	listed := func(ns, kind string) bool {
-		return ns != "" && workloadVisible != nil && workloadVisible(svc.Workload.Cluster, ns, kind)
+	listed := func(c, ns, kind string) bool {
+		return ns != "" && workloadVisible != nil && workloadVisible(c, ns, kind)
 	}
-	repos := slices.DeleteFunc(slices.Clone(svc.Workload.Repositories), func(r InferredRepository) bool { return !listed(r.Namespace, r.Kind) })
-	reposHidden := len(repos) != len(svc.Workload.Repositories) ||
-		slices.ContainsFunc(svc.Workload.repositoryUnknownFrom, func(sc WorkloadScope) bool { return !listed(sc.Namespace, sc.Kind) })
-	if hidden.deps[svc.Key] == nil && hidden.dependents[svc.Key] == nil && !reposHidden {
+	w := restrictRepositories(svc.Workload, listed)
+	if hidden.deps[svc.Key] == nil && hidden.dependents[svc.Key] == nil && w == svc.Workload {
 		return svc
 	}
 	cp := *svc
 	cp.HiddenDependencies, cp.HiddenDependents = len(hidden.deps[svc.Key]), len(hidden.dependents[svc.Key])
-	if reposHidden {
-		w := *svc.Workload
-		w.Repositories, w.RepositoryUnknown = repos, "hidden by your permissions"
-		cp.Workload = &w
+	cp.Workload = w
+	return &cp
+}
+
+// restrictRepositories is w without the repositories read from an object
+// listed says no to, reading "hidden by your permissions" when it drops one
+// or a repository reason was read from such an object; w itself otherwise.
+// An inferred service and a replacement's twin go through it alike.
+func restrictRepositories(w *InferredWorkload, listed func(cluster, namespace, kind string) bool) *InferredWorkload {
+	if w == nil {
+		return nil
 	}
+	repos := slices.DeleteFunc(slices.Clone(w.Repositories), func(r InferredRepository) bool { return !listed(w.Cluster, r.Namespace, r.Kind) })
+	if len(repos) == len(w.Repositories) && !slices.ContainsFunc(w.repositoryUnknownFrom, func(sc WorkloadScope) bool { return !listed(w.Cluster, sc.Namespace, sc.Kind) }) {
+		return w
+	}
+	cp := *w
+	cp.Repositories, cp.RepositoryUnknown = repos, "hidden by your permissions"
 	return &cp
 }
 

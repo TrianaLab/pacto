@@ -407,6 +407,7 @@ func acceptRows() []surfaceRow {
 var excludedFromSurfaces = map[string]string{
 	"agent":                    "a long-running host daemon that reports what runs on its node; the other surfaces read what it reports",
 	"delivery targets publish": "signs with a local key and pushes a target snapshot, a pipeline step the other surfaces never take",
+	"ci init":                  "writes a CI file into the local repository; an agent runs pacto ci init --dry-run and commits the result itself",
 	"dashboard":                "starts the dashboard server, which is itself the surface the routes belong to",
 	"diff":                     "compares two contracts in a pipeline without the fleet; MCP and the dashboard compare revisions with their consumers (pacto_impact, GET /api/fleet/impact)",
 	"doc":                      "renders a contract's documentation to a file or a local site, a build step with no fleet to read",

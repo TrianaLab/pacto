@@ -99,7 +99,7 @@ sidebar badge counts only items above `info`.
 | `undeclared` | `UNCONTRACTED_CALLER`, a caller with no contract | info |
 | `golden-path` | `GOLDEN_PATH_DEPLOYED` | warning |
 | `readiness` | `MISSING_READINESS` | info |
-| `knowledge` | the gap: `NO_SUMMARY`, `NO_DOMAIN`, `NO_INTERFACE_DOCS`, `NOT_DEPLOYED` or `UNVERIFIED_CAPABILITY`; or the cause of an unknown service: `CONTRACT_UNREADABLE`, `INTERFACE_DOCS_UNREAD`, `SUMMARY_UNKNOWN`, `DOMAIN_UNKNOWN` or `PLACEMENT_UNKNOWN`; or `INFERRED_REPLACED`, an inferred service a contract took over in the last 24 hours; or `INFERRED_PROVIDER`, services check a range against an [inferred contract](inferred-contracts.md) | info |
+| `knowledge` | the gap: `NO_SUMMARY`, `NO_DOMAIN`, `NO_INTERFACE_DOCS`, `NOT_DEPLOYED` or `UNVERIFIED_CAPABILITY`; or the cause of an unknown service: `CONTRACT_UNREADABLE`, `INTERFACE_DOCS_UNREAD`, `SUMMARY_UNKNOWN`, `DOMAIN_UNKNOWN` or `PLACEMENT_UNKNOWN`; or `INFERRED_REPLACED`, an inferred service a contract took over: a Pacto target's takeover shows for 24 hours, a declaration's hand-over stays while the declaration holds; or `INFERRED_PROVIDER`, services check a range against an [inferred contract](inferred-contracts.md) | info |
 | `unowned` | `UNOWNED_SERVICE` | info |
 
 A revision with no readiness assessment raises a `readiness` item, so

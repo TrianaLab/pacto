@@ -102,22 +102,11 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 		p.Skipped = append(p.Skipped, ci.Skip{Rel: sk.Rel, Rule: sk.Rule})
 	}
 	folders, images := s.ciFolders(opts.Root, walk.Dirs, opts.revision, cat)
-	var notes []string
-	var advertised ci.Value
-	if registry == "" {
-		// --registry wins: the advertisement is not read at all.
-		var note string
-		advertised, note = s.ciAdvertised(ctx, opts.Fleet.Detected)
-		if note != "" {
-			p.Notes = append(p.Notes, note)
-		}
-	}
-	p.Registry, notes = ci.ResolveRegistry(registry, advertised, cctx, images)
-	p.Notes = append(p.Notes, notes...)
+	s.ciRegistry(ctx, p, registry, cctx, opts.Fleet.Detected, images)
 	p.Notes = append(p.Notes, blockCollisions(folders)...)
 	pl := &ciPlanner{s: s, p: p, reg: s.env().publishRegistry(), allowed: allowedHost(p.Registry), root: opts.Root, revision: opts.revision, cat: cat,
 		acceptances: sync.OnceValue(func() *acceptanceStore {
-			return newAcceptanceStore(ctx, s.env(), impactTrust(ImpactOptions{Signers: opts.Signers, Fleet: opts.Fleet}))
+			return s.ownerRuled(newAcceptanceStore(ctx, s.env(), impactTrust(ImpactOptions{Signers: opts.Signers, Fleet: opts.Fleet})), opts.Fleet.Provenance)
 		})}
 	pl.planAll(ctx, folders, opts)
 	results, snap, err := s.ciImpacts(ctx, p, folders, opts, pl.allowed)
@@ -149,6 +138,23 @@ func (pl *ciPlanner) planAll(ctx context.Context, folders []*ciFolder, opts CIOp
 			opts.migrations[f.row.Dir] = f.migration
 		}
 	}
+}
+
+// ciRegistry sets the plan's registry with its source: --registry, else the
+// installation advertisement in detected, else what ci.ResolveRegistry finds.
+func (s *Service) ciRegistry(ctx context.Context, p *ci.Plan, registry string, cctx ci.Context, detected string, images []ci.ImageRef) {
+	var advertised ci.Value
+	if registry == "" {
+		// --registry wins: the advertisement is not read at all.
+		var note string
+		advertised, note = s.ciAdvertised(ctx, detected)
+		if note != "" {
+			p.Notes = append(p.Notes, note)
+		}
+	}
+	var notes []string
+	p.Registry, notes = ci.ResolveRegistry(registry, advertised, cctx, images)
+	p.Notes = append(p.Notes, notes...)
 }
 
 // ciFolder is one service folder being planned.

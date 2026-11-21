@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sigstore/sigstore-go/pkg/bundle"
+	"github.com/sigstore/sigstore-go/pkg/fulcio/certificate"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/tuf"
 	"github.com/sigstore/sigstore-go/pkg/verify"
@@ -31,6 +32,10 @@ type Policy struct {
 	// AnyIdentity accepts a keyless certificate of any identity under Root:
 	// the caller checks who it names (VerifyPerson checks the issuer).
 	AnyIdentity bool
+	// Repository, when set, replaces the exact Identity: the certificate's
+	// SAN must match IdentityRegexp and Fulcio must attest the source
+	// repository URI Repository at the ref Ref (PolicyForToken).
+	IdentityRegexp, Repository, Ref string
 }
 
 // Verify checks bundle (JSON) against p. digest, the sha256 of the artifact
@@ -63,7 +68,7 @@ func (p Policy) Verify(raw, digest []byte) (*verify.VerificationResult, error) {
 	default:
 		tm, popt = p.Root, verify.WithoutIdentitiesUnsafe()
 		if !p.AnyIdentity {
-			id, err := verify.NewShortCertificateIdentity(p.Issuer, "", p.Identity, "")
+			id, err := p.certificateIdentity()
 			if err != nil {
 				return nil, err
 			}
@@ -83,6 +88,20 @@ func (p Policy) Verify(raw, digest []byte) (*verify.VerificationResult, error) {
 		art = verify.WithArtifactDigest("sha256", digest)
 	}
 	return v.Verify(&b, verify.NewPolicy(art, popt))
+}
+
+// certificateIdentity is who p's certificate must name: Identity exactly, or
+// with a Repository the SAN pattern and the attested repository and ref.
+func (p Policy) certificateIdentity() (verify.CertificateIdentity, error) {
+	if p.Repository == "" {
+		return verify.NewShortCertificateIdentity(p.Issuer, "", p.Identity, "")
+	}
+	san, err := verify.NewSANMatcher("", p.IdentityRegexp)
+	if err != nil {
+		return verify.CertificateIdentity{}, err
+	}
+	issuer, _ := verify.NewIssuerMatcher(p.Issuer, "") // an empty pattern always compiles
+	return verify.NewCertificateIdentity(san, issuer, certificate.Extensions{SourceRepositoryURI: p.Repository, SourceRepositoryRef: p.Ref})
 }
 
 // VerifyPerson checks a keyless bundle (JSON) signed by any identity issuer

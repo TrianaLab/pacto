@@ -224,7 +224,7 @@ func TestProvenanceIgnoresSelfDeclaredSigner(t *testing.T) {
 	p := checkerFor(reg).Check(t.Context(), "oci", pushSigned(t, reg, s), keylessContract(provIdentity))
 	wantStatus(t, p, fleet.SignatureUnverified, "a person identity")
 	sig := p.Signature
-	if sig.Source != delivery.PublisherSourceNone || sig.Signer != provIdentity || !strings.Contains(sig.ExpectedSigner, `github\.com/(?i:acme)`) || sig.ExpectedIssuer != provIssuer {
+	if sig.Source != delivery.PublisherSourceNone || sig.Signer != provIdentity || !strings.Contains(sig.ExpectedSigner, `github\.com/((?i:acme)`) || sig.ExpectedIssuer != provIssuer {
 		t.Fatalf("signature %+v", sig)
 	}
 }

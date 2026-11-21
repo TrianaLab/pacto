@@ -285,6 +285,17 @@ func fleetSearchHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetSearchArgs, a
 	}
 }
 
+// fleetProvenanceNote says what a service's replacements and field
+// provenance carry, in pacto_fleet_get, pacto_fleet_explain and
+// pacto_fleet_entity alike.
+const fleetProvenanceNote = "Each 'replaces' entry carries 'link' (pacto-target, or inferred-from when a person's signed " +
+	"declaration named the inferred service), 'by' (who signed that declaration), 'revision' and 'workload' (what the inferred " +
+	"service showed, inferred; absent when Pacto read no workload for it here); 'replacesHidden' counts replacements whose " +
+	"workload you may not see. 'fields' is present only for a service whose current revision carries a declaration or that " +
+	"replaced an inferred service through one; its absence says nothing about provenance. It says where each field of the " +
+	"current revision comes from: provenance declared, accepted (with 'by'), attested or inferred, with " +
+	"'source', 'asOf' and 'completeness'. A 'proposed' range is never declared and never clears a gate."
+
 func fleetGetTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_fleet_get",
@@ -303,8 +314,9 @@ func fleetGetTool() *mcpsdk.Tool {
 			"no source checked. Give service as external:<identity> for an external system: its sources (each with " +
 			"its provenance), consumers, the catalog entry that classified it, 'hiddenConsumers' you may not see " +
 			"and 'provider', the inferred contract Pacto published for it, which is never a service. " +
-			"'replaces' lists the inferred services this service replaced when a Pacto target took over their workload; " +
-			"asked for by such an old key, the answer is the declared service with 'replacedFrom'. Read-only.",
+			"'replaces' lists the inferred services this service replaced when a Pacto target took over their workload or a " +
+			"person's accepted declaration named them ('link'); " +
+			"asked for by such an old key, the answer is the declared service with 'replacedFrom'. " + fleetProvenanceNote + " Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"service": {Type: "string", Description: "Logical service name, or external:<identity> for an external system"},
 			"target":  {Type: "string", Description: "Operational target key or name (use instead of service)"},
@@ -487,7 +499,7 @@ func fleetExplainTool() *mcpsdk.Tool {
 		Description: "Explain the deterministic reasons for a service or target state (findings, missing " +
 			"evidence, staleness, unresolved dependencies). Returns structured reasons, not prose. For external:<identity> " +
 			"it lists one reason per declaring source, the catalog match or the name-only fallback and the cap; its status is " +
-			"always unknown. Read-only.",
+			"always unknown. For a service it adds one REPLACES_INFERRED reason per inferred service it replaced. " + fleetProvenanceNote + " Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"subject": {Type: "string", Description: "Service name, operational target key/name or external:<identity>"},
 		}, []string{"subject"}),
@@ -670,8 +682,8 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"'not-reported' means no provider reports usage or cost to Pacto. Pacto never sums or converts a cost. A resource's provisioning phase is its lifecycle, never the service's health. " +
 			"The service's 'hiddenProviders' says at least that many resources come from providers you may not see. " +
 			"A service carries 'replaces' and 'replacesTotal', the inferred services it replaced when a Pacto target took over " +
-			"their workload, newest first; asked for by such an old key, the answer is the declared service with 'replacedFrom'. " +
-			fleet.ResourceActionsNote + " Hidden services are only counted, in the hidden fields. Read-only.",
+			"their workload or a person's accepted declaration named them ('link'), newest first; asked for by such an old key, the answer is the declared service with 'replacedFrom'. " +
+			fleetProvenanceNote + " " + fleet.ResourceActionsNote + " Hidden services are only counted, in the hidden fields. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"kind": {Type: "string", Description: "Entity kind", Enum: fleet.EntityKinds()},
 			"key":  {Type: "string", Description: "Entity key, as pacto_fleet_entities or pacto_fleet_search reports it"},

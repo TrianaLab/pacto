@@ -131,6 +131,7 @@ func newCICommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder) *c
 	addFleetSourceFlags(cmd.Flags())
 	addStatsFlags(cmd)
 	addPolicyFlag(cmd)
+	cmd.AddCommand(newCIInitCommand(v))
 	return cmd
 }
 

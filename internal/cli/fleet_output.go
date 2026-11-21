@@ -57,19 +57,19 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 		s := sv.Service
 		printReplacedFrom(w, sv.ReplacedFrom, sv.Meta.AsOf)
 		_, _ = fmt.Fprintf(w, "Service: %s%s\n", s.Name, nameInferredMark(s.NameInferred))
+		for _, l := range fleet.ReplacesLines(sv.Replaces, sv.Meta.AsOf) {
+			_, _ = fmt.Fprintln(w, l)
+		}
+		if more := sv.ReplacesTotal - len(sv.Replaces); more > 0 {
+			_, _ = fmt.Fprintf(w, "  %d more\n", more)
+		}
 		_, _ = fmt.Fprintf(w, "Owner: %s%s\n", orDash(s.Owner.DisplayString()), tui.OwnerProvenanceMark(s.OwnerProvenance, s.OwnerSource))
 		_, _ = fmt.Fprintf(w, "Status: %s\n", orDash(s.Status))
 		_, _ = fmt.Fprintf(w, "Sources: %v\n", s.Sources)
 		if s.Workload != nil {
 			_, _ = fmt.Fprintln(w, strings.Join(s.Workload.Lines(), "\n"))
 		}
-		for _, r := range sv.Replaces {
-			from, when := replacementWords(r, sv.Meta.AsOf)
-			_, _ = fmt.Fprintf(w, "Replaces %s %s\n", from, when)
-		}
-		if more := sv.ReplacesTotal - len(sv.Replaces); more > 0 {
-			_, _ = fmt.Fprintf(w, "  %d more\n", more)
-		}
+		printFields(w, sv.Fields, sv.ReplacesHidden)
 		printRevisions(w, sv.Revisions)
 		printServiceTargets(w, sv.Targets)
 		printServiceEdges(w, sv)
@@ -81,18 +81,24 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 // printReplacedFrom says the answer is about the service that replaced the
 // inferred service asked for, when it is.
 func printReplacedFrom(w io.Writer, r *fleet.Replacement, asOf time.Time) {
-	if r != nil {
-		from, when := replacementWords(*r, asOf)
-		_, _ = fmt.Fprintf(w, "%s was replaced by %s %s\n", from, r.To, when)
+	if r == nil {
+		return
 	}
+	_, _ = fmt.Fprintln(w, r.ReplacedLine(asOf))
 }
 
-// replacementWords are the name of the inferred service r replaced and
-// "<age> ago (linked by Pacto <namespace>/<name> target)".
-func replacementWords(r fleet.Replacement, asOf time.Time) (from, when string) {
-	_, from = fleet.ParseServiceKey(r.From)
-	_, scope, _, name, _ := fleet.ParseTargetKey(r.Target)
-	return from, fmt.Sprintf("%s ago (linked by Pacto %s/%s target)", fleet.Age(asOf.Sub(*r.At)), scope, name)
+// printFields prints where each field of a service comes from and how many
+// of its replacements the viewer may not see.
+func printFields(w io.Writer, f *fleet.FieldsPreview, replacesHidden int) {
+	if f != nil {
+		_, _ = fmt.Fprintln(w, "Fields:")
+		for _, l := range f.Lines() {
+			_, _ = fmt.Fprintln(w, l)
+		}
+	}
+	if replacesHidden > 0 {
+		_, _ = fmt.Fprintf(w, "Replaces hidden: %d\n", replacesHidden)
+	}
 }
 
 // printInferredEdges prints the graph's runtime-inferred edges: calls one of
@@ -510,6 +516,7 @@ func printFleetExplain(cmd *cobra.Command, res *fleet.ExplainResult, format stri
 		for _, r := range res.Reasons {
 			_, _ = fmt.Fprintf(w, "  [%s] %s\n", r.Code, r.Message)
 		}
+		printFields(w, res.Fields, res.ReplacesHidden)
 		warnPartial(cmd, res.Meta)
 		return nil
 	}, nil)

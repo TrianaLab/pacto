@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"cmp"
 	"maps"
 	"slices"
 	"strings"
@@ -96,17 +97,13 @@ func replaceWorkload(snap *FleetSnapshot, wk workloadKey, keys []TargetKey, ins 
 		ambiguousReplacement(snap, "Pacto targets of more than one service ("+strings.Join(names, ", ")+") run as workload "+name+", so it stays an inferred service")
 		return false
 	}
-	if snap.replacedNames == nil {
-		snap.replacedNames = map[string]replacedName{}
-	}
-	snap.replacedNames[name] = replacedName{to: snap.Targets[keys[0]].ServiceKey, workload: wk}
+	var r Replacement
 	t := earliestTarget(snap, keys)
 	created := earliestCreated(ins)
 	if created != nil && t != nil && created.Add(minReplacementGap).Before(*t.createdAt) {
-		snap.Replacements = append(snap.Replacements, Replacement{
-			From: NewServiceKey(name), To: t.ServiceKey, Link: linkPactoTarget, Target: t.Key, At: copyTime(t.createdAt), workload: wk,
-		})
+		r = Replacement{Link: linkPactoTarget, Target: t.Key, At: copyTime(t.createdAt)}
 	}
+	handOver(snap, wk, snap.Targets[keys[0]].ServiceKey, r, ins)
 	return true
 }
 
@@ -174,23 +171,88 @@ func ambiguousReplacement(snap *FleetSnapshot, message string) {
 	snap.Limitations = append(snap.Limitations, Limitation{Code: LimitationInferredReplacementAmbiguous, Message: message})
 }
 
+// Line is r in words: "Replaces <from> <age> ago (linked by Pacto
+// <namespace>/<name> target)" for a Pacto target, "Declared by <by> from
+// inferred <from> (revision <revision>)" for an inferred-from link, which
+// adds "; Pacto read no workload for it here" when no source reported it.
+func (r Replacement) Line(asOf time.Time) string {
+	_, from := ParseServiceKey(r.From)
+	if r.Link != linkPactoTarget {
+		line := "Declared by " + r.By + " from inferred " + from + " (revision " + string(r.Revision) + ")"
+		if r.Workload == nil {
+			line += "; Pacto read no workload for it here"
+		}
+		return line
+	}
+	_, scope, _, name, _ := ParseTargetKey(r.Target)
+	return "Replaces " + from + " " + Age(asOf.Sub(*cmp.Or(r.At, &asOf))) + " ago (linked by Pacto " + scope + "/" + name + " target)"
+}
+
+// ReplacesLines is rs as text rows, newest first: one [Replacement.Line]
+// each, and under the newest one Pacto read a workload for, that workload's
+// facts, so hundreds of replacements never stack hundreds of blocks (the
+// dashboard's fold reads the same way).
+func ReplacesLines(rs []Replacement, asOf time.Time) []string {
+	var out []string
+	facts := slices.IndexFunc(rs, func(r Replacement) bool { return r.Workload != nil })
+	for i, r := range rs {
+		out = append(out, r.Line(asOf))
+		if i == facts {
+			for _, l := range r.Workload.Lines() {
+				out = append(out, "  "+l)
+			}
+		}
+	}
+	return out
+}
+
+// ReplacedLine is r read from the side of the replaced service: "<from> was
+// replaced by <to> ..." for a Pacto target, [Replacement.Line] otherwise.
+func (r Replacement) ReplacedLine(asOf time.Time) string {
+	line := r.Line(asOf)
+	if r.Link != linkPactoTarget {
+		return line
+	}
+	_, from := ParseServiceKey(r.From)
+	return from + " was replaced by " + string(r.To) + " " + strings.TrimPrefix(line, "Replaces "+from+" ")
+}
+
 // restrictReplacements keeps the replacements whose declared service is
 // visible and whose workload hidden says the viewer may see, and the replaced
-// names under the same rule.
+// names under the same rule. It counts those it drops for a visible service
+// and collects the limitations of replaceByInferredFrom that name a hidden
+// workload or service.
 func restrictReplacements(out, s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hidden func(cluster, namespace, kind string) bool) {
+	out.hiddenReplacements, out.hiddenHandovers = map[ServiceKey]int{}, map[ServiceKey]bool{}
 	out.Replacements = slices.DeleteFunc(slices.Clone(s.Replacements), func(r Replacement) bool {
-		return hiddenSvc[r.To] || hidden(r.workload.cluster, r.workload.namespace, r.workload.kind)
+		if hiddenSvc[r.To] {
+			return true
+		}
+		if hidden(r.workload.cluster, r.workload.namespace, r.workload.kind) {
+			out.hiddenReplacements[r.To]++
+			out.hiddenHandovers[r.To] = out.hiddenHandovers[r.To] || r.Link != linkPactoTarget
+			return true
+		}
+		return false
 	})
+	listed := func(c, ns, kind string) bool { return ns != "" && !hidden(c, ns, kind) }
+	for i := range out.Replacements {
+		out.Replacements[i].Workload = restrictRepositories(out.Replacements[i].Workload, listed)
+	}
 	out.replacedNames = maps.Clone(s.replacedNames)
 	maps.DeleteFunc(out.replacedNames, func(_ string, r replacedName) bool {
 		return hiddenSvc[r.to] || hidden(r.workload.cluster, r.workload.namespace, r.workload.kind)
 	})
+	for _, n := range s.inferredLinkNotes {
+		if hidden(n.workload.cluster, n.workload.namespace, n.workload.kind) || slices.ContainsFunc(n.services, func(k ServiceKey) bool { return hiddenSvc[k] }) {
+			out.hiddenLinkNotes = append(out.hiddenLinkNotes, n.l)
+		}
+	}
 }
 
 // replacementHidden reports whether hidden hides the workload of some
-// replacement of s.
+// replacement of s or of some limitation replaceByInferredFrom raised.
 func replacementHidden(s *FleetSnapshot, hidden func(cluster, namespace, kind string) bool) bool {
-	return slices.ContainsFunc(s.Replacements, func(r Replacement) bool {
-		return hidden(r.workload.cluster, r.workload.namespace, r.workload.kind)
-	})
+	return slices.ContainsFunc(s.Replacements, func(r Replacement) bool { return hidden(r.workload.cluster, r.workload.namespace, r.workload.kind) }) ||
+		slices.ContainsFunc(s.inferredLinkNotes, func(n workloadNote) bool { return hidden(n.workload.cluster, n.workload.namespace, n.workload.kind) })
 }

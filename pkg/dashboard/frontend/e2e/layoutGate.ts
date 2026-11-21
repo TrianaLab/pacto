@@ -1029,6 +1029,28 @@ export function installScaleFixture(): void {
       const rf = doc.replacedFrom as Record<string, unknown> | undefined;
       if (rf) doc.replacedFrom = { ...rf, from: longKey, target: `${'prod-'.repeat(12)}/Deployment/${'experiment-service-'.repeat(8)}` };
     }
+    // Where the values come from at its bound (513-S5): 200 of 1200 field rows with
+    // long fields and values, every provenance, 7 values from a workload the viewer
+    // cannot see, 3 hidden replacements and 200 of 260 replacements, on the declared service
+    // that has the fold.
+    if (route === '/api/fleet/entities/service' && (doc.service as Record<string, unknown> | undefined)?.fields) {
+      const svc = doc.service as Record<string, unknown>;
+      const kinds = ['declared', 'accepted', 'attested', 'inferred'];
+      svc.fields = { total: 1200, count: 200, truncated: true, hidden: 7,
+        items: Array.from({ length: 200 }, (_, i) => ({
+          field: i % 2 ? `dependencies[${'settlement-reconciliation-'.repeat(4)}${i}].compatibility` : `inputs.${'cluster-runtime-observation-'.repeat(5)}${i}`,
+          value: `>=${i}.0.0 <${i + 1}.0.0 || ${'^1.2.3-rc.4+build.'.repeat(4)}${i}`, provenance: kinds[i % 4],
+          by: i % 4 === 1 ? `${'ana.maria.'.repeat(6)}@acme.example` : undefined,
+          source: `cluster:fleet reported versions ${'2.3.1, '.repeat(12)}${i}`, completeness: 'partial',
+        })) };
+      svc.replacesHidden = 3;
+      // 200 of 260 replacements, the bound: one facts block, 199 single lines and "60 more".
+      const reps = (svc.replaces as Record<string, unknown>[] | undefined) ?? [];
+      if (reps.length) {
+        svc.replaces = Array.from({ length: 200 }, (_, i) => (i ? { ...reps[0], from: `k8s:billing%2FDeployment%2F${'invoices-worker-'.repeat(4)}${i}`, workload: undefined } : reps[0]));
+        svc.replacesTotal = 260;
+      }
+    }
     if (route === '/api/fleet/entities/service') {
       const rel = (doc.service as Record<string, unknown> | undefined)?.relationships as { items?: Record<string, unknown>[]; count?: number; total?: number } | undefined;
       const added = extEdges(rel?.items, doc.entity as Record<string, unknown>).length;
@@ -2820,6 +2842,19 @@ export const ROUTES: Route[] = [
   },
   { name: 'service replaced inferred', hash: '#/fleet/services/experiment-service' },
   { name: 'replaced inferred key', hash: `#/fleet/services/${encodeURIComponent('k8s:prod%2FDeployment%2Fexperiments')}` },
+  {
+    name: 'service handover fields',
+    open: async (page) => {
+      // The fold opened, so the gates read its rows; a closed fold hides them.
+      await page.goto('/#/fleet/services/invoices');
+      const d = page.locator('[data-testid=field-provenance-fold]');
+      await d.waitFor();
+      await d.evaluate((el) => { (el as HTMLDetailsElement).open = true; });
+      await d.locator('dl dt').first().waitFor();
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  { name: 'service handover fields closed', hash: '#/fleet/services/invoices' },
   {
     name: 'revision entity, discovery findings open',
     open: async (page) => {

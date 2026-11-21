@@ -299,6 +299,37 @@ pacto ci [root] [flags]
       --traces stringArray                 OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
 
+### `pacto ci init`
+
+Writes the CI caller that runs pacto ci into the repository at dir (default .). With a .github folder it writes .github/workflows/pacto.yml, five lines that call the pacto-actions reusable workflow pinned by commit. With .gitlab-ci.yml it adds the pacto-actions GitLab component to its include list, or moves the commit of the entry already there, and leaves every other byte of the file as it was. --platform picks one when the repository has both or neither.
+
+pacto ci init writes into the working tree only: you review and commit the file. An existing GitHub caller with other content is replaced only with --force. With --output-format json, content is the whole file written or to write and lines counts the lines of the caller it adds.
+
+To plan a folder named init, run pacto ci ./init.
+
+```
+pacto ci init [dir] [flags]
+```
+
+**Examples:**
+
+```
+  # Write the caller for the CI platform this repository uses
+  pacto ci init
+
+  # Print the GitHub caller without writing it
+  pacto ci init --platform github --dry-run
+```
+
+**Flags:**
+
+```
+      --dry-run[=true|false]   print the caller without writing it
+      --force[=true|false]     replace a GitHub caller that has other content
+  -h, --help[=true|false]      help for init
+      --platform string        the CI platform to write the caller for, github or gitlab; default from the .github folder or .gitlab-ci.yml
+```
+
 ---
 
 ## `pacto completion`
