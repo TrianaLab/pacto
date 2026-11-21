@@ -162,6 +162,24 @@ func TestInstallationPartialRowIsNoApplier(t *testing.T) {
 	}
 }
 
+// Each cluster's detection has its own argocd row; Argo CD is listed once.
+func TestInstallationAppliersListEachManagerOnce(t *testing.T) {
+	src := func(id string) Source {
+		return NewMemorySource(id, SourceKindDetection, &Collection{Advisory: true, Providers: []Provider{managerRow(ProviderArgoCD, SourceAvailable)}, State: &SourceState{Status: SourceAvailable}})
+	}
+	d := NewQuery(buildProviders(t, src("detection-1"), src("detection-2"))).Installation(deliveryProbed(true)).Delivery
+	if len(d.Appliers) != 1 || d.Appliers[0].Manager != ProviderArgoCD {
+		t.Errorf("appliers = %+v", d.Appliers)
+	}
+	flux := func(id string) Source {
+		return NewMemorySource(id, SourceKindDetection, &Collection{Advisory: true, Providers: []Provider{managerRow(ProviderFlux, SourcePartial)}, State: &SourceState{Status: SourceAvailable}})
+	}
+	d = NewQuery(buildProviders(t, flux("detection-1"), flux("detection-2"))).Installation(deliveryProbed(true)).Delivery
+	if strings.Count(d.Source, "flux row is not available") != 1 {
+		t.Errorf("source = %q", d.Source)
+	}
+}
+
 func TestInstallationProvisioningUnknownUntilDetected(t *testing.T) {
 	row := managerRow("crossplane", SourceAvailable)
 	row.UsedFor = []string{UseReporting}

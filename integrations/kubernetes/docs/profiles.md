@@ -46,6 +46,10 @@ Probing and metrics observation go from `auto` to `on` in every watched
 namespace. A value you set to `off` stays `off`. Pacto delivery turns on.
 Dashboard sign-in keeps its OIDC settings.
 
+Under idp an explicit `auto` also reads `on`, so a namespace label no longer
+selects which namespaces Pacto observes. To observe only labelled namespaces,
+leave idp: `--set profile=default --set delivery.enabled=true`.
+
 ### What idp adds
 
 You choose `idp`, so you choose what it adds:
@@ -53,7 +57,8 @@ You choose `idp`, so you choose what it adds:
 - The read of ServiceMonitors and PodMonitors (`get`, `list`, `watch`), in the
   operator ClusterRole, or in each watch Role with `controller.watchNamespaces`.
 - Pacto delivery's cluster roles: the `-promoter`, `-agent`, `-approver`,
-  `-view` and `-edit` ClusterRoles, plus the recorder's ClusterRole. See
+  `-view` and `-edit` ClusterRoles, plus the recorder's ClusterRole when
+  `delivery.recorder.enabled` is `true` (the quickstart sets it). See
   [Delivery](delivery.md).
 
 ## Combine hardened and idp
@@ -65,7 +70,7 @@ Pass both names as a list:
 ```
 
 A bare `--set profile=hardened,idp` is a Helm parse error; in a values file,
-`profile: hardened,idp` works too. Where the two disagree, hardened wins:
+`profile: hardened,idp` works too, written without spaces. Where the two disagree, hardened wins:
 probing and metrics observation are `on`, the monitor read lands in each
 watch Role and Pacto delivery stays off.
 
@@ -84,6 +89,7 @@ watch Role and Pacto delivery stays off.
 | The delivery namespace after delivery is dropped | Kept with its trust config, pins and keys | Turn delivery back on to adopt it again, or `kubectl delete namespace <ns>` |
 | Watch Roles, with `namespaces get` on the watched namespace while a mode is `auto` | Kept: one Role per watched namespace | Already on; set probing and metrics to `on` or `off` to drop the `namespaces get` |
 | Release-namespace grants: leader election, events, `secrets` `get`, and `secrets` `create` with `registry` | Kept | Already on; leave `registry` empty to drop `create` |
+| Teardown grants in the release namespace: `get` and `delete` by name on the `pacto-dashboard`, `pacto-evidence` and `pacto-node-agent` objects | Kept, so an upgrade to hardened removes what an earlier release created | Always on |
 | `controller.secretGrants` and `registryPullSecret` | Kept: one Role per named Secret | Already on; empty the values to drop them |
 | Cluster-identity Role in `kube-system` (`get` on `namespaces/kube-system` only) | Rendered with `registry` | Leave `registry` empty to drop it; the installer needs RBAC rights in `kube-system` |
 | CRDs | Installed | Set `crds.install=false` and apply them yourself |

@@ -162,8 +162,13 @@ func profileEvidence(inst *Installation) string {
 // installationProvider is the declared Installation row with no details.
 func installationProvider(res Result, evidence, completeness string, now time.Time) fleet.Provider {
 	asOf := res.AsOf
-	usedFor := "target snapshot, organization index and inferred contracts; set by a person with the registry value"
-	if len(res.Installation.Profile) > 0 {
+	feeds := "target snapshot, organization index and inferred contracts"
+	usedFor := feeds + "; set by a person with the registry value"
+	switch {
+	case len(res.Installation.Profile) > 0 && res.Installation.Registry != "":
+		// A profiled row with a registry still says what the registry feeds.
+		usedFor = "installation profile, " + feeds + "; set by a person with the profile and registry values"
+	case len(res.Installation.Profile) > 0:
 		usedFor = "installation profile and registry; set by a person with the profile and registry values"
 	}
 	return fleet.Provider{

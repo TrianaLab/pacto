@@ -158,8 +158,12 @@ Read the same rows from the CLI:
 
   pacto fleet status --k8s --detected k8s:{{ .Release.Namespace }}/{{ $detectedName }}
 {{- else }}
-
+{{ if include "pacto-operator.dashboardEnabled" . }}
 Pacto lists what it detects under Data sources in the dashboard, or run:
+{{- else }}
+No managed dashboard runs here. Pacto lists what it detects under Data sources
+in a local pacto dashboard --detected k8s:{{ .Release.Namespace }}/{{ $detectedName }}, or run:
+{{- end }}
 
   kubectl get configmap {{ $detectedName }} -n {{ .Release.Namespace }} -o jsonpath='{.data.detected\.json}'
 {{- end }}

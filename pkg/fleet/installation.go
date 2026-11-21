@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -239,7 +240,7 @@ func (q *Query) installationDelivery(in InstallationInput) InstallationDelivery 
 	return out
 }
 
-// addAppliers lists one adopted applier per available argocd or flux row; a
+// addAppliers lists one adopted applier per manager with an available argocd or flux row; a
 // row that is not available lists nothing and makes the part partial.
 func (q *Query) addAppliers(out *InstallationDelivery) {
 	if q == nil {
@@ -251,8 +252,13 @@ func (q *Query) addAppliers(out *InstallationDelivery) {
 		}
 		if p.Status != SourceAvailable {
 			out.Completeness = InstallationPartial
-			out.Source += "; " + p.ID + installationApplierNotListed
+			if note := "; " + p.ID + installationApplierNotListed; !strings.Contains(out.Source, note) {
+				out.Source += note
+			}
 			continue
+		}
+		if slices.ContainsFunc(out.Appliers, func(a InstallationApplier) bool { return a.Manager == p.ID }) {
+			continue // one row per cluster names the same manager
 		}
 		out.Appliers = append(out.Appliers, InstallationApplier{Manager: p.ID, Mode: InstallationApplierAdopted, Provenance: ProvenanceInferred,
 			Source: "detected " + p.ID + " row; " + installationApplierEvidence})

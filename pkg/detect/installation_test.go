@@ -158,7 +158,8 @@ func TestInstallationRowNamesProfile(t *testing.T) {
 	inst.Profile = []string{"hardened", "idp"}
 	r := row(t, ProviderRows(Result{AsOf: asOf, Installation: inst}, "detection", asOf), "installation")
 	if r.Evidence != "profile hardened, idp; registry ghcr.io/acme; tags only under the listed prefixes, referrers by digest elsewhere" ||
-		r.Status != fleet.SourceAvailable || len(r.Details) == 0 || r.UsedFor[0] != profileUsedFor {
+		r.Status != fleet.SourceAvailable || len(r.Details) == 0 ||
+		r.UsedFor[0] != "installation profile, target snapshot, organization index and inferred contracts; set by a person with the profile and registry values" {
 		t.Errorf("installation row = %+v", r)
 	}
 }
