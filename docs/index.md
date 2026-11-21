@@ -123,7 +123,7 @@ pacto run --contract ./payments --bind api=8080 --fail-on noncompliant -- ./paym
 
 Pacto watches TCP connections in the Linux kernel with eBPF (small, safe
 programs the kernel runs on events). The kernel watcher reads connection
-metadata, never payloads or secrets. The optional probes read only the
+metadata and DNS answers, never other payloads or secrets. The optional probes read only the
 response they need. When it cannot see something, it says so. Run it three ways:
 `pacto run` wraps one command (a laptop, a CI job), `pacto agent` watches a
 Docker host or a server and the Kubernetes operator can deploy the same agent

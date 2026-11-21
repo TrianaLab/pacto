@@ -116,6 +116,30 @@ checked workload by service name, contract reference or bound address. If one
 matches none, it might be the very workload reached under another name, so the
 agent reports no undeclared dependency for that workload at all.
 
+## Names of the hosts a workload calls
+
+The agent also reads the DNS answers its workloads receive, and only those:
+UDP datagrams from port 53, at most 512 bytes each, on the same eBPF attach and
+with the same privileges. It names a connection from the answers of the
+workload that made it, never from another workload's lookup. `--sink stdout`
+prints the name as `host`:
+
+```json
+{"address":"203.0.113.7","host":"api.stripe.com","port":443,"successes":12}
+```
+
+Each workload keeps names for at most 64 addresses and 4 names per address,
+for ten minutes after the last answer, and at most 512 connections on a host
+carry a name. An address whose names span more than one registrable domain,
+such as a shared CDN address, stays unnamed and carries `ambiguous: true`. DNS
+over TCP, TLS or HTTPS gives no name. A raw snapshot's `dns` field says whether
+names are collected: its `state` reads `Failed` with `DNSNotAttached`,
+`DNSLoadFailed` or `DNSAttachFailed` while the DNS program is not attached,
+and socket collection keeps running. It reads `Degraded`
+with `AnswersDropped`, `DNSUnattributed` or `HostLimit` when some names are
+missing. On Kubernetes these names become
+[calls that leave the cluster](operational-graph-egress.md).
+
 ## Where results go
 
 `--sink` picks what happens to each round:

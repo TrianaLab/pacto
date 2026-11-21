@@ -50,9 +50,16 @@ source (such as `prod`) and its workload source (`prod-workloads`).
   `hubble`): one row per mesh the cluster's API discovery shows, from its
   mesh source (`prod-mesh`), such as `serves networking.istio.io; calls read
   from Prometheus` or `serves cilium.io; no Hubble Relay found`. Pacto uses
-  them for observed edges. Uncovered namespaces, a Prometheus or Relay it
+  them for observed edges and, for calls leaving the cluster, external
+  egress. Uncovered namespaces, a Prometheus or Relay it
   could not read and calls it could not attribute make the row `partial`;
   see [Calls a service mesh records](operational-graph-mesh.md).
+- **Kernel egress** (`kernel-egress`): when the node agent runs, how many
+  nodes that run target pods have one, such as `node agent on 3/4 nodes`.
+  Pacto uses it for external egress. Its status is the worst egress coverage
+  of the Pactos it read, and the row names those services, so a view that
+  hides all of them shows no row. It is cluster-wide; see
+  [Calls that leave the cluster](operational-graph-egress.md).
 
 ```bash
 $ pacto fleet providers --k8s
@@ -159,7 +166,7 @@ explains what each mode means for records.
 With `--detected`, the rows the operator
 [detected in a cluster](integrations/kubernetes/detection.md)
 join from a source of kind `detection`: Registry, Cloud, Sign-in, Exposure,
-Metrics, Nodes and the [trace backends](#trace-backends). Each carries five more fields:
+Metrics, Nodes, the [trace backends](#trace-backends) and the egress readers. Each carries five more fields:
 
 | Field | Meaning |
 |---|---|
@@ -178,6 +185,18 @@ reads `stale`. A restricted
 view clears the evidence, hint and details of a row that names a namespace
 you cannot read, or of a cluster-wide row when you cannot read the cluster
 scope.
+
+The three egress readers are cluster-wide and read calls leaving the cluster
+([Calls that leave the cluster](operational-graph-egress.md)):
+
+- **Istio egress** (`istio-egress`): `ServiceEntry CRD present` or
+  `no ServiceEntry CRD`.
+- **Cilium FQDN** (`cilium-fqdn`): `CiliumNetworkPolicy CRD present` or
+  `no CiliumNetworkPolicy CRD`.
+- **Egress gateway** (`egress-gateway`): only when Istio egress gateways run,
+  such as `1 Istio egress gateway found; logs: auto`. With `auto` the row is
+  `partial` and its hint is the command that sets
+  `controller.egressGatewayLogs=on`.
 
 ## Trace backends
 

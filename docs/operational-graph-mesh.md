@@ -149,8 +149,9 @@ Pacto reports the source `unavailable` only when API discovery fails.
 | Code | Messages |
 |---|---|
 | `MESH_TELEMETRY_UNREAD` | `no Prometheus found in the namespaces this installation reads`; `several Prometheus servers could record this mesh; Pacto cannot tell which one does`; `the Prometheus Pacto found holds no istio_requests_total series for the last hour, so it does not record this mesh's calls`; `the Prometheus Pacto found refused the query (HTTP 503)`, `timed out`, `answered more than 16 MiB`, `answered with an unreadable body`, `is not reachable from here` or `is not reachable from here and you may not proxy to it`; `this Prometheus holds calls of several clusters; Pacto cannot tell which is this one`; `only the 5000 busiest call pairs were read`; `Services could not be read in every namespace, so Pacto did not look for the Prometheus that records this mesh`; `the mesh's control plane could not be told apart from a copy in another namespace`; `no Hubble Relay found`; `Services could not be read in every namespace, so Pacto may miss Hubble Relay`; `Hubble Relay serves TLS; Pacto reads no Secret for a client certificate, so its flows are not read`; `Hubble Relay is not reachable from here`, `timed out` or `refused the request`; `Hubble Relay served no flow for the last hour`; `Hubble Relay holds flows of several clusters; Pacto cannot tell which is this one`; `only the newest 10000 flows of the last hour were read` |
+| `EGRESS_SERIES_CAP` | `only the 2000 busiest calls to external hosts were read` |
 | `MESH_COVERAGE_PARTIAL` | `3 namespaces without sidecars`; `sidecar coverage is unknown because namespaces could not be read`; `2 nodes not reachable through Hubble Relay`; `Hubble Relay did not say how many nodes it reaches`; `40 flows were lost before Hubble Relay could serve them`; `Hubble Relay kept only the last 12 minutes of flows` |
-| `MESH_CALLS_UNATTRIBUTED` | `4 call series had an end Pacto could not name`; `2 call series reach namespaces this installation does not read`; `1 cross-cluster call was not attributed`; `3 flows reach namespaces this installation does not read`; `1 cross-cluster flow was not attributed`; `2 flows had no request direction` |
+| `MESH_CALLS_UNATTRIBUTED` | `4 call series had an end Pacto could not name`; `2 call series reach namespaces this installation does not read`; `1 cross-cluster call was not attributed`; `3 flows reach namespaces this installation does not read`; `1 cross-cluster flow was not attributed`; `2 flows had no request direction`; `3 call series went through the passthrough cluster, which names no host; add a ServiceEntry`; `5 flows left the cluster with no name; enable DNS visibility for egress names` |
 
 An end Pacto cannot name is `unknown` in Istio, a workload label left empty in
 Linkerd, a Job pod or a peer outside the mesh.
@@ -182,6 +183,6 @@ never granted `services/proxy`.
 
 | Left out | Why |
 |---|---|
-| Calls to hosts outside the cluster, such as Istio `ServiceEntry` hosts or Hubble flows to `world` | The mesh source reads calls between workloads only |
+| Calls to hosts outside the cluster that carry no host name, such as Istio `PassthroughCluster` calls or Hubble flows to `world` without DNS visibility | They name no host; [Calls that leave the cluster](operational-graph-egress.md#mesh-egress) covers the ones that do |
 | A Hubble Relay that serves only TLS | Its client certificate sits in a Secret Pacto does not read |
 | A Prometheus, Thanos or Mimir outside the cluster | Its address would be a chart value |

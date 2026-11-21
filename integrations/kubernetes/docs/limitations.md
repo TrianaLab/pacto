@@ -40,7 +40,10 @@ never `NonCompliant`. That happens for:
   `.corp.internal`, makes `status.externalsCoverage` partial
   (`object-host-unclassified`). `status.externals` shows every reader
   of the Pacto the normalized host and port that the referenced ConfigMap keys
-  hold. It never reads a Secret.
+  hold. It never reads a Secret. A Cilium `toFQDNs` rule that selects the
+  target's pods adds its hosts as `ciliumFQDN` entries, inferred like a
+  `ServiceEntry`, read from the Pacto's namespace and from every
+  `CiliumClusterwideNetworkPolicy`.
 - **Non-HTTP capability bindings** -- health and metrics probing supports HTTP
   bindings only; gRPC capability probing is not implemented and returns
   `Unsupported`.
@@ -71,6 +74,11 @@ calls or opens an in-cluster request surface:
   `controller.interfaceNameMatchDiscovery` (flag
   `--interface-name-match-discovery`) and only ever assists positive
   availability -- it never produces an absent or error result.
+- **Egress gateway logs** turn on with `controller.egressGatewayLogs=on`
+  (flag `--egress-gateway-logs`): the operator reads the access log tail of
+  the Istio egress gateways in `istio-system`, with a Role there that grants
+  `pods/log get`. Under the default `auto` it reads no log and its detection
+  row proposes the value.
 
 See [Operator configuration](operator-configuration.md) for these flags.
 
@@ -165,6 +173,14 @@ only violations they see. These things stay out of reach:
   the agent needs) reports `Failed`, which turns its pods' interface checks
   into `COLLECTION_FAILED`. A kernel older than 5.11 can report it too, since
   the agent pod has no `SYS_RESOURCE`.
+- **Calls that leave the cluster.** The node agent names a call only from the
+  DNS answers its own pod received. Calls resolved over TCP, TLS or HTTPS, to
+  a shared CDN address or to a legacy system reached by private IP stay
+  unnamed and make
+  `status.observedEgressCoverage` partial (`unnamed-public`, `ambiguous-peers`
+  or `unnamed-private-peers`). Kernel egress is written only to the status of
+  a `Pacto`, so a workload no `Pacto` targets has none; a mesh or Hubble covers
+  it ([calls that leave the cluster](../../operational-graph-egress.md)).
 - **Docker Compose and bare hosts.** The node agent is the Kubernetes way to
   run `pacto agent`. On a Docker host or a server, run
   [`pacto agent`](../../runtime-agent.md) yourself; the cluster-only checks
