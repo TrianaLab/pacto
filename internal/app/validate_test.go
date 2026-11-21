@@ -494,3 +494,25 @@ func TestValidateLoadFailureOmitsVersionDeclared(t *testing.T) {
 		t.Fatalf("json carries versionDeclared: %s", data)
 	}
 }
+
+func TestValidateReportsContractCompleteness(t *testing.T) {
+	result, err := NewService(nil, nil).Validate(context.Background(), ValidateOptions{Path: writeTestBundle(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cc := result.ContractCompleteness
+	if cc == nil || cc.Percent == nil || len(cc.Sections) != 8 {
+		t.Fatalf("contractCompleteness = %+v", cc)
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"contractCompleteness":{"percentComplete":`) {
+		t.Fatalf("JSON lacks contractCompleteness: %s", data)
+	}
+	failed, _ := NewService(nil, nil).Validate(context.Background(), ValidateOptions{Path: filepath.Join(t.TempDir(), "absent")})
+	if failed.ContractCompleteness != nil {
+		t.Fatalf("a contract that did not load has no completeness: %+v", failed.ContractCompleteness)
+	}
+}

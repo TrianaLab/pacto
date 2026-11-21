@@ -478,7 +478,8 @@ func checkTool() *mcpsdk.Tool {
 		Name:        "pacto_check",
 		Annotations: readOnly(true),
 		Description: "Validates a Pacto contract the way `pacto validate` and CI do, and returns structured results including " +
-			"each stage's status, located errors, warnings, next (the one command to run now), a contract summary and actionable suggestions for " +
+			"each stage's status, located errors, warnings, next (the one command to run now), a contract summary, " +
+			"how complete the contract is section by section with the YAML that declares each gap (contractCompleteness) and actionable suggestions for " +
 			"improvement with ready-to-use pacto_edit tool calls, such as an owner that is not a bare team name " +
 			"or an external dependency whose compatibility can never be confirmed.",
 		InputSchema: inputSchema(map[string]property{
