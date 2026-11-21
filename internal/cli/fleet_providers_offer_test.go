@@ -32,29 +32,50 @@ func TestFleetProvidersPrintsOffer(t *testing.T) {
 	expect(t, strings.Contains(two, "\n"+strings.Repeat(" ", strings.Index(head, "EVIDENCE"))+"  offer: "), "with a cluster column the offer still sits under the evidence:\n%s", two)
 }
 
+// kargoProvider is the promotion row the workload source makes from the
+// chart's two default Kargo fingerprints, both carrying the template offer.
+func kargoProvider() fleet.Provider {
+	o := fleet.ProviderOffer{ID: "kargo-analysis-template", Text: "Gate every Kargo promotion with one shared AnalysisTemplate", Doc: "https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo"}
+	return fleet.Provider{ID: "promotion/Kargo", Name: "Kargo", Evidence: fleet.PromotionOwnedBy + "Kargo (API group kargo.akuity.io served)", UsedFor: []string{fleet.UsePromotion}, Offers: []fleet.ProviderOffer{o, o}}
+}
+
 // TestProviderOfferSameOnCLIAndMCP: pacto fleet providers and
 // pacto_fleet_status carry byte-identical offers over one snapshot.
 func TestProviderOfferSameOnCLIAndMCP(t *testing.T) {
-	q := providersQuery(t, clusterSource("k8s", "prod", argoProvider()))
-	src := func(context.Context) (*fleet.Query, error) { return q, nil }
-	cmd := &cobra.Command{}
-	var out bytes.Buffer
-	cmd.SetOut(&out)
-	expect(t, printFleetProviders(cmd, q.Providers(), "json") == nil, "print")
-	server, err := pactomcp.New("v", pactomcp.Authoring{}, pactomcp.Modes{Fleet: &pactomcp.FleetMode{Src: src}})
-	expect(t, err == nil, "server: %v", err)
-	status, _ := callText(t, sessionOn(t, server), "pacto_fleet_status", map[string]any{})
-	offers := func(what, body string) string {
-		var v struct {
-			Providers []struct {
-				Offers json.RawMessage `json:"offers"`
-			} `json:"providers"`
+	for _, tc := range []struct {
+		row  fleet.Provider
+		want string
+	}{
+		{argoProvider(), `"id":"argocd-repo-server-plugin"`},
+		{kargoProvider(), `[{"id":"kargo-analysis-template","text":"Gate every Kargo promotion with one shared AnalysisTemplate","doc":"https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo"}]`},
+	} {
+		q := providersQuery(t, clusterSource("k8s", "prod", tc.row))
+		src := func(context.Context) (*fleet.Query, error) { return q, nil }
+		cmd := &cobra.Command{}
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		expect(t, printFleetProviders(cmd, q.Providers(), "json") == nil, "print")
+		server, err := pactomcp.New("v", pactomcp.Authoring{}, pactomcp.Modes{Fleet: &pactomcp.FleetMode{Src: src}})
+		expect(t, err == nil, "server: %v", err)
+		status, _ := callText(t, sessionOn(t, server), "pacto_fleet_status", map[string]any{})
+		offers := func(what, body string) string {
+			var v struct {
+				Providers []struct {
+					Offers json.RawMessage `json:"offers"`
+				} `json:"providers"`
+			}
+			expect(t, json.Unmarshal([]byte(body), &v) == nil && len(v.Providers) == 1 && len(v.Providers[0].Offers) > 2, "%s: %s", what, body)
+			var compact bytes.Buffer
+			expect(t, json.Compact(&compact, v.Providers[0].Offers) == nil, "compact")
+			return compact.String()
 		}
-		expect(t, json.Unmarshal([]byte(body), &v) == nil && len(v.Providers) == 1 && len(v.Providers[0].Offers) > 2, "%s: %s", what, body)
-		var compact bytes.Buffer
-		expect(t, json.Compact(&compact, v.Providers[0].Offers) == nil, "compact")
-		return compact.String()
+		cli, mcp := offers("cli", out.String()), offers("mcp", status)
+		expect(t, cli == mcp && strings.Contains(cli, tc.want), "cli %s != mcp %s", cli, mcp)
+		text, _ := providersText(t, q.Providers())
+		o := tc.row.Offers
+		if len(o) == 0 {
+			continue
+		}
+		expect(t, strings.Count(text, "offer:") == 1 && strings.Contains(text, "  offer: "+o[0].Text+" ("+o[0].Doc+")\n"), "one text offer line:\n%s", text)
 	}
-	cli, mcp := offers("cli", out.String()), offers("mcp", status)
-	expect(t, cli == mcp && strings.Contains(cli, `"id":"argocd-repo-server-plugin"`), "cli %s != mcp %s", cli, mcp)
 }

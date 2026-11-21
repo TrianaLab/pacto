@@ -1,7 +1,9 @@
 package impact
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -46,5 +48,37 @@ func TestNoGateReadsProviders(t *testing.T) {
 	oa, ob := qa.Overview().Summary, qb.Overview().Summary
 	if !reflect.DeepEqual(oa.Readiness, ob.Readiness) || oa.CompliantTargets != ob.CompliantTargets || oa.NonCompliantTargets != ob.NonCompliantTargets || oa.UnknownTargets != ob.UnknownTargets {
 		t.Errorf("readiness or compliance tallies changed: %+v, want %+v", ob, oa)
+	}
+}
+
+// TestOfferNeverReachesImpact: offers on a promotion row change no byte of
+// the impact answer but the snapshot id.
+func TestOfferNeverReachesImpact(t *testing.T) {
+	answer := func(offers []fleet.ProviderOffer) []byte {
+		row := fleet.Provider{ID: "promotion/Promoter", Name: "Promoter", Evidence: fleet.PromotionOwnedBy + "Promoter (API group promoter.example.com served)", UsedFor: []string{fleet.UsePromotion}, Offers: offers}
+		snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return evidenceNow }}, fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, &fleet.Collection{
+			Revisions: []fleet.RawRevision{gwRev(authDep)},
+			Targets:   []fleet.RawTarget{gwTarget(&evidenceNow)},
+			Providers: []fleet.Provider{row},
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := len(snap.Providers[0].Offers); got != len(offers) {
+			t.Fatalf("snapshot offers = %d, want %d", got, len(offers))
+		}
+		res := analyzeAuth(snap, Options{})
+		// The snapshot id hashes every row, offers included; nothing else may move.
+		res.SnapshotID = ""
+		b, err := json.Marshal(res)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	without := answer(nil)
+	with := answer([]fleet.ProviderOffer{{ID: "promoter-gate", Text: "Gate every promotion with one template", Doc: "https://pacto.run/latest/x"}})
+	if !bytes.Equal(without, with) {
+		t.Errorf("impact changed with offers:\n%s\nwant\n%s", with, without)
 	}
 }

@@ -146,22 +146,15 @@ var providerOffers = map[string][]ProviderOffer{
 }
 
 // rowOffers is p's offers merged by id with the table's for its id (the
-// table wins), sorted by id, in a new slice. A row that is unavailable
-// offers nothing.
+// table wins, then the first of a duplicate), sorted by id, in a new slice. A
+// row that is unavailable offers nothing, whatever set its offers.
 func rowOffers(p *Provider) []ProviderOffer {
 	if p.Status == SourceUnavailable {
 		return nil
 	}
-	add := providerOffers[p.ID]
-	if len(add) == 0 {
-		return p.Offers
-	}
-	out := slices.DeleteFunc(slices.Clone(p.Offers), func(o ProviderOffer) bool {
-		return slices.ContainsFunc(add, func(a ProviderOffer) bool { return a.ID == o.ID })
-	})
-	out = append(out, add...)
-	slices.SortFunc(out, func(a, b ProviderOffer) int { return cmp.Compare(a.ID, b.ID) })
-	return out
+	out := append(slices.Clone(providerOffers[p.ID]), p.Offers...)
+	slices.SortStableFunc(out, func(a, b ProviderOffer) int { return cmp.Compare(a.ID, b.ID) })
+	return slices.CompactFunc(out, func(a, b ProviderOffer) bool { return a.ID == b.ID })
 }
 
 // ProviderCount is how many objects of one kind a source read in one namespace.

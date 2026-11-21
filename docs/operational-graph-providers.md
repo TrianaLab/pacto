@@ -76,7 +76,11 @@ workload managers and promoters an installation runs. Each entry names a
 for a manager, and a `crd` (`<plural>.<group>`), `label` or `annotation` for a
 promoter. A file holds at most 64 entries. Pacto names no product in code:
 the chart's three defaults are entries of an open list, and a private IDP is
-one more.
+one more. A promoter entry can also carry an `offer` (an `id`, a `text` that
+starts with "Gate every " and an `https` `doc`), which its row lists under
+`offers`; the Kargo entries offer
+"Gate every Kargo promotion with one shared AnalysisTemplate"
+([setup](integrations/kubernetes/gitops-kargo.md#kargo)).
 
 ```yaml
 managers:
@@ -85,6 +89,16 @@ managers:
 promoters:
   - product: Kargo
     crd: stages.kargo.akuity.io
+    offer:
+      id: kargo-analysis-template
+      text: Gate every Kargo promotion with one shared AnalysisTemplate
+      doc: https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo
+  - product: Kargo
+    crd: warehouses.kargo.akuity.io
+    offer:
+      id: kargo-analysis-template
+      text: Gate every Kargo promotion with one shared AnalysisTemplate
+      doc: https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo
   - product: Argo CD Image Updater
     annotation: argocd-image-updater.argoproj.io/image-list
   - product: Flux ImageUpdateAutomation
