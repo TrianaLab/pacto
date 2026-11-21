@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 
 	gcrauthn "github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -535,4 +537,77 @@ func TestDeclareAcceptSignNeedsTheSigningLogin(t *testing.T) {
 	p := h.plan(t, dashboard.DeclareInput{})
 	out := h.accept(t, wl, dashboard.DeclareAcceptInput{IntentDigest: p.Plan.IntentDigest, Mode: "sign"})
 	expect(t, out.Refusal != nil && out.Refusal.Code == "SignerNotAllowed" && len(h.tags(t)) == 0, "answer %+v", out)
+}
+
+func TestDeclareAcceptSignerMismatchStopsBeforeTag(t *testing.T) {
+	h := newDeclareHost(t, false, true)
+	// The login token names ana, and the Fulcio issues the certificate for mallory.
+	h.freshLogin(t, testutil.TokenWith(map[string]string{"sub": "mallory@acme.com", "email": "ana@acme.com", "email_verified": "true", "iss": "https://accounts.google.com"}))
+	p := h.plan(t, dashboard.DeclareInput{})
+	out := h.accept(t, wl, dashboard.DeclareAcceptInput{IntentDigest: p.Plan.IntentDigest, Mode: "sign"})
+	expect(t, out.Refusal != nil && out.Refusal.Code == "SignerUnverified" && strings.Contains(out.Refusal.Message, "nothing was tagged") && !slices.Contains(h.tags(t), "0.1.0"), "answer %+v tags %v", out, h.tags(t))
+}
+
+func TestDeclarePlanFromDraftShowsUnbacked(t *testing.T) {
+	h := newDeclareHost(t, false, true)
+	p := h.plan(t, dashboard.DeclareInput{})
+	draft1 := h.accept(t, wl, dashboard.DeclareAcceptInput{IntentDigest: p.Plan.IntentDigest, Mode: "draft"})
+	// A hand-built draft-2: draft-1 plus a dependency range and a publish
+	// section nothing backs.
+	repo := h.w.host + "/acme/invoices"
+	b, err := publish.NewClient(oci.NewKeychain(oci.EnvCredentialOptions()), h.w.host).Pull(t.Context(), repo+":draft-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := fstest.MapFS{}
+	if err := fs.WalkDir(b.FS, ".", func(path string, de fs.DirEntry, err error) error {
+		if err != nil || de.IsDir() {
+			return err
+		}
+		data, err := fs.ReadFile(b.FS, path)
+		files[path] = &fstest.MapFile{Data: data, Mode: 0o644}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := contract.SetCompatibility(files["pacto.yaml"].Data, "ledger", "^9.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = append(raw, "publish:\n  bundle: oci://"+repo+"\n"...)
+	files["pacto.yaml"].Data = raw
+	c, err := contract.Parse(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := oci.NewClient(gcrauthn.DefaultKeychain, oci.WithInsecureRegistries(h.w.host)).
+		Push(t.Context(), repo+":draft-2", &contract.Bundle{Contract: c, RawYAML: raw, FS: files})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.freshLogin(t, personToken())
+	ref := &dashboard.DraftRef{Tag: "draft-2", Digest: digest}
+	fd := h.plan(t, dashboard.DeclareInput{FromDraft: ref})
+	joined := strings.Join(fd.Plan.Unbacked, "\n")
+	expect(t, strings.Contains(joined, "dependencies.compatibility.declared ledger: ^9.0.0") && strings.HasSuffix(joined, "\npublish") &&
+		fd.Plan.UnbackedUnchecked == "", "unbacked %q (%s)", fd.Plan.Unbacked, fd.Plan.UnbackedUnchecked)
+	_, d1, _ := strings.Cut(draft1.Published, "@")
+	fd1 := h.plan(t, dashboard.DeclareInput{FromDraft: &dashboard.DraftRef{Tag: "draft-1", Digest: d1}})
+	expect(t, len(fd1.Plan.Unbacked) == 0 && fd.Plan.IntentDigest != fd1.Plan.IntentDigest && fd.Plan.IntentDigest != p.Plan.IntentDigest,
+		"the digest covers the draft: %s %s %s", fd.Plan.IntentDigest, fd1.Plan.IntentDigest, p.Plan.IntentDigest)
+}
+
+func TestDeclareAcceptFromDraftPublishes(t *testing.T) {
+	h := newDeclareHost(t, false, true)
+	p := h.plan(t, dashboard.DeclareInput{Accept: []string{"ledger"}})
+	draft := h.accept(t, wl, dashboard.DeclareAcceptInput{Accept: []string{"ledger"}, IntentDigest: p.Plan.IntentDigest, Mode: "draft"})
+	_, digest, _ := strings.Cut(draft.Published, "@")
+	h.freshLogin(t, personToken())
+	ref := &dashboard.DraftRef{Tag: "draft-1", Digest: digest}
+	fd := h.plan(t, dashboard.DeclareInput{Accept: []string{"ledger"}, FromDraft: ref})
+	out := h.accept(t, wl, dashboard.DeclareAcceptInput{Accept: []string{"ledger"}, IntentDigest: fd.Plan.IntentDigest, Mode: "sign", FromDraft: ref})
+	expect(t, out.Refusal == nil && out.Tag == "0.1.0" && out.Signed && !out.Draft, "answer %+v", out)
+	if rec := h.w.pulled(t, "0.1.0"); rec.Declaration.State != contract.DeclarationDeclared || rec.Declaration.Asker.Subject != "ana@acme.com" {
+		t.Fatalf("%s", rec.Marshal())
+	}
 }
