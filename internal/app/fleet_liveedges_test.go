@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -192,5 +193,65 @@ func TestServiceGraphFromCollectorLeavesItsEntry(t *testing.T) {
 	res.Entries = []detect.Entry{col, tempo}
 	if got := svc.liveEdgeSources(res, []detect.Entry{tempo}, true, opts); len(got) != 1 {
 		t.Fatalf("tempo and collector built %d sources", len(got))
+	}
+}
+
+// receiverEdges is a LiveEdges whose OTLP receiver received web -> payments.
+func receiverEdges(t *testing.T) *fleetsrc.LiveEdges {
+	t.Helper()
+	r, err := fleetsrc.NewReceiver("http://pacto-dashboard.pacto-system:4318", time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/traces", strings.NewReader(`{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"web"}}]},`+
+		`"scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"payments"}}]}]}]}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("receiver answered %d", w.Code)
+	}
+	live := fleetsrc.NewLiveEdges(time.Now)
+	live.Receiver = r
+	return live
+}
+
+func TestReceiverSourceWithoutDetected(t *testing.T) {
+	snap := liveFleet(t, FleetOptions{LiveEdges: receiverEdges(t)})
+	st := slices.IndexFunc(snap.Sources, func(s fleet.SourceState) bool { return s.ID == "otlp-receiver" })
+	if st < 0 || !snap.Sources[st].CautionOnly || snap.Sources[st].Kind != fleet.SourceKindOTLPReceiver {
+		t.Fatalf("sources = %+v", snap.Sources)
+	}
+	if got := rowsOf(snap, "otlp-receiver"); !slices.Equal(got, []string{"otlp-receiver"}) {
+		t.Fatalf("receiver rows = %v", got)
+	}
+	if !slices.ContainsFunc(snap.Limitations, func(l fleet.Limitation) bool {
+		return l.Source == "otlp-receiver" && strings.Contains(l.Message, "web")
+	}) {
+		t.Fatalf("the receiver's edge did not reach Build: %+v", snap.Limitations)
+	}
+}
+
+func TestReceiverTakesTheCollectorEntry(t *testing.T) {
+	path := writeDetected(t, detect.Entry{Kind: "cloud", Value: "kind", Completeness: detect.Complete},
+		detect.Entry{Kind: "otel-collector", Value: "OTel Collector", Completeness: detect.Complete})
+	snap := liveFleet(t, FleetOptions{Detected: path, LiveEdges: receiverEdges(t)})
+	if got := rowsOf(snap, "detection"); !slices.Equal(got, []string{"cloud"}) {
+		t.Fatalf("detection rows = %v", got)
+	}
+	if got := rowsOf(snap, "otlp-receiver"); !slices.Equal(got, []string{"otel-collector"}) {
+		t.Fatalf("receiver rows = %v", got)
+	}
+	// No Collector detected, or no detection read: the receiver reports alone.
+	for _, p := range []string{jaegerDetection(t), filepath.Join(t.TempDir(), "missing.json")} {
+		if got := rowsOf(liveFleet(t, FleetOptions{Detected: p, LiveEdges: receiverEdges(t)}), "otlp-receiver"); !slices.Equal(got, []string{"otlp-receiver"}) {
+			t.Fatalf("%s: receiver rows = %v", p, got)
+		}
+	}
+	// A configured source holding its id wins; the Collector stays detected.
+	snap = liveFleet(t, FleetOptions{Detected: path, LiveEdges: receiverEdges(t),
+		ObservationSources: []ObservationSourceSpec{{ID: "otlp-receiver", Root: t.TempDir(), Path: "traces.json"}}})
+	if hasSourceKind(snap, fleet.SourceKindOTLPReceiver) || !slices.Equal(rowsOf(snap, "detection"), []string{"cloud", "otel-collector"}) {
+		t.Fatalf("sources %+v rows %v", snap.Sources, rowsOf(snap, "detection"))
 	}
 }

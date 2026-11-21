@@ -124,3 +124,14 @@ func kinds(es []Entry) []string {
 	}
 	return out
 }
+
+// A row with no detection behind it (the OTLP receiver with no Collector) is
+// dated by its live read and claims no detection time.
+func TestEdgeSourceRowWithNoDetection(t *testing.T) {
+	at := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	p := EdgeSourceRow(Result{}, Entry{Kind: "otlp-receiver", Completeness: Complete}, "otlp-receiver",
+		LiveState{Status: fleet.SourceAvailable, ReadAt: at, Name: "OTLP receiver"})
+	if p.Status != fleet.SourceAvailable || !p.AsOf.Equal(at) || p.Name != "OTLP receiver" || strings.Contains(strings.Join(p.Details, " "), "detected ") {
+		t.Fatalf("row = %+v", p)
+	}
+}

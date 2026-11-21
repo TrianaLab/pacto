@@ -4817,6 +4817,8 @@ export interface components {
         "Fleet.SourceState": {
             /** @description An advisory source never makes the answer partial; its rows are hints. */
             advisory?: boolean;
+            /** @description Observed edges from this source come from unauthenticated senders: they add callers and undeclared edges and never corroborate a declared one */
+            cautionOnly?: boolean;
             /** @description The cluster the source describes */
             cluster?: components["schemas"]["Fleet.Cluster"];
             error?: components["schemas"]["Fleet.SourceError"];

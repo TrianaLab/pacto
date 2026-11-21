@@ -26,6 +26,9 @@ const (
 	maxJaegerLinks     = 5000
 )
 
+// jaegerName names Jaeger as a source that can win.
+const jaegerName = "Jaeger"
+
 // jaegerNoLinks is why a Jaeger that answered with no dependency is partial:
 // some storage backends compute dependencies only in a batch job.
 const jaegerNoLinks = "Jaeger returned no dependencies for the last 15 minutes; " +
@@ -92,18 +95,28 @@ func (s *JaegerSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 			live.Status = fleet.SourcePartial
 		}
 	}
-	return edgeCollection(s.res, s.entry, s.id, live, s.live, "Jaeger", edges), nil
+	return edgeCollection(s.res, s.entry, s.id, live, s.live, jaegerName, edges), nil
 }
 
 // edgeCollection is the collection of a live edge source over entry e of
 // res: its one row, the edges it read, advisory and undeclared-only, and a
 // read with complete coverage (an available row) recorded in le under name.
+// The winner's row says whether the receiver is off or what it misses.
 // The source state is never unavailable: that would drop the row, which says
 // why instead.
 func edgeCollection(res detect.Result, e detect.Entry, id string, live detect.LiveState, le *LiveEdges, name string, edges []fleet.ObservedEdge) *fleet.Collection {
 	row := detect.EdgeSourceRow(res, e, id, live)
 	if row.Status == fleet.SourceAvailable {
 		le.markComplete(name, edges)
+		// The winner's row says what the receiver does about it.
+		if winner, missing := le.verdict(); winner == name && le.Receiver != nil {
+			if missing == 0 {
+				live.Won = "the OTLP receiver is off"
+			} else {
+				live.Details = append(live.Details, missesText(name, missing))
+			}
+			row = detect.EdgeSourceRow(res, e, id, live)
+		}
 	}
 	state := row.Status
 	if state == fleet.SourceUnavailable {

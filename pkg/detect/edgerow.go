@@ -27,8 +27,14 @@ type LiveState struct {
 // objects and cluster, used for observed edges, at the lower of the detected
 // and the live status, dated by the live read (the detection time moves to
 // Details) and saying how many edges it read and who won. The dashboard and
-// the WASM demo both build their rows here, so the wording is one.
+// the WASM demo both build their rows here, so the wording is one. A res with
+// no AsOf is no detection (the OTLP receiver with no Collector found): the
+// row is dated by the live read alone.
 func EdgeSourceRow(res Result, e Entry, source string, live LiveState) fleet.Provider {
+	detected := !res.AsOf.IsZero()
+	if !detected {
+		res.AsOf = live.ReadAt
+	}
 	if live.Status != fleet.SourceUnavailable {
 		noun := "edges"
 		if live.Edges == 1 {
@@ -58,7 +64,10 @@ func EdgeSourceRow(res Result, e Entry, source string, live LiveState) fleet.Pro
 	if live.Hint != "" {
 		p.Hint = live.Hint
 	}
-	details := append(p.Details, "detected "+res.AsOf.UTC().Format(time.RFC3339))
+	details := p.Details
+	if detected {
+		details = append(details, "detected "+res.AsOf.UTC().Format(time.RFC3339))
+	}
 	p.Details = capped(append(details, live.Details...), MaxDetails)
 	at := live.ReadAt
 	p.AsOf = &at

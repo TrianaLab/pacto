@@ -300,50 +300,65 @@ func (s *Service) detectionReader(ref string) *fleetsrc.DetectionSource {
 }
 
 // liveEdgeIDs are, per detected kind a live edge source takes, the id of that
-// source. A Collector entry is never taken here: the service graph only
-// reads it, and the OTLP receiver reports it.
-var liveEdgeIDs = map[string]string{"jaeger": "detected-jaeger", "tempo": serviceGraphID}
+// source. A Collector entry is taken only by the OTLP receiver, when it runs;
+// the service graph only reads it.
+var liveEdgeIDs = map[string]string{"jaeger": "detected-jaeger", "tempo": serviceGraphID, "otel-collector": receiverID}
 
-// serviceGraphID is the id of the service-graph edge source.
-const serviceGraphID = "detected-service-graph"
+// serviceGraphID and receiverID are the ids of the service-graph and OTLP
+// receiver edge sources.
+const (
+	serviceGraphID = "detected-service-graph"
+	receiverID     = "otlp-receiver"
+)
 
-// detectionSources are the detection sources of opts.Detected. Only the
-// dashboard (opts.LiveEdges set) reads live edges: it reads the detection
-// once, gives each entry a live edge source takes to that source and the rest
-// to the detection source, so each backend is one row. Elsewhere, and when
-// the detection cannot be read, the detection source reads as it always did.
-// assembled are the sources gathered so far.
+// detectionSources are the detection sources of opts.Detected and the OTLP
+// receiver's source. Only the dashboard (opts.LiveEdges set) reads live
+// edges: it reads the detection once, gives each entry a live edge source
+// takes to that source and the rest to the detection source, so each backend
+// is one row. Elsewhere, and when the detection cannot be read, the detection
+// source reads as it always did. The receiver's source is built whenever the
+// receiver runs, with the Collector entry when one was read. assembled are
+// the sources gathered so far.
 func (s *Service) detectionSources(ctx context.Context, opts FleetOptions, assembled []fleet.Source) []fleet.Source {
-	src := s.detectionReader(opts.Detected)
-	switch {
-	case src == nil:
-		return nil
-	case opts.LiveEdges == nil:
-		return []fleet.Source{src}
-	}
-	res, st := src.Read(ctx)
-	if st.Status == fleet.SourceUnavailable {
-		return []fleet.Source{src}
-	}
 	// ponytail: a configured source holding an id (a --trace-source
 	// detected-jaeger=...) wins; the backend stays a detected row.
 	free := func(id string) bool {
 		return !slices.ContainsFunc(assembled, func(a fleet.Source) bool { return a.ID() == id })
 	}
+	receiver := opts.LiveEdges != nil && opts.LiveEdges.Receiver != nil && free(receiverID)
+	var bare []fleet.Source
+	if receiver {
+		bare = []fleet.Source{fleetsrc.NewReceiverSource(receiverID, nil, nil, opts.LiveEdges)}
+	}
+	src := s.detectionReader(opts.Detected)
+	switch {
+	case src == nil:
+		return bare
+	case opts.LiveEdges == nil:
+		return []fleet.Source{src}
+	}
+	res, st := src.Read(ctx)
+	if st.Status == fleet.SourceUnavailable {
+		return append([]fleet.Source{src}, bare...)
+	}
 	var kinds []string
 	for kind, id := range liveEdgeIDs {
-		if free(id) {
+		if free(id) && (id != receiverID || receiver) {
 			kinds = append(kinds, kind)
 		}
 	}
 	rest, taken := detect.SplitEdgeKinds(res, kinds)
-	return append([]fleet.Source{fleetsrc.NewDetectionResultSource(src.ID(), rest, s.env().now)}, s.liveEdgeSources(res, taken, free(serviceGraphID), opts)...)
+	out := append([]fleet.Source{fleetsrc.NewDetectionResultSource(src.ID(), rest, s.env().now)}, s.liveEdgeSources(res, taken, free(serviceGraphID), opts)...)
+	if !slices.ContainsFunc(taken, func(e detect.Entry) bool { return e.Kind == "otel-collector" }) {
+		out = append(out, bare...)
+	}
+	return out
 }
 
 // liveEdgeSources are the live edge sources of the taken entries of res. A
 // taken Tempo is read through the service graph; with none and graph free, a
 // Collector entry with a Prometheus Endpoint is read through it too, without
-// being taken.
+// being taken. A taken Collector is the OTLP receiver's row.
 func (s *Service) liveEdgeSources(res detect.Result, taken []detect.Entry, graph bool, opts FleetOptions) []fleet.Source {
 	var out []fleet.Source
 	for _, e := range taken {
@@ -353,6 +368,8 @@ func (s *Service) liveEdgeSources(res detect.Result, taken []detect.Entry, graph
 		case "tempo":
 			out = append(out, fleetsrc.NewServiceGraphSource(serviceGraphID, res, e, opts.LiveEdges, s.env().now))
 			graph = false
+		case "otel-collector":
+			out = append(out, fleetsrc.NewReceiverSource(receiverID, &res, &e, opts.LiveEdges))
 		}
 	}
 	if i := slices.IndexFunc(res.Entries, func(e detect.Entry) bool { return e.Kind == "otel-collector" && e.Endpoint != "" }); graph && i >= 0 {

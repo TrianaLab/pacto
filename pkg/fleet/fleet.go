@@ -761,11 +761,22 @@ type SourceState struct {
 	NamespacesTotal    int          `json:"namespacesTotal,omitempty" doc:"How many namespaces the source read, when Namespaces is capped or restricted. Above 0, the source reads a list of namespaces, never every namespace."`
 	InferredCount      int          `json:"inferredCount,omitempty" doc:"The inferred services this source reported, after the bound; a restricted view counts only the inferred services you may see"`
 	Advisory           bool         `json:"advisory,omitempty" doc:"An advisory source never makes the answer partial; its rows are hints."`
+	CautionOnly        bool         `json:"cautionOnly,omitempty" doc:"Observed edges from this source come from unauthenticated senders: they add callers and undeclared edges and never corroborate a declared one"`
 	Ref                string       `json:"ref,omitempty" doc:"The pinned reference the source read, such as a target snapshot's repository@digest"`
 	Signer             string       `json:"signer,omitempty" doc:"The trust entry that verified what the source read (its name, or key:<fingerprint>), never a name the signed payload claims; empty means unverified"`
 	Publisher          string       `json:"publisher,omitempty" doc:"The publisher the signed payload names, such as the ServiceAccount that pushed a target snapshot: a claim of the signer, never verified on its own"`
 	SignerUnscoped     bool         `json:"signerUnscoped,omitempty" doc:"The trust entry in signer is not scoped to the cluster the source describes, so the cluster it names is the signer's claim alone"`
 	Cluster            *Cluster     `json:"cluster,omitempty" doc:"The cluster the source describes"`
+}
+
+// CautionOnly reports whether every source that observed r is caution-only
+// ([SourceState.CautionOnly]): such an edge adds a caller and never
+// corroborates a declared edge. A source missing from s counts as one that
+// corroborates, so r must come from s.
+func (s *FleetSnapshot) CautionOnly(r Relationship) bool {
+	return len(r.ObservedSources) > 0 && !slices.ContainsFunc(r.ObservedSources, func(o ObservedSourceStat) bool {
+		return !slices.ContainsFunc(s.Sources, func(st SourceState) bool { return st.ID == o.Source && st.CautionOnly })
+	})
 }
 
 // degraded reports whether st is a source that is not available and counts

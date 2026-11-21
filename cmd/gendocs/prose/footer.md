@@ -37,6 +37,7 @@ The following variables configure the dashboard when set (see also [Dashboard Co
 | `PACTO_DASHBOARD_TRACES` | `--traces` | OTLP/JSON trace files to fold observed dependencies from |
 | `PACTO_DASHBOARD_MIRA_SOURCES` | `--mira-source` | Space-separated Mira base URLs whose service map supplies observed calls |
 | `PACTO_DASHBOARD_TRACE_SOURCES` | `--trace-source` | Named offline trace sources as `NAME=PATH`, where `NAME` is the source's identity (what the fleet, the API and the dashboard's Data Source list call it) and `PATH` is the trace file location. Identity and location are separate, so reordering the configuration or moving the file keeps the source's name. Two sources whose files share a basename stay two sources. A name must be unique across every Data Source the dashboard assembles. |
+| `PACTO_DASHBOARD_OTLP_RECEIVER` | `--otlp-receiver` | Address Collectors in the cluster export OTLP/HTTP JSON traces to, as `http://HOST:PORT`. Pacto maps spans to observed calls, keeps no span and serves nothing else there. Empty turns it off. |
 
 !!! warning "The three list variables split on **whitespace**"
     `PACTO_DASHBOARD_TRACES`, `PACTO_DASHBOARD_TRACE_SOURCES` and

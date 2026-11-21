@@ -89,3 +89,47 @@ func TestMiraObservationNeverMakesDeclaredUnobserved(t *testing.T) {
 		}
 	}
 }
+
+// receiverSource is a caution-only source like the OTLP receiver.
+func receiverSource(edges ...ObservedEdge) Source {
+	return NewMemorySource("otlp-receiver", SourceKindOTLPReceiver, &Collection{
+		Advisory: true, ObservedUndeclaredOnly: true, ObservedCautionOnly: true, Observed: edges,
+	})
+}
+
+func TestCautionOnlyEdgeNeverMatches(t *testing.T) {
+	a := bundleFor(t, "a")
+	a.Contract.Dependencies = []contract.Dependency{{Name: "b", Compatibility: "^1.0.0", Required: true}}
+	declared := NewMemorySource("defs", "local", &Collection{Revisions: []RawRevision{
+		{Bundle: a, Digest: "sha256:a"}, {Bundle: bundleFor(t, "b"), Digest: "sha256:b"},
+	}})
+	build := func(sources ...Source) *FleetSnapshot {
+		t.Helper()
+		snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, sources...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snap
+	}
+	snap := build(declared, receiverSource(ObservedEdge{From: "a", To: "b", Count: 5}))
+	if r := relFrom(snap.Relationships, "a", "b"); r == nil || r.Reconciliation != ReconciliationInsufficient {
+		t.Fatalf("a->b = %+v, want insufficient", r)
+	}
+	if st := sourceState(t, snap, "otlp-receiver"); !st.CautionOnly || !st.Advisory {
+		t.Fatalf("receiver state %+v", st)
+	}
+	// The observed relationship stays caution-only; another source that saw
+	// it too corroborates.
+	for _, r := range snap.Relationships {
+		if r.Provenance == ProvenanceObserved && !snap.CautionOnly(r) {
+			t.Fatalf("observed %+v is not caution-only", r)
+		}
+	}
+	mira := NewMemorySource("mira", SourceKindMira, &Collection{ObservedUndeclaredOnly: true, Observed: []ObservedEdge{{From: "a", To: "b", Count: 1}}})
+	if r := relFrom(build(declared, receiverSource(ObservedEdge{From: "a", To: "b", Count: 5}), mira).Relationships, "a", "b"); r.Reconciliation != ReconciliationMatched {
+		t.Fatalf("with a corroborating source a->b = %q", r.Reconciliation)
+	}
+	if snap.CautionOnly(Relationship{}) {
+		t.Fatal("a relationship no source saw is caution-only")
+	}
+}

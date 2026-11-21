@@ -522,7 +522,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	snap.Limitations = append(snap.Limitations, col.Limitations...)
 	snap.Limitations = append(snap.Limitations, recordProblems...)
 	st, stateLims := sourceStateFor(src, col, now, revCount, targetCount, len(recordProblems) > 0)
-	st.Advisory = col.Advisory
+	st.Advisory, st.CautionOnly = col.Advisory, col.ObservedCautionOnly
 	snap.Limitations = append(snap.Limitations, stateLims...)
 	snap.Sources = append(snap.Sources, st)
 	ingestProviders(snap, src.ID(), col)
@@ -3027,6 +3027,7 @@ func aggregatedRelationship(k observedEdgeKey, a *observedEdgeAgg, provenance st
 // edges are present. Sources in undeclaredOnly corroborate a declared edge they
 // witnessed but are no observation data otherwise: they never report, or see
 // only part of, the declared calls, so their silence says nothing about one.
+// An edge only caution-only sources saw is neither: it is no observation.
 func reconcileDeclared(snap *FleetSnapshot, undeclaredOnly map[string]bool) {
 	// The target is the service, or the external system the edge names.
 	type edge struct {
@@ -3037,7 +3038,8 @@ func reconcileDeclared(snap *FleetSnapshot, undeclaredOnly map[string]bool) {
 	haveObservation := false
 	for _, rel := range snap.Relationships {
 		// Runtime calls are observed dependencies; a reference never makes one.
-		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceObserved {
+		// An edge only caution-only sources saw never corroborates.
+		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceObserved && !snap.CautionOnly(rel) {
 			observed[edge{rel.FromService, rel.ToService, rel.ToExternal}] = true
 			haveObservation = haveObservation || slices.ContainsFunc(rel.ObservedSources, func(s ObservedSourceStat) bool { return !undeclaredOnly[s.Source] })
 		}

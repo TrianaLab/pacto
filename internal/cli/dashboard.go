@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -114,7 +116,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			// and as the sign-in cluster.
 			contexts := splitList(v.GetStringSlice("dashboard.context"))
 			includeCurrent, clusterCfg, signInErr := signInCluster(v, contexts, d)
-			if err := errors.Join(app.CheckExternalCatalogRef(externalCatalog), app.CheckDetectedRef(v.GetString("dashboard.detected")), signInErr); err != nil {
+			receiver, receiverErr := startReceiver(cmd.Context(), v.GetString("dashboard.otlp-receiver"))
+			if err := errors.Join(app.CheckExternalCatalogRef(externalCatalog), app.CheckDetectedRef(v.GetString("dashboard.detected")), signInErr, receiverErr); err != nil {
 				return err
 			}
 
@@ -146,6 +149,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 
 			fopts := dashboardFleetOptions(dir, repos, namespaces, observation, det)
 			fopts.Provenance.Trust = publisherTrust(cmd, d, det.detected)
+			fopts.LiveEdges.Receiver = receiver
 			configured := configuredSources(fopts)
 			if answersNothing(configured) {
 				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no cached bundles and no Kubernetes configuration", dir)
@@ -218,6 +222,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().String("namespace", "", "Kubernetes namespaces to read, comma-separated (empty = all namespaces); delivery reads narrow to it only when it names one")
 	cmd.Flags().StringArray("context", nil, "kubeconfig context to read live Pacto CRs from (repeatable, each cluster read once); outside a pod the named contexts replace the current one and people sign in against the first (also PACTO_DASHBOARD_CONTEXT)")
 	cmd.Flags().String("detected", "", "what the operator detected, shown as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (also PACTO_DASHBOARD_DETECTED)")
+	cmd.Flags().String("otlp-receiver", "", "address Collectors in the cluster export OTLP/HTTP JSON traces to, as http://HOST:PORT; Pacto maps spans to observed calls, keeps no span and serves nothing else there; empty turns it off (also PACTO_DASHBOARD_OTLP_RECEIVER)")
 	cmd.Flags().String("fingerprints", "", "a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers (also PACTO_DASHBOARD_FINGERPRINTS)")
 	cmd.Flags().String("cors-origin", "", "explicit cross-origin allowed to call the API (default: same-origin only)")
 	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)")
@@ -258,6 +263,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.external-catalog", cmd.Flags().Lookup("external-catalog"))
 	_ = v.BindPFlag("dashboard.owner-policy", cmd.Flags().Lookup("owner-policy"))
 	_ = v.BindPFlag("dashboard.detected", cmd.Flags().Lookup("detected"))
+	_ = v.BindPFlag("dashboard.otlp-receiver", cmd.Flags().Lookup("otlp-receiver"))
 	_ = v.BindPFlag("dashboard.fingerprints", cmd.Flags().Lookup("fingerprints"))
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-display-name", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
 		"oidc-username-claim", "oidc-username-prefix", "oidc-groups-claim", "oidc-groups-prefix",
@@ -271,6 +277,36 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindEnv("evidence-source-url", "PACTO_EVIDENCE_SOURCE_URL")
 
 	return cmd
+}
+
+// startReceiver starts the OTLP receiver at advertised (--otlp-receiver)
+// until ctx ends; empty starts nothing and returns nil.
+func startReceiver(ctx context.Context, advertised string) (*fleetsrc.Receiver, error) {
+	if advertised == "" {
+		return nil, nil
+	}
+	r, err := fleetsrc.NewReceiver(advertised, time.Now)
+	if err == nil {
+		_, err = serveReceiver(ctx, r)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// serveReceiver serves r on its own listener at r.Addr(), never on the
+// dashboard's, until ctx ends, and returns the address it listens on. A
+// listen error fails the command.
+func serveReceiver(ctx context.Context, r *fleetsrc.Receiver) (string, error) {
+	ln, err := net.Listen("tcp", r.Addr())
+	if err != nil {
+		return "", fmt.Errorf("--otlp-receiver: %w", err)
+	}
+	srv := &http.Server{Handler: r, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
+	go func() { _ = srv.Serve(ln) }()
+	context.AfterFunc(ctx, func() { _ = srv.Close() })
+	return ln.Addr().String(), nil
 }
 
 // addClaimFlags registers the claim mapping the API server applies to an ID
