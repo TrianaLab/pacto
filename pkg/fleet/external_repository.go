@@ -69,7 +69,7 @@ func recordExternalUses(snap *FleetSnapshot) []sourcedUse {
 func newestRevision(snap *FleetSnapshot, s *ServiceRecord) *ContractRevision {
 	var newest *ContractRevision
 	for _, rk := range s.Revisions {
-		if r := snap.Revisions[rk]; r != nil && r.Contract != nil && (newest == nil || lessRevisionChrono(newest, r)) {
+		if r := snap.Revisions[rk]; r != nil && r.Contract != nil && (newest == nil || LessRevisionChrono(newest, r)) {
 			newest = r
 		}
 	}

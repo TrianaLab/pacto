@@ -209,6 +209,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 			src := fleetsrc.NewOCISource("oci", s.BundleStore, opts.OCIRefs)
 			if opts.Provenance != nil {
 				src.Provenance = opts.Provenance.Check
+				src.OwnerRights = opts.Provenance.ownerRights(s.fleetOwnerPolicy(opts.TargetSnapshotTrustFile))
 			}
 			src.RegistryProbe = opts.RegistryProbe
 			sources = append(sources, src)

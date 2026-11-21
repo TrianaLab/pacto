@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
@@ -50,7 +52,13 @@ instead, and the output names the command a person runs to accept it with
 --from-draft. --intent refuses the run when the plan differs from the one you
 reviewed.
 
-A declaration never sets an owner its published baseline does not declare.`,
+Setting, changing or removing service.owner (in a --dir folder or an
+accepted draft) takes a person who belongs to the current owner, declared or
+attested, or a default approver of the installation's owner policy; anyone
+else is refused before anything is pushed. The owner policy is read from
+the signed target snapshots in <registry>/pacto-targets, verified with
+--delivery-trust. An owner read from the workload's team label stays in
+pacto.inferred.yaml as inferred.`,
 		Example: `  # What declaring invoices would publish
   pacto declare billing/invoices --registry ghcr.io/acme
 
@@ -101,6 +109,8 @@ A declaration never sets an owner its published baseline does not declare.`,
 	f.StringVar(&req.Signing.TimestampURL, "timestamp-url", "", "timestamp authority to date the signature with")
 	f.StringVar(&req.Signing.RekorURL, "rekor-url", signing.PublicRekor, "Rekor transparency log the signature is recorded in")
 	f.StringVar(&req.Signing.TrustedRoot, "trusted-root", "", "Sigstore trusted root JSON to verify with (default: public-good Sigstore)")
+	f.StringVar(&req.DeliveryTrust, "delivery-trust", "", "the trust config the target snapshots that carry the owner policy are verified with: "+
+		"a YAML file with a key scoped to each cluster (default $"+app.TrustEnv+")")
 	return cmd
 }
 
@@ -162,7 +172,13 @@ func printDeclare(cmd *cobra.Command, json bool, p *app.DeclarePlan, res *app.De
 // declareRefusal is a declare refusal as the CLI prints it.
 type declareRefusal struct{ *app.DeclareError }
 
-func (r *declareRefusal) Error() string { return r.Message + "\nrun: " + r.CLI }
+func (r *declareRefusal) Error() string {
+	msg := r.Message
+	if slices.Contains(delivery.OwnerRightCodes, r.Code) {
+		msg = "refused: " + msg
+	}
+	return msg + "\nrun: " + r.CLI
+}
 
 func (r *declareRefusal) Unwrap() error { return r.DeclareError }
 

@@ -208,7 +208,7 @@ func TestDeclareCommandJSON(t *testing.T) {
 func TestDeclareCommandRefusalExitCodes(t *testing.T) {
 	noKube(t)
 	var got app.DeclareRequest
-	for _, code := range []string{"PlanStale", "IntentRequired", "WorkloadNotFound", "WorkloadAmbiguous", "AlreadyDeclared", "OwnerNeedsApprovers",
+	for _, code := range []string{"PlanStale", "IntentRequired", "WorkloadNotFound", "WorkloadAmbiguous", "AlreadyDeclared",
 		"RangeNotProposed", "NoRegistry", "RegistryUnreadable", "VersionConflict", "SignerNotAllowed", "SignerUnverified", "DraftNotFound",
 		"ExecuteNeedsStdio", "BaselineNeedsMigration", "BundleRepoMismatch"} {
 		refused := &app.DeclareError{Code: code, Message: code + " happened", CLI: "pacto declare invoices --intent x"}

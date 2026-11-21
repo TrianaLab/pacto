@@ -241,3 +241,29 @@ func TestTargetsModeEmptyWhenProbeFails(t *testing.T) {
 		t.Fatalf("mode %q", got)
 	}
 }
+
+// The chart's owner policy travels inside the signed snapshot, so CLIs out of
+// the cluster read the same default approvers the operator holds.
+func TestTargetPublisherCarriesOwnerPolicy(t *testing.T) {
+	reg := newTestRegistry(t)
+	cfg := operatorConfig(t, reg, fakeReader())
+	cfg.OwnerPolicy = &core.OwnerPolicy{DefaultApprovers: []core.SignerRule{
+		{Name: "platform-admins", Issuer: "https://accounts.google.com", Subject: `^admin@acme\.com$`}}}
+	forOperator(t, cfg).attempt(context.Background())
+	s := fetch(t, cfg)
+	if s.OwnerPolicy == nil || len(s.OwnerPolicy.DefaultApprovers) != 1 ||
+		s.OwnerPolicy.DefaultApprovers[0] != cfg.OwnerPolicy.DefaultApprovers[0] {
+		t.Fatalf("owner policy %+v", s.OwnerPolicy)
+	}
+}
+
+// Without a policy the snapshot carries none.
+func TestTargetPublisherWithoutOwnerPolicyUnchanged(t *testing.T) {
+	e := newTargetsEnv(t, fakeReader())
+	if err := e.p.publish(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := e.pushed(t); s.OwnerPolicy != nil {
+		t.Fatalf("snapshot carries an owner policy: %+v", s.OwnerPolicy)
+	}
+}

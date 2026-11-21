@@ -100,7 +100,7 @@ func (q *Query) attachRequested(uses []OfferingUse, cur *ContractRevision, cfgs 
 	}
 }
 
-// configRefRequest is the newest consumer revision (see [lessRevisionChrono])
+// configRefRequest is the newest consumer revision (see [LessRevisionChrono])
 // with a configuration reference to provider in the (possibly restricted)
 // view, the revision offeringUsesIn reports provisioning about, and the entry
 // names of that revision's references to provider.
@@ -112,7 +112,7 @@ func (q *Query) configRefRequest(consumer, provider ServiceKey) (*ContractRevisi
 		rel := &q.snap.Relationships[i]
 		if rel.Type == RelationshipConfigRef && rel.ToService == provider && offeringRelationship(rel, consumer) {
 			rels = append(rels, rel)
-			if r := q.snap.Revisions[rel.FromRevision]; r != nil && (newest == nil || lessRevisionChrono(newest, r)) {
+			if r := q.snap.Revisions[rel.FromRevision]; r != nil && (newest == nil || LessRevisionChrono(newest, r)) {
 				newest, newestKey = r, r.Key
 			}
 		}

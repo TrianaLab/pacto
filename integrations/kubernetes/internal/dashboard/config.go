@@ -114,6 +114,12 @@ type Config struct {
 	// (fingerprints.yaml). The dashboard reads it as a kubelet-mounted file,
 	// so its ServiceAccount gains no rule. Empty: no fingerprints.
 	FingerprintsConfigMap string
+
+	// OwnerPolicyConfigMap names the immutable, content-named ConfigMap in the
+	// operator namespace holding the chart's owner policy (policy.json): who
+	// may set a service owner. The dashboard reads it as a kubelet-mounted
+	// file. Empty: no policy, so owner changes read as unverified.
+	OwnerPolicyConfigMap string
 }
 
 // KeyRef names one key of a ConfigMap or a Secret in the operator namespace.

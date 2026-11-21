@@ -22,6 +22,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	sigtest "github.com/trianalab/pacto/v4/pkg/signing/testutil"
 )
 
 // provRule is a policy rule that covers acme's release workflow of provRepo.
@@ -344,9 +345,9 @@ func TestProvenancePolicyRollbackKeepsNewer(t *testing.T) {
 
 // TestProvenanceUnguardedCapsUnknown: when the Stages that hold the
 // promoter's high-water marks cannot be listed, a policy or pin accept is
-// unknown and the reason says why.
+// unknown, names no signer repository or commit, and the reason says why.
 func TestProvenanceUnguardedCapsUnknown(t *testing.T) {
-	_, s := ciSigstore(t)
+	_, s := keylessSigstoreFor(t, sigtest.CITokenAt(provWorkflow, provIssuer, provRepo, "refs/heads/main", provCommit))
 	reg := provenanceTestRegistry(t)
 	pub, key, _ := ed25519.GenerateKey(rand.Reader)
 	signPolicy(t, reg, key, provRule)
@@ -355,6 +356,9 @@ func TestProvenanceUnguardedCapsUnknown(t *testing.T) {
 		Unguarded: "the Stages could not be listed (forbidden), so the promoter's no-rollback guards were not applied"}, nil)
 	p := pc.Check(t.Context(), "oci", pushSigned(t, reg, s), nil)
 	wantStatus(t, p, fleet.SignatureUnknown, "The Stages could not be listed (forbidden)")
+	if p.Signature.SignerRepository != "" || p.Signature.SignerCommit != "" {
+		t.Fatalf("an unknown signature names %+v", p.Signature)
+	}
 }
 
 // TestInstallationTrustPinRollback: a namespace whose newest pin is older

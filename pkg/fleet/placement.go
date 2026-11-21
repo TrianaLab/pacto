@@ -144,7 +144,7 @@ func (q *Query) provisioningSeed(key ServiceKey, uses []OfferingUse) *ContractRe
 			!slices.ContainsFunc(uses, func(u OfferingUse) bool { return u.Provider.Key == string(rel.ToService) && u.Via == rel.Type }) {
 			continue
 		}
-		if r := q.snap.Revisions[rel.FromRevision]; r != nil && (seed == nil || lessRevisionChrono(seed, r)) {
+		if r := q.snap.Revisions[rel.FromRevision]; r != nil && (seed == nil || LessRevisionChrono(seed, r)) {
 			seed = r
 		}
 	}

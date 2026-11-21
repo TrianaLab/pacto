@@ -96,13 +96,13 @@ func (q *Query) successorRevision(provider *ServiceRecord, ref string) (*Contrac
 func (q *Query) latestSupported(provider *ServiceRecord) *ContractRevision {
 	var deprecated *ContractRevision
 	for _, rk := range provider.Revisions {
-		if r := q.snap.Revisions[rk]; r.Contract != nil && r.Contract.Service.Lifecycle != nil && (deprecated == nil || lessRevisionChrono(deprecated, r)) {
+		if r := q.snap.Revisions[rk]; r.Contract != nil && r.Contract.Service.Lifecycle != nil && (deprecated == nil || LessRevisionChrono(deprecated, r)) {
 			deprecated = r
 		}
 	}
 	var revs []*ContractRevision
 	for _, rk := range provider.Revisions {
-		if r := q.snap.Revisions[rk]; r.Contract != nil && r.Contract.Service.Lifecycle == nil && (deprecated == nil || lessRevisionChrono(deprecated, r)) {
+		if r := q.snap.Revisions[rk]; r.Contract != nil && r.Contract.Service.Lifecycle == nil && (deprecated == nil || LessRevisionChrono(deprecated, r)) {
 			revs = append(revs, r)
 		}
 	}

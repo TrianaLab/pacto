@@ -109,6 +109,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				}
 			}
 			externalCatalog := v.GetString("dashboard.external-catalog")
+			svc.OwnerPolicyPath = v.GetString("dashboard.owner-policy")
 			// Named contexts outside a pod replace the ambient one, as a source
 			// and as the sign-in cluster.
 			contexts := splitList(v.GetStringSlice("dashboard.context"))
@@ -223,6 +224,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().StringArray("trace-source", nil, "named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)")
 	cmd.Flags().StringArray("mira-source", nil, "base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)")
 	cmd.Flags().String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_DASHBOARD_EXTERNAL_CATALOG)")
+	cmd.Flags().String("owner-policy", "", "the mounted owner policy (the chart's declare block as policy.json) that decides who may set a service owner (also PACTO_DASHBOARD_OWNER_POLICY)")
 	cmd.Flags().String("oidc-issuer-url", "", "OpenID Connect issuer people sign in with before the dashboard shows anything; every view then shows what the signed-in person's Kubernetes RBAC lets them read, and every action runs as them (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)")
 	cmd.Flags().String("oidc-client-id", "", "OpenID Connect client id of the dashboard")
 	cmd.Flags().String("oidc-redirect-url", "", "the dashboard's /auth/callback as browsers reach it (https)")
@@ -254,6 +256,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
 	_ = v.BindPFlag("dashboard.mira-sources", cmd.Flags().Lookup("mira-source"))
 	_ = v.BindPFlag("dashboard.external-catalog", cmd.Flags().Lookup("external-catalog"))
+	_ = v.BindPFlag("dashboard.owner-policy", cmd.Flags().Lookup("owner-policy"))
 	_ = v.BindPFlag("dashboard.detected", cmd.Flags().Lookup("detected"))
 	_ = v.BindPFlag("dashboard.fingerprints", cmd.Flags().Lookup("fingerprints"))
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-display-name", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",

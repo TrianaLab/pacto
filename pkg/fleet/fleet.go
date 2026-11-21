@@ -411,6 +411,14 @@ const (
 	// LimitationDeclarationUnverified: Pacto could not read the Pacto targets
 	// of an inferred service's namespace, so a contract may describe it.
 	LimitationDeclarationUnverified = "DECLARATION_UNVERIFIED"
+	// LimitationOwnerDeclarationRefused: a registry revision sets an owner
+	// its signer may not set (the owner rule refused it), so its owner is not
+	// used.
+	LimitationOwnerDeclarationRefused = "OWNER_DECLARATION_REFUSED"
+	// LimitationOwnerDeclarationUnverified: a registry revision declares an
+	// owner the owner rule could not check (no verdict, no verified signer or
+	// no verified policy), so its owner is not used and the answer is partial.
+	LimitationOwnerDeclarationUnverified = "OWNER_DECLARATION_UNVERIFIED"
 	// LimitationServiceInferred: the answer is about an inferred service, which
 	// no contract describes, so who depends on it is unknown and only its
 	// observed calls are known.
@@ -762,6 +770,8 @@ type ServiceRecord struct {
 	// for the classes and their precedence); empty when Owner is empty and no
 	// inferred owner exists. Owner never holds an inferred value.
 	OwnerProvenance string `json:"ownerProvenance,omitempty" enum:"declared,declared-via-target,attested,inferred"`
+	// OwnerSource is where an attested owner was read (see [AttestedOwner]).
+	OwnerSource string `json:"ownerSource,omitempty" doc:"Where an attested owner was read: file and line, commit and the CI identity that signed it. Empty for any other provenance"`
 	// OfferingProvenance says where Offering comes from: declared by a contract
 	// revision, or observed, reported only by the sources observing its targets.
 	OfferingProvenance string `json:"offeringProvenance,omitempty" enum:"declared,observed"`
@@ -973,6 +983,9 @@ type ContractRevision struct {
 	// an unverified signature or a signer policy that refuses it; "" when
 	// it is accepted (acceptDeclaration).
 	declarationRefused string
+	// registryBacked says a registry source (oci, cache) contributed the
+	// revision, so the owner rule's verdict on it applies (ownerBlocked).
+	registryBacked bool
 	// declarationHidden and hiddenClusterFields are set on a restricted
 	// view's clone when the viewer may not read the namespace the
 	// declaration came from: its cluster fields are gone and counted.

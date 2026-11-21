@@ -553,8 +553,13 @@ func (q *Query) matchOwnerKey(s *ServiceRecord, key string) bool {
 // other. "Consistently owned by x" is this predicate plus OwnershipConsistent,
 // never a narrower reading of the predicate itself.
 func (q *Query) ownerClaims(s *ServiceRecord, pred func(contract.Owner) bool) bool {
-	return s != nil && slices.ContainsFunc(currentOwnerRevisions(q.snap, s), func(r *ContractRevision) bool {
-		return pred(r.Owner)
+	if s == nil {
+		return false
+	}
+	revs, t := currentOwnerRevisions(q.snap, s)
+	return slices.ContainsFunc(revs, func(r *ContractRevision) bool {
+		o, _ := claimOwner(r, t)
+		return pred(o)
 	})
 }
 

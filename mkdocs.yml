@@ -247,6 +247,7 @@ nav:
           - MCP publish and delivery tools: mcp-delivery-tools.md
       - Publish reference: publishing.md
       - Publish from CI: publish-from-ci.md
+      - Who may set a service owner: owner-setting.md
       - Run record reference: run-record-reference.md
       - Dashboard reference:
           - The service page: dashboard-service-page.md
@@ -294,6 +295,7 @@ nav:
       - Kubernetes:
           - Install the operator: integrations/kubernetes/installation.md
           - Run with least privilege: integrations/kubernetes/least-privilege.md
+          - Owner policy: integrations/kubernetes/owner-policy.md
           - What Pacto detects: integrations/kubernetes/detection.md
           - Quickstart profile: integrations/kubernetes/quickstart.md
           - Kubernetes overview: integrations/kubernetes/overview.md

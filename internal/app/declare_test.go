@@ -344,20 +344,6 @@ func TestPlanNeedsACluster(t *testing.T) {
 	}
 }
 
-func TestOwnerRuleBaselineSameOwnerPasses(t *testing.T) {
-	owned := func(team string) *contract.Contract {
-		return &contract.Contract{Service: contract.Service{Owner: contract.Owner{Team: team}}}
-	}
-	if ownerRule(owned("billing"), owned("billing")) != nil || ownerRule(nil, owned("")) != nil || ownerRule(owned("ops"), owned("")) != nil {
-		t.Fatal("refused")
-	}
-	for _, base := range []*contract.Contract{nil, owned(""), owned("ops")} {
-		if err := ownerRule(base, owned("billing")); err == nil || err.(*DeclareError).Code != codeOwnerNeedsApprovers {
-			t.Fatalf("%+v: %v", base, err)
-		}
-	}
-}
-
 func TestOwnerRuleNewOwnerStrippedFromClusterDraft(t *testing.T) {
 	e := newDeclareEnv(t)
 	p, d := e.plan(t, e.req())
@@ -368,15 +354,6 @@ func TestOwnerRuleNewOwnerStrippedFromClusterDraft(t *testing.T) {
 	}
 	if f := ownerField(contract.Owner{DRI: "ana"}, d.record); f.Value != "ana (dri)" || !strings.Contains(f.Declare, "dri: ana") {
 		t.Fatalf("%+v", f)
-	}
-}
-
-func TestOwnerRuleDirRefuses(t *testing.T) {
-	e := newDeclareEnv(t)
-	req := e.req()
-	req.Dir = e.dirFolder(t, "", nil) // pactify wrote the team label into pacto.yaml
-	if _, _, err := e.svc.PlanDeclare(t.Context(), req); refusal(t, err).Code != codeOwnerNeedsApprovers {
-		t.Fatal(err)
 	}
 }
 
@@ -820,7 +797,7 @@ func TestPlanDeriveFails(t *testing.T) {
 	e.withBaseline(t)
 	req := e.req()
 	req.Dir = e.dirFolder(t, e.invoicesBaseline("1.4.0", ledgerDependency)["pacto.yaml"], nil)
-	e.faulty(&faultyRegistry{failPull: 2}) // the baseline reads once, then deriving reads it again
+	e.faulty(&faultyRegistry{failPull: 3}) // the baseline reads once, the owner history once, then deriving reads it again
 	if _, _, err := e.svc.PlanDeclare(t.Context(), req); refusal(t, err).Code != codeVersionConflict {
 		t.Fatal(err)
 	}

@@ -69,7 +69,7 @@ func reachableRevisions(snap *FleetSnapshot, rel Relationship) []*ContractRevisi
 			out = append(out, rev)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return lessRevisionChrono(out[i], out[j]) })
+	sort.Slice(out, func(i, j int) bool { return LessRevisionChrono(out[i], out[j]) })
 	return out
 }
 

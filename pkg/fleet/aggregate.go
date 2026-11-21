@@ -576,8 +576,13 @@ func (q *Query) ownershipState(s *ServiceRecord) (distinctOwners int, ownerKey s
 // ownershipBucket classifies a service into its ownership bucket (one of the
 // Ownership* partition values) and returns the canonical owner key when it is
 // consistently owned. A service with no owner claim is OwnershipUnknown when
-// Pacto cannot read its contract, else OwnershipUnowned.
+// Pacto cannot read its contract, else OwnershipUnowned. A service whose
+// attested revisions were signed from different repositories is
+// OwnershipConflicting, as its OWNER_CONFLICT limitation says.
 func (q *Query) ownershipBucket(s *ServiceRecord) (bucket, key string) {
+	if attestedRepositoriesDisagree(q.snap, s) {
+		return OwnershipConflicting, ""
+	}
 	claims := q.ownerClaimsOf(s)
 	switch n := claims.len(); {
 	case n == 1:
@@ -1076,6 +1081,6 @@ func labelsPreview(m map[string]string) RuntimePreview {
 // list sorted by digest is the regression that made revision history unreadable.
 func chronologicalRevisionRefs(revs []*ContractRevision) []EntityRef {
 	ordered := append([]*ContractRevision{}, revs...)
-	sort.Slice(ordered, func(i, j int) bool { return lessRevisionChrono(ordered[j], ordered[i]) })
+	sort.Slice(ordered, func(i, j int) bool { return LessRevisionChrono(ordered[j], ordered[i]) })
 	return revisionRefs(ordered)
 }

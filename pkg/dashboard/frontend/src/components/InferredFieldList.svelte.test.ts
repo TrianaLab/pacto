@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import InferredFieldList from './InferredFieldList.svelte';
+import { ownerProvenanceText } from '../lib/entityLabels.ts';
 // @ts-expect-error — a raw import has no declaration file
 import source from './InferredFieldList.svelte?raw';
 
@@ -101,6 +102,13 @@ describe('InferredFieldList', () => {
     expect(note).toContain('Outranks .github/CODEOWNERS:4 (repository file, not in the bundle), deploy/deployment.yaml:7.');
     expect(rows()[0].children.length).toBe(2);
     expect(target.querySelectorAll('.tag').length).toBe(0);
+  });
+
+  it('says an owner file row the revision signature attests is attested, never "not verified"', () => {
+    render({ items: [field(0, { field: 'service.owner', source: 'catalog-info.yaml:7', class: 'ownerFile', attested: true })], total: 1 });
+    const note = target.querySelector('[role="note"]')!.textContent!;
+    expect(note).toContain(`Attested: ${ownerProvenanceText('attested')}.`);
+    expect(note).not.toContain('not verified');
   });
 
   it('counts the outranked sources the server left out', () => {

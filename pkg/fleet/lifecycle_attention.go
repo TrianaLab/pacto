@@ -26,7 +26,7 @@ func (q *Query) lifecycleAttention() []AttentionItem {
 			continue
 		}
 		k := useKey{rel.FromService, rel.ToService, rel.Type}
-		if kept, ok := newest[k]; !ok || lessRevisionChrono(q.snap.Revisions[kept.FromRevision], q.snap.Revisions[rel.FromRevision]) {
+		if kept, ok := newest[k]; !ok || LessRevisionChrono(q.snap.Revisions[kept.FromRevision], q.snap.Revisions[rel.FromRevision]) {
 			newest[k] = rel
 		}
 	}

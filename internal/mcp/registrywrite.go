@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
 // The agent write contract: every MCP tool that writes to a registry on an
@@ -20,14 +22,14 @@ import (
 type WriteRefusal string
 
 // The write refusal codes. internal/app's declare refusals use the same
-// strings; IntentRequired and ExecuteNeedsStdio are this contract's own.
+// strings, the owner rule's come from pkg/delivery; IntentRequired and
+// ExecuteNeedsStdio are this contract's own.
 const (
 	RefusalPlanStale              WriteRefusal = "PlanStale"
 	RefusalIntentRequired         WriteRefusal = "IntentRequired"
 	RefusalWorkloadNotFound       WriteRefusal = "WorkloadNotFound"
 	RefusalWorkloadAmbiguous      WriteRefusal = "WorkloadAmbiguous"
 	RefusalAlreadyDeclared        WriteRefusal = "AlreadyDeclared"
-	RefusalOwnerNeedsApprovers    WriteRefusal = "OwnerNeedsApprovers"
 	RefusalRangeNotProposed       WriteRefusal = "RangeNotProposed"
 	RefusalNoRegistry             WriteRefusal = "NoRegistry"
 	RefusalRegistryUnreadable     WriteRefusal = "RegistryUnreadable"
@@ -44,15 +46,21 @@ const (
 	RefusalBreakNotAnnounced        WriteRefusal = "BreakNotAnnounced"
 	RefusalNotPublished             WriteRefusal = "NotPublished"
 	RefusalPersonSigningUnavailable WriteRefusal = "PersonSigningUnavailable"
+	// The owner rule's codes, defined once in pkg/delivery.
+	RefusalOwnerSignerNotPerson  WriteRefusal = delivery.OwnerSignerNotPerson
+	RefusalOwnerSignerNotAllowed WriteRefusal = delivery.OwnerSignerNotAllowed
+	RefusalOwnerPolicyUnverified WriteRefusal = delivery.OwnerPolicyUnverified
+	RefusalOwnerSignerUnverified WriteRefusal = delivery.OwnerSignerUnverified
 )
 
 // writeRefusals is the enum, in the order the output schema lists it.
 var writeRefusals = []WriteRefusal{
 	RefusalPlanStale, RefusalIntentRequired, RefusalWorkloadNotFound, RefusalWorkloadAmbiguous, RefusalAlreadyDeclared,
-	RefusalOwnerNeedsApprovers, RefusalRangeNotProposed, RefusalNoRegistry, RefusalRegistryUnreadable, RefusalVersionConflict,
+	RefusalRangeNotProposed, RefusalNoRegistry, RefusalRegistryUnreadable, RefusalVersionConflict,
 	RefusalSignerNotAllowed, RefusalSignerUnverified, RefusalDraftNotFound, RefusalExecuteNeedsStdio,
 	RefusalBaselineNeedsMigration, RefusalBundleRepoMismatch, RefusalAcceptNothingProposed, RefusalFieldNotAcceptable,
 	RefusalBreakNotAnnounced, RefusalNotPublished, RefusalPersonSigningUnavailable,
+	RefusalOwnerSignerNotPerson, RefusalOwnerSignerNotAllowed, RefusalOwnerPolicyUnverified, RefusalOwnerSignerUnverified,
 }
 
 // Refused is a refused write: its code, what happened and the command a

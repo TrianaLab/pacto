@@ -308,6 +308,7 @@ func TestOpenAPIRevisionDeclaration(t *testing.T) {
 		{"Fleet.InferredCoverageRow", "state", sortedSet("complete", "partial", "failed")},
 		{"Fleet.InferredField", "completeness", sortedSet("complete", "partial")},
 		{"Fleet.VerifiedSigner", "class", sortedSet("human", "agent", "ci")},
+		{"Fleet.OwnerRightCheck", "code", sortedSet("OWNER_SIGNER_NOT_PERSON", "OWNER_SIGNER_NOT_ALLOWED", "OWNER_POLICY_UNVERIFIED", "OWNER_SIGNER_UNVERIFIED")},
 	} {
 		if got := sortedKeys(schemaFieldEnum(t, doc, c.schema, c.field)); !equalStrs(got, c.want) {
 			t.Errorf("%s.%s enum = %v, want %v", c.schema, c.field, got, c.want)

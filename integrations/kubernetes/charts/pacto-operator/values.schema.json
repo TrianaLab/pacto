@@ -3,6 +3,17 @@
   "type": "object",
   "additionalProperties": false,
   "$defs": {
+    "ownerSignerRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One signer: issuer compared exactly, subject a pattern anchored with ^ and $.",
+      "required": ["issuer", "subject"],
+      "properties": {
+        "name": { "type": "string" },
+        "issuer": { "type": "string", "minLength": 1 },
+        "subject": { "type": "string", "pattern": "^\\^.*\\$$" }
+      }
+    },
     "optionalDuration": {
       "type": "string",
       "description": "A Go duration such as 15m; empty or 0 keeps the default or turns the setting off, as each setting says.",
@@ -1478,6 +1489,26 @@
         "podLabels": {
           "$ref": "#/$defs/stringMap"
         }
+      }
+    },
+    "declare": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "Who may set a service owner with pacto declare, beside the owner's members.",
+      "properties": {
+        "defaultApprovers": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "bootstrap": { "type": ["array", "null"], "items": { "$ref": "#/$defs/ownerSignerRule" } }
+          }
+        },
+        "teams": {
+          "type": ["object", "null"],
+          "additionalProperties": { "type": ["array", "null"], "items": { "$ref": "#/$defs/ownerSignerRule" } }
+        },
+        "emailIssuers": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1 } },
+        "trustedRoot": { "type": ["string", "null"], "description": "A Sigstore trusted_root.json owner changes are verified against; empty falls back to delivery.publishers.trustedRoot, else public-good Sigstore." }
       }
     },
     "zot": {

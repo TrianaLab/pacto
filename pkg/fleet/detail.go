@@ -63,11 +63,17 @@ type OwnershipInfo struct {
 	Conflicts StringsPreview   `json:"conflicts"`
 	// ConflictReason says why the owners disagree, set only on a service whose
 	// current claims hold more than one owner (see [conflictReason]).
-	ConflictReason string `json:"conflictReason,omitempty" doc:"Why the owners disagree: targets run revisions that declare different owners, or two revisions of one version do. Empty when they agree"`
+	ConflictReason string `json:"conflictReason,omitempty" doc:"Why the owners disagree: targets run revisions that declare different owners, two revisions of one version do, or attested revisions were signed from different repositories. Empty when they agree"`
 	// Provenance is where a service's owner comes from
 	// ([ServiceRecord.OwnerProvenance]), set only on a service. A revision's
 	// owner is its own declaration and a target's is derived, so neither sets it.
 	Provenance string `json:"provenance,omitempty" enum:"declared,declared-via-target,attested,inferred"`
+	// Source is where an attested owner was read ([ServiceRecord.OwnerSource]),
+	// set only on a service whose owner is attested.
+	Source string `json:"source,omitempty" doc:"Where an attested owner was read: file and line, commit and the CI identity that signed it. Empty for any other provenance"`
+	// Blocked is set only on a revision whose owner the owner rule refused
+	// or could not check ([ownerBlocked]), so its service does not take it.
+	Blocked string `json:"blocked,omitempty" enum:"OWNER_DECLARATION_REFUSED,OWNER_DECLARATION_UNVERIFIED" doc:"Set on a revision whose owner its service does not take: OWNER_DECLARATION_REFUSED when its signer may not set it, OWNER_DECLARATION_UNVERIFIED when the owner rule could not check it. Empty when the owner counts"`
 }
 
 // RevisionIdentity describes how a revision (or a target's contract reference)
@@ -361,7 +367,7 @@ type ServiceDetailData struct {
 	// InferredOfferings are suggestions, never declared consumption: an external or
 	// unresolved dependency whose name equals an offering or a provider's name.
 	InferredOfferings []InferredOffering `json:"inferredOfferings"`
-	// CurrentRevision is the newest revision in use (see [lessRevisionChrono]),
+	// CurrentRevision is the newest revision in use (see [LessRevisionChrono]),
 	// else the newest known one; nil when the service has no revision.
 	// Policies and Configurations are what it declares, with local schema
 	// content read when the detail is requested.
@@ -482,12 +488,15 @@ type OriginDetail struct {
 // in the repository outside it (a CODEOWNERS file), "directory <name>" or
 // "this CLI".
 type InferredField struct {
-	Field      string   `json:"field"`
-	Value      string   `json:"value"`
-	Source     string   `json:"source"`
-	Confidence string   `json:"confidence,omitempty" enum:"likely,possible" doc:"How sure the inference is, set for a field of the inferred record: likely when a file states it, possible when only a convention suggests it"`
-	Class      string   `json:"class,omitempty" enum:"ownerFile" doc:"ownerFile: read from CODEOWNERS or catalog-info.yaml; not verified; never clears a gate"`
-	Outranks   []string `json:"outranks,omitempty" doc:"Lower-ranked sources that gave the same field, at most MaxOutranks"`
+	Field      string `json:"field"`
+	Value      string `json:"value"`
+	Source     string `json:"source"`
+	Confidence string `json:"confidence,omitempty" enum:"likely,possible" doc:"How sure the inference is, set for a field of the inferred record: likely when a file states it, possible when only a convention suggests it"`
+	Class      string `json:"class,omitempty" enum:"ownerFile" doc:"ownerFile: read from CODEOWNERS or catalog-info.yaml; not verified unless attested; never clears a gate"`
+	// Attested is set on a revision's ownerFile service.owner row when its
+	// signature attests that owner ([AttestedOwner]).
+	Attested bool     `json:"attested,omitempty" doc:"Set on the ownerFile service.owner row of a revision whose signature attests it: read at the commit an accepted CI identity signed. It still never clears a gate"`
+	Outranks []string `json:"outranks,omitempty" doc:"Lower-ranked sources that gave the same field, at most MaxOutranks"`
 	// OutranksTotal counts every outranked source when Outranks was bounded.
 	OutranksTotal int    `json:"outranksTotal,omitempty" doc:"Every lower-ranked source, set when outranks lists only the first MaxOutranks"`
 	Provenance    string `json:"provenance" enum:"inferred"`
@@ -496,6 +505,17 @@ type InferredField struct {
 	AsOf         string `json:"asOf,omitempty" doc:"When the cluster fact was read (RFC 3339 UTC)"`
 	Completeness string `json:"completeness,omitempty" enum:"complete,partial" doc:"partial when a node, pod or supporting source went unobserved"`
 	Proposed     string `json:"proposed,omitempty" doc:"A semver range proposed for a dependency's compatibility, never declared"`
+}
+
+// markAttested sets Attested on rev's ownerFile service.owner row when rev's
+// signature attests that owner.
+func markAttested(fields []InferredField, rev *ContractRevision) []InferredField {
+	if _, _, _, ok := AttestedOwner(rev); ok {
+		for i, f := range fields {
+			fields[i].Attested = f.Field == "service.owner" && f.Class == contract.InferredClassOwnerFile
+		}
+	}
+	return fields
 }
 
 // MaxInferredFields bounds the inferred fields a service or revision detail
@@ -577,6 +597,7 @@ func (q *Query) inferredPreview(cur *ContractRevision) InferredPreview {
 	}
 	rev := q.snap.Revisions[cur.Key]
 	items, total := inferredFields(nil, rev.Record)
+	items = markAttested(items, rev)
 	p.Items = append(p.Items, items...)
 	p.Count, p.Total, p.Truncated, p.Unreadable = len(items), total, total > len(items), rev.recordUnreadable
 	return p
@@ -1487,6 +1508,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 	data.PactoVersionCurrent, data.PactoVersionUnknown = pactoVersionStatus(rev.PactoVersion)
 	data.MigratedFrom = migratedFrom(rev)
 	data.Inferred, data.InferredTotal = inferredFields(rev.Inferred, rev.Record)
+	data.Inferred = markAttested(data.Inferred, rev)
 	data.DiscoveryFindings = discoveryFindings(rev.Record)
 	data.InferredCoverage, data.InferredHidden, data.Declaration = declarationDetail(rev)
 	return &EntityDetail{
@@ -1569,7 +1591,7 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 	paths := 0
 	for _, r := range q.snap.Revisions {
 		switch {
-		case !r.Owner.IsKey(key):
+		case !revisionClaim(q.snap, r).IsKey(key):
 		case q.goldenPath(r.ServiceKey):
 			paths++
 		default:
@@ -1811,7 +1833,7 @@ func (q *Query) offeringUsesIn(edges []Relationship, match func(provider *Servic
 		if j, ok := seen[k]; ok {
 			u := &uses[j]
 			mergeUse(u, rel)
-			if r := q.snap.Revisions[rel.FromRevision]; r != nil && (keptRev[k] == nil || lessRevisionChrono(keptRev[k], r)) {
+			if r := q.snap.Revisions[rel.FromRevision]; r != nil && (keptRev[k] == nil || LessRevisionChrono(keptRev[k], r)) {
 				keptRev[k], u.ProviderLifecycle = r, rel.ProviderLifecycle
 			}
 			continue
@@ -2002,7 +2024,7 @@ func (q *Query) siblingRevisions(rev *ContractRevision) (prev, next *EntityRef) 
 			revs = append(revs, r)
 		}
 	}
-	sort.Slice(revs, func(i, j int) bool { return lessRevisionChrono(revs[i], revs[j]) })
+	sort.Slice(revs, func(i, j int) bool { return LessRevisionChrono(revs[i], revs[j]) })
 	for i, r := range revs {
 		if r.Key != rev.Key {
 			continue
@@ -2046,7 +2068,7 @@ func (q *Query) revisionPlace(rev *ContractRevision) revisionPlacement {
 		if inUse[r.Key] {
 			active = append(active, r)
 		}
-		if lessRevisionChrono(rev, r) {
+		if LessRevisionChrono(rev, r) {
 			p.position++
 		}
 	}
@@ -2099,7 +2121,7 @@ func (q *Query) revisionEvidenceSources(rev *ContractRevision) ([]EntityRef, Sou
 func newestReadable(revs []*ContractRevision) *ContractRevision {
 	var newest *ContractRevision
 	for _, r := range revs {
-		if readableRevision(r) && (newest == nil || lessRevisionChrono(newest, r)) {
+		if readableRevision(r) && (newest == nil || LessRevisionChrono(newest, r)) {
 			newest = r
 		}
 	}
@@ -2114,10 +2136,10 @@ func serviceLifecycle(rev *ContractRevision) *contract.InterfaceLifecycle {
 	return rev.Contract.Service.Lifecycle
 }
 
-// lessRevisionChrono is the canonical ascending revision order used by
-// siblingRevisions: semver chronology first, the immutable RevisionKey as a
+// LessRevisionChrono is the canonical ascending revision order used by
+// siblingRevisions and the owner-right walk: semver chronology first, the immutable RevisionKey as a
 // deterministic tie-breaker only (see siblingRevisions for the full rationale).
-func lessRevisionChrono(a, b *ContractRevision) bool {
+func LessRevisionChrono(a, b *ContractRevision) bool {
 	if c := semver.Compare(a.Version, b.Version); c != 0 {
 		return c < 0
 	}
@@ -2365,14 +2387,16 @@ func (q *Query) entitiesFromSource(key string) []EntityRef {
 // older version names another owner, yields an empty preview.
 func serviceOwnership(snap *FleetSnapshot, s *ServiceRecord) *OwnershipInfo {
 	info := ownerInfo(s.Owner)
-	info.Provenance = s.OwnerProvenance
+	info.Provenance, info.Source = s.OwnerProvenance, s.OwnerSource
 	var conflicts []string
-	if claims := serviceOwnerClaims(snap, s); claims.len() > 1 {
+	if ownerDisputed(snap, s) {
 		// A conflict is a disagreement of IDENTITY, and it is spelled out with the
 		// namespace: a revision owned by DRI `alice` beside one owned by team
 		// `alice` would otherwise print as one owner twice.
-		for _, r := range currentOwnerRevisions(snap, s) {
-			if rk, ok := r.Owner.Key(); ok {
+		revs, t := ownerDisputeRevisions(snap, s)
+		for _, r := range revs {
+			o, _ := claimOwner(r, t)
+			if rk, ok := o.Key(); ok {
 				conflicts = append(conflicts, string(r.Key)+": "+rk.Label())
 			}
 		}
@@ -2380,6 +2404,24 @@ func serviceOwnership(snap *FleetSnapshot, s *ServiceRecord) *OwnershipInfo {
 	}
 	info.Conflicts = stringsPreview(conflicts)
 	return info
+}
+
+// ownerDisputeRevisions is the revisions behind a service's disputed owner and
+// the tier their claims are read in: every attested revision when they were
+// signed from different repositories, else [currentOwnerRevisions].
+func ownerDisputeRevisions(snap *FleetSnapshot, s *ServiceRecord) ([]*ContractRevision, claimTier) {
+	if !attestedRepositoriesDisagree(snap, s) {
+		return currentOwnerRevisions(snap, s)
+	}
+	var out []*ContractRevision
+	for _, rk := range s.Revisions {
+		if r := snap.Revisions[rk]; r != nil {
+			if _, ok := claimOwner(r, tierAttested); ok {
+				out = append(out, r)
+			}
+		}
+	}
+	return out, tierAttested
 }
 
 // ownershipUnknown reports whether Pacto cannot tell if the service declares an
@@ -2409,7 +2451,7 @@ func newestInUse(active, all []*ContractRevision) *ContractRevision {
 	}
 	var cur *ContractRevision
 	for _, r := range pick {
-		if cur == nil || lessRevisionChrono(cur, r) {
+		if cur == nil || LessRevisionChrono(cur, r) {
 			cur = r
 		}
 	}
@@ -2434,10 +2476,11 @@ func (q *Query) currentRevisionContent(cur *ContractRevision) (*EntityRef, Confi
 	return &ref, cfgs, pols
 }
 
-// ownerRevision is the newest revision (see [lessRevisionChrono]) that declares an
+// ownerRevision is the newest revision (see [LessRevisionChrono]) that declares an
 // owner, the one [deriveOwner] takes the service owner from; nil when none does.
 func (q *Query) ownerRevision(s *ServiceRecord) *EntityRef {
-	newest := newestOwnerRevision(q.snap, s)
+	t, _ := ownerTier(q.snap, s)
+	newest := newestOwnerRevision(q.snap, s, t)
 	if newest == nil {
 		return nil
 	}
@@ -2544,6 +2587,9 @@ func revisionOwnership(rev *ContractRevision) *OwnershipInfo {
 	info := ownerInfo(rev.Owner)
 	c := contactsPreview(rev.Owner.ContactSet())
 	info.Contacts = &c
+	if info.Declared {
+		info.Blocked = ownerBlocked(rev)
+	}
 	return info
 }
 
