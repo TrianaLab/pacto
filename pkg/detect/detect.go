@@ -82,7 +82,8 @@ type Entry struct {
 	Source       string `json:"source,omitempty"`
 	Completeness string `json:"completeness"`
 	Reason       string `json:"reason,omitempty"`
-	// Hint is a command for a person to review; nothing runs it.
+	// Hint is a command, value or configuration snippet for a person to
+	// review; nothing runs it.
 	Hint    string   `json:"hint,omitempty"`
 	Details []string `json:"details,omitempty"`
 	// Namespaces are the namespaces the entry's facts come from.
