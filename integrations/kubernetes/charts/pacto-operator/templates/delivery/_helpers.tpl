@@ -41,10 +41,10 @@ once let delivery run without its policies fail with their replacement.
 {{- end }}
 {{- if not $ap.skipCapabilityCheck }}
 {{- if not (semverCompare ">=1.30.0-0" .Capabilities.KubeVersion.Version) }}
-{{- fail (printf "delivery.enabled needs Kubernetes 1.30 or later for its admission policies, and this cluster is %s. Upgrade the cluster, or set delivery.admissionPolicies.skipCapabilityCheck=true to render for another cluster" .Capabilities.KubeVersion.Version) }}
+{{- fail (printf "Pacto delivery (delivery.enabled or profile idp) needs Kubernetes 1.30 or later for its admission policies, and this cluster is %s. Upgrade the cluster, or set delivery.admissionPolicies.skipCapabilityCheck=true to render for another cluster" .Capabilities.KubeVersion.Version) }}
 {{- end }}
 {{- if not (.Capabilities.APIVersions.Has "admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy") }}
-{{- fail "delivery.enabled needs the admissionregistration.k8s.io/v1 ValidatingAdmissionPolicy API, and this cluster does not serve it. Enable it, or set delivery.admissionPolicies.skipCapabilityCheck=true to render for another cluster (with helm template, pass --api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy)" }}
+{{- fail "Pacto delivery (delivery.enabled or profile idp) needs the admissionregistration.k8s.io/v1 ValidatingAdmissionPolicy API, and this cluster does not serve it. Enable it, or set delivery.admissionPolicies.skipCapabilityCheck=true to render for another cluster (with helm template, pass --api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy)" }}
 {{- end }}
 {{- end }}
 {{- end }}

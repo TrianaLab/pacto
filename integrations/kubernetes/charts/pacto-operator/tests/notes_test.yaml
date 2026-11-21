@@ -197,3 +197,25 @@ tests:
     asserts:
       - notMatchRegexRaw:
           pattern: "was kept with its trust config"
+
+  - it: idp names what it adds
+    set: {profile: idp}
+    asserts:
+      - matchRegexRaw:
+          pattern: "Profile idp: probing and metrics observation are on and Pacto delivery is on.\nIt adds the cluster-wide read of ServiceMonitors and PodMonitors and Pacto\ndelivery's cluster roles."
+  - it: idp with watchNamespaces names the per-namespace monitor read
+    set: {profile: idp, controller.watchNamespaces: [payments]}
+    asserts:
+      - matchRegexRaw:
+          pattern: "It adds the read of ServiceMonitors and PodMonitors in each watched namespace\nand Pacto delivery's cluster roles."
+  - it: hardened and idp says delivery stays off
+    set: {profile: [hardened, idp], controller.watchNamespaces: [payments]}
+    asserts:
+      - matchRegexRaw:
+          pattern: "Profile idp with hardened: probing and metrics observation are on and Pacto\ndelivery stays off."
+      - notMatchRegexRaw:
+          pattern: "Profile idp:"
+  - it: the default profile names no profile
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "Profile (idp|hardened)"

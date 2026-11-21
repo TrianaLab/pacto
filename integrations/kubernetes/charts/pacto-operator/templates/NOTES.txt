@@ -79,6 +79,21 @@ https://pacto.run/latest/integrations/kubernetes/profiles/
 {{- if .Values.registry }}
 Pacto reads the cluster id through Role {{ include "pacto-operator.fullname" . }}-{{ .Release.Namespace }}-cluster-identity in kube-system.
 {{- end }}
+{{- if include "pacto-operator.idp" . }}
+Profile idp with hardened: probing and metrics observation are on and Pacto
+delivery stays off. It adds the read of ServiceMonitors and PodMonitors in each
+watched namespace.
+{{- end }}
+{{- else if include "pacto-operator.idp" . }}
+
+Profile idp: probing and metrics observation are on and Pacto delivery is on.
+{{- if include "pacto-operator.watchNamespaces" . | fromYamlArray }}
+It adds the read of ServiceMonitors and PodMonitors in each watched namespace
+and Pacto delivery's cluster roles.
+{{- else }}
+It adds the cluster-wide read of ServiceMonitors and PodMonitors and Pacto
+delivery's cluster roles.
+{{- end }}
 {{- end }}
 {{- /* What the operator detected, read back on upgrade only. NOTES is the one
 template that looks the ConfigMap up, so detection changes no manifest. The
