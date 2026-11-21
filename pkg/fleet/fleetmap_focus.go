@@ -57,6 +57,9 @@ type focusBuild struct {
 	callees   map[ServiceKey][]ServiceKey
 	placed    map[ServiceKey]int
 	perColumn int
+	// facts covers every service within hops of the focus, read once: the
+	// fleet-wide attention scan is what a focus costs.
+	facts *nodeFacts
 }
 
 // MapFocus returns the focus of one service. It reads the map's own merged
@@ -80,10 +83,11 @@ func (q *Query) MapFocus(fq MapFocusQuery) (*MapFocusAnswer, error) {
 		fb.callers[me.to] = append(fb.callers[me.to], me.from)
 		fb.callees[me.from] = append(fb.callees[me.from], me.to)
 	}
-	near, f := fb.columns([][]ServiceKey{{s.Key}, {s.Key}}, -1, 1)
-	out := &MapFocusAnswer{Meta: q.productMeta(), Group: b.resolve(b.svcGroup[s.Key]), Hops: hops, Focus: f.node(string(s.Key)), Columns: near}
+	fb.facts = b.newNodeFacts(fb.within(s.Key, hops), "")
+	near := fb.columns([][]ServiceKey{{s.Key}, {s.Key}}, -1, 1)
+	out := &MapFocusAnswer{Meta: q.productMeta(), Group: b.resolve(b.svcGroup[s.Key]), Hops: hops, Focus: fb.facts.node(string(s.Key)), Columns: near}
 	if hops == 2 {
-		far, _ := fb.columns([][]ServiceKey{shownKeys(near[0]), shownKeys(near[1])}, -2, 2)
+		far := fb.columns([][]ServiceKey{shownKeys(near[0]), shownKeys(near[1])}, -2, 2)
 		out.Columns = []MapColumn{far[0], near[0], near[1], far[1]}
 	}
 	out.Edges = fb.edges()
@@ -111,30 +115,46 @@ func shownKeys(c MapColumn) []ServiceKey {
 	return out
 }
 
+// within is key and every service up to hops calls away on either side.
+func (fb *focusBuild) within(key ServiceKey, hops int) map[ServiceKey]bool {
+	keys := map[ServiceKey]bool{key: true}
+	for _, adj := range []map[ServiceKey][]ServiceKey{fb.callers, fb.callees} {
+		ring := []ServiceKey{key}
+		for range hops {
+			var next []ServiceKey
+			for _, k := range ring {
+				next = append(next, adj[k]...)
+			}
+			for _, k := range next {
+				keys[k] = true
+			}
+			ring = next
+		}
+	}
+	return keys
+}
+
 // columns is the column of from[0]'s callers at hop left and of from[1]'s
-// callees at hop right, each worst first, with the facts it read (from
-// included). A service shows in one column only: the first that places it.
-func (fb *focusBuild) columns(from [][]ServiceKey, left, right int) ([]MapColumn, *nodeFacts) {
+// callees at hop right, each worst first. A service shows in one column
+// only: the first that places it.
+func (fb *focusBuild) columns(from [][]ServiceKey, left, right int) []MapColumn {
 	sides := []struct {
 		hop int
 		adj map[ServiceKey][]ServiceKey
 	}{{left, fb.callers}, {right, fb.callees}}
 	cands := make([][]ServiceKey, 2)
-	keys := map[ServiceKey]bool{}
 	for i, side := range sides {
 		seen := map[ServiceKey]bool{}
 		for _, k := range from[i] {
-			keys[k] = true
 			for _, n := range side.adj[k] {
 				if _, ok := fb.placed[n]; !ok && !seen[n] {
 					seen[n] = true
 					cands[i] = append(cands[i], n)
-					keys[n] = true
 				}
 			}
 		}
 	}
-	f := fb.b.newNodeFacts(keys, "")
+	f := fb.facts
 	var out []MapColumn
 	for i, side := range sides {
 		nodes := make([]MapNode, 0, len(cands[i]))
@@ -153,7 +173,7 @@ func (fb *focusBuild) columns(from [][]ServiceKey, left, right int) ([]MapColumn
 		}
 		out = append(out, col)
 	}
-	return out, f
+	return out
 }
 
 // severityRankOf orders severities worst first, no item last.
