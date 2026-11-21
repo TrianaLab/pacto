@@ -116,7 +116,7 @@ type options struct {
 	dashboardExternalCatalog string
 	dashboardFingerprints    string
 	dashboardOwnerPolicy     string
-	dashboardDeclare         dashboard.Config // FulcioURL, RekorURL, TimestampURL, Registry, DeclareRegistrySecret
+	dashboardDeclare         dashboard.Config // the Sigstore, TrustedRootConfigMap, Registry, DeclareRegistrySecret
 
 	enableEvidence            bool
 	evidenceTrustSecret       string
@@ -173,6 +173,9 @@ func bindDashboardDeclareFlags(fs *flag.FlagSet, o *options) {
 		"Rekor the dashboard records signatures in (empty: public-good Sigstore).")
 	fs.StringVar(&o.dashboardDeclare.TimestampURL, "dashboard-timestamp-url", "",
 		"Timestamp authority the dashboard's signatures use (empty: public-good Sigstore).")
+	fs.StringVar(&o.dashboardDeclare.TrustedRootConfigMap, "dashboard-trusted-root-configmap", "",
+		"Immutable ConfigMap in the operator namespace whose trusted_root.json the dashboard verifies the declarations "+
+			"it signs with (a private Sigstore or an air-gapped install). Empty: public-good Sigstore.")
 	fs.StringVar(&o.dashboardDeclare.Registry, "dashboard-registry", "",
 		"The registry (<host>/<path>) declarations made in the dashboard are published to; empty: no Declare.")
 	fs.StringVar(&o.dashboardDeclare.DeclareRegistrySecret, "dashboard-declare-registry-secret", "",
@@ -686,6 +689,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc authn.Keyc
 		FulcioURL:             o.dashboardDeclare.FulcioURL,
 		RekorURL:              o.dashboardDeclare.RekorURL,
 		TimestampURL:          o.dashboardDeclare.TimestampURL,
+		TrustedRootConfigMap:  o.dashboardDeclare.TrustedRootConfigMap,
 		Registry:              o.dashboardDeclare.Registry,
 		DeclareRegistrySecret: o.dashboardDeclare.DeclareRegistrySecret,
 	}

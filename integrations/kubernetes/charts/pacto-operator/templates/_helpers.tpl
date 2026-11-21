@@ -136,11 +136,19 @@ the verified policy's signer class rules, as the fleet does.
 {{- end }}
 
 {{/*
+The trusted root the dashboard verifies the declarations it signs with: the
+owner check's, only when the dashboard declares (registry is set).
+*/}}
+{{- define "pacto-operator.dashboardTrustedRoot" -}}
+{{- if .Values.registry }}{{ include "pacto-operator.ownerPolicy.trustedRoot" . }}{{ end }}
+{{- end }}
+
+{{/*
 Whether the manager mounts the owner policy ConfigMap: it holds the owner
-policy or the delivery policy's signers.
+policy, the delivery policy's signers or the dashboard's trusted root.
 */}}
 {{- define "pacto-operator.ownerPolicy.mounted" -}}
-{{- if or (include "pacto-operator.ownerPolicy.json" .) (include "pacto-operator.ownerPolicy.signers" .) }}true{{ end }}
+{{- if or (include "pacto-operator.ownerPolicy.json" .) (include "pacto-operator.ownerPolicy.signers" .) (include "pacto-operator.dashboardTrustedRoot" .) }}true{{ end }}
 {{- end }}
 
 {{/*
@@ -418,6 +426,10 @@ Controller arguments derived from values
 {{- with .timestampURL }}
 - --dashboard-timestamp-url={{ . }}
 {{- end }}
+{{- end }}
+{{- /* The dashboard verifies what it signs with the root the owner check uses: declare.trustedRoot, else delivery.publishers.trustedRoot. */}}
+{{- if include "pacto-operator.dashboardTrustedRoot" . }}
+- --dashboard-trusted-root-configmap={{ include "pacto-operator.ownerPolicy.name" . }}
 {{- end }}
 {{- with .Values.dashboard.observation }}
 {{- range .sources }}

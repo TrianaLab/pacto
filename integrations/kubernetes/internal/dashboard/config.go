@@ -121,6 +121,12 @@ type Config struct {
 	// file. Empty: no policy, so owner changes read as unverified.
 	OwnerPolicyConfigMap string
 
+	// TrustedRootConfigMap names the immutable ConfigMap, in the operator
+	// namespace, holding the Sigstore trusted root (trusted_root.json) a
+	// declaration signed in the dashboard is verified with. Empty:
+	// public-good Sigstore.
+	TrustedRootConfigMap string
+
 	// FulcioURL, RekorURL and TimestampURL are the Sigstore a person's
 	// declaration is signed with in the dashboard; empty: public-good Sigstore.
 	FulcioURL    string

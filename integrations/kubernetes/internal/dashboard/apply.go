@@ -281,6 +281,13 @@ const (
 	ownerPolicyKey       = "policy.json"
 )
 
+// The managed dashboard verifies declarations with the trusted root in this file.
+const (
+	trustedRootEnvVar    = "PACTO_DASHBOARD_TRUSTED_ROOT"
+	trustedRootMountPath = "/etc/pacto/trusted-root"
+	trustedRootKey       = "trusted_root.json"
+)
+
 // deploymentAC returns a server-side apply configuration for the dashboard Deployment.
 func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	env := []*corev1ac.EnvVarApplyConfiguration{
@@ -491,6 +498,15 @@ func configMapFiles(cfg Config) ([]*corev1ac.EnvVarApplyConfiguration, []*corev1
 			corev1ac.ConfigMapVolumeSource().WithName(cfg.OwnerPolicyConfigMap).
 				WithItems(corev1ac.KeyToPath().WithKey(ownerPolicyKey).WithPath(ownerPolicyKey)).
 				WithOptional(true)))
+	}
+
+	if cfg.TrustedRootConfigMap != "" {
+		env = append(env, corev1ac.EnvVar().WithName(trustedRootEnvVar).WithValue(trustedRootMountPath+"/"+trustedRootKey))
+		mounts = append(mounts,
+			corev1ac.VolumeMount().WithName("trusted-root").WithMountPath(trustedRootMountPath).WithReadOnly(true))
+		vols = append(vols, corev1ac.Volume().WithName("trusted-root").WithConfigMap(
+			corev1ac.ConfigMapVolumeSource().WithName(cfg.TrustedRootConfigMap).
+				WithItems(corev1ac.KeyToPath().WithKey(trustedRootKey).WithPath(trustedRootKey))))
 	}
 	return env, mounts, vols
 }

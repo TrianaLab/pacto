@@ -62,6 +62,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-timestamp-url` | `string` |  | chart value | Timestamp authority the dashboard's signatures use (empty: public-good Sigstore). |
 | `-dashboard-token-login` | `bool` |  | chart value | Let people sign in to the dashboard with a Kubernetes token; a ServiceAccount token minted for the pacto-dashboard audience reads the fleet only, and a person's own token acts as them. |
 | `-dashboard-trace-source` | `value` |  | chart value | Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source identity. Configures offline input only; Pacto runs no OTLP receiver. |
+| `-dashboard-trusted-root-configmap` | `string` |  | chart value | Immutable ConfigMap in the operator namespace whose trusted_root.json the dashboard verifies the declarations it signs with (a private Sigstore or an air-gapped install). Empty: public-good Sigstore. |
 | `-enable-dashboard` | `bool` |  | chart value | Enable the managed Pacto dashboard deployment. Disabled by default. |
 | `-enable-evidence-server` | `bool` |  | chart value | Enable the managed Pacto Evidence Server deployment. Disabled by default. |
 | `-enable-http2` | `bool` |  | no | If set, HTTP/2 will be enabled for the metrics server |

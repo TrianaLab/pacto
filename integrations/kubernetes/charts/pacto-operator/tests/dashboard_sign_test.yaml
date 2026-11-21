@@ -200,3 +200,32 @@ tests:
     asserts:
       - notMatchRegexRaw:
           pattern: "Declare in the dashboard"
+
+  - it: TestDashboardTrustedRootFromDeclare
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      declare.trustedRoot: '{"mediaType":"application/vnd.dev.sigstore.trustedroot+json;version=0.1"}'
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[?(@ =~ /^--dashboard-trusted-root-configmap=/)]
+          pattern: ^--dashboard-trusted-root-configmap=pacto-operator-owner-policy-[0-9a-f]{10}$
+
+  - it: TestDashboardTrustedRootFromPublishers
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      delivery.publishers.trustedRoot: '{"mediaType":"application/vnd.dev.sigstore.trustedroot+json;version=0.1"}'
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[?(@ =~ /^--dashboard-trusted-root-configmap=/)]
+          pattern: ^--dashboard-trusted-root-configmap=pacto-operator-owner-policy-
+
+  - it: TestDashboardTrustedRootAbsentWithoutRoot
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--dashboard-trusted-root-configmap

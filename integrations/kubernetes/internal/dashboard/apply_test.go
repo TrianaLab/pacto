@@ -694,3 +694,26 @@ func TestNoDeclarePushSecretNoVolume(t *testing.T) {
 		}
 	}
 }
+
+// The dashboard verifies what it signs with the installation's trusted root,
+// mounted from the ConfigMap the operator names.
+func TestApplyMountsTrustedRoot(t *testing.T) {
+	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns", TrustedRootConfigMap: "pacto-operator-owner-policy-0123456789"}
+	env := envByName(podSpec(cfg))
+	if e, ok := env["PACTO_DASHBOARD_TRUSTED_ROOT"]; !ok || e.Value == nil || *e.Value != "/etc/pacto/trusted-root/trusted_root.json" {
+		t.Errorf("env %+v", e)
+	}
+	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
+	vol := slices.ContainsFunc(deploy.Spec.Template.Spec.Volumes, func(v corev1ac.VolumeApplyConfiguration) bool {
+		return *v.Name == "trusted-root" && v.ConfigMap != nil && *v.ConfigMap.Name == cfg.TrustedRootConfigMap && *v.ConfigMap.Items[0].Key == "trusted_root.json"
+	})
+	mount := slices.ContainsFunc(deploy.Spec.Template.Spec.Containers[0].VolumeMounts, func(vm corev1ac.VolumeMountApplyConfiguration) bool {
+		return *vm.Name == "trusted-root" && *vm.MountPath == "/etc/pacto/trusted-root" && *vm.ReadOnly
+	})
+	if !vol || !mount {
+		t.Errorf("volume %v mount %v", vol, mount)
+	}
+	if _, ok := envByName(podSpec(Config{Image: "i", Namespace: "n"}))["PACTO_DASHBOARD_TRUSTED_ROOT"]; ok {
+		t.Error("no root configured, no PACTO_DASHBOARD_TRUSTED_ROOT")
+	}
+}
