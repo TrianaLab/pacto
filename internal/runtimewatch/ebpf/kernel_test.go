@@ -10,7 +10,6 @@ See LICENSE file in the project root for full license text.
 package ebpf
 
 import (
-	"context"
 	"net"
 	"net/netip"
 	"os"
@@ -21,6 +20,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/net/dns/dnsmessage"
 
 	"github.com/trianalab/pacto/v4/internal/runtimewatch"
 	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
@@ -222,21 +223,7 @@ func netnsInode(t *testing.T) uint32 {
 // which is the inode of that cgroup's directory. Run as root on Linux >= 5.12
 // with BTF and cgroup v2 (the netns cookie): `make test-ebpf`.
 func TestKernelProbeReportsSocketTransitions(t *testing.T) {
-	if os.Geteuid() != 0 {
-		t.Skip("needs root (BPF, PERFMON)")
-	}
-	p, reason, err := attach(0)
-	if err != nil {
-		t.Fatalf("attach (%s): %v", reason, err)
-	}
-	defer p.close()
-
-	ctx := t.Context()
-	h := &kernelHarness{events: make(chan runtimewatch.Event, 1024), ns: netnsInode(t), start: monotonicNs()}
-	stop := context.AfterFunc(ctx, func() { _ = p.reader.Close() })
-	defer stop()
-	go func() { _ = p.read(ctx, h.events) }()
-
+	p, h := startHarness(t, attachOptions{})
 	own := ownCgroupDir(t)
 	h.wantCgroup = inode(t, own)
 	t.Logf("netns inode %d, own cgroup %s, id %d", h.ns, own, h.wantCgroup)
@@ -244,17 +231,7 @@ func TestKernelProbeReportsSocketTransitions(t *testing.T) {
 
 	// A child cgroup: the events move with the socket's creator, and the
 	// resolver names it from the id alone.
-	child := filepath.Join(own, "pacto-run-kerneltest")
-	if err := os.Mkdir(child, 0o755); err != nil {
-		t.Fatalf("create child cgroup: %v", err)
-	}
-	moveSelf(t, child)
-	defer func() {
-		moveSelf(t, own)
-		if err := os.Remove(child); err != nil {
-			t.Errorf("remove child cgroup: %v", err)
-		}
-	}()
+	child := enterChildCgroup(t, own, "pacto-run-kerneltest")
 	h.wantCgroup = inode(t, child)
 	t.Logf("child cgroup %s, id %d", child, h.wantCgroup)
 	t.Run("child cgroup", h.transitions)
@@ -269,6 +246,196 @@ func TestKernelProbeReportsSocketTransitions(t *testing.T) {
 		t.Fatalf("read drop counter: %v", err)
 	}
 	t.Logf("dropped events: %d", n)
+}
+
+// startHarness attaches the real program and streams its events into a
+// harness for this process's network namespace; cleanup detaches it.
+func startHarness(t *testing.T, opts attachOptions) (*probe, *kernelHarness) {
+	t.Helper()
+	if os.Geteuid() != 0 {
+		t.Skip("needs root (BPF, PERFMON)")
+	}
+	p, reason, err := attach(0, opts)
+	if err != nil {
+		t.Fatalf("attach (%s): %v", reason, err)
+	}
+	h := &kernelHarness{events: make(chan runtimewatch.Event, 1024), ns: netnsInode(t), start: monotonicNs()}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = p.read(t.Context(), h.events)
+	}()
+	t.Cleanup(func() {
+		p.closeReaders()
+		<-done
+		p.close()
+	})
+	return p, h
+}
+
+// enterChildCgroup creates a child cgroup of own, moves this process into it
+// and, on cleanup, moves it back and removes the child.
+func enterChildCgroup(t *testing.T, own, name string) string {
+	t.Helper()
+	child := filepath.Join(own, name)
+	if err := os.Mkdir(child, 0o755); err != nil {
+		t.Fatalf("create child cgroup: %v", err)
+	}
+	moveSelf(t, child)
+	t.Cleanup(func() {
+		moveSelf(t, own)
+		if err := os.Remove(child); err != nil {
+			t.Errorf("remove child cgroup: %v", err)
+		}
+	})
+	return child
+}
+
+// dnsResponder answers every A query it receives on 127.0.0.1:port with one
+// address, from that port: the source port the kernel program filters on.
+func dnsResponder(t *testing.T, port int, addr netip.Addr) {
+	t.Helper()
+	pc, err := net.ListenPacket("udp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		t.Fatalf("listen udp %d: %v", port, err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	go func() {
+		buf := make([]byte, 512)
+		for {
+			n, from, err := pc.ReadFrom(buf)
+			if err != nil {
+				return
+			}
+			var q dnsmessage.Message
+			if q.Unpack(buf[:n]) != nil || len(q.Questions) != 1 {
+				continue
+			}
+			resp := dnsmessage.Message{
+				Header:    dnsmessage.Header{ID: q.ID, Response: true},
+				Questions: q.Questions,
+				Answers: []dnsmessage.Resource{{
+					Header: dnsmessage.ResourceHeader{Name: q.Questions[0].Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: 60},
+					Body:   &dnsmessage.AResource{A: addr.As4()},
+				}},
+			}
+			b, err := resp.Pack()
+			if err == nil {
+				_, _ = pc.WriteTo(b, from)
+			}
+		}
+	}()
+}
+
+// query sends one A query for name to 127.0.0.1:port and reads the answer,
+// which is the receive the kernel program sees.
+func query(t *testing.T, port int, name string) {
+	t.Helper()
+	c, err := net.Dial("udp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	q := dnsmessage.Message{
+		Header:    dnsmessage.Header{ID: 7, RecursionDesired: true},
+		Questions: []dnsmessage.Question{{Name: dnsmessage.MustNewName(name), Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET}},
+	}
+	b, err := q.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Write(b); err != nil {
+		t.Fatal(err)
+	}
+	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := c.Read(make([]byte, 512)); err != nil {
+		t.Fatalf("read answer for %s on port %d: %v", name, port, err)
+	}
+}
+
+// awaitDNS returns the first DNS answer event in this namespace, checking the
+// cookie and the cgroup like a socket event (DNS records carry no ktime).
+func (h *kernelHarness) awaitDNS(t *testing.T) (dnsmessage.Message, runtimewatch.Event) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case ev := <-h.events:
+			if ev.Kind != runtimewatch.EventDNSAnswer || ev.Netns != h.ns {
+				continue
+			}
+			if ev.NetnsCookie == 0 || ev.CgroupID != h.wantCgroup {
+				t.Errorf("DNS event cookie=%d cgroup=%d, want a cookie and cgroup %d", ev.NetnsCookie, ev.CgroupID, h.wantCgroup)
+			}
+			var m dnsmessage.Message
+			if err := m.Unpack(ev.DNS); err != nil {
+				t.Fatalf("DNS payload of %d bytes does not parse: %v", len(ev.DNS), err)
+			}
+			return m, ev
+		case <-deadline:
+			t.Fatal("no DNS answer event within 5s")
+		}
+	}
+}
+
+// TestKernelDNSAnswerAttributedToCgroup: a DNS answer from port 53 to a client
+// in a child cgroup reaches userspace with the client's cgroup id, and its
+// payload parses to the question and the answered address.
+func TestKernelDNSAnswerAttributedToCgroup(t *testing.T) {
+	p, h := startHarness(t, attachOptions{})
+	if p.dnsErr != nil {
+		t.Fatalf("DNS program not attached (%s): %v", p.dnsReason, p.dnsErr)
+	}
+	own := ownCgroupDir(t)
+	dnsResponder(t, 53, netip.MustParseAddr("192.0.2.10"))
+	h.wantCgroup = inode(t, enterChildCgroup(t, own, "pacto-run-dnstest"))
+
+	query(t, 53, "api.example.com.")
+	m, _ := h.awaitDNS(t)
+	if !m.Response || len(m.Questions) != 1 || m.Questions[0].Name.String() != "api.example.com." {
+		t.Fatalf("answer = %+v, want a response to api.example.com.", m)
+	}
+	if len(m.Answers) != 1 || m.Answers[0].Body.(*dnsmessage.AResource).A != [4]byte{192, 0, 2, 10} {
+		t.Fatalf("answers = %+v, want 192.0.2.10", m.Answers)
+	}
+	if n, err := p.dnsDrops(); err != nil {
+		t.Fatalf("read DNS drop counter: %v", err)
+	} else {
+		t.Logf("dropped DNS answers: %d", n)
+	}
+}
+
+// TestKernelDNSOnlySourcePort53: an answer from port 5353 produces no event,
+// so the first event after both queries is the port-53 answer.
+func TestKernelDNSOnlySourcePort53(t *testing.T) {
+	_, h := startHarness(t, attachOptions{})
+	h.wantCgroup = inode(t, ownCgroupDir(t))
+	dnsResponder(t, 5353, netip.MustParseAddr("192.0.2.20"))
+	dnsResponder(t, 53, netip.MustParseAddr("192.0.2.30"))
+
+	query(t, 5353, "mdns.example.com.")
+	query(t, 53, "dns.example.com.")
+	m, _ := h.awaitDNS(t)
+	if got := m.Questions[0].Name.String(); got != "dns.example.com." {
+		t.Fatalf("first DNS event names %s, want dns.example.com. (port 5353 must produce none)", got)
+	}
+}
+
+// TestKernelSocketEventsSurviveDNSAttachFailure: with the DNS step off, socket
+// events still flow and the loader reports DNS failed.
+func TestKernelSocketEventsSurviveDNSAttachFailure(t *testing.T) {
+	p, h := startHarness(t, attachOptions{skipDNS: true})
+	if p.dnsReader != nil || p.dnsErr == nil {
+		t.Fatalf("skipDNS left reader=%v err=%v", p.dnsReader, p.dnsErr)
+	}
+	h.wantCgroup = inode(t, ownCgroupDir(t))
+	h.transition(t, "tcp4", "127.0.0.1", false)
+
+	l := newLoader(0)
+	l.set(p, "", nil)
+	if st := l.Status(); st.Failed || st.DNSState != runtimefacts.StateFailed || st.DNSReason != reasonDNSLoadFailed {
+		t.Fatalf("status = %+v, want sockets running and DNS %s/%s", st, runtimefacts.StateFailed, reasonDNSLoadFailed)
+	}
 }
 
 // TestScanProcOnThisHost runs the /proc baseline against the real /proc. With

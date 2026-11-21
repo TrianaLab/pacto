@@ -131,6 +131,43 @@ func DecodeEvent(b []byte) (Event, error) {
 	return ev, nil
 }
 
+// maxDNSPayload is the most DNS response bytes the kernel program copies.
+const maxDNSPayload = 512
+
+// rawDNSEvent mirrors struct dns_event in sockstate.c byte for byte.
+type rawDNSEvent struct {
+	Cgroup uint64
+	Cookie uint64
+	Netns  uint32
+	Len    uint16
+	Pad    uint16
+	Data   [maxDNSPayload]byte
+}
+
+// RawDNSEventSize is the size of one DNS ring buffer record.
+const RawDNSEventSize = 536
+
+// DecodeDNS parses one DNS ring buffer record (little endian, the bpfel
+// target) into an EventDNSAnswer carrying the payload's first Len bytes.
+func DecodeDNS(b []byte) (Event, error) {
+	if len(b) != RawDNSEventSize {
+		return Event{}, fmt.Errorf("decode dns event: %d bytes, want %d", len(b), RawDNSEventSize)
+	}
+	var r rawDNSEvent
+	// A fixed-size struct from a buffer of exactly its size cannot fail.
+	_, _ = binary.Decode(b, binary.LittleEndian, &r)
+	if r.Len == 0 || r.Len > maxDNSPayload {
+		return Event{}, fmt.Errorf("decode dns event: payload length %d, want 1 to %d", r.Len, maxDNSPayload)
+	}
+	return Event{
+		Kind:        EventDNSAnswer,
+		CgroupID:    r.Cgroup,
+		Netns:       r.Netns,
+		NetnsCookie: r.Cookie,
+		DNS:         bytes.Clone(r.Data[:r.Len]),
+	}, nil
+}
+
 // maxCommLen is the kernel's TASK_COMM_LEN without the terminating NUL.
 const maxCommLen = 15
 

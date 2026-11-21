@@ -101,3 +101,46 @@ func TestSanitizeComm(t *testing.T) {
 		}
 	}
 }
+
+func TestDecodeDNSRecord(t *testing.T) {
+	r := rawDNSEvent{Cgroup: 90556, Cookie: 4096, Netns: 4026532000, Len: 3}
+	copy(r.Data[:], "abcdef")
+	ev, err := DecodeDNS(encodeDNS(t, r))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Event{Kind: EventDNSAnswer, CgroupID: 90556, NetnsCookie: 4096, Netns: 4026532000, DNS: []byte("abc")}
+	if !reflect.DeepEqual(ev, want) {
+		t.Fatalf("got %+v, want %+v", ev, want)
+	}
+}
+
+func TestDecodeDNSRecordRejectsOversizeLength(t *testing.T) {
+	for name, tc := range map[string]struct {
+		b    []byte
+		want string
+	}{
+		"short":         {b: []byte{1, 2, 3}, want: "decode dns event:"},
+		"oversize len":  {b: encodeDNS(t, rawDNSEvent{Len: maxDNSPayload + 1}), want: "length 513"},
+		"empty payload": {b: encodeDNS(t, rawDNSEvent{}), want: "length 0"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := DecodeDNS(tc.b)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func encodeDNS(t *testing.T, r rawDNSEvent) []byte {
+	t.Helper()
+	b, err := binary.Append(nil, binary.LittleEndian, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) != RawDNSEventSize {
+		t.Fatalf("rawDNSEvent encodes to %d bytes, want %d (struct dns_event in sockstate.c)", len(b), RawDNSEventSize)
+	}
+	return b
+}
