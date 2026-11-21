@@ -963,7 +963,9 @@
      narrower than that, every row becomes a card of labelled values. */
   .ca-consumers { container-name: dtable ca-consumers; }
   @container ca-consumers (min-width: 66rem) {
-    .ca-table { display: grid; grid-template-columns: minmax(18ch, 1.3fr) minmax(14ch, 1fr) minmax(12ch, 0.8fr) minmax(26ch, 2fr) minmax(14ch, 1fr) minmax(12ch, 0.9fr); }
+    /* The Verdict column never narrows below its widest word, a status badge such as
+       "incompatible" in a wide font: a 12ch floor let the badge spill out of its box. */
+    .ca-table { display: grid; grid-template-columns: minmax(18ch, 1.3fr) minmax(14ch, 1fr) minmax(min-content, 0.8fr) minmax(26ch, 2fr) minmax(14ch, 1fr) minmax(12ch, 0.9fr); }
     .ca-table thead, .ca-table tbody, .ca-table tr { display: contents; }
     .ca-table td { min-width: 0; }
   }
