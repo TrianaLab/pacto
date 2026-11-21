@@ -60,6 +60,9 @@ type PublishOptions struct {
 	// holding with this content: Publish then writes nothing once that
 	// bundle verifies as the publisher's and its deploy artifact is there.
 	unchanged string
+	// declTrust is the run's registry declaration trust pacto ci builds once;
+	// nil builds one for this publish.
+	declTrust *declarationTrust
 }
 
 // flagErr refuses flag values that cannot work whatever the contract says.
@@ -155,6 +158,7 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	}
 	reg := env.publishRegistry()
 	tools := newExecTools(path, env.run, reg)
+	tools.decl = opts.declTrust
 	vb, done, dv, err := versioned(ctx, env.run, reg, tools, path, b, pub, d, revision, inputs, opts.unchanged)
 	if err != nil || done != nil {
 		return s.alreadyPublished(ctx, tools, b, pub, done, err, opts)
@@ -524,6 +528,8 @@ type execTools struct {
 	signers map[contract.PublishSign]loadedSigner
 	// built holds, per SBOM path, when the build that must write it started.
 	built map[string]time.Time
+	// decl judges registry declarations as baselines; nil builds one.
+	decl *declarationTrust
 }
 
 type loadedSigner struct {

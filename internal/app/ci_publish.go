@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -66,7 +67,10 @@ func (s *Service) CIPublish(ctx context.Context, opts CIPublishOptions) (*ci.Pla
 	if note != "" {
 		p.Notes = append(p.Notes, note)
 	}
-	cp := &ciPublisher{s: s, opts: opts, bundles: o.Bundles, migrations: o.migrations, proposed: o.proposed, images: images, refused: refused != ""}
+	cp := &ciPublisher{s: s, opts: opts, bundles: o.Bundles, migrations: o.migrations, proposed: o.proposed, images: images, refused: refused != "",
+		decl: sync.OnceValue(func() *declarationTrust {
+			return declarationTrustFrom(ctx, impactTrust(ImpactOptions{Signers: o.Signers, Fleet: o.Fleet}))
+		})}
 	rows := make([]ci.Row, 0, len(order))
 	for _, i := range order {
 		r := p.Rows[i]
@@ -91,6 +95,8 @@ type ciPublisher struct {
 	images   map[string]string
 	refused  bool     // a pull or merge request pipeline: nothing publishes
 	done     []ci.Row // the rows decided so far, in order
+	// decl is the run's registry declaration trust, built once.
+	decl func() *declarationTrust
 }
 
 // row decides one row, first rule that applies: undecided by the plan,
@@ -145,7 +151,7 @@ func (cp *ciPublisher) decide(r *ci.Row, state, reason string) {
 // runs too, re-planning a derived version that lost a tag race.
 func (cp *ciPublisher) publish(ctx context.Context, r *ci.Row, b *contract.Bundle) {
 	opts := PublishOptions{Path: filepath.Join(cp.opts.CI.Root, filepath.FromSlash(r.Dir)), Revision: cp.opts.Revision,
-		Image: cp.images[r.Service], Getenv: cp.opts.CI.Getenv, Index: cp.opts.CI.Fleet.Index}
+		Image: cp.images[r.Service], Getenv: cp.opts.CI.Getenv, Index: cp.opts.CI.Fleet.Index, declTrust: cp.decl()}
 	if v := b.Contract.Service.Version; r.Changed == "no" && v != "" && r.Baseline == v {
 		opts.unchanged = r.BaselineDigest // the declared tag the plan judged
 	}

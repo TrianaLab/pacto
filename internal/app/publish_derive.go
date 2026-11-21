@@ -45,10 +45,17 @@ func deriveVersion(ctx context.Context, run runner, reg publish.Registry, tools 
 	if _, _, err := tools.signing(ctx, sign); err != nil {
 		return publish.Derived{}, fmt.Errorf("deriving service.version needs the publisher identity to verify the baseline: %w", err)
 	}
+	bv := baselineVerifier{reg: reg, tools: tools, sign: sign, trust: tools.decl, repo: publish.Repo(pub.Bundle),
+		want: wantService{Name: b.Contract.Service.Name, Domain: b.Contract.Service.Domain}}
+	if bv.trust == nil {
+		bv.trust = declarationTrustFrom(ctx, nil)
+	}
 	d, err := publish.DeriveVersion(ctx, reg, publish.DeriveInput{
-		Repo: publish.Repo(pub.Bundle), AltRepo: alt, Local: b, Publish: pub, Unchanged: Unchanged,
-		Verify: func(ctx context.Context, ref string) error { return tools.Verify(ctx, sign, ref) },
+		Repo: bv.repo, AltRepo: alt, Local: b, Publish: pub, Unchanged: Unchanged, Verify: bv.verify,
 	})
+	if bv.declared && bv.trust.publicGood {
+		d.Notes = append(d.Notes, declarationsPublicGoodNote)
+	}
 	if err != nil {
 		return d, err
 	}
@@ -57,6 +64,53 @@ func deriveVersion(ctx context.Context, run runner, reg publish.Registry, tools 
 		d.Notes = append(d.Notes, note)
 	}
 	return d, err
+}
+
+// baselineVerifier is the baseline check of one derived version (Decision
+// 4): a release counts when the publisher identity signed it or it is a
+// counted registry declaration of want. counted is the digest it counted
+// as a declaration; declared says a declaration was judged.
+type baselineVerifier struct {
+	reg      publish.Registry
+	tools    execTools
+	sign     contract.PublishSign
+	trust    *declarationTrust
+	repo     string
+	want     wantService
+	tags     []string
+	counted  string
+	declared bool
+}
+
+// verify accepts repo@digest read under tag when the publisher signed it or
+// it counts as a declaration. Neither: the publisher check's error for a
+// bundle with no declaration, publish.NotCounted for one with a declaration.
+// A check that could not complete stays an error.
+func (bv *baselineVerifier) verify(ctx context.Context, tag, ref string) error {
+	perr := bv.tools.Verify(ctx, bv.sign, ref)
+	if perr == nil || !errors.Is(perr, publish.ErrNoSignature) && !errors.Is(perr, publish.ErrSignatureInvalid) {
+		return perr
+	}
+	if bv.tags == nil {
+		tags, err := bv.reg.Tags(ctx, bv.repo)
+		if err != nil {
+			return fmt.Errorf("listing the versions in %s: %w", bv.repo, err)
+		}
+		bv.tags = tags
+	}
+	_, digest, _ := strings.Cut(ref, "@")
+	d, why, err := bv.trust.countedDeclaration(ctx, bv.reg, bv.want, bv.repo, bv.tags, tag, digest, bv.verify)
+	switch {
+	case err != nil:
+		return err
+	case d != nil:
+		bv.declared, bv.counted = true, digest
+		return nil
+	case why == "":
+		return perr
+	}
+	bv.declared = true
+	return publish.NotCounted{Reason: why}
 }
 
 // superseded refuses a checkout that does not contain the revision the

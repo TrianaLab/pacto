@@ -910,7 +910,7 @@ func (pl *declarePlanner) version(ctx context.Context, raw []byte, rec *contract
 	}
 	d, err := publish.DeriveVersion(ctx, pl.reg, publish.DeriveInput{Repo: pl.repo(), Local: local.bundle, Unchanged: Unchanged,
 		Publish: &contract.Publish{Bundle: "oci://" + pl.repo()},
-		Verify: func(_ context.Context, ref string) error {
+		Verify: func(_ context.Context, _, ref string) error {
 			if _, digest, _ := strings.Cut(ref, "@"); pl.judged[digest] {
 				return nil
 			}

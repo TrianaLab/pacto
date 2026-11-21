@@ -420,3 +420,47 @@ func TestHideClusterDependenciesKeepsUnrelatedFields(t *testing.T) {
 		t.Error("a clone without any hidden dependency")
 	}
 }
+
+func acceptedFixture(state, signerClass string) (*BundleProvenance, *contract.InferredRecord) {
+	asker := contract.InferredSigner{Subject: "ana@acme.com", Issuer: "https://idp", Class: contract.SignerClassHuman}
+	prov := &BundleProvenance{Signers: []VerifiedSigner{{Subject: "ana@acme.com", Issuer: "https://idp", Class: signerClass}}}
+	return prov, &contract.InferredRecord{Declaration: &contract.InferredDeclaration{State: state, Asker: asker}}
+}
+
+var anaSigners = &DeclarationSignerPolicy{Signers: []PolicySigner{{Issuer: "https://idp", Subjects: `.+@acme\.com`}}}
+
+func TestDeclarationAcceptedHumanAsker(t *testing.T) {
+	prov, rec := acceptedFixture(contract.DeclarationDeclared, contract.SignerClassHuman)
+	s, lim, ok := DeclarationAccepted(prov, rec, anaSigners)
+	if !ok || lim != (Limitation{}) || s != (VerifiedSigner{Subject: "ana@acme.com", Issuer: "https://idp", Class: contract.SignerClassHuman}) {
+		t.Fatalf("%+v %+v %v", s, lim, ok)
+	}
+}
+
+func TestDeclarationAcceptedDraftRefused(t *testing.T) {
+	prov, rec := acceptedFixture(contract.DeclarationDraft, contract.SignerClassHuman)
+	if _, lim, ok := DeclarationAccepted(prov, rec, anaSigners); ok || lim.Code != LimitationDeclarationDraftIgnored {
+		t.Fatalf("%+v %v", lim, ok)
+	}
+}
+
+func TestDeclarationAcceptedOtherSigner(t *testing.T) {
+	prov, rec := acceptedFixture(contract.DeclarationDeclared, contract.SignerClassCI)
+	if _, lim, ok := DeclarationAccepted(prov, rec, anaSigners); ok || lim.Code != LimitationDeclarationSignerUnverified {
+		t.Fatalf("%+v %v", lim, ok)
+	}
+	prov.Signers[0] = VerifiedSigner{Subject: "bob@acme.com", Issuer: "https://idp", Class: contract.SignerClassHuman}
+	if _, lim, ok := DeclarationAccepted(prov, rec, anaSigners); ok || lim.Code != LimitationDeclarationSignerUnverified {
+		t.Fatalf("%+v %v", lim, ok)
+	}
+}
+
+func TestDeclarationAcceptedPolicyRefuses(t *testing.T) {
+	prov, rec := acceptedFixture(contract.DeclarationDeclared, contract.SignerClassHuman)
+	other := &DeclarationSignerPolicy{Signers: []PolicySigner{{Issuer: "https://idp", Subjects: `.+@other\.com`}}}
+	for _, p := range []*DeclarationSignerPolicy{nil, other} {
+		if _, lim, ok := DeclarationAccepted(prov, rec, p); ok || lim.Code != LimitationDeclarationSignerNotAllowed || lim.Message == "" {
+			t.Fatalf("%+v %v", lim, ok)
+		}
+	}
+}

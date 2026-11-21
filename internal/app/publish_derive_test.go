@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -15,6 +16,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/override"
 	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
 // writeDerivedBundle writes a 2.5 payments contract that publishes only its
@@ -364,6 +366,139 @@ func TestPublishUnchangedNamesTheDeployArtifact(t *testing.T) {
 			Artifacts: []contract.PublishArtifact{{Name: "other", Ref: "oci://" + host + "/other"}, {Name: "manifests", Ref: "oci://" + ref}}}
 		if got, notes := unchangedDeploy(ctx, reg, tools, pub, "1.4.2"); got != "" || len(notes) != 1 || !strings.Contains(notes[0], want) {
 			t.Errorf("%s: %q %v", ref, got, notes)
+		}
+	}
+}
+
+// paymentsDeclaration is ana's declaration of payments at version in the
+// bundle repository writeDerivedBundle publishes to, naming baseline (nil
+// for a first declaration).
+func paymentsDeclaration(host, version string, baseline *contract.InferredBaseline) map[string]string {
+	y := "pactoVersion: \"2.5\"\nservice:\n  name: payments\n  version: " + version + "\n" +
+		"publish:\n  bundle: oci://" + host + "/pacto/payments\n  sign: {key: cosign.key, transparencyLog: false}\n"
+	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat, Declaration: &contract.InferredDeclaration{State: contract.DeclarationDeclared,
+		Asker: contract.InferredSigner{Subject: "ana@acme.com", Issuer: personIssuer, Class: contract.SignerClassHuman}, Baseline: baseline}}
+	return map[string]string{"pacto.yaml": y, contract.InferredRecordFile: string(rec.Marshal())}
+}
+
+// declaredFolder is a payments folder that leaves service.version
+// undeclared (signed with a key when keyed) over a registry whose only
+// release is ana's 0.1.0 declaration, signed by her when signed. It returns
+// the declaration's digest.
+func declaredFolder(t *testing.T, keyed, signed bool) (*declareEnv, string, *Service, string) {
+	t.Helper()
+	e := newDeclareEnv(t)
+	dir := t.TempDir()
+	if keyed {
+		signingKey(t, dir)
+	}
+	writeDerivedBundle(t, dir, e.host, "", "")
+	_ = os.WriteFile(filepath.Join(dir, "notes.md"), []byte("# payments\n"), 0o644)
+	var s *signing.Signer
+	if signed {
+		sg := e.signer(t, personToken("ana@acme.com"))
+		s = &sg
+	}
+	d := e.publishBundle(t, e.host+"/pacto/payments", "0.1.0", paymentsDeclaration(e.host, "0.1.0", nil), s)
+	return e, dir, publishService(&fakeRun{}, e.reg), d
+}
+
+func TestDeriveCountsDeclarationAsBaseline(t *testing.T) {
+	noPublicGood(t)
+	e, dir, svc, d := declaredFolder(t, true, true)
+	ctx := t.Context()
+	res, err := svc.Publish(ctx, PublishOptions{Path: dir, Revision: "r2", declTrust: e.trustingAcme(t)})
+	if err != nil || res.Plan.Baseline != "0.1.0" || res.Plan.Version != "0.1.1" {
+		t.Fatalf("%v %+v", err, res)
+	}
+	b, err := e.reg.Pull(ctx, e.host+"/pacto/payments:0.1.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, _ := contract.ReadInferredRecord(b.FS)
+	if rec == nil || len(rec.Fields) != 1 || rec.Fields[0].Source != "registry:"+e.host+"/pacto/payments@"+d {
+		t.Fatalf("%+v", rec)
+	}
+}
+
+func TestDeriveCountsDeclarationNoPolicyNote(t *testing.T) {
+	e, dir, svc, _ := declaredFolder(t, true, true)
+	publicGoodIs(t, e.ss.Root, nil)
+	res, err := svc.Publish(t.Context(), PublishOptions{Path: dir, Revision: "r2", Plan: true})
+	if err != nil || res.Plan.Baseline != "0.1.0" || !slices.Contains(res.Notes, declarationsPublicGoodNote) {
+		t.Fatalf("%v %+v", err, res)
+	}
+}
+
+func TestDeriveSkipsForgedDeclaration(t *testing.T) {
+	e, dir, svc, _ := declaredFolder(t, true, false)
+	_, err := svc.Publish(t.Context(), PublishOptions{Path: dir, Revision: "r2", declTrust: e.trustingAcme(t)})
+	if err == nil || !strings.Contains(err.Error(), "no verifiable baseline in ") {
+		t.Fatal(err)
+	}
+}
+
+func TestDeriveDeclarationNeedsPublisherIdentity(t *testing.T) {
+	e, dir, svc, _ := declaredFolder(t, false, true)
+	refs := &refCounter{Registry: e.reg}
+	svc.sys.publishRegistry = func() publish.Registry { return refs }
+	_, err := svc.Publish(t.Context(), PublishOptions{Path: dir, Revision: "r2", declTrust: e.trustingAcme(t)})
+	if err == nil || !strings.Contains(err.Error(), "needs the publisher identity") || refs.n != 0 {
+		t.Fatal(err, refs.n)
+	}
+}
+
+func TestForgedDeclarationWithoutRootDoesNotBlockPublish(t *testing.T) {
+	e := newDeclareEnv(t)
+	publicGoodIs(t, nil, errors.New("tuf down"))
+	svc := publishService(&fakeRun{}, e.reg)
+	dir := t.TempDir()
+	signingKey(t, dir)
+	writeDerivedBundle(t, dir, e.host, "0.1.0", "")
+	if _, err := svc.Publish(t.Context(), PublishOptions{Path: dir, Revision: "r1"}); err != nil {
+		t.Fatal(err)
+	}
+	repo := e.host + "/pacto/payments"
+	base, _ := e.reg.Head(t.Context(), repo+":0.1.0")
+	forged := e.publishBundle(t, repo, "0.1.1", paymentsDeclaration(e.host, "0.1.1", &contract.InferredBaseline{Version: "0.1.0", Bundle: repo + "@" + base.Digest}), nil)
+	writeDerivedBundle(t, dir, e.host, "", "")
+	_ = os.WriteFile(filepath.Join(dir, "notes.md"), []byte("# payments\n"), 0o644)
+	res, err := svc.Publish(t.Context(), PublishOptions{Path: dir, Revision: "r2", Plan: true})
+	want := "ignored 0.1.1: declaration " + repo + "@" + forged + " not checked: no trusted root reachable"
+	if err != nil || res.Plan.Baseline != "0.1.0" || !slices.Contains(res.Notes, want) {
+		t.Fatalf("%v %+v", err, res)
+	}
+}
+
+// deriveFaults fails Pull, or every Tags listing after the first.
+type deriveFaults struct {
+	publish.Registry
+	pull bool
+	tags int
+}
+
+func (f *deriveFaults) Pull(ctx context.Context, ref string) (*contract.Bundle, error) {
+	if f.pull {
+		return nil, errors.New("503")
+	}
+	return f.Registry.Pull(ctx, ref)
+}
+
+func (f *deriveFaults) Tags(ctx context.Context, repo string) ([]string, error) {
+	if f.tags++; f.tags > 1 {
+		return nil, errors.New("503")
+	}
+	return f.Registry.Tags(ctx, repo)
+}
+
+func TestDeriveDeclarationCheckUnreadIsError(t *testing.T) {
+	for _, f := range []*deriveFaults{{pull: true, tags: -1 << 20}, {}} {
+		e, dir, svc, _ := declaredFolder(t, true, true)
+		f.Registry = e.reg
+		svc.sys.publishRegistry = func() publish.Registry { return f }
+		_, err := svc.Publish(t.Context(), PublishOptions{Path: dir, Revision: "r2", Plan: true, declTrust: e.trustingAcme(t)})
+		if err == nil || !strings.Contains(err.Error(), "cannot verify") {
+			t.Fatal(err)
 		}
 	}
 }

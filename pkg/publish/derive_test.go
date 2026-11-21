@@ -33,7 +33,7 @@ func deriveBundle(host, version, workload string, health bool) *contract.Bundle 
 // signedSet verifies the digests it holds.
 type signedSet map[string]bool
 
-func (s signedSet) verify(_ context.Context, ref string) error {
+func (s signedSet) verify(_ context.Context, _, ref string) error {
 	if !s[ref] {
 		return ErrNoSignature
 	}
@@ -228,7 +228,7 @@ func TestDeriveVersionBaselineRevision(t *testing.T) {
 	local := bundleOf(host, "1.4.2", workloadService)
 	local.Contract.Service.Version = ""
 	d, err := DeriveVersion(context.Background(), reg, DeriveInput{Repo: host + "/pacto/payments", Local: local, Unchanged: never,
-		Verify: func(ctx context.Context, ref string) error { return tools.Verify(ctx, contract.PublishSign{}, ref) }})
+		Verify: func(ctx context.Context, _, ref string) error { return tools.Verify(ctx, contract.PublishSign{}, ref) }})
 	if err != nil || d.BaselineRevision != "rev1" || d.BaselineCreated != "" {
 		t.Fatalf("deploy annotation: %+v %v", d, err)
 	}
@@ -272,7 +272,7 @@ func TestDeriveVersionUnreadSignatureFails(t *testing.T) {
 	host, reg := newRegistry(t)
 	pushBundle(t, reg, host, "1.2.0", deriveBundle(host, "1.2.0", workloadService, true))
 	pushBundle(t, reg, host, "1.3.0", deriveBundle(host, "1.3.0", workloadService, true))
-	verify := func(context.Context, string) error { return errors.New("referrers: 503") }
+	verify := func(context.Context, string, string) error { return errors.New("referrers: 503") }
 	d, err := DeriveVersion(context.Background(), reg, DeriveInput{Repo: host + "/pacto/payments", Local: same(workloadService, true)(host), Unchanged: never, Verify: verify})
 	if err == nil || !strings.Contains(err.Error(), "cannot verify "+host+"/pacto/payments:1.3.0: referrers: 503") || d.Version != "" {
 		t.Fatalf("%+v %v", d, err)
