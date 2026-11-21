@@ -39,4 +39,13 @@ describe('fieldProvenanceText', () => {
     expect(fieldProvenanceText({ field: 'd', provenance: 'declared', proposed: '^1', source: 'cluster:manifest x' })).toBe('Proposed ^1 from manifest; never declared');
     expect(fieldProvenanceText({ field: 'd', provenance: 'declared', proposed: '^1' })).toBe('Proposed ^1 from an unknown source; never declared');
   });
+
+  it('dates every row that carries asOf, a proposal first', () => {
+    const asOf = '2026-08-01T00:00:00Z';
+    expect(fieldProvenanceText({ field: 'd', provenance: 'declared', proposed: '^1.4.0', source: 'cluster:fleet x', asOf, completeness: 'partial' }))
+      .toMatch(/^Proposed \^1\.4\.0 from fleet as of .+, partial; never declared$/);
+    expect(fieldProvenanceText({ field: 'x', provenance: 'accepted', by: 'ana', source: 'pacto.yaml of invoices@0.1.0', asOf })).toMatch(/^Accepted by ana in invoices@0\.1\.0 as of .+$/);
+    expect(fieldProvenanceText({ field: 'service.owner', provenance: 'attested', source: 'CODEOWNERS', asOf })).toMatch(/^Attested by the repository: read from CODEOWNERS as of .+$/);
+    expect(fieldProvenanceText({ field: 'service.owner', provenance: 'declared', source: 'Pacto target', asOf })).toMatch(/^Declared by the contract a running Pacto target reports as of .+$/);
+  });
 });

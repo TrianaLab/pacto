@@ -1006,7 +1006,8 @@ export function installScaleFixture(): void {
     }
     // Where the values come from at its bound (513-S5): 200 of 1200 field rows with
     // long fields and values, every provenance, 7 values from a workload the viewer
-    // cannot see and 3 hidden replacements, on the declared service that has the fold.
+    // cannot see, 3 hidden replacements and 200 of 260 replacements, on the declared service
+    // that has the fold.
     if (route === '/api/fleet/entities/service' && (doc.service as Record<string, unknown> | undefined)?.fields) {
       const svc = doc.service as Record<string, unknown>;
       const kinds = ['declared', 'accepted', 'attested', 'inferred'];
@@ -1018,6 +1019,12 @@ export function installScaleFixture(): void {
           source: `cluster:fleet reported versions ${'2.3.1, '.repeat(12)}${i}`, completeness: 'partial',
         })) };
       svc.replacesHidden = 3;
+      // 200 of 260 replacements, the bound: one facts block, 199 single lines and "60 more".
+      const reps = (svc.replaces as Record<string, unknown>[] | undefined) ?? [];
+      if (reps.length) {
+        svc.replaces = Array.from({ length: 200 }, (_, i) => (i ? { ...reps[0], from: `k8s:billing%2FDeployment%2F${'invoices-worker-'.repeat(4)}${i}`, workload: undefined } : reps[0]));
+        svc.replacesTotal = 260;
+      }
     }
     if (route === '/api/fleet/entities/service') {
       const rel = (doc.service as Record<string, unknown> | undefined)?.relationships as { items?: Record<string, unknown>[]; count?: number; total?: number } | undefined;

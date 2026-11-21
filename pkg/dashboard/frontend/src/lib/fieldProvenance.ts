@@ -30,21 +30,22 @@ export function fieldLabel(field: string): string {
  *  never declared, and says so. */
 export function fieldProvenanceText(f: FieldRef): string {
   const asOf = formatDateTime(f.asOf);
+  const at = asOf ? ` as of ${asOf}` : '';
   const partial = f.completeness ? `, ${f.completeness}` : '';
   if (f.proposed) {
     const kind = f.source?.startsWith('cluster:') ? f.source.slice('cluster:'.length).split(' ')[0] : '';
     const from = kind === 'runtime' ? 'runtime calls' : kind || f.source || 'an unknown source';
-    return `Proposed ${f.proposed} from ${from}${partial}; never declared`;
+    return `Proposed ${f.proposed} from ${from}${at}${partial}; never declared`;
   }
   const source = f.source ?? '';
   switch (f.provenance) {
     case 'accepted':
-      return `Accepted by ${f.by || 'an unknown signer'} in ${source.replace(/^pacto\.yaml of /, '') || 'its revision'}`;
+      return `Accepted by ${f.by || 'an unknown signer'} in ${source.replace(/^pacto\.yaml of /, '') || 'its revision'}${at}`;
     case 'attested':
-      return `Attested by the repository${source ? `: read from ${source}` : ''}`;
+      return `Attested by the repository${source ? `: read from ${source}` : ''}${at}`;
     case 'inferred':
-      return `Inferred from ${source || 'an unknown source'}${asOf ? ` as of ${asOf}` : ''}${partial}`;
+      return `Inferred from ${source || 'an unknown source'}${at}${partial}`;
   }
-  if (source === 'Pacto target') return 'Declared by the contract a running Pacto target reports';
+  if (source === 'Pacto target') return `Declared by the contract a running Pacto target reports${at}`;
   return `Declared${source ? ` in ${source}` : ''}${asOf ? `, read ${asOf}` : ''}`;
 }

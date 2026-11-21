@@ -58,8 +58,8 @@ describe('FieldProvenanceFold', () => {
       expect(r.querySelectorAll('.prov-mark')).toHaveLength(1);
       expect(r.querySelector('.prov-tip')?.textContent).toBe(fieldProvenanceText(rows[i]));
     });
-    expect(got[1].querySelector('.prov-tip')?.textContent).toBe('Accepted by ana@acme.example in invoices@0.1.0');
-    expect(got[2].querySelector('.prov-tip')?.textContent).toBe('Proposed ^1.4.0 from runtime calls, partial; never declared');
+    expect(got[1].querySelector('.prov-tip')?.textContent).toMatch(/^Accepted by ana@acme\.example in invoices@0\.1\.0 as of .+$/);
+    expect(got[2].querySelector('.prov-tip')?.textContent).toMatch(/^Proposed \^1\.4\.0 from runtime calls as of .+, partial; never declared$/);
     const long = got[4].querySelector('bdi.fpf-value') as HTMLElement;
     expect(long.textContent).toBe(LONG);
     expect(long.getAttribute('title')).toBe(LONG);
@@ -81,6 +81,26 @@ describe('FieldProvenanceFold', () => {
     expect(t.querySelectorAll('.fpf-row')).toHaveLength(5);
   });
 
+  it('says how many inferred values the filter hides, even when every row is inferred', () => {
+    const t = render({ fields: fields([rows[4], { ...rows[4], field: 'workload' }]) });
+    open(t);
+    expect(t.querySelector('[data-testid="field-provenance-inferred-hidden"]')).toBeNull();
+    (t.querySelector('[data-testid="field-provenance-show-inferred"]') as HTMLInputElement).click(); flushSync();
+    expect(t.querySelectorAll('.fpf-row')).toHaveLength(0);
+    expect(t.querySelector('[data-testid="field-provenance-inferred-hidden"]')?.textContent).toBe('2 inferred values hidden');
+    expect(t.querySelector('.fold-meta')?.textContent).toBe('2 inferred');
+  });
+
+  it('says how many replacements the bound left out', () => {
+    const t = render({ fields: null, replaces: [handover('a'), handover('b')], replacesTotal: 260 });
+    open(t);
+    expect(t.querySelectorAll('[data-testid="field-provenance-replacement"]')).toHaveLength(2);
+    expect(t.querySelector('[data-testid="field-provenance-replaces-more"]')?.textContent).toBe('258 more');
+    const all = render({ fields: null, replaces: [handover('a')], replacesTotal: 1 });
+    open(all);
+    expect(all.querySelector('[data-testid="field-provenance-replaces-more"]')).toBeNull();
+  });
+
   it('says what a truncated preview leaves out', () => {
     const many = Array.from({ length: 200 }, (_, i) => ({ field: `f${i}`, value: 'v', provenance: i % 2 ? 'inferred' : 'declared' }));
     const t = render({ fields: fields(many, { total: 1200, count: 200, truncated: true }) });
@@ -95,7 +115,7 @@ describe('FieldProvenanceFold', () => {
   it('counts the values and replacements the viewer cannot see', () => {
     const t = render({ fields: fields(rows, { hidden: 3 }), replacesHidden: 2 });
     open(t);
-    expect(t.querySelector('[data-testid="field-provenance-hidden"]')?.textContent).toBe('3 values read from a workload you cannot see');
+    expect(t.querySelector('[data-testid="field-provenance-hidden"]')?.textContent).toBe('3 values hidden by your permissions');
     expect(t.querySelector('[data-testid="field-provenance-replaces-hidden"]')?.textContent).toBe('Replaces 2 inferred services whose workload you cannot see');
   });
 

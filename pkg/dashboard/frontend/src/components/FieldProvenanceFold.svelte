@@ -11,8 +11,9 @@
   // with source, asOf and completeness. Inferred rows are muted and one checkbox hides
   // them; never a second list. Under the rows, the inferred services it replaced: the
   // newest one Pacto read a workload for shows that workload's facts, every other one is
-  // a single line, so a service that replaced hundreds never stacks hundreds of blocks.
-  let { fields = null, replaces = [], replacesHidden = 0, asOf = '' } = $props();
+  // a single line, so a service that replaced hundreds never stacks hundreds of blocks;
+  // replacesTotal counts them all, so what the bound left out reads "N more".
+  let { fields = null, replaces = [], replacesTotal = 0, replacesHidden = 0, asOf = '' } = $props();
   let showInferred = $state(true);
 
   const items = $derived(fields?.items ?? []);
@@ -20,7 +21,8 @@
   const total = $derived(fields?.total ?? items.length);
   const truncated = $derived(!!fields?.truncated);
   const hiddenFields = $derived(fields?.hidden ?? 0);
-  const anyInferred = $derived(items.some((f) => f.provenance === 'inferred'));
+  const inferredCount = $derived(items.filter((f) => f.provenance === 'inferred').length);
+  const anyInferred = $derived(inferredCount > 0);
   const shown = $derived(showInferred ? items : items.filter((f) => f.provenance !== 'inferred'));
   // The meta counts what the rows hold, by provenance, zero terms left out.
   const meta = $derived.by(() => {
@@ -48,12 +50,14 @@
         {/each}
       </dl>
     {/if}
+    {#if !showInferred && inferredCount}<p class="t-meta fpf-p" data-testid="field-provenance-inferred-hidden">{formatCount(inferredCount)} inferred {inferredCount === 1 ? 'value' : 'values'} hidden</p>{/if}
     {#if truncated && total > count}<p class="t-meta fpf-p" data-nofilter>{formatCount(total - count)} more</p>{/if}
-    {#if hiddenFields}<p class="t-meta fpf-p" data-testid="field-provenance-hidden">{formatCount(hiddenFields)} {hiddenFields === 1 ? 'value' : 'values'} read from a workload you cannot see</p>{/if}
+    {#if hiddenFields}<p class="t-meta fpf-p" data-testid="field-provenance-hidden">{formatCount(hiddenFields)} {hiddenFields === 1 ? 'value' : 'values'} hidden by your permissions</p>{/if}
     {#each list as r, i (`${i}:${r.from}`)}
       <p class="t-body-2 fpf-p" data-testid="field-provenance-replacement">{replacementLine(r, asOf)}{#if r.link === 'inferred-from' && !r.workload}. Pacto read no workload for it here{/if}</p>
       {#if r === facts}<WorkloadFacts workload={r.workload} />{/if}
     {/each}
+    {#if replacesTotal > list.length}<p class="t-meta fpf-p" data-nofilter data-testid="field-provenance-replaces-more">{formatCount(replacesTotal - list.length)} more</p>{/if}
     {#if replacesHidden}<p class="t-meta fpf-p" data-testid="field-provenance-replaces-hidden">Replaces {formatCount(replacesHidden)} inferred {replacesHidden === 1 ? 'service' : 'services'} whose workload you cannot see</p>{/if}
   </div>
 </Fold>
