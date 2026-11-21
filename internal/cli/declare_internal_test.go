@@ -353,3 +353,55 @@ func TestPullVerifyFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDeclareDraftFlag(t *testing.T) {
+	noKube(t)
+	var got app.DeclareRequest
+	run := func(req app.DeclareRequest) (*app.DeclareResult, error) {
+		p := *declarePlanFixture()
+		p.State, p.AcceptCLI = contract.DeclarationDraft, "pacto declare invoices --registry ghcr.io/acme --from-draft draft-1"
+		return &app.DeclareResult{Plan: p, Executed: true, Draft: true, Tag: "draft-1", Published: "ghcr.io/acme/invoices@sha256:7c1d"}, nil
+	}
+	out, _, err := runRoot(t, declareDeps(t, &got, nil, nil, run), nil, "declare", "invoices", "--draft", "--yes")
+	if err != nil || !got.Draft || !strings.Contains(out, "wrote draft-1 (ghcr.io/acme/invoices@sha256:7c1d): a person accepts it with pacto declare invoices") {
+		t.Fatalf("%v %+v\n%s", err, got, out)
+	}
+}
+
+func TestDeclareDraftAndFromDraftRefused(t *testing.T) {
+	noKube(t)
+	var got app.DeclareRequest
+	_, _, err := runRoot(t, declareDeps(t, &got, declarePlanFixture(), nil, nil), nil, "declare", "invoices", "--draft", "--from-draft", "draft-3")
+	if err == nil || !strings.Contains(err.Error(), "pass only one of them") || got.Service != "" {
+		t.Fatalf("%v %+v", err, got)
+	}
+}
+
+func TestDeclarePlanPrintsDrafts(t *testing.T) {
+	noKube(t)
+	var got app.DeclareRequest
+	p := declarePlanFixture()
+	p.Drafts = []app.DraftView{
+		{Tag: "draft-3", State: contract.DeclarationDraft, OnBehalfOf: "ana", Requested: []string{"audit ^1.4.0"},
+			Asker: contract.InferredSigner{Issuer: contract.SignerUnsigned, Class: contract.SignerClassAgent}},
+		{Tag: "draft-2", State: contract.DeclarationDraft, Signed: true, Asker: contract.InferredSigner{Subject: "ci@acme.com", Class: "ci"}},
+		{Tag: "draft-1", State: contract.DeclarationDraft, Reason: "its signature could not be checked: offline"},
+		{Tag: "draft-0", State: "unreadable", Reason: "it holds no readable declaration"},
+	}
+	p.DraftsTotal = 25
+	out, _, err := runRoot(t, declareDeps(t, &got, p, nil, nil), nil, "declare", "invoices")
+	want := "Drafts (newest 4 of 25):\n" +
+		"  draft-3 by an agent for ana, requests audit ^1.4.0 (unsigned)\n" +
+		"  draft-2 by ci@acme.com\n" +
+		"  draft-1 by an agent (unsigned) (its signature could not be checked: offline)\n" +
+		"  draft-0 unreadable: it holds no readable declaration\n" +
+		"intent: "
+	if err != nil || !strings.Contains(out, want) {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	p.Drafts, p.DraftsTotal = p.Drafts[:1], 1
+	out, _, _ = runRoot(t, declareDeps(t, &got, p, nil, nil), nil, "declare", "invoices")
+	if !strings.Contains(out, "Drafts:\n  draft-3 by an agent") {
+		t.Fatalf("%s", out)
+	}
+}

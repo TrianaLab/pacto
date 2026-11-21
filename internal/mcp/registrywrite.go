@@ -139,6 +139,7 @@ type DeclareArgs struct {
 	IntentDigest string   `json:"intent_digest"`
 	MaxItems     int      `json:"max_items"`
 	CallWindow   string   `json:"call_window"`
+	Draft        bool     `json:"draft"`
 }
 
 // Command is the pacto declare a person runs for a: it replays every

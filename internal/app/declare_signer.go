@@ -52,6 +52,12 @@ type declareSigning struct {
 	// when it could not be read; PolicyNote then says why.
 	Policy     *delivery.ClassPolicy
 	PolicyNote string
+	// Login is DeclareRequest.Login: a login the caller already ran, checked
+	// before the key and the ambient token, so neither ever signs in place of
+	// the person.
+	Login func(context.Context) (string, error)
+	// Draft is DeclareRequest.Draft: no login starts.
+	Draft bool
 }
 
 // declareLogin is the interactive Sigstore login a person declares with.
@@ -77,18 +83,21 @@ type signerChoice struct {
 	MayDeclare   bool
 }
 
-// declareSigner picks the signer of a declare run: the key, else the ambient
-// token, else (for a person's CLI run, never for an agent) the interactive
-// login. An ambient token is never the person: whoever runs in the shell can
-// set the ambient token, and a certificate cannot show who held it.
+// declareSigner picks the signer of a declare run: the login the caller ran
+// for this request, else the key, else the ambient token, else (for a
+// person's CLI run, never for an agent or a draft) the interactive login. An
+// ambient token is never the person: whoever runs in the shell can set the
+// ambient token, and a certificate cannot show who held it.
 func (s *Service) declareSigner(ctx context.Context, o declareSigning, agent bool) (signerChoice, error) {
 	switch {
+	case o.Login != nil && !o.Draft:
+		return s.loginDeclareSigner(ctx, o)
 	case o.Key != "":
 		return keyDeclareSigner(o)
 	case signing.HasIDToken() == nil:
 		return ambientDeclareSigner(ctx, o, agent)
-	case agent:
-		return unsignedChoice("unsigned draft: an agent has no signing identity of its own"), nil
+	case agent || o.Draft:
+		return unsignedNoLogin(agent), nil
 	}
 	return s.loginDeclareSigner(ctx, o)
 }
@@ -145,13 +154,14 @@ func ambientChoice(ctx context.Context, o declareSigning, agent bool) (signerCho
 // Sigstore login.
 func plannedSigner(ctx context.Context, o declareSigning, agent bool) (signerChoice, error) {
 	switch {
+	case o.Login != nil && !o.Draft:
 	case o.Key != "":
 		return keyDeclareSigner(o)
 	case signing.HasIDToken() == nil:
 		c, _, err := ambientChoice(ctx, o, agent)
 		return c, err
-	case agent:
-		return unsignedChoice("unsigned draft: an agent has no signing identity of its own"), nil
+	case agent || o.Draft:
+		return unsignedNoLogin(agent), nil
 	}
 	id := delivery.PublisherIdentity{Issuer: cmp.Or(o.OIDCIssuer, sigstoreIssuer), Class: delivery.ClassHuman, ClassifiedBy: "default:a person's Sigstore login"}
 	return signerChoice{Source: signerLogin, Identity: id, Class: id.Class, ClassifiedBy: id.ClassifiedBy, MayDeclare: true,
@@ -162,8 +172,14 @@ func plannedSigner(ctx context.Context, o declareSigning, agent bool) (signerCho
 // Only a login classified human may declare, and only when the installation
 // signer policy, when read, lists its issuer and subject.
 func (s *Service) loginDeclareSigner(ctx context.Context, o declareSigning) (signerChoice, error) {
-	tok, err := s.env().login(ctx, declareLogin{Issuer: cmp.Or(o.OIDCIssuer, sigstoreIssuer),
-		ClientID: cmp.Or(o.OIDCClient, sigstoreClient), Device: o.Device, Prompt: o.Prompt, Fresh: o.FreshLogin})
+	login := o.Login
+	if login == nil {
+		login = func(ctx context.Context) (string, error) {
+			return s.env().login(ctx, declareLogin{Issuer: cmp.Or(o.OIDCIssuer, sigstoreIssuer),
+				ClientID: cmp.Or(o.OIDCClient, sigstoreClient), Device: o.Device, Prompt: o.Prompt, Fresh: o.FreshLogin})
+		}
+	}
+	tok, err := login(ctx)
 	if err != nil {
 		return signerChoice{}, fmt.Errorf("the Sigstore login: %w", err)
 	}
@@ -181,6 +197,15 @@ func (s *Service) loginDeclareSigner(ctx context.Context, o declareSigning) (sig
 	}
 	c.Signer, err = declareKeyless(o, tok)
 	return c, err
+}
+
+// unsignedNoLogin is the unsigned draft of an agent, or of a person who
+// asked for a draft: no login starts.
+func unsignedNoLogin(agent bool) signerChoice {
+	if agent {
+		return unsignedChoice("unsigned draft: an agent has no signing identity of its own")
+	}
+	return unsignedChoice("unsigned draft: you asked for a draft, so no login starts; a person accepts it with --from-draft")
 }
 
 // unsignedChoice is an unsigned draft: its asker is nobody, why says so.

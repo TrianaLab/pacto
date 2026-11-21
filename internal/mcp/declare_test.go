@@ -259,3 +259,23 @@ func TestDeclareNamedOnlyWhenRegistered(t *testing.T) {
 		t.Errorf("%+v", remote["pacto_declare"].InputSchema)
 	}
 }
+
+func TestMCPDeclareDraftArgument(t *testing.T) {
+	var plans, execs []DeclareArgs
+	out, res := callDeclare(t, stubDeclarer{plans: &plans, execs: &execs}, map[string]any{"service": "invoices", "draft": true,
+		"dry_run": false, "on_behalf_of": "ana", "intent_digest": planDigest})
+	if res.IsError || len(plans) != 1 || !plans[0].Draft || len(execs) != 1 || !execs[0].Draft || out.Draft == nil {
+		t.Fatalf("%+v %+v %s", plans, execs, resultText(t, res))
+	}
+	stdio := listTools(t, mustNew("test", Authoring{Declare: stubDeclarer{}}, Modes{}))
+	if !strings.Contains(stdio["pacto_declare"].InputSchema.(map[string]any)["properties"].(map[string]any)["draft"].(map[string]any)["description"].(string), "stdio only") {
+		t.Errorf("%+v", stdio["pacto_declare"].InputSchema)
+	}
+}
+
+func TestMCPDeclareHTTPRefusesDraftArgument(t *testing.T) {
+	remote := listTools(t, mustNew("test", Authoring{Remote: true, Declare: stubDeclarer{}}, Modes{}))
+	if !strings.Contains(remote["pacto_declare"].InputSchema.(map[string]any)["properties"].(map[string]any)["draft"].(map[string]any)["description"].(string), "Refused over HTTP") {
+		t.Errorf("%+v", remote["pacto_declare"].InputSchema)
+	}
+}

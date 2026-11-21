@@ -26,8 +26,10 @@ var errOnBehalfOfRequired = errors.New("on_behalf_of is required to write a draf
 // remote says the server answers over HTTP, where it only plans.
 func registerDeclare(server *mcpsdk.Server, d Declarer, remote bool) {
 	dir := "A folder pacto init --cluster wrote, declared instead of a new draft (stdio only)"
+	draft := "Write a draft-<n> a person accepts later, without signing (stdio only)"
 	if remote {
 		dir = "Refused over HTTP: the folder would be this server's"
+		draft = "Refused over HTTP: the dashboard Declare panel saves drafts"
 	}
 	addTool(server, &mcpsdk.Tool{
 		Name:        "pacto_declare",
@@ -46,6 +48,7 @@ func registerDeclare(server *mcpsdk.Server, d Declarer, remote bool) {
 			"intent_digest": {Type: "string", Description: "With dry_run false: the intent_digest of the plan you reviewed; a different plan is refused with PlanStale"},
 			"max_items":     {Type: "integer", Description: "The most items read per kind of object (default 10000)"},
 			"call_window":   {Type: "string", Description: "How far back a call counts as a dependency, as a Go duration (default 24h)"},
+			"draft":         {Type: "boolean", Description: draft},
 		}, []string{"service"}),
 		OutputSchema: writeResultSchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a DeclareArgs) (*mcpsdk.CallToolResult, any, error) {

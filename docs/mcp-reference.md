@@ -175,8 +175,11 @@ running workload.
   writes to a registry for an agent follows. `pacto_publish_plan` and
   `pacto_publish` stay outside it.
 - It takes `service`, `namespace`, `dir` (stdio only), `registry`, `accept`,
-  `on_behalf_of`, `dry_run`, `intent_digest`, `max_items` and `call_window`.
+  `on_behalf_of`, `dry_run`, `intent_digest`, `max_items`, `call_window` and
+  `draft` (stdio only).
 - `dry_run` defaults to true: the call returns the plan and its `intentDigest`.
+  The plan lists the service's `drafts` waiting, newest first, with
+  `draftsTotal`.
 - A write needs `dry_run: false` and the `intent_digest` of the plan the agent
   reviewed. The digest binds what would be declared, never the cluster facts
   read at the time, so a re-read with the same content keeps it.

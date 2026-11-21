@@ -504,6 +504,7 @@ pacto declare <service> [flags]
       --delivery-trust string    the trust config the target snapshots that carry the owner policy are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --device[=true|false]      log in with a device code instead of a browser
       --dir string               a folder pacto init --cluster wrote, declared instead of a new draft
+      --draft[=true|false]       write a draft-<n> a person accepts later, without signing
       --from-draft string        accept this draft-<n> tag: the workload is read again and you sign
       --fulcio-url string        Fulcio to get the signing certificate from (default "https://fulcio.sigstore.dev")
   -h, --help[=true|false]        help for declare

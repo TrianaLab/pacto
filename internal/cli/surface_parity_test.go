@@ -371,6 +371,7 @@ func declareRows() []surfaceRow {
 			{"declare --dir", "pacto_declare.dir", "", why + "; over MCP dir is stdio only"},
 			{"", "pacto_declare.on_behalf_of", "", "an MCP caller is an agent and names the person it acts for; the CLI runs as that person; " + why},
 			{"declare --delivery-trust", "", "", "stdio pacto_declare reads the server's own --delivery-trust; " + why},
+			{"declare --draft", "pacto_declare.draft", "", "the dashboard Declare panel writes drafts through POST /api/fleet/declare/accept; over MCP draft is stdio only"},
 		},
 		alike("declare", "pacto_declare", "", why, "namespace", "registry", "accept", "max-items", "call-window"),
 		alike("declare", "", "", whyLocal, "from-draft", "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",

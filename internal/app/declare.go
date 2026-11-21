@@ -57,6 +57,16 @@ type DeclareRequest struct {
 	// OnPlan, when set, is handed the plan before any login starts or
 	// anything is written.
 	OnPlan func(*DeclarePlan)
+	// Draft writes a draft-<n> a person accepts later, without starting the
+	// login, even when a person runs it.
+	Draft bool
+	// Visible says which namespaces the person the read runs for may read;
+	// nil means the API server already authorized the caller's credentials.
+	Visible func(namespace string) bool
+	// Login is a login the caller already ran for this request; when set it
+	// replaces the service's login and counts as the person's interactive
+	// login.
+	Login func(context.Context) (string, error)
 }
 
 // DeclarePlan is what a declare run would publish, signed by whom, decided
@@ -98,6 +108,10 @@ type DeclarePlan struct {
 	// is known about what backs the declared changes.
 	UnbackedUnchecked string       `json:"unbackedUnchecked,omitempty"`
 	Publish           publish.Plan `json:"publish"`
+	// Drafts are the bundle repository's draft-<n> tags, newest first, at
+	// most MaxListedDrafts; DraftsTotal counts them all.
+	Drafts      []DraftView `json:"drafts,omitempty"`
+	DraftsTotal int         `json:"draftsTotal,omitempty"`
 }
 
 // DeclareBaseline is the published version a declaration starts from and
@@ -214,6 +228,7 @@ func (s *Service) PlanDeclare(ctx context.Context, req DeclareRequest) (*Declare
 		return nil, nil, &DeclareError{Code: codeNoRegistry, Message: "declaring a service needs the registry its contract is published to (--registry)",
 			CLI: req.command("")}
 	}
+	req.Signing.Login, req.Signing.Draft = req.Login, req.Draft
 	if req.FromDraft != "" {
 		return s.fromDraft(ctx, req)
 	}
@@ -263,6 +278,7 @@ func (pl *declarePlanner) run(ctx context.Context) (*declaration, error) {
 	if err != nil {
 		return nil, err
 	}
+	pl.plan.Drafts, pl.plan.DraftsTotal = pl.drafts(ctx)
 	pl.identify(ctx)
 	return pl.finish(ctx, raw, pl.rec)
 }
@@ -312,8 +328,22 @@ func (pl *declarePlanner) source(ctx context.Context) error {
 }
 
 // draft runs the cluster read for workload into the scratch folder.
+// For a viewer (req.Visible) the read is scoped to the workload's namespace
+// whenever it is known, and a namespace the viewer may not read is never
+// listed: it reads as no workload, so a hidden namespace answers as a
+// missing one.
 func (pl *declarePlanner) draft(ctx context.Context, workload string, nss []string) error {
-	co := pactify.ClusterOptions{Workload: workload, Namespaces: nss, Out: pl.scratch, MaxItems: pl.req.MaxItems, CallWindow: pl.req.CallWindow}
+	ns, _, named := strings.Cut(workload, "/")
+	if len(nss) > 0 {
+		ns, named = nss[0], true
+	}
+	if pl.req.Visible != nil && named {
+		if !pl.req.Visible(ns) {
+			return &DeclareError{Code: codeWorkloadNotFound, Message: "no workload " + workload + " was found"}
+		}
+		nss = []string{ns}
+	}
+	co := pactify.ClusterOptions{Workload: workload, Namespaces: nss, Out: pl.scratch, MaxItems: pl.req.MaxItems, CallWindow: pl.req.CallWindow, Visible: pl.req.Visible}
 	b, err := pactify.Cluster(ctx, pl.req.Dynamic, pactify.Options{}, co, pl.s.env().writeFile)
 	for code, kind := range map[string]error{codeWorkloadNotFound: pactify.ErrWorkloadNotFound, codeWorkloadAmbiguous: pactify.ErrWorkloadAmbiguous, codeAlreadyDeclared: pactify.ErrAlreadyDeclared} {
 		if errors.Is(err, kind) {

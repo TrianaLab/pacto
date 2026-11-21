@@ -259,7 +259,8 @@ running workload, without a repository or a build.
 - **Drafts.** `pacto declare <workload> --from-draft draft-<n> --yes` accepts a
   draft an agent or CI wrote: the workload is read again under your
   credentials, every declared change the read and the baseline do not back is
-  flagged and you sign.
+  flagged and you sign. `--draft` writes your own draft, unsigned and with no
+  login, for someone to accept later. Every plan lists the drafts waiting.
 - **Verify.** `pacto pull --verify-identity <email> --verify-issuer <issuer>`
   pulls a bundle only when that person signed it; `--verify-key` checks a key
   instead. The record's `declaration` block is in the

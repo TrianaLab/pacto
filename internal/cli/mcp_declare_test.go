@@ -314,6 +314,23 @@ func TestMCPDeclareHTTPRefusesDir(t *testing.T) {
 	}
 }
 
+// TestMCPDeclareHTTPRefusesDraftArgument: the HTTP server writes no draft,
+// so it refuses draft as it refuses dir, before any read.
+func TestMCPDeclareHTTPRefusesDraftArgument(t *testing.T) {
+	rd := newRemoteDeclarer(app.NewService(nil, nil), []string{"oci://ghcr.io/acme/ledger"}, nil)
+	_, refused, err := rd.Plan(remoteCtx(nil), pactomcp.DeclareArgs{Service: "invoices", Draft: true, Registry: "ghcr.io/acme"})
+	if err != nil || refused == nil || refused.Code != pactomcp.RefusalExecuteNeedsStdio || !strings.Contains(refused.Message, "pacto declare --draft") {
+		t.Fatalf("%+v %v", refused, err)
+	}
+}
+
+func TestMCPDeclareStdioPassesDraft(t *testing.T) {
+	req, err := newMCPDeclarer(nil, "").request(pactomcp.DeclareArgs{Service: "invoices", Draft: true})
+	if err != nil || !req.Draft || !req.Agent {
+		t.Fatalf("%+v %v", req, err)
+	}
+}
+
 func TestMCPDeclareHTTPRefusesForeignRegistry(t *testing.T) {
 	rd := newRemoteDeclarer(app.NewService(nil, nil), []string{"oci://ghcr.io/acme/ledger:1.0.0", "ghcr.io/acme/orders@sha256:aa"}, nil)
 	for reg, ok := range map[string]bool{"ghcr.io/acme": true, "ghcr.io/acme/orders": true, "ghcr.io/acme/ledger/sub": true,

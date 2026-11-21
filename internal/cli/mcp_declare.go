@@ -62,7 +62,7 @@ func (m mcpDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (json.
 func (m mcpDeclarer) request(a pactomcp.DeclareArgs) (app.DeclareRequest, error) {
 	req := m.base
 	req.Namespace, req.Dir, req.Registry, req.Accept = a.Namespace, a.Dir, a.Registry, a.Accept
-	req.OnBehalfOf, req.IntentDigest, req.MaxItems, req.Agent = a.OnBehalfOf, a.IntentDigest, a.MaxItems, true
+	req.OnBehalfOf, req.IntentDigest, req.MaxItems, req.Agent, req.Draft = a.OnBehalfOf, a.IntentDigest, a.MaxItems, true, a.Draft
 	if a.CallWindow != "" {
 		w, err := time.ParseDuration(a.CallWindow)
 		if err != nil {
@@ -123,6 +123,10 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "dir names a folder of this server: declare a folder with pacto declare --dir " +
 			"on your machine, or pacto_declare over stdio", CLI: a.Command("")}, nil
 	}
+	if a.Draft {
+		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server writes no draft: save one with pacto declare --draft " +
+			"on your machine, or pacto_declare over stdio", CLI: a.Command("")}, nil
+	}
 	if !r.reads(a.Registry) {
 		return nil, &pactomcp.Refused{Code: pactomcp.RefusalNoRegistry, Message: "this server plans declarations only in the registries it reads (" +
 			strings.Join(r.repos, ", ") + "): run pacto declare on your machine with your own registry credentials", CLI: a.Command("")}, nil
@@ -143,7 +147,7 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 		p.Signer = app.SignerView{Class: contract.SignerClassAgent, Source: "none",
 			Why: "this HTTP server writes nothing: a person runs the plan's pacto declare command"}
 		p.State, p.AcceptCLI = "", ""
-		baseline := p.Baseline != nil || len(p.Skipped) > 0 || baselineRefusal(err)
+		baseline := p.Baseline != nil || len(p.Skipped) > 0 || p.DraftsTotal > 0 || baselineRefusal(err)
 		if (baseline || len(p.MayAccept) > 0 || ownerRefusal(err)) && !r.shows(ctx, p.Service) {
 			if baseline {
 				p, err = baselineHidden(p), hiddenRefusal(p.Service, err)
