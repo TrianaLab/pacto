@@ -673,7 +673,7 @@ func TestMeshReadsOnlyDiscoveryServicesNamespaces(t *testing.T) {
 			t.Errorf("listed %v", gvr)
 		}
 	}
-	if len(f.gvrs) != 2 || !slices.Equal(f.discovered, []string{istioGroup}) {
+	if len(f.gvrs) != 2 || !slices.Equal(f.discovered, []string{istioGroup, "linkerd.io", "policy.linkerd.io"}) {
 		t.Errorf("listed %v discovered %v", f.gvrs, f.discovered)
 	}
 }
@@ -707,5 +707,178 @@ func TestPromSeriesValue(t *testing.T) {
 	}
 	if edges, _ := foldCalls([]meshCall{{from: "a", to: "b", count: 1e300}}, meshNow); edges[0].Count != 1e15 {
 		t.Errorf("an infinite count %+v", edges)
+	}
+}
+
+// nsAnnotated is a Namespace list item carrying one k=v annotation.
+func nsAnnotated(name, annotation string) string {
+	k, v, _ := strings.Cut(annotation, "=")
+	b, _ := json.Marshal(map[string]any{"metadata": map[string]any{"name": name, "annotations": map[string]string{k: v}}})
+	return string(b)
+}
+
+// lkSeries is one Linkerd outbound series; labels are k=v pairs.
+func lkSeries(v string, labels ...string) string {
+	m := map[string]string{}
+	for _, kv := range labels {
+		k, val, _ := strings.Cut(kv, "=")
+		m[k] = val
+	}
+	b, _ := json.Marshal(map[string]any{"metric": m, "value": []any{float64(meshNow.Unix()), v}})
+	return string(b)
+}
+
+// linkerdMesh serves only Linkerd: its control plane in linkerd, viz with its
+// Prometheus in linkerd-viz and one injected namespace, shop.
+func linkerdMesh(extraSvcs []string, extraNS ...string) *meshFake {
+	f := meshClient(true, append([]string{
+		svcJSON("linkerd", "linkerd-destination", "", "linkerd.io/control-plane-component=destination"),
+		svcJSON("linkerd-viz", "web", "", "linkerd.io/extension=viz"),
+		svcJSON("linkerd-viz", "prometheus", "", "linkerd.io/extension=viz", "component=prometheus"),
+		svcJSON("shop", "cart", "")}, extraSvcs...),
+		append([]string{nsJSON("linkerd"), nsJSON("linkerd-viz"), nsAnnotated("shop", "linkerd.io/inject=enabled")}, extraNS...))
+	f.versions = map[string]string{"policy.linkerd.io": "v1beta3", "linkerd.io": "v1alpha2"}
+	return f
+}
+
+// linkerdRow is the one row of col, the Linkerd one.
+func linkerdRow(t *testing.T, col *fleet.Collection) fleet.Provider {
+	t.Helper()
+	if len(col.Providers) != 1 || col.Providers[0].ID != fleet.ProviderLinkerd {
+		t.Fatalf("providers %+v", col.Providers)
+	}
+	return col.Providers[0]
+}
+
+func TestMeshLinkerdEdgesByKind(t *testing.T) {
+	p := newProm(t, answer(vector(
+		lkSeries("7.6", "namespace=shop", "deployment=cart", "dst_namespace=shop", "dst_statefulset=ledger"),
+		lkSeries("2", "namespace=shop", "daemonset=agent", "dst_namespace=shop", "dst_deployment=cart"))))
+	col := collectMesh(t, meshSource(linkerdMesh(nil), nil, map[string]*promStub{"linkerd-viz/prometheus": p}, nil))
+	want := []fleet.ObservedEdge{
+		{From: "k8s:shop/Deployment/cart", To: "k8s:shop/StatefulSet/ledger", Count: 8, FirstSeen: meshNow.Add(-time.Hour), LastSeen: meshNow},
+		{From: "k8s:shop/DaemonSet/agent", To: "k8s:shop/Deployment/cart", Count: 2, FirstSeen: meshNow.Add(-time.Hour), LastSeen: meshNow},
+	}
+	if !slices.Equal(col.Observed, want) || !col.ObservedUndeclaredOnly {
+		t.Errorf("observed %+v", col.Observed)
+	}
+	for _, e := range col.Observed {
+		for _, end := range []string{e.From, e.To} {
+			if _, _, kind, _, ok := fleet.ParseK8sCaller(end); !ok || kind == "" {
+				t.Errorf("end %q has no kind", end)
+			}
+		}
+	}
+	checkLinkerdRead(t, linkerdRow(t, col), p)
+}
+
+// checkLinkerdRead checks the row and the query of a full Linkerd read.
+func checkLinkerdRead(t *testing.T, row fleet.Provider, p *promStub) {
+	t.Helper()
+	if row.Status != fleet.SourceAvailable || row.Name != "Linkerd" || row.Evidence != "serves policy.linkerd.io; calls read from Prometheus" ||
+		!slices.Equal(row.UsedFor, []string{fleet.UseObservedEdges}) || len(row.Limitations) != 0 {
+		t.Errorf("row %+v", row)
+	}
+	if !slices.Contains(row.Objects, fleet.ProviderObject{Kind: "Service", Namespace: "linkerd", Name: "linkerd-destination"}) ||
+		!slices.Contains(row.Objects, fleet.ProviderObject{Kind: "Service", Namespace: "linkerd-viz", Name: "prometheus"}) ||
+		slices.Contains(row.Objects, fleet.ProviderObject{Kind: "Service", Namespace: "linkerd-viz", Name: "web"}) {
+		t.Errorf("objects %+v", row.Objects)
+	}
+	q, _ := url.ParseQuery(p.reqs[0].URL.RawQuery)
+	if !strings.Contains(q.Get("query"), `increase(response_total{direction="outbound"}[1h])`) || !strings.Contains(q.Get("query"), "target_cluster_name") {
+		t.Errorf("query %q", q.Get("query"))
+	}
+}
+
+func TestMeshLinkerdOnlyLinkerdGroupServed(t *testing.T) {
+	f := linkerdMesh(nil)
+	f.versions = map[string]string{"linkerd.io": "v1alpha2"}
+	if row := linkerdRow(t, collectMesh(t, meshSource(f, nil, nil, nil))); row.Evidence != "serves linkerd.io; Prometheus found, calls not read" {
+		t.Errorf("row %+v", row)
+	}
+}
+
+func TestMeshLinkerdJobCallerUnattributed(t *testing.T) {
+	p := newProm(t, answer(vector(
+		lkSeries("4", "namespace=shop", "k8s_job=migrate", "dst_namespace=shop", "dst_deployment=cart"),
+		lkSeries("4", "namespace=shop", "deployment=cart", "dst_namespace=shop"))))
+	col := collectMesh(t, meshSource(linkerdMesh(nil), nil, map[string]*promStub{"linkerd-viz/prometheus": p}, nil))
+	row := linkerdRow(t, col)
+	if len(col.Observed) != 0 || row.Status != fleet.SourcePartial || !hasMessage(row, fleet.LimitationMeshCallsUnattributed, "2 call series had an end Pacto could not name") {
+		t.Errorf("row %+v observed %+v", row, col.Observed)
+	}
+}
+
+func TestMeshLinkerdInjectAnnotationCovers(t *testing.T) {
+	p := newProm(t, answer(vector(lkSeries("1", "namespace=shop", "deployment=cart", "dst_namespace=shop", "dst_deployment=ledger"))))
+	f := linkerdMesh([]string{svcJSON("a", "app", ""), svcJSON("b", "app", "")},
+		nsAnnotated("a", "linkerd.io/inject=enabled"), nsJSON("b", "istio-injection=enabled"))
+	row := linkerdRow(t, collectMesh(t, meshSource(f, nil, map[string]*promStub{"linkerd-viz/prometheus": p}, nil)))
+	if row.Status != fleet.SourcePartial || !hasMessage(row, fleet.LimitationMeshCoveragePartial, "1 namespace without sidecars") ||
+		!slices.Contains(row.Objects, fleet.ProviderObject{Kind: "Namespace", Namespace: "b", Name: "b"}) || len(row.Limitations) != 1 {
+		t.Errorf("row %+v", row)
+	}
+}
+
+func TestMeshLinkerdPrefersVizPrometheus(t *testing.T) {
+	viz := newProm(t, answer(vector(lkSeries("1", "namespace=shop", "deployment=cart", "dst_namespace=shop", "dst_deployment=ledger"))))
+	operated := newProm(t, answer(vector(lkSeries("1", "namespace=shop", "deployment=x", "dst_namespace=shop", "dst_deployment=y"))))
+	f := linkerdMesh([]string{svcJSON("linkerd", "prometheus-operated", "", "operated-prometheus=true")})
+	var asked []string
+	col := collectMesh(t, meshSource(f, nil, map[string]*promStub{"linkerd-viz/prometheus": viz, "linkerd/prometheus-operated": operated}, &asked))
+	if !slices.Equal(asked, []string{"linkerd-viz/prometheus"}) || len(col.Observed) != 1 || col.Observed[0].To != "k8s:shop/Deployment/ledger" {
+		t.Errorf("asked %v observed %+v", asked, col.Observed)
+	}
+}
+
+func TestMeshIstioAndLinkerdTwoRows(t *testing.T) {
+	f := linkerdMesh([]string{svcJSON("istio-system", "istiod", "", "app=istiod"), svcJSON("istio-system", "prom-main", "", "app.kubernetes.io/name=prometheus")},
+		nsJSON("istio-system"))
+	f.versions[istioGroup] = "v1"
+	byQuery := func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Query().Get("query"), "istio_requests_total") {
+			_, _ = w.Write([]byte(istioAnswer()))
+			return
+		}
+		_, _ = w.Write([]byte(vector(lkSeries("3", "namespace=shop", "deployment=cart", "dst_namespace=shop", "dst_deployment=ledger"))))
+	}
+	istio, lk := newProm(t, byQuery), newProm(t, byQuery)
+	col := collectMesh(t, meshSource(f, nil, map[string]*promStub{"istio-system/prom-main": istio, "linkerd-viz/prometheus": lk}, nil))
+	if len(col.Providers) != 2 || col.Providers[0].ID != fleet.ProviderIstio || col.Providers[1].ID != fleet.ProviderLinkerd {
+		t.Fatalf("providers %+v", col.Providers)
+	}
+	// shop is injected by Linkerd only, so Istio reads it uncovered.
+	if col.Providers[0].Status != fleet.SourcePartial || col.Providers[1].Status != fleet.SourceAvailable || col.State.Status != fleet.SourcePartial {
+		t.Errorf("rows %+v state %+v", col.Providers, col.State)
+	}
+	if len(col.Observed) != 3 || !slices.ContainsFunc(col.Observed, func(e fleet.ObservedEdge) bool { return e.From == "k8s:shop/Deployment/cart" }) ||
+		!slices.ContainsFunc(col.Observed, func(e fleet.ObservedEdge) bool { return e.From == "k8s:shop//cart" }) {
+		t.Errorf("observed %+v", col.Observed)
+	}
+	if !slices.Equal(f.discovered, []string{istioGroup, "linkerd.io", "policy.linkerd.io"}) {
+		t.Errorf("discovered %v", f.discovered)
+	}
+}
+
+func TestMeshLinkerdScopedAndCrossCluster(t *testing.T) {
+	p := newProm(t, answer(vector(
+		lkSeries("3", "namespace=shop", "deployment=cart", "dst_namespace=shop", "dst_deployment=ledger"),
+		lkSeries("3", "namespace=shop", "deployment=cart", "dst_namespace=shop", "dst_deployment=ledger-west", "target_cluster_name=west"),
+		lkSeries("3", "namespace=shop", "deployment=cart", "dst_namespace=hidden", "dst_deployment=secret"))))
+	col := collectMesh(t, meshSource(linkerdMesh(nil), []string{"shop", "linkerd-viz"}, map[string]*promStub{"linkerd-viz/prometheus": p}, nil))
+	row := linkerdRow(t, col)
+	if len(col.Observed) != 1 || col.Observed[0].To != "k8s:shop/Deployment/ledger" ||
+		!hasMessage(row, fleet.LimitationMeshCallsUnattributed, "1 cross-cluster call was not attributed") ||
+		!hasMessage(row, fleet.LimitationMeshCallsUnattributed, "1 call series reach namespaces this installation does not read") {
+		t.Errorf("observed %+v lims %v", col.Observed, messages(row))
+	}
+	for _, text := range append(messages(row), row.Evidence) {
+		if strings.Contains(text, "hidden") || strings.Contains(text, "west") {
+			t.Errorf("%q names what is out of scope", text)
+		}
+	}
+	q := p.reqs[0].URL.Query().Get("query")
+	if !strings.Contains(q, `{direction="outbound",namespace=~"linkerd-viz|shop",dst_namespace=~"linkerd-viz|shop"}`) {
+		t.Errorf("query %q", q)
 	}
 }

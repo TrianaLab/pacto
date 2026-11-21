@@ -198,34 +198,105 @@ type meshCall struct {
 	reporter string
 }
 
+// callEnds is what one series says about a call: its two ends as K8sCaller
+// names ("" when the mesh could not name one), their namespaces, the cluster
+// it was seen in and whether it crossed to another cluster.
+type callEnds struct {
+	from, to, fromNS, toNS string
+	cluster, reporter      string
+	cross                  bool
+}
+
+// istioEnds reads an Istio series: kindless names, cross-cluster when its
+// two cluster labels differ.
+func istioEnds(m map[string]string) callEnds {
+	srcNS, dstNS := named(m["source_workload_namespace"]), named(m["destination_workload_namespace"])
+	src, dst := named(m["source_workload"]), named(m["destination_workload"])
+	srcCluster, dstCluster := named(m["source_cluster"]), named(m["destination_cluster"])
+	e := callEnds{fromNS: srcNS, toNS: dstNS, reporter: m["reporter"], cluster: cmp.Or(srcCluster, dstCluster),
+		cross: srcCluster != "" && dstCluster != "" && srcCluster != dstCluster}
+	if srcNS != "" && src != "" {
+		e.from = fleet.K8sCaller("", srcNS, "", src)
+	}
+	if dstNS != "" && dst != "" {
+		e.to = fleet.K8sCaller("", dstNS, "", dst)
+	}
+	return e
+}
+
 // istioEdges folds Istio series into kindless edges: the larger of the two
 // reporters per pair, ends Pacto cannot name, ends outside namespaces and
 // cross-cluster series counted and left out, nothing when the calls kept
 // belong to several clusters.
 func istioEdges(series []promSeries, asOf time.Time, namespaces []string) ([]fleet.ObservedEdge, meshTally) {
+	return seriesEdges(series, asOf, namespaces, istioEnds)
+}
+
+// linkerdBy are the labels the Linkerd query keeps.
+const linkerdBy = "namespace, deployment, statefulset, daemonset, dst_namespace, dst_deployment, dst_statefulset, dst_daemonset, target_cluster_name"
+
+// linkerdQuery is the outbound responses and TCP connections of the last
+// hour between workloads, both ends narrowed to namespaces when scoped.
+func linkerdQuery(namespaces []string) string {
+	sel := `direction="outbound"`
+	if m := scopeMatcher("namespace", namespaces); m != "" {
+		sel += "," + m + "," + scopeMatcher("dst_namespace", namespaces)
+	}
+	return fmt.Sprintf("sum by (%s) (increase(response_total{%s}[1h])) or sum by (%s) (increase(tcp_open_total{%s}[1h]))",
+		linkerdBy, sel, linkerdBy, sel)
+}
+
+// linkerdWorkloads are the workload labels a Linkerd proxy sets, and their
+// kinds.
+var linkerdWorkloads = [][2]string{{"deployment", "Deployment"}, {"statefulset", "StatefulSet"}, {"daemonset", "DaemonSet"}}
+
+// linkerdEnd is the K8sCaller name of the end whose labels start with
+// prefix, "" when no workload label is set (a Job pod, an unmeshed peer).
+func linkerdEnd(m map[string]string, prefix string) string {
+	ns := m[prefix+"namespace"]
+	for _, w := range linkerdWorkloads {
+		if name := m[prefix+w[0]]; name != "" && ns != "" {
+			return fleet.K8sCaller("", ns, w[1], name)
+		}
+	}
+	return ""
+}
+
+// linkerdEnds reads a Linkerd outbound series: named with their kind, a call
+// to a mirrored service of another cluster (target_cluster_name) crossing.
+func linkerdEnds(m map[string]string) callEnds {
+	return callEnds{from: linkerdEnd(m, ""), to: linkerdEnd(m, "dst_"), fromNS: m["namespace"], toNS: m["dst_namespace"],
+		cross: m["target_cluster_name"] != ""}
+}
+
+// linkerdEdges folds Linkerd series into edges named with their kind; the
+// same rules as istioEdges.
+func linkerdEdges(series []promSeries, asOf time.Time, namespaces []string) ([]fleet.ObservedEdge, meshTally) {
+	return seriesEdges(series, asOf, namespaces, linkerdEnds)
+}
+
+// seriesEdges folds series read by ends into edges, counting and leaving
+// out ends Pacto cannot name, ends outside namespaces and cross-cluster
+// calls, and giving nothing when the calls kept belong to several clusters.
+func seriesEdges(series []promSeries, asOf time.Time, namespaces []string, ends func(map[string]string) callEnds) ([]fleet.ObservedEdge, meshTally) {
 	var t meshTally
 	var calls []meshCall
 	clusters := map[string]bool{}
 	for _, p := range series {
-		m, v := p.Metric, p.value()
+		v := p.value()
 		if v <= 0 {
 			continue
 		}
-		srcCluster, dstCluster := named(m["source_cluster"]), named(m["destination_cluster"])
-		switch src, dst := m["source_workload"], m["destination_workload"]; {
-		case named(src) == "" || named(dst) == "" || named(m["source_workload_namespace"]) == "" || named(m["destination_workload_namespace"]) == "":
+		switch e := ends(p.Metric); {
+		case e.from == "" || e.to == "":
 			t.unattributed++
-		case !inScope(namespaces, m["source_workload_namespace"]) || !inScope(namespaces, m["destination_workload_namespace"]):
+		case !inScope(namespaces, e.fromNS) || !inScope(namespaces, e.toNS):
 			t.outOfScope++
-		case srcCluster != "" && dstCluster != "" && srcCluster != dstCluster:
+		case e.cross:
 			t.crossCluster++
 		default:
-			clusters[cmp.Or(srcCluster, dstCluster)] = true
-			calls = append(calls, meshCall{
-				from:  fleet.K8sCaller("", m["source_workload_namespace"], "", src),
-				to:    fleet.K8sCaller("", m["destination_workload_namespace"], "", dst),
-				count: v, reporter: m["reporter"],
-			})
+			clusters[e.cluster] = true
+			calls = append(calls, meshCall{from: e.from, to: e.to, count: v, reporter: e.reporter})
 		}
 	}
 	delete(clusters, "")

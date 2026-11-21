@@ -30,8 +30,53 @@ const (
 	maxPromCandidates = 3                // Prometheus Services asked at most
 )
 
-// istioGroup is the API group whose discovery says Istio runs.
-const istioGroup = "networking.istio.io"
+// API groups whose discovery says a mesh runs.
+const (
+	istioGroup         = "networking.istio.io"
+	linkerdGroup       = "linkerd.io"
+	linkerdPolicyGroup = "policy.linkerd.io"
+)
+
+// meshKind is what tells one mesh apart: how it is found, which of its
+// Services are its control plane, which namespaces it covers and how its
+// Prometheus series fold into edges.
+type meshKind struct {
+	id, name, metric string
+	// controlPlane marks the Services listed as the mesh's own objects;
+	// trusts adds namespaces a Prometheus may be trusted in (nil: none).
+	controlPlane, trusts func(svcInfo) bool
+	covers               func(nsInfo) bool
+	preferViz            bool
+	query                func(namespaces []string) string
+	edges                func(series []promSeries, asOf time.Time, namespaces []string) ([]fleet.ObservedEdge, meshTally)
+}
+
+var istioKind = meshKind{
+	id: fleet.ProviderIstio, name: "Istio", metric: "istio_requests_total",
+	controlPlane: func(svc svcInfo) bool { return svc.Labels["app"] == "istiod" },
+	covers:       istioCovers, query: istioQuery, edges: istioEdges,
+}
+
+var linkerdKind = meshKind{
+	id: fleet.ProviderLinkerd, name: "Linkerd", metric: "response_total",
+	controlPlane: func(svc svcInfo) bool { _, ok := svc.Labels["linkerd.io/control-plane-component"]; return ok },
+	trusts:       func(svc svcInfo) bool { return svc.Labels["linkerd.io/extension"] == "viz" },
+	covers:       linkerdCovers, preferViz: true, query: linkerdQuery, edges: linkerdEdges,
+}
+
+// meshesServed is each mesh served with the group its evidence names.
+func meshesServed(served map[string]string) (kinds []meshKind, groups []string) {
+	if _, ok := served[istioGroup]; ok {
+		kinds, groups = append(kinds, istioKind), append(groups, istioGroup)
+	}
+	for _, g := range []string{linkerdPolicyGroup, linkerdGroup} {
+		if _, ok := served[g]; ok {
+			kinds, groups = append(kinds, linkerdKind), append(groups, g)
+			break
+		}
+	}
+	return kinds, groups
+}
 
 var (
 	servicesGVR   = schema.GroupVersionResource{Version: "v1", Resource: "services"}
@@ -125,17 +170,18 @@ func cloneCollection(c *fleet.Collection) *fleet.Collection {
 func (s *MeshSource) read(ctx context.Context) *fleet.Collection {
 	now := s.now()
 	col := &fleet.Collection{Advisory: true, Cluster: s.cluster}
-	served, err := s.client.PreferredVersions(ctx, istioGroup)
+	served, err := s.client.PreferredVersions(ctx, istioGroup, linkerdGroup, linkerdPolicyGroup)
 	if err != nil {
 		col.State = &fleet.SourceState{Status: fleet.SourceUnavailable, Error: &fleet.SourceError{
 			Code: "DISCOVERY_FAILED", Message: "API discovery failed, so Pacto cannot tell whether a service mesh runs"}}
 		return col
 	}
 	status := fleet.SourceAvailable
-	if len(served) > 0 {
+	if kinds, groups := meshesServed(served); len(kinds) > 0 {
 		cl := s.listCluster(ctx)
-		if _, ok := served[istioGroup]; ok {
-			row, edges := s.istioRead(ctx, cl, now)
+		cl.controlPlanes = controlPlaneNamespaces(cl.services, kinds)
+		for i, k := range kinds {
+			row, edges := s.meshRead(ctx, cl, now, k, groups[i])
 			col.Providers = append(col.Providers, row)
 			col.Observed = append(col.Observed, edges...)
 		}
@@ -177,6 +223,9 @@ type meshCluster struct {
 	namespaces   []nsInfo
 	servicesLim  []fleet.Limitation
 	namespaceErr bool
+	// controlPlanes are the namespaces of every mesh found's control plane;
+	// no mesh counts them toward its coverage.
+	controlPlanes []string
 }
 
 // k8sObject is the list item shape of a Service or a Namespace.
@@ -236,41 +285,56 @@ func listAll(ctx context.Context, c k8sclient.K8sClient, gvr schema.GroupVersion
 	}
 }
 
-// istioRead is the Istio row and the calls its Prometheus recorded.
-func (s *MeshSource) istioRead(ctx context.Context, cl meshCluster, now time.Time) (fleet.Provider, []fleet.ObservedEdge) {
+// controlPlaneNamespaces are the namespaces holding a control-plane Service
+// of any of kinds.
+func controlPlaneNamespaces(services []svcInfo, kinds []meshKind) []string {
+	var out []string
+	for _, svc := range services {
+		if slices.ContainsFunc(kinds, func(k meshKind) bool { return k.controlPlane(svc) }) && !slices.Contains(out, svc.Namespace) {
+			out = append(out, svc.Namespace)
+		}
+	}
+	return out
+}
+
+// meshRead is the row of mesh k, whose evidence names group, and the calls
+// its Prometheus recorded.
+func (s *MeshSource) meshRead(ctx context.Context, cl meshCluster, now time.Time, k meshKind, group string) (fleet.Provider, []fleet.ObservedEdge) {
 	var objects []fleet.ProviderObject
 	var trusted []string
 	for _, svc := range cl.services {
-		if svc.Labels["app"] == "istiod" {
+		if k.controlPlane(svc) {
 			objects = append(objects, serviceObject(svc))
+		}
+		if (k.controlPlane(svc) || k.trusts != nil && k.trusts(svc)) && !slices.Contains(trusted, svc.Namespace) {
 			trusted = append(trusted, svc.Namespace)
 		}
 	}
 	lims := slices.Clone(cl.servicesLim)
-	cov, covLims := s.coverage(cl, trusted, istioCovers)
+	cov, covLims := s.coverage(cl, append(slices.Clone(cl.controlPlanes), trusted...), k.covers)
 	objects, lims = append(objects, cov...), append(lims, covLims...)
-	cands, candLims := prometheusCandidates(cl.services, trusted, false)
+	cands, candLims := prometheusCandidates(cl.services, trusted, k.preferViz)
 	for i := range candLims {
 		candLims[i].Source = s.id
 	}
 	lims = append(lims, candLims...)
-	evidence := "serves " + istioGroup + "; no Prometheus found"
+	evidence := "serves " + group + "; no Prometheus found"
 	var edges []fleet.ObservedEdge
 	// Several untrusted servers already said why none is asked.
 	if len(cands) > 0 || len(candLims) == 0 {
-		cand, series, qLims := s.firstAnswer(ctx, cands, istioQuery(s.namespaces), "istio_requests_total")
+		cand, series, qLims := s.firstAnswer(ctx, cands, k.query(s.namespaces), k.metric)
 		lims = append(lims, qLims...)
 		if len(cands) > 0 {
-			objects, evidence = append(objects, serviceObject(cand)), "serves "+istioGroup+"; Prometheus found, calls not read"
+			objects, evidence = append(objects, serviceObject(cand)), "serves "+group+"; Prometheus found, calls not read"
 		}
 		if len(qLims) == 0 {
-			evidence = "serves " + istioGroup + "; calls read from Prometheus"
+			evidence = "serves " + group + "; calls read from Prometheus"
 			var tally meshTally
-			edges, tally = istioEdges(series, now, s.namespaces)
+			edges, tally = k.edges(series, now, s.namespaces)
 			lims = append(lims, tally.limitations(s.id)...)
 		}
 	}
-	return meshRow(fleet.ProviderIstio, "Istio", evidence, objects, lims), edges
+	return meshRow(k.id, k.name, evidence, objects, lims), edges
 }
 
 // coverage is the uncovered namespaces as objects and their count-only
@@ -314,6 +378,11 @@ func meshCoverage(namespaces []nsInfo, services []svcInfo, excluded []string, co
 func istioCovers(ns nsInfo) bool {
 	_, rev := ns.Labels["istio.io/rev"]
 	return ns.Labels["istio-injection"] == "enabled" || rev || ns.Labels["istio.io/dataplane-mode"] == "ambient"
+}
+
+// linkerdCovers reports whether Linkerd injects the namespace's pods.
+func linkerdCovers(ns nsInfo) bool {
+	return ns.Annotations["linkerd.io/inject"] == "enabled"
 }
 
 // promClass is one label class of Prometheus Services, in the order asked.

@@ -79,6 +79,8 @@ const LimitationRegistryProbeFailed = "REGISTRY_PROBE_FAILED"
 const (
 	// ProviderIstio is the row of the Istio mesh a mesh source found.
 	ProviderIstio = "istio"
+	// ProviderLinkerd is the row of the Linkerd mesh a mesh source found.
+	ProviderLinkerd = "linkerd"
 	// UseObservedEdges: Pacto reads observed calls from what the row read.
 	UseObservedEdges = "observed-edges"
 	// LimitationMeshTelemetryUnread: a mesh was found but the calls it
