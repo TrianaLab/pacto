@@ -144,7 +144,7 @@ jobs:
     needs: [changes, pacto-bin]
     if: needs.changes.outputs.ci-step == 'true'
     permissions: {contents: read, packages: write, id-token: write, pull-requests: write}
-    uses: TrianaLab/pacto-actions/.github/workflows/ci.yml@9aa2d88798c266c2de13b8bef000c1da750966cd # v2.0.0
+    uses: TrianaLab/pacto-actions/.github/workflows/ci.yml@8b64cfe46f01f82a1b990afc5b64a01a73d0f4d0 # v2.0.0
     with:
       path: examples/demo/monorepo
       pacto-artifact: pacto-bin
