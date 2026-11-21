@@ -18,7 +18,7 @@
 
   const KIND_WORDS = {
     env: 'Env', configMap: 'ConfigMap key', secretKeyRef: 'Secret key name', secretRef: 'Secret name',
-    externalNameService: 'ExternalName Service', selectorlessService: 'Selectorless Service', serviceEntry: 'ServiceEntry',
+    externalNameService: 'ExternalName Service', selectorlessService: 'Selectorless Service', serviceEntry: 'ServiceEntry', ciliumFQDN: 'Cilium FQDN rule',
     helmValues: 'Helm values', compose: 'Compose', kustomize: 'Kustomize', sdk: 'SDK', terraform: 'Terraform', crossplane: 'Crossplane',
   };
   // A possible match says why it is only possible: an SDK in a manifest, a resource the

@@ -915,7 +915,8 @@ type PactoStatus struct {
 	// workload's pod spec names: env names and values, the ConfigMap keys it
 	// references, Secret and Secret key names (never a Secret value) and the
 	// ExternalName Services, selectorless Services and Istio ServiceEntries
-	// of its own namespace it points at. Each entry carries the normalized
+	// of its own namespace it points at, and the Cilium toFQDNs egress rules
+	// that select its pods (an allow-list, so a possible call). Each entry carries the normalized
 	// host and port at most. Capped at 50, sorted by identity, kind and where.
 	// +kubebuilder:validation:MaxItems=50
 	// +optional
@@ -929,7 +930,10 @@ type PactoStatus struct {
 	// ServiceEntry API), serviceentry-unreadable (the ServiceEntries could
 	// not be listed), object-host-unclassified (a Service or ServiceEntry
 	// names a host that gives no identity, such as one under a private
-	// suffix) or truncated (more than 50 externals).
+	// suffix), cilium-unreadable (the Cilium network policies could not be
+	// listed), fqdn-pattern-unbounded (a Cilium toFQDNs pattern allows hosts
+	// that no registrable domain bounds) or truncated (more than 50
+	// externals).
 	// +optional
 	ExternalsCoverage *CallerCoverage `json:"externalsCoverage,omitempty"`
 
@@ -1004,7 +1008,7 @@ type ExternalStatus struct {
 	// +kubebuilder:validation:Enum=likely;possible
 	Confidence string `json:"confidence"`
 	// Kind is where in the pod spec or the namespace the external was named.
-	// +kubebuilder:validation:Enum=env;configMap;secretKeyRef;secretRef;externalNameService;selectorlessService;serviceEntry
+	// +kubebuilder:validation:Enum=env;configMap;secretKeyRef;secretRef;externalNameService;selectorlessService;serviceEntry;ciliumFQDN
 	Kind string `json:"kind"`
 	// Where names the object and key that name the external, never a value.
 	Where string `json:"where"`
@@ -1061,6 +1065,9 @@ const (
 	ExternalKindExternalNameService = "externalNameService"
 	ExternalKindSelectorlessService = "selectorlessService"
 	ExternalKindServiceEntry        = "serviceEntry"
+	// ExternalKindCiliumFQDN is a Cilium toFQDNs egress rule: intent, so the
+	// use is inferred and never a witnessed call.
+	ExternalKindCiliumFQDN = "ciliumFQDN"
 )
 
 // Caller coverage states.

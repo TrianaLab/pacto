@@ -38,12 +38,27 @@ func Metrics(served bool, err error) Entry {
 // operator reads the ServiceEntries that name the systems a workload calls
 // outside the cluster. The entry comes from a cluster-wide read.
 func IstioEgress(served bool, err error) Entry {
-	e := Entry{Kind: "istio-egress", Evidence: "ServiceEntry CRD present", Source: "API discovery", Completeness: Complete}
+	return egressAPI("istio-egress", "ServiceEntry", "networking.istio.io/v1", served, err)
+}
+
+// CiliumFQDN says whether the Cilium network policy API is served: the
+// operator reads the toFQDNs egress rules that select a workload's pods as
+// the systems it may call outside the cluster. The entry comes from a
+// cluster-wide read.
+func CiliumFQDN(served bool, err error) Entry {
+	return egressAPI("cilium-fqdn", "CiliumNetworkPolicy", "cilium.io/v2", served, err)
+}
+
+// egressAPI is the entry of kind for an egress reader that needs the crd of
+// group version gv: complete when served, unknown when not or when discovery
+// failed.
+func egressAPI(kind, crd, gv string, served bool, err error) Entry {
+	e := Entry{Kind: kind, Evidence: crd + " CRD present", Source: "API discovery", Completeness: Complete}
 	switch {
 	case err != nil:
-		e = discoveryFailed("istio-egress", err)
+		e = discoveryFailed(kind, err)
 	case !served:
-		e.Evidence, e.Completeness, e.Reason = "no ServiceEntry CRD", Unknown, "the cluster serves no networking.istio.io/v1 API, so no ServiceEntry is read"
+		e.Evidence, e.Completeness, e.Reason = "no "+crd+" CRD", Unknown, "the cluster serves no "+gv+" API, so no "+crd+" is read"
 	}
 	e.Scope = fleet.ScopeCluster
 	return e

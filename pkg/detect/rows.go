@@ -18,7 +18,7 @@ var rowNames = map[string]string{
 	"exposure": "Exposure", "metrics": "Metrics", "nodes": "Nodes",
 	"pull-secret": "Pull Secret", "otel-collector": "OTel Collector", "tempo": "Tempo",
 	"jaeger": "Jaeger", "datadog": "Datadog", "traces": "Traces",
-	"istio-egress": "Istio egress",
+	"istio-egress": "Istio egress", "cilium-fqdn": "Cilium FQDN",
 }
 
 // usedFor says, per kind, what a person may do with the proposal. Nothing is
@@ -38,6 +38,7 @@ var usedFor = map[string]string{
 	"datadog":        observedEdges,
 	"traces":         observedEdges,
 	"istio-egress":   egressSentence,
+	"cilium-fqdn":    egressSentence,
 }
 
 // egressSentence is what an egress reader's row is used for.
@@ -45,7 +46,7 @@ const egressSentence = "reads calls leaving the cluster; nothing is turned on"
 
 // EgressKinds are the kinds whose rows read calls leaving the cluster: their
 // UsedFor carries [fleet.UseExternalEgress] after the sentence.
-var EgressKinds = []string{"istio-egress"}
+var EgressKinds = []string{"istio-egress", "cilium-fqdn"}
 
 // observedEdges is what a trace-backend row is used for.
 const observedEdges = "observed edges, read by the dashboard; nothing is turned on"

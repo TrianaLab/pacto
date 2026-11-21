@@ -426,6 +426,8 @@ var coverageReasons = map[string]string{
 	"serviceentry-reader-off":  "the cluster serves no Istio ServiceEntries API, so the operator cannot read Istio ServiceEntries",
 	"serviceentry-unreadable":  "the operator could not read the Istio ServiceEntries",
 	"object-host-unclassified": "a Service or ServiceEntry names a host outside the cluster that gives no identity, such as one under a private suffix",
+	"cilium-unreadable":        "the operator could not read the Cilium network policies",
+	"fqdn-pattern-unbounded":   "a Cilium toFQDNs pattern allows hosts that no registrable domain bounds",
 	"services-unreadable":      "the operator could not read the cluster's Services, so it cannot tell a call inside the cluster from one leaving it",
 	"no-running-pods":          "the workload runs no pod the node agent can watch",
 	"dns-unavailable":          "a node agent cannot read DNS answers, so it cannot name the systems the workload calls",

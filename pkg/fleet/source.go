@@ -188,8 +188,8 @@ type WorkloadRef struct {
 // configuration of the service (Service, Domain) running in Namespace.
 // Identity is the external identity it was classified as, by the catalog
 // whose digest is Catalog; Kind says where it was found (env, configMap,
-// secretKeyRef, secretRef, externalNameService, selectorlessService or
-// serviceEntry) and Where names the object and key, never a value. Host is
+// secretKeyRef, secretRef, externalNameService, selectorlessService,
+// serviceEntry or ciliumFQDN, a Cilium egress allow-list rule) and Where names the object and key, never a value. Host is
 // the normalized host and port, empty when only a key name matched.
 type RawExternalUse struct {
 	Service, Domain, Namespace string

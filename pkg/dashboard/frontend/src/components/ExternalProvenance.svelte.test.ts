@@ -61,6 +61,13 @@ describe('ExternalProvenance', () => {
     expect(text(rows(t)[1].querySelector('[data-cell="confidence"]'))).toBe('Confidence Observed, 12 calls');
   });
 
+  it('a ciliumFQDN source reads Cilium FQDN rule', () => {
+    const where = 'ciliumnetworkpolicy/shop/egress toFQDNs api.stripe.com';
+    const t = render(data({ inferredSources: [inferred(0, { kind: 'ciliumFQDN', where })], inferredSourcesTotal: 1 }));
+    const row = rows(t).find((r) => r.getAttribute('data-provenance') === 'inferred');
+    expect(text(row?.querySelector('[data-cell="where"]'))).toContain(`Cilium FQDN rule ${where}`);
+  });
+
   it('says the confidence in words and marks inferred rows', () => {
     const t = render(data());
     expect(text(rows(t)[2].querySelector('[data-cell="confidence"]'))).toBe('Confidence Likely');

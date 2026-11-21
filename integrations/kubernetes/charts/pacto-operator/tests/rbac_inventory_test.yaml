@@ -409,6 +409,48 @@ tests:
             resources: [serviceentries]
             verbs: [get, list, watch]
 
+  # The Cilium API adds a list-only read of its network policies: the
+  # externals list reads toFQDNs rules uncached and never watches them.
+  - it: the Cilium API adds the list-only policy read to the ClusterRole
+    template: templates/clusterrole.yaml
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - cilium.io/v2
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [cilium.io]
+            resources: [ciliumnetworkpolicies, ciliumclusterwidenetworkpolicies]
+            verbs: [list]
+
+  - it: without the Cilium API the ClusterRole has no Cilium rule
+    template: templates/clusterrole.yaml
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [cilium.io]
+          any: true
+
+  - it: the Cilium API adds the list-only namespaced policy read to each watch Role
+    template: templates/watch-namespaces.yaml
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - cilium.io/v2
+    set:
+      controller.watchNamespaces: [payments]
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [cilium.io]
+            resources: [ciliumnetworkpolicies]
+            verbs: [list]
+
   # Every binding's roleRef and subjects are pinned: the per-render cases below.
   - it: 'default: every rule, roleRef and subject of clusterrole.yaml is pinned'
     template: templates/clusterrole.yaml

@@ -38,6 +38,11 @@ rules:
     resources: [serviceentries]
     verbs: [get, list, watch]
   {{- end }}
+  {{- if include "pacto-operator.apiServed" (list $ "cilium.io/v2") }}
+  - apiGroups: [cilium.io]
+    resources: [ciliumnetworkpolicies]
+    verbs: [list]
+  {{- end }}
   - apiGroups: [apps]
     resources: [deployments, replicasets, statefulsets]
     verbs: [get, list, watch]

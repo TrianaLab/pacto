@@ -476,6 +476,7 @@ func main() {
 		CallerIgnoreNamespaces:            o.callerIgnoreNamespaces,
 		Scoped:                            len(o.namespaces) > 0,
 		ServiceEntries:                    servesServiceEntries(mgr),
+		CiliumPolicies:                    servesCiliumPolicies(mgr),
 		Owners:                            owners,
 	}
 	if err := pactoReconciler.SetupWithManager(mgr); err != nil {
@@ -521,6 +522,14 @@ func main() {
 // ponytail: an Istio installed later is read after the operator restarts.
 func servesServiceEntries(mgr ctrl.Manager) bool {
 	_, err := mgr.GetRESTMapper().RESTMapping(schema.GroupKind{Group: "networking.istio.io", Kind: "ServiceEntry"}, "v1")
+	return err == nil
+}
+
+// servesCiliumPolicies reports whether the cluster serves Cilium's cilium.io/v2 CiliumNetworkPolicy at
+// startup. Without it no toFQDNs rule can exist, so the externals list reads none and loses no coverage.
+// ponytail: a Cilium installed later is read after the operator restarts.
+func servesCiliumPolicies(mgr ctrl.Manager) bool {
+	_, err := mgr.GetRESTMapper().RESTMapping(schema.GroupKind{Group: "cilium.io", Kind: "CiliumNetworkPolicy"}, "v2")
 	return err == nil
 }
 

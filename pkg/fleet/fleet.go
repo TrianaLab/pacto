@@ -1399,7 +1399,7 @@ type InferredSource struct {
 	// Target is the target the evidence was read on, when the source names
 	// one this snapshot holds; a restricted view drops evidence of a hidden one.
 	Target     TargetKey  `json:"target,omitempty" doc:"The target the evidence was read on"`
-	Kind       string     `json:"kind" doc:"What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane"`
+	Kind       string     `json:"kind" doc:"What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane"`
 	Where      string     `json:"where,omitempty" doc:"The object and key it was found in, never a value"`
 	Host       string     `json:"host,omitempty" doc:"The normalized host and port; empty when only a key name matched"`
 	Confidence string     `json:"confidence" enum:"likely,possible"`

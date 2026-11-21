@@ -93,6 +93,9 @@ type PactoReconciler struct {
 	// ServiceEntries turns on the Istio ServiceEntry reader of status.externals; main sets it when the
 	// cluster serves networking.istio.io/v1 ServiceEntry at startup.
 	ServiceEntries bool
+	// CiliumPolicies turns on the Cilium toFQDNs reader of status.externals; main sets it when the
+	// cluster serves cilium.io/v2 CiliumNetworkPolicy at startup.
+	CiliumPolicies bool
 	// Owners judges a running bundle's owner change (OwnerVerified); nil sets no such condition.
 	Owners *OwnerCheck
 }
@@ -107,6 +110,7 @@ type PactoReconciler struct {
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get,namespace=system
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.istio.io,resources=serviceentries,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cilium.io,resources=ciliumnetworkpolicies;ciliumclusterwidenetworkpolicies,verbs=list
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;replicasets;daemonsets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs;cronjobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
@@ -423,6 +427,7 @@ func (r *PactoReconciler) buildCollectInput(pacto *pactov1alpha1.Pacto, ec *effe
 		CallerIgnoreNamespaces:            r.CallerIgnoreNamespaces,
 		Scoped:                            r.Scoped,
 		ServiceEntries:                    r.ServiceEntries,
+		CiliumPolicies:                    r.CiliumPolicies,
 	}
 }
 

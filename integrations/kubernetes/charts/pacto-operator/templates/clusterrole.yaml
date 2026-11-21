@@ -55,6 +55,13 @@ rules:
     resources: [serviceentries]
     verbs: [get, list, watch]
   {{- end }}
+  {{- if include "pacto-operator.apiServed" (list $ "cilium.io/v2") }}
+  # Cilium toFQDNs egress rules that select the target's pods (externals, inferred).
+  # list only: the reader lists them uncached and never watches.
+  - apiGroups: [cilium.io]
+    resources: [ciliumnetworkpolicies, ciliumclusterwidenetworkpolicies]
+    verbs: [list]
+  {{- end }}
   # daemonsets: the dashboard ClusterRole the operator applies lists them, and Kubernetes lets it grant only what it holds.
   - apiGroups: [apps]
     resources: [deployments, replicasets, statefulsets, daemonsets]

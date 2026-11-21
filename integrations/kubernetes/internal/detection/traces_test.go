@@ -151,7 +151,7 @@ func TestDetectorEntriesFitMaxEntries(t *testing.T) {
 	d := newDetector(c, servedAll)
 	d.Installation, d.LastPush = &detect.Installation{Registry: "ghcr.io/acme"}, func() *detect.PushResult { return nil }
 	res := d.detect(context.Background())
-	want := []string{"registry", "pull-secret", "cloud", "nodes", "metrics", "istio-egress", "sign-in", "exposure", "otel-collector", "tempo", "jaeger", "datadog"}
+	want := []string{"registry", "pull-secret", "cloud", "nodes", "metrics", "istio-egress", "cilium-fqdn", "sign-in", "exposure", "otel-collector", "tempo", "jaeger", "datadog"}
 	got := make([]string, 0, len(res.Entries))
 	for _, e := range res.Entries {
 		got = append(got, e.Kind)

@@ -203,7 +203,7 @@ func TestDetectorResultAllKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	cm, res := readResult(t, c)
-	if !res.AsOf.Equal(now) || res.Cluster != "cluster-uid" || res.ClusterName != "kind-pacto" || len(res.Entries) != 7 || cm.Labels[detect.ManagedByLabel] != detect.ManagedBy {
+	if !res.AsOf.Equal(now) || res.Cluster != "cluster-uid" || res.ClusterName != "kind-pacto" || len(res.Entries) != 8 || cm.Labels[detect.ManagedByLabel] != detect.ManagedBy {
 		t.Fatalf("result = %+v", res)
 	}
 	for kind, ok := range map[string]func(detect.Entry) bool{
@@ -599,6 +599,29 @@ func TestDetectorReportsIstioEgress(t *testing.T) {
 		_, res := readResult(t, c0)
 		if e := entry(t, res, "istio-egress"); e.Completeness != c.want || e.Scope != fleet.ScopeCluster || strings.Contains(e.Reason, "10.0.0.1") {
 			t.Errorf("istio-egress = %+v", e)
+		}
+	}
+}
+
+func TestDetectorReportsCiliumFQDN(t *testing.T) {
+	for _, c := range []struct {
+		served func(string) (bool, error)
+		want   string
+	}{
+		{servedAll, detect.Complete},
+		{func(gv string) (bool, error) { return gv != ciliumGV, nil }, detect.Unknown},
+		{func(gv string) (bool, error) {
+			if gv == ciliumGV {
+				return false, errors.New("dial tcp 10.0.0.1:443: i/o timeout")
+			}
+			return true, nil
+		}, detect.Unknown},
+	} {
+		c0 := newClient(interceptor.Funcs{}, clusterObjects()...)
+		_ = newDetector(c0, c.served).Sync(context.Background())
+		_, res := readResult(t, c0)
+		if e := entry(t, res, "cilium-fqdn"); e.Completeness != c.want || e.Scope != fleet.ScopeCluster || strings.Contains(e.Reason, "10.0.0.1") {
+			t.Errorf("cilium-fqdn = %+v", e)
 		}
 	}
 }

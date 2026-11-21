@@ -127,6 +127,9 @@ type CollectInput struct {
 	// ServiceEntries turns on the Istio ServiceEntry reader of the externals list: the operator found the
 	// networking.istio.io/v1 ServiceEntry API at startup.
 	ServiceEntries bool
+	// CiliumPolicies turns on the Cilium toFQDNs reader of the externals list: the operator found the
+	// cilium.io/v2 CiliumNetworkPolicy API at startup.
+	CiliumPolicies bool
 
 	// kernel is the per-reconcile kernel view Collect loads; nil when kernel evidence is off.
 	kernel *kernelView
@@ -162,6 +165,8 @@ type RuntimeSnapshot struct {
 	// has no selector of its own: its pods are found through the Jobs it controls.
 	podSpec     *corev1.PodSpec
 	podSelector *metav1.LabelSelector
+	// podLabels are the pod template's labels, which a Cilium endpointSelector matches.
+	podLabels map[string]string
 }
 
 // endpointProber defines the interface for HTTP endpoint probing.

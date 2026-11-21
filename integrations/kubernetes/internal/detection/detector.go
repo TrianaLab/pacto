@@ -48,6 +48,7 @@ const (
 	monitoringGV = "monitoring.coreos.com/v1"
 	dexGV        = "dex.coreos.com/v1"
 	istioGV      = "networking.istio.io/v1"
+	ciliumGV     = "cilium.io/v2"
 )
 
 // pageSize is the List page of the paginated reads.
@@ -161,6 +162,8 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 
 	istioServed, istioErr := d.Served(istioGV)
 	res.Entries = append(res.Entries, detect.IstioEgress(istioServed, classed(istioErr)))
+	ciliumServed, ciliumErr := d.Served(ciliumGV)
+	res.Entries = append(res.Entries, detect.CiliumFQDN(ciliumServed, classed(ciliumErr)))
 
 	dexServed, dexErr := d.Served(dexGV)
 	services, err := d.dexServices(ctx)
