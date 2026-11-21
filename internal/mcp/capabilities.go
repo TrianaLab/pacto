@@ -112,7 +112,7 @@ func authoringNames(a Authoring) []string {
 	if a.Declare != nil {
 		names = append(names, "pacto_declare")
 	}
-	if a.Accept != nil {
+	if a.Accept != nil && !a.Remote {
 		names = append(names, "pacto_accept")
 	}
 	return names

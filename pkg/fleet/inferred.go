@@ -554,6 +554,9 @@ func (d *ServiceDetailData) InferredLines(asOf time.Time) []string {
 	for _, l := range d.Limitations.Items {
 		out = append(out, "  - ["+l.Limitation.Code+"] "+l.Limitation.Message)
 	}
+	if d.NextAction != nil {
+		out = append(out, "Next: "+d.NextAction.CLI)
+	}
 	return out
 }
 

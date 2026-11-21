@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"slices"
@@ -168,5 +169,20 @@ func TestMetricsCountInferredServices(t *testing.T) {
 	getJSON(t, inferredServer(t)+"/metrics", http.StatusOK, &metrics)
 	if metrics.ServiceCount != 2 {
 		t.Errorf("metrics count %d services, want orders and the inferred cart", metrics.ServiceCount)
+	}
+}
+
+// TestDashboardNextActionHasNoTool: the dashboard serves no MCP tool, so its
+// attention, overview and entity answers carry each nextAction's verb and CLI
+// command and never a tool.
+func TestDashboardNextActionHasNoTool(t *testing.T) {
+	base := inferredServer(t)
+	for _, path := range []string{"/api/fleet/attention", "/api/fleet/overview", "/api/fleet/entities/service?key=" + url.QueryEscape(string(fleet.NewServiceKey(cartName)))} {
+		var body any
+		getJSON(t, base+path, http.StatusOK, &body)
+		raw, _ := json.Marshal(body)
+		if s := string(raw); !strings.Contains(s, `"nextAction":{"cli":"pacto declare cart --namespace shop","verb":"declare"}`) || strings.Contains(s, `"tool"`) {
+			t.Errorf("%s: %s", path, s)
+		}
 	}
 }

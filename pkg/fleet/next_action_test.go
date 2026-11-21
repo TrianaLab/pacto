@@ -545,3 +545,45 @@ func TestAttentionItemJSONKeepsFields(t *testing.T) {
 		t.Errorf("nextAction = %s", b)
 	}
 }
+
+// TestInferredLinesNameDeclare: the text the CLI and the TUI both render for
+// an inferred service ends with the command that declares it.
+func TestInferredLinesNameDeclare(t *testing.T) {
+	d, err := goldenWith(t, true).EntityDetail(KindService, string(NewServiceKey(cartName)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := d.Service.InferredLines(d.Meta.AsOf)
+	if got := lines[len(lines)-1]; got != "Next: pacto declare cart --namespace shop" {
+		t.Errorf("last line = %q", got)
+	}
+}
+
+func TestKeepServedToolsClearsUnserved(t *testing.T) {
+	edit := editContract()
+	items := []AttentionItem{{NextAction: edit}, {NextAction: declareAction("cart", "shop")}, {}, {NextAction: &NextAction{Verb: "approve-cluster", CLI: "x"}}}
+	KeepServedTools(items, func(tool string) bool { return tool == "pacto_declare" })
+	if items[0].NextAction.Tool != "" || items[0].NextAction.CLI != "pacto ci" || items[0].NextAction.Verb != "edit-contract" {
+		t.Errorf("unserved: %+v", items[0].NextAction)
+	}
+	if edit.Tool != "pacto_edit" {
+		t.Error("KeepServedTools wrote through to the caller's action")
+	}
+	if items[1].NextAction.Tool != "pacto_declare" || items[2].NextAction != nil || items[3].NextAction.CLI != "x" {
+		t.Errorf("served or empty changed: %+v", items)
+	}
+
+	d := &EntityDetail{
+		Service:  &ServiceDetailData{NextAction: editContract()},
+		Offering: &OfferingDetailData{ObservedConsumers: ObservedConsumersPreview{Items: []ObservedConsumer{{NextAction: editContract()}, {}}}},
+		Owner:    &OwnerDetailData{Attention: AttentionPreview{Items: []AttentionItem{{NextAction: editContract()}}}},
+		Domain:   &DomainDetailData{Attention: AttentionPreview{Items: []AttentionItem{{NextAction: editContract()}}}},
+	}
+	d.KeepServedTools(NoTools)
+	for _, a := range []*NextAction{d.Service.NextAction, d.Offering.ObservedConsumers.Items[0].NextAction, d.Owner.Attention.Items[0].NextAction, d.Domain.Attention.Items[0].NextAction} {
+		if a.Tool != "" || a.CLI == "" {
+			t.Errorf("detail action %+v", a)
+		}
+	}
+	(&EntityDetail{}).KeepServedTools(NoTools) // no payload: nothing to clear
+}

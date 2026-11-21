@@ -1148,6 +1148,51 @@ func editContract() *NextAction {
 	return &NextAction{Verb: "edit-contract", Tool: "pacto_edit", CLI: "pacto ci"}
 }
 
+// KeepServedTools clears the tool of every item's next action that served
+// does not register, so an answer names only a tool its caller can call; the
+// verb and the CLI command stay. It replaces each changed action with a copy
+// and writes items in place, so the caller passes items it owns.
+func KeepServedTools(items []AttentionItem, served func(string) bool) {
+	for i := range items {
+		items[i].NextAction = items[i].NextAction.keepServed(served)
+	}
+}
+
+// KeepServedTools is [KeepServedTools] over every next action d carries: an
+// inferred service's, an offering's observed consumers' and the attention
+// previews of an owner or a domain.
+func (d *EntityDetail) KeepServedTools(served func(string) bool) {
+	if d.Service != nil {
+		d.Service.NextAction = d.Service.NextAction.keepServed(served)
+	}
+	if d.Offering != nil {
+		for i := range d.Offering.ObservedConsumers.Items {
+			c := &d.Offering.ObservedConsumers.Items[i]
+			c.NextAction = c.NextAction.keepServed(served)
+		}
+	}
+	if d.Owner != nil {
+		KeepServedTools(d.Owner.Attention.Items, served)
+	}
+	if d.Domain != nil {
+		KeepServedTools(d.Domain.Attention.Items, served)
+	}
+}
+
+// NoTools is the served set of a transport that registers no MCP tool: the
+// CLI and the dashboard.
+func NoTools(string) bool { return false }
+
+// keepServed is a with its tool cleared when served does not register it.
+func (a *NextAction) keepServed(served func(string) bool) *NextAction {
+	if a == nil || a.Tool == "" || served(a.Tool) {
+		return a
+	}
+	c := *a
+	c.Tool = ""
+	return &c
+}
+
 // k8sObjectName and k8sNamespace are the RFC 1123 subdomain and label
 // patterns. pkg/fleet stays free of k8s.io, so they are local copies.
 var (

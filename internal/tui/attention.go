@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	"charm.land/bubbles/v2/table"
@@ -170,8 +169,12 @@ func (a *attentionScreen) nextStep() string {
 		return ""
 	}
 	it := a.items[i]
-	if it.NextStep == "" {
-		return dimStyle.Render(safeText(it.Reason))
+	s := safeText(it.Reason)
+	if it.NextStep != "" {
+		s += "  ->  " + safeText(it.NextStep)
 	}
-	return dimStyle.Render(fmt.Sprintf("%s  ->  %s", safeText(it.Reason), safeText(it.NextStep)))
+	if it.NextAction != nil {
+		s += "  (run: " + safeText(it.NextAction.CLI) + ")"
+	}
+	return dimStyle.Render(s)
 }

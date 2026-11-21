@@ -106,7 +106,7 @@ func TestFleetAttentionPrintsDeclareNext(t *testing.T) {
 	src, store := inferredProviderFixture(t)
 	out, _, err := execFleetStore(t, store, append([]string{"fleet", "attention", "--category", "knowledge"}, src...)...)
 	if err != nil || !strings.Contains(out, "1 service checks a range against stripe's inferred contract") ||
-		!strings.Contains(out, "(action: edit-contract via pacto_edit)") || strings.Contains(out, "pacto declare") ||
+		!strings.Contains(out, "(action: edit-contract: pacto ci)") || strings.Contains(out, "pacto declare") ||
 		!strings.Contains(out, "Write a contract with service.external: stripe") {
 		t.Errorf("attention = %v:\n%s", err, out)
 	}

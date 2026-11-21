@@ -470,12 +470,12 @@ describe('FleetAttentionView — every category and its cause', () => {
   });
 
   it('renders a next action as words, never as a link or a button', async () => {
-    respond([item('CAPABILITY_ABSENT', { category: 'non-compliant', nextStep: 'Open the target', nextAction: { verb: 'edit-contract', tool: 'pacto_edit' } }), item('EVIDENCE_MISSING')]);
+    respond([item('CAPABILITY_ABSENT', { category: 'non-compliant', nextStep: 'Open the target', nextAction: { verb: 'edit-contract', cli: 'pacto ci' } }), item('EVIDENCE_MISSING')]);
     const { target, component } = mountView({});
     await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="attention-item"]').length).toBe(2));
     const [withAction, without] = Array.from(target.querySelectorAll('[data-testid="attention-item"]'));
     const action = withAction.querySelector('.attn-action') as HTMLElement;
-    expect(action.textContent?.replace(/\s+/g, ' ').trim()).toBe('Fix: edit the contract with pacto_edit');
+    expect(action.textContent?.replace(/\s+/g, ' ').trim()).toBe('Fix: edit the contract, then run pacto ci');
     expect(action.querySelector('a, button, [href], [role="button"]')).toBeNull();
     expect(action.closest('a, button')).toBeNull();
     expect(without.querySelector('.attn-action')).toBeNull();
