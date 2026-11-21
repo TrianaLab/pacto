@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { niceMax, bandScale, logScale, logDomain, logTicks, colPath, barPath, showTick, directLabelIndexes, durationText, runs, SERIES, HEAT } from './chart.ts';
+import { niceMax, bandScale, logScale, logDomain, logTicks, colPath, barPath, showTick, xTicks, directLabelIndexes, durationText, runs, SERIES, HEAT } from './chart.ts';
 
 describe('niceMax', () => {
   it('rounds up to the next nice step', () => {
@@ -73,6 +73,15 @@ describe('labels', () => {
     for (let k = 1; k < tight.length; k++) expect((tight[k] - tight[k - 1]) * 30 - 40).toBeGreaterThanOrEqual(8);
     // A 22px band with 40px labels: centres one apart would leave the boxes overlapping.
     expect(kept(22, 40).every((i, k, a) => k === 0 || (i - a[k - 1]) * 22 - 40 >= 8)).toBe(true);
+  });
+  it('drops a kept tick whose clamped box would crowd the last one', () => {
+    // 13 bands of 20px in a 290px chart, 40px labels: showTick keeps every third back
+    // from the last, but the last centre (290) is clamped to 270, 40px from back=3's 230.
+    const t = xTicks(13, 20, 40, 290, (i) => 50 + i * 20);
+    expect(t[12]).toEqual({ left: 270, on: true });
+    const on = t.flatMap((x, i) => (x.on ? [x.left] : []));
+    for (let k = 1; k < on.length; k++) expect(on[k] - on[k - 1] - 40).toBeGreaterThanOrEqual(8);
+    expect(t[9].on).toBe(false);
   });
   it('labels the peak and the last value only', () => {
     expect(directLabelIndexes([1, 9, 2, 3, 4], 40, 20)).toEqual([1, 4]);
