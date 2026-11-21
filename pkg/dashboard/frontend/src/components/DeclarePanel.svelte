@@ -191,6 +191,7 @@
         <p class="dp-p" role="status" data-testid="declare-result">
           {#if result.draft}Saved <bdi>{result.tag}</bdi>. A person who may update the workload accepts it from the drafts below or with the command.{:else}Published <bdi>{result.tag}</bdi>{#if result.signed}, signed by you as <bdi>{signing.identity}</bdi>{/if}.{/if}
         </p>
+        {#if result.draft && result.command}<div class="dp-command" data-testid="declare-accept-command"><span class="t-meta">Accept it with</span> <CopyableIdentifier value={result.command} label="command" /></div>{/if}
       {/if}
       {#if refusal}
         <RefusalNotice error={refusal} />

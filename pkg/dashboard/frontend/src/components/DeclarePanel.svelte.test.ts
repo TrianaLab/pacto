@@ -103,7 +103,7 @@ describe('DeclarePanel', () => {
 
   it('without a signing login shows Save draft and the command, no Sign, and saving lists the draft', async () => {
     planFn.mockResolvedValueOnce(answer()).mockResolvedValueOnce(answer({ drafts: [{ ...DRAFTS[0], tag: 'draft-3' }], draftsTotal: 1 }));
-    acceptFn.mockResolvedValue({ tag: 'draft-3', draft: true, published: 'ghcr.io/acme/cart@sha256:d' });
+    acceptFn.mockResolvedValue({ tag: 'draft-3', draft: true, published: 'ghcr.io/acme/cart@sha256:d', command: 'pacto declare cart --registry ghcr.io/acme --from-draft draft-3' });
     await render();
     expect(q('[data-testid="declare-sign"]')).toBeNull();
     expect(text(q('[data-testid="declare-signer"]'))).toBe('Nobody signs here: run the command in your terminal to sign');
@@ -112,6 +112,7 @@ describe('DeclarePanel', () => {
     await vi.waitFor(() => expect(q('[data-testid="declare-draft"]')).toBeTruthy());
     expect(acceptFn).toHaveBeenCalledWith({ serviceKey: KEY, accept: [], intentDigest: 'sha256:i1', mode: 'draft', fromDraft: undefined });
     expect(text(q('[data-testid="declare-result"]'))).toContain('Saved draft-3.');
+    expect(text(q('[data-testid="declare-accept-command"]'))).toContain('pacto declare cart --registry ghcr.io/acme --from-draft draft-3');
   });
 
   it('with no write shows the reason and no Save draft', async () => {
