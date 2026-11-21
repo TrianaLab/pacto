@@ -14,7 +14,7 @@ spec:
     spec:
       initContainers:
         - name: pacto-install
-          image: ghcr.io/trianalab/pacto/dashboard:4.5.0
+          image: ghcr.io/trianalab/pacto/dashboard:4.6.0
           command: [cp, /usr/local/bin/pacto, /pacto/bin/pacto]
           securityContext:
             runAsNonRoot: true

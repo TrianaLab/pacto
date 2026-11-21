@@ -1,5 +1,9 @@
 # @pacto/delivery-image
 
+## 6.6.0
+
+No changes in this release.
+
 ## 6.5.0
 
 No changes in this release.
