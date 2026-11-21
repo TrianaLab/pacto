@@ -106,7 +106,7 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 	p.Notes = append(p.Notes, blockCollisions(folders)...)
 	pl := &ciPlanner{s: s, p: p, reg: s.env().publishRegistry(), allowed: allowedHost(p.Registry), root: opts.Root, revision: opts.revision, cat: cat,
 		acceptances: sync.OnceValue(func() *acceptanceStore {
-			return newAcceptanceStore(ctx, s.env(), impactTrust(ImpactOptions{Signers: opts.Signers, Fleet: opts.Fleet}))
+			return s.ownerRuled(newAcceptanceStore(ctx, s.env(), impactTrust(ImpactOptions{Signers: opts.Signers, Fleet: opts.Fleet})), opts.Fleet.Provenance)
 		})}
 	pl.planAll(ctx, folders, opts)
 	results, snap, err := s.ciImpacts(ctx, p, folders, opts, pl.allowed)

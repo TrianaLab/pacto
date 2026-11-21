@@ -93,14 +93,14 @@ func TestBreakAnnouncementIsStable(t *testing.T) {
 }
 
 func TestJudgeCountsDeclaredOwnerDRI(t *testing.T) {
-	if s, why := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), anaSigner, nil, ownerOfAna, "", asOf); s != impact.AcceptCounted {
+	if s, why := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), anaSigner, nil, DeclaredAcceptanceOwner(ownerOfAna), "", asOf); s != impact.AcceptCounted {
 		t.Fatalf("judged %s: %s", s, why)
 	}
 }
 
 func TestJudgeCountsOwnerEmailContactCaseInsensitive(t *testing.T) {
 	o := contract.Owner{Team: "reporting", Contacts: []contract.OwnerContact{{Type: "slack", Value: "ana@acme.com"}, {Type: "email", Value: "ANA@acme.com"}}}
-	if s, why := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), anaSigner, nil, o, "", asOf); s != impact.AcceptCounted {
+	if s, why := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), anaSigner, nil, DeclaredAcceptanceOwner(o), "", asOf); s != impact.AcceptCounted {
 		t.Fatalf("judged %s: %s", s, why)
 	}
 }
@@ -112,7 +112,7 @@ func TestNonOwnerAcceptanceIsRouted(t *testing.T) {
 		"inferred owner": {},
 		"another person": {DRI: "bob@acme.com", Contacts: []contract.OwnerContact{{Type: "slack", Value: "#rep"}, {Type: "email", Value: "carol@acme.com"}}},
 	} {
-		s, why := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), anaSigner, nil, o, "", asOf)
+		s, why := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), anaSigner, nil, DeclaredAcceptanceOwner(o), "", asOf)
 		if s != impact.AcceptRouted {
 			t.Errorf("%s: judged %s", name, s)
 		}
@@ -123,7 +123,7 @@ func TestNonOwnerAcceptanceIsRouted(t *testing.T) {
 			t.Errorf("%s: route = %q", name, why)
 		}
 	}
-	if s, _ := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), PublisherIdentity{Issuer: anaSigner.Issuer, Subject: "x@acme.com"}, nil, contract.Owner{}, "", asOf); s != impact.AcceptRouted {
+	if s, _ := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), PublisherIdentity{Issuer: anaSigner.Issuer, Subject: "x@acme.com"}, nil, DeclaredAcceptanceOwner(contract.Owner{}), "", asOf); s != impact.AcceptRouted {
 		t.Error("an empty owner matched")
 	}
 	if ownerMatches(contract.Owner{}, "") {
@@ -133,7 +133,7 @@ func TestNonOwnerAcceptanceIsRouted(t *testing.T) {
 
 func TestCISignedAcceptanceIsProposal(t *testing.T) {
 	ci := PublisherIdentity{Issuer: "https://token.actions.githubusercontent.com", Subject: "https://github.com/acme/reports/.github/workflows/ci.yaml@refs/heads/main", CI: true}
-	s, why := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), ci, nil, contract.Owner{DRI: ci.Subject}, "", asOf)
+	s, why := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), ci, nil, DeclaredAcceptanceOwner(contract.Owner{DRI: ci.Subject}), "", asOf)
 	if s != impact.AcceptProposal || !strings.Contains(why, "a ci signer") {
 		t.Fatalf("judged %s: %s", s, why)
 	}
@@ -141,26 +141,26 @@ func TestCISignedAcceptanceIsProposal(t *testing.T) {
 
 func TestWorkloadSignedAcceptanceIsProposal(t *testing.T) {
 	wl := PublisherIdentity{Issuer: "https://kubernetes.default.svc", Subject: "https://kubernetes.io/namespaces/ci/serviceaccounts/bot"}
-	if s, _ := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), wl, nil, contract.Owner{DRI: wl.Subject}, "", asOf); s != impact.AcceptProposal {
+	if s, _ := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), wl, nil, DeclaredAcceptanceOwner(contract.Owner{DRI: wl.Subject}), "", asOf); s != impact.AcceptProposal {
 		t.Fatalf("judged %s", s)
 	}
 }
 
 func TestJudgeBreakExpired(t *testing.T) {
 	st := acceptanceStatement(AcceptKindBreak)
-	if s, why := JudgeAcceptance(st, anaSigner, nil, ownerOfAna, "2026-11-19", asOf); s != impact.AcceptExpired || why != "the break expired on 2026-11-19" {
+	if s, why := JudgeAcceptance(st, anaSigner, nil, DeclaredAcceptanceOwner(ownerOfAna), "2026-11-19", asOf); s != impact.AcceptExpired || why != "the break expired on 2026-11-19" {
 		t.Fatalf("judged %s: %s", s, why)
 	}
-	if s, _ := JudgeAcceptance(st, anaSigner, nil, ownerOfAna, "2026-11-20", asOf); s != impact.AcceptCounted {
+	if s, _ := JudgeAcceptance(st, anaSigner, nil, DeclaredAcceptanceOwner(ownerOfAna), "2026-11-20", asOf); s != impact.AcceptCounted {
 		t.Fatalf("a break on its last day judged %s", s)
 	}
-	if s, why := JudgeAcceptance(st, anaSigner, nil, ownerOfAna, "soon", asOf); s != impact.AcceptExpired || !strings.Contains(why, "not a YYYY-MM-DD") {
+	if s, why := JudgeAcceptance(st, anaSigner, nil, DeclaredAcceptanceOwner(ownerOfAna), "soon", asOf); s != impact.AcceptExpired || !strings.Contains(why, "not a YYYY-MM-DD") {
 		t.Fatalf("an unreadable expiry judged %s: %s", s, why)
 	}
 }
 
 func TestJudgeBreakExpiryUnknownNeverCounts(t *testing.T) {
-	if s, why := JudgeAcceptance(acceptanceStatement(AcceptKindBreak), anaSigner, nil, ownerOfAna, "", asOf); s != impact.AcceptExpired || !strings.HasPrefix(why, "expiry unknown") {
+	if s, why := JudgeAcceptance(acceptanceStatement(AcceptKindBreak), anaSigner, nil, DeclaredAcceptanceOwner(ownerOfAna), "", asOf); s != impact.AcceptExpired || !strings.HasPrefix(why, "expiry unknown") {
 		t.Fatalf("judged %s: %s", s, why)
 	}
 }
@@ -250,5 +250,63 @@ func TestAcceptanceDraftStrictDecode(t *testing.T) {
 		if _, err := DecodeAcceptanceDraft(c.mt, c.payload); err == nil {
 			t.Errorf("%s decoded", name)
 		}
+	}
+}
+
+// acceptPolicy has platform-admins as default approvers, reporting's
+// members by team rule, and ana's issuer for email subjects.
+var acceptPolicy = &OwnerPolicy{
+	DefaultApprovers: []SignerRule{{Name: "platform-admins", Issuer: "https://accounts.google.com", Subject: `^admin@acme\.com$`}},
+	Teams:            map[string][]SignerRule{"reporting": {{Issuer: "https://accounts.google.com", Subject: `^bob@acme\.com$`}}},
+	EmailIssuers:     []string{anaSigner.Issuer},
+}
+
+func TestAcceptanceByAttestedOwnerCounts(t *testing.T) {
+	attested := AcceptanceOwner{Claim: OwnerClaim{Owner: ownerOfAna, Provenance: ownerAttested, Source: "CODEOWNERS:1"}, Policy: acceptPolicy}
+	if s, why := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), anaSigner, nil, attested, "", asOf); s != impact.AcceptCounted {
+		t.Fatalf("the attested DRI judged %s: %s", s, why)
+	}
+	bob := PublisherIdentity{Issuer: "https://accounts.google.com", Subject: "bob@acme.com"}
+	if s, why := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), bob, nil, attested, "", asOf); s != impact.AcceptCounted {
+		t.Fatalf("a member of the attested team judged %s: %s", s, why)
+	}
+	carol := PublisherIdentity{Issuer: anaSigner.Issuer, Subject: "carol@acme.com"}
+	if s, why := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), carol, nil, attested, "", asOf); s != impact.AcceptRouted || !strings.Contains(why, "ana@acme.com") {
+		t.Fatalf("a non-member judged %s: %s", s, why)
+	}
+}
+
+func TestAcceptanceByDefaultApproverCounts(t *testing.T) {
+	admin := PublisherIdentity{Issuer: "https://accounts.google.com", Subject: "admin@acme.com"}
+	for name, o := range map[string]AcceptanceOwner{
+		"declared owner": {Claim: OwnerClaim{Owner: ownerOfAna, Provenance: ownerDeclared}, Policy: acceptPolicy},
+		"no owner":       {Policy: acceptPolicy},
+	} {
+		if s, why := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), admin, nil, o, "", asOf); s != impact.AcceptCounted {
+			t.Errorf("%s: a default approver judged %s: %s", name, s, why)
+		}
+	}
+	// No owner and no approver: naming oneself owner is no owner right.
+	if s, _ := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), anaSigner, nil, AcceptanceOwner{Policy: acceptPolicy}, "", asOf); s != impact.AcceptRouted {
+		t.Errorf("a person with no owner right judged %s", s)
+	}
+	if holdsOwnerRight("reports", PublisherIdentity{Issuer: admin.Issuer, Class: ClassHuman}, AcceptanceOwner{Policy: acceptPolicy}, asOf) {
+		t.Error("an empty subject holds the owner right")
+	}
+}
+
+func TestAcceptanceWithoutOwnerPolicyKeepsDeclaredOwnerRule(t *testing.T) {
+	// No policy: an attested owner and a would-be default approver are routed,
+	// and the declared DRI counts whatever issuer certified the login.
+	admin := PublisherIdentity{Issuer: "https://accounts.google.com", Subject: "admin@acme.com"}
+	attested := AcceptanceOwner{Claim: OwnerClaim{Owner: ownerOfAna, Provenance: ownerAttested}}
+	if s, _ := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), anaSigner, nil, attested, "", asOf); s != impact.AcceptRouted {
+		t.Errorf("an attested owner with no policy judged %s", s)
+	}
+	if s, _ := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), admin, nil, DeclaredAcceptanceOwner(ownerOfAna), "", asOf); s != impact.AcceptRouted {
+		t.Errorf("a non-owner with no policy judged %s", s)
+	}
+	if s, _ := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), anaSigner, nil, DeclaredAcceptanceOwner(ownerOfAna), "", asOf); s != impact.AcceptCounted {
+		t.Errorf("the declared DRI with no policy judged %s", s)
 	}
 }

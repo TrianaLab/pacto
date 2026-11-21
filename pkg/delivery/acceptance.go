@@ -210,19 +210,37 @@ type JudgedAcceptance struct {
 	SignedAt time.Time
 }
 
+// AcceptanceOwner is who may accept for a service: its owner claim
+// (declared, else attested) and the verified owner policy read, nil when
+// none was.
+type AcceptanceOwner struct {
+	Claim  OwnerClaim
+	Policy *OwnerPolicy
+}
+
+// DeclaredAcceptanceOwner is owner, declared, judged with no owner policy.
+func DeclaredAcceptanceOwner(owner contract.Owner) AcceptanceOwner {
+	return AcceptanceOwner{Claim: OwnerClaim{Owner: owner, Provenance: ownerDeclared}}
+}
+
 // JudgeAcceptance says whether a verified acceptance counts: only when a
 // person signed it (ReadsAsDecision of the signer's class under rules),
-// that person is the accepting service's declared owner (its DRI or an
-// email contact, case-insensitively) and, for a break, the announcement has
-// not expired at asOf. expires is the break's YYYY-MM-DD expiry, "" when
-// none is recorded: unknown never counts.
-func JudgeAcceptance(st AcceptanceStatement, signer PublisherIdentity, rules []SignerClassRule, owner contract.Owner, expires string, asOf time.Time) (state, reason string) {
-	if class, by := ClassifySigner(signer, rules); !ReadsAsDecision(class) {
+// that person holds the accepting service's owner right and, for a break,
+// the announcement has not expired at asOf. Under a verified owner policy
+// the owner right is DecideOwnerRight's, so a member of an attested owner
+// or a default approver counts; with none it is the declared owner's DRI or
+// an email contact, case-insensitively, as before owner policies. expires
+// is the break's YYYY-MM-DD expiry, "" when none is recorded: unknown never
+// counts.
+func JudgeAcceptance(st AcceptanceStatement, signer PublisherIdentity, rules []SignerClassRule, owner AcceptanceOwner, expires string, asOf time.Time) (state, reason string) {
+	class, by := ClassifySigner(signer, rules)
+	if !ReadsAsDecision(class) {
 		return impact.AcceptProposal, fmt.Sprintf("signed by %s, a %s signer (%s): a proposal until a person accepts it", signer.Subject, class, by)
 	}
-	if !ownerMatches(owner, signer.Subject) {
+	signer.Class = class
+	if !holdsOwnerRight(st.Predicate.Service, signer, owner, asOf) {
 		_, name := fleet.ParseServiceKey(fleet.ServiceKey(st.Predicate.Service))
-		route, declared := OwnerRoute(name, owner)
+		route, declared := OwnerRoute(name, owner.Claim.Owner)
 		if declared {
 			route = "waiting for " + route
 		}
@@ -234,6 +252,25 @@ func JudgeAcceptance(st AcceptanceStatement, signer PublisherIdentity, rules []S
 		}
 	}
 	return impact.AcceptCounted, ""
+}
+
+// holdsOwnerRight reports whether the person signer may accept for service.
+// With no owner policy only a declared owner's DRI or email contact may
+// (ownerMatches, the rule before owner policies: an attested owner never
+// counts there). Under one, signer may when DecideOwnerRight would let them
+// change the owner: one owner rule for declarations and acceptances.
+func holdsOwnerRight(service string, signer PublisherIdentity, owner AcceptanceOwner, asOf time.Time) bool {
+	switch {
+	case signer.Subject == "":
+		return false
+	case owner.Policy == nil:
+		return owner.Claim.Provenance == ownerDeclared && ownerMatches(owner.Claim.Owner, signer.Subject)
+	}
+	change := OwnerClaim{Provenance: ownerDeclared}
+	if owner.Claim.Owner.IsEmpty() {
+		change.Owner = contract.Owner{DRI: signer.Subject} // no owner to remove: the signer names one
+	}
+	return DecideOwnerRight(service, signer, owner.Claim, change, owner.Policy, "", asOf).Allowed
 }
 
 // ownerMatches reports whether san is owner's DRI or one of its email
