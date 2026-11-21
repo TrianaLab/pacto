@@ -463,17 +463,26 @@ export function serviceKeyName(key: string): string {
   return name.replaceAll('%2F', '/').replaceAll('%25', '%');
 }
 
-type ReplacementRef = { from: string; target?: string; at?: string };
+export type ReplacementRef = { from: string; link?: string; target?: string; at?: string; by?: string; revision?: string; workload?: unknown };
+
+/** How a declaration or a Pacto target links one replacement, in the words of the tip. */
+function linkedBy(r: ReplacementRef): string {
+  if (r.link === 'inferred-from') {
+    return `Declared by ${r.by || 'an unknown signer'} from this inferred service in revision ${r.revision || 'unknown'}.${r.workload ? '' : ' Pacto read no workload for it here.'}`;
+  }
+  return `Linked by the Pacto target ${r.target || 'of this service'}, which runs as the workload. The Pacto was created ${formatDateTime(r.at)}.`;
+}
 
 /** replacesTip is the tooltip of a service's Replaces line: how the newest replacement
- *  was linked, then up to ten more by key, target and time, so "+N more" never hides
+ *  was linked, then up to ten more by key, link and time, so "+N more" never hides
  *  which workloads were taken over. total counts every replacement. */
 export function replacesTip(replaces: ReplacementRef[], total: number): string {
   const [first, ...rest] = replaces;
   if (!first) return '';
-  const head = `Linked by the Pacto target ${first.target || 'of this service'}, which runs as the workload. The Pacto was created ${formatDateTime(first.at)}.`;
+  const head = linkedBy(first);
   if (!rest.length) return head;
-  const shown = rest.slice(0, 10).map((r) => `${serviceKeyName(r.from)} (Pacto target ${r.target || 'of this service'}, ${formatDateTime(r.at)})`);
+  const shown = rest.slice(0, 10).map((r) => `${serviceKeyName(r.from)} (${r.link === 'inferred-from'
+    ? `declared by ${r.by || 'an unknown signer'} in revision ${r.revision || 'unknown'}` : `Pacto target ${r.target || 'of this service'}, ${formatDateTime(r.at)}`})`);
   const unlisted = total - 1 - shown.length;
   return `${head} Also replaces ${shown.join(', ')}${unlisted > 0 ? ` and ${formatCount(unlisted)} more, listed by pacto fleet get` : ''}.`;
 }

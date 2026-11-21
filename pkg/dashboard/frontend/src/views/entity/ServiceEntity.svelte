@@ -21,6 +21,7 @@
   import PolicyList from '../../components/PolicyList.svelte';
   import ConfigurationList from '../../components/ConfigurationList.svelte';
   import InferredFieldList from '../../components/InferredFieldList.svelte';
+  import FieldProvenanceFold from '../../components/FieldProvenanceFold.svelte';
   import LifecycleBadge from '../../components/LifecycleBadge.svelte';
   import ResourceList from '../../components/ResourceList.svelte';
   import CopyableIdentifier from '../../components/CopyableIdentifier.svelte';
@@ -169,8 +170,9 @@
   const resourceEntries = $derived(new Set((used.items ?? []).flatMap((u) => (u.requested ?? [])
     .filter((r) => r.consumerRevision?.key && r.consumerRevision.key === d.currentRevision?.key).map((r) => r.entry))));
   const DOCS = 'https://pacto.run/latest/provision-infrastructure/';
-  // The inferred service a Pacto target took over: one line, the newest first, its
-  // age read against the snapshot so the demo and a paused page agree.
+  // The inferred service a Pacto target or an accepted declaration took over: one line,
+  // the newest first, its age (a Pacto target's only) read against the snapshot so the
+  // demo and a paused page agree.
   const replaced = $derived(d.replaces?.[0]);
   const replacedMore = $derived((d.replacesTotal ?? d.replaces?.length ?? 0) - 1);
   const replacedAge = $derived(replaced?.at ? formatRelative(replaced.at, Date.parse(detail.meta?.asOf ?? '') || Date.now()) : '');
@@ -280,6 +282,12 @@
         {#if d.ownership.conflicts.truncated}<li class="se-conflict-more">+{d.ownership.conflicts.total - d.ownership.conflicts.count} more</li>{/if}
       </ul>
     </div>
+  {/if}
+
+  {#if d.fields || d.replacesHidden || d.replaces?.some((r) => r.link !== 'pacto-target')}
+    <!-- Where each value comes from: one fold, closed, one mark per row (513-S5). A
+         Pacto-target takeover alone stays the one Replaces line above. -->
+    <FieldProvenanceFold fields={d.fields} replaces={d.replaces ?? []} replacesHidden={d.replacesHidden ?? 0} asOf={detail.meta?.asOf ?? ''} />
   {/if}
 
   {#if gp}
