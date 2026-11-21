@@ -747,13 +747,14 @@ func (q *Query) candidateRefs(want map[EntityKind]bool, sourceHealth string) ([]
 	return refs, offerings
 }
 
-// sourceListRefs is one row per source. Asked for incomplete sources
+// sourceListRefs is one row per source. Asked for any state but available
 // (sourceHealth), it leaves out the advisory sources that are not available,
-// as the Incomplete sources tile does.
+// as sourceCounts and the Incomplete sources tile do, so a state bucket
+// leads to exactly the rows it counts.
 func (q *Query) sourceListRefs(sourceHealth string) []EntityRef {
 	refs := make([]EntityRef, 0, len(q.snap.Sources))
 	for _, st := range q.snap.Sources {
-		if sourceHealth == SourceHealthIncomplete && st.Advisory && st.Status != SourceAvailable {
+		if sourceHealth != "" && sourceHealth != string(SourceAvailable) && st.Advisory && st.Status != SourceAvailable {
 			continue
 		}
 		refs = append(refs, sourceEntityRef(st))

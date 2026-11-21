@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -142,4 +143,51 @@ func TestObservedKindlessRestrictHidesCaller(t *testing.T) {
 // callerEqual compares two uncontracted callers field by field.
 func callerEqual(a, b UncontractedCaller) bool {
 	return a.Caller == b.Caller && a.ToService == b.ToService && a.Ambiguous == b.Ambiguous && a.Entity == b.Entity && slices.Equal(a.Sources, b.Sources)
+}
+
+// A kindless name ambiguous only because of a workload of a kind the reader
+// may not list never tells the reader that workload exists.
+func TestObservedKindlessAmbiguityHiddenByKind(t *testing.T) {
+	snap := kindlessSnap(t, []RawInferredService{rawInferred("shop", "Deployment", "cache"), rawInferred("shop", "StatefulSet", "cache")},
+		call("k8s:shop//cache", kindlessLedger))
+	view := NewQuery(snap).Restrict(func(string, string) bool { return true },
+		func(_, _, kind string) bool { return kind != "StatefulSet" })
+	for _, l := range view.Snapshot().Limitations {
+		if strings.Contains(l.Message, "k8s:shop//cache") {
+			t.Errorf("limitation %+v names the hidden workload's name", l)
+		}
+	}
+}
+
+// One known workload of a name is not the only one when the workload source
+// did not read every workload: the kindless name stays unknown.
+func TestObservedKindlessNameUnknownWhileWorkloadsPartial(t *testing.T) {
+	cl := clusterOf(clusterA, "eu", ClusterNameFromContext)
+	snap := buildClusterSnap(t,
+		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Cluster: cl, Targets: []RawTarget{workload("prod", "payments")}}),
+		NewMemorySource("k8s-workloads", SourceKindKubernetesWorkloads, &Collection{Cluster: cl, InferredServices: []RawInferredService{inferredCart()},
+			State: &SourceState{Status: SourcePartial}}))
+	if k, res := snap.ObservedNameResolver()(kindlessCart); k != "" || res != ObservedUnknown {
+		t.Errorf("resolved %s %v while the workload list was partial", k, res)
+	}
+}
+
+// In a multi-cluster snapshot only the cluster whose workload list is
+// incomplete leaves its kindless names unknown.
+func TestObservedKindlessPartialWorkloadsPerCluster(t *testing.T) {
+	var srcs []Source
+	for i, id := range []string{clusterA, clusterB} {
+		col := &Collection{Cluster: clusterOf(id, id[:4], ClusterNameFromContext), InferredServices: []RawInferredService{inferredCart()}}
+		if i == 0 {
+			col.State = &SourceState{Status: SourcePartial}
+		}
+		srcs = append(srcs, NewMemorySource("w-"+id[:4], SourceKindKubernetesWorkloads, col))
+	}
+	resolve := buildClusterSnap(t, srcs...).ObservedNameResolver()
+	if _, res := resolve(K8sCaller(clusterA, "shop", "", "cart")); res != ObservedUnknown {
+		t.Errorf("partial cluster resolved %v", res)
+	}
+	if k, res := resolve(K8sCaller(clusterB, "shop", "", "cart")); res != ObservedInferred || k != NewServiceKey(K8sCaller(clusterB, "shop", "Deployment", "cart")) {
+		t.Errorf("complete cluster resolved %s %v", k, res)
+	}
 }

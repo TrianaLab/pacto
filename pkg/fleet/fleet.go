@@ -168,6 +168,24 @@ func (s *FleetSnapshot) ObservedNameResolver() func(string) (ServiceKey, Observe
 		wn := workloadName{cluster: r.workload.cluster, namespace: r.workload.namespace, name: r.workload.name}
 		byWorkload[wn] = append(byWorkload[wn], r.to)
 	}
+	// A cluster whose workload source did not read every workload may hold a
+	// second workload of the name the index never saw. ponytail: the whole
+	// cluster, not the namespace or kind it missed; per-scope when one
+	// unreadable kind blocks too much.
+	incomplete := map[string]bool{}
+	for _, st := range s.Sources {
+		switch {
+		case st.Kind != SourceKindKubernetesWorkloads || st.Status == SourceAvailable:
+		case !s.clusterKeyed:
+			incomplete[""] = true
+		default:
+			for _, c := range s.Clusters {
+				if slices.Contains(c.Sources, st.ID) {
+					incomplete[c.ID] = true
+				}
+			}
+		}
+	}
 	return func(name string) (ServiceKey, ObservedResolution) {
 		if r, ok := s.replacedNames[name]; ok {
 			return r.to, ObservedResolved
@@ -176,7 +194,7 @@ func (s *FleetSnapshot) ObservedNameResolver() func(string) (ServiceKey, Observe
 		case 1:
 			return ks[0], s.resolution(ks[0])
 		case 0:
-			return s.kindless(name, byWorkload)
+			return s.kindless(name, byWorkload, incomplete)
 		default:
 			return "", ObservedAmbiguous
 		}
@@ -197,11 +215,11 @@ func (s *FleetSnapshot) resolution(k ServiceKey) ObservedResolution {
 
 // kindless resolves a Kubernetes name with an empty kind ("k8s:ns//name") to
 // the one service whose workload has that name in that namespace and
-// cluster. Two or more are ambiguous; none, or a name that is not kindless,
-// is unknown.
-func (s *FleetSnapshot) kindless(name string, byWorkload map[workloadName][]ServiceKey) (ServiceKey, ObservedResolution) {
+// cluster. Two or more are ambiguous; none, a name that is not kindless, or
+// one of a cluster whose workload list is incomplete, is unknown.
+func (s *FleetSnapshot) kindless(name string, byWorkload map[workloadName][]ServiceKey, incomplete map[string]bool) (ServiceKey, ObservedResolution) {
 	cluster, ns, kind, n, ok := ParseK8sCaller(name)
-	if !ok || kind != "" {
+	if !ok || kind != "" || incomplete[cluster] {
 		return "", ObservedUnknown
 	}
 	ks := slices.Clone(byWorkload[workloadName{cluster, ns, n}])

@@ -50,3 +50,28 @@ func TestIncompleteSourcesListSkipsAdvisoryNotAvailable(t *testing.T) {
 		t.Errorf("unfiltered sources %+v", all.Entities)
 	}
 }
+
+// Each state bucket of sourceCounts leads to exactly as many rows as it
+// counts, with an advisory source in that state left out of both.
+func TestSourceCountBucketsMatchTheirFilter(t *testing.T) {
+	snap := buildClusterSnap(t,
+		NewMemorySource("oci", "oci", &Collection{State: &SourceState{Status: SourcePartial}}),
+		NewMemorySource("edge", "oci", &Collection{State: &SourceState{Status: SourceUnavailable}}),
+		advisoryMesh(),
+		NewMemorySource("mesh-down", SourceKindMesh, &Collection{Advisory: true, State: &SourceState{Status: SourceUnavailable}}))
+	q := NewQuery(snap)
+	c := sourceCounts(snap.Sources)
+	for health, want := range map[string]int{string(SourcePartial): c.Partial, string(SourceUnavailable): c.Unavailable,
+		string(SourceStale): c.Stale, string(SourceAvailable): c.Available} {
+		l, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindSource}, SourceHealth: health})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if l.Total != want {
+			t.Errorf("sourceHealth=%s lists %d rows; its bucket counts %d", health, l.Total, want)
+		}
+	}
+	if c.Partial != 1 || c.Unavailable != 1 {
+		t.Errorf("counts %+v", c)
+	}
+}
