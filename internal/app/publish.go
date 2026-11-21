@@ -663,7 +663,10 @@ func (t execTools) load(ctx context.Context, sign contract.PublishSign) (signing
 }
 
 // signer is who signed for sign, as a row prints it: keyless (<identity>),
-// key <path> or kms <uri>; "" when the signer never loaded.
+// key <path> or kms <uri>; "" when the signer never loaded. A policy that
+// matches the caller (a reusable workflow, signing.PolicyForToken) keeps a
+// signature another workflow of the caller wrote, so the row names what every
+// kept or new signature shares: the repository and ref.
 func (t execTools) signer(sign contract.PublishSign) string {
 	l, ok := t.signers[sign]
 	switch {
@@ -673,6 +676,9 @@ func (t execTools) signer(sign contract.PublishSign) string {
 		return "key " + sign.Key
 	case sign.KMS != "":
 		return "kms " + sign.KMS
+	}
+	if l.p.Repository != "" {
+		return "keyless (repository " + l.p.Repository + " at " + l.p.Ref + ")"
 	}
 	return "keyless (" + l.p.Identity + ")"
 }
