@@ -320,7 +320,8 @@ or schema file already there as it is, listed in `kept`.
   [replaced inferred service](operational-graph-inferred.md#when-a-contract-takes-over)
   with the service that replaced it and `replacedFrom`.
 - `pacto_fleet_get`, `pacto_fleet_explain` and `pacto_fleet_entity` carry,
-  for a service, `fields`: each field of its current revision as `declared`,
+  for a service whose current revision carries a declaration or that replaced
+  an inferred service through one, `fields`: each field of its current revision as `declared`,
   `accepted` (with `by`), `attested` or `inferred`, with `source`, `asOf`,
   `completeness` and, for a range left `unknown`, `proposed`, and
   `replacesHidden`, the replacements whose workload the caller may not see.

@@ -257,7 +257,9 @@ reported it).
   `knowledge` category that asks you to confirm the workload is the service.
   It carries no time and stays while the declaration holds.
 - **Fields.** `pacto fleet get`, `pacto fleet explain`, their MCP tools, the
-  TUI and the dashboard read `fields`: each field of the current revision as
+  TUI and the dashboard read `fields` for a service whose current revision
+  carries a declaration or that replaced an inferred service through one: each
+  field of the current revision as
   `declared`, `accepted` (with `by`, who signed the accepted declaration),
   `attested` or `inferred`, with its source and `asOf`. A proposed range stays
   `unknown` beside `proposed`. Inferred fields never clear a gate.

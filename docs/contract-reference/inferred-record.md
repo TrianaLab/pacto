@@ -354,7 +354,9 @@ built from that commit.
   `clear`. Dependents and the dashboard's expected dependencies list declared
   ones only.
 - The dashboard shows inferred values in a collapsed **Inferred by Pacto**
-  block on the service page and in the **Inferred** block of a revision. A
+  block on the service page, or in its **Where the values come from** fold
+  when the revision carries a declaration, and in the **Inferred** block of a
+  revision. A
   mark beside each value gives its source and confidence.
 - A record Pacto cannot read or verify shows as "Pacto could not read the
   inferred record", never as an empty list, and the fleet answer is `partial`.

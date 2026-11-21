@@ -192,8 +192,26 @@ func TestFieldsAbsentWithoutRecordOrReplacement(t *testing.T) {
 	if f := NewQuery(snap).fieldsOf(&ServiceRecord{Key: "x"}); f != nil {
 		t.Errorf("fields %+v", f)
 	}
-	// A replacement alone is enough: its owner and dependency rows.
-	snap.Replacements = append(snap.Replacements, Replacement{To: invoicesKey})
+	// A record without a declaration is inferredFields' alone.
+	rev := snap.Revisions[NewRevisionKey(invoicesKey, "sha256:invoices-0.1.0")]
+	rev.Record = &contract.InferredRecord{Fields: []contract.Inferred{{Field: "service.owner", Value: "billing", Source: "CODEOWNERS"}}}
+	if f := NewQuery(snap).fieldsOf(snap.Services[invoicesKey]); f != nil {
+		t.Errorf("fields of a plain record %+v", f)
+	}
+	rev.Record = nil
+	// A Pacto target's takeover alone keeps 509-S4's answer.
+	snap.Replacements = append(snap.Replacements, Replacement{To: invoicesKey, Link: linkPactoTarget})
+	if f := NewQuery(snap).fieldsOf(snap.Services[invoicesKey]); f != nil {
+		t.Errorf("fields of a Pacto target takeover %+v", f)
+	}
+	// A hidden replacement is enough: the count needs the block.
+	snap.hiddenReplacements = map[ServiceKey]int{invoicesKey: 1}
+	if f := NewQuery(snap).fieldsOf(snap.Services[invoicesKey]); f == nil {
+		t.Error("no fields with a hidden replacement")
+	}
+	snap.hiddenReplacements = nil
+	// Any other replacement is enough: its owner and dependency rows.
+	snap.Replacements = append(snap.Replacements, Replacement{To: invoicesKey, Link: linkInferredFrom})
 	if f := NewQuery(snap).fieldsOf(snap.Services[invoicesKey]); f == nil || f.Items[0].Field != "service.owner" {
 		t.Errorf("fields %+v", f)
 	}

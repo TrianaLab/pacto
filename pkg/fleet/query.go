@@ -670,7 +670,8 @@ type ServiceView struct {
 	ReplacesTotal  int           `json:"replacesTotal,omitempty" doc:"How many inferred services this service replaced"`
 	ReplacesHidden int           `json:"replacesHidden,omitempty" doc:"Replacements of this service whose workload you may not see"`
 	// Fields says where each field of the current revision comes from; nil
-	// when it has no inferred record and the service replaced nothing.
+	// unless it carries a declaration or the service replaced an inferred
+	// service through one (fieldsOf).
 	Fields *FieldsPreview `json:"fields,omitempty" doc:"Where each field of the current revision comes from: declared, accepted, attested or inferred"`
 }
 

@@ -46,12 +46,13 @@ type FieldsPreview struct {
 
 // fieldsOf says where each field of s's current revision comes from: the
 // owner, each dependency's compatibility, then every other field of its
-// inferred record. Nil when that revision has no inferred record and s
-// replaced no inferred service, so every other answer is unchanged.
+// inferred record. Nil unless that revision carries a declaration, s replaced
+// an inferred service through a link other than a Pacto target, or a
+// replacement of s is hidden from the viewer: a plain inferred record (shown as
+// inferredFields) and a Pacto target's takeover answer as they did before.
 func (q *Query) fieldsOf(s *ServiceRecord) *FieldsPreview {
 	cur := q.currentRevision(s)
-	if cur == nil || (cur.Record == nil && !slices.ContainsFunc(q.snap.Replacements, func(r Replacement) bool { return r.To == s.Key }) &&
-		q.snap.hiddenReplacements[s.Key] == 0) {
+	if cur == nil || !q.hasFields(s, cur) {
 		return nil
 	}
 	byField := map[string]contract.Inferred{}
@@ -79,6 +80,11 @@ func (q *Query) fieldsOf(s *ServiceRecord) *FieldsPreview {
 	}
 	items, total, truncated := boundSlice(rows, MaxDetailPreview)
 	return &FieldsPreview{Items: items, Count: len(items), Total: total, Truncated: truncated, Hidden: cur.hiddenClusterFields}
+}
+
+func (q *Query) hasFields(s *ServiceRecord, cur *ContractRevision) bool {
+	return (cur.Record != nil && cur.Record.Declaration != nil) || q.snap.hiddenReplacements[s.Key] > 0 ||
+		slices.ContainsFunc(q.snap.Replacements, func(r Replacement) bool { return r.To == s.Key && r.Link != linkPactoTarget })
 }
 
 // ownerRow is s's owner and where it comes from, read from what the owner
