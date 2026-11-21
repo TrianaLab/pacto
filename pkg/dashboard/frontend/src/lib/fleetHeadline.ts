@@ -92,4 +92,3 @@ export function completenessTile(c: CompletenessFigure | null | undefined, secti
   if (c.percentComplete == null) return { value: 'unknown', unknown: true, note: base, sub, segments, total: judged + unknown };
   return { value: `${c.percentComplete}%`, unknown: false, note: base, sub, segments, total: judged + unknown };
 }
-
