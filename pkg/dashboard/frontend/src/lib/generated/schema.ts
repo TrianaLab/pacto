@@ -3576,7 +3576,7 @@ export interface components {
              * @description Services whose contract completeness Pacto can judge
              */
             judged: number;
-            /** @description The three sections most often left undeclared (missing or inferred only), most first */
+            /** @description The three sections most often missing, most first; an inferred or unknown section never counts */
             mostMissing: components["schemas"]["Fleet.SectionCount"][] | null;
             /**
              * Format: int64
@@ -3993,6 +3993,11 @@ export interface components {
              */
             from: number;
             inferred?: boolean;
+            /**
+             * @description The match state the ribbons and tallies count it in; absent for a configuration reference
+             * @enum {string}
+             */
+            match?: "matched" | "expected-only" | "observed-only" | "insufficient";
             problem?: components["schemas"]["Fleet.MapProblem"];
             /**
              * Format: int64
@@ -4022,6 +4027,8 @@ export interface components {
             kind: "domain" | "team" | "environment" | "previews" | "external" | "unowned" | "none" | "unknown" | "other";
             label: string;
             match: components["schemas"]["Fleet.MatchTally"];
+            /** @description How many of the group's judged services miss each section, in the checklist's order; a section none misses is left out */
+            missing?: components["schemas"]["Fleet.SectionCount"][] | null;
             /**
              * Format: int64
              * @description Mean contract completeness of the group's judged services; absent when none is judged
@@ -4048,7 +4055,7 @@ export interface components {
              * @description Visible services that depend on it
              */
             in?: number;
-            /** @description Whether it runs in the requested environment; absent without one */
+            /** @description Whether it runs in the requested environment; absent without one and when Pacto cannot tell */
             inEnvironment?: boolean;
             inferred?: boolean;
             /** Format: int64 */
@@ -6795,7 +6802,7 @@ export interface components {
              * @description Visible services that depend on it
              */
             in?: number;
-            /** @description Whether it runs in the requested environment; absent without one */
+            /** @description Whether it runs in the requested environment; absent without one and when Pacto cannot tell */
             inEnvironment?: boolean;
             inferred?: boolean;
             /** Format: int64 */
@@ -10510,8 +10517,6 @@ export interface operations {
             query?: {
                 /** @description Grouping: domain (default), team or environment */
                 groupBy?: string;
-                /** @description Environment the nodes are read in; the layout does not change */
-                environment?: string;
             };
             header?: never;
             path?: never;

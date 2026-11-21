@@ -31,8 +31,7 @@ func (s *Server) registerMapOperations(api huma.API) {
 }
 
 type fleetMapInput struct {
-	GroupBy     string `query:"groupBy" doc:"Grouping: domain (default), team or environment"`
-	Environment string `query:"environment" doc:"Environment the nodes are read in; the layout does not change"`
+	GroupBy string `query:"groupBy" doc:"Grouping: domain (default), team or environment"`
 }
 
 type fleetMapOutput struct{ Body *fleet.FleetMap }
@@ -42,7 +41,7 @@ func (s *Server) fleetMap(ctx context.Context, in *fleetMapInput) (*fleetMapOutp
 	if err != nil {
 		return nil, err
 	}
-	mq := fleet.MapQuery{GroupBy: in.GroupBy, Environment: in.Environment}
+	mq := fleet.MapQuery{GroupBy: in.GroupBy}
 	if in.GroupBy == fleet.MapGroupByEnvironment {
 		mq.EnvironmentOrder, mq.OrderWhy = s.environmentRank(ctx)
 	}

@@ -81,6 +81,10 @@ func (r mapRequest) check() error {
 		return errors.New("--hops needs --focus")
 	case r.group == "" && (r.offset != 0 || r.limit != 0):
 		return errors.New("--offset and --limit need --group")
+	case r.group == "" && r.environment != "":
+		return errors.New("--environment needs --group: the groups read every environment")
+	case r.environment != "" && r.groupBy == fleet.MapGroupByEnvironment:
+		return errors.New("--environment reads nothing with --group-by environment: each target is already in its environment")
 	}
 	return nil
 }
@@ -100,7 +104,7 @@ func runFleetMap(cmd *cobra.Command, q *fleet.Query, r mapRequest, format string
 		}
 		return formatResult(cmd, format, res, func() error { printMapNodes(cmd, res); return nil }, nil)
 	}
-	res, err := q.Map(fleet.MapQuery{GroupBy: r.groupBy, Environment: r.environment})
+	res, err := q.Map(fleet.MapQuery{GroupBy: r.groupBy})
 	if err != nil {
 		return err
 	}

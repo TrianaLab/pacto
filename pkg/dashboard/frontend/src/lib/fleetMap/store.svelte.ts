@@ -5,8 +5,9 @@
  * The Groups level needs no node: the answer alone draws it. From the
  * Services level on, the component asks for the groups that intersect the
  * viewport; their pages are fetched four groups at a time and kept in a small
- * LRU keyed by snapshot, grouping and group, so panning back is free and a new
- * snapshot never mixes with an old one.
+ * LRU keyed by snapshot, grouping, environment and group, so panning back is
+ * free and a new snapshot never mixes with an old one: a page read from
+ * another snapshot than the answer's is dropped and the answer read again.
  */
 import { api, type FleetMapAnswer, type FleetMapFocusAnswer, type FleetMapNodesPage } from '../api';
 import type { MapEdge, MapNode } from './lens';
@@ -21,7 +22,7 @@ export const PAGE_LIMIT = 1000;
 export type GroupBy = 'domain' | 'team' | 'environment';
 
 export interface Fetchers {
-  map: (q: { groupBy?: string; environment?: string }) => Promise<FleetMapAnswer>;
+  map: (q: { groupBy?: string }) => Promise<FleetMapAnswer>;
   nodes: (q: { groupBy?: string; group: string; environment?: string; offset?: number; limit?: number }) => Promise<FleetMapNodesPage>;
   focus?: (q: { service: string; hops?: number }) => Promise<FleetMapFocusAnswer>;
 }
@@ -59,16 +60,28 @@ export class FleetMapStore {
 
   get snapshotId(): string { return this.answer?.meta?.snapshotId ?? ''; }
 
-  private key(group: string): string { return `${this.snapshotId}|${this.groupBy}|${group}`; }
+  /** The environment node pages are read in: none in the environment grouping, where each target already sits in its own. */
+  private get pageEnvironment(): string { return this.groupBy === 'environment' ? '' : this.environment; }
 
-  /** load reads the whole-fleet answer; a new snapshot or grouping drops every cached page. */
+  private key(group: string): string { return `${this.snapshotId}|${this.groupBy}|${this.pageEnvironment}|${group}`; }
+
+  /**
+   * load reads the whole-fleet answer; a new snapshot or grouping drops every
+   * cached page. The answer does not depend on the environment, so a new
+   * environment alone reads no answer: its node pages have their own keys.
+   */
   async load(groupBy: GroupBy = this.groupBy, environment = this.environment): Promise<void> {
+    if (this.answer && groupBy === this.groupBy && environment !== this.environment) {
+      this.environment = environment;
+      this.revision++;
+      return;
+    }
     const seq = ++this.loadSeq;
     this.loading = true;
     try {
-      const a = await this.fetchers.map({ groupBy, environment: environment || undefined });
+      const a = await this.fetchers.map({ groupBy });
       if (seq !== this.loadSeq) return;
-      if (a?.meta?.snapshotId !== this.snapshotId || groupBy !== this.groupBy || environment !== this.environment) this.clear();
+      if (a?.meta?.snapshotId !== this.snapshotId || groupBy !== this.groupBy) this.clear();
       this.groupBy = groupBy;
       this.environment = environment;
       this.answer = a;
@@ -159,11 +172,18 @@ export class FleetMapStore {
 
   private async fetchGroup(group: string, k: string): Promise<void> {
     const page: GroupPage = { group, nodes: [], edges: [], total: 0, complete: false };
-    const q = { groupBy: this.groupBy, group, environment: this.environment || undefined, limit: PAGE_LIMIT };
+    const q = { groupBy: this.groupBy, group, environment: this.pageEnvironment || undefined, limit: PAGE_LIMIT };
     try {
       for (let offset = 0; ; offset += PAGE_LIMIT) {
         const r = await this.fetchers.nodes({ ...q, offset });
-        if (k !== this.key(group)) return; // the snapshot or grouping moved on
+        if (k !== this.key(group)) return; // the snapshot, grouping or environment moved on
+        if (r.meta?.snapshotId && r.meta.snapshotId !== this.snapshotId) {
+          // The server holds a newer snapshot: its coordinates and positions
+          // belong to another layout. Drop the page and read the answer again.
+          this.pages.delete(k);
+          void this.load(this.groupBy, this.environment);
+          return;
+        }
         page.nodes.push(...(r.nodes ?? []));
         page.edges.push(...(r.edges ?? []));
         page.total = r.total;
@@ -174,6 +194,8 @@ export class FleetMapStore {
       page.complete = true;
       this.revision++;
     } catch {
+      // A partial page is dropped, never kept as if it were the whole group.
+      if (this.pages.get(k) === page) this.pages.delete(k);
       if (k === this.key(group)) this.failed.add(k);
     }
   }

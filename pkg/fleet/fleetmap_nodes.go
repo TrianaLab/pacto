@@ -64,7 +64,7 @@ type MapNode struct {
 	Out             int      `json:"out,omitempty" doc:"Visible services it depends on"`
 	PercentComplete *int     `json:"percentComplete,omitempty"`
 	Missing         []string `json:"missing,omitempty" doc:"Contract sections it leaves out"`
-	InEnvironment   *bool    `json:"inEnvironment,omitempty" doc:"Whether it runs in the requested environment; absent without one"`
+	InEnvironment   *bool    `json:"inEnvironment,omitempty" doc:"Whether it runs in the requested environment; absent without one and when Pacto cannot tell"`
 }
 
 // MapEdge is one dependency between two nodes of a group. From and To are
@@ -75,6 +75,7 @@ type MapEdge struct {
 	From       int         `json:"from" doc:"The calling node's position in the group, over every page"`
 	To         int         `json:"to" doc:"The called node's position in the group, over every page"`
 	Difference string      `json:"difference,omitempty" enum:"matched,expected-not-observed,observed-not-expected,insufficient"`
+	Match      string      `json:"match,omitempty" enum:"matched,expected-only,observed-only,insufficient" doc:"The match state the ribbons and tallies count it in; absent for a configuration reference"`
 	Inferred   bool        `json:"inferred,omitempty"`
 	Problem    *MapProblem `json:"problem,omitempty"`
 }
@@ -86,6 +87,8 @@ type nodeFacts struct {
 	in, out   map[ServiceKey]int
 	attention map[ServiceKey][]AttentionItem
 	env       string
+	// placementUnknown is set when a node's presence in env is unknown.
+	placementUnknown bool
 }
 
 // newNodeFacts reads the degrees of every visible service and the attention
@@ -109,6 +112,9 @@ func (q *Query) MapNodes(nq MapNodesQuery) (*MapNodes, error) {
 	limit, err := mapNodesLimit(nq)
 	if err != nil {
 		return nil, err
+	}
+	if nq.Environment != "" && nq.GroupBy == MapGroupByEnvironment {
+		return nil, &InvalidQueryError{Field: "environment", Value: nq.Environment, Reason: "the environment grouping already places each target in its environment"}
 	}
 	b, err := q.mapMembers(MapQuery{GroupBy: nq.GroupBy})
 	if err != nil {
@@ -134,6 +140,10 @@ func (q *Query) MapNodes(nq MapNodesQuery) (*MapNodes, error) {
 		out.Nodes = append(out.Nodes, n)
 	}
 	out.Edges = b.pageEdges(gl.nodes[:end], nq.Offset)
+	if f.placementUnknown {
+		out.Meta = q.productMetaWith([]Limitation{{Code: LimitationEnvironmentPlacementUnknown,
+			Message: "Pacto cannot tell whether some services run in " + nq.Environment + ": their targets are hidden or not every target source is complete"}})
+	}
 	return out, nil
 }
 
@@ -200,8 +210,18 @@ func (f *nodeFacts) serviceNode(s *ServiceRecord, counts func(AttentionItem) boo
 		}
 	}
 	if f.env != "" {
+		// A service runs in env when a visible target runs there, and does
+		// not only when Pacto can tell where it runs; otherwise it is unknown.
 		v, ok := q.runningVersion(s, f.env)
-		n.Version, n.InEnvironment = v, &ok
+		n.Version = v
+		switch {
+		case ok:
+			n.InEnvironment = new(true)
+		case !s.Inferred() && q.placementKnown(s):
+			n.InEnvironment = new(false)
+		default:
+			f.placementUnknown = true
+		}
 	}
 	return n
 }
@@ -279,7 +299,7 @@ func (b *mapBuild) pageEdges(nodes []nodePos, offset int) []MapEdge {
 				if pf == nil {
 					pf = new(b.q.problemFactsOf())
 				}
-				out = append(out, MapEdge{From: from.i, To: to.i, Difference: edgeDifference(*me.e), Inferred: me.e.Inferred, Problem: b.q.edgeProblem(me, *pf)})
+				out = append(out, MapEdge{From: from.i, To: to.i, Difference: edgeDifference(*me.e), Match: me.state, Inferred: me.e.Inferred, Problem: b.q.edgeProblem(me, *pf)})
 			}
 		}
 	}

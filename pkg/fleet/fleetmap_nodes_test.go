@@ -190,6 +190,34 @@ func TestMapNodesEnvironmentPicker(t *testing.T) {
 	}
 }
 
+func TestMapNodesEnvironmentUnknownPlacementIsNotNegative(t *testing.T) {
+	var revs []RawRevision
+	for _, s := range mapServices {
+		revs = append(revs, mapRev(s))
+	}
+	registryOnly := NewQuery(buildClusterSnap(t, NewMemorySource("reg", "oci", &Collection{Revisions: revs})))
+	p := mustNodes(t, registryOnly, MapNodesQuery{Group: "shop", Environment: "prod"})
+	for _, n := range p.Nodes {
+		if n.InEnvironment != nil {
+			t.Errorf("no target source: %s inEnvironment %v", n.Key, *n.InEnvironment)
+		}
+	}
+	if !slices.ContainsFunc(p.Meta.Limitations, func(l Limitation) bool { return l.Code == LimitationEnvironmentPlacementUnknown }) {
+		t.Errorf("limitations %+v", p.Meta.Limitations)
+	}
+	// pay runs in prod in a namespace the viewer may not read, and in staging.
+	svcs := []mapSvc{{name: "pay", domain: "shop", envs: []string{"prod", "staging"}}, {name: "web", domain: "shop", envs: []string{"prod"}}}
+	hidden := mapFleet(t, svcs, []RawTarget{mapTarget("secret", "pay", "prod"), mapTarget("shop", "pay", "staging"), mapTarget("shop", "web", "prod")}).
+		Restrict(func(_, ns string) bool { return ns != "secret" }, nil)
+	p = mustNodes(t, hidden, MapNodesQuery{Group: "shop", Environment: "prod"})
+	if pay := nodeOf(p.Nodes, string(NewServiceKey("pay"))); pay.InEnvironment != nil {
+		t.Errorf("hidden target: pay inEnvironment %v", *pay.InEnvironment)
+	}
+	if web := nodeOf(p.Nodes, string(NewServiceKey("web"))); web.InEnvironment == nil || !*web.InEnvironment {
+		t.Errorf("web %+v", web)
+	}
+}
+
 func TestMapNodesRunningVersionMixed(t *testing.T) {
 	q := defaultMapFleet(t)
 	pay := q.snap.Services[NewServiceKey("payments")]
@@ -297,5 +325,50 @@ func TestAttentionForNarrowsEveryProducer(t *testing.T) {
 	}
 	if q.scope != nil {
 		t.Error("attentionFor scoped the query itself")
+	}
+}
+
+func TestMapNodesEdgesCarryTheirMatchState(t *testing.T) {
+	q := defaultMapFleet(t)
+	b, err := q.mapMembers(MapQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := map[[2]ServiceKey]string{}
+	for _, me := range b.edges {
+		state[[2]ServiceKey{me.from, me.to}] = me.state
+	}
+	seen := 0
+	for _, g := range mustMap(t, q, MapQuery{}).Groups {
+		p := mustNodes(t, q, MapNodesQuery{Group: g.Key})
+		for _, e := range p.Edges {
+			want := state[[2]ServiceKey{ServiceKey(p.Nodes[e.From].Key), ServiceKey(p.Nodes[e.To].Key)}]
+			if e.Match != want {
+				t.Errorf("%s: edge %+v match %q, want %q", g.Key, e, e.Match, want)
+			}
+			seen++
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no edge to check")
+	}
+}
+
+func TestMapGroupMissingCountsItsServices(t *testing.T) {
+	q := defaultMapFleet(t)
+	for _, g := range mustMap(t, q, MapQuery{}).Groups {
+		want := map[string]int{}
+		for _, n := range mustNodes(t, q, MapNodesQuery{Group: g.Key}).Nodes {
+			for _, s := range n.Missing {
+				want[s]++
+			}
+		}
+		got := map[string]int{}
+		for _, c := range g.Missing {
+			got[c.Section] = c.Count
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: missing %v, want %v", g.Key, got, want)
+		}
 	}
 }

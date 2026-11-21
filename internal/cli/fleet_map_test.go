@@ -161,6 +161,7 @@ func TestFleetMapFlags(t *testing.T) {
 	for _, args := range [][]string{
 		{"--focus", "a", "--group", "b"}, {"--focus", "a", "--environment", "dev"}, {"--hops", "2"},
 		{"--offset", "1"}, {"--limit", "1"}, {"--group", "ghost", "--offset", "1"},
+		{"--environment", "nope"}, {"--group-by", "environment", "--group", "prod", "--environment", "staging"},
 	} {
 		if _, _, err := runRoot(t, defaultDeps(), nil, append([]string{"fleet", "map", "--local", dir}, args...)...); err == nil {
 			t.Errorf("fleet map %v is no error", args)
@@ -218,7 +219,7 @@ func mapGroupKeys(m fleet.FleetMap) []string {
 }
 
 func TestMapRequestCheck(t *testing.T) {
-	for _, r := range []mapRequest{{}, {groupBy: "team", environment: "dev"}, {group: "a", offset: 1, limit: 2}, {focus: "a", hops: 2}} {
+	for _, r := range []mapRequest{{}, {groupBy: "team", group: "a", environment: "dev"}, {group: "a", offset: 1, limit: 2}, {focus: "a", hops: 2}} {
 		if err := r.check(); err != nil {
 			t.Errorf("%+v: %v", r, err)
 		}

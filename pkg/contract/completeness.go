@@ -48,11 +48,14 @@ type CompletenessSection struct {
 
 // sectionRule is how one section reads a contract: whether it applies
 // without any inferred field, whether pacto.yaml declares it completely, and
-// what is missing when it does not.
+// what is missing when it does not. partly says applies means pacto.yaml
+// declares part of the section (an interface, a workload), so the section is
+// missing what it lacks, never inferred.
 type sectionRule struct {
 	name             string
 	applies, declare func(*Contract) bool
 	missing          string
+	partly           bool
 }
 
 func hasHealth(c *Contract) bool {
@@ -65,22 +68,22 @@ var sectionRules = []sectionRule{
 	{SectionInterfaces, func(c *Contract) bool { return len(c.Interfaces) > 0 },
 		func(c *Contract) bool {
 			return len(c.Interfaces) > 0 && !slices.ContainsFunc(c.Interfaces, func(i Interface) bool { return i.Ref == "" })
-		}, "an interface names no document (ref)"},
+		}, "an interface names no document (ref)", true},
 	{SectionConfiguration, func(c *Contract) bool { return len(c.Configurations) > 0 },
 		func(c *Contract) bool {
 			return len(c.Configurations) > 0 && !slices.ContainsFunc(c.Configurations, func(g Configuration) bool { return g.Schema == "" && g.Ref == "" })
-		}, "a configuration has no schema"},
+		}, "a configuration has no schema", true},
 	{SectionDependencies, func(c *Contract) bool { return len(c.Dependencies) > 0 },
 		func(c *Contract) bool {
 			return len(c.Dependencies) > 0 && !slices.ContainsFunc(c.Dependencies, func(d Dependency) bool { return !IsRange(d.Compatibility) })
-		}, "a dependency accepts no version range"},
-	{SectionOwner, always, func(c *Contract) bool { return !c.Service.Owner.IsEmpty() }, "no owner"},
-	{SectionSummary, always, func(c *Contract) bool { return c.Service.Summary != "" }, "no summary"},
-	{SectionDomain, always, func(c *Contract) bool { return c.Service.Domain != "" }, "no business domain"},
+		}, "a dependency accepts no version range", true},
+	{SectionOwner, always, func(c *Contract) bool { return !c.Service.Owner.IsEmpty() }, "no owner", false},
+	{SectionSummary, always, func(c *Contract) bool { return c.Service.Summary != "" }, "no summary", false},
+	{SectionDomain, always, func(c *Contract) bool { return c.Service.Domain != "" }, "no business domain", false},
 	{SectionRuntime, func(c *Contract) bool { return c.Workload != "" },
-		func(c *Contract) bool { return c.Workload != "" && hasHealth(c) }, "no workload or no health capability"},
+		func(c *Contract) bool { return c.Workload != "" && hasHealth(c) }, "no workload or no health capability", true},
 	{SectionReadiness, func(c *Contract) bool { return c.Service.Template == nil },
-		func(c *Contract) bool { return c.Readiness != nil && len(c.Readiness.Claims) > 0 }, "no readiness assessment"},
+		func(c *Contract) bool { return c.Readiness != nil && len(c.Readiness.Claims) > 0 }, "no readiness assessment", false},
 }
 
 // SectionNames is every completeness section in its fixed order.
@@ -153,7 +156,7 @@ func (r sectionRule) check(c *Contract, fields []Inferred) CompletenessSection {
 		s.State, s.Reason = CompletenessNotApplicable, "pacto.yaml declares none and Pacto inferred none"
 	case r.declare(c):
 		s.State, s.Reason = CompletenessDeclared, "pacto.yaml declares it"
-	case len(fields) > 0:
+	case len(fields) > 0 && (!r.partly || !r.applies(c)):
 		s.State, s.Reason, s.Declare = CompletenessInferred, inferredReason(fields[0].Source), declareOf(fields)
 	default:
 		s.State, s.Reason = CompletenessMissing, r.missing

@@ -33,8 +33,10 @@ export function nodeVisibility(n: MapNode, lens: Lens): Visibility {
  * Expected keeps what contracts declare, Observed what Pacto sees.
  */
 export function edgeVisible(e: MapEdge, lens: Lens): boolean {
-  if (lens === 'expected') return !e.inferred && e.difference !== 'observed-not-expected';
-  if (lens === 'observed') return e.difference === 'matched' || e.difference === 'observed-not-expected';
+  // The match state is what the ribbons count: a runtime-inferred call has no
+  // difference but is observed-only.
+  if (lens === 'expected') return !e.inferred && e.difference !== 'observed-not-expected' && e.match !== 'observed-only';
+  if (lens === 'observed') return e.difference === 'matched' || e.difference === 'observed-not-expected' || e.match === 'observed-only';
   return true;
 }
 
@@ -49,7 +51,9 @@ export function ribbonCount(r: MapRibbon, lens: Lens): number {
 /** groupCount is how many of a group's nodes the lens shows (ghosts count: they are drawn). */
 export function groupCount(g: MapGroup, lens: Lens): number {
   if (lens === 'expected') return g.services - g.inferred;
-  if (lens === 'observed') return g.services - (g.match.services.expectedOnly ?? 0);
+  // An environment's nodes are targets, never expected-only: its expected-only
+  // tally counts services that declare it and run elsewhere, which are not drawn.
+  if (lens === 'observed' && g.kind !== 'environment' && g.kind !== 'previews') return Math.max(0, g.services - (g.match.services.expectedOnly ?? 0));
   return g.services;
 }
 

@@ -283,6 +283,44 @@ func TestMapEnvironmentStaleOrQuarantinedTargetIsInsufficient(t *testing.T) {
 	}
 }
 
+func TestMapTargetMatchUnknownIsInsufficient(t *testing.T) {
+	q := defaultMapFleet(t)
+	var pay *TargetRecord
+	for _, tr := range q.snap.Targets {
+		if tr.Service == "payments" && tr.Environment == "prod" {
+			pay = tr
+		}
+	}
+	base := *pay
+	if got := q.targetMatch(&base); got != MatchMatched {
+		t.Fatalf("exact link in a declared environment = %s", got)
+	}
+	cases := map[string]func(*TargetRecord){
+		"unknown revision": func(tr *TargetRecord) { tr.ContractRevision = "nope" },
+		"inferred link":    func(tr *TargetRecord) { tr.RevisionMatch = revisionMatchInferred },
+		"no environment":   func(tr *TargetRecord) { tr.Environment = "" },
+	}
+	for name, mutate := range cases {
+		tr := base
+		mutate(&tr)
+		if got := q.targetMatch(&tr); got != MatchInsufficient {
+			t.Errorf("%s = %s, want insufficient", name, got)
+		}
+	}
+	tr := base
+	tr.Environment = "dev"
+	if got := q.targetMatch(&tr); got != MatchObservedOnly {
+		t.Errorf("undeclared environment = %s", got)
+	}
+	for _, n := range q.snap.Targets {
+		if n.Service == "nodom" {
+			if got := q.targetMatch(n); got != MatchMatched {
+				t.Errorf("a revision declaring no environment = %s", got)
+			}
+		}
+	}
+}
+
 func TestMapRibbonsSkipHiddenRelationships(t *testing.T) {
 	q := defaultMapFleet(t).Restrict(func(_, ns string) bool { return ns != "vault" }, nil)
 	m := mustMap(t, q, MapQuery{})
@@ -488,8 +526,14 @@ func TestMapNoObservationSource(t *testing.T) {
 	if len(m.Groups) != 3 || m.Match.Percent != nil || groupOf(m, "shop").Match.Percent != nil {
 		t.Errorf("groups %d match %+v", len(m.Groups), m.Match)
 	}
-	if e := mustMap(t, q, MapQuery{GroupBy: MapGroupByEnvironment}); groupOf(e, "prod") == nil || groupOf(e, "prod").Services != 0 {
+	e := mustMap(t, q, MapQuery{GroupBy: MapGroupByEnvironment})
+	if groupOf(e, "prod") == nil || groupOf(e, "prod").Services != 0 {
 		t.Errorf("environments %+v", e.Groups)
+	}
+	// Every declared service sits in No visible target and is judged there
+	// once, through the service-to-group index (no scan per service).
+	if none := groupOf(e, NoBusinessDomain); none == nil || none.Match.Services.Total() != len(mapServices) {
+		t.Errorf("none group %+v", none)
 	}
 	if empty := mustMap(t, NewQuery(buildClusterSnap(t)), MapQuery{}); len(empty.Groups) != 0 || empty.Bounds != (MapBounds{}) {
 		t.Errorf("empty %+v", empty)
@@ -583,13 +627,13 @@ func TestLayoutDeterministic(t *testing.T) {
 	}
 }
 
-func TestLayoutIgnoresEnvironmentPicker(t *testing.T) {
+func TestMapNodesRefusesEnvironmentInEnvironmentGrouping(t *testing.T) {
 	q := defaultMapFleet(t)
-	for _, by := range []string{MapGroupByDomain, MapGroupByEnvironment} {
-		a, b := mustMap(t, q, MapQuery{GroupBy: by}), mustMap(t, q, MapQuery{GroupBy: by, Environment: "staging"})
-		if !reflect.DeepEqual(a.Groups, b.Groups) {
-			t.Errorf("%s: the environment picker moved a group", by)
-		}
+	m := mustMap(t, q, MapQuery{GroupBy: MapGroupByEnvironment})
+	_, err := q.MapNodes(MapNodesQuery{GroupBy: MapGroupByEnvironment, Group: m.Groups[0].Key, Environment: "staging"})
+	var iq *InvalidQueryError
+	if !errors.As(err, &iq) || iq.Field != "environment" {
+		t.Fatalf("err = %v, want an invalid environment", err)
 	}
 }
 

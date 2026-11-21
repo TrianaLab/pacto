@@ -93,11 +93,14 @@ the YAML to add.
 
 `percentComplete` is declared sections over sections that apply; `inferred`
 and `unknown` count only in the base, so neither is ever complete. An owner
-that only an attestation or an inference names reads `inferred`. The fleet
+that only an attestation or an inference names reads `inferred`. A section
+the contract declares only in part (an interface with no `ref`, a workload
+with no health capability) reads `missing`, even when Pacto infers more of it. The fleet
 figure is the mean over the services Pacto can judge, with `judged`,
 `unknown`, `fullyDescribed` (every section that applies is declared) and the
-three sections most often `missing` or only `inferred` as `mostMissing` (an
-`unknown` section never counts there).
+three sections most often `missing` as `mostMissing` (an `inferred` or
+`unknown` section never counts there, so each figure matches the services its
+link selects).
 
 The knowledge gaps keep their filters and attention items and land in the
 checklist:

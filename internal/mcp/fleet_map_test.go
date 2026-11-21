@@ -57,6 +57,8 @@ func TestFleetMapToolRejectsBadHops(t *testing.T) {
 		{"focus": "platform-00000", "group": "payments"},
 		{"focus": "platform-00000", "group_by": "team"},
 		{"offset": 5},
+		{"environment": "production"},
+		{"group_by": "environment", "group": "prod", "environment": "staging"},
 		{"group": "ghost"},
 		{"focus": "ghost"},
 		{"group_by": "planet"},

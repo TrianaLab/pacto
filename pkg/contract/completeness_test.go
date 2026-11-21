@@ -178,3 +178,13 @@ func TestSectionOfFieldMapsEveryInferredField(t *testing.T) {
 		}
 	}
 }
+
+func TestCompletenessPartlyDeclaredWithRecordIsMissing(t *testing.T) {
+	c := fullContract()
+	c.Interfaces[0].Ref = ""
+	rec := &InferredRecord{Fields: []Inferred{{Field: "ports[9090]", Source: "Dockerfile:3", Declare: "interfaces: []"}}}
+	s := sectionState(t, Completeness(c, rec), SectionInterfaces)
+	if s.State != CompletenessMissing || s.Reason != "an interface names no document (ref)" || s.Declare != "" {
+		t.Fatalf("interfaces = %+v", s)
+	}
+}

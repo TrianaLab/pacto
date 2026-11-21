@@ -67,6 +67,20 @@ describe('fleet map modes', () => {
     expect(groupModeLine(g, any)).toBe('72% complete');
     expect(groupModeLine({ ...g, percentComplete: undefined }, any)).toBe('not judged');
     expect(groupEmphasis({ ...g, percentComplete: 100 }, any)).toBe(false);
+    // A group is emphasised for the chosen section only, and never when nothing in it is judged.
+    const missesOwner = { ...g, missing: [{ section: 'owner' as const, count: 2 }] };
+    expect(groupEmphasis(missesOwner, any)).toBe(true);
+    expect(groupEmphasis(missesOwner, { kind: 'missing', section: 'owner' })).toBe(true);
+    expect(groupEmphasis(missesOwner, readiness)).toBe(false);
+    expect(groupEmphasis({ ...g, percentComplete: undefined, missing: undefined }, any)).toBe(false);
+    expect(groupEmphasis({ ...g, percentComplete: 72, missing: undefined }, any)).toBe(false);
+  });
+
+  it('gaps emphasise a runtime-inferred call by its match state', () => {
+    const observedOnly: Mode = { kind: 'gaps', gaps: new Set(['observed-only']) };
+    expect(edgeEmphasis({ from: 0, to: 1, inferred: true, match: 'observed-only' }, observedOnly)).toBe(true);
+    expect(edgeEmphasis({ from: 0, to: 1, difference: 'observed-not-expected' }, observedOnly)).toBe(true);
+    expect(edgeEmphasis({ from: 0, to: 1, difference: 'matched', match: 'matched' }, observedOnly)).toBe(false);
   });
 
   it("environment columns in the answer's order with Previews (N)", () => {

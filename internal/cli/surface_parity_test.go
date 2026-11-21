@@ -84,7 +84,7 @@ const (
 	whyStatsWindow  = "the Metrics page takes a closed window that ends now (GET /api/stats?window), with the same totals"
 	whyStatsPage    = "the Metrics page answers every service and environment at once and reads the stats repository pacto dashboard --stats-registry names"
 	whyStatsRecords = "the records behind one number of the Metrics page; pacto stats and pacto_stats answer totals"
-	whyMapPage      = "the dashboard asks a group's page on its own route; the CLI and MCP take the same --group-by and --environment with --group"
+	whyMapPage      = "the dashboard asks a group's page on its own route; the CLI and MCP take the same --group-by with --group"
 	whyMigrateLocal = "a repository-wide rewrite of pacto.yaml files is a local CLI step; pacto_edit raises the version of the contract it edits and the dashboard writes no contract files"
 )
 
@@ -110,13 +110,13 @@ func fleetRows() []surfaceRow {
 			{"", "", "GET /api/fleet/neighborhood?perspective", "the dashboard's graph switches perspective; the CLI and MCP walk the service perspective"},
 		},
 		alike("fleet neighborhood", "pacto_fleet_neighborhood", "GET /api/fleet/neighborhood", "", "depth", "direction", "max-edges", "max-nodes", "views"),
-		alike("fleet map", "pacto_fleet_map", "GET /api/fleet/map", "", "group-by", "environment"),
+		alike("fleet map", "pacto_fleet_map", "GET /api/fleet/map", "", "group-by"),
 		[]surfaceRow{
 			{"fleet map --group", "pacto_fleet_map.group", "GET /api/fleet/map/nodes?group", ""},
 			{"fleet map --offset", "pacto_fleet_map.offset", "GET /api/fleet/map/nodes?offset", ""},
 			{"fleet map --limit", "pacto_fleet_map.limit", "GET /api/fleet/map/nodes?limit", ""},
 			{"", "", "GET /api/fleet/map/nodes?groupBy", whyMapPage},
-			{"", "", "GET /api/fleet/map/nodes?environment", whyMapPage},
+			{"fleet map --environment", "pacto_fleet_map.environment", "GET /api/fleet/map/nodes?environment", ""},
 			{"fleet map --focus", "pacto_fleet_map.focus", "GET /api/fleet/map/focus?service", ""},
 			{"fleet map --hops", "pacto_fleet_map.hops", "GET /api/fleet/map/focus?hops", ""},
 		},

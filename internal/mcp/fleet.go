@@ -910,6 +910,10 @@ func (a fleetMapArgs) check() error {
 		return errors.New("hops needs focus")
 	case a.Group == "" && (a.Offset != 0 || a.Limit != 0):
 		return errors.New("offset and limit need group")
+	case a.Group == "" && a.Environment != "":
+		return errors.New("environment needs group: the groups read every environment")
+	case a.Environment != "" && a.GroupBy == fleet.MapGroupByEnvironment:
+		return errors.New("environment reads nothing with group_by environment: each target is already in its environment")
 	}
 	return nil
 }
@@ -925,7 +929,7 @@ func fleetMapHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetMapAr
 		case a.Group != "":
 			return productResult(link, same[fleet.MapNodes])(q.MapNodes(fleet.MapNodesQuery{GroupBy: a.GroupBy, Group: a.Group, Environment: a.Environment, Offset: a.Offset, Limit: a.Limit}))
 		}
-		return productResult(link, same[fleet.FleetMap])(q.Map(fleet.MapQuery{GroupBy: a.GroupBy, Environment: a.Environment}))
+		return productResult(link, same[fleet.FleetMap])(q.Map(fleet.MapQuery{GroupBy: a.GroupBy}))
 	}
 }
 

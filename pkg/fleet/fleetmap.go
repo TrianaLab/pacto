@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 )
 
@@ -35,6 +34,9 @@ const (
 	LimitationMapGroupsFolded = "MAP_GROUPS_FOLDED"
 	// LimitationMapRibbonsTruncated says the smallest ribbons were dropped.
 	LimitationMapRibbonsTruncated = "MAP_RIBBONS_TRUNCATED"
+	// LimitationEnvironmentPlacementUnknown says Pacto cannot tell whether
+	// some services run in the requested environment.
+	LimitationEnvironmentPlacementUnknown = "ENVIRONMENT_PLACEMENT_UNKNOWN"
 )
 
 // The groupings of a map.
@@ -71,7 +73,6 @@ const (
 // read by name, and OrderWhy says why when the caller knows.
 type MapQuery struct {
 	GroupBy          string
-	Environment      string
 	EnvironmentOrder map[string]int
 	OrderWhy         string
 }
@@ -98,21 +99,22 @@ type FleetMap struct {
 // special group. X, Y and R place it in world units; Subs and node positions
 // are relative to its centre.
 type MapGroup struct {
-	Key             string       `json:"key"`
-	Label           string       `json:"label"`
-	Kind            string       `json:"kind" enum:"domain,team,environment,previews,external,unowned,none,unknown,other"`
-	Services        int          `json:"services" doc:"Nodes in the group: services, or targets in the environment grouping, inferred ones included"`
-	Inferred        int          `json:"inferred" doc:"Of those, the inferred ones"`
-	Externals       int          `json:"externals,omitempty" doc:"External systems, in the external group"`
-	X               float64      `json:"x"`
-	Y               float64      `json:"y"`
-	R               float64      `json:"r"`
-	Subs            []MapSub     `json:"subs,omitempty"`
-	Match           MatchTally   `json:"match"`
-	PercentComplete *int         `json:"percentComplete,omitempty" doc:"Mean contract completeness of the group's judged services; absent when none is judged"`
-	Attention       MapAttention `json:"attention"`
-	Depth           *int         `json:"depth,omitempty" doc:"The environment's column, lowest first; absent for groups outside the order"`
-	Preview         bool         `json:"preview,omitempty"`
+	Key             string         `json:"key"`
+	Label           string         `json:"label"`
+	Kind            string         `json:"kind" enum:"domain,team,environment,previews,external,unowned,none,unknown,other"`
+	Services        int            `json:"services" doc:"Nodes in the group: services, or targets in the environment grouping, inferred ones included"`
+	Inferred        int            `json:"inferred" doc:"Of those, the inferred ones"`
+	Externals       int            `json:"externals,omitempty" doc:"External systems, in the external group"`
+	X               float64        `json:"x"`
+	Y               float64        `json:"y"`
+	R               float64        `json:"r"`
+	Subs            []MapSub       `json:"subs,omitempty"`
+	Match           MatchTally     `json:"match"`
+	PercentComplete *int           `json:"percentComplete,omitempty" doc:"Mean contract completeness of the group's judged services; absent when none is judged"`
+	Missing         []SectionCount `json:"missing,omitempty" doc:"How many of the group's judged services miss each section, in the checklist's order; a section none misses is left out"`
+	Attention       MapAttention   `json:"attention"`
+	Depth           *int           `json:"depth,omitempty" doc:"The environment's column, lowest first; absent for groups outside the order"`
+	Preview         bool           `json:"preview,omitempty"`
 }
 
 // MapSub is one sub-cluster of a group: a team in its domain, a preview or a
@@ -209,6 +211,10 @@ type mapBuild struct {
 	// targetGroup of each target (environment grouping).
 	svcGroup    map[ServiceKey]string
 	targetGroup map[TargetKey]string
+	// specialOf is the unknown or none group a service sits in as a
+	// service, and previewSubs the previews drawn (environment grouping).
+	specialOf   map[ServiceKey]string
+	previewSubs map[string]bool
 	limits      []Limitation
 	// nested, envOrder and preFold are what grouping said: teams nest in
 	// domains, how environments are ordered, the totals before folding.
@@ -263,7 +269,8 @@ func (q *Query) mapMembers(mq MapQuery) (*mapBuild, error) {
 // dependency edges and degrees.
 func (q *Query) newMapBuild(mq MapQuery) *mapBuild {
 	b := &mapBuild{q: q, mq: mq, degree: map[ServiceKey]int{}, complete: map[ServiceKey]*ServiceCompleteness{},
-		groups: map[string]*mapGroupAcc{}, rename: map[string]string{}, svcGroup: map[ServiceKey]string{}, targetGroup: map[TargetKey]string{}}
+		groups: map[string]*mapGroupAcc{}, rename: map[string]string{}, svcGroup: map[ServiceKey]string{}, targetGroup: map[TargetKey]string{},
+		specialOf: map[ServiceKey]string{}, previewSubs: map[string]bool{}}
 	for _, s := range q.snap.Services {
 		if !s.Template {
 			b.services = append(b.services, s)
@@ -455,6 +462,7 @@ func (b *mapBuild) tally() {
 		}
 		g.know.finish()
 		g.g.PercentComplete = g.know.ContractCompleteness.PercentComplete
+		g.g.Missing = g.know.missingSections()
 		if g.g.Kind != MapKindExternal {
 			g.match.finish(b.q.snap.Completeness)
 		}
@@ -786,15 +794,6 @@ func (b *mapBuild) groupWeights(index map[string]int) func(i, j int) int {
 	return func(i, j int) int { return w[[2]int{min(i, j), max(i, j)}] }
 }
 
-// mapTargetEnvironmentDeclared reports whether rev declares env, or declares
-// no environment at all (then any environment is its own).
-func mapTargetEnvironmentDeclared(rev *ContractRevision, env string) bool {
-	if rev == nil || rev.Contract == nil || len(rev.Contract.Environments) == 0 {
-		return true
-	}
-	return slices.ContainsFunc(rev.Contract.Environments, func(e contract.Environment) bool { return e.Name == env })
-}
-
 // environmentGroups groups targets by environment, in the caller's order or
 // by name, with the previews collapsed into one group. A target that names
 // no environment and an inferred service sit in the unknown group; a
@@ -819,19 +818,23 @@ func (b *mapBuild) environmentGroups() string {
 		b.addTarget(q.snap.Targets[k], previews)
 	}
 	if g := b.groups[mapKeyPreviews]; g != nil {
-		subs := map[string]bool{}
 		for _, n := range g.nodes {
-			subs[n.sub] = true
+			b.previewSubs[n.sub] = true
 		}
-		g.g.Label = "Previews (" + strconv.Itoa(len(subs)) + ")"
+		g.g.Label = "Previews (" + strconv.Itoa(len(b.previewSubs)) + ")"
 	}
 	for _, s := range b.services {
+		var g *mapGroupAcc
 		switch {
 		case s.Inferred():
-			b.addService(b.group(UnknownBusinessDomain, "Environment unknown", MapKindUnknown), s, string(s.Key), "")
+			g = b.group(UnknownBusinessDomain, "Environment unknown", MapKindUnknown)
 		case len(s.Targets) == 0:
-			b.addService(b.group(NoBusinessDomain, "No visible target", MapKindNone), s, string(s.Key), "")
+			g = b.group(NoBusinessDomain, "No visible target", MapKindNone)
+		default:
+			continue
 		}
+		b.specialOf[s.Key] = g.g.Key
+		b.addService(g, s, string(s.Key), "")
 	}
 	return how
 }
@@ -914,15 +917,28 @@ func (b *mapBuild) orderEnvironments(envs map[string]bool) string {
 
 // targetMatch is the match state of target t in its environment: matched
 // when its revision declares the environment or declares none, observed-only
-// when it declares others; a stale or quarantined target is no proof.
+// when it declares others. Whatever Pacto cannot tell is insufficient, never
+// a confident state: a stale or quarantined target, a revision linked only by
+// a mutable tag, an unknown or unreadable revision and an unknown or
+// conflicting environment label.
 func (q *Query) targetMatch(t *TargetRecord) string {
-	switch {
-	case t.Stale || t.Quarantined:
+	if t.Stale || t.Quarantined || t.RevisionMatch == revisionMatchInferred {
 		return MatchInsufficient
-	case mapTargetEnvironmentDeclared(q.snap.Revisions[t.ContractRevision], t.Environment):
-		return MatchMatched
 	}
-	return MatchObservedOnly
+	switch q.targetEnvironment(t).Declared {
+	case "declared":
+		return MatchMatched
+	case "not-declared":
+		rev := q.snap.Revisions[t.ContractRevision]
+		switch {
+		case rev.Contract == nil:
+			return MatchInsufficient
+		case len(rev.Contract.Environments) == 0:
+			return MatchMatched
+		}
+		return MatchObservedOnly
+	}
+	return MatchInsufficient
 }
 
 // environmentTally judges every target in its environment, every declared
@@ -970,8 +986,8 @@ func (b *mapBuild) environmentGroupOf(e string) *mapGroupAcc {
 	if g := b.groups[b.resolve(e)]; g != nil && !g.special {
 		return g
 	}
-	if g := b.groups[mapKeyPreviews]; g != nil && slices.ContainsFunc(g.nodes, func(n layoutNode) bool { return n.sub == e }) {
-		return g
+	if b.previewSubs[e] {
+		return b.groups[mapKeyPreviews]
 	}
 	return nil
 }
@@ -979,10 +995,8 @@ func (b *mapBuild) environmentGroupOf(e string) *mapGroupAcc {
 // specialGroupOf is the unknown or none group s sits in as a service, nil
 // when it sits in environments.
 func (b *mapBuild) specialGroupOf(s *ServiceRecord) *mapGroupAcc {
-	for _, k := range []string{UnknownBusinessDomain, NoBusinessDomain} {
-		if g := b.groups[k]; g != nil && slices.ContainsFunc(g.nodes, func(n layoutNode) bool { return n.key == string(s.Key) }) {
-			return g
-		}
+	if k, ok := b.specialOf[s.Key]; ok {
+		return b.groups[k]
 	}
 	return nil
 }

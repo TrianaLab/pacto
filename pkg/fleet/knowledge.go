@@ -89,7 +89,7 @@ type FleetCompleteness struct {
 	Judged          int            `json:"judged" doc:"Services whose contract completeness Pacto can judge"`
 	Unknown         int            `json:"unknown" doc:"Services whose contract Pacto cannot read, so no section can be judged; never counted as complete"`
 	FullyDescribed  int            `json:"fullyDescribed" doc:"Judged services whose contract declares every section that applies to them"`
-	MostMissing     []SectionCount `json:"mostMissing" doc:"The three sections most often left undeclared (missing or inferred only), most first"`
+	MostMissing     []SectionCount `json:"mostMissing" doc:"The three sections most often missing, most first; an inferred or unknown section never counts"`
 }
 
 // String prints the percentage instead of its address, so two equal figures
@@ -157,13 +157,28 @@ func (k *KnowledgeTally) addCompleteness(sc *ServiceCompleteness) {
 	k.pctSum += *sc.Percent
 	c.FullyDescribed += b2i(*sc.Percent == 100)
 	for _, sec := range sc.Sections {
-		if sec.State == contract.CompletenessMissing || sec.State == contract.CompletenessInferred {
+		// Only missing counts: an inferred section is known, and the lists
+		// a figure opens (the map's missing mode, the gap filters) select
+		// missing sections only.
+		if sec.State == contract.CompletenessMissing {
 			if k.missing == nil {
 				k.missing = map[string]int{}
 			}
 			k.missing[sec.Section]++
 		}
 	}
+}
+
+// missingSections is how many services miss each section, in the
+// checklist's order, sections none misses left out.
+func (k *KnowledgeTally) missingSections() []SectionCount {
+	var out []SectionCount
+	for _, sec := range contract.SectionNames() {
+		if n := k.missing[sec]; n > 0 {
+			out = append(out, SectionCount{sec, n})
+		}
+	}
+	return out
 }
 
 // finish sets the figures add cannot keep running: the mean percentage and the

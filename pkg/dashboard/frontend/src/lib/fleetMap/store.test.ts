@@ -21,7 +21,7 @@ describe('fleet map store', () => {
     await s.load();
     s.request(0, ['payments', 'checkout']);
     expect(fetchers.nodes).not.toHaveBeenCalled();
-    expect(fetchers.map).toHaveBeenCalledWith({ groupBy: 'domain', environment: undefined });
+    expect(fetchers.map).toHaveBeenCalledWith({ groupBy: 'domain' });
   });
 
   it('services level requests pages only for groups in view, four at once', async () => {
@@ -115,5 +115,63 @@ describe('fleet map store', () => {
     await s.loadEnvironments();
     expect(fetchers.map).toHaveBeenCalledTimes(5);
     expect(s.environments).toBe(s.answer);
+  });
+
+  it('an environment switch never stores the page read for the previous environment', async () => {
+    const { fetchers, resolvers } = fakes();
+    const s = new FleetMapStore(fetchers);
+    await s.load('domain', '');
+    s.request(1, ['payments']);
+    await s.load('domain', 'prod');
+    // The new environment reads no new answer, and asks its own page.
+    expect(fetchers.map).toHaveBeenCalledTimes(1);
+    s.request(1, ['payments']);
+    expect(resolvers.map((r) => r.group)).toEqual(['payments', 'payments']);
+    expect(fetchers.nodes).toHaveBeenLastCalledWith(expect.objectContaining({ environment: 'prod' }));
+    resolvers[0].resolve(nodesPage('payments', [{ inEnvironment: undefined }]));
+    await tick();
+    expect(s.page('payments')).toBeUndefined();
+    resolvers[1].resolve(nodesPage('payments', [{ inEnvironment: false }]));
+    await tick();
+    expect(s.page('payments')?.nodes[0].inEnvironment).toBe(false);
+  });
+
+  it('the environment grouping asks pages in no environment', async () => {
+    const { fetchers } = fakes();
+    const s = new FleetMapStore(fetchers);
+    await s.load('environment', 'prod');
+    s.request(1, ['prod']);
+    expect(fetchers.nodes).toHaveBeenCalledWith(expect.objectContaining({ groupBy: 'environment', environment: undefined }));
+  });
+
+  it('a page from a newer snapshot is dropped and the answer read again', async () => {
+    const snapshot = { id: 'snap-1' };
+    const fetchers: Fetchers = {
+      map: vi.fn(async () => mapAnswer(snapshot.id)),
+      nodes: vi.fn(async (q) => nodesPage(q.group, [{}], { meta: { ...mapAnswer('snap-2').meta } })),
+    };
+    const s = new FleetMapStore(fetchers);
+    await s.load();
+    snapshot.id = 'snap-2';
+    s.request(1, ['payments']);
+    await tick(); await tick();
+    expect(fetchers.map).toHaveBeenCalledTimes(2);
+    expect(s.snapshotId).toBe('snap-2');
+    expect(s.page('payments')).toBeUndefined();
+  });
+
+  it('a group whose later page fails keeps no partial page', async () => {
+    const fetchers: Fetchers = {
+      map: async () => mapAnswer(),
+      nodes: vi.fn(async (q) => {
+        if ((q.offset ?? 0) > 0) throw new Error('502');
+        return nodesPage(q.group, [{}, {}], { total: 4, truncated: true });
+      }),
+    };
+    const s = new FleetMapStore(fetchers);
+    await s.load();
+    s.request(1, ['big']);
+    await tick(); await tick();
+    expect(s.page('big')).toBeUndefined();
   });
 });

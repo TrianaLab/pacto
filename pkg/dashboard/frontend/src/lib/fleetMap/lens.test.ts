@@ -38,6 +38,15 @@ describe('fleet map lens', () => {
     expect(edgeVisible(edge({ difference: 'insufficient' }), 'observed')).toBe(false);
     expect(edgeVisible(edge({ difference: 'matched' }), 'observed')).toBe(true);
     expect(edgeVisible(edge({ inferred: true, difference: 'observed-not-expected' }), 'observed')).toBe(true);
+    // A runtime-inferred call has no difference, but the ribbons count it observed-only.
+    expect(edgeVisible(edge({ inferred: true, match: 'observed-only' }), 'observed')).toBe(true);
+    expect(edgeVisible(edge({ inferred: true, match: 'observed-only' }), 'expected')).toBe(false);
+  });
+
+  it('an environment group counts its targets under the observed lens', () => {
+    const g = { ...mapAnswer().groups![0], kind: 'environment', services: 5, match: { ...mapAnswer().groups![0].match, services: { matched: 5, expectedOnly: 7 } } } as MapGroup;
+    expect(groupCount(g, 'observed')).toBe(5);
+    expect(groupCount({ ...g, kind: 'domain' }, 'observed')).toBe(0);
   });
 
   it('counts ribbons and groups per lens from the answer, so a lens switch never refetches', () => {

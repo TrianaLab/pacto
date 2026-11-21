@@ -73,7 +73,7 @@ export function nodeEmphasis(n: MapNode, m: Mode): boolean {
 export function edgeEmphasis(e: MapEdge, m: Mode): boolean {
   if (!m) return true;
   if (m.kind === 'problems') return !!e.problem;
-  if (m.kind === 'gaps') return m.gaps.has(EDGE_GAP[e.difference ?? '']);
+  if (m.kind === 'gaps') return m.gaps.has((e.match as GapKind | undefined) ?? EDGE_GAP[e.difference ?? '']);
   return false;
 }
 
@@ -86,7 +86,10 @@ export function groupEmphasis(g: MapGroup, m: Mode): boolean {
   if (!m) return true;
   if (m.kind === 'problems') return g.attention.errors + g.attention.warnings > 0;
   if (m.kind === 'gaps') return gapCount(g.match, m.gaps) > 0;
-  return g.percentComplete !== 100;
+  // Like a service: only a group with a service that misses the section is
+  // emphasised, never one whose services are unjudged.
+  const missing = g.missing ?? [];
+  return m.section === 'any' ? missing.length > 0 : missing.some((c) => c.section === m.section && c.count > 0);
 }
 
 /** groupModeLine is the line a group bubble shows under its count in a mode, or null. */

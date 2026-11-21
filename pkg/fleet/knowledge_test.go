@@ -513,3 +513,19 @@ func TestKnowledgeToolCapKeepsSpecsRead(t *testing.T) {
 		t.Fatalf("specsRead %v, %d tools", r.SpecsRead, len(r.Tools))
 	}
 }
+
+func TestMostMissingCountsOnlyMissingSections(t *testing.T) {
+	sec := func(name string, state string) CompletenessSection {
+		return CompletenessSection{CompletenessSection: contract.CompletenessSection{Section: name, State: state}}
+	}
+	var k KnowledgeTally
+	k.addCompleteness(&ServiceCompleteness{Percent: new(50), Sections: []CompletenessSection{
+		sec(contract.SectionConfiguration, contract.CompletenessMissing), sec(contract.SectionInterfaces, contract.CompletenessInferred)}})
+	k.addCompleteness(&ServiceCompleteness{Percent: new(50), Sections: []CompletenessSection{
+		sec(contract.SectionConfiguration, contract.CompletenessInferred)}})
+	k.finish()
+	want := []SectionCount{{contract.SectionConfiguration, 1}}
+	if !reflect.DeepEqual(k.ContractCompleteness.MostMissing, want) {
+		t.Errorf("mostMissing %+v, want %+v", k.ContractCompleteness.MostMissing, want)
+	}
+}

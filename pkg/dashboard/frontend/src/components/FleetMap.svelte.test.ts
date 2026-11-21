@@ -217,7 +217,9 @@ describe('FleetMap', () => {
     select.dispatchEvent(new Event('change', { bubbles: true }));
     flushSync();
     expect(onparams).toHaveBeenLastCalledWith({ env: 'prod' });
-    await vi.waitFor(() => expect(map).toHaveBeenLastCalledWith({ groupBy: 'domain', environment: 'prod' }));
+    // The answer does not depend on the environment: only the node pages are read in it.
+    await vi.waitFor(() => expect(store.environment).toBe('prod'));
+    expect(map).not.toHaveBeenCalledWith(expect.objectContaining({ environment: 'prod' }));
     // Grouped by environment the columns are the environments: the picker steps aside.
     button(target, 'Environment').click();
     flushSync();
