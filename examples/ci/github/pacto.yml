@@ -1,0 +1,5 @@
+on: [pull_request, push]
+permissions: {contents: read, packages: write, id-token: write, pull-requests: write}
+jobs:
+  pacto:
+    uses: TrianaLab/pacto-actions/.github/workflows/ci.yml@9aa2d88798c266c2de13b8bef000c1da750966cd # v2.0.0

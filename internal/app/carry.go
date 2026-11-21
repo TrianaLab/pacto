@@ -94,7 +94,7 @@ func carried(ctx context.Context, st *acceptanceStore, base carryBase, service s
 		}
 	}
 	attached, more, err := st.readAcceptances(ctx, acceptanceQuery{Subject: base.repo + "@" + base.digest, Repo: base.repo, Service: service,
-		Version: base.version, Owner: declaredOwner(base.b.Contract, rec), Wants: func(impact.Acceptance) bool { return false }})
+		Version: base.version, Owner: declaredOwner(base.b.Contract, rec), Contract: base.b.Contract, Record: rec, Wants: func(impact.Acceptance) bool { return false }})
 	if err != nil {
 		notes = append(notes, "acceptances of "+base.version+" not read, none carried: "+err.Error())
 	}

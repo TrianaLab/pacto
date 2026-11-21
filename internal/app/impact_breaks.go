@@ -42,7 +42,7 @@ func (s *Service) breakInput(ctx context.Context, opts ImpactOptions, newBundle 
 		}
 	}
 	if opts.Acceptances {
-		r := &acceptanceReader{s: s, snap: snap, in: in, store: newAcceptanceStore(ctx, s.env(), impactTrust(opts))}
+		r := &acceptanceReader{s: s, snap: snap, in: in, store: s.ownerRuled(newAcceptanceStore(ctx, s.env(), impactTrust(opts)), opts.Fleet.Provenance)}
 		in.Acceptances = func(k fleet.ServiceKey) ([]impact.Acceptance, bool) { return r.read(ctx, k) }
 	}
 	return in
@@ -58,7 +58,7 @@ func (s *Service) impactAcceptances(ctx context.Context, opts ImpactOptions, sna
 	case !opts.Acceptances:
 		return nil
 	}
-	r := &acceptanceReader{s: s, snap: snap, in: &impact.BreakInput{}, store: newAcceptanceStore(ctx, s.env(), impactTrust(opts))}
+	r := &acceptanceReader{s: s, snap: snap, in: &impact.BreakInput{}, store: s.ownerRuled(newAcceptanceStore(ctx, s.env(), impactTrust(opts)), opts.Fleet.Provenance)}
 	return func(k fleet.ServiceKey) ([]impact.Acceptance, bool) { return r.read(ctx, k) }
 }
 
@@ -118,7 +118,7 @@ func (r *acceptanceReader) read(ctx context.Context, consumer fleet.ServiceKey) 
 	for _, sub := range subjects {
 		service := string(fleet.NewServiceKeyDomain(contract.OCIDomain(sub.repo), sub.c.Service.Name))
 		judged, notes, err := r.store.readAcceptances(ctx, acceptanceQuery{Subject: sub.subject, Repo: sub.repo,
-			Service: service, Version: sub.version, Owner: declaredOwner(sub.c, sub.rec), Expires: expires,
+			Service: service, Version: sub.version, Owner: declaredOwner(sub.c, sub.rec), Contract: sub.c, Record: sub.rec, Expires: expires,
 			Wants: func(a impact.Acceptance) bool { return a.Break != nil && a.Break.Announcement == ann.Announcement }})
 		if err != nil || slices.ContainsFunc(notes, func(n string) bool { return strings.HasPrefix(n, AcceptancesTruncated) }) {
 			complete = false

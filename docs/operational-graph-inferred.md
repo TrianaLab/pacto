@@ -34,7 +34,8 @@ limitation per source counts those workloads.
 | `PACTO_CRD_NOT_INSTALLED` | The cluster serves no Pacto CRD. The Kubernetes source reads no target and is partial; the workloads still show as inferred services |
 | `INFERRED_SERVICES_CAPPED` | A source reported more than 5000 workloads. The rest are left out and the source is partial |
 | `DECLARATION_UNVERIFIED` | Pacto could not read the Pacto resources of the inferred service's namespace, so a contract may describe it. The service carries `declarationUnverified`, one limitation per source counts them and the Overview counts them as `inferredUnverified` |
-| `INFERRED_REPLACEMENT_AMBIGUOUS` | More than one declared service targets the workload, or a target of unknown cluster names it in a snapshot of several clusters. The workload stays an inferred service; see [When a contract takes over](#when-a-contract-takes-over) |
+| `INFERRED_REPLACEMENT_AMBIGUOUS` | More than one declared service targets the workload or names it in its declaration, a target of unknown cluster names it in a snapshot of several clusters, or a declaration names it with no cluster in a fleet of several clusters. The workload stays an inferred service; see [When a contract takes over](#when-a-contract-takes-over) |
+| `INFERRED_LINK_IGNORED` | A declaration names the workload but hands nothing over: no accepted person signed it or the source checks no signatures, a Pacto target runs as the workload, the workload is in a namespace where the service has no target, its cluster contradicts the fleet's, or a newer revision ships an inferred record Pacto cannot read. The workload stays an inferred service; see [When a declaration replaces an inferred service](#when-a-declaration-replaces-an-inferred-service) |
 | `SUBJECT_REPLACED` | `pacto impact --event` was asked about the key of an inferred service a declared service replaced, and answers for the declared service |
 | `SERVICE_INFERRED` | The answer is about an inferred service. `pacto fleet graph` and `pacto impact --event` answer partial, since no contract can depend on it; `pacto fleet explain` lists it as a reason |
 | `SERVICE_GROUP_AMBIGUOUS` | Two groups of one rule claim the workload, so it stays ungrouped; see [Groups and repositories](#groups-and-repositories) |
@@ -221,4 +222,65 @@ k8s:shop/Deployment/cart was replaced by shop/cart 3m ago (linked by Pacto shop/
 dependencies of shop/cart (1 node(s)):
     k8s:shop/StatefulSet/ledger (depth 1, inferred)
   cart -> k8s:shop/StatefulSet/ledger  inferred (observed by kernel, mesh)
+```
+
+## When a declaration replaces an inferred service
+
+When a person declares a service from its inferred twin with
+[`pacto declare`](publishing.md#declare-a-running-service), the declared
+bundle's `pacto.inferred.yaml` names that twin in `declaration.inferredFrom`.
+The fleet then shows one service: the inferred service stops being listed, its
+observed calls as caller and as callee resolve to the declared service, and
+`replacements` records `link: inferred-from` with the `revision`, `by` (the
+person who signed it) and `workload` (what the twin showed, when a source
+reported it).
+
+- **Signer rule.** A hand-over needs a signature the fleet verified whose
+  subject and issuer are those of the declaration's asker signing as a person.
+  The installation signer rule must also allow that person
+  ([`delivery.identities.signers`](integrations/kubernetes/delivery-signed-approvals.md)).
+  Only a registry read checks signatures, so a hand-over never happens in a
+  `--local` fleet or from the Kubernetes source alone. Otherwise the twin stays
+  inferred and `INFERRED_LINK_IGNORED` says why and names the fix.
+- **A Pacto target wins.** When a Pacto target runs as the workload, or may run
+  as it (two targets name it, or its cluster is unknown), the
+  [Pacto target link](#when-a-contract-takes-over) decides and the declaration
+  hands nothing over.
+- **Ambiguity.** When the declarations of two services name one workload,
+  nothing merges: the workload stays inferred with
+  `INFERRED_REPLACEMENT_AMBIGUOUS`. In a fleet of several clusters, a claim with
+  no cluster merges nothing either.
+- **One claim per service.** Only the newest declared revision of a service
+  counts. A newer declaration that names no workload retracts the claim; a CI
+  publish without a declaration keeps it. A newer revision whose inferred
+  record Pacto cannot read may have retracted it, so the claim hands nothing
+  over. A service with Kubernetes targets
+  claims a workload only in a namespace where one of its targets runs.
+- **Attention.** Each hand-over raises an `INFERRED_REPLACED` item in the
+  `knowledge` category that asks you to confirm the workload is the service.
+  It carries no time and stays while the declaration holds.
+- **Fields.** `pacto fleet get`, `pacto fleet explain`, their MCP tools, the
+  TUI and the dashboard read `fields` for a service whose current revision
+  carries a declaration or that replaced an inferred service through one: each
+  field of the current revision as
+  `declared`, `accepted` (with `by`, who signed the accepted declaration),
+  `attested` or `inferred`, with its source and `asOf`. A proposed range stays
+  `unknown` beside `proposed`. Inferred fields never clear a gate.
+- **Restricted viewers.** A viewer sees the replacement only when they may see
+  both the declared service and the workload. Otherwise `replacesHidden`
+  counts it and no workload key, image, port, probe or cluster source reaches
+  them.
+- **Dashboard.** The service page keeps the **Replaces** line and adds one
+  closed fold, **Where the values come from**; see
+  [The service page](dashboard-service-page.md#owner-and-contract).
+
+```text
+$ pacto fleet get invoices
+Service: invoices
+Declared by ana@acme.com from inferred k8s:billing/Deployment/invoices (revision invoices@sha256:...)
+Owner: billing
+Fields:
+  owner         billing    declared
+  ledger range  ^2.3.0     accepted by ana@acme.com
+  audit range   unknown    proposed ^1.4.0 (fleet, partial)
 ```

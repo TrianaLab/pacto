@@ -3457,6 +3457,35 @@ export interface components {
             /** @description The free-text version the dependency declares */
             version?: string;
         };
+        "Fleet.FieldProvenance": {
+            /** Format: date-time */
+            asOf?: string;
+            /** @description Who accepted it: the person whose verified signature carries the accepted declaration */
+            by?: string;
+            /** @enum {string} */
+            completeness?: "complete" | "partial";
+            /** @description service.owner, dependencies[<name>].compatibility or a field of the inferred record */
+            field: string;
+            /** @description A range Pacto proposes for a compatibility the contract leaves unknown; never declared */
+            proposed?: string;
+            /** @enum {string} */
+            provenance: "declared" | "accepted" | "attested" | "inferred";
+            source?: string;
+            value: string;
+        };
+        "Fleet.FieldsPreview": {
+            /** Format: int64 */
+            count: number;
+            /**
+             * Format: int64
+             * @description Fields hidden by your permissions: read from a workload, or naming a service, you may not see
+             */
+            hidden?: number;
+            items: components["schemas"]["Fleet.FieldProvenance"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
         "Fleet.FindingsPreview": {
             /** Format: int64 */
             count: number;
@@ -4486,20 +4515,26 @@ export interface components {
         "Fleet.Replacement": {
             /**
              * Format: date-time
-             * @description When the Pacto that links them was created.
+             * @description When the Pacto that links them was created; absent on an inferred-from link, whose signed record carries no time.
              */
-            at: string | null;
+            at?: string;
+            /** @description Who signed that revision, read from its verified signature. */
+            by?: string;
             /** @description The key of the inferred service that was replaced. */
             from: string;
             /**
-             * @description How the two are linked: pacto-target when a Pacto target runs as the workload.
+             * @description How the two are linked: pacto-target when a Pacto target runs as the workload, inferred-from when a person's accepted declaration names the inferred service.
              * @enum {string}
              */
-            link: "pacto-target";
+            link: "pacto-target" | "inferred-from";
+            /** @description The revision whose signed inferred record names the replaced service. */
+            revision?: string;
             /** @description The Pacto target that runs as the workload. */
             target?: string;
             /** @description The key of the declared service that replaced it. */
             to: string;
+            /** @description What the replaced inferred service showed, when Pacto read its workload. */
+            workload?: components["schemas"]["Fleet.InferredWorkload"];
         };
         "Fleet.ResourceConsumption": {
             /** Format: date-time */
@@ -4706,11 +4741,18 @@ export interface components {
             capabilities?: components["schemas"]["Fleet.RevisionCapabilities"][] | null;
             dependencies: components["schemas"]["Fleet.Relationship"][] | null;
             dependents: string[] | null;
+            /** @description Where each field of the current revision comes from: declared, accepted, attested or inferred */
+            fields?: components["schemas"]["Fleet.FieldsPreview"];
             meta: components["schemas"]["Fleet.Meta"];
             /** @description Set when the service was asked for by the key of an inferred service it replaced: that replacement */
             replacedFrom?: components["schemas"]["Fleet.Replacement"];
             /** @description The inferred services this service replaced, at most 200 */
             replaces?: components["schemas"]["Fleet.Replacement"][] | null;
+            /**
+             * Format: int64
+             * @description Replacements of this service whose workload you may not see
+             */
+            replacesHidden?: number;
             /**
              * Format: int64
              * @description How many inferred services this service replaced
@@ -6776,6 +6818,8 @@ export interface components {
             deployments: components["schemas"]["ProductRefPreview"];
             domain?: string;
             evidence: components["schemas"]["ProductEvidencePreview"];
+            /** @description Where each field of the current revision comes from: declared, accepted, attested or inferred */
+            fields?: components["schemas"]["Fleet.FieldsPreview"];
             findings: components["schemas"]["ProductAttributedFindingsPreview"];
             /** Format: int64 */
             hiddenDependencies?: number;
@@ -6799,6 +6843,11 @@ export interface components {
             relationships: components["schemas"]["ProductRelationshipsPreview"];
             /** @description The inferred services this service replaced, at most 200 */
             replaces?: components["schemas"]["Fleet.Replacement"][] | null;
+            /**
+             * Format: int64
+             * @description Replacements of this service whose workload you may not see
+             */
+            replacesHidden?: number;
             /**
              * Format: int64
              * @description How many inferred services this service replaced

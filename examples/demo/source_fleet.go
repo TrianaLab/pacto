@@ -88,6 +88,12 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	withProvenance(col.Revisions, "local")
 	// newsletter-service stands in for a CI publish, so its owner reads attested.
 	attestDemoRevision(col)
+	// invoices is a person's declaration of a running workload: it replaces
+	// the inferred invoices Deployment the cluster below reports.
+	prodCluster := &fleet.Cluster{ID: "5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11", Name: "production", NameSource: fleet.ClusterNameFromContext}
+	handover, handoverBundle, handedOver := demoHandover(demoNow(), prodCluster.ID)
+	col.Revisions = append(col.Revisions, handover)
+	byRef[handover.ResolvedRef] = handoverBundle
 	col.Providers = []fleet.Provider{demoRegistryRow(demoNativeRegistry, col.Revisions)}
 
 	// One more registry, the payments story's own domain: the contracts the
@@ -129,9 +135,8 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	// was declared. Keeping them apart is what lets a target say which source saw it.
 	// One cluster, named from its kubeconfig context: every key keeps its 3-part
 	// form and the target page shows where the target runs.
-	prodCluster := &fleet.Cluster{ID: "5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11", Name: "production", NameSource: fleet.ClusterNameFromContext}
 	takeover, takenOver := demoTakeover(demoNow())
-	targets, inferred := append(demoTargets(src), takeover), demoInferredServices()
+	targets, inferred := append(demoTargets(src), takeover), append(demoInferredServices(), handedOver)
 	// Each cluster source says what it detected: the Data sources page lists
 	// the Pacto CRD and the workloads the cluster runs. The taken-over
 	// workload is the takeover target, so it counts once.
@@ -210,7 +215,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 		return nil, nil, err
 	}
 	snap, err := fleet.Build(context.Background(),
-		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat},
+		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat, DeclarationSigners: demoHandoverSigners()},
 		fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection)
 	if err != nil {
 		return nil, nil, err

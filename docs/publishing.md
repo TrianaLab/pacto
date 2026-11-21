@@ -1,9 +1,10 @@
 # Publish a version
 
-This page describes how `pacto publish` works. To take a new service to its
+This page describes `pacto publish`. To take a new service to its
 first release, follow [Pactify a service](pactify.md). In CI, publish every
 changed service of a repository with
-[`pacto ci --publish`](publish-from-ci.md), which runs the same engine.
+[`pacto ci --publish`](publish-from-ci.md), which runs the same engine;
+[After a merge: publish](ci.md#after-a-merge-publish) sets it up.
 
 `pacto publish` publishes what a contract's [`publish`](contract-reference/publish.md)
 section declares: the contract bundle, the service's images and the manifests
@@ -199,7 +200,7 @@ Every published version also writes one entry to the
 [organization index](impact-consumers.md#consumers-from-the-organization-index),
 `<registry>/pacto-index:<hash>-<version>`. It exposes the service name,
 version, bundle digest, every dependency reference and the publisher it claims.
-An entry is never overwritten. A failed write prints a warning and the publish
+An entry is never overwritten. A failed write warns and the publish
 still succeeds; publishing the current version again writes a missing entry.
 
 - `--index` names another `<registry>/pacto-index`, with no tag or digest, and
@@ -224,7 +225,7 @@ through MCP: `pacto mcp --publish` adds `pacto_publish_plan` and
 ## Declare a running service
 
 `pacto declare <workload> --registry <registry>` publishes a contract for a
-workload the cluster already runs, without a repository or a build.
+running workload, without a repository or a build.
 
 - **Source.** It drafts the contract from the cluster with your kubeconfig
   credentials, as
@@ -263,6 +264,13 @@ workload the cluster already runs, without a repository or a build.
   pulls a bundle only when that person signed it; `--verify-key` checks a key
   instead. The record's `declaration` block is in the
   [inferred record](contract-reference/inferred-record.md#declaration).
+- **What the fleet shows after you declare.** Once a registry read verifies
+  your signature and the installation signer rule allows you, the fleet
+  shows one service: the inferred service the declaration names is handed
+  over to the declared one, and each field says whether it is declared,
+  accepted by you or inferred. A Pacto target that runs as the workload wins.
+  See
+  [When a declaration replaces an inferred service](operational-graph-inferred.md#when-a-declaration-replaces-an-inferred-service).
 
 ## Hand-off to delivery
 

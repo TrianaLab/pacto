@@ -21,6 +21,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -283,6 +284,33 @@ func HasIDToken() error {
 // githubIssuer is the issuer of GitHub Actions OIDC tokens.
 const githubIssuer = "https://token.actions.githubusercontent.com"
 
+// tokenClaims are the claims of a CI OIDC token Pacto reads, unverified.
+type tokenClaims struct {
+	Iss            string `json:"iss"`
+	Email          string `json:"email"`
+	JobWorkflowRef string `json:"job_workflow_ref"`
+	CIConfigRefURI string `json:"ci_config_ref_uri"`
+	Repository     string `json:"repository"`
+	Ref            string `json:"ref"`
+}
+
+// readClaims decodes token's claims without verifying it.
+func readClaims(token string) (tokenClaims, error) {
+	var claims tokenClaims
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return claims, errors.New("the OIDC token is not a JWT: declare publish.sign.identity and issuer")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err == nil {
+		err = json.Unmarshal(raw, &claims)
+	}
+	if err != nil {
+		return claims, fmt.Errorf("the OIDC token's claims are unreadable (%v): declare publish.sign.identity and issuer", err)
+	}
+	return claims, nil
+}
+
 // TokenIdentity reads, without verifying it, the identity and issuer Fulcio
 // puts in the certificate it issues for token: on GitHub Actions the workflow
 // that runs (job_workflow_ref, a reusable workflow's own ref when one is
@@ -291,22 +319,9 @@ const githubIssuer = "https://token.actions.githubusercontent.com"
 // against exactly this identity, so a forged claim only makes Pacto expect a
 // certificate Fulcio never issues.
 func TokenIdentity(token string) (identity, issuer string, err error) {
-	parts := strings.Split(token, ".")
-	var claims struct {
-		Iss            string `json:"iss"`
-		Email          string `json:"email"`
-		JobWorkflowRef string `json:"job_workflow_ref"`
-		CIConfigRefURI string `json:"ci_config_ref_uri"`
-	}
-	if len(parts) != 3 {
-		return "", "", errors.New("the OIDC token is not a JWT: declare publish.sign.identity and issuer")
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err == nil {
-		err = json.Unmarshal(raw, &claims)
-	}
+	claims, err := readClaims(token)
 	if err != nil {
-		return "", "", fmt.Errorf("the OIDC token's claims are unreadable (%v): declare publish.sign.identity and issuer", err)
+		return "", "", err
 	}
 	switch {
 	case claims.Iss == githubIssuer && claims.JobWorkflowRef != "":
@@ -317,6 +332,29 @@ func TokenIdentity(token string) (identity, issuer string, err error) {
 		return claims.Email, claims.Iss, nil
 	}
 	return "", "", fmt.Errorf("the OIDC token from issuer %q names no identity Pacto can read: declare publish.sign.identity and issuer", claims.Iss)
+}
+
+// PolicyForToken is the keyless policy a signature made with token verifies
+// under. It is TokenIdentity exactly, except for a GitHub reusable workflow
+// of another repository (pacto-actions): its certificate names that workflow
+// at whatever commit the caller pins, so a pin bump would orphan every
+// earlier signature. The policy then matches the caller instead: the
+// repository and ref Fulcio attests, signed by that reusable workflow at any
+// ref or by any workflow of the caller's own repository (a repository moving
+// from its own release workflow keeps its baselines).
+func PolicyForToken(token string) (Policy, error) {
+	identity, issuer, err := TokenIdentity(token)
+	if err != nil {
+		return Policy{}, err
+	}
+	c, _ := readClaims(token) // TokenIdentity read them
+	workflow, _, _ := strings.Cut(c.JobWorkflowRef, "@")
+	if c.Iss != githubIssuer || c.Repository == "" || c.Ref == "" || strings.HasPrefix(strings.ToLower(workflow), strings.ToLower(c.Repository)+"/") {
+		return Policy{Identity: identity, Issuer: issuer}, nil
+	}
+	return Policy{Identity: identity, Issuer: issuer,
+		IdentityRegexp: `^https://github\.com/(` + regexp.QuoteMeta(c.Repository) + `/\.github/workflows/[^@]+|` + regexp.QuoteMeta(workflow) + `)@`,
+		Repository:     "https://github.com/" + c.Repository, Ref: c.Ref}, nil
 }
 
 func githubToken(ctx context.Context, url, bearer string) (string, error) {

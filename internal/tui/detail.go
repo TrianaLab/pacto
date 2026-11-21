@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -103,7 +104,7 @@ func renderDetail(d *fleet.EntityDetail) string {
 		field(&b, "domain", businessDomainText(d.Entity))
 		field(&b, "offering", d.Entity.Offering)
 		field(&b, "lifecycle", strings.TrimPrefix(lifecycleText(d.Service.Lifecycle), ", "))
-		renderServiceDetail(&b, d.Entity.Label, d.Service, d.Meta.Completeness)
+		renderServiceDetail(&b, d.Entity.Label, d.Service, d.Meta.Completeness, d.Meta.AsOf)
 	case d.Revision != nil:
 		renderRevisionDetail(&b, d.Revision)
 	case d.Target != nil:
@@ -178,11 +179,12 @@ func section(b *strings.Builder, title string) {
 
 // renderServiceDetail renders a service's page; service is its label, named
 // in the Stages hint under its environments.
-func renderServiceDetail(b *strings.Builder, service string, s *fleet.ServiceDetailData, c fleet.Completeness) {
+func renderServiceDetail(b *strings.Builder, service string, s *fleet.ServiceDetailData, c fleet.Completeness, asOf time.Time) {
 	field(b, "registry", s.Domain)
 	if s.Ownership != nil {
 		field(b, "owner", s.Ownership.Owner+OwnerProvenanceMark(s.Ownership.Provenance, s.Ownership.Source))
 	}
+	renderProvenance(b, s, asOf)
 	section(b, "Summary")
 	field(b, "revisions", fmt.Sprintf("%d (%d in use)", s.Summary.Revisions, s.Summary.RevisionsInUse))
 	field(b, "targets", fmt.Sprintf("%d", s.Summary.Targets))
@@ -220,6 +222,29 @@ func renderServiceDetail(b *strings.Builder, service string, s *fleet.ServiceDet
 		}
 		if s.Findings.Truncated {
 			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", s.Findings.Total-len(s.Findings.Items))) + "\n")
+		}
+	}
+}
+
+// renderProvenance writes the inferred services s replaced and where each
+// field of its current revision comes from, in the CLI's words.
+func renderProvenance(b *strings.Builder, s *fleet.ServiceDetailData, asOf time.Time) {
+	if len(s.Replaces) > 0 || s.ReplacesHidden > 0 {
+		section(b, "Replaces")
+		for _, l := range fleet.ReplacesLines(s.Replaces, asOf) {
+			b.WriteString(safeText(l) + "\n")
+		}
+		if more := s.ReplacesTotal - len(s.Replaces); more > 0 {
+			fmt.Fprintf(b, "  %d more\n", more)
+		}
+		if s.ReplacesHidden > 0 {
+			fmt.Fprintf(b, "  %d whose workload you cannot see\n", s.ReplacesHidden)
+		}
+	}
+	if s.Fields != nil {
+		section(b, "Fields")
+		for _, l := range s.Fields.Lines() {
+			b.WriteString(safeText(l) + "\n")
 		}
 	}
 }

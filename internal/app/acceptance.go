@@ -55,6 +55,57 @@ type acceptanceStore struct {
 	note     string
 	now      func() time.Time
 	listings map[string][]acceptanceCandidate
+	// ownerPolicy reads a bundle repository's owner policy and provenance
+	// checks the signature an attested owner is read from; with no
+	// ownerPolicy the declared owner alone accepts. owners remembers each
+	// subject's answer for one run.
+	ownerPolicy OwnerPolicyFunc
+	provenance  *ProvenanceChecker
+	owners      map[string]delivery.AcceptanceOwner
+}
+
+// ownerRuled is st judging acceptances under the owner rule: the owner
+// policy Service.OwnerPolicy reads beside each bundle repository, and the
+// owners attested in bundles prov checks (none when nil).
+func (s *Service) ownerRuled(st *acceptanceStore, prov *ProvenanceChecker) *acceptanceStore {
+	st.ownerPolicy, st.provenance, st.owners = s.fleetOwnerPolicy(""), prov, map[string]delivery.AcceptanceOwner{}
+	return st
+}
+
+// acceptProvenance checks bundle signatures over env's registry against
+// what trust reads, as the fleet does; nil for a registry that lists no
+// referrers.
+func acceptProvenance(env sysDeps, trust func(context.Context) (Installation, error)) *ProvenanceChecker {
+	reg, ok := env.publishRegistry().(provenanceRegistry)
+	if !ok {
+		return nil
+	}
+	p := newProvenanceChecker(reg)
+	p.Trust = trust
+	return p
+}
+
+// acceptanceOwner is who may accept for q's subject: its declared owner,
+// and under q.Repo's verified owner policy that owner or, when it declares
+// none, the owner its record attests (fleet.AttestedOwner), judged by the
+// policy. With no policy it is the declared owner alone, as before owner
+// policies.
+func (st *acceptanceStore) acceptanceOwner(ctx context.Context, q acceptanceQuery) delivery.AcceptanceOwner {
+	o := delivery.DeclaredAcceptanceOwner(q.Owner)
+	if st.ownerPolicy == nil {
+		return o
+	}
+	if got, ok := st.owners[q.Subject]; ok {
+		return got
+	}
+	if o.Policy, _ = st.ownerPolicy(ctx, q.Repo); o.Policy != nil && q.Owner.IsEmpty() && st.provenance != nil {
+		rev := &fleet.ContractRevision{Record: q.Record, Provenance: st.provenance.Check(ctx, "oci", "oci://"+q.Subject, q.Contract)}
+		if owner, citation, _, ok := fleet.AttestedOwner(rev); ok {
+			o.Claim = delivery.OwnerClaim{Owner: owner, Provenance: fleet.OwnerProvenanceAttested, Source: citation}
+		}
+	}
+	st.owners[q.Subject] = o
+	return o
 }
 
 // newAcceptanceStore builds the store over env's registry credentials and
@@ -113,11 +164,14 @@ func publicGoodVerifier() func(context.Context, []byte) (delivery.PublisherIdent
 // to Subject (<repository>@sha256:<hex>, of Service at Version, owned by
 // Owner as that bundle declares) in Repo, on Subject's host only. Expires
 // is the expiry of a break a record accepts, "" when unknown; Wants stops
-// the read at the first counted record it accepts.
+// the read at the first counted record it accepts. Contract and Record are
+// the subject's, read for an owner it attests.
 type acceptanceQuery struct {
 	Subject, Repo    string
 	Service, Version string
 	Owner            contract.Owner
+	Contract         *contract.Contract
+	Record           *contract.InferredRecord
 	Expires          func(delivery.AcceptedBreak) string
 	Wants            func(impact.Acceptance) bool
 }
@@ -250,7 +304,7 @@ func (st *acceptanceStore) judgeOne(ctx context.Context, repo *remote.Repository
 	if b := stmt.Predicate.Break; b != nil && q.Expires != nil {
 		expires = q.Expires(*b)
 	}
-	state, reason := delivery.JudgeAcceptance(stmt, signer, st.rules, q.Owner, expires, st.now())
+	state, reason := delivery.JudgeAcceptance(stmt, signer, st.rules, st.acceptanceOwner(ctx, q), expires, st.now())
 	return delivery.JudgedAcceptance{Record: stmt.Predicate, ID: id, Ref: q.Repo + "@" + d.Digest.String(), Signer: signer.Subject,
 		Issuer: signer.Issuer, State: state, Reason: reason, SignedAt: at}, "", nil
 }
@@ -340,7 +394,7 @@ func (st *acceptanceStore) readCited(ctx context.Context, ref, host, service str
 	}
 	rec, _ := contract.ReadInferredRecord(b.FS) // an unreadable record makes the owner declared as written
 	q := acceptanceQuery{Subject: path + "@" + subject, Repo: path, Service: string(fleet.NewServiceKeyDomain(contract.OCIDomain(path), b.Contract.Service.Name)),
-		Version: b.Contract.Service.Version, Owner: declaredOwner(b.Contract, rec), Expires: expires}
+		Version: b.Contract.Service.Version, Owner: declaredOwner(b.Contract, rec), Contract: b.Contract, Record: rec, Expires: expires}
 	if q.Service != service {
 		return delivery.JudgedAcceptance{}, "it is attached to " + q.Service + ", not " + service, nil
 	}
@@ -414,7 +468,7 @@ type AcceptPlan struct {
 	OnBehalfOf string `json:"onBehalfOf,omitempty"`
 	// owner, repo and record are who may accept, the accepting service's
 	// bundle repository and the record the plan would sign.
-	owner  contract.Owner
+	owner  delivery.AcceptanceOwner
 	repo   string
 	record delivery.AcceptanceRecord
 }
@@ -449,11 +503,12 @@ func (s *Service) AcceptPlan(ctx context.Context, opts AcceptOptions) (*AcceptPl
 		return nil, err
 	}
 	p.Kind, p.Ranges, p.Break = r.Kind, r.Ranges, r.Break
-	owner := declaredOwner(c, rec)
-	p.WhoMayAccept, _ = delivery.OwnerRoute(c.Service.Name, owner)
-	p.owner, p.repo, p.record = owner, repo, r
-	judged, notes, err := newAcceptanceStore(ctx, env, opts.Trust).readAcceptances(ctx, acceptanceQuery{Subject: p.Subject, Repo: repo,
-		Service: p.Service, Version: version, Owner: owner, Expires: sameBreakExpiry(r.Break, p.Expires), Wants: wantsSame(r.Break)})
+	st := s.ownerRuled(newAcceptanceStore(ctx, env, opts.Trust), acceptProvenance(env, opts.Trust))
+	q := acceptanceQuery{Subject: p.Subject, Repo: repo, Service: p.Service, Version: version, Owner: declaredOwner(c, rec), Contract: c, Record: rec,
+		Expires: sameBreakExpiry(r.Break, p.Expires), Wants: wantsSame(r.Break)}
+	p.owner, p.repo, p.record = st.acceptanceOwner(ctx, q), repo, r
+	p.WhoMayAccept, _ = delivery.OwnerRoute(c.Service.Name, p.owner.Claim.Owner)
+	judged, notes, err := st.readAcceptances(ctx, q)
 	if err != nil {
 		return nil, err
 	}
