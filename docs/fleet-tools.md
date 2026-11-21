@@ -228,7 +228,7 @@ the note says where that answer lives instead.
 | Edit a contract | - | `pacto_edit` | - | People edit `pacto.yaml` and run `pacto validate` |
 | Is this contract valid? | `pacto validate` | `pacto_check` | - | The dashboard validates nothing |
 | What may a contract say? | - | `pacto_schema` | - | The JSON Schema is published with the docs |
-| Declare a running service | `pacto declare` | `pacto_declare` | `POST /api/fleet/declare`, `POST /api/fleet/declare/accept` | An agent writes a draft a person accepts with `pacto declare --from-draft`; over HTTP the tool only plans; the dashboard plans for the signed-in person, signs with their fresh login or saves a draft |
+| Declare a running service | `pacto declare`, `pacto declare --draft` | `pacto_declare`, with `draft` over stdio | `POST /api/fleet/declare`, `POST /api/fleet/declare/accept` | An agent writes a draft a person accepts with `pacto declare --from-draft`; `--draft` writes a person's own draft unsigned; over HTTP the tool writes a draft only with a registry and a push credential of its own, else it plans; the dashboard plans for the signed-in person, signs with their fresh login or saves a draft |
 | Accept proposed ranges or a break | `pacto accept` | `pacto_accept` | `POST /api/fleet/accept`, `POST /api/fleet/accept/execute` | An agent writes an acceptance draft a person signs with `pacto accept --draft`; the tool is served over stdio only; the dashboard accepts every proposed range: it plans for the signed-in person, signs with their fresh login or saves an acceptance draft, and lists the drafts waiting |
 
 For one fleet, the three surfaces return the same `asOf`, `completeness`,

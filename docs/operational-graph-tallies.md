@@ -104,12 +104,21 @@ read raises one `knowledge` item and no `unowned` item. The Overview tile
 "Undeclared runtime dependencies observed" opens both kinds of `undeclared`
 item.
 
-`nextAction` names the operation that fixes an item and the tool that makes
-it, `{"verb": "edit-contract", "tool": "pacto_edit"}`, on
-`DEPENDENCY_UNDECLARED`, `UNOWNED_SERVICE` (when a contract could be read),
-`INVALID_CONTRACT`, `MISSING_READINESS`, `DEPENDENCY_RANGE_UNSATISFIED`,
-`GOLDEN_PATH_DEPLOYED` and a range that excludes a provider's successor, and
-`{"verb": "declare", "tool": "pacto_declare"}` on `INFERRED_PROVIDER`.
+`nextAction` names the operation that fixes an item, `{verb, tool, cli}`:
+`cli` is the command a person runs, always set, and `tool` the MCP tool,
+named only when the answering server registers it.
+
+- `edit-contract` (`pacto_edit`, `pacto ci`) on `DEPENDENCY_UNDECLARED`,
+  `UNOWNED_SERVICE` (when a contract could be read), `INVALID_CONTRACT`,
+  `MISSING_READINESS`, `DEPENDENCY_RANGE_UNSATISFIED`, `GOLDEN_PATH_DEPLOYED`,
+  `INFERRED_REPLACED`, an `UNCONTRACTED_CALLER` with no workload Pacto can
+  name and a range that excludes a provider's successor.
+- `declare` (`pacto_declare`, `pacto declare <workload> --namespace <ns>`) on
+  `INFERRED_PROVIDER` and an `UNCONTRACTED_CALLER` whose workload Pacto can
+  name. The dashboard links it to the inferred service's
+  [Declare panel](dashboard-service-page.md#declare-an-inferred-service).
+- `accept`, `claim` and `approve-cluster` are reserved verbs.
+
 Pacto infers it from the item's code, beside the `nextStep` prose. It grants
 nothing, and an unknown, stale, unresolved or non-compliant item carries
 none.

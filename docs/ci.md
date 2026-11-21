@@ -209,7 +209,10 @@ pacto accept oci://ghcr.io/acme/reports --proposed --intent sha256:...
 - One command accepts ranges or a break, never both.
 - The dashboard's service page offers **Accept all proposed ranges** inside
   **Inferred by Pacto** to a signed-in or local viewer: it shows the plan and
-  the `pacto accept` command, and never signs or writes.
+  the `pacto accept` command, and, for a person who may update the service's
+  workload, signs with a fresh login or saves an acceptance draft, as
+  [Declare this service](dashboard-service-page.md#declare-an-inferred-service)
+  does.
 
 - `--policy` on `pacto ci` and `pacto impact` sets how a `BREAKING` change
   treats what no range covers. The default `warn` adds a `POLICY_WARNING`

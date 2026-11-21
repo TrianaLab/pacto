@@ -81,9 +81,9 @@ identity. A `?correlationID=CHG-2041` in the page's URL fills the panel's
 ![The delivery section of the payments target page in prod: the Plan promote of 3.0.0 button and the plan it opened, with CHG-2041 in the ticket field](assets/screenshots/dashboard-act-from-investigation-light.png#only-light)
 ![The delivery section of the payments target page in prod: the Plan promote of 3.0.0 button and the plan it opened, with CHG-2041 in the ticket field](assets/screenshots/dashboard-act-from-investigation-dark.png#only-dark)
 
-Fleet attention items whose fix is a contract edit carry `nextAction`
-(`{"verb": "edit-contract", "tool": "pacto_edit"}`). Pacto infers it from the
-item's code, and it grants nothing.
+Fleet attention items carry `nextAction` (`{verb, tool, cli}`). `cli` is
+always set; `tool` only when the server answering registers it. It grants
+nothing.
 
 An agent plans with `pacto_delivery_operation_plan`, then proposes with
 `pacto_delivery_operation_propose`, the plan's intent digest, the person who
