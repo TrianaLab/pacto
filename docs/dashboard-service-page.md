@@ -235,7 +235,8 @@ service**, a fold closed by default.
   cluster, the rule delivery applies to approvals. A sign-in link or a
   dashboard without sign-in plans nothing. The panel shows only on a
   dashboard with a registry to publish to (`--registry`, the chart's
-  `registry` value).
+  `registry` value). Elsewhere the page names the `pacto declare` command
+  to run instead.
 - **Sign.** With a signing client Fulcio trusts
   ([signing in the dashboard](integrations/kubernetes/dashboard-authentication.md#sign-declarations)),
   a person who signed in through OIDC gets **Sign as** their name. It asks for a
