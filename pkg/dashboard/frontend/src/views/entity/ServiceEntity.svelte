@@ -22,6 +22,7 @@
   import ConfigurationList from '../../components/ConfigurationList.svelte';
   import InferredFieldList from '../../components/InferredFieldList.svelte';
   import AcceptProposedRanges from '../../components/AcceptProposedRanges.svelte';
+  import FieldProvenanceFold from '../../components/FieldProvenanceFold.svelte';
   import LifecycleBadge from '../../components/LifecycleBadge.svelte';
   import ResourceList from '../../components/ResourceList.svelte';
   import CopyableIdentifier from '../../components/CopyableIdentifier.svelte';
@@ -172,8 +173,9 @@
   const resourceEntries = $derived(new Set((used.items ?? []).flatMap((u) => (u.requested ?? [])
     .filter((r) => r.consumerRevision?.key && r.consumerRevision.key === d.currentRevision?.key).map((r) => r.entry))));
   const DOCS = 'https://pacto.run/latest/provision-infrastructure/';
-  // The inferred service a Pacto target took over: one line, the newest first, its
-  // age read against the snapshot so the demo and a paused page agree.
+  // The inferred service a Pacto target or an accepted declaration took over: one line,
+  // the newest first, its age (a Pacto target's only) read against the snapshot so the
+  // demo and a paused page agree.
   const replaced = $derived(d.replaces?.[0]);
   const replacedMore = $derived((d.replacesTotal ?? d.replaces?.length ?? 0) - 1);
   const replacedAge = $derived(replaced?.at ? formatRelative(replaced.at, Date.parse(detail.meta?.asOf ?? '') || Date.now()) : '');
@@ -283,6 +285,12 @@
         {#if d.ownership.conflicts.truncated}<li class="se-conflict-more">+{d.ownership.conflicts.total - d.ownership.conflicts.count} more</li>{/if}
       </ul>
     </div>
+  {/if}
+
+  {#if d.fields || d.replacesHidden || d.replaces?.some((r) => r.link !== 'pacto-target')}
+    <!-- Where each value comes from: one fold, closed, one mark per row (513-S5). A
+         Pacto-target takeover alone stays the one Replaces line above. -->
+    <FieldProvenanceFold fields={d.fields} replaces={d.replaces ?? []} replacesTotal={d.replacesTotal ?? d.replaces?.length ?? 0} replacesHidden={d.replacesHidden ?? 0} asOf={detail.meta?.asOf ?? ''} />
   {/if}
 
   {#if gp}
@@ -624,8 +632,10 @@
   <!-- What Pacto read from the service's folder for its current revision, kept apart
        from the contract: folded, because the declared sections above are what a reader
        came for. The list owns the only disclosure for its rows (clip off). An unreadable
-       record says so while folded: its values are unknown, never absent. -->
-  {#if d.inferredFields?.total || d.inferredFields?.unreadable}
+       record says so while folded: its values are unknown, never absent. When the
+       "Where the values come from" fold already lists inferred values, it is their one
+       list (muted, filterable), so this block shows only an unreadable record. -->
+  {#if d.inferredFields?.unreadable || (d.inferredFields?.total && !d.fields?.items?.some((f) => f.provenance === 'inferred'))}
     <div class="se-wrap" data-testid="service-inferred">
       <PreviewSection title="Inferred by Pacto" collapsible open={false} clip={false} total={d.inferredFields.total} count={d.inferredFields.count ?? 0}
         summary={d.inferredFields.unreadable ? 'Could not be read' : ''} tone={d.inferredFields.unreadable ? 'warn' : ''}

@@ -1,0 +1,213 @@
+{
+  "detailFields": {
+    "items": [
+      {
+        "field": "service.owner",
+        "value": "billing",
+        "provenance": "declared",
+        "source": "pacto.yaml of invoices@sha256:invoices-0.1.0",
+        "asOf": "2026-07-29T12:00:00Z"
+      },
+      {
+        "field": "dependencies[ledger].compatibility",
+        "value": "^2.3.0",
+        "provenance": "accepted",
+        "by": "ana@acme.com",
+        "source": "pacto.yaml of invoices@sha256:invoices-0.1.0",
+        "asOf": "2026-07-29T12:00:00Z"
+      },
+      {
+        "field": "dependencies[audit].compatibility",
+        "value": "unknown",
+        "provenance": "declared",
+        "source": "cluster:fleet reported versions 1.4.2",
+        "asOf": "2026-07-29T12:00:00Z",
+        "completeness": "partial",
+        "proposed": "^1.4.0"
+      },
+      {
+        "field": "workload",
+        "value": "service",
+        "provenance": "inferred",
+        "source": "deploy/app.yaml:1"
+      }
+    ],
+    "count": 4,
+    "total": 4,
+    "truncated": false
+  },
+  "explain": {
+    "fields": {
+      "items": [
+        {
+          "field": "service.owner",
+          "value": "billing",
+          "provenance": "declared",
+          "source": "pacto.yaml of invoices@sha256:invoices-0.1.0",
+          "asOf": "2026-07-29T12:00:00Z"
+        },
+        {
+          "field": "dependencies[ledger].compatibility",
+          "value": "^2.3.0",
+          "provenance": "accepted",
+          "by": "ana@acme.com",
+          "source": "pacto.yaml of invoices@sha256:invoices-0.1.0",
+          "asOf": "2026-07-29T12:00:00Z"
+        },
+        {
+          "field": "dependencies[audit].compatibility",
+          "value": "unknown",
+          "provenance": "declared",
+          "source": "cluster:fleet reported versions 1.4.2",
+          "asOf": "2026-07-29T12:00:00Z",
+          "completeness": "partial",
+          "proposed": "^1.4.0"
+        },
+        {
+          "field": "workload",
+          "value": "service",
+          "provenance": "inferred",
+          "source": "deploy/app.yaml:1"
+        }
+      ],
+      "count": 4,
+      "total": 4,
+      "truncated": false
+    },
+    "reasons": [
+      {
+        "code": "REPLACES_INFERRED",
+        "message": "Declared by ana@acme.com from inferred k8s:billing/Deployment/invoices (revision invoices@sha256:invoices-0.1.0)",
+        "source": "invoices@sha256:invoices-0.1.0"
+      },
+      {
+        "code": "UNRESOLVED_DEPENDENCY",
+        "message": "declared dependency is not resolved in the fleet",
+        "assertion": {
+          "kind": "dependency",
+          "name": "audit"
+        }
+      },
+      {
+        "code": "UNRESOLVED_DEPENDENCY",
+        "message": "declared dependency is not resolved in the fleet",
+        "assertion": {
+          "kind": "dependency",
+          "name": "ledger"
+        }
+      }
+    ]
+  },
+  "replacements": [
+    {
+      "from": "k8s:billing%2FDeployment%2Finvoices",
+      "to": "invoices",
+      "link": "inferred-from",
+      "revision": "invoices@sha256:invoices-0.1.0",
+      "by": "ana@acme.com",
+      "workload": {
+        "source": "k8s-workloads",
+        "cluster": "9f1c4e2a-0000-4000-8000-00000000000a",
+        "namespace": "billing",
+        "kind": "Deployment",
+        "name": "invoices",
+        "image": {
+          "value": "ghcr.io/acme/invoices:0.9.0",
+          "from": "spec.template.spec.containers[name=invoices].image"
+        },
+        "ports": [
+          {
+            "port": 8080,
+            "name": "http",
+            "protocol": "TCP",
+            "from": "spec.template.spec.containers[name=invoices].ports[0]"
+          }
+        ],
+        "group": {
+          "rule": "workload",
+          "namespace": "billing",
+          "name": "Deployment/invoices",
+          "from": "no grouping label or annotation",
+          "key": "workload/billing/Deployment/invoices",
+          "label": "This workload only"
+        }
+      }
+    }
+  ],
+  "service": {
+    "fields": {
+      "items": [
+        {
+          "field": "service.owner",
+          "value": "billing",
+          "provenance": "declared",
+          "source": "pacto.yaml of invoices@sha256:invoices-0.1.0",
+          "asOf": "2026-07-29T12:00:00Z"
+        },
+        {
+          "field": "dependencies[ledger].compatibility",
+          "value": "^2.3.0",
+          "provenance": "accepted",
+          "by": "ana@acme.com",
+          "source": "pacto.yaml of invoices@sha256:invoices-0.1.0",
+          "asOf": "2026-07-29T12:00:00Z"
+        },
+        {
+          "field": "dependencies[audit].compatibility",
+          "value": "unknown",
+          "provenance": "declared",
+          "source": "cluster:fleet reported versions 1.4.2",
+          "asOf": "2026-07-29T12:00:00Z",
+          "completeness": "partial",
+          "proposed": "^1.4.0"
+        },
+        {
+          "field": "workload",
+          "value": "service",
+          "provenance": "inferred",
+          "source": "deploy/app.yaml:1"
+        }
+      ],
+      "count": 4,
+      "total": 4,
+      "truncated": false
+    },
+    "replaces": [
+      {
+        "from": "k8s:billing%2FDeployment%2Finvoices",
+        "to": "invoices",
+        "link": "inferred-from",
+        "revision": "invoices@sha256:invoices-0.1.0",
+        "by": "ana@acme.com",
+        "workload": {
+          "source": "k8s-workloads",
+          "cluster": "9f1c4e2a-0000-4000-8000-00000000000a",
+          "namespace": "billing",
+          "kind": "Deployment",
+          "name": "invoices",
+          "image": {
+            "value": "ghcr.io/acme/invoices:0.9.0",
+            "from": "spec.template.spec.containers[name=invoices].image"
+          },
+          "ports": [
+            {
+              "port": 8080,
+              "name": "http",
+              "protocol": "TCP",
+              "from": "spec.template.spec.containers[name=invoices].ports[0]"
+            }
+          ],
+          "group": {
+            "rule": "workload",
+            "namespace": "billing",
+            "name": "Deployment/invoices",
+            "from": "no grouping label or annotation",
+            "key": "workload/billing/Deployment/invoices",
+            "label": "This workload only"
+          }
+        }
+      }
+    ],
+    "replacesTotal": 1
+  }
+}

@@ -169,6 +169,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	boundTargetLabels(snap)
 	linkTargets(snap)
 	inferred = replaceInferred(snap, inferred)
+	inferred = replaceByInferredFrom(snap, inferred)
 	revalidateConfigRefs(snap)
 	aggregateServices(snap)
 	addInferredServices(snap, inferred)

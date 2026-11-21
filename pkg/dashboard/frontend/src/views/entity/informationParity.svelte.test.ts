@@ -499,6 +499,52 @@ describe('service detail stays an operational dashboard', () => {
 });
 
 /**
+ * A declared service that took over its inferred twin (513-S5) keeps every value the
+ * backend sends about where its fields come from: each value, the signer, the proposed
+ * range, the replaced workload's image and the counts of what the viewer cannot see.
+ */
+describe('service detail keeps where each value comes from', () => {
+  beforeEach(() => detailFn.mockReset());
+
+  function handedOver(): Record<string, any> {
+    const s = richService();
+    const at = '2026-07-29T09:00:00Z';
+    s.service.fields = preview([
+      { field: 'service.owner', value: 'team/payments', provenance: 'declared', source: 'pacto.yaml of payments@2.1.0', asOf: at },
+      { field: 'dependencies[ledger].compatibility', value: '^2.3.0', provenance: 'accepted', by: 'ana@acme.example', source: 'pacto.yaml of payments@2.1.0', asOf: at },
+      { field: 'service.repository', value: 'acme/payments', provenance: 'attested', source: 'CODEOWNERS' },
+      { field: 'interfaces[0].port', value: '8080', provenance: 'inferred', source: 'cluster:manifest k8s:billing/Deployment/payments', asOf: at, completeness: 'complete' },
+      { field: 'dependencies[audit].compatibility', value: 'unknown', provenance: 'declared', proposed: '^1.4.0', source: 'cluster:runtime k8s:billing/Deployment/payments', completeness: 'partial' },
+    ]);
+    s.service.replaces = [{ from: 'k8s:billing%2FDeployment%2Fpayments', to: 'domain-a/payments', link: 'inferred-from', by: 'ana@acme.example', revision: 'payments@2.1.0',
+      workload: { source: 'k8s-workloads', namespace: 'billing', kind: 'Deployment', name: 'payments', image: { value: 'ghcr.io/acme/payments:2.1.0', from: 'spec.template.spec.containers[0].image' } } }];
+    s.service.replacesTotal = 1;
+    s.service.replacesHidden = 2;
+    return s;
+  }
+
+  it('renders each value, the signer, the proposal, the replaced image and the hidden count', async () => {
+    detailFn.mockResolvedValue(handedOver());
+    const { target, component } = await mountView('service', 'domain-a/payments');
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="field-provenance-fold"]')).toBeTruthy());
+    const text = target.textContent || '';
+    for (const fragment of ['team/payments', '^2.3.0', 'acme/payments', '8080', 'ana@acme.example', 'Proposed ^1.4.0', 'ghcr.io/acme/payments:2.1.0',
+      'Replaces 2 inferred services whose workload you cannot see', 'Declared by ana@acme.example from inferred k8s:billing/Deployment/payments (revision payments@2.1.0)']) {
+      expect(text).toContain(fragment);
+    }
+    unmount(component); target.remove();
+  });
+
+  it('draws no fold for a service with no field provenance and no replacement', async () => {
+    detailFn.mockResolvedValue(richService());
+    const { target, component } = await mountView('service', 'domain-a/payments');
+    await vi.waitFor(() => expect(target.textContent).toContain('payments'));
+    expect(target.querySelector('[data-testid="field-provenance-fold"]')).toBeNull();
+    unmount(component); target.remove();
+  });
+});
+
+/**
  * The owner page replaces the old owner view, whose whole point was posture: an owner
  * opens it to find out whether THEIR estate is behaving. For a while it was four
  * bounded lists and no answer. It must ask the same three questions a service page

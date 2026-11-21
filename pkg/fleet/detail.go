@@ -424,11 +424,14 @@ type ServiceDetailData struct {
 	// each step is done only on evidence the fleet holds.
 	Creation []CreationStep `json:"creation,omitempty"`
 	// Workload, Calls and CallsObserved are set on an inferred service only.
-	Workload      *InferredWorkload `json:"workload,omitempty"`
-	Calls         RefPreview        `json:"calls" doc:"The declared services this inferred service was seen calling (observed, from uncontracted callers)"`
-	CallsObserved bool              `json:"callsObserved" doc:"True when an available source that reports observed calls covers this service's cluster; an empty calls list then means none were seen"`
-	Replaces      []Replacement     `json:"replaces,omitempty" doc:"The inferred services this service replaced, at most 200"`
-	ReplacesTotal int               `json:"replacesTotal,omitempty" doc:"How many inferred services this service replaced"`
+	Workload       *InferredWorkload `json:"workload,omitempty"`
+	Calls          RefPreview        `json:"calls" doc:"The declared services this inferred service was seen calling (observed, from uncontracted callers)"`
+	CallsObserved  bool              `json:"callsObserved" doc:"True when an available source that reports observed calls covers this service's cluster; an empty calls list then means none were seen"`
+	Replaces       []Replacement     `json:"replaces,omitempty" doc:"The inferred services this service replaced, at most 200"`
+	ReplacesTotal  int               `json:"replacesTotal,omitempty" doc:"How many inferred services this service replaced"`
+	ReplacesHidden int               `json:"replacesHidden,omitempty" doc:"Replacements of this service whose workload you may not see"`
+	// Fields is the service's field provenance, as in [ServiceView].
+	Fields *FieldsPreview `json:"fields,omitempty" doc:"Where each field of the current revision comes from: declared, accepted, attested or inferred"`
 }
 
 // TemplateDetail is what a golden path offers to a person creating a service
@@ -1451,6 +1454,8 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Calls:              refPreview(nil),
 		Replaces:           view.Replaces,
 		ReplacesTotal:      view.ReplacesTotal,
+		ReplacesHidden:     view.ReplacesHidden,
+		Fields:             view.Fields,
 	}
 	return &EntityDetail{
 		Meta: q.productMetaWith(conflicts), Entity: self, Status: s.Status,

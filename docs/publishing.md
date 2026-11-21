@@ -263,6 +263,13 @@ workload the cluster already runs, without a repository or a build.
   pulls a bundle only when that person signed it; `--verify-key` checks a key
   instead. The record's `declaration` block is in the
   [inferred record](contract-reference/inferred-record.md#declaration).
+- **What the fleet shows after you declare.** Once a registry read verifies
+  your signature and the installation signer rule allows you, the fleet
+  shows one service: the inferred service the declaration names is handed
+  over to the declared one, and each field says whether it is declared,
+  accepted by you or inferred. A Pacto target that runs as the workload wins.
+  See
+  [When a declaration replaces an inferred service](operational-graph-inferred.md#when-a-declaration-replaces-an-inferred-service).
 
 ## Hand-off to delivery
 

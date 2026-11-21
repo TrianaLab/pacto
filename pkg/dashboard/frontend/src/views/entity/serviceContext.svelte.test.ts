@@ -780,6 +780,20 @@ describe('service page: inferred by Pacto', () => {
     r.done();
   });
 
+  it('leaves the inferred values to the provenance fold when it lists them', async () => {
+    const inferredRow = { field: 'configuration.KEY_0', value: 'string', provenance: 'inferred', source: 'deploy/app.yaml:1' };
+    const declaredRow = { field: 'service.owner', value: 'billing', provenance: 'declared' };
+    const withFold = (rows: unknown[]) => ({ ...fields(3), fields: { items: rows, count: rows.length, total: rows.length, truncated: false } });
+    let r = await render(detail(withFold([declaredRow, inferredRow])));
+    expect(fact(r.target, 'service-inferred')).toBeNull();
+    expect(fact(r.target, 'field-provenance-fold')).toBeTruthy();
+    r.done();
+    // A fold of declared values only keeps the block: it is then the one list.
+    r = await render(detail(withFold([declaredRow])));
+    expect(fact(r.target, 'service-inferred')).toBeTruthy();
+    r.done();
+  });
+
   it('renders nothing when nothing is inferred', async () => {
     const { target, done } = await render(detail(fields(0)));
     expect(fact(target, 'service-inferred')).toBeNull();

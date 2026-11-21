@@ -149,6 +149,13 @@ func demoWorkloadCounts(snap *fleet.FleetSnapshot) map[string]int {
 			counts[s.Workload.Kind]++
 		}
 	}
+	// A workload a declaration replaced still runs; a Pacto target's is
+	// counted as its target above.
+	for _, r := range snap.Replacements {
+		if r.Link != "pacto-target" && r.Workload != nil {
+			counts[r.Workload.Kind]++
+		}
+	}
 	return counts
 }
 
