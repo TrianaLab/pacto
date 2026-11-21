@@ -33,7 +33,7 @@ func (q *Query) provisioningAttention() []AttentionItem {
 	for i := range q.snap.Relationships {
 		rel := &q.snap.Relationships[i]
 		k, ok := provisioningAttentionKey(rel)
-		if !ok {
+		if !ok || !q.inScope(k.from) {
 			continue
 		}
 		rels[k] = append(rels[k], rel)

@@ -210,29 +210,22 @@ type mapBuild struct {
 	svcGroup    map[ServiceKey]string
 	targetGroup map[TargetKey]string
 	limits      []Limitation
+	// nested, envOrder and preFold are what grouping said: teams nest in
+	// domains, how environments are ordered, the totals before folding.
+	nested   bool
+	envOrder string
+	preFold  MapTotals
 }
 
 // Map returns the whole fleet as groups laid out once, by domain (the
 // default), owner team or environment. Every count reads the view: a hidden
 // service is in no group, count, ribbon or tally.
 func (q *Query) Map(mq MapQuery) (*FleetMap, error) {
-	mq.GroupBy = cmp.Or(mq.GroupBy, MapGroupByDomain)
-	if mq.GroupBy != MapGroupByDomain && mq.GroupBy != MapGroupByTeam && mq.GroupBy != MapGroupByEnvironment {
-		return nil, &InvalidQueryError{Field: "groupBy", Value: mq.GroupBy, Reason: "must be domain, team or environment"}
+	b, err := q.mapMembers(mq)
+	if err != nil {
+		return nil, err
 	}
-	b := q.newMapBuild(mq)
-	fm := &FleetMap{GroupBy: mq.GroupBy}
-	switch mq.GroupBy {
-	case MapGroupByEnvironment:
-		fm.EnvironmentOrder = b.environmentGroups()
-	case MapGroupByTeam:
-		fm.Nested = b.teamGroups()
-	default:
-		b.domainGroups()
-	}
-	b.externalGroup()
-	fm.Totals = b.totals()
-	b.fold()
+	fm := &FleetMap{GroupBy: b.mq.GroupBy, Nested: b.nested, EnvironmentOrder: b.envOrder, Totals: b.preFold}
 	b.tally()
 	b.attention()
 	fm.Ribbons, fm.Totals.Ribbons, fm.RibbonsTruncated = b.ribbons()
@@ -241,6 +234,29 @@ func (q *Query) Map(mq MapQuery) (*FleetMap, error) {
 	fm.Limitations = limitationsPreview(b.limits)
 	fm.Meta = q.productMetaWith(b.limits)
 	return fm, nil
+}
+
+// mapMembers puts every visible service, target and external system in its
+// group, folded past MaxMapGroups: what both the map and a page of nodes
+// read. It packs no group.
+func (q *Query) mapMembers(mq MapQuery) (*mapBuild, error) {
+	mq.GroupBy = cmp.Or(mq.GroupBy, MapGroupByDomain)
+	if mq.GroupBy != MapGroupByDomain && mq.GroupBy != MapGroupByTeam && mq.GroupBy != MapGroupByEnvironment {
+		return nil, &InvalidQueryError{Field: "groupBy", Value: mq.GroupBy, Reason: "must be domain, team or environment"}
+	}
+	b := q.newMapBuild(mq)
+	switch mq.GroupBy {
+	case MapGroupByEnvironment:
+		b.envOrder = b.environmentGroups()
+	case MapGroupByTeam:
+		b.nested = b.teamGroups()
+	default:
+		b.domainGroups()
+	}
+	b.externalGroup()
+	b.preFold = b.totals()
+	b.fold()
+	return b, nil
 }
 
 // newMapBuild reads the visible services that are no golden path, their
@@ -602,7 +618,7 @@ func (q *Query) edgeProblem(me *mapEdge, pf problemFacts) *MapProblem {
 	}
 	for _, c := range e.DeclaredClaims.Items {
 		if c.RangeStatus == RangeUnsatisfied {
-			return &MapProblem{Code: LimitationRangeUnsatisfied, Severity: severityWarning, Reason: "accepts " + c.Compatibility}
+			return &MapProblem{Code: LimitationRangeUnsatisfied, Severity: severityWarning, Reason: q.rangeReason(c.Compatibility, me.to)}
 		}
 	}
 	switch {
@@ -614,6 +630,18 @@ func (q *Query) edgeProblem(me *mapEdge, pf problemFacts) *MapProblem {
 		return &MapProblem{Code: string(finding.CodeDependencyUndeclared), Severity: severityWarning, Reason: "observed calls and no contract declares them"}
 	}
 	return nil
+}
+
+// rangeReason words a range provider does not satisfy and, when Pacto sees
+// it running, the version it runs: "accepts ^2.3 · runs 3.0.1".
+func (q *Query) rangeReason(compatibility string, provider ServiceKey) string {
+	reason := "accepts " + compatibility
+	if s := q.snap.Services[provider]; s != nil {
+		if v, ok := q.runningVersion(s, ""); ok && v != "" {
+			reason += " · runs " + v
+		}
+	}
+	return reason
 }
 
 // ribbonKey is the ordered pair of groups a ribbon joins.
@@ -697,15 +725,7 @@ func (b *mapBuild) layout() ([]MapGroup, MapBounds) {
 		cs[i] = &circle{key: g.g.Key, r: gl.r, special: g.special}
 		index[g.g.Key] = i
 	}
-	if b.mq.GroupBy == MapGroupByEnvironment {
-		depth := make([]*int, len(accs))
-		for i, g := range accs {
-			depth[i] = g.g.Depth
-		}
-		packColumns(cs, depth)
-	} else {
-		packCircles(cs, mapGroupGap, b.groupWeights(index))
-	}
+	packMapGroups(b, accs, cs, index)
 	out := make([]MapGroup, len(accs))
 	bounds := MapBounds{MinX: math.Inf(1), MinY: math.Inf(1), MaxX: math.Inf(-1), MaxY: math.Inf(-1)}
 	for i, g := range accs {
@@ -718,6 +738,21 @@ func (b *mapBuild) layout() ([]MapGroup, MapBounds) {
 		bounds = MapBounds{}
 	}
 	return out, bounds
+}
+
+// packMapGroups places the groups of a map: environment columns, else the
+// tangent packing. A variable, so a test proves a page of nodes never calls
+// it.
+var packMapGroups = func(b *mapBuild, accs []*mapGroupAcc, cs []*circle, index map[string]int) {
+	if b.mq.GroupBy == MapGroupByEnvironment {
+		depth := make([]*int, len(accs))
+		for i, g := range accs {
+			depth[i] = g.g.Depth
+		}
+		packColumns(cs, depth)
+		return
+	}
+	packCircles(cs, mapGroupGap, b.groupWeights(index))
 }
 
 // subsOf is the sub-clusters of g as the layout placed them.

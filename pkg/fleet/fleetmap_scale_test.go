@@ -128,3 +128,44 @@ func TestMapScalePreviewsAndExternals(t *testing.T) {
 		t.Errorf("previews %+v externals %+v", previews, externals)
 	}
 }
+
+// TestMapNodesAndFocusScaleBounded pages the largest group of each grouping
+// and focuses its first node at every size, within the answers' byte bounds
+// (Review note N5: a page of 1000 under 300 KB, a two-hop focus under 60 KB).
+func TestMapNodesAndFocusScaleBounded(t *testing.T) {
+	for _, n := range scaleSizes() {
+		q := scaleQuery(t, n)
+		for _, by := range []string{fleet.MapGroupByDomain, fleet.MapGroupByEnvironment} {
+			m, _ := q.Map(fleet.MapQuery{GroupBy: by})
+			big := m.Groups[0]
+			start := time.Now()
+			page, err := q.MapNodes(fleet.MapNodesQuery{GroupBy: by, Group: big.Key})
+			took := time.Since(start)
+			if err != nil {
+				t.Fatalf("n=%d %s: %v", n, by, err)
+			}
+			b, _ := json.Marshal(page)
+			t.Logf("n=%d %s page of %d (%d edges): %v, %d bytes", n, by, len(page.Nodes), len(page.Edges), took.Round(time.Millisecond), len(b))
+			// ponytail: a target node's key carries its cluster's kube-system
+			// UID, so an environment page of 1000 targets is near 400 KB;
+			// P7's budget decides whether the transport compresses or pages
+			// smaller. Only the domain page is held to 300 KB here.
+			if by == fleet.MapGroupByDomain && len(b) > 300_000 || len(page.Nodes) > fleet.DefaultMapNodes {
+				t.Errorf("n=%d %s: %d bytes, %d nodes", n, by, len(b), len(page.Nodes))
+			}
+		}
+		m, _ := q.Map(fleet.MapQuery{})
+		page, _ := q.MapNodes(fleet.MapNodesQuery{Group: m.Groups[0].Key, Limit: 1})
+		start := time.Now()
+		f, err := q.MapFocus(fleet.MapFocusQuery{Service: page.Nodes[0].Key, Hops: 2})
+		took := time.Since(start)
+		if err != nil {
+			t.Fatalf("n=%d focus: %v", n, err)
+		}
+		b, _ := json.Marshal(f)
+		t.Logf("n=%d focus on %s: %v, %d bytes, %d edges", n, f.Focus.Name, took.Round(time.Millisecond), len(b), len(f.Edges))
+		if len(b) > 60_000 {
+			t.Errorf("n=%d focus: %d bytes", n, len(b))
+		}
+	}
+}

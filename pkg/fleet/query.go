@@ -41,6 +41,9 @@ type Query struct {
 	// folded the identities they fold into OtherEgress.
 	externals map[ExternalKey]*ExternalRecord
 	folded    map[ExternalKey]bool
+	// scope narrows attention to these services; nil is every service (see
+	// attentionFor).
+	scope map[ServiceKey]bool
 }
 
 // NewQuery wraps a snapshot in a query view. It projects the external
