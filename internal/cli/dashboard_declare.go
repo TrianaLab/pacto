@@ -273,13 +273,13 @@ func (d *dashboardDeclarer) Accept(r *http.Request, w dashboard.DeclareWorkload,
 	if p.IntentDigest != in.IntentDigest {
 		return d.stale(r, w, in, p)
 	}
-	if refusal := ownedBy(p); refusal != nil {
-		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, nil
-	}
-	req.Store = d.writer(p.BundleRepo)
+	req.Store = pushWriter(d.push, p.BundleRepo)
 	who := d.id.state(ctx).Person.User
 	if req.Draft {
-		return writeServerDraft(ctx, d.svc, req, p, decl, who)
+		return writeServerDraft(ctx, d.svc, req, p, decl, who, "dashboard")
+	}
+	if refusal := ownedBy(p); refusal != nil {
+		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, nil
 	}
 	if refusal := d.login(r, &req); refusal != nil {
 		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, nil
@@ -374,10 +374,10 @@ func ownedBy(p *app.DeclarePlan) *dashboard.DeclareRefusal {
 	return nil
 }
 
-// writer is the registry client writes go through: the push keychain, scoped
-// to repo alone.
-func (d *dashboardDeclarer) writer(repo string) publish.Registry {
-	return publish.NewScopedClient(d.push, oci.NewPushScope("", repo), nil, oci.EnvInsecureRegistries()...)
+// pushWriter is the registry client a server's writes go through: the push
+// keychain, scoped to repo alone.
+func pushWriter(push gcrauthn.Keychain, repo string) publish.Registry {
+	return publish.NewScopedClient(push, oci.NewPushScope("", repo), nil, oci.EnvInsecureRegistries()...)
 }
 
 // auditDeclare logs one declaration write: who, what and where.

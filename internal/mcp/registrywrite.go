@@ -22,8 +22,8 @@ import (
 type WriteRefusal string
 
 // The write refusal codes. internal/app's declare refusals use the same
-// strings, the owner rule's come from pkg/delivery; IntentRequired and
-// ExecuteNeedsStdio are this contract's own.
+// strings, the owner rule's come from pkg/delivery; IntentRequired,
+// ExecuteNeedsStdio, NotAllowed and ReviewFailed are this contract's own.
 const (
 	RefusalPlanStale              WriteRefusal = "PlanStale"
 	RefusalIntentRequired         WriteRefusal = "IntentRequired"
@@ -40,6 +40,11 @@ const (
 	RefusalExecuteNeedsStdio      WriteRefusal = "ExecuteNeedsStdio"
 	RefusalBaselineNeedsMigration WriteRefusal = "BaselineNeedsMigration"
 	RefusalBundleRepoMismatch     WriteRefusal = "BundleRepoMismatch"
+	// An HTTP server's draft write: the caller may not update the workload,
+	// writes on behalf of someone else or into another workload's
+	// repository (NotAllowed), or the review of the caller failed.
+	RefusalNotAllowed   WriteRefusal = "NotAllowed"
+	RefusalReviewFailed WriteRefusal = "ReviewFailed"
 	// The pacto_accept codes.
 	RefusalAcceptNothingProposed    WriteRefusal = "AcceptNothingProposed"
 	RefusalFieldNotAcceptable       WriteRefusal = "FieldNotAcceptable"
@@ -58,7 +63,7 @@ var writeRefusals = []WriteRefusal{
 	RefusalPlanStale, RefusalIntentRequired, RefusalWorkloadNotFound, RefusalWorkloadAmbiguous, RefusalAlreadyDeclared,
 	RefusalRangeNotProposed, RefusalNoRegistry, RefusalRegistryUnreadable, RefusalVersionConflict,
 	RefusalSignerNotAllowed, RefusalSignerUnverified, RefusalDraftNotFound, RefusalExecuteNeedsStdio,
-	RefusalBaselineNeedsMigration, RefusalBundleRepoMismatch, RefusalAcceptNothingProposed, RefusalFieldNotAcceptable,
+	RefusalBaselineNeedsMigration, RefusalBundleRepoMismatch, RefusalNotAllowed, RefusalReviewFailed, RefusalAcceptNothingProposed, RefusalFieldNotAcceptable,
 	RefusalBreakNotAnnounced, RefusalNotPublished, RefusalPersonSigningUnavailable,
 	RefusalOwnerSignerNotPerson, RefusalOwnerSignerNotAllowed, RefusalOwnerPolicyUnverified, RefusalOwnerSignerUnverified,
 }

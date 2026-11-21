@@ -434,7 +434,7 @@ func declareFirst(t *testing.T, w *declareWorld) {
 	}
 }
 
-func TestMCPDeclareOverHTTPNeverWrites(t *testing.T) {
+func TestMCPDeclareOverHTTPWithoutRegistryNeverWrites(t *testing.T) {
 	w := newDeclareWorld(t)
 	rd := newRemoteDeclarer(app.NewService(nil, nil), []string{"oci://" + w.host + "/acme"}, nil)
 	ctx := remoteCtx(declareCluster())

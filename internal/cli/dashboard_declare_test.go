@@ -235,7 +235,7 @@ func TestServerDraftIdempotent(t *testing.T) {
 
 func TestDashboardDraftPushScopedToBundleRepo(t *testing.T) {
 	h := newDeclareHost(t, false, true)
-	reg := h.d.writer(h.w.host + "/acme/invoices")
+	reg := pushWriter(h.d.push, h.w.host+"/acme/invoices")
 	img, _ := random.Image(16, 1)
 	_, err := reg.Write(t.Context(), h.w.host+"/acme/ledger", img)
 	expect(t, errors.Is(err, oci.ErrOutsidePushScope), "a write outside the bundle repository: %v", err)
@@ -472,6 +472,16 @@ func TestDashboardDeclareRefusesRepoOfOtherWorkloadOnAccept(t *testing.T) {
 	expect(t, out.Refusal != nil && out.Refusal.Code == "NotAllowed" && strings.Contains(out.Refusal.Message, "belongs to k8s:billing/Deployment/invoices"),
 		"answer %+v", out)
 	expect(t, slices.Equal(h.tags(t), []string{"draft-1"}), "tags %v", h.tags(t))
+	// A signed declaration is refused the same way, before the login is taken.
+	h.freshLogin(t, personToken())
+	pd, err = h.d.Plan(h.req(), dev, dashboard.DeclareInput{})
+	if err != nil || pd.Plan == nil {
+		t.Fatalf("%v %+v", err, pd)
+	}
+	out = h.accept(t, dev, dashboard.DeclareAcceptInput{IntentDigest: pd.Plan.IntentDigest, Mode: "sign"})
+	expect(t, out.Refusal != nil && out.Refusal.Code == "NotAllowed", "signed answer %+v", out)
+	_, unused := h.d.take(h.req(), pd.Plan.IntentDigest)
+	expect(t, unused && slices.Equal(h.tags(t), []string{"draft-1"}), "the login was taken or something was written: %v", h.tags(t))
 }
 
 func TestDeclareAcceptFromDraftNeedsAPerson(t *testing.T) {
@@ -491,7 +501,7 @@ func TestSameDraftComparesContract(t *testing.T) {
 	p := h.plan(t, dashboard.DeclareInput{})
 	out := h.accept(t, wl, dashboard.DeclareAcceptInput{IntentDigest: p.Plan.IntentDigest, Mode: "draft"})
 	_, digest, _ := strings.Cut(out.Published, "@")
-	req := app.DeclareRequest{Store: h.d.writer(h.w.host + "/acme/invoices")}
+	req := app.DeclareRequest{Store: pushWriter(h.d.push, h.w.host+"/acme/invoices")}
 	pl := &app.DeclarePlan{BundleRepo: h.w.host + "/acme/invoices", Drafts: []app.DraftView{{Tag: "draft-1", Digest: digest, OnBehalfOf: "ana@acme.com"}}}
 	expect(t, sameDraft(t.Context(), req, pl, []byte("pactoVersion: \"2.5\"\n"), "ana@acme.com") == "", "another pacto.yaml is another draft")
 	pl.Drafts[0].Digest = "sha256:" + strings.Repeat("0", 64)

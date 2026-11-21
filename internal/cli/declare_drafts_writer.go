@@ -10,17 +10,22 @@ import (
 )
 
 // writeServerDraft writes the draft a server (the dashboard, the HTTP MCP
-// server) saves for who with an installation credential: unsigned, on who's
-// behalf, through req.Store, with one audit line. When the newest draft
-// already holds the same pacto.yaml, requests and on-behalf-of person, it
-// answers that draft and writes nothing, so a repeated click or a looping
-// agent cannot fill the repository. p and decl are the plan the caller
-// checked (intent digest and repository owner) before.
-func writeServerDraft(ctx context.Context, svc *app.Service, req app.DeclareRequest, p *app.DeclarePlan, decl declarationTexts, who string) (*dashboard.DeclareAcceptAnswer, error) {
+// server; via names it in the audit line) saves for who with an
+// installation credential: unsigned, on who's behalf, through req.Store,
+// with one audit line. A bundle repository whose baseline or drafts were
+// inferred from another workload is refused. When the newest draft already
+// holds the same pacto.yaml, requests and on-behalf-of person, it answers
+// that draft and writes nothing, so a repeated click or a looping agent
+// cannot fill the repository. p and decl are the plan whose intent digest
+// the caller checked.
+func writeServerDraft(ctx context.Context, svc *app.Service, req app.DeclareRequest, p *app.DeclarePlan, decl declarationTexts, who, via string) (*dashboard.DeclareAcceptAnswer, error) {
+	if refusal := ownedBy(p); refusal != nil {
+		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, nil
+	}
 	if tag := sameDraft(ctx, req, p, decl.Contract(), who); tag != "" {
 		return &dashboard.DeclareAcceptAnswer{Tag: tag, Draft: true, Command: acceptDraftCommand(req, tag)}, nil
 	}
-	return runDeclare(ctx, svc, req, "server draft", who)
+	return runDeclare(ctx, svc, req, via, who)
 }
 
 // acceptDraftCommand is the command a person accepts tag with.

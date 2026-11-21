@@ -203,7 +203,8 @@ func TestRefusalEnumMatchesApp(t *testing.T) {
 		}
 		return true
 	})
-	want := append(append(app, string(RefusalIntentRequired), string(RefusalExecuteNeedsStdio)), delivery.OwnerRightCodes...)
+	want := append(append(app, string(RefusalIntentRequired), string(RefusalExecuteNeedsStdio), string(RefusalNotAllowed), string(RefusalReviewFailed)),
+		delivery.OwnerRightCodes...)
 	got := make([]string, len(writeRefusals))
 	for i, c := range writeRefusals {
 		got[i] = string(c)
@@ -268,14 +269,44 @@ func TestMCPDeclareDraftArgument(t *testing.T) {
 		t.Fatalf("%+v %+v %s", plans, execs, resultText(t, res))
 	}
 	stdio := listTools(t, mustNew("test", Authoring{Declare: stubDeclarer{}}, Modes{}))
-	if !strings.Contains(stdio["pacto_declare"].InputSchema.(map[string]any)["properties"].(map[string]any)["draft"].(map[string]any)["description"].(string), "stdio only") {
+	if !strings.Contains(stdio["pacto_declare"].InputSchema.(map[string]any)["properties"].(map[string]any)["draft"].(map[string]any)["description"].(string), "without signing") {
 		t.Errorf("%+v", stdio["pacto_declare"].InputSchema)
 	}
 }
 
-func TestMCPDeclareHTTPRefusesDraftArgument(t *testing.T) {
+// TestMCPDeclareHTTPDraftArgumentNeedsRegistry: over HTTP draft is refused
+// unless the server has a registry, and on_behalf_of is the reviewed caller.
+func TestMCPDeclareHTTPDraftArgumentNeedsRegistry(t *testing.T) {
 	remote := listTools(t, mustNew("test", Authoring{Remote: true, Declare: stubDeclarer{}}, Modes{}))
-	if !strings.Contains(remote["pacto_declare"].InputSchema.(map[string]any)["properties"].(map[string]any)["draft"].(map[string]any)["description"].(string), "Refused over HTTP") {
-		t.Errorf("%+v", remote["pacto_declare"].InputSchema)
+	props := remote["pacto_declare"].InputSchema.(map[string]any)["properties"].(map[string]any)
+	if !strings.Contains(props["draft"].(map[string]any)["description"].(string), "refused when the server has no registry") ||
+		!strings.Contains(props["on_behalf_of"].(map[string]any)["description"].(string), "the caller this server reviewed") {
+		t.Errorf("%+v", props)
 	}
+	if desc := remote["pacto_declare"].Description; !strings.Contains(desc, "over HTTP it writes that draft only when the server has a registry") {
+		t.Error(desc)
+	}
+}
+
+// TestMCPDeclareHTTPWritesWithoutOnBehalfOf: over HTTP the server names who
+// a draft is for, so a write needs no on_behalf_of; a run that answers no
+// plan carries its own accept command.
+func TestMCPDeclareHTTPWritesWithoutOnBehalfOf(t *testing.T) {
+	var execs []DeclareArgs
+	d := planOnlyRun{stubDeclarer{execs: &execs}}
+	res := callToolOn(t, mustNew("test", Authoring{Remote: true, Declare: d}, Modes{}), "pacto_declare",
+		map[string]any{"service": "invoices", "dry_run": false, "intent_digest": planDigest})
+	var out WriteResult
+	_ = json.Unmarshal([]byte(resultText(t, res)), &out)
+	if res.IsError || len(execs) != 1 || out.Draft == nil || out.Plan == nil || out.AcceptCLI != "pacto declare invoices --registry r --from-draft draft-2" {
+		t.Fatalf("%+v %s", out, resultText(t, res))
+	}
+}
+
+// planOnlyRun is a stubDeclarer whose run answers no plan.
+type planOnlyRun struct{ stubDeclarer }
+
+func (p planOnlyRun) Execute(ctx context.Context, a DeclareArgs) (json.RawMessage, *Refused, error) {
+	_, _, _ = p.stubDeclarer.Execute(ctx, a)
+	return json.RawMessage(`{"executed":true,"tag":"draft-2","draft":true,"acceptCLI":"pacto declare invoices --registry r --from-draft draft-2"}`), nil, nil
 }

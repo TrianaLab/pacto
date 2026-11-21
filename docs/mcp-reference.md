@@ -184,8 +184,8 @@ running workload.
   reviewed. The digest binds what would be declared, never the cluster facts
   read at the time, so a re-read with the same content keeps it.
 - Every MCP caller is an agent, so a write is a write-once `draft-<n>` tag
-  that names the person in `on_behalf_of` (required, asserted and never
-  verified). `acceptCLI` is the `pacto declare --from-draft` command that
+  that names the person in `on_behalf_of` (over stdio required, asserted and
+  never verified; over HTTP the caller the server reviewed). `acceptCLI` is the `pacto declare --from-draft` command that
   person runs to read the workload again and sign. A draft is never a version
   and the fleet never lists it.
 - Over stdio the draft is signed only by an ambient CI or agent token. A
@@ -193,7 +193,11 @@ running workload.
   no token are unsigned.
 - Over HTTP the plan reads the cluster with the caller's own exchanged token
   and only the registries `--oci` names. It returns the baseline only when the
-  caller may see the service. A write is refused with `ExecuteNeedsStdio`.
+  caller may see the service. A write is refused with `ExecuteNeedsStdio`
+  unless the server runs with `--registry` and `--declare-registry-config`:
+  then it writes an unsigned draft into that registry on behalf of the caller
+  it reviewed, when a SelfSubjectAccessReview with the caller's own token
+  allows `update` on the workload.
 - A plan that changes `service.owner` lists who may set it in `mayAccept`;
   see [Who may set a service owner](owner-setting.md). An HTTP server leaves
   it out, with a generic refusal, for a caller who may not see the service.
@@ -215,9 +219,11 @@ the command a person runs:
 | `SignerNotAllowed` | The signer is outside the installation signer policy |
 | `SignerUnverified` | The pushed signature does not name the planned signer; nothing was tagged |
 | `DraftNotFound` | The draft tag does not exist or holds no draft of the service |
-| `ExecuteNeedsStdio` | An HTTP server only plans: run the `cli` command |
+| `ExecuteNeedsStdio` | An HTTP server with no registry of its own only plans: run the `cli` command |
 | `BaselineNeedsMigration` | The baseline is below `pactoVersion: "2.5"`: run `pacto migrate` |
 | `BundleRepoMismatch` | The baseline publishes to another repository than `registry` |
+| `NotAllowed` | Over HTTP: the caller may not update the workload, names someone else in `on_behalf_of`, or the repository belongs to another workload |
+| `ReviewFailed` | Over HTTP: the review of the caller failed or could not be evaluated |
 | `OWNER_SIGNER_NOT_PERSON` | Only a person sets `service.owner`: an agent, CI or workload signer never does, whoever it acts for |
 | `OWNER_SIGNER_NOT_ALLOWED` | The person is no member of the current owner and no default approver |
 | `OWNER_POLICY_UNVERIFIED` | No verified owner policy was read, so who may set `service.owner` is unknown |
