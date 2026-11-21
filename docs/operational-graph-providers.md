@@ -183,7 +183,9 @@ scope.
 
 The operator detects four trace backends from the pods and Services it
 already reads, and writes a row only for a backend it found. A failed read is
-one `Traces` row that is `unavailable`.
+one `Traces` row that is `unavailable`. It reads no pod in `kube-system`,
+`kube-public`, `kube-node-lease` or the namespaces of the operator and its node
+agent, so a backend running there is not detected.
 
 - **OTel Collector** (`otel-collector`): a running
   `opentelemetry-collector` image.
@@ -194,7 +196,7 @@ one `Traces` row that is `unavailable`.
 - **Datadog** (`datadog`): the Agent DaemonSet, its `DD_SITE` and the name of
   the Secret its `DD_API_KEY` comes from. Pacto reads no Secret and holds no
   Datadog client, so the row stays `partial`: Pacto reads Datadog calls
-  through an OpenTelemetry Collector or a contribution.
+  through an OpenTelemetry Collector.
 
 `pacto fleet` and `pacto mcp` show these as detected rows used for `observed
 edges, read by the dashboard`. On `pacto dashboard` each backend the dashboard
@@ -207,7 +209,9 @@ saying how many edges it read:
 - **Service graph in Prometheus** (source `detected-service-graph`) reads the
   series Tempo's metrics-generator and the Collector's `servicegraph`
   connector write. With no series it is `partial` and names the processor or
-  connector to turn on.
+  connector to turn on. The operator picks the Prometheus Service by its labels
+  and only when it is the one Prometheus of its kind; with several the row is
+  `partial`.
 - **OTel Collector** (source `otlp-receiver`) is `available` once Collectors
   sent calls in the last 15 minutes, and counts the senders. Otherwise it is
   `partial`, such as `not exporting to pacto-dashboard.pacto-system:4318`, and

@@ -171,7 +171,7 @@ func TestTracesDatadogNamesSecretNotValue(t *testing.T) {
 
 func TestTracesDatadogIsPartialWithCollectorHint(t *testing.T) {
 	e := traceEntry(t, Traces([]Workload{datadogWorkload()}, nil, "pacto-system"), "datadog")
-	if e.Completeness != Partial || !strings.Contains(e.Reason, "through an OTel Collector") || e.Evidence != "Agent found" || e.Details != nil ||
+	if e.Completeness != Partial || e.Reason != "Pacto reads Datadog edges through an OTel Collector" || e.Evidence != "Agent found" || e.Details != nil ||
 		e.Hint != `exporters: {otlphttp/pacto: {endpoint: "http://pacto-dashboard.pacto-system:4318", encoding: json}}` || e.Endpoint != "" {
 		t.Errorf("datadog = %+v", e)
 	}

@@ -3,6 +3,7 @@ package fleetsrc
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -50,6 +51,9 @@ func NewServiceGraphSource(id string, res detect.Result, e detect.Entry, live *L
 	// passed detect.CheckEndpoint, so it is the base URL as it is.
 	prom.inCluster, prom.now = true, now
 	prom.baseURL = func(string, string, int32) string { return e.Endpoint }
+	// Anyone who can create a labelled Service can answer here, so a
+	// redirect is an answer, never a hop out of the checked Endpoint.
+	prom.http.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	row := ""
 	if e.Kind != "tempo" {
 		row = "service-graph"

@@ -155,7 +155,7 @@ func jaegerEntry(ws []Workload, svcs []Service) Entry {
 
 // datadogEntry finds a Datadog Agent and names its controller and the Secret
 // its API key comes from, never a value. It is partial: Pacto reads Datadog
-// edges only through a Collector or a contribution.
+// edges only through a Collector.
 func datadogEntry(ws []Workload, ns string) Entry {
 	found, nss := running(ws, func(repo string) bool {
 		return strings.HasSuffix(repo, "datadog/agent") || strings.HasSuffix(repo, "datadoghq/agent")
@@ -190,5 +190,5 @@ func datadogEntry(ws []Workload, ns string) Entry {
 		e.Details = []string{"DD_API_KEY comes from a Secret; Pacto did not read it"}
 	}
 	place(&e, nss, objects)
-	return partial(e, "Pacto reads Datadog edges through an OTel Collector or a 509-S11 contribution")
+	return partial(e, "Pacto reads Datadog edges through an OTel Collector")
 }

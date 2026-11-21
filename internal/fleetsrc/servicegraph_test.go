@@ -153,6 +153,17 @@ func TestServiceGraphSourceDownIsPartialNotUnavailable(t *testing.T) {
 	}
 }
 
+func TestServiceGraphSourceRefusesRedirects(t *testing.T) {
+	target, query := graphServer(t, 200, `{"status":"success","data":{"resultType":"vector","result":[`+edge("a", "b", "3")+`]}}`)
+	srv := httptest.NewServer(http.RedirectHandler(target.URL+"/api/v1/query", http.StatusFound))
+	t.Cleanup(srv.Close)
+	s, _ := graphSource("tempo", srv.URL)
+	col, row := collectGraph(t, s)
+	if *query != "" || len(col.Observed) != 0 || row.Status != fleet.SourceUnavailable || reason(row) != "the Prometheus Pacto found refused the query (HTTP 302)" {
+		t.Fatalf("redirect followed: query %q, row %+v", *query, row)
+	}
+}
+
 func TestServiceGraphSourceSkipsUserVirtualNode(t *testing.T) {
 	srv, query := graphServer(t, 200, vector(edge("user", "frontend", "5"), edge("frontend", "user", "1"), edge("frontend", "api", "1")))
 	s, _ := graphSource("tempo", srv.URL)

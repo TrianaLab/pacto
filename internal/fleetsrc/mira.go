@@ -117,8 +117,9 @@ func (s *MiraSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 // normalizeMiraMap folds Mira's per-instance edges into one edge per pair of
 // service names, sorted by (From, To). Root spans and calls within one service
 // are dropped; a call touching a key missing from nodes, a name Mira cannot
-// vouch for (see otelobserver.AttributableName) or counting no calls is dropped and
-// counted, because a call Pacto cannot attribute is uncertainty. Sums saturate.
+// vouch for (see otelobserver.AttributableName) or counting no calls is
+// dropped and counted, because a call Pacto cannot attribute is uncertainty.
+// Sums saturate.
 // FirstSeen/LastSeen stay zero: Mira gives no per-edge window.
 func normalizeMiraMap(m miraMap) (edges []fleet.ObservedEdge, unattributed int) {
 	names := make(map[string]string, len(m.Map.Nodes))

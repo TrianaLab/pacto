@@ -103,7 +103,7 @@
       "evidence": "Agent found; DD_SITE datadoghq.eu",
       "source": "running pods and Services",
       "completeness": "partial",
-      "reason": "Pacto reads Datadog edges through an OTel Collector or a 509-S11 contribution",
+      "reason": "Pacto reads Datadog edges through an OTel Collector",
       "hint": "exporters: {otlphttp/pacto: {endpoint: \"http://pacto-dashboard.pacto-system:4318\", encoding: json}}",
       "details": ["DD_API_KEY comes from a Secret; Pacto did not read it"],
       "namespaces": ["datadog"],
