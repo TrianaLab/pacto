@@ -32,6 +32,8 @@
     // this callback instead of falling through to the enclosing form's submit. Fields
     // that live inside a <form> leave it unset and keep ordinary submit behaviour.
     oncommit = null,
+    // A snippet that draws one suggestion (option(ref, query)); EntityIdentity by default.
+    option = undefined,
   } = $props();
 
   // The searched kinds and the bound are fixed for the life of one combobox -- a field
@@ -150,7 +152,7 @@
             onmouseenter={() => { activeIdx = i; }}
             onclick={() => choose(r)}
           >
-            <EntityIdentity ref={r} showStatus={false} showKind={false} />
+            {#if option}{@render option(r, query)}{:else}<EntityIdentity ref={r} showStatus={false} showKind={false} />{/if}
           </button>
         {/each}
         {#if suggest.truncated}

@@ -2,7 +2,7 @@
  * Test kit for the fleet map: a recording 2D context (jsdom has no canvas) and
  * a small map answer. Tests assert the calls a frame makes, never pixels.
  */
-import type { FleetMapAnswer, FleetMapNodesPage } from '../api';
+import type { FleetMapAnswer, FleetMapFocusAnswer, FleetMapNodesPage } from '../api';
 
 export interface Call {
   name: string;
@@ -68,4 +68,38 @@ export function nodesPage(group: string, nodes: Partial<NonNullable<FleetMapNode
     edges: [],
     ...over,
   } as FleetMapNodesPage;
+}
+
+type FocusNodeT = FleetMapFocusAnswer['focus'];
+type FocusEdgeT = NonNullable<FleetMapFocusAnswer['edges']>[number];
+const ref = (key: string) => ({ key, label: key, kind: 'service' as const, href: `#/fleet/services/${key}` });
+
+/** focusNode is one service of a focus answer. */
+export function focusNode(key: string, over: Partial<FocusNodeT> = {}): FocusNodeT {
+  return { key, name: key, href: `#/fleet/services/${key}`, x: 0, y: 0, match: 'matched', owner: 'team-a', version: '1.0.0', ...over };
+}
+
+/** focusEdge is one dependency of a focus answer, from caller to callee. */
+export function focusEdge(from: string, to: string, over: Partial<FocusEdgeT> = {}): FocusEdgeT {
+  return {
+    id: `${from}->${to}`, from: ref(from), to: ref(to), href: '', relation: 'dependency', provenance: 'declared+observed',
+    expected: true, observed: true, difference: 'matched', interface: 'api', range: '^1.0',
+    declaredClaims: { count: 0, total: 0, truncated: false }, observationSources: { count: 0, total: 0, truncated: false },
+    ...over,
+  } as FocusEdgeT;
+}
+
+/** focusAnswer is a focus on payments-0: two callers, one callee, and the edges between them. */
+export function focusAnswer(service = 'payments-0', hops = 1, over: Partial<FleetMapFocusAnswer> = {}): FleetMapFocusAnswer {
+  return {
+    meta: { schemaVersion: 'pacto.dev/fleet-product/v1', snapshotId: 'snap-1', asOf: '2026-11-20T09:40:00Z', completeness: 'complete' },
+    focus: focusNode(service, { in: 2, out: 1, interfaces: 2 }),
+    group: 'payments', hops,
+    columns: [
+      { hop: -1, total: 2, nodes: [focusNode('web'), focusNode('mobile', { severity: 'error', worst: 'health' })] },
+      { hop: 1, total: 1, nodes: [focusNode('ledger')] },
+    ],
+    edges: [focusEdge('web', service), focusEdge('mobile', service), focusEdge(service, 'ledger')],
+    ...over,
+  } as FleetMapFocusAnswer;
 }

@@ -9,15 +9,28 @@
    * The toolbar groups by domain, owner team or environment, switches the
    * lens (Both, Expected, Observed) and the Only problems mode, and picks an
    * environment to dim what does not run there. The map's state lives in the
-   * hash query (groupBy, lens, only, gaps, missing, env): every change is
-   * written through onparams, so a view is shareable.
+   * hash query (groupBy, lens, only, gaps, missing, env, focus, hops, rail):
+   * every change is written through onparams, so a view is shareable.
+   *
+   * One click selects a service and shows its panel; a second click or Enter
+   * opens it. Focus (from the panel, Find, the attention rail or a hash link)
+   * swaps the map for a left-to-right diagram of the service, its callers and
+   * its callees; Esc or the breadcrumbs return to the view the reader left.
+   * The attention rail sits beside the canvas; one more hop folds it away for
+   * as long as the wider diagram lasts.
    */
-  import { onMount, onDestroy, untrack } from 'svelte';
+  import { onMount, onDestroy, tick, untrack } from 'svelte';
+  import FleetMapRail, { RAIL_FILTERS, type RailItem } from './FleetMapRail.svelte';
+  // @ts-expect-error — Svelte component has no declaration file
+  import FleetMapSearch from './FleetMapSearch.svelte';
+  import { edgeTip, focusView, hitFocus, layoutFocus, renderFocus, type EdgeTip, type FocusAnswer, type FocusFrame, type FocusLayout } from '../lib/fleetMap/focus';
+  import { fleetEntityUrl } from '../lib/router';
+  import { MOTION, prefersReducedMotion } from '../lib/motion';
   import { FleetMapStore, type GroupBy } from '../lib/fleetMap/store.svelte';
   import { LENSES, groupCount, summary, type Lens } from '../lib/fleetMap/lens';
   import { GAP_KINDS, MISSING_SECTIONS, environmentChoices, gapCount, modeFrom, modeParams, toggleGap, type GapKind, type Mode } from '../lib/fleetMap/modes';
   import { attentionCategoryLabel } from '../lib/entityLabels';
-  import { countOf, formatCount } from '../lib/format';
+  import { countOf, formatCount, statusLabel } from '../lib/format';
   import { setHashParams } from '../lib/hashQuery.svelte';
   import { Grid, circleAt } from '../lib/fleetMap/hit';
   import {
@@ -55,6 +68,13 @@
   const shown = $derived<Lens>(mode?.kind === 'gaps' ? 'both' : lens);
   // Grouped by environment, the columns are the environments: the picker steps aside.
   const environment = $derived(groupBy === 'environment' ? '' : q.env ?? '');
+  const focusKey = $derived(q.focus ?? '');
+  const hops = $derived(q.hops === '2' ? 2 : 1);
+  // The rail is open by default beside the Overview's map and closed on the full page.
+  const railParam = $derived(q.rail === 'open' ? true : q.rail === 'closed' ? false : variant !== 'full');
+  // Two hops need the width: the rail folds away for as long as they show.
+  const railShown = $derived(railParam && !(focusKey && hops > 1));
+  const railFilters = $derived(Object.fromEntries(RAIL_FILTERS.filter((k) => q[k]).map((k) => [k, q[k]])));
 
   /** set changes the view's state and writes it to the hash query. */
   function set(patch: Patch) {
@@ -66,6 +86,7 @@
   const setMode = (m: Mode) => set(modeParams(m));
 
   let canvas: HTMLCanvasElement | undefined = $state();
+  let root: HTMLElement | undefined = $state();
   let mini: HTMLCanvasElement | undefined = $state();
   const camera = new Camera();
   let vp: Viewport = { w: 0, h: 0 };
@@ -79,6 +100,20 @@
   let tip = $state<{ key: string; x: number; y: number } | null>(null);
   let tipEl: HTMLDivElement | undefined = $state();
   let lastLabels: DrawnLabel[] = [];
+  // Focus: the diagram, the view to return to, the entry fade and what the pointer is over.
+  let layout = $state.raw<FocusLayout | null>(null);
+  let focusItem = $state.raw<RailItem | null>(null);
+  let restore: { view: View; fitted: boolean } | null = null;
+  let focusT0 = 0;
+  let focusT = 1;
+  let lastFocus: FocusFrame | null = null;
+  let hoverEdge: string | null = null;
+  let etip = $state<{ tip: EdgeTip; x: number; y: number } | null>(null);
+  // The service one click selected: its panel shows, a second click or Enter opens it.
+  let selected = $state.raw<PlacedNode | null>(null);
+  let railW = 0;
+  /** The viewport with the width the rail covers. */
+  const vpr = (): Viewport => ({ ...vp, rail: railShown ? railW : 0 });
   const frames: number[] = [];
   let miniT: MiniTransform | null = null;
   // The nodes last drawn; their hit grid is built on the first hover after a frame.
@@ -96,11 +131,28 @@
   const answer = $derived(store.answer);
   const groups = $derived(answer?.groups ?? []);
   const byKey = $derived(new Map(groups.map((g) => [g.key, g])));
-  const fitZoom = () => (answer ? fitK(answer.bounds, vp) : 1);
+  const fitZoom = () => (layout ? focusView(layout, vpr()).k : answer ? fitK(answer.bounds, vpr()) : 1);
 
   $effect(() => {
     const g = groupBy, env = environment;
     untrack(() => { void store.load(g, env).then(() => { fit(false); }); });
+  });
+  $effect(() => {
+    const key = focusKey, h = hops;
+    untrack(() => {
+      if (!key) { exitFocus(); return; }
+      void store.loadFocus(key, h).then((a) => { if (a && key === focusKey && h === hops) enterFocus(a); });
+    });
+  });
+  $effect(() => {
+    // The rail opening or closing changes the width a fitted view frames.
+    void railShown;
+    untrack(() => {
+      void tick().then(() => {
+        railW = railShown ? (root?.querySelector('[data-testid="fleet-map-rail"]') as HTMLElement | null)?.offsetWidth ?? 0 : 0;
+        if (fitted) fit(false); else request();
+      });
+    });
   });
   $effect(() => {
     // A new answer, a page arriving, a lens, mode or environment switch redraws.
@@ -143,6 +195,7 @@
   function reserved(): Rect[] {
     const r: Rect[] = [[0, 0, 320, 96], [vp.w - 64, vp.h - 172, vp.w, vp.h]];
     if (showMini) r.push([0, vp.h - 140, 190, vp.h]);
+    r.push(railShown && railW ? [vp.w - railW, 0, vp.w, vp.h] : [vp.w - 200, 0, vp.w, 56]);
     return r;
   }
 
@@ -163,12 +216,61 @@
     return true;
   }
 
-  /** fit frames the whole map in the measured canvas. */
+  /** fit frames the whole map, or the focus diagram, in the measured canvas minus the rail. */
   export function fit(animate = true): void {
-    if (!answer || !measure()) return;
-    camera.go(fitView(answer.bounds, vp), animate);
+    if (!(layout || answer) || !measure()) return;
+    camera.go(layout ? focusView(layout, vpr()) : fitView(answer!.bounds, vpr()), animate);
     fitted = true;
     request();
+  }
+
+  /** enterFocus swaps the map for the focus diagram, keeping the view to return to. */
+  function enterFocus(a: FocusAnswer) {
+    if (!layout && !restore) restore = { view: { ...camera.view }, fitted };
+    selected = null; tip = null; etip = null; hoverNode = null; hoverGroup = null; hoverEdge = null;
+    layout = layoutFocus(a);
+    focusT0 = performance.now();
+    focusT = prefersReducedMotion() ? 1 : 0;
+    if (measure()) { camera.go(focusView(layout, vpr()), false); fitted = true; }
+    request();
+  }
+
+  /** exitFocus returns to the map, to the view the reader left unless told otherwise. */
+  function exitFocus(restoreView = true) {
+    if (!layout) return;
+    layout = null; lastFocus = null; etip = null; hoverEdge = null; hoverNode = null; focusItem = null;
+    const rs = restore;
+    restore = null;
+    if (restoreView && rs) {
+      if (rs.fitted) fit(false);
+      else { camera.go(rs.view, false); fitted = false; }
+    }
+    request();
+  }
+
+  /** focusService focuses a service, from a rail item or not, through the hash query. */
+  function focusService(key: string, item: RailItem | null = null, h = 1) {
+    focusItem = item;
+    set({ focus: key, hops: h > 1 ? '2' : null });
+  }
+
+  /** leaveFocus is Esc and "Back to whole fleet". */
+  function leaveFocus() {
+    exitFocus(true);
+    set({ focus: null, hops: null });
+  }
+
+  /** toGroup leaves focus for the focus service's group. */
+  function toGroup(key: string) {
+    exitFocus(false);
+    set({ focus: null, hops: null });
+    const g = byKey.get(key);
+    if (g) zoomToGroup(g); else fit();
+  }
+
+  /** open goes to a service's page. */
+  function open(key: string) {
+    location.hash = fleetEntityUrl('service', key);
   }
 
   function go(v: View, animate = true) {
@@ -197,15 +299,26 @@
     pending = 0;
     const moving = camera.step(now);
     draw();
-    if (moving) request();
+    if (moving || (layout && focusT < 1)) request();
   }
 
   /** draw renders one frame now. */
   function draw() {
     const ctx = canvas?.getContext('2d');
-    if (!ctx || !answer || !measure()) return;
+    if (!ctx || !measure()) return;
     palette ??= readPalette(canvas);
     const t0 = performance.now();
+    if (layout) {
+      focusT = Math.min(1, Math.max(focusT, (t0 - focusT0) / MOTION.reveal));
+      lastFocus = renderFocus(ctx, layout, { view: camera.view, w: vp.w, h: vp.h, dpr, palette, t: focusT, hoverEdge, hoverNode });
+      lastLabels = lastFocus.labels;
+      frames.push(performance.now() - t0);
+      if (frames.length > 240) frames.shift();
+      atFit = fitted;
+      showMini = false;
+      return;
+    }
+    if (!answer) return;
     const v = camera.view;
     const lv = level(gapOf(v.k));
     const keys = groupsInView(v);
@@ -215,7 +328,7 @@
     grid = null;
     const res = render(ctx, {
       groups, ribbons: answer.ribbons ?? [], nodes, edges, view: v, w: vp.w, h: vp.h, dpr, palette, lens: shown,
-      groupBy: answer.groupBy, mode, environment, hoverGroup, hoverNode, reserved: reserved(),
+      groupBy: answer.groupBy, mode, environment, hoverGroup, hoverNode: hoverNode ?? selected?.node.key ?? null, reserved: reserved(),
     });
     lastLabels = res.labels;
     frames.push(performance.now() - t0);
@@ -242,6 +355,9 @@
     else if (e.key === 'ArrowRight') pan(-step, 0);
     else if (e.key === 'ArrowUp') pan(0, step);
     else if (e.key === 'ArrowDown') pan(0, -step);
+    else if (e.key === 'Enter' && (layout || selected)) open(layout ? layout.focus.key : selected!.node.key);
+    else if (e.key === 'Escape' && layout) leaveFocus();
+    else if (e.key === 'Escape' && selected) selected = null;
     else if (e.key === 'Escape' && mode) setMode(null);
     else return;
     e.preventDefault();
@@ -289,6 +405,7 @@
   }
 
   function hover(x: number, y: number) {
+    if (layout) { hoverFocus(x, y); return; }
     const v = camera.view;
     const [wx, wy] = toWorld(v, x, y);
     const g = lvl === 0 ? circleAt(groups, wx, wy)?.key ?? null : null;
@@ -299,7 +416,17 @@
     if (canvas) canvas.style.cursor = g || n ? 'pointer' : '';
   }
 
+  function hoverFocus(x: number, y: number) {
+    const h = layout && lastFocus ? hitFocus(layout, lastFocus, x, y) : {};
+    const nk = h.node?.key ?? null, ek = h.edge?.id ?? null;
+    if (nk !== hoverNode || ek !== hoverEdge) { hoverNode = nk; hoverEdge = ek; request(); }
+    etip = h.edge && layout ? { tip: edgeTip(h.edge, layout.asOf), x: Math.max(8, Math.min(x + 14, vp.w - 300)), y: Math.max(8, Math.min(y + 14, vp.h - 190)) } : null;
+    if (canvas) canvas.style.cursor = nk || ek ? 'pointer' : '';
+  }
+
   function unhover(e: PointerEvent) {
+    etip = null;
+    if (hoverEdge) { hoverEdge = null; request(); }
     if (drag || (tipEl && e.relatedTarget instanceof Node && tipEl.contains(e.relatedTarget))) return;
     if (hoverGroup || hoverNode) { hoverGroup = null; hoverNode = null; request(); }
     tip = null;
@@ -308,7 +435,7 @@
   /** zoomToGroup frames one group. */
   function zoomToGroup(g: { x: number; y: number; r: number }) {
     fitted = false;
-    go(viewFor(vp, g.x, g.y, Math.max(Math.min((vp.w - 80) / (2 * g.r), (vp.h - 120) / (2 * g.r)), kForGap(L1 * 1.3))));
+    go(viewFor(vpr(), g.x, g.y, Math.max(Math.min((vp.w - (vpr().rail ?? 0) - 80) / (2 * g.r), (vp.h - 120) / (2 * g.r)), kForGap(L1 * 1.3))));
   }
 
   /** missingIn dims the complete services and frames the group. */
@@ -320,10 +447,21 @@
   }
 
   function click(x: number, y: number) {
+    if (layout) {
+      const h = lastFocus ? hitFocus(layout, lastFocus, x, y) : {};
+      // The focus card opens; another card becomes the focus.
+      if (h.node) { if (h.node.key === layout.focus.key) open(h.node.key); else focusService(h.node.key, null, hops); }
+      return;
+    }
     const v = camera.view;
     const [wx, wy] = toWorld(v, x, y);
     const n = nodeAt(wx, wy, v.k);
-    if (n) { go(viewFor(vp, n.x, n.y, Math.max(v.k, kForGap(60)))); return; }
+    if (n) {
+      if (selected?.node.key === n.node.key) open(n.node.key);
+      else { selected = n; tip = null; request(); }
+      return;
+    }
+    if (selected) { selected = null; request(); }
     const g = lvl === 0 ? circleAt(groups, wx, wy) : null;
     if (g) { tip = null; zoomToGroup(g); }
   }
@@ -338,13 +476,13 @@
     fitted = false;
     const target = [L1 * 0.6, L1 * 1.4, L2 * 1.4, L3 * 1.2][l];
     const [cx, cy] = toWorld(camera.view, vp.w / 2, vp.h / 2);
-    go(viewFor(vp, cx, cy, l === 0 ? Math.min(fitZoom(), kForGap(target)) : kForGap(target)));
+    go(viewFor(vpr(), cx, cy, l === 0 ? Math.min(fitZoom(), kForGap(target)) : kForGap(target)));
   }
 
   function onMini(e: PointerEvent) {
     if (!miniT || !mini) return;
     const r = mini.getBoundingClientRect();
-    go(viewFor(vp, (e.clientX - r.left - miniT.ox) / miniT.s, (e.clientY - r.top - miniT.oy) / miniT.s, camera.view.k));
+    go(viewFor(vpr(), (e.clientX - r.left - miniT.ox) / miniT.s, (e.clientY - r.top - miniT.oy) / miniT.s, camera.view.k));
   }
 
   const choices = $derived(environmentChoices(store.environments));
@@ -354,7 +492,29 @@
   const tone = (e: LegendEntry) => `var(${TONE[e.tone] ?? '--c-text-3'})`;
   const dashOf = (d: readonly number[] | undefined) => (d?.length ? d.join(' ') : undefined);
 
-  const live = $derived(`Level ${lvl}, ${LEVEL_NAMES[lvl]}${centre ? `, ${centre}` : ''}`);
+  /** callWords is "N services call it, it calls M". */
+  const callWords = (callers: number, callees: number) =>
+    `${callers === 1 ? '1 service calls' : `${formatCount(callers)} services call`} it, it calls ${formatCount(callees)}`;
+  const live = $derived(
+    layout ? `Focus on ${layout.focus.name}: ${callWords(layout.callers, layout.callees)}. Escape returns to the whole fleet.`
+      : selected ? `Selected ${selected.node.label || selected.node.name}. Enter opens it, Escape clears the selection.`
+        : `Level ${lvl}, ${LEVEL_NAMES[lvl]}${centre ? `, ${centre}` : ''}`,
+  );
+  const focusGroup = $derived(layout ? byKey.get(layout.group)?.label ?? layout.group : '');
+
+  /** onRootKey: slash moves to Find from anywhere in the map that is not a text field. */
+  function onRootKey(e: KeyboardEvent) {
+    if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
+    const t = e.target as HTMLElement;
+    if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable) return;
+    e.preventDefault();
+    e.stopPropagation();
+    root?.querySelector<HTMLInputElement>('[data-testid="fleet-map-search"] input')?.focus();
+  }
+
+  const railToggle = (open: boolean) =>
+    set({ rail: open === (variant !== 'full') ? null : open ? 'open' : 'closed' });
+  const clearRail = () => set(Object.fromEntries(RAIL_FILTERS.map((k) => [k, null])));
 
   /** Test hooks: frame times, the labels last drawn and a promise for the end of motion. */
   type Hooks = { bench: () => { frames: number[]; p95: number }; labels: () => DrawnLabel[]; idle: () => Promise<void>; view: () => View & { level: number } };
@@ -365,7 +525,7 @@
     },
     labels: () => lastLabels.map((l) => ({ ...l })),
     idle: () => new Promise((resolve) => {
-      const check = () => (camera.moving || pending || store.loading ? setTimeout(check, 16) : resolve());
+      const check = () => (camera.moving || pending || store.loading || (layout && focusT < 1) ? setTimeout(check, 16) : resolve());
       check();
     }),
     view: () => ({ ...camera.view, level: level(gapOf(camera.view.k)) }),
@@ -388,8 +548,10 @@
   });
 </script>
 
-<section class="fmw" aria-label="Dependency map">
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions (slash moves to Find from anywhere in the map; the controls inside are the interactive elements) -->
+<section class="fmw" aria-label="Dependency map" bind:this={root} onkeydown={onRootKey}>
 <div class="fm-tools">
+  <FleetMapSearch onfocus={(key: string) => { focusService(key); canvas?.focus({ preventScroll: true }); }} />
   <div class="fm-seg" role="group" aria-label="Group by">
     <span class="fm-seg-label" aria-hidden="true">Group by</span>
     {#each GROUPINGS as g (g)}
@@ -422,7 +584,17 @@
   {/if}
 </div>
 {#if answer}<p class="fm-summary" data-testid="fleet-map-summary">{summary(answer, shown)}</p>{/if}
-{#if mode}
+{#if layout}
+  <div class="fm-modebar" data-testid="fleet-map-focus">
+    <p>
+      <b>Focus: <bdi>{layout.focus.label || layout.focus.name}</bdi></b>{#if focusItem} · {attentionCategoryLabel(focusItem.category)}{/if}
+      · {callWords(layout.callers, layout.callees)}{#if layout.hops > 1} · one more hop{/if}
+    </p>
+    <button type="button" class="fm-clear" onclick={leaveFocus}>Back to whole fleet</button>
+    <button type="button" class="fm-clear" aria-pressed={hops > 1} onclick={() => focusService(layout!.focus.key, focusItem, hops > 1 ? 1 : 2)}>One more hop</button>
+    <button type="button" class="fm-clear" onclick={() => open(layout!.focus.key)}>Open service</button>
+  </div>
+{:else if mode}
   <div class="fm-modebar" data-testid="fleet-map-mode">
     {#if mode.kind === 'problems'}
       <p><b>Only problems.</b> Services with an error or a warning, and the dependencies that carry one. Everything healthy stays as grey context.</p>
@@ -451,7 +623,7 @@
     tabindex="0"
     role="img"
     aria-roledescription="dependency map"
-    aria-label="Dependency map of every service. Plus and minus zoom, arrow keys pan, 0 fits everything."
+    aria-label="Dependency map of every service. Plus and minus zoom, arrow keys pan, 0 fits everything, slash finds a service, Enter opens the selected service, Escape returns."
     onkeydown={onKey}
     onpointerdown={onPointerDown}
     onpointermove={onPointerMove}
@@ -462,18 +634,24 @@
   ></canvas>
   <div class="fm-hud">
     <nav class="fm-crumbs" aria-label="Where you are">
-      {#if atFit && !centre}
-        <bdi>All services</bdi>
+      {#if layout}
+        <button type="button" onclick={leaveFocus}>Whole fleet</button>
+        <span class="fm-sep" aria-hidden="true">›</span><button type="button" onclick={() => toGroup(layout!.group)}><bdi>{focusGroup}</bdi></button>
+        <span class="fm-sep" aria-hidden="true">›</span><bdi>{focusItem ? `${attentionCategoryLabel(focusItem.category)}: ` : ''}{layout.focus.label || layout.focus.name}</bdi>
+      {:else if atFit && !centre}
+        <bdi>Whole fleet</bdi>
       {:else}
-        <button type="button" onclick={() => fit()}>All services</button>
+        <button type="button" onclick={() => fit()}>Whole fleet</button>
       {/if}
-      {#if centre}<span class="fm-sep" aria-hidden="true">›</span><bdi>{centre}</bdi>{/if}
+      {#if centre && !layout}<span class="fm-sep" aria-hidden="true">›</span><bdi>{centre}</bdi>{/if}
     </nav>
-    <div class="fm-ladder" role="group" aria-label="Level of detail">
-      {#each LEVEL_NAMES as name, i (name)}
-        <button type="button" aria-current={lvl === i ? 'step' : undefined} onclick={() => toLevel(i)}>{name}</button>
-      {/each}
-    </div>
+    {#if !layout}
+      <div class="fm-ladder" role="group" aria-label="Level of detail">
+        {#each LEVEL_NAMES as name, i (name)}
+          <button type="button" aria-current={lvl === i ? 'step' : undefined} onclick={() => toLevel(i)}>{name}</button>
+        {/each}
+      </div>
+    {/if}
   </div>
   <canvas bind:this={mini} class="fm-mini" width="168" height="120" hidden={!showMini} aria-hidden="true" onpointerdown={onMini}></canvas>
   <div class="fm-zoom">
@@ -500,7 +678,30 @@
       {/if}
     </div>
   {/if}
-  <div class="visually-hidden" aria-live="polite">{live}</div>
+  {#if selected && !layout}
+    {@const n = selected.node}
+    <div class="fm-panel" data-testid="fleet-map-selection" role="group" aria-label="Selected: {n.label || n.name}">
+      <button type="button" class="fm-panel-close" aria-label="Clear the selection" onclick={() => { selected = null; request(); }}>✕</button>
+      <b><bdi>{n.label || n.name}</bdi></b>
+      <span>{[n.version ? `v${n.version}` : '', n.external ? 'external system' : n.owner || 'no owner', selected.group.label].filter(Boolean).join(' · ')}</span>
+      <span>{n.inferred ? 'Inferred, no contract' : statusLabel(n.status)}{(n.severity === 'error' || n.severity === 'warning') && n.worst ? ` · ${attentionCategoryLabel(n.worst)}` : ''}</span>
+      <span>{callWords(n.in ?? 0, n.out ?? 0)}</span>
+      <div class="fm-panel-actions">
+        <button type="button" onclick={() => focusService(n.key)}>Focus</button>
+        <button type="button" onclick={() => open(n.key)}>Open</button>
+      </div>
+    </div>
+  {/if}
+  {#if etip}
+    <div class="fm-tip fm-etip" data-testid="fleet-map-edge-tip" role="tooltip" style:left="{etip.x}px" style:top="{etip.y}px">
+      <b><bdi>{etip.tip.title}</bdi></b>
+      {#if etip.tip.problem}<span class:fm-err={etip.tip.problem.sev === 2} class:fm-warn={etip.tip.problem.sev === 1}>! {etip.tip.problem.text}</span>{/if}
+      {#each etip.tip.lines as line (line)}<span>{line}</span>{/each}
+    </div>
+  {/if}
+  <FleetMapRail open={railShown} filters={railFilters} current={focusItem} ontoggle={railToggle} onclear={clearRail}
+    onfocus={(service, item) => focusService(service, item, hops)} />
+  <div class="visually-hidden" aria-live="polite" data-testid="fleet-map-live">{live}</div>
 </div>
 <ul class="fm-legend" aria-label="Legend">
   {#each LEGEND as e (e.key)}
@@ -567,7 +768,15 @@
   .fm-zoom .fm-fit { font-size: var(--text-xs); }
   .fm-mini { position: absolute; inset-block-end: var(--sp-3); inset-inline-start: var(--sp-3); inline-size: 10.5rem; block-size: 7.5rem; border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); cursor: pointer; }
   .fm-mini[hidden] { display: none; }
+  .fm-panel { position: absolute; z-index: 2; inset-block-start: 6.5rem; inset-inline-start: var(--sp-3); display: flex; flex-direction: column; gap: 2px; inline-size: max-content; max-inline-size: min(18rem, calc(100% - 2rem)); padding: var(--sp-2) var(--sp-3); padding-inline-end: var(--sp-6, 2rem); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface-raised); font-size: var(--text-sm); color: var(--c-text-2); overflow-wrap: anywhere; }
+  .fm-panel b { color: var(--c-text); }
+  .fm-panel-close { position: absolute; inset-block-start: 2px; inset-inline-end: 2px; border: 0; background: none; color: var(--c-text-3); cursor: pointer; min-inline-size: 28px; min-block-size: 28px; }
+  .fm-panel-actions { display: flex; gap: var(--sp-2); margin-block-start: var(--sp-1); }
+  .fm-panel-actions button { border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-accent); cursor: pointer; padding: 2px 10px; min-block-size: 28px; font-size: inherit; }
+  .fm-etip { pointer-events: none; max-inline-size: 18rem; }
+  .fm-err { color: var(--c-err); }
+  .fm-warn { color: var(--c-warn); }
   .fm-error { position: absolute; inset-block-start: 50%; inset-inline: var(--sp-4); margin: 0; text-align: center; color: var(--c-err); }
   @media (pointer: coarse) { .fm-zoom button, .fm-ladder button, .fm-crumbs button { min-inline-size: 44px; min-block-size: 44px; } }
-  @media (pointer: coarse) { .fm-seg button, .fm-toggle, .fm-chip, .fm-clear, .fm-env select, .fm-tip button { min-inline-size: 44px; min-block-size: 44px; } }
+  @media (pointer: coarse) { .fm-seg button, .fm-toggle, .fm-chip, .fm-clear, .fm-env select, .fm-tip button, .fm-panel button { min-inline-size: 44px; min-block-size: 44px; } }
 </style>

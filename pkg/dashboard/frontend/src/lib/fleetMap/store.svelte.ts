@@ -8,7 +8,7 @@
  * LRU keyed by snapshot, grouping and group, so panning back is free and a new
  * snapshot never mixes with an old one.
  */
-import { api, type FleetMapAnswer, type FleetMapNodesPage } from '../api';
+import { api, type FleetMapAnswer, type FleetMapFocusAnswer, type FleetMapNodesPage } from '../api';
 import type { MapEdge, MapNode } from './lens';
 
 /** Groups fetched at once. */
@@ -23,6 +23,7 @@ export type GroupBy = 'domain' | 'team' | 'environment';
 export interface Fetchers {
   map: (q: { groupBy?: string; environment?: string }) => Promise<FleetMapAnswer>;
   nodes: (q: { groupBy?: string; group: string; environment?: string; offset?: number; limit?: number }) => Promise<FleetMapNodesPage>;
+  focus?: (q: { service: string; hops?: number }) => Promise<FleetMapFocusAnswer>;
 }
 
 /** Every node of one group read so far, in sunflower order, and the edges between them. */
@@ -35,7 +36,7 @@ export interface GroupPage {
   complete: boolean;
 }
 
-const defaultFetchers: Fetchers = { map: (q) => api.fleetMap(q), nodes: (q) => api.fleetMapNodes(q) };
+const defaultFetchers: Fetchers = { map: (q) => api.fleetMap(q), nodes: (q) => api.fleetMapNodes(q), focus: (q) => api.fleetMapFocus(q) };
 
 export class FleetMapStore {
   answer = $state.raw<FleetMapAnswer | null>(null);
@@ -80,6 +81,24 @@ export class FleetMapStore {
   }
 
   private envSeq = 0;
+  private focusSeq = 0;
+
+  /**
+   * loadFocus reads one service's focus diagram. It answers null when the
+   * read failed (the error is kept) or a newer focus was asked meanwhile.
+   */
+  async loadFocus(service: string, hops = 1): Promise<FleetMapFocusAnswer | null> {
+    const seq = ++this.focusSeq;
+    try {
+      const a = await (this.fetchers.focus ?? defaultFetchers.focus!)({ service, hops });
+      if (seq !== this.focusSeq) return null;
+      this.error = null;
+      return a;
+    } catch (e) {
+      if (seq === this.focusSeq) this.error = e instanceof Error ? e.message : String(e);
+      return null;
+    }
+  }
 
   /**
    * loadEnvironments reads the environments for the picker: the answer itself

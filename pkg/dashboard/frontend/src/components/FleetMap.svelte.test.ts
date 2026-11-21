@@ -8,7 +8,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import FleetMap from './FleetMap.svelte';
 import { FleetMapStore } from '../lib/fleetMap/store.svelte';
-import { mapAnswer, nodesPage, recordingContext } from '../lib/fleetMap/testkit';
+import { focusAnswer, mapAnswer, nodesPage, recordingContext } from '../lib/fleetMap/testkit';
+import { api, type FleetMapFocusAnswer } from '../lib/api';
 import { toScreen, toWorld, type View } from '../lib/fleetMap/view';
 import { LEGEND } from '../lib/fleetMap/render';
 import type { FleetMapAnswer } from '../lib/api';
@@ -23,13 +24,16 @@ beforeEach(() => {
   vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 800, bottom: 500, width: 800, height: 500, toJSON: () => ({}) } as DOMRect);
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => setTimeout(() => cb(performance.now()), 0) as unknown as number);
   vi.stubGlobal('cancelAnimationFrame', (id: number) => clearTimeout(id));
+  vi.spyOn(api, 'fleetAttention').mockResolvedValue({ items: [], total: 0, count: 0, limit: 30, offset: 0, truncated: false, categories: [], severities: { errors: 0, warnings: 0, infos: 0, unknown: 0 }, meta: {} } as never);
+  location.hash = '';
 });
 afterEach(() => { done(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-async function renderMap(answer = mapAnswer(), props: { params?: Record<string, string>; onparams?: (p: Record<string, string | null>) => void } = {}, mapFn?: (q: { groupBy?: string }) => Promise<FleetMapAnswer>) {
+async function renderMap(answer = mapAnswer(), props: { params?: Record<string, string>; onparams?: (p: Record<string, string | null>) => void; variant?: 'embedded' | 'full' } = {}, mapFn?: (q: { groupBy?: string }) => Promise<FleetMapAnswer>) {
   const nodes = vi.fn(async (q: { group: string }) => nodesPage(q.group, [{}, { severity: 'error' }]));
   const map = vi.fn(mapFn ?? (async () => answer));
-  const store = new FleetMapStore({ map, nodes });
+  const focus = vi.fn(async (q: { service: string; hops?: number }): Promise<FleetMapFocusAnswer> => focusAnswer(q.service, q.hops ?? 1));
+  const store = new FleetMapStore({ map, nodes, focus });
   const target = document.createElement('div');
   document.body.appendChild(target);
   const c = mount(FleetMap, { target, props: { store, onparams: () => {}, ...props } });
@@ -38,7 +42,7 @@ async function renderMap(answer = mapAnswer(), props: { params?: Record<string, 
   await hooks().idle();
   await new Promise((r) => setTimeout(r, 0));
   flushSync();
-  return { target, canvas: target.querySelector('canvas[role="img"]') as HTMLCanvasElement, nodes, map, store };
+  return { target, canvas: target.querySelector('canvas[role="img"]') as HTMLCanvasElement, nodes, map, focus, store };
 }
 
 const key = (el: Element, k: string) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
@@ -52,8 +56,8 @@ describe('FleetMap', () => {
     expect(canvas.style.touchAction === '' || canvas.style.touchAction === 'none').toBe(true);
     expect([...target.querySelectorAll('[aria-label="Level of detail"] button')].map((b) => b.textContent)).toEqual(['Groups', 'Services', 'Names', 'Details']);
     expect(target.querySelector('[aria-current="step"]')?.textContent).toBe('Names');
-    expect(target.querySelector('[aria-live="polite"]')?.textContent).toBe('Level 2, Names');
-    expect(target.querySelector('nav[aria-label="Where you are"]')?.textContent).toContain('All services');
+    expect(target.querySelector('[data-testid="fleet-map-live"]')?.textContent).toBe('Level 2, Names');
+    expect(target.querySelector('nav[aria-label="Where you are"]')?.textContent).toContain('Whole fleet');
   });
 
   it('keyboard + - 0 and arrows', async () => {
@@ -254,5 +258,163 @@ describe('FleetMap', () => {
       if (e.glyph) expect(li.textContent).toContain(e.glyph);
       if (e.shape === 'ring2') expect(svg.querySelectorAll('circle')).toHaveLength(2);
     }
+  });
+
+  const live = (t: Element) => t.querySelector('[data-testid="fleet-map-live"]')?.textContent;
+  const focusBar = (t: Element) => t.querySelector('[data-testid="fleet-map-focus"]');
+  async function settle() { await hooks().idle(); await new Promise((r) => setTimeout(r, 0)); flushSync(); }
+  /** nodeScreen waits for the node pages and answers where payments-0 (the payments centre) is on screen. */
+  async function nodeScreen(nodes: ReturnType<typeof vi.fn>): Promise<[number, number]> {
+    await vi.waitFor(() => expect(nodes).toHaveBeenCalled());
+    await settle();
+    return toScreen(hooks().view(), 0, 0);
+  }
+  const tap = (canvas: Element, [x, y]: [number, number]) => { ptr(canvas, 'pointerdown', 1, x, y); ptr(canvas, 'pointerup', 1, x, y); flushSync(); };
+  const focused = async (t: Element) => { await vi.waitFor(() => expect(focusBar(t)).not.toBeNull()); await settle(); };
+
+  it('one click selects, second click opens', async () => {
+    const { target, canvas, nodes } = await renderMap();
+    const at = await nodeScreen(nodes);
+    tap(canvas, at);
+    const panel = target.querySelector('[data-testid="fleet-map-selection"]')!;
+    expect(panel.textContent).toContain('payments-0');
+    expect(panel.textContent).toContain('Payments');
+    expect(live(target)).toBe('Selected payments-0. Enter opens it, Escape clears the selection.');
+    expect(location.hash).toBe('');
+    tap(canvas, at);
+    expect(location.hash).toBe('#/fleet/services/payments-0');
+    // Enter opens the selection too; Escape clears it.
+    location.hash = '';
+    key(canvas, 'Enter');
+    expect(location.hash).toBe('#/fleet/services/payments-0');
+    key(canvas, 'Escape');
+    flushSync();
+    expect(target.querySelector('[data-testid="fleet-map-selection"]')).toBeNull();
+  });
+
+  it('live region announces focus', async () => {
+    const { target, focus } = await renderMap(mapAnswer(), { params: { focus: 'payments-0' } });
+    await focused(target);
+    expect(focus).toHaveBeenCalledWith({ service: 'payments-0', hops: 1 });
+    expect(live(target)).toBe('Focus on payments-0: 2 services call it, it calls 1. Escape returns to the whole fleet.');
+    // Levels do not apply to the focus diagram.
+    expect(target.querySelector('[aria-label="Level of detail"]')).toBeNull();
+    expect(hooks().labels().map((l) => l.text)).toEqual(expect.arrayContaining(['Calls payments-0', 'payments-0 calls']));
+  });
+
+  it('back to whole fleet restores the view', async () => {
+    const { target, canvas, nodes } = await renderMap();
+    key(canvas, '+');
+    const before = hooks().view();
+    tap(canvas, await nodeScreen(nodes));
+    button(target.querySelector('[data-testid="fleet-map-selection"]')!, 'Focus').click();
+    flushSync();
+    await focused(target);
+    expect(hooks().view()).not.toEqual(before);
+    button(target, 'Back to whole fleet').click();
+    flushSync();
+    await settle();
+    const after = hooks().view();
+    expect(after.k).toBeCloseTo(before.k);
+    expect(after.tx).toBeCloseTo(before.tx);
+    expect(after.ty).toBeCloseTo(before.ty);
+    expect(focusBar(target)).toBeNull();
+  });
+
+  it('Esc and breadcrumb exit focus', async () => {
+    const onparams = vi.fn();
+    let m = await renderMap(mapAnswer(), { params: { focus: 'payments-0' }, onparams });
+    await focused(m.target);
+    const crumbs = () => m.target.querySelector('nav[aria-label="Where you are"]')!;
+    expect(crumbs().textContent).toMatch(/Whole fleet\s*›\s*Payments\s*›\s*payments-0/);
+    key(m.canvas, 'Escape');
+    flushSync();
+    expect(onparams).toHaveBeenLastCalledWith({ focus: null, hops: null });
+    expect(focusBar(m.target)).toBeNull();
+    expect(live(m.target)).toMatch(/^Level/);
+
+    done();
+    m = await renderMap(mapAnswer(), { params: { focus: 'payments-0' }, onparams });
+    await focused(m.target);
+    button(crumbs(), 'Whole fleet').click();
+    flushSync();
+    expect(focusBar(m.target)).toBeNull();
+
+    done();
+    m = await renderMap(mapAnswer(), { params: { focus: 'payments-0' }, onparams });
+    await focused(m.target);
+    button(crumbs(), 'Payments').click();
+    flushSync();
+    await settle();
+    expect(focusBar(m.target)).toBeNull();
+    expect(onparams).toHaveBeenLastCalledWith({ focus: null, hops: null });
+    // The group crumb frames the focus service's group.
+    const v = hooks().view();
+    const [cx] = toWorld(v, 400, 250);
+    expect(Math.abs(cx)).toBeLessThan(40);
+  });
+
+  it('one more hop folds the rail away and restores it', async () => {
+    const onparams = vi.fn();
+    const { target, focus } = await renderMap(mapAnswer(), { params: { focus: 'payments-0' }, onparams });
+    await focused(target);
+    expect(target.querySelector('[data-testid="fleet-map-rail"]')).not.toBeNull();
+    button(target, 'One more hop').click();
+    flushSync();
+    expect(onparams).toHaveBeenLastCalledWith({ focus: 'payments-0', hops: '2' });
+    await vi.waitFor(() => expect(focus).toHaveBeenLastCalledWith({ service: 'payments-0', hops: 2 }));
+    expect(target.querySelector('[data-testid="fleet-map-rail"]')).toBeNull();
+    expect(target.querySelector('[data-testid="fleet-map-rail-open"]')).not.toBeNull();
+    button(target, 'One more hop').click();
+    flushSync();
+    expect(onparams).toHaveBeenLastCalledWith({ focus: 'payments-0', hops: null });
+    expect(target.querySelector('[data-testid="fleet-map-rail"]')).not.toBeNull();
+  });
+
+  it('the full page starts with the rail closed and opens it through the hash', async () => {
+    const onparams = vi.fn();
+    const { target } = await renderMap(mapAnswer(), { variant: 'full', onparams });
+    expect(target.querySelector('[data-testid="fleet-map-rail"]')).toBeNull();
+    (target.querySelector('[data-testid="fleet-map-rail-open"]') as HTMLButtonElement).click();
+    flushSync();
+    expect(onparams).toHaveBeenLastCalledWith({ rail: 'open' });
+    expect(target.querySelector('[data-testid="fleet-map-rail"]')).not.toBeNull();
+  });
+
+  it('rail item focuses its service', async () => {
+    vi.mocked(api.fleetAttention).mockResolvedValue({
+      items: [{ entity: { kind: 'revision', key: 'payments-0@sha', label: 'payments-0 1.0.0', href: '#/fleet/revisions/x' }, service: 'payments-0', category: 'health', severity: 'error', code: 'HEALTH', label: 'x', reason: 'r', summary: 'Health check failing' }],
+      total: 1, count: 1, limit: 30, offset: 0, truncated: false, categories: [], severities: { errors: 1, warnings: 0, infos: 0, unknown: 0 }, meta: {},
+    } as never);
+    const { target, focus } = await renderMap();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="fleet-map-rail-item"]')).not.toBeNull());
+    const item = target.querySelector('[data-testid="fleet-map-rail-item"]') as HTMLButtonElement;
+    item.click();
+    flushSync();
+    await focused(target);
+    expect(focus).toHaveBeenLastCalledWith({ service: 'payments-0', hops: 1 });
+    expect(item.getAttribute('aria-current')).toBe('true');
+    expect(target.querySelector('nav[aria-label="Where you are"]')!.textContent).toContain('Health check failing: payments-0');
+  });
+
+  it('slash moves to Find from the map', async () => {
+    const { target, canvas } = await renderMap();
+    canvas.focus();
+    const e = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+    canvas.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(target.querySelector('[data-testid="fleet-map-search"] input[type="search"]'));
+  });
+
+  it('hovering a focus edge shows its tip', async () => {
+    const { target, canvas } = await renderMap(mapAnswer(), { params: { focus: 'payments-0' } });
+    await focused(target);
+    const labels = hooks().labels();
+    const lab = labels.find((l) => l.text === 'api ^1.0')!;
+    ptr(canvas, 'pointermove', 1, lab.x + lab.w / 2, lab.y + lab.h / 2);
+    flushSync();
+    const tip = target.querySelector('[data-testid="fleet-map-edge-tip"]');
+    expect(tip?.textContent).toContain('→');
+    expect(tip?.textContent).toContain('Accepts: ^1.0');
   });
 });
