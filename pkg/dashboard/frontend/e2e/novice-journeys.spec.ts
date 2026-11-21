@@ -68,8 +68,10 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
     // The list beside the Overview's map names each item's category in words; the raw
     // wire values stay in the URL.
     await expect(page.getByTestId('fleet-map-rail')).toBeVisible({ timeout: T });
-    const cats = await page.getByTestId('fleet-map-rail-item').locator('.ritem-c').allTextContents();
-    expect(cats.length).toBeGreaterThan(0);
+    // allTextContents does not retry: wait for the rail's items before reading them.
+    const items = page.getByTestId('fleet-map-rail-item').locator('.ritem-c');
+    await expect(items.first()).toBeVisible({ timeout: T });
+    const cats = await items.allTextContents();
     for (const c of cats) expect(c, 'a category in words, never its slug').not.toMatch(/^[a-z]+(-[a-z]+)+$/);
     await expectNoLegacyScreen(page);
   });
