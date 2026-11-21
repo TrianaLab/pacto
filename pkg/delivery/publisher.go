@@ -217,6 +217,10 @@ func NormalizeRepo(s string) string {
 	return strings.ToLower(host) + "/" + rest
 }
 
+// PactoActionsWorkflow is the shared reusable workflow pacto ci init calls:
+// a certificate names it, at the caller's pin, as its subject.
+const PactoActionsWorkflow = "TrianaLab/pacto-actions/.github/workflows/ci.yml"
+
 // DeriveRule is the default publisher rule of an installation whose services
 // publish to registry (host/org): the CI of host's provider, any workflow of
 // org on defaultBranch (main when empty). The second result says why there is
@@ -237,8 +241,11 @@ func DeriveRule(registry, defaultBranch string) (PublisherRule, string) {
 	var r PublisherRule
 	switch host {
 	case "ghcr.io":
+		// The pacto-actions reusable workflow signs at whatever commit the
+		// caller pins; Repository and Ref still anchor the caller.
 		r = PublisherRule{Issuer: issuerGitHubActions,
-			Subject:    `^https://github\.com/` + o + `/[^/]+/\.github/workflows/[^@]+@refs/heads/` + b + `$`,
+			Subject: `^https://github\.com/(` + o + `/[^/]+/\.github/workflows/[^@]+@refs/heads/` + b + `|` +
+				regexp.QuoteMeta(PactoActionsWorkflow) + `@[^@]+)$`,
 			Repository: `^https://github\.com/` + o + `/[^/]+$`}
 	case "registry.gitlab.com":
 		r = PublisherRule{Issuer: issuerGitLab,
@@ -262,7 +269,7 @@ func DeriveRule(registry, defaultBranch string) (PublisherRule, string) {
 func JudgePublisher(service ServiceRef, id PublisherIdentity, source string, rules []PublisherRule, ruleSource string, pins []IdentityPin) PublisherVerdict {
 	idc := id
 	v := PublisherVerdict{Identity: &idc, Source: PublisherSourceNone}
-	r, p := ruleCovering(service, id, rules), pinFor(service, id, pins)
+	r, p := ruleCovering(service, id, rules), pinFor(service, id, pins, rules)
 	switch {
 	case id.CI && !sameSource(source, id.Repository):
 		v.Verdict = VerdictRefused
@@ -335,15 +342,38 @@ func servesService(patterns []string, name string) bool {
 	return len(patterns) == 0
 }
 
-// pinFor is the pin of service that names id exactly, or nil. Only a CI
-// identity is ever pinned: a person is trusted only by a policy rule.
-func pinFor(service ServiceRef, id PublisherIdentity, pins []IdentityPin) *IdentityPin {
+// pinFor is the pin of service that names id, or nil. Only a CI identity is
+// ever pinned: a person is trusted only by a policy rule. A subject naming a
+// reusable workflow of another repository matches at whatever ref the caller
+// pins it, and only when id's ref is the ref a rule of its issuer requires
+// (the default branch): a pin stores no ref, and such a subject does not tie
+// it to a branch.
+func pinFor(service ServiceRef, id PublisherIdentity, pins []IdentityPin, rules []PublisherRule) *IdentityPin {
 	for i, p := range pins {
-		if id.CI && p.Service == service && p.Issuer == id.Issuer && p.Subject == id.Subject && NormalizeRepo(p.Repository) == NormalizeRepo(id.Repository) {
+		if !id.CI || p.Service != service || p.Issuer != id.Issuer || NormalizeRepo(p.Repository) != NormalizeRepo(id.Repository) {
+			continue
+		}
+		stable := stableSubject(id.Subject, id.Repository)
+		if stableSubject(p.Subject, p.Repository) == stable && (stable == id.Subject || refRuled(id, rules)) {
 			return &pins[i]
 		}
 	}
 	return nil
+}
+
+// stableSubject is subject without its @<ref> when it names a workflow
+// outside repository, as a reusable workflow's does; otherwise subject.
+func stableSubject(subject, repository string) string {
+	if repository == "" || strings.HasPrefix(NormalizeRepo(subject), NormalizeRepo(repository)+"/") {
+		return subject
+	}
+	base, _, _ := strings.Cut(subject, "@")
+	return base
+}
+
+// refRuled reports whether a rule of id's issuer requires exactly id's ref.
+func refRuled(id PublisherIdentity, rules []PublisherRule) bool {
+	return slices.ContainsFunc(rules, func(r PublisherRule) bool { return r.Issuer == id.Issuer && r.Ref != "" && r.Ref == id.Ref })
 }
 
 // Signed publisher statements: a person's confirmation of one signer, which

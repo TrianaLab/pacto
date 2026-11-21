@@ -84,8 +84,8 @@ func TestSignerKeyHasNoIdentity(t *testing.T) {
 
 func TestSignerAmbientCI(t *testing.T) {
 	o := sigstoreRoot(t)
-	// testutil.CIToken names no job_workflow_ref, which TokenIdentity reads a
-	// GitHub Actions identity from, so the token carries one.
+	// The token's sub is not a URL, so its identity comes from
+	// job_workflow_ref, where TokenIdentity reads a GitHub Actions identity.
 	t.Setenv("SIGSTORE_ID_TOKEN", testutil.TokenWith(map[string]string{"sub": "repo:acme/invoices", "iss": "https://token.actions.githubusercontent.com",
 		"job_workflow_ref": "acme/invoices/.github/workflows/ci.yml@refs/heads/main"}))
 	c, err := (&Service{}).declareSigner(t.Context(), o, false)

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"io/fs"
 	"strings"
+
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
 // ponytail: GitHub and GitLab only; other CI systems use examples/ci/any-ci.sh.
@@ -32,7 +34,7 @@ func Caller(platform string) (path, content string) {
 			"permissions: {contents: read, packages: write, id-token: write, pull-requests: write}\n" +
 			"jobs:\n" +
 			"  pacto:\n" +
-			"    uses: " + ActionsRepo + "/.github/workflows/ci.yml@" + ActionsSHA + " # " + ActionsTag + "\n"
+			"    uses: " + delivery.PactoActionsWorkflow + "@" + ActionsSHA + " # " + ActionsTag + "\n"
 	case "gitlab":
 		return ".gitlab-ci.yml", "include:\n  - remote: " + GitLabIncludeURL() + "\n"
 	}

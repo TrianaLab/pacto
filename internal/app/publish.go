@@ -642,14 +642,15 @@ func (t execTools) load(ctx context.Context, sign contract.PublishSign) (signing
 		if err != nil {
 			return signing.Signer{}, signing.Policy{}, fmt.Errorf("public-good Sigstore's trusted root: %w", err)
 		}
-		identity, issuer := sign.Identity, sign.Issuer
-		if identity == "" {
-			if identity, issuer, err = tokenIdentity(ctx); err != nil {
+		p := signing.Policy{Identity: sign.Identity, Issuer: sign.Issuer}
+		if sign.Identity == "" {
+			if p, err = tokenPolicy(ctx); err != nil {
 				return signing.Signer{}, signing.Policy{}, err
 			}
 		}
+		p.Root, p.Tlog = root, rekorURL != ""
 		s, err := signing.Keyless(fulcioURL, tsaURL, rekorURL, signing.IDToken(""), root)
-		return s, signing.Policy{Identity: identity, Issuer: issuer, Root: root, Tlog: rekorURL != ""}, err
+		return s, p, err
 	}
 	if err != nil {
 		return signing.Signer{}, signing.Policy{}, err
@@ -676,14 +677,15 @@ func (t execTools) signer(sign contract.PublishSign) string {
 	return "keyless (" + l.p.Identity + ")"
 }
 
-// tokenIdentity is the identity and issuer the CI's OIDC token names, which a
-// signer with no declared identity signs as and its signatures verify against.
-func tokenIdentity(ctx context.Context) (string, string, error) {
+// tokenPolicy is the keyless policy of the identity the CI's OIDC token
+// names, which a signer with no declared identity signs as and its
+// signatures verify against.
+func tokenPolicy(ctx context.Context) (signing.Policy, error) {
 	tok, err := signing.IDToken("")(ctx)
 	if err != nil {
-		return "", "", err
+		return signing.Policy{}, err
 	}
-	return signing.TokenIdentity(tok)
+	return signing.PolicyForToken(tok)
 }
 
 // Verify implements publish.Tools: a signature referrer of ref that verifies
