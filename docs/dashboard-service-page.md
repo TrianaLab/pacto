@@ -34,7 +34,12 @@ provider owner, says in its tooltip where it comes from.
 - **Where the values come from**, a fold closed by default, lists each field
   of the current revision with one mark whose tooltip says declared, accepted
   (and by whom), attested or inferred, with its source and when it was read.
-  It shows for a service whose current revision carries a declaration or that
+  It opens with [contract completeness](operational-graph-tallies.md#contract-completeness):
+  the percentage, then one row per section that applies, with a mark whose
+  tooltip says declared, inferred only, missing or unknown and why. A gap
+  Pacto can fill from what it inferred adds **YAML to declare it** with a copy
+  button. The fold shows for every service but a golden path or an inferred
+  service, and its field rows for one whose current revision carries a declaration or that
   replaced an inferred service through one. Inferred values are muted, and
   clearing **Show inferred values** hides them; the fold is then their one list
   on the page, in place of **Inferred by Pacto**. Below them, the inferred services the service

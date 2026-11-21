@@ -73,11 +73,11 @@ backs it; `inferred: true` marks the inferred evidence either way. An
 inferred-only edge appears in the Differences view and has no `difference`
 value.
 
-The dashboard's Operational Graph draws each edge by what backs it: matched,
-expected but not observed, or observed but not expected.
+The dashboard's [fleet map](fleet-map.md) draws each call by what backs it:
+matched, expected but not observed, or observed but not expected.
 
-![The Operational Graph focused on payments-service: three dependencies on the left, three consumers on the right, with orders-service outlined red and one call from audit-log observed but not declared](assets/screenshots/dashboard-graph-light.png#only-light)
-![The Operational Graph focused on payments-service: three dependencies on the left, three consumers on the right, with orders-service outlined red and one call from audit-log observed but not declared](assets/screenshots/dashboard-graph-dark.png#only-dark)
+![The fleet map focused on payments-service: four callers on the left, orders-service outlined red and audit-log's call observed but not declared, three callees on the right](assets/screenshots/dashboard-graph-light.png#only-light)
+![The fleet map focused on payments-service: four callers on the left, orders-service outlined red and audit-log's call observed but not declared, three callees on the right](assets/screenshots/dashboard-graph-dark.png#only-dark)
 
 ## Sources and queries
 
@@ -174,12 +174,15 @@ summaries or business domains conflict or whose placement Pacto cannot see is
 Unknown, and its
 attention item names the cause.
 
+[Contract completeness](operational-graph-tallies.md#contract-completeness)
+turns these gaps into an eight-section checklist.
+
 Ownership keeps two cases apart. **No declared owner** means Pacto read the
 contracts and none declares an owner. **Owner unknown** means Pacto cannot read
 the contract, so it cannot tell whether an owner is declared.
 
-![The overview's Knowledge band for the demo: all 44 services leave something out of the contract; 38 have no summary, 36 no domain, 37 no readiness assessment and 29 run nowhere](assets/screenshots/dashboard-overview-knowledge-light.png#only-light)
-![The overview's Knowledge band for the demo: all 44 services leave something out of the contract; 38 have no summary, 36 no domain, 37 no readiness assessment and 29 run nowhere](assets/screenshots/dashboard-overview-knowledge-dark.png#only-dark)
+![The overview's Contract completeness band for the demo: 44% complete on average and 0 of 48 judged services fully described; 40 have no summary, 40 no domain, 41 no readiness assessment and 27 run nowhere](assets/screenshots/dashboard-overview-knowledge-light.png#only-light)
+![The overview's Contract completeness band for the demo: 44% complete on average and 0 of 48 judged services fully described; 40 have no summary, 40 no domain, 41 no readiness assessment and 27 run nowhere](assets/screenshots/dashboard-overview-knowledge-dark.png#only-dark)
 
 The [tallies reference](operational-graph-tallies.md) lists every field.
 
@@ -217,8 +220,9 @@ flowchart LR
   The endpoints the UI reads (overview, entities, neighborhood and attention)
   carry their own `schemaVersion`, `pacto.dev/fleet-product/v1`, so a UI
   versions independently of the `pacto.dev/fleet/v1` snapshot export above. The
-  Operational Graph view offers three **perspectives** (Services, Revisions and
-  Operational targets) and a **Knowledge** control (Expected · Observed ·
+  [fleet map](fleet-map.md) on the Overview and the Operational graph page
+  draws every service; a revision, target, owner or external system keeps its
+  own neighborhood view with a **Knowledge** control (Expected · Observed ·
   Differences). An operational target links to the dependency *service* it
   depends on. It draws no target-to-target mesh, because the snapshot has not
   observed that runtime routing. [The service page](dashboard-service-page.md)
@@ -323,5 +327,7 @@ demand and versioned by its as-of time.
   boundaries the graph inherits
 - [Impact analysis](impact.md): the consumers a change affects, projected onto
   this graph
+- [The fleet map](fleet-map.md): the whole fleet on one map, its zoom
+  levels, lenses and focus
 - [Fleet tools](fleet-tools.md): the dashboard, `pacto fleet` and the terminal UI
 - [MCP integration](mcp-integration.md): the three MCP tool families

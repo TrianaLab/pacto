@@ -224,6 +224,7 @@ nav:
       - How delivery works: integrations/kubernetes/delivery.md
       - The model: model.md
       - Operational graph: operational-graph.md
+      - The fleet map: fleet-map.md
       - Fleet views: fleet-tools.md
       - Impact analysis: impact.md
       - Impact consumers and evidence: impact-consumers.md

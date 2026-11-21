@@ -134,6 +134,16 @@ marks the whole answer partial, as `pacto stats --by owner` does.
 ![The dashboard Metrics page: headline tiles with sparklines, charts of what Pacto stopped and gate outcomes per week, delivery health and lead time per environment, labelled unsigned statistics](assets/screenshots/dashboard-metrics-light.png#only-light)
 ![The dashboard Metrics page: headline tiles with sparklines, charts of what Pacto stopped and gate outcomes per week, delivery health and lead time per environment, labelled unsigned statistics](assets/screenshots/dashboard-metrics-dark.png#only-dark)
 
+## Match and completeness trends
+
+The Metrics page and the Overview also show the
+[declared ↔ observed match and contract completeness](operational-graph-tallies.md#declared-and-observed-match),
+each with a 12-week trend. The trend comes from the
+[coverage records](run-record-reference.md#coverage-records) that
+`pacto fleet status` writes, the newest one per week, so it needs no other
+setup. Coverage records count every service, so a reader who may see only
+part of the fleet gets today's figures and no trend.
+
 ## Run records are unsigned statistics
 
 Run records are unsigned statistics. Anyone with push access to the repository

@@ -191,6 +191,9 @@ actor, approver, note, message, citation or correlation id.
   never sum them;
 - hidden from a reader that may see only part of the fleet, and the answer
   says so with `COVERAGE_OUTSIDE_YOUR_VIEW`.
+- strictly decoded: a Pacto release older than the `match` and `contracts`
+  keys counts a record that carries them as `malformed` in its `skipped`
+  counts and reads no coverage point from it.
 
 | Key | Type | Present | Holds | Personal data |
 | --- | --- | --- | --- | --- |

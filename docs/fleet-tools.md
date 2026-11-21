@@ -12,9 +12,9 @@ engineers](platform-engineers.md).
 ## Dashboard
 
 `pacto dashboard` opens a web dashboard over the same contracts the CLI manages
-and the operator checks. It has four views: what needs attention now, the
-service list, the [Operational Graph](operational-graph.md) and change
-analysis. It finds its sources at startup and merges them per service. Next to
+and the operator checks. It has four views: the Overview, which leads with the
+[fleet map](fleet-map.md) and what needs attention, the service list, the
+Operational graph and change analysis. It finds its sources at startup and merges them per service. Next to
 the Kubernetes operator it needs no OCI arguments: it reads the registry
 addresses from the `resolvedRef` field in each Pacto resource's status, then
 shows version history, interfaces, configuration schemas and diffs. See the [`pacto dashboard`
@@ -152,10 +152,11 @@ demo fixture, abridged:
 
 ```console
 $ pacto fleet overview --local examples/demo/bundles --target-state examples/demo/fleet-targets.yaml
-asOf 2026-11-15T04:41:58+01:00  completeness complete
-Targets 9: compliant 5 (5 stale) · not compliant 1 · unknown 3
-Health: healthy 0 · failing 1 · unknown 2 · not observed 6
-Owners: 34 declared · 3 disputed · 0 none declared · 0 unknown
+asOf 2026-11-21T14:32:54+01:00  completeness complete
+Targets 14: compliant 8 (8 stale) · not compliant 2 · unknown 4
+Health: healthy 0 · failing 1 · unknown 13 · not observed 0
+Contract completeness: 47% · 0 of 40 judged services fully described · most missing: domain 35, runtime 33, readiness 33
+Owners: 38 declared · 1 disputed · 1 none declared · 0 unknown
 Next: pacto fleet attention --category health  (Operational targets failing their health check: 1)
 ```
 

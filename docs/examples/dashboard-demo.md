@@ -17,24 +17,26 @@ The first visit downloads about 4.7 MB (19.3 MB unpacked). On a slow
 connection give it a moment: the loading strip counts the seconds, and the
 browser keeps a copy afterwards.
 
-![The demo's fleet overview: "Is anything wrong?" for forty-five services, with one failing health check, one unavailable data source and one partial](../assets/screenshots/dashboard-overview-light.png#only-light)
-![The demo's fleet overview: "Is anything wrong?" for forty-five services, with one failing health check, one unavailable data source and one partial](../assets/screenshots/dashboard-overview-dark.png#only-dark)
+![The demo's fleet overview: "Is anything wrong?" answered yes, the declared ↔ observed match and contract completeness tiles, then the fleet map with the attention list beside it](../assets/screenshots/dashboard-overview-light.png#only-light)
+![The demo's fleet overview: "Is anything wrong?" answered yes, the declared ↔ observed match and contract completeness tiles, then the fleet map with the attention list beside it](../assets/screenshots/dashboard-overview-dark.png#only-dark)
 
-The sidebar groups the pages: **Overview** and **Needs attention** first,
+The sidebar groups the pages: **Overview**, with what needs attention, first,
 then the **Organization**, **Change and delivery** and **System** groups. Its top button, or the `[` key,
 folds it to a rail of icons, and on a wide screen the dashboard remembers the choice. On a
 phone, **Menu** in the top bar opens the same list.
 
-![The dashboard sidebar: Overview and Needs attention, then the "Organization", "Change and delivery" and "System" groups, with an attention count and a data source health dot](../assets/screenshots/dashboard-sidebar-light.png#only-light)
-![The dashboard sidebar: Overview and Needs attention, then the "Organization", "Change and delivery" and "System" groups, with an attention count and a data source health dot](../assets/screenshots/dashboard-sidebar-dark.png#only-dark)
+![The dashboard sidebar: Overview with its attention count, then the "Organization", "Change and delivery" and "System" groups, with a data source health dot](../assets/screenshots/dashboard-sidebar-light.png#only-light)
+![The dashboard sidebar: Overview with its attention count, then the "Organization", "Change and delivery" and "System" groups, with a data source health dot](../assets/screenshots/dashboard-sidebar-dark.png#only-dark)
 
 ## What to look at
 
 - **Fleet overview**: forty-five made-up services and who calls whom: the
   services of the [CLI tour](demo-tour.md), two from a partner registry (a
   second domain) and the services of the delivery story. The tour's golden path is listed apart, under Golden paths. The page opens on its answer to **Is anything wrong?**
-  and says some of the information is missing. Posture, ownership and data
-  sources stay open below it. Pacto always reports what it could not see.
+  and says some of the information is missing. The
+  [fleet map](../fleet-map.md) and the attention list follow; posture,
+  ownership and data sources stay open below them. `?fleet=400`, `3000` or
+  `10000` in the address opens a generated fleet of that size instead. Pacto always reports what it could not see.
 - **One service's dependency graph**: `payments-service` has six published
   versions. The graph shows which services call it and what a change would
   reach.

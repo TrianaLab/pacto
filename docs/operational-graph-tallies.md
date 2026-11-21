@@ -46,6 +46,71 @@ declare no owner; a service whose contract Pacto cannot read counts in
 | `coverage` | `evaluated`, `required`, `reporting`, `notReporting` | Assertions summed over the targets that report coverage; `notReporting` counts targets whose source reported none |
 | `staleCompliantTargets` | | Of `compliantTargets`, how many rest on stale evidence |
 
+## Declared and observed match
+
+The overview's `match`, each group of the [fleet map](fleet-map.md) and each
+coverage record count services and dependencies in four states:
+
+| State | A service | A dependency |
+|-------|-----------|--------------|
+| `matched` | Declared, with a visible target that is neither stale nor quarantined | Declared and observed |
+| `expectedOnly` | Declared and running nowhere, counted only when Pacto sees every place it could run | Declared and never observed by a source that could see it |
+| `observedOnly` | Inferred: running with no contract | Observed and declared by no contract, or with an inferred service on one end |
+| `insufficient` | Anything else, such as a service whose only targets are stale | No observation can judge it |
+
+`percent` is `matched` over `matched`, `expectedOnly` and `observedOnly`, and
+`coverage` is that sum over every service and dependency counted. With nothing
+observable neither is given, so the dashboard reads "Pacto observes nothing
+yet". Golden paths, external systems and dependencies on services you cannot
+see are left out, and a configuration reference has no verdict.
+
+Grouped by environment, a node is a service running in that environment. It
+is `matched` when its revision declares the environment or declares none, and
+`observedOnly` when it declares other environments only. A revision that
+declares an environment it runs nowhere in is `expectedOnly` only when Pacto
+sees every place it could run, else `insufficient`. A dependency counts in an
+environment when both ends run there; its observation stays per service.
+
+## Contract completeness
+
+`pacto validate`, `pacto_check`, a service's detail and the fleet answers
+carry `contractCompleteness`: how much of a service its contract declares, in
+eight sections. A section reads `declared`, `inferred` (Pacto knows it from
+running workloads and the contract does not say it), `missing`, `unknown` or
+`not-applicable`, and a gap the inferred record can fill carries `declare`,
+the YAML to add.
+
+| Section | Applies when | Declared when |
+|---------|--------------|---------------|
+| `interfaces` | the contract declares an interface or Pacto infers one | every interface names a document (`ref`) |
+| `configuration` | the contract declares a configuration or Pacto infers configuration fields | every configuration has a schema |
+| `dependencies` | the contract declares a dependency or Pacto infers one | every dependency accepts a version range |
+| `owner` | always | the contract names an owner |
+| `summary` | always | the contract declares `service.summary` |
+| `domain` | always | the contract declares a business domain |
+| `runtime` | the contract declares a workload or Pacto infers runtime facts | it declares the workload and a health capability |
+| `readiness` | the service is no golden path | the revision carries a readiness assessment |
+
+`percentComplete` is declared sections over sections that apply; `inferred`
+and `unknown` count only in the base, so neither is ever complete. An owner
+that only an attestation or an inference names reads `inferred`. The fleet
+figure is the mean over the services Pacto can judge, with `judged`,
+`unknown`, `fullyDescribed` (every section that applies is declared) and the
+three sections most often `mostMissing`.
+
+The knowledge gaps keep their filters and attention items and land in the
+checklist:
+
+| Gap or cause | Section |
+|--------------|---------|
+| `no-summary`, `SUMMARY_UNKNOWN` | `summary` missing, or unknown |
+| `no-domain`, `DOMAIN_UNKNOWN` | `domain` missing, or unknown |
+| `no-interface-docs`, `INTERFACE_DOCS_UNREAD` | `interfaces` missing, or unknown |
+| `no-readiness` | `readiness` missing |
+| `not-deployed`, `PLACEMENT_UNKNOWN` | a note on `runtime` |
+| `unverified-capability` | a note on `runtime`: declared, not verified |
+| `CONTRACT_UNREADABLE` | every section unknown |
+
 ## Owner and domain summaries
 
 Each row of the overview's `byDomain` carries `services`, `targets`,
