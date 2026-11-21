@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"cmp"
+	"maps"
 	"slices"
 	"time"
 
@@ -97,18 +98,14 @@ func sortedEnvPairs(pairs []envPair) []envPair {
 // target the view may not see raises nothing.
 func (q *Query) crossEnvironmentAttention() []AttentionItem {
 	var out []AttentionItem
-	previews := map[string]bool{}
+	previews := q.previewEnvironments()
 	for _, rel := range q.snap.Relationships {
 		for _, p := range rel.envPairs {
 			from, to := q.snap.Targets[p.from], q.snap.Targets[p.to]
 			if from == nil || to == nil || from.Environment == to.Environment {
 				continue
 			}
-			preview, seen := previews[to.Environment]
-			if !seen {
-				preview = q.previewEnvironment(to.Environment)
-				previews[to.Environment] = preview
-			}
+			preview := previews[to.Environment]
 			out = append(out, crossEnvironmentItem(from, to, preview, p.lastSeen, q.observedStale(p.lastSeen)))
 		}
 	}
@@ -151,25 +148,21 @@ func crossEnvironmentTally(items []AttentionItem) (n int, severity string) {
 	return n, severity
 }
 
-// previewEnvironment reports whether env is a preview: at least one revision a
+// previewEnvironments is every preview environment: at least one revision a
 // visible target runs declares it, and every such revision declares it
 // temporary.
-func (q *Query) previewEnvironment(env string) bool {
-	declared := false
+func (q *Query) previewEnvironments() map[string]bool {
+	out := map[string]bool{}
 	for _, t := range q.snap.Targets {
 		r := q.snap.Revisions[t.ContractRevision]
 		if r == nil || r.Contract == nil {
 			continue
 		}
 		for _, e := range r.Contract.Environments {
-			if e.Name != env {
-				continue
-			}
-			if e.Lifetime != contract.EnvironmentTemporary {
-				return false
-			}
-			declared = true
+			preview, seen := out[e.Name]
+			out[e.Name] = e.Lifetime == contract.EnvironmentTemporary && (preview || !seen)
 		}
 	}
-	return declared
+	maps.DeleteFunc(out, func(_ string, preview bool) bool { return !preview })
+	return out
 }

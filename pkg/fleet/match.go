@@ -1,8 +1,10 @@
 package fleet
 
 import (
+	"cmp"
 	"iter"
 	"maps"
+	"slices"
 )
 
 // The match states of a service or a dependency: how what the contracts
@@ -91,13 +93,53 @@ func dependencyMatch(e NeighborhoodEdge) string {
 	return ""
 }
 
+// mapEdge is one service-level dependency edge between two visible services
+// that are no golden path: its relationships merged by the neighbourhood's
+// fold, the raw target pairs of the calls it folds and its match state.
+type mapEdge struct {
+	from, to ServiceKey
+	e        *NeighborhoodEdge
+	pairs    []envPair
+	state    string
+}
+
+// dependencyEdges merges every dependency relationship whose caller in keeps
+// and whose provider is a visible service that is no golden path, sorted by
+// caller then provider. A Hidden relationship is never judged: its
+// reconciliation was computed before restriction.
+func (q *Query) dependencyEdges(in func(ServiceKey) bool) []*mapEdge {
+	byPair := map[[2]ServiceKey]*mapEdge{}
+	var out []*mapEdge
+	fold := func(rel Relationship) {
+		to := q.snap.Services[rel.ToService]
+		if rel.Type != RelationshipDependency || rel.Hidden || !in(rel.FromService) || to == nil || to.Template {
+			return
+		}
+		k := [2]ServiceKey{rel.FromService, rel.ToService}
+		me := byPair[k]
+		if me == nil {
+			me = &mapEdge{from: k[0], to: k[1], e: q.newEdge(k[0], k[1], RelationDependency)}
+			byPair[k] = me
+			out = append(out, me)
+		}
+		q.foldRelationshipIntoEdge(me.e, rel)
+		me.pairs = append(me.pairs, rel.envPairs...)
+	}
+	for _, rel := range q.snap.Relationships {
+		fold(rel)
+	}
+	for _, rel := range q.snap.InferredRelationships {
+		fold(rel)
+	}
+	for _, me := range out {
+		me.state = dependencyMatch(*me.e)
+	}
+	slices.SortFunc(out, func(a, b *mapEdge) int { return cmp.Or(cmp.Compare(a.from, b.from), cmp.Compare(a.to, b.to)) })
+	return out
+}
+
 // matchOf is the match tally of the services keys names that are no golden
-// path, and of the dependencies they declare or are observed making. A
-// Hidden relationship is never judged: its reconciliation was computed
-// before restriction.
-//
-// ponytail: one pass over every relationship per call; index by caller if
-// the map calls it once per group at scale.
+// path, and of the dependencies they declare or are observed making.
 func (q *Query) matchOf(keys iter.Seq[ServiceKey]) MatchTally {
 	in := map[ServiceKey]bool{}
 	var t MatchTally
@@ -107,36 +149,24 @@ func (q *Query) matchOf(keys iter.Seq[ServiceKey]) MatchTally {
 			t.Services.add(q.serviceMatch(s))
 		}
 	}
-	edges := map[[2]ServiceKey]*NeighborhoodEdge{}
-	fold := func(rel Relationship) {
-		to := q.snap.Services[rel.ToService]
-		if rel.Type != RelationshipDependency || rel.Hidden || !in[rel.FromService] || to == nil || to.Template {
-			return
-		}
-		k := [2]ServiceKey{rel.FromService, rel.ToService}
-		if edges[k] == nil {
-			edges[k] = q.newEdge(k[0], k[1], RelationDependency)
-		}
-		q.foldRelationshipIntoEdge(edges[k], rel)
+	for _, me := range q.dependencyEdges(func(k ServiceKey) bool { return in[k] }) {
+		t.Dependencies.add(me.state)
 	}
-	for _, rel := range q.snap.Relationships {
-		fold(rel)
-	}
-	for _, rel := range q.snap.InferredRelationships {
-		fold(rel)
-	}
-	for _, e := range edges {
-		t.Dependencies.add(dependencyMatch(*e))
-	}
+	t.finish(q.snap.Completeness)
+	return t
+}
+
+// finish sets the percentages from the counts and the completeness from the
+// snapshot's.
+func (t *MatchTally) finish(snap Completeness) {
 	s, d := t.Services, t.Dependencies
 	observed := s.Matched + s.ExpectedOnly + s.ObservedOnly + d.Matched + d.ExpectedOnly + d.ObservedOnly
 	t.Percent = percentOf(s.Matched+d.Matched, observed)
 	t.Coverage = percentOf(observed, observed+s.Insufficient+d.Insufficient)
 	t.Completeness = CompletenessPartial
-	if q.snap.Completeness == CompletenessComplete {
+	if snap == CompletenessComplete {
 		t.Completeness = CompletenessComplete
 	}
-	return t
 }
 
 // Match is the match tally of every service in the view.

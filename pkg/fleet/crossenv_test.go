@@ -114,7 +114,7 @@ func TestCrossEnvironmentPreviewNeedsEveryRevisionTemporary(t *testing.T) {
 		Revisions: []RawRevision{mk("payments", "sha256:pay", contract.EnvironmentTemporary), mk("cart", "sha256:cart", contract.EnvironmentPersistent)},
 		Targets:   []RawTarget{pay, cart, envTarget("shop", "orders", "prod")},
 	})))
-	if q.previewEnvironment("pr-12") || q.previewEnvironment("prod") {
+	if p := q.previewEnvironments(); p["pr-12"] || p["prod"] {
 		t.Error("an environment one running revision declares persistent, or none declares, is a preview")
 	}
 }

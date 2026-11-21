@@ -230,8 +230,16 @@ func (q *Query) notDeployed(s *ServiceRecord) (yes, known bool) {
 	if len(s.Targets) > 0 {
 		return false, true
 	}
-	known = !q.snap.targetsHidden[s.Key] && hasTargetSource(q.snap) && targetPlacementKnown(q.snap)
+	known = q.placementKnown(s)
 	return known, known
+}
+
+// placementKnown reports whether Pacto can tell where s runs: the view hid
+// none of its targets, at least one source reports targets and every such
+// source is complete. Only then is a missing target proof that s does not run
+// there.
+func (q *Query) placementKnown(s *ServiceRecord) bool {
+	return !q.snap.targetsHidden[s.Key] && hasTargetSource(q.snap) && targetPlacementKnown(q.snap)
 }
 
 // fleetCompleteness is the contract completeness of every visible service
