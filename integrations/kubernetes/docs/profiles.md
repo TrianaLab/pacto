@@ -101,13 +101,17 @@ target snapshot it publishes names the cluster. A namespace list renders no
 ClusterRole to read it, so the chart reads the `kube-system` Namespace through
 the cluster-identity Role and nothing else.
 
-When an upgrade drops Pacto delivery, Helm keeps its namespace, and the
-release notes print the command that deletes it.
+When an upgrade drops Pacto delivery, Helm keeps its namespace and the
+delivery CRDs, and the release notes print the command that deletes the
+namespace. `helm uninstall` keeps the namespace too; see
+[Uninstall](installation.md#uninstall).
 
 ## Read the mode
 
 `pacto_capabilities` and `GET /api/capabilities` answer `installation`: the
-profile, the registry value, whether Pacto delivery runs, the clusters in your
-view and whether the server serves MCP. Each part carries its `source`,
+profile, the registry value, whether the cluster serves the Pacto delivery
+API, the clusters in your view and whether the server serves MCP. The delivery
+CRDs outlive a chart that dropped delivery, so beside profile hardened a served
+API reads `partial`. Each part carries its `source`,
 `asOf`, `provenance` and `completeness`. A part Pacto cannot read is `null`
 with the reason. The Installation row on Data sources names the profile.

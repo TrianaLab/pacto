@@ -104,6 +104,9 @@ type Options struct {
 	// DeliveryInstalled reports whether the cluster serves the delivery API
 	// group; an error means the cluster could not be asked. Nil means it does.
 	DeliveryInstalled func(context.Context) (bool, error)
+	// DeliveryCheckedAt, when set, is when DeliveryInstalled last asked the
+	// cluster: it caches its answer, so the request time would overclaim.
+	DeliveryCheckedAt func() time.Time
 	// DeliveryNamespace, when set, is the only namespace delivery reads and
 	// acts in, as the fleet views are scoped to it.
 	DeliveryNamespace string

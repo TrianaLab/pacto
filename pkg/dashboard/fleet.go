@@ -108,6 +108,9 @@ func (s *Server) installationInput(ctx context.Context, mode string) fleet.Insta
 	if in.DeliveryWired {
 		in.DeliveryProbed, in.DeliveryInProcess = true, s.opts.DeliveryInstalled == nil
 		in.DeliveryInstalled, in.DeliveryErr = s.deliveryInstalled(ctx)
+		if at := s.opts.DeliveryCheckedAt; at != nil {
+			in.DeliveryAsOf = at().UTC()
+		}
 	}
 	return in
 }

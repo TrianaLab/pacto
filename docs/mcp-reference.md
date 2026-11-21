@@ -88,9 +88,9 @@ defaults.
 | `installation` part | Provenance | Value |
 |---|---|---|
 | Every part | - | Carries `source`, `asOf`, `provenance` and `completeness` |
-| `profile` | declared | The [chart's profile](integrations/kubernetes/profiles.md) names from the operator's detection; `null` with the reason in `source` without `--detected`, from an older operator or for a cluster outside your view |
+| `profile` | declared | The [chart's profile](integrations/kubernetes/profiles.md) names from the operator's detection; `null` with the reason in `source` without `--detected`, from an older operator, for a cluster your view hides or before a snapshot holds the cluster's Installation row |
 | `registry` | declared | The operator's `registry` value, empty when set to nothing |
-| `delivery` | observed | `enabled` from this server's delivery probe, `null` when it cannot tell; `appliers` inferred from available Argo CD and Flux rows |
+| `delivery` | observed | `enabled` says the cluster serves the delivery API, from this server's delivery probe (its `asOf` is when the probe last asked), `null` when it cannot tell; `partial` beside profile hardened, whose kept CRDs still serve it. `appliers` inferred from available Argo CD and Flux rows that count an Application, Kustomization or HelmRelease in the installation's cluster; `partial` when no snapshot or workload source read them |
 | `provisioning` | inferred | `engine` stays `unknown` until a source detects one |
 | `clusters` | observed | `joined` counts the clusters in your view of the snapshot; `pending` is `null` |
 | `mcp` | host | `served` is `true` on the MCP server and `false` on the dashboard |

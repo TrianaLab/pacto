@@ -67,8 +67,9 @@ func TestInstallationHiddenClusterIsNull(t *testing.T) {
 	}
 }
 
+// A nil query is no snapshot or an unchecked caller, never a hidden cluster.
 func TestInstallationNilQueryHidesDeclared(t *testing.T) {
-	assertHiddenDeclared(t, (*Query)(nil).Installation(declaredInput("hardened")), installationHidden)
+	assertHiddenDeclared(t, (*Query)(nil).Installation(declaredInput("hardened")), installationNoQuery)
 }
 
 func TestInstallationNoDetectionIsNull(t *testing.T) {
@@ -118,16 +119,22 @@ func TestInstallationDeliveryNotProbedIsNull(t *testing.T) {
 	assertDeliveryNull(t, installationFleet(t).Installation(InstallationInput{DeliveryWired: true}).Delivery, installationNotProbed)
 }
 
+// managerRow is an argocd or flux row counting one object of its applying
+// kind, or a kubernetes-workloads row.
 func managerRow(id string, status SourceStatus) Provider {
-	return Provider{ID: id, Name: id, Evidence: id, Status: status}
+	kind := map[string]string{ProviderArgoCD: "Application", ProviderFlux: "Kustomization"}[id]
+	return Provider{ID: id, Name: id, Evidence: id, Status: status, Counts: []ProviderCount{{Kind: kind, Namespace: "ns", N: 1}}}
 }
+
+// gitopsReadRow is the row of a workload source that discovered GitOps.
+var gitopsReadRow = managerRow(ProviderKubernetesWorkloads, SourceAvailable)
 
 func deliveryProbed(installed bool) InstallationInput {
 	return InstallationInput{DeliveryWired: true, DeliveryProbed: true, DeliveryInstalled: installed}
 }
 
 func TestInstallationAppliersOnlyWhenEnabled(t *testing.T) {
-	q := installationFleet(t, managerRow(ProviderArgoCD, SourceAvailable), managerRow(ProviderFlux, SourceAvailable))
+	q := installationFleet(t, gitopsReadRow, managerRow(ProviderArgoCD, SourceAvailable), managerRow(ProviderFlux, SourceAvailable))
 	off := q.Installation(deliveryProbed(false)).Delivery
 	if off.Enabled == nil || *off.Enabled || len(off.Appliers) != 0 || off.Completeness != InstallationComplete {
 		t.Errorf("disabled delivery = %+v", off)
@@ -141,23 +148,32 @@ func TestInstallationAppliersOnlyWhenEnabled(t *testing.T) {
 			t.Errorf("applier = %+v", a)
 		}
 	}
+}
+
+// In-process delivery answers for itself and still reads the appliers.
+func TestInstallationInProcessDelivery(t *testing.T) {
+	q := installationFleet(t, gitopsReadRow, managerRow(ProviderArgoCD, SourceAvailable), managerRow(ProviderFlux, SourceAvailable))
 	in := deliveryProbed(true)
 	in.DeliveryInProcess = true
-	if d := (*Query)(nil).Installation(in).Delivery; d.Source != installationInProcess || len(d.Appliers) != 0 {
+	if d := (*Query)(nil).Installation(in).Delivery; d.Source != installationInProcess+installationAppliersNoQuery || len(d.Appliers) != 0 {
 		t.Errorf("in-process delivery = %+v", d)
+	}
+	if d := q.Installation(in).Delivery; d.Source != installationInProcess || len(d.Appliers) != 2 {
+		t.Errorf("in-process delivery with a snapshot = %+v", d)
 	}
 }
 
 func TestInstallationUnavailableRowIsNoApplier(t *testing.T) {
-	d := installationFleet(t, managerRow(ProviderFlux, SourceUnavailable)).Installation(deliveryProbed(true)).Delivery
+	d := installationFleet(t, gitopsReadRow, managerRow(ProviderFlux, SourceUnavailable)).Installation(deliveryProbed(true)).Delivery
 	if len(d.Appliers) != 0 || d.Completeness != InstallationPartial || !strings.Contains(d.Source, "flux row is not available") {
 		t.Errorf("delivery = %+v", d)
 	}
 }
 
 func TestInstallationPartialRowIsNoApplier(t *testing.T) {
-	d := installationFleet(t, managerRow(ProviderArgoCD, SourcePartial), managerRow(ProviderFlux, SourceAvailable)).Installation(deliveryProbed(true)).Delivery
-	if len(d.Appliers) != 1 || d.Appliers[0].Manager != ProviderFlux || d.Completeness != InstallationPartial || !strings.Contains(d.Source, "argocd row") {
+	d := installationFleet(t, gitopsReadRow, managerRow(ProviderArgoCD, SourcePartial), managerRow(ProviderFlux, SourceAvailable)).Installation(deliveryProbed(true)).Delivery
+	if len(d.Appliers) != 1 || d.Appliers[0].Manager != ProviderFlux || d.Completeness != InstallationPartial || !strings.Contains(d.Source, "argocd row") ||
+		strings.Contains(d.Source, "no workload source") {
 		t.Errorf("delivery = %+v", d)
 	}
 }
@@ -165,18 +181,92 @@ func TestInstallationPartialRowIsNoApplier(t *testing.T) {
 // Each cluster's detection has its own argocd row; Argo CD is listed once.
 func TestInstallationAppliersListEachManagerOnce(t *testing.T) {
 	src := func(id string) Source {
-		return NewMemorySource(id, SourceKindDetection, &Collection{Advisory: true, Providers: []Provider{managerRow(ProviderArgoCD, SourceAvailable)}, State: &SourceState{Status: SourceAvailable}})
+		return NewMemorySource(id, SourceKindDetection, &Collection{Advisory: true, Providers: []Provider{gitopsReadRow, managerRow(ProviderArgoCD, SourceAvailable)}, State: &SourceState{Status: SourceAvailable}})
 	}
 	d := NewQuery(buildProviders(t, src("detection-1"), src("detection-2"))).Installation(deliveryProbed(true)).Delivery
 	if len(d.Appliers) != 1 || d.Appliers[0].Manager != ProviderArgoCD {
 		t.Errorf("appliers = %+v", d.Appliers)
 	}
 	flux := func(id string) Source {
-		return NewMemorySource(id, SourceKindDetection, &Collection{Advisory: true, Providers: []Provider{managerRow(ProviderFlux, SourcePartial)}, State: &SourceState{Status: SourceAvailable}})
+		return NewMemorySource(id, SourceKindDetection, &Collection{Advisory: true, Providers: []Provider{gitopsReadRow, managerRow(ProviderFlux, SourcePartial)}, State: &SourceState{Status: SourceAvailable}})
 	}
 	d = NewQuery(buildProviders(t, flux("detection-1"), flux("detection-2"))).Installation(deliveryProbed(true)).Delivery
 	if strings.Count(d.Source, "flux row is not available") != 1 {
 		t.Errorf("source = %q", d.Source)
+	}
+}
+
+// An unread input is never a confident empty list: no snapshot, no workload
+// source or a failed GitOps discovery leaves the appliers partial.
+func TestInstallationAppliersNotReadArePartial(t *testing.T) {
+	undiscovered := gitopsReadRow
+	undiscovered.GitOpsUndiscovered = true
+	for name, c := range map[string]struct {
+		q    *Query
+		note string
+	}{
+		"nil query":    {nil, installationAppliersNoQuery},
+		"no workloads": {installationFleet(t), installationNoWorkloads},
+		"undiscovered": {installationFleet(t, undiscovered), installationUndiscovered},
+	} {
+		d := c.q.Installation(deliveryProbed(true)).Delivery
+		if d.Enabled == nil || !*d.Enabled || len(d.Appliers) != 0 || d.Completeness != InstallationPartial ||
+			d.Source != installationProbed+c.note {
+			t.Errorf("%s: delivery = %+v", name, d)
+		}
+	}
+}
+
+// A served CRD with no Application applies nothing.
+func TestInstallationZeroCountRowIsNoApplier(t *testing.T) {
+	empty := managerRow(ProviderArgoCD, SourceAvailable)
+	empty.Counts = []ProviderCount{{Kind: "Application"}}
+	repos := managerRow(ProviderFlux, SourceAvailable)
+	repos.Counts = []ProviderCount{{Kind: "GitRepository", Namespace: "ns", N: 3}}
+	d := installationFleet(t, gitopsReadRow, empty, repos).Installation(deliveryProbed(true)).Delivery
+	if len(d.Appliers) != 0 || d.Completeness != InstallationComplete {
+		t.Errorf("delivery = %+v", d)
+	}
+}
+
+// With the declared cluster known, only its rows name appliers: Flux in
+// uid-1 is not the applier of delivery in uid-2.
+func TestInstallationAppliersScopedToDeclaredCluster(t *testing.T) {
+	q := NewQuery(buildProviders(t,
+		NewMemorySource("k8s-1", SourceKindKubernetes, &Collection{Cluster: clusterOf("uid-1", "staging", ClusterNameFromContext), Targets: []RawTarget{workload("team-a", "web")},
+			Providers: []Provider{gitopsReadRow, managerRow(ProviderFlux, SourceAvailable)}}),
+		NewMemorySource("k8s-2", SourceKindKubernetes, &Collection{Cluster: clusterOf("uid-2", "prod-eu", ClusterNameFromContext), Targets: []RawTarget{workload("shop", "api")},
+			Providers: []Provider{gitopsReadRow, managerRow(ProviderArgoCD, SourceAvailable)}}),
+		detectedSource(SourceAvailable, Provider{ID: "installation", Name: "Installation", Evidence: "profile idp", Status: SourceAvailable, Provenance: ProvenanceDeclared, Cluster: "prod-eu", ClusterID: "uid-2"})))
+	in := declaredInput("idp")
+	in.DeliveryWired, in.DeliveryProbed, in.DeliveryInstalled = true, true, true
+	d := q.Installation(in).Delivery
+	if len(d.Appliers) != 1 || d.Appliers[0].Manager != ProviderArgoCD || d.Completeness != InstallationComplete {
+		t.Errorf("delivery = %+v", d)
+	}
+}
+
+// The delivery CRDs outlive a chart that dropped delivery: a served API beside
+// a declared hardened profile is partial and lists no applier.
+func TestInstallationHardenedDeliveryIsPartial(t *testing.T) {
+	in := declaredInput("hardened", "idp")
+	in.DeliveryWired, in.DeliveryProbed, in.DeliveryInstalled = true, true, true
+	d := installationFleet(t, gitopsReadRow, managerRow(ProviderArgoCD, SourceAvailable)).Installation(in).Delivery
+	if d.Enabled == nil || !*d.Enabled || len(d.Appliers) != 0 || d.Completeness != InstallationPartial || d.Source != installationProbed+installationDeliveryKept {
+		t.Errorf("delivery = %+v", d)
+	}
+}
+
+// delivery.asOf is when the probe last asked the cluster, not the request.
+func TestInstallationDeliveryAsOfFromProbe(t *testing.T) {
+	in := deliveryProbed(false)
+	in.Now, in.DeliveryAsOf = fixedNow(), fixedNow().Add(-50*time.Second)
+	if d := installationFleet(t).Installation(in).Delivery; d.AsOf == nil || !d.AsOf.Equal(in.DeliveryAsOf) {
+		t.Errorf("delivery = %+v", d)
+	}
+	in.DeliveryAsOf = time.Time{}
+	if d := installationFleet(t).Installation(in).Delivery; d.AsOf == nil || !d.AsOf.Equal(fixedNow()) {
+		t.Errorf("delivery = %+v", d)
 	}
 }
 
@@ -209,7 +299,8 @@ func TestInstallationClustersFromCallerView(t *testing.T) {
 
 func TestInstallationNilQuery(t *testing.T) {
 	got := (*Query)(nil).Installation(InstallationInput{})
-	if got.Clusters.Joined != nil || got.Clusters.Completeness != InstallationUnknown || got.Profile.Value != nil || got.Registry.Value != nil {
+	if got.Clusters.Joined != nil || got.Clusters.Completeness != InstallationUnknown || got.Profile.Value != nil || got.Registry.Value != nil ||
+		got.Clusters.Source != installationNoQuery+installationJoinsNotRead {
 		t.Errorf("installation = %+v", got)
 	}
 }

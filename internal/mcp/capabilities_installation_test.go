@@ -3,8 +3,10 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -30,7 +32,7 @@ func TestCapabilitiesInstallationServedOverMCP(t *testing.T) {
 	inst := installationOf(t, m)
 	// The fleet holds no Installation row of that cluster: the caller's view
 	// does not include it.
-	if p := inst["profile"]; p["value"] != nil || p["source"] != "your view does not include the cluster this installation runs in" {
+	if p := inst["profile"]; p["value"] != nil || !strings.HasPrefix(fmt.Sprint(p["source"]), "the fleet snapshot in your view holds no Installation row") {
 		t.Errorf("profile = %#v", p)
 	}
 	if mcp := inst["mcp"]; mcp["served"] != true || mcp["provenance"] != "host" || mcp["source"] != "this MCP server, over http" {
@@ -82,5 +84,15 @@ func assertInstallationParts(t *testing.T, got map[string]any) {
 		if p, _ := inst[part].(map[string]any); p["source"] == nil || p["provenance"] == nil || p["completeness"] == nil {
 			t.Errorf("installation.%s = %#v", part, inst[part])
 		}
+	}
+}
+
+// delivery.asOf is when the cached probe last asked the cluster.
+func TestCapabilitiesInstallationDeliveryAsOfFromProbe(t *testing.T) {
+	m := composedModes(t, false)
+	m.Delivery.Installed = func(context.Context) (bool, error) { return false, nil }
+	m.Delivery.InstalledAt = func() time.Time { return time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC) }
+	if d := installationOf(t, m)["delivery"]; d["asOf"] != "2026-11-20T09:00:00Z" {
+		t.Errorf("installation.delivery = %#v", d)
 	}
 }

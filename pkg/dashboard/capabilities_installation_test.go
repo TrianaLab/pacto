@@ -72,14 +72,25 @@ func TestCapabilitiesInstallationHiddenCluster(t *testing.T) {
 		View: func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
 			return q.Restrict(func(_, ns string) bool { return ns == "payments" }, nil), nil
 		}}).Body.Installation
-	if got.Profile.Value != nil || got.Registry.Value != nil || got.Profile.Source != "your view does not include the cluster this installation runs in" {
+	if got.Profile.Value != nil || got.Registry.Value != nil || !strings.HasPrefix(got.Profile.Source, "the fleet snapshot in your view holds no Installation row") {
 		t.Errorf("profile %+v registry %+v", got.Profile, got.Registry)
 	}
 	// A caller whose permissions cannot be checked sees no snapshot.
 	got = capabilitiesOf(t, Options{Fleet: func(context.Context) (*fleet.Query, error) { return q, nil }, InstallationConfig: hardenedConfig,
 		View: func(context.Context, *fleet.Query) (*fleet.Query, error) { return nil, errors.New("apiserver down") }}).Body.Installation
-	if got.Registry.Value != nil {
-		t.Errorf("an unchecked caller read registry %+v", got.Registry)
+	if got.Registry.Value != nil || !strings.HasPrefix(got.Registry.Source, "no fleet snapshot in your view") ||
+		!strings.Contains(got.Clusters.Source, "your permissions could not be checked") {
+		t.Errorf("an unchecked caller read registry %+v clusters %+v", got.Registry, got.Clusters)
+	}
+}
+
+// delivery.asOf is when the cached probe last asked the cluster.
+func TestCapabilitiesInstallationDeliveryAsOfFromProbe(t *testing.T) {
+	checked := time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC)
+	body := capabilitiesOf(t, Options{Delivery: func(*http.Request) (DeliveryAPI, error) { return nil, nil },
+		DeliveryInstalled: func(context.Context) (bool, error) { return false, nil }, DeliveryCheckedAt: func() time.Time { return checked }}).Body
+	if d := body.Installation.Delivery; d.AsOf == nil || !d.AsOf.Equal(checked) {
+		t.Errorf("installation.delivery = %+v", d)
 	}
 }
 
@@ -97,7 +108,8 @@ func TestCapabilitiesInstallationDeliveryProbeError(t *testing.T) {
 		}
 	}
 	// The demo's in-process delivery answers for itself.
-	if d := capabilitiesOf(t, Options{Delivery: wired}).Body.Installation.Delivery; d.Enabled == nil || !*d.Enabled || d.Source != "this server serves delivery itself" {
+	if d := capabilitiesOf(t, Options{Delivery: wired}).Body.Installation.Delivery; d.Enabled == nil || !*d.Enabled ||
+		!strings.HasPrefix(d.Source, "this server serves delivery itself; no fleet snapshot in your view") || d.Completeness != fleet.InstallationPartial {
 		t.Errorf("in-process delivery = %+v", d)
 	}
 }

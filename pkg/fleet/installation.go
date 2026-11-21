@@ -16,7 +16,8 @@ const (
 	InstallationApplierAdopted   = "adopted"
 	InstallationEngineUnknown    = "unknown"
 	installationRowID            = "installation"
-	installationHidden           = "your view does not include the cluster this installation runs in"
+	installationHidden           = "the fleet snapshot in your view holds no Installation row for this cluster: your view hides it, or the snapshot predates the detection"
+	installationNoQuery          = "no fleet snapshot in your view: none is published yet, or your permissions could not be checked"
 	installationNoDetected       = "no --detected: what the operator was configured with is not read here"
 	installationNoBlock          = "the detection carries no installation block"
 	installationNoProfile        = "the operator does not advertise its profile"
@@ -25,12 +26,19 @@ const (
 	installationInProcess        = "this server serves delivery itself"
 	installationProbed           = "the delivery probe of this server"
 	installationProvisioning     = "no source here detects a provisioning engine"
-	installationNoSnapshot       = "no fleet snapshot is published here"
 	installationJoinsNotRead     = "; cluster join requests are not read here"
 	installationClustersInView   = "the clusters in your view of the fleet snapshot"
 	installationApplierEvidence  = "Pacto delivery adopts workloads it owns per target"
 	installationApplierNotListed = " row is not available, so no applier is listed from it"
+	installationAppliersNoQuery  = "; " + installationNoQuery + ", so appliers are not read here"
+	installationNoWorkloads      = "; no workload source in your view reads this cluster's Argo CD and Flux objects, so appliers are not read here"
+	installationUndiscovered     = "; Pacto could not discover the Argo CD and Flux APIs, so appliers are not read here"
+	installationDeliveryKept     = "; the declared profile hardened renders no Pacto delivery, so the API is served by CRDs Helm kept and no applier is listed"
 )
+
+// applyingKinds are the Argo CD and Flux kinds that apply workloads: a row
+// that counts none of them names no applier.
+var applyingKinds = []string{"Application", "Kustomization", "HelmRelease"}
 
 // InstallationDeclared is what the operator was configured with, read from
 // its detection's Installation block: declared by a person, never inferred.
@@ -60,9 +68,12 @@ type InstallationInput struct {
 	DeliveryInProcess bool
 	DeliveryInstalled bool
 	DeliveryErr       error
-	MCPServed         bool
-	MCPSource         string
-	Now               time.Time
+	// DeliveryAsOf is when the probe last asked the cluster (it caches its
+	// answer); zero reads as Now.
+	DeliveryAsOf time.Time
+	MCPServed    bool
+	MCPSource    string
+	Now          time.Time
 }
 
 // Installation is how this installation runs, each part with where Pacto
@@ -71,7 +82,7 @@ type InstallationInput struct {
 type Installation struct {
 	Profile      InstallationProfile      `json:"profile" doc:"The profile names the chart rendered, declared by a person"`
 	Registry     InstallationRegistry     `json:"registry" doc:"The registry value the operator was configured with, declared by a person"`
-	Delivery     InstallationDelivery     `json:"delivery" doc:"Whether Pacto delivery runs, observed by this host, and the appliers inferred from detected rows"`
+	Delivery     InstallationDelivery     `json:"delivery" doc:"Whether the cluster serves the Pacto delivery API, observed by this host, and the appliers inferred from detected rows"`
 	Provisioning InstallationProvisioning `json:"provisioning" doc:"The provisioning engine, unknown until a source detects one"`
 	Clusters     InstallationClusters     `json:"clusters" doc:"The clusters this caller's view reads"`
 	MCP          InstallationMCP          `json:"mcp" doc:"Whether this host serves an MCP endpoint"`
@@ -95,9 +106,11 @@ type InstallationRegistry struct {
 	Completeness string     `json:"completeness" enum:"complete,partial,unknown"`
 }
 
-// InstallationDelivery says whether Pacto delivery runs.
+// InstallationDelivery says whether the cluster serves the Pacto delivery API.
+// The delivery CRDs outlive a chart that dropped delivery (Helm keeps them),
+// so a served API is not proof a delivery controller runs.
 type InstallationDelivery struct {
-	Enabled      *bool                 `json:"enabled" doc:"Pacto delivery runs here; null when this host cannot tell"`
+	Enabled      *bool                 `json:"enabled" doc:"The cluster serves the Pacto delivery API; null when this host cannot tell. The CRDs outlive a chart that dropped delivery, so this is partial beside a declared hardened profile"`
 	Appliers     []InstallationApplier `json:"appliers" nullable:"false" doc:"What applies the workloads Pacto delivery promotes, inferred from available detected rows; listed only when enabled is true"`
 	Source       string                `json:"source" doc:"Where Pacto learned it, or why it is null"`
 	AsOf         *time.Time            `json:"asOf" doc:"When it was read"`
@@ -150,7 +163,7 @@ func (q *Query) Installation(in InstallationInput) Installation {
 	return Installation{
 		Profile:      installationProfile(d, source, completeness),
 		Registry:     installationRegistry(d, source, completeness),
-		Delivery:     q.installationDelivery(in),
+		Delivery:     q.installationDelivery(in, d),
 		Provisioning: InstallationProvisioning{Engine: InstallationEngineUnknown, Source: installationProvisioning, AsOf: &now, Provenance: ProvenanceInferred, Completeness: InstallationUnknown},
 		Clusters:     q.installationClusters(),
 		MCP:          InstallationMCP{Served: in.MCPServed, Source: in.MCPSource, AsOf: &now, Provenance: InstallationProvenanceHost, Completeness: InstallationComplete},
@@ -172,6 +185,8 @@ func (q *Query) declared(in InstallationInput) (*InstallationDeclared, string, s
 		return nil, msg, InstallationUnknown
 	case d == nil:
 		return nil, installationNoBlock, InstallationUnknown
+	case q == nil:
+		return nil, installationNoQuery, InstallationUnknown
 	case !q.holdsInstallationRow(d.ClusterID):
 		return nil, installationHidden, InstallationUnknown
 	case st.Status != SourceAvailable:
@@ -183,9 +198,6 @@ func (q *Query) declared(in InstallationInput) (*InstallationDeclared, string, s
 // holdsInstallationRow reports whether q still carries the Installation row
 // of cluster: Restrict drops it from a view that hides the cluster.
 func (q *Query) holdsInstallationRow(cluster string) bool {
-	if q == nil {
-		return false
-	}
 	clusters := clusterOfSource(q.snap)
 	return slices.ContainsFunc(q.snap.Providers, func(p Provider) bool {
 		return p.ID == installationRowID && providerCluster(p, clusters) == cluster
@@ -214,10 +226,14 @@ func installationRegistry(d *InstallationDeclared, source, completeness string) 
 }
 
 // installationDelivery is the host's delivery probe, never reading a failed
-// or missing probe as a positive, with the appliers when it runs.
-func (q *Query) installationDelivery(in InstallationInput) InstallationDelivery {
-	now := in.Now
-	out := InstallationDelivery{Appliers: []InstallationApplier{}, AsOf: &now, Provenance: ProvenanceObserved, Completeness: InstallationUnknown}
+// or missing probe as a positive, with the appliers when the API is served.
+// d is the declared block the caller may read, or nil.
+func (q *Query) installationDelivery(in InstallationInput, d *InstallationDeclared) InstallationDelivery {
+	asOf := in.Now
+	if !in.DeliveryAsOf.IsZero() {
+		asOf = in.DeliveryAsOf
+	}
+	out := InstallationDelivery{Appliers: []InstallationApplier{}, AsOf: &asOf, Provenance: ProvenanceObserved, Completeness: InstallationUnknown}
 	switch {
 	case !in.DeliveryWired:
 		out.Source = installationNoDelivery
@@ -234,32 +250,68 @@ func (q *Query) installationDelivery(in InstallationInput) InstallationDelivery 
 	if in.DeliveryInProcess {
 		out.Source = installationInProcess
 	}
-	if enabled {
-		q.addAppliers(&out)
+	switch {
+	case !enabled:
+	case d != nil && slices.Contains(d.Profile, "hardened"):
+		out.notRead(installationDeliveryKept)
+	default:
+		cluster := ""
+		if d != nil {
+			cluster = d.ClusterID
+		}
+		q.addAppliers(&out, cluster)
 	}
 	return out
 }
 
-// addAppliers lists one adopted applier per manager with an available argocd or flux row; a
-// row that is not available lists nothing and makes the part partial.
-func (q *Query) addAppliers(out *InstallationDelivery) {
+// notRead makes the part partial and adds note to its source once.
+func (out *InstallationDelivery) notRead(note string) {
+	out.Completeness = InstallationPartial
+	if !strings.Contains(out.Source, note) {
+		out.Source += note
+	}
+}
+
+// addAppliers lists one adopted applier per manager whose available argocd or
+// flux row counts an object of an applying kind, in cluster when it is known
+// (else in every cluster of the view). A row that is not available, no
+// workload source to read the rows, or a failed discovery lists nothing and
+// makes the part partial: an unread input is never an empty list.
+func (q *Query) addAppliers(out *InstallationDelivery, cluster string) {
 	if q == nil {
+		out.notRead(installationAppliersNoQuery)
 		return
 	}
+	clusters := clusterOfSource(q.snap)
+	read := false
 	for _, p := range q.snap.Providers {
-		if p.ID != ProviderArgoCD && p.ID != ProviderFlux {
+		if cluster != "" && providerCluster(p, clusters) != cluster {
 			continue
 		}
-		if p.Status != SourceAvailable {
-			out.Completeness = InstallationPartial
-			if note := "; " + p.ID + installationApplierNotListed; !strings.Contains(out.Source, note) {
-				out.Source += note
-			}
-			continue
+		switch {
+		case p.ID == ProviderKubernetesWorkloads && p.GitOpsUndiscovered:
+			out.notRead(installationUndiscovered)
+		case p.ID == ProviderKubernetesWorkloads:
+			read = true
+		case p.ID == ProviderArgoCD || p.ID == ProviderFlux:
+			out.addApplier(p)
 		}
-		if slices.ContainsFunc(out.Appliers, func(a InstallationApplier) bool { return a.Manager == p.ID }) {
-			continue // one row per cluster names the same manager
-		}
+	}
+	if !read && !strings.Contains(out.Source, installationUndiscovered) {
+		out.notRead(installationNoWorkloads)
+	}
+}
+
+// addApplier lists p's manager once when p is available and counts an object
+// of an applying kind: a served CRD with nothing in it applies nothing.
+func (out *InstallationDelivery) addApplier(p Provider) {
+	switch {
+	case p.Status != SourceAvailable:
+		out.notRead("; " + p.ID + installationApplierNotListed)
+	case !slices.ContainsFunc(p.Counts, func(c ProviderCount) bool { return c.N > 0 && slices.Contains(applyingKinds, c.Kind) }):
+	case slices.ContainsFunc(out.Appliers, func(a InstallationApplier) bool { return a.Manager == p.ID }):
+		// one row per cluster names the same manager
+	default:
 		out.Appliers = append(out.Appliers, InstallationApplier{Manager: p.ID, Mode: InstallationApplierAdopted, Provenance: ProvenanceInferred,
 			Source: "detected " + p.ID + " row; " + installationApplierEvidence})
 	}
@@ -267,7 +319,7 @@ func (q *Query) addAppliers(out *InstallationDelivery) {
 
 // installationClusters counts the clusters of the caller's snapshot.
 func (q *Query) installationClusters() InstallationClusters {
-	out := InstallationClusters{Source: installationNoSnapshot + installationJoinsNotRead, Provenance: ProvenanceObserved, Completeness: InstallationUnknown}
+	out := InstallationClusters{Source: installationNoQuery + installationJoinsNotRead, Provenance: ProvenanceObserved, Completeness: InstallationUnknown}
 	if q == nil {
 		return out
 	}

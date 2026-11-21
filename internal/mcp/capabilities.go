@@ -98,6 +98,9 @@ func capabilities(ctx context.Context, req *mcpsdk.CallToolRequest, a Authoring,
 			// As the dashboard: a probe that fails is not proof of absence.
 			// installation keeps the raw answer.
 			in.DeliveryInstalled, in.DeliveryErr = d.Installed(ctx)
+			if d.InstalledAt != nil {
+				in.DeliveryAsOf = d.InstalledAt().UTC()
+			}
 			out.Delivery = in.DeliveryInstalled || in.DeliveryErr != nil
 		}
 		at := d.CallerAt.UTC()

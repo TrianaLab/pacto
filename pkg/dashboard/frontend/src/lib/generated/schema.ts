@@ -3719,7 +3719,7 @@ export interface components {
         "Fleet.Installation": {
             /** @description The clusters this caller's view reads */
             clusters: components["schemas"]["Fleet.InstallationClusters"];
-            /** @description Whether Pacto delivery runs, observed by this host, and the appliers inferred from detected rows */
+            /** @description Whether the cluster serves the Pacto delivery API, observed by this host, and the appliers inferred from detected rows */
             delivery: components["schemas"]["Fleet.InstallationDelivery"];
             /** @description Whether this host serves an MCP endpoint */
             mcp: components["schemas"]["Fleet.InstallationMCP"];
@@ -3773,7 +3773,7 @@ export interface components {
             asOf: string | null;
             /** @enum {string} */
             completeness: "complete" | "partial" | "unknown";
-            /** @description Pacto delivery runs here; null when this host cannot tell */
+            /** @description The cluster serves the Pacto delivery API; null when this host cannot tell. The CRDs outlive a chart that dropped delivery, so this is partial beside a declared hardened profile */
             enabled: boolean | null;
             /** @enum {string} */
             provenance: "declared" | "observed" | "inferred" | "host";
