@@ -2958,7 +2958,8 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 			// inferred caller stays one, linked to its inferred service.
 			k := callerKey{caller: oi.edge.From, to: toKey, ambiguous: fromRes == ObservedAmbiguous}
 			if fromRes == ObservedInferred {
-				k.entity = fromKey
+				// Recorded under its workload's full name, also when observed without its kind.
+				k.caller, k.entity = snap.Services[fromKey].Name, fromKey
 			}
 			if uncontracted[k] == nil {
 				uncontracted[k] = map[string]bool{}
@@ -3094,6 +3095,9 @@ func addObservedLimitation(snap *FleetSnapshot, seen map[string]bool, name strin
 		reason = "unknown"
 	case ObservedAmbiguous:
 		reason = "ambiguous across domains"
+		if _, _, kind, _, ok := ParseK8sCaller(name); ok && kind == "" {
+			reason = "ambiguous: more than one workload of this name"
+		}
 	default:
 		return
 	}

@@ -49,6 +49,10 @@ const SourceKindMira = "mira"
 // on it (an advisory source is [Collection.Advisory]).
 const SourceKindDetection = "detection"
 
+// SourceKindMesh is the Kind of a source reading the calls a service mesh or
+// Hubble records. It labels the source only; pkg/fleet never branches on it.
+const SourceKindMesh = "mesh"
+
 type Source interface {
 	// ID is the stable identifier of this source instance (e.g. "oci", "k8s",
 	// "local", or a named environment like "production-eu"). Used as provenance.

@@ -206,8 +206,8 @@ func TestService_Fleet_DistinctSourceIDsPublishOneToOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("entities: %v", err)
 	}
-	if list.Total != 5 {
-		t.Fatalf("listed %d data sources, want 5 (k8s, k8s-workloads, local, two observation)", list.Total)
+	if list.Total != 6 {
+		t.Fatalf("listed %d data sources, want 6 (k8s, k8s-workloads, k8s-mesh, local, two observation)", list.Total)
 	}
 	seen := map[string]bool{}
 	for _, ref := range list.Entities {
@@ -227,7 +227,7 @@ func TestService_Fleet_DistinctSourceIDsPublishOneToOne(t *testing.T) {
 			t.Errorf("data source %q: list says %q, detail says %q", ref.Key, ref.Secondary, detail.Entity.Secondary)
 		}
 	}
-	for _, id := range []string{"k8s", "k8s-workloads", "local", "orders-traces", "checkout-traces"} {
+	for _, id := range []string{"k8s", "k8s-workloads", "k8s-mesh", "local", "orders-traces", "checkout-traces"} {
 		if !seen[id] {
 			t.Errorf("data source %q never reached the Product", id)
 		}

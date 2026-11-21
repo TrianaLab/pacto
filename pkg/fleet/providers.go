@@ -75,6 +75,27 @@ const (
 // does not know which mode it would use there.
 const LimitationRegistryProbeFailed = "REGISTRY_PROBE_FAILED"
 
+// Row ids, UsedFor value and limitation codes of the service mesh rows.
+const (
+	// ProviderIstio is the row of the Istio mesh a mesh source found.
+	ProviderIstio = "istio"
+	// ProviderLinkerd is the row of the Linkerd mesh a mesh source found.
+	ProviderLinkerd = "linkerd"
+	// ProviderHubble is the row of the Cilium Hubble a mesh source found.
+	ProviderHubble = "hubble"
+	// UseObservedEdges: Pacto reads observed calls from what the row read.
+	UseObservedEdges = "observed-edges"
+	// LimitationMeshTelemetryUnread: a mesh was found but the calls it
+	// records could not be read.
+	LimitationMeshTelemetryUnread = "MESH_TELEMETRY_UNREAD"
+	// LimitationMeshCoveragePartial: part of the cluster sends no calls
+	// through the mesh, or Pacto cannot tell which part does.
+	LimitationMeshCoveragePartial = "MESH_COVERAGE_PARTIAL"
+	// LimitationMeshCallsUnattributed: calls the mesh recorded that Pacto
+	// could not attribute to a workload of this cluster were left out.
+	LimitationMeshCallsUnattributed = "MESH_CALLS_UNATTRIBUTED"
+)
+
 // PromotionOwnedBy starts the evidence of every promotion row whose product
 // was found, followed by the product: the phrase a delivery back-off reads. A
 // row Pacto could not check is partial, says so and never starts with it.

@@ -153,8 +153,38 @@ const (
 // corroborate or affect a same-named service in another domain.
 func (s *FleetSnapshot) ObservedNameResolver() func(string) (ServiceKey, ObservedResolution) {
 	byName := map[string][]ServiceKey{}
+	byWorkload := map[workloadName][]ServiceKey{}
 	for k, svc := range s.Services {
 		byName[svc.Name] = append(byName[svc.Name], k)
+		if w := svc.Workload; w != nil {
+			wn := workloadName{namespace: w.Namespace, name: w.Name}
+			if s.clusterKeyed {
+				wn.cluster = w.Cluster
+			}
+			byWorkload[wn] = append(byWorkload[wn], k)
+		}
+	}
+	for _, r := range s.replacedNames {
+		wn := workloadName{cluster: r.workload.cluster, namespace: r.workload.namespace, name: r.workload.name}
+		byWorkload[wn] = append(byWorkload[wn], r.to)
+	}
+	// A cluster whose workload source did not read every workload may hold a
+	// second workload of the name the index never saw. ponytail: the whole
+	// cluster, not the namespace or kind it missed; per-scope when one
+	// unreadable kind blocks too much.
+	incomplete := map[string]bool{}
+	for _, st := range s.Sources {
+		switch {
+		case st.Kind != SourceKindKubernetesWorkloads || st.Status == SourceAvailable:
+		case !s.clusterKeyed:
+			incomplete[""] = true
+		default:
+			for _, c := range s.Clusters {
+				if slices.Contains(c.Sources, st.ID) {
+					incomplete[c.ID] = true
+				}
+			}
+		}
 	}
 	return func(name string) (ServiceKey, ObservedResolution) {
 		if r, ok := s.replacedNames[name]; ok {
@@ -162,15 +192,45 @@ func (s *FleetSnapshot) ObservedNameResolver() func(string) (ServiceKey, Observe
 		}
 		switch ks := byName[name]; len(ks) {
 		case 1:
-			if s.Services[ks[0]].Inferred() {
-				return ks[0], ObservedInferred
-			}
-			return ks[0], ObservedResolved
+			return ks[0], s.resolution(ks[0])
 		case 0:
-			return "", ObservedUnknown
+			return s.kindless(name, byWorkload, incomplete)
 		default:
 			return "", ObservedAmbiguous
 		}
+	}
+}
+
+// workloadName is a workload without its kind: what an observer that labels
+// workloads by name only (Istio) reports.
+type workloadName struct{ cluster, namespace, name string }
+
+// resolution is how a name that matched exactly k resolved.
+func (s *FleetSnapshot) resolution(k ServiceKey) ObservedResolution {
+	if s.Services[k].Inferred() {
+		return ObservedInferred
+	}
+	return ObservedResolved
+}
+
+// kindless resolves a Kubernetes name with an empty kind ("k8s:ns//name") to
+// the one service whose workload has that name in that namespace and
+// cluster. Two or more are ambiguous; none, a name that is not kindless, or
+// one of a cluster whose workload list is incomplete, is unknown.
+func (s *FleetSnapshot) kindless(name string, byWorkload map[workloadName][]ServiceKey, incomplete map[string]bool) (ServiceKey, ObservedResolution) {
+	cluster, ns, kind, n, ok := ParseK8sCaller(name)
+	if !ok || kind != "" || incomplete[cluster] {
+		return "", ObservedUnknown
+	}
+	ks := slices.Clone(byWorkload[workloadName{cluster, ns, n}])
+	slices.Sort(ks)
+	switch ks = slices.Compact(ks); len(ks) {
+	case 0:
+		return "", ObservedUnknown
+	case 1:
+		return ks[0], s.resolution(ks[0])
+	default:
+		return "", ObservedAmbiguous
 	}
 }
 
@@ -1718,6 +1778,9 @@ type UncontractedCaller struct {
 // "k8s:" then the escaped cluster id and "/" when cluster is set, then
 // namespace/kind/name. Namespace and object names are RFC 1123 and a kind is
 // alphanumeric, so the part count tells the two forms apart.
+// Kind is empty when the observer does not know it ("k8s:shop//cart"):
+// [Build] resolves such a name to the one workload of that name in the
+// namespace and cluster.
 func K8sCaller(cluster, namespace, kind, name string) string {
 	c := namespace + "/" + kind + "/" + name
 	if cluster != "" {

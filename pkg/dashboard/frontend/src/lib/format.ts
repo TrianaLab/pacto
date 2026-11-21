@@ -237,6 +237,7 @@ const SOURCE_DESCRIPTIONS: Record<string, string> = {
   catalog: 'Catalog — contracts discovered in a registry',
   mira: 'Mira — calls between services seen in its trace store',
   detection: 'Cluster detection — what the operator inferred the cluster provides',
+  mesh: 'Service mesh — calls the mesh or Hubble already records',
 };
 
 export function sourceTooltip(src: string): string {

@@ -46,6 +46,13 @@ source (such as `prod`) and its workload source (`prod-workloads`).
   `ResourceProvisioned` or `ResourceUsage`, from the additive `adapters` list
   of its `GET /api/evidence/v1/producers`. Trust config rows show to every
   viewer, since that endpoint lists them to anyone.
+- **Istio**, **Linkerd** and **Cilium Hubble** (ids `istio`, `linkerd` and
+  `hubble`): one row per mesh the cluster's API discovery shows, from its
+  mesh source (`prod-mesh`), such as `serves networking.istio.io; calls read
+  from Prometheus` or `serves cilium.io; no Hubble Relay found`. Pacto uses
+  them for observed edges. Uncovered namespaces, a Prometheus or Relay it
+  could not read and calls it could not attribute make the row `partial`;
+  see [Calls a service mesh records](operational-graph-mesh.md).
 
 ```bash
 $ pacto fleet providers --k8s

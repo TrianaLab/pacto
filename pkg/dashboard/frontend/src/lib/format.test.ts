@@ -191,6 +191,9 @@ describe('sourceTooltip', () => {
   it('names cluster detection', () => {
     expect(sourceTooltip('detection')).toContain('Cluster detection');
   });
+  it('names the service mesh reader', () => {
+    expect(sourceTooltip('mesh')).toBe('Service mesh — calls the mesh or Hubble already records');
+  });
   it('returns description for known sources', () => {
     expect(sourceTooltip('kubernetes')).toContain('Kubernetes');
     expect(sourceTooltip('oci')).toContain('OCI');

@@ -484,12 +484,14 @@ func asOfText(at *time.Time) string {
 	return at.UTC().Format(time.RFC3339)
 }
 
-// printAdvisorySources prints one line per advisory source that is not
-// available, with its reason, and reports whether it printed any.
+// printAdvisorySources prints one line per advisory detection source that is
+// not available, with its reason, and reports whether it printed any: the
+// line names a detection Pacto could not read. Other advisory sources, such
+// as a mesh source, already say partial and why on their rows.
 func printAdvisorySources(w io.Writer, sources []fleet.SourceState) bool {
 	printed := false
 	for _, s := range sources {
-		if !s.Advisory || s.Status == fleet.SourceAvailable {
+		if !s.Advisory || s.Kind != fleet.SourceKindDetection || s.Status == fleet.SourceAvailable {
 			continue
 		}
 		state, reason := string(s.Status), ""
