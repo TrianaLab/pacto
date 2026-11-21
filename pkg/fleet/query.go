@@ -669,6 +669,9 @@ type ServiceView struct {
 	Replaces       []Replacement `json:"replaces,omitempty" doc:"The inferred services this service replaced, at most 200"`
 	ReplacesTotal  int           `json:"replacesTotal,omitempty" doc:"How many inferred services this service replaced"`
 	ReplacesHidden int           `json:"replacesHidden,omitempty" doc:"Replacements of this service whose workload you may not see"`
+	// Fields says where each field of the current revision comes from; nil
+	// when it has no inferred record and the service replaced nothing.
+	Fields *FieldsPreview `json:"fields,omitempty" doc:"Where each field of the current revision comes from: declared, accepted, attested or inferred"`
 }
 
 // GetService returns the logical service, its revisions and targets, its declared
@@ -681,6 +684,7 @@ func (q *Query) GetService(name string) (*ServiceView, error) {
 	}
 	view := &ServiceView{Meta: q.meta(), Service: cloneService(s), Dependencies: []Relationship{}, ReplacedFrom: replaced}
 	view.Replaces, view.ReplacesTotal, view.ReplacesHidden = q.replacesOf(s.Key)
+	view.Fields = q.fieldsOf(s)
 	for _, rk := range s.Revisions {
 		rev := cloneRevision(q.snap.Revisions[rk])
 		view.Revisions = append(view.Revisions, rev)
@@ -1367,7 +1371,14 @@ type ExplainResult struct {
 	Kind    string   `json:"kind"`
 	Status  string   `json:"status"`
 	Reasons []Reason `json:"reasons"`
+	// Fields and ReplacesHidden are set for a service, as in [ServiceView].
+	Fields         *FieldsPreview `json:"fields,omitempty" doc:"Where each field of the service's current revision comes from"`
+	ReplacesHidden int            `json:"replacesHidden,omitempty" doc:"Replacements of this service whose workload you may not see"`
 }
+
+// ReasonReplacesInferred is the reason a service gives for each inferred
+// service it replaced.
+const ReasonReplacesInferred = "REPLACES_INFERRED"
 
 // Explain produces deterministic reasons for a subject's state. A subject
 // with the external: prefix is an external system; any other is resolved as a
@@ -1398,7 +1409,12 @@ func (q *Query) explainService(s *ServiceRecord) *ExplainResult {
 	// The canonical ServiceKey, matching explainTarget's TargetKey: ExplainResult
 	// carries no domain field, so a bare name would name a DIFFERENT service (with a
 	// different status) in any fleet holding two domains' worth of the same name.
-	res := &ExplainResult{Meta: q.meta(), Subject: string(s.Key), Kind: "service", Status: s.Status, Reasons: []Reason{}}
+	res := &ExplainResult{Meta: q.meta(), Subject: string(s.Key), Kind: "service", Status: s.Status, Reasons: []Reason{}, Fields: q.fieldsOf(s)}
+	var replaces []Replacement
+	replaces, _, res.ReplacesHidden = q.replacesOf(s.Key)
+	for _, r := range replaces {
+		res.Reasons = append(res.Reasons, Reason{Code: ReasonReplacesInferred, Message: r.Line(q.snap.GeneratedAt), Source: cmp.Or(string(r.Revision), string(r.Target))})
+	}
 	if s.Inferred() {
 		res.Reasons = append(res.Reasons, Reason{
 			Code: LimitationServiceInferred, Source: s.Workload.Source, ObservedAt: copyTime(s.Workload.ObservedAt),

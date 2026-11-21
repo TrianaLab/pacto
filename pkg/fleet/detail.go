@@ -430,6 +430,8 @@ type ServiceDetailData struct {
 	Replaces       []Replacement     `json:"replaces,omitempty" doc:"The inferred services this service replaced, at most 200"`
 	ReplacesTotal  int               `json:"replacesTotal,omitempty" doc:"How many inferred services this service replaced"`
 	ReplacesHidden int               `json:"replacesHidden,omitempty" doc:"Replacements of this service whose workload you may not see"`
+	// Fields is the service's field provenance, as in [ServiceView].
+	Fields *FieldsPreview `json:"fields,omitempty" doc:"Where each field of the current revision comes from: declared, accepted, attested or inferred"`
 }
 
 // TemplateDetail is what a golden path offers to a person creating a service
@@ -1450,6 +1452,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Replaces:           view.Replaces,
 		ReplacesTotal:      view.ReplacesTotal,
 		ReplacesHidden:     view.ReplacesHidden,
+		Fields:             view.Fields,
 	}
 	return &EntityDetail{
 		Meta: q.productMetaWith(conflicts), Entity: self, Status: s.Status,

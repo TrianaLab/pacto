@@ -183,6 +183,17 @@ func (r Replacement) Line(asOf time.Time) string {
 	return "Replaces " + from + " " + Age(asOf.Sub(*cmp.Or(r.At, &asOf))) + " ago (linked by Pacto " + scope + "/" + name + " target)"
 }
 
+// ReplacedLine is r read from the side of the replaced service: "<from> was
+// replaced by <to> ..." for a Pacto target, [Replacement.Line] otherwise.
+func (r Replacement) ReplacedLine(asOf time.Time) string {
+	line := r.Line(asOf)
+	if r.Link != linkPactoTarget {
+		return line
+	}
+	_, from := ParseServiceKey(r.From)
+	return from + " was replaced by " + string(r.To) + " " + strings.TrimPrefix(line, "Replaces "+from+" ")
+}
+
 // restrictReplacements keeps the replacements whose declared service is
 // visible and whose workload hidden says the viewer may see, and the replaced
 // names under the same rule. It counts those it drops for a visible service

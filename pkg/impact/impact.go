@@ -960,14 +960,9 @@ func (r *Result) dependents(snap *fleet.FleetSnapshot, q *fleet.Query, key fleet
 		})
 	}
 	if rp := graph.ReplacedFrom; rp != nil {
-		_, from := fleet.ParseServiceKey(rp.From)
-		why := from + " was replaced by " + string(rp.To) + " (linked by Pacto target " + string(rp.Target) + ")"
-		if rp.Target == "" {
-			why = rp.Line(snap.GeneratedAt)
-		}
 		r.Limitations = append(r.Limitations, fleet.Limitation{
 			Code: LimitationSubjectReplaced, Source: limitationSource,
-			Message: why + ", so this answer is about " + string(rp.To),
+			Message: rp.ReplacedLine(snap.GeneratedAt) + ", so this answer is about " + string(rp.To),
 		})
 	}
 	r.noteUnresolvedRefs(snap, graph.Root, withPolicy)

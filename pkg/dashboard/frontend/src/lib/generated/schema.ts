@@ -3297,6 +3297,35 @@ export interface components {
             /** @description The free-text version the dependency declares */
             version?: string;
         };
+        "Fleet.FieldProvenance": {
+            /** Format: date-time */
+            asOf?: string;
+            /** @description Who accepted it: the person whose verified signature carries the accepted declaration */
+            by?: string;
+            /** @enum {string} */
+            completeness?: "complete" | "partial";
+            /** @description service.owner, dependencies[<name>].compatibility or a field of the inferred record */
+            field: string;
+            /** @description A range Pacto proposes for a compatibility the contract leaves unknown; never declared */
+            proposed?: string;
+            /** @enum {string} */
+            provenance: "declared" | "accepted" | "attested" | "inferred";
+            source?: string;
+            value: string;
+        };
+        "Fleet.FieldsPreview": {
+            /** Format: int64 */
+            count: number;
+            /**
+             * Format: int64
+             * @description Fields read from a workload you may not see
+             */
+            hidden?: number;
+            items: components["schemas"]["Fleet.FieldProvenance"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
         "Fleet.FindingsPreview": {
             /** Format: int64 */
             count: number;
@@ -4529,6 +4558,8 @@ export interface components {
             capabilities?: components["schemas"]["Fleet.RevisionCapabilities"][] | null;
             dependencies: components["schemas"]["Fleet.Relationship"][] | null;
             dependents: string[] | null;
+            /** @description Where each field of the current revision comes from: declared, accepted, attested or inferred */
+            fields?: components["schemas"]["Fleet.FieldsPreview"];
             meta: components["schemas"]["Fleet.Meta"];
             /** @description Set when the service was asked for by the key of an inferred service it replaced: that replacement */
             replacedFrom?: components["schemas"]["Fleet.Replacement"];
@@ -6440,6 +6471,8 @@ export interface components {
             deployments: components["schemas"]["ProductRefPreview"];
             domain?: string;
             evidence: components["schemas"]["ProductEvidencePreview"];
+            /** @description Where each field of the current revision comes from: declared, accepted, attested or inferred */
+            fields?: components["schemas"]["Fleet.FieldsPreview"];
             findings: components["schemas"]["ProductAttributedFindingsPreview"];
             /** Format: int64 */
             hiddenDependencies?: number;

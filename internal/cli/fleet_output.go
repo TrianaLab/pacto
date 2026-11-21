@@ -82,13 +82,7 @@ func printReplacedFrom(w io.Writer, r *fleet.Replacement, asOf time.Time) {
 	if r == nil {
 		return
 	}
-	line := r.Line(asOf)
-	if r.Target != "" {
-		// "Replaces <from> <when>" reads "<from> was replaced by <to> <when>".
-		_, from := fleet.ParseServiceKey(r.From)
-		line = from + " was replaced by " + string(r.To) + " " + strings.TrimPrefix(line, "Replaces "+from+" ")
-	}
-	_, _ = fmt.Fprintln(w, line)
+	_, _ = fmt.Fprintln(w, r.ReplacedLine(asOf))
 }
 
 // printInferredEdges prints the graph's runtime-inferred edges: calls one of
