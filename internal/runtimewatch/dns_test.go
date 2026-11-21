@@ -399,3 +399,15 @@ func TestAggregatorSharedResetDropsNames(t *testing.T) {
 		t.Fatal("shared workload kept its names")
 	}
 }
+
+// A shared namespace's answers are dropped like its socket events: none of its
+// connections is published, so no published connection loses a name and DNS
+// stays Running on a node with a hostNetwork pod.
+func TestAggregatorSharedNetnsAnswerIsNotUnattributed(t *testing.T) {
+	a := NewAggregator(DefaultBounds(), nil)
+	a.Resync(oneScan(), t0)
+	a.Apply(dnsEvent(1, answer(t, "api.stripe.com", stripeAddr)), t0)
+	if _, _, dns := a.Snapshot(at(time.Second), dnsRunning()); dns.State != runtimefacts.StateRunning {
+		t.Fatalf("dns = %+v", dns)
+	}
+}
