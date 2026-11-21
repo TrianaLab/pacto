@@ -47,3 +47,17 @@ func VerifyOwnerRight(ctx context.Context, in OwnerRightInput) delivery.OwnerRig
 	return delivery.JudgeOwnerSigners(in.Service, signers, why, in.Current,
 		delivery.OwnerClaim{Owner: in.Proposed}, in.Policy, in.PolicyFrom, in.Now)
 }
+
+// SignaturesProveNothing reports whether every signature attached to
+// repo@digest was read and none verifies under root: a key signature, or a
+// keyless one root does not chain to, names no signer. Such a bundle stands on
+// registry write access alone, as an unsigned push does, since stripping the
+// signature would make it one. No signature, an unreadable one, a root that
+// was not fetched (nil) or any verified signer is false.
+func SignaturesProveNothing(ctx context.Context, reg Registry, root root.TrustedMaterial, tlog bool, repo, digest string) bool {
+	if root == nil {
+		return false
+	}
+	_, err := SignersOf(ctx, reg, root, tlog, repo, digest)
+	return errors.Is(err, ErrSignatureInvalid)
+}

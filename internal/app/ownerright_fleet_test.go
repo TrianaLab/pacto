@@ -284,3 +284,24 @@ func TestFleetUndecidedCIIsUnverified(t *testing.T) {
 		t.Fatalf("undecided CI = %+v", st)
 	}
 }
+
+// TestFleetSignatureNobodyVerifiesUnchecked: a bundle whose signature names
+// nobody, such as one signed with a key, keeps its owner like an unsigned
+// push; a declaration signed that way is still unverified.
+func TestFleetSignatureNobodyVerifiesUnchecked(t *testing.T) {
+	reg := provenanceTestRegistry(t)
+	ref := ownerSignedRef(t, reg, "eve@acme.com")
+	keylessSigstoreFor(t, sigtest.Token("eve@acme.com", personIssuer)) // another root: the signature verifies nowhere
+	revs := []fleet.ContractRevision{passRev("1.0.0", "billing", "", "", false), passRev("2.0.0", "payments", ref, "", false), passRev("3.0.0", "risk", ref, "", true)}
+	for _, i := range []int{1, 2} {
+		revs[i].Provenance = &fleet.BundleProvenance{Signature: fleet.BundleSignature{Status: fleet.SignatureUnknown}}
+	}
+	reads := 0
+	ownerPass(reg, &reads)(t.Context(), revs)
+	if s := stamp(revs[1]); s != nil {
+		t.Fatalf("a signature nobody verifies is an unsigned push: %+v", s)
+	}
+	if s := stamp(revs[2]); s == nil || s.Allowed || s.Code != delivery.OwnerSignerUnverified {
+		t.Fatalf("declaration = %+v", s)
+	}
+}

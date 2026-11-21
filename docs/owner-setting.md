@@ -95,9 +95,11 @@ so a change judged after a version it did not read reads as unverified. The
 operator marks a running bundle the same way with the
 [`OwnerVerified` condition](integrations/kubernetes/owner-policy.md#the-ownerverified-condition).
 
-An unsigned version with no declaration keeps its owner. Whoever can write to
-the registry can already push any contract, so registry write access stays
-the trust boundary for unsigned pushes.
+An unsigned version with no declaration keeps its owner, and so does one
+whose signatures name nobody, such as one signed with a key: removing the
+signature would make it unsigned. Whoever can write to the registry can
+already push any contract, so registry write access stays the trust boundary
+for these pushes.
 
 ## Where the policy comes from
 

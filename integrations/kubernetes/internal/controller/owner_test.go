@@ -493,3 +493,27 @@ func TestOwnerVerifiedDoesNotChangeContractStatus(t *testing.T) {
 		t.Fatalf("contract status %q with the check, %q without", with.Status.ContractStatus, without.Status.ContractStatus)
 	}
 }
+
+// TestOwnerVerifiedAbsentWhenNoSignatureVerifies: a bundle signed with what
+// the root does not verify, such as a key, names no signer, so like an
+// unsigned push it keeps its owner; a declaration signed that way is still
+// judged.
+func TestOwnerVerifiedAbsentWhenNoSignatureVerifies(t *testing.T) {
+	f := newOwnerFixture(t)
+	other := testutil.New(t)
+	foreign, err := signing.Keyless(other.Fulcio, other.TSA, "", func(context.Context) (string, error) {
+		return testutil.Token("eve@acme.example", ownerPersonIssuer), nil
+	}, other.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := f.run(f.publish(teamPayments, nil, foreign))
+	if ownerCondition(p) != nil || statusOwnerTeam(p) != "payments" {
+		t.Fatalf("a signature nobody verifies is an unsigned push: %+v %+v", ownerCondition(p), p.Status.Contract)
+	}
+	p = f.run(f.publish(teamBilling, declarationRecord(), foreign))
+	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified)
+	if statusOwnerTeam(p) != "" {
+		t.Fatalf("an unverified declaration keeps its owner: %+v", p.Status.Contract)
+	}
+}

@@ -75,8 +75,9 @@ dashboard read the policy.
 
 The operator judges a Pacto whose bundle, pulled from a registry, changes the
 owner of the revision the Pacto ran before and either carries a declaration or
-has a signature other than CI provenance the publisher rule accepts. It sets
-`OwnerVerified`:
+has a signature other than CI provenance the publisher rule accepts. A bundle
+whose signatures name nobody, such as one signed with a key, is judged only
+when it carries a declaration. It sets `OwnerVerified`:
 
 | Status | Reason | Meaning |
 |---|---|---|

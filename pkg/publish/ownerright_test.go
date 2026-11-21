@@ -82,3 +82,29 @@ func TestVerifyOwnerRightNotPerson(t *testing.T) {
 		t.Fatalf("%+v", r)
 	}
 }
+
+// TestSignaturesProveNothing: only signatures that were all read and none of
+// which verifies under the root prove nothing; no signature, a verified one,
+// an unreadable registry and a missing root do not.
+func TestSignaturesProveNothing(t *testing.T) {
+	ss, other := testutil.New(t), testutil.New(t)
+	host, reg := testRegistry(t, true)
+	repo, d := signed(t, host, reg, signerFor(t, ss, testutil.Token("eve@acme.example", personIssuer)))
+	if !SignaturesProveNothing(t.Context(), reg, other.Root, false, repo, d) {
+		t.Error("a signature the root does not chain to proves something")
+	}
+	if SignaturesProveNothing(t.Context(), reg, ss.Root, false, repo, d) {
+		t.Error("a verified signature proves nothing")
+	}
+	if SignaturesProveNothing(t.Context(), reg, nil, false, repo, d) {
+		t.Error("no root proves nothing")
+	}
+	if SignaturesProveNothing(t.Context(), failingReferrers{reg}, other.Root, false, repo, d) {
+		t.Error("an unreadable registry proves nothing")
+	}
+	host, reg = testRegistry(t, true)
+	repo, d = signed(t, host, reg)
+	if SignaturesProveNothing(t.Context(), reg, other.Root, false, repo, d) {
+		t.Error("an unsigned bundle proves nothing")
+	}
+}

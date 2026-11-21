@@ -115,6 +115,14 @@ func outsideOwnerRule(r *fleet.ContractRevision) bool {
 	return !isDeclaration(r) && (!signed || fleet.CIPublished(p))
 }
 
+// signaturesProveNothing reports a revision with no declaration whose
+// signatures name nobody (publish.SignaturesProveNothing), such as one signed
+// with a key: its owner claim counts as an unsigned push's does.
+func signaturesProveNothing(ctx context.Context, reg publish.Registry, tm root.TrustedMaterial, repo, digest string, r *fleet.ContractRevision) bool {
+	return !isDeclaration(r) && r.Provenance != nil && r.Provenance.Signature.Status == fleet.SignatureUnknown &&
+		publish.SignaturesProveNothing(ctx, reg, tm, rekorURL != "", repo, digest)
+}
+
 // signersOf is the verified signers p lists, none for no provenance.
 func signersOf(p *fleet.BundleProvenance) []fleet.VerifiedSigner {
 	if p == nil {
@@ -186,18 +194,16 @@ func (p *ProvenanceChecker) stampOwnerRights(ctx context.Context, revs []fleet.C
 			spent[r.Key] = true // unknown, and never the next reference
 			return &delivery.OwnerRight{Code: delivery.OwnerSignerUnverified}
 		}
+		if signaturesProveNothing(ctx, p.reg, tm, repo, cmp.Or(digest, r.Digest), r) {
+			return nil // like an unsigned push: registry write is its trust boundary
+		}
 		pol := policy(repo)
 		proposed, _ := revisionClaim(r)
 		v := publish.VerifyOwnerRight(ctx, publish.OwnerRightInput{Registry: p.reg, Root: tm, TLog: rekorURL != "", Repo: repo, Digest: cmp.Or(digest, r.Digest),
 			Service: r.Service, Proposed: proposed.Owner, Current: current, Policy: pol.policy, PolicyFrom: pol.from,
 			ClassRules: p.installation(ctx).classes, Now: p.now()})
 		spent[r.Key] = ctx.Err() != nil
-		switch {
-		case v.Code == delivery.OwnerSignerNotPerson && fleet.CIUndecided(r.Provenance, !p.installation(ctx).inferred):
-			v = undecidedCI(r.Service)
-		case historyMatters(v) && hist.unknownBefore(ctx, r):
-			v = unreadHistory(r)
-		}
+		v = p.settleOwnerRight(ctx, r, v, hist)
 		return &v
 	})
 	for i := range revs {
@@ -217,6 +223,19 @@ func (p *ProvenanceChecker) stampOwnerRights(ctx context.Context, revs []fleet.C
 			r.Provenance.OwnerRight = &fleet.OwnerRightCheck{Allowed: true, Message: "the owner is unchanged"}
 		}
 	}
+}
+
+// settleOwnerRight is v as the fleet can stand by it: a CI signer no
+// installation rule judged, or a refusal that rests on an owner before r
+// that was not read, is unverified.
+func (p *ProvenanceChecker) settleOwnerRight(ctx context.Context, r *fleet.ContractRevision, v delivery.OwnerRight, hist *ownerHistory) delivery.OwnerRight {
+	switch {
+	case v.Code == delivery.OwnerSignerNotPerson && fleet.CIUndecided(r.Provenance, !p.installation(ctx).inferred):
+		return undecidedCI(r.Service)
+	case historyMatters(v) && hist.unknownBefore(ctx, r):
+		return unreadHistory(r)
+	}
+	return v
 }
 
 // historyMatters reports whether v depends on the owner before the

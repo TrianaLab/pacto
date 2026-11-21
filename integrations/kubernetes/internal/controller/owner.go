@@ -118,7 +118,7 @@ func (r *PactoReconciler) verifyOwner(ctx context.Context, pacto *pactov1alpha1.
 	tm, rootErr := oc.Root()
 	reg := oc.Registry(ec.auth)
 	cur := oc.bundle(ctx, reg, tm, lr)
-	if cur.outsideRule() {
+	if cur.outsideRule() || cur.provesNothing(ctx, reg, tm) {
 		meta.RemoveStatusCondition(&pacto.Status.Conditions, pactov1alpha1.ConditionOwnerVerified)
 		return true
 	}
@@ -340,6 +340,15 @@ func (b ownerBundle) declaration() bool {
 // declaration, and unsigned or a CI identity's publish (fleet.CIPublished).
 func (b ownerBundle) outsideRule() bool {
 	return !b.declaration() && (b.rev.Provenance.Signature.Status == fleet.SignatureUnsigned || fleet.CIPublished(b.rev.Provenance))
+}
+
+// provesNothing reports a bundle with no declaration whose signatures name
+// nobody (publish.SignaturesProveNothing), such as one signed with a key: like
+// an unsigned push, its owner claim counts as it is. A root that was not
+// fetched (nil) leaves it judged, so a transient failure is judged again.
+func (b ownerBundle) provesNothing(ctx context.Context, reg publish.Registry, tm root.TrustedMaterial) bool {
+	return !b.declaration() && b.rev.Provenance.Signature.Status == fleet.SignatureUnknown &&
+		publish.SignaturesProveNothing(ctx, reg, tm, hasTLog(tm), b.repo, b.digest)
 }
 
 // ownerChange reports whether a claim changes the reference owner current.
