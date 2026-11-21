@@ -97,6 +97,23 @@ func TestObservedKindlessNameQualifiedPerCluster(t *testing.T) {
 	}
 }
 
+// A kindless name from a source with no cluster in a multi-cluster snapshot
+// matches no cluster's workload: it stays unknown, never guessed.
+func TestObservedKindlessNameNoClusterStaysUnknown(t *testing.T) {
+	var srcs []Source
+	for _, id := range []string{clusterA, clusterB} {
+		srcs = append(srcs, workloadsSource("w-"+id[:4], clusterOf(id, id[:4], ClusterNameFromContext), inferredCart(), rawInferred("shop", "StatefulSet", "ledger")))
+	}
+	srcs = append(srcs, NewMemorySource("mesh", "observation", &Collection{Observed: []ObservedEdge{call(kindlessCart, kindlessLedger)}}))
+	snap := buildClusterSnap(t, srcs...)
+	if len(snap.InferredRelationships) != 0 || len(snap.Relationships) != 0 {
+		t.Errorf("a clusterless name was matched: %+v %+v", snap.InferredRelationships, snap.Relationships)
+	}
+	if k, res := snap.ObservedNameResolver()(kindlessCart); k != "" || res != ObservedUnknown {
+		t.Errorf("resolved %s %v", k, res)
+	}
+}
+
 func TestObservedKindlessInferredEdgeStaysInferred(t *testing.T) {
 	snap := kindlessSnap(t, nil, call(kindlessCart, kindlessLedger))
 	q := NewQuery(snap)
