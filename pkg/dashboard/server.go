@@ -94,6 +94,11 @@ type Options struct {
 	// in the viewer's snapshot first. Nil does not register
 	// /api/fleet/accept.
 	AcceptPlan func(ctx context.Context, svc fleet.ServiceKey, rev *fleet.ContractRevision) (AcceptPlanAnswer, error)
+	// Declare plans and carries out declaring an inferred service for the
+	// person behind a request. Nil registers neither /api/fleet/declare nor
+	// /api/fleet/declare/accept; a declarer that cannot write registers only
+	// the plan.
+	Declare Declarer
 	// Refresh rebuilds the fleet snapshot for /api/refresh. When nil — as in the
 	// offline WASM demo, whose snapshot is baked in — refresh is a successful no-op.
 	Refresh func(ctx context.Context) error

@@ -67,6 +67,17 @@ type DeclareRequest struct {
 	// replaces the service's login and counts as the person's interactive
 	// login.
 	Login func(context.Context) (string, error)
+	// Store is the registry the run reads and writes through; nil is the
+	// one the service's own credentials reach.
+	Store publish.Registry
+}
+
+// store is the registry req reads and writes through.
+func (s *Service) store(req DeclareRequest) publish.Registry {
+	if req.Store != nil {
+		return req.Store
+	}
+	return s.env().publishRegistry()
 }
 
 // DeclarePlan is what a declare run would publish, signed by whom, decided
@@ -119,6 +130,26 @@ type DeclarePlan struct {
 type DeclareBaseline struct {
 	contract.InferredBaseline
 	Signer string `json:"signer,omitempty"`
+	// From is the workload the baseline's own declaration was inferred
+	// from, ns/Kind/name in cluster; empty for a baseline no declaration
+	// published.
+	From Declared `json:"from,omitzero"`
+}
+
+// Declared is the workload a declaration or a draft was inferred from.
+type Declared struct {
+	InferredFrom string `json:"inferredFrom,omitempty"`
+	Cluster      string `json:"cluster,omitempty"`
+}
+
+// declaredFrom is the workload b's record says its declaration was inferred
+// from; zero when b carries no declaration.
+func declaredFrom(b *contract.Bundle) Declared {
+	rec, err := contract.ReadInferredRecord(b.FS)
+	if err != nil || rec == nil || rec.Declaration == nil {
+		return Declared{}
+	}
+	return Declared{InferredFrom: rec.Declaration.InferredFrom, Cluster: rec.Declaration.Cluster}
 }
 
 // DeclaredRange is one dependency of the declaration: its declared
@@ -205,7 +236,15 @@ type declaration struct {
 	// owner is the owner change a person's signature must have the right
 	// to make; nil when the owner does not change.
 	owner *ownerCheck
+	// reg is the registry the plan read and the run writes through.
+	reg publish.Registry
 }
+
+// Contract is pacto.yaml as the declaration would publish it.
+func (d *declaration) Contract() []byte { return d.raw }
+
+// Record is pacto.inferred.yaml as the declaration would publish it.
+func (d *declaration) Record() []byte { return d.record.Marshal() }
 
 // ownerCheck is an owner change a declaration makes: from the service's
 // effective owner to the proposed one, under the owner policy read (nil, and
@@ -237,7 +276,7 @@ func (s *Service) PlanDeclare(ctx context.Context, req DeclareRequest) (*Declare
 		return nil, nil, err
 	}
 	defer func() { _ = os.RemoveAll(scratch) }()
-	pl := &declarePlanner{s: s, req: req, scratch: scratch, reg: s.env().publishRegistry(), plan: &DeclarePlan{Deploy: "none"}}
+	pl := &declarePlanner{s: s, req: req, scratch: scratch, reg: s.store(req), plan: &DeclarePlan{Deploy: "none"}}
 	d, err := pl.run(ctx)
 	return pl.plan, d, err
 }
@@ -506,6 +545,7 @@ func (pl *declarePlanner) findBaseline(ctx context.Context) error {
 		return &DeclareError{Code: codeRegistryUnreadable, Message: "reading the deploy artifact of the baseline " + tag + ": " + err.Error()}
 	}
 	pl.plan.Baseline.InferredBaseline = contract.InferredBaseline{Version: tag, Bundle: pl.repo() + "@" + digest, Deploy: deploy}
+	pl.plan.Baseline.From = declaredFrom(base)
 	pl.plan.Deploy = cmp.Or(pl.plan.Baseline.Deploy, "none")
 	return pl.redraft(ctx, base)
 }
@@ -890,7 +930,7 @@ func (pl *declarePlanner) pack(raw []byte, rec *contract.InferredRecord) (*decla
 	if err != nil {
 		return nil, err
 	}
-	return &declaration{files: b.FS.(fstest.MapFS), raw: raw, record: rec, bundle: b, repo: pl.repo(), signing: pl.req.Signing}, nil
+	return &declaration{files: b.FS.(fstest.MapFS), raw: raw, record: rec, bundle: b, repo: pl.repo(), signing: pl.req.Signing, reg: pl.reg}, nil
 }
 
 // declarationBundle packs the folder dir as a declaration: every file the
@@ -1074,7 +1114,7 @@ func (s *Service) publishDeclared(ctx context.Context, res *DeclareResult, d *de
 	if err := d.redeclare(&dec); err != nil {
 		return err
 	}
-	reg, tm, tlog := s.env().publishRegistry(), c.Signer.Root, d.signing.RekorURL != ""
+	reg, tm, tlog := d.reg, c.Signer.Root, d.signing.RekorURL != ""
 	tools := checkedTools{execTools: signerTools(reg, c.Signer, signing.Policy{AnyIdentity: true, Root: tm, Tlog: tlog}),
 		check: func(ctx context.Context, ref string) error {
 			repo, digest, _ := strings.Cut(ref, "@")
@@ -1106,7 +1146,7 @@ func (s *Service) writeDraft(ctx context.Context, req DeclareRequest, res *Decla
 	if err := d.redeclare(&dec); err != nil {
 		return err
 	}
-	signed, reg := c.Source != signerNone, s.env().publishRegistry()
+	signed, reg := c.Source != signerNone, d.reg
 	r, tag, err := publish.ApplyDraft(ctx, reg, signerTools(reg, c.Signer, draftPolicy(d.signing, c)), d.input, signed)
 	if err := declareWriteError(err); err != nil {
 		return err
@@ -1207,7 +1247,7 @@ func (d *declaration) redeclare(dec *contract.InferredDeclaration) error {
 // cluster read nor an accepted range backs listed as unbacked.
 func (s *Service) fromDraft(ctx context.Context, req DeclareRequest) (*DeclarePlan, *declaration, error) {
 	repo, _, _ := publish.Layout(req.Registry, req.Service, "")
-	dr, err := readDraft(ctx, s.env().publishRegistry(), repo, req)
+	dr, err := readDraft(ctx, s.store(req), repo, req)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1346,7 +1386,7 @@ func (s *Service) unbacked(ctx context.Context, req DeclareRequest, object strin
 	defer func() { _ = os.RemoveAll(scratch) }()
 	ref := req
 	ref.Service, ref.Namespace, ref.Dir, ref.FromDraft = object, "", "", ""
-	pl := &declarePlanner{s: s, req: ref, scratch: scratch, reg: s.env().publishRegistry(), plan: &DeclarePlan{}}
+	pl := &declarePlanner{s: s, req: ref, scratch: scratch, reg: s.store(req), plan: &DeclarePlan{}}
 	raw, err := pl.prepare(ctx)
 	var base *contract.Contract
 	if err == nil {

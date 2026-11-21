@@ -209,3 +209,28 @@ func TestDeclareRequestLoginBeatsAmbientToken(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+// countingStore counts the reads that reach it.
+type countingStore struct {
+	publish.Registry
+	tags int
+}
+
+func (c *countingStore) Tags(ctx context.Context, repo string) ([]string, error) {
+	c.tags++
+	return c.Registry.Tags(ctx, repo)
+}
+
+func TestDeclareRequestStoreAndTexts(t *testing.T) {
+	e := newDeclareEnv(t)
+	store := &countingStore{Registry: e.reg}
+	req := e.req("ledger")
+	req.Store = store
+	_, d := e.plan(t, req)
+	if store.tags == 0 {
+		t.Error("the plan read past the request's store")
+	}
+	if !strings.Contains(string(d.Contract()), "name: invoices") || !strings.Contains(string(d.Record()), "declaration:") {
+		t.Errorf("texts:\n%s\n%s", d.Contract(), d.Record())
+	}
+}

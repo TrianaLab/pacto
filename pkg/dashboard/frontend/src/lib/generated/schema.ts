@@ -428,6 +428,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fleet/declare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan declaring an inferred service
+         * @description Plans what pacto declare would publish for an inferred service, read with the person's own cluster credentials: pacto.yaml, pacto.inferred.yaml, the version, the proposed ranges, the drafts waiting and whether the person can sign here. It writes nothing. Signed-in and local viewers only.
+         */
+        post: operations["fleet-declare"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fleet/declare/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign a declaration or save it as a draft
+         * @description Carries out a declaration plan the person reviewed, by its intent digest: publishes the declared version signed by the person's fresh login, saves a draft-<n> a person accepts later, or accepts a draft. It needs update on the workload and writes only into the service's bundle repository.
+         */
+        post: operations["fleet-declare-accept"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/fleet/entities": {
         parameters: {
             query?: never;
@@ -1171,6 +1211,8 @@ export interface components {
         CapabilitiesOutputBody: {
             /** @description What this caller's Kubernetes permissions leave out of the fleet views */
             auth: components["schemas"]["CapabilityAuth"];
+            /** @description This caller can plan declaring an inferred service: the host declares and knows who the caller is */
+            declare: boolean;
             /** @description The delivery views and actions are served */
             delivery: boolean;
             /** @description The operational-graph (fleet) endpoints are served */
@@ -1322,6 +1364,11 @@ export interface components {
             major?: number;
             sdk: string;
         };
+        "Contract.InferredCoverage": {
+            reason?: string;
+            source: string;
+            state: string;
+        };
         "Contract.InferredExternal": {
             catalog?: string;
             client?: components["schemas"]["Contract.InferredClient"];
@@ -1346,6 +1393,11 @@ export interface components {
             missing?: string[] | null;
             name?: string;
             type: string;
+        };
+        "Contract.InferredSigner": {
+            class: string;
+            issuer: string;
+            subject: string;
         };
         "Contract.InferredSurface": {
             asOf: string;
@@ -1539,6 +1591,156 @@ export interface components {
              * @enum {string}
              */
             signing?: "recorder";
+        };
+        DeclareAcceptAnswer: {
+            /** @description The command a person accepts a draft with */
+            command?: string;
+            draft?: boolean;
+            /** @description The fresh plan of a PlanStale refusal */
+            plan?: components["schemas"]["DeclareAnswer"];
+            /** @description The bundle written, as <repository>@sha256:<hex> */
+            published?: string;
+            refusal?: components["schemas"]["DeclareRefusal"];
+            signed?: boolean;
+            /** @description The version or draft-<n> tag written */
+            tag?: string;
+        };
+        DeclareAcceptInput: {
+            /** @description The dependencies whose proposed range the declaration accepts */
+            accept?: string[] | null;
+            /** @description Accept this draft: its tag must still name the digest the plan showed */
+            fromDraft?: components["schemas"]["DraftRef"];
+            /** @description The intent digest of the plan the person reviewed: a plan that moved since is refused with PlanStale */
+            intentDigest: string;
+            /**
+             * @description sign: publish the declared version signed by the person's fresh login; draft: save a draft-<n> a person accepts later
+             * @enum {string}
+             */
+            mode: "sign" | "draft";
+            /** @description The inferred service to declare */
+            serviceKey: string;
+        };
+        DeclareAnswer: {
+            /** @description The exact pacto declare command a person runs in a terminal */
+            command?: string;
+            /** @description The service's drafts, newest first, at most 20 */
+            drafts?: components["schemas"]["DeclareDraft"][] | null;
+            /** Format: int64 */
+            draftsTotal?: number;
+            /** @description Absent when the plan was refused before it was built */
+            plan?: components["schemas"]["DeclarePlan"];
+            refusal?: components["schemas"]["DeclareRefusal"];
+            /** @description Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page>; present only with signing mode fresh-login */
+            signTicket?: string;
+            signing: components["schemas"]["DeclareSigning"];
+            write: components["schemas"]["DeclareWrite"];
+        };
+        DeclareBaseline: {
+            bundle: string;
+            signer?: string;
+            version: string;
+        };
+        DeclareDraft: {
+            /** @description Who wrote it; an unsigned draft names nobody and its on-behalf-of person is asserted */
+            asker: components["schemas"]["Contract.InferredSigner"];
+            digest?: string;
+            onBehalfOf?: string;
+            reason?: string;
+            /** @description The ranges it requests, as <dependency> <range> */
+            requested?: string[] | null;
+            signed: boolean;
+            /** @description draft, or unreadable with the reason */
+            state: string;
+            tag: string;
+        };
+        DeclareInput: {
+            /** @description The dependencies whose proposed range the declaration accepts */
+            accept?: string[] | null;
+            /** @description Plan accepting this draft instead: its own texts, what nothing backs and an intent digest that covers the draft digest */
+            fromDraft?: components["schemas"]["DraftRef"];
+            /** @description The intent a signing login was started for: back from that login, the accepted ranges are the ones it was started with, whatever accept says */
+            intentDigest?: string;
+            /** @description The inferred service to declare */
+            serviceKey: string;
+        };
+        DeclarePlan: {
+            baseline?: components["schemas"]["DeclareBaseline"];
+            bundleRepo: string;
+            cluster?: string;
+            /** @description pacto.yaml as it would be published */
+            contract: components["schemas"]["DeclareText"];
+            coverage?: components["schemas"]["Contract.InferredCoverage"][] | null;
+            /** @description The baseline deploy artifact the version reuses, or none */
+            deploy: string;
+            inferredFrom: string;
+            intentDigest: string;
+            /** @description Who may set the owner this plan changes */
+            mayAccept?: string[] | null;
+            notes?: string[] | null;
+            owner?: string;
+            policyNote?: string;
+            ranges: components["schemas"]["DeclareRange"][] | null;
+            /** @description pacto.inferred.yaml as it would be published */
+            record: components["schemas"]["DeclareText"];
+            service: string;
+            signer: components["schemas"]["DeclareSigner"];
+            /** @description declared for a person's login, else draft */
+            state: string;
+            /** @description Declared changes of an accepted draft that neither the baseline, the cluster read nor an accepted range backs */
+            unbacked?: string[] | null;
+            /** @description Why what backs the draft's changes could not be checked */
+            unbackedUnchecked?: string;
+            /** @description The baseline version when nothing changed since it: nothing is written */
+            unchanged?: string;
+            version: string;
+        };
+        DeclareRange: {
+            accepted?: boolean;
+            /** @description The declared range; unknown unless a person accepts the proposal */
+            compatibility: string;
+            dependency: string;
+            /** @description The versions observed */
+            observed?: string;
+            /** @description The range the cluster read proposes */
+            proposed?: string;
+        };
+        DeclareRefusal: {
+            /**
+             * @description The pacto declare refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable and NotAllowed
+             * @enum {string}
+             */
+            code: "PlanStale" | "IntentRequired" | "WorkloadNotFound" | "WorkloadAmbiguous" | "AlreadyDeclared" | "RangeNotProposed" | "NoRegistry" | "RegistryUnreadable" | "VersionConflict" | "SignerNotAllowed" | "SignerUnverified" | "DraftNotFound" | "ExecuteNeedsStdio" | "BaselineNeedsMigration" | "BundleRepoMismatch" | "AcceptNothingProposed" | "FieldNotAcceptable" | "BreakNotAnnounced" | "NotPublished" | "PersonSigningUnavailable" | "OwnerSignerNotPerson" | "OwnerSignerNotAllowed" | "OwnerPolicyUnverified" | "OwnerSignerUnverified" | "IdentityRequired" | "SignInLinkReadsFleet" | "ReviewFailed" | "ClusterNotReviewable" | "NotAllowed";
+            /** @description The command a person runs about it */
+            command?: string;
+            message: string;
+        };
+        DeclareSigner: {
+            class: string;
+            issuer?: string;
+            /** @description key, ambient, login or none */
+            source: string;
+            subject?: string;
+            why?: string;
+        };
+        DeclareSigning: {
+            /** @description Who the fresh login signs as */
+            identity?: string;
+            /**
+             * @description fresh-login: the person signs with a fresh login at the identity provider; none: the person saves a draft or runs the command
+             * @enum {string}
+             */
+            mode: "fresh-login" | "none";
+            /** @description Why the person cannot sign here */
+            reason?: string;
+        };
+        DeclareText: {
+            text: string;
+            /** @description The file is longer than 64 KiB and only its start is shown */
+            truncated?: boolean;
+        };
+        DeclareWrite: {
+            available: boolean;
+            reason?: string;
         };
         "Delivery.AcceptedRange": {
             field: string;
@@ -2439,6 +2641,12 @@ export interface components {
             path: string;
             title: string;
             truncated?: boolean;
+        };
+        DraftRef: {
+            /** @description The digest of the draft the plan showed */
+            digest: string;
+            /** @description The draft tag, draft-<n> */
+            tag: string;
         };
         EnvironmentCount: {
             /**
@@ -9766,6 +9974,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProductAttentionList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-declare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeclareInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeclareAnswer"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-declare-accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeclareAcceptInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeclareAcceptAnswer"];
                 };
             };
             /** @description Error */

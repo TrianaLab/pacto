@@ -127,15 +127,15 @@ func TestDashboardSigningReport(t *testing.T) {
 	}
 }
 
-// signPathFiles are the files a dashboard signature passes through. P6 adds
-// the declare routes (dashboard_declare.go, declare_drafts_writer.go and
-// pkg/dashboard/declare.go) and the Fulcio exchange they run.
-var signPathFiles = []string{"dashboard_sign.go", "../authn/sign.go"}
+// signPathFiles are the files a dashboard signature passes through.
+var signPathFiles = []string{"dashboard_sign.go", "../authn/sign.go", "dashboard_declare.go", "declare_drafts_writer.go", "../../pkg/dashboard/declare.go"}
 
 // TestSignNeverUsesSessionToken: the session's ID token is the bearer the API
 // server accepts, so it must never reach Fulcio. No sign path calls
 // Session.IDToken() or reads authn.State.Token, and the session's raw token
-// is read in one place only: the same-person comparison of the callback.
+// is read in one place only: the same-person comparison of the callback. The
+// one State.Token read allowed is the person's own cluster read,
+// authn.RESTConfig(cluster, st.Token), which never reaches Fulcio.
 func TestSignNeverUsesSessionToken(t *testing.T) {
 	for _, path := range signPathFiles {
 		f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
@@ -150,6 +150,9 @@ func TestSignNeverUsesSessionToken(t *testing.T) {
 						compared[a] = true
 					}
 				}
+				if sel, ok := c.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "RESTConfig" && len(c.Args) == 2 {
+					compared[c.Args[1]] = true
+				}
 			}
 			return true
 		})
@@ -159,8 +162,10 @@ func TestSignNeverUsesSessionToken(t *testing.T) {
 				return true
 			}
 			switch sel.Sel.Name {
-			case "IDToken", "Token":
+			case "IDToken":
 				t.Errorf("%s reads %s: the session's token never takes part in signing", path, sel.Sel.Name)
+			case "Token":
+				expect(t, compared[sel], "%s reads Token outside the person's own cluster read: the session's token never takes part in signing", path)
 			case "idToken":
 				expect(t, compared[sel], "%s reads the session's raw token outside the same-person check", path)
 			}

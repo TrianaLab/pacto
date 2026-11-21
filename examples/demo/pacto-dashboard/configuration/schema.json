@@ -9,6 +9,10 @@
       "description": "Serve beyond loopback without sign-in; everyone who reaches the address reads the whole fleet",
       "type": "boolean"
     },
+    "PACTO_DASHBOARD_DECLARE_REGISTRY_CONFIG": {
+      "description": "A Docker config.json with push access to the registry, the dashboard's own push credential; a shared dashboard without it only plans declarations and shows the command",
+      "type": "string"
+    },
     "PACTO_DASHBOARD_DELIVERY_NAMESPACE": {
       "default": "pacto-delivery",
       "description": "Namespace Pacto delivery runs in, whose published identity policy the dashboard reads",
@@ -81,6 +85,10 @@
       "description": "HTTP server port",
       "format": "int64",
       "type": "integer"
+    },
+    "PACTO_DASHBOARD_REGISTRY": {
+      "description": "The registry declarations made in the dashboard are published to (\u003chost\u003e/\u003cpath\u003e); without it the dashboard offers no Declare",
+      "type": "string"
     },
     "PACTO_DASHBOARD_REKOR_URL": {
       "default": "https://rekor.sigstore.dev",

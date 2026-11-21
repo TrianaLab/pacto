@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -55,10 +56,10 @@ func (x *signFixture) session(t *testing.T) *Session {
 // does.
 func (x *signFixture) ticket(t *testing.T, intent string, accept ...string) string {
 	t.Helper()
-	id := random(16)
-	x.s.mu.Lock()
-	x.s.tickets[id] = signTicket{key: signKey{session: x.session(t).id, intent: intent}, accept: accept, expires: x.s.now().Add(signTTL)}
-	x.s.mu.Unlock()
+	id := x.s.Ticket(withCookie(x.cookie), intent, accept)
+	if id == "" {
+		t.Fatal("no ticket for a live session")
+	}
 	return id
 }
 
@@ -380,4 +381,28 @@ func TestRoutesServeTheSigningLogin(t *testing.T) {
 	rec = httptest.NewRecorder()
 	NewShared(x.o, nil).Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/auth/sign", nil))
 	expect(t, rec.Code == http.StatusNotFound, "without a signer there is no signing login: %d", rec.Code)
+}
+
+func TestSignTokenSingleUse(t *testing.T) {
+	x := newSignFixture(t, "ana", Claims{})
+	req := withCookie(x.cookie)
+	_, ok := x.s.Take(req, "intent-1")
+	expect(t, !ok, "nothing to take before the signing login")
+	cb, _ := x.sign(t, "intent-1", "ana")
+	expect(t, cb.Code == http.StatusFound, "callback %d %s", cb.Code, cb.Body)
+	expect(t, slices.Equal(x.s.Accepted(req, "intent-1"), []string{"owner.team"}), "the ticket's accept set: %v", x.s.Accepted(req, "intent-1"))
+	_, ok = x.s.Take(req, "intent-2")
+	expect(t, !ok, "a token is taken only for its own intent")
+	raw, ok := x.s.Take(req, "intent-1")
+	expect(t, ok && raw != "" && raw != x.session(t).idToken, "the sign client's token is taken once")
+	_, ok = x.s.Take(req, "intent-1")
+	expect(t, !ok, "a token is never taken twice")
+	expect(t, x.s.Accepted(req, "intent-1") == nil, "a taken login carries no accept set")
+	other := httptest.NewRequest(http.MethodGet, "/", nil)
+	expect(t, x.s.Ticket(other, "intent-1", nil) == "", "no ticket without a session")
+	_, ok = x.s.Take(other, "intent-1")
+	expect(t, !ok, "nothing to take without a session")
+	expect(t, x.s.Ticket(req, "", nil) == "", "no ticket without an intent")
+	first, second := x.ticket(t, "intent-3"), x.ticket(t, "intent-3")
+	expect(t, first != second, "every ticket is new")
 }

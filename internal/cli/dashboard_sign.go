@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/authn"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
@@ -117,4 +118,33 @@ func (s *dashboardSigning) report(ctx context.Context) {
 		return
 	}
 	log.Info("people sign declarations in the dashboard with a fresh login", "fulcio", s.fulcio, "client", s.clientID)
+}
+
+// The signing modes a declaration plan answers.
+const (
+	signModeFreshLogin = "fresh-login"
+	signModeNone       = "none"
+)
+
+// signingMode is how a person signs a declaration here (Decision 6): with a
+// fresh login at the identity provider, only on a shared dashboard whose
+// session came from OIDC and whose Fulcio trusts the sign client; otherwise
+// not at all, and why. A local dashboard signs in the person's terminal, and
+// a token sign-in never signs.
+func (s *dashboardSigning) signingMode(ctx context.Context, local bool, method, user string) dashboard.DeclareSigning {
+	none := func(reason string) dashboard.DeclareSigning {
+		return dashboard.DeclareSigning{Mode: signModeNone, Reason: reason}
+	}
+	switch {
+	case local:
+		return none("run the command in your terminal to sign")
+	case s == nil:
+		return none("this dashboard has no signing login: save a draft or run the command in your terminal")
+	case method != "oidc":
+		return none("a token sign-in never signs: save a draft or run the command in your terminal")
+	}
+	if ok, reason := s.trusted(ctx); !ok {
+		return none("Fulcio does not issue certificates for the dashboard's signing login (" + reason + "): save a draft or run the command in your terminal")
+	}
+	return dashboard.DeclareSigning{Mode: signModeFreshLogin, Identity: user}
 }

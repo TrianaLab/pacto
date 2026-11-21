@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -259,4 +260,57 @@ func samePerson(c Claims, signRaw, sessionRaw string) bool {
 	}
 	ea, eb := email(signRaw), email(sessionRaw)
 	return ea == "" || eb == "" || ea == eb
+}
+
+// Ticket lets the OIDC session of r start one signing login for intent with
+// the accept set accept: the plan route hands it to the browser after the
+// mutating-request guard passed, so no third-party link can start one. It is
+// "" without an OIDC session.
+func (s *Signer) Ticket(r *http.Request, intent string, accept []string) string {
+	sess := s.o.Session(r)
+	if sess == nil || intent == "" {
+		return ""
+	}
+	id, now := random(16), s.now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bound(s.tickets, now, func(t signTicket) time.Time { return t.expires })
+	s.tickets[id] = signTicket{key: signKey{session: sess.id, intent: intent}, accept: slices.Clone(accept), expires: now.Add(signTTL)}
+	return id
+}
+
+// entry is the live signing login of r's session for intent.
+func (s *Signer) entry(r *http.Request, intent string, take bool) (signEntry, bool) {
+	sess := s.o.Session(r)
+	if sess == nil {
+		return signEntry{}, false
+	}
+	key := signKey{session: sess.id, intent: intent}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.entries[key]
+	ok = ok && s.now().Before(e.expires)
+	if take && ok && e.raw != "" {
+		delete(s.entries, key)
+	}
+	return e, ok
+}
+
+// Take hands over, once, the sign client's ID token the session of r got for
+// intent; false when there is none (never signed, expired or taken). The
+// session's own token is never returned.
+func (s *Signer) Take(r *http.Request, intent string) (string, bool) {
+	e, ok := s.entry(r, intent, true)
+	return e.raw, ok && e.raw != ""
+}
+
+// Accepted is the accept set the ticket of the session's signing login for
+// intent carried, so the page returning from the login shows the plan that
+// was signed for, whatever its URL says; nil without one.
+func (s *Signer) Accepted(r *http.Request, intent string) []string {
+	e, ok := s.entry(r, intent, false)
+	if !ok {
+		return nil
+	}
+	return slices.Clone(e.accept)
 }

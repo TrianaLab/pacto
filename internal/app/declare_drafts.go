@@ -35,6 +35,8 @@ type DraftView struct {
 	Requested []string `json:"requested,omitempty"`
 	Signed    bool     `json:"signed"`
 	Reason    string   `json:"reason,omitempty"`
+	// From is the workload the draft was inferred from.
+	From Declared `json:"from,omitzero"`
 }
 
 // drafts lists the bundle repository's draft tags (from the tags
@@ -90,6 +92,7 @@ func (pl *declarePlanner) draftView(ctx context.Context, tag string, tm root.Tru
 	}
 	dec := rec.Declaration
 	v.State, v.Asker, v.OnBehalfOf = dec.State, dec.Asker, dec.OnBehalfOf
+	v.From = Declared{InferredFrom: dec.InferredFrom, Cluster: dec.Cluster}
 	for _, a := range dec.Requested {
 		name := strings.TrimSuffix(strings.TrimPrefix(a.Field, "dependencies["), "].compatibility")
 		v.Requested = append(v.Requested, name+" "+a.Range)

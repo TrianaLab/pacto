@@ -473,7 +473,21 @@ func (s *Server) stubProvidersForSchemaExport() {
 	s.opts.Stats = func(context.Context, []string) (stats.RecordSet, error) {
 		return stats.RecordSet{}, errors.New("schema export only")
 	}
+	s.opts.Declare = schemaDeclarer{}
 }
+
+// schemaDeclarer registers both declare routes for the schema export.
+type schemaDeclarer struct{}
+
+func (schemaDeclarer) Plan(*http.Request, DeclareWorkload, DeclareInput) (*DeclareAnswer, error) {
+	return nil, errors.New("schema export only")
+}
+
+func (schemaDeclarer) Accept(*http.Request, DeclareWorkload, DeclareAcceptInput) (*DeclareAcceptAnswer, error) {
+	return nil, errors.New("schema export only")
+}
+
+func (schemaDeclarer) CanWrite() bool { return true }
 
 func parseViews(s string) []fleet.KnowledgeView {
 	if s == "" {

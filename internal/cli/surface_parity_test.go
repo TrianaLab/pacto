@@ -361,20 +361,28 @@ func ciRows() []surfaceRow {
 // contract's first tool: the agent's dry_run and intent_digest are the
 // person's --yes and --intent.
 func declareRows() []surfaceRow {
-	const why = "the dashboard Declare panel is 513-S6"
+	const why = "the dashboard Declare panel names the inferred service by its fleet key and reads its workload from the snapshot"
 	const whyLocal = "a person's local signing: MCP callers are agents and never sign a declared record"
+	const plan, accept = "POST /api/fleet/declare", "POST /api/fleet/declare/accept"
 	return slices.Concat(
 		[]surfaceRow{
-			{"declare <service>", "pacto_declare.service", "", why},
-			{"declare --intent", "pacto_declare.intent_digest", "", why},
-			{"declare --yes", "pacto_declare.dry_run", "", why + "; dry_run false writes a draft, --yes publishes after a person's login"},
-			{"declare --dir", "pacto_declare.dir", "", why + "; over MCP dir is stdio only"},
-			{"", "pacto_declare.on_behalf_of", "", "an MCP caller is an agent and names the person it acts for; the CLI runs as that person; " + why},
-			{"declare --delivery-trust", "", "", "stdio pacto_declare reads the server's own --delivery-trust; " + why},
-			{"declare --draft", "pacto_declare.draft", "", "the dashboard Declare panel writes drafts through POST /api/fleet/declare/accept; over MCP draft is stdio only"},
+			{"declare <service>", "pacto_declare.service", plan + " body.serviceKey", why},
+			{"", "", accept + " body.serviceKey", why},
+			{"declare --accept", "pacto_declare.accept", plan + " body.accept", ""},
+			{"", "", accept + " body.accept", "the accept route carries out the plan with the ranges it accepted"},
+			{"declare --intent", "pacto_declare.intent_digest", accept + " body.intentDigest", ""},
+			{"", "", plan + " body.intentDigest", "back from the dashboard's signing login, the plan the login was started for"},
+			{"declare --from-draft", "", plan + " body.fromDraft", "MCP callers are agents and never accept a draft; the dashboard names the draft by tag and the digest it showed"},
+			{"", "", accept + " body.fromDraft", "MCP callers are agents and never accept a draft"},
+			{"declare --yes", "pacto_declare.dry_run", accept + " body.mode", "dry_run false writes a draft, --yes publishes after a person's login; the dashboard signs (mode sign) or saves a draft (mode draft)"},
+			{"declare --dir", "pacto_declare.dir", "", "the dashboard declares a workload the fleet sees, never a folder; over MCP dir is stdio only"},
+			{"", "pacto_declare.on_behalf_of", "", "an MCP caller is an agent and names the person it acts for; the CLI and the dashboard run as that person"},
+			{"declare --delivery-trust", "", "", "stdio pacto_declare and the dashboard read the server's own --delivery-trust"},
+			{"declare --draft", "pacto_declare.draft", "", "the dashboard Declare panel writes drafts through POST /api/fleet/declare/accept mode draft; over MCP draft is stdio only"},
 		},
-		alike("declare", "pacto_declare", "", why, "namespace", "registry", "accept", "max-items", "call-window"),
-		alike("declare", "", "", whyLocal, "from-draft", "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
+		alike("declare", "pacto_declare", "", "the dashboard reads the workload's namespace from the snapshot, declares into its own --registry and reads the cluster as the person",
+			"namespace", "registry", "max-items", "call-window"),
+		alike("declare", "", "", whyLocal, "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
 			"rekor-url", "trusted-root"),
 	)
 }
