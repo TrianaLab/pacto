@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -1040,5 +1041,101 @@ func TestInferredRecordProposed(t *testing.T) {
 	rec := &InferredRecord{Fields: []Inferred{{Field: "image"}, {Field: "dependencies[ledger].compatibility", Proposed: "^2.3.0"}}}
 	if none.Proposed("x") != "" || rec.Proposed("dependencies[billing].compatibility") != "" || rec.Proposed("dependencies[ledger].compatibility") != "^2.3.0" {
 		t.Fatal("Proposed read the wrong field")
+	}
+}
+
+// citedDeclaration is a well-formed inputs.declaration citation.
+func citedDeclaration() *CitedDeclaration {
+	return &CitedDeclaration{Record: "ghcr.io/acme/invoices@sha256:" + strings.Repeat("7", 64), Signer: "ana@acme.com (https://accounts.google.com)",
+		Fields: "dependencies[ledger].compatibility,service.owner"}
+}
+
+func TestCitedDeclarationRoundTrip(t *testing.T) {
+	r := sampleRecord()
+	r.Inputs.Declaration = citedDeclaration()
+	data := r.Marshal()
+	got, err := ParseInferredRecord(data)
+	if err != nil || !reflect.DeepEqual(got.Inputs.Declaration, r.Inputs.Declaration) {
+		t.Fatalf("%v %+v", err, got)
+	}
+	if again := got.Marshal(); !bytes.Equal(again, data) {
+		t.Fatalf("round trip changed the bytes:\n%s\n---\n%s", data, again)
+	}
+}
+
+func TestCitedDeclarationStrictDecoder(t *testing.T) {
+	r := sampleRecord()
+	r.Inputs.Declaration = citedDeclaration()
+	bad := strings.Replace(string(r.Marshal()), "\n        signer: ", "\n        by: bob\n        signer: ", 1)
+	if _, err := ParseInferredRecord([]byte(bad)); err == nil || !strings.Contains(err.Error(), "by") {
+		t.Fatalf("%v\n%s", err, bad)
+	}
+}
+
+func TestCitedDeclarationBadRecordRefused(t *testing.T) {
+	for name, record := range map[string]string{
+		"tag":        "ghcr.io/acme/invoices:0.1.0",
+		"algorithm":  "ghcr.io/acme/invoices@sha512:" + strings.Repeat("7", 64),
+		"short":      "ghcr.io/acme/invoices@sha256:7c1d2e3f4a5b",
+		"repository": "@sha256:" + strings.Repeat("7", 64),
+		"uppercase":  "GHCR.io/acme/invoices@sha256:" + strings.Repeat("7", 64),
+	} {
+		r := sampleRecord()
+		r.Inputs.Declaration = citedDeclaration()
+		r.Inputs.Declaration.Record = record
+		if _, err := ParseInferredRecord(r.Marshal()); err == nil || !strings.Contains(err.Error(), "inputs.declaration.record") {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+}
+
+func TestCitedDeclarationBadFieldRefused(t *testing.T) {
+	for name, tc := range map[string]struct{ signer, fields, want string }{
+		"other key":   {"ana@acme.com", "service.name", "inputs.declaration.fields"},
+		"ref key":     {"ana@acme.com", "dependencies[ledger].ref", "inputs.declaration.fields"},
+		"unsorted":    {"ana@acme.com", "service.owner,dependencies[ledger]", "sorted"},
+		"duplicate":   {"ana@acme.com", "service.owner,service.owner", "sorted"},
+		"empty":       {"ana@acme.com", "", "inputs.declaration.fields"},
+		"empty item":  {"ana@acme.com", "dependencies[ledger],", "inputs.declaration.fields"},
+		"no signer":   {"", "service.owner", "inputs.declaration.signer"},
+		"spaced list": {"ana@acme.com", "dependencies[ledger], service.owner", "inputs.declaration.fields"},
+	} {
+		r := sampleRecord()
+		r.Inputs.Declaration = citedDeclaration()
+		r.Inputs.Declaration.Signer, r.Inputs.Declaration.Fields = tc.signer, tc.fields
+		if _, err := ParseInferredRecord(r.Marshal()); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
+		}
+	}
+	// Each key form on its own is accepted.
+	for _, fields := range []string{"service.owner", "dependencies[ledger]", "dependencies[ledger].compatibility",
+		"dependencies[a],dependencies[a].compatibility,dependencies[b],service.owner"} {
+		r := sampleRecord()
+		r.Inputs.Declaration = citedDeclaration()
+		r.Inputs.Declaration.Fields = fields
+		if _, err := ParseInferredRecord(r.Marshal()); err != nil {
+			t.Errorf("%s: %v", fields, err)
+		}
+	}
+}
+
+func TestInferredUnchangedIgnoresDeclarationInput(t *testing.T) {
+	bundle := func(rec *InferredRecord) *Bundle {
+		return &Bundle{Contract: &Contract{}, FS: fstest.MapFS{
+			"pacto.yaml":       {Data: []byte("x")},
+			"openapi/v1.yaml":  {Data: []byte("openapi: 3.0.0\n")},
+			"deploy/app.yaml":  {Data: []byte("kind: Deployment\n")},
+			InferredRecordFile: {Data: rec.Marshal()},
+		}}
+	}
+	digest := func(b *Bundle) (string, error) {
+		data, err := fs.ReadFile(b.FS, "pacto.yaml")
+		return string(data), err
+	}
+	cited := sampleRecord()
+	cited.Inputs.Declaration = citedDeclaration()
+	// "fields" is what InferredUnchanged names when no cited input differs.
+	if unchanged, what := InferredUnchanged(bundle(sampleRecord()), bundle(cited), digest); !unchanged || what != "fields" {
+		t.Fatalf("got %v %q, want unchanged", unchanged, what)
 	}
 }
