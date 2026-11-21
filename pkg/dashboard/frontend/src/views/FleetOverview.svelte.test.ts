@@ -9,12 +9,22 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount } from 'svelte';
 
-const { overviewFn, entitiesFn } = vi.hoisted(() => ({ overviewFn: vi.fn(), entitiesFn: vi.fn() }));
+const { overviewFn, entitiesFn, statsFn, mapFn } = vi.hoisted(() => ({ overviewFn: vi.fn(), entitiesFn: vi.fn(), statsFn: vi.fn(), mapFn: vi.fn() }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
-  // The trust figure's aside asks the service tally separately; it never answers
-  // unless a test says so.
-  return { ...actual, api: { fleetOverview: (...a: unknown[]) => overviewFn(...a), fleetEntities: (...a: unknown[]) => entitiesFn(...a) ?? new Promise(() => {}) } };
+  // The trust figure's aside asks the service tally separately, the figures their trend
+  // and the map its answer; none answers unless a test says so.
+  const never = () => new Promise(() => {});
+  return { ...actual, api: {
+    fleetOverview: (...a: unknown[]) => overviewFn(...a), fleetEntities: (...a: unknown[]) => entitiesFn(...a) ?? never(),
+    stats: (...a: unknown[]) => statsFn(...a) ?? never(), fleetMap: (...a: unknown[]) => mapFn(...a) ?? never(),
+    fleetMapNodes: never, fleetMapFocus: never, fleetAttention: never,
+  } };
+});
+import { recordingContext } from '../lib/fleetMap/testkit';
+beforeEach(() => {
+  statsFn.mockReset(); mapFn.mockReset();
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => recordingContext() as never);
 });
 
 import { ApiError } from '../lib/api.ts';
@@ -58,10 +68,10 @@ function baseOverview(partial = false): any {
   };
 }
 
-function mountView() {
+function mountView(params: Record<string, string> = {}) {
   const target = document.createElement('div');
   document.body.appendChild(target);
-  const component = mount(FleetOverview, { target, props: { refreshTick: 0 } });
+  const component = mount(FleetOverview, { target, props: { refreshTick: 0, params } });
   return { target, component };
 }
 
@@ -136,22 +146,6 @@ describe('FleetOverview — operational landing (scenarios 1-5)', () => {
     expect(answer.querySelector('a')?.getAttribute('href')).toBe('#/fleet/services?declaration=inferred');
     expect(target.textContent).not.toContain('Nothing is broken');
     expect(target.textContent).not.toContain('No declared services yet.');
-    unmount(component); document.body.removeChild(target);
-  });
-
-  it('links an uncontracted caller to its inferred service in the attention preview', async () => {
-    const ov = baseOverview();
-    ov.attention = { total: 1, count: 1, truncated: false, items: [{
-      entity: { kind: 'service', key: 'payments', label: 'payments', href: '/fleet/services/payments' },
-      caller: { kind: 'service', key: 'k8s:shop%2FDeployment%2Fcart', label: 'k8s:shop/Deployment/cart', href: '/fleet/services/k8s%3Ashop%252FDeployment%252Fcart', declaration: 'inferred' },
-      severity: 'info', category: 'undeclared', code: 'UNCONTRACTED_CALLER', summary: 'Caller with no contract',
-    }] };
-    overviewFn.mockResolvedValue(ov);
-    const { target, component } = mountView();
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="attention-caller"]')).toBeTruthy());
-    const a = target.querySelector('[data-testid="attention-caller"] a.entity-link') as HTMLAnchorElement;
-    expect(a.getAttribute('href')).toBe('#/fleet/services/k8s%3Ashop%252FDeployment%252Fcart');
-    expect(a.textContent).toContain('k8s:shop/Deployment/cart');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -240,7 +234,7 @@ describe('FleetOverview — operational landing (scenarios 1-5)', () => {
     await vi.waitFor(() => expect(target.querySelector('.op-summary')).toBeTruthy());
     const text = target.textContent || '';
     expect(text).not.toMatch(/all clear/i);
-    expect(text).toContain('Source unavailable'); // the incompleteness is shown honestly
+    expect(text).toContain('1 data source is unavailable'); // the incompleteness is shown honestly
     unmount(component); document.body.removeChild(target);
   });
 
@@ -251,20 +245,13 @@ describe('FleetOverview — operational landing (scenarios 1-5)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
-  it('scenario 4: an attention item navigates to its exact entity; a category tile to its filter', async () => {
+  it('scenario 4: a category tile links to its filter', async () => {
     const ov = baseOverview(false);
     ov.summary.servicesNeedingAttention = 1;
-    ov.attention = {
-      total: 1, count: 1, truncated: false,
-      items: [{ entity: { kind: 'target', key: 'prod/k8s/app', label: 'app', href: '/fleet/targets/prod%2Fk8s%2Fapp', status: 'NonCompliant' }, severity: 'error', category: 'non-compliant', summary: 'contract violation', label: 'app' }],
-    };
     ov.entryPoints = [{ label: 'Operational targets not compliant', count: 1, view: 'attention', category: 'non-compliant', href: '/fleet/attention?category=non-compliant' }];
     overviewFn.mockResolvedValue(ov);
     const { target, component } = mountView();
-    await vi.waitFor(() => expect(target.querySelector('.attn-item')).toBeTruthy());
-    // attention item -> exact entity href
-    const entityLink = target.querySelector('.attn-item a.entity-link') as HTMLAnchorElement;
-    expect(entityLink.getAttribute('href')).toBe('#/fleet/targets/prod%2Fk8s%2Fapp');
+    await vi.waitFor(() => expect(target.querySelector('a.tile')).toBeTruthy());
     // category tile -> exact filtered attention view
     const tile = Array.from(target.querySelectorAll('a.tile')).find((t) => t.textContent?.includes('not compliant')) as HTMLAnchorElement;
     expect(tile.getAttribute('href')).toBe('#/fleet/attention?category=non-compliant');
@@ -724,6 +711,112 @@ describe('FleetOverview — operational health and knowledge', () => {
     // The segment opens the stale list narrowed to compliant targets: exactly what it counts.
     const seg = Array.from(posture.querySelectorAll('a')).find((a) => (a.textContent || '').includes('Compliant, evidence stale'));
     expect(seg?.getAttribute('href')).toBe('#/fleet/attention?category=stale&status=Compliant');
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
+describe('FleetOverview — the fleet map and its two figures (509-S12)', () => {
+  beforeEach(() => { overviewFn.mockReset(); entitiesFn.mockReset(); });
+
+  const counts = (matched: number, expectedOnly: number, observedOnly: number, insufficient: number) => ({ matched, expectedOnly, observedOnly, insufficient });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
+  function withFigures(): any {
+    const o = baseOverview(false);
+    o.summary.match = { services: counts(60, 10, 5, 20), dependencies: counts(25, 0, 0, 10), percent: 85, coverage: 76, completeness: 'complete' };
+    o.summary.knowledge = {
+      services: 3, described: 1, withGaps: 1, unknown: 1, gaps: { noSummary: 1, noDomain: 0, noInterfaceDocs: 0, noReadiness: 0, notDeployed: 0, unverifiedCapability: 0 },
+      contractCompleteness: { percentComplete: 72, judged: 2950, unknown: 50, fullyDescribed: 1204, mostMissing: [{ section: 'configuration', count: 812 }, { section: 'readiness', count: 640 }, { section: 'interfaces', count: 300 }] },
+    };
+    return o;
+  }
+  const bucket = (since: string, coverage?: unknown) => ({ since, until: since, ...(coverage ? { coverage } : {}) });
+  const record = (sm: number, pct: number) => ({
+    completeness: 'complete', services: 10, snapshotAsOf: '2026-11-01T00:00:00Z', uncontracted: 0, links: {},
+    match: { servicesMatched: sm, servicesExpectedOnly: 1, servicesObservedOnly: 1, servicesInsufficient: 2, dependenciesMatched: 0, dependenciesExpectedOnly: 0, dependenciesObservedOnly: 0, dependenciesInsufficient: 0 },
+    contracts: { services: 10, judged: 10, unknown: 0, fullyDescribed: 5, percentComplete: pct },
+  });
+  const text = (t: Element | null | undefined) => t?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+
+  it('leads with two figures, their sub-lines and keys, and their weekly trend', async () => {
+    overviewFn.mockResolvedValue(withFigures());
+    statsFn.mockResolvedValue({ buckets: [bucket('2026-10-20T00:00:00Z', record(6, 60)), bucket('2026-10-27T00:00:00Z'), bucket('2026-11-03T00:00:00Z', record(8, 70))], limitations: [] });
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="figure-match-trend"]')).toBeTruthy());
+    expect(statsFn).toHaveBeenCalledWith({ window: '90d' });
+    const figs = target.querySelectorAll('[data-testid="fleet-figures"] > .ff-tile');
+    expect(figs).toHaveLength(2);
+    expect(text(target.querySelector('[data-testid="figure-match-value"]'))).toBe('85%of what Pacto can observe');
+    expect(text(target.querySelector('[data-testid="figure-match-sub"]'))).toBe('76% observed coverage · unknown never counts as matched');
+    expect(text(target.querySelector('[data-testid="figure-completeness-value"]'))).toBe('72%1,204 of 2,950 judged services fully described, 50 not judged');
+    expect(text(target.querySelector('[data-testid="figure-completeness-sub"]'))).toBe('Most missing: configuration schema 812 · readiness 640 · interface documents 300');
+    const keys = text(target.querySelector('[data-testid="figure-match"]'));
+    for (const k of ['Matched', 'Expected, not observed', 'Observed, not expected', 'Insufficient evidence']) expect(keys).toContain(k);
+    expect(target.querySelector('[data-testid="figure-completeness-trend"]')).toBeTruthy();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('says why the trend is missing for a reader who cannot see every service', async () => {
+    overviewFn.mockResolvedValue(withFigures());
+    statsFn.mockResolvedValue({ buckets: [bucket('2026-10-20T00:00:00Z'), bucket('2026-10-27T00:00:00Z')], limitations: [{ code: 'COVERAGE_OUTSIDE_YOUR_VIEW', message: 'x' }] });
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="figure-match-trend-note"]')).toBeTruthy());
+    expect(text(target.querySelector('[data-testid="figure-match-trend-note"]'))).toBe('The trend counts every service, so only a reader who can see every service sees it.');
+    expect(target.querySelector('[data-testid="figure-match-trend"]')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('never shows a match percentage when Pacto observes nothing', async () => {
+    const o = withFigures();
+    o.summary.match = { services: counts(0, 0, 0, 3), dependencies: counts(0, 0, 0, 0), completeness: 'complete' };
+    overviewFn.mockResolvedValue(o);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="figure-match-value"]')).toBeTruthy());
+    expect(text(target.querySelector('[data-testid="figure-match-value"]'))).toBe('none yet');
+    expect(text(target.querySelector('[data-testid="figure-match-sub"]'))).toBe('Pacto observes nothing yet, so nothing can match.');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('mounts the map with its state, the rail open, and the match figure toggles the gaps', async () => {
+    overviewFn.mockResolvedValue(withFigures());
+    location.hash = '#/fleet?groupBy=team';
+    const { target, component } = mountView({ groupBy: 'team', rail: 'open', category: 'health' });
+    await vi.waitFor(() => expect(mapFn).toHaveBeenCalled());
+    expect(mapFn.mock.calls[0][0]).toMatchObject({ groupBy: 'team' });
+    const map = target.querySelector('[data-testid="fleet-map"]') as HTMLElement;
+    expect(map.classList.contains('fm-full')).toBe(false);
+    expect(target.querySelector('[data-testid="fleet-map-rail"]')).toBeTruthy();
+    (target.querySelector('[data-testid="figure-match"] button') as HTMLButtonElement).click();
+    expect(location.hash).toBe('#/fleet?groupBy=team&gaps=all');
+    unmount(component); document.body.removeChild(target);
+    location.hash = '';
+  });
+
+  it('has no Needs attention section: the list sits beside the map', async () => {
+    overviewFn.mockResolvedValue(withFigures());
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('#sec-knowledge')).toBeTruthy());
+    expect(target.querySelector('#sec-attention')).toBeNull();
+    expect(target.querySelector('[data-toc="Needs attention"]')).toBeNull();
+    expect(target.querySelector('.attn-item')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('retitles Knowledge Contract completeness, with the checklist and the most missing sections as links', async () => {
+    overviewFn.mockResolvedValue(withFigures());
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('#sec-knowledge')).toBeTruthy());
+    const band = target.querySelector('#sec-knowledge') as HTMLElement;
+    expect(band.getAttribute('data-toc')).toBe('Contract completeness');
+    expect(text(band.querySelector('h2'))).toBe('Contract completeness');
+    expect(band.textContent).toContain('Fully described');
+    const rows = Array.from(band.querySelectorAll('[data-testid="completeness-most-missing"] a'));
+    expect(rows.map((a) => [text(a.querySelector('.ov-gap-label') as HTMLElement), a.getAttribute('href')])).toEqual([
+      ['configuration schema', '#/fleet?missing=configuration'],
+      ['readiness', '#/fleet/services?gap=no-readiness'],
+      ['interface documents', '#/fleet/services?gap=no-interface-docs'],
+    ]);
+    // The knowledge gaps it grew from are all still there.
+    expect(band.querySelector('[data-testid="knowledge-gaps"]')).toBeTruthy();
     unmount(component); document.body.removeChild(target);
   });
 });

@@ -44,7 +44,7 @@ describe('business-domain routes', () => {
   it('round-trips the business domain on attention', () => {
     const url = fleetAttentionUrl({ businessDomain: 'commerce', category: 'unowned' });
     expect(url).toBe('#/fleet/attention?category=unowned&businessDomain=commerce');
-    expect(parseHash(url).params).toEqual({ category: 'unowned', businessDomain: 'commerce' });
+    expect(parseHash(url).params).toEqual({ category: 'unowned', businessDomain: 'commerce', rail: 'open' });
   });
 });
 

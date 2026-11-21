@@ -133,9 +133,9 @@ test.describe('page scaffold geometry on desktop', () => {
       ['Revision detail', `#/fleet/revisions/${e(k.revision)}`],
       ['Owners list', '#/fleet/owners'],
       ['Data sources list', '#/fleet/sources'],
-      ['Needs attention', '#/fleet/attention'],
-      ['Graph discovery', '#/fleet/graph'],
-      ['Graph focused', `#/fleet/graph/service/${e(k.service)}`],
+      ['Needs attention (beside the Overview map)', '#/fleet/attention'],
+      ['Fleet map', '#/fleet/graph'],
+      ['Graph focused', `#/fleet/graph/revision/${e(k.revision)}?perspective=revision`],
       ['Change analysis', `#/fleet/changes/${e(k.service)}`],
       ['Change analysis (analysed)', `#/fleet/changes/${e(k.service)}`],
     ];
@@ -163,9 +163,11 @@ test.describe('page scaffold geometry on desktop', () => {
 
   test('the operational graph canvas stays inside the content column at 1280 and 1920', async ({ page }) => {
     test.setTimeout(SWEEP_TIMEOUT);
+    // A service focus is the fleet map; the neighbourhood canvas is a revision's.
+    const k = await canonicalKeys(page);
     for (const width of [1280, 1920]) {
       await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });
-      await boot(page, '#/fleet/graph/service/payments-service');
+      await boot(page, `#/fleet/graph/revision/${encodeURIComponent(k.revision)}?perspective=revision`);
       await expect(page.getByTestId('neighborhood-canvas')).toHaveAttribute('data-graph-ready', 'painted', { timeout: 20_000 });
       const g = await page.evaluate(() => {
         const root = document.querySelector('main .product-page')!.getBoundingClientRect();
@@ -187,7 +189,7 @@ test.describe('page scaffold geometry on desktop', () => {
     // A workspace is a page with controls over a result. There are exactly two, and the
     // panel is the thing a reader recognises as "this is where I drive this screen".
     const workspaces: Array<[string, string]> = [
-      ['Graph focused', `#/fleet/graph/service/${e(k.service)}`],
+      ['Graph focused', `#/fleet/graph/revision/${e(k.revision)}?perspective=revision`],
       ['Change analysis', `#/fleet/changes/${e(k.service)}`],
     ];
 

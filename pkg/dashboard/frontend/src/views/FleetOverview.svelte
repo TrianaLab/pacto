@@ -4,27 +4,29 @@
   import { formatCount } from '../lib/format.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
   import { splitEntryPoints, businessDomainLabel, UNKNOWN_DOMAIN, NO_DOMAIN, GAP_WORDS } from '../lib/entityLabels.ts';
-  import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl, fleetDomainsUrl, fleetEntityUrl, fleetGoldenPathsUrl, fleetExternalsUrl } from '../lib/router.ts';
+  import { fleetAttentionUrl, fleetOverviewUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl, fleetDomainsUrl, fleetEntityUrl, fleetGoldenPathsUrl, fleetExternalsUrl } from '../lib/router.ts';
   import { ownershipSegments, ownershipHrefs, readinessSegments, complianceSegments, statusHrefs, healthSegments, knowledgeSegments, KNOWLEDGE_GAPS } from '../lib/distributions.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { formatDateTime, formatDate } from '../lib/dateFormat.ts';
   import LazyView from '../components/LazyView.svelte';
-  import { loadTrustFigure, loadKnowsExplainer } from '../lib/lazyFigures.ts';
+  import { loadTrustFigure, loadKnowsExplainer, loadFleetMap, loadFleetFigures } from '../lib/lazyFigures.ts';
   import { joinAnd, problemPhrase, healthCaption, knowledgeCaption } from '../lib/answers.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import OperationalSummary from '../components/OperationalSummary.svelte';
   import SourceHealth from '../components/SourceHealth.svelte';
-  import EntityLink from '../components/EntityLink.svelte';
   import EvidenceList from '../components/EvidenceList.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
-  import SeverityBadge from '../components/SeverityBadge.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import PageToc from '../components/PageToc.svelte';
   import HelpTip from '../components/HelpTip.svelte';
   import PostureBars from '../components/viz/PostureBars.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
+  import { completenessTile } from '../lib/fleetHeadline.ts';
+  import { MISSING_SECTIONS } from '../lib/fleetMap/modes.ts';
+  import { setHashParams } from '../lib/hashQuery.svelte.ts';
+  import { hashWith } from '../lib/paging.ts';
 
   // The operational landing page. It consumes /api/fleet/overview
   // as the single contract -- it never reconstructs the summary from the raw
@@ -37,7 +39,11 @@
   // open items and recent evidence. This is a summary page, so every section stays open:
   // the answer goes on top and the sections stay visible below it. Definitions sit
   // behind help buttons instead of as sentences under each heading.
-  let { refreshTick = 0 } = $props();
+  //
+  // Under the answer, the fleet's two figures and the whole fleet on one map, with what
+  // needs attention listed beside it (509-S12): a #/fleet/attention link opens this page
+  // with that list open and filtered. `params` is the map's state from the hash query.
+  let { refreshTick = 0, params = {} } = $props();
 
   let overview = $state(null);
   // The "How does Pacto know?" explainer opens on request: it explains, it reports nothing.
@@ -76,6 +82,17 @@
   onDestroy(() => svcLoader.destroy());
   const svcAgg = $derived(svcLoader.data?.aggregate ?? null);
   const svcCompliance = $derived(complianceSegments(svcAgg?.serviceCompliance, statusHrefs((status) => fleetServicesUrl({ status }))));
+
+  // The figures' weekly trend, from the stats repository when it records coverage. A
+  // failure, or no repository, costs only the sparklines.
+  const statsLoader = createProductLoader(() => api.stats({ window: '90d' }));
+  $effect(() => { statsLoader.sync(`stats@@${refreshTick}`, 'stats'); });
+  onDestroy(() => statsLoader.destroy());
+  const stats = $derived(statsLoader.data ?? null);
+  const gapsShown = $derived(!!params.gaps);
+  // The match tile shows its gaps on the map; the completeness tile opens the checklist.
+  const toggleGaps = () => setHashParams({ gaps: gapsShown ? null : 'all', only: null, missing: null });
+  const openChecklist = () => document.getElementById('sec-knowledge')?.scrollIntoView({ block: 'start' });
 
   const knowledge = $derived(snapshotKnowledge(overview?.meta));
   const attentionTotal = $derived(overview?.attention?.total ?? 0);
@@ -145,8 +162,6 @@
   // unknown row (domainUnknown) and the No domain row (domain "") when they apply.
   const domains = $derived(s.byDomain ?? []);
   const namedShown = $derived(domains.filter((d) => d.domain).length);
-  // The overview shows the worst few open items; the rest is one link away.
-  const topAttention = $derived((overview?.attention?.items ?? []).slice(0, 3));
 
   // Band 2. The fleet posture is drawn by the SAME component a service page and an
   // owner page use, so the three surfaces cannot drift in wording, ordering or colour.
@@ -202,6 +217,14 @@
   const knowledgeSegs = $derived(knowledgeSegments(contractKnowledge, { unknown: fleetServicesUrl({ gap: 'unknown' }) }));
   // One row per gap kind a service has; a kind no service has is not listed.
   const gapRows = $derived(KNOWLEDGE_GAPS.map((g) => ({ ...g, label: GAP_WORDS[g.value], count: contractKnowledge.gaps?.[g.field] || 0 })).filter((g) => g.count > 0));
+  // Contract completeness: the checklist over the judged services, and the sections most
+  // often left undeclared, each opening the services that leave it out (a gap filter
+  // where one exists, else the map's missing mode).
+  const completeness = $derived(contractKnowledge.contractCompleteness ?? null);
+  const completeTile = $derived(completenessTile(completeness, MISSING_SECTIONS));
+  const SECTION_GAP = { summary: 'no-summary', domain: 'no-domain', interfaces: 'no-interface-docs', readiness: 'no-readiness' };
+  const missingHref = (section) => (SECTION_GAP[section] ? fleetServicesUrl({ gap: SECTION_GAP[section] }) : hashWith(fleetOverviewUrl(), { missing: section }));
+  const mostMissing = $derived((completeness?.mostMissing ?? []).filter((x) => x.count > 0));
   const coverage = $derived(s.coverage ?? {});
   // A domain row's filter value: its slug, or the No domain and Domain unknown groups.
   const domainFilter = (dt) => dt.domain || (dt.domainUnknown ? UNKNOWN_DOMAIN : NO_DOMAIN);
@@ -251,6 +274,14 @@
     {/if}
     <KnowledgeBanner {knowledge} noun="overview" sources={overview.meta?.sources || []} tone={knowledge.level === 'unavailable' ? 'warn' : ''} />
   </div>
+  <!-- The fleet's two figures, then the whole fleet on one map with what needs attention beside it. -->
+  <section class="ov-map" id="sec-map" aria-label="Every service on one map" data-testid="overview-map">
+    <div class="ov-kpis">
+      <LazyView load={loadFleetFigures} match={s.match ?? null} contracts={completeness} {stats}
+        {gapsShown} onmatch={toggleGaps} oncompleteness={openChecklist} />
+    </div>
+    <LazyView load={loadFleetMap} variant="embedded" {params} />
+  </section>
   <!-- How sure the answer above is: every count on this page is bounded by which
        sources answered. The figure counts sources by state; Data sources below names them. -->
   <LazyView load={loadTrustFigure} mode="overview" counts={overview.meta?.sourceCounts} meta={overview.meta} asOf={overview.meta?.asOf ? formatDate(overview.meta.asOf) : ''}
@@ -412,10 +443,26 @@
       </div>
     </section>
 
-    <section class="band" id="sec-knowledge" data-toc="Knowledge" aria-labelledby="ov-knowledge">
+    <section class="band" id="sec-knowledge" data-toc="Contract completeness" aria-labelledby="ov-knowledge">
       <div class="ov-head">
-        <div class="ov-title"><h2 id="ov-knowledge" class="t-section-title">Knowledge</h2><HelpTip label="knowledge" text="What the contracts leave out: a summary, a domain, an interface document, a readiness assessment or a place to run. Unknown means Pacto could not read enough to tell." /></div>
+        <div class="ov-title"><h2 id="ov-knowledge" class="t-section-title">Contract completeness</h2><HelpTip label="contract completeness" text="How much of each service its contract declares: interfaces, configuration, dependency ranges, owner, summary, domain, runtime and readiness. A section Pacto only infers, or cannot read, never counts as declared." /></div>
       </div>
+      {#if completeness}
+        <DistributionBar
+          title="Contracts that declare every section that applies"
+          scopeNote={completeTile.note ? `${completeTile.value === 'unknown' ? 'Unknown' : completeTile.value} complete on average; ${completeTile.note}.` : ''}
+          segments={completeTile.segments}
+          total={completeTile.total}
+          emptyLabel="No declared services yet, so there is no completeness picture."
+        />
+        {#if mostMissing.length}
+          <ul class="ov-gaps" data-testid="completeness-most-missing" aria-label="Sections most often left undeclared">
+            {#each mostMissing as m (m.section)}
+              <li><a href={missingHref(m.section)}><span class="ov-gap-label">{MISSING_SECTIONS[m.section] ?? m.section}</span><span class="ov-gap-count" data-nofilter>{formatCount(m.count)}</span></a></li>
+            {/each}
+          </ul>
+        {/if}
+      {/if}
       <DistributionBar
         title="How much the contracts say"
         scopeNote={`All ${formatCount(contractKnowledge.services ?? totalServices)} ${(contractKnowledge.services ?? totalServices) === 1 ? 'service' : 'services'}, golden paths apart.`}
@@ -448,30 +495,6 @@
       <!-- The trust figure at the top of the page counts the sources by state (one
            carrier per fact, L3); this section names them, least healthy first. -->
       <SourceHealth sources={overview.meta?.sources || []} truncated={overview.meta?.sourcesTruncated} limitations={overview.meta?.limitations || []} />
-    </section>
-
-    <section class="ov-section" id="sec-attention" data-toc="Needs attention" aria-labelledby="ov-attention">
-      <div class="ov-head">
-        <h2 id="ov-attention" class="t-section-title">Needs attention</h2>
-        <a class="ov-viewall" href={fleetAttentionUrl()}>View all ({formatCount(attentionTotal)})</a>
-      </div>
-      {#if overview.attention.items.length === 0}
-        <ProductEmptyState state={decideViewState({ loading: false, itemCount: 0, knowledge })} noun="attention items" />
-      {:else}
-        <ul class="attn-list pl-list">
-          {#each topAttention as it}
-            <li class="attn-item pl-row">
-              <SeverityBadge severity={it.severity} />
-              <EntityLink ref={it.entity} showStatus={false} />
-              <span class="attn-reason">{it.summary || it.reason || it.label}</span>
-              {#if it.caller}<span class="attn-caller t-meta" data-testid="attention-caller">caller <EntityLink ref={it.caller} showStatus={false} showKind={false} /></span>{/if}
-            </li>
-          {/each}
-        </ul>
-        {#if attentionTotal > topAttention.length}
-          <p class="ov-more">The worst {formatCount(topAttention.length)} of {formatCount(attentionTotal)}. <a href={fleetAttentionUrl()}>See all</a></p>
-        {/if}
-      {/if}
     </section>
 
     <section class="ov-section" id="sec-evidence" data-toc="Recent evidence" aria-labelledby="ov-evidence">
@@ -531,14 +554,8 @@
   .all-clear, .empty-fleet { padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-md); }
   .all-clear { background: var(--c-ok-bg); border: 1px solid var(--c-ok-border); }
   .empty-fleet { background: var(--c-surface-inset); border: 1px solid var(--c-border); color: var(--c-text-2); }
-  /* Shape only. The frame, the divider and the hover come from the shared .pl-row in
-     styles/components.css; these rows keep their own padding because the entity link is
-     a middle child, so handing it the padding would leave the badge flush to the edge. */
-  .attn-item {
-    gap: var(--sp-2); flex-wrap: wrap;
-    padding: var(--sp-2) var(--sp-3);
-  }
-  .attn-reason { color: var(--c-text-3); font-size: var(--text-sm); }
+  .ov-map { display: flex; flex-direction: column; gap: var(--sp-3); margin-bottom: var(--sp-4); min-inline-size: 0; }
+  .ov-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(30ch, 100%), 1fr)); gap: var(--sp-3); }
   .ov-none, .ov-more { color: var(--c-text-3); font-size: var(--text-sm); }
   .ov-gp {
     display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-2); align-self: flex-start;

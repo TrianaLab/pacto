@@ -10,6 +10,7 @@ import {
   sourceHealthTallyParts, sourceHealthSentence,
   collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED, serviceKeyName, replacesTip, ownerProvenanceText,
   attentionCause, nextActionWords,
+  completenessText,
 } from './entityLabels.ts';
 
 describe('acceptsLabel', () => {
@@ -313,5 +314,13 @@ describe('inferred provider attention words', () => {
   it('words the declare next action and the INFERRED_PROVIDER cause', () => {
     expect(nextActionWords({ verb: 'declare', tool: 'pacto_declare' })).toBe('Fix: declare a contract with pacto_declare');
     expect(attentionCause('INFERRED_PROVIDER')).not.toBe('INFERRED_PROVIDER');
+  });
+});
+
+describe('completenessText', () => {
+  it('says a section\'s state, why and what else the fleet knows', () => {
+    expect(completenessText({ state: 'declared', reason: 'pacto.yaml declares it' })).toBe('Declared: pacto.yaml declares it');
+    expect(completenessText({ state: 'inferred', reason: 'read from runtime calls', note: 'it runs nowhere' })).toBe('Inferred only: read from runtime calls; it runs nowhere');
+    expect(completenessText({ state: 'unknown' })).toBe('Unknown');
   });
 });

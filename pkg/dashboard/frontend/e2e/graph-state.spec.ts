@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { installServeInterceptor } from './graphServe';
+import { appReady } from './ready';
+import { revisionGraphUrl } from './graphFocus';
 
 // Browser acceptance for Operational Graph SPATIAL STATE: semantics update while
 // the arrangement holds still.
@@ -21,7 +23,9 @@ import { installServeInterceptor } from './graphServe';
 // neighborhood response under test is amended, to simulate the fleet changing between two
 // polls -- which is exactly the condition a live dashboard is in.
 
-const PAYMENTS = '/#/fleet/graph/service/payments-service';
+// The neighbourhood of a payments-service revision: a service focus is the fleet map
+// (509-S12); the neighbourhood, and its spatial state, stay for the other kinds.
+const gotoPayments = async (page: Page) => page.goto(await revisionGraphUrl(page, 'payments-service'));
 const NEW_KEY = 'synthetic-probe-service';
 
 interface Point { x: number; y: number }
@@ -172,7 +176,7 @@ test.describe('Operational graph — spatial state survives refresh, reload and 
   });
 
   test('A-E + 14: a refresh updates the semantics and does NOT move the graph', async ({ page }) => {
-    await page.goto(PAYMENTS);
+    await gotoPayments(page);
     await waitPainted(page);
     const first = await waitStable(page);
     const ids = Object.keys(first.positions).sort();
@@ -213,7 +217,7 @@ test.describe('Operational graph — spatial state survives refresh, reload and 
   });
 
   test('F: a browser reload restores the arrangement for the same graph URL', async ({ page }) => {
-    await page.goto(PAYMENTS);
+    await gotoPayments(page);
     await waitPainted(page);
     const ids = Object.keys((await waitStable(page)).positions).sort();
     const arranged = await arrange(page, ids[0]);
@@ -227,7 +231,7 @@ test.describe('Operational graph — spatial state survives refresh, reload and 
   });
 
   test('G-I: a topology change keeps the arrangement and places the new node meaningfully', async ({ page }) => {
-    await page.goto(PAYMENTS);
+    await gotoPayments(page);
     await waitPainted(page);
     const ids = Object.keys((await waitStable(page)).positions).sort();
     const arranged = await arrange(page, ids[0]);
@@ -256,7 +260,7 @@ test.describe('Operational graph — spatial state survives refresh, reload and 
   });
 
   test('J: Reset layout discards the arrangement, and the discarded one does not come back', async ({ page }) => {
-    await page.goto(PAYMENTS);
+    await gotoPayments(page);
     await waitPainted(page);
     const ids = Object.keys((await waitStable(page)).positions).sort();
     const arranged = await arrange(page, ids[0]);
@@ -275,28 +279,33 @@ test.describe('Operational graph — spatial state survives refresh, reload and 
   });
 
   test('K-L: arrangements never leak between two different graphs', async ({ page }) => {
-    await page.goto(PAYMENTS);
+    // Two revisions of orders-service: two graphs, both holding the payments-service it calls.
+    await appReady(page, '/#/fleet');
+    const [first, second] = await page.evaluate(async () => (((await (await fetch('/api/fleet/entities?kinds=revision&service=orders-service&limit=2')).json()).entities ?? []) as { key: string }[]).map((e) => e.key));
+    expect(second, 'two orders-service revisions').toBeTruthy();
+    const url = (k: string) => `#/fleet/graph/revision/${encodeURIComponent(k)}?perspective=revision`;
+    await page.evaluate((h) => { location.hash = h; }, url(first));
     await waitPainted(page);
     await waitStable(page);
-    // payments-service is a node in BOTH neighborhoods (orders-service depends on it), so
-    // a leak would be visible as the same id sitting at the same dragged coordinates.
+    // payments-service is a node in BOTH neighborhoods, so a leak would be visible as the
+    // same id sitting at the same dragged coordinates.
     const arranged = await arrange(page, 'payments-service');
     await expectSaved(page, arranged.zoom);
 
-    await page.evaluate(() => { location.hash = '#/fleet/graph/service/orders-service'; });
+    await page.evaluate((h) => { location.hash = h; }, url(second));
     await waitPainted(page);
-    // notification-worker is unique to the orders neighborhood: its presence proves the
+    // The second revision is the focus of the other graph only: its presence proves the
     // canvas is answering the NEW question before anything is asserted about positions.
-    await expect.poll(async () => Object.keys((await readSpatial(page))?.positions ?? {}).includes('notification-worker'),
+    await expect.poll(async () => Object.keys((await readSpatial(page))?.positions ?? {}).includes(second),
       { timeout: 20_000 }).toBe(true);
     const other = await waitStable(page);
     expect(moved(other.positions['payments-service'], arranged.positions['payments-service']),
       'the other graph laid itself out, it did not inherit an arrangement').toBeGreaterThan(25);
 
     // ...and going back is not a fresh layout either: the first graph is as it was left.
-    await page.evaluate(() => { location.hash = '#/fleet/graph/service/payments-service'; });
+    await page.evaluate((h) => { location.hash = h; }, url(first));
     await waitPainted(page);
-    await expect.poll(async () => Object.keys((await readSpatial(page))?.positions ?? {}).includes('notification-worker'),
+    await expect.poll(async () => Object.keys((await readSpatial(page))?.positions ?? {}).includes(second),
       { timeout: 20_000 }).toBe(false);
     const back = await waitStable(page);
     expectSamePlace(back, arranged, ['payments-service'], 2);
@@ -337,7 +346,7 @@ test.describe('Operational graph — a large neighborhood folds into lanes', () 
   });
 
   test('two hops out folds into team groups, one edge each with its state and count, and a group opens in place', async ({ page }) => {
-    await page.goto(PAYMENTS);
+    await gotoPayments(page);
     await waitPainted(page);
     await page.evaluate(() => { (window as unknown as { __pactoMutate?: string }).__pactoMutate = 'many'; });
     await page.getByRole('button', { name: 'Refresh' }).click();

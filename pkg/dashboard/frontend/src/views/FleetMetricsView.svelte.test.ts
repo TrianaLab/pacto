@@ -442,6 +442,54 @@ describe('FleetMetricsView headline and weekly charts', () => {
     done();
   });
 
+  // The fleet's two figures (509-S12) join the headline row, from the window's newest
+  // coverage record, with a trend from the weekly buckets.
+  const withFigures = (cov: Record<string, unknown>, pct: number | undefined) => ({
+    ...cov,
+    match: { servicesMatched: 6, servicesExpectedOnly: 1, servicesObservedOnly: 1, servicesInsufficient: 2, dependenciesMatched: 2, dependenciesExpectedOnly: 0, dependenciesObservedOnly: 0, dependenciesInsufficient: 0 },
+    contracts: { services: 10, judged: 9, unknown: 1, fullyDescribed: 4, ...(pct == null ? {} : { percentComplete: pct }) },
+  });
+  const k = { services: 10, described: 6, withGaps: 1, unknown: 3, notDeployed: 2 };
+
+  it('appends the match and completeness tiles to the headline row, with their trend', async () => {
+    const base = populated();
+    statsFn.mockResolvedValue(populated({
+      buckets: [
+        { ...base.buckets[0], coverage: withFigures(coverage(k), 50) },
+        base.buckets[1],
+        { since: '2026-10-25T10:00:00Z', until: '2026-11-01T10:00:00Z', days: 7, coverage: withFigures(coverage(k), 60) },
+      ],
+      coverageNow: withFigures(coverage(k), 60),
+    }));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(tiles(target)?.querySelector('[data-testid="figure-match"]')).toBeTruthy());
+    const t = tiles(target);
+    expect(t.querySelector('[data-testid="figure-match-value"]')?.textContent).toBe('80%of what Pacto can observe');
+    expect(t.querySelector('[data-testid="figure-match-sub"]')?.textContent).toBe('83% observed coverage · unknown never counts as matched');
+    expect(t.querySelector('[data-testid="figure-completeness-value"]')?.textContent).toBe('60%4 of 9 judged services fully described, 1 not judged');
+    expect(t.querySelector('[data-testid="figure-match-trend"]')).not.toBeNull();
+    expect(t.querySelector('[data-testid="figure-completeness-trend"]')).not.toBeNull();
+    done();
+  });
+
+  it('says unknown for a figure a bucket or the window has no record of, never 0', async () => {
+    statsFn.mockResolvedValue(populated({ coverageNow: withFigures(coverage(k), undefined) }));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(tiles(target)?.querySelector('[data-testid="figure-completeness"]')).toBeTruthy());
+    expect(tiles(target).querySelector('[data-testid="figure-completeness-value"]')?.textContent).toMatch(/^unknown/);
+    // One of two buckets has no record: no line is drawn over a single point.
+    expect(tiles(target).querySelector('[data-testid="figure-completeness-trend"]')).toBeNull();
+    done();
+  });
+
+  it('tells a restricted reader why the figures have no trend', async () => {
+    statsFn.mockResolvedValue(restricted());
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(tiles(target)?.querySelector('[data-testid="figure-match-trend-note"]')).toBeTruthy());
+    expect(tiles(target).querySelector('[data-testid="figure-match-trend-note"]')?.textContent).toBe('The trend counts every service, so only a reader who can see every service sees it.');
+    done();
+  });
+
   it('says how many operation records from other clusters are not shown, in the hidden note', async () => {
     statsFn.mockResolvedValue(populated({ hidden: { present: false, otherClusters: 12 }, completeness: 'partial',
       limitations: [{ code: 'OTHER_CLUSTERS_NOT_SHOWN', message: '12 operation records from other clusters are not shown' }] }));

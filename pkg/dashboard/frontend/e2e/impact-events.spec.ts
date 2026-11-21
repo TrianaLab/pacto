@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { appReady, settle } from './ready';
+import { revisionGraphUrl } from './graphFocus';
 
 // Browser acceptance for "what if" answers in Change analysis (#471): a service becomes
 // unavailable, is removed or regressed, and a policy change. Every assertion reads what
@@ -50,11 +51,11 @@ test.describe('impact events', () => {
   });
 
   test('the graph drawer asks what happens if the selected service becomes unavailable', async ({ page }) => {
-    await appReady(page);
-    await page.goto('/#/fleet/graph/service/redis');
+    // A service focus is the fleet map; a fraud-service revision keeps the neighbourhood, with redis in it.
+    await page.goto(await revisionGraphUrl(page, 'fraud-service'));
     await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: T });
     await page.getByTestId('graph-textalt').locator('summary').click();
-    await page.getByTestId('graph-node-item').first().click();
+    await page.getByTestId('graph-node-item').filter({ hasText: /^.*redis/ }).first().click();
     const link = page.getByTestId('graph-drawer').getByTestId('drawer-what-if');
     await expect(link).toBeVisible();
     const href = (await link.getAttribute('href')) ?? '';

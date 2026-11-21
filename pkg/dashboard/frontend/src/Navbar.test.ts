@@ -169,7 +169,7 @@ describe('Navbar — primary destinations (SPEC 20, B2)', () => {
       items: Array.from(g.querySelectorAll('a')).map((a) => a.getAttribute('data-nav')),
     }));
     expect(groups).toEqual([
-      { label: '', items: ['overview', 'attention'] },
+      { label: '', items: ['overview'] },
       { label: 'Organization', items: ['services', 'owners', 'domains', 'offerings', 'golden-paths'] },
       { label: 'Change and delivery', items: ['changes', 'metrics'] },
       { label: 'System', items: ['graph', 'sources'] },
@@ -179,7 +179,7 @@ describe('Navbar — primary destinations (SPEC 20, B2)', () => {
 
   it('names every destination by its label, in sidebar order', () => {
     expect(navLabels({ fleet: true, impact: true }))
-      .toEqual(['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Change analysis', 'Metrics', 'Operational graph', 'Data sources']);
+      .toEqual(['Overview', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Change analysis', 'Metrics', 'Operational graph', 'Data sources']);
   });
 
   it('offers the same list while capabilities are unknown, so a Fleet host never flashes the legacy bar', () => {

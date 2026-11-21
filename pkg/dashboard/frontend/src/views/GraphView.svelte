@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte';
-  import { api, ApiError, SchemaCompatibilityError } from '../lib/api.ts';
+  import { api, ApiError } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import {
     graphStateFromParams, hasFocus, toggleView, differenceTone, edgeDifference,
@@ -15,12 +15,11 @@
   import { snapshotKnowledge } from '../lib/knowledgeState.ts';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityStatusBadge from '../components/EntityStatusBadge.svelte';
-  import { fleetGraphFocusUrl, fleetGraphDiscoveryUrl, fleetOverviewUrl, fleetAttentionUrl, hashForHref, fleetChangesUrl, replaceHash } from '../lib/router.ts';
+  import { fleetGraphFocusUrl, fleetGraphDiscoveryUrl, fleetOverviewUrl, hashForHref, fleetChangesUrl, replaceHash } from '../lib/router.ts';
+  import { hashWith } from '../lib/paging.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
-  import EdgeExplainer from '../components/figure/explain/EdgeExplainer.svelte';
   import CappedList from '../components/CappedList.svelte';
-  import { createEntitySuggest } from '../lib/entitySuggest.svelte.ts';
   import EntityLink from '../components/EntityLink.svelte';
   import EntityIdentity from '../components/EntityIdentity.svelte';
   import IdentityBadge from '../components/IdentityBadge.svelte';
@@ -32,10 +31,12 @@
   import NeighborhoodGraph from '../NeighborhoodGraph.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import TargetKeyChooser from '../components/TargetKeyChooser.svelte';
+  import FleetMap from '../components/FleetMap.svelte';
 
-  // The product Operational Graph. With no focus it shows a DISCOVERY state
-  // (search only) and loads NO neighborhood and NO FleetSnapshot -- never a whole-fleet
-  // hairball. With a focus it consumes the bounded PRODUCT neighborhood API and renders
+  // The product Operational Graph. With no focus, or a service focus, it is the fleet
+  // map full screen (FleetMap: the whole fleet from the server's aggregates, and the
+  // left-to-right focus diagram of one service). A revision, target, owner or external
+  // focus keeps the neighbourhood: it consumes the bounded PRODUCT neighborhood API and renders
   // an ACTUAL visual topology on the shared Cytoscape engine: mixed service/revision/
   // target nodes, dependency and runs edges, backend-authoritative difference and
   // service-scoped corroboration (never re-inferred, never color alone). An accessible
@@ -44,7 +45,30 @@
   let { params = {}, refreshTick = 0 } = $props();
 
   const gs = $derived(graphStateFromParams(params));
-  const focused = $derived(hasFocus(params));
+  // The map hosts the whole fleet and the service focus; every other kind keeps the
+  // neighbourhood below.
+  const onMap = $derived(!hasFocus(params) || params.kind === 'service');
+  const focused = $derived(!onMap);
+  // The map's state: the route's query, the service focus from the path, and a legacy
+  // service perspective's depth past one as the second hop.
+  const mapParams = $derived.by(() => {
+    const { kind, sel, depth, perspective, views, direction, maxNodes, ...rest } = params;
+    void perspective; void views; void direction; void maxNodes;
+    const out = { ...rest };
+    if (kind === 'service' && sel) {
+      out.focus = sel;
+      if (!out.hops && Number(depth) > 1) out.hops = '2';
+    }
+    return out;
+  });
+  // The service focus lives in the path, so a focus change navigates instead of
+  // writing ?focus= onto a path that still names the old service.
+  function setMapParams(patch) {
+    const next = { ...mapParams };
+    for (const [k, v] of Object.entries(patch)) { if (v === null || v === '') delete next[k]; else next[k] = v; }
+    const { focus, ...q } = next;
+    location.hash = hashWith(focus ? fleetGraphFocusUrl('service', focus) : fleetGraphDiscoveryUrl(), q);
+  }
 
   // ── focused neighborhood (product API only) ──────────────────────────────────
   const loader = createProductLoader(() => api.fleetNeighborhood({
@@ -370,26 +394,6 @@
   // control carries all three, built from the same source so the two cannot drift.
   const VIEW_HELP = VIEW_DEFS.map((d) => `${d.label}: ${d.help}`).join(' ');
 
-  // ── discovery search (search-first entry, product-honest) ────────────────────
-  let queryText = $state('');
-  // The shared search mechanics (debounce, bound, stale-response guard): one request per
-  // pause in typing, not one per key. Only graph-focusable kinds: the graph projects
-  // services, revisions and targets. A transport failure stays an error, never "no matches".
-  const suggest = createEntitySuggest({ kinds: ['service', 'revision', 'target'], limit: 20 });
-  onDestroy(() => suggest.destroy());
-  const results = $derived(suggest.results);
-  const searchTotal = $derived(suggest.total);
-  // The previous results stay while the next ones load, so the list does not flash.
-  const searching = $derived(suggest.loading && results.length === 0);
-  const searchError = $derived(suggest.error);
-  function runSearch() { suggest.search(queryText); }
-  function submitSearch(e) { e.preventDefault(); runSearch(); }
-
-  function searchErrorMessage(e) {
-    if (e instanceof SchemaCompatibilityError) return 'The dashboard and backend API versions differ; reload to update.';
-    if (e instanceof ApiError) return `Search failed (HTTP ${e.status}): ${e.message}`;
-    return 'Search is unavailable. Check your connection and try again.';
-  }
 </script>
 
 <svelte:window onkeydown={onDrawerKeydown} />
@@ -406,7 +410,7 @@
        name once one is chosen. -->
   <PageHeader
     title="Operational graph"
-    subtitle={focused ? '' : 'Pick one entity to see what it touches.'}
+    subtitle={focused ? '' : 'Every service on one map. Zoom in, or find a service to focus it.'}
   >
     {#if focused}
       <div class="gv-focus">
@@ -416,60 +420,9 @@
     {/if}
   </PageHeader>
 
-  {#if !focused}
-    <!-- Discovery state: search-first, no fleet hairball, no request. -->
-    <section class="discovery" data-testid="graph-discovery">
-
-      <form class="disco-search" role="search" onsubmit={submitSearch}>
-        <input type="search" bind:value={queryText} oninput={runSearch} placeholder="Search services, revisions, operational targets..." aria-label="Search for a service, revision or target to focus the graph" />
-        <button type="submit" class="btn btn-primary">Search</button>
-      </form>
-
-      {#if searching}
-        <p class="disco-hint" role="status">Searching...</p>
-      {:else if searchError}
-        <div class="gv-error" role="alert" data-testid="graph-search-error">{searchErrorMessage(searchError)}</div>
-      {:else if results.length > 0}
-        <ul class="disco-results" data-testid="graph-search-results">
-          {#each results as r (r.kind + '::' + r.key)}
-            <li>
-              <a href={fleetGraphFocusUrl(r.kind, r.key, { perspective: defaultPerspectiveForKind(r.kind) })} data-testid="graph-focus-link">
-                <EntityIdentity ref={r} />
-              </a>
-            </li>
-          {/each}
-        </ul>
-        {#if searchTotal > results.length}
-          <p class="disco-hint" data-testid="graph-search-truncated">Showing {formatCount(results.length)} of {formatCount(searchTotal)}. Refine your search to narrow the results.</p>
-        {/if}
-      {:else if queryText.trim()}
-        <p class="disco-hint" data-testid="graph-search-empty">No entities match "{queryText}".</p>
-      {:else}
-        <!-- Resting discovery state: an unmistakable
-             affordance that a graph renders HERE once a focus is chosen -- so the tab reads
-             as a graph discovery experience, not an empty page -- without auto-rendering the
-             whole fleet. -->
-        <div class="disco-placeholder iso-backdrop" data-testid="graph-discovery-placeholder" aria-hidden="true">
-          <svg viewBox="0 0 120 64" class="disco-ph-glyph" role="presentation" focusable="false">
-            <line x1="30" y1="32" x2="66" y2="18" /><line x1="30" y1="32" x2="66" y2="46" /><line x1="66" y1="18" x2="96" y2="32" />
-            <circle cx="30" cy="32" r="9" /><circle cx="66" cy="18" r="7" /><circle cx="66" cy="46" r="7" /><circle cx="96" cy="32" r="7" />
-          </svg>
-          <p class="disco-ph-title t-section-title">Pick a service, revision or target</p>
-          <p class="disco-ph-sub">Its graph shows up here.</p>
-        </div>
-      {/if}
-
-      <!-- The wire vocabulary drawn on four edges, before the canvas uses it (SPEC 17). -->
-      <EdgeExplainer />
-
-      <!-- One line, not two panels: the way in from a problem, and the layer definitions
-           one (i) away instead of a card of prose the reader passes on every visit. -->
-      <p class="disco-more" data-testid="graph-discovery-more">
-        Or start from <a class="gv-link" href={fleetAttentionUrl()}>what needs attention</a>
-        <span class="disco-more-sep" aria-hidden="true">·</span>
-        What the graph shows <HelpTip label="the graph layers" text={VIEW_HELP} />
-      </p>
-    </section>
+  {#if onMap}
+    <!-- The whole fleet, full screen; the attention rail stays folded until asked for. -->
+    <FleetMap variant="full" params={mapParams} onparams={setMapParams} />
   {:else}
     <!-- Focused neighborhood: an actual visual topology. -->
     <!-- No controls over a focus that does not exist: there is nothing for them to drive. -->
@@ -828,8 +781,6 @@
 
   .gv-answer { margin: var(--sp-3) 0; font-size: var(--text-md); color: var(--c-text-2); }
   .gv-answer.has-problems .gv-around { color: var(--c-err); font-weight: 600; }
-  .disco-more { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-3) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
-  .disco-more-sep { color: var(--c-border); }
   .gv-focus-err { color: var(--c-err); }
   .lg-hint { margin-left: auto; }
   /* One line until opened; the pieces inside lose their own boxes. */

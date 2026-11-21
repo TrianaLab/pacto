@@ -15,6 +15,8 @@
     environments, depthFilter, groupBy, groupOptions, attributionLine, healthGroups, pooledFoot, cell,
     smallMultipleDomain, healthMode, collapsedByDefault, leadRows, chainSummary, ladder, lastPage,
   } from '../lib/metrics.ts';
+  import { matchOfCoverage } from '../lib/fleetHeadline.ts';
+  import FleetFigures from '../components/FleetFigures.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import CopyableIdentifier from '../components/CopyableIdentifier.svelte';
@@ -386,6 +388,8 @@
               </div>
             {/if}
           </div>
+          <!-- The fleet's two figures (509-S12): the window's newest coverage record and its trend. -->
+          <FleetFigures level={0} match={matchOfCoverage(now?.match)} contracts={now?.contracts ?? null} stats={data} />
         </section>
       {/if}
 

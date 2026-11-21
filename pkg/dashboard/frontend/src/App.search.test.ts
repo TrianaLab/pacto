@@ -27,6 +27,8 @@ vi.mock('./lib/api.ts', async (importOriginal) => {
       services: async () => [],
       refresh: async () => ({}),
       fleetOverview: async () => overview,
+      // The Overview's figures and map: never answered here.
+      stats: () => new Promise(() => {}), fleetMap: () => new Promise(() => {}), fleetAttention: () => new Promise(() => {}),
       fleetEntities: async () => ({ meta: { schemaVersion: 'pacto.dev/fleet-product/v1' }, total: 0, count: 0, entities: [] }),
     },
   };

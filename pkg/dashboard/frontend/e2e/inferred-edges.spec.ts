@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { appReady } from './ready';
+import { mapFocus } from './graphFocus';
 
 // Inferred edges and a contract taking over, against the built WASM demo
 // (examples/demo/source_inferred_edges.go): the kernel observer sees nightly-export, a
@@ -11,24 +12,16 @@ const T = 20_000;
 const REPLACED = 'k8s:prod%2FDeployment%2Fexperiments';
 
 test.describe('WASM demo: inferred edges and replaced services', () => {
-  test('the graph draws a call one end of which has no contract as inferred and says so in the drawer', async ({ page }) => {
+  test('the map in focus on search-indexer draws a call one end of which has no contract as inferred', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    // Ready on the Overview: on the graph route the breadcrumb names the graph too.
-    await appReady(page, '/#/fleet');
-    await page.goto('/#/fleet/graph/service/search-indexer');
-
-    const legend = page.getByTestId('graph-legend');
-    await expect(legend).toBeVisible({ timeout: T });
-    await expect(legend.getByRole('button', { name: 'Inferred: one end has no contract, or read from configuration' })).toBeVisible();
-
-    await page.getByTestId('graph-textalt').locator('summary').click();
-    const edge = page.getByTestId('graph-edge').filter({ hasText: 'nightly-export' });
-    await expect(edge).toHaveCount(1, { timeout: T });
-    await expect(edge.getByTestId('edge-difference')).toContainText('Seen at runtime, no contract');
-    await edge.click();
-    const drawer = page.getByTestId('graph-drawer');
-    await expect(drawer).toContainText('Seen at runtime, no contract');
-    await expect(drawer.getByTestId('edge-difference-description')).toContainText(/^No contract describes k8s:shop\/CronJob\/nightly-export\. Seen by k8s-production\. No contract declares this call/);
+    // The diagram is a canvas: its edges are read from the answer it was drawn from.
+    const focus = await mapFocus(page, 'search-indexer');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const edge = (focus.edges ?? []).filter((e: any) => `${e.from.label} ${e.to.label}`.includes('nightly-export'));
+    expect(edge).toHaveLength(1);
+    expect(edge[0]).toMatchObject({ inferred: true, observed: true, expected: false });
+    // The caller sits in the left column, the service in the centre.
+    await expect(page.getByTestId('fleet-map-focus')).toContainText('search-indexer');
   });
 
   test('the service page carries one muted Replaces line with its details in the tooltip', async ({ page }) => {

@@ -40,9 +40,10 @@ test.describe('typography hierarchy on desktop', () => {
       ['Target detail', `#/fleet/targets/${e(k.target)}`],
       ['Owners list', '#/fleet/owners'],
       ['Data sources list', '#/fleet/sources'],
-      ['Needs attention', '#/fleet/attention'],
-      ['Graph discovery', '#/fleet/graph'],
-      ['Graph focused', `#/fleet/graph/service/${e(k.service)}`],
+      ['Needs attention (beside the Overview map)', '#/fleet/attention'],
+      ['Fleet map', '#/fleet/graph'],
+      ['Fleet map focus', `#/fleet/graph/service/${e(k.service)}`],
+      ['Graph focused', `#/fleet/graph/revision/${e(k.revision)}?perspective=revision`],
       ['Change analysis', `#/fleet/changes/${e(k.service)}`],
       // The plain demo serves its own run records (#493 S5).
       ['Metrics', '#/metrics'],

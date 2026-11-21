@@ -19,6 +19,8 @@
   import { attentionCategoryLabel, severityLabel } from '../lib/entityLabels';
   import { countOf, formatCount, statusLabel } from '../lib/format';
   import { SEVERITY_GLYPH } from '../lib/fleetMap/render';
+  import { hashForHref } from '../lib/router';
+  import { ownerKeyLabel, ownerKeyKind } from '../lib/owners';
 
   const STEP = 30;
   const SEVERITIES = ['error', 'warning', 'info'] as const;
@@ -44,7 +46,7 @@
   } = $props();
 
   let limit = $state(STEP);
-  let list = $state.raw<ProductAttentionList | null>(null);
+  let answer = $state.raw<{ key: string; list: ProductAttentionList } | null>(null);
   let error = $state<string | null>(null);
   let seq = 0;
 
@@ -55,19 +57,23 @@
   $effect(() => { void filterKey; untrack(() => { limit = STEP; }); });
   $effect(() => {
     const q = { ...Object.fromEntries(active), staleOnly: filters.staleOnly === '1' || undefined, limit };
-    const mine = ++seq;
+    const mine = ++seq, key = filterKey;
     api.fleetAttention(q as never)
-      .then((r) => { if (mine === seq) { list = r; error = null; } })
+      .then((r) => { if (mine === seq) { answer = { key, list: r }; error = null; } })
       .catch((e: unknown) => { if (mine === seq) error = e instanceof Error ? e.message : String(e); });
   });
 
+  // A list answers the filters it was asked with: under new filters the old one is never
+  // shown, while Show more keeps it on screen until the longer list arrives.
+  const list = $derived(answer?.key === filterKey ? answer.list : null);
   const items = $derived(list?.items ?? []);
   const total = $derived(list?.total ?? 0);
   const bySeverity = $derived(SEVERITIES.map((s) => [s, items.filter((i) => i.severity === s)] as const).filter(([, l]) => l.length));
   const counted = $derived((list?.severities?.errors ?? 0) + (list?.severities?.warnings ?? 0));
 
   const valueWords = (k: string, v: string) =>
-    k === 'category' ? attentionCategoryLabel(v) : k === 'severity' ? severityLabel(v) : k === 'status' ? statusLabel(v) : k === 'staleOnly' ? 'yes' : v;
+    k === 'category' ? attentionCategoryLabel(v) : k === 'severity' ? severityLabel(v) : k === 'status' ? statusLabel(v) : k === 'staleOnly' ? 'yes'
+      : k === 'ownerKey' && ownerKeyKind(v) ? `${ownerKeyLabel(v)} (${ownerKeyKind(v)})` : v;
 
   /** serviceOf is the service an item is about: itself, or the service of its revision or target. */
   function serviceOf(it: RailItem): string {
@@ -115,9 +121,11 @@
               <li>
                 <button type="button" class="ritem" data-testid="fleet-map-rail-item" aria-current={same(current, it) ? 'true' : undefined} onclick={() => pick(it)}>
                   <span class="ritem-t"><bdi>{it.entity.label}</bdi> <span class="ritem-c">{attentionCategoryLabel(it.category)}</span></span>
-                  <span class="ritem-s">{it.summary}</span>
+                  <span class="ritem-s">{it.summary}{#if it.source}{' '}via {it.source}{/if}</span>
                   {#if it.nextStep}<span class="ritem-n">Next: {it.nextStep}</span>{/if}
                 </button>
+                <!-- The caller with no contract opens its own (inferred) service page. -->
+                {#if it.caller}<p class="ritem-caller" data-testid="attention-caller">from <a href={hashForHref(it.caller.href)}><bdi>{it.caller.label || it.caller.key}</bdi></a></p>{/if}
               </li>
             {/each}
           </ul>
@@ -150,6 +158,7 @@
   .ritem:hover { background: var(--c-surface-hover); }
   .ritem[aria-current='true'] { border-color: var(--c-accent); background: var(--c-accent-bg); }
   .ritem-c, .ritem-s, .ritem-n { color: var(--c-text-2); font-size: var(--text-xs); }
+  .ritem-caller { margin: 0; padding: 0 var(--sp-3) var(--sp-1); font-size: var(--text-xs); color: var(--c-text-2); overflow-wrap: anywhere; }
   .ritem-t bdi { font-weight: 600; }
   .rail-msg { margin: var(--sp-2) 0; font-size: var(--text-sm); color: var(--c-text-3); }
   @media (pointer: coarse) { .rail-open, .rail-close, .rail-link, .rail-more, .ritem { min-inline-size: 44px; min-block-size: 44px; } }

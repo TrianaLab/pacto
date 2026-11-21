@@ -21,6 +21,8 @@ vi.mock('./lib/api.ts', async (importOriginal) => {
       services: async () => [],
       refresh: async () => ({}),
       fleetOverview: () => fns.overview(),
+      // The Overview's figures and map: never answered here.
+      stats: () => new Promise(() => {}), fleetMap: () => new Promise(() => {}), fleetAttention: () => new Promise(() => {}),
       fleetEntities: () => new Promise(() => {}),
     },
   };

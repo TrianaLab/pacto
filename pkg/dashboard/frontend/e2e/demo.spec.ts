@@ -1,46 +1,30 @@
 import { test, expect, type Page } from '@playwright/test';
 import { appReady } from './ready';
+import { revisionGraphUrl } from './graphFocus';
 
 // Browser E2E against the built WASM demo (see playwright.config.ts): the real Svelte
 // bundle + the real dashboard API compiled to wasm, serving deterministic embedded
-// data over the LIVE product endpoints (overview/entities/neighborhood/impact). Tests
-// are organized around user WORKFLOWS (land -> search the operational graph -> focus a
-// neighborhood -> inspect -> analyze impact) and use precise, role-based locators.
+// data over the LIVE product endpoints (overview/entities/map/neighborhood/impact). Tests
+// are organized around user WORKFLOWS (land -> the whole fleet on one map -> focus a
+// service -> inspect -> analyze impact) and use precise, role-based locators.
 
-// The search-first graph landing (no focus): a discovery state, never a hairball.
-async function gotoGraphDiscovery(page: Page) {
+// The graph landing (no focus): the whole fleet on one map, from the server's aggregates.
+async function gotoFleetMap(page: Page) {
   await page.goto('/#/fleet/graph');
-  await expect(page.getByTestId('graph-discovery')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('fleet-map-summary')).toBeVisible({ timeout: 20_000 });
 }
 
-// A direct focus deep link (kind/key), which loads the bounded VISUAL neighborhood.
-async function gotoGraphFocus(page: Page, kind: string, key: string) {
-  await page.goto(`/#/fleet/graph/${kind}/${encodeURIComponent(key)}`);
+// A revision or target of payments-service, focused in its own perspective: a service
+// focus is the map, so the neighbourhood is reached from the kinds that keep it.
+async function focusNeighbourhood(page: Page, perspective: 'revision' | 'target') {
+  const url = perspective === 'target' ? `/#/fleet/graph/target/${encodeURIComponent('prod/Deployment/payments-service')}?perspective=target`
+    : await revisionGraphUrl(page, 'payments-service');
+  await page.goto(url);
   await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
 }
 
-// Search the discovery state and follow the focus link for a given default perspective
-// (service links carry no perspective; revision/target links carry theirs), proving the
-// entity kind chooses the projection.
-//
-// The result is picked by canonical KEY, never by position: the demo publishes
-// same-named services in two domains, so "the first match" is whichever key happens to
-// sort first, which is not an identity.
-async function searchAndFocus(page: Page, text: string, perspective: 'service' | 'revision' | 'target') {
-  await gotoGraphDiscovery(page);
-  await page.getByRole('searchbox').fill(text);
-  // A default-domain key carries no "<domain>%2F" prefix, so anchoring on the path
-  // segment that starts the key excludes any other domain's same-named entities.
-  const key = {
-    service: 'service/payments-service"]',
-    revision: 'revision/payments-service%40"]',
-    target: 'target/prod%2FDeployment%2Fpayments-service"]',
-  }[perspective];
-  const link = page.locator(`a[data-testid="graph-focus-link"][href*="/fleet/graph/${key}`).first();
-  await expect(link).toBeVisible({ timeout: 20_000 });
-  await link.click();
-  await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
-}
+// The payments-service revision's neighbourhood, for the tests of the neighbourhood view.
+const gotoRevisionGraph = (page: Page) => focusNeighbourhood(page, 'revision');
 
 // The tour is opt-in: it exists only after the invitation in the demo strip is pressed,
 // which is also the only thing that lets it move the route.
@@ -144,7 +128,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   test('Live Demo entry: an explicit deep link is preserved (not canonicalized)', async ({ page }) => {
     await page.goto('/#/fleet/graph');
     await expect(page).toHaveURL(/#\/fleet\/graph$/, { timeout: 20_000 });
-    await expect(page.getByTestId('graph-discovery')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('fleet-map')).toBeVisible({ timeout: 20_000 });
     // an entity deep link is preserved too
     await page.goto('/#/fleet/services');
     await expect(page).toHaveURL(/#\/fleet\/services$/, { timeout: 20_000 });
@@ -181,7 +165,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   test('M3: the legacy standalone Graph canonicalizes to the Operational Graph', async ({ page }) => {
     await page.goto('/#/graph');
     await expect(page).toHaveURL(/#\/fleet\/graph$/, { timeout: 20_000 });
-    await expect(page.getByTestId('graph-discovery')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('fleet-map')).toBeVisible({ timeout: 20_000 });
   });
 
   test('M4: the legacy Owners list canonicalizes to the product Owners', async ({ page }) => {
@@ -239,7 +223,8 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page).toHaveURL(/#\/fleet$/, { timeout: 20_000 });
   });
 
-  // The sidebar groups every destination (SPEC 20): Overview and Needs attention on top,
+  // The sidebar groups every destination (SPEC 20): Overview on top (Needs attention is
+  // the list beside its map),
   // then Organization, Change and delivery (Delivery where it is served; the demo
   // simulates it) and System. Readiness is not an item, and the legacy-only
   // destinations never leak onto a Fleet host.
@@ -247,33 +232,28 @@ test.describe('WASM dashboard demo — workflows', () => {
     await appReady(page);
     const nav = page.getByRole('navigation', { name: 'Primary' }).first();
     // Names, not text: the count and the source health are descriptions.
-    const names = ['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Change analysis', 'Delivery', 'Metrics', 'Operational graph', 'Data sources'];
+    const names = ['Overview', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Change analysis', 'Delivery', 'Metrics', 'Operational graph', 'Data sources'];
     await expect(nav.getByRole('link')).toHaveCount(names.length);
     for (const [i, name] of names.entries()) await expect(nav.getByRole('link').nth(i)).toHaveAccessibleName(name);
   });
 
-  test('O1: graph opens SEARCH-FIRST with zero Cytoscape topology nodes', async ({ page }) => {
-    await gotoGraphDiscovery(page);
+  test('O1: the graph opens on the whole fleet map, with no neighbourhood request', async ({ page }) => {
+    await gotoFleetMap(page);
     await expect(page.getByTestId('neighborhood-canvas')).toHaveCount(0);
-    await expect(page.getByRole('search')).toBeVisible();
-    // The discovery affordance makes it unmistakable a graph renders after a focus is
-    // chosen, so the tab is never an empty page.
-    await expect(page.getByTestId('graph-discovery-placeholder')).toBeVisible();
+    await expect(page.getByRole('img', { name: /^Dependency map of every service/ })).toBeVisible();
+    await expect(page.getByTestId('fleet-map-search').locator('input[type=search]')).toBeVisible();
   });
 
-  test('O2: search a service, focus it, and see an actual visual graph with nodes and edges', async ({ page }) => {
-    await searchAndFocus(page, 'payments', 'service');
-    await expect(page.getByTestId('neighborhood-canvas')).toBeVisible();
-    await expect(page.getByTestId('graph-legend')).toBeVisible();
-    // The same nodes/edges are listed in the accessible text alternative (proving the
-    // topology has real nodes and edges, not an empty canvas).
-    await openTextAlt(page);
-    await expect(page.getByTestId('graph-node-item').first()).toBeVisible();
-    await expect(page.getByTestId('graph-edge').first()).toBeVisible();
+  test('O2: find a service on the map and focus it', async ({ page }) => {
+    await gotoFleetMap(page);
+    await page.getByTestId('fleet-map-search').locator('input[type=search]').fill('payments');
+    await page.locator('[data-testid="fleet-map-find-option"]').filter({ hasText: /^.*payments-service/ }).first().click();
+    await expect(page).toHaveURL(/\/fleet\/graph\/service\/payments-service/, { timeout: 20_000 });
+    await expect(page.getByTestId('fleet-map-focus')).toContainText('payments-service', { timeout: 20_000 });
   });
 
   test('O3/O4: Fit and Zoom in/out operate on the canvas without navigating', async ({ page }) => {
-    await gotoGraphFocus(page, 'service', 'payments-service');
+    await gotoRevisionGraph(page);
     const url = page.url();
     await page.getByTestId('graph-fit').click();
     await page.getByTestId('graph-zoom-in').click();
@@ -283,7 +263,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   });
 
   test('O5: selecting a node opens the node quick-inspect drawer (no navigation)', async ({ page }) => {
-    await gotoGraphFocus(page, 'service', 'payments-service');
+    await gotoRevisionGraph(page);
     const url = page.url();
     await openTextAlt(page);
     await page.getByTestId('graph-node-item').first().click();
@@ -294,21 +274,21 @@ test.describe('WASM dashboard demo — workflows', () => {
   });
 
   test('O6: selecting an edge opens the relationship drawer', async ({ page }) => {
-    await gotoGraphFocus(page, 'service', 'payments-service');
+    await gotoRevisionGraph(page);
     await openTextAlt(page);
     await page.getByTestId('graph-edge').first().click();
     await expect(page.getByTestId('graph-drawer')).toBeVisible();
   });
 
   test('O7: a direct focus deep link survives a reload', async ({ page }) => {
-    await gotoGraphFocus(page, 'service', 'payments-service');
+    await gotoRevisionGraph(page);
     await page.reload();
     await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
-    await expect(page).toHaveURL(/\/fleet\/graph\/service\//);
+    await expect(page).toHaveURL(/\/fleet\/graph\/revision\//);
   });
 
   test('O8: browser back restores the prior focus/state', async ({ page }) => {
-    await gotoGraphFocus(page, 'service', 'payments-service');
+    await gotoRevisionGraph(page);
     await page.getByTestId('dir-dependencies').click();
     await expect(page).toHaveURL(/direction=dependencies/);
     await page.goBack();
@@ -317,14 +297,14 @@ test.describe('WASM dashboard demo — workflows', () => {
   });
 
   test('O9: switching the knowledge view changes the requested/result topology', async ({ page }) => {
-    await gotoGraphFocus(page, 'service', 'payments-service');
+    await gotoRevisionGraph(page);
     await page.getByTestId('view-observed').click();
     await expect(page).toHaveURL(/views=/);
     await expect(page.getByTestId('neighborhood-canvas')).toBeVisible();
   });
 
   test('O10: a revision search result opens a real revision projection', async ({ page }) => {
-    await searchAndFocus(page, 'payments', 'revision');
+    await focusNeighbourhood(page, 'revision');
     await expect(page).toHaveURL(/perspective=revision/);
     await expect(page.getByTestId('neighborhood-canvas')).toBeVisible();
     await openTextAlt(page);
@@ -332,7 +312,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   });
 
   test('O11: a target search result renders a target + runs relation, no fabricated mesh', async ({ page }) => {
-    await searchAndFocus(page, 'payments', 'target');
+    await focusNeighbourhood(page, 'target');
     await expect(page).toHaveURL(/perspective=target/);
     await expect(page.getByTestId('neighborhood-canvas')).toBeVisible();
     await openTextAlt(page);
@@ -346,27 +326,26 @@ test.describe('WASM dashboard demo — workflows', () => {
   });
 
   test('graph honesty: a partial snapshot surfaces the incompleteness caveat', async ({ page }) => {
-    await gotoGraphFocus(page, 'service', 'payments-service');
+    await gotoRevisionGraph(page);
     // One notice line above the canvas names it; the full sentence opens under it.
     await expect(page.getByTestId('graph-notice')).toContainText('Some data is missing');
     await page.getByTestId('graph-notice').locator('summary').click();
     await expect(page.getByTestId('graph-knowledge-caveat')).toBeVisible();
   });
 
-  test('graph controls: direction drives the neighborhood via the URL; service focus offers only the service perspective', async ({ page }) => {
-    await gotoGraphFocus(page, 'service', 'payments-service');
+  test('graph controls: direction drives the neighborhood via the URL; a revision focus offers no target perspective', async ({ page }) => {
+    await gotoRevisionGraph(page);
     await page.getByTestId('dir-dependencies').click();
     await expect(page).toHaveURL(/direction=dependencies/);
-    // A service cannot be projected as one revision/target, so those buttons are absent (E).
-    await expect(page.getByTestId('perspective-revision')).toHaveCount(0);
+    // A revision cannot be projected as one target, so that button is absent (E).
     await expect(page.getByTestId('perspective-target')).toHaveCount(0);
   });
 
-  test('graph scale: discovery and a focused neighborhood render without a page error', async ({ page }) => {
+  test('graph scale: the fleet map and a focused neighborhood render without a page error', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
-    await gotoGraphDiscovery(page);
-    await gotoGraphFocus(page, 'service', 'payments-service');
+    await gotoFleetMap(page);
+    await gotoRevisionGraph(page);
     await page.waitForTimeout(500);
     expect(errors).toEqual([]);
   });
@@ -679,20 +658,18 @@ test.describe('WASM dashboard demo — workflows', () => {
     await next.click();
     await expect(stepNo).toHaveText('12 / 21', { timeout: 20_000 });
 
-    // 12 — search the operational graph (the graph tab opens search-first, never a hairball).
-    // One action, so it moves on when the results come back.
+    // 12 — find orders on the operational graph, the whole fleet on one map. One action,
+    // so it moves on when the map focuses the service.
     await expect(page).toHaveURL((url) => url.hash === '#/fleet/graph', { timeout: 20_000 });
     await expect(next).toBeHidden();
-    await page.locator('[data-testid="graph-discovery"] input[type=search]').fill('orders');
-    const focus = page.getByTestId('graph-focus-link').first();
-    await expect(focus).toBeVisible({ timeout: 20_000 });
+    await page.locator('[data-testid="fleet-map-search"] input[type=search]').fill('orders');
+    await page.locator('[data-testid="fleet-map-find-option"]').filter({ hasText: 'orders-service' }).first().click();
     await expect(stepNo).toHaveText('13 / 21', { timeout: 20_000 });
 
-    // 13 — focus a result, which renders the neighborhood. Holds: the neighborhood IS the
-    // blast radius the step promised.
-    await expect.poll(() => spotlightEncloses(page, '[data-testid="graph-focus-link"]'), { timeout: 20_000 }).toBe(true);
-    await focus.click();
-    await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
+    // 13 — the map in focus on orders-service. Holds: the diagram IS the blast radius
+    // the step promised.
+    await expect(page.getByTestId('fleet-map-focus')).toBeVisible({ timeout: 20_000 });
+    await expect.poll(() => spotlightEncloses(page, '[data-testid="fleet-map-focus"]'), { timeout: 20_000 }).toBe(true);
     await expect(next).toBeVisible({ timeout: 20_000 });
     await page.waitForTimeout(2500);
     await expect(stepNo).toHaveText('13 / 21');
@@ -891,13 +868,11 @@ test.describe('WASM dashboard demo — workflows', () => {
       await expect(stepNo).toHaveText(n, { timeout: 20_000 });
     }
 
-    // Steps 12 and 13, the same contract over the neighborhood a change reaches.
-    await page.locator('[data-testid="graph-discovery"] input[type=search]').fill('orders');
-    const focus = page.getByTestId('graph-focus-link').first();
-    await expect(focus).toBeVisible({ timeout: 20_000 });
+    // Steps 12 and 13, the same contract over the map in focus on what a change reaches.
+    await page.locator('[data-testid="fleet-map-search"] input[type=search]').fill('orders');
+    await page.locator('[data-testid="fleet-map-find-option"]').filter({ hasText: 'orders-service' }).first().click();
     await expect(stepNo).toHaveText('13 / 21', { timeout: 20_000 });
-    await focus.click();
-    const canvas = page.getByTestId('neighborhood-canvas');
+    const canvas = page.getByTestId('fleet-map-focus');
     await expect(canvas).toBeVisible({ timeout: 20_000 });
     await expect(next).toBeVisible({ timeout: 20_000 });
     await page.waitForTimeout(10_000);

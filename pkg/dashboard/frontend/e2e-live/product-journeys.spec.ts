@@ -252,37 +252,27 @@ test('D: the checkout target is a distinct entity matched to the running revisio
   );
 });
 
-// E — the graph draws real topology for orders. An honest empty state would be a
-// truthful answer to a different question; this fixture has edges.
-test('E: the operational graph draws the orders neighborhood with its matched edge', async ({ page }) => {
+// E — the operational graph is the whole fleet on one map; finding orders focuses it,
+// and the diagram it draws has the matched edge to checkout. An honest empty state
+// would be a truthful answer to a different question; this fixture has edges.
+test('E: the operational graph focuses orders on the map with its matched edge', async ({ page }) => {
   await page.goto('/#/fleet/graph');
-  await expect(page.getByTestId('graph-discovery')).toBeVisible();
-  await expect(page.getByTestId('neighborhood-canvas')).toHaveCount(0); // search-first: nothing drawn yet
+  await expect(page.getByTestId('fleet-map')).toBeVisible();
+  await expect(page.getByRole('img', { name: /^Dependency map of every service/ })).toBeVisible();
 
-  await page
-    .getByRole('searchbox', { name: 'Search for a service, revision or target to focus the graph' })
-    .fill(fixture.ordersName);
-  await page
-    .getByTestId('graph-focus-link')
-    .filter({ hasText: 'Service' })
-    .filter({ hasText: fixture.ordersName })
-    .first()
-    .click();
+  await page.getByTestId('fleet-map-search').locator('input[type=search]').fill(fixture.ordersName);
+  await page.getByTestId('fleet-map-find-option').filter({ hasText: fixture.ordersName }).first().click();
 
-  await expect(page).toHaveURL(/#\/fleet\/graph\/.+/);
-  await expect(page.getByRole('group', { name: 'Graph controls' })).toBeVisible();
-  await expect(page.getByRole('img', { name: /^Operational graph topology/ })).toBeVisible();
-  await expect(page.getByTestId('graph-empty')).toHaveCount(0);
-  await expect(page.getByTestId('graph-render-error')).toHaveCount(0);
+  await expect(page).toHaveURL(/#\/fleet\/graph\/service\/.+/);
+  await expect(page.getByTestId('fleet-map-focus')).toContainText(fixture.ordersName);
 
-  await openDisclosure(page, 'graph-textalt');
-  const dep = page
-    .getByTestId('graph-edge')
-    .filter({ hasText: fixture.ordersName })
-    .filter({ hasText: fixture.checkoutName })
-    .filter({ hasText: 'Depends on' });
-  await expect(dep).toHaveCount(1);
-  await expect(dep.getByTestId('edge-difference')).toHaveText('Matched');
+  // The edge the diagram draws, from the same answer it was drawn from.
+  const key = decodeURIComponent(page.url().split('/service/')[1].split('?')[0]);
+  const focus = await page.evaluate(async (k) => (await fetch(`/api/fleet/map/focus?service=${encodeURIComponent(k)}`)).json(), key);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const dep = (focus.edges ?? []).filter((e: any) => e.relation === 'dependency' && `${e.from.label} ${e.to.label}`.includes(fixture.ordersName) && `${e.from.label} ${e.to.label}`.includes(fixture.checkoutName));
+  expect(dep).toHaveLength(1);
+  expect(dep[0].difference).toBe('matched');
 });
 
 // F — the managed observation source is a first-class data source with its own

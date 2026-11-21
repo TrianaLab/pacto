@@ -17,7 +17,9 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
       fleetEntities: (...a: unknown[]) => entitiesFn(...a),
       fleetEntityDetail: (...a: unknown[]) => detailFn(...a),
       fleetOverview: (...a: unknown[]) => overviewFn(...a),
-      fleetAttention: (...a: unknown[]) => attentionFn(...a),
+      // The Overview's figures and map: never answered here.
+      stats: () => new Promise(() => {}), fleetMap: () => new Promise(() => {}),
+      fleetAttention: (...a: unknown[]) => attentionFn(...a) ?? new Promise(() => {}),
     },
   };
 });
@@ -28,8 +30,6 @@ import FleetEntityView from './FleetEntityView.svelte';
 import FleetServicesView from './FleetServicesView.svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import FleetEntityListView from './FleetEntityListView.svelte';
-// @ts-expect-error — Svelte component has no declaration file
-import FleetAttentionView from './FleetAttentionView.svelte';
 
 const meta = { schemaVersion: 'pacto.dev/fleet-product/v1', snapshotId: 'x', asOf: '2026-11-04T10:00:00Z', completeness: 'complete', sources: [] };
 const empty = { total: 0, count: 0, truncated: false, items: [] };
@@ -196,15 +196,3 @@ describe('FleetEntityListView — target environment', () => {
   });
 });
 
-describe('FleetAttentionView — domain filter and the unowned category', () => {
-  it('passes the domain to the api, shows a chip and offers the unowned category', async () => {
-    attentionFn.mockResolvedValue({ meta, total: 0, count: 0, offset: 0, limit: 25, truncated: false, items: [] });
-    const { target, done } = mountView(FleetAttentionView, { businessDomain: 'commerce' });
-    await vi.waitFor(() => expect(attentionFn).toHaveBeenCalled());
-    expect(attentionFn).toHaveBeenCalledWith(expect.objectContaining({ businessDomain: 'commerce' }));
-    const cats = Array.from(target.querySelectorAll('select[aria-label="Filter by category"] option')).map((o) => o.textContent);
-    expect(cats).toContain('No declared owner');
-    await vi.waitFor(() => expect(target.textContent).toMatch(/Domain\s*:?\s*commerce/));
-    done();
-  });
-});

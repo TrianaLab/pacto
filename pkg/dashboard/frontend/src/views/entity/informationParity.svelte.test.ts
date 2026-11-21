@@ -535,6 +535,20 @@ describe('service detail keeps where each value comes from', () => {
     unmount(component); target.remove();
   });
 
+  it('keeps contract completeness and the YAML to declare a gap reachable', async () => {
+    const s = richService();
+    s.service.contractCompleteness = { asOf: meta.asOf, completeness: 'complete', percentComplete: 50, sections: [
+      { section: 'summary', state: 'declared', reason: 'pacto.yaml declares it' },
+      { section: 'dependencies', state: 'inferred', reason: 'read from runtime calls', declare: 'dependencies:\n  - ref: ledger\n' },
+    ] };
+    detailFn.mockResolvedValue(s);
+    const { target, component } = await mountView('service', 'domain-a/payments');
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="field-provenance-fold"]')).toBeTruthy());
+    const text = target.textContent || '';
+    for (const fragment of ['50% complete', 'Dependency ranges', 'Inferred only: read from runtime calls', 'YAML to declare it', '- ref: ledger']) expect(text).toContain(fragment);
+    unmount(component); target.remove();
+  });
+
   it('draws no fold for a service with no field provenance and no replacement', async () => {
     detailFn.mockResolvedValue(richService());
     const { target, component } = await mountView('service', 'domain-a/payments');

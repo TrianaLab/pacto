@@ -1,15 +1,17 @@
 import { test, expect, type Page } from '@playwright/test';
+import { revisionGraphUrl } from './graphFocus';
 
 // The REAL visual-graph acceptance. A wrapper, legend and text-alt list prove none of them
 // that a NON-HEADLESS Cytoscape renderer actually painted a topology. These tests fail if
-// renderGraph falls back to headless or paints nothing, and they keep the discovery route a
-// zero-topology search page.
+// renderGraph falls back to headless or paints nothing. The graph route with no focus is the
+// fleet map (509-S12), which draws no neighbourhood; the neighbourhood is a revision's.
 //
 // It reads a narrowly-scoped readiness seam the renderer publishes on the canvas container
 // (data-graph-* attributes: headless flag, node/edge counts, and how many have real rendered
 // geometry) plus the raw <canvas> DOM (count, CSS + backing-store dims, non-blank pixels).
 
-const FOCUS = '/#/fleet/graph/service/payments-service';
+// The neighbourhood of a payments-service revision: a service focus is the fleet map.
+const gotoFocus = async (page: Page) => page.goto(await revisionGraphUrl(page, 'payments-service'));
 
 async function waitPainted(page: Page) {
   const canvas = page.getByTestId('neighborhood-canvas');
@@ -53,23 +55,20 @@ async function readCanvasDom(page: Page) {
 }
 
 test.describe('Operational graph — real visual renderer', () => {
-  test('discovery route renders NO Cytoscape topology (search-first), with a clear affordance', async ({ page }) => {
+  test('the graph route with no focus is the fleet map and renders NO neighbourhood topology', async ({ page }) => {
     await page.goto('/#/fleet/graph');
-    await expect(page.getByTestId('graph-discovery')).toBeVisible({ timeout: 20_000 });
-    // No canvas anywhere on the discovery route (no whole-fleet hairball).
+    await expect(page.getByTestId('fleet-map-summary')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId('neighborhood-canvas')).toHaveCount(0);
-    // The affordance makes it unmistakable a graph appears after a focus is chosen.
-    await expect(page.getByTestId('graph-discovery-placeholder')).toBeVisible();
     await expect(page.getByRole('search')).toBeVisible();
   });
 
-  test('focused payments-service paints a real, non-headless topology with nodes and edges', async ({ page }) => {
+  test('a focused payments-service revision paints a real, non-headless topology with nodes and edges', async ({ page }) => {
     const consoleErrors: string[] = [];
     const pageErrors: string[] = [];
     page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
     page.on('pageerror', (e) => pageErrors.push(e.message));
 
-    await page.goto(FOCUS);
+    await gotoFocus(page);
     await waitPainted(page);
     // Open the text alternative so its nodes/edges are countable for cross-checking.
     await page.getByTestId('graph-textalt').locator('summary').click();
@@ -102,7 +101,7 @@ test.describe('Operational graph — real visual renderer', () => {
   });
 
   test('lanes: what the focus depends on sits left of it, what uses it right, each side in its own box', async ({ page }) => {
-    await page.goto(FOCUS);
+    await gotoFocus(page);
     await waitPainted(page);
     const m = await page.evaluate(() => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -124,10 +123,13 @@ test.describe('Operational graph — real visual renderer', () => {
   });
 
   test('focused revision paints a real topology (mixed provider nodes, no fabricated provider revision)', async ({ page }) => {
-    await page.goto(FOCUS);
+    await gotoFocus(page);
     await waitPainted(page);
-    // Switch to the revision projection via the perspective control; it must also paint.
-    await page.goto('/#/fleet/graph/service/payments-service?perspective=service');
+    // Switch to the service projection via the perspective control: a service is the
+    // fleet map, so the switch leaves the neighbourhood for the map in focus.
+    await page.getByTestId('perspective-service').click();
+    await expect(page.getByTestId('fleet-map-focus')).toBeVisible({ timeout: 20_000 });
+    await gotoFocus(page);
     await waitPainted(page);
     const m = await readCanvasDom(page);
     expect(m.headless).toBe('false');

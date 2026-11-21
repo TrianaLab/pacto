@@ -493,3 +493,4 @@ describe('delivery health at scale', () => {
     expect(ladder(gap)).toEqual([['dev'], ['prod']]);
   });
 });
+

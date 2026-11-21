@@ -18,7 +18,9 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
       fleetEntities: (...a: unknown[]) => entitiesFn(...a) ?? new Promise(() => {}),
       fleetEntityDetail: (...a: unknown[]) => detailFn(...a),
       fleetOverview: (...a: unknown[]) => overviewFn(...a),
-      fleetAttention: (...a: unknown[]) => attentionFn(...a),
+      // The Overview's figures and map: never answered here.
+      stats: () => new Promise(() => {}), fleetMap: () => new Promise(() => {}),
+      fleetAttention: (...a: unknown[]) => attentionFn(...a) ?? new Promise(() => {}),
     },
   };
 });

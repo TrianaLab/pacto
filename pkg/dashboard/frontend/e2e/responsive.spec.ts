@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { revisionGraphUrl } from './graphFocus';
 
 // Responsive acceptance: at narrow widths no product route requires
 // BODY-level horizontal scrolling (internal scroller regions may scroll; the page body
@@ -12,15 +13,15 @@ const WIDTHS = [320, 375, 1280];
 // Product routes reachable by hash. Target detail shares the FleetEntityView layout with
 // service detail (the same component), so service detail exercises the entity-page layout.
 const ROUTES: Array<{ hash: string; ready: (p: Page) => Promise<unknown> }> = [
-  { hash: '#/fleet', ready: (p) => expect(p.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: 20_000 }) },
+  { hash: '#/fleet', ready: (p) => expect(p.getByTestId('fleet-map-summary')).toBeVisible({ timeout: 20_000 }) },
   { hash: '#/fleet/services', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Services' })).toBeVisible({ timeout: 20_000 }) },
-  { hash: '#/fleet/attention', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Needs attention' })).toBeVisible({ timeout: 20_000 }) },
+  { hash: '#/fleet/attention', ready: (p) => expect(p.getByTestId('fleet-map-rail')).toBeVisible({ timeout: 20_000 }) },
   { hash: '#/fleet/owners', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Owners' })).toBeVisible({ timeout: 20_000 }) },
   { hash: '#/fleet/sources', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Data sources' })).toBeVisible({ timeout: 20_000 }) },
   { hash: '#/fleet/changes/payments-service', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Change analysis' })).toBeVisible({ timeout: 20_000 }) },
   { hash: '#/fleet/services/payments-service', ready: (p) => expect(p.locator('.ev-body')).toBeVisible({ timeout: 20_000 }) },
-  { hash: '#/fleet/graph', ready: (p) => expect(p.getByTestId('graph-discovery')).toBeVisible({ timeout: 20_000 }) },
-  { hash: '#/fleet/graph/service/payments-service', ready: (p) => expect(p.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 }) },
+  { hash: '#/fleet/graph', ready: (p) => expect(p.getByTestId('fleet-map-summary')).toBeVisible({ timeout: 20_000 }) },
+  { hash: '#/fleet/graph/service/payments-service', ready: (p) => expect(p.getByTestId('fleet-map-focus')).toBeVisible({ timeout: 20_000 }) },
 ];
 
 // Both boxes, because the failure mode differs by who clips. When the page can scroll,
@@ -47,7 +48,8 @@ for (const w of WIDTHS) {
     }
 
     test('the graph toolbar fits/wraps and its controls remain reachable', async ({ page }) => {
-      await page.goto('/#/fleet/graph/service/payments-service');
+      // A service focus is the fleet map; a revision keeps the neighbourhood and its toolbar.
+      await page.goto(await revisionGraphUrl(page, 'payments-service'));
       await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
       await expect(page.getByTestId('view-observed')).toBeVisible();
       await expect(page.getByTestId('dir-both')).toBeVisible();
@@ -60,7 +62,8 @@ for (const w of WIDTHS) {
     // scrollers are allowed). ──
 
     test('focused graph: legend, semantic navigator, node drawer and edge drawer stay within the body', async ({ page }) => {
-      await page.goto('/#/fleet/graph/service/payments-service');
+      // A service focus is the fleet map; a revision keeps the neighbourhood and its toolbar.
+      await page.goto(await revisionGraphUrl(page, 'payments-service'));
       await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
       await expect(page.getByTestId('graph-legend')).toBeVisible();
       expect(await bodyHasNoHorizontalOverflow(page), 'focused graph + legend').toBe(true);
@@ -78,17 +81,15 @@ for (const w of WIDTHS) {
       expect(await bodyHasNoHorizontalOverflow(page), 'graph edge drawer').toBe(true);
     });
 
-    test('attention advanced filters expanded stay within the body', async ({ page }) => {
-      await page.goto('/#/fleet/attention');
-      await expect(page.getByRole('heading', { level: 1, name: 'Needs attention' })).toBeVisible({ timeout: 20_000 });
-      await page.locator('.av-advanced summary').click();
-      await expect(page.locator('.av-advanced[open]')).toBeVisible();
-      expect(await bodyHasNoHorizontalOverflow(page), 'attention advanced filters').toBe(true);
+    test('the filtered attention list beside the map stays within the body', async ({ page }) => {
+      await page.goto('/#/fleet/attention?severity=error&category=non-compliant');
+      await expect(page.getByTestId('fleet-map-rail-filtered')).toBeVisible({ timeout: 20_000 });
+      expect(await bodyHasNoHorizontalOverflow(page), 'attention list filtered').toBe(true);
     });
 
     test('the mobile navigation menu opens within the body', async ({ page }) => {
       await page.goto('/#/fleet');
-      await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByRole('heading', { level: 1, name: 'Is anything wrong?' })).toBeVisible({ timeout: 20_000 });
       const hamburger = page.getByRole('button', { name: 'Menu' });
       if (await hamburger.isVisible()) {
         await hamburger.click();
@@ -123,7 +124,7 @@ for (const w of [390, 800, 1024, 1280]) {
   test(`every navbar control is within the window @${w}px`, async ({ page }) => {
     await page.setViewportSize({ width: w, height: 800 });
     await page.goto('/#/fleet');
-    await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { level: 1, name: 'Is anything wrong?' })).toBeVisible({ timeout: 20_000 });
     const outside = await page.evaluate(() => {
       const bad: string[] = [];
       for (const el of document.querySelectorAll<HTMLElement>('.navbar a, .navbar button')) {

@@ -4,7 +4,7 @@ import { appReady } from './ready';
 // An external only traces reveal, against the built WASM demo: notification-worker
 // calls api.twilio.com, no contract declares it, and the catalog classifies the
 // callee as twilio. The cluster collector also infers from notification-worker's
-// pod spec that it calls Stripe, so its graph draws an inferred edge.
+// pod spec that it calls Stripe, so Stripe's graph draws an inferred edge.
 
 const T = 20_000;
 
@@ -32,18 +32,22 @@ test.describe('WASM demo — externals recognized from traces and configuration'
     await observed.getByRole('link', { name: 'notification-worker' }).click();
     await expect(page).toHaveURL(/#\/fleet\/services\/notification-worker/);
 
-    await page.goto('/#/fleet/graph/service/notification-worker');
+    // A service focus is the fleet map; each external keeps its neighbourhood, so the two
+    // edges are read there: the call to twilio only traces saw, and Stripe from the pod spec.
+    await page.goto('/#/fleet/graph/external/twilio');
     const legend = page.getByTestId('graph-legend');
     await expect(legend).toBeVisible({ timeout: T });
     await expect(legend.getByRole('button', { name: 'Observed, not expected' })).toBeVisible();
-    await expect(legend.getByRole('button', { name: 'Inferred: one end has no contract, or read from configuration' })).toBeVisible();
-
     await page.getByTestId('graph-textalt').locator('summary').click();
-    const inferred = page.getByTestId('graph-edge').filter({ hasText: /stripe/i });
+    // The trace-only call to twilio is drift, not a declared dependency.
+    const traced = page.getByTestId('graph-edge').filter({ hasText: /notification-worker/i });
+    await expect(traced.getByTestId('edge-difference')).toContainText('Observed, not expected', { timeout: T });
+
+    await page.goto('/#/fleet/graph/external/stripe');
+    await expect(page.getByTestId('graph-legend').getByRole('button', { name: 'Inferred: one end has no contract, or read from configuration' })).toBeVisible({ timeout: T });
+    await page.getByTestId('graph-textalt').locator('summary').click();
+    const inferred = page.getByTestId('graph-edge').filter({ hasText: /notification-worker/i });
     await expect(inferred).toHaveCount(1, { timeout: T });
     await expect(inferred.getByTestId('edge-difference')).toContainText('Inferred from configuration');
-    // The trace-only call to twilio is drift, not a declared dependency.
-    const traced = page.getByTestId('graph-edge').filter({ hasText: /twilio/i });
-    await expect(traced.getByTestId('edge-difference')).toContainText('Observed, not expected');
   });
 });

@@ -27,7 +27,6 @@ import { runAnalysis } from './typographyChecks';
 const SURFACES = [
   { hash: '#/fleet', name: 'Operational Overview' },
   { hash: '#/fleet/services', name: 'Services list' },
-  { hash: '#/fleet/attention', name: 'Attention' },
 ];
 
 /** A figure is "a visualization" if it carries one of the shared viz roots. */

@@ -481,7 +481,7 @@ describe('product design system', () => {
    */
   it('roots every product list row on the one shared row rule', () => {
     const ROWS = PRODUCT_SURFACES.filter((f) => /class="[^"]*\bpl-row\b/.test(f.body));
-    expect(ROWS.length, 'no product surface uses the shared row').toBeGreaterThan(4);
+    expect(ROWS.length, 'no product surface uses the shared row').toBeGreaterThan(2);
     expect(globalCss, 'the shared row must be declared once, globally').toMatch(/\.pl-row\s*\{[^}]*border-bottom:/);
 
     // A view may still shape its own row (the attention row is a two-column grid), but

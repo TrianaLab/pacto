@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import FleetMapRail from './FleetMapRail.svelte';
 import { api } from '../lib/api';
+import { reactiveProps } from '../testkit.svelte';
 
 type Item = { entity: { kind: string; key: string; label: string; href: string; parentService?: string }; service?: string; category: string; severity: string; code: string; summary: string; nextStep?: string };
 const item = (kind: string, key: string, severity = 'error', over: Partial<Item> = {}): Item =>
@@ -34,6 +35,39 @@ describe('FleetMapRail', () => {
     expect(line.textContent).toContain('Filtered: Category Health check failing · Severity Error');
     (line.querySelector('button') as HTMLButtonElement).click();
     expect(onclear).toHaveBeenCalled();
+  });
+
+  it('names an item\'s source and the caller with no contract', async () => {
+    vi.spyOn(api, 'fleetAttention').mockResolvedValue(answer([item('service', 'payments', 'warning', { source: 'hubble', caller: { kind: 'service', key: 'k8s:shop/Deployment/cart', label: 'k8s:shop/Deployment/cart', href: '/fleet/services/k8s%3Ashop%252FDeployment%252Fcart' } } as never)]));
+    const t = renderRail({});
+    await vi.waitFor(() => expect(t.querySelector('[data-testid="attention-caller"]')).toBeTruthy());
+    expect(t.querySelector('[data-testid="fleet-map-rail-item"] .ritem-s')?.textContent).toBe('payments summary via hubble');
+    // The caller is a link of its own, beside the item: it opens its inferred service.
+    const a = t.querySelector('[data-testid="attention-caller"] a') as HTMLAnchorElement;
+    expect(a.textContent).toBe('k8s:shop/Deployment/cart');
+    expect(a.getAttribute('href')).toBe('#/fleet/services/k8s%3Ashop%252FDeployment%252Fcart');
+  });
+
+  it('names a canonical owner by its value and kind in the filtered line', async () => {
+    vi.spyOn(api, 'fleetAttention').mockResolvedValue(answer([]));
+    const t = renderRail({ filters: { ownerKey: 'team:foundations' } });
+    await vi.waitFor(() => expect(t.querySelector('[data-testid="fleet-map-rail-filtered"]')).toBeTruthy());
+    expect(t.querySelector('[data-testid="fleet-map-rail-filtered"]')?.textContent).toContain('Filtered: Owner foundations (Team)');
+  });
+
+  it('never shows the old list under new filters while the new one loads', async () => {
+    let release: (v: never) => void = () => {};
+    const spy = vi.spyOn(api, 'fleetAttention').mockResolvedValueOnce(answer([item('service', 'a'), item('service', 'b', 'warning')]))
+      .mockReturnValueOnce(new Promise((r) => { release = r; }) as never);
+    const props = reactiveProps({ filters: {} as Record<string, string> });
+    const t = renderRail(props);
+    await vi.waitFor(() => expect(t.querySelectorAll('[data-testid="fleet-map-rail-item"]')).toHaveLength(2));
+    props.filters = { severity: 'error' };
+    flushSync();
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+    expect(t.querySelectorAll('[data-testid="fleet-map-rail-item"]')).toHaveLength(0);
+    release(answer([item('service', 'a')]));
+    await vi.waitFor(() => expect(t.querySelectorAll('[data-testid="fleet-map-rail-item"]')).toHaveLength(1));
   });
 
   it('has no filtered line without filters', async () => {

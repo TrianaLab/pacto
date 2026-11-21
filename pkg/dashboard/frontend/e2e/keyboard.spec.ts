@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { appReady } from './ready';
 import { installServeInterceptor } from './graphServe';
+import { revisionGraphUrl } from './graphFocus';
 
 // Keyboard-only acceptance against the built WASM demo: global
 // shortcuts behave (open/close overlays, never hijack typing), and the Operational Graph
@@ -34,8 +35,9 @@ test.describe('keyboard operability', () => {
     await expect(page.locator('.cp-panel')).toHaveCount(0);
   });
 
+  // A service focus is the fleet map (fleet-map.spec.ts covers its keyboard); a revision keeps the neighbourhood.
   test('the graph is discoverable and inspectable keyboard-only (node + edge + Escape restores focus)', async ({ page }) => {
-    await page.goto('/#/fleet/graph/service/payments-service');
+    await page.goto(await revisionGraphUrl(page, 'payments-service'));
     await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
     // The accessible relationships navigator is the keyboard model for the canvas. Open
     // it by keyboard (focus the disclosure summary and press Enter) as a keyboard user
@@ -65,7 +67,7 @@ test.describe('keyboard operability', () => {
 
   test('a folded team group opens from the keyboard and says what it holds', async ({ page }) => {
     await page.addInitScript(installServeInterceptor);
-    await page.goto('/#/fleet/graph/service/payments-service');
+    await page.goto(await revisionGraphUrl(page, 'payments-service'));
     await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
     await page.evaluate(() => { (window as unknown as { __pactoMutate?: string }).__pactoMutate = 'many'; });
     await page.getByRole('button', { name: 'Refresh' }).click();
@@ -82,7 +84,7 @@ test.describe('keyboard operability', () => {
   });
 
   test('graph knowledge and direction controls are keyboard operable', async ({ page }) => {
-    await page.goto('/#/fleet/graph/service/payments-service');
+    await page.goto(await revisionGraphUrl(page, 'payments-service'));
     await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
     const observed = page.getByTestId('view-observed');
     await observed.focus();
@@ -95,12 +97,8 @@ test.describe('keyboard operability', () => {
   });
 
   test('the target one-hop projection does not expose inert depth/expand controls', async ({ page }) => {
-    // Reach a target focus via search (its default projection is the one-hop target view).
-    await page.goto('/#/fleet/graph');
-    await page.getByRole('searchbox').fill('payments');
-    const targetLink = page.locator('a[data-testid="graph-focus-link"][href*="perspective=target"]').first();
-    await expect(targetLink).toBeVisible({ timeout: 20_000 });
-    await targetLink.click();
+    // A target focus in its own perspective is the one-hop target view.
+    await page.goto(`/#/fleet/graph/target/${encodeURIComponent('prod/Deployment/payments-service')}?perspective=target`);
     await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
     // The one-hop target projection exposes no depth or expand control at all.
     await expect(page.getByTestId('graph-depth')).toHaveCount(0);

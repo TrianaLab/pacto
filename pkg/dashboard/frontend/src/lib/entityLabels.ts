@@ -491,3 +491,15 @@ export function replacesTip(replaces: ReplacementRef[], total: number): string {
   const unlisted = total - 1 - shown.length;
   return `${head} Also replaces ${shown.join(', ')}${unlisted > 0 ? ` and ${formatCount(unlisted)} more, listed by pacto fleet get` : ''}.`;
 }
+
+// ── contract completeness (509-S12) ──────────────────────────────────────────
+
+/** The word for each state a contract-completeness section takes (not-applicable is never shown). */
+export const COMPLETENESS_STATE: Record<string, string> = {
+  declared: 'Declared', inferred: 'Inferred only', missing: 'Missing', unknown: 'Unknown',
+};
+
+/** completenessText is the tip of one contract-completeness section: its state, why, and what else the fleet knows. */
+export function completenessText(s: { state: string; reason?: string; note?: string }): string {
+  return `${COMPLETENESS_STATE[s.state] ?? s.state}${s.reason ? `: ${s.reason}` : ''}${s.note ? `; ${s.note}` : ''}`;
+}
