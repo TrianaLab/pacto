@@ -210,3 +210,48 @@ func TestRestrictRedactsExposureRows(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckEndpointRefusesExternalHosts(t *testing.T) {
+	for url, ok := range map[string]bool{
+		"http://x.y.svc:80":                    true,
+		"http://x.y.svc.cluster.local:9090":    true,
+		"http://jaeger-query.obs.svc:16686":    true,
+		"https://evil.example":                 false,
+		"https://api.datadoghq.eu":             false,
+		"http://user:pw@x.y.svc:80":            false,
+		"http://x.y.svc:80/api":                false,
+		"http://x.y.svc:80?q=1":                false,
+		"http://x.y.svc:80#f":                  false,
+		"http://x.y.svc":                       false,
+		"http://x.y.svc:0":                     false,
+		"http://x.y.svc:080":                   false,
+		"http://x.y.svc:65536":                 false,
+		"http://x.y.svc:65535":                 true,
+		"http://x.evil.example.svc.attacker:1": false,
+	} {
+		if err := CheckEndpoint(url); (err == nil) != ok {
+			t.Errorf("CheckEndpoint(%q) = %v, want ok %v", url, err, ok)
+		}
+	}
+}
+
+func TestDecodeClearsInvalidEndpoint(t *testing.T) {
+	res, err := Decode([]byte(`{"schemaVersion":"1","entries":[
+		{"kind":"jaeger","completeness":"complete","endpoint":"https://evil.example"},
+		{"kind":"tempo","completeness":"partial","reason":"r","endpoint":"http://u@p.m.svc:9090"},
+		{"kind":"traces","completeness":"unknown","endpoint":"https://evil.example"},
+		{"kind":"otel-collector","completeness":"complete","endpoint":"http://p.m.svc:9090"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []Entry{
+		{Kind: "jaeger", Completeness: Partial, Reason: "the endpoint is not an in-cluster Service URL"},
+		{Kind: "tempo", Completeness: Partial, Reason: "r; the endpoint is not an in-cluster Service URL"},
+		{Kind: "traces", Completeness: Unknown, Reason: "the endpoint is not an in-cluster Service URL"},
+		{Kind: "otel-collector", Completeness: Complete, Endpoint: "http://p.m.svc:9090"},
+	} {
+		if g := res.Entries[i]; g.Kind != want.Kind || g.Completeness != want.Completeness || g.Reason != want.Reason || g.Endpoint != want.Endpoint {
+			t.Errorf("entry %d = %+v, want %+v", i, g, want)
+		}
+	}
+}

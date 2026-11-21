@@ -79,7 +79,9 @@ func hubbleRelay(services []svcInfo, listComplete bool) (svcInfo, bool) {
 	}); ok && listComplete {
 		trusted = append(trusted, ns)
 	}
-	sorted := sortedServices(slices.Clone(services))
+	sorted := slices.SortedFunc(slices.Values(services), func(a, b svcInfo) int {
+		return cmp.Or(cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Name, b.Name))
+	})
 	for _, match := range []func(svcInfo) bool{
 		func(svc svcInfo) bool { return svc.Labels["k8s-app"] == "hubble-relay" },
 		func(svc svcInfo) bool { return svc.Name == "hubble-relay" },

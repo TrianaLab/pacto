@@ -16,7 +16,8 @@ import (
 var rowNames = map[string]string{
 	"registry": "Registry", "cloud": "Cloud", "sign-in": "Sign-in",
 	"exposure": "Exposure", "metrics": "Metrics", "nodes": "Nodes",
-	"pull-secret": "Pull Secret",
+	"pull-secret": "Pull Secret", "otel-collector": "OTel Collector", "tempo": "Tempo",
+	"jaeger": "Jaeger", "datadog": "Datadog", "traces": "Traces",
 }
 
 // usedFor says, per kind, what a person may do with the proposal. Nothing is
@@ -30,7 +31,15 @@ var usedFor = map[string]string{
 	"nodes":    "proposal for runtime conformance; nothing is turned on",
 	"pull-secret": "proposal for registryPullSecret: it needs push on <registry>/pacto-*; " +
 		"a pod pull Secret usually grants pull only",
+	"otel-collector": observedEdges,
+	"tempo":          observedEdges,
+	"jaeger":         observedEdges,
+	"datadog":        observedEdges,
+	"traces":         observedEdges,
 }
+
+// observedEdges is what a trace-backend row is used for.
+const observedEdges = "observed edges, read by the dashboard; nothing is turned on"
 
 // ProviderRows maps every entry of res to an inferred provider row of source
 // at now: complete is available, partial is partial, unknown is unavailable,
