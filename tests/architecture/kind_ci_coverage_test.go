@@ -3,6 +3,7 @@ package architecture
 import (
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -80,5 +81,31 @@ func TestPactoInstallsNeverGoThroughInfra(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestE2EFilterCoversTheKargoGate keeps the gitops-kargo shard running for a
+// change to what its AnalysisRun Job executes: `pacto impact --running`, the
+// target snapshot it reads by default and the in-cluster reader of the opt-in
+// `targets: k8s`. A change there alone would otherwise skip every kind shard.
+func TestE2EFilterCoversTheKargoGate(t *testing.T) {
+	globs := pathsFilter(t, "e2e")
+	for _, want := range []string{
+		"internal/cli/impact*.go",
+		"internal/app/impact*.go",
+		"internal/app/targetsnapshot.go",
+		"internal/app/fleet.go",
+		"internal/fleetsrc/**",
+		"internal/k8sclient/**",
+		"pkg/impact/**",
+		"pkg/kubecluster/**",
+		"cmd/pacto/**",
+	} {
+		if !slices.Contains(globs, want) {
+			t.Errorf("the ci.yml e2e filter lacks '%s', so a change there alone skips the gitops-kargo shard", want)
+		}
+	}
+	if !slices.Contains(kindMatrixScenarios(t), "gitops-kargo") {
+		t.Error("the ci-e2e-kind matrix does not run gitops-kargo")
 	}
 }
