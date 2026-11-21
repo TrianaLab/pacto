@@ -302,3 +302,27 @@ func TestMapFocusClaimAndRankFallbacks(t *testing.T) {
 		t.Error("no item ranks after info")
 	}
 }
+
+// A pair whose target the view may not see raises no cross-environment problem
+// on the map or in focus, and draws no ribbon, though the relationship stays.
+func TestMapRestrictedDropsHiddenTargetPairs(t *testing.T) {
+	q := mapFleet(t, mapServices,
+		[]RawTarget{mapTarget("shop", "orders", "prod"), mapTarget("shop", "payments", "prod"), mapTarget("secret", "payments", "staging")},
+		seen(wid("", "shop", "orders", "prod"), wid("", "secret", "payments", "staging"), time.Minute))
+	if e := edgeOf(mustFocus(t, q, MapFocusQuery{Service: "orders"}), "orders", "payments"); e == nil || e.Problem == nil || e.Problem.Code != codeCrossEnvironmentCall {
+		t.Fatalf("unrestricted edge %+v", e)
+	}
+	if rbs := mustMap(t, q, MapQuery{GroupBy: MapGroupByEnvironment}).Ribbons; !slices.ContainsFunc(rbs, func(rb MapRibbon) bool { return rb.CrossEnvironment > 0 }) {
+		t.Fatalf("unrestricted ribbons %+v", rbs)
+	}
+	r := q.Restrict(func(_, ns string) bool { return ns != "secret" }, nil)
+	e := edgeOf(mustFocus(t, r, MapFocusQuery{Service: "orders"}), "orders", "payments")
+	if e == nil || (e.Problem != nil && e.Problem.Code == codeCrossEnvironmentCall) {
+		t.Errorf("restricted edge %+v", e)
+	}
+	for _, rb := range mustMap(t, r, MapQuery{GroupBy: MapGroupByEnvironment}).Ribbons {
+		if rb.CrossEnvironment != 0 || rb.To == "staging" {
+			t.Errorf("restricted ribbon %+v", rb)
+		}
+	}
+}
