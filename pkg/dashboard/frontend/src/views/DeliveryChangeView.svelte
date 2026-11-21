@@ -296,9 +296,9 @@
   .cd-decided { color: var(--c-ok); font-weight: 600; margin: 0; }
   .cd-status { margin: 0; }
   .cd-publisher { margin: 0; overflow-wrap: anywhere; }
-  .cd-facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px var(--sp-3); margin: 0; }
+  .cd-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px var(--sp-3); margin: 0; }
   .cd-facts dt { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
-  .cd-facts dd { margin: 0; overflow-wrap: anywhere; }
+  .cd-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
   .cd-digest { color: var(--c-text-2); }
   .cd-facts a, .cd-consumers a { color: var(--c-accent); text-decoration: underline; }
   .cd-actions { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
