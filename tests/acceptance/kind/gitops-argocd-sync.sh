@@ -163,6 +163,16 @@ spec:
       containers: [{name: app, image: "${PAUSE_IMG%@*}"}]
 YAML
 }
+# service NAME — the Service in front of NAME, so a consumer of NAME resolves to
+# ready endpoints: a required dependency on a provider with no Service is Unknown.
+service() {
+  cat <<YAML
+apiVersion: v1
+kind: Service
+metadata: {name: $1, namespace: $APP_NS}
+spec: {selector: {app: $1}, ports: [{port: 80}]}
+YAML
+}
 # pacto_cr NAME REF — the Pacto that runs NAME's contract REF.
 pacto_cr() {
   cat <<YAML
@@ -172,12 +182,12 @@ metadata: {name: $1, namespace: $APP_NS}
 spec:
   checkIntervalSeconds: 30
   contractRef: {oci: "$2"}
-  target: {workloadRef: {name: $1, kind: Deployment}}
+  target: {serviceName: $1, workloadRef: {name: $1, kind: Deployment}}
 YAML
 }
 # Digest-pinned, so the snapshot links each target to its revision exactly: a
 # tag link is "not proof" and never clears.
-{ workload payments; echo ---; pacto_cr payments "$P100"; echo ---; workload ledger; echo ---; pacto_cr ledger "$L100"; } \
+{ for s in payments ledger; do service "$s"; echo ---; done; workload payments; echo ---; pacto_cr payments "$P100"; echo ---; workload ledger; echo ---; pacto_cr ledger "$L100"; } \
   | kubectl apply -f - >/dev/null
 wait_pacto_status "$APP_NS" payments Compliant || fail "payments 1.0.0 never reached Compliant"
 wait_pacto_status "$APP_NS" ledger Compliant || fail "ledger never reached Compliant"
