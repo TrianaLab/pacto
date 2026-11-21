@@ -14,6 +14,7 @@ detection changes no argument, rule or feature.
 | Exposure | HTTPRoutes and Ingresses, one vote per namespace | `Gateway API with HTTPRoutes in 4 of 5 namespaces` |
 | Metrics | API discovery | `Prometheus Operator serves monitoring.coreos.com/v1` |
 | Nodes | Node kernels | `kernel 6.1 on 6 of 6 with BTF likely` |
+| OTel Collector, Tempo, Jaeger and Datadog | Running pods and Services, only when found; see [Trace backends](../../operational-graph-providers.md#trace-backends) | `query API on port 16686` |
 
 The rows show under Data sources in the dashboard, in `helm upgrade` notes
 and in the CLI:

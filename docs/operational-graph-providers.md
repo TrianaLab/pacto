@@ -159,7 +159,7 @@ explains what each mode means for records.
 With `--detected`, the rows the operator
 [detected in a cluster](integrations/kubernetes/detection.md)
 join from a source of kind `detection`: Registry, Cloud, Sign-in, Exposure,
-Metrics and Nodes. Each carries five more fields:
+Metrics, Nodes and the [trace backends](#trace-backends). Each carries five more fields:
 
 | Field | Meaning |
 |---|---|
@@ -178,6 +178,80 @@ reads `stale`. A restricted
 view clears the evidence, hint and details of a row that names a namespace
 you cannot read, or of a cluster-wide row when you cannot read the cluster
 scope.
+
+## Trace backends
+
+The operator detects four trace backends from the pods and Services it
+already reads, and writes a row only for a backend it found. A failed read is
+one `Traces` row that is `unavailable`.
+
+- **OTel Collector** (`otel-collector`): a running
+  `opentelemetry-collector` image.
+- **Tempo** (`tempo`): a running `grafana/tempo` image.
+- **Jaeger** (`jaeger`): a Service with port 16686 in a namespace that runs a
+  `jaegertracing/` image. With several candidates the details name the others
+  and the dashboard never reads them as complete coverage.
+- **Datadog** (`datadog`): the Agent DaemonSet, its `DD_SITE` and the name of
+  the Secret its `DD_API_KEY` comes from. Pacto reads no Secret and holds no
+  Datadog client, so the row stays `partial`: Pacto reads Datadog calls
+  through an OpenTelemetry Collector or a contribution.
+
+`pacto fleet` and `pacto mcp` show these as detected rows used for `observed
+edges, read by the dashboard`. On `pacto dashboard` each backend the dashboard
+reads becomes the row of its live source instead, dated by the last read and
+saying how many edges it read:
+
+- **Jaeger** (source `detected-jaeger`) is `available` once Jaeger returned a
+  dependency. With none it is `partial`: Cassandra and Elasticsearch storage
+  need the spark-dependencies job.
+- **Service graph in Prometheus** (source `detected-service-graph`) reads the
+  series Tempo's metrics-generator and the Collector's `servicegraph`
+  connector write. With no series it is `partial` and names the processor or
+  connector to turn on.
+- **OTel Collector** (source `otlp-receiver`) is `available` once Collectors
+  sent calls in the last 15 minutes, and counts the senders. Otherwise it is
+  `partial`, such as `not exporting to pacto-dashboard.pacto-system:4318`, and
+  its hint is one line of Collector configuration. With no Collector
+  detected, an **OTLP receiver** row appears once something was sent.
+
+A live row that is not available carries an `EDGE_SOURCE_PARTIAL` limitation
+with the reason. When the service graph or Jaeger reported complete coverage
+in the last minute, its row says `won: the OTLP receiver is off` and the
+receiver's row says which source won. If the receiver saw calls the winner
+misses, the receiver turns back on and both rows say how many.
+
+When the Collector has a Prometheus, prefer the service graph: add the
+connector to the Collector's configuration, keep its other exporters and let
+Prometheus scrape the new one.
+
+```yaml
+connectors:
+  servicegraph: {}
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+service:
+  pipelines:
+    traces:
+      exporters: [servicegraph]
+    metrics/servicegraph:
+      receivers: [servicegraph]
+      exporters: [prometheus]
+```
+
+Otherwise export traces to the receiver as JSON, next to the exporters the
+pipeline already has:
+
+```yaml
+exporters:
+  otlphttp/pacto:
+    endpoint: http://pacto-dashboard.pacto-system:4318
+    encoding: json
+service:
+  pipelines:
+    traces:
+      exporters: [otlphttp/pacto]
+```
 
 ## Not read and not installed
 

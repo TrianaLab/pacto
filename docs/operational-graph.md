@@ -196,11 +196,13 @@ flowchart LR
         EVI["Evidence Server<br/>signed EvidenceSet reports"]
     end
     OTEL["OTel trace file<br/>offline analysis"]
+    LIVE["Trace backends and<br/>OTLP receiver (dashboard)"]
     OCI --> OG
     LOCAL --> OG
     K8S --> OG
     EVI --> OG
     OTEL -->|--traces| OG
+    LIVE -->|live edges| OG
     OG["Operational Graph<br/><i>immutable read model</i>"]
     OTEL --> RECON["reconcile · impact<br/>declared vs observed"]
     OG --> RECON
@@ -275,7 +277,8 @@ The callee of a span is the first of these attributes it carries:
 `messaging.system` and `rpc.system`. It can also
 emit signable EvidenceSets (`pacto otel observe --evidence`) so observed
 dependencies travel the same [evidence protocol](evidence.md) as any
-other report.
+other report. The dashboard's
+[OTLP receiver](operational-graph-reference.md#sources) is a separate live input.
 
 Those observed edges meet the declared graph in three places:
 

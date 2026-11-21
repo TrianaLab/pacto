@@ -80,9 +80,30 @@ compliance evidence that a source carries.
 - **Offline target-state fixtures** (`--target-state`): an unsigned demo and
   test adapter for supplying targets without a cluster.
 - **Offline trace exports** (`--traces`, or `--trace-source NAME=PATH` on `pacto
-  dashboard` only): observed dependency edges. Pacto reads trace files only and
-  ships **no live OTLP receiver** on ports 4317 or 4318. Run a Collector you own
-  and point a source at the file it exports.
+  dashboard` only): observed dependency edges read from an OTLP/JSON file a
+  Collector you own exports.
+- **Trace backends** (`pacto dashboard --detected`): when the operator
+  [detected](operational-graph-providers.md#trace-backends) Jaeger, or Tempo
+  or an OpenTelemetry Collector with a Prometheus next to it, the dashboard
+  reads their calls of the last 15 minutes every 30 seconds as `observed`
+  edges of source kind `traces`: `detected-jaeger` from Jaeger's
+  `/api/dependencies` and `detected-service-graph` from the
+  `traces_service_graph_request_total` series in Prometheus. Both are advisory
+  and read-only, and like Mira they see only instrumented traffic, so a
+  declared edge they did not see stays `insufficient`. A backend that does not
+  answer leaves the source partial with its row `unavailable`. `pacto fleet`
+  and `pacto mcp` show the detected rows and read no backend.
+- **OTLP receiver** (`pacto dashboard --otlp-receiver http://HOST:PORT`, set by
+  the operator to port 4318): a fallback for a Collector with no Prometheus.
+  Collectors in the cluster export OTLP/HTTP JSON to `POST /v1/traces`; the
+  dashboard maps spans to calls, keeps no span and serves nothing else on that
+  port. Source `otlp-receiver`, of kind `otlp-receiver`, reports the calls of
+  the last 15 minutes. Anything in the cluster can send to it, so its source is
+  `cautionOnly`: its edges add uncontracted callers and undeclared calls, and
+  never mark a declared dependency matched or raise impact confidence to
+  `corroborated`. It turns off while the service graph or Jaeger proved
+  complete coverage in the last minute. Nothing listens on 4317 and protobuf
+  requests are refused.
 - **Mira** (`--mira-source <url>`, or `PACTO_DASHBOARD_MIRA_SOURCES` for `pacto
   dashboard`): the calls between services that a
   [Mira](investigate-a-problem.md) node saw in its last 15 minutes of traces,
