@@ -434,6 +434,7 @@ var coverageReasons = map[string]string{
 	"ambiguous-peers":          "an address the workload called answers for more than one domain, so the node agent cannot tell which one it called",
 	"unnamed-public":           "the workload called a public address the node agent saw no DNS answer for",
 	"unnamed-private-peers":    "the workload called a private address outside the cluster that the node agent cannot name",
+	"egress-host-unclassified": "the workload called a host whose name gives no identity, such as a single label or one under a private suffix",
 	"gateway-log-format":       "the egress gateway's access log is in a format the operator cannot read",
 	"gateway-access-log-off":   "the egress gateway writes no access log",
 	"gateway-log-unreadable":   "the operator could not read the egress gateway's access log",

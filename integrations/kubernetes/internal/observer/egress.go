@@ -63,14 +63,19 @@ func (o *Observer) observeEgress(ctx context.Context, input CollectInput, now ti
 	}
 	named, unnamed := runtimefacts.ExternalEgress(in.nodes, refs, internal, o.podCIDRs(ctx), now.Add(-freshness))
 	unnamedCoverage(&cov.CallerCoverage, unnamed)
-	out := classifyEgress(named, unversioned.EgressSourceKernel)
+	out, unclassified := classifyEgress(named, unversioned.EgressSourceKernel)
 	if o.gatewayLogs != nil {
 		gw := o.gatewayLogs.read(ctx, freshness)
 		for _, r := range gw.reasons {
 			partialCoverage(&cov.CallerCoverage, r)
 		}
-		out = append(out, gatewayEgress(gw.lines, targets)...)
+		viaGateway, gwUnclassified := gatewayEgress(gw.lines, targets)
+		out, unclassified = append(out, viaGateway...), unclassified || gwUnclassified
 		slices.SortStableFunc(out, func(a, b unversioned.EgressStatus) int { return cmp.Compare(a.Identity, b.Identity) })
+	}
+	if unclassified {
+		// A legacy system reached by a bare or private-suffix name is still a system the workload calls.
+		partialCoverage(&cov.CallerCoverage, "egress-host-unclassified")
 	}
 	if len(out) > MaxStatusEgress {
 		out = out[:MaxStatusEgress]
@@ -174,18 +179,22 @@ func (o *Observer) podCIDRs(ctx context.Context) func(netip.Addr) bool {
 
 // classifyEgress names each host source saw with the operator's catalog, drops a host that names nothing (a single
 // label, a private suffix) and keeps one entry per identity, the first host in sort order as its example,
-// sorted by identity.
-func classifyEgress(named []runtimefacts.Egress, source string) []unversioned.EgressStatus {
+// sorted by identity. unclassified reports that a host was dropped, so the list misses a system.
+func classifyEgress(named []runtimefacts.Egress, source string) (out []unversioned.EgressStatus, unclassified bool) {
 	cat := externalcatalog.Default()
 	seen := map[string]bool{}
-	var out []unversioned.EgressStatus
 	for _, e := range named {
 		hosts := externalcatalog.NormalizeHost(e.Host)
-		if len(hosts) == 0 {
+		var m externalcatalog.Match
+		ok := len(hosts) > 0
+		if ok {
+			m, ok = cat.MatchHost(hosts[0])
+		}
+		if !ok {
+			unclassified = true
 			continue
 		}
-		m, ok := cat.MatchHost(hosts[0])
-		if !ok || seen[string(m.Identity)] {
+		if seen[string(m.Identity)] {
 			continue
 		}
 		seen[string(m.Identity)] = true
@@ -194,7 +203,7 @@ func classifyEgress(named []runtimefacts.Egress, source string) []unversioned.Eg
 		})
 	}
 	slices.SortFunc(out, func(a, b unversioned.EgressStatus) int { return cmp.Compare(a.Identity, b.Identity) })
-	return out
+	return out, unclassified
 }
 
 // ObservedEgress is what the last Collect found the target's pods calling outside the cluster

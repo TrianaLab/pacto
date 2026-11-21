@@ -1067,7 +1067,8 @@ spec:
                   (node-without-agent, stale-node, degraded-node, collection-failed,
                   shared-netns), no running pod to watch (no-running-pods), calls it
                   cannot name (dns-unavailable, ambiguous-peers, unnamed-public,
-                  unnamed-private-peers), truncated or not-evaluated. Absent when runtime
+                  unnamed-private-peers), a name that gives no identity
+                  (egress-host-unclassified), truncated or not-evaluated. Absent when runtime
                   observation is not configured for this Pacto.
                 properties:
                   nodes:

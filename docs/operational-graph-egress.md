@@ -91,6 +91,7 @@ reasons are:
 | `ambiguous-peers` | an address answers for more than one domain |
 | `unnamed-public` | a call reached a public address with no DNS answer |
 | `unnamed-private-peers` | a call reached a private address outside every node's pod CIDR |
+| `egress-host-unclassified` | a call reached a host whose name gives no identity, such as `legacy-db` |
 | `services-unreadable` | the operator could not tell in-cluster addresses apart |
 | `no-running-pods` | the workload runs no pod to watch |
 | `truncated` | more than 32 Externals |

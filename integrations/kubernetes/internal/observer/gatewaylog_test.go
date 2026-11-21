@@ -203,9 +203,18 @@ func TestGatewayLogIgnoresLinesBeforePodStart(t *testing.T) {
 		t.Fatalf("a line from before the pod started names its call: %+v", got)
 	}
 	// A pod with no start time vouches for no line.
-	if got := gatewayEgress([]accessLine{{start: kNow, downstream: netip.MustParseAddr("10.0.0.5"), host: "api.stripe.com"}},
+	if got, _ := gatewayEgress([]accessLine{{start: kNow, downstream: netip.MustParseAddr("10.0.0.5"), host: "api.stripe.com"}},
 		[]corev1.Pod{{Status: corev1.PodStatus{PodIP: "10.0.0.5"}}}); len(got) != 0 {
 		t.Fatalf("a pod with no start time named a call: %+v", got)
+	}
+}
+
+func TestGatewayEgressReportsUnclassifiedHost(t *testing.T) {
+	started := metav1.NewTime(kNow.Add(-time.Hour))
+	pod := corev1.Pod{Status: corev1.PodStatus{PodIP: "10.0.0.5", StartTime: &started}}
+	line := accessLine{start: kNow, downstream: netip.MustParseAddr("10.0.0.5"), host: "legacy-db", port: 5432}
+	if got, unclassified := gatewayEgress([]accessLine{line}, []corev1.Pod{pod}); len(got) != 0 || !unclassified {
+		t.Fatalf("a gateway host that names nothing: got %+v, unclassified %v", got, unclassified)
 	}
 }
 

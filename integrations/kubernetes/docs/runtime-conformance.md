@@ -116,6 +116,7 @@ running target pods and `nodesWithAgent`.
 | `ambiguous-peers` | an address the pod called answers for more than one registrable domain |
 | `unnamed-public` | the pod called a public address with no DNS answer |
 | `unnamed-private-peers` | the pod called a private address outside every node's pod CIDR |
+| `egress-host-unclassified` | the pod called a host whose name gives no identity, such as `legacy-db` |
 
 ## What it collects
 

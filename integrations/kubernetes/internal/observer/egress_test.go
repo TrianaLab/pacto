@@ -135,7 +135,8 @@ func TestObserveEgressDropsNamelessHosts(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("a host that names nothing is dropped: %+v", got)
 	}
-	wantEgressCoverage(t, cov, pactoapi.CallerCoverageComplete, "")
+	// The system behind it is still called, so the list cannot read as complete.
+	wantEgressCoverage(t, cov, pactoapi.CallerCoveragePartial, "egress-host-unclassified")
 }
 
 func TestObserveEgressCap32Truncated(t *testing.T) {

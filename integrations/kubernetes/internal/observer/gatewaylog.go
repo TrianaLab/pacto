@@ -235,8 +235,8 @@ func dash(s string) string {
 
 // gatewayEgress are the externals the target's pods called through a gateway: lines from a pod's current
 // address that started after the pod did (a pod address is reused; a line from its previous owner is
-// dropped). A pod with no start time vouches for no line.
-func gatewayEgress(lines []accessLine, pods []corev1.Pod) []unversioned.EgressStatus {
+// dropped). A pod with no start time vouches for no line. unclassified is classifyEgress's.
+func gatewayEgress(lines []accessLine, pods []corev1.Pod) ([]unversioned.EgressStatus, bool) {
 	started := map[netip.Addr]time.Time{}
 	for _, p := range pods {
 		if p.Status.StartTime == nil {
