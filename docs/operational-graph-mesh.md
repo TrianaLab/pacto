@@ -1,8 +1,7 @@
 # Calls a service mesh records
 
-This page describes how Pacto reads the calls Istio, Linkerd or Cilium Hubble
-already record and joins them to the operational graph. Pacto installs no node
-agent and no collector for this, and the chart has no value to turn it on.
+Pacto joins the calls Istio, Linkerd or Cilium Hubble already record to the
+operational graph, with no node agent, no collector and no chart value.
 
 ## When Pacto reads a mesh
 
@@ -17,8 +16,7 @@ It uses API discovery to find a mesh:
 | Cilium Hubble | `cilium.io` | Hubble Relay |
 
 When the cluster serves none of these groups, the source makes no other call
-and reports no row. Otherwise it lists Services and Namespaces, which the
-dashboard can already read, and reads the calls of the last hour. It reads no
+and reports no row. Otherwise it lists Services and Namespaces and reads the calls of the last hour. It reads no
 Pod, Secret or custom resource and writes nothing. The only requests it sends
 outside the Kubernetes API are `GET /api/v1/query` to Prometheus and the
 `ServerStatus` and `GetFlows` calls to Hubble Relay.
@@ -32,6 +30,12 @@ $ pacto fleet providers --k8s
 PROVIDER  EVIDENCE                                                USED FOR
 Istio     serves networking.istio.io; calls read from Prometheus  observed edges (partial: 3 namespaces without sidecars)
 ```
+
+| Evidence ends with | Meaning |
+|---|---|
+| `calls read from Prometheus`, `flows read from Hubble Relay` | Pacto read the calls |
+| `Prometheus found, calls not read`, `Hubble Relay found, flows not read` | The server failed to answer; a limitation says why |
+| `no Prometheus found`, `no Hubble Relay found` | No server Pacto trusts was found |
 
 The row's objects name the mesh's control-plane Services, the Prometheus or
 Relay Service Pacto read and the namespaces the mesh does not cover. The
@@ -47,8 +51,13 @@ summed by reporter, cluster, workload and namespace of both ends, or
 reported counts once. For Linkerd it asks for the outbound
 `increase(response_total[1h])`, or `tcp_open_total`, summed by the workload
 labels of both ends. For Hubble it reads Relay's status and at most the newest
-10000 flows of the last hour, and keeps forwarded egress flows that name a
-workload on both ends.
+10000 flows of the last hour, keeping forwarded egress flows with a workload
+on both ends.
+
+Pacto skips calls between two clusters, and an Istio answer holding several
+clusters reads partial with no edge. Linkerd labels only calls to a mirrored
+service and Hubble only each end's cluster, so Pacto cannot spot their calls
+of another cluster with both ends there.
 
 Each call pair becomes an observed edge with its call count, first seen one
 hour before the read and last seen at the read. For Hubble, first and last
@@ -63,7 +72,7 @@ Pacto looks the name up among the workloads it knows. One workload of that name
 resolves to its service, a declared service whose Pacto target runs as that
 workload included. Two workloads of different kinds with that name are
 `ambiguous: more than one workload of this name`, and no workload leaves the
-end unresolved. Pacto never guesses either way.
+end unresolved.
 
 Mesh calls join inferred services the way every runtime call does: an edge
 between two declared services is `observed`, an edge with an inferred end is
@@ -111,6 +120,12 @@ Pacto reads Hubble Relay only from a Service labelled `k8s-app=hubble-relay`,
 or named `hubble-relay`, in `kube-system` or in the namespace of Cilium's own
 Services.
 
+Anyone who can create a Service can copy a label, so a control-plane or
+Cilium label counts only when every Service carrying it sits in one namespace.
+A copy elsewhere marks neither namespace: the mesh may go unread, but Pacto
+never reads a tenant's server. A scoped installation that cannot see the real
+control plane still trusts a lone copy.
+
 An installation that watches some namespaces reads only those. Its queries
 select calls with both ends in them, and it counts any call that reaches
 another namespace without naming it.
@@ -144,9 +159,8 @@ Linkerd, a Job pod or a peer outside the mesh.
 The mesh source is advisory, like [operator detection](operational-graph-reference.md#sources).
 It turns on by itself, so were it counted, a cluster with one uninjected
 namespace would make every fleet and impact answer partial and every CI impact
-gate unverified. Its edges still join the graph. Nothing becomes more positive:
-the mesh reports only calls no contract declares, so its silence never counts
-against a declared edge, and an inferred edge never clears a gate.
+gate unverified. Its edges still join the graph. Its silence never counts against a declared
+edge and an inferred edge never clears a gate.
 
 Data sources lists the mesh source with its state. The state bar and the
 Incomplete sources tile leave it out while it is not available, and the list
@@ -154,10 +168,9 @@ the tile opens does the same.
 
 ## Outside the cluster
 
-Pacto running inside the cluster, such as the dashboard the chart installs,
-reads Prometheus and Relay directly by their cluster address. Pacto running
-outside the cluster never resolves a cluster address: it reaches
-Prometheus through the Kubernetes API server's service proxy with your own
+Inside the cluster, such as in the dashboard the chart installs, Pacto reads
+Prometheus and Relay directly. Outside it, Pacto never resolves a cluster
+address and reaches Prometheus through the Kubernetes API server's service proxy with your own
 kubeconfig credentials, which need `get` on `services/proxy`. Without it the
 row reads `is not reachable from here and you may not proxy to it`. Hubble
 Relay is read only inside the cluster, so outside it the row reads
@@ -166,8 +179,8 @@ never granted `services/proxy`.
 
 ## What Pacto does not read
 
-- Calls to hosts outside the cluster, such as Istio `ServiceEntry` hosts or
-  Hubble flows to `world`.
-- A Hubble Relay that serves only TLS, since its client certificate sits in a
-  Secret Pacto does not read.
-- A Prometheus, Thanos or Mimir outside the cluster.
+| Left out | Why |
+|---|---|
+| Calls to hosts outside the cluster, such as Istio `ServiceEntry` hosts or Hubble flows to `world` | The mesh source reads calls between workloads only |
+| A Hubble Relay that serves only TLS | Its client certificate sits in a Secret Pacto does not read |
+| A Prometheus, Thanos or Mimir outside the cluster | Its address would be a chart value |
