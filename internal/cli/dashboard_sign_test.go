@@ -3,6 +3,9 @@ package cli
 import (
 	"bytes"
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -121,5 +124,47 @@ func TestDashboardSigningReport(t *testing.T) {
 		var buf bytes.Buffer
 		s.report(logging.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, nil))))
 		expect(t, strings.Contains(buf.String(), tc.want), "%s: %s", name, buf.String())
+	}
+}
+
+// signPathFiles are the files a dashboard signature passes through. P6 adds
+// the declare routes (dashboard_declare.go, declare_drafts_writer.go and
+// pkg/dashboard/declare.go) and the Fulcio exchange they run.
+var signPathFiles = []string{"dashboard_sign.go", "../authn/sign.go"}
+
+// TestSignNeverUsesSessionToken: the session's ID token is the bearer the API
+// server accepts, so it must never reach Fulcio. No sign path calls
+// Session.IDToken() or reads authn.State.Token, and the session's raw token
+// is read in one place only: the same-person comparison of the callback.
+func TestSignNeverUsesSessionToken(t *testing.T) {
+	for _, path := range signPathFiles {
+		f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		compared := map[ast.Expr]bool{}
+		ast.Inspect(f, func(n ast.Node) bool {
+			if c, ok := n.(*ast.CallExpr); ok {
+				if id, ok := c.Fun.(*ast.Ident); ok && id.Name == "samePerson" {
+					for _, a := range c.Args {
+						compared[a] = true
+					}
+				}
+			}
+			return true
+		})
+		ast.Inspect(f, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			switch sel.Sel.Name {
+			case "IDToken", "Token":
+				t.Errorf("%s reads %s: the session's token never takes part in signing", path, sel.Sel.Name)
+			case "idToken":
+				expect(t, compared[sel], "%s reads the session's raw token outside the same-person check", path)
+			}
+			return true
+		})
 	}
 }
