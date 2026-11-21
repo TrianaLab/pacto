@@ -31,6 +31,15 @@ service.
 A mark after an owner no revision Pacto read declares, including a resource's
 provider owner, says in its tooltip where it comes from.
 
+- **Where the values come from**, a fold closed by default, lists each field
+  of the current revision with one mark whose tooltip says declared, accepted
+  (and by whom), attested or inferred, with its source and when it was read.
+  Inferred values are muted, and clearing **Show inferred values** hides
+  them. Below them, the inferred services the service
+  [replaced through a declaration](operational-graph-inferred.md#when-a-declaration-replaces-an-inferred-service)
+  and what the newest one's workload showed, or a count of those whose
+  workload you cannot see.
+
 ## Dependencies
 
 **Expected dependencies** lists every dependency the contract declares. A

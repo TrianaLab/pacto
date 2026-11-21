@@ -319,6 +319,17 @@ or schema file already there as it is, listed in `kept`.
   answer the key of a
   [replaced inferred service](operational-graph-inferred.md#when-a-contract-takes-over)
   with the service that replaced it and `replacedFrom`.
+- `pacto_fleet_get`, `pacto_fleet_explain` and `pacto_fleet_entity` carry,
+  for a service, `fields`: each field of its current revision as `declared`,
+  `accepted` (with `by`), `attested` or `inferred`, with `source`, `asOf`,
+  `completeness` and, for a range left `unknown`, `proposed`, and
+  `replacesHidden`, the replacements whose workload the caller may not see.
+  `replaces` on `pacto_fleet_get` and `pacto_fleet_entity` lists the inferred
+  services the service replaced, with `link: inferred-from`, `revision`, `by`
+  and `workload` when a person's declaration names one.
+  `pacto_fleet_explain` adds one `REPLACES_INFERRED` reason per replacement;
+  see
+  [When a declaration replaces an inferred service](operational-graph-inferred.md#when-a-declaration-replaces-an-inferred-service).
 
 `pacto_create` and `pacto_edit` return `warnings` for a value that validates
 but is likely wrong, such as an owner written as `team/billing`.
