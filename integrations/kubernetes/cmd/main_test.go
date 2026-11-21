@@ -132,8 +132,10 @@ var registryFlags = map[string]string{
 	"stats-repository":     "push",
 	"publishers-registry": "read: the promoter only reads publisher signatures there; " +
 		"the pins it confirms go to the streams repository",
-	"records-repository":       "read: the promoter reads the recorder's pins from the streams repository",
-	"dashboard-stats-registry": "read: the dashboard only reads run records",
+	"records-repository":                "read: the promoter reads the recorder's pins from the streams repository",
+	"dashboard-stats-registry":          "read: the dashboard only reads run records",
+	"dashboard-registry":                "push",
+	"dashboard-declare-registry-secret": "push",
 }
 
 var registryFlagPattern = regexp.MustCompile(`--([a-z-]*(?:registry|repository)[a-z-]*)=`)

@@ -338,6 +338,24 @@ Controller arguments derived from values
 - {{ printf "--dashboard-oidc-groups-prefix=%s" . | quote }}
 {{- end }}
 {{- end }}
+{{- /* The signing client: a second client at the same issuer, never the sign-in client. */}}
+{{- $oidc := . }}
+{{- with .signClientID }}
+{{- if not $oidc.issuerURL }}
+{{- fail "dashboard.auth.oidc.signClientID needs dashboard.auth.oidc.issuerURL: the signing login runs at the sign-in issuer" }}
+{{- end }}
+{{- if eq . (toString $oidc.clientID) }}
+{{- fail "dashboard.auth.oidc.signClientID must differ from dashboard.auth.oidc.clientID: the session's token must never reach Fulcio" }}
+{{- end }}
+- --dashboard-sign-client-id={{ . }}
+- --dashboard-sign-redirect-url={{ required "dashboard.auth.oidc.signRedirectURL is required with a signClientID" $oidc.signRedirectURL }}
+{{- with $oidc.signClientSecretRef }}
+{{- if .name }}
+- --dashboard-sign-client-secret-name={{ .name }}
+- --dashboard-sign-client-secret-key={{ .key | default "client-secret" }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- with .session }}
 {{- with .idleTimeout }}
@@ -379,6 +397,27 @@ Controller arguments derived from values
 {{- end }}
 {{- with (($.Values.dashboard.stats | default dict).registry) }}
 - --dashboard-stats-registry={{ . }}
+{{- end }}
+{{- /* Declare in the dashboard: the registry it publishes to, its own push Secret and the Sigstore it signs with. */}}
+{{- with .Values.registry }}
+- --dashboard-registry={{ . }}
+{{- end }}
+{{- with ((($.Values.dashboard.declare | default dict).registryCredentials | default dict).secretName) }}
+{{- if not $.Values.registry }}
+{{- fail "dashboard.declare.registryCredentials needs registry: the dashboard pushes declarations only there" }}
+{{- end }}
+- --dashboard-declare-registry-secret={{ . }}
+{{- end }}
+{{- with (($.Values.declare | default dict).signing | default dict) }}
+{{- with .fulcioURL }}
+- --dashboard-fulcio-url={{ . }}
+{{- end }}
+{{- with .rekorURL }}
+- --dashboard-rekor-url={{ . }}
+{{- end }}
+{{- with .timestampURL }}
+- --dashboard-timestamp-url={{ . }}
+{{- end }}
 {{- end }}
 {{- with .Values.dashboard.observation }}
 {{- range .sources }}

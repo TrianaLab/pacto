@@ -123,8 +123,8 @@ func clusterRoleBindingAC(cfg Config) runtime.ApplyConfiguration {
 		)
 }
 
-// authEnv passes the sign-in settings to the dashboard; the client secret only
-// by secretKeyRef.
+// authEnv passes the sign-in and Declare settings to the dashboard; client
+// secrets only by secretKeyRef.
 func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 	var env []*corev1ac.EnvVarApplyConfiguration
 	add := func(name, value string) {
@@ -165,6 +165,32 @@ func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 			corev1ac.EnvVarSource().WithSecretKeyRef(corev1ac.SecretKeySelector().WithName(a.ClientSecretName).
 				WithKey(keyOr(a.ClientSecretKey, "client-secret")))))
 	}
+	return append(env, declareEnv(cfg)...)
+}
+
+// declareEnv passes how the dashboard signs and publishes declarations: the
+// signing client (its secret by secretKeyRef), the Sigstore, the registry and
+// the path of the push credential mounted by authVolumes.
+func declareEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
+	var env []*corev1ac.EnvVarApplyConfiguration
+	a := cfg.Auth
+	push := ""
+	if cfg.DeclareRegistrySecret != "" {
+		push = declareRegistryDir + "/config.json"
+	}
+	for _, kv := range [][2]string{{"PACTO_DASHBOARD_SIGN_CLIENT_ID", a.SignClientID},
+		{"PACTO_DASHBOARD_SIGN_REDIRECT_URL", a.SignRedirectURL}, {"PACTO_DASHBOARD_FULCIO_URL", cfg.FulcioURL},
+		{"PACTO_DASHBOARD_REKOR_URL", cfg.RekorURL}, {"PACTO_DASHBOARD_TIMESTAMP_URL", cfg.TimestampURL},
+		{"PACTO_DASHBOARD_REGISTRY", cfg.Registry}, {"PACTO_DASHBOARD_DECLARE_REGISTRY_CONFIG", push}} {
+		if kv[1] != "" {
+			env = append(env, corev1ac.EnvVar().WithName(kv[0]).WithValue(kv[1]))
+		}
+	}
+	if a.SignClientSecretName != "" {
+		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_SIGN_CLIENT_SECRET").WithValueFrom(corev1ac.EnvVarSource().
+			WithSecretKeyRef(corev1ac.SecretKeySelector().WithName(a.SignClientSecretName).
+				WithKey(keyOr(a.SignClientSecretKey, "client-secret")))))
+	}
 	return env
 }
 
@@ -191,6 +217,9 @@ func deliveryEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 const (
 	oidcCADir        = "/etc/pacto/oidc-ca"
 	deliveryTrustDir = "/etc/pacto/delivery-trust"
+	// The Declare writer's push credential: its own directory, never the read
+	// keychain at /home/pacto/.docker.
+	declareRegistryDir = "/etc/pacto/declare-registry"
 )
 
 func keyOr(key, def string) string {
@@ -221,6 +250,12 @@ func authVolumes(cfg Config) ([]*corev1ac.VolumeMountApplyConfiguration, []*core
 		key := keyOr(t.Key, "trust.yaml")
 		add("delivery-trust", deliveryTrustDir, corev1ac.Volume().WithConfigMap(corev1ac.ConfigMapVolumeSource().WithName(t.Name).
 			WithItems(corev1ac.KeyToPath().WithKey(key).WithPath(key))))
+	}
+	// Not optional: the dashboard refuses to start on a missing push
+	// credential, so the pod waits for the Secret instead.
+	if s := cfg.DeclareRegistrySecret; s != "" {
+		add("declare-registry", declareRegistryDir, corev1ac.Volume().WithSecret(corev1ac.SecretVolumeSource().WithSecretName(s).
+			WithItems(corev1ac.KeyToPath().WithKey(string(corev1.DockerConfigJsonKey)).WithPath("config.json"))))
 	}
 	return mounts, vols
 }
