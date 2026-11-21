@@ -312,6 +312,15 @@ func TestMapTargetMatchUnknownIsInsufficient(t *testing.T) {
 	if got := q.targetMatch(&tr); got != MatchObservedOnly {
 		t.Errorf("undeclared environment = %s", got)
 	}
+	// A revision Pacto could not read says nothing about its environments.
+	unread := *q.snap.Revisions[base.ContractRevision]
+	unread.Key, unread.Contract, unread.Environments = "unread", nil, nil
+	q.snap.Revisions[unread.Key] = &unread
+	tr = base
+	tr.ContractRevision = unread.Key
+	if got := q.targetMatch(&tr); got != MatchInsufficient {
+		t.Errorf("unreadable revision = %s", got)
+	}
 	for _, n := range q.snap.Targets {
 		if n.Service == "nodom" {
 			if got := q.targetMatch(n); got != MatchMatched {
