@@ -9,8 +9,6 @@ import PostureFigure from './PostureFigure.svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import KnowsExplainer from './explain/KnowsExplainer.svelte';
 // @ts-expect-error — Svelte component has no declaration file
-import EdgeExplainer from './explain/EdgeExplainer.svelte';
-// @ts-expect-error — Svelte component has no declaration file
 import ScopedPostureFigure from './ScopedPostureFigure.svelte';
 import { complianceSegments } from '../../lib/distributions.ts';
 
@@ -110,13 +108,6 @@ describe('explainers (How this works)', () => {
     expect(t.querySelector('.fig-ctl button')?.textContent).toBe('Replay');
     expect(t.innerHTML).not.toMatch(/\bt-(ok|warn|err)\b/);
     expect(t.querySelector('figcaption')?.textContent).toContain('It shows no data from your fleet.');
-  });
-  it('draws the canvas dependency-edge styles into one service, labelled as the legend labels them, with no data', async () => {
-    const t = render(EdgeExplainer, {});
-    await settle();
-    expect(Array.from(t.querySelectorAll('.evfig-t b')).map((b) => b.textContent)).toEqual(['Observed', 'Expected, not observed', 'Insufficient evidence']);
-    expect(t.querySelectorAll('.fig-ctl')).toHaveLength(0);
-    expect(t.innerHTML).not.toMatch(/\bt-(ok|warn|err)\b/);
   });
 });
 

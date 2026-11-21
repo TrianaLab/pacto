@@ -20,9 +20,7 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
   { name: 'overview', open: (p) => go(p, '/#/fleet', 'Is anything wrong?') },
   { name: 'service', open: (p) => go(p, '/#/fleet/services/payments-service', 'payments-service') },
   { name: 'graph', open: async (p) => { await go(p, '/#/fleet/graph/service/payments-service', 'Operational graph'); await mapIdle(p); } },
-  // The fleet map (509-S12): beside the attention list on the Overview, full screen on the
-  // Operational graph, and in focus on orders-service with its callers and callees two hops out.
-  { name: 'overview-map', open: async (p) => { await go(p, '/#/fleet', 'Is anything wrong?'); await mapIdle(p); }, element: 'section[aria-label="Dependency map"]' },
+  // The fleet map (509-S12): full screen on the Operational graph, and in focus on orders-service with its callers and callees two hops out.
   { name: 'fleet-map', open: async (p) => { await go(p, '/#/fleet/graph', 'Operational graph'); await mapIdle(p); } },
   { name: 'fleet-map-focus', open: async (p) => { await go(p, '/#/fleet/graph/service/orders-service?hops=2', 'Operational graph'); await expect(p.getByTestId('fleet-map-focus')).toBeVisible(); await mapIdle(p); } },
   {

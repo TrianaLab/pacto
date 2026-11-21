@@ -139,7 +139,6 @@ describe('GraphView — product Operational Graph', () => {
     await vi.waitFor(() => expect(mapFn).toHaveBeenCalled());
     expect(q(target, '[data-testid="fleet-map"]')?.classList.contains('fm-full')).toBe(true);
     expect(mapFn.mock.calls[0][0]).toMatchObject({ groupBy: 'team' });
-    expect(q(target, '[data-testid="graph-discovery"]')).toBeNull();
     expect(q(target, '[data-testid="neighborhood-canvas"]')).toBeNull();
     expect(neighborhoodFn).not.toHaveBeenCalled();
     unmount(component); document.body.removeChild(target);

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { postureColumn, rankModel, trustModel, sourcesModel, sourceKindNoun, POSTURE_FLOOR, SOURCE_ROWS } from './fleetFigures.ts';
-import { knowsModel, edgeModel } from './explainers.ts';
+import { knowsModel } from './explainers.ts';
 import { provenance } from './provenance.ts';
 import { complianceSegments } from './distributions.ts';
 import { timeline } from './narrate.ts';
@@ -185,10 +185,5 @@ describe('explainers', () => {
     expect(m.wires.every((w) => w.tone === 'accent' && w.head)).toBe(true);
     expect(m.steps).toHaveLength(m.stations.length);
     expect(timeline(m.steps, { walk: true }).total).toBeLessThanOrEqual(1200);
-  });
-  it('draws one edge per wire style into one service, never in a status tone', () => {
-    const m = edgeModel();
-    expect(m.wires.map((w) => w.style)).toEqual(['obs', 'proj', 'stale']);
-    expect(m.wires.every((w) => w.tone === 'neutral' && w.to === 'gh')).toBe(true);
   });
 });

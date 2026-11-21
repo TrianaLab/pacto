@@ -3,7 +3,7 @@
  * of a fleet. They use the neutral and accent tones only, so a diagram never reads as a
  * status, and carry no data.
  */
-import type { WireDef, WireStyle } from './figure.ts';
+import type { WireDef } from './figure.ts';
 import type { Step } from './narrate.ts';
 
 export interface ExplainStation { key: string; label: string; sub: string; tone: 'neutral' | 'accent'; shape: 'circle' | 'square' | 'diamond'; reached: true }
@@ -29,27 +29,4 @@ export function knowsModel() {
     show: [`[data-m="f${k}"]`, ...(k ? [`w:wf${k - 1}`] : [])], sig: k ? [`wf${k - 1}`] : [],
   }));
   return { stations, wires, steps, alt: 'Sources feed a snapshot; the snapshot holds evidence; verdicts are decided from evidence.' };
-}
-
-/**
- * The three dependency-edge styles the graph canvas draws (lib/graph.ts), labelled as its
- * legend labels them. The canvas has no stale or missing edge, so neither appears here.
- */
-const EDGE_STYLES: { style: WireStyle; label: string; sub: string }[] = [
-  { style: 'obs', label: 'Observed', sub: 'a target reported the call' },
-  { style: 'proj', label: 'Expected, not observed', sub: 'the contract declares it; nothing reported it yet' },
-  { style: 'stale', label: 'Insufficient evidence', sub: 'declared, with nothing to check it against' },
-];
-
-/**
- * edgeModel is "How does an edge read in the graph?" above the graph canvas (SPEC 17,
- * r4): three consumers wired into one service, one per dependency-edge style. Static.
- */
-export function edgeModel() {
-  const wires: WireDef[] = EDGE_STYLES.map((e, k) => ({ id: `wg${k}`, from: `g${k}`, fs: 'r', to: 'gh', ts: 'l', when: ['wide', 'mid', 'narrow'], style: e.style, tone: 'neutral' }));
-  return {
-    rows: EDGE_STYLES.map((e, k) => ({ ...e, a: `g${k}` })),
-    wires,
-    alt: 'Three edges into one service: observed (solid), expected but not observed (dashed) and insufficient evidence (dotted).',
-  };
 }

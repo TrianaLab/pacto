@@ -189,13 +189,7 @@ export function provenanceIsImplied(difference: string | undefined, provenance: 
 
 // ── attention categories ─────────────────────────────────────────────────────
 // The backend enum (pkg/fleet/product.go) is the wire truth; these are the words a
-// first-time user reads. Readiness is one of them ON PURPOSE: readiness is a
-// dimension of triage (declared contract preparedness), not a separate workspace,
-// so this list is also the Overview's set of entry points into the triage view.
-export const ATTENTION_CATEGORIES = [
-  'non-compliant', 'invalid', 'cross-environment', 'health', 'provisioning', 'unknown', 'stale', 'unresolved', 'out-of-range', 'lifecycle', 'undeclared', 'golden-path', 'readiness', 'knowledge', 'unowned',
-] as const;
-
+// first-time user reads.
 export function attentionCategoryLabel(c: string | undefined): string {
   switch (c) {
     case 'non-compliant': return 'Not compliant';

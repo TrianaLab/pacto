@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   kindLabel, kindLabelPlural, linkStateLabel, linkStateTone, retrievabilityLabel, retrievabilityTone,
   knowledgeLabel, knowledgeTone, sourceHealthLabel, sourceHealthTone,
-  attentionCategoryLabel, ATTENTION_CATEGORIES, GAP_WORDS,
+  attentionCategoryLabel, GAP_WORDS,
   provenanceLabel, provenanceIsImplied,
   sourceHealthTallyParts, sourceHealthSentence,
   collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED, serviceKeyName, replacesTip, ownerProvenanceText,
@@ -50,14 +50,11 @@ describe('kindLabel', () => {
 describe('attentionCategoryLabel', () => {
   // The TS union in schema.ts is type-only, so the drift check reads the enum the
   // backend publishes: a new backend category fails here until it gets a chip.
-  it('lists exactly the backend attention categories, in their order', () => {
-    const spec = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'generated/openapi.json'), 'utf8'));
-    const backend: string[] = spec.components.schemas.ProductAttentionItem.properties.category.enum;
-    expect([...ATTENTION_CATEGORIES]).toEqual(backend);
-  });
+  const spec = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'generated/openapi.json'), 'utf8'));
+  const backend: string[] = spec.components.schemas.ProductAttentionItem.properties.category.enum;
 
   it('gives every backend category a plain-language name', () => {
-    for (const c of ATTENTION_CATEGORIES) {
+    for (const c of backend) {
       expect(attentionCategoryLabel(c)).not.toBe(c);
       expect(attentionCategoryLabel(c)).toMatch(/^[A-Z]/);
     }
@@ -67,13 +64,8 @@ describe('attentionCategoryLabel', () => {
     expect(attentionCategoryLabel('undeclared')).toBe('Undeclared dependency');
     expect(attentionCategoryLabel('lifecycle')).toBe('Deprecated provider');
     expect(attentionCategoryLabel('provisioning')).toBe('Resource provisioning');
-    expect(ATTENTION_CATEGORIES).toContain('undeclared');
-  });
-
-  // Readiness is triaged as a DIMENSION of attention, not a separate workspace, so it
-  // must stay in the shared category list the overview and the triage view both read.
-  it('keeps readiness in the shared category list', () => {
-    expect(ATTENTION_CATEGORIES).toContain('readiness');
+    expect(backend).toContain('undeclared');
+    expect(backend).toContain('readiness');
   });
 
   it('passes an unknown category through rather than inventing one', () => {
