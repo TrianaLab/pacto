@@ -56,12 +56,10 @@ labels of both ends. For Hubble it reads Relay's status and at most the newest
 on both ends.
 
 Pacto skips calls between two clusters, and an answer holding several clusters
-reads partial with no edge. Pacto tells clusters apart by the `cluster` label a
-Prometheus receiving other clusters' series conventionally adds, and for Istio
-by its own cluster labels. Linkerd labels only calls to a mirrored service, so
-without that `cluster` label Pacto cannot spot its calls of another cluster
-with both ends there. A Hubble flow that does not say whether it is a reply is
-counted and is no edge.
+reads partial with no edge. Pacto tells clusters apart by a series' `cluster`
+label, else by Istio's own cluster labels. Linkerd labels only calls to a
+mirrored service, so without a `cluster` label Pacto cannot spot its calls of
+another cluster. A Hubble flow that does not say whether it replies is no edge.
 
 Each call pair becomes an observed edge with its call count, first seen one
 hour before the read and last seen at the read. For Hubble, first and last
@@ -76,13 +74,9 @@ Pacto looks the name up among the workloads it knows. One workload of that name
 resolves to its service, a declared service whose Pacto target runs as that
 workload included. Two workloads of different kinds with that name are
 `ambiguous: more than one workload of this name`, and no workload leaves the
-end unresolved. So does a cluster whose workload source did not read every
-workload, since the one workload Pacto knows may not be the only one.
+end unresolved, as does a cluster whose workload list is incomplete.
 
-Mesh calls join inferred services the way every runtime call does: an edge
-between two declared services is `observed`, an edge with an inferred end is
-`inferred` and an inferred caller of a declared service stays an uncontracted
-caller. See
+Mesh calls join inferred services like every runtime call; see
 [Calls with no contract on one end](operational-graph-inferred.md#calls-with-no-contract-on-one-end).
 
 ## Coverage
@@ -129,21 +123,18 @@ Services.
 
 Anyone who can create a Service can copy a label, so a control-plane or
 Cilium label counts only when every Service carrying it sits in one namespace.
-A copy elsewhere marks neither namespace and the row lists no control-plane
-Service: the mesh may go unread, but Pacto never reads a tenant's server. When
-a Services list fails, Pacto trusts no Service for being the only one it read
-and reads only a Relay in `kube-system`. A scoped installation that cannot see
-the real control plane still trusts a lone copy.
+A copy elsewhere marks neither namespace and lists no control-plane Service:
+the mesh may go unread, but Pacto never reads a tenant's server. When a Services
+list fails, no Service is trusted for being alone in it. A scoped installation
+that cannot see the real control plane still trusts a lone copy.
 
-An installation that watches some namespaces reads only those. Its queries
-select calls with both ends in them, and it counts any call that reaches
-another namespace without naming it.
+An installation that watches some namespaces reads only those. It counts any
+call that reaches another namespace without naming it.
 
 ## How often Pacto reads
 
-Each process reads a mesh at most once every 5 minutes and keeps the answer in
-between, so the dashboard's 30-second refresh does not query Prometheus each
-time. Each mesh row's `asOf` and the source's `observedAt` stay the time of
+Each process reads a mesh at most once every 5 minutes, however often the
+dashboard refreshes. Each mesh row's `asOf` and the source's `observedAt` stay the time of
 the real read. Each query has a
 10-second timeout and the whole read has one 15-second deadline, after which
 Pacto asks no further candidate. A Prometheus answer is limited to 16 MiB and
@@ -172,15 +163,15 @@ namespace would make every fleet and impact answer partial and every CI impact
 gate unverified. Its edges still join the graph. Its silence never counts against a declared
 edge and an inferred edge never clears a gate.
 
-Data sources lists the mesh source with its state. The state bar and the
-Incomplete sources tile leave it out while it is not available, and the list
-the tile opens does the same.
+Data sources lists the mesh source with its state. While it is not available,
+the state bar, the overview's chips and the Incomplete sources tile leave it
+out, as does each state filter, and the bar names it.
 
 ## Outside the cluster
 
-Inside the cluster, such as in the dashboard the chart installs, Pacto reads
-Prometheus and Relay directly. Outside it, Pacto never resolves a cluster
-address and reaches Prometheus through the Kubernetes API server's service proxy with your own
+Inside the cluster Pacto reads Prometheus and Relay directly. Outside it, Pacto
+never resolves a cluster address and reaches Prometheus through the API
+server's service proxy with your own
 kubeconfig credentials, which need `get` on `services/proxy`. Without it the
 row reads `is not reachable from here and you may not proxy to it`. Hubble
 Relay is read only inside the cluster, so outside it the row reads

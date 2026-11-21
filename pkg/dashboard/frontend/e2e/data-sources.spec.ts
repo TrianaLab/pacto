@@ -67,14 +67,15 @@ test.describe('the overview leads to the data sources', () => {
     // The trust figure counts the sources by state (one carrier per fact, L3), so the
     // section states no second tally; its chips name the sources and agree with the
     // inventory. Each source that needs a look keeps its own chip; more than three
-    // healthy ones fold into one "7 available" chip. The advisory mesh source is not
-    // tallied, and it is partial, so it keeps a chip of its own beside registry-mirror.
+    // healthy ones fold into one "7 available" chip. The advisory mesh source is
+    // partial and not tallied, so it gets no warning chip beside the figure that leaves
+    // it out; the inventory lists it.
     await expect(band.locator('.ov-tally')).toHaveCount(0);
     await expect(page.locator('#fig-trust .src-n').last()).toHaveText(String(DEMO_SOURCES_TALLIED - 2));
 
     const chips = band.locator('a.sh-chip');
-    await expect(chips).toHaveCount(4);
-    await expect(band.locator('a.sh-chip', { hasText: 'k8s-production-mesh' })).toContainText('Partial');
+    await expect(chips).toHaveCount(3);
+    await expect(band.locator('a.sh-chip', { hasText: 'k8s-production-mesh' })).toHaveCount(0);
     await expect(band.getByTestId('sources-healthy')).toHaveText(/7 available/);
     await expect(band.getByTestId('sources-healthy')).toHaveAttribute('href', /#\/fleet\/sources\?.*sourceHealth=available/);
     // Least healthy first, so the source that costs you data is the first one read.
@@ -151,6 +152,17 @@ test.describe('overview to inventory to source and back', () => {
     // it only marks where you are.
     await expect.poll(legend).toEqual(['Unavailable 1', 'Partial 1', `Current ${DEMO_SOURCES_TALLIED - 2}`]);
     await expect(tally.locator('a[aria-current="true"] .dist-label')).toHaveText('Unavailable');
+
+    // Partial counts registry-mirror only, so its filter lists that one row, never the
+    // advisory mesh source the bucket leaves out.
+    await links.nth(1).click();
+    await expect(page).toHaveURL(/sourceHealth=partial/);
+    await expect(page.locator('.lv-item')).toHaveCount(1);
+    await expect(page.locator('.lv-item').first()).toContainText('registry-mirror');
+
+    // The header counts every listed source and the bar one fewer, so the bar names
+    // the advisory source it leaves out.
+    await expect(tally.getByTestId('source-untallied')).toContainText('1 advisory source not counted: k8s-production-mesh');
   });
 });
 
