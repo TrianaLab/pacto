@@ -136,7 +136,7 @@ It exits with that row's code. `--output-format json` prints the plan as JSON.
 `PACTO_EXTERNAL_CATALOG` only, never from a `pacto` config file in the working
 directory, which a pull request can change.
 
-- On GitHub Actions the plan is also added to the job summary.
+- On GitHub Actions the plan is added to the job summary.
 - On GitLab CI it is written to `pacto-plan.md`; keep it with
   `artifacts: paths: [pacto-plan.md]`.
 
@@ -172,7 +172,7 @@ shown as inferred in the dashboard. `pacto migrate` rewrites the file itself.
   row stays unverified until you declare it; see
   [a possible break on an inferred interface](impact-consumers.md#a-possible-break-on-an-inferred-interface).
 
-The service owner accepts them without a commit:
+The service owner accepts them:
 
 ```bash
 pacto accept oci://ghcr.io/acme/reports --proposed --dry-run    # the plan and its intent digest
@@ -192,7 +192,7 @@ pacto accept oci://ghcr.io/acme/reports --proposed --intent sha256:...
   reports` with who may accept. A key, an ambient OIDC token in CI or an
   agent through `pacto_accept` writes a `pacto-accept-draft-<n>` that a
   person accepts with `--draft`.
-- A counted range reads `accepted` in the `Ranges:` line at once. The next
+- A counted range reads `accepted` in the `Ranges:` line. The next
   `pacto ci --publish` pins it into the published `pacto.yaml`, where it reads
   declared, and cites the record in `inputs.acceptances`. A range your
   `pacto.yaml` declares wins; `compatibility: unknown` declares none. A

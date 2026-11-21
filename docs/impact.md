@@ -153,10 +153,13 @@ The CLI exits on it, and the MCP tool returns it:
 
 A command that could not run also exits `1`, with nothing on stdout.
 
-The answer also carries `ranges`, the
-[range coverage](impact-consumers.md#range-coverage) of the changed service's
-consumers, and each announced consumer's `break` state. A changed spec that is
-only inferred adds an [advisory](impact-consumers.md#a-possible-break-on-an-inferred-interface).
+The answer also carries:
+
+- `ranges`: the [range coverage](impact-consumers.md#range-coverage) of the
+  changed service's consumers
+- each announced consumer's `break` state
+- an [advisory](impact-consumers.md#a-possible-break-on-an-inferred-interface)
+  when a changed spec is only inferred
 
 **Active means the snapshot knows of somewhere that consumer is deployed**: at
 least one operational target. Compatibility is a statement about contracts;
@@ -243,20 +246,19 @@ pacto impact --running . \
 - **First version.** With nothing running, a consumer range that rejects
   `<new>` blocks; a complete answer clears.
 - **Unread.** A revision Pacto could not link, pull or trust, a tag-only link,
-  an inferred workload and a workload source Pacto could not read each make
-  the answer `unverified` at best. A failed
-  pull names the ref only, because the registry error can carry credentials.
+  an inferred workload or an unreadable workload source makes the answer
+  `unverified` at best. A failed pull names only the ref: a registry error can
+  carry credentials.
 - **Hosts.** Revisions are pulled only from the snapshot hosts, an `oci://`
   `<new>` and `PACTO_RUNNING_REGISTRIES` (or `running-registries` in the
   config file).
 - **Itself.** A target already running the digest of an `oci://` `<new>` is
-  never its baseline, so a gate that runs after a deploy, such as a
+  never its baseline, so a post-deploy gate, such as a
   [Kargo verification](integrations/kubernetes/gitops-kargo.md#kargo), passes
-  `oci://<repo>@<digest>` and Pacto judges it against the other revisions.
+  `oci://<repo>@<digest>`.
 - **Bounds.** At most 8 running revisions are judged and 32 unread lines are
   listed; the last line counts the rest, and the answer never clears over them.
-
-The answer lists them in `running`.
+- **Output.** `running` lists the revisions that run and those Pacto could not read.
 
 ## The MCP tool and the dashboard
 
