@@ -1,8 +1,8 @@
 # GitOps promotion gates
 
 Make Flux or Argo CD stop the next rollout step when a service breaks its
-contract. For Kargo, see [Kargo](gitops-kargo.md#kargo). A `NonCompliant` Pacto turns the Kustomization unready or the
-Application Degraded.
+contract. For Kargo, see [Kargo](gitops-kargo.md#kargo). A `NonCompliant`
+Pacto turns the Kustomization unready or the Application Degraded.
 
 The health snippets stop **the next step**: by the time the operator has a
 verdict the pods are already serving. The [Argo CD plugin](#gate-every-argo-cd-sync)

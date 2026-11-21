@@ -116,9 +116,15 @@ $ kubectl -n shop get analysisruns.argoproj.io -l kargo.akuity.io/stage=prod
 NAME                 STATUS
 prod.01jd...         Failed
 $ kubectl -n shop logs job/<analysisrun-job>
-Running: 1 revisions (judged against ghcr.io/acme/contracts/payments@sha256:4f1c...)
+Impact: payments 1.0.0 -> 2.0.0
+...
+Running: 1 revision (judged against oci://ghcr.io/acme/contracts/payments:1.0.0@sha256:4f1c...)
+...
+Release gate: blocked
 impact exit 1
 ```
+
+The `Running:` line names the judged revision by tag and digest.
 
 ### Check that it took
 
