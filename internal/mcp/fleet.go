@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -184,6 +185,9 @@ func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetO
 	})
 	addFleetTool(server, fleetNeighborhoodTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetNeighborhoodArgs, any] {
 		return fleetNeighborhoodHandler(q, link)
+	})
+	addFleetTool(server, fleetMapTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetMapArgs, any] {
+		return fleetMapHandler(q, link)
 	})
 	addFleetTool(server, fleetVersionsTool(), src, opts, fleetVersionsHandler)
 	addFleetTool(server, fleetOverviewTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[struct{}, any] {
@@ -864,6 +868,69 @@ func fleetNeighborhoodHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[f
 		}))
 	}
 }
+
+func fleetMapTool() *mcpsdk.Tool {
+	return &mcpsdk.Tool{
+		Name: "pacto_fleet_map",
+		Description: "Show the whole fleet as groups by business domain, owner team or environment: each group's services, " +
+			"its declared and observed match (match.percent over what Pacto can observe, match.coverage apart; absent when " +
+			"Pacto observes nothing, never 100), its mean contract completeness and its attention, plus the fleet's match and " +
+			"knowledge.contractCompleteness. With group, one page of that group's services; with focus, one service's callers " +
+			"and callees, one or two hops out, at most 9 a column, worst first, each call with its interface, range, " +
+			"provenance and problem. Environments read by name here (limitation ENVIRONMENT_ORDER_UNKNOWN); the dashboard " +
+			"orders them by Stages. Read-only.",
+		InputSchema: inputSchema(map[string]property{
+			"group_by":    {Type: "string", Description: "Grouping (default domain)", Enum: []string{fleet.MapGroupByDomain, fleet.MapGroupByTeam, fleet.MapGroupByEnvironment}},
+			"environment": {Type: "string", Description: "Environment the services are read in: with group, each says whether it runs there and its version"},
+			"group":       {Type: "string", Description: "List this group's services, by the key the map names"},
+			"offset":      {Type: "integer", Description: "With group, the first service of the page"},
+			"limit":       {Type: "integer", Description: fmt.Sprintf("With group, services a page (0 = %d, at most %d)", fleet.DefaultMapNodes, fleet.MaxMapNodes)},
+			"focus":       {Type: "string", Description: "List this service's callers and callees: a name, or its key when the name is used in more than one domain"},
+			"hops":        {Type: "integer", Description: "With focus, hops out on each side (0 = 1, at most 2)"},
+		}, nil),
+	}
+}
+
+type fleetMapArgs struct {
+	GroupBy     string `json:"group_by"`
+	Environment string `json:"environment"`
+	Group       string `json:"group"`
+	Offset      int    `json:"offset"`
+	Limit       int    `json:"limit"`
+	Focus       string `json:"focus"`
+	Hops        int    `json:"hops"`
+}
+
+// check refuses an argument the question it asks does not read.
+func (a fleetMapArgs) check() error {
+	switch {
+	case a.Focus != "" && (a.Group != "" || a.GroupBy != "" || a.Environment != ""):
+		return errors.New("focus reads every environment and no grouping: drop group, group_by and environment")
+	case a.Focus == "" && a.Hops != 0:
+		return errors.New("hops needs focus")
+	case a.Group == "" && (a.Offset != 0 || a.Limit != 0):
+		return errors.New("offset and limit need group")
+	}
+	return nil
+}
+
+func fleetMapHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetMapArgs, any] {
+	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetMapArgs) (*mcpsdk.CallToolResult, any, error) {
+		if err := a.check(); err != nil {
+			return errorResult(err), nil, nil
+		}
+		switch {
+		case a.Focus != "":
+			return productResult(link, productview.ToMapFocus)(q.MapFocus(fleet.MapFocusQuery{Service: a.Focus, Hops: a.Hops}))
+		case a.Group != "":
+			return productResult(link, same[fleet.MapNodes])(q.MapNodes(fleet.MapNodesQuery{GroupBy: a.GroupBy, Group: a.Group, Environment: a.Environment, Offset: a.Offset, Limit: a.Limit}))
+		}
+		return productResult(link, same[fleet.FleetMap])(q.Map(fleet.MapQuery{GroupBy: a.GroupBy, Environment: a.Environment}))
+	}
+}
+
+// same is the transport of an answer that carries no entity reference.
+func same[T any](v *T) *T { return v }
 
 func fleetOverviewTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{

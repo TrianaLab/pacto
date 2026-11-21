@@ -492,6 +492,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fleet/map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fleet map
+         * @description The whole fleet as groups laid out once, by business domain, owner team or environment, with the ribbons between groups, each group's declared and observed match, contract completeness and attention, and the fleet's match and completeness. Environments follow the Stages the caller may read, else their names, and the answer says so.
+         */
+        get: operations["fleet-map"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fleet/map/focus": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fleet map focus
+         * @description One service's callers and callees in columns, one or two hops out, worst first, at most 9 a column, with each edge's interface, range, running version, provenance, evidence and problem.
+         */
+        get: operations["fleet-map-focus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fleet/map/nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fleet map group nodes
+         * @description One page of one map group's nodes, with coordinates relative to the group's centre, and the edges between them and the nodes of earlier pages. With an environment outside the environment grouping, each node says whether it runs there and with which version; no node moves.
+         */
+        get: operations["fleet-map-nodes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/fleet/neighborhood": {
         parameters: {
             query?: never;
@@ -3529,6 +3589,27 @@ export interface components {
              */
             unknown: number;
         };
+        "Fleet.FleetMap": {
+            bounds: components["schemas"]["Fleet.MapBounds"];
+            /**
+             * @description How the environment columns are ordered: by the Stages the caller may read, or by name
+             * @enum {string}
+             */
+            environmentOrder?: "stages" | "name";
+            /** @enum {string} */
+            groupBy: "domain" | "team" | "environment";
+            groups: components["schemas"]["Fleet.MapGroup"][] | null;
+            knowledge: components["schemas"]["Fleet.KnowledgeTally"];
+            limitations: components["schemas"]["Fleet.LimitationsPreview"];
+            match: components["schemas"]["Fleet.MatchTally"];
+            meta: components["schemas"]["Fleet.ProductMeta"];
+            /** @description Teams are sub-clusters of their domain: there are more than 40 */
+            nested?: boolean;
+            ribbons: components["schemas"]["Fleet.MapRibbon"][] | null;
+            /** @description The smallest ribbons were dropped to keep at most 2000 */
+            ribbonsTruncated?: boolean;
+            totals: components["schemas"]["Fleet.MapTotals"];
+        };
         "Fleet.FleetSnapshot": {
             clusters?: components["schemas"]["Fleet.ClusterRecord"][] | null;
             completeness: string;
@@ -3883,6 +3964,214 @@ export interface components {
             /** Format: int64 */
             total: number;
             truncated: boolean;
+        };
+        "Fleet.MapAttention": {
+            /** Format: int64 */
+            errors: number;
+            /** Format: int64 */
+            info: number;
+            /** Format: int64 */
+            warnings: number;
+            worst: components["schemas"]["Fleet.AttentionCategoryCount"][] | null;
+        };
+        "Fleet.MapBounds": {
+            /** Format: double */
+            maxX: number;
+            /** Format: double */
+            maxY: number;
+            /** Format: double */
+            minX: number;
+            /** Format: double */
+            minY: number;
+        };
+        "Fleet.MapEdge": {
+            /** @enum {string} */
+            difference?: "matched" | "expected-not-observed" | "observed-not-expected" | "insufficient";
+            /**
+             * Format: int64
+             * @description The calling node's position in the group, over every page
+             */
+            from: number;
+            inferred?: boolean;
+            problem?: components["schemas"]["Fleet.MapProblem"];
+            /**
+             * Format: int64
+             * @description The called node's position in the group, over every page
+             */
+            to: number;
+        };
+        "Fleet.MapGroup": {
+            attention: components["schemas"]["Fleet.MapAttention"];
+            /**
+             * Format: int64
+             * @description The environment's column, lowest first; absent for groups outside the order
+             */
+            depth?: number;
+            /**
+             * Format: int64
+             * @description External systems, in the external group
+             */
+            externals?: number;
+            /**
+             * Format: int64
+             * @description Of those, the inferred ones
+             */
+            inferred: number;
+            key: string;
+            /** @enum {string} */
+            kind: "domain" | "team" | "environment" | "previews" | "external" | "unowned" | "none" | "unknown" | "other";
+            label: string;
+            match: components["schemas"]["Fleet.MatchTally"];
+            /**
+             * Format: int64
+             * @description Mean contract completeness of the group's judged services; absent when none is judged
+             */
+            percentComplete?: number;
+            preview?: boolean;
+            /** Format: double */
+            r: number;
+            /**
+             * Format: int64
+             * @description Nodes in the group: services, or targets in the environment grouping, inferred ones included
+             */
+            services: number;
+            subs?: components["schemas"]["Fleet.MapSub"][] | null;
+            /** Format: double */
+            x: number;
+            /** Format: double */
+            y: number;
+        };
+        "Fleet.MapNode": {
+            external?: boolean;
+            /**
+             * Format: int64
+             * @description Visible services that depend on it
+             */
+            in?: number;
+            /** @description Whether it runs in the requested environment; absent without one */
+            inEnvironment?: boolean;
+            inferred?: boolean;
+            /** Format: int64 */
+            interfaces?: number;
+            key: string;
+            /** @description Absent when it reads like the name */
+            label?: string;
+            /** @enum {string} */
+            match?: "matched" | "expected-only" | "observed-only" | "insufficient";
+            /** @description Contract sections it leaves out */
+            missing?: string[] | null;
+            name: string;
+            /**
+             * Format: int64
+             * @description Visible services it depends on
+             */
+            out?: number;
+            owner?: string;
+            /** Format: int64 */
+            percentComplete?: number;
+            /**
+             * @description The worst attention item about the node
+             * @enum {string}
+             */
+            severity?: "error" | "warning" | "info";
+            status?: string;
+            /**
+             * Format: int64
+             * @description Index of the node's sub-cluster in the group's subs; absent for the first one and when the group has none
+             */
+            sub?: number;
+            /** @description The current version, or with an environment the version running there (mixed when targets differ) */
+            version?: string;
+            /** @description The category of that item */
+            worst?: string;
+            /** Format: double */
+            x: number;
+            /** Format: double */
+            y: number;
+        };
+        "Fleet.MapNodes": {
+            edges: components["schemas"]["Fleet.MapEdge"][] | null;
+            group: string;
+            /** @enum {string} */
+            groupBy: "domain" | "team" | "environment";
+            /** Format: int64 */
+            limit: number;
+            meta: components["schemas"]["Fleet.ProductMeta"];
+            nodes: components["schemas"]["Fleet.MapNode"][] | null;
+            /** Format: int64 */
+            offset: number;
+            /**
+             * Format: int64
+             * @description Nodes in the group
+             */
+            total: number;
+            /** @description More nodes follow this page */
+            truncated?: boolean;
+        };
+        "Fleet.MapProblem": {
+            code: string;
+            reason?: string;
+            /** @enum {string} */
+            severity: "error" | "warning";
+        };
+        "Fleet.MapRibbon": {
+            /** Format: int64 */
+            crossEnvironment?: number;
+            /** Format: int64 */
+            expectedOnly?: number;
+            from: string;
+            /** Format: int64 */
+            insufficient?: number;
+            /** Format: int64 */
+            matched?: number;
+            /** Format: int64 */
+            observedOnly?: number;
+            /** Format: int64 */
+            problems?: number;
+            to: string;
+            /** Format: int64 */
+            total: number;
+        };
+        "Fleet.MapSub": {
+            key: string;
+            /** @description Absent when it reads like the key */
+            label?: string;
+            /** Format: double */
+            r: number;
+            /** Format: int64 */
+            services: number;
+            /** Format: double */
+            x: number;
+            /** Format: double */
+            y: number;
+        };
+        "Fleet.MapTotals": {
+            /** Format: int64 */
+            externals: number;
+            /**
+             * Format: int64
+             * @description Groups folded into Other
+             */
+            folded?: number;
+            /**
+             * Format: int64
+             * @description Groups before folding
+             */
+            groups: number;
+            /** Format: int64 */
+            inferred: number;
+            /**
+             * Format: int64
+             * @description Ribbons before the bound
+             */
+            ribbons: number;
+            /**
+             * Format: int64
+             * @description Visible services that are no golden path, inferred ones included
+             */
+            services: number;
+            /** Format: int64 */
+            targets: number;
         };
         "Fleet.MatchCounts": {
             /**
@@ -6435,6 +6724,117 @@ export interface components {
             /** @enum {string} */
             reason: "offering-name" | "provider-name";
             ref: string;
+        };
+        ProductMapColumn: {
+            /**
+             * Format: int64
+             * @enum {integer}
+             */
+            hop: -2 | -1 | 1 | 2;
+            nodes: components["schemas"]["ProductMapNode"][] | null;
+            /** Format: int64 */
+            total: number;
+        };
+        ProductMapFocus: {
+            columns: components["schemas"]["ProductMapColumn"][] | null;
+            edges: components["schemas"]["ProductMapFocusEdge"][] | null;
+            focus: components["schemas"]["ProductMapNode"];
+            /** @description The focus service's group in the domain grouping */
+            group: string;
+            /** Format: int64 */
+            hops: number;
+            meta: components["schemas"]["Fleet.ProductMeta"];
+        };
+        ProductMapFocusEdge: {
+            /** Format: int64 */
+            count?: number;
+            declaredClaims: components["schemas"]["Fleet.DeclaredClaimsPreview"];
+            declaredIn?: components["schemas"]["ProductRef"];
+            deprecatedInterfaces?: components["schemas"]["Fleet.InterfaceDeprecation"][] | null;
+            /** @enum {string} */
+            difference?: "matched" | "expected-not-observed" | "observed-not-expected" | "insufficient";
+            /** @description Observed calls whose environments Pacto cannot tell, so no cross-environment call is judged */
+            environmentUnknown?: boolean;
+            expected: boolean;
+            /** Format: date-time */
+            firstSeen?: string;
+            from: components["schemas"]["ProductRef"];
+            /** @enum {string} */
+            guaranteeStatus?: "met" | "unmet" | "unknown";
+            href: string;
+            id: string;
+            inferred?: boolean;
+            /** @description The interface the dependency requires, else the provider's only interface */
+            interface?: string;
+            /** Format: date-time */
+            lastSeen?: string;
+            /** @enum {string} */
+            observationScope?: "service" | "target";
+            observationSources: components["schemas"]["Fleet.ObservationSourcesPreview"];
+            observed: boolean;
+            problem?: components["schemas"]["Fleet.MapProblem"];
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "declared+observed" | "inferred";
+            providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
+            /** @description The compatibility range the consumer declares */
+            range?: string;
+            /** @enum {string} */
+            relation: "dependency" | "runs" | "configuration_reference";
+            /** @description The version the provider's visible targets run, mixed when they differ */
+            runningVersion?: string;
+            /** @enum {string} */
+            serviceCorroboration?: "matched" | "expected-not-observed" | "insufficient";
+            stale?: boolean;
+            to: components["schemas"]["ProductRef"];
+        };
+        ProductMapNode: {
+            external?: boolean;
+            href: string;
+            /**
+             * Format: int64
+             * @description Visible services that depend on it
+             */
+            in?: number;
+            /** @description Whether it runs in the requested environment; absent without one */
+            inEnvironment?: boolean;
+            inferred?: boolean;
+            /** Format: int64 */
+            interfaces?: number;
+            key: string;
+            /** @description Absent when it reads like the name */
+            label?: string;
+            /** @enum {string} */
+            match?: "matched" | "expected-only" | "observed-only" | "insufficient";
+            /** @description Contract sections it leaves out */
+            missing?: string[] | null;
+            name: string;
+            /**
+             * Format: int64
+             * @description Visible services it depends on
+             */
+            out?: number;
+            owner?: string;
+            /** Format: int64 */
+            percentComplete?: number;
+            /**
+             * @description The worst attention item about the node
+             * @enum {string}
+             */
+            severity?: "error" | "warning" | "info";
+            status?: string;
+            /**
+             * Format: int64
+             * @description Index of the node's sub-cluster in the group's subs; absent for the first one and when the group has none
+             */
+            sub?: number;
+            /** @description The current version, or with an environment the version running there (mixed when targets differ) */
+            version?: string;
+            /** @description The category of that item */
+            worst?: string;
+            /** Format: double */
+            x: number;
+            /** Format: double */
+            y: number;
         };
         ProductNeighborhood: {
             /** Format: int64 */
@@ -10092,6 +10492,113 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProductImpact"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-map": {
+        parameters: {
+            query?: {
+                /** @description Grouping: domain (default), team or environment */
+                groupBy?: string;
+                /** @description Environment the nodes are read in; the layout does not change */
+                environment?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Fleet.FleetMap"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-map-focus": {
+        parameters: {
+            query: {
+                /** @description Service name, or its key when the name is used in more than one domain */
+                service: string;
+                /** @description Hops out on each side (0 = 1, at most 2) */
+                hops?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductMapFocus"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-map-nodes": {
+        parameters: {
+            query: {
+                /** @description Grouping the group belongs to: domain (default), team or environment */
+                groupBy?: string;
+                /** @description Group key, as the map answer names it */
+                group: string;
+                /** @description Outside the environment grouping, marks the nodes that run in this environment and the version they run */
+                environment?: string;
+                offset?: number;
+                /** @description Nodes a page (0 = 1000, at most 5000) */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Fleet.MapNodes"];
                 };
             };
             /** @description Error */

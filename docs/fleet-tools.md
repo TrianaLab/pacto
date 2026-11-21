@@ -186,6 +186,7 @@ the note says where that answer lives instead.
 | What changed in this service, and when did it reach each Stage? | `pacto fleet entity service <key> --reached` | `pacto_fleet_entity` with `reached` | `GET /api/fleet/entities/{kind}?reached=true` | Times only from delivery records read as you; an HTTP MCP server answers `times: not-read` |
 | What needs attention? | `pacto fleet attention` | `pacto_fleet_attention` | `GET /api/fleet/attention` | |
 | Who depends on this service, and on whom does it depend? | `pacto fleet neighborhood` | `pacto_fleet_neighborhood` | `GET /api/fleet/neighborhood` | |
+| What does the whole fleet look like, and where are its problems? | `pacto fleet map` | `pacto_fleet_map` | `GET /api/fleet/map`, `GET /api/fleet/map/nodes`, `GET /api/fleet/map/focus` | `--group` (`group`) pages one group's services through `/api/fleet/map/nodes`; `--focus` (`focus`) is `/api/fleet/map/focus?service`. The dashboard orders environments by the Stages you may read; the CLI and MCP list them by name and say so |
 | Which services match this text or filter? | `pacto fleet search` | `pacto_fleet_search` | `GET /api/fleet/services` | |
 | How is the fleet doing? | `pacto fleet status` | `pacto_fleet_status` | `GET /api/fleet/status` | |
 | How healthy is the organization and how much do we know? | `pacto fleet overview` | `pacto_fleet_overview` | `GET /api/fleet/overview` | |

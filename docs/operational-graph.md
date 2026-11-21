@@ -227,14 +227,15 @@ flowchart LR
 - **CLI (`pacto fleet …`)**: the five queries on the command line, plus
   `overview` for the organization in one answer, `entities`, `entity` and
   `attention` for owners, domains, offerings and what needs attention,
-  `neighborhood` for the services around one service, `versions` for an
+  `neighborhood` for the services around one service, `map` for the whole
+  fleet as groups, `versions` for an
   offering's versions and `reconcile` and `snapshot`. Scriptable,
   deterministic output.
 - **MCP fleet tools**: `pacto_fleet_search`, `pacto_fleet_get`,
   `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`,
   `pacto_fleet_overview`, `pacto_fleet_entities`, `pacto_fleet_entity`,
-  `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_versions`
-  and `pacto_fleet_revision_document`, plus
+  `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_map`,
+  `pacto_fleet_versions` and `pacto_fleet_revision_document`, plus
   [`pacto_impact`](impact.md) and `pacto_stats`, give an agent read-only understanding of the
   operational system. See [MCP integration](mcp-reference.md#three-tool-families-and-their-boundaries)
   for how they differ from authoring tools and generated service tools.

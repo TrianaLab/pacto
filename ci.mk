@@ -46,11 +46,12 @@ ci-static: ci-static-engine
 ci-static-engine: ci-fmt ci-vet ci-cyclo ci-lint check-section ci-docs ci-ui-drift check-dashboard-sdk-drift
 
 # Engine leg: unit tests (100% coverage gate) + the in-process CLI integration
-# suite + the cluster-free local acceptance (tests/acceptance/local/fleet-graph.sh).
+# suite + the cluster-free local acceptance (tests/acceptance/local/fleet-graph.sh)
+# + the fleet map budgets (test-fleet-budgets, no race detector).
 # The Compose demo acceptance is NOT here: it needs a Docker daemon and an image
 # build, and ci-engine is the leg a contributor runs on a laptop with nothing
 # installed. It has its own job, ci-e2e-compose.
-ci-engine: ci-test test-integration test-acceptance-local
+ci-engine: ci-test test-integration test-acceptance-local test-fleet-budgets
 
 # The distributed Compose demo, end to end from a registry: push the artifact,
 # pull it BY DIGEST into an empty directory outside the checkout, start it there

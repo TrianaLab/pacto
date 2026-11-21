@@ -17,7 +17,7 @@ endif
 
 IMAGE := ghcr.io/trianalab/pacto/dashboard
 
-.PHONY: build test test-integration test-registry-conformance test-acceptance-local test-acceptance-compose perf-envtest \
+.PHONY: build test test-integration test-fleet-budgets test-registry-conformance test-acceptance-local test-acceptance-compose perf-envtest \
         test-acceptance-compose-selftest \
         test-browser test-browser-layout-full test-browser-live test-browser-compose docs-screenshots \
         e2e coverage lint check-section clean docs docs-build docs-demo demo-preview-clean gen-cli-docs docker-build docker-run \
@@ -59,6 +59,12 @@ build:
 # Level 1 — unit.
 test:
 	go test -race ./... -v
+
+# The fleet map's time and byte budgets (Review note N5 of the 509-S12 plan):
+# without the race detector or coverage, so the times are the product's. 3000
+# services always; 10000 with PACTO_SCALE_FULL=1.
+test-fleet-budgets:
+	CGO_ENABLED=0 go test ./pkg/dashboard -run TestFleetMapBudget -count=1 -v
 
 # Level 2 — integration. The CLI driven IN PROCESS against a real in-process OCI
 # registry and a real plugin binary on PATH: several real components wired

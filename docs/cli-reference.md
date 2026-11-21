@@ -1545,6 +1545,27 @@ pacto fleet graph <service> [flags]
       --transitive[=true|false]   traverse transitively (cycle-safe)
 ```
 
+### `pacto fleet map`
+
+Shows the whole fleet as groups by business domain, owner team or environment, each with how many services it holds, how much of what Pacto can observe matches what the contracts declare, how complete its contracts are and what needs attention, above the fleet's declared and observed match and contract completeness. With --group it lists one group's services page by page; with --focus it lists one service's callers and callees, one or two hops out, nine at most a column, worst first, and the calls between them. Environments read by name, and the answer says so: the dashboard orders them by the Stages the signed-in person may read.
+
+```
+pacto fleet map [flags]
+```
+
+**Flags:**
+
+```
+      --environment string   environment the services are read in: with --group, each says whether it runs there and its version
+      --focus string         list this service's callers and callees: a name, or its key when the name is used in more than one domain
+      --group string         list this group's services, by the key the map names
+      --group-by string      grouping: domain (default), team or environment
+  -h, --help[=true|false]    help for map
+      --hops int             with --focus, hops out on each side (0 = 1, at most 2)
+      --limit int            with --group, services a page (0 = 1000, at most 5000)
+      --offset int           with --group, the first service of the page
+```
+
 ### `pacto fleet neighborhood`
 
 Shows who a service depends on and who depends on it, to the requested depth, each with its owner and status, then the edges between them: each says whether a contract declares it, telemetry observed it or both, and how the two compare. A runtime call one of whose ends no contract describes is listed as inferred, with the sources that saw it, and never satisfies a dependency. The service is a name, or its key when the name is used in more than one domain.
@@ -2266,6 +2287,7 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 | `pacto_fleet_entity` | `kind` and `key` (**both required**): a service, revision, target, owner, source, business domain or offering |
 | `pacto_fleet_attention` | `category`, `severity`, `owner`, `owner_key`, `business_domain`, `service`, `kind`, `key`, `source`, `status`, `stale_only`, `limit`, `offset` |
 | `pacto_fleet_neighborhood` | `service` (**required**): a service name or key, then `direction` (`dependencies`, `dependents` or `both`, the default), `depth`, `views` (comma-separated `expected`, `observed` and `differences`; empty means `expected,observed`), `max_nodes` and `max_edges` |
+| `pacto_fleet_map` | `group_by` (`domain`, the default, `team` or `environment`) and `environment`; or `group` (a group key the map names), then `offset` and `limit`; or `focus` (a service name or key), then `hops` (`1`, the default, or `2`) |
 | `pacto_fleet_versions` | `offering` (**required**), then `provider` (a key, or a name only one domain uses) and `range` (a semver range; each version then carries `rangeStatus` and each provider its `latestCompatible` version) |
 | `pacto_fleet_revision_document` | `key` and `path` (**both required**): a revision key and a document path its docs list |
 | `pacto_impact` | `old_ref` and `new_ref`, plus `include_observed` and `traces`; or `running` with `new_ref` alone; or `event` (`unavailable`, `removed` or `regressed`) with `service`, plus `revision` for `regressed` |
