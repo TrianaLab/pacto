@@ -76,7 +76,7 @@ func TestCIInitEditsGitLab(t *testing.T) {
 	dir := ciInitRepo(t, map[string]string{".gitlab-ci.yml": "# acme\nbuild:\n  script: [make]\n"})
 	out, _, err := runRoot(t, defaultDeps(), nil, "ci", "init", dir)
 	_, content := ci.Caller("gitlab")
-	if err != nil || out != "wrote .gitlab-ci.yml (2 lines):\n"+content {
+	if err != nil || out != "added the pacto-actions include entry to .gitlab-ci.yml (2 lines):\n"+content {
 		t.Fatalf("err %v, stdout:\n%s", err, out)
 	}
 	if got := readFile(t, filepath.Join(dir, ".gitlab-ci.yml")); got != "# acme\nbuild:\n  script: [make]\n\n"+content {
@@ -183,5 +183,64 @@ func TestCIFolderNamedInit(t *testing.T) {
 	var exit *ExitError
 	if !errors.As(err, &exit) || exit.Code != 2 || !strings.Contains(stdout, "\npayments ") {
 		t.Fatalf("err %v, stdout:\n%s", err, stdout)
+	}
+}
+
+// TestCIInitGitLabJSONIsTheFile: over an existing .gitlab-ci.yml, a dry run's
+// JSON content is the whole file a real run writes, never the bare entry an
+// agent would write over the pipeline.
+func TestCIInitGitLabJSONIsTheFile(t *testing.T) {
+	ciEnvOff(t)
+	src := "stages: [test]\ninclude:\n  - local: a.yml\nbuild:\n  script: make\n"
+	dir := ciInitRepo(t, map[string]string{".gitlab-ci.yml": src})
+	out, _, err := runRoot(t, defaultDeps(), nil, "ci", "init", "--dry-run", dir, "--output-format", "json")
+	dry := decode(t, out)
+	if err != nil || dry["written"] != false || dry["lines"] != 2.0 || readFile(t, filepath.Join(dir, ".gitlab-ci.yml")) != src {
+		t.Fatalf("err %v, doc %v", err, dry)
+	}
+	out, _, err = runRoot(t, defaultDeps(), nil, "ci", "init", dir, "--output-format", "json")
+	written := readFile(t, filepath.Join(dir, ".gitlab-ci.yml"))
+	if doc := decode(t, out); err != nil || dry["content"] != written || doc["content"] != written || !strings.Contains(written, "- local: a.yml") {
+		t.Fatalf("err %v, dry %v, wrote:\n%s", err, dry, written)
+	}
+}
+
+// TestCIInitGitHubJSONNotes: the Rekor disclosure a person reads in text is
+// in the JSON an agent reads.
+func TestCIInitGitHubJSONNotes(t *testing.T) {
+	ciEnvOff(t)
+	out, _, err := runRoot(t, defaultDeps(), nil, "ci", "init", "--platform", "github", "--dry-run", t.TempDir(), "--output-format", "json")
+	doc := decode(t, out)
+	notes, _ := doc["notes"].([]any)
+	if err != nil || len(notes) != 1 || notes[0] != rekorNote {
+		t.Fatalf("err %v, doc %v", err, doc)
+	}
+}
+
+// TestCIInitRefusesMissingDirAndEscape: a dir that does not exist is an
+// error, never created, and a caller path that is a symlink out of the
+// repository is never followed.
+func TestCIInitRefusesMissingDirAndEscape(t *testing.T) {
+	ciEnvOff(t)
+	missing := filepath.Join(t.TempDir(), "tpyo", "dir")
+	if _, _, err := runRoot(t, defaultDeps(), nil, "ci", "init", "--platform", "github", missing); err == nil {
+		t.Fatal("a missing dir: no error")
+	}
+	if _, err := os.Stat(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the missing dir was created: %v", err)
+	}
+	outside := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(outside, []byte("a: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(dir, ".gitlab-ci.yml")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := runRoot(t, defaultDeps(), nil, "ci", "init", "--platform", "gitlab", dir); err == nil {
+		t.Fatal("a symlink out of the repository: no error")
+	}
+	if got := readFile(t, outside); got != "a: 1\n" {
+		t.Fatalf("the file outside changed:\n%s", got)
 	}
 }

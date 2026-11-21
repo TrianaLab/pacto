@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -17,13 +18,22 @@ import (
 // already names a pacto-actions commit (how a GitLab pin moves, since
 // Dependabot reads no GitLab file). Every byte outside the edit stays: the
 // YAML is parsed only to find where the edit goes. An include written any
-// other way is refused with the entry to add by hand.
+// other way, or in a file of several YAML documents (a spec: header before
+// the pipeline), is refused with the entry to add by hand.
 func AddGitLabInclude(src []byte, url string) ([]byte, error) {
+	entry := "  - remote: " + url
 	var doc yaml.Node
-	if err := yaml.Unmarshal(src, &doc); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(src))
+	if err := dec.Decode(&doc); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf(".gitlab-ci.yml: %w", err)
 	}
-	entry := "  - remote: " + url
+	var next yaml.Node
+	if err := dec.Decode(&next); err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf(".gitlab-ci.yml: %w", err)
+	} else if err == nil {
+		// ponytail: refused, not edited; edit the last document if spec: headers become common.
+		return nil, fmt.Errorf(".gitlab-ci.yml holds several YAML documents, which pacto ci init does not edit; add this entry to the pipeline's include list:\n%s", entry)
+	}
 	if len(doc.Content) == 0 {
 		return appendInclude(src, entry), nil
 	}

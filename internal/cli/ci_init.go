@@ -18,13 +18,17 @@ import (
 const rekorNote = "Keyless signing records the repository, workflow and commit in the public Rekor log; " +
 	"a private repository that must not appear there sets the sign-key secret or declares publish.sign with a private log."
 
-// ciInitResult is what pacto ci init wrote, or would write.
+// ciInitResult is what pacto ci init wrote, or would write: Content is the
+// whole resulting file, Lines the size of the caller it adds (the GitLab
+// include entry is spliced into the existing file) and Notes what the caller
+// discloses, so an agent reading JSON sees what a person reads.
 type ciInitResult struct {
-	Platform string `json:"platform"`
-	Path     string `json:"path"`
-	Lines    int    `json:"lines"`
-	Content  string `json:"content"`
-	Written  bool   `json:"written"`
+	Platform string   `json:"platform"`
+	Path     string   `json:"path"`
+	Lines    int      `json:"lines"`
+	Content  string   `json:"content"`
+	Written  bool     `json:"written"`
+	Notes    []string `json:"notes,omitempty"`
 }
 
 // newCIInitCommand builds `pacto ci init [dir]`: write the CI caller that runs
@@ -39,7 +43,8 @@ func newCIInitCommand(v *viper.Viper) *cobra.Command {
 			"or moves the commit of the entry already there, and leaves every other byte of the file as it was. " +
 			"--platform picks one when the repository has both or neither.\n\n" +
 			"pacto ci init writes into the working tree only: you review and commit the file. " +
-			"An existing GitHub caller with other content is replaced only with --force.\n\n" +
+			"An existing GitHub caller with other content is replaced only with --force. " +
+			"With --output-format json, content is the whole file written or to write and lines counts the lines of the caller it adds.\n\n" +
 			"To plan a folder named init, run pacto ci ./init.",
 		Example: `  # Write the caller for the CI platform this repository uses
   pacto ci init
@@ -67,11 +72,17 @@ func newCIInitCommand(v *viper.Viper) *cobra.Command {
 
 // runCIInit writes the caller for the platform of the repository at dir,
 // unless --dry-run, and says what it wrote.
+// Every read and write goes through a root at dir, so a dir that does not
+// exist is an error and a symlink that leaves the repository is refused.
 func runCIInit(cmd *cobra.Command, dir string) (*ciInitResult, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, fmt.Errorf("the repository to write the caller into: %w", err)
+	}
+	defer func() { _ = root.Close() }()
 	platform, _ := cmd.Flags().GetString("platform")
 	if platform == "" {
-		var err error
-		if platform, err = ci.DetectPlatform(os.DirFS(dir)); err != nil {
+		if platform, err = ci.DetectPlatform(root.FS()); err != nil {
 			return nil, err
 		}
 	}
@@ -79,8 +90,7 @@ func runCIInit(cmd *cobra.Command, dir string) (*ciInitResult, error) {
 	if path == "" {
 		return nil, fmt.Errorf("--platform %s: want github or gitlab", platform)
 	}
-	full := filepath.Join(dir, path)
-	old, err := os.ReadFile(full)
+	old, err := root.ReadFile(path)
 	exists := err == nil
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
@@ -89,15 +99,18 @@ func runCIInit(cmd *cobra.Command, dir string) (*ciInitResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := &ciInitResult{Platform: platform, Path: path, Lines: ci.Lines(content), Content: content}
+	res := &ciInitResult{Platform: platform, Path: path, Lines: ci.Lines(content), Content: string(next)}
+	if platform == "github" {
+		res.Notes = []string{rekorNote}
+	}
 	if dry, _ := cmd.Flags().GetBool("dry-run"); dry || exists && bytes.Equal(old, next) {
 		return res, nil
 	}
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+	if err := root.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
 	res.Written = true
-	return res, os.WriteFile(full, next, 0o644)
+	return res, root.WriteFile(path, next, 0o644)
 }
 
 // nextCallerFile is the file at path once the caller is in it: the GitHub
@@ -121,12 +134,16 @@ func printCIInit(cmd *cobra.Command, res *ciInitResult) {
 		_, _ = fmt.Fprintf(w, "%s is up to date\n", res.Path)
 		return
 	}
-	verb := "wrote"
-	if dry {
-		verb = "would write"
+	if res.Platform == "gitlab" {
+		// The rest of the file is the user's own: show only the entry.
+		_, entry := ci.Caller("gitlab")
+		verb := map[bool]string{false: "added", true: "would add"}[dry]
+		_, _ = fmt.Fprintf(w, "%s the pacto-actions include entry to %s (%d lines):\n%s", verb, res.Path, res.Lines, entry)
+		return
 	}
+	verb := map[bool]string{false: "wrote", true: "would write"}[dry]
 	_, _ = fmt.Fprintf(w, "%s %s (%d lines):\n%s", verb, res.Path, res.Lines, res.Content)
-	if res.Platform == "github" {
-		_, _ = fmt.Fprintln(w, rekorNote)
+	for _, n := range res.Notes {
+		_, _ = fmt.Fprintln(w, n)
 	}
 }

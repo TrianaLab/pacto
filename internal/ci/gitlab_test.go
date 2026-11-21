@@ -67,6 +67,9 @@ func TestAddGitLabIncludeFlowOrScalarIncludeRefused(t *testing.T) {
 		"include:\n",
 		"include:\n  -\n    local: a.yml\n",
 		"include:\n  - \"https://raw.githubusercontent.com/TrianaLab/pacto-actions/\\x30ld/templates/pacto.yml\"\n",
+		// A spec: header document before the pipeline, whose include the
+		// first document does not show.
+		"spec:\n  inputs:\n    env:\n      default: dev\n---\nstages: [test]\ninclude:\n  - local: a.yml\nbuild:\n  script: make\n",
 	} {
 		_, err := AddGitLabInclude([]byte(src), testURL)
 		if err == nil || !strings.Contains(err.Error(), "  - remote: "+testURL) {
@@ -84,7 +87,7 @@ func TestAddGitLabIncludePreservesBytes(t *testing.T) {
 }
 
 func TestAddGitLabIncludeInvalidYAML(t *testing.T) {
-	for _, src := range []string{"a: [\n", "- a\n- b\n"} {
+	for _, src := range []string{"a: [\n", "- a\n- b\n", "a: 1\n---\nb: [\n"} {
 		if _, err := AddGitLabInclude([]byte(src), testURL); err == nil || !strings.Contains(err.Error(), ".gitlab-ci.yml") {
 			t.Errorf("%q: err %v", src, err)
 		}
