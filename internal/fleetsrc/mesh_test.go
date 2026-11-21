@@ -222,7 +222,7 @@ func TestMeshIstioEdgesFromPrometheus(t *testing.T) {
 	}
 	row := istioRow(t, col)
 	if row.Status != fleet.SourceAvailable || row.Evidence != "serves networking.istio.io; calls read from Prometheus" || len(row.Limitations) != 0 ||
-		!slices.Equal(row.UsedFor, []string{fleet.UseObservedEdges}) || row.Name != "Istio" {
+		!slices.Equal(row.UsedFor, []string{fleet.UseObservedEdges, fleet.UseExternalEgress}) || row.Name != "Istio" {
 		t.Errorf("row %+v", row)
 	}
 	if !slices.Contains(row.Objects, fleet.ProviderObject{Kind: "Service", Namespace: "istio-system", Name: "prom-main"}) ||
@@ -481,7 +481,7 @@ func TestMeshScopedDropsOutOfScopeEdges(t *testing.T) {
 		series("source", "cart", "secret-svc", "3", "destination_workload_namespace=hidden-team"))))
 	col := collectMesh(t, meshSource(defaultMesh(true), []string{"shop", "istio-system"}, map[string]*promStub{"istio-system/prom-main": p}, nil))
 	q := p.reqs[0].URL.Query().Get("query")
-	if !strings.Contains(q, `source_workload_namespace=~"istio-system|shop"`) || !strings.Contains(q, `destination_workload_namespace=~"istio-system|shop"`) {
+	if !strings.Contains(q, `source_workload_namespace=~"istio-system|shop"`) || !strings.Contains(q, `destination_workload_namespace=~"istio-system|shop|unknown"`) {
 		t.Errorf("query %s", q)
 	}
 	row := istioRow(t, col)
@@ -726,7 +726,7 @@ func TestPromSeriesValue(t *testing.T) {
 	if (promStatusError{503}).Error() != "prometheus answered 503" {
 		t.Error("status error text")
 	}
-	if edges, _ := foldCalls([]meshCall{{from: "a", to: "b", count: 1e300}}, meshNow); edges[0].Count != 1e15 {
+	if edges, _ := foldCalls([]meshCall{{from: "a", to: "b", count: 1e300}}, meshNow, maxMeshSeries); edges[0].Count != 1e15 {
 		t.Errorf("an infinite count %+v", edges)
 	}
 }
@@ -797,7 +797,7 @@ func TestMeshLinkerdEdgesByKind(t *testing.T) {
 func checkLinkerdRead(t *testing.T, row fleet.Provider, p *promStub) {
 	t.Helper()
 	if row.Status != fleet.SourceAvailable || row.Name != "Linkerd" || row.Evidence != "serves policy.linkerd.io; calls read from Prometheus" ||
-		!slices.Equal(row.UsedFor, []string{fleet.UseObservedEdges}) || len(row.Limitations) != 0 {
+		!slices.Equal(row.UsedFor, []string{fleet.UseObservedEdges, fleet.UseExternalEgress}) || len(row.Limitations) != 0 {
 		t.Errorf("row %+v", row)
 	}
 	if !slices.Contains(row.Objects, fleet.ProviderObject{Kind: "Service", Namespace: "linkerd", Name: "linkerd-destination"}) ||
@@ -899,7 +899,7 @@ func TestMeshLinkerdScopedAndCrossCluster(t *testing.T) {
 		}
 	}
 	q := p.reqs[0].URL.Query().Get("query")
-	if !strings.Contains(q, `{direction="outbound",namespace=~"linkerd-viz|shop",dst_namespace=~"linkerd-viz|shop"}`) {
+	if !strings.Contains(q, `{direction="outbound",namespace=~"linkerd-viz|shop",dst_namespace=~"|linkerd-viz|shop"}`) {
 		t.Errorf("query %q", q)
 	}
 }

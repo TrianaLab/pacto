@@ -27,6 +27,7 @@ const (
 	meshReadInterval  = 5 * time.Minute  // one real read per process per interval
 	maxPromBody       = 16 << 20         // 16 MiB of one Prometheus answer
 	maxMeshSeries     = 5000             // the busiest call pairs kept
+	maxEgressSeries   = 2000             // the busiest calls to external hosts kept, per mesh
 	maxPromCandidates = 3                // Prometheus Services asked at most
 )
 
@@ -389,9 +390,17 @@ func (s *MeshSource) meshRead(ctx context.Context, cl meshCluster, now time.Time
 			var tally meshTally
 			edges, tally = k.edges(series, now, s.namespaces)
 			lims = append(lims, tally.limitations(s.id)...)
+			return readsEgress(meshRow(k.id, k.name, evidence, now, objects, lims)), edges
 		}
 	}
 	return meshRow(k.id, k.name, evidence, now, objects, lims), edges
+}
+
+// readsEgress is row, whose calls were read, saying it also reads calls to
+// hosts outside the cluster.
+func readsEgress(row fleet.Provider) fleet.Provider {
+	row.UsedFor = append(row.UsedFor, fleet.UseExternalEgress)
+	return row
 }
 
 // coverage is the uncovered namespaces as objects and their count-only

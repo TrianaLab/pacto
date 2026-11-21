@@ -9,15 +9,18 @@ import (
 	"io"
 	"maps"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -200,23 +203,33 @@ func promErrorText(err error) string {
 
 // istioBy are the labels the Istio query keeps. cluster is the external
 // label a Prometheus receiving other clusters' series conventionally adds.
-const istioBy = "reporter, cluster, source_cluster, source_workload, source_workload_namespace, destination_cluster, destination_workload, destination_workload_namespace"
+// destination_service_name names the host of a call leaving the cluster.
+const istioBy = "reporter, cluster, source_cluster, source_workload, source_workload_namespace, destination_cluster, destination_workload, destination_workload_namespace, destination_service_name"
 
 // istioQuery is the calls and TCP connections of the last hour between
-// workloads, both ends narrowed to namespaces when scoped.
+// workloads, both ends narrowed to namespaces when scoped. A scoped
+// destination also keeps calls leaving the cluster: an unknown destination
+// and the trusted egress gateways.
 func istioQuery(namespaces []string) string {
 	sel := ""
 	if m := scopeMatcher("source_workload_namespace", namespaces); m != "" {
-		sel = "{" + m + "," + scopeMatcher("destination_workload_namespace", namespaces) + "}"
+		sel = "{" + m + "," + scopeMatcher("destination_workload_namespace", widened(namespaces, "unknown", detect.GatewayNamespace)) + "}"
 	}
 	return fmt.Sprintf("sum by (%s) (increase(istio_requests_total%s[1h])) or sum by (%s) (increase(istio_tcp_connections_opened_total%s[1h]))",
 		istioBy, sel, istioBy, sel)
 }
 
+// widened is namespaces with extra, sorted, each once.
+func widened(namespaces []string, extra ...string) []string {
+	out := append(slices.Clone(namespaces), extra...)
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
 // meshTally counts what a reader left out of the edges.
 type meshTally struct {
-	unattributed, outOfScope, crossCluster int
-	multiCluster, truncated                bool
+	unattributed, outOfScope, crossCluster, passthrough int
+	multiCluster, truncated, egressTruncated            bool
 }
 
 // limitations words t, counts only.
@@ -232,6 +245,8 @@ func (t meshTally) limitations(id string) []fleet.Limitation {
 	add(fleet.LimitationMeshCallsUnattributed, t.unattributed, countOf(t.unattributed, "call series", "call series")+" had an end Pacto could not name")
 	add(fleet.LimitationMeshCallsUnattributed, t.outOfScope, countOf(t.outOfScope, "call series", "call series")+" reach namespaces this installation does not read")
 	add(fleet.LimitationMeshCallsUnattributed, t.crossCluster, countOf(t.crossCluster, "cross-cluster call was", "cross-cluster calls were")+" not attributed")
+	add(fleet.LimitationMeshCallsUnattributed, t.passthrough, countOf(t.passthrough, "call series", "call series")+" went through the passthrough cluster, which names no host; add a ServiceEntry")
+	add(fleet.LimitationEgressSeriesCap, b2i(t.egressTruncated), egressCapText)
 	return out
 }
 
@@ -250,13 +265,51 @@ type meshCall struct {
 	reporter string
 }
 
+// egressCapText words a cap on the calls to external hosts kept.
+var egressCapText = "only the " + strconv.Itoa(maxEgressSeries) + " busiest calls to external hosts were read"
+
 // callEnds is what one series says about a call: its two ends as K8sCaller
 // names ("" when the mesh could not name one), their namespaces, the cluster
-// it was seen in and whether it crossed to another cluster.
+// it was seen in and whether it crossed to another cluster. host is set
+// when the call left the cluster for a named host; passthrough when it left
+// with no host named.
 type callEnds struct {
 	from, to, fromNS, toNS string
 	cluster, reporter      string
-	cross                  bool
+	host                   string
+	cross, passthrough     bool
+}
+
+// egressHost is name as a host outside the cluster: lowercase, port and
+// trailing dot stripped, "" when it is no dotted host or an in-cluster
+// Service name.
+func egressHost(name string) string {
+	h := strings.ToLower(name)
+	if host, _, err := net.SplitHostPort(h); err == nil {
+		h = host
+	}
+	h = strings.TrimSuffix(h, ".")
+	if !strings.Contains(h, ".") || strings.Contains(h, ".svc.") || strings.HasSuffix(h, ".svc") {
+		return ""
+	}
+	return h
+}
+
+// istioEgress sets e.host or e.passthrough when the series m is a call that
+// left the cluster: its destination is unknown or a trusted egress gateway
+// (in the gateway namespace; a tenant can name its own workload so), and
+// its service name is a host, or Istio's passthrough cluster.
+func istioEgress(e *callEnds, m map[string]string) {
+	dst := m["destination_workload"]
+	gateway := m["destination_workload_namespace"] == detect.GatewayNamespace && strings.Contains(dst, "egressgateway")
+	if named(dst) != "" && !gateway {
+		return
+	}
+	if svc := m["destination_service_name"]; svc == "PassthroughCluster" {
+		e.passthrough = true
+	} else {
+		e.host = egressHost(svc)
+	}
 }
 
 // istioEnds reads an Istio series: kindless names, cross-cluster when its
@@ -275,6 +328,7 @@ func istioEnds(m map[string]string) callEnds {
 	if dstNS != "" && dst != "" {
 		e.to = fleet.K8sCaller("", dstNS, "", dst)
 	}
+	istioEgress(&e, m)
 	return e
 }
 
@@ -287,14 +341,17 @@ func istioEdges(series []promSeries, asOf time.Time, namespaces []string) ([]fle
 }
 
 // linkerdBy are the labels the Linkerd query keeps.
-const linkerdBy = "namespace, deployment, statefulset, daemonset, dst_namespace, dst_deployment, dst_statefulset, dst_daemonset, target_cluster_name, cluster"
+// authority names the host of a call leaving the cluster.
+const linkerdBy = "namespace, deployment, statefulset, daemonset, dst_namespace, dst_deployment, dst_statefulset, dst_daemonset, target_cluster_name, cluster, authority"
 
 // linkerdQuery is the outbound responses and TCP connections of the last
-// hour between workloads, both ends narrowed to namespaces when scoped.
+// hour between workloads, both ends narrowed to namespaces when scoped. A
+// scoped destination also keeps calls with no destination namespace, those
+// leaving the cluster.
 func linkerdQuery(namespaces []string) string {
 	sel := `direction="outbound"`
 	if m := scopeMatcher("namespace", namespaces); m != "" {
-		sel += "," + m + "," + scopeMatcher("dst_namespace", namespaces)
+		sel += "," + m + "," + scopeMatcher("dst_namespace", widened(namespaces, ""))
 	}
 	return fmt.Sprintf("sum by (%s) (increase(response_total{%s}[1h])) or sum by (%s) (increase(tcp_open_total{%s}[1h]))",
 		linkerdBy, sel, linkerdBy, sel)
@@ -319,9 +376,15 @@ func linkerdEnd(m map[string]string, prefix string) string {
 // linkerdEnds reads a Linkerd outbound series: named with their kind, a call
 // to a mirrored service of another cluster (target_cluster_name) crossing,
 // seen in the cluster its external cluster label names.
+// A series with no destination workload whose authority is a host left the
+// cluster.
 func linkerdEnds(m map[string]string) callEnds {
-	return callEnds{from: linkerdEnd(m, ""), to: linkerdEnd(m, "dst_"), fromNS: m["namespace"], toNS: m["dst_namespace"],
+	e := callEnds{from: linkerdEnd(m, ""), to: linkerdEnd(m, "dst_"), fromNS: m["namespace"], toNS: m["dst_namespace"],
 		cluster: m["cluster"], cross: m["target_cluster_name"] != ""}
+	if e.to == "" {
+		e.host = egressHost(m["authority"])
+	}
+	return e
 }
 
 // linkerdEdges folds Linkerd series into edges named with their kind; the
@@ -333,16 +396,25 @@ func linkerdEdges(series []promSeries, asOf time.Time, namespaces []string) ([]f
 // seriesEdges folds series read by ends into edges, counting and leaving
 // out ends Pacto cannot name, ends outside namespaces and cross-cluster
 // calls, and giving nothing when the calls kept belong to several clusters.
+// A call from a caller in namespaces that left the cluster is an edge to
+// its host, kept apart under its own cap.
 func seriesEdges(series []promSeries, asOf time.Time, namespaces []string, ends func(map[string]string) callEnds) ([]fleet.ObservedEdge, meshTally) {
 	var t meshTally
-	var calls []meshCall
+	var calls, egress []meshCall
 	clusters := map[string]bool{}
 	for _, p := range series {
 		v := p.value()
 		if v <= 0 {
 			continue
 		}
-		switch e := ends(p.Metric); {
+		e := ends(p.Metric)
+		leaves := e.from != "" && (e.host != "" || e.passthrough) && inScope(namespaces, e.fromNS)
+		switch {
+		case leaves && e.passthrough:
+			t.passthrough++
+		case leaves:
+			clusters[e.cluster] = true
+			egress = append(egress, meshCall{from: e.from, to: e.host, count: v, reporter: e.reporter})
 		case e.from == "" || e.to == "":
 			t.unattributed++
 		case !inScope(namespaces, e.fromNS) || !inScope(namespaces, e.toNS):
@@ -358,9 +430,10 @@ func seriesEdges(series []promSeries, asOf time.Time, namespaces []string, ends 
 	if len(clusters) > 1 {
 		return nil, meshTally{multiCluster: true}
 	}
-	edges, truncated := foldCalls(calls, asOf)
-	t.truncated = truncated
-	return edges, t
+	edges, truncated := foldCalls(calls, asOf, maxMeshSeries)
+	out, egressTruncated := foldCalls(egress, asOf, maxEgressSeries)
+	t.truncated, t.egressTruncated = truncated, egressTruncated
+	return append(edges, out...), t
 }
 
 // named is v, or "" when the mesh could not name it.
@@ -377,9 +450,9 @@ func inScope(namespaces []string, ns string) bool {
 }
 
 // foldCalls is one edge per pair: the largest count of any reporter, at
-// least 1, seen in the window ending at asOf; the busiest maxMeshSeries kept.
-// A call to itself is no edge.
-func foldCalls(calls []meshCall, asOf time.Time) (edges []fleet.ObservedEdge, truncated bool) {
+// least 1, seen in the window ending at asOf; the busiest limit kept. A
+// call to itself is no edge.
+func foldCalls(calls []meshCall, asOf time.Time, limit int) (edges []fleet.ObservedEdge, truncated bool) {
 	type pair struct{ from, to string }
 	per := map[pair]map[string]float64{}
 	for _, c := range calls {
@@ -400,8 +473,8 @@ func foldCalls(calls []meshCall, asOf time.Time) (edges []fleet.ObservedEdge, tr
 	slices.SortFunc(edges, func(a, b fleet.ObservedEdge) int {
 		return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.From, b.From), cmp.Compare(a.To, b.To))
 	})
-	if len(edges) > maxMeshSeries {
-		return edges[:maxMeshSeries], true
+	if len(edges) > limit {
+		return edges[:limit], true
 	}
 	return edges, false
 }

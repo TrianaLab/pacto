@@ -100,6 +100,9 @@ const (
 	// LimitationMeshCallsUnattributed: calls the mesh recorded that Pacto
 	// could not attribute to a workload of this cluster were left out.
 	LimitationMeshCallsUnattributed = "MESH_CALLS_UNATTRIBUTED"
+	// LimitationEgressSeriesCap: a mesh recorded more calls to external
+	// hosts than Pacto reads in one window; only the busiest were kept.
+	LimitationEgressSeriesCap = "EGRESS_SERIES_CAP"
 )
 
 // PromotionOwnedBy starts the evidence of every promotion row whose product

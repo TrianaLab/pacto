@@ -8,8 +8,9 @@ package fleetsrc
 //	GetFlowsRequest       number=1 follow=3 since=7 (Timestamp seconds=1 nanos=2)
 //	GetFlowsResponse      flow=1 lost_events=3
 //	Flow                  time=1 verdict=2 source=8 destination=9 node_name=11
+//	                      destination_names=14
 //	                      traffic_direction=22 is_reply=26 (BoolValue value=1)
-//	Endpoint              namespace=3 workloads=6 cluster_name=7
+//	Endpoint              identity=2 namespace=3 labels=4 workloads=6 cluster_name=7
 //	Workload              name=1 kind=2
 //	ServerStatusResponse  num_unavailable_nodes=6 (UInt32Value value=1)
 //	LostEvent             num_events_lost=2
@@ -122,7 +123,7 @@ func (s *MeshSource) hubbleRow(ctx context.Context, cl meshCluster, asOf time.Ti
 			[]fleet.Limitation{s.unread(hubbleErrorText(err))}), nil
 	}
 	edges, readLims := read.edges(s.id, asOf, s.namespaces)
-	return meshRow(fleet.ProviderHubble, name, "serves cilium.io; flows read from Hubble Relay", asOf, objects, readLims), edges
+	return readsEgress(meshRow(fleet.ProviderHubble, name, "serves cilium.io; flows read from Hubble Relay", asOf, objects, readLims)), edges
 }
 
 // hubbleRead is what one Relay read returned.
@@ -242,8 +243,12 @@ func (r hubbleRead) edges(id string, asOf time.Time, namespaces []string) ([]fle
 	add(fleet.LimitationMeshCoveragePartial, !r.full && !start.IsZero() && kept < meshWindow-hubbleWindowSlack,
 		"Hubble Relay kept only the last "+countOf(max(1, int(kept/time.Minute)), "minute", "minutes")+" of flows")
 	edges, cross, out, clusters, undirected := flowEdges(r.flows, namespaces)
+	egress, worldOut, unnamed, capped := worldEdges(r.flows, namespaces)
+	edges, out = append(edges, egress...), out+worldOut
 	add(fleet.LimitationMeshCallsUnattributed, undirected > 0, countOf(undirected, "flow", "flows")+" had no request direction")
 	add(fleet.LimitationMeshCallsUnattributed, out > 0, countOf(out, "flow reaches", "flows reach")+" namespaces this installation does not read")
+	add(fleet.LimitationMeshCallsUnattributed, unnamed > 0, countOf(unnamed, "flow", "flows")+" left the cluster with no name; enable DNS visibility for egress names")
+	add(fleet.LimitationEgressSeriesCap, capped, egressCapText)
 	add(fleet.LimitationMeshCallsUnattributed, cross > 0, countOf(cross, "cross-cluster flow was", "cross-cluster flows were")+" not attributed")
 	// Build qualifies every end with this source's cluster, so the flows of
 	// several clusters cannot be told apart: no edge, as for Prometheus.
@@ -280,6 +285,74 @@ type flow struct {
 	verdict, direction uint64
 	reply, replyKnown  bool
 	src, dst           endpoint
+	dstNames           []string
+}
+
+// worldCall reports whether f is an egress request from a named workload
+// to the world, an address outside the cluster.
+func (f flow) worldCall() bool {
+	return f.verdict == verdictForwarded && f.direction == directionEgress && f.src.named() && f.dst.world && f.replyKnown && !f.reply
+}
+
+// worldEdges folds the world calls of flows into one edge per caller and
+// first host its destination names give, the busiest maxEgressSeries kept.
+// A world call from outside namespaces is counted in out; one with no host
+// name in unnamed.
+func worldEdges(flows []flow, namespaces []string) (edges []fleet.ObservedEdge, out, unnamed int, capped bool) {
+	per := map[[2]string]*fleet.ObservedEdge{}
+	for _, f := range flows {
+		if !f.worldCall() {
+			continue
+		}
+		host := firstHost(f.dstNames)
+		switch {
+		case !inScope(namespaces, f.src.namespace):
+			out++
+		case host == "":
+			unnamed++
+		default:
+			countFlow(per, f.src.caller(), host, f.time)
+		}
+	}
+	edges = sortedEdges(per)
+	if len(edges) > maxEgressSeries {
+		return edges[:maxEgressSeries], out, unnamed, true
+	}
+	return edges, out, unnamed, false
+}
+
+// firstHost is the first of names that is a host outside the cluster.
+func firstHost(names []string) string {
+	for _, n := range names {
+		if h := egressHost(n); h != "" {
+			return h
+		}
+	}
+	return ""
+}
+
+// countFlow counts one flow at t on the edge from to in per.
+func countFlow(per map[[2]string]*fleet.ObservedEdge, from, to string, t time.Time) {
+	k := [2]string{from, to}
+	e := per[k]
+	if e == nil {
+		e = &fleet.ObservedEdge{From: from, To: to, FirstSeen: t, LastSeen: t}
+		per[k] = e
+	}
+	e.Count++
+	e.FirstSeen, e.LastSeen = minTime(e.FirstSeen, t), maxTime(e.LastSeen, t)
+}
+
+// sortedEdges is the edges of per, busiest first.
+func sortedEdges(per map[[2]string]*fleet.ObservedEdge) []fleet.ObservedEdge {
+	var edges []fleet.ObservedEdge
+	for _, e := range per {
+		edges = append(edges, *e)
+	}
+	slices.SortFunc(edges, func(a, b fleet.ObservedEdge) int {
+		return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.From, b.From), cmp.Compare(a.To, b.To))
+	})
+	return edges
 }
 
 // egress reports whether f is forwarded traffic leaving a named workload
@@ -297,10 +370,16 @@ func (f flow) cross() bool {
 	return f.src.cluster != "" && f.dst.cluster != "" && f.src.cluster != f.dst.cluster
 }
 
-// endpoint is one end of a flow: its namespace, cluster and first workload.
+// endpoint is one end of a flow: its namespace, cluster and first workload,
+// and whether Cilium marks it the world.
 type endpoint struct {
 	namespace, cluster, kind, name string
+	world                          bool
 }
+
+// worldIdentities are Cilium's reserved world identities: world, world-ipv4
+// and world-ipv6.
+var worldIdentities = []uint64{2, 9, 10}
 
 // named reports whether e is a workload in a namespace; a host, the world
 // or a remote node is not.
@@ -315,8 +394,7 @@ func (e endpoint) caller() string { return fleet.K8sCaller("", e.namespace, e.ki
 // left out. clusters is how many distinct clusters the kept flows name;
 // undirected is how many egress flows did not say whether they reply.
 func flowEdges(flows []flow, namespaces []string) (edges []fleet.ObservedEdge, crossCluster, outOfScope, clusters, undirected int) {
-	type pair struct{ from, to string }
-	per := map[pair]*fleet.ObservedEdge{}
+	per := map[[2]string]*fleet.ObservedEdge{}
 	seen := map[string]bool{}
 	for _, f := range flows {
 		switch {
@@ -333,26 +411,12 @@ func flowEdges(flows []flow, namespaces []string) (edges []fleet.ObservedEdge, c
 			continue
 		}
 		seen[cmp.Or(f.src.cluster, f.dst.cluster)] = true
-		k := pair{f.src.caller(), f.dst.caller()}
-		if k.from == k.to {
-			continue
+		if from, to := f.src.caller(), f.dst.caller(); from != to {
+			countFlow(per, from, to, f.time)
 		}
-		e := per[k]
-		if e == nil {
-			e = &fleet.ObservedEdge{From: k.from, To: k.to, FirstSeen: f.time, LastSeen: f.time}
-			per[k] = e
-		}
-		e.Count++
-		e.FirstSeen, e.LastSeen = minTime(e.FirstSeen, f.time), maxTime(e.LastSeen, f.time)
 	}
-	for _, e := range per {
-		edges = append(edges, *e)
-	}
-	slices.SortFunc(edges, func(a, b fleet.ObservedEdge) int {
-		return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.From, b.From), cmp.Compare(a.To, b.To))
-	})
 	delete(seen, "")
-	return edges, crossCluster, outOfScope, len(seen), undirected
+	return sortedEdges(per), crossCluster, outOfScope, len(seen), undirected
 }
 
 func minTime(a, b time.Time) time.Time {
@@ -447,6 +511,8 @@ func decodeFlow(b []byte) (flow, error) {
 			f.dst, err = decodeEndpoint(val)
 		case 11:
 			f.node = string(val)
+		case 14:
+			f.dstNames = append(f.dstNames, string(val))
 		case 22:
 			f.direction = x
 		case 26:
@@ -463,10 +529,14 @@ func decodeFlow(b []byte) (flow, error) {
 // workload.
 func decodeEndpoint(b []byte) (endpoint, error) {
 	var e endpoint
-	err := fields(b, func(num protowire.Number, val []byte, _ uint64) (err error) {
+	err := fields(b, func(num protowire.Number, val []byte, x uint64) (err error) {
 		switch num {
+		case 2:
+			e.world = e.world || slices.Contains(worldIdentities, x)
 		case 3:
 			e.namespace = string(val)
+		case 4:
+			e.world = e.world || strings.HasPrefix(string(val), "reserved:world")
 		case 6:
 			if e.name == "" {
 				e.name, e.kind, err = decodeWorkload(val)

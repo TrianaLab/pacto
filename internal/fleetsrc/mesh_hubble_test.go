@@ -202,7 +202,7 @@ func TestHubbleEdgesFromFlows(t *testing.T) {
 	}
 	if row.Status != fleet.SourceAvailable || row.Evidence != "serves cilium.io; flows read from Hubble Relay" || len(row.Limitations) != 0 ||
 		!slices.Equal(row.Objects, []fleet.ProviderObject{{Kind: "Service", Namespace: "kube-system", Name: "hubble-relay"}}) ||
-		!slices.Equal(row.UsedFor, []string{fleet.UseObservedEdges}) {
+		!slices.Equal(row.UsedFor, []string{fleet.UseObservedEdges, fleet.UseExternalEgress}) {
 		t.Errorf("row %+v", row)
 	}
 	if got := r.dialled(); len(got) == 0 || got[0] != "hubble-relay.kube-system.svc:80" {

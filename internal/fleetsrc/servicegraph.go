@@ -118,7 +118,7 @@ func serviceGraphEdges(series []promSeries, at time.Time) ([]fleet.ObservedEdge,
 	if unattributed > 0 {
 		reasons = append(reasons, fmt.Sprintf("%d call pairs are not attributable to a named service", unattributed))
 	}
-	edges, _ := foldCalls(calls, at)
+	edges, _ := foldCalls(calls, at, maxMeshSeries)
 	for i := range edges {
 		edges[i].FirstSeen = at.Add(-traceWindow)
 	}
