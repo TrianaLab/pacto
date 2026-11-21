@@ -466,9 +466,7 @@ func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNam
 			p.Evidence = p.Name + " found in a namespace you cannot read"
 		}
 		redactDetected(&p, len(rows[i].Objects), visible)
-		if !visible("") && slices.Contains(p.UsedFor, UseObservedEdges) {
-			redactEdgeCounts(&p)
-		}
+		redactEdgeCounts(&p, visible)
 		p.Limitations = slices.DeleteFunc(slices.Clone(p.Limitations), func(l Limitation) bool {
 			return l.Code != LimitationProviderSourceDegraded && (hiddenByScope(l, visibleIn, srcClusters) || mentionsHidden(l.Message))
 		})
@@ -545,11 +543,14 @@ func EdgeCountText(n int) string {
 const edgeCountHidden = "edge count hidden by your permissions"
 
 // redactEdgeCounts takes from a live edge source's row p the figures it
-// counted over the whole fleet, for a reader who may read only some
-// namespaces: the edge count in its evidence, its details (calls, senders
+// counted over the whole fleet, for a reader visible says may read only some
+// namespaces (see edgeCountsHidden): the edge count in its evidence, its details (calls, senders
 // and what the winner misses) and each reason that starts with a count. The
 // figures would say how busy the services the reader cannot see are.
-func redactEdgeCounts(p *Provider) {
+func redactEdgeCounts(p *Provider, visible func(string) bool) {
+	if !edgeCountsHidden(*p, visible) {
+		return
+	}
 	parts := strings.Split(p.Evidence, "; ")
 	for i, part := range parts {
 		figure, _, _ := strings.Cut(part, " ")
@@ -565,6 +566,13 @@ func redactEdgeCounts(p *Provider) {
 		}
 	}
 	p.Limitations = slices.DeleteFunc(p.Limitations, func(l Limitation) bool { return l.Message == "" })
+}
+
+// edgeCountsHidden reports whether a reader visible says yes to sees p, a
+// live edge source's row, without its figures: a reader who may read only
+// some namespaces.
+func edgeCountsHidden(p Provider, visible func(string) bool) bool {
+	return !visible("") && slices.Contains(p.UsedFor, UseObservedEdges)
 }
 
 // startsWithCount reports whether s starts with a digit.
@@ -689,7 +697,7 @@ func inCluster(cluster string, visible func(cluster, namespace string) bool, wor
 func providersNarrowed(s *FleetSnapshot, visibleIn func(cluster, namespace string) bool, workloadVisibleIn func(cluster, namespace, kind string) bool, srcClusters map[string]string) bool {
 	return slices.ContainsFunc(s.Providers, func(p Provider) bool {
 		visible, workloadVisible := inCluster(providerCluster(p, srcClusters), visibleIn, workloadVisibleIn)
-		return detectedNarrowed(p, visible) || !visible("") && slices.Contains(p.UsedFor, UseObservedEdges) || slices.ContainsFunc(p.Objects, func(o ProviderObject) bool { return !objectVisible(o, visible, workloadVisible) }) ||
+		return detectedNarrowed(p, visible) || edgeCountsHidden(p, visible) || slices.ContainsFunc(p.Objects, func(o ProviderObject) bool { return !objectVisible(o, visible, workloadVisible) }) ||
 			slices.ContainsFunc(p.Counts, func(c ProviderCount) bool { return !countVisible(c, visible, workloadVisible) })
 	})
 }
