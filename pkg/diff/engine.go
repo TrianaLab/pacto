@@ -119,6 +119,9 @@ type Result struct {
 	Classification Classification `json:"classification"`
 	Changes        []Change       `json:"changes"`
 	SBOMDiff       *sbom.Result   `json:"sbomDiff,omitempty"`
+	// Advisories are the possible breaks on inferred interfaces. They sit
+	// outside Changes, so Classification never reads them.
+	Advisories []Advisory `json:"advisories,omitempty" doc:"Possible breaks on interfaces only pacto.inferred.yaml names. Advisory: never part of the classification"`
 }
 
 // Compare compares two contracts and produces a classified diff result.
@@ -150,6 +153,7 @@ func Compare(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		Classification: overall,
 		Changes:        changes,
 		SBOMDiff:       diffSBOM(ctx, oldFS, newFS),
+		Advisories:     inferredAdvisories(new, oldFS, newFS),
 	}
 }
 

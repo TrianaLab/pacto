@@ -96,12 +96,22 @@ func VerifyPerson(raw []byte, issuer, trustedRoot string) (signer delivery.Publi
 	if err != nil {
 		return signer, time.Time{}, fmt.Errorf("trustedRoot: %w", err)
 	}
-	res, err := Policy{AnyIdentity: true, Root: tr}.Verify(raw, nil)
+	if signer, signedAt, err = VerifyKeyless(raw, tr); err != nil {
+		return delivery.PublisherIdentity{}, time.Time{}, err
+	}
+	if signer.Issuer != issuer {
+		return delivery.PublisherIdentity{}, time.Time{}, fmt.Errorf("the bundle is not signed by a certificate from %s", issuer)
+	}
+	return signer, signedAt, nil
+}
+
+// VerifyKeyless is VerifyPerson for a certificate from any issuer tm's
+// certificate authority vouches for: a reader with no issuer list (public-good
+// Sigstore) checks the issuer it returns itself.
+func VerifyKeyless(raw []byte, tm root.TrustedMaterial) (signer delivery.PublisherIdentity, signedAt time.Time, err error) {
+	res, err := Policy{AnyIdentity: true, Root: tm}.Verify(raw, nil)
 	if err != nil {
 		return signer, time.Time{}, err
-	}
-	if signer = IdentityOf(res); signer.Issuer != issuer {
-		return delivery.PublisherIdentity{}, time.Time{}, fmt.Errorf("the bundle is not signed by a certificate from %s", issuer)
 	}
 	// Verify required an observer timestamp: a timestamp authority's time
 	// wins over the log's.
@@ -110,7 +120,7 @@ func VerifyPerson(raw []byte, issuer, trustedRoot string) (signer delivery.Publi
 			signedAt = ts.Timestamp.UTC()
 		}
 	}
-	return signer, signedAt, nil
+	return IdentityOf(res), signedAt, nil
 }
 
 // PublicGoodRoot fetches public-good Sigstore's trusted root through TUF from

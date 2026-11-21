@@ -217,8 +217,11 @@ actor, approver, note, message, citation or correlation id.
 | --- | --- |
 | `CONSUMERS_INCOMPATIBLE` | `blocked` |
 | `POLICY_REFERRERS_FAIL_RUNNING` | `blocked` |
+| `POLICY_UNKNOWN_RANGE` | `blocked` |
+| `POLICY_UNCONTRACTED` | `blocked` |
 | `POLICY_REFERRERS_FAIL_UNPLACED` | `unverified` |
 | `POLICY_UNCHECKED` | `unverified` |
+| `INFERRED_POSSIBLE_BREAK` | `unverified` |
 | `SERVICE_NOT_IN_FLEET` | `unverified` |
 | `SERVICE_NAME_INFERRED` | `unverified` |
 | `ANSWER_PARTIAL` | `unverified` |
@@ -226,6 +229,7 @@ actor, approver, note, message, citation or correlation id.
 | `NOT_BREAKING` | `clear` |
 | `POTENTIAL_BREAKING` | `clear` |
 | `NO_CONSUMERS` | `clear` |
+| `BREAKING_ACCEPTED` | `clear` |
 
 ## Context fields
 

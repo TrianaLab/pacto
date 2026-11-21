@@ -65,6 +65,10 @@ func TestOnlyRunRecordsFallBackToTags(t *testing.T) {
 // adds a caller adds its row here, so no one tags a user's apply or contract
 // repository through the primitive unnoticed (#452 decision 11).
 var writeOnceCallers = []string{
+	// writeAcceptance and writeAcceptanceDraft: acceptance records and
+	// acceptance drafts of a service's published version, in its own bundle
+	// repository (#524 D8).
+	"internal/app/acceptance.go",
 	// keepIndexEntry: one write-once entry per published version in the
 	// organization index, <registry>/pacto-index (CLI only, #452 decision 11).
 	"internal/app/index_write.go",

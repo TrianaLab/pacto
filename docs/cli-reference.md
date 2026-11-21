@@ -111,6 +111,77 @@ Resolution ignores non-semver tags such as `latest` and `main`. Digest-pinned re
 
 ---
 
+## `pacto accept`
+
+Plans an acceptance record for the newest published version of a service:
+a bundle repository (oci://host/path) or the service's checkout, whose
+publish.bundle names it.
+
+--proposed accepts every dependency range pacto ci proposed in the inferred
+record. A field, positional or with --field, accepts one proposed field:
+dependencies[&lt;name&gt;].compatibility, optionally with =&lt;range&gt; to accept another
+range, or dependencies[&lt;name&gt;].ref, which --proposed never accepts. --break
+&lt;provider&gt;@&lt;version&gt; accepts a break the provider announces for this service in
+breaks[], read from that published version, or from --from (the provider's
+checkout or a pushed oci:// ref) before it is published.
+
+The plan names every field with its value and source, who may accept (the
+service's declared owner), the acceptances already attached and the intent
+digest. Without --dry-run, the record is signed and attached to that version
+in its own bundle repository with your registry credentials. Only your
+interactive Sigstore login (a browser, or a device code with --device) signs
+the record, and only a record a person who owns the service signs counts.
+Every other signer (--sign-key, an ambient OIDC token in CI) writes a draft,
+pacto-accept-draft-&lt;n&gt;, that a person accepts.
+
+--draft &lt;repo&gt;:pacto-accept-draft-&lt;n&gt; accepts a draft an agent or CI wrote:
+its record is planned again against the registry now, refused when anything
+moved since the draft was written, shown with the person it names in
+on_behalf_of, and signed by you after a Sigstore login.
+
+```
+pacto accept <service-ref-or-dir> [field...] [flags]
+```
+
+**Examples:**
+
+```
+  # Plan accepting every proposed range of reports
+  pacto accept oci://ghcr.io/acme/reports --proposed --dry-run
+
+  # Accept the plan you reviewed, signed after a Sigstore login
+  pacto accept oci://ghcr.io/acme/reports --proposed --intent sha256:...
+
+  # Accept the break ledger 3.0.0 announces, before it is published
+  pacto accept ./reports --break ledger@3.0.0 --from ../ledger
+
+  # Accept the draft an agent wrote, signed after a Sigstore login
+  pacto accept oci://ghcr.io/acme/reports --draft ghcr.io/acme/reports:pacto-accept-draft-1
+```
+
+**Flags:**
+
+```
+      --break string             accept the break this provider version announces, as <provider>@<version>
+      --device[=true|false]      log in with a device code instead of a browser
+      --draft string             accept this acceptance draft, as <repo>:pacto-accept-draft-<n>, signed by you
+      --dry-run[=true|false]     print the plan and write nothing
+      --field stringArray        a proposed field to accept, as <key> or <key>=<range>; repeat it for more
+      --from string              the provider's checkout or oci:// ref to read an unpublished break from
+      --fulcio-url string        Fulcio to get the signing certificate from (default "https://fulcio.sigstore.dev")
+  -h, --help[=true|false]        help for accept
+      --intent string            the intent digest of the plan you reviewed: a different plan is refused
+      --oidc-client-id string    OpenID Connect client of the Sigstore login (default "sigstore")
+      --oidc-issuer-url string   OpenID Connect issuer of the Sigstore login (default "https://oauth2.sigstore.dev/auth")
+      --proposed[=true|false]    accept every proposed dependency range
+      --rekor-url string         Rekor transparency log the signature is recorded in (default "https://rekor.sigstore.dev")
+      --sign-key string          sign with this key file: a key names no person, so the run writes a draft
+      --timestamp-url string     timestamp authority to date the signature with
+      --trusted-root string      Sigstore trusted root JSON to verify with (default: public-good Sigstore)
+```
+
+---
+
 ## `pacto agent`
 
 Runs until interrupted. Watches TCP listeners and outbound connection outcomes with an eBPF program, attributes each socket to the workload that created it (a Kubernetes pod, a container, a systemd unit or a pacto run session, from its cgroup, or from its network namespace when the cgroup names none) and publishes a snapshot every --publish-interval. --sink kubernetes writes the node's NodeRuntimeObservation status (pods only; what the Pacto operator's node agent DaemonSet runs); --sink stdout prints one JSON snapshot per line.
@@ -215,6 +286,7 @@ pacto ci [root] [flags]
       --namespace string                   namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
       --no-transparency-log[=true|false]   with --publish and --sign-key: keep the signatures out of the transparency log
       --oci stringArray                    registry reference to include as a published-baseline revision (repeatable)
+      --policy stringArray                 range policy for a BREAKING change, repeatable: unknown-range=warn|fail and uncontracted=warn|fail:<window> (such as fail:7d); default warn
       --publish[=true|false]               publish every changed service, on the merged commit only
       --registry string                    registry the services publish to, for example ghcr.io/acme; default from the installation advertisement or the CI platform
       --root stringArray                   contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
@@ -1727,6 +1799,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --oci stringArray                 registry reference to include as a published-baseline revision (repeatable)
       --old-set stringArray             set a value on the old contract (e.g. --old-set service.version=1.0.0)
       --old-values stringArray          values file to merge into the old contract (can be repeated)
+      --policy stringArray              range policy for a BREAKING change, repeatable: unknown-range=warn|fail and uncontracted=warn|fail:<window> (such as fail:7d); default warn
       --regressed string                what happens if <service>@<revision> regressed; an artifact digest reads delivery's recorded failures
       --removed string                  what happens if this service (a fleet service key, or a name only one domain holds) is removed; offering:<name> asks it of every provider of an offering
       --root stringArray                contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)

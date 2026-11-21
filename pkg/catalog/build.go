@@ -429,6 +429,11 @@ func (b *builder) expand(a arrival, p projection) []arrival {
 		if d.Ref == "" && d.External {
 			continue // an external dependency with no contract: nothing to resolve, nothing missing
 		}
+		if d.Ref == "" && d.Name != "" { // by name: the closure cannot follow it, so it reads partial
+			// ponytail: keyed on the name, so a second service depending on it by name adds no row.
+			b.limit(LimitationDependencyByName, d.Name, p.service.Name+" depends on "+d.Name+" by name; the closure cannot follow it without a ref")
+			continue
+		}
 		decl := DeclarationID{From: p.id(), Index: i}
 		if !b.admitEdgeWork(edgeWork{decl: decl, base: p.base, ref: d.Ref, constraint: d.Compatibility}) {
 			// Declaration indexes are unique within one expansion, so the work

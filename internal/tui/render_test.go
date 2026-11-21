@@ -680,3 +680,12 @@ func TestRenderConsumerUndeclaredRange(t *testing.T) {
 		t.Fatalf("consumer line does not say the range is not declared:\n%s", out)
 	}
 }
+
+func TestRenderConsumerBreakState(t *testing.T) {
+	var b strings.Builder
+	renderConsumer(&b, impact.AffectedConsumer{Service: "reports", Direct: true, Confidence: impact.ConfidenceContractual,
+		CompatibilityVerdict: impact.CompatibilityCompatible, Break: &impact.BreakState{State: impact.BreakAccepted}})
+	if out := b.String(); !strings.Contains(out, "reports [direct]: compatible, break accepted, contractual") {
+		t.Fatalf("consumer line does not say the break state:\n%s", out)
+	}
+}

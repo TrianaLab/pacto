@@ -114,7 +114,8 @@ Validates semantic references and consistency:
 | `capabilities[].binding.path` is a safe application path | `CAPABILITY_PATH_INVALID` |
 | OCI dependency refs (`oci://`) are valid OCI references | `INVALID_OCI_REF` |
 | A dependency has a `name`, or a `ref` its name is derived from | `DEPENDENCY_NAME_REQUIRED` |
-| A dependency without `ref` is `external` | `DEPENDENCY_REF_REQUIRED` |
+| A dependency without `ref` is `external`, or from 2.5 a dependency by name | `DEPENDENCY_REF_REQUIRED`, `NEEDS_PACTO_2_5` |
+| A dependency by name gives no `version` | `VERSION_WITHOUT_REF` |
 | An external dependency without `ref` has a `version` | `EXTERNAL_VERSION_REQUIRED` |
 | `compatibility` appears only with `ref`, and `version` only without it | `COMPATIBILITY_WITHOUT_REF`, `VERSION_WITH_REF` |
 | `identity` appears only on an `external` dependency without `ref` | `IDENTITY_WITHOUT_EXTERNAL` |

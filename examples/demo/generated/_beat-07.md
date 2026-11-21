@@ -9,6 +9,7 @@ Impact: payments-service 1.2.1 -> 2.0.1
 Classification: BREAKING
 Breaking changes: 11
 Potentially breaking changes: 8
+Ranges: 2 declared and 0 accepted of 2 dependency edges (100%)
 Affected consumers (4):
   api-gateway                  direct     confidence=contractual  compat=incompatible owner=platform-foundations
     path: api-gateway > payments-service  provenance: declared  via: dependency

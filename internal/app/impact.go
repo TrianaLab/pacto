@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -53,6 +54,20 @@ type ImpactOptions struct {
 	// OnResolved is called by [Service.Impact] once both revisions resolve;
 	// nil does nothing. The snapshot paths never call it.
 	OnResolved func(old, new *contract.Bundle)
+	// Acceptances reads the acceptances attached to the consumers a break
+	// in the new revision names, and to the direct consumers whose range is
+	// unknown, with this process's registry credentials:
+	// the CLI, a stdio MCP server and pacto ci set it, the dashboard and an
+	// HTTP MCP server never do.
+	Acceptances bool
+	// Signers verifies acceptances in place of the installation signer
+	// policy the fleet's provenance checker reads; nil reads that.
+	Signers *delivery.ClassPolicy
+	// Getenv reads SOURCE_DATE_EPOCH for the default expiry of an undated
+	// break in a checkout; nil reads none.
+	Getenv func(string) string
+	// Policy is the range policy a BREAKING answer is held to (--policy).
+	Policy impact.Policy
 	// unpublished are the services pacto ci reads from repository folders
 	// never published: no index can hold them, so none is reported missing.
 	unpublished map[fleet.ServiceKey]bool
@@ -291,6 +306,7 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 	if err != nil {
 		return nil, fmt.Errorf("parse traces: %w", err)
 	}
+	breaks := s.breakInput(ctx, opts, newBundle, snap)
 	res := impact.Analyze(ctx, oldBundle.Contract, newBundle.Contract, oldBundle.FS, newBundle.FS, snap,
 		impact.Options{
 			// Domain-qualify the changed service from its new reference so impact is
@@ -301,9 +317,24 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 			NameInferredFrom: nameInferredFrom(oldBundle, newBundle),
 			Index:            ix,
 			Indexed:          indexed,
+			Breaks:           breaks,
+			Acceptances:      s.impactAcceptances(ctx, opts, snap, breaks),
+			Policy:           opts.Policy,
 		})
 	res.TargetSnapshots = targetSnapshotStates(snap)
+	notePublicGood(opts, res)
 	return res, nil
+}
+
+// notePublicGood says when res counts a signed acceptance (a break a person
+// accepted, or a range an acceptance made known) judged with public-good
+// issuers because no installation signer policy was read.
+func notePublicGood(opts ImpactOptions, res *impact.Result) {
+	counted := res.Ranges != nil && res.Ranges.Accepted > 0 ||
+		slices.ContainsFunc(res.Consumers, func(c impact.AffectedConsumer) bool { return c.Break != nil && c.Break.By != "" })
+	if opts.Acceptances && impactTrust(opts) == nil && counted {
+		res.Notes = append(res.Notes, publicGoodNote)
+	}
 }
 
 // nameInferredFrom is where the new, else the old, revision's service.name

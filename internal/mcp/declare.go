@@ -70,13 +70,13 @@ func declare(ctx context.Context, d Declarer, a DeclareArgs) (*mcpsdk.CallToolRe
 		out.Plan = raw
 	}
 	if refused == nil && plan.Unchanged != "" {
-		return writeAnswer(out, nil, a) // nothing changed: nothing to write, whatever dry_run says
+		return writeAnswer(out, nil, a.Command("")) // nothing changed: nothing to write, whatever dry_run says
 	}
 	if refused == nil && !dryRun(a.DryRun) {
 		refused = requireIntent(plan.IntentDigest, a.IntentDigest)
 	}
 	if refused != nil || dryRun(a.DryRun) {
-		return writeAnswer(out, refused, a)
+		return writeAnswer(out, refused, a.Command(""))
 	}
 	if raw, refused, err = d.Execute(ctx, a); err != nil {
 		return errorResult(err), nil, nil
@@ -92,18 +92,18 @@ func declare(ctx context.Context, d Declarer, a DeclareArgs) (*mcpsdk.CallToolRe
 	if run.Draft {
 		out.Draft = &DraftRef{Tag: run.Tag, Published: run.Published, Signed: run.Signed}
 	}
-	return writeAnswer(out, refused, a)
+	return writeAnswer(out, refused, a.Command(""))
 }
 
 // writeAnswer is out as the tool's result: a refusal is an error result
 // that still carries the plan, its code and the command a person runs (the
-// plan command for a refusal that names none).
-func writeAnswer(out WriteResult, refused *Refused, a DeclareArgs) (*mcpsdk.CallToolResult, any, error) {
+// plan command, cli, for a refusal that names none).
+func writeAnswer(out WriteResult, refused *Refused, cli string) (*mcpsdk.CallToolResult, any, error) {
 	if refused == nil {
 		return nil, out, nil
 	}
 	if refused.CLI == "" {
-		refused.CLI = a.Command("")
+		refused.CLI = cli
 	}
 	out.Refusal = refused
 	return &mcpsdk.CallToolResult{IsError: true}, out, nil

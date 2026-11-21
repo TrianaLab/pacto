@@ -187,7 +187,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				CORSOrigin: corsOrigin,
 				Fleet:      managerFleetProvider(mgr),
 				Published:  managerPublished(mgr),
-				Impact:     impactProviderForFleet(svc, identity.auth.Local()),
+				Impact:     impactProviderForFleet(svc, identity.auth.Local(), fopts.Provenance),
+				AcceptPlan: dashboardAcceptPlan(svc, fopts.Provenance.Trust),
 				Refresh:    mgr.Refresh,
 				MiraURL:    v.GetString("dashboard.mira-url"),
 
@@ -482,7 +483,7 @@ func managerPublished(mgr *fleet.Manager) func() *fleet.Query {
 // A shared or open dashboard (not trusted) resolves no local dir and no ref a
 // caller names: each ref must name a revision in the caller's view, and the
 // revision's pinned ResolvedRef is what gets read.
-func impactProviderForFleet(svc *app.Service, trusted bool) func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+func impactProviderForFleet(svc *app.Service, trusted bool, prov *app.ProvenanceChecker) func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
 	return func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
 		if !trusted {
 			var err error
@@ -490,9 +491,13 @@ func impactProviderForFleet(svc *app.Service, trusted bool) func(ctx context.Con
 				return nil, err
 			}
 		}
+		// Acceptances are read for a local viewer or a signed-in person
+		// only, over revisions of the snapshot they see.
 		return svc.ImpactWithSnapshot(ctx, app.ImpactOptions{
 			OldPath: oldRef, NewPath: newRef,
 			IncludeObserved: includeObserved,
+			Acceptances:     dashboard.ReadsAcceptances(ctx),
+			Fleet:           app.FleetOptions{Provenance: prov},
 		}, snap)
 	}
 }

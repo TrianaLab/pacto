@@ -99,6 +99,17 @@ type Options struct {
 	Index *ConsumerIndex
 	// Indexed reports whether the index lists a service; nil skips both cross-checks.
 	Indexed func(fleet.ServiceKey) bool
+	// Breaks is the break the new revision announces in breaks[] and the
+	// acceptances of its consumers; nil when it announces none.
+	Breaks *BreakInput
+	// Acceptances reads the judged acceptances attached to a consumer's
+	// revisions and whether that listing is complete; nil reads none. A
+	// counted acceptance of a consumer's compatibility field counts its
+	// range as accepted in the answer's coverage.
+	Acceptances func(consumer fleet.ServiceKey) ([]Acceptance, bool)
+	// Policy is the range policy a BREAKING answer is held to; empty
+	// values default to warn.
+	Policy Policy
 }
 
 // ConsumerIndex is how the organization index was read for this answer.
@@ -162,6 +173,9 @@ type AffectedConsumer struct {
 	// removed service for, bounded to MaxConsumerResources.
 	Resources      []fleet.ProvisioningStatus `json:"resources,omitempty" doc:"What this consumer asked the removed service for, one provisioning status per environment, at most 20"`
 	ResourcesTotal int                        `json:"resourcesTotal,omitempty" doc:"How many provisioning statuses there are, including those beyond the bound"`
+	// Break is where a break the new revision announces for this consumer
+	// stands; nil when it announces none for it.
+	Break *BreakState `json:"break,omitempty" doc:"Where the break the new revision announces for this consumer stands: announced, accepted (it never blocks) or expired"`
 	// policyVerdict is the verdict of checking this consumer's contract
 	// against the changed service's new policy, empty when it references no
 	// policy of it. A failed check holds the change whatever its classification.
@@ -254,6 +268,17 @@ type Result struct {
 	TargetSnapshots []fleet.SourceState `json:"targetSnapshots,omitempty" doc:"The signed target snapshots the answer read, pinned by digest"`
 	// ConsumerIndex is how the organization index was read; nil when none was.
 	ConsumerIndex *ConsumerIndex `json:"consumerIndex,omitempty" doc:"How the organization index was read: which repository, how many services it lists and how many depend on the changed service. Absent when no index was read, such as for local folders, over HTTP or in the dashboard"`
+	// Ranges is the range coverage of the changed service's direct consumers.
+	Ranges *RangeCoverage `json:"ranges,omitempty" doc:"How many direct consumers declare a compatibility range or accepted one, and which ranges stay unknown; absent on an event answer"`
+	// Policy is the range policy the answer was held to.
+	Policy *Policy `json:"policy,omitempty" doc:"The range policy the answer was held to; absent on an event answer"`
+	// Notes are informational lines, never a limitation.
+	Notes []string `json:"notes,omitempty" doc:"Informational notes, such as a range policy set to warn; never a limitation"`
+	// Advisories are the possible breaks on inferred interfaces.
+	Advisories []InferredAdvisory `json:"advisories,omitempty" doc:"Possible breaks on interfaces only pacto.inferred.yaml names: advisory, never part of the classification. A non-BREAKING answer with one reads unverified; it never blocks or clears"`
+	// unknownRanges names every direct consumer whose range is unknown and
+	// not accepted, beyond the coverage's bound.
+	unknownRanges []string
 	// observationSources are the observation sources an event answer read.
 	observationSources []string
 	// hiddenReferrers counts the services this viewer may not see that may
@@ -356,6 +381,9 @@ func (r *Result) breaks(c AffectedConsumer) bool {
 		// A policy verdict is named by policyFailures: a referrer has no range.
 		verdict = c.rangeVerdict
 	}
+	if c.Break != nil && c.Break.State == BreakAccepted {
+		return false
+	}
 	return r.Classification == "BREAKING" &&
 		(verdict == CompatibilityIncompatible || len(c.Unmet) > 0) && len(c.Targets) > 0
 }
@@ -374,10 +402,13 @@ func (r *Result) gate() (string, string) {
 	if r.Event != nil {
 		return r.eventGate()
 	}
-	if gate, why := r.blockingGate(); gate != "" {
+	if gate, why := r.heldGate(); gate != "" {
 		return gate, why
 	}
 	if why := r.policyUnchecked(); why != "" && r.Classification != "BREAKING" {
+		return GateUnverified, why
+	}
+	if why := r.advisoryGate(); why != "" {
 		return GateUnverified, why
 	}
 	switch r.Classification {
@@ -398,8 +429,8 @@ func (r *Result) gate() (string, string) {
 		return GateUnverified, "the change is BREAKING and the answer is partial, so consumers Pacto cannot see may break" + r.unmetNote() + ". " +
 			"Fix the sources named in limitations and run the analysis again"
 	}
-	inferred := r.inferredOnlyConsumers()
-	if known := len(r.Consumers) - inferred; known > 0 {
+	inferred, accepted := r.inferredOnlyConsumers(), r.acceptedConsumers()
+	if known := len(r.Consumers) - inferred - len(accepted); known > 0 {
 		n := strconv.Itoa(known) + " consumers depend"
 		if known == 1 {
 			n = "1 consumer depends"
@@ -410,6 +441,9 @@ func (r *Result) gate() (string, string) {
 	}
 	if inferred > 0 {
 		return GateUnverified, "the change is BREAKING and " + inferredNote(inferred, "")
+	}
+	if len(accepted) > 0 {
+		return GateClear, "the change is BREAKING and every consumer accepted it: " + strings.Join(accepted, ", ")
 	}
 	return GateClear, "the change is BREAKING, but no service in the complete fleet snapshot depends on " + r.Service
 }
@@ -439,6 +473,20 @@ func inferredNote(n int, lead string) string {
 	}
 	return lead + strconv.Itoa(n) + " services may depend on it, named only by their inferred records, so Pacto cannot check their compatibility: " +
 		"declare each dependency with a compatibility range in those services' pacto.yaml"
+}
+
+// heldGate is the gate when the answer holds the change: blockingGate's
+// blocked, then a fail range policy (blocked), then blockingGate's
+// unverified; "" otherwise.
+func (r *Result) heldGate() (string, string) {
+	gate, why := r.blockingGate()
+	if gate == GateBlocked {
+		return gate, why
+	}
+	if code, policyWhy := r.policyGate(); code != "" {
+		return GateBlocked, "the change is BREAKING: " + policyWhy
+	}
+	return gate, why
 }
 
 // blockingGate is the gate when a consumer is shown to break: blocked when one
@@ -748,6 +796,7 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		res = analyzeEvent(snap, opts)
 	} else {
 		res = analyze(ctx, old, new, oldFS, newFS, snap, opts)
+		res.adviseConsumers()
 		res.noteRangeOnlyMatches()
 		if opts.Index != nil {
 			idx := *opts.Index
@@ -757,6 +806,8 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 			res.noteUnindexed(opts.Indexed)
 			res.noteUnchecked(snap)
 		}
+		res.rangeCoverage(snap, opts.Acceptances)
+		res.applyPolicy(opts.Policy)
 	}
 	if opts.NameInferredFrom != "" && res.nameInferred() == "" {
 		res.Limitations = append(res.Limitations, fleet.Limitation{
@@ -784,6 +835,7 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		OldVersion:       old.Service.Version,
 		NewVersion:       new.Service.Version,
 		Classification:   d.Classification.String(),
+		Advisories:       inferredAdvisories(d.Advisories),
 		Completeness:     snap.ConsumerCompleteness(),
 		Limitations:      append([]fleet.Limitation(nil), snap.Limitations...),
 		Consumers:        []AffectedConsumer{},
@@ -844,6 +896,9 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	res.noteUnlisted(snap, q, changed)
 	res.hiddenReferrers = hiddenReferrers(snap.Services[changed], newBundle)
 	res.noteStaleConsumers()
+	if opts.Breaks != nil {
+		res.applyBreaks(snap, opts.Breaks, changed)
+	}
 	return res
 }
 

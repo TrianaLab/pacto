@@ -400,7 +400,7 @@ func writeDependencyEdges(b *strings.Builder, c *contract.Contract, gr *graph.Re
 		}
 		depID := "dep_" + sanitizeMermaidID(name)
 		accepts := dep.Compatibility
-		if dep.Ref == "" {
+		if dep.External && dep.Ref == "" {
 			accepts = "external " + dep.Version
 		}
 		if dep.Required {
@@ -651,8 +651,11 @@ func writeDependencyTable(b *strings.Builder, deps []contractview.DependencyInfo
 			req = "Yes"
 		}
 		ref, accepts := "`"+EscapeMarkdownCell(dep.Ref)+"`", dash(dep.Compatibility)
-		if dep.Ref == "" {
+		switch {
+		case dep.External && dep.Ref == "":
 			ref, accepts = "external, no contract", "version "+EscapeMarkdownCell(dep.Version)+" (cannot be checked)"
+		case dep.Ref == "":
+			ref = "by name"
 		}
 		fmt.Fprintf(b, "| `%s` | %s | %s | %s | %s | %s | %s |\n",
 			EscapeMarkdownCell(dep.Name), ref, accepts,

@@ -108,6 +108,7 @@ Impact: orders 2.3.0 -> 2.4.0
 Classification: BREAKING
 Breaking changes: 1
 Potentially breaking changes: 1
+Ranges: 1 declared and 0 accepted of 1 dependency edges (100%)
 Affected consumers (1):
   billing                      direct     confidence=contractual  compat=compatible   owner=finance
     path: billing > orders  provenance: declared  via: dependency

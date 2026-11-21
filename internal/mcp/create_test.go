@@ -3419,3 +3419,20 @@ func TestCheckSuggestionNamesPactoCI(t *testing.T) {
 		t.Errorf("no suggestion ends %q: %+v", want, res.Suggestions)
 	}
 }
+
+// TestCreateDependencyByNameOmitsRef: a dependency given no ref is written by
+// name, with no empty ref, and the contract validates.
+func TestCreateDependencyByNameOmitsRef(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "reports")
+	if _, err := Create(CreateInput{Name: "reports", Path: dir, Dependencies: []DependencyInput{{Name: "ledger", Required: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	if err != nil || strings.Contains(string(raw), "ref:") {
+		t.Fatalf("pacto.yaml (%v):\n%s", err, raw)
+	}
+	res, err := Check(context.Background(), nil, dir, nil)
+	if err != nil || !res.Valid || !containsStr(res.Summary.Dependencies, "ledger (by name, compatibility range not declared)") {
+		t.Fatalf("check: %v %+v", err, res)
+	}
+}

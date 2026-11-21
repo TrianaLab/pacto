@@ -1227,7 +1227,7 @@ func TestValidateDependencyForm(t *testing.T) {
 		"ref and range":          {contract.Dependency{Name: "a", Ref: "oci://r/a:1.0.0", Compatibility: "^1.0.0"}, ""},
 		"external with ref":      {contract.Dependency{Name: "a", Ref: "oci://r/a:1.0.0", Compatibility: "^1.0.0", External: true}, ""},
 		"external no ref":        {contract.Dependency{Name: "model", External: true, Version: "2025-01"}, ""},
-		"no ref, not external":   {contract.Dependency{Name: "a", Compatibility: "^1.0.0"}, "dependencies[0].ref DEPENDENCY_REF_REQUIRED"},
+		"no ref, not external":   {contract.Dependency{Name: "a", Version: "1"}, "dependencies[0].ref DEPENDENCY_REF_REQUIRED"},
 		"external, no version":   {contract.Dependency{Name: "a", External: true}, "dependencies[0].version EXTERNAL_VERSION_REQUIRED"},
 		"range without ref":      {contract.Dependency{Name: "a", External: true, Version: "v", Compatibility: "^1"}, "dependencies[0].compatibility COMPATIBILITY_WITHOUT_REF"},
 		"version beside the ref": {contract.Dependency{Name: "a", Ref: "oci://r/a:1.0.0", Compatibility: "^1.0.0", Version: "1"}, "dependencies[0].version VERSION_WITH_REF"},

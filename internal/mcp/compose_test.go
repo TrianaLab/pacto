@@ -92,6 +92,8 @@ func instructionCombos(t *testing.T) map[string]*mcpsdk.Server {
 		out["publish/"+tr] = NewPublishServer("test", nil, a)
 		// A fleet server whose stats provider is unset names no pacto_stats.
 		out[tr+"+declare"] = mustNew("test", Authoring{Remote: remote, Declare: stubDeclarer{}}, Modes{})
+		out[tr+"+accept"] = mustNew("test", Authoring{Remote: remote, Accept: stubAcceptor{}}, Modes{})
+		out[tr+"+declare+accept"] = mustNew("test", Authoring{Remote: remote, Declare: stubDeclarer{}, Accept: stubAcceptor{}}, Modes{})
 		out[tr+"+fleet-without-stats"] = mustNew("test", a, Modes{Fleet: &FleetMode{Src: staticFleet(buildFleetQuery(t)), Opts: FleetOptions{Impact: stubImpact(nil, nil, nil)}}})
 		for mask := range 16 {
 			full := composedModes(t, mask&8 != 0)

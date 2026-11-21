@@ -1059,7 +1059,7 @@ export function installScaleFixture(): void {
   // multiCluster (514-S2) answers every entities list as a view over three clusters with
   // 63-character names: the demo's own cluster, one the reader may not read and one whose
   // review failed, so the Cluster filter, its caption and the Clusters block render.
-  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed'; __pactoMultiCluster?: boolean };
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden'; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed'; __pactoMultiCluster?: boolean };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1419,6 +1419,52 @@ export function installScaleFixture(): void {
     rev.declaration = { state: 'declared', signatureChecked: true, signer: { subject: `${'ana'.repeat(25)}@acme.example.com`, issuer: 'https://accounts.google.com', class: 'human' },
       inferredFrom: `k8s:${wide('newsletter')}/Deployment/newsletter-service`, baseline: '1.4.0', accepted: [`dependencies[${wide('callee-0')}] ^2.0.0`] };
   };
+  // Range proposals, the accept plan and announced breaks (508-S7): the published demo
+  // bundles propose nothing and stay immutable, so the fixture puts them on the page.
+  const SNAPSHOT_SRC = `snapshot:ghcr.io/trianalab/${longName('pacto-target-snapshots')}@sha256:${'5e'.repeat(32)}`;
+  const acceptProposals = (route: string, doc: Record<string, unknown>) => {
+    const svc = doc.service as Record<string, unknown> | undefined;
+    if (route !== '/api/fleet/entities/service' || !svc) return;
+    const items = Array.from({ length: 3 }, (_, i) => ({ field: `dependencies[${longName(`provider-${i}`)}].compatibility`, value: 'compatibility unknown',
+      proposed: `^${i + 2}.${i}.0`, source: SNAPSHOT_SRC, confidence: 'likely', provenance: 'inferred' }));
+    svc.inferredFields = { items, count: items.length, total: items.length, truncated: false };
+  };
+  const acceptAnswer = () => {
+    if (flags.__pactoAccept === 'refused') {
+      return { refusal: { code: 'AcceptNothingProposed', message: `the newest published version of ${longName('payments-service')} proposes no dependency range to accept`,
+        command: `pacto ci --publish ./services/${longName('payments-service')}` } };
+    }
+    const repo = `ghcr.io/trianalab/${longName('payments-service')}`;
+    const intent = `sha256:${'a7'.repeat(32)}`;
+    return {
+      command: `pacto accept oci://${repo} --proposed --intent ${intent}`,
+      plan: { service: `trianalab/${longName('payments-service')}`, version: '2.0.1', subject: `${repo}@sha256:${'c0'.repeat(32)}`, intentDigest: intent,
+        ranges: Array.from({ length: 3 }, (_, i) => ({ field: `dependencies[${longName(`provider-${i}`)}].compatibility`, value: `^${i + 2}.${i}.0`, proposed: `^${i + 2}.${i}.0`, source: SNAPSHOT_SRC })),
+        whoMayAccept: `${longName('ana')}@acme.example (the DRI of ${longName('payments-service')})`,
+        existing: [{ state: 'routed', by: `${longName('bob')}@acme.example`, issuer: 'https://oauth2.sigstore.dev/auth', record: `${repo}@sha256:${'d1'.repeat(32)}`,
+          reason: `waiting for the owner of ${longName('payments-service')}` }] },
+    };
+  };
+  const breakStates = (method: string, route: string, doc: Record<string, unknown>) => {
+    const consumers = doc.consumers as { items?: Record<string, unknown>[] } | undefined;
+    if (method !== 'POST' || route !== '/api/fleet/impact' || !consumers?.items) return;
+    const states = [
+      { state: 'accepted', by: `${longName('ana')}@acme.example`, record: `ghcr.io/trianalab/${longName('reports')}@sha256:${'e2'.repeat(32)}`, expires: '2026-12-20' },
+      { state: 'announced', expires: '2026-12-20', route: `${longName('ana')}@acme.example (the DRI of ${longName('reports')})` },
+      { state: 'expired', reason: `the announcement expired on 2026-10-01 at ${longName('ledger')}` },
+    ];
+    let n = 0;
+    for (const c of consumers.items) if (c.direct) c.break = states[n++ % states.length];
+    doc.ranges = { scope: `consumers of ${longName('payments-service')}`, edges: 58, declared: 41, accepted: 6, unknownTotal: 11,
+      unknown: Array.from({ length: 11 }, (_, i) => ({ from: longName(`consumer-${i}`), to: longName('payments-service'), proposed: `^2.${i}.0` })) };
+    doc.notes = [`POLICY_WARNING: ${longName('payments-service')} -> ${longName('reports')} range unknown, 1 consumer (policy unknown-range=warn)`];
+    // A possible break on an inferred interface, with long values: one muted span in What changed.
+    doc.advisories = [{ interface: 'api', kind: 'openapi', source: `services/${longName('payments-service')}/openapi/${longName('v1')}.yaml:1`,
+      declare: `interfaces:\n  - name: api\n    type: openapi\n    ref: openapi/${longName('v1')}.yaml\n`,
+      changes: Array.from({ length: 5 }, (_, i) => ({ path: `openapi.paths[/${longName('payments')}].methods[GET].parameters[${longName(`currency-${i}`)}]`,
+        type: 'added', classification: 'BREAKING', reason: `parameter ${longName(`currency-${i}`)} added as required` })),
+      consumers: Array.from({ length: 12 }, (_, i) => ({ service: longName(`consumer-${i}`), confidence: 'inferred', compatibility: 'unknown' })) }];
+  };
   const wrapped: Serve = async (method, path, body) => {
     body = engineBody(path, body);
     const route = path.split('?')[0];
@@ -1430,6 +1476,16 @@ export function installScaleFixture(): void {
       const plan = await (real as Serve)('POST', '/api/delivery/plan', body);
       return { status: 409, contentType: 'application/json', body: JSON.stringify({ status: 409, code: 'PlanStale',
         detail: 'the Stage moved since you planned; review the fresh plan and propose again', plan: JSON.parse(plan.body) }) };
+    }
+    if (flags.__pactoAccept && method === 'POST' && route === '/api/fleet/accept') {
+      return { status: 200, contentType: 'application/json', body: JSON.stringify(acceptAnswer()) };
+    }
+    // Planning reads acceptances, so only a local viewer or a signed-in person is
+    // offered it: the plan routes run as a local viewer, 'forbidden' as an open
+    // dashboard where nobody signs in.
+    if (flags.__pactoAccept && flags.__pactoAccept !== 'breaks' && method === 'GET' && route === '/api/session') {
+      const local = flags.__pactoAccept !== 'forbidden';
+      return { status: 200, contentType: 'application/json', body: JSON.stringify({ mode: local ? 'local' : 'open', login: false, signedIn: local }) };
     }
     const ambiguousQuery = new URLSearchParams(path.split('?')[1] ?? '');
     if (flags.__pactoAmbiguousTarget && method === 'GET' && ambiguousQuery.get('key') === 'scale-ambiguous/kubernetes/payments'
@@ -1479,6 +1535,8 @@ export function installScaleFixture(): void {
       // More clusters exist than meta.clusters lists (MaxMetaClusters).
       (doc.meta as Record<string, unknown>).clustersTruncated = true;
     }
+    if (flags.__pactoAccept === 'breaks') breakStates(method, route, doc);
+    else if (flags.__pactoAccept) acceptProposals(route, doc);
     return { ...res, body: JSON.stringify(doc) };
   };
   Object.defineProperty(window, '__pactoServe', {
@@ -1919,6 +1977,27 @@ const firstLink = (list: string, href: string) => async (page: Page) => {
   await page.goto(`/${await a.getAttribute('href')}`);
 };
 
+/** Opens payments-service with range proposals in its Inferred block (the fixture puts
+ *  them there), presses "Accept all proposed ranges" and waits for the plan or refusal;
+ *  'forbidden' is a viewer who is not signed in, offered only the CLI dry run. The page
+ *  reloads so the session is read with the flag set. */
+export const acceptPlanRoute = (mode: 'plan' | 'refused' | 'forbidden') => async (page: Page) => {
+  const flag = (m: string) => { (window as unknown as { __pactoAccept?: string }).__pactoAccept = m; };
+  await page.addInitScript(flag, mode);
+  await page.goto('/#/fleet/services/payments-service');
+  await page.reload();
+  const block = page.getByTestId('service-inferred');
+  await expect(block).toBeVisible({ timeout: 30_000 });
+  await block.locator('summary').first().click();
+  if (mode === 'forbidden') {
+    await expect(block.getByTestId('accept-sign-in')).toBeVisible({ timeout: 30_000 });
+  } else {
+    await block.getByRole('button', { name: /Accept all proposed ranges/ }).click();
+    await expect(block.getByTestId(mode === 'plan' ? 'accept-waiting' : 'accept-refusal')).toBeVisible({ timeout: 30_000 });
+  }
+  await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+};
+
 /** Opens a service page and waits for its Delivery rows, so an error page fails the route. */
 const serviceWithStages = (hash: string) => async (page: Page) => {
   await page.goto(`/${hash}`);
@@ -2183,6 +2262,26 @@ export const ROUTES: Route[] = [
       await expect(page.locator('#sec-affected-consumers')).toBeVisible({ timeout: 30_000 });
     },
   },
+  {
+    // Announced, accepted and expired consumers of a BREAKING change, the Ranges line
+    // and its note: one mark per announced consumer.
+    name: 'change analysis breaks',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __pactoAccept?: string }).__pactoAccept = 'breaks'; });
+      await page.goto('/#/fleet/changes/payments-service');
+      await page.evaluate(() => { (window as unknown as { __pactoAccept?: string }).__pactoAccept = 'breaks'; });
+      await chooseRevision(page, '#impact-old-rev', '1.0.0');
+      await chooseRevision(page, '#impact-new-rev', '2.0.1');
+      await page.getByRole('button', { name: /Compare revisions/ }).click();
+      await expect(page.getByTestId('changes-ranges')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('changes-inferred-advisory')).toBeVisible();
+      // The marks sit in the Affected consumers fold, closed by default: open it so
+      // the gate measures them in the table and the stacked cards.
+      await page.locator('#sec-affected-consumers > summary').click();
+      await expect(page.getByTestId('consumer-break').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
   { name: 'change analysis event idle', hash: '#/fleet/changes/redis?mode=event' },
   {
     name: 'change analysis event answered',
@@ -2199,6 +2298,9 @@ export const ROUTES: Route[] = [
   { name: 'change analysis event clear', hash: '#/fleet/changes/storefront-web?event=unavailable' },
   { name: 'change analysis event regressed clean', hash: `#/fleet/changes/redis?event=regressed&rev=sha256:${'c1ea'.repeat(16)}` },
   { name: 'service entity', hash: '#/fleet/services/payments-service' },
+  { name: 'service inferred accept plan', open: acceptPlanRoute('plan') },
+  { name: 'service inferred accept refused', open: acceptPlanRoute('refused') },
+  { name: 'service inferred accept forbidden', open: acceptPlanRoute('forbidden') },
   { name: 'revision list', list: true, hash: '#/fleet/revisions?service=payments-service' },
   { name: 'revision entity', open: firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/') },
   { name: 'revision entity, implicit contract', open: firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/') },

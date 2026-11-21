@@ -15,10 +15,12 @@ const (
 	GateCodeServiceNameInferred         = LimitationServiceNameInferred
 	GateCodeAnswerPartial               = "ANSWER_PARTIAL"
 	GateCodeConsumersUnchecked          = "CONSUMERS_UNCHECKED"
+	GateCodeInferredPossibleBreak       = "INFERRED_POSSIBLE_BREAK"
 	// Clear.
 	GateCodeNotBreaking       = "NOT_BREAKING"
 	GateCodePotentialBreaking = "POTENTIAL_BREAKING"
 	GateCodeNoConsumers       = "NO_CONSUMERS"
+	GateCodeBreakingAccepted  = "BREAKING_ACCEPTED"
 )
 
 // GateCode is the stable reason code of the gate of a contract change answer,
@@ -28,11 +30,18 @@ func (r *Result) GateCode() string {
 	if r.Event != nil {
 		return ""
 	}
-	if code := r.blockingCode(); code != "" {
+	code := r.blockingCode()
+	if code == GateCodeConsumersIncompatible || code == GateCodePolicyReferrersFailRunning {
 		return code
 	}
-	if r.policyUnchecked() != "" && r.Classification != "BREAKING" {
-		return GateCodePolicyUnchecked
+	if policy, _ := r.policyGate(); policy != "" {
+		return policy
+	}
+	if code != "" {
+		return code
+	}
+	if code := r.unclassifiedCode(); code != "" {
+		return code
 	}
 	switch r.Classification {
 	case "BREAKING":
@@ -48,10 +57,25 @@ func (r *Result) GateCode() string {
 		return GateCodeServiceNameInferred
 	case r.Completeness != fleet.CompletenessComplete:
 		return GateCodeAnswerPartial
-	case len(r.Consumers) > 0:
+	case len(r.Consumers) > len(r.acceptedConsumers()):
 		return GateCodeConsumersUnchecked
+	case len(r.Consumers) > 0:
+		return GateCodeBreakingAccepted
 	}
 	return GateCodeNoConsumers
+}
+
+// unclassifiedCode is the code of gate()'s unverified branches that come
+// before the classification: an unchecked policy, then a possible break on an
+// inferred interface; "" for neither.
+func (r *Result) unclassifiedCode() string {
+	switch {
+	case r.policyUnchecked() != "" && r.Classification != "BREAKING":
+		return GateCodePolicyUnchecked
+	case r.advisoryGate() != "":
+		return GateCodeInferredPossibleBreak
+	}
+	return ""
 }
 
 // blockingCode is the code of blockingGate(), "" when it returns no gate.

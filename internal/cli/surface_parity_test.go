@@ -90,7 +90,7 @@ const (
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
 // the fleet, delivery, impact and contract surfaces to its concept. A story
 // that adds one adds its row here in the same commit.
-var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows())
+var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), acceptRows())
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
@@ -166,6 +166,7 @@ func impactRows() []surfaceRow {
 			{"", "pacto_impact.service", "POST /api/fleet/impact body.serviceKey", "the CLI takes the service as the event flag's value"},
 			{"", "pacto_impact.revision", "POST /api/fleet/impact body.revision", "the CLI takes the revision after @ in --regressed"},
 			{"", "pacto_impact.offering", "POST /api/fleet/impact body.offeringKey", "the CLI takes the offering as offering:<name> in --unavailable or --removed"},
+			{"impact --policy", "pacto_impact.policy", "", "the dashboard answers with the default policy, warn"},
 		},
 		alike("impact", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs",
 			"stats-context", "stats-file", "stats-registry"),
@@ -349,7 +350,7 @@ func evidenceRows() []surfaceRow {
 func ciRows() []surfaceRow {
 	const whyCI = "pacto ci is the CI entry point over a repository and a registry baseline; MCP has no repository-wide plan, pacto_impact answers one revision pair without ci's consumer-source and inferred rules, and the dashboard publishes nothing"
 	return slices.Concat(
-		alike("ci", "", "", whyCI, "registry", "explain"),
+		alike("ci", "", "", whyCI, "registry", "explain", "policy"),
 		alike("ci", "", "", "publishing runs in CI on the merged commit, signed as the CI identity; MCP never publishes and the dashboard publishes nothing", "publish", "image", "sign-key", "no-transparency-log"),
 		alike("ci", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs", "stats-context", "stats-file", "stats-registry"),
 	)
@@ -371,6 +372,29 @@ func declareRows() []surfaceRow {
 		},
 		alike("declare", "pacto_declare", "", why, "namespace", "registry", "accept", "max-items", "call-window"),
 		alike("declare", "", "", whyLocal, "from-draft", "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
+			"rekor-url", "trusted-root"),
+	)
+}
+
+// acceptRows map pacto accept and pacto_accept, the agent write contract's
+// second tool: the agent's dry_run and intent_digest are the person's
+// --dry-run and --intent, and an agent's write is a draft a person accepts
+// with --draft.
+func acceptRows() []surfaceRow {
+	const why = "the dashboard plans only Accept all proposed ranges, by the service's fleet key, and never signs or writes (POST /api/fleet/accept)"
+	const whyLocal = "a person's local signing: MCP callers are agents and never sign an acceptance"
+	return slices.Concat(
+		[]surfaceRow{
+			{"accept <service-ref-or-dir>", "pacto_accept.service", "POST /api/fleet/accept body.serviceKey",
+				"the dashboard names the service by its fleet key and reads its bundle repository from the revision; over MCP a folder is stdio only"},
+			{"accept [field", "", "", "the positional fields are --field without the flag"},
+			{"accept --field", "pacto_accept.fields", "", why},
+			{"accept --intent", "pacto_accept.intent_digest", "", why + "; its answer carries the intent digest in the command"},
+			{"accept --dry-run", "pacto_accept.dry_run", "", why + "; dry_run defaults to true and false writes a draft, the CLI signs unless --dry-run"},
+			{"", "pacto_accept.on_behalf_of", "", "an MCP caller is an agent and names the person it acts for; the CLI runs as that person; " + why},
+		},
+		alike("accept", "pacto_accept", "", why, "proposed", "break", "from"),
+		alike("accept", "", "", whyLocal, "draft", "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
 			"rekor-url", "trusted-root"),
 	)
 }
@@ -870,6 +894,7 @@ func TestUsageErrorsEmitOneJSONDocument(t *testing.T) {
 // registry), which is the case under test. A mapped command without an entry
 // fails the test, so the table is deny-by-default too.
 var jsonRuns = map[string][]string{
+	"accept":                 {"--dry-run", "does-not-exist"},
 	"ci":                     {"."},
 	"declare":                {"invoices", "--dir", "/nonexistent"},
 	"delivery approve":       {"-n", "prod", "held"},

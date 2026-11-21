@@ -1039,3 +1039,19 @@ func TestBehaviorWordingEdges(t *testing.T) {
 		t.Errorf("an unknown status reads Unknown\n%s", b.String())
 	}
 }
+
+// TestRefLessRenderersNotExternal: a dependency by name shows its range and
+// says by name, never external.
+func TestRefLessRenderersNotExternal(t *testing.T) {
+	d := &contractview.ServiceDetails{
+		Service:      contractview.Service{Name: "reports", Version: "1.0.0"},
+		Dependencies: []contractview.DependencyInfo{{Name: "ledger", Compatibility: "^2.0.0", Required: true}},
+	}
+	md, err := Generate(d, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(md, "external") || !strings.Contains(md, `-->|"required · ^2.0.0"|`) || !strings.Contains(md, "| `ledger` | by name | `^2.0.0` |") {
+		t.Fatalf("doc:\n%s", md)
+	}
+}

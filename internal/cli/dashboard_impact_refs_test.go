@@ -14,7 +14,7 @@ import (
 // and resolves a visible ref through its pinned ResolvedRef.
 func TestDashboardImpactSharedRefusesRefOutsideView(t *testing.T) {
 	svc, pulled := pullRecorder()
-	provide := impactProviderForFleet(svc, false)
+	provide := impactProviderForFleet(svc, false, nil)
 	for name, refs := range map[string][2]string{
 		"hidden old": {"oci://reg.example/ledger:1", "oci://reg.example/orders:2"},
 		"hidden new": {"oci://reg.example/orders:1", "oci://reg.example/ledger:2"},
@@ -42,10 +42,10 @@ func TestDashboardImpactSharedRefusesRefOutsideView(t *testing.T) {
 // caller's refs, local dirs included, through as given.
 func TestDashboardImpactLocalRefsUnchanged(t *testing.T) {
 	svc, pulled := pullRecorder()
-	if _, err := impactProviderForFleet(svc, true)(context.Background(), viewSnapshot(), "/nonexistent/old", "/nonexistent/new", false); err == nil || strings.Contains(err.Error(), "fleet view") {
+	if _, err := impactProviderForFleet(svc, true, nil)(context.Background(), viewSnapshot(), "/nonexistent/old", "/nonexistent/new", false); err == nil || strings.Contains(err.Error(), "fleet view") {
 		t.Fatalf("local dir on a local dashboard: %v", err)
 	}
-	_, _ = impactProviderForFleet(svc, true)(context.Background(), viewSnapshot(), "oci://other.example/x:1", "oci://other.example/x:2", false)
+	_, _ = impactProviderForFleet(svc, true, nil)(context.Background(), viewSnapshot(), "oci://other.example/x:1", "oci://other.example/x:2", false)
 	if len(*pulled) != 1 || !strings.Contains((*pulled)[0], "other.example/x:1") {
 		t.Fatalf("resolved %v, want the caller's ref", *pulled)
 	}

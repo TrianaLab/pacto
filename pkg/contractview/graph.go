@@ -1,6 +1,7 @@
 package contractview
 
 import (
+	"cmp"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -121,11 +122,12 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails, reas
 		if details != nil {
 			// Dependency edges
 			for _, dep := range details.Dependencies {
-				depName := resolveServiceName(extractServiceNameFromRef(dep.Ref), index)
+				// A dependency by name (no ref, not external) resolves by its name.
+				depName := resolveServiceName(cmp.Or(extractServiceNameFromRef(dep.Ref), dep.Name), index)
 				targetID := depName
 				_, resolved := index[depName]
 				target := GraphNodeData{ID: targetID, ServiceName: depName, Status: StatusUnresolvedNode, Version: dep.Version}
-				if dep.Ref == "" {
+				if dep.External && dep.Ref == "" {
 					// An external dependency with no contract never resolves by
 					// name: a fleet service that shares it is a different thing.
 					target = externalNode(dep)

@@ -115,6 +115,10 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 			if err != nil {
 				return err
 			}
+			policy, err := parsePolicy(cmd)
+			if err != nil {
+				return err
+			}
 			start := time.Now()
 			sp := startSpinner(cmd, format, "Analyzing impact")
 			var result *impact.Result
@@ -132,6 +136,9 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 					Traces:             traces,
 					OnResolved:         rec.hook(cmd, &revs),
 					TargetSnapshotAuto: auto,
+					Acceptances:        true,
+					Getenv:             os.Getenv,
+					Policy:             policy,
 				})
 			}
 			if err != nil {
@@ -173,6 +180,7 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 	addFleetSourceFlags(cmd.Flags())
 	addStatsFlags(cmd)
 	addDiffOverrideFlags(cmd)
+	addPolicyFlag(cmd)
 
 	return cmd
 }
@@ -315,6 +323,9 @@ func printImpactResult(cmd *cobra.Command, result *impact.Result, format string)
 			printRegression(w, result)
 		}
 		_, _ = fmt.Fprintf(w, "Release gate: %s\n", result.Gate)
+		for _, a := range result.Advisories {
+			_, _ = fmt.Fprintln(w, a.Line(result.Service))
+		}
 
 		// The impact result carries completeness inline (not a fleet.Meta), so
 		// wrap it to reuse the shared partial-answer warning.
@@ -359,6 +370,9 @@ func printTargetSnapshots(w io.Writer, result *impact.Result) {
 	}
 	if text := ci.IndexText(result); text != "" {
 		_, _ = fmt.Fprintf(w, "Consumers: %s\n", text)
+	}
+	for _, l := range append(ci.RangesLines(result.Ranges), result.Notes...) {
+		_, _ = fmt.Fprintln(w, l)
 	}
 }
 
@@ -425,8 +439,18 @@ func printImpactConsumers(w io.Writer, result *impact.Result) {
 	}
 	_, _ = fmt.Fprintf(w, "Affected consumers (%d):\n", len(result.Consumers))
 	if result.Event == nil {
+		unaccepted, announced := 0, false
 		for _, c := range result.Consumers {
 			printImpactConsumer(w, result, c)
+			if c.Break != nil {
+				announced = true
+				if c.Break.State != impact.BreakAccepted {
+					unaccepted++
+				}
+			}
+		}
+		if announced {
+			_, _ = fmt.Fprintf(w, "Announced break: %d unaccepted %s\n", unaccepted, map[bool]string{true: "consumer", false: "consumers"}[unaccepted == 1])
 		}
 		return
 	}
@@ -464,6 +488,9 @@ func printImpactConsumer(w io.Writer, result *impact.Result, c impact.AffectedCo
 	_, _ = fmt.Fprintf(w, "  %-28s %-10s confidence=%-12s %-19s owner=%s\n",
 		c.Service, scope, c.Confidence, verdict, orDash(c.Owner))
 	_, _ = fmt.Fprintf(w, "    path: %s  provenance: %s  via: %s\n", strings.Join(c.Path, " > "), orDash(c.Provenance), orDash(strings.Join(c.Via, ",")))
+	if b := c.Break; b != nil {
+		_, _ = fmt.Fprintf(w, "    break: %s\n", b.Text(c.Service))
+	}
 	for _, m := range c.Unmet {
 		_, _ = fmt.Fprintf(w, "    refused: %s\n", m)
 	}

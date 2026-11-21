@@ -9,12 +9,15 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -48,9 +51,18 @@ type CIOptions struct {
 	// migrations, when non-nil, gets each planned folder's migration by its
 	// row's Dir.
 	migrations map[string]CIMigration
+	// proposed, when non-nil, gets the Dir of each row whose bundle holds a
+	// proposal or a carried acceptance, so publish pushes the bundle the
+	// plan judged.
+	proposed map[string]bool
 	// TargetSnapshotAuto reads the target snapshot beside the registry the
 	// plan reads (D8) when Fleet names no target input, as pacto impact does.
 	TargetSnapshotAuto bool
+	// Signers verifies the acceptances of announced breaks in place of the
+	// installation signer policy; nil reads that.
+	Signers *delivery.ClassPolicy
+	// Policy is the range policy each row's BREAKING answer is held to.
+	Policy impact.Policy
 }
 
 // firstVersion is the version an undeclared service.version starts at.
@@ -103,9 +115,16 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 	p.Registry, notes = ci.ResolveRegistry(registry, advertised, cctx, images)
 	p.Notes = append(p.Notes, notes...)
 	p.Notes = append(p.Notes, blockCollisions(folders)...)
-	pl := &ciPlanner{s: s, p: p, reg: s.env().publishRegistry(), allowed: allowedHost(p.Registry), root: opts.Root, revision: opts.revision, cat: cat}
+	pl := &ciPlanner{s: s, p: p, reg: s.env().publishRegistry(), allowed: allowedHost(p.Registry), root: opts.Root, revision: opts.revision, cat: cat,
+		acceptances: sync.OnceValue(func() *acceptanceStore {
+			return newAcceptanceStore(ctx, s.env(), impactTrust(ImpactOptions{Signers: opts.Signers, Fleet: opts.Fleet}))
+		})}
 	for _, f := range folders {
 		pl.plan(ctx, f)
+		f.judged = f.b
+		if f.carried && opts.proposed != nil {
+			opts.proposed[f.row.Dir] = true
+		}
 		if opts.Bundles != nil && f.b != nil {
 			opts.Bundles[f.row.Dir] = f.b
 		}
@@ -113,13 +132,16 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 			opts.migrations[f.row.Dir] = f.migration
 		}
 	}
-	results, err := s.ciImpacts(ctx, p, folders, opts, pl.allowed)
+	results, snap, err := s.ciImpacts(ctx, p, folders, opts, pl.allowed)
 	if err != nil {
 		return nil, nil, err
 	}
 	for _, f := range folders {
+		pl.propose(ctx, f, snap, opts)
+		f.row.Notes = append(f.row.Notes, breakNotes(f.judged, results[f.row.Service])...)
 		p.Rows = append(p.Rows, f.row)
 	}
+	p.Ranges = ciRanges(folders, opts.Root)
 	p.Settle(opts.Root)
 	return p, results, nil
 }
@@ -136,6 +158,11 @@ type ciFolder struct {
 	// base is the baseline a changed row's impact runs against; nil when an
 	// earlier rule already decided the row.
 	base *contract.Bundle
+	// judged is the bundle the plan judged and publish pushes: b before
+	// impact replaced it with the planned revision.
+	judged *contract.Bundle
+	// carried is set when b holds acceptances carried from the baseline.
+	carried bool
 }
 
 // decide sets the row's impact unless an earlier rule already did.
@@ -320,6 +347,8 @@ type ciPlanner struct {
 	// completed the folder.
 	root, revision string
 	cat            *externalcatalog.Catalog
+	// acceptances reads the acceptances a baseline carries, built once.
+	acceptances func() *acceptanceStore
 }
 
 // registryName is the plan's registry as messages name it.
@@ -453,8 +482,12 @@ func (pl *ciPlanner) judge(ctx context.Context, f *ciFolder, repo string, declar
 		return
 	}
 	f.row.Baseline, f.row.BaselineDigest = tag, base.digest
+	migrated := f.asWritten != f.b
+	if !pl.carry(ctx, f, carryBase{repo: repo, version: tag, digest: base.digest, b: base.b}) {
+		return
+	}
 	same, why := Unchanged(base.b, f.b)
-	if !same && f.asWritten != f.b {
+	if !same && migrated && !f.carried {
 		// A baseline an earlier CLI published as written is this content
 		// too: a migration alone never republishes.
 		if sameWritten, whyWritten := Unchanged(base.b, f.asWritten); sameWritten {
@@ -476,6 +509,31 @@ func (pl *ciPlanner) judge(ctx context.Context, f *ciFolder, repo string, declar
 	if f.row.Derived {
 		f.row.Notes = append(f.row.Notes, planModeNote)
 	}
+}
+
+// carry folds the acceptances base carries into the folder's bundle, so
+// the plan judges and publish pushes the accepted fields as declared. A
+// declared version that is already published pins no range: its contract
+// cannot change. A cited acceptance that cannot be read leaves the row
+// unverified: false.
+func (pl *ciPlanner) carry(ctx context.Context, f *ciFolder, base carryBase) bool {
+	res, err := carryForward(ctx, pl.acceptances(), base, f.b)
+	if err != nil {
+		f.decide(impact.GateUnverified, "carried acceptances unreadable: "+err.Error())
+		return false
+	}
+	f.row.Notes = append(f.row.Notes, res.Notes...)
+	switch {
+	case res.Bundle == f.b:
+	case res.Pinned > 0 && f.b.Contract.Service.Version == base.version:
+		// The declared version is published: pinning a range would change
+		// its contract. The acceptance is still found on that version.
+		f.row.Notes = append(f.row.Notes, "accepted ranges carry with the next version: bump service.version")
+	default:
+		f.b, f.carried, f.row.Accepted = res.Bundle, true, res.Pinned
+		f.recordImages()
+	}
+	return true
 }
 
 // firstPublish fills the row of a service with no published version. It
@@ -711,8 +769,9 @@ const ciChangesSource = "ci-changes"
 // repository, the planned revisions and the consumer sources the caller
 // named, read through a store fenced to the hosts the caller named. A row
 // reads clear only when a consumer source answered, the answer is complete
-// and nothing inferred changed.
-func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder, opts CIOptions, allowed string) (map[string]*impact.Result, error) {
+// and nothing inferred changed. It returns the snapshot it ran over, nil when
+// no row changed.
+func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder, opts CIOptions, allowed string) (map[string]*impact.Result, *fleet.FleetSnapshot, error) {
 	p.ConsumerSources = opts.Fleet.ConsumerSources()
 	repo := &fleet.Collection{}
 	unpublished := map[fleet.ServiceKey]bool{}
@@ -735,7 +794,7 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 		// a changed service is found. ponytail: a folder decided before its
 		// repository (invalid, outside the registry) is left out.
 		if f.row.Repository != "" {
-			rev := fleet.RawRevision{Bundle: f.b, Domain: contract.OCIDomain(f.row.Repository), RequestedRef: f.dir}
+			rev := fleet.RawRevision{Bundle: f.b, Domain: contract.OCIDomain(f.row.Repository), RequestedRef: f.dir, Baseline: f.row.BaselineDigest}
 			rev.Digest, _ = lock.HashFS(contract.WithoutInferredRecord(f.b.FS)) // the folder was just read
 			repo.Revisions = append(repo.Revisions, rev)
 			if f.row.BaselineDigest == "" {
@@ -744,7 +803,7 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 		}
 	}
 	if len(todo) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	fo := opts.Fleet
 	if len(fo.LocalRoots) == 0 {
@@ -758,7 +817,7 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 	withChanges.extraSources = append(slices.Clone(fo.extraSources), fleet.NewMemorySource(ciChangesSource, "argument", repo))
 	snap, err := fenced.Fleet(ctx, withChanges)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	p.Snapshot = snapshotInfo(snap)
 	evidence, answered := consumerEvidence(snap), answeringSources(snap)
@@ -768,7 +827,8 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 			opts.OnResolved(f.row.Service)(f.base, f.b)
 		}
 		// The rebuild that adds the index keeps the planned revisions.
-		io := ImpactOptions{OldPath: "oci://" + f.row.Repository + "@" + f.row.BaselineDigest, NewPath: f.dir, Domain: contract.OCIDomain(f.row.Repository), Fleet: withChanges, unpublished: unpublished}
+		io := ImpactOptions{OldPath: "oci://" + f.row.Repository + "@" + f.row.BaselineDigest, NewPath: f.dir, Domain: contract.OCIDomain(f.row.Repository), Fleet: withChanges, unpublished: unpublished,
+			Acceptances: true, Signers: opts.Signers, Getenv: opts.Getenv, Policy: opts.Policy}
 		res, err := fenced.impactOnResolved(ctx, io, snap, true, f.base, f.b)
 		if err != nil {
 			f.decide(impact.GateUnverified, "impact: "+err.Error())
@@ -778,9 +838,10 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 		results[f.row.Service] = res
 		p.NoteIndex(res)
 		f.row.Impact = rowImpact(res, f.b, evidence)
+		f.row.Advisories = res.Advisories
 		f.row.Impact.Sources = answered
 	}
-	return results, nil
+	return results, snap, nil
 }
 
 // fenceHosts are the registry hosts the caller named as consumer sources.
@@ -933,6 +994,9 @@ func rowImpact(res *impact.Result, local *contract.Bundle, evidence string) ci.I
 		}
 		return ci.Impact{Gate: impact.GateBlocked, Text: "blocked (" + text + ")", Blocking: names}
 	case impact.GateUnverified:
+		if res.GateCode() == impact.GateCodeInferredPossibleBreak {
+			return unverified("possible break (inferred): interfaces[" + res.Advisories[0].Interface + "]; declare it to classify")
+		}
 		return unverified(res.GateReason)
 	}
 	_, nameInferred := local.NameInferred()
@@ -953,6 +1017,48 @@ func rowImpact(res *impact.Result, local *contract.Bundle, evidence string) ci.I
 		return unverified(why)
 	}
 	return ci.Impact{Gate: impact.GateClear, Text: "clear"}
+}
+
+// breakNotes are the row notes of the consumers the break b announces: where
+// each stands and when the announcement expires, with where that date came
+// from (declared, or recorded in pacto.inferred.yaml from the commit time).
+func breakNotes(b *contract.Bundle, res *impact.Result) []string {
+	if b == nil || res == nil {
+		return nil
+	}
+	rec, _ := contract.ReadInferredRecord(b.FS) // propose just wrote it
+	var out []string
+	seen := map[string]bool{}
+	for _, c := range res.Consumers {
+		if c.Break == nil || seen[c.Service] {
+			continue
+		}
+		seen[c.Service] = true
+		note := "break " + c.Break.Text(c.Service)
+		if c.Break.Expires != "" {
+			note += "; expires " + c.Break.Expires + " (" + expirySource(b.Contract.Breaks, rec, c.Service) + ")"
+		}
+		out = append(out, note)
+	}
+	return out
+}
+
+// expirySource says where the expiry of the break naming consumer comes
+// from: "declared", or the recorded source with "inferred".
+func expirySource(breaks []contract.Break, rec *contract.InferredRecord, consumer string) string {
+	i := slices.IndexFunc(breaks, func(b contract.Break) bool { return slices.Contains(b.Consumers, consumer) })
+	if i >= 0 && breaks[i].Expires != "" {
+		return "declared"
+	}
+	src := "commit time + 30d"
+	if rec != nil {
+		for _, f := range rec.Fields {
+			if f.Field == "breaks["+strconv.Itoa(i)+"].expires" {
+				src = strings.Replace(strings.Replace(f.Source, ":", " ", 1), " +", " + ", 1)
+			}
+		}
+	}
+	return src + ", inferred"
 }
 
 // unverified is an unverified row impact saying why.

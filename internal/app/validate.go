@@ -468,11 +468,11 @@ func (s *Service) closureFindings(ctx context.Context, ref string, bundle *contr
 			switch {
 			case e.External:
 			case e.Error != "":
-				path, msg := "dependencies", fmt.Sprintf("dependency %s: %s", e.Ref, e.Error)
+				path, msg := "dependencies", fmt.Sprintf("dependency %s: %s", cmp.Or(e.Ref, e.Name), e.Error)
 				if n != res.Root {
 					// The ref is relative to the declaring dependency, so name it.
 					path = fmt.Sprintf("dependencies[%s@%s]", n.Name, n.Version)
-					msg = fmt.Sprintf("dependency %s of %s@%s (%s): %s", e.Ref, n.Name, n.Version, n.Ref, e.Error)
+					msg = fmt.Sprintf("dependency %s of %s@%s (%s): %s", cmp.Or(e.Ref, e.Name), n.Name, n.Version, n.Ref, e.Error)
 				}
 				errs = append(errs, contract.ValidationError{Path: path, Code: "CLOSURE_DEPENDENCY_UNRESOLVED", Message: msg})
 			case e.Node == nil || e.Shared:

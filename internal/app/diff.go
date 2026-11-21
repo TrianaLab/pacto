@@ -46,6 +46,9 @@ type DiffResult struct {
 	DependencyDiffs []DependencyDiff `json:"dependencyDiffs,omitempty"`
 	GraphDiff       *graph.GraphDiff `json:"graphDiff,omitempty"`
 	SBOMDiff        *sbom.Result     `json:"sbomDiff,omitempty"`
+	// Advisories are the possible breaks on inferred interfaces; they never
+	// change the classification, the bump or the exit code.
+	Advisories []diff.Advisory `json:"advisories,omitempty"`
 }
 
 // Diff compares two contracts and produces a classified change set.
@@ -124,6 +127,7 @@ func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, erro
 		DependencyDiffs: depDiffs,
 		GraphDiff:       gd,
 		SBOMDiff:        result.SBOMDiff,
+		Advisories:      result.Advisories,
 	}, nil
 }
 

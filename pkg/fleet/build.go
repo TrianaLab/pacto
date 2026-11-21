@@ -238,22 +238,11 @@ func computeSnapshotID(snap *FleetSnapshot) string {
 // another service and inherits its targets or consumers. Each source that loses
 // a revision gets one SERVICE_NAME_COLLISION limitation per name, which makes
 // it partial. A source's own Collection is never mutated: it may be reused.
+// An inferred name its own baseline declares (a folder pacto ci planned from
+// that published revision) joins that service, so it claims like a declared
+// one: the baseline is present and declares the name, so no guess is made.
 func dropNameCollisions(results []sourceResult, sources []Source) {
-	var claims []contract.NameClaim
-	seen := map[[2]string]bool{} // name, bundle of an inferred claim already made
-	for i, r := range results {
-		for _, c := range nameClaims(sources[i].ID(), r.col) {
-			// One bundle read by two sources (overlapping roots, a catalog root
-			// inside --local) is one claimant, not two competing ones.
-			if c.Inferred && c.Bundle != "" {
-				if seen[[2]string{c.Name, c.Bundle}] {
-					continue
-				}
-				seen[[2]string{c.Name, c.Bundle}] = true
-			}
-			claims = append(claims, c.NameClaim)
-		}
-	}
+	claims, confirmed := competingClaims(results, sources)
 	collided := map[string]string{} // name -> limitation message
 	for _, c := range contract.NameCollisions(claims) {
 		var who []string
@@ -268,15 +257,53 @@ func dropNameCollisions(results []sourceResult, sources []Source) {
 	}
 	for i := range results {
 		if col := results[i].col; col != nil {
-			results[i].col = withoutInferredClaims(col, sources[i].ID(), collided)
+			results[i].col = withoutInferredClaims(col, sources[i].ID(), collided, confirmed)
 		}
 	}
+}
+
+// competingClaims is every source's name claims, one per bundle, and the
+// inferred claimants (name, bundle) their own baseline confirms, which claim
+// as declared ones.
+func competingClaims(results []sourceResult, sources []Source) ([]contract.NameClaim, map[[2]string]bool) {
+	var all []digestClaim
+	declared := map[[2]string]bool{} // name, bundle of a declared claim
+	for i, r := range results {
+		for _, c := range nameClaims(sources[i].ID(), r.col) {
+			all = append(all, c)
+			if !c.Inferred && c.Bundle != "" {
+				declared[[2]string{c.Name, c.Bundle}] = true
+			}
+		}
+	}
+	confirmed := map[[2]string]bool{} // name, bundle of an inferred claim its baseline declares
+	for _, c := range all {
+		if c.Inferred && c.Baseline != "" && c.Bundle != "" && declared[[2]string{c.Name, c.Baseline}] {
+			confirmed[[2]string{c.Name, c.Bundle}] = true
+		}
+	}
+	var claims []contract.NameClaim
+	seen := map[[2]string]bool{} // name, bundle of an inferred claim already made
+	for _, c := range all {
+		key := [2]string{c.Name, c.Bundle}
+		c.Inferred = c.Inferred && !confirmed[key]
+		// One bundle read by two sources (overlapping roots, a catalog root
+		// inside --local) is one claimant, not two competing ones.
+		if c.Inferred && c.Bundle != "" {
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
+		claims = append(claims, c.NameClaim)
+	}
+	return claims, confirmed
 }
 
 // digestClaim is a name claim and the identity of the bundle making it.
 type digestClaim struct {
 	contract.NameClaim
-	Bundle string
+	Bundle, Baseline string
 }
 
 // bundleIdentity is the folder a local revision was read from, made absolute,
@@ -305,7 +332,7 @@ func bundleIdentity(rev RawRevision) string {
 func nameClaims(sourceID string, col *Collection) []digestClaim {
 	var claims []digestClaim
 	for _, rev := range collectionRevisions(col) {
-		claim := digestClaim{contract.NameClaim{Dir: sourceID + " " + cmp.Or(rev.ResolvedRef, rev.RequestedRef), Name: rev.Bundle.Contract.Service.Name, Source: "declared"}, bundleIdentity(rev)}
+		claim := digestClaim{contract.NameClaim{Dir: sourceID + " " + cmp.Or(rev.ResolvedRef, rev.RequestedRef), Name: rev.Bundle.Contract.Service.Name, Source: "declared"}, bundleIdentity(rev), rev.Baseline}
 		if inf, ok := rev.Bundle.NameInferred(); ok {
 			claim.Source, claim.Inferred = inf.Source, true
 		}
@@ -337,8 +364,9 @@ func collectionRevisions(col *Collection) []RawRevision {
 }
 
 // withoutInferredClaims is a copy of col without the inferred claimants of the
-// collided names, plus one limitation per name it lost.
-func withoutInferredClaims(col *Collection, sourceID string, collided map[string]string) *Collection {
+// collided names, plus one limitation per name it lost. A confirmed claimant
+// (name, bundle) stays.
+func withoutInferredClaims(col *Collection, sourceID string, collided map[string]string, confirmed map[[2]string]bool) *Collection {
 	cp := *col
 	lost := map[string]bool{}
 	cp.Revisions = slices.DeleteFunc(slices.Clone(col.Revisions), func(rev RawRevision) bool {
@@ -347,6 +375,7 @@ func withoutInferredClaims(col *Collection, sourceID string, collided map[string
 		}
 		name := rev.Bundle.Contract.Service.Name
 		_, inferred := rev.Bundle.NameInferred()
+		inferred = inferred && !confirmed[[2]string{name, bundleIdentity(rev)}]
 		_, hit := collided[name]
 		lost[name] = lost[name] || hit && inferred
 		return hit && inferred

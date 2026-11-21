@@ -79,6 +79,10 @@ type deps struct {
 	// planDeclare plans `pacto declare`; declare carries it out: it logs the person in, signs and writes to a registry.
 	planDeclare func(svc *app.Service, ctx context.Context, req app.DeclareRequest) (*app.DeclarePlan, error)
 	declare     func(svc *app.Service, ctx context.Context, req app.DeclareRequest) (*app.DeclareResult, error)
+	// planAccept plans `pacto accept`: it reads the registry and writes nothing.
+	planAccept func(svc *app.Service, ctx context.Context, opts app.AcceptOptions) (*app.AcceptPlan, error)
+	// accept carries out `pacto accept`: it signs as the person, or drafts, and writes to the service's bundle repository.
+	accept func(svc *app.Service, ctx context.Context, opts app.AcceptOptions) (*app.AcceptResult, error)
 	// publishRunRecord writes one unsigned run record to a stats repository and returns "<repo>@<digest>".
 	publishRunRecord func(ctx context.Context, repo string, r runrecord.Record) (string, error)
 	// selfProc is this process's own /proc, read for its network namespace.
@@ -123,6 +127,8 @@ func defaultDeps() deps {
 		ciPublish:           (*app.Service).CIPublish,
 		planDeclare:         planDeclare,
 		declare:             (*app.Service).Declare,
+		planAccept:          (*app.Service).AcceptPlan,
+		accept:              (*app.Service).Accept,
 		publishRunRecord:    defaultPublishRunRecord,
 		selfProc:            runtimewatch.OSProcFS{Root: "/proc"},
 		attachTimeout:       10 * time.Second,
@@ -269,6 +275,7 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 	root.AddCommand(newPushCommand(svc, v))
 	root.AddCommand(newPublishCommand(svc, v, d, rec))
 	root.AddCommand(newDeclareCommand(svc, v, d))
+	root.AddCommand(newAcceptCommand(svc, v, d))
 	root.AddCommand(newPullCommand(svc, v))
 	root.AddCommand(newGraphCommand(svc, v))
 	root.AddCommand(newExportCommand(svc))

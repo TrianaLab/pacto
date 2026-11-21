@@ -388,6 +388,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fleet/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan accepting every proposed range of a service
+         * @description Plans the acceptance record pacto accept would sign for every dependency range the service's newest published version proposes, and returns the exact pacto accept command with its intent digest. It never signs and never writes: a person runs the command. Signed-in and local viewers only.
+         */
+        post: operations["fleet-accept"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/fleet/attention": {
         parameters: {
             query?: never;
@@ -996,6 +1016,42 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AcceptPlanAnswer: {
+            /** @description The exact pacto accept command, with the plan's intent digest, a person runs to sign the plan */
+            command?: string;
+            /** @description What pacto accept would sign; absent with a refusal */
+            plan?: components["schemas"]["AcceptPlanView"];
+            /** @description Why there is nothing to accept, and the command a person runs about it */
+            refusal?: components["schemas"]["AcceptRefusal"];
+        };
+        AcceptPlanView: {
+            /** @description The acceptances already attached to the version, each with its state; only counted accepts */
+            existing?: components["schemas"]["Impact.Acceptance"][] | null;
+            /** @description The digest that names exactly this plan: pacto accept refuses a plan that moved since */
+            intentDigest: string;
+            /** @description What the plan could not read or how records were verified */
+            notes?: string[] | null;
+            /** @description Each proposed range the record accepts, with its source */
+            ranges: components["schemas"]["Delivery.AcceptedRange"][] | null;
+            /** @description The accepting service's fleet key */
+            service: string;
+            /** @description The bundle the record attaches to: <repository>@sha256:<hex> */
+            subject: string;
+            /** @description The newest published version the record attaches to */
+            version: string;
+            /** @description Whose signature counts: the service's declared owner, or the route to one */
+            whoMayAccept: string;
+        };
+        AcceptRefusal: {
+            /**
+             * @description AcceptNothingProposed: the newest published version proposes no range; NotPublished: the service has no published version to attach an acceptance to
+             * @enum {string}
+             */
+            code: "AcceptNothingProposed" | "NotPublished";
+            /** @description The command a person runs about it */
+            command: string;
+            message: string;
+        };
         AggregatedService: {
             merged: components["schemas"]["ServiceDetails"];
             name: string;
@@ -1456,6 +1512,12 @@ export interface components {
              * @enum {string}
              */
             signing?: "recorder";
+        };
+        "Delivery.AcceptedRange": {
+            field: string;
+            proposed?: string;
+            source?: string;
+            value: string;
         };
         "Delivery.Actor": {
             groups?: string[] | null;
@@ -4831,6 +4893,10 @@ export interface components {
             issuer: string;
             subject: string;
         };
+        FleetAcceptInputBody: {
+            /** @description The service whose proposed ranges to accept */
+            serviceKey: string;
+        };
         GetSourcesOutputBody: {
             /** @description True while the first snapshot is still being built */
             discovering: boolean;
@@ -4909,7 +4975,40 @@ export interface components {
                 [key: string]: string;
             };
         };
+        "Impact.Acceptance": {
+            /** @description The break the record accepts, for a break acceptance */
+            break?: components["schemas"]["Impact.BreakRef"];
+            /** @description Who signed the record: the certificate's subject */
+            by?: string;
+            /** @description The dependency fields the record accepts, such as dependencies[ledger].compatibility, for a ranges acceptance */
+            fields?: string[] | null;
+            /** @description The OIDC issuer of the signer's certificate */
+            issuer?: string;
+            /** @description Why the record does not count, or the route to the owner who may accept */
+            reason?: string;
+            /** @description Where the record is: <repository>@sha256:<hex> */
+            record?: string;
+            /**
+             * Format: date-time
+             * @description When a timestamp authority or the transparency log saw the record signed
+             */
+            signedAt?: string;
+            /**
+             * @description How the record was judged; only counted accepts
+             * @enum {string}
+             */
+            state: "counted" | "routed" | "proposal" | "expired" | "ignored";
+        };
+        "Impact.AdvisoryConsumer": {
+            /** @enum {string} */
+            compatibility: "unknown";
+            /** @enum {string} */
+            confidence: "inferred";
+            service: string;
+        };
         "Impact.AffectedConsumer": {
+            /** @description Where the break the new revision announces for this consumer stands: announced, accepted (it never blocks) or expired */
+            break?: components["schemas"]["Impact.BreakState"];
             compatibility?: string;
             compatibilityVerdict: string;
             confidence: string;
@@ -4946,6 +5045,31 @@ export interface components {
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;
             /** @description The edge types that make this service a consumer: dependency, configuration_reference, policy_reference, observed or inferred (named by the consumer's inferred record, never with a known verdict) */
             via?: string[] | null;
+        };
+        "Impact.BreakRef": {
+            /** @description The sha256 of the provider's breaks[] entry naming the consumer */
+            announcement: string;
+            /** @description The provider's fleet key */
+            provider: string;
+            /** @description The provider version the break ships in */
+            version: string;
+        };
+        "Impact.BreakState": {
+            /** @description Who signed the counted acceptance */
+            by?: string;
+            /** @description When the announcement expires (YYYY-MM-DD); empty when none is recorded */
+            expires?: string;
+            /** @description Why the break is not accepted, in plain words; it says when acceptances were not read */
+            reason?: string;
+            /** @description Where the counted acceptance is: <repository>@sha256:<hex> */
+            record?: string;
+            /** @description Whom an acceptance by somebody other than the declared owner waits for, such as 'waiting for the owner of reports: ana@acme.com', or how to get an owner */
+            route?: string;
+            /**
+             * @description announced: the provider announces the break and nothing accepts it; accepted: the consumer's declared owner signed a counted acceptance, or its ranges admit the new version; expired: the announcement expired or records no expiry
+             * @enum {string}
+             */
+            state: "announced" | "accepted" | "expired";
         };
         "Impact.ChangesPreview": {
             /** Format: int64 */
@@ -5030,6 +5154,20 @@ export interface components {
             /** @description The fact is older than 24h before the snapshot's asOf, or has no time, so it does not count as current */
             stale?: boolean;
         };
+        "Impact.InferredAdvisory": {
+            /** @description The breaking findings of the spec diff. Advisory: a possible break on an inferred interface, never part of the classification */
+            changes: components["schemas"]["Diff.Change"][] | null;
+            /** @description The direct consumers of the changed service the possible break would hit, each inferred with compatibility unknown, bounded to 500 */
+            consumers: components["schemas"]["Impact.AdvisoryConsumer"][] | null;
+            /** @description The YAML that declares the interface in pacto.yaml, so the change is classified */
+            declare: string;
+            /** @description The inferred interface, as pacto.inferred.yaml names it (api, events or grpc) */
+            interface: string;
+            /** @description The spec kind: openapi, asyncapi or grpc */
+            kind: string;
+            /** @description Where Pacto found the spec, as path:line */
+            source: string;
+        };
         "Impact.OwnerTally": {
             /** Format: int64 */
             consumers: number;
@@ -5038,6 +5176,20 @@ export interface components {
             owner: string;
             /** @description The owner's canonical key (for example team:shop): the ranking groups by it */
             ownerKey?: string;
+        };
+        "Impact.Policy": {
+            /**
+             * @description fail holds a BREAKING change while a caller no contract describes was seen within uncontractedWindow
+             * @enum {string}
+             */
+            uncontracted: "warn" | "fail";
+            /** @description How recent an uncontracted call holds the change, as a Go duration such as 168h0m0s */
+            uncontractedWindow?: string;
+            /**
+             * @description fail holds a BREAKING change while a direct consumer's range is unknown and not accepted
+             * @enum {string}
+             */
+            unknownRange: "warn" | "fail";
         };
         "Impact.ProductChange": {
             classification: string;
@@ -5048,6 +5200,32 @@ export interface components {
             path: string;
             reason?: string;
             type: string;
+        };
+        "Impact.RangeCoverage": {
+            /**
+             * Format: int64
+             * @description Edges whose range a counted acceptance makes known, not yet declared in the contract
+             */
+            accepted: number;
+            /**
+             * Format: int64
+             * @description Edges whose contract declares a compatibility range
+             */
+            declared: number;
+            /**
+             * Format: int64
+             * @description Dependency edges counted
+             */
+            edges: number;
+            /** @description The edges counted, such as 'consumers of ledger' or 'dependencies of 12 services in .' */
+            scope: string;
+            /** @description Edges whose range is unknown, at most 20 */
+            unknown?: components["schemas"]["Impact.UnknownRange"][] | null;
+            /**
+             * Format: int64
+             * @description How many edges have an unknown range, including those beyond the bound
+             */
+            unknownTotal?: number;
         };
         "Impact.RegistryLookup": {
             /**
@@ -5088,6 +5266,8 @@ export interface components {
         };
         "Impact.Result": {
             activeTargets?: string[] | null;
+            /** @description Possible breaks on interfaces only pacto.inferred.yaml names: advisory, never part of the classification. A non-BREAKING answer with one reads unverified; it never blocks or clears */
+            advisories?: components["schemas"]["Impact.InferredAdvisory"][] | null;
             /** Format: date-time */
             asOf: string;
             breakingChanges?: components["schemas"]["Diff.Change"][] | null;
@@ -5113,12 +5293,18 @@ export interface components {
             newRevisionAdded?: boolean;
             newVersion?: string;
             nonBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
+            /** @description Informational notes, such as a range policy set to warn; never a limitation */
+            notes?: string[] | null;
             oldVersion?: string;
             /** @description The canonical owner keys of the affected consumers */
             owners?: string[] | null;
+            /** @description The range policy the answer was held to; absent on an event answer */
+            policy?: components["schemas"]["Impact.Policy"];
             potentiallyBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
             /** @description The service keys of the services that provide the offering of an offering event */
             providers?: string[] | null;
+            /** @description How many direct consumers declare a compatibility range or accepted one, and which ranges stay unknown; absent on an event answer */
+            ranges?: components["schemas"]["Impact.RangeCoverage"];
             /** @description Where Pacto looked for a target snapshot when none was named */
             registry?: components["schemas"]["Impact.RegistryLookup"];
             regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
@@ -5136,6 +5322,14 @@ export interface components {
             /** Format: int64 */
             count: number;
             key: string;
+        };
+        "Impact.UnknownRange": {
+            /** @description The consumer */
+            from: string;
+            /** @description The range Pacto proposes from what runs, such as ^2.3.0; inferred, so it never counts */
+            proposed?: string;
+            /** @description The provider it depends on */
+            to: string;
         };
         ImpactRequest: {
             /**
@@ -5857,6 +6051,8 @@ export interface components {
         };
         ProductImpact: {
             activeTargets: components["schemas"]["ProductRefPreview"];
+            /** @description Possible breaks on interfaces only pacto.inferred.yaml names: advisory, never part of the classification. A non-BREAKING answer with one reads unverified; it never blocks or clears */
+            advisories?: components["schemas"]["Impact.InferredAdvisory"][] | null;
             changedOwner?: components["schemas"]["ProductRef"];
             changes: components["schemas"]["Impact.ChangesPreview"];
             classification: string;
@@ -5869,12 +6065,16 @@ export interface components {
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
             meta: components["schemas"]["Fleet.ProductMeta"];
             newRevision?: components["schemas"]["ProductRef"];
+            /** @description Informational notes, such as a range policy set to warn; never a limitation */
+            notes?: string[] | null;
             /** @description The platform offering an offering event is about; service is then the same offering reference */
             offering?: components["schemas"]["ProductRef"];
             oldRevision?: components["schemas"]["ProductRef"];
             owners: components["schemas"]["ProductRefPreview"];
             /** @description The services that provide the offering of an offering event, each with its owner */
             providers?: components["schemas"]["ProductRef"][] | null;
+            /** @description How many direct consumers declare a compatibility range or accepted one, and which ranges stay unknown; absent on an event answer */
+            ranges?: components["schemas"]["Impact.RangeCoverage"];
             /** @description The delivery evidence about a regressed revision, at most 50 */
             regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
             service: components["schemas"]["ProductRef"];
@@ -5885,6 +6085,8 @@ export interface components {
         };
         ProductImpactConsumer: {
             blocking?: boolean;
+            /** @description Where the break the new revision announces for this consumer stands: announced, accepted (it never blocks) or expired */
+            break?: components["schemas"]["Impact.BreakState"];
             compatibility?: string;
             compatibilityVerdict: string;
             confidence: string;
@@ -9295,6 +9497,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiffResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FleetAcceptInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptPlanAnswer"];
                 };
             };
             /** @description Error */

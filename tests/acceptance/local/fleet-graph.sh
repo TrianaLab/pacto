@@ -229,6 +229,23 @@ assert_contains "$NOUT" "No affected consumers." "without the index web is not f
 [ "$rc" = 0 ] || [ "$rc" = 2 ] || { echo "--- output ---"; echo "$NOUT"; fail "impact --index none exited $rc"; }
 pass "impact finds the consumers published to the organization index with no --root"
 
+echo "== 2e. impact resolves a 2.5 consumer that names its provider only =="
+# A 2.5 dependency may leave out ref: Pacto resolves it by name in the
+# consumer's registry domain, so impact still finds the consumer.
+mkdir -p "$WORK/byname-ledger" "$WORK/byname-reports" "$WORK/byname-new"
+printf 'pactoVersion: "2.5"\nservice: {name: ledger, version: "1.0.0"}\ninterfaces:\n  - name: api\n    type: grpc\n    ref: ledger.proto\n' > "$WORK/byname-ledger/pacto.yaml"
+printf 'syntax = "proto3";\npackage ledger;\n' > "$WORK/byname-ledger/ledger.proto"
+printf 'pactoVersion: "2.5"\nservice: {name: reports, version: "1.0.0"}\ndependencies:\n  - name: ledger\n' > "$WORK/byname-reports/pacto.yaml"
+printf 'pactoVersion: "2.5"\nservice: {name: ledger, version: "2.0.0"}\n' > "$WORK/byname-new/pacto.yaml"
+PACTO_INSECURE_REGISTRIES="$REG_HOST" "$BIN" push "oci://${REG_HOST}/byname/ledger:1.0.0" -p "$WORK/byname-ledger" >/dev/null 2>&1 || fail "push byname/ledger"
+PACTO_INSECURE_REGISTRIES="$REG_HOST" "$BIN" push "oci://${REG_HOST}/byname/reports:1.0.0" -p "$WORK/byname-reports" >/dev/null 2>&1 || fail "push byname/reports"
+rc=0
+BOUT="$(PACTO_INSECURE_REGISTRIES="$REG_HOST" "$BIN" impact "oci://${REG_HOST}/byname/ledger:1.0.0" "$WORK/byname-new" --local "$WORK/empty" 2>&1)" || rc=$?
+assert_contains "$BOUT" "Classification: BREAKING" "dropping ledger's interface is breaking"
+assert_contains "$BOUT" "path: ${REG_HOST}%2Fbyname/reports > " "impact finds reports, which names ledger only"
+[ "$rc" = 1 ] || [ "$rc" = 2 ] || { echo "--- output ---"; echo "$BOUT"; fail "impact exited $rc, expected 1 or 2"; }
+pass "impact resolves a dependency by name"
+
 echo "== 3. observe runtime dependencies from traces =="
 OOUT="$("$BIN" otel observe "$WORK/traces.json")"
 assert_contains "$OOUT" "web -> payments" "declared edge observed"

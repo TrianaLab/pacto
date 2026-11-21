@@ -443,7 +443,7 @@ func TestSurfaceParityImpactRefs(t *testing.T) {
 	}}})
 	expect(t, err == nil, "server: %v", err)
 	session := sessionOn(t, server)
-	dash := dashboard.NewServer(dashboard.Options{Fleet: src, View: view, Impact: impactProviderForFleet(dashSvc, false)}).APIHandler()
+	dash := dashboard.NewServer(dashboard.Options{Fleet: src, View: view, Impact: impactProviderForFleet(dashSvc, false, nil)}).APIHandler()
 	ask := func(old string) (string, string) {
 		m, _ := callText(t, session, "pacto_impact", map[string]any{"old_ref": old, "new_ref": "oci://reg.example/orders:1"})
 		return m, routeBody(t, dash, context.Background(), "/api/fleet/impact?old="+url.QueryEscape(old)+"&new="+url.QueryEscape("oci://reg.example/orders:1"))
@@ -466,7 +466,7 @@ func TestCapabilitiesKeysMatchDashboard(t *testing.T) {
 	for _, installed := range []string{"", "yes", "no"} {
 		withDelivery := installed == "yes"
 		d, args := defaultDeps(), append([]string{"--fleet"}, flags...)
-		opts := dashboard.Options{Fleet: fixtureSource(t, flags), Impact: impactProviderForFleet(app.NewService(nil, nil), true)}
+		opts := dashboard.Options{Fleet: fixtureSource(t, flags), Impact: impactProviderForFleet(app.NewService(nil, nil), true, nil)}
 		if installed != "" {
 			d, args = readDeps(nil), append(args, "--delivery")
 			d.served = func(*rest.Config, string) (bool, error) { return withDelivery, nil }

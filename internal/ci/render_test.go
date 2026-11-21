@@ -218,3 +218,14 @@ func TestSettlePublish(t *testing.T) {
 		t.Fatalf("%d %s %q", p.Exit, p.Gate, p.Reason)
 	}
 }
+
+func TestInferredCellCountsAccepted(t *testing.T) {
+	for _, tc := range []struct {
+		n, a int
+		want string
+	}{{0, 0, "-"}, {1, 0, "1 field"}, {3, 0, "3 fields"}, {0, 2, "0 fields, 2 accepted"}, {1, 1, "1 field, 1 accepted"}, {4, 6, "4 fields, 6 accepted"}} {
+		if got := inferred(tc.n, tc.a); got != tc.want {
+			t.Errorf("inferred(%d, %d) = %q, want %q", tc.n, tc.a, got, tc.want)
+		}
+	}
+}

@@ -98,8 +98,8 @@ func capabilities(ctx context.Context, req *mcpsdk.CallToolRequest, a Authoring,
 		out.Modes = append(out.Modes, "publish")
 		out.Writes = true // pacto_publish pushes to the registry
 	}
-	// pacto_declare writes drafts over stdio only.
-	out.Writes = out.Writes || out.Caller.Writes || (a.Declare != nil && !a.Remote)
+	// pacto_declare and pacto_accept write drafts over stdio only.
+	out.Writes = out.Writes || out.Caller.Writes || ((a.Declare != nil || a.Accept != nil) && !a.Remote)
 	return out, nil
 }
 
@@ -111,6 +111,9 @@ func authoringNames(a Authoring) []string {
 	}
 	if a.Declare != nil {
 		names = append(names, "pacto_declare")
+	}
+	if a.Accept != nil {
+		names = append(names, "pacto_accept")
 	}
 	return names
 }

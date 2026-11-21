@@ -147,11 +147,16 @@ The CLI exits on it, and the MCP tool returns it:
 
 | `gate` | Exit | When |
 |--------|------|------|
-| `blocked` | `1` | The change is `BREAKING` and reaches a consumer that does not accept the new version, or has an `unmet` guarantee, and is *active*. Or a policy referrer that fails the new policy is active, whatever the classification. |
+| `blocked` | `1` | The change is `BREAKING` and reaches a consumer that does not accept the new version, or has an `unmet` guarantee, and is *active*. Or a policy referrer that fails the new policy is active, whatever the classification. Or a [`--policy`](ci.md#accept-proposed-ranges) set to `fail` meets an unknown range or an uncontracted caller. |
 | `unverified` | `2` | Nothing is shown to block the change, but the answer cannot clear it: a `BREAKING` change whose answer is partial or whose consumers none is shown to be safe, or a policy referrer that fails the new policy and runs nowhere known, could not be checked or could not be resolved. |
-| `clear` | `0` | The change is not `BREAKING` and every policy referrer was checked and passes the new policy, or the snapshot is complete and no service depends on the changed one. |
+| `clear` | `0` | The change is not `BREAKING` and every policy referrer was checked and passes the new policy, or the snapshot is complete and no service depends on the changed one, or every consumer [accepted the announced break](impact-consumers.md#announced-breaks) (`BREAKING_ACCEPTED`). |
 
 A command that could not run also exits `1`, with nothing on stdout.
+
+The answer also carries `ranges`, the
+[range coverage](impact-consumers.md#range-coverage) of the changed service's
+consumers, and each announced consumer's `break` state. A changed spec that is
+only inferred adds an [advisory](impact-consumers.md#a-possible-break-on-an-inferred-interface).
 
 **Active means the snapshot knows of somewhere that consumer is deployed**: at
 least one operational target. Compatibility is a statement about contracts;
@@ -168,6 +173,7 @@ Impact: api 1.0.0 -> 2.0.0
 Classification: BREAKING
 Breaking changes: 2
 Potentially breaking changes: 0
+Ranges: 1 declared and 0 accepted of 1 dependency edges (100%)
 Affected consumers (1):
   web                          direct     confidence=contractual  compat=incompatible owner=frontend
     path: web > api  provenance: declared  via: dependency
@@ -188,6 +194,7 @@ Impact: api 1.0.0 -> 2.0.0
 Classification: BREAKING
 Breaking changes: 2
 Potentially breaking changes: 0
+Ranges: 1 declared and 0 accepted of 1 dependency edges (100%)
 Affected consumers (1):
   web                          direct     confidence=contractual  compat=incompatible owner=frontend
     path: web > api  provenance: declared  via: dependency

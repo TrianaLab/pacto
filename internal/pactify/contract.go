@@ -633,7 +633,7 @@ func (p *planner) dependencyEntries(b *strings.Builder, bundles string) {
 			p.undeclared(d.Name, "", "")
 			continue
 		}
-		proposal := proposedRange([]string{version})
+		proposal := contract.ProposedRange([]string{version})
 		fmt.Fprintf(b, "  # from %s\n", d.Where)
 		writeDependency(b, d.Name, ref, fmt.Sprintf("proposed %s, from its contract in --fleet at %s", proposal, version))
 		p.found("%s calls %s (%s), whose contract in --fleet is at %s", p.r.Service, d.Name, d.Where, version)
@@ -666,7 +666,7 @@ func (p *planner) observedEntries(b *strings.Builder, bundles string) map[string
 			p.unproposed(b, d, services, bundles)
 			continue
 		}
-		described, versions, proposal := cmp.Or(theServices(d.described), services), joinAnd(d.Versions), proposedRange(d.Versions)
+		described, versions, proposal := cmp.Or(theServices(d.described), services), joinAnd(d.Versions), contract.ProposedRange(d.Versions)
 		writeDependency(b, d.Name, d.Ref, fmt.Sprintf("proposed %s, from the Pactos describing %s at %s", proposal, described, versions))
 		if described == services {
 			p.found("%s calls %s, described by %s %s", p.r.Service, services, d.Name, versions)
@@ -716,22 +716,6 @@ func (p *planner) undeclared(dep, proposal, from string) {
 	}
 	p.unknown("%s", unknown)
 	p.next("%s", next)
-}
-
-// proposedRange is ^MAJOR.MINOR.0 of the lowest strict-semver version, ""
-// when there is none. It never widens across majors: the comment lists every
-// version, so a person sees the spread.
-func proposedRange(versions []string) string {
-	var low *semver.Version
-	for _, s := range versions {
-		if v, err := semver.StrictNewVersion(s); err == nil && (low == nil || v.LessThan(low)) {
-			low = v
-		}
-	}
-	if low == nil {
-		return ""
-	}
-	return fmt.Sprintf("^%d.%d.0", low.Major(), low.Minor())
 }
 
 // provider is the ref to declare name with and the version its contract in

@@ -69,3 +69,17 @@ func TestTextPlanIndexLine(t *testing.T) {
 		t.Fatalf("got:\n%s", b.String())
 	}
 }
+
+func TestRangesLines(t *testing.T) {
+	if RangesLines(nil) != nil {
+		t.Fatal("no coverage printed a line")
+	}
+	if got := strings.Join(RangesLines(&impact.RangeCoverage{}), "\n"); got != "Ranges: no dependency edges" {
+		t.Fatalf("no edges: got %q", got)
+	}
+	c := &impact.RangeCoverage{Edges: 3, Declared: 1, UnknownTotal: 2, Unknown: []impact.UnknownRange{{From: "a", To: "b", Proposed: "^1.0.0"}}}
+	got := strings.Join(RangesLines(c), "\n")
+	if got != "Ranges: 1 declared and 0 accepted of 3 dependency edges (33%)\n  unknown: a -> b (proposed ^1.0.0)\n  and 1 more" {
+		t.Fatalf("got %q", got)
+	}
+}

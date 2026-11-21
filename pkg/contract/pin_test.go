@@ -194,3 +194,51 @@ func TestPinServiceVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestPinDependencyField(t *testing.T) {
+	cases := map[string]struct{ raw, want string }{
+		"block": {"service: {name: reports}\ndependencies:\n  - name: ledger\n    required: true\n",
+			"service: {name: reports}\ndependencies:\n  - name: ledger\n    compatibility: \">=2.3.0 <3\"\n    required: true\n"},
+		"crlf":         {"dependencies:\r\n  - name: ledger\r\n", "dependencies:\r\n  - name: ledger\r\n    compatibility: \">=2.3.0 <3\"\r\n"},
+		"declared":     {"dependencies:\n  - name: ledger\n    compatibility: \"^1.0.0\"\n", "dependencies:\n  - name: ledger\n    compatibility: \"^1.0.0\"\n"},
+		"unknown":      {"dependencies:\n  - name: ledger\n    compatibility: unknown # pactified\n", "dependencies:\n  - name: ledger\n    compatibility: \">=2.3.0 <3\" # pactified\n"},
+		"multibyte":    {"dependencies:\n  - {note: \"é\", name: ledger,   compatibility:   unknown}\n", "dependencies:\n  - {note: \"é\", name: ledger, compatibility: \">=2.3.0 <3\"}\n"},
+		"quoted":       {"dependencies:\n  - name: ledger\n    compatibility: \"unknown\"\n", "dependencies:\n  - name: ledger\n    compatibility: \">=2.3.0 <3\"\n"},
+		"flow unknown": {"dependencies:\n  - {name: ledger, compatibility: 'unknown'}\n", "dependencies:\n  - {name: ledger, compatibility: \">=2.3.0 <3\"}\n"},
+		"flow":         {"dependencies:\n  - {name: ledger, required: true}\n", "dependencies:\n  - {name: ledger, required: true, compatibility: \">=2.3.0 <3\"}\n"},
+		"no newline":   {"dependencies:\n  - name: ledger", "dependencies:\n  - name: ledger\n    compatibility: \">=2.3.0 <3\"\n"},
+		"name later":   {"dependencies:\n  - required: true\n    name: ledger\n", "dependencies:\n  - required: true\n    compatibility: \">=2.3.0 <3\"\n    name: ledger\n"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			out, err := contract.PinDependencyField([]byte(tc.raw), "ledger", "compatibility", ">=2.3.0 <3")
+			if err != nil || string(out) != tc.want {
+				t.Fatalf("%v\n%q\nwant %q", err, out, tc.want)
+			}
+			var doc map[string]any
+			if err := yaml.Unmarshal(out, &doc); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestPinDependencyFieldMissingDependency(t *testing.T) {
+	for _, raw := range []string{"service: {name: reports}\n", "dependencies:\n  - name: billing\n", "dependencies: {}\n", "- a\n", ""} {
+		if _, err := contract.PinDependencyField([]byte(raw), "ledger", "ref", "oci://x"); err == nil || !strings.Contains(err.Error(), "no dependency ledger") {
+			t.Fatalf("%q: %v", raw, err)
+		}
+	}
+	if _, err := contract.PinDependencyField([]byte("a: [\n"), "ledger", "ref", "oci://x"); err == nil {
+		t.Fatal("bad YAML pinned")
+	}
+}
+
+// TestPinUnknownOverUnknownKeepsText: pinning unknown where unknown is
+// declared changes nothing.
+func TestPinUnknownOverUnknownKeepsText(t *testing.T) {
+	raw := "dependencies:\n  - name: ledger\n    compatibility: unknown\n"
+	if out, err := contract.PinDependencyField([]byte(raw), "ledger", "compatibility", contract.CompatibilityUnknown); err != nil || string(out) != raw {
+		t.Fatalf("%v %q", err, out)
+	}
+}

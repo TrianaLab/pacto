@@ -102,6 +102,7 @@ func (s *Server) registerFleetOperations(api huma.API) {
 	if s.opts.Fleet == nil {
 		return
 	}
+	s.registerAcceptOperation(api)
 	huma.Register(api, huma.Operation{
 		OperationID: "fleet-snapshot",
 		Method:      http.MethodGet,
@@ -394,7 +395,7 @@ func (s *Server) fleetImpact(ctx context.Context, in *fleetImpactInput) (*fleetI
 		}
 		snap = q.SnapshotForSerialization()
 	}
-	res, err := s.opts.Impact(ctx, snap, in.Old, in.New, in.IncludeObserved)
+	res, err := s.opts.Impact(s.withAcceptanceReads(ctx), snap, in.Old, in.New, in.IncludeObserved)
 	if err != nil {
 		return nil, impactHTTPError(err)
 	}

@@ -182,18 +182,12 @@ cannot read, exits `1`. To publish one folder by hand, `pacto publish` takes the
 same `--image`, `--registry`, `--sign-key` and `--no-transparency-log` flags;
 see [Publish a version](publishing.md).
 
-## A breaking change you need to ship
+## Publish a breaking change
 
-Sometimes a breaking change is the right call. Give it a new major version
-(`1.4.2` becomes `2.0.0`): `pacto publish` refuses a breaking change with a
-smaller version. With delivery, the change then waits for the teams whose
-services it would break. Do not remove fields to get past the check. Raising
-`pactoVersion` never hides a breaking change: `pacto ci` publishes an older
-contract as the current version only when that keeps its meaning.
-
-`pacto diff` still fails with the new major version, because the change is
-still breaking, so that pull request's check stays red. Merge it the way your
-repository lets a reviewer override a failed check, such as an admin bypass.
-Or make the diff step informational (`continue-on-error: true` on GitHub) and
-let `pacto publish` be the gate, since it refuses a breaking change without a
-new major version.
+A breaking change needs a new major version (`1.4.2` becomes `2.0.0`):
+`pacto publish` refuses a breaking change with a smaller version. Do not
+remove fields to get past the check. Raising `pactoVersion` never hides a
+breaking change: `pacto ci` publishes an older contract as the current version
+only when that keeps its meaning. Announce the break in `breaks` and each
+consumer owner accepts it with `pacto accept`; the gate clears once every
+consumer accepted. See [Ship a breaking change](ci.md#ship-a-breaking-change).

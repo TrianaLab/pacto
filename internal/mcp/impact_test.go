@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
@@ -22,6 +23,7 @@ func stubImpactTraces(res *impact.Result, err error, seen *impact.Options, seenT
 		if seen != nil {
 			seen.IncludeObserved = req.IncludeObserved
 			seen.Event = req.Event
+			seen.Policy = req.Policy
 		}
 		if seenTraces != nil {
 			*seenTraces = req.TracesPath
@@ -37,6 +39,24 @@ func TestImpactHandler_TracesReachProvider(t *testing.T) {
 	})
 	if seenTraces != "/tmp/traces.json" {
 		t.Errorf("traces path = %q, want /tmp/traces.json", seenTraces)
+	}
+}
+
+// TestImpactToolTakesPolicy: policy reads as pacto impact's --policy
+// values, and a bad one is an error result before any analysis.
+func TestImpactToolTakesPolicy(t *testing.T) {
+	var seen impact.Options
+	callHandler(t, impactTool(), impactHandler(stubImpact(&impact.Result{}, nil, &seen), nil), map[string]any{
+		"old_ref": "a", "new_ref": "b", "policy": []any{"unknown-range=fail", "uncontracted=fail:7d"},
+	})
+	if seen.Policy != (impact.Policy{UnknownRange: impact.PolicyFail, Uncontracted: impact.PolicyFail, UncontractedWindow: "168h0m0s"}) {
+		t.Fatalf("policy = %+v", seen.Policy)
+	}
+	if _, err := (impactArgs{OldRef: "a", NewRef: "b", Policy: []string{"unknown-range=maybe"}}).request(); err == nil {
+		t.Fatal("a bad policy was taken")
+	}
+	if d := impactTool().Description; !strings.Contains(d, "'ranges'") || !strings.Contains(d, "'policy'") {
+		t.Error("the description names neither coverage nor policy")
 	}
 }
 
@@ -178,5 +198,20 @@ func TestImpactToolDescriptionNamesIndex(t *testing.T) {
 		if !strings.Contains(d, want) {
 			t.Errorf("description lacks %q", want)
 		}
+	}
+}
+
+func TestMCPImpactCarriesInferredAdvisory(t *testing.T) {
+	want := &impact.Result{Service: "orders", Classification: "NON_BREAKING", Gate: impact.GateUnverified,
+		Advisories: []impact.InferredAdvisory{{Advisory: diff.Advisory{Interface: "api", Source: "openapi.yaml:1"},
+			Consumers: []impact.AdvisoryConsumer{{Service: "web", Confidence: impact.ConfidenceInferred, Compatibility: impact.CompatibilityUnknown}}}}}
+	res := callHandler(t, impactTool(), impactHandler(stubImpact(want, nil, nil), nil), map[string]any{"old_ref": "a", "new_ref": "b"})
+	var out impact.Result
+	decode(t, res, &out)
+	if len(out.Advisories) != 1 || out.Advisories[0].Interface != "api" || out.Advisories[0].Consumers[0] != want.Advisories[0].Consumers[0] {
+		t.Fatalf("advisories %+v", out.Advisories)
+	}
+	if d := impactTool().Description; !strings.Contains(d, "'advisories'") || !strings.Contains(d, "never clears or blocks") || !strings.Contains(d, "INFERRED_POSSIBLE_BREAK") {
+		t.Error("the description does not name the advisory")
 	}
 }

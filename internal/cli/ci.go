@@ -81,7 +81,11 @@ func newCICommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder) *c
 			if err != nil {
 				return err
 			}
-			opts := app.CIOptions{Root: root, Registry: registry, Fleet: fo, Getenv: os.Getenv, Bundles: bundles, TargetSnapshotAuto: auto}
+			policy, err := parsePolicy(cmd)
+			if err != nil {
+				return err
+			}
+			opts := app.CIOptions{Root: root, Registry: registry, Fleet: fo, Getenv: os.Getenv, Bundles: bundles, TargetSnapshotAuto: auto, Policy: policy}
 			p, results, err := runCI(cmd, svc, d, rec, opts, revs)
 			if err != nil {
 				return err
@@ -126,6 +130,7 @@ func newCICommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder) *c
 	cmd.Flags().Bool("no-transparency-log", false, "with --publish and --sign-key: keep the signatures out of the transparency log")
 	addFleetSourceFlags(cmd.Flags())
 	addStatsFlags(cmd)
+	addPolicyFlag(cmd)
 	return cmd
 }
 

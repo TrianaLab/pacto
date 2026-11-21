@@ -5,15 +5,31 @@
 - `CI: none`
 - `Registry: ghcr.io/acme (from --registry)`
 - `Base: none`
-- `Consumer source: none (IMPACT reads unverified)`
-- `Index: 0 from ghcr.io/acme/pacto-index (listed by tag, 3 services listed, unchecked)`
+- `Consumer source: targets-6f1e0000-cccc-4000-8000-000000000003 (available, asOf <time>)`
+- `Consumer source: targets-6f1e0000-cccc-4000-8000-000000000003-workloads (empty, asOf <time>)`
+- `Index: 1 from ghcr.io/acme/pacto-index (listed by tag, complete)`
+- `Ranges: 0 declared and 0 accepted of 1 dependency edges (0%)`
+- `  unknown: reports -> ledger (proposed ^2.4.0)`
 
 | SERVICE | CHANGED | VERSION | CLASSIFICATION | IMPACT | INFERRED |
 |---|---|---|---|---|---|
-| `ledger` | `yes` | `1.0.0 -> 1.1.0` | `NON_BREAKING` | `unverified (no consumer source)` | - |
-| `payments` | `yes` | `1.4.2 -> 1.4.3 (derived)` | `NON_BREAKING` | `unverified (service.name inferred; declare it)` | `6 fields` |
-| `reports` | `no` | - | - | - | - |
+| `ledger` | `yes` | `2.4.0 -> 3.0.0` | `BREAKING` | `clear` | `1 field` |
+| `payments` | `yes` | `1.4.2 -> 1.4.3 (derived)` | `NON_BREAKING` | `unverified (possible break (inferred): interfaces[api]; declare it to classify)` | `6 fields` |
+| `reports` | `no` | - | - | - | `2 fields` |
+
+- `possible break (inferred) payments api openapi/v1.yaml:1: openapi.paths[/payments].methods[GET].parameters[currency:query] GET /payments query param 'currency' added; consumers (inferred, unknown): none`
+
+  <details><summary>Declare api</summary>
+
+  ```yaml
+  interfaces:
+    - name: api
+      type: openapi
+      ref: openapi/v1.yaml
+  ```
+
+  </details>
 
 - `skipped: services/legacy (from .pactoignore:1)`
-- `ledger: pacto.yaml is 2.4, publishes as 2.5 (migrated in memory)`
+- `ledger: break accepted for reports (ana@acme.com, ghcr.io/acme/reports@<digest>); expires 2026-12-14 (commit 92b546ad6e54 + 30d, inferred)`
 - `payments: baseline unverified in plan mode`

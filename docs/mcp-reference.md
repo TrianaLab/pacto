@@ -95,8 +95,9 @@ logs no line.
 
 ## The authoring tools
 
-Every mode except `--root` carries these four and
-[`pacto_declare`](#declare-a-running-service) over stdio. Over HTTP it serves
+Every mode except `--root` carries these four,
+[`pacto_declare`](#declare-a-running-service) and
+[`pacto_accept`](#accept-proposed-ranges-and-breaks) over stdio. Over HTTP only
 `pacto_schema` and a planning `pacto_declare`.
 
 | Tool | Description |
@@ -210,6 +211,31 @@ the command a person runs:
 | `ExecuteNeedsStdio` | An HTTP server only plans: run the `cli` command |
 | `BaselineNeedsMigration` | The baseline is below `pactoVersion: "2.5"`: run `pacto migrate` |
 | `BundleRepoMismatch` | The baseline publishes to another repository than `registry` |
+
+### Accept proposed ranges and breaks
+
+- `pacto_accept` plans what [`pacto accept`](ci.md#accept-proposed-ranges)
+  would sign for the newest published version of a service and follows the
+  same agent write contract as `pacto_declare`. It is served over stdio only.
+- It takes `service` (a bundle repository or a checkout folder), `proposed`,
+  `fields`, `break` (`<provider>@<version>`), `from`, `on_behalf_of`,
+  `dry_run` and `intent_digest`.
+- The plan names each field with its value and source, or the break, the
+  acceptances already attached, who may accept (the service's declared owner)
+  and the `intentDigest`.
+- A write writes a write-once `pacto-accept-draft-<n>` tag in the service's
+  bundle repository carrying `on_behalf_of`, never a signed acceptance, even
+  with a person's ambient token. `acceptCLI` is the
+  `pacto accept <service> --draft <ref>` command that person runs to sign.
+- Its refusals add these codes to the table above:
+
+| Code | Meaning |
+|---|---|
+| `AcceptNothingProposed` | The newest published version proposes nothing to accept |
+| `FieldNotAcceptable` | The field is no proposed dependency `ref` or `compatibility`: declare it with `pacto declare` |
+| `BreakNotAnnounced` | The provider version announces no break for this service, published or in `from` |
+| `NotPublished` | The service has no published version to attach the acceptance to |
+| `PersonSigningUnavailable` | Accepting a draft needs a person's interactive Sigstore login |
 
 ## Bundle capabilities
 

@@ -154,6 +154,19 @@ type InferredInputs struct {
 	// Cluster is the cluster read a draft was completed from, absent when
 	// the record was completed from a folder alone.
 	Cluster *InferredClusterInput `json:"cluster,omitempty" yaml:"cluster,omitempty"`
+	// Acceptances are the signed acceptances pacto ci carried into this
+	// bundle: a range one pins its fields into pacto.yaml, a break one
+	// keeps the record in the service's lookup set.
+	Acceptances []CitedAcceptance `json:"acceptances,omitempty" yaml:"acceptances,omitempty"`
+}
+
+// CitedAcceptance is one carried acceptance: where the record is
+// (<repository>@sha256:<hex>), who signed it and what it carried (the
+// pinned field keys, or the accepted break as <provider>@<version>).
+type CitedAcceptance struct {
+	Record string `json:"record" yaml:"record"`
+	Signer string `json:"signer" yaml:"signer"`
+	Fields string `json:"fields" yaml:"fields"`
 }
 
 // InferredExternal is a system outside the cluster a folder names: its
@@ -269,6 +282,9 @@ func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 		err := checkInferredField(f, seen)
 		if err == nil {
 			err = checkClusterField(f, r.Inputs.Cluster)
+		}
+		if err == nil {
+			err = checkProposalKey(f)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("%s: fields[%d]%s", InferredRecordFile, i, err)
@@ -432,8 +448,8 @@ func checkClusterField(f Inferred, c *InferredClusterInput) error {
 	if err := checkFactExtras(f, cluster && (kind == "runtime" || kind == "fleet")); err != nil {
 		return err
 	}
-	if f.Proposed != "" && (!cluster || kind != "fleet") { // ponytail: the one proposal source of wave 3; 508-S7 widens it to its own
-		return errors.New(".proposed is only on a cluster:fleet fact")
+	if f.Proposed != "" && (!cluster || kind != "fleet") && !strings.HasPrefix(f.Source, SourceSnapshot) {
+		return errors.New(".proposed is only on a cluster:fleet fact or a snapshot: source")
 	}
 	return nil
 }
@@ -558,12 +574,51 @@ func externalPaths(f Inferred) []string {
 
 // sourceForms are the field sources outside the folder, which
 // inputs.sources never lists: the verified registry baseline a derived value
-// came from (a repository, pinned by digest when it holds a version) and the
-// command-line flag that supplied one. Any other value under one of these
-// prefixes is invalid.
+// came from (a repository, pinned by digest when it holds a version), the
+// command-line flag that supplied one, and what pacto ci proposes from: the
+// organization index entry a ref came from (index:<repo>:<tag>), the pinned
+// target snapshot a range came from (snapshot:<repo>@sha256:<hex>) and the
+// commit time a break expiry counts from (commit:<12 hex> +30d). Any other
+// value under one of these prefixes is invalid.
 var sourceForms = map[string]*regexp.Regexp{
 	"registry:": regexp.MustCompile(`^registry:[a-z0-9][a-z0-9._:/-]*[a-z0-9](@sha256:[0-9a-f]{64})?$`),
 	"flag:":     regexp.MustCompile(`^flag:--[a-z][a-z-]*$`),
+	"index:":    regexp.MustCompile(`^index:[a-z0-9][a-z0-9._:/-]*[a-z0-9]:[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$`),
+	"snapshot:": regexp.MustCompile(`^snapshot:[a-z0-9][a-z0-9._:/-]*[a-z0-9]@sha256:[0-9a-f]{64}$`),
+	"commit:":   regexp.MustCompile(`^commit:[0-9a-f]{12} \+30d$`),
+}
+
+// The proposal source prefixes and the one field family each may sit on.
+const (
+	SourceIndex    = "index:"
+	SourceSnapshot = "snapshot:"
+	SourceCommit   = "commit:"
+)
+
+var (
+	depRefKeyRE        = regexp.MustCompile(`^dependencies\[[^\[\]]+\]\.ref$`)
+	depCompatKeyRE     = regexp.MustCompile(`^dependencies\[[^\[\]]+\]\.compatibility$`)
+	breakExpiresKeyRE  = regexp.MustCompile(`^breaks\[[0-9]+\]\.expires$`)
+	breakExpiresDateRE = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
+)
+
+// checkProposalKey is why f's proposal source sits on a field it cannot
+// propose, as a suffix of "fields[i]", or nil: an index: source only on a
+// dependencies[<name>].ref, a snapshot: source only on a proposed
+// dependencies[<name>].compatibility, and a breaks[<i>].expires field only
+// from a commit: source, with a date.
+func checkProposalKey(f Inferred) error {
+	switch {
+	case strings.HasPrefix(f.Source, SourceIndex) && !depRefKeyRE.MatchString(f.Field):
+		return fmt.Errorf(".source is an index: source on %q, want a dependencies[<name>].ref field", f.Field)
+	case strings.HasPrefix(f.Source, SourceSnapshot) && (!depCompatKeyRE.MatchString(f.Field) || f.Proposed == ""):
+		return fmt.Errorf(".source is a snapshot: source on %q, want a proposed dependencies[<name>].compatibility field", f.Field)
+	case strings.HasPrefix(f.Source, SourceCommit) != breakExpiresKeyRE.MatchString(f.Field):
+		return fmt.Errorf(".field %q and a commit: source go together: breaks[<i>].expires from commit:<12 hex> +30d", f.Field)
+	case breakExpiresKeyRE.MatchString(f.Field) && !breakExpiresDateRE.MatchString(f.Value):
+		return fmt.Errorf(".value %q is not a YYYY-MM-DD date", f.Value)
+	}
+	return nil
 }
 
 // sourceForm reports whether s carries one of the sourceForms prefixes, and
@@ -603,6 +658,20 @@ func validPath(p string) bool {
 // repositoryPrefix marks a source read from the repository root, outside the
 // bundle.
 const repositoryPrefix = "repository:"
+
+// Proposed is the value r proposes for field, "" when r is nil or
+// proposes none.
+func (r *InferredRecord) Proposed(field string) string {
+	if r == nil {
+		return ""
+	}
+	for _, f := range r.Fields {
+		if f.Field == field {
+			return f.Proposed
+		}
+	}
+	return ""
+}
 
 // Marshal writes the record with its fields sorted by field then source, its
 // findings truncation first then by code and source, its sources by path, its
@@ -730,6 +799,17 @@ func VerifyInferredRecord(fsys fs.FS, rec *InferredRecord) error {
 			return fmt.Errorf("migrations[%d]: %s %w", i, m.Source, err)
 		}
 	}
+	return checkCitedAcceptances(rec.Inputs.Acceptances)
+}
+
+// checkCitedAcceptances is why a cited acceptance does not name its
+// record as <repository>@sha256:<64 hex>, or nil.
+func checkCitedAcceptances(list []CitedAcceptance) error {
+	for i, a := range list {
+		if repo, d, ok := strings.Cut(a.Record, "@"); !ok || repo == "" || !inferredDigestRE.MatchString(d) {
+			return fmt.Errorf("inputs.acceptances[%d].record is %q, want <repository>@sha256:<64 hex>", i, a.Record)
+		}
+	}
 	return nil
 }
 
@@ -771,7 +851,8 @@ func refuseClusterFacts(rec *InferredRecord) error {
 		}
 	}
 	for i, f := range rec.Fields {
-		if strings.HasPrefix(f.Source, clusterPrefix) || f.Proposed != "" { // only a cluster:fleet fact proposes in wave 3
+		// A snapshot: proposal is pinned by digest, so it may sit in a bundle.
+		if strings.HasPrefix(f.Source, clusterPrefix) || f.Proposed != "" && !strings.HasPrefix(f.Source, SourceSnapshot) {
 			return fmt.Errorf("fields[%d] (%s): %s", i, f.Field, clusterBundleRefusal)
 		}
 	}

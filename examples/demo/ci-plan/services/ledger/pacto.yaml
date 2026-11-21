@@ -1,12 +1,16 @@
-# Written for pactoVersion 2.4: pacto ci raises it in memory and publishes it
-# as the current version.
-pactoVersion: "2.4"
+# Ledger 3.0.0 removes GET /entries and announces the break to reports, the
+# one service that calls it. reports accepts it with pacto accept before
+# ledger publishes.
+pactoVersion: "2.5"
 service:
   name: ledger
-  version: 1.1.0
+  version: 3.0.0
   owner:
     team: payments
 interfaces:
   - name: api
     type: openapi
     ref: openapi/v1.yaml
+breaks:
+  - consumers: [reports]
+    reason: GET /entries is removed; read one entry with GET /entries/{id}

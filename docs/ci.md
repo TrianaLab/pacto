@@ -105,6 +105,9 @@ The plan prints each value it detected with its source:
   or `not read` when no changed service has a published baseline
 - `Index`: the [organization index](#consumers-from-the-organization-index)
   read and how complete the read was; the index alone is no consumer source
+- `Ranges`: how many dependency edges of the services it walked declare a
+  range or carry an [accepted](#accept-proposed-ranges) one, then each
+  `unknown` range with the range Pacto proposes
 
 Then one row per service:
 
@@ -133,9 +136,9 @@ It exits with that row's code. `--output-format json` prints the plan as JSON.
 `PACTO_EXTERNAL_CATALOG` only, never from a `pacto` config file in the working
 directory, which a pull request can change.
 
-On GitHub Actions the plan is also added to the job summary. On GitLab CI it
-is written to `pacto-plan.md`; keep it with
-`artifacts: paths: [pacto-plan.md]`.
+- On GitHub Actions the plan is also added to the job summary.
+- On GitLab CI it is written to `pacto-plan.md`; keep it with
+  `artifacts: paths: [pacto-plan.md]`.
 
 ### Older contracts
 
@@ -151,6 +154,61 @@ adds no validation finding. Its row says:
 No note changes the exit code. The bundle records the raise in
 `pacto.inferred.yaml` ([Migrations](contract-reference/inferred-record.md#migrations)),
 shown as inferred in the dashboard. `pacto migrate` rewrites the file itself.
+
+### Accept proposed ranges
+
+`pacto ci` proposes, in `pacto.inferred.yaml` and with a source:
+
+- A [dependency by name](contract-reference/dependencies-and-state.md#depend-on-a-service-by-name)
+  gets its `ref` from the organization index entry of the service of that
+  name in your domain (`index:<repo>:<tag>`).
+- A dependency whose range is absent or `unknown` gets `^MAJOR.MINOR.0` of
+  the provider version this service runs with in the target snapshot
+  (`snapshot:<repo>@sha256:<hex>`).
+- A proposal publishes as `compatibility: unknown`: it reads unverified and
+  never clears the gate.
+- A changed spec file that is only inferred may print
+  `possible break (inferred)` with the YAML that declares the interface. The
+  row stays unverified until you declare it; see
+  [a possible break on an inferred interface](impact-consumers.md#a-possible-break-on-an-inferred-interface).
+
+The service owner accepts them without a commit:
+
+```bash
+pacto accept oci://ghcr.io/acme/reports --proposed --dry-run    # the plan and its intent digest
+pacto accept oci://ghcr.io/acme/reports --proposed --intent sha256:...
+```
+
+- `--proposed` accepts every proposed range of the newest published version.
+  A proposed `ref` is accepted only by naming it,
+  `--field 'dependencies[ledger].ref'`, and
+  `--field 'dependencies[ledger].compatibility=^2.0.0'` accepts another range.
+- Only your interactive Sigstore login (a browser, or `--device`) signs. The
+  record is attached to that version in its own bundle repository with your
+  registry credentials: a referrer, or on a registry without the Referrers
+  API, such as GHCR, a write-once `pacto-accept-<hex>-<hex>` tag.
+- Only a record signed by the service's declared owner (its DRI or an email
+  contact) counts. One by anybody else reads `waiting for the owner of
+  reports` with who may accept. A key, an ambient OIDC token in CI or an
+  agent through `pacto_accept` writes a `pacto-accept-draft-<n>` that a
+  person accepts with `--draft`.
+- A counted range reads `accepted` in the `Ranges:` line at once. The next
+  `pacto ci --publish` pins it into the published `pacto.yaml`, where it reads
+  declared, and cites the record in `inputs.acceptances`. A range your
+  `pacto.yaml` declares wins; `compatibility: unknown` declares none. A
+  declared `service.version` that is already published pins nothing until you
+  bump it.
+- One command accepts ranges or a break, never both.
+- The dashboard's service page offers **Accept all proposed ranges** inside
+  **Inferred by Pacto** to a signed-in or local viewer: it shows the plan and
+  the `pacto accept` command, and never signs or writes.
+
+- `--policy` on `pacto ci` and `pacto impact` sets how a `BREAKING` change
+  treats what no range covers. The default `warn` adds a `POLICY_WARNING`
+  note. `unknown-range=fail` blocks while a direct consumer's range is unknown
+  and not accepted (`POLICY_UNKNOWN_RANGE`). `uncontracted=fail:7d` blocks
+  while a caller no contract describes was seen in the last 7 days
+  (`POLICY_UNCONTRACTED`).
 
 ## On every pull request: who breaks
 
@@ -268,6 +326,37 @@ A consumer deployed nowhere is in no snapshot. The index finds it once it is
 published; name an unpublished one with `--root ./services/checkout`. A
 `BREAKING` change that reaches only these exits `2`.
 
+## Ship a breaking change
+
+Announce a deliberate break, with a new major version (`2.4.0` becomes
+`3.0.0`), in [`breaks`](contract-reference/dependencies-and-state.md#breaks):
+
+```yaml
+breaks:
+  - consumers: [reports]
+    reason: Amounts move from cents to euros; read amount_eur.
+```
+
+- `pacto ci` shows each announced consumer `announced for reports, not
+  accepted` and the gate holds the change.
+- Each consumer owner accepts with
+  `pacto accept oci://ghcr.io/acme/reports --break ledger@3.0.0`, signed as
+  for [proposed ranges](#accept-proposed-ranges). Before ledger 3.0.0 is
+  published, `--from ../ledger` (its checkout or a pushed `oci://` ref) reads
+  the announcement.
+- A consumer also reads `accepted` when its own published ranges admit the
+  new version, a source shows where it runs and no revision that refuses it
+  runs there.
+- The gate clears (`BREAKING_ACCEPTED`) once every consumer accepted. Nobody
+  overrides a failed check.
+- An announcement without `expires` expires 30 days after the commit time,
+  recorded in `pacto.inferred.yaml`. An expired break blocks again.
+- A plain `pacto publish` carries no acceptance forward, so one stays found
+  only while the accepted version is the consumer's newest or runs on a
+  target. `pacto ci --publish` carries it.
+- Gate on `pacto ci` or `pacto impact`: `pacto diff` still fails on the
+  change, because it is still breaking.
+
 ## After a merge: publish
 
 To publish every changed service of the repository in one step, with the
@@ -298,7 +387,7 @@ It never overwrites a published version, and a merge that does not raise
 `service.version` in `pacto.yaml` fails here. Raise
 the version with each change you want to ship, or run this step only when
 `pacto.yaml` changed. See [Publish a version](publishing.md) and
-[A breaking change you need to ship](publish-from-ci.md#a-breaking-change-you-need-to-ship).
+[Ship a breaking change](#ship-a-breaking-change).
 
 If you use contracts without delivery, `pacto push oci://ghcr.io/acme/contracts/my-service -p .`
 uploads only the contract.

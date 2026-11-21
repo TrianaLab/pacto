@@ -9,6 +9,7 @@ Impact: inventory-service 2.1.0 -> 3.0.0
 Classification: BREAKING
 Breaking changes: 1
 Potentially breaking changes: 0
+Ranges: 5 declared and 0 accepted of 5 dependency edges (100%)
 Affected consumers (7):
   fulfillment-service          direct     confidence=contractual  compat=incompatible owner=logistics-team
     path: fulfillment-service > inventory-service  provenance: declared  via: dependency
