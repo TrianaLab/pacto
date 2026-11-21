@@ -242,6 +242,10 @@ pacto impact --running . \
 - **Hosts.** Revisions are pulled only from the snapshot hosts, an `oci://`
   `<new>` and `PACTO_RUNNING_REGISTRIES` (or `running-registries` in the
   config file).
+- **Itself.** A target already running the digest of an `oci://` `<new>` is
+  never its baseline, so a gate that runs after a deploy, such as a
+  [Kargo verification](integrations/kubernetes/gitops-kargo.md#kargo), passes
+  `oci://<repo>@<digest>` and Pacto judges it against the other revisions.
 - **Bounds.** At most 8 running revisions are judged and 32 unread lines are
   listed; the last line counts the rest, and the answer never clears over them.
 

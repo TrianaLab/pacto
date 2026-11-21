@@ -134,6 +134,10 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	// the Pacto CRD and the workloads the cluster runs. The taken-over
 	// workload is the takeover target, so it counts once.
 	crdRow, workloadsRow := demoProviders(targets, inferred)
+	promoterRows, err := demoPromoterRows()
+	if err != nil {
+		return nil, nil, err
+	}
 	cluster := fleet.NewMemorySource("k8s-production", fleet.SourceKindKubernetes, &fleet.Collection{
 		Cluster:      prodCluster,
 		Providers:    []fleet.Provider{crdRow},
@@ -151,7 +155,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	workloads := fleet.NewMemorySource("k8s-production-workloads", fleet.SourceKindKubernetesWorkloads, &fleet.Collection{
 		Cluster:          prodCluster,
 		InferredServices: append(inferred, takenOver),
-		Providers:        append([]fleet.Provider{workloadsRow}, demoGroupingProviders(inferred)...),
+		Providers:        append(append([]fleet.Provider{workloadsRow}, demoGroupingProviders(inferred)...), promoterRows...),
 	})
 	// Telemetry is a second collector over the SAME estate: it corroborates the two
 	// targets it can see (agreeing on every identity-bearing field, so they merge

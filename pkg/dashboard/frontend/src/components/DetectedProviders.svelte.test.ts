@@ -261,6 +261,20 @@ describe('DetectedProviders', () => {
       expect(a.getAttribute('rel')).toBe('noopener noreferrer');
     });
 
+    it('renders the Kargo offer as a link to the docs', async () => {
+      const kargo = { id: 'kargo-analysis-template', text: 'Gate every Kargo promotion with one shared AnalysisTemplate',
+        doc: 'https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo' };
+      providersFn.mockResolvedValue(resp([row('promotion/Kargo', { name: 'Kargo', usedFor: ['promotion'],
+        evidence: 'promotion owned by Kargo (API group kargo.akuity.io served)', offers: [kargo] })]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
+      const [line] = offerLines(rows(t)[0]);
+      expect(text(line)).toBe(`${kargo.text} Set up`);
+      const a = line.querySelector('a') as HTMLAnchorElement;
+      expect(a.getAttribute('href')).toBe(kargo.doc);
+      expect(a.getAttribute('aria-label')).toBe(`Set up: ${kargo.text}`);
+    });
+
     it('an offer whose doc is not https renders no link', async () => {
       providersFn.mockResolvedValue(resp([row('a', { offers: [offer('javascript:alert(1)')] }), row('b', { offers: [offer('http://x')] })]));
       const t = render();
