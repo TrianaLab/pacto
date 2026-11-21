@@ -266,10 +266,10 @@ func TestBoundSignersKeepsTheDeclarer(t *testing.T) {
 
 func TestRestrictHidesDeclarationOfUnlistableWorkloadKind(t *testing.T) {
 	q := declFleet(t, signedOpts(t))
-	if sc := q.InferredWorkloadScopes(); !slices.Contains(sc, WorkloadScope{"news", "Deployment"}) {
+	if sc := q.InferredWorkloadScopes(); !slices.Contains(sc, WorkloadScope{Namespace: "news", Kind: "Deployment"}) {
 		t.Fatalf("the declaration's workload is not reviewed: %v", sc)
 	}
-	r := q.Restrict(func(string) bool { return true }, func(ns, kind string) bool { return ns != "news" || kind != "Deployment" })
+	r := q.Restrict(anyCluster(func(string) bool { return true }), anyClusterKind(func(ns, kind string) bool { return ns != "news" || kind != "Deployment" }))
 	if r == q {
 		t.Fatal("a workload kind the viewer may not list must restrict the view")
 	}
@@ -279,7 +279,7 @@ func TestRestrictHidesDeclarationOfUnlistableWorkloadKind(t *testing.T) {
 func TestRestrictHidesClusterDependencyOnHiddenService(t *testing.T) {
 	o := signedOpts(t)
 	o.targets, o.workerNS = true, "internal"
-	r := declFleet(t, o).Restrict(func(ns string) bool { return ns != "internal" }, func(string, string) bool { return true })
+	r := declFleet(t, o).Restrict(anyCluster(func(ns string) bool { return ns != "internal" }), anyClusterKind(func(string, string) bool { return true }))
 	d := newsRevision(t, r)
 	if d.Declaration.InferredFromHidden || len(d.Inferred) != 1 || d.InferredHidden == nil || d.InferredHidden.Fields != 2 {
 		t.Errorf("the hidden service's cluster facts reached the viewer: %+v %+v", d.Inferred, d.InferredHidden)
@@ -339,7 +339,7 @@ func TestDeclarationNamesDraft(t *testing.T) {
 
 // restrictNews is q as a viewer who may read every namespace but news.
 func restrictNews(q *Query) *Query {
-	return q.Restrict(func(ns string) bool { return ns != "news" }, func(string, string) bool { return true })
+	return q.Restrict(anyCluster(func(ns string) bool { return ns != "news" }), anyClusterKind(func(string, string) bool { return true }))
 }
 
 // wantInferredFromHidden: no inferredFrom, cluster field or coverage, the
@@ -383,7 +383,7 @@ func TestRestrictedViewerSeesNoForeignNamespaceInClusterSource(t *testing.T) {
 
 func TestRestrictHidesInferredFromWithNoTargetInNamespace(t *testing.T) {
 	q := declFleet(t, signedOpts(t)) // no Kubernetes target or source anywhere
-	if got := q.Namespaces(); len(got) != 1 || got[0] != "news" {
+	if got := namespaceNames(q.Namespaces()); len(got) != 1 || got[0] != "news" {
 		t.Fatalf("Namespaces = %v, want the declaration's", got)
 	}
 	r := restrictNews(q)
@@ -404,7 +404,7 @@ func TestRestrictDoesNotMutateSharedRevision(t *testing.T) {
 
 func TestRestrictVisibleDeclarationNamespaceUnchanged(t *testing.T) {
 	q := declFleet(t, signedOpts(t))
-	if q.Restrict(func(string) bool { return true }, func(string, string) bool { return true }) != q {
+	if q.Restrict(anyCluster(func(string) bool { return true }), anyClusterKind(func(string, string) bool { return true })) != q {
 		t.Error("a viewer who may read news sees the snapshot unchanged")
 	}
 }

@@ -250,7 +250,7 @@ func TestUsageTruncated(t *testing.T) {
 	if got := msgs(q); len(q.snap.Usage) != MaxUsageRecords || len(got) != 1 || !strings.HasPrefix(got[0], "10002 usage reports exceed") {
 		t.Errorf("unrestricted = %q (%d kept)", got, len(q.snap.Usage))
 	}
-	r := q.Restrict(func(ns string) bool { return ns != "secret" }, nil)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "secret" }), anyClusterKind(nil))
 	if got := msgs(r); len(got) != 1 || !strings.HasPrefix(got[0], "2 usage reports about the services you can see") {
 		t.Errorf("restricted = %q", got)
 	}
@@ -269,10 +269,10 @@ func TestUsageRestrictedToVisibleConsumers(t *testing.T) {
 	snap := usageSnap(t, 0, base, []RawUsage{usageReport(), usageReport(billing)})
 	// An orphaned usage report alone makes Restrict rebuild the view.
 	snap.Usage = append(snap.Usage, UsageRecord{ServiceKey: NewServiceKeyDomain(acme, "ghost"), Service: "ghost", Producer: "ghost-adapter"})
-	if keepsEveryName(snap, false, func(string, string) bool { return false }) {
+	if keepsEveryName(snap, false, anyClusterKind(func(string, string) bool { return false })) {
 		t.Error("an orphaned usage report reads as visible")
 	}
-	r := NewQuery(snap).Restrict(func(ns string) bool { return ns != "secret" }, nil)
+	r := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns != "secret" }), anyClusterKind(nil))
 	if c := one(t, must(consumption(t, r))); c.State != consumptionReported {
 		t.Errorf("orders consumption = %+v", c)
 	}
@@ -375,7 +375,7 @@ func hiddenMailUsageSnap(t *testing.T) *FleetSnapshot {
 // it stays (it raises attention) without the adapter or external reference,
 // and its usage and cost go whole, while a visible provider's stay.
 func TestAttackHiddenProviderCostWithheld(t *testing.T) {
-	r := NewQuery(hiddenMailUsageSnap(t)).Restrict(func(ns string) bool { return ns != "hush" }, nil)
+	r := NewQuery(hiddenMailUsageSnap(t)).Restrict(anyCluster(func(ns string) bool { return ns != "hush" }), anyClusterKind(nil))
 	view := r.SnapshotForSerialization()
 	if len(view.Usage) != 1 || view.Usage[0].Name != "db" || view.Usage[0].Cost == nil {
 		t.Errorf("usage = %+v, want the visible db report only", view.Usage)

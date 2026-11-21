@@ -18,57 +18,108 @@ const LimitationHiddenByPermissions = "HIDDEN_BY_PERMISSIONS"
 // hiddenMessage is what a restricted answer says about what it left out.
 const hiddenMessage = "some services are hidden because Kubernetes permissions do not let you read their namespace"
 
-// Namespaces lists, sorted, the namespaces the snapshot's Kubernetes targets,
-// inferred services and k8s uncontracted callers run in, the namespaces
-// declared revisions came from, and the namespaces its Kubernetes sources
-// were told to read: the ones a caller's permissions decide.
-func (q *Query) Namespaces() []string {
-	seen := map[string]bool{}
+// ClusterNamespace is one namespace of one cluster: what a caller's
+// permissions decide. Cluster is "" for an item whose cluster is unknown, such
+// as an unqualified caller of a single-cluster snapshot.
+type ClusterNamespace struct{ Cluster, Namespace string }
+
+// Namespaces lists, sorted by cluster then namespace, the (cluster, namespace)
+// pairs the snapshot's Kubernetes targets, inferred services and k8s
+// uncontracted callers run in, the namespaces declared revisions came from,
+// and the namespaces its Kubernetes sources were told to read: the ones a
+// caller's permissions decide.
+func (q *Query) Namespaces() []ClusterNamespace {
+	seen := map[ClusterNamespace]bool{}
 	for _, t := range q.snap.Targets {
-		if t.Kind == SourceKindKubernetes && t.Scope != "" {
-			seen[t.Scope] = true
+		if kubeTarget(t) {
+			seen[ClusterNamespace{t.Cluster, t.Scope}] = true
 		}
 	}
 	for _, sc := range q.InferredWorkloadScopes() {
-		seen[sc.Namespace] = true
+		seen[ClusterNamespace{sc.Cluster, sc.Namespace}] = true
 	}
 	for _, c := range q.snap.UncontractedCallers {
-		if ns, ok := callerNamespace(c); ok {
-			seen[ns] = true
+		if cn, ok := callerNamespace(c); ok {
+			seen[cn] = true
 		}
 	}
 	for _, r := range q.snap.Revisions {
-		if sc, ok := declarationScope(r); ok {
-			seen[sc.Namespace] = true
+		if sc, ok := declarationScope(q.snap, r); ok {
+			seen[ClusterNamespace{sc.Cluster, sc.Namespace}] = true
 		}
 	}
-	scopeNamespaces(q.snap, seen)
-	providerNamespaces(q.snap.Providers, seen)
+	clusters := clusterOfSource(q.snap)
+	scopeNamespaces(q.snap, clusters, seen)
+	providerNamespaces(q.snap.Providers, clusters, seen)
+	return slices.SortedFunc(maps.Keys(seen), compareClusterNamespace)
+}
+
+// ClusterIDs lists, sorted, every cluster id the snapshot holds something of:
+// its clusters and the clusters of its targets (Kubernetes or not) and its
+// provider rows. A reader's view needs a reviewer for each.
+func (q *Query) ClusterIDs() []string {
+	seen := map[string]bool{}
+	for _, c := range q.snap.Clusters {
+		seen[c.ID] = true
+	}
+	for _, t := range q.snap.Targets {
+		seen[t.Cluster] = true
+	}
+	clusters := clusterOfSource(q.snap)
+	for _, p := range q.snap.Providers {
+		seen[providerCluster(p, clusters)] = true
+	}
+	delete(seen, "")
 	return slices.Sorted(maps.Keys(seen))
+}
+
+func compareClusterNamespace(a, b ClusterNamespace) int {
+	return cmp.Or(cmp.Compare(a.Cluster, b.Cluster), cmp.Compare(a.Namespace, b.Namespace))
+}
+
+// clusterOfSource maps each source id of s to the id of the cluster it
+// reported; a source with no cluster is absent and so reads "".
+func clusterOfSource(s *FleetSnapshot) map[string]string {
+	out := map[string]string{}
+	for _, c := range s.Clusters {
+		for _, src := range c.Sources {
+			out[src] = c.ID
+		}
+	}
+	return out
+}
+
+// providerCluster is the cluster of a provider row: the one it was detected
+// in, else its source's.
+func providerCluster(p Provider, clusters map[string]string) string {
+	return cmp.Or(p.ClusterID, clusters[p.Source])
 }
 
 // providerNamespaces adds the namespace of every provider object and count:
 // one seen only on a provider row must still be reviewed.
-func providerNamespaces(rows []Provider, seen map[string]bool) {
+func providerNamespaces(rows []Provider, clusters map[string]string, seen map[ClusterNamespace]bool) {
 	for _, p := range rows {
+		c := providerCluster(p, clusters)
 		for _, o := range p.Objects {
 			if o.Namespace != "" {
-				seen[o.Namespace] = true
+				seen[ClusterNamespace{c, o.Namespace}] = true
 			}
 		}
-		for _, c := range p.Counts {
-			if c.Namespace != "" {
-				seen[c.Namespace] = true
+		for _, n := range p.Counts {
+			if n.Namespace != "" {
+				seen[ClusterNamespace{c, n.Namespace}] = true
 			}
 		}
 	}
 }
 
-// WorkloadScope is one namespace and workload kind that holds inferred
-// services: what a caller must be allowed to list to see them.
+// WorkloadScope is one namespace and workload kind, in one cluster, that holds
+// inferred services: what a caller must be allowed to list to see them.
+// Cluster is "" when the cluster is unknown.
 type WorkloadScope struct {
 	Namespace string
 	Kind      string
+	Cluster   string
 }
 
 // InferredWorkloadScopes lists, sorted and unique, the (namespace, kind) pairs
@@ -85,66 +136,72 @@ func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 		if !s.Inferred() {
 			continue
 		}
-		seen[WorkloadScope{s.Workload.Namespace, s.Workload.Kind}] = true
+		c := s.Workload.Cluster
+		seen[WorkloadScope{s.Workload.Namespace, s.Workload.Kind, c}] = true
 		for _, r := range s.Workload.Repositories {
 			if r.Namespace != "" {
-				seen[WorkloadScope{r.Namespace, r.Kind}] = true
+				seen[WorkloadScope{r.Namespace, r.Kind, c}] = true
 			}
 		}
 		for _, sc := range s.Workload.repositoryUnknownFrom {
 			if sc.Namespace != "" {
-				seen[sc] = true
+				seen[WorkloadScope{sc.Namespace, sc.Kind, c}] = true
 			}
 		}
 	}
 	for _, r := range q.snap.Revisions {
-		if sc, ok := declarationScope(r); ok {
+		if sc, ok := declarationScope(q.snap, r); ok {
 			seen[sc] = true
 		}
 	}
 	for _, r := range q.snap.Replacements {
-		seen[WorkloadScope{r.workload.namespace, r.workload.kind}] = true
+		seen[r.workload.scope()] = true
 	}
 	for _, r := range q.snap.replacedNames {
-		seen[WorkloadScope{r.workload.namespace, r.workload.kind}] = true
+		seen[r.workload.scope()] = true
 	}
-	providerScopes(q.snap.Providers, seen)
+	providerScopes(q.snap.Providers, clusterOfSource(q.snap), seen)
 	return slices.SortedFunc(maps.Keys(seen), func(a, b WorkloadScope) int {
-		return cmp.Or(cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Kind, b.Kind))
+		return cmp.Or(cmp.Compare(a.Cluster, b.Cluster), cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Kind, b.Kind))
 	})
 }
 
 // providerScopes adds the (namespace, kind) of every non-zero provider count
 // and namespaced workload object of rows to seen.
-func providerScopes(rows []Provider, seen map[WorkloadScope]bool) {
+func providerScopes(rows []Provider, clusters map[string]string, seen map[WorkloadScope]bool) {
 	for _, p := range rows {
+		cl := providerCluster(p, clusters)
 		for _, c := range p.Counts {
 			if c.N > 0 {
-				seen[WorkloadScope{c.Namespace, c.Kind}] = true
+				seen[WorkloadScope{c.Namespace, c.Kind, cl}] = true
 			}
 		}
 		for _, o := range p.Objects {
 			if workloadKind(o.Kind) && o.Namespace != "" {
-				seen[WorkloadScope{o.Namespace, o.Kind}] = true
+				seen[WorkloadScope{o.Namespace, o.Kind, cl}] = true
 			}
 		}
 	}
 }
 
-// callerNamespace is the namespace of a k8s caller (see [ParseK8sCaller]),
-// false for a caller with no namespace.
-func callerNamespace(c UncontractedCaller) (string, bool) {
-	_, ns, _, _, ok := ParseK8sCaller(c.Caller)
-	return ns, ok
+// callerNamespace is the cluster and namespace of a k8s caller (see
+// [ParseK8sCaller]), false for a caller with no namespace. An unqualified
+// caller's cluster is "".
+func callerNamespace(c UncontractedCaller) (ClusterNamespace, bool) {
+	cluster, ns, _, _, ok := ParseK8sCaller(c.Caller)
+	return ClusterNamespace{cluster, ns}, ok
 }
 
-// Restrict is the snapshot as a caller who may read only the namespaces
-// visible says yes to sees it. A Kubernetes target in another namespace is
-// gone, and so is a service none of whose Kubernetes targets they may read,
+// Restrict is the snapshot as a caller who may read only the (cluster,
+// namespace) pairs visible says yes to sees it: a grant on a namespace of one
+// cluster says nothing about the namespace of the same name in another. A
+// Kubernetes target in another namespace is gone, and so is a service none of whose Kubernetes targets they may read,
 // with its revisions, its targets everywhere and its edges. A service known
 // only from a registry or files, with no Kubernetes target, has no namespace:
-// visible("") decides it, and a caller who may read every namespace says yes.
-// Two such services stay for a caller visible("") refuses, when every
+// visible("", "") decides it, and a caller who may read every namespace says
+// yes. A target of another kind that carries a cluster is gone when the caller
+// may read nothing in that cluster: no pair of it, and not visible(cluster,
+// ""). Two such services stay for a caller visible("", "") refuses, when every
 // Kubernetes source is available, so they truly have no Kubernetes placement:
 // a service whose contract revisions declare a platform offering, and a golden
 // path. Its revisions, owner and offering show and all its targets are gone
@@ -161,15 +218,16 @@ func callerNamespace(c UncontractedCaller) (string, bool) {
 // sources, limitations and the snapshot id are recomputed, so nothing is
 // derived from what was hidden.
 //
-// A caller who may not read the cluster scope (visible("") false) never sees a
+// A caller who may not read the cluster scope (visible("", "") false) never sees a
 // name with no namespace to check: every uncontracted caller outside
 // Kubernetes, whatever source observed it, is hidden and counted into the
 // service it calls, and the unresolved observed names of each source become
 // one count. Every uncontracted caller Restrict removes from a visible service
 // is counted into its hidden dependents.
 //
-// An inferred service shows only when visible says yes to its namespace and
-// workloadVisible says yes to its namespace and workload kind: Kubernetes
+// An inferred service shows only when visible says yes to its cluster and
+// namespace and workloadVisible says yes to its cluster, namespace and
+// workload kind: Kubernetes
 // grants Pacto read and workload read apart, and the image, ports and probes
 // of an inferred service are workload data. A nil workloadVisible hides every
 // inferred service. A hidden inferred service is counted like any other, on
@@ -177,25 +235,24 @@ func callerNamespace(c UncontractedCaller) (string, bool) {
 // it calls. A replacement shows only when its declared service and the
 // workload it replaced are both visible. Restrict returns q when nothing is
 // hidden.
-func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible func(namespace, kind string) bool) *Query {
+func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadVisible func(cluster, namespace, kind string) bool) *Query {
 	s := q.base
-	hiddenNS := map[string]bool{}
-	for _, ns := range q.Namespaces() {
-		if !visible(ns) {
-			hiddenNS[ns] = true
-		}
-	}
-	hideUnreadable(s, visible, hiddenNS)
-	restricted := !visible("")
+	// Read from the unrestricted snapshot: a cluster whose targets are all
+	// hidden still owns its sources' namespaces.
+	clusters := clusterOfSource(s)
+	hiddenNS, readable := q.hiddenPairs(visible)
+	hideUnreadable(s, visible, clusters, hiddenNS)
+	restricted := !visible("", "")
+	hiddenTargets := unreadableClusterTargets(s, readable, visible)
 	hiddenSvc, offeringOnly := hiddenServices(s, hiddenNS, restricted, workloadVisible)
-	if len(hiddenNS) == 0 && len(hiddenSvc) == 0 && len(offeringOnly) == 0 && keepsEveryName(s, restricted, workloadHidden(hiddenNS, workloadVisible)) {
-		if !providersNarrowed(s, visible, workloadVisible) {
+	if len(hiddenNS) == 0 && len(hiddenSvc) == 0 && len(offeringOnly) == 0 && len(hiddenTargets) == 0 && keepsEveryName(s, restricted, workloadHidden(hiddenNS, workloadVisible)) {
+		if !providersNarrowed(s, visible, workloadVisible, clusters) {
 			return q
 		}
 		// Only provider rows narrow: they feed no answer's completeness, so
 		// the view stays as complete as q.
 		out := *s
-		out.Providers = restrictProviders(s.Providers, nil, nil, visible, workloadVisible, s.Clusters)
+		out.Providers = restrictProviders(s.Providers, nil, nil, visible, workloadVisible, s.Clusters, clusters)
 		out.SnapshotID = computeSnapshotID(&out)
 		return NewQuery(&out)
 	}
@@ -204,7 +261,7 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 	var hiddenNames []string
 	out.Targets = make(map[TargetKey]*TargetRecord, len(s.Targets))
 	for k, t := range s.Targets {
-		if (kubeTarget(t) && hiddenNS[t.Scope]) || hiddenSvc[t.ServiceKey] || offeringOnly[t.ServiceKey] {
+		if (kubeTarget(t) && hiddenNS[ClusterNamespace{t.Cluster, t.Scope}]) || hiddenTargets[k] || hiddenSvc[t.ServiceKey] || offeringOnly[t.ServiceKey] {
 			hiddenNames = append(hiddenNames, t.Name, string(k))
 			continue
 		}
@@ -252,10 +309,10 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 
 	recountSources(&out)
 
-	hiddenNames = append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...)
+	hiddenNames = appendNamespaces(hiddenNames, hiddenNS)
 	restrictLimitations(&out, s.Limitations, hiddenNames, restricted)
-	restrictScope(&out, visible)
-	out.Providers = restrictedProviders(&out, s.Providers, hiddenSvc, hiddenNames, visible, workloadVisible)
+	restrictScope(&out, visible, clusters)
+	out.Providers = restrictedProviders(&out, s.Providers, hiddenSvc, hiddenNames, visible, workloadVisible, clusters)
 	out.Limitations = append(out.Limitations, Limitation{Code: LimitationHiddenByPermissions, Message: hiddenMessage + kindHiddenNote(s, hiddenSvc, hiddenNS)})
 	sortSnapshotLimitations(&out)
 	out.Completeness = CompletenessPartial
@@ -264,12 +321,47 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 	return NewQuery(&out)
 }
 
+// hiddenPairs is the pairs of q.Namespaces visible refuses, and the clusters
+// of which it says yes to some pair.
+func (q *Query) hiddenPairs(visible func(cluster, namespace string) bool) (hidden map[ClusterNamespace]bool, readable map[string]bool) {
+	hidden, readable = map[ClusterNamespace]bool{}, map[string]bool{}
+	for _, cn := range q.Namespaces() {
+		if visible(cn.Cluster, cn.Namespace) {
+			readable[cn.Cluster] = true
+		} else {
+			hidden[cn] = true
+		}
+	}
+	return hidden, readable
+}
+
+// unreadableClusterTargets is the targets of s other than Kubernetes targets
+// that carry a cluster the caller may read nothing in: no pair of the cluster
+// is in readable and visible(cluster, "") says no.
+func unreadableClusterTargets(s *FleetSnapshot, readable map[string]bool, visible func(cluster, namespace string) bool) map[TargetKey]bool {
+	out := map[TargetKey]bool{}
+	for k, t := range s.Targets {
+		if c := t.Cluster; c != "" && !kubeTarget(t) && !readable[c] && !visible(c, "") {
+			out[k] = true
+		}
+	}
+	return out
+}
+
+// appendNamespaces appends the namespace of each pair of pairs to names.
+func appendNamespaces(names []string, pairs map[ClusterNamespace]bool) []string {
+	for cn := range pairs {
+		names = append(names, cn.Namespace)
+	}
+	return names
+}
+
 // kindHiddenNote is the sentence a restricted answer adds when it hides an
 // inferred service whose namespace the viewer may read: only workload read of
 // its kind is missing, so the namespace sentence alone would be wrong.
-func kindHiddenNote(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS map[string]bool) string {
+func kindHiddenNote(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS map[ClusterNamespace]bool) string {
 	for k := range hiddenSvc {
-		if svc := s.Services[k]; svc.Inferred() && !hiddenNS[svc.Workload.Namespace] {
+		if svc := s.Services[k]; svc.Inferred() && !hiddenNS[ClusterNamespace{svc.Workload.Cluster, svc.Workload.Namespace}] {
 			return "; some inferred services are hidden because you may not list their workload kind"
 		}
 	}
@@ -341,12 +433,12 @@ func dropHiddenDeclarationEdges(out *FleetSnapshot) {
 // A declared revision whose source workload hidden says no to is a clone
 // without its cluster facts; one whose cluster facts name a hidden service's
 // dependency is a clone without those fields.
-func restrictRevisions(s *FleetSnapshot, hiddenSvc, offeringOnly map[ServiceKey]bool, hidden func(namespace, kind string) bool) map[RevisionKey]*ContractRevision {
+func restrictRevisions(s *FleetSnapshot, hiddenSvc, offeringOnly map[ServiceKey]bool, hidden func(cluster, namespace, kind string) bool) map[RevisionKey]*ContractRevision {
 	out := make(map[RevisionKey]*ContractRevision, len(s.Revisions))
 	for k, r := range s.Revisions {
 		if !hiddenSvc[r.ServiceKey] && (!offeringOnly[r.ServiceKey] || !s.Services[r.ServiceKey].Template || declaresTemplate(r)) {
 			out[k] = r
-			if declarationSourceHidden(r, hidden) {
+			if declarationSourceHidden(s, r, hidden) {
 				out[k] = hideDeclarationSource(r)
 			} else if c := hideClusterDependencies(s, r, hiddenSvc); c != nil {
 				out[k] = c
@@ -371,18 +463,22 @@ func targetsHidden(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, o
 // name with no namespace, every provisioning and usage report of s and every
 // workload its replacements replaced (hidden says which workloads they may
 // not see).
-func keepsEveryName(s *FleetSnapshot, restricted bool, hidden func(namespace, kind string) bool) bool {
+func keepsEveryName(s *FleetSnapshot, restricted bool, hidden func(cluster, namespace, kind string) bool) bool {
 	return (!restricted || !hasBareNames(s)) && provisioningVisible(s) && !replacementHidden(s, hidden) && !repositoryHidden(s, hidden) &&
-		!slices.ContainsFunc(slices.Collect(maps.Values(s.Revisions)), func(r *ContractRevision) bool { return declarationSourceHidden(r, hidden) })
+		!slices.ContainsFunc(slices.Collect(maps.Values(s.Revisions)), func(r *ContractRevision) bool { return declarationSourceHidden(s, r, hidden) })
 }
 
 // repositoryHidden reports whether some inferred service of s holds a
 // repository, or a repository reason, read from an object hidden says no to,
 // or from one with no namespace to check.
-func repositoryHidden(s *FleetSnapshot, hidden func(namespace, kind string) bool) bool {
+func repositoryHidden(s *FleetSnapshot, hidden func(cluster, namespace, kind string) bool) bool {
 	for _, svc := range s.Services {
-		if svc.Inferred() && (slices.ContainsFunc(svc.Workload.Repositories, func(r InferredRepository) bool { return r.Namespace == "" || hidden(r.Namespace, r.Kind) }) ||
-			slices.ContainsFunc(svc.Workload.repositoryUnknownFrom, func(sc WorkloadScope) bool { return sc.Namespace == "" || hidden(sc.Namespace, sc.Kind) })) {
+		if !svc.Inferred() {
+			continue
+		}
+		c := svc.Workload.Cluster
+		if slices.ContainsFunc(svc.Workload.Repositories, func(r InferredRepository) bool { return r.Namespace == "" || hidden(c, r.Namespace, r.Kind) }) ||
+			slices.ContainsFunc(svc.Workload.repositoryUnknownFrom, func(sc WorkloadScope) bool { return sc.Namespace == "" || hidden(c, sc.Namespace, sc.Kind) }) {
 			return true
 		}
 	}
@@ -404,7 +500,7 @@ func provisioningVisible(s *FleetSnapshot) bool {
 // A caller that is a hidden inferred service goes too. Each caller removed
 // from a visible service is counted into its dependents, and a hidden callee
 // into the dependencies of the visible inferred service that called it.
-func restrictCallers(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS map[string]bool, hideBare bool, hiddenDeps, dependents map[ServiceKey]map[ServiceKey]bool) []UncontractedCaller {
+func restrictCallers(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS map[ClusterNamespace]bool, hideBare bool, hiddenDeps, dependents map[ServiceKey]map[ServiceKey]bool) []UncontractedCaller {
 	hiddenNames := map[string]bool{}
 	for k := range hiddenSvc {
 		hiddenNames[s.Services[k].Name] = true
@@ -419,9 +515,9 @@ func restrictCallers(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS m
 			}
 			return true
 		}
-		ns, k8s := callerNamespace(c)
+		cn, k8s := callerNamespace(c)
 		malformed := !k8s && strings.HasPrefix(c.Caller, "k8s:")
-		if !hiddenSvc[c.Entity] && ((k8s && !hiddenNS[ns]) || (!k8s && !malformed && !hideBare && !hiddenNames[c.Caller])) {
+		if !hiddenSvc[c.Entity] && ((k8s && !hiddenNS[cn]) || (!k8s && !malformed && !hideBare && !hiddenNames[c.Caller])) {
 			return false
 		}
 		if dependents[c.ToService] == nil {
@@ -506,13 +602,35 @@ func rebuiltLimitation(l Limitation) bool {
 	case LimitationDomainConflict, LimitationOfferingConflict, LimitationOwnerConflict,
 		// A fleet-wide count of reports, counts of clusterless targets and
 		// per-source counts of inferred records.
-		LimitationProvisioningTruncated, LimitationUsageTruncated, LimitationClusterUnknown, LimitationClusterConflict, LimitationDeclarationUnverified, LimitationServiceGroupAmbiguous:
+		LimitationProvisioningTruncated, LimitationUsageTruncated, LimitationClusterUnknown, LimitationClusterConflict, LimitationDeclarationUnverified, LimitationServiceGroupAmbiguous,
+		// The clusters one reader may not see: WithClusterAccess adds them again.
+		LimitationClusterHidden:
 		return true
 	case LimitationSourceRecordInvalid:
 		// Per-source counts of records that may be hidden.
 		return strings.Contains(l.Message, clusterInvalidPhrase) || strings.Contains(l.Message, droppedFieldsPhrase)
 	}
 	return false
+}
+
+// unavailableSources are the ids of out's unavailable sources.
+func unavailableSources(out *FleetSnapshot) map[string]bool {
+	ids := map[string]bool{}
+	for _, st := range out.Sources {
+		if st.Status == SourceUnavailable {
+			ids[st.ID] = true
+		}
+	}
+	return ids
+}
+
+// sourceLevelCluster reports whether l is a CLUSTER_UNKNOWN or
+// CLUSTER_CONFLICT about a whole source that read nothing (a refused
+// kubeconfig context): it counts no target, so nothing rebuilds it, and it
+// names only context names, which are server configuration, so the hidden
+// namespace scrub never applies to it.
+func sourceLevelCluster(l Limitation, unavailable map[string]bool) bool {
+	return (l.Code == LimitationClusterUnknown || l.Code == LimitationClusterConflict) && unavailable[l.Source]
 }
 
 // restrictLimitations keeps the limitations that name nothing hidden and
@@ -529,7 +647,11 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	// limitations x hidden names substring checks, once per snapshot and set of
 	// visible namespaces. Structured subjects on Limitation would make it exact
 	// and linear.
+	unavailable := unavailableSources(out)
 	out.Limitations = slices.DeleteFunc(limitations, func(l Limitation) bool {
+		if sourceLevelCluster(l, unavailable) {
+			return false
+		}
 		return rebuiltLimitation(l) || slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
 	})
 	for _, svc := range out.Services {
@@ -548,6 +670,63 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 			Message: strconv.Itoa(unresolved[src]) + " names observed by " + src + " are not shown: they carry no namespace to check permissions against",
 		})
 	}
+}
+
+// clusterHiddenReasons is the CLUSTER_HIDDEN message of each access mark.
+var clusterHiddenReasons = map[string]string{
+	ClusterNoAccess:      "you may read no namespace there",
+	ClusterReviewFailed:  "the review failed or took longer than 5s, so its services are hidden",
+	ClusterNotReviewable: "Pacto cannot review you there, so its services are hidden",
+}
+
+// clusterLabel names a cluster in a limitation; "" is the one cluster whose
+// id was never read.
+func clusterLabel(name string) string {
+	if name == "" {
+		return "the Kubernetes cluster"
+	}
+	return "cluster " + name
+}
+
+// WithClusterAccess marks the reviewed clusters a restricted view q shows
+// nothing of: access maps a cluster id to ClusterNoAccess, ClusterReviewFailed
+// or ClusterNotReviewable. Each marked cluster a Kubernetes source of full read
+// is listed again with its mark (a cluster only another source reported stays
+// shown only while a visible target carries it), gets one CLUSTER_HIDDEN
+// limitation and makes the view partial. Cluster names are the server's
+// configuration, so a reader learns which clusters exist, never what is
+// inside. An empty access returns q.
+func (q *Query) WithClusterAccess(full *Query, access map[string]string) *Query {
+	if len(access) == 0 {
+		return q
+	}
+	out := *q.base
+	shown := map[string]bool{}
+	for _, c := range out.Clusters {
+		shown[c.ID] = true
+	}
+	kube := map[string]bool{}
+	for _, st := range full.base.Sources {
+		kube[st.ID] = st.Kind == SourceKindKubernetes
+	}
+	names := map[string]string{}
+	out.Clusters = nil
+	for _, c := range full.base.Clusters {
+		names[c.ID] = cmp.Or(c.Name, c.ID)
+		if shown[c.ID] || access[c.ID] != "" && slices.ContainsFunc(c.Sources, func(s string) bool { return kube[s] }) {
+			c.Access = access[c.ID]
+			out.Clusters = append(out.Clusters, c)
+		}
+	}
+	out.Limitations = slices.Clone(out.Limitations)
+	for _, id := range slices.Sorted(maps.Keys(access)) {
+		out.Limitations = append(out.Limitations, Limitation{Code: LimitationClusterHidden, Source: id,
+			Message: clusterLabel(cmp.Or(names[id], id)) + ": " + clusterHiddenReasons[access[id]]})
+	}
+	sortSnapshotLimitations(&out)
+	out.Completeness = CompletenessPartial
+	out.SnapshotID = computeSnapshotID(&out)
+	return NewQuery(&out)
 }
 
 // restrictClusters is the clusters some target of targets carries.
@@ -629,11 +808,11 @@ func droppedReports(out *FleetSnapshot, dropped map[ServiceKey]int, code, what s
 }
 
 // workloadHidden reports whether the viewer may not see the workloads of a
-// kind in a namespace: an inferred service's or a replaced one's. It is the
-// one place workload visibility is decided.
-func workloadHidden(hiddenNS map[string]bool, workloadVisible func(namespace, kind string) bool) func(namespace, kind string) bool {
-	return func(namespace, kind string) bool {
-		return hiddenNS[namespace] || workloadVisible == nil || !workloadVisible(namespace, kind)
+// kind in a namespace of a cluster: an inferred service's or a replaced
+// one's. It is the one place workload visibility is decided.
+func workloadHidden(hiddenNS map[ClusterNamespace]bool, workloadVisible func(cluster, namespace, kind string) bool) func(cluster, namespace, kind string) bool {
+	return func(cluster, namespace, kind string) bool {
+		return hiddenNS[ClusterNamespace{cluster, namespace}] || workloadVisible == nil || !workloadVisible(cluster, namespace, kind)
 	}
 }
 
@@ -647,12 +826,12 @@ func kubeTarget(t *TargetRecord) bool { return t.Kind == SourceKindKubernetes &&
 // when the snapshot knows they have no Kubernetes placement; they are returned
 // in offeringOnly. An inferred service has no target: its namespace and
 // workloadVisible (nil hides it) decide it alone.
-func hiddenServices(s *FleetSnapshot, hiddenNS map[string]bool, hideUnscoped bool, workloadVisible func(namespace, kind string) bool) (hiddenSvc, offeringOnly map[ServiceKey]bool) {
+func hiddenServices(s *FleetSnapshot, hiddenNS map[ClusterNamespace]bool, hideUnscoped bool, workloadVisible func(cluster, namespace, kind string) bool) (hiddenSvc, offeringOnly map[ServiceKey]bool) {
 	hiddenSvc, offeringOnly = map[ServiceKey]bool{}, map[ServiceKey]bool{}
 	placed := kubePlacementKnown(s)
 	for k, svc := range s.Services {
 		if svc.Inferred() {
-			if workloadHidden(hiddenNS, workloadVisible)(svc.Workload.Namespace, svc.Workload.Kind) {
+			if workloadHidden(hiddenNS, workloadVisible)(svc.Workload.Cluster, svc.Workload.Namespace, svc.Workload.Kind) {
 				hiddenSvc[k] = true
 			}
 			continue
@@ -672,12 +851,13 @@ func hiddenServices(s *FleetSnapshot, hiddenNS map[string]bool, hideUnscoped boo
 
 // kubeScope reports whether some Kubernetes target of svc runs in a hidden
 // namespace, whether some runs in a visible one, and whether it has any.
-func kubeScope(s *FleetSnapshot, svc *ServiceRecord, hiddenNS map[string]bool) (hidden, shown, scoped bool) {
+func kubeScope(s *FleetSnapshot, svc *ServiceRecord, hiddenNS map[ClusterNamespace]bool) (hidden, shown, scoped bool) {
 	for _, tk := range svc.Targets {
 		if t := s.Targets[tk]; kubeTarget(t) {
+			h := hiddenNS[ClusterNamespace{t.Cluster, t.Scope}]
 			scoped = true
-			hidden = hidden || hiddenNS[t.Scope]
-			shown = shown || !hiddenNS[t.Scope]
+			hidden = hidden || h
+			shown = shown || !h
 		}
 	}
 	return hidden, shown, scoped
@@ -917,7 +1097,7 @@ func (h hiddenCounts) referrersBeyondDependents(k ServiceKey) int {
 // that lost a target or a revision, gained a hidden count or changed origin,
 // and returns the names and keys of the hidden ones. It never writes through a
 // record of services. out.Targets and out.Revisions must already be restricted.
-func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, hiddenSvc map[ServiceKey]bool, hidden hiddenCounts, origins map[ServiceKey]*ServiceOrigin, hiddenCreated map[ServiceKey]int, workloadVisible func(namespace, kind string) bool) []string {
+func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, hiddenSvc map[ServiceKey]bool, hidden hiddenCounts, origins map[ServiceKey]*ServiceOrigin, hiddenCreated map[ServiceKey]int, workloadVisible func(cluster, namespace, kind string) bool) []string {
 	var hiddenNames []string
 	out.Services = make(map[ServiceKey]*ServiceRecord, len(services))
 	out.revisionsHidden = map[ServiceKey]bool{}
@@ -967,8 +1147,10 @@ func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord
 // reason read from such an object reads the same. The repository is another
 // object's content the dashboard read, so the workload's own read never
 // decides it. Nothing else of it was derived from what the view may hide.
-func restrictInferred(svc *ServiceRecord, hidden hiddenCounts, workloadVisible func(namespace, kind string) bool) *ServiceRecord {
-	listed := func(ns, kind string) bool { return ns != "" && workloadVisible != nil && workloadVisible(ns, kind) }
+func restrictInferred(svc *ServiceRecord, hidden hiddenCounts, workloadVisible func(cluster, namespace, kind string) bool) *ServiceRecord {
+	listed := func(ns, kind string) bool {
+		return ns != "" && workloadVisible != nil && workloadVisible(svc.Workload.Cluster, ns, kind)
+	}
 	repos := slices.DeleteFunc(slices.Clone(svc.Workload.Repositories), func(r InferredRepository) bool { return !listed(r.Namespace, r.Kind) })
 	reposHidden := len(repos) != len(svc.Workload.Repositories) ||
 		slices.ContainsFunc(svc.Workload.repositoryUnknownFrom, func(sc WorkloadScope) bool { return !listed(sc.Namespace, sc.Kind) })

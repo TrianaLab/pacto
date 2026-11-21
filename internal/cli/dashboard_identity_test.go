@@ -30,7 +30,7 @@ func identityFor(t *testing.T, v *viper.Viper, host string, cluster *rest.Config
 	t.Helper()
 	d := deliveryDeps("alice", nil)
 	d.served = func(*rest.Config, string) (bool, error) { return true, nil }
-	id, err := newDashboardIdentity(v, host, cluster, d)
+	id, err := newDashboardIdentity(v, host, cluster, homeEntries(cluster), d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestDashboardIdentityModes(t *testing.T) {
 	gated.auth.Middleware(http.NotFoundHandler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "https://dash.example/api/fleet/status", nil))
 	expect(t, rec.Code == http.StatusUnauthorized, "sign-in gates the fleet API: %d", rec.Code)
 	v.Set("dashboard.oidc-internal-issuer-url", "ftp://idp")
-	if _, err := newDashboardIdentity(v, "0.0.0.0", nil, defaultDeps()); err == nil || !strings.Contains(err.Error(), "internal issuer") {
+	if _, err := newDashboardIdentity(v, "0.0.0.0", nil, homeEntries(nil), defaultDeps()); err == nil || !strings.Contains(err.Error(), "internal issuer") {
 		t.Fatalf("a bad internal issuer URL fails at start: %v", err)
 	}
 	v.Set("dashboard.oidc-internal-issuer-url", "http://idp.internal")
@@ -80,7 +80,7 @@ func TestDashboardIdentityModes(t *testing.T) {
 	}
 	v.Set("dashboard.oidc-internal-issuer-url", "")
 	v.Set("dashboard.oidc-client-id", "")
-	if _, err := newDashboardIdentity(v, "0.0.0.0", nil, defaultDeps()); err == nil {
+	if _, err := newDashboardIdentity(v, "0.0.0.0", nil, homeEntries(nil), defaultDeps()); err == nil {
 		t.Fatal("an incomplete OIDC configuration fails at start")
 	}
 	if got := splitList([]string{"a, b", "c"}); len(got) != 3 || got[1] != "b" {
@@ -91,7 +91,7 @@ func TestDashboardIdentityModes(t *testing.T) {
 // A bind beyond loopback without sign-in shows the whole fleet to anyone who
 // reaches it, so it starts only when someone chose that.
 func TestOpenModeNeedsAllowAnonymous(t *testing.T) {
-	_, err := newDashboardIdentity(viper.New(), "0.0.0.0", nil, defaultDeps())
+	_, err := newDashboardIdentity(viper.New(), "0.0.0.0", nil, homeEntries(nil), defaultDeps())
 	expect(t, errors.Is(err, errOpenNeedsAllowAnonymous), "an open bind without the flag refuses: %v", err)
 	expect(t, strings.Contains(err.Error(), "pass --allow-anonymous"), "the refusal says how to allow it: %v", err)
 }
@@ -120,7 +120,7 @@ func TestDashboardTokenLoginIdentity(t *testing.T) {
 	v := viper.New()
 	// Token sign-in alone makes it shared too, and needs a cluster to check tokens against.
 	v.Set("dashboard.token-login", true)
-	if _, err := newDashboardIdentity(v, "0.0.0.0", nil, defaultDeps()); err == nil || !strings.Contains(err.Error(), "token-login") {
+	if _, err := newDashboardIdentity(v, "0.0.0.0", nil, homeEntries(nil), defaultDeps()); err == nil || !strings.Contains(err.Error(), "token-login") {
 		t.Fatalf("token sign-in without a cluster fails at start: %v", err)
 	}
 	tokens := identityFor(t, v, "127.0.0.1", &rest.Config{Host: "https://k"})
@@ -158,7 +158,7 @@ func TestDashboardTokenLoginReviewsTheAudience(t *testing.T) {
 		return f, nil
 	}
 	cluster := &rest.Config{Host: "https://k", BearerToken: "dashboard"}
-	id, err := newDashboardIdentity(v, "0.0.0.0", cluster, d)
+	id, err := newDashboardIdentity(v, "0.0.0.0", cluster, homeEntries(cluster), d)
 	expect(t, err == nil && asked.BearerToken == "dashboard" && asked.QPS == sarQPS, "the review runs as the dashboard: %v %+v", err, asked)
 	r := httptest.NewRequest(http.MethodPost, "https://dash.example/auth/token", strings.NewReader(`{"token":"link","link":true}`))
 	r.Header.Set("Origin", "https://dash.example")
@@ -175,13 +175,13 @@ func TestDashboardTokenLoginReviewsTheAudience(t *testing.T) {
 		"a bearer reader is reviewed by the token sign-in's reviewer: %d %+v", rec.Code, st)
 
 	d.dynamicFor = func(*rest.Config) (dynamic.Interface, error) { return nil, errors.New("bad config") }
-	_, err = newDashboardIdentity(v, "0.0.0.0", cluster, d)
+	_, err = newDashboardIdentity(v, "0.0.0.0", cluster, homeEntries(cluster), d)
 	expect(t, err != nil && strings.Contains(err.Error(), "bad config"), "no client to review tokens with: %v", err)
 
 	// Without token sign-in no client is built at startup: a kubeconfig that
 	// cannot build one still serves the local dashboard.
 	v.Set("dashboard.token-login", false)
-	id, err = newDashboardIdentity(v, "127.0.0.1", cluster, d)
+	id, err = newDashboardIdentity(v, "127.0.0.1", cluster, homeEntries(cluster), d)
 	expect(t, err == nil && id.auth.Local(), "a local dashboard builds no review client: %v", err)
 }
 
@@ -226,7 +226,7 @@ func TestTokenName(t *testing.T) {
 func TestDashboardIdentityRefusesABadTrustConfig(t *testing.T) {
 	v := viper.New()
 	v.Set("dashboard.delivery-trust", filepath.Join(t.TempDir(), "absent"))
-	if _, err := newDashboardIdentity(v, "127.0.0.1", nil, defaultDeps()); err == nil || !strings.Contains(err.Error(), "trust config") {
+	if _, err := newDashboardIdentity(v, "127.0.0.1", nil, homeEntries(nil), defaultDeps()); err == nil || !strings.Contains(err.Error(), "trust config") {
 		t.Fatalf("a missing trust config must fail at start: %v", err)
 	}
 }
@@ -253,10 +253,11 @@ func TestDashboardIdentityView(t *testing.T) {
 	v.Set("dashboard.oidc-redirect-url", "https://dash.example/auth/callback")
 	id := identityFor(t, v, "0.0.0.0", nil)
 	var asked []authn.Person
-	id.viewer = authn.NewViewer(func(_ context.Context, p authn.Person, ns string, _ authn.ResourceAttributes) (bool, error) {
+	id.viewer = authn.NewViewer(oneReview(func(_ context.Context, p authn.Person, ns string, _ authn.ResourceAttributes) (bool, error) {
 		asked = append(asked, p)
 		return false, nil
-	})
+	}))
+
 	o = dashboard.Options{}
 	id.options(&o)
 	q := viewFleet(t)
@@ -273,14 +274,16 @@ func TestDashboardIdentityView(t *testing.T) {
 	_, _ = o.View(context.Background(), q)
 	expect(t, len(asked) > 0 && asked[0].User == "https://idp.example#u1", "a signed-in person is asked about as the cluster names them: %+v", asked)
 
-	id.viewer = authn.NewViewer(func(context.Context, authn.Person, string, authn.ResourceAttributes) (bool, error) {
+	id.viewer = authn.NewViewer(oneReview(func(context.Context, authn.Person, string, authn.ResourceAttributes) (bool, error) {
 		return false, errors.New("apiserver down")
-	})
+	}))
+
 	id.state = func(context.Context) authn.State {
 		return authn.State{SignedIn: true, Person: authn.Person{User: "x#y"}}
 	}
-	_, err = o.View(context.Background(), q)
-	expect(t, err != nil && strings.Contains(err.Error(), "checking your Kubernetes permissions failed"), "a failed check: %v", err)
+	r, err = o.View(context.Background(), q)
+	expect(t, err == nil && len(r.SnapshotForSerialization().Services) == 0 && r.SnapshotForSerialization().Completeness == fleet.CompletenessPartial,
+		"a failed check hides the cluster and is partial: %v", err)
 }
 
 func TestClusterReview(t *testing.T) {
@@ -362,9 +365,10 @@ func operationAccessWorld(t *testing.T) (*dashboardIdentity, func(context.Contex
 	v := viper.New()
 	v.Set("dashboard.token-login", true)
 	id := identityFor(t, v, "0.0.0.0", &rest.Config{Host: "https://k"})
-	id.viewer = authn.NewViewer(func(_ context.Context, _ authn.Person, ns string, _ authn.ResourceAttributes) (bool, error) {
+	id.viewer = authn.NewViewer(oneReview(func(_ context.Context, _ authn.Person, ns string, _ authn.ResourceAttributes) (bool, error) {
 		return ns == "shop", nil
-	})
+	}))
+
 	var mu sync.Mutex
 	var sars []map[string]any
 	sa := fakeDelivery()
@@ -406,7 +410,7 @@ func TestDashboardOperationAccessAsksListOperations(t *testing.T) {
 	id, full, sars := operationAccessWorld(t)
 	o := dashboard.Options{Fleet: full}
 	id.options(&o)
-	visible, err := o.OperationAccess(t.Context(), []string{"shop"})
+	visible, err := visibleOf(o.OperationAccess(t.Context(), []string{"shop"}))
 	expect(t, err == nil && visible("shop"), "shop: %v", err)
 	expect(t, len(*sars) == 1, "one review: %+v", *sars)
 	sar := (*sars)[0]
@@ -430,27 +434,27 @@ func TestDashboardOperationAccessOnlyWithViewer(t *testing.T) {
 func TestDashboardOperationAccessAnonymous(t *testing.T) {
 	id, full, sars := operationAccessWorld(t)
 	id.state = func(context.Context) authn.State { return authn.State{} }
-	visible, err := id.operationAccess(full)(t.Context(), []string{"shop"})
+	visible, err := visibleOf(id.operationAccess(full)(t.Context(), []string{"shop"}))
 	expect(t, err == nil && visible("shop") && len(*sars) == 1, "err %v sars %+v", err, *sars)
 	expect(t, (*sars)[0]["user"] == authn.Anonymous.User, "asked for the anonymous user: %+v", (*sars)[0])
 
 	id.cluster = nil
-	_, err = id.operationAccess(full)(t.Context(), []string{"shop"})
+	_, err = visibleOf(id.operationAccess(full)(t.Context(), []string{"shop"}))
 	expect(t, errors.Is(err, errOperationReview), "no cluster to ask is a failed review: %v", err)
 }
 
 func TestDashboardOperationAccessReviewsOnlyFleetNamespaces(t *testing.T) {
 	id, full, sars := operationAccessWorld(t)
-	visible, err := id.operationAccess(full)(t.Context(), []string{"vault", "elsewhere", "shop"})
+	visible, err := visibleOf(id.operationAccess(full)(t.Context(), []string{"vault", "elsewhere", "shop"}))
 	expect(t, err == nil && visible("shop") && !visible("vault") && !visible("elsewhere"), "err %v", err)
 	expect(t, len(*sars) == 1 && (*sars)[0]["resourceAttributes"].(map[string]any)["namespace"] == "shop",
 		"only the viewer's namespaces are reviewed: %+v", *sars)
 
-	visible, err = id.operationAccess(nil)(t.Context(), []string{"shop"})
+	visible, err = visibleOf(id.operationAccess(nil)(t.Context(), []string{"shop"}))
 	expect(t, err == nil && !visible("shop") && len(*sars) == 1, "no fleet, nothing reviewed: %v", err)
 
 	broken := errors.New("no snapshot")
-	_, err = id.operationAccess(func(context.Context) (*fleet.Query, error) { return nil, broken })(t.Context(), []string{"shop"})
+	_, err = visibleOf(id.operationAccess(func(context.Context) (*fleet.Query, error) { return nil, broken })(t.Context(), []string{"shop"}))
 	expect(t, errors.Is(err, broken), "a fleet that cannot be read: %v", err)
 
 	id.newClient = func(cfg *rest.Config) (dynamic.Interface, error) {
@@ -459,7 +463,7 @@ func TestDashboardOperationAccessReviewsOnlyFleetNamespaces(t *testing.T) {
 		}
 		return fakeDelivery(), nil
 	}
-	_, err = id.operationAccess(full)(t.Context(), []string{"shop"})
+	_, err = visibleOf(id.operationAccess(full)(t.Context(), []string{"shop"}))
 	expect(t, errors.Is(err, errOperationReview), "a person whose client cannot be built: %v", err)
 }
 
@@ -488,7 +492,7 @@ func TestLinkSessionSubjectIsReviewedIdentity(t *testing.T) {
 	id.state = func(context.Context) authn.State {
 		return authn.State{SignedIn: true, Method: "token", Person: viewer, UID: "sa-1", Extra: map[string][]string{"authentication.kubernetes.io/pod-name": {"p"}}}
 	}
-	visible, err := id.operationAccess(full)(t.Context(), []string{"shop"})
+	visible, err := visibleOf(id.operationAccess(full)(t.Context(), []string{"shop"}))
 	expect(t, err == nil && visible("shop") && ssrs == 0, "no SelfSubjectReview for a link session: %v %d", err, ssrs)
 	expect(t, len(*sars) == 1, "one review: %+v", *sars)
 	sar := (*sars)[0]
@@ -515,7 +519,7 @@ func TestBearerTokenSessionSubjectAsksSelfSubjectReview(t *testing.T) {
 	id.state = func(context.Context) authn.State {
 		return authn.State{SignedIn: true, Method: "token", Token: "alice-token", Person: authn.Person{User: "alice"}}
 	}
-	visible, err := id.operationAccess(full)(t.Context(), []string{"shop"})
+	visible, err := visibleOf(id.operationAccess(full)(t.Context(), []string{"shop"}))
 	expect(t, err == nil && visible("shop") && asked == "alice-token", "the session's own token asks who it is: %v %q", err, asked)
 	sar := (*sars)[0]
 	expect(t, sar["user"] == "alice" && sar["uid"] == "u-1" && sar["extra"] != nil, "uid and extra from the token: %+v", sar)

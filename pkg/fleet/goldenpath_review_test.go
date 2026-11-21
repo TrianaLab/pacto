@@ -60,7 +60,7 @@ func TestTemplateDetailCountsHiddenRequirements(t *testing.T) {
 	if d := q.templateDetail(q.snap.Services[key]); d.HiddenRequirements != 0 || d.Requirements.Total == 0 {
 		t.Errorf("unrestricted: %+v", d)
 	}
-	r := q.Restrict(shopOnly, nil)
+	r := q.Restrict(anyCluster(shopOnly), anyClusterKind(nil))
 	if d := r.templateDetail(r.snap.Services[key]); d.HiddenRequirements != 1 || d.Requirements.Total != 0 {
 		t.Errorf("restricted: hidden %d, requirements %+v", d.HiddenRequirements, d.Requirements)
 	}
@@ -92,7 +92,7 @@ func TestRestrictDroppedRevisionIsHidden(t *testing.T) {
 	if q.snap.Revisions[dropped] == nil || q.snap.Revisions[dropped].Version != "0.9.0" {
 		t.Fatalf("unrestricted edge = %+v", edge(q))
 	}
-	r := q.Restrict(shopOnly, nil)
+	r := q.Restrict(anyCluster(shopOnly), anyClusterKind(nil))
 	if r.snap.Revisions[dropped] != nil || edge(r).ResolvedRevision != "" {
 		t.Errorf("restricted edge = %+v", edge(r))
 	}
@@ -120,7 +120,7 @@ func TestRestrictDroppedRevisionLimitationIsHidden(t *testing.T) {
 	has := func(q *Query) bool {
 		return slices.ContainsFunc(q.snap.Limitations, func(l Limitation) bool { return l.Message == msg })
 	}
-	r := q.Restrict(shopOnly, nil)
+	r := q.Restrict(anyCluster(shopOnly), anyClusterKind(nil))
 	if r.snap.Revisions[dropped] != nil || !has(q) || has(r) {
 		t.Errorf("dropped %q kept %v, unrestricted has %v, restricted has %v", dropped, r.snap.Revisions[dropped] != nil, has(q), has(r))
 	}

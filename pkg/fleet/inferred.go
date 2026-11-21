@@ -27,6 +27,9 @@ type inferredInput struct {
 // several clusters), namespace, kind and name.
 type workloadKey struct{ cluster, namespace, kind, name string }
 
+// scope is the namespace, kind and cluster of k.
+func (k workloadKey) scope() WorkloadScope { return WorkloadScope{k.namespace, k.kind, k.cluster} }
+
 // boundInferred is the inferred services of col that [Build] reads: at most
 // [MaxInferredServices], the first in (namespace, kind, name) order, with the
 // INFERRED_SERVICES_CAPPED limitation when some were left out.

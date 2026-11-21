@@ -66,6 +66,9 @@ describe('kept helpers', () => {
     expect(windowDays(answer())).toBe(30);
     expect(hiddenLine(answer())).toBe('');
     expect(hiddenLine(answer({ hidden: { present: true } }))).toBe('Some run records name services outside your view and are left out of every number.');
+    expect(hiddenLine(answer({ hidden: { present: false, otherClusters: 12 } }))).toBe('12 operation records from other clusters are not shown.');
+    expect(hiddenLine(answer({ hidden: { present: true, otherClusters: 1 } }))).toBe(
+      'Some run records name services outside your view and are left out of every number. 1 operation record from another cluster is not shown.');
   });
 });
 

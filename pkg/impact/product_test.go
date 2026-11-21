@@ -386,7 +386,7 @@ func TestBuildProduct_HiddenUnderRestrict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	q := fleet.NewQuery(full).Restrict(func(ns string) bool { return ns == "shop" }, nil)
+	q := fleet.NewQuery(full).Restrict(func(_, ns string) bool { return ns == "shop" }, nil)
 	snap := q.SnapshotForSerialization()
 	newC := svcContract("auth-service", "2.0.0", contract.Owner{Team: "platform"})
 	res := Analyze(context.Background(), auth, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{})

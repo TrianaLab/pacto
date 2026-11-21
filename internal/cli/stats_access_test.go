@@ -15,6 +15,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
 )
 
 // accessReviews is a caller's client whose SelfSubjectAccessReviews allow
@@ -57,7 +58,7 @@ func namespacesFleet(t *testing.T, nss ...string) *fleet.Query {
 
 func TestOperationAccessAsksListOperations(t *testing.T) {
 	a := &accessReviews{allowed: map[string]bool{"prod-a": true}}
-	visible, err := operationAccess(a.client(), namespacesFleet(t, "prod-a"))(context.Background(), []string{"prod-a"})
+	visible, err := visibleOf(operationAccess(a.client(), namespacesFleet(t, "prod-a"), nil)(context.Background(), []string{"prod-a"}))
 	expect(t, err == nil && visible("prod-a"), "prod-a: %v", err)
 	expect(t, len(a.asked) == 1, "reviews = %+v", a.asked)
 	got := a.asked[0]
@@ -71,7 +72,7 @@ func TestOperationAccessIgnoresUnknownNamespaces(t *testing.T) {
 	for i := range 1000 {
 		nss = append(nss, fmt.Sprintf("ns-%d", i))
 	}
-	visible, err := operationAccess(a.client(), namespacesFleet(t, "prod-a", "prod-b"))(context.Background(), nss)
+	visible, err := visibleOf(operationAccess(a.client(), namespacesFleet(t, "prod-a", "prod-b"), nil)(context.Background(), nss))
 	expect(t, err == nil, "access: %v", err)
 	expect(t, len(a.asked) == 2, "reviews = %d", len(a.asked))
 	expect(t, visible("prod-a") && visible("prod-b") && !visible("ns-7"), "a namespace outside the snapshot is refused")
@@ -79,11 +80,11 @@ func TestOperationAccessIgnoresUnknownNamespaces(t *testing.T) {
 
 func TestOperationAccessErrorIsError(t *testing.T) {
 	a := &accessReviews{err: errors.New("apiserver down")}
-	visible, err := operationAccess(a.client(), namespacesFleet(t, "prod-a"))(context.Background(), []string{"prod-a"})
+	visible, err := visibleOf(operationAccess(a.client(), namespacesFleet(t, "prod-a"), nil)(context.Background(), []string{"prod-a"}))
 	expect(t, visible == nil && errors.Is(err, errOperationReview) && !strings.Contains(err.Error(), "prod-a"), "err = %v", err)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = operationAccess(a.client(), namespacesFleet(t, "prod-a"))(ctx, []string{"prod-a"})
+	_, err = visibleOf(operationAccess(a.client(), namespacesFleet(t, "prod-a"), nil)(ctx, []string{"prod-a"}))
 	expect(t, errors.Is(err, context.Canceled), "a cancelled review is the context's error: %v", err)
 }
 
@@ -98,4 +99,9 @@ func TestFleetOnlyReviewGivesNoDeliveryClient(t *testing.T) {
 	who, _, err := remoteCaller{}.review(context.Background(), dyn)
 	expect(t, err == nil && who.person.User == "alice", "review: %v", err)
 	expect(t, who.own != nil && who.own.Dynamic == dyn && who.delivery == nil, "reviewed = %+v", who)
+}
+
+// visibleOf is the namespaces an operation access review found visible.
+func visibleOf(a stats.OperationAccess, err error) (func(string) bool, error) {
+	return a.Visible, err
 }

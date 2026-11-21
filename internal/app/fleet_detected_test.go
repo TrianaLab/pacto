@@ -116,7 +116,7 @@ func TestCheckDetectedRef(t *testing.T) {
 
 func TestFleetOptionsNoDetectedNoSource(t *testing.T) {
 	svc := detectedService(t)
-	svc.sys.newK8s = func() (k8sclient.K8sClient, error) { return nil, errors.New("no cluster") }
+	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) { return nil, errors.New("no cluster") }
 	svc.sys.kubeContext = func() string { return "" }
 	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeK8s: true})
 	if err != nil {

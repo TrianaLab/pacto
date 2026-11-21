@@ -204,7 +204,7 @@ func TestRestrictRedactsExposureRows(t *testing.T) {
 			t.Fatal(err)
 		}
 		reader := tc.reader
-		got := row(t, fleet.NewQuery(snap).Restrict(func(ns string) bool { return ns == reader }, nil).SnapshotForSerialization().Providers, "exposure")
+		got := row(t, fleet.NewQuery(snap).Restrict(func(_, ns string) bool { return ns == reader }, nil).SnapshotForSerialization().Providers, "exposure")
 		if got.Hint != "" || strings.ContainsAny(got.Evidence, "0123456789") {
 			t.Errorf("%s: %+v", name, got)
 		}

@@ -63,3 +63,12 @@ func TestMCPFleetEntityLegacyKeyAnswersCanonicalKey(t *testing.T) {
 		t.Errorf("target detail carries its cluster: %+v", out.Target)
 	}
 }
+
+// pacto_fleet_entities cluster keeps the targets of that cluster.
+func TestFleetEntitiesClusterArgument(t *testing.T) {
+	res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(twoClusterFleet(t), false), map[string]any{"kind": "target", "cluster": clusterUS})
+	text := resultText(t, res)
+	if res.IsError || !strings.Contains(text, string(fleet.NewClusterTargetKey(clusterUS, "payments", "kubernetes", "payments"))) || strings.Contains(text, clusterEU+"/") {
+		t.Errorf("targets of us-prod:\n%s", text)
+	}
+}

@@ -283,4 +283,25 @@ describe('FleetEntityListView', () => {
     expect(target.querySelector('.breadcrumbs')?.textContent).toContain(title);
     unmount(component);
   });
+  it('filters targets by cluster, keeps the key across paging and drops it with its chip', async () => {
+    const t = (key: string) => ({ kind: 'target', key, label: key, href: `/fleet/targets/${encodeURIComponent(key)}` });
+    const resp = listResp([t('uid-eu/prod/payments')], { total: 30, nextOffset: 25 });
+    resp.meta.clusters = [
+      { id: 'uid-eu', name: 'eu-prod', status: 'available', targets: 1 },
+      { id: 'uid-us', name: 'us-prod', status: 'available', access: 'no-access', targets: 0 },
+    ];
+    entitiesFn.mockResolvedValue(resp);
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(FleetEntityListView, { target, props: { refreshTick: 0, kind: 'target', cluster: 'uid-eu' } });
+    await vi.waitFor(() => expect(target.querySelectorAll('.lv-item').length).toBe(1));
+    expect(entitiesFn).toHaveBeenLastCalledWith(expect.objectContaining({ kinds: ['target'], cluster: 'uid-eu' }));
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="cluster-caption"]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Showing 1 of 2 clusters (us-prod: no access)'));
+    const next = target.querySelector('a[href*="offset=25"]') as HTMLAnchorElement;
+    expect(next.getAttribute('href')).toContain('cluster=uid-eu');
+    const chip = Array.from(target.querySelectorAll('.chip')).find((c) => c.textContent?.includes('Cluster')) as HTMLElement;
+    (chip.querySelector('button') as HTMLButtonElement).click();
+    expect(location.hash).toBe('#/fleet/targets');
+    unmount(component); target.remove();
+  });
 });

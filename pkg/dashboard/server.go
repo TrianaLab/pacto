@@ -116,8 +116,10 @@ type Options struct {
 	StatsRegistry string
 	// OperationAccess reviews a signed-in viewer's access to list operations
 	// in the Stage namespaces the operation records name and says which they
-	// may see. Nil on a restricted host hides every operation record.
-	OperationAccess func(ctx context.Context, namespaces []string) (func(string) bool, error)
+	// may see, and the clusters they were reviewed in: a record of another
+	// cluster is hidden and counted. Nil on a restricted host hides every
+	// operation record.
+	OperationAccess func(ctx context.Context, namespaces []string) (stats.OperationAccess, error)
 	// Now is the clock behind the stats window and its buckets; nil is
 	// time.Now.
 	Now func() time.Time

@@ -567,6 +567,16 @@ const (
 	// LimitationTargetSnapshotScoped: the publishing operator watches only
 	// some namespaces, so a namespace it did not read is unknown, never empty.
 	LimitationTargetSnapshotScoped = "TARGET_SNAPSHOT_SCOPED"
+	// LimitationClusterHidden: a restricted view hides every service of one
+	// reviewed cluster, because the reader may read no namespace there, the
+	// review failed or nobody can be reviewed there. Source is the cluster id.
+	// It makes the answer partial.
+	LimitationClusterHidden = "CLUSTER_HIDDEN"
+	// LimitationClusterFilterUnknown: a list filtered by a cluster id that no
+	// cluster of the answer has, such as a display name or a retired cluster,
+	// so its empty list says nothing about that cluster. Completeness is
+	// unchanged.
+	LimitationClusterFilterUnknown = "CLUSTER_FILTER_UNKNOWN"
 )
 
 // Cluster name sources: how a [Cluster] name was found. They mirror the values
@@ -606,7 +616,17 @@ type Cluster struct {
 type ClusterRecord struct {
 	Cluster
 	Sources []string `json:"sources" doc:"Every source that reported this cluster id."`
+	// Access says why a restricted view shows nothing of this cluster; empty
+	// when it shows what the reader may read.
+	Access string `json:"access,omitempty" enum:"no-access,review-failed,not-reviewable" doc:"Why a restricted view shows nothing of this cluster: you may read no namespace there, the review failed or took too long, or nobody can be reviewed there. Empty when the view shows what you may read."`
 }
+
+// Cluster access marks of a restricted view (see [ClusterRecord.Access]).
+const (
+	ClusterNoAccess      = "no-access"
+	ClusterReviewFailed  = "review-failed"
+	ClusterNotReviewable = "not-reviewable"
+)
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
 // Prose lives in Message; agents branch on Code.

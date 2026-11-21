@@ -198,6 +198,7 @@ pacto ci [root] [flags]
 
 ```
       --cache[=true|false]                 include every bundle in the local OCI cache as an offline baseline revision
+      --context stringArray                kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string              the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string                    add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray           base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
@@ -304,6 +305,7 @@ pacto dashboard [sources...] [flags]
 
 ```
       --allow-anonymous[=true|false]      serve beyond loopback without sign-in: everyone who reaches the address reads the whole fleet (also PACTO_DASHBOARD_ALLOW_ANONYMOUS)
+      --context stringArray               kubeconfig context to read live Pacto CRs from (repeatable, each cluster read once); outside a pod the named contexts replace the current one and people sign in against the first (also PACTO_DASHBOARD_CONTEXT)
       --cors-origin string                explicit cross-origin allowed to call the API (default: same-origin only)
       --delivery-namespace string         namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
       --delivery-trust string             the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
@@ -1241,6 +1243,7 @@ pacto export backstage [flags]
 ```
       --allow-partial[=true|false]    write the file even when the fleet is partial or empty
       --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
+      --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string               add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
@@ -1275,6 +1278,7 @@ pacto fleet [flags]
 
 ```
       --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
+      --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string               add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
@@ -1335,6 +1339,7 @@ pacto fleet entities [text] [flags]
       --business-domain string           exact business domain, (none) for none or (unknown) for unknown
       --capability string                services whose revisions declare this capability key, such as health or acme.io/cost
       --class string                     with --kind external, external systems of this class (vendor-api, managed-cloud, legacy, unclassified, other-egress)
+      --cluster string                   entities in this cluster, by its UID as meta.clusters lists it: targets, services with a target or an inferred workload there and revisions a target there runs; other kinds ignore it
       --consumes string                  services that depend on or reference a provider of this platform offering
       --created-from string              services created from this golden path, by key; (none) for no declared origin or (unresolved) for an origin that resolves to no golden path
       --declaration string               inferred keeps only the services Pacto infers from workloads no contract describes; declared leaves them out
@@ -1703,6 +1708,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
 
 ```
       --cache[=true|false]              include every bundle in the local OCI cache as an offline baseline revision
+      --context stringArray             kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string           the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string                 add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray        base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
@@ -2041,6 +2047,7 @@ pacto mcp [bundle-ref] [flags]
       --auth-issuer string            OpenID issuer whose bearer tokens every HTTP request must carry
       --base-url string               base URL for live invocation (overrides the OpenAPI servers[] URL)
       --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
+      --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --dashboard-url string          with --fleet: base URL of a Pacto dashboard; fleet answers then carry an href to each entity's page there
       --delivery[=true|false]         expose the Pacto delivery tools over the ambient cluster
       --delivery-namespace string     in --delivery mode: namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
@@ -2418,6 +2425,7 @@ pacto stats [flags]
 ```
       --by string                     group the numbers by service, owner, domain, repository, environment
       --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
+      --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string               add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
@@ -2484,6 +2492,7 @@ pacto tui [flags]
 
 ```
       --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
+      --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string               add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)

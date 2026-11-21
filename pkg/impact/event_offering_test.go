@@ -171,7 +171,7 @@ func TestImpactOfferingHiddenProviderCounted(t *testing.T) {
 	if limitation(offeringEvent(full, EventUnavailable, "postgresql"), LimitationHiddenProviders) != nil {
 		t.Error("an unrestricted answer counts hidden providers")
 	}
-	snap := fleet.NewQuery(full).Restrict(func(ns string) bool { return ns != "ha" }, nil).SnapshotForSerialization()
+	snap := fleet.NewQuery(full).Restrict(func(_, ns string) bool { return ns != "ha" }, nil).SnapshotForSerialization()
 	res := offeringEvent(snap, EventUnavailable, "postgresql")
 	l := limitation(res, LimitationHiddenProviders)
 	if l == nil || !strings.HasPrefix(l.Message, "1 provider of postgresql you may not see") || res.Completeness != fleet.CompletenessPartial {
@@ -181,7 +181,7 @@ func TestImpactOfferingHiddenProviderCounted(t *testing.T) {
 		t.Errorf("the hidden provider leaks: %s", b)
 	}
 	// Every provider hidden reads like a missing offering.
-	snap = fleet.NewQuery(full).Restrict(func(ns string) bool { return ns == "shop" }, nil).SnapshotForSerialization()
+	snap = fleet.NewQuery(full).Restrict(func(_, ns string) bool { return ns == "shop" }, nil).SnapshotForSerialization()
 	if res := offeringEvent(snap, EventUnavailable, "postgresql"); limitation(res, LimitationOfferingNotInFleet) == nil || limitation(res, LimitationHiddenProviders) != nil {
 		t.Errorf("limitations %+v", res.Limitations)
 	}

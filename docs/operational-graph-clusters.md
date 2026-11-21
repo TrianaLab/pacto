@@ -5,7 +5,8 @@ targets when it reads more than one cluster, how old keys keep resolving and
 where each cluster name comes from. The live Kubernetes source, a
 [target-state file](operational-graph-reference.md#what-a-target-state-fixture-looks-like)
 with a `cluster` block and an [Evidence Server](evidence.md#clusters) each
-report a cluster.
+report a cluster. [Multi-cluster](multi-cluster.md) covers reading several
+clusters and what each signed-in person sees in each.
 
 ## Key forms
 

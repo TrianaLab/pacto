@@ -18,6 +18,8 @@ const (
 	MaxMetaSources = 50
 	// MaxMetaLimitations caps the limitations carried in a product answer's meta.
 	MaxMetaLimitations = 100
+	// MaxMetaClusters caps the clusters carried in an answer's meta.
+	MaxMetaClusters = 50
 	// MaxSourceNamespaces caps the namespaces one source carries in a meta;
 	// NamespacesTotal keeps the full count.
 	MaxSourceNamespaces = 64

@@ -176,7 +176,7 @@ func TestRegistryRowHiddenWhenNoVisibleRef(t *testing.T) {
 		t.Fatalf("unrestricted rows = %q", ids)
 	}
 	only := func(ns string) bool { return ns == "a" }
-	if ids := registryRowIDs(q.Restrict(only, func(ns, _ string) bool { return only(ns) })); len(ids) != 0 {
+	if ids := registryRowIDs(q.Restrict(func(_, ns string) bool { return only(ns) }, func(_, ns, _ string) bool { return only(ns) })); len(ids) != 0 {
 		t.Fatalf("a viewer who sees no service of the host saw %q", ids)
 	}
 }
@@ -185,7 +185,7 @@ func TestRegistryRowKeptWhenOneRefVisible(t *testing.T) {
 	q := fleet.NewQuery(registrySnapshot(t, "ghcr.io/x/a:1.0.0", "ghcr.io/x/b:1.0.0"))
 	want := q.Providers().Providers
 	only := func(ns string) bool { return ns == "a" }
-	got := q.Restrict(only, func(ns, _ string) bool { return only(ns) }).Providers().Providers
+	got := q.Restrict(func(_, ns string) bool { return only(ns) }, func(_, ns, _ string) bool { return only(ns) }).Providers().Providers
 	i := slices.IndexFunc(got, func(p fleet.Provider) bool { return p.ID == "registry:ghcr.io" })
 	j := slices.IndexFunc(want, func(p fleet.Provider) bool { return p.ID == "registry:ghcr.io" })
 	if i < 0 || j < 0 || got[i].Evidence != want[j].Evidence || !slices.Equal(got[i].Details, want[j].Details) {
@@ -215,7 +215,7 @@ func TestRegistryProbeFailureHidesTheSubject(t *testing.T) {
 		t.Fatal(err)
 	}
 	only := func(ns string) bool { return ns == "a" }
-	got, _ := json.Marshal(fleet.NewQuery(snap).Restrict(only, func(ns, _ string) bool { return only(ns) }).Providers())
+	got, _ := json.Marshal(fleet.NewQuery(snap).Restrict(func(_, ns string) bool { return only(ns) }, func(_, ns, _ string) bool { return only(ns) }).Providers())
 	if !strings.Contains(string(got), "registry:ghcr.io") || strings.Contains(string(got), "internal-gl") {
 		t.Fatalf("restricted providers = %s", got)
 	}

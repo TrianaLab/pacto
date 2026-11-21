@@ -101,7 +101,7 @@ func testViewer() (*Viewer, *reviews, *time.Time) {
 	r := &reviews{allow: func(p Person, ns string) (bool, error) {
 		return p.User == "root" || (p.User == "alice" && ns == "a") || (p.User == "bob" && ns == "a"), nil
 	}}
-	v := NewViewer(r.review)
+	v := NewViewer(one(r.review))
 	now := time.Unix(1000, 0)
 	v.now = func() time.Time { return now }
 	return v, r, &now
@@ -201,20 +201,19 @@ func TestViewerBoundsAndFailures(t *testing.T) {
 	q := viewerFleet(t, "a")
 	boom := errors.New("apiserver down")
 	fail := ""
-	v := NewViewer(func(_ context.Context, p Person, ns string, _ ResourceAttributes) (bool, error) {
+	v := NewViewer(one(func(_ context.Context, p Person, ns string, _ ResourceAttributes) (bool, error) {
 		if ns == fail {
 			return false, boom
 		}
 		return false, nil
-	})
+	}))
+
 	fail = ""
-	if _, err := v.Query(context.Background(), Person{User: "x"}, q); !errors.Is(err, ErrReview) {
-		t.Errorf("a failed cluster-wide review: %v", err)
-	}
+	got, err := v.Query(context.Background(), Person{User: "x"}, q)
+	checkReviewFailed(t, "a failed cluster-wide review", got, err)
 	fail = "a"
-	if _, err := v.Query(context.Background(), Person{User: "x"}, q); !errors.Is(err, ErrReview) {
-		t.Errorf("a failed namespace review: %v", err)
-	}
+	got, err = v.Query(context.Background(), Person{User: "x"}, q)
+	checkReviewFailed(t, "a failed namespace review", got, err)
 	fail = "-"
 	for i := range maxViews + 1 { // distinct snapshots are not needed: distinct people with distinct answers are
 		v.viewsOf = q.SnapshotID()
@@ -386,7 +385,7 @@ func scopedViewer(t *testing.T) (*Viewer, *reviews) {
 		}
 		return p.User == "alice" && ns == "payments", nil
 	}}
-	return NewScopedViewer(r.review, []string{"payments", "ledger"}), r
+	return NewScopedViewer(one(r.review), []string{"payments", "ledger"}), r
 }
 
 func TestScopedViewerNeverAsksAllNamespaces(t *testing.T) {
@@ -431,7 +430,7 @@ func TestScopedViewerUnwatchedCallerDoesNotFailRequest(t *testing.T) {
 		}
 		return true, nil
 	}}
-	got, err := NewScopedViewer(r.review, []string{"payments"}).Query(context.Background(), alice, fleet.NewQuery(snap))
+	got, err := NewScopedViewer(one(r.review), []string{"payments"}).Query(context.Background(), alice, fleet.NewQuery(snap))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,15 +443,15 @@ func TestScopedViewerUnwatchedCallerDoesNotFailRequest(t *testing.T) {
 	}
 }
 
-func TestScopedViewerFailedReviewIsError(t *testing.T) {
+func TestScopedViewerFailedReviewIsPartial(t *testing.T) {
 	boom := errors.New(`localsubjectaccessreviews.authorization.k8s.io is forbidden: cannot create resource in the namespace "payments"`)
-	v := NewScopedViewer(func(context.Context, Person, string, ResourceAttributes) (bool, error) { return false, boom }, []string{"payments"})
-	_, err := v.Query(context.Background(), alice, viewerFleet(t, "payments"))
-	if !errors.Is(err, ErrReview) {
-		t.Errorf("a failed review in a watched namespace: %v", err)
-	}
-	if err != nil && strings.Contains(err.Error(), "payments") {
-		t.Errorf("the error names the namespace it was asked in: %v", err)
+	v := NewScopedViewer(one(func(context.Context, Person, string, ResourceAttributes) (bool, error) { return false, boom }), []string{"payments"})
+	got, err := v.Query(context.Background(), alice, viewerFleet(t, "payments"))
+	checkReviewFailed(t, "a failed review in a watched namespace", got, err)
+	for _, l := range got.SnapshotForSerialization().Limitations {
+		if strings.Contains(l.Message, "payments") {
+			t.Errorf("a limitation names the namespace it was asked in: %+v", l)
+		}
 	}
 }
 
@@ -476,7 +475,7 @@ func TestScopedViewerUnreadableNamespaceDoesNotFailRequest(t *testing.T) {
 		}
 		return true, nil
 	}}
-	got, err := NewScopedViewer(r.review, []string{"payments", "ledger"}).Query(context.Background(), alice, fleet.NewQuery(snap))
+	got, err := NewScopedViewer(one(r.review), []string{"payments", "ledger"}).Query(context.Background(), alice, fleet.NewQuery(snap))
 	if err != nil || !slices.Equal(services(got), []string{"svc-payments"}) {
 		t.Fatalf("alice sees %v, %v", services(got), err)
 	}
@@ -524,7 +523,7 @@ func TestViewerAsksWorkloadReviewForInferred(t *testing.T) {
 	q := inferredFleet(t)
 
 	r := &reviews{allow: func(_ Person, ns string) (bool, error) { return ns == "shop", nil }, allowWorkload: noDeployments}
-	v := NewViewer(r.review)
+	v := NewViewer(one(r.review))
 	got, err := v.Query(context.Background(), alice, q)
 	if err != nil || !slices.Equal(services(got), []string{nightly, "svc-a"}) {
 		t.Fatalf("alice sees %v, %v", services(got), err)
@@ -552,7 +551,7 @@ func checkClusterWideWorkloadReview(t *testing.T, q *fleet.Query, nightly string
 	root := &reviews{allow: func(Person, string) (bool, error) { return true, nil }, allowWorkload: func(_ Person, ns string, res ResourceAttributes) (bool, error) {
 		return res.Resource == "cronjobs" && ns == "", nil
 	}}
-	got, err := NewViewer(root.review).Query(context.Background(), alice, q)
+	got, err := NewViewer(one(root.review)).Query(context.Background(), alice, q)
 	if err != nil || got == q || !slices.Equal(services(got), []string{nightly, "svc-a"}) {
 		t.Errorf("a cluster-wide Pacto reader without cluster-wide Deployment read sees %v, %v", services(got), err)
 	}
@@ -560,7 +559,7 @@ func checkClusterWideWorkloadReview(t *testing.T, q *fleet.Query, nightly string
 		t.Errorf("asked %v", root.askedRes)
 	}
 	everything := &reviews{allow: func(Person, string) (bool, error) { return true, nil }, allowWorkload: func(Person, string, ResourceAttributes) (bool, error) { return true, nil }}
-	if got, err := NewViewer(everything.review).Query(context.Background(), alice, q); err != nil || got != q {
+	if got, err := NewViewer(one(everything.review)).Query(context.Background(), alice, q); err != nil || got != q {
 		t.Errorf("a cluster-wide reader of everything gets a restricted view: %v", err)
 	}
 }
@@ -579,7 +578,7 @@ func checkScopedWorkloadReview(t *testing.T, q *fleet.Query, cart, nightly strin
 		_ = unstructured.SetNestedField(obj.Object, res != "deployments", "status", "allowed")
 		return true, obj, nil
 	})
-	got, err := NewScopedViewer(LocalSubjectAccessReview(c), []string{"shop"}).Query(context.Background(), alice, q)
+	got, err := NewScopedViewer(one(LocalSubjectAccessReview(c)), []string{"shop"}).Query(context.Background(), alice, q)
 	if err != nil || slices.Contains(services(got), cart) || !slices.Contains(services(got), nightly) {
 		t.Errorf("the scoped viewer shows %v, %v", services(got), err)
 	}
@@ -602,7 +601,7 @@ func TestViewerWorkloadReviewEdges(t *testing.T) {
 	q := fleet.NewQuery(snap)
 	yes := func(Person, string) (bool, error) { return true, nil }
 	everything := &reviews{allow: yes, allowWorkload: func(Person, string, ResourceAttributes) (bool, error) { return true, nil }}
-	got, err := NewViewer(everything.review).Query(context.Background(), alice, q)
+	got, err := NewViewer(one(everything.review)).Query(context.Background(), alice, q)
 	if err != nil || !slices.Equal(services(got), []string{"k8s:shop/Deployment/cart"}) {
 		t.Errorf("a reader of everything sees %v, %v", services(got), err)
 	}
@@ -617,9 +616,8 @@ func TestViewerWorkloadReviewEdges(t *testing.T) {
 		},
 	} {
 		r := &reviews{allow: yes, allowWorkload: fail}
-		if _, err := NewViewer(r.review).Query(context.Background(), alice, q); !errors.Is(err, ErrReview) {
-			t.Errorf("%s: a failed workload review is %v", name, err)
-		}
+		got, err := NewViewer(one(r.review)).Query(context.Background(), alice, q)
+		checkReviewFailed(t, name+": a failed workload review", got, err)
 	}
 }
 
@@ -637,7 +635,7 @@ func TestViewerReviewsProviderCounts(t *testing.T) {
 	}
 	q := fleet.NewQuery(snap)
 	r := &reviews{allow: func(Person, string) (bool, error) { return true, nil }}
-	got, err := NewViewer(r.review).Query(context.Background(), alice, q)
+	got, err := NewViewer(one(r.review)).Query(context.Background(), alice, q)
 	if err != nil || got == q {
 		t.Fatalf("an unlisted workload kind kept the whole query: %v", err)
 	}
@@ -672,7 +670,7 @@ func TestViewerReviewsHelmReleaseCounts(t *testing.T) {
 		r := &reviews{allow: func(_ Person, ns string) (bool, error) { return ns == "shop", nil }, allowWorkload: func(_ Person, ns string, res ResourceAttributes) (bool, error) {
 			return ns == "shop" && res.Resource != tc.denied, nil
 		}}
-		got, err := NewViewer(r.review).Query(context.Background(), alice, q)
+		got, err := NewViewer(one(r.review)).Query(context.Background(), alice, q)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -691,7 +689,7 @@ func TestViewerReviewsRepositoryWithoutPactos(t *testing.T) {
 	r := &reviews{allow: func(_ Person, ns string) (bool, error) { return ns == "shop", nil }, allowWorkload: func(_ Person, ns string, res ResourceAttributes) (bool, error) {
 		return ns == "shop" || (ns == "argocd" && res.Resource == "applications"), nil
 	}}
-	got, err := NewViewer(r.review).Query(context.Background(), alice, q)
+	got, err := NewViewer(one(r.review)).Query(context.Background(), alice, q)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -716,7 +714,7 @@ func TestViewerReviewsDetectedNamespaces(t *testing.T) {
 	}
 	q := fleet.NewQuery(snap)
 	r := &reviews{allow: func(p Person, ns string) (bool, error) { return ns == "a" || (p.User == "carol" && ns == "infra"), nil }}
-	v := NewViewer(r.review)
+	v := NewViewer(one(r.review))
 	got, err := v.Query(context.Background(), alice, q)
 	if err != nil {
 		t.Fatal(err)
@@ -780,7 +778,7 @@ func TestViewerReviewsRepositoryKinds(t *testing.T) {
 	r := &reviews{allow: func(_ Person, ns string) (bool, error) { return ns != "", nil }, allowWorkload: func(_ Person, ns string, res ResourceAttributes) (bool, error) {
 		return ns != "" && res.Resource != "applications", nil
 	}}
-	got, err := NewViewer(r.review).Query(context.Background(), alice, q)
+	got, err := NewViewer(one(r.review)).Query(context.Background(), alice, q)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -818,7 +816,7 @@ func TestViewerReviewsUnresolvedRepositoryReason(t *testing.T) {
 	r := &reviews{allow: func(Person, string) (bool, error) { return true, nil }, allowWorkload: func(_ Person, _ string, res ResourceAttributes) (bool, error) {
 		return res.Resource != "applications", nil
 	}}
-	got, err := NewViewer(r.review).Query(context.Background(), alice, q)
+	got, err := NewViewer(one(r.review)).Query(context.Background(), alice, q)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -842,7 +840,7 @@ func TestViewerKeyIncludesRepositoryScopes(t *testing.T) {
 	r := &reviews{allow: func(_ Person, ns string) (bool, error) { return ns != "", nil }, allowWorkload: func(p Person, ns string, res ResourceAttributes) (bool, error) {
 		return ns != "" && (res.Resource != "applications" || p.User == "bob"), nil
 	}}
-	v := NewViewer(r.review)
+	v := NewViewer(one(r.review))
 	a, err := v.Query(context.Background(), alice, q)
 	if err != nil {
 		t.Fatal(err)
@@ -857,7 +855,7 @@ func TestViewerKeyIncludesRepositoryScopes(t *testing.T) {
 	root := &reviews{allow: func(Person, string) (bool, error) { return true, nil }, allowWorkload: func(_ Person, _ string, res ResourceAttributes) (bool, error) {
 		return res.Resource != "applications", nil
 	}}
-	got, err := NewViewer(root.review).Query(context.Background(), alice, q)
+	got, err := NewViewer(one(root.review)).Query(context.Background(), alice, q)
 	if err != nil || got == q || slices.Contains(repositoryURLs(got), "https://github.com/acme/shop") {
 		t.Errorf("a reader of everything but Applications sees %v, %v", repositoryURLs(got), err)
 	}

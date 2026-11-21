@@ -2635,6 +2635,11 @@ export interface components {
             reportedBy?: string;
         };
         "Fleet.ClusterRecord": {
+            /**
+             * @description Why a restricted view shows nothing of this cluster: you may read no namespace there, the review failed or took too long, or nobody can be reviewed there. Empty when the view shows what you may read.
+             * @enum {string}
+             */
+            access?: "no-access" | "review-failed" | "not-reviewable";
             /** @description The kube-system namespace UID: the identity of the cluster. */
             id: string;
             /** @description A display name for the cluster; never an identity. */
@@ -2648,6 +2653,32 @@ export interface components {
             reportedBy?: string;
             /** @description Every source that reported this cluster id. */
             sources: string[] | null;
+        };
+        "Fleet.ClusterSummary": {
+            /**
+             * @description Why a restricted view shows nothing of this cluster; empty when it shows what you may read.
+             * @enum {string}
+             */
+            access?: "no-access" | "review-failed" | "not-reviewable";
+            /** @description The kube-system namespace UID; empty for a Kubernetes source whose cluster could not be identified. */
+            id: string;
+            /** @description A display name for the cluster, or the source id when the cluster could not be identified; never an identity. */
+            name: string;
+            /**
+             * @description How the name was found.
+             * @enum {string}
+             */
+            nameSource?: "node-label" | "context" | "file" | "uid";
+            /**
+             * @description The worst status of the sources that reported the cluster.
+             * @enum {string}
+             */
+            status: "available" | "partial" | "stale" | "unavailable";
+            /**
+             * Format: int64
+             * @description The targets of this cluster the answer shows.
+             */
+            targets: number;
         };
         "Fleet.ComplianceTally": {
             /** Format: int64 */
@@ -3654,6 +3685,10 @@ export interface components {
         "Fleet.Meta": {
             /** Format: date-time */
             asOf: string;
+            /** @description The status of each cluster the answer knows, least healthy first when truncated. Absent when no cluster is known. */
+            clusters?: components["schemas"]["Fleet.ClusterSummary"][] | null;
+            /** @description The snapshot knows more clusters than the answer carries. */
+            clustersTruncated?: boolean;
             completeness: string;
             externalCatalogs?: components["schemas"]["Fleet.ExternalCatalogRef"][] | null;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
@@ -4022,6 +4057,10 @@ export interface components {
         "Fleet.ProductMeta": {
             /** Format: date-time */
             asOf: string;
+            /** @description The status of each cluster the answer knows, least healthy first when truncated. Absent when no cluster is known. */
+            clusters?: components["schemas"]["Fleet.ClusterSummary"][] | null;
+            /** @description The snapshot knows more clusters than the answer carries. */
+            clustersTruncated?: boolean;
             completeness: string;
             externalCatalogs?: components["schemas"]["Fleet.ExternalCatalogRef"][] | null;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
@@ -7247,6 +7286,11 @@ export interface components {
             metrics: components["schemas"]["Stats.Metrics"];
         };
         "Stats.Hidden": {
+            /**
+             * Format: int64
+             * @description Operation records of services in the caller's view whose Stage is in a cluster the caller was not reviewed in; they are left out of every number. Records of services outside the view are never counted
+             */
+            otherClusters?: number;
             /** @description True when run records name services outside the caller's view; they are left out of every number */
             present: boolean;
         };
@@ -7362,7 +7406,7 @@ export interface components {
             /** @description What the groups are by */
             by?: string;
             /**
-             * @description partial when a record was skipped, the read was cut, records are outside the caller's view or a blocked change was judged on a partial snapshot; empty when the window holds no records
+             * @description partial when a record was skipped, the read was cut, records are outside the caller's view, operation records of other clusters were left out or a blocked change was judged on a partial snapshot; empty when the window holds no records
              * @enum {string}
              */
             completeness: "complete" | "partial" | "empty";
@@ -9329,6 +9373,8 @@ export interface operations {
                 businessDomain?: string;
                 /** @description Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label; with consumes and phase it also narrows the consumers to statuses in that environment */
                 environment?: string;
+                /** @description Cluster UID as meta.clusters lists it: targets in that cluster, services with a target or an inferred workload there and revisions a target there runs */
+                cluster?: string;
                 /** @description Capability key a service's revisions declare (service entities): health, metrics or, for an extension, its namespaced ref such as acme.io/cost */
                 capability?: string;
                 /** @description Exact platform offering (service.offering) a service provides (service and offering entities) */

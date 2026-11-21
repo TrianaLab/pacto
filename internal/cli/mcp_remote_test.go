@@ -154,6 +154,7 @@ func newRemoteWorld(t *testing.T) *remoteWorld {
 	d.clusterConfig = func() (*rest.Config, error) {
 		return &rest.Config{Host: "https://k", BearerToken: "process-token"}, nil
 	}
+	d.resolveK8s = ambientEntries(&d)
 	d.dynamicFor = func(c *rest.Config) (dynamic.Interface, error) {
 		w.cfgs = append(w.cfgs, c)
 		if w.clientErr != nil {
@@ -292,6 +293,7 @@ func newRemoteFleet(t *testing.T) *remoteFleet {
 	d.clusterConfig = func() (*rest.Config, error) {
 		return &rest.Config{Host: "https://k", BearerToken: "process-token"}, nil
 	}
+	d.resolveK8s = ambientEntries(&d)
 	d.dynamicFor = func(c *rest.Config) (dynamic.Interface, error) {
 		dyn := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
 		dyn.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
@@ -487,6 +489,7 @@ func TestRemoteComposedPerCaller(t *testing.T) {
 	d.clusterConfig = func() (*rest.Config, error) {
 		return &rest.Config{Host: "https://k", BearerToken: "process-token"}, nil
 	}
+	d.resolveK8s = ambientEntries(&d)
 	d.dynamicFor = func(*rest.Config) (dynamic.Interface, error) {
 		dyn, _ := deliveryDeps(user, nil).newDynamic()
 		dyn.(*dynamicfake.FakeDynamicClient).PrependReactor("create", "subjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {

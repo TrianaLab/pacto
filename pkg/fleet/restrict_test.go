@@ -73,16 +73,16 @@ var (
 func restrictShop(t *testing.T) (q, r *Query, s, orig *FleetSnapshot) {
 	t.Helper()
 	q = restrictFleet(t)
-	r = q.Restrict(func(ns string) bool { return ns == "shop" || ns == "" }, nil)
+	r = q.Restrict(anyCluster(func(ns string) bool { return ns == "shop" || ns == "" }), anyClusterKind(nil))
 	return q, r, r.SnapshotForSerialization(), q.SnapshotForSerialization()
 }
 
 func TestRestrictNothingHidden(t *testing.T) {
 	q := restrictFleet(t)
-	if got := q.Namespaces(); !slices.Equal(got, []string{"secret", "shop"}) {
+	if got := namespaceNames(q.Namespaces()); !slices.Equal(got, []string{"secret", "shop"}) {
 		t.Fatalf("Namespaces = %v", got)
 	}
-	if q.Restrict(func(string) bool { return true }, nil) != q {
+	if q.Restrict(anyCluster(func(string) bool { return true }), anyClusterKind(nil)) != q {
 		t.Fatal("nothing hidden must return the same query")
 	}
 }
@@ -211,12 +211,12 @@ func TestRestrictSeeingNothing(t *testing.T) {
 	q, reg := restrictFleet(t), rReg
 	// Seeing no namespace but the cluster scope hides every service with a
 	// Kubernetes target and keeps the registry-only one.
-	none := q.Restrict(func(ns string) bool { return ns == "" }, nil).SnapshotForSerialization()
+	none := q.Restrict(anyCluster(func(ns string) bool { return ns == "" }), anyClusterKind(nil)).SnapshotForSerialization()
 	if len(none.Services) != 1 || none.Services[reg] == nil || len(none.Targets) != 0 || len(none.Relationships) != 0 {
 		t.Errorf("seeing no namespace leaves %d services, %d targets, %d edges", len(none.Services), len(none.Targets), len(none.Relationships))
 	}
 	// Seeing nothing at all hides the registry-only service too.
-	if all := q.Restrict(func(string) bool { return false }, nil).SnapshotForSerialization(); len(all.Services) != 0 {
+	if all := q.Restrict(anyCluster(func(string) bool { return false }), anyClusterKind(nil)).SnapshotForSerialization(); len(all.Services) != 0 {
 		t.Errorf("seeing nothing leaves %d services", len(all.Services))
 	}
 }
@@ -224,7 +224,7 @@ func TestRestrictSeeingNothing(t *testing.T) {
 func TestRestrictUnscoped(t *testing.T) {
 	q := restrictFleet(t)
 	// Every namespace but not the cluster scope: only reg, with no namespace, goes.
-	r := q.Restrict(func(ns string) bool { return ns != "" }, nil)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "" }), anyClusterKind(nil))
 	s := r.SnapshotForSerialization()
 	if len(s.Services) != 4 || s.Services[rReg] != nil || s.Sources[0].RevisionCount != 4 {
 		t.Errorf("services %d, reg %v, revisions %d", len(s.Services), s.Services[rReg], s.Sources[0].RevisionCount)
@@ -239,7 +239,7 @@ func TestRestrictUnscoped(t *testing.T) {
 }
 
 func TestRestrictHidesUndeclaredOfHiddenServices(t *testing.T) {
-	rv := undeclaredFleet(t).Restrict(func(ns string) bool { return ns != "secret" }, nil)
+	rv := undeclaredFleet(t).Restrict(anyCluster(func(ns string) bool { return ns != "secret" }), anyClusterKind(nil))
 	al := attentionOf(t, rv, AttentionFilter{Category: categoryUndeclared})
 	if al.Total != 2 {
 		t.Errorf("restricted undeclared total = %d, want 2 (d calls b, pay calls b)", al.Total)
@@ -270,7 +270,7 @@ func TestRestrictRebuildsTargetOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rv := NewQuery(snap).Restrict(func(ns string) bool { return ns == "shop" }, nil)
+	rv := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns == "shop" }), anyClusterKind(nil))
 	s := rv.SnapshotForSerialization()
 	if got := s.Services[NewServiceKey("x")].Owner.Team; got != "visible-team" {
 		t.Errorf("restricted owner = %q, want visible-team", got)
@@ -309,7 +309,7 @@ func TestRestrictHidesCallerNamedLikeHiddenService(t *testing.T) {
 			if len(snap.UncontractedCallers) != 1 || !snap.UncontractedCallers[0].Ambiguous {
 				t.Fatalf("fixture: want one ambiguous caller, got %+v", snap.UncontractedCallers)
 			}
-			rv := NewQuery(snap).Restrict(func(ns string) bool { return ns == "shop" }, nil)
+			rv := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns == "shop" }), anyClusterKind(nil))
 			if al := attentionOf(t, rv, AttentionFilter{Category: categoryUndeclared}); al.Total != 0 {
 				t.Errorf("restricted undeclared = %+v, want none", al.Items)
 			}
@@ -392,7 +392,7 @@ func TestRestrictHidesCallersWithoutNamespace(t *testing.T) {
 	if names := callerNames(orig); !slices.Contains(names, "legacy-batch") || !slices.Contains(names, "cron-x") {
 		t.Fatalf("fixture: callers = %v", names)
 	}
-	s := q.Restrict(restrictedVisible, nil).SnapshotForSerialization()
+	s := q.Restrict(anyCluster(restrictedVisible), anyClusterKind(nil)).SnapshotForSerialization()
 	if names := callerNames(s); len(names) != 0 {
 		t.Errorf("restricted callers = %v, want none", names)
 	}
@@ -435,7 +435,7 @@ func checkBareLimitations(t *testing.T, limitations []Limitation) {
 
 func TestRestrictKeepsNamespacedCallers(t *testing.T) {
 	q := bareCallerFleet(t, ObservedEdge{From: "k8s:shop/Deployment/x", To: "payments", Count: 1}, ObservedEdge{From: "k8s:hidden/Deployment/y", To: "payments", Count: 1})
-	s := q.Restrict(restrictedVisible, nil).SnapshotForSerialization()
+	s := q.Restrict(anyCluster(restrictedVisible), anyClusterKind(nil)).SnapshotForSerialization()
 	if names := callerNames(s); !slices.Equal(names, []string{"k8s:shop/Deployment/x"}) {
 		t.Errorf("restricted callers = %v, want only the shop one", names)
 	}
@@ -449,7 +449,7 @@ func TestRestrictKeepsNamespacedCallers(t *testing.T) {
 // the cluster scope sees only a count, never the name.
 func TestRestrictHidesMalformedK8sCallers(t *testing.T) {
 	q := bareCallerFleet(t, ObservedEdge{From: "k8s:hidden/Deployment/x/y/z", To: "payments", Count: 1}, ObservedEdge{From: "k8s:shop/x", To: "payments", Count: 1})
-	s := q.Restrict(func(ns string) bool { return ns != "hidden" }, nil).SnapshotForSerialization()
+	s := q.Restrict(anyCluster(func(ns string) bool { return ns != "hidden" }), anyClusterKind(nil)).SnapshotForSerialization()
 	for _, name := range callerNames(s) {
 		if strings.HasPrefix(name, "k8s:") {
 			t.Errorf("restricted callers = %v, want no malformed k8s caller", callerNames(s))
@@ -465,11 +465,11 @@ func TestRestrictHidesMalformedK8sCallers(t *testing.T) {
 // decide, so the viewer is asked about it and, refused, sees only a count.
 func TestRestrictHidesCallersInNamespacesWithoutTargets(t *testing.T) {
 	q := bareCallerFleet(t, ObservedEdge{From: "k8s:fraud/Deployment/scanner", To: "payments", Count: 1})
-	if got := q.Namespaces(); !slices.Equal(got, []string{"fraud", "hidden", "shop"}) {
+	if got := namespaceNames(q.Namespaces()); !slices.Equal(got, []string{"fraud", "hidden", "shop"}) {
 		t.Fatalf("Namespaces = %v, want the caller's namespace too", got)
 	}
 	var asked []string
-	r := q.Restrict(func(ns string) bool { asked = append(asked, ns); return ns != "fraud" }, nil)
+	r := q.Restrict(anyCluster(func(ns string) bool { asked = append(asked, ns); return ns != "fraud" }), anyClusterKind(nil))
 	if !slices.Contains(asked, "fraud") {
 		t.Errorf("Restrict asked %v, never about the caller's namespace", asked)
 	}
@@ -499,7 +499,7 @@ func TestRestrictHidesCallersWhenNothingElseIsHidden(t *testing.T) {
 		return NewQuery(snap)
 	}
 	q := build(ObservedEdge{From: "legacy-batch", To: "payments", Count: 1})
-	r := q.Restrict(restrictedVisible, nil)
+	r := q.Restrict(anyCluster(restrictedVisible), anyClusterKind(nil))
 	if r == q {
 		t.Fatal("a restricted view with a bare caller must not return the full query")
 	}
@@ -507,10 +507,10 @@ func TestRestrictHidesCallersWhenNothingElseIsHidden(t *testing.T) {
 	if len(s.UncontractedCallers) != 0 || s.Services[NewServiceKey("payments")].HiddenDependents != 1 {
 		t.Errorf("callers %v, payments %+v", callerNames(s), s.Services[NewServiceKey("payments")])
 	}
-	if unresolvedOnly := build(ObservedEdge{From: "ghost-a", To: "ghost-b", Count: 1}); unresolvedOnly.Restrict(restrictedVisible, nil) == unresolvedOnly {
+	if unresolvedOnly := build(ObservedEdge{From: "ghost-a", To: "ghost-b", Count: 1}); unresolvedOnly.Restrict(anyCluster(restrictedVisible), anyClusterKind(nil)) == unresolvedOnly {
 		t.Error("a restricted view with an unresolved name must not return the full query")
 	}
-	if clean := build(); clean.Restrict(restrictedVisible, nil) != clean {
+	if clean := build(); clean.Restrict(anyCluster(restrictedVisible), anyClusterKind(nil)) != clean {
 		t.Error("a restricted view with nothing to hide must return the full query")
 	}
 }
@@ -523,7 +523,7 @@ func TestRestrictKeepsUnrelatedLimitations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := NewQuery(snap).Restrict(restrictedVisible, nil).SnapshotForSerialization()
+	s := NewQuery(snap).Restrict(anyCluster(restrictedVisible), anyClusterKind(nil)).SnapshotForSerialization()
 	if !slices.ContainsFunc(s.Limitations, func(l Limitation) bool { return l.Code == LimitationSourceUnavailable }) {
 		t.Errorf("an unrelated limitation went: %+v", s.Limitations)
 	}
@@ -531,14 +531,14 @@ func TestRestrictKeepsUnrelatedLimitations(t *testing.T) {
 
 func TestRestrictUnrestrictedKeepsCallers(t *testing.T) {
 	q := bareCallerFleet(t)
-	if q.Restrict(func(string) bool { return true }, nil) != q {
+	if q.Restrict(anyCluster(func(string) bool { return true }), anyClusterKind(nil)) != q {
 		t.Error("an unrestricted view must return the full query with every caller")
 	}
 }
 
 func TestRestrictCallersSnapshotID(t *testing.T) {
 	q := bareCallerFleet(t)
-	a, b := q.Restrict(restrictedVisible, nil).SnapshotForSerialization(), q.Restrict(restrictedVisible, nil).SnapshotForSerialization()
+	a, b := q.Restrict(anyCluster(restrictedVisible), anyClusterKind(nil)).SnapshotForSerialization(), q.Restrict(anyCluster(restrictedVisible), anyClusterKind(nil)).SnapshotForSerialization()
 	if a.SnapshotID == q.SnapshotForSerialization().SnapshotID || a.SnapshotID != b.SnapshotID {
 		t.Errorf("restricted ids %s/%s, full %s", a.SnapshotID, b.SnapshotID, q.SnapshotForSerialization().SnapshotID)
 	}
@@ -578,7 +578,7 @@ func TestRestrictCountsHiddenConfigRefConsumer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := NewQuery(snap).Restrict(func(ns string) bool { return ns == "shop" }, nil).SnapshotForSerialization()
+	s := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns == "shop" }), anyClusterKind(nil)).SnapshotForSerialization()
 	if got := s.Services[NewServiceKey("shared")].HiddenDependents; got != 1 {
 		t.Errorf("shared HiddenDependents = %d, want 1", got)
 	}
@@ -634,7 +634,7 @@ func TestRestrictOfferingProvider(t *testing.T) {
 	if !strings.Contains(findingMessages(revisionOf(t, q.snap, "orders")), "zebrasize") {
 		t.Fatalf("the unrestricted orders findings name no provider enum:\n%s", findingMessages(revisionOf(t, q.snap, "orders")))
 	}
-	r := q.Restrict(shopOnly, nil)
+	r := q.Restrict(anyCluster(shopOnly), anyClusterKind(nil))
 	checkOfferingOnlyProvider(t, q, r)
 	o := offeringData(t, r, "relational-db")
 	if o.HiddenConsumers != 1 || o.Consumers.Total != 1 || o.Consumers.Items[0].Consumer.Label != "orders" || o.Providers.Items[0].OfferingProvenance != ProvenanceDeclared {
@@ -680,7 +680,7 @@ func TestRestrictChainedConfigRef(t *testing.T) {
 	if !strings.Contains(findingMessages(revisionOf(t, q.snap, "cons")), "zebrasize") {
 		t.Fatalf("the unrestricted cons findings name no provider enum:\n%s", findingMessages(revisionOf(t, q.snap, "cons")))
 	}
-	r := q.Restrict(shopOnly, nil)
+	r := q.Restrict(anyCluster(shopOnly), anyClusterKind(nil))
 	cons := revisionOf(t, r.snap, "cons")
 	if strings.Contains(findingMessages(cons), "zebrasize") || !cons.Valid || r.snap.Services[NewServiceKey("cons")].Status == StatusInvalid {
 		t.Errorf("cons valid = %v status = %s findings:\n%s", cons.Valid, r.snap.Services[NewServiceKey("cons")].Status, findingMessages(cons))
@@ -748,7 +748,7 @@ func TestRestrictOfferingProviderPlacementUnknown(t *testing.T) {
 		"partial":     NewMemorySource("k8s-2", SourceKindKubernetes, &Collection{Limitations: []Limitation{{Code: "X", Message: "x"}}}),
 	} {
 		t.Run(name, func(t *testing.T) {
-			s := offeringRestrictFleet(t, src).Restrict(shopOnly, nil).snap
+			s := offeringRestrictFleet(t, src).Restrict(anyCluster(shopOnly), anyClusterKind(nil)).snap
 			if s.Services[NewServiceKey("pgprov")] != nil || s.Services[NewServiceKey("orders")].HiddenDependencies != 2 {
 				t.Errorf("pgprov visible or orders = %+v", s.Services[NewServiceKey("orders")])
 			}
@@ -790,7 +790,7 @@ func TestRestrictCountsHiddenPolicyReferrers(t *testing.T) {
 	if got := snap.Services[NewServiceKey("policy")].HiddenPolicyReferrers; got != 0 {
 		t.Errorf("unrestricted HiddenPolicyReferrers = %d", got)
 	}
-	s := NewQuery(snap).Restrict(shopOnly, nil).SnapshotForSerialization()
+	s := NewQuery(snap).Restrict(anyCluster(shopOnly), anyClusterKind(nil)).SnapshotForSerialization()
 	p := s.Services[NewServiceKey("policy")]
 	if p.HiddenDependents != 1 || p.HiddenPolicyReferrers != 1 {
 		t.Errorf("policy hidden dependents/referrers = %d/%d, want 1/1", p.HiddenDependents, p.HiddenPolicyReferrers)
@@ -811,7 +811,7 @@ func TestRestrictedOverviewHealth(t *testing.T) {
 	if q.Overview().Summary.OperationalHealth.Unavailable != 1 {
 		t.Fatal("unrestricted view must count the failing target")
 	}
-	r := q.Restrict(func(ns string) bool { return ns != "secret" }, nil)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "secret" }), anyClusterKind(nil))
 	ov := r.Overview()
 	if ov.Summary.OperationalHealth != (OperationalHealthTally{Available: 1}) {
 		t.Fatalf("restricted operationalHealth = %+v", ov.Summary.OperationalHealth)
@@ -844,7 +844,7 @@ func TestRestrictedKnowledgeAndOwnership(t *testing.T) {
 	if sum := q.Overview().Summary; sum.Knowledge.WithGaps != 1 || sum.Ownership.Unowned != 1 {
 		t.Fatalf("unrestricted knowledge %+v, ownership %+v", sum.Knowledge, sum.Ownership)
 	}
-	r := q.Restrict(func(ns string) bool { return ns != "secret" }, nil)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "secret" }), anyClusterKind(nil))
 	ov := r.Overview()
 	if ov.Summary.Knowledge != (KnowledgeTally{Services: 1, Described: 1}) || ov.Summary.Ownership != (OwnershipTally{Consistent: 1}) || ov.Summary.KnowledgeItems != 0 {
 		t.Fatalf("restricted knowledge %+v, ownership %+v, items %d", ov.Summary.Knowledge, ov.Summary.Ownership, ov.Summary.KnowledgeItems)
@@ -877,7 +877,7 @@ func TestRestrictedEstateCounts(t *testing.T) {
 	if row := domainRow(t, q, "payments"); row.FailingHealth != 1 || row.Services != 2 {
 		t.Fatalf("unrestricted payments = %+v", row)
 	}
-	r := q.Restrict(func(ns string) bool { return ns != "secret" }, nil)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "secret" }), anyClusterKind(nil))
 	if row := domainRow(t, r, "payments"); row != (DomainTally{Domain: "payments", Services: 1, Targets: 1}) {
 		t.Errorf("restricted payments = %+v", row)
 	}
@@ -918,7 +918,7 @@ func TestRestrictHidesBreakConsumers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := NewQuery(snap).Restrict(func(ns string) bool { return ns == "shop" || ns == "" }, nil)
+	r := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns == "shop" || ns == "" }), anyClusterKind(nil))
 	d, err := r.EntityDetail(KindRevision, revKeyOf(t, r, "web"))
 	if err != nil {
 		t.Fatal(err)
@@ -946,7 +946,7 @@ func TestRestrictHidesExternalEdgeOfHiddenCaller(t *testing.T) {
 	}
 	snap := inferredFleet(t, []inferredSvc{{name: "web", ns: []string{"shop"}}, {name: "vault", ns: []string{"secret"}}, {name: "pay", ns: []string{"shop", "secret"}}},
 		uses, []ObservedEdge{{From: "vault", To: "api.stripe.com", Count: 1}}, nil)
-	r := NewQuery(snap).Restrict(shopView, nil)
+	r := NewQuery(snap).Restrict(anyCluster(shopView), anyClusterKind(nil))
 	checkRestrictedExternalEdges(t, r.snap.Relationships)
 	checkRestrictedExternals(t, r)
 }

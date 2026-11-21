@@ -65,6 +65,12 @@ type EntityFilter struct {
 	// With Consumes and Phase it also narrows the consumers to the provisioning
 	// statuses in this environment; on services alone it is an invalid query.
 	Environment string
+	// Cluster keeps the TARGETS of this cluster id (TargetRecord.Cluster), the
+	// SERVICES with a target or an inferred workload there and the REVISIONS a
+	// target there runs; owners, domains and other kinds ignore it, and with no
+	// kind asked it lists those three kinds only. An id the answer knows no
+	// cluster of answers an empty list with a CLUSTER_FILTER_UNKNOWN limitation.
+	Cluster string
 	// Capability keeps the SERVICES any of whose read revisions declares a
 	// capability of this type (see [Query.serviceCapabilities]).
 	Capability string
@@ -265,22 +271,19 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	if err := validateEntityFilter(f); err != nil {
 		return nil, err
 	}
+	if f.Cluster != "" && len(f.Kinds) == 0 {
+		// Owners and sources ignore Cluster, so every kind would list the
+		// whole fleet's beside one cluster's.
+		f.Kinds = []EntityKind{KindService, KindRevision, KindTarget}
+	}
 	want := kindSet(f.Kinds)
 	refs, offerings := q.candidateRefs(want)
 	consumers := q.offeringConsumers(f.Consumes)
-	var derived []Limitation
 	if f.Phase != "" {
 		consumers = q.offeringConsumersInPhase(f.Consumes, f.Phase, f.Environment)
 	}
-	if f.Phase != "" && f.Environment != "" {
-		msg := fmt.Sprintf("consumers whose current revision does not declare %s have no provisioning status there", f.Environment)
-		if len(consumers) == 0 && !q.environmentKnown(f.Environment) {
-			msg += fmt.Sprintf("; no visible revision declares %s and no visible target reports it, so an empty list says nothing about it", f.Environment)
-		}
-		derived = []Limitation{{Code: LimitationProvisioningEnvironmentScoped, Message: msg}}
-	}
-
 	x := q.crossKindSets(f)
+	derived := q.entityLimitations(f, consumers, x)
 	filtered := refs[:0:0]
 	for _, r := range refs {
 		if q.entityMatches(r, f, x) && (f.Consumes == "" || r.Kind == KindService && consumers[ServiceKey(r.Key)]) {
@@ -416,6 +419,10 @@ func (r EntityRef) RateBase() int {
 // gains domain rows.
 type crossKind struct {
 	ownersInDomain, domainsOfOwner map[string]bool
+	// clusterServices and clusterRevisions are the services with a target in
+	// EntityFilter.Cluster and the revisions a target there runs.
+	clusterServices  map[ServiceKey]bool
+	clusterRevisions map[RevisionKey]bool
 }
 
 func (q *Query) crossKindSets(f EntityFilter) crossKind {
@@ -439,7 +446,71 @@ func (q *Query) crossKindSets(f EntityFilter) crossKind {
 			}
 		}
 	}
+	if f.Cluster != "" {
+		x.clusterServices, x.clusterRevisions = q.clusterMembers(f.Cluster)
+	}
 	return x
+}
+
+// entityLimitations are the limitations a filter derives at query time: a
+// phase list narrowed to one environment and a cluster id no cluster has.
+func (q *Query) entityLimitations(f EntityFilter, consumers map[ServiceKey]bool, x crossKind) []Limitation {
+	var derived []Limitation
+	if f.Phase != "" && f.Environment != "" {
+		msg := fmt.Sprintf("consumers whose current revision does not declare %s have no provisioning status there", f.Environment)
+		if len(consumers) == 0 && !q.environmentKnown(f.Environment) {
+			msg += fmt.Sprintf("; no visible revision declares %s and no visible target reports it, so an empty list says nothing about it", f.Environment)
+		}
+		derived = []Limitation{{Code: LimitationProvisioningEnvironmentScoped, Message: msg}}
+	}
+	if f.Cluster != "" && len(x.clusterServices) == 0 && !q.clusterKnown(f.Cluster) {
+		derived = append(derived, Limitation{Code: LimitationClusterFilterUnknown,
+			Message: "no cluster this answer knows has id " + f.Cluster + ", so an empty list says nothing about it; meta.clusters lists the ids"})
+	}
+	return derived
+}
+
+// clusterMembers is the services with a target or an inferred workload in
+// cluster and the revisions a target there runs.
+func (q *Query) clusterMembers(cluster string) (map[ServiceKey]bool, map[RevisionKey]bool) {
+	svc, rev := map[ServiceKey]bool{}, map[RevisionKey]bool{}
+	for _, t := range q.snap.Targets {
+		if t.Cluster == cluster {
+			svc[t.ServiceKey], rev[t.ContractRevision] = true, true
+		}
+	}
+	for k, s := range q.snap.Services {
+		if s.Inferred() && s.Workload.Cluster == cluster {
+			svc[k] = true
+		}
+	}
+	return svc, rev
+}
+
+// clusterKnown reports whether the answer knows cluster id: a reader's
+// restricted view knows only the clusters it may be told about.
+func (q *Query) clusterKnown(id string) bool {
+	return slices.ContainsFunc(q.snap.Clusters, func(c ClusterRecord) bool { return c.ID == id })
+}
+
+// matchPlacement applies the source and cluster filters.
+func (q *Query) matchPlacement(r EntityRef, f EntityFilter, x crossKind) bool {
+	if f.Source != "" && !q.entityFromSource(r, f.Source) {
+		return false
+	}
+	if f.Cluster == "" {
+		return true
+	}
+	switch r.Kind {
+	case KindTarget:
+		return q.snap.Targets[TargetKey(r.Key)].Cluster == f.Cluster
+	case KindService:
+		return x.clusterServices[ServiceKey(r.Key)]
+	case KindRevision:
+		return x.clusterRevisions[RevisionKey(r.Key)]
+	default:
+		return true
+	}
 }
 
 // NoBusinessDomain is the BusinessDomain filter value for the services known to
@@ -835,7 +906,7 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter, x crossKind) bool {
 		q.matchEntityTextOrClass(r, f) &&
 		(f.Owner == "" || q.entityOwnedBy(r, f.Owner)) &&
 		(f.OwnerKey == "" || q.entityOwnedByKey(r, f.OwnerKey, x)) &&
-		(f.Source == "" || q.entityFromSource(r, f.Source)) &&
+		q.matchPlacement(r, f, x) &&
 		q.matchServiceState(r, f) &&
 		(f.Readiness == "" || q.matchReadinessState(r, f.Readiness)) &&
 		q.matchGoldenPath(r, f) && declarationMatches(f.Declaration, r) && groupMatches(f.Group, r) &&

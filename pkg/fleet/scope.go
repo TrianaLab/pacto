@@ -77,48 +77,49 @@ func joinNames(names []string) string {
 // is likely refused by the same missing grant, and one refused review would
 // fail every request. restrictScope drops its limitation for a restricted
 // reader, so only a reader of every namespace learns which one failed.
-func scopeNamespaces(s *FleetSnapshot, seen map[string]bool) {
+func scopeNamespaces(s *FleetSnapshot, clusters map[string]string, seen map[ClusterNamespace]bool) {
 	for _, st := range s.Sources {
 		for _, ns := range st.Namespaces {
-			seen[ns] = true
+			seen[ClusterNamespace{clusters[st.ID], ns}] = true
 		}
 	}
 }
 
 // hideUnreadable adds to hidden each namespace a source could not read that
-// visible refuses, so its limitation alone restricts the answer.
-func hideUnreadable(s *FleetSnapshot, visible func(string) bool, hidden map[string]bool) {
+// visible refuses in the source's cluster (clusters maps source ids to
+// cluster ids), so its limitation alone restricts the answer.
+func hideUnreadable(s *FleetSnapshot, visible func(cluster, namespace string) bool, clusters map[string]string, hidden map[ClusterNamespace]bool) {
 	for _, l := range s.Limitations {
-		if ns, ok := unreadableNamespace(l); ok && !visible(ns) {
-			hidden[ns] = true
+		if ns, ok := unreadableNamespace(l); ok && !visible(clusters[l.Source], ns) {
+			hidden[ClusterNamespace{clusters[l.Source], ns}] = true
 		}
 	}
 }
 
 // hiddenByScope reports whether a restricted view drops l: every namespace
 // scope limitation (rebuilt from what is left) and an unreadable namespace
-// visible refuses.
-func hiddenByScope(l Limitation, visible func(string) bool) bool {
+// visible refuses in the cluster of l's source.
+func hiddenByScope(l Limitation, visible func(cluster, namespace string) bool, clusters map[string]string) bool {
 	if l.Code == LimitationK8sNamespaceScoped {
 		return true
 	}
 	ns, ok := unreadableNamespace(l)
-	return ok && !visible(ns)
+	return ok && !visible(clusters[l.Source], ns)
 }
 
 // restrictScope keeps in each source only the watched namespaces visible says
 // yes to, keeps the total, and rebuilds every scope limitation from what is
 // left, so a watched namespace the reader may not read is never named while
 // the "rest is unknown" explanation stays.
-func restrictScope(out *FleetSnapshot, visible func(string) bool) {
-	out.Limitations = slices.DeleteFunc(out.Limitations, func(l Limitation) bool { return hiddenByScope(l, visible) })
+func restrictScope(out *FleetSnapshot, visible func(cluster, namespace string) bool, clusters map[string]string) {
+	out.Limitations = slices.DeleteFunc(out.Limitations, func(l Limitation) bool { return hiddenByScope(l, visible, clusters) })
 	for i := range out.Sources {
 		st := &out.Sources[i]
 		if len(st.Namespaces) == 0 && st.NamespacesTotal == 0 {
 			continue
 		}
 		total := cmp.Or(st.NamespacesTotal, len(st.Namespaces))
-		st.Namespaces = slices.DeleteFunc(slices.Clone(st.Namespaces), func(ns string) bool { return !visible(ns) })
+		st.Namespaces = slices.DeleteFunc(slices.Clone(st.Namespaces), func(ns string) bool { return !visible(clusters[st.ID], ns) })
 		st.NamespacesTotal = total
 		out.Limitations = append(out.Limitations, NamespaceScopeLimitation(st.ID, st.Namespaces, total-len(st.Namespaces)))
 	}

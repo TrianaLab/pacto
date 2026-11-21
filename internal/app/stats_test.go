@@ -251,23 +251,25 @@ func TestServiceStatsDefaultOpener(t *testing.T) {
 func TestServiceStatsOperationAccess(t *testing.T) {
 	s, path := statsService(t, nil, operationRecord(t, "0f6c2a1e-5b7d-4c3a-9e2f-00000000000a", "prod-a"), operationRecord(t, "0f6c2a1e-5b7d-4c3a-9e2f-00000000000b", "prod-b"), operationRecord(t, "0f6c2a1e-5b7d-4c3a-9e2f-00000000000c", "prod-a"), diffRecord("payments"))
 	var asked []string
-	access := func(_ context.Context, namespaces []string) (func(string) bool, error) {
+	access := func(_ context.Context, namespaces []string) (stats.OperationAccess, error) {
 		asked = namespaces
-		return func(ns string) bool { return ns == "prod-a" }, nil
+		return stats.OperationAccess{Visible: func(ns string) bool { return ns == "prod-a" }, Clusters: []string{operationRecord(t, "x", "x").Stage.Cluster}}, nil
 	}
 	names := []string{operationRecord(t, "x", "x").Service, "payments"}
 	st, err := s.Stats(t.Context(), StatsRequest{Registry: path, Query: statsWindow(), Scope: stats.Scope{Restricted: true, Names: names, Place: func(string) (stats.Placement, bool) { return stats.Placement{}, true }}, Now: statsClock, OperationAccess: access})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(asked, []string{"prod-a", "prod-b"}) || st.Runs != 3 || !st.Hidden.Present {
+	if !slices.Equal(asked, []string{"prod-a", "prod-b"}) || st.Runs != 3 || !st.Hidden.Present || st.Hidden.OtherClusters != 0 {
 		t.Fatalf("asked %v, stats = %+v", asked, st)
 	}
 }
 
 func TestServiceStatsOperationAccessErrorIsAnError(t *testing.T) {
 	s, path := statsService(t, nil, operationRecord(t, "0f6c2a1e-5b7d-4c3a-9e2f-00000000000a", "prod-a"))
-	access := func(context.Context, []string) (func(string) bool, error) { return nil, errors.New("forbidden") }
+	access := func(context.Context, []string) (stats.OperationAccess, error) {
+		return stats.OperationAccess{}, errors.New("forbidden")
+	}
 	_, err := s.Stats(t.Context(), StatsRequest{Registry: path, Query: statsWindow(), Now: statsClock, OperationAccess: access})
 	if err == nil || err.Error() != "checking your Kubernetes permissions failed: forbidden" {
 		t.Fatalf("err = %v", err)

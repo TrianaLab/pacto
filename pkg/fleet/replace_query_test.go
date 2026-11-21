@@ -127,7 +127,7 @@ func TestAttentionInferredReplacedWithin24h(t *testing.T) {
 }
 
 func TestReplacedKeyHiddenIsNotFound(t *testing.T) {
-	r := replacedQuery(t, 1).Restrict(func(ns string) bool { return ns != "shop" }, func(string, string) bool { return true })
+	r := replacedQuery(t, 1).Restrict(anyCluster(func(ns string) bool { return ns != "shop" }), anyClusterKind(func(string, string) bool { return true }))
 	_, err := r.GetService(cartName)
 	notFound(t, "get", err)
 	_, err = r.Graph(GraphQuery{Service: cartName})

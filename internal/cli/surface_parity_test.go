@@ -94,7 +94,7 @@ var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), de
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
-		alike("fleet entities", "pacto_fleet_entities", "GET /api/fleet/entities", "", "business-domain", "consumes", "created-from", "environment",
+		alike("fleet entities", "pacto_fleet_entities", "GET /api/fleet/entities", "", "business-domain", "consumes", "created-from", "environment", "cluster",
 			"has-non-compliant", "limit", "offering", "offset", "owner", "owner-key", "ownership", "phase", "sort", "source-kind", "status", "template",
 			"declaration", "group", "capability", "domain", "readiness", "scope", "service", "source", "source-health", "failed", "lifecycle", "gap", "class"),
 		[]surfaceRow{
@@ -519,7 +519,7 @@ func mcpNames(t *testing.T) map[string]bool {
 	svc := app.NewService(nil, nil)
 	server, err := pactomcp.New("v", mcpAuthoring(newMCPCommand(svc, "v", defaultDeps()), svc), pactomcp.Modes{
 		Fleet: &pactomcp.FleetMode{Src: func(context.Context) (*fleet.Query, error) { return q, nil }, Opts: pactomcp.FleetOptions{Impact: signedInImpact(t, defaultDeps()),
-			Stats: mcpStatsProvider(newMCPCommand(svc, "v", defaultDeps()), svc, true)}},
+			Stats: mcpStatsProvider(newMCPCommand(svc, "v", defaultDeps()), svc, true, nil)}},
 		Delivery: &pactomcp.DeliveryMode{Writes: true, Reads: func(context.Context, string, url.Values) (json.RawMessage, error) { return nil, nil }, Refs: &app.Delivery{}},
 	})
 	expect(t, err == nil, "server: %v", err)

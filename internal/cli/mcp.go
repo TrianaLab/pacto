@@ -246,7 +246,7 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 	if err != nil {
 		return nil, err
 	}
-	view := mcpFleetView(cmd, d)
+	view, home := mcpFleetView(cmd, svc, d)
 	url, _ := cmd.Flags().GetString("dashboard-url")
 	// view is nil for an HTTP server without --auth-issuer too, so only the
 	// transport says whether the caller is this process's own user.
@@ -256,7 +256,7 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 		// the unrestricted sources.
 		Impact: mcpImpactProvider(cmd, svc, d, view == nil, transport == "stdio"), View: view, DashboardURL: url,
 		Reached: stdioReached(cmd, d, transport),
-		Stats:   mcpStatsProvider(cmd, svc, transport == "stdio"),
+		Stats:   mcpStatsProvider(cmd, svc, transport == "stdio", home),
 	}}, nil
 }
 
@@ -600,31 +600,44 @@ func mcpRegression(ctx context.Context, cmd *cobra.Command, d deps, ev impact.Ev
 
 // mcpFleetView narrows the fleet tools of a server whose callers sign in
 // (HTTP with --auth-issuer) to what each caller's Kubernetes RBAC lets them
-// read, asked with this process's own credentials about the person the
-// apiserver reviewed for the request (remoteCaller). Other servers answer
-// from the whole snapshot, as their single local user would read it.
-// checkFleetOnlyFlags already checked --review.
-func mcpFleetView(cmd *cobra.Command, d deps) pactomcp.FleetView {
+// read, asked in each cluster the fleet reads (--k8s, --context) with that
+// context's own credentials about the person the apiserver reviewed for the
+// request (remoteCaller). Other servers answer from the whole snapshot, as
+// their single local user would read it. checkFleetOnlyFlags already checked
+// --review. home is the sign-in cluster's cached id, which the stats
+// provider reviews operation records in; nil without a view.
+func mcpFleetView(cmd *cobra.Command, svc *app.Service, d deps) (pactomcp.FleetView, func(context.Context) (string, bool)) {
 	transport, _ := cmd.Flags().GetString("transport")
 	issuer, _ := cmd.Flags().GetString("auth-issuer")
 	mode, _ := cmd.Flags().GetString("review")
 	namespaces := flagNamespaces(cmd)
 	if transport != "http" || issuer == "" {
-		return nil
+		return nil, nil
 	}
 	cluster, _ := d.clusterConfig()
-	viewer := clusterViewer(cluster, d.dynamicFor, mode, namespaces)
+	home := newHomeCluster(cluster, d)
+	fopts := mcpFleetOptions(cmd)
+	_, _ = fmt.Fprint(cmd.ErrOrStderr(), mcpSignInLine(fopts))
+	viewer := clusterViewer(fleetEntries(svc, d, fopts), home, d, mode, namespaces)
 	return func(ctx context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
 		p, ok := personFrom(ctx)
 		if !ok {
 			return nil, errNobodyReviewed
 		}
-		r, err := viewer.Query(ctx, p, q)
-		if err != nil {
-			return nil, fmt.Errorf("checking your Kubernetes permissions failed: %w", err)
-		}
-		return r, nil
+		return viewer.Query(ctx, p, q)
+	}, home.UID
+}
+
+// mcpSignInLine names the cluster an MCP server signs callers in against:
+// always the current (or in-cluster) configuration, which --context never
+// replaces. ServiceAccount and node identities and operation records are
+// reviewed there only, so it warns when the fleet does not read it.
+func mcpSignInLine(fopts app.FleetOptions) string {
+	line := "Sign-in cluster: the current context; ServiceAccount and node identities and operation records are reviewed there only"
+	if !fopts.IncludeK8s && len(fopts.K8sContexts) > 0 {
+		line += ". The fleet does not read it: add --k8s, or such callers see no cluster"
 	}
+	return line + "\n"
 }
 
 // parseAuthFlags parses repeated name=value credential flags.
@@ -696,8 +709,9 @@ var errStatsRegistryOverHTTP = errors.New("this server answers over HTTP: it rea
 // only with --stats-read-registry and never reads the environment: a host
 // that exports it for CI recording must not serve that repository to remote
 // callers. A caller with a view is narrowed fail closed and reads only the
-// operation records its own exchanged client may list.
-func mcpStatsProvider(cmd *cobra.Command, svc *app.Service, trusted bool) pactomcp.StatsProvider {
+// operation records its own exchanged client may list, in home, the
+// sign-in cluster whose cached id mcpFleetView read.
+func mcpStatsProvider(cmd *cobra.Command, svc *app.Service, trusted bool, home func(context.Context) (string, bool)) pactomcp.StatsProvider {
 	flag, _ := cmd.Flags().GetString("stats-read-registry")
 	if !trusted && flag == "" {
 		return nil
@@ -729,7 +743,7 @@ func mcpStatsProvider(cmd *cobra.Command, svc *app.Service, trusted bool) pactom
 		// A signed-in caller's own exchanged client reviews the operation
 		// records; without one there is no delivery, never the server's.
 		if act := reviewedFrom(ctx).own; scope.Restricted && act != nil {
-			r.Scope.NoDelivery, r.OperationAccess = "", operationAccess(act, full)
+			r.Scope.NoDelivery, r.OperationAccess = "", operationAccess(act, full, home)
 		}
 		return svc.Stats(ctx, r)
 	}

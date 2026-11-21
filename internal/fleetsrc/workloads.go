@@ -50,6 +50,10 @@ func (s *WorkloadSource) ID() string { return s.id }
 // Kind implements [fleet.Source].
 func (s *WorkloadSource) Kind() string { return fleet.SourceKindKubernetesWorkloads }
 
+// Cluster implements [fleet.ClusterSource]: nil when the identity could not
+// be read.
+func (s *WorkloadSource) Cluster() *fleet.Cluster { return s.cluster }
+
 // errCapped stops reading once the source holds fleet.MaxInferredServices.
 var errCapped = errors.New("inferred services capped")
 

@@ -15,6 +15,8 @@ const (
 	LimitationDeliveryUnavailable = "DELIVERY_UNAVAILABLE_OVER_HTTP"
 	LimitationAttributionPartial  = "ATTRIBUTION_PARTIAL"
 	LimitationCoverageOutsideView = "COVERAGE_OUTSIDE_YOUR_VIEW"
+	LimitationOtherClusters       = "OTHER_CLUSTERS_NOT_SHOWN"
+	LimitationHomeClusterUnknown  = "HOME_CLUSTER_UNKNOWN"
 )
 
 // The keys of the groups no record value names. The parentheses keep them
@@ -33,6 +35,14 @@ type Placement struct {
 	DomainUnknown bool
 }
 
+// OperationAccess is what a restricted caller's operation review found: the
+// Stage namespaces they may list operations in, and the ids of the clusters
+// those namespaces were reviewed in ([Scope.Clusters]).
+type OperationAccess struct {
+	Visible  func(namespace string) bool
+	Clusters []string
+}
+
 // Scope narrows what a caller may see and says where services are placed.
 type Scope struct {
 	// Restricted leaves out every record whose service Place cannot place
@@ -44,6 +54,11 @@ type Scope struct {
 	// OperationVisible says whether the caller may list operations in a
 	// Stage namespace.
 	OperationVisible func(namespace string) bool
+	// Clusters are the ids of the clusters a restricted caller's operation
+	// access was reviewed in. An operation record whose Stage names another
+	// cluster is hidden before its namespace is looked at; nil checks no
+	// cluster, and an empty list hides every record that names one.
+	Clusters []string
 	// NoDelivery, when set, drops every operation record and is the message
 	// of the limitation that says so.
 	NoDelivery string
@@ -161,12 +176,27 @@ func (sc Scope) sees(r runrecord.Record) bool {
 	return sc.OperationVisible != nil && sc.OperationVisible(ns)
 }
 
+// homeUnknown reports a restricted caller whose sign-in cluster's identity
+// could not be read: every record that names a cluster is hidden, and none is
+// known to come from another cluster.
+func (sc Scope) homeUnknown() bool { return sc.Clusters != nil && len(sc.Clusters) == 0 }
+
+// otherCluster reports whether r is an operation record whose Stage names a
+// cluster the caller's access was not reviewed in.
+func (sc Scope) otherCluster(r runrecord.Record) bool {
+	return sc.Clusters != nil && r.Kind == runrecord.KindOperation && r.Stage != nil &&
+		r.Stage.Cluster != "" && !slices.Contains(sc.Clusters, r.Stage.Cluster)
+}
+
 // visibleEntries keeps the entries the caller may see and sums the skipped
 // counts of the anchors it may see: those of the visible entries' services,
 // of the names in its view and of service, the filter, that Place accepts.
 // outside says whether a record naming a service was left out, coverage
 // whether a fleet-wide coverage record was; neither is ever a count.
-func visibleEntries(entries []Entry, skipped map[string]Skipped, service string, sc Scope) (visible []Entry, visibleSkipped Skipped, outside, coverage bool) {
+// other holds only the other-cluster operation records of services the
+// caller can see, for the caller to count those the query asks about; one of
+// a service it cannot place only sets outside.
+func visibleEntries(entries []Entry, skipped map[string]Skipped, service string, sc Scope) (visible []Entry, visibleSkipped Skipped, outside, coverage bool, other []Entry) {
 	anchors := map[string]bool{}
 	for _, e := range entries {
 		r := e.Record
@@ -174,6 +204,12 @@ func visibleEntries(entries []Entry, skipped map[string]Skipped, service string,
 		case sc.NoDelivery != "" && r.Kind == runrecord.KindOperation:
 		case sc.Restricted && r.Kind == runrecord.KindCoverage:
 			coverage = true
+		case sc.Restricted && sc.otherCluster(r):
+			if _, ok := sc.place(recordService(r)); ok {
+				other = append(other, e)
+			} else {
+				outside = true
+			}
 		case sc.Restricted && !sc.sees(r):
 			outside = true
 		default:
@@ -181,6 +217,14 @@ func visibleEntries(entries []Entry, skipped map[string]Skipped, service string,
 			anchors[runrecord.AnchorTag(r.Service)] = true
 		}
 	}
+	visibleSkipped, skippedOutside := skippedIn(anchors, skipped, service, sc)
+	return visible, visibleSkipped, outside || skippedOutside, coverage, other
+}
+
+// skippedIn sums the skipped counts of anchors, the visible entries'
+// anchors, plus those of service and the names in sc's view that Place
+// accepts; outside says whether a restricted caller was kept from any count.
+func skippedIn(anchors map[string]bool, skipped map[string]Skipped, service string, sc Scope) (visible Skipped, outside bool) {
 	for _, name := range append([]string{service}, sc.Names...) {
 		if _, ok := sc.place(name); ok && name != "" {
 			anchors[runrecord.AnchorTag(name)] = true
@@ -191,9 +235,9 @@ func visibleEntries(entries []Entry, skipped map[string]Skipped, service string,
 			outside = outside || s.Total() > 0
 			continue
 		}
-		visibleSkipped = visibleSkipped.Add(s)
+		visible = visible.Add(s)
 	}
-	return visible, visibleSkipped, outside, coverage
+	return visible, outside
 }
 
 // truncatedService names the service whose listing was cut, when a visible

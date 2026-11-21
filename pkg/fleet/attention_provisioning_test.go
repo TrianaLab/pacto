@@ -101,7 +101,7 @@ func TestProvisioningAttentionRestricted(t *testing.T) {
 	if len(provisioningItems(t, q)) != 1 {
 		t.Fatal("the unrestricted view raises the failed resource")
 	}
-	if items := provisioningItems(t, q.Restrict(func(ns string) bool { return ns != "hush" }, nil)); len(items) != 0 {
+	if items := provisioningItems(t, q.Restrict(anyCluster(func(ns string) bool { return ns != "hush" }), anyClusterKind(nil))); len(items) != 0 {
 		t.Errorf("a hidden consumer's report raised %+v", items)
 	}
 }

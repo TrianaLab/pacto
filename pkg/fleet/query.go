@@ -170,6 +170,9 @@ type Meta struct {
 	// ExternalCatalogs are the catalogs that classified external systems, with
 	// their digest and how far their signature was checked.
 	ExternalCatalogs []ExternalCatalogRef `json:"externalCatalogs,omitempty"`
+	// Clusters and ClustersTruncated are ProductMeta's.
+	Clusters          []ClusterSummary `json:"clusters,omitempty" doc:"The status of each cluster the answer knows, least healthy first when truncated. Absent when no cluster is known."`
+	ClustersTruncated bool             `json:"clustersTruncated,omitempty" doc:"The snapshot knows more clusters than the answer carries."`
 }
 
 // meta applies the SAME hard caps as productMeta. Limitations are emitted per
@@ -181,6 +184,7 @@ type Meta struct {
 func (q *Query) meta() Meta {
 	srcs, srcTrunc := boundSources(cloneSources(q.snap.Sources))
 	lims, limTrunc := BoundLimitations(cloneLimitations(q.snap.Limitations))
+	clusters, clusterTrunc := clusterSummaries(q.snap)
 	return Meta{
 		SchemaVersion:        q.snap.SchemaVersion,
 		SnapshotID:           q.snap.SnapshotID,
@@ -191,6 +195,8 @@ func (q *Query) meta() Meta {
 		LimitationsTruncated: limTrunc,
 		SourcesTruncated:     srcTrunc,
 		ExternalCatalogs:     slices.Clone(q.snap.ExternalCatalogs),
+		Clusters:             clusters,
+		ClustersTruncated:    clusterTrunc,
 	}
 }
 

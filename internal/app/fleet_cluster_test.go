@@ -27,7 +27,7 @@ func TestK8sSourceIDIsClusterUID(t *testing.T) {
 		listData: []byte(`{"items":[{"metadata":{"name":"svc-a","namespace":"prod"},"status":{"contractStatus":"Compliant","contract":{"serviceName":"svc-a"}}}]}`),
 		identity: kubecluster.Identity{ID: clusterA, Name: "eu-prod-ctx", NameSource: kubecluster.NameFromContext},
 	}
-	svc.sys.newK8s = func() (k8sclient.K8sClient, error) { return fake, nil }
+	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) { return fake, nil }
 	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeK8s: true})
 	if err != nil {
 		t.Fatal(err)
@@ -189,7 +189,7 @@ func TestFleetFingerprintsAddPromoterRows(t *testing.T) {
 	}
 	svc := k8sService("ctx")
 	fake := &fakeFleetK8sClient{disc: &k8sclient.CRDDiscovery{}, versions: map[string]string{"promoter.example.com": "v1"}}
-	svc.sys.newK8s = func() (k8sclient.K8sClient, error) { return fake, nil }
+	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) { return fake, nil }
 	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeK8s: true, Fingerprints: path})
 	if err != nil {
 		t.Fatal(err)

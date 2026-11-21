@@ -60,7 +60,7 @@ func shopOnly(ns string) bool { return ns == "shop" }
 
 func restrictedScope(t *testing.T) Scope {
 	full := statsFleet(t)
-	return Scope{Restricted: true, Place: FleetPlacement(full, full.Restrict(shopOnly, nil)), OperationVisible: shopOnly}
+	return Scope{Restricted: true, Place: FleetPlacement(full, full.Restrict(func(_, ns string) bool { return shopOnly(ns) }, nil)), OperationVisible: shopOnly}
 }
 
 func unrestrictedScope(t *testing.T) Scope {
@@ -213,7 +213,7 @@ func TestFleetPlacementResolvesEachNameOnce(t *testing.T) {
 // land on the visible service.
 func TestRestrictedBareNameSharedWithHiddenDomainIsHidden(t *testing.T) {
 	full := buildFleet(t, "")
-	sc := Scope{Restricted: true, Place: FleetPlacement(full, full.Restrict(shopOnly, nil)), OperationVisible: shopOnly}
+	sc := Scope{Restricted: true, Place: FleetPlacement(full, full.Restrict(func(_, ns string) bool { return shopOnly(ns) }, nil)), OperationVisible: shopOnly}
 	st := aggBy(set(breaking(diffOf("orders"))), "service", sc)
 	if st.Runs != 0 || !st.Hidden.Present {
 		t.Fatalf("answer = %+v", st)
@@ -240,7 +240,7 @@ func TestRestrictedBareNameSharedWithHiddenDomainIsHidden(t *testing.T) {
 // they are its own unreadable records, never records outside the view.
 func TestRestrictedVisibleServiceOnlySkippedIsSkipped(t *testing.T) {
 	full := statsFleet(t)
-	view := full.Restrict(shopOnly, nil)
+	view := full.Restrict(func(_, ns string) bool { return shopOnly(ns) }, nil)
 	sc := restrictedScope(t)
 	sc.Names = VisibleNames(view)
 	if want := []string{"catalog", "ghost", "orders"}; !reflect.DeepEqual(sc.Names, want) {
@@ -457,5 +457,92 @@ func TestVisibleNamesExcludesInferred(t *testing.T) {
 	}
 	if got := VisibleNames(fleet.NewQuery(snap)); !reflect.DeepEqual(got, []string{"orders"}) {
 		t.Errorf("names = %v", got)
+	}
+}
+
+// inCluster is a verified promote of service whose Stage is in cluster.
+func inCluster(service, cluster string) runrecord.Record {
+	r := of(service, verifiedTo(digest('d'), hoursAgo(1)))
+	r.Stage = &runrecord.StageRef{Namespace: "shop", Name: "prod", Cluster: cluster}
+	return r
+}
+
+func TestStatsOperationOtherClusterHiddenAndCounted(t *testing.T) {
+	sc := restrictedScope(t)
+	sc.Clusters = []string{"c1"}
+	st := aggBy(set(inCluster("shop/orders", "c1"), inCluster("shop/orders", "c2"), inCluster("shop/orders", "c2")), "", sc)
+	if st.Runs != 1 || st.Hidden.OtherClusters != 2 || st.Hidden.Present || st.Completeness != fleet.CompletenessPartial || !hasLimitation(st, LimitationOtherClusters) {
+		t.Fatalf("answer = %+v", st)
+	}
+	for _, l := range st.Limitations {
+		if strings.Contains(l.Message, "c2") {
+			t.Fatalf("limitation names the other cluster: %q", l.Message)
+		}
+	}
+}
+
+func TestStatsOtherClusterUnplaceableNotCounted(t *testing.T) {
+	sc := restrictedScope(t)
+	sc.Clusters = []string{"c1"}
+	st := aggBy(set(inCluster("billing", "c2"), inCluster("shop/orders", "c1")), "", sc)
+	if st.Runs != 1 || st.Hidden.OtherClusters != 0 || !st.Hidden.Present {
+		t.Fatalf("answer = %+v", st)
+	}
+	data, _ := json.Marshal(st.Hidden)
+	if string(data) != `{"present":true}` {
+		t.Fatalf("hidden = %s", data)
+	}
+}
+
+func TestStatsUnknownHomeClusterHidesClusteredRecords(t *testing.T) {
+	sc := restrictedScope(t)
+	sc.Clusters = []string{}
+	st := aggBy(set(inCluster("shop/orders", "c1"), inCluster("shop/orders", "")), "", sc)
+	// Nothing is known to come from another cluster: the limitation says the
+	// sign-in cluster's identity is unknown instead.
+	if st.Runs != 1 || st.Hidden.OtherClusters != 0 || st.Completeness != fleet.CompletenessPartial ||
+		hasLimitation(st, LimitationOtherClusters) || !hasLimitation(st, LimitationHomeClusterUnknown) {
+		t.Fatalf("answer = %+v", st)
+	}
+	if got := homeUnknownMessage(2); got != "Pacto could not read the sign-in cluster's identity, so 2 operation records that name a cluster are not shown" {
+		t.Errorf("message %q", got)
+	}
+}
+
+// TestStatsOtherClustersCountOnlyWhatTheQueryAsks: an other-cluster record
+// outside the window or of a kind not asked counts nowhere.
+func TestStatsOtherClustersCountOnlyWhatTheQueryAsks(t *testing.T) {
+	sc := restrictedScope(t)
+	sc.Clusters = []string{"c1"}
+	old := of("shop/orders", verifiedTo(digest('e'), hoursAgo(24*60)))
+	old.Stage = &runrecord.StageRef{Namespace: "shop", Name: "prod", Cluster: "c2"}
+	st := aggBy(set(old, inCluster("shop/orders", "c1")), "", sc)
+	if st.Hidden.OtherClusters != 0 || hasLimitation(st, LimitationOtherClusters) {
+		t.Fatalf("outside the window: %+v", st)
+	}
+	st = Aggregate(set(inCluster("shop/orders", "c2")), Query{Window: aggWindow, Kinds: []string{runrecord.KindDiff}}, sc, aggNow)
+	if st.Hidden.OtherClusters != 0 || hasLimitation(st, LimitationOtherClusters) {
+		t.Fatalf("a kind not asked: %+v", st)
+	}
+}
+
+func TestStatsRecordWithoutClusterKeepsNamespaceReview(t *testing.T) {
+	sc := restrictedScope(t)
+	sc.Clusters = []string{"c1"}
+	noCluster := inCluster("shop/orders", "")
+	if st := aggBy(set(noCluster), "", sc); st.Runs != 1 || st.Hidden.OtherClusters != 0 {
+		t.Fatalf("allowed = %+v", st)
+	}
+	noCluster.Stage.Namespace = "vault"
+	if st := aggBy(set(noCluster), "", sc); st.Runs != 0 || !st.Hidden.Present || st.Hidden.OtherClusters != 0 {
+		t.Fatalf("refused = %+v", st)
+	}
+}
+
+func TestStatsUnrestrictedIgnoresClusters(t *testing.T) {
+	sc := unrestrictedScope(t)
+	sc.Clusters = []string{"c1"}
+	if st := aggBy(set(inCluster("shop/orders", "c2")), "", sc); st.Runs != 1 || st.Hidden != (Hidden{}) {
+		t.Fatalf("answer = %+v", st)
 	}
 }

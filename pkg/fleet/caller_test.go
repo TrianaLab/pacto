@@ -83,10 +83,10 @@ func TestCallersQualifiedOnlyInMultiCluster(t *testing.T) {
 
 func TestRestrictReadsQualifiedCallerNamespace(t *testing.T) {
 	q := NewQuery(buildClusterSnap(t, callerClusterSources()...))
-	if ns := q.Namespaces(); !slices.Equal(ns, []string{"batch", "payments"}) {
+	if ns := namespaceNames(q.Namespaces()); !slices.Equal(ns, []string{"batch", "payments"}) {
 		t.Fatalf("Namespaces reads the namespace of a qualified caller: %v", ns)
 	}
-	s := q.Restrict(func(ns string) bool { return ns != "batch" }, nil).SnapshotForSerialization()
+	s := q.Restrict(anyCluster(func(ns string) bool { return ns != "batch" }), anyClusterKind(nil)).SnapshotForSerialization()
 	if len(s.UncontractedCallers) != 0 {
 		t.Errorf("callers in a hidden namespace are hidden: %v", callerNames(s))
 	}
@@ -101,7 +101,7 @@ func TestRestrictNarrowsClusters(t *testing.T) {
 		NewMemorySource("eu", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterA, "eu-prod", ClusterNameFromContext), Targets: []RawTarget{workload("payments", "payments")}}),
 		NewMemorySource("us", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterB, "us-prod", ClusterNameFromContext), Targets: []RawTarget{workload("orders", "orders")}}),
 	)
-	s := NewQuery(snap).Restrict(func(ns string) bool { return ns != "orders" }, nil).SnapshotForSerialization()
+	s := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns != "orders" }), anyClusterKind(nil)).SnapshotForSerialization()
 	if len(s.Clusters) != 1 || s.Clusters[0].ID != clusterA {
 		t.Errorf("only the cluster of a visible target stays: %+v", s.Clusters)
 	}
@@ -119,12 +119,12 @@ func TestRestrictRecountsClusterUnknown(t *testing.T) {
 	if l := limitationsWith(snap, LimitationClusterUnknown); len(l) != 1 || !strings.HasPrefix(l[0].Message, "3 targets") {
 		t.Fatalf("unrestricted: %+v", l)
 	}
-	s := NewQuery(snap).Restrict(func(ns string) bool { return ns != "vault" }, nil).SnapshotForSerialization()
+	s := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns != "vault" }), anyClusterKind(nil)).SnapshotForSerialization()
 	l := limitationsWith(s, LimitationClusterUnknown)
 	if len(l) != 1 || l[0].Source != "inventory" || !strings.HasPrefix(l[0].Message, "1 targets") || strings.Contains(l[0].Message, "3") {
 		t.Errorf("restricted CLUSTER_UNKNOWN counts only the visible clusterless target: %+v", l)
 	}
-	none := NewQuery(snap).Restrict(func(ns string) bool { return ns != "vault" && ns != "shop" }, nil).SnapshotForSerialization()
+	none := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns != "vault" && ns != "shop" }), anyClusterKind(nil)).SnapshotForSerialization()
 	if l := limitationsWith(none, LimitationClusterUnknown); len(l) != 0 {
 		t.Errorf("no visible clusterless target, no CLUSTER_UNKNOWN: %+v", l)
 	}
@@ -136,7 +136,7 @@ func TestRestrictRecountsSingleClusterUnknown(t *testing.T) {
 		NewMemorySource("eu", SourceKindKubernetes, &Collection{Cluster: inA, Targets: []RawTarget{workload("shop", "payments"), workload("vault", "keys")}}),
 		NewMemorySource("inventory", "inventory", &Collection{Targets: []RawTarget{workload("shop", "payments"), workload("vault", "keys")}}),
 	)
-	s := NewQuery(merged).Restrict(func(ns string) bool { return ns != "vault" }, nil).SnapshotForSerialization()
+	s := NewQuery(merged).Restrict(anyCluster(func(ns string) bool { return ns != "vault" }), anyClusterKind(nil)).SnapshotForSerialization()
 	l := limitationsWith(s, LimitationClusterUnknown)
 	if len(l) != 1 || l[0].Source != "inventory" || !strings.Contains(l[0].Message, "shop/kubernetes/payments") || strings.Contains(l[0].Message, "vault") {
 		t.Errorf("merged keys are rebuilt from visible targets only: %+v", l)
@@ -145,7 +145,7 @@ func TestRestrictRecountsSingleClusterUnknown(t *testing.T) {
 		NewMemorySource("eu", SourceKindKubernetes, &Collection{Cluster: inA, Targets: []RawTarget{workload("shop", "payments")}}),
 		NewMemorySource("inventory", "inventory", &Collection{Targets: []RawTarget{workload("shop", "ledger"), workload("vault", "keys")}}),
 	)
-	s = NewQuery(info).Restrict(func(ns string) bool { return ns != "vault" }, nil).SnapshotForSerialization()
+	s = NewQuery(info).Restrict(anyCluster(func(ns string) bool { return ns != "vault" }), anyClusterKind(nil)).SnapshotForSerialization()
 	if l := limitationsWith(s, LimitationClusterUnknown); len(l) != 1 || l[0].Source != "" || !strings.HasPrefix(l[0].Message, "1 targets") {
 		t.Errorf("informational count is rebuilt from visible targets: %+v", l)
 	}
@@ -162,11 +162,11 @@ func TestRestrictRecountsClusterConflict(t *testing.T) {
 	if l := limitationsWith(snap, LimitationClusterConflict); len(l) != 1 || l[0].Source != "ev-2" {
 		t.Fatalf("unrestricted: %+v", l)
 	}
-	visible := NewQuery(snap).Restrict(func(ns string) bool { return ns != "shop" }, nil).SnapshotForSerialization()
+	visible := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns != "shop" }), anyClusterKind(nil)).SnapshotForSerialization()
 	if l := limitationsWith(visible, LimitationClusterConflict); len(l) != 1 || l[0].Source != "ev-2" || !strings.Contains(l[0].Message, " 1 evidence records") {
 		t.Errorf("a visible conflicting target keeps its CLUSTER_CONFLICT: %+v", l)
 	}
-	hidden := NewQuery(snap).Restrict(func(ns string) bool { return ns != "vault" }, nil).SnapshotForSerialization()
+	hidden := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns != "vault" }), anyClusterKind(nil)).SnapshotForSerialization()
 	if l := limitationsWith(hidden, LimitationClusterConflict); len(l) != 0 {
 		t.Errorf("a hidden conflicting target is not counted: %+v", l)
 	}
@@ -188,11 +188,11 @@ func TestRestrictRecountsInvalidClusterIDs(t *testing.T) {
 	if l := invalid(snap); len(l) != 1 || !strings.Contains(l[0].Message, "3 of them") {
 		t.Fatalf("unrestricted: %+v", l)
 	}
-	s := NewQuery(snap).Restrict(func(ns string) bool { return ns != "vault" }, nil).SnapshotForSerialization()
+	s := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns != "vault" }), anyClusterKind(nil)).SnapshotForSerialization()
 	if l := invalid(s); len(l) != 1 || l[0].Source != "file" || !strings.Contains(l[0].Message, "1 on targets you can see") || strings.Contains(l[0].Message, "3") {
 		t.Errorf("restricted, only the visible target is counted: %+v", l)
 	}
-	none := NewQuery(snap).Restrict(func(ns string) bool { return ns != "vault" && ns != "shop" }, nil).SnapshotForSerialization()
+	none := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns != "vault" && ns != "shop" }), anyClusterKind(nil)).SnapshotForSerialization()
 	if l := invalid(none); len(l) != 0 {
 		t.Errorf("no visible target with an invalid id, no limitation: %+v", l)
 	}

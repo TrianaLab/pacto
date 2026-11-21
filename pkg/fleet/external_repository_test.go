@@ -383,7 +383,7 @@ func TestRepositoryCatalogMismatchHiddenWithItsRevision(t *testing.T) {
 	if m := mismatches(snap); len(m) != 1 || !strings.Contains(m[0], "vault") || !strings.Contains(m[0], orgDigest) {
 		t.Fatalf("mismatch = %v", m)
 	}
-	q := NewQuery(snap).Restrict(func(ns string) bool { return ns == "shop" }, nil)
+	q := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns == "shop" }), anyClusterKind(nil))
 	for _, l := range q.Overview().Meta.Limitations {
 		if strings.Contains(l.Message, orgDigest) {
 			t.Errorf("restricted view leaks %q", l.Message)

@@ -120,7 +120,7 @@ func TestObservedConsumersStale(t *testing.T) {
 }
 
 func TestObservedConsumersHiddenCounted(t *testing.T) {
-	q := observedFleet(t).Restrict(func(ns string) bool { return ns != "hidden" }, nil)
+	q := observedFleet(t).Restrict(anyCluster(func(ns string) bool { return ns != "hidden" }), anyClusterKind(nil))
 	d := observedOf(t, q)
 	for _, n := range observedNames(d) {
 		if n == "spy>pg" || n == "ghostapp>pg" {
@@ -133,7 +133,7 @@ func TestObservedConsumersHiddenCounted(t *testing.T) {
 }
 
 func TestObservedConsumersHiddenUncontractedCounted(t *testing.T) {
-	q := observedFleet(t).Restrict(restrictedVisible, nil)
+	q := observedFleet(t).Restrict(anyCluster(restrictedVisible), anyClusterKind(nil))
 	d := observedOf(t, q)
 	for _, n := range observedNames(d) {
 		if n == "cron-x>pg" {

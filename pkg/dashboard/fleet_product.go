@@ -94,6 +94,7 @@ type fleetEntitiesInput struct {
 	Domain          string   `query:"domain" doc:"Exact registry path (the domain part of the canonical service key), shown as Registry"`
 	BusinessDomain  string   `query:"businessDomain" doc:"Exact business domain (service.domain) of the service an entity belongs to (a revision is kept by its service's domain), (none) for the services with no domain, or (unknown) for the services whose domain Pacto cannot tell"`
 	Environment     string   `query:"environment" doc:"Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label; with consumes and phase it also narrows the consumers to statuses in that environment"`
+	Cluster         string   `query:"cluster" doc:"Cluster UID as meta.clusters lists it: targets in that cluster, services with a target or an inferred workload there and revisions a target there runs"`
 	Capability      string   `query:"capability" doc:"Capability key a service's revisions declare (service entities): health, metrics or, for an extension, its namespaced ref such as acme.io/cost"`
 	Offering        string   `query:"offering" doc:"Exact platform offering (service.offering) a service provides (service and offering entities)"`
 	Consumes        string   `query:"consumes" doc:"Platform offering (service.offering) slug: keeps the services with a declared, resolved dependency or configuration reference to a provider of it (service entities)"`
@@ -138,7 +139,7 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 	}
 	res, err := q.Entities(fleet.EntityFilter{
 		Text: in.Text, Kinds: entityKinds(kinds), Owner: in.Owner, OwnerKey: in.OwnerKey, Domain: in.Domain,
-		BusinessDomain: in.BusinessDomain, Environment: in.Environment, Capability: in.Capability, Offering: in.Offering, Consumes: in.Consumes, Phase: in.Phase,
+		BusinessDomain: in.BusinessDomain, Environment: in.Environment, Cluster: in.Cluster, Capability: in.Capability, Offering: in.Offering, Consumes: in.Consumes, Phase: in.Phase,
 		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, SourceKind: in.SourceKind, Source: in.Source,
 		HasNonCompliant: in.HasNonCompliant, Lifecycle: in.Lifecycle, Failed: in.Failed, Class: in.Class,
 		Ownership: in.Ownership, Gap: in.Gap, Readiness: in.Readiness,

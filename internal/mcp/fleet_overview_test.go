@@ -53,7 +53,7 @@ func TestMCPFleetOverviewHrefsOnlyWithDashboard(t *testing.T) {
 // may see, never names a hidden one and says it hid something.
 func TestMCPFleetOverviewRestricted(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns != "secretns" }, nil), nil
+		return q.Restrict(func(_, ns string) bool { return ns != "secretns" }, nil), nil
 	}
 	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(secretFleet(t)), Opts: FleetOptions{View: view}}})
 	res := callToolOn(t, server, "pacto_fleet_overview", map[string]any{})

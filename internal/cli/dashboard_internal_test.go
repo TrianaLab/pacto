@@ -6,10 +6,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
+	"k8s.io/client-go/rest"
+
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/logging"
@@ -508,5 +511,110 @@ func TestDashboardDetectedEnv(t *testing.T) {
 	newDashboardCommand(app.NewService(nil, nil), v, "test", defaultDeps())
 	if got := v.GetString("dashboard.detected"); got != "/etc/pacto/detected/detected.json" {
 		t.Errorf("dashboard.detected = %q", got)
+	}
+}
+
+// writeKubeconfig writes a kubeconfig whose current context is dev and that
+// also holds eu and us, and points KUBECONFIG at it.
+func writeKubeconfig(t *testing.T, dir string) {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString("apiVersion: v1\nkind: Config\ncurrent-context: dev\ncontexts:\n")
+	for _, c := range []string{"dev", "eu", "us"} {
+		b.WriteString("- context:\n    cluster: " + c + "\n  name: " + c + "\n")
+	}
+	b.WriteString("clusters:\n")
+	for _, c := range []string{"dev", "eu", "us"} {
+		b.WriteString("- cluster:\n    server: https://" + c + ".invalid:6443\n  name: " + c + "\n")
+	}
+	path := filepath.Join(dir, "kubeconfig")
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KUBECONFIG", path)
+}
+
+// TestDashboardContextsReplaceCurrentContext: outside a pod, named contexts
+// replace the kubeconfig's current one as a source and as the sign-in
+// cluster; in a pod the in-cluster config stays both.
+func TestDashboardContextsReplaceCurrentContext(t *testing.T) {
+	dir := isolateHost(t)
+	writeKubeconfig(t, dir)
+	d := defaultDeps()
+	d.inCluster = func() (*rest.Config, error) { return nil, errors.New("not in a pod") }
+	include, home, err := dashboardClusters([]string{"eu", "us"}, d)
+	if include || err != nil || home == nil || home.Host != "https://eu.invalid:6443" {
+		t.Errorf("outside a pod: current %v, sign-in %+v", include, home)
+	}
+	if include, home, _ := dashboardClusters(nil, d); !include || home == nil || home.Host != "https://dev.invalid:6443" {
+		t.Errorf("no contexts: current %v, sign-in %+v", include, home)
+	}
+	pod := &rest.Config{Host: "https://10.0.0.1:443"}
+	d.inCluster = func() (*rest.Config, error) { return pod, nil }
+	d.clusterConfig = func() (*rest.Config, error) { return pod, nil }
+	if include, home, _ := dashboardClusters([]string{"eu"}, d); !include || home != pod {
+		t.Errorf("in a pod: current %v, sign-in %+v", include, home)
+	}
+}
+
+// TestDashboardSignInClusterThatCannotLoad: a mistyped first context fails
+// start-up when people sign in, and the banner says it cannot be loaded
+// otherwise.
+func TestDashboardSignInClusterThatCannotLoad(t *testing.T) {
+	writeKubeconfig(t, isolateHost(t))
+	d := defaultDeps()
+	d.inCluster = func() (*rest.Config, error) { return nil, errors.New("not in a pod") }
+	v := viper.New()
+	if _, cfg, err := signInCluster(v, []string{"eu-prd"}, d); err != nil || cfg != nil {
+		t.Errorf("without sign-in: %v %v", cfg, err)
+	}
+	v.Set("dashboard.oidc-issuer-url", "https://issuer.invalid")
+	if _, _, err := signInCluster(v, []string{"eu-prd"}, d); err == nil || !strings.Contains(err.Error(), "the sign-in cluster, context eu-prd, cannot be loaded") {
+		t.Errorf("with sign-in: %v", err)
+	}
+	if got := signInLine(false, []string{"eu-prd"}, false); !strings.Contains(got, "context eu-prd cannot be loaded") {
+		t.Errorf("banner %q", got)
+	}
+}
+
+// TestDashboardContextsAreFleetSources: named contexts are read as sources
+// beside (or instead of) the current context and named on the banner.
+func TestDashboardContextsAreFleetSources(t *testing.T) {
+	writeKubeconfig(t, isolateHost(t))
+	fopts := dashboardFleetOptions("", nil, []string{"prod"}, nil, dashboardSources{contexts: []string{"eu", "us"}})
+	if fopts.IncludeK8s || !slices.Equal(fopts.K8sContexts, []string{"eu", "us"}) || !slices.Equal(fopts.K8sNamespaces, []string{"prod"}) {
+		t.Errorf("fleet options %+v", fopts)
+	}
+	if got := configuredSources(fopts); !slices.Equal(got, []string{"context eu, context us"}) {
+		t.Errorf("configured %v", got)
+	}
+	if got := contractRefClients(&fakeClusterClient{}, []string{"eu", "nope"}); len(got) != 2 {
+		t.Errorf("contract refs read through %d clients, want the current one and eu", len(got))
+	}
+	if signInLine(true, []string{"eu"}, true) != "" || signInLine(false, nil, true) != "" || signInLine(false, []string{"eu", "us"}, true) != "Sign-in cluster: context eu\n" {
+		t.Error("the sign-in line")
+	}
+}
+
+// TestDashboardContextFlagReachesFleetAndViewer: --context (repeatable, or
+// PACTO_DASHBOARD_CONTEXT) reaches the banner's sources and the sign-in
+// cluster, and the current context dev is no source.
+func TestDashboardContextFlagReachesFleetAndViewer(t *testing.T) {
+	dir := isolateHost(t)
+	writeKubeconfig(t, dir)
+	svcDir := filepath.Join(dir, "svc")
+	writeBundle(t, svcDir, "svc")
+	stderr, _ := runDashboard(t, app.NewService(nil, nil), viper.New(), svcDir, "--port", "0", "--context", "eu", "--context", "us")
+	if !strings.Contains(stderr, "Sources: local, context eu, context us\n") || !strings.Contains(stderr, "Sign-in cluster: context eu\n") || strings.Contains(stderr, "k8s") {
+		t.Errorf("banner:\n%s", stderr)
+	}
+	t.Setenv("PACTO_DASHBOARD_CONTEXT", "us")
+	v := viper.New()
+	v.SetEnvPrefix("PACTO")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
+	v.AutomaticEnv()
+	stderr, _ = runDashboard(t, app.NewService(nil, nil), v, svcDir, "--port", "0")
+	if !strings.Contains(stderr, "context us") {
+		t.Errorf("from the environment:\n%s", stderr)
 	}
 }

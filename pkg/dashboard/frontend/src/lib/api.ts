@@ -122,6 +122,8 @@ export type ChangeEvent = components['schemas']['ProductChangeEvent'];
 export type ProductEntityRef = NonNullable<ProductEntityList['entities']>[number];
 export type EntityKind = ProductEntityRef['kind'];
 export type SourceHealth = components['schemas']['Fleet.SourceState']['status'];
+/** One cluster's status in an answer (meta.clusters), with why a restricted view hides it. */
+export type ClusterSummary = components['schemas']['Fleet.ClusterSummary'];
 export type Direction = NonNullable<ProductNeighborhood['direction']>;
 export type KnowledgeView = NonNullable<ProductNeighborhood['views']>[number];
 /** Attention severity is the narrower domain (no "unknown"), derived from the wire. */

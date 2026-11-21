@@ -71,6 +71,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")
 	shared.Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
 	shared.Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
+	shared.StringArray("context", nil, "kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once")
 	shared.String("namespace", "", "namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)")
 	shared.Duration("freshness", fleet.RecentEvidenceWindow, "mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so)")
 	shared.String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused")
@@ -90,7 +91,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 func fleetFlagNames() []string {
 	return []string{
 		"local", "root", "target-state", "evidence-url", "mira-source", "traces", "oci",
-		"cache", "k8s", "namespace", "freshness", "external-catalog", "detected", "fingerprints",
+		"cache", "k8s", "context", "namespace", "freshness", "external-catalog", "detected", "fingerprints",
 		"target-snapshot", "delivery-trust", "index",
 	}
 }
@@ -191,6 +192,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	// onto the flag, so this one read covers all three.
 	noCache, _ := cmd.Flags().GetBool("no-cache")
 	includeK8s, _ := cmd.Flags().GetBool("k8s")
+	contexts, _ := cmd.Flags().GetStringArray("context")
 	freshness, _ := cmd.Flags().GetDuration("freshness")
 	externalCatalog, _ := cmd.Flags().GetString("external-catalog")
 	detected, _ := cmd.Flags().GetString("detected")
@@ -209,6 +211,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		OCIRefs:            ociRefs,
 		IncludeCache:       includeCache && !noCache,
 		IncludeK8s:         includeK8s,
+		K8sContexts:        contextNames(contexts),
 		K8sNamespaces:      flagNamespaces(cmd),
 		FreshnessWindow:    freshness,
 		ExternalCatalogRef: externalCatalog,
@@ -231,6 +234,18 @@ func targetSnapshotRefs(values []string) []string {
 	var out []string
 	for _, v := range values {
 		if v != "auto" && v != "off" && v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// contextNames is the --context list: trimmed, empty entries and repeated
+// names dropped, order kept.
+func contextNames(values []string) []string {
+	var out []string
+	for _, v := range values {
+		if v = strings.TrimSpace(v); v != "" && !slices.Contains(out, v) {
 			out = append(out, v)
 		}
 	}

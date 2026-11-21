@@ -33,8 +33,9 @@ type StatsRequest struct {
 	// Now is the answer's clock; zero is the service's clock.
 	Now time.Time
 	// OperationAccess, when set, reviews the caller's access to the Stage
-	// namespaces the operation records name and returns which it may see.
-	OperationAccess func(ctx context.Context, namespaces []string) (func(string) bool, error)
+	// namespaces the operation records name and returns which it may see,
+	// and in which clusters it was reviewed.
+	OperationAccess func(ctx context.Context, namespaces []string) (stats.OperationAccess, error)
 }
 
 // Stats reads the run records of req.Registry within bounds and totals them
@@ -63,11 +64,11 @@ func (s *Service) Stats(ctx context.Context, req StatsRequest) (*stats.Stats, er
 	}
 	scope := req.Scope
 	if req.OperationAccess != nil {
-		visible, err := req.OperationAccess(ctx, stats.OperationNamespaces(set))
+		access, err := req.OperationAccess(ctx, stats.OperationNamespaces(set))
 		if err != nil {
 			return nil, fmt.Errorf("checking your Kubernetes permissions failed: %w", err)
 		}
-		scope.OperationVisible = visible
+		scope.OperationVisible, scope.Clusters = access.Visible, access.Clusters
 	}
 	st := stats.Aggregate(set, req.Query, scope, now)
 	st.Registry = req.Registry

@@ -3,7 +3,9 @@ package fleet
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestMemorySourceIDKind(t *testing.T) {
@@ -68,4 +70,15 @@ func TestMemorySourceCollect_WithCollectFunc(t *testing.T) {
 func withCollect(s *MemorySource, fn func(ctx context.Context) (*Collection, error)) *MemorySource {
 	s.collect = fn
 	return s
+}
+
+func TestStaleStateSanitizes(t *testing.T) {
+	at := time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC)
+	st := StaleState(at, errors.New(`Get "https://10.0.0.1:6443/apis?token=s3cr3t": dial tcp: connection refused`))
+	if st.Status != SourceStale || st.LastSuccessfulSync == nil || !st.LastSuccessfulSync.Equal(at) {
+		t.Fatalf("state = %+v", st)
+	}
+	if st.Error == nil || st.Error.Code != "UNAVAILABLE" || strings.Contains(st.Error.Message, "10.0.0.1") || strings.Contains(st.Error.Message, "s3cr3t") {
+		t.Fatalf("error = %+v, want the sanitized category only", st.Error)
+	}
 }

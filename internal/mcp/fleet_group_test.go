@@ -60,7 +60,7 @@ func TestMCPFleetGetCarriesGroup(t *testing.T) {
 // list Applications in argocd sees the group but never the URL, and reads why.
 func TestMCPFleetEntityRepositoryRestricted(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(string) bool { return true }, func(ns, kind string) bool { return ns != "argocd" || kind != "Application" }), nil
+		return q.Restrict(func(_, _ string) bool { return true }, func(_, ns, kind string) bool { return ns != "argocd" || kind != "Application" }), nil
 	}
 	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(groupedFleet(t)), Opts: FleetOptions{View: view}}})
 	for tool, args := range map[string]map[string]any{

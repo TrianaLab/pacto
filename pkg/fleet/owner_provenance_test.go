@@ -76,7 +76,7 @@ func TestRestrictOwnerProvenanceFromHiddenTarget(t *testing.T) {
 	if s := payRecord(t, q); s.OwnerProvenance != OwnerProvenanceDeclaredViaTarget {
 		t.Fatalf("unrestricted provenance = %q, want declared-via-target", s.OwnerProvenance)
 	}
-	s := payRecord(t, q.Restrict(func(ns string) bool { return ns == "shop" || ns == "" }, nil))
+	s := payRecord(t, q.Restrict(anyCluster(func(ns string) bool { return ns == "shop" || ns == "" }), anyClusterKind(nil)))
 	if !s.Owner.IsEmpty() || s.OwnerProvenance != "" {
 		t.Errorf("restricted owner = %+v provenance = %q, want both empty", s.Owner, s.OwnerProvenance)
 	}
