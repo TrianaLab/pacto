@@ -14,9 +14,9 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/otelobserver"
 )
 
 // ponytail: 15m, 200000 spans and 10s are fixed; add flags when an operator
@@ -25,7 +25,6 @@ const (
 	miraRequest      = `{"from":"-15m","to":"now","max_spans":200000}`
 	miraMaxSpans     = 200000
 	maxMiraBodyBytes = 16 << 20 // 16 MiB; a value cut at the limit fails to decode
-	maxMiraNameBytes = 253      // a DNS name; OTel service names are far shorter
 )
 
 // miraMap is the part of Mira's POST /api/v1/map answer this source reads. The
@@ -118,13 +117,13 @@ func (s *MiraSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 // normalizeMiraMap folds Mira's per-instance edges into one edge per pair of
 // service names, sorted by (From, To). Root spans and calls within one service
 // are dropped; a call touching a key missing from nodes, a name Mira cannot
-// vouch for (see attributableMiraName) or counting no calls is dropped and
+// vouch for (see otelobserver.AttributableName) or counting no calls is dropped and
 // counted, because a call Pacto cannot attribute is uncertainty. Sums saturate.
 // FirstSeen/LastSeen stay zero: Mira gives no per-edge window.
 func normalizeMiraMap(m miraMap) (edges []fleet.ObservedEdge, unattributed int) {
 	names := make(map[string]string, len(m.Map.Nodes))
 	for _, n := range m.Map.Nodes {
-		if attributableMiraName(n.Name) {
+		if otelobserver.AttributableName(n.Name) {
 			names[n.Key] = n.Name
 		}
 	}
@@ -153,15 +152,6 @@ func normalizeMiraMap(m miraMap) (edges []fleet.ObservedEdge, unattributed int) 
 		return cmp.Or(cmp.Compare(a.From, b.From), cmp.Compare(a.To, b.To))
 	})
 	return edges, unattributed
-}
-
-// attributableMiraName reports whether a service name from Mira can enter the
-// fleet: printable, at most maxMiraNameBytes, not "unknown", and not shaped like
-// a k8s caller, a Kubernetes identity Mira cannot vouch for and whose namespace
-// restricted views would trust.
-func attributableMiraName(name string) bool {
-	return name != "" && name != "unknown" && len(name) <= maxMiraNameBytes && !strings.HasPrefix(name, "k8s:") &&
-		!strings.ContainsFunc(name, func(r rune) bool { return !unicode.IsPrint(r) })
 }
 
 // miraPartial joins the reasons the map is incomplete, counts only (never
