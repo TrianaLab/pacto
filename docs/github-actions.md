@@ -1,151 +1,94 @@
 # GitHub Actions Integration
 
-The official [Pacto CLI](https://github.com/marketplace/actions/pacto-cli)
-GitHub Action runs Pacto in your workflows: validate a contract, fail a pull
-request on a breaking change and publish the contract on release.
+[pacto-actions](https://github.com/TrianaLab/pacto-actions) runs Pacto in
+GitHub Actions. Its reusable workflow plans every service of a repository on
+pull requests and publishes the changed ones on merges to the default branch,
+with `pacto ci` as its only step. Its composite action runs single Pacto
+commands in jobs you write.
 
 ---
 
 ## Quick start
 
-The action is command-driven. `command: setup` installs the `pacto` binary.
-Every other command (`validate`, `diff`, `push` and `doc`) runs the `pacto`
-that an earlier `command: setup` step in the same job installed, and so do your
-own `run:` steps.
+`pacto ci init` writes this caller to `.github/workflows/pacto.yml`:
 
 ```yaml
-name: Contract CI
-
-on:
-  pull_request:
-    paths:
-      - 'pacto.yaml'
-      - 'interfaces/**'
-      - 'configuration/**'
-      - 'policy/**'
-
-jobs:
-  validate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Pacto CLI
-        uses: TrianaLab/pacto-actions@v1
-        with:
-          command: setup
-
-      - name: Validate contract
-        run: pacto validate .
+--8<-- "examples/ci/github/pacto.yml"
 ```
 
-## Common workflows
+The `uses:` line pins a pacto-actions commit, with the release in the
+comment, the form Dependabot rewrites when it bumps the pin. See
+[Put it in your repository](ci.md) for what the plan shows.
 
-### Detect breaking changes
+## Jobs and permissions
 
-`pacto diff` takes the old contract first and the new one second, and exits
-non-zero on a `BREAKING` result (see
-[change classification rules](contract-reference/diff.md#change-classification-rules)):
+| Job | Runs when | Runs | Permissions |
+| --- | --- | --- | --- |
+| `plan` | a pull request | `pacto ci`, then the job summary and one annotation per changed service | `contents: read`, `packages: read` |
+| `publish` | a push to the default branch, with `publish` on | `pacto ci --publish`, one run per repository at a time | `contents: read`, `packages: write`, `id-token: write` |
+| `comment` | a pull request from the same repository, with `comment` on | posts or updates one plan comment | `pull-requests: write` |
 
-```yaml
-      - name: Check for breaking changes
-        uses: TrianaLab/pacto-actions@v1
-        with:
-          command: diff
-          old: oci://ghcr.io/acme/my-service-pacto
-          new: .
-          comment-on-pr: 'true'
-```
+GitHub checks every job's permissions against the caller's before it starts
+the workflow, skipped jobs included, so a caller grants the whole map in the
+quick start. Each job then takes only its own. A push to any other branch runs
+no job.
 
-This step follows the setup step from the Quick start job.
-`fail-on-breaking` defaults to `true`, so a breaking change fails the step.
-`comment-on-pr` posts the diff on the pull request. It posts with the workflow's
-`GITHUB_TOKEN`, which is read-only by default: grant the job
-`pull-requests: write`, or the comment fails with a `403` even when the diff
-passes.
+Only `publish` holds `id-token: write`. GitHub mints the OIDC token for that
+job, and the Pacto CLI in it exchanges the token with Sigstore for a
+short-lived certificate; the token never leaves the job, and the Pacto
+installation never holds it.
 
-The action passes its `github-token` input, the workflow's token by default, to
-every command as `GH_TOKEN`. Pacto logs in to `ghcr.io` with that token through
-the `gh` CLI, which GitHub-hosted runners include, so a baseline on GHCR needs
-only `permissions: packages: read`. For any other registry, set
-`PACTO_REGISTRY_USERNAME` and `PACTO_REGISTRY_PASSWORD` on the step.
+## Inputs
 
-### Find who a change breaks
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `path` | `.` | root `pacto ci` walks for `pacto.yaml` files |
+| `registry` | empty | registry the services publish to, such as `ghcr.io/acme`; empty resolves it from the platform |
+| `pacto-version` | empty | Pacto release to run; empty runs the release this pacto-actions release pins and checks by sha256; `latest` runs the newest release unpinned |
+| `pacto-artifact` | empty | name of an artifact of the same run holding a static linux `pacto`, used instead of the download |
+| `publish` | `true` | publish on a push to the default branch |
+| `comment` | `false` | post the plan as one sticky comment on pull requests from the same repository |
+| `fail-on` | `blocked` | `blocked` fails the plan job on exit `1`; `unverified` also fails it on exit `2` |
+| `transparency-log` | `true` | with `sign-key`, record the signatures in the transparency log |
 
-The action has no `impact` command. Run `pacto impact` in a `run:` step after
-`command: setup`, as
-[Put it in your repository](ci.md#on-every-pull-request-who-breaks) shows.
+## Secrets and outputs
 
-### Publish on release
+| Secret | Use |
+| --- | --- |
+| `registry-username`, `registry-password` | registry login for a registry other than GHCR; GHCR uses the workflow's token |
+| `sign-key`, `sign-key-password` | a cosign key `publish` signs with instead of keyless; written to the runner's temporary directory only |
 
-Push the contract bundle to an OCI registry when a release is created:
+Keyless signing records the repository, workflow and commit in the public
+Rekor log. A private repository that must not appear there sets the
+`sign-key` secret, or declares `publish.sign` with a private log.
 
-```yaml
-name: Publish Contract
+The workflow outputs `gate` (`clear`, `blocked` or `unverified`) and
+`exit-code` (`0`, `1` or `2`) from the plan job.
 
-on:
-  release:
-    types: [published]
+## Annotations
 
-jobs:
-  push:
-    runs-on: ubuntu-latest
-    permissions:
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
+The plan job annotates each changed service on its `pacto.yaml`: an error when
+it is blocked, a warning when it is unverified and a notice when it is clear.
+GitHub shows at most 10 annotations of each level per step; the job summary
+lists every service.
 
-      - name: Install Pacto CLI
-        uses: TrianaLab/pacto-actions@v1
-        with:
-          command: setup
+## Commands for your own jobs
 
-      - name: Push contract
-        uses: TrianaLab/pacto-actions@v1
-        with:
-          command: push
-          ref: oci://ghcr.io/${{ github.repository }}-pacto
-          path: .
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-```
+The composite action `TrianaLab/pacto-actions@<sha>` takes a `command`:
 
-## Action reference
+| Command | Runs |
+| --- | --- |
+| `setup` | installs `pacto`, pinned by version and sha256 |
+| `ci` | `pacto ci`, with `gate` and `exit-code` outputs and the `fail-on` input |
+| `publish` | `pacto ci --publish`; the job needs `id-token: write` for keyless signing |
+| `impact`, `validate`, `diff`, `doc` | the Pacto command of that name |
 
-Every input is documented in the
-[pacto-actions](https://github.com/TrianaLab/pacto-actions) repository, which
-owns the action and its version history.
+A service that builds with ko, Jib or buildpacks runs `command: setup`, its
+build and `command: publish` in a job of its own.
 
-### Outputs
+## Moving from v1
 
-Give the step an `id` to read its outputs.
-
-| Output | Set by | Value |
-|---|---|---|
-| `version` | `setup` | The exact Pacto version installed |
-| `has-breaking-changes` | `diff` | `"true"` or `"false"` |
-| `diff-output` | `diff` | The full diff output, in `output-format` |
-| `doc-output` | `doc` | The generated markdown documentation |
-
-`has-breaking-changes` is set from the CLI exit code. `pacto diff` exits non-zero
-on a `BREAKING` classification, so a `POTENTIAL_BREAKING` result reads `"false"`.
-A diff that fails to run, for example on an unresolvable reference or an
-unparseable contract, also exits non-zero and so also reads `"true"`; check the step log before treating
-it as a contract verdict. The output is written whether or not
-`fail-on-breaking` stops the step, so you can gate on it yourself:
-
-```yaml
-      - name: Check for breaking changes
-        id: contract-diff
-        uses: TrianaLab/pacto-actions@v1
-        with:
-          command: diff
-          old: oci://ghcr.io/acme/my-service-pacto
-          new: .
-          fail-on-breaking: 'false'
-
-      - name: Require an approved exception
-        if: steps.contract-diff.outputs.has-breaking-changes == 'true'
-        run: exit 1
-```
+`TrianaLab/pacto-actions@v1` keeps working and stays at v1. v2 removes the
+`push` command: replace it, and the jobs that ran `validate`, `diff` and
+`pacto publish`, with the caller above;
+[From an imperative pipeline to one step](ci-from-pipeline.md) maps each one.

@@ -15,7 +15,7 @@ flowchart LR
     A[Write code] --> B[Infer schemas]
     B --> C[Define pacto.yaml]
     C --> D[pacto validate]
-    D --> F[pacto push]
+    D --> F[pacto ci]
     F --> G[CI / Platform picks it up]
 ```
 
@@ -79,17 +79,14 @@ Both plugins live in a separate repository and ship as separate binaries. The in
 
 See [Contract sections](contract-reference/sections.md) for interfaces, workload, state and capabilities; [Dependencies and state](contract-reference/dependencies-and-state.md) for dependencies; and [Configuration and policy](contract-reference/configuration-and-policy.md) for configurations and policies.
 
-### 4. Validate and push
+### 4. Validate and publish
 
 ```bash
-pacto validate my-service
-pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service
+pacto ci              # on a pull request: validate and plan every service
+pacto ci --publish    # on the merged commit: publish every changed service
 ```
 
-See [Validation layers](contract-reference/validation.md) for the rules and error codes. `push` validates before uploading; use `--force` to overwrite an existing tag.
-`pacto push` uploads only the contract, for use without delivery. For anything
-delivery should ship, use [`pacto publish`](publishing.md), which signs the
-version and never overwrites one.
+See [Validation layers](contract-reference/validation.md) for the rules and error codes. In CI, `pacto ci init` writes the one step that runs both; see [Put it in your repository](ci.md). A published version is signed and never overwritten.
 
 On Kubernetes, the [operator](integrations/kubernetes/overview.md) checks what your service does on the network against this contract. See [runtime conformance](integrations/kubernetes/runtime-conformance.md).
 
