@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader, productListState } from '../lib/productLoader.svelte.ts';
   import {
-    attentionCategoryLabel, ATTENTION_CATEGORIES, severityLabel, businessDomainLabel, attentionCause, nextActionWords,
+    attentionCategoryLabel, ATTENTION_CATEGORIES, severityLabel, businessDomainLabel, attentionCause,
   } from '../lib/entityLabels.ts';
   import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
   import { ownerKeyLabel, ownerKeyKind } from '../lib/owners.ts';
@@ -12,6 +12,7 @@
   import EntityCombobox from '../components/EntityCombobox.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityLink from '../components/EntityLink.svelte';
+  import NextActionLink from '../components/NextActionLink.svelte';
   import SeverityBadge from '../components/SeverityBadge.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
@@ -352,8 +353,8 @@
           {#if showNext(i) || it.nextAction}
             <div class="attn-side">
               {#if showNext(i)}<span class="attn-next"><span class="attn-next-k">Next</span>{it.nextStep}</span>{/if}
-              <!-- Words only: every navigable or delivery affordance for it is #472's slot. -->
-              {#if it.nextAction}<span class="attn-action">{nextActionWords(it.nextAction)}</span>{/if}
+              <!-- Words, except declare, which opens the inferred service's Declare panel. -->
+              {#if it.nextAction}<NextActionLink action={it.nextAction} subject={it.caller ?? it.entity} cls="attn-action" />{/if}
             </div>
           {/if}
         </li>
@@ -387,7 +388,7 @@
   }
   @media (max-width: 40rem) {
     .attn-item { grid-template-columns: minmax(0, 1fr); }
-    .attn-next, .attn-action { text-align: left; }
+    .attn-next, .attn-side :global(.attn-action) { text-align: left; }
   }
   /* The severity rail. Two selectors deep on purpose: .pl-row:hover paints the same 3px
      slot accent, and one stripe cannot mean both "clickable" and "this one is an error".
@@ -417,7 +418,8 @@
   /* A long code breaks at its underscores rather than widening the row. */
   .attn-code { min-width: 0; max-width: 100%; overflow-wrap: anywhere; color: var(--c-text-3); font-family: var(--font-mono); font-size: var(--text-xs); }
   .attn-side { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
-  .attn-action { min-width: 0; overflow-wrap: anywhere; color: var(--c-text-2); font-size: var(--text-xs); text-align: right; }
+  /* NextActionLink renders the action, so the rule reaches into it. */
+  .attn-side :global(.attn-action) { min-width: 0; overflow-wrap: anywhere; color: var(--c-text-2); font-size: var(--text-xs); text-align: right; }
   /* Backend-provided guidance, not a control. Right-aligned grey micro-text with an
      imperative verb read as a link that did nothing when clicked; the "Next" key
      names it as advice, the same way every labelled fact row does. */

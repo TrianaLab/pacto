@@ -79,9 +79,9 @@ type BundleMode struct {
 // and the bundle cannot take a pacto_ name, so it never shadows one.
 func New(version string, a Authoring, m Modes) (*mcpsdk.Server, error) {
 	server := newBareServer(version, instructionsFor(a, m))
-	registerTools(server, version, a, editOptions(m))
+	registerTools(server, version, a, editOptions(a, m))
 	if m.Fleet != nil {
-		registerFleetTools(server, m.Fleet.Src, m.Fleet.Opts)
+		registerFleetTools(server, m.Fleet.Src, m.Fleet.Opts, servedBy(a, m))
 	}
 	if m.Delivery != nil {
 		registerDelivery(server, m.Delivery.API, m.Delivery.Writes, m.Delivery.Refs)
@@ -122,10 +122,11 @@ func instructionsFor(a Authoring, m Modes) string {
 
 // editOptions is what pacto_edit and pacto_create add on a server with modes
 // m: the edit's impact over the fleet snapshot (narrowed to the caller's view,
-// as pacto_impact is) when m serves pacto_impact, and the tools m registers.
-// pacto_edit registers only over stdio, so the view has no token to read.
-func editOptions(m Modes) EditOptions {
-	opts := EditOptions{Served: servedBy(m)}
+// as pacto_impact is) when m serves pacto_impact, and the tools a and m
+// register. pacto_edit registers only over stdio, so the view has no token to
+// read.
+func editOptions(a Authoring, m Modes) EditOptions {
+	opts := EditOptions{Served: servedBy(a, m)}
 	if f := m.Fleet; f != nil && f.Opts.Impact != nil {
 		opts.Impact = func(ctx context.Context, service, oldDir, newDir string) (*impact.Result, error) {
 			q, err := viewQuery(ctx, nil, f.Src, f.Opts.View)
@@ -160,9 +161,10 @@ func heldVersion(view *fleet.ServiceView, version string) bool {
 	return slices.ContainsFunc(view.Revisions, func(r *fleet.ContractRevision) bool { return r.Version == version })
 }
 
-// servedBy reports whether a server with modes m registers one of the tools
-// an edit's chain names.
-func servedBy(m Modes) func(string) bool {
+// servedBy reports whether a server with contract tools a and modes m
+// registers one of the tools an edit's chain or a next action names.
+func servedBy(a Authoring, m Modes) func(string) bool {
+	authoring := authoringNames(a)
 	return func(tool string) bool {
 		switch tool {
 		case "pacto_publish_plan", "pacto_publish":
@@ -172,6 +174,6 @@ func servedBy(m Modes) func(string) bool {
 		case "pacto_impact":
 			return m.Fleet != nil && m.Fleet.Opts.Impact != nil
 		}
-		return false
+		return slices.Contains(authoring, tool)
 	}
 }

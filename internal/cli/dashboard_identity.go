@@ -88,6 +88,9 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, ent
 			return nil, err
 		}
 	}
+	if id.signing, err = newDashboardSigning(v, o); err != nil {
+		return nil, err
+	}
 	var t *authn.TokenLogin
 	var review authn.TokenReview // nil: bearer readers come with token sign-in
 	if v.GetBool("dashboard.token-login") {
@@ -104,7 +107,7 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, ent
 	}
 	switch {
 	case o != nil || t != nil:
-		id.auth = authn.NewShared(o, t).AcceptBearer(review)
+		id.auth = authn.NewShared(o, t).AcceptBearer(review).WithSigner(id.signing.login())
 		home := newHomeCluster(cluster, d)
 		id.viewer, id.homeUID = clusterViewer(entries, home, d, mode, namespaces), home.UID
 	case isLoopback(host):

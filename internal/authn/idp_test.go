@@ -48,6 +48,13 @@ type fakeIdP struct {
 	// public is the issuer URL the IdP names, when it differs from where the
 	// test reaches it.
 	public string
+	// secrets, when set, are the client secrets the token endpoint requires
+	// (a confidential client).
+	secrets map[string]string
+	// claims are extra ID token claims per subject (email, a username).
+	claims map[string]map[string]any
+	// codeID overrides the id_token of a code exchange.
+	codeID string
 }
 
 // issuer is the URL the IdP names in its discovery document and tokens.
@@ -110,14 +117,22 @@ func (f *fakeIdP) idToken(aud string, g grant) string {
 	if !f.noAuthTime {
 		c["auth_time"] = g.authTime.Unix()
 	}
+	for k, v := range f.claims[g.sub] {
+		c[k] = v
+	}
 	return f.jwt(c)
 }
 
 func (f *fakeIdP) token(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	clientID, _, _ := r.BasicAuth()
+	clientID, secret, _ := r.BasicAuth()
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if want, ok := f.secrets[clientID]; f.secrets != nil && (!ok || secret != want) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
+		return
+	}
 	if f.tokenStatus != 0 {
 		w.WriteHeader(f.tokenStatus)
 		_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"nope"}`))
@@ -135,8 +150,12 @@ func (f *fakeIdP) token(w http.ResponseWriter, r *http.Request) {
 		}
 		rt := "rt-" + r.PostForm.Get("code")
 		f.refreshes[rt] = grant{sub: g.sub, authTime: g.authTime}
+		id := f.codeID
+		if id == "" {
+			id = f.idToken(clientID, g)
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "at", "token_type": "Bearer", "expires_in": 3600,
-			"refresh_token": rt, "id_token": f.idToken(clientID, g)})
+			"refresh_token": rt, "id_token": id})
 	case "refresh_token":
 		f.refreshCalls++
 		old := r.PostForm.Get("refresh_token")

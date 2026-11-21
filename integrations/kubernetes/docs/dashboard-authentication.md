@@ -275,6 +275,46 @@ pacto-dashboard`; with token sign-in off, every bearer read is refused. No
 session or cookie is created; see
 [Serve entities from the dashboard](../../backstage.md#serve-entities-from-the-dashboard) for the reader setup.
 
+## Sign declarations { #sign-declarations }
+
+People [declare an inferred service](../../dashboard-service-page.md#declare-an-inferred-service)
+from the dashboard. It publishes to the chart's `registry`.
+
+```yaml
+registry: ghcr.io/acme
+dashboard:
+  auth:
+    oidc:
+      signClientID: pacto-sign        # a second client at the same issuer
+      signClientSecretRef: {name: dashboard-sign, key: client-secret}
+      signRedirectURL: https://pacto.example.com/auth/sign/callback
+  declare:
+    registryCredentials:
+      secretName: dashboard-declare-push   # kubernetes.io/dockerconfigjson with push access
+declare:
+  signing:
+    fulcioURL: https://fulcio.example.com   # empty: public-good Sigstore
+```
+
+- **A second client.** Signing asks the person for a fresh login with
+  `signClientID`, never the sign-in client. Its audience must be one the API
+  server does not accept, so a Kubernetes bearer token can never get a signing
+  certificate and the session's ID token never reaches Fulcio. Pacto cannot
+  read the API server's audiences: check them yourself. Register
+  `https://<dashboard>/auth/sign/callback` as its redirect URL.
+- **Fulcio must trust it.** The dashboard reads Fulcio's
+  `/api/v2/configuration` every 10 minutes and offers signing only when an
+  issuer entry names the sign-in issuer with `signClientID` as its audience.
+  An unreadable configuration means nobody signs, with the reason.
+- **Its own push credential.** `dashboard.declare.registryCredentials` holds
+  the only credential the dashboard pushes with, scoped to one service's
+  bundle repository per write. `dashboard.ociSecrets` stays the read-only
+  credential every view reads with. Without it the dashboard plans and shows
+  the command.
+- **Without a signing client** a person saves an unsigned draft that someone
+  accepts later with `pacto declare --from-draft`. A token sign-in always
+  saves drafts.
+
 ## Identity providers
 
 | Provider | `issuerURL` | Claim mapping | Notes |

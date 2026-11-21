@@ -166,7 +166,8 @@ func TestAcceptNamedOnlyWhenRegistered(t *testing.T) {
 	}
 	// An HTTP server never offers pacto_accept, even when handed one.
 	a.Remote = true
-	if strings.Contains(baseFor(a), "pacto_accept") || listTools(t, mustNew("test", a, Modes{}))["pacto_accept"] != nil {
+	if strings.Contains(baseFor(a), "pacto_accept") || slices.Contains(authoringNames(a), "pacto_accept") ||
+		listTools(t, mustNew("test", a, Modes{}))["pacto_accept"] != nil {
 		t.Error("an HTTP server offers pacto_accept")
 	}
 }

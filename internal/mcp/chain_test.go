@@ -272,7 +272,7 @@ func TestEditChainWithoutPublishOrDeliveryTools(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		served := servedBy(m)
+		served := servedBy(Authoring{}, m)
 		for _, tool := range []string{"pacto_impact", "pacto_publish_plan", "pacto_publish", "pacto_delivery_operation_plan"} {
 			registered := slices.ContainsFunc(res.Tools, func(x *mcpsdk.Tool) bool { return x.Name == tool })
 			if served(tool) != registered {
@@ -280,7 +280,7 @@ func TestEditChainWithoutPublishOrDeliveryTools(t *testing.T) {
 			}
 		}
 	}
-	if servedBy(Modes{})("pacto_fleet_get") {
+	if servedBy(Authoring{}, Modes{})("pacto_fleet_get") {
 		t.Error("servedBy names a tool outside the chain")
 	}
 }
@@ -379,7 +379,7 @@ func TestEditInferredNamePlacesAndDeclares(t *testing.T) {
 		req = r
 		return sampleImpact(), nil
 	}
-	opts := editOptions(Modes{Fleet: &FleetMode{Src: staticFleet(buildFleetQuery(t)), Opts: FleetOptions{Impact: provider}}})
+	opts := editOptions(Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(buildFleetQuery(t)), Opts: FleetOptions{Impact: provider}}})
 	res, err := Edit(context.Background(), nil, opts, EditInput{Path: dir, Owner: strPtr("team/pay"), DryRun: true})
 	if err != nil {
 		t.Fatal(err)

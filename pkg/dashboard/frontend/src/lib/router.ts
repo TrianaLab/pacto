@@ -278,9 +278,11 @@ function parseFleet(path: string, query: string): Route {
     // correlationID is the ticket or incident id an investigation carries into the
     // operations its page plans (the same key the delivery history filters by).
     const params: Record<string, string> = { kind: PLURAL_KIND[ent[1]], key: decodeURIComponent(ent[2]) };
-    // A service page also keeps its Changes section's filter, page and scroll target.
+    // A service page also keeps its Changes section's filter, page and scroll target,
+    // and whether its Declare panel is open (declare=1) and the intent a signing
+    // login came back with (signed).
     const qs = new URLSearchParams(query);
-    for (const k of ['correlationID', ...(ent[1] === 'services' ? ['changesKind', 'changesOffset', 'changesLimit', 'section'] : [])]) {
+    for (const k of ['correlationID', ...(ent[1] === 'services' ? ['changesKind', 'changesOffset', 'changesLimit', 'section', 'declare', 'signed'] : [])]) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -630,6 +632,19 @@ export function fleetEntityUrl(kind: string, key: string): string {
 // never a second `#` inside the hash.
 export function serviceChangesUrl(key: string, opts: { changesKind?: string; changesOffset?: number; changesLimit?: number; section?: 'changes' } = {}): string {
   return pagedHash(fleetEntityUrl('service', key), { changesKind: opts.changesKind, changesOffset: opts.changesOffset, changesLimit: opts.changesLimit, section: opts.section });
+}
+
+// serviceDeclareUrl is an inferred service page with its Declare panel open; signed is
+// the intent a signing login came back with. The accepted ranges never ride here: they
+// ride on the login's ticket.
+export function serviceDeclareUrl(key: string, opts: { signed?: string } = {}): string {
+  return pagedHash(fleetEntityUrl('service', key), { declare: '1', signed: opts.signed });
+}
+
+// serviceAcceptSignedUrl is a service page a signing login for its accept plan comes
+// back to; signed is the intent the login was started for.
+export function serviceAcceptSignedUrl(key: string, signed: string): string {
+  return pagedHash(fleetEntityUrl('service', key), { signed });
 }
 
 // fleetGraphDiscoveryUrl is the search-first graph landing (no focus). It never

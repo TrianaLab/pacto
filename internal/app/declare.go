@@ -57,6 +57,27 @@ type DeclareRequest struct {
 	// OnPlan, when set, is handed the plan before any login starts or
 	// anything is written.
 	OnPlan func(*DeclarePlan)
+	// Draft writes a draft-<n> a person accepts later, without starting the
+	// login, even when a person runs it.
+	Draft bool
+	// Visible says which namespaces the person the read runs for may read;
+	// nil means the API server already authorized the caller's credentials.
+	Visible func(namespace string) bool
+	// Login is a login the caller already ran for this request; when set it
+	// replaces the service's login and counts as the person's interactive
+	// login.
+	Login func(context.Context) (string, error)
+	// Store is the registry the run reads and writes through; nil is the
+	// one the service's own credentials reach.
+	Store publish.Registry
+}
+
+// store is the registry req reads and writes through.
+func (s *Service) store(req DeclareRequest) publish.Registry {
+	if req.Store != nil {
+		return req.Store
+	}
+	return s.env().publishRegistry()
 }
 
 // DeclarePlan is what a declare run would publish, signed by whom, decided
@@ -77,12 +98,14 @@ type DeclarePlan struct {
 	// MayAccept names who may set the owner this plan changes: the current
 	// owner's members and the default approvers. Empty when the owner does
 	// not change.
-	MayAccept    []string                    `json:"mayAccept,omitempty"`
-	Signer       SignerView                  `json:"signer"`
-	PolicyNote   string                      `json:"policyNote,omitempty"`
-	Coverage     []contract.InferredCoverage `json:"coverage,omitempty"`
-	Hidden       *contract.InferredHidden    `json:"hidden,omitempty"`
-	IntentDigest string                      `json:"intentDigest"`
+	MayAccept  []string                    `json:"mayAccept,omitempty"`
+	Signer     SignerView                  `json:"signer"`
+	PolicyNote string                      `json:"policyNote,omitempty"`
+	Coverage   []contract.InferredCoverage `json:"coverage,omitempty"`
+	Hidden     *contract.InferredHidden    `json:"hidden,omitempty"`
+	// ClusterAsOf is when the cluster read the plan comes from was taken.
+	ClusterAsOf  string `json:"clusterAsOf,omitempty"`
+	IntentDigest string `json:"intentDigest"`
 	// AcceptCLI is the command a person runs to accept a draft.
 	AcceptCLI string `json:"acceptCLI,omitempty"`
 	// Unchanged is the baseline version when nothing changed since it: the
@@ -98,6 +121,10 @@ type DeclarePlan struct {
 	// is known about what backs the declared changes.
 	UnbackedUnchecked string       `json:"unbackedUnchecked,omitempty"`
 	Publish           publish.Plan `json:"publish"`
+	// Drafts are the bundle repository's draft-<n> tags, newest first, at
+	// most MaxListedDrafts; DraftsTotal counts them all.
+	Drafts      []DraftView `json:"drafts,omitempty"`
+	DraftsTotal int         `json:"draftsTotal,omitempty"`
 }
 
 // DeclareBaseline is the published version a declaration starts from and
@@ -105,6 +132,26 @@ type DeclarePlan struct {
 type DeclareBaseline struct {
 	contract.InferredBaseline
 	Signer string `json:"signer,omitempty"`
+	// From is the workload the baseline's own declaration was inferred
+	// from, ns/Kind/name in cluster; empty for a baseline no declaration
+	// published.
+	From Declared `json:"from,omitzero"`
+}
+
+// Declared is the workload a declaration or a draft was inferred from.
+type Declared struct {
+	InferredFrom string `json:"inferredFrom,omitempty"`
+	Cluster      string `json:"cluster,omitempty"`
+}
+
+// declaredFrom is the workload b's record says its declaration was inferred
+// from; zero when b carries no declaration.
+func declaredFrom(b *contract.Bundle) Declared {
+	rec, err := contract.ReadInferredRecord(b.FS)
+	if err != nil || rec == nil || rec.Declaration == nil {
+		return Declared{}
+	}
+	return Declared{InferredFrom: rec.Declaration.InferredFrom, Cluster: rec.Declaration.Cluster}
 }
 
 // DeclaredRange is one dependency of the declaration: its declared
@@ -191,7 +238,15 @@ type declaration struct {
 	// owner is the owner change a person's signature must have the right
 	// to make; nil when the owner does not change.
 	owner *ownerCheck
+	// reg is the registry the plan read and the run writes through.
+	reg publish.Registry
 }
+
+// Contract is pacto.yaml as the declaration would publish it.
+func (d *declaration) Contract() []byte { return d.raw }
+
+// Record is pacto.inferred.yaml as the declaration would publish it.
+func (d *declaration) Record() []byte { return d.record.Marshal() }
 
 // ownerCheck is an owner change a declaration makes: from the service's
 // effective owner to the proposed one, under the owner policy read (nil, and
@@ -214,6 +269,7 @@ func (s *Service) PlanDeclare(ctx context.Context, req DeclareRequest) (*Declare
 		return nil, nil, &DeclareError{Code: codeNoRegistry, Message: "declaring a service needs the registry its contract is published to (--registry)",
 			CLI: req.command("")}
 	}
+	req.Signing.Login, req.Signing.Draft = req.Login, req.Draft
 	if req.FromDraft != "" {
 		return s.fromDraft(ctx, req)
 	}
@@ -222,7 +278,7 @@ func (s *Service) PlanDeclare(ctx context.Context, req DeclareRequest) (*Declare
 		return nil, nil, err
 	}
 	defer func() { _ = os.RemoveAll(scratch) }()
-	pl := &declarePlanner{s: s, req: req, scratch: scratch, reg: s.env().publishRegistry(), plan: &DeclarePlan{Deploy: "none"}}
+	pl := &declarePlanner{s: s, req: req, scratch: scratch, reg: s.store(req), plan: &DeclarePlan{Deploy: "none"}}
 	d, err := pl.run(ctx)
 	return pl.plan, d, err
 }
@@ -263,6 +319,7 @@ func (pl *declarePlanner) run(ctx context.Context) (*declaration, error) {
 	if err != nil {
 		return nil, err
 	}
+	pl.plan.Drafts, pl.plan.DraftsTotal = pl.drafts(ctx)
 	pl.identify(ctx)
 	return pl.finish(ctx, raw, pl.rec)
 }
@@ -312,8 +369,22 @@ func (pl *declarePlanner) source(ctx context.Context) error {
 }
 
 // draft runs the cluster read for workload into the scratch folder.
+// For a viewer (req.Visible) the read is scoped to the workload's namespace
+// whenever it is known, and a namespace the viewer may not read is never
+// listed: it reads as no workload, so a hidden namespace answers as a
+// missing one.
 func (pl *declarePlanner) draft(ctx context.Context, workload string, nss []string) error {
-	co := pactify.ClusterOptions{Workload: workload, Namespaces: nss, Out: pl.scratch, MaxItems: pl.req.MaxItems, CallWindow: pl.req.CallWindow}
+	ns, _, named := strings.Cut(workload, "/")
+	if len(nss) > 0 {
+		ns, named = nss[0], true
+	}
+	if pl.req.Visible != nil && named {
+		if !pl.req.Visible(ns) {
+			return &DeclareError{Code: codeWorkloadNotFound, Message: "no workload " + workload + " was found"}
+		}
+		nss = []string{ns}
+	}
+	co := pactify.ClusterOptions{Workload: workload, Namespaces: nss, Out: pl.scratch, MaxItems: pl.req.MaxItems, CallWindow: pl.req.CallWindow, Visible: pl.req.Visible}
 	b, err := pactify.Cluster(ctx, pl.req.Dynamic, pactify.Options{}, co, pl.s.env().writeFile)
 	for code, kind := range map[string]error{codeWorkloadNotFound: pactify.ErrWorkloadNotFound, codeWorkloadAmbiguous: pactify.ErrWorkloadAmbiguous, codeAlreadyDeclared: pactify.ErrAlreadyDeclared} {
 		if errors.Is(err, kind) {
@@ -476,6 +547,7 @@ func (pl *declarePlanner) findBaseline(ctx context.Context) error {
 		return &DeclareError{Code: codeRegistryUnreadable, Message: "reading the deploy artifact of the baseline " + tag + ": " + err.Error()}
 	}
 	pl.plan.Baseline.InferredBaseline = contract.InferredBaseline{Version: tag, Bundle: pl.repo() + "@" + digest, Deploy: deploy}
+	pl.plan.Baseline.From = declaredFrom(base)
 	pl.plan.Deploy = cmp.Or(pl.plan.Baseline.Deploy, "none")
 	return pl.redraft(ctx, base)
 }
@@ -760,8 +832,11 @@ func (pl *declarePlanner) finish(ctx context.Context, raw []byte, rec *contract.
 	accepted := rec.Declaration.Accepted
 	rec.Declaration = pl.declarationBlock(accepted)
 	p.Coverage, p.Hidden = rec.Coverage, rec.Hidden
+	if c := rec.Inputs.Cluster; c != nil {
+		p.ClusterAsOf = c.AsOf
+	}
 	if p.State == contract.DeclarationDraft {
-		p.AcceptCLI = acceptCLI(p.Service, pl.req.Registry, "<tag>")
+		p.AcceptCLI = AcceptDraftCLI(p.Service, pl.req.Registry, "<tag>")
 	}
 	version, err := pl.version(ctx, raw, rec)
 	if err != nil || p.Unchanged != "" {
@@ -860,7 +935,7 @@ func (pl *declarePlanner) pack(raw []byte, rec *contract.InferredRecord) (*decla
 	if err != nil {
 		return nil, err
 	}
-	return &declaration{files: b.FS.(fstest.MapFS), raw: raw, record: rec, bundle: b, repo: pl.repo(), signing: pl.req.Signing}, nil
+	return &declaration{files: b.FS.(fstest.MapFS), raw: raw, record: rec, bundle: b, repo: pl.repo(), signing: pl.req.Signing, reg: pl.reg}, nil
 }
 
 // declarationBundle packs the folder dir as a declaration: every file the
@@ -1044,7 +1119,7 @@ func (s *Service) publishDeclared(ctx context.Context, res *DeclareResult, d *de
 	if err := d.redeclare(&dec); err != nil {
 		return err
 	}
-	reg, tm, tlog := s.env().publishRegistry(), c.Signer.Root, d.signing.RekorURL != ""
+	reg, tm, tlog := d.reg, c.Signer.Root, d.signing.RekorURL != ""
 	tools := checkedTools{execTools: signerTools(reg, c.Signer, signing.Policy{AnyIdentity: true, Root: tm, Tlog: tlog}),
 		check: func(ctx context.Context, ref string) error {
 			repo, digest, _ := strings.Cut(ref, "@")
@@ -1076,14 +1151,14 @@ func (s *Service) writeDraft(ctx context.Context, req DeclareRequest, res *Decla
 	if err := d.redeclare(&dec); err != nil {
 		return err
 	}
-	signed, reg := c.Source != signerNone, s.env().publishRegistry()
+	signed, reg := c.Source != signerNone, d.reg
 	r, tag, err := publish.ApplyDraft(ctx, reg, signerTools(reg, c.Signer, draftPolicy(d.signing, c)), d.input, signed)
 	if err := declareWriteError(err); err != nil {
 		return err
 	}
 	res.Plan.Publish = r.Plan
 	res.Executed, res.Draft, res.Signed, res.Tag, res.Published = true, true, signed, tag, d.repo+"@"+r.Digests[publish.BundleItem]
-	res.Plan.State, res.Plan.AcceptCLI = contract.DeclarationDraft, acceptCLI(res.Plan.Service, req.Registry, tag)
+	res.Plan.State, res.Plan.AcceptCLI = contract.DeclarationDraft, AcceptDraftCLI(res.Plan.Service, req.Registry, tag)
 	return nil
 }
 
@@ -1113,8 +1188,8 @@ func (req DeclareRequest) command(intent string) string {
 	return strings.Join(parts, " ")
 }
 
-// acceptCLI is the command a person accepts the draft tag of service with.
-func acceptCLI(service, registry, tag string) string {
+// AcceptDraftCLI is the command a person accepts the draft tag of service with.
+func AcceptDraftCLI(service, registry, tag string) string {
 	return "pacto declare " + service + " --registry " + registry + " --from-draft " + tag
 }
 
@@ -1177,7 +1252,7 @@ func (d *declaration) redeclare(dec *contract.InferredDeclaration) error {
 // cluster read nor an accepted range backs listed as unbacked.
 func (s *Service) fromDraft(ctx context.Context, req DeclareRequest) (*DeclarePlan, *declaration, error) {
 	repo, _, _ := publish.Layout(req.Registry, req.Service, "")
-	dr, err := readDraft(ctx, s.env().publishRegistry(), repo, req)
+	dr, err := readDraft(ctx, s.store(req), repo, req)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1316,7 +1391,7 @@ func (s *Service) unbacked(ctx context.Context, req DeclareRequest, object strin
 	defer func() { _ = os.RemoveAll(scratch) }()
 	ref := req
 	ref.Service, ref.Namespace, ref.Dir, ref.FromDraft = object, "", "", ""
-	pl := &declarePlanner{s: s, req: ref, scratch: scratch, reg: s.env().publishRegistry(), plan: &DeclarePlan{}}
+	pl := &declarePlanner{s: s, req: ref, scratch: scratch, reg: s.store(req), plan: &DeclarePlan{}}
 	raw, err := pl.prepare(ctx)
 	var base *contract.Contract
 	if err == nil {

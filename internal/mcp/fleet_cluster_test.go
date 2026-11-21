@@ -54,7 +54,7 @@ func TestMCPFleetGetAmbiguousTargetKeyListsCandidates(t *testing.T) {
 
 func TestMCPFleetEntityLegacyKeyAnswersCanonicalKey(t *testing.T) {
 	var out fleet.EntityDetail
-	decode(t, callHandler(t, fleetEntityTool(), fleetEntityHandler(twoClusterFleet(t), false, nil),
+	decode(t, callHandler(t, fleetEntityTool(), fleetEntityHandler(twoClusterFleet(t), false, nil, fleet.NoTools),
 		map[string]any{"kind": "target", "key": string(fleet.NewTargetKey("orders", "kubernetes", "orders"))}), &out)
 	if want := string(fleet.NewClusterTargetKey(clusterEU, "orders", "kubernetes", "orders")); out.Entity.Key != want {
 		t.Errorf("entity key = %q, want the canonical %q", out.Entity.Key, want)

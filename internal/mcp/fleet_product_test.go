@@ -112,7 +112,7 @@ func TestFleetEntityTool(t *testing.T) {
 	q := buildProductQuery(t)
 	detail := func(kind, key string) fleet.EntityDetail {
 		var out fleet.EntityDetail
-		decode(t, callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil), map[string]any{"kind": kind, "key": key}), &out)
+		decode(t, callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil, fleet.NoTools), map[string]any{"kind": kind, "key": key}), &out)
 		return out
 	}
 	if d := detail("domain", "shop"); d.Domain == nil || d.Entity.Kind != fleet.KindDomain {
@@ -130,7 +130,7 @@ func TestFleetEntityTool(t *testing.T) {
 	var raw struct {
 		Offering map[string]json.RawMessage `json:"offering"`
 	}
-	decode(t, callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil), map[string]any{"kind": "offering", "key": "payments-api"}), &raw)
+	decode(t, callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil, fleet.NoTools), map[string]any{"kind": "offering", "key": "payments-api"}), &raw)
 	if raw.Offering["adapters"] == nil || raw.Offering["unresolvedUses"] == nil || !strings.Contains(string(raw.Offering["consumers"]), `"readyUnsigned"`) {
 		t.Errorf("offering answer lacks adapters, unresolvedUses or readyUnsigned: %v", raw.Offering)
 	}
@@ -139,13 +139,13 @@ func TestFleetEntityTool(t *testing.T) {
 			t.Errorf("description does not name %s", want)
 		}
 	}
-	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil), map[string]any{"kind": "planet", "key": "x"}); !res.IsError {
+	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil, fleet.NoTools), map[string]any{"kind": "planet", "key": "x"}); !res.IsError {
 		t.Error("an unknown kind is rejected by the schema")
 	}
-	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil), map[string]any{"kind": "service"}); !res.IsError {
+	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil, fleet.NoTools), map[string]any{"kind": "service"}); !res.IsError {
 		t.Error("a missing key is an error result")
 	}
-	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil), map[string]any{"kind": "service", "key": "ghost"}); !res.IsError {
+	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil, fleet.NoTools), map[string]any{"kind": "service", "key": "ghost"}); !res.IsError {
 		t.Error("an unknown key is an error result")
 	}
 }
@@ -153,28 +153,28 @@ func TestFleetEntityTool(t *testing.T) {
 func TestFleetAttentionTool(t *testing.T) {
 	q := buildProductQuery(t)
 	var out fleet.AttentionList
-	decode(t, callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false), map[string]any{"category": "unowned"}), &out)
+	decode(t, callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false, fleet.NoTools), map[string]any{"category": "unowned"}), &out)
 	if out.Total != 1 || out.Items[0].Code != "UNOWNED_SERVICE" || out.Items[0].NextStep == "" {
 		t.Errorf("category=unowned = %+v", out)
 	}
 	var page fleet.AttentionList
-	decode(t, callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false), map[string]any{"limit": 1}), &page)
+	decode(t, callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false, fleet.NoTools), map[string]any{"limit": 1}), &page)
 	if page.Total < 2 || !page.Truncated || page.NextOffset == nil || *page.NextOffset != 1 || page.Count != 1 {
 		t.Errorf("limit=1 = %+v", page)
 	}
 	var one fleet.AttentionList
-	decode(t, callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false), map[string]any{"kind": "service", "key": "lonely", "stale_only": false}), &one)
+	decode(t, callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false, fleet.NoTools), map[string]any{"kind": "service", "key": "lonely", "stale_only": false}), &one)
 	if one.Total == 0 || slices.ContainsFunc(one.Items, func(it fleet.AttentionItem) bool { return it.Entity.Key != "lonely" }) {
 		t.Errorf("kind=service key=lonely = %+v", one.Items)
 	}
-	decode(t, callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false), map[string]any{"stale_only": true}), &one)
+	decode(t, callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false, fleet.NoTools), map[string]any{"stale_only": true}), &one)
 	if slices.ContainsFunc(one.Items, func(it fleet.AttentionItem) bool { return it.Code != "STALE_EVIDENCE" }) {
 		t.Errorf("stale_only = %+v", one.Items)
 	}
-	if res := callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false), map[string]any{"category": "bogus"}); !res.IsError {
+	if res := callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false, fleet.NoTools), map[string]any{"category": "bogus"}); !res.IsError {
 		t.Error("an unknown category is rejected by the schema")
 	}
-	if res := callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false), map[string]any{"offset": -1}); !res.IsError {
+	if res := callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false, fleet.NoTools), map[string]any{"offset": -1}); !res.IsError {
 		t.Error("a negative offset is an invalid query")
 	}
 }
@@ -226,8 +226,8 @@ func TestFleetInstructionsGroundAnswers(t *testing.T) {
 	// The neighbourhood, Mira and overview sentences come after the existing
 	// text, which stays unchanged.
 	const appended = "pacto_fleet_attention for what needs attention, most severe first. " +
-		"An attention item's nextAction names the operation that fixes it and the tool that makes it (edit-contract: " +
-		"edit the contract, from pacto mcp --transport stdio; declare: write a declared contract with pacto_declare); Pacto infers it from the item's code, and it grants nothing. " +
+		"An attention item's nextAction names the operation, the CLI command and, when this server registers it, the tool that fixes it; " +
+		"Pacto infers it from the item's code, and it grants nothing. " +
 		"pacto_fleet_neighborhood lists the services around one service with their owners, for the blast radius of a problem. " +
 		"Observed edges from a source of kind mira come from Mira's sampled service map: an edge Mira did not see may still exist. " +
 		"For when a problem started and which signals degrade, ask Mira's own MCP tools (list_alerts, query_metric, service_map, " +
@@ -261,7 +261,7 @@ func TestFleetGetRevisionMigratedFrom(t *testing.T) {
 	var raw struct {
 		Revision map[string]json.RawMessage `json:"revision"`
 	}
-	decode(t, callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil), map[string]any{"kind": "revision", "key": revs.Entities[0].Key}), &raw)
+	decode(t, callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil, fleet.NoTools), map[string]any{"kind": "revision", "key": revs.Entities[0].Key}), &raw)
 	if got := string(raw.Revision["migratedFrom"]); got != `"`+prev+`"` {
 		t.Errorf("revision.migratedFrom = %s, want %q", got, prev)
 	}

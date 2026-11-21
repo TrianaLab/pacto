@@ -469,13 +469,34 @@ describe('FleetAttentionView — every category and its cause', () => {
     unmount(component); document.body.removeChild(target);
   });
 
-  it('renders a next action as words, never as a link or a button', async () => {
-    respond([item('CAPABILITY_ABSENT', { category: 'non-compliant', nextStep: 'Open the target', nextAction: { verb: 'edit-contract', tool: 'pacto_edit' } }), item('EVIDENCE_MISSING')]);
+  it('links a declare action to the inferred caller\'s Declare panel, and only that one', async () => {
+    const caller = { kind: 'service', key: 'default/k8s:shop/Deployment/legacy-billing', label: 'legacy-billing', href: '/fleet/services/x', declaration: 'inferred' };
+    const declare = { verb: 'declare', cli: 'pacto declare legacy-billing --namespace shop' };
+    respond([
+      item('UNCONTRACTED_CALLER', { category: 'undeclared', caller, nextAction: declare }),
+      // No inferred service behind the caller: the declared provider is no place to declare.
+      item('UNCONTRACTED_CALLER', { category: 'undeclared', entity: { kind: 'service', key: 'acme/ledger', label: 'ledger', href: '/fleet/services/acme%2Fledger', declaration: 'declared' }, nextAction: declare }),
+      item('INFERRED_REPLACED', { category: 'knowledge', nextAction: { verb: 'edit-contract', cli: 'pacto ci' } }),
+    ]);
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="attention-item"]').length).toBe(3));
+    const rows = Array.from(target.querySelectorAll('[data-testid="attention-item"]'));
+    const links = rows.map((r) => r.querySelector('[data-testid="next-action-link"]'));
+    expect(links[0]?.getAttribute('href')).toBe('#/fleet/services/default%2Fk8s%3Ashop%2FDeployment%2Flegacy-billing?declare=1');
+    expect(links[0]?.textContent).toBe('Declare this service');
+    expect(links[1]).toBeNull();
+    expect(rows[1].querySelector('.attn-action')?.textContent).toBe(`Fix: declare the workload with ${declare.cli}`);
+    expect(links[2]).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('renders a non-declare next action as words, never as a link or a button', async () => {
+    respond([item('CAPABILITY_ABSENT', { category: 'non-compliant', nextStep: 'Open the target', nextAction: { verb: 'edit-contract', cli: 'pacto ci' } }), item('EVIDENCE_MISSING')]);
     const { target, component } = mountView({});
     await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="attention-item"]').length).toBe(2));
     const [withAction, without] = Array.from(target.querySelectorAll('[data-testid="attention-item"]'));
     const action = withAction.querySelector('.attn-action') as HTMLElement;
-    expect(action.textContent?.replace(/\s+/g, ' ').trim()).toBe('Fix: edit the contract with pacto_edit');
+    expect(action.textContent?.replace(/\s+/g, ' ').trim()).toBe('Fix: edit the contract, then run pacto ci');
     expect(action.querySelector('a, button, [href], [role="button"]')).toBeNull();
     expect(action.closest('a, button')).toBeNull();
     expect(without.querySelector('.attn-action')).toBeNull();

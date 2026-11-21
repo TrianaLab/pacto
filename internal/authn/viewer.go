@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"maps"
 	"slices"
@@ -108,10 +109,14 @@ func (c Claims) Person(token string) Person {
 // at once).
 type Review func(ctx context.Context, p Person, namespace string, res ResourceAttributes) (bool, error)
 
-// ResourceAttributes is the API group and resource a review asks about.
+// ResourceAttributes is the API group and resource a review asks about, the
+// verb asked (empty means list) and, for a question about one object, its
+// name.
 type ResourceAttributes struct {
 	Group    string
 	Resource string
+	Verb     string
+	Name     string
 }
 
 // PactoResource is the resource every fleet answer is reviewed against.
@@ -187,16 +192,20 @@ func LocalSubjectAccessReview(dyn dynamic.Interface) Review {
 	}
 }
 
-// reviewObject is a review of kind asking whether p may list res in namespace.
+// reviewObject is a review of kind asking whether p may do res's verb (list
+// when empty) on res in namespace, on the one object res names when set.
 func reviewObject(kind string, p Person, namespace string, res ResourceAttributes) *unstructured.Unstructured {
 	groups := make([]any, len(p.Groups))
 	for i, g := range p.Groups {
 		groups[i] = g
 	}
+	attrs := map[string]any{"namespace": namespace, "verb": cmp.Or(res.Verb, "list"), "group": res.Group, "resource": res.Resource}
+	if res.Name != "" {
+		attrs["name"] = res.Name
+	}
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "authorization.k8s.io/v1", "kind": kind,
-		"spec": map[string]any{"user": p.User, "groups": groups, "resourceAttributes": map[string]any{
-			"namespace": namespace, "verb": "list", "group": res.Group, "resource": res.Resource}},
+		"spec": map[string]any{"user": p.User, "groups": groups, "resourceAttributes": attrs},
 	}}
 }
 
@@ -317,7 +326,7 @@ func (w *clusterWork) sees() bool { return w.all || len(w.visible) > 0 || len(w.
 // CLUSTER_HIDDEN limitation, and the answer is partial. Query fails only when
 // ctx ends.
 func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Query, error) {
-	who := p.User + "\x00" + strings.Join(slices.Sorted(slices.Values(p.Groups)), "\x00")
+	who := reviewer(p)
 	m := v.reviews(ctx)
 	route := v.router(ctx, m, p)
 	work, access := v.plan(m, route, q)
@@ -670,9 +679,43 @@ func (v *Viewer) askAll(ctx context.Context, w *clusterWork, p Person, who, ns s
 	return true, nil
 }
 
+// reviewer is p as an answer cache key: the user and the sorted groups.
+func reviewer(p Person) string {
+	return p.User + "\x00" + strings.Join(slices.Sorted(slices.Values(p.Groups)), "\x00")
+}
+
+// ErrClusterNotReviewable is a question about a cluster no reviewer decides
+// for the person.
+var ErrClusterNotReviewable = errors.New("this cluster cannot review you")
+
+// PactoKind names a Pacto resource to MayUpdateWorkload.
+const PactoKind = "Pacto"
+
+// MayUpdateWorkload asks the reviewer of cluster (the only one when cluster
+// is empty) whether p may update the workload kind/name in namespace (or the
+// Pacto resource name, for PactoKind): the rule delivery counts approvals
+// by. A kind Pacto does not read is never allowed; a cluster nobody reviews p in is ErrClusterNotReviewable.
+func (v *Viewer) MayUpdateWorkload(ctx context.Context, p Person, cluster, namespace, kind, name string) (bool, error) {
+	res, ok := workloadResources[kind]
+	if kind == PactoKind {
+		res, ok = PactoResource, true
+	}
+	if !ok {
+		return false, nil
+	}
+	m := v.reviews(ctx)
+	key, ok := v.router(ctx, m, p)(cluster)
+	if !ok {
+		return false, ErrClusterNotReviewable
+	}
+	res.Verb, res.Name = "update", name
+	who := reviewer(p)
+	return v.ask(ctx, &clusterWork{key: key, review: m[key]}, p, who, namespace, res)
+}
+
 // ask is one cached review in w's cluster. Failures are not cached.
 func (v *Viewer) ask(ctx context.Context, w *clusterWork, p Person, who, ns string, res ResourceAttributes) (bool, error) {
-	key := w.key + "\x01" + who + "\x01" + res.Resource + "." + res.Group + "\x01" + ns
+	key := w.key + "\x01" + who + "\x01" + res.Resource + "." + res.Group + "\x01" + cmp.Or(res.Verb, "list") + "\x01" + res.Name + "\x01" + ns
 	now := v.now()
 	v.mu.Lock()
 	a, ok := v.answers[key]

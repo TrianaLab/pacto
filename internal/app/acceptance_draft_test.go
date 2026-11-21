@@ -161,7 +161,7 @@ func TestAcceptDraftNotFound(t *testing.T) {
 		"other subject": {Record: e.rangesRecord(), Subject: e.host + "/acme/billing@" + e.digest},
 		"no intent":     {Record: e.rangesRecord(), Subject: e.subject},
 	} {
-		tag, err := e.svc.writeAcceptanceDraft(t.Context(), e.repo, write, nil)
+		tag, err := e.svc.writeAcceptanceDraft(t.Context(), nil, e.repo, write, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

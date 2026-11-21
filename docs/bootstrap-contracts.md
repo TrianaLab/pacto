@@ -267,6 +267,20 @@ false ([AI assistants](mcp-integration.md)).
   `pacto declare <workload> --from-draft draft-<n>`
   ([the agent write contract](mcp-reference.md#declare-a-running-service)).
 
+## Declare a running workload
+
+`pacto declare <workload>` publishes a contract-only version of a running
+workload without a repository, signed by you
+([declare a running service](publishing.md#declare-a-running-service)).
+
+- `pacto declare <workload> --draft` writes an unsigned `draft-<n>` tag with
+  no login, for someone to accept later with `--from-draft draft-<n>`. Every
+  plan lists the drafts waiting.
+- The dashboard does the same from an inferred service's page:
+  [Declare this service](dashboard-service-page.md#declare-an-inferred-service)
+  signs with a fresh login of yours or saves a draft, and accepts the drafts
+  that `--draft`, an agent or the panel wrote.
+
 ## What's next
 
 | Goal | Page |

@@ -20,14 +20,14 @@ func TestMCPFleetOverviewTool(t *testing.T) {
 	}
 	q := buildProductQuery(t)
 	var ov fleet.Overview
-	decode(t, callHandler(t, tool, fleetOverviewHandler(q, false), map[string]any{}), &ov)
+	decode(t, callHandler(t, tool, fleetOverviewHandler(q, false, fleet.NoTools), map[string]any{}), &ov)
 	if ov.Meta.SnapshotID != q.SnapshotID() || ov.Meta.AsOf.IsZero() {
 		t.Errorf("meta = %+v", ov.Meta)
 	}
 	if ov.Summary.Knowledge.Services != 3 || ov.Summary.OperationalHealth != q.Overview().Summary.OperationalHealth {
 		t.Errorf("summary = %+v", ov.Summary)
 	}
-	text := resultText(t, callHandler(t, tool, fleetOverviewHandler(q, false), map[string]any{}))
+	text := resultText(t, callHandler(t, tool, fleetOverviewHandler(q, false, fleet.NoTools), map[string]any{}))
 	for _, key := range []string{`"meta"`, `"operationalHealth"`, `"knowledge"`} {
 		if !strings.Contains(text, key) {
 			t.Errorf("answer lacks %s:\n%s", key, text)

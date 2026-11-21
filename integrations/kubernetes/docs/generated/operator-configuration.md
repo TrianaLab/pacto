@@ -22,11 +22,13 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-allow-anonymous` | `bool` |  | chart value | Serve the dashboard without sign-in when neither an issuer nor token sign-in is set; everyone who reaches it reads what its ServiceAccount reads. |
 | `-dashboard-cpu-limit` | `string` |  | chart value | CPU limit for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-cpu-request` | `string` |  | chart value | CPU request for the dashboard container. Empty uses the built-in default. |
+| `-dashboard-declare-registry-secret` | `string` |  | chart value | An existing kubernetes.io/dockerconfigjson Secret in the operator namespace with push access to --dashboard-registry, mounted for the dashboard's Declare writer only. Empty: the dashboard plans only. |
 | `-dashboard-delivery-namespace` | `string` |  | chart value | Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; empty means pacto-delivery. |
 | `-dashboard-delivery-trust-configmap` | `string` |  | chart value | ConfigMap in the operator namespace holding the trust config the dashboard verifies delivery records with, so History reads signed records. |
 | `-dashboard-delivery-trust-key` | `string` | `trust.yaml` | chart value | Key of the trust config in that ConfigMap. |
 | `-dashboard-external-catalog` | `string` |  | chart value | Organization external catalog the dashboard merges over Pacto's default, as oci://REPOSITORY@sha256:DIGEST. |
 | `-dashboard-fingerprints-configmap` | `string` |  | chart value | ConfigMap in the operator namespace holding the workload manager and promoter fingerprints (fingerprints.yaml) the dashboard reads as --fingerprints. |
+| `-dashboard-fulcio-url` | `string` |  | chart value | Fulcio the dashboard gets a person's signing certificate from (empty: public-good Sigstore). |
 | `-dashboard-memory-limit` | `string` |  | chart value | Memory limit for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-memory-request` | `string` |  | chart value | Memory request for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-mira-url` | `string` |  | chart value | Mira's address, to link the dashboard's health-check citations. |
@@ -47,12 +49,20 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-oidc-username-claim` | `string` |  | chart value | ID token claim the API server takes the username from; must match its claim mapping (empty: sub). |
 | `-dashboard-oidc-username-prefix` | `string` |  | chart value | Prefix the API server puts before the username; must match its claim mapping (empty: the issuer URL and #; - for none). |
 | `-dashboard-owner-policy-configmap` | `string` |  | chart value | Immutable ConfigMap in the operator namespace holding the owner policy (policy.json) the dashboard mounts. |
+| `-dashboard-registry` | `string` |  | chart value | The registry (&lt;host&gt;/&lt;path&gt;) declarations made in the dashboard are published to; empty: no Declare. |
+| `-dashboard-rekor-url` | `string` |  | chart value | Rekor the dashboard records signatures in (empty: public-good Sigstore). |
 | `-dashboard-repositories` | `value` |  | chart value | Comma-separated oci:// references the dashboard reads beside the contracts it discovers from Pacto resources, such as golden paths, which are never deployed. |
 | `-dashboard-session-idle-timeout` | `duration` |  | chart value | A dashboard session without a request for this long ends (0: 1h). |
 | `-dashboard-session-max-age` | `duration` |  | chart value | A dashboard session ends this long after sign-in, renewed or not (0: 12h). |
+| `-dashboard-sign-client-id` | `string` |  | chart value | A second OpenID Connect client at the dashboard's issuer whose audience Fulcio trusts and the API server does not: a signed-in person logs in again with it to sign a declaration. Empty: the dashboard saves drafts. |
+| `-dashboard-sign-client-secret-key` | `string` | `client-secret` | chart value | Key of the sign client's secret in that Secret. |
+| `-dashboard-sign-client-secret-name` | `string` |  | chart value | Secret in the operator namespace holding the sign client's secret, passed to the dashboard by secretKeyRef. |
+| `-dashboard-sign-redirect-url` | `string` |  | chart value | The dashboard's signing callback as browsers reach it. |
 | `-dashboard-stats-registry` | `string` |  | chart value | Stats repository the dashboard's Metrics page reads run records from, with the dashboard's OCI credentials; empty: the page explains how to turn recording on. |
+| `-dashboard-timestamp-url` | `string` |  | chart value | Timestamp authority the dashboard's signatures use (empty: public-good Sigstore). |
 | `-dashboard-token-login` | `bool` |  | chart value | Let people sign in to the dashboard with a Kubernetes token; a ServiceAccount token minted for the pacto-dashboard audience reads the fleet only, and a person's own token acts as them. |
 | `-dashboard-trace-source` | `value` |  | chart value | Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source identity. Configures offline input only; Pacto runs no OTLP receiver. |
+| `-dashboard-trusted-root-configmap` | `string` |  | chart value | Immutable ConfigMap in the operator namespace whose trusted_root.json the dashboard verifies the declarations it signs with (a private Sigstore or an air-gapped install). Empty: public-good Sigstore. |
 | `-enable-dashboard` | `bool` |  | chart value | Enable the managed Pacto dashboard deployment. Disabled by default. |
 | `-enable-evidence-server` | `bool` |  | chart value | Enable the managed Pacto Evidence Server deployment. Disabled by default. |
 | `-enable-http2` | `bool` |  | no | If set, HTTP/2 will be enabled for the metrics server |

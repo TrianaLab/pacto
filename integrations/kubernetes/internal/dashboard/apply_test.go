@@ -603,3 +603,117 @@ func TestApplyMountsOwnerPolicy(t *testing.T) {
 		}
 	}
 }
+
+func podSpec(cfg Config) *corev1ac.PodSpecApplyConfiguration {
+	return deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration).Spec.Template.Spec
+}
+
+func envByName(pod *corev1ac.PodSpecApplyConfiguration) map[string]corev1ac.EnvVarApplyConfiguration {
+	env := map[string]corev1ac.EnvVarApplyConfiguration{}
+	for _, e := range pod.Containers[0].Env {
+		env[*e.Name] = e
+	}
+	return env
+}
+
+func TestAuthEnvPassesSignSettings(t *testing.T) {
+	cfg := Config{Image: "i", Namespace: "n", Auth: AuthConfig{IssuerURL: "https://idp", ClientID: "c", RedirectURL: "https://d/cb",
+		SignClientID: "c-sign", SignRedirectURL: "https://d/auth/sign/callback"},
+		FulcioURL: "https://fulcio.acme", RekorURL: "https://rekor.acme", TimestampURL: "https://tsa.acme", Registry: "ghcr.io/acme"}
+	env := envByName(podSpec(cfg))
+	for name, want := range map[string]string{"PACTO_DASHBOARD_SIGN_CLIENT_ID": "c-sign",
+		"PACTO_DASHBOARD_SIGN_REDIRECT_URL": "https://d/auth/sign/callback", "PACTO_DASHBOARD_FULCIO_URL": "https://fulcio.acme",
+		"PACTO_DASHBOARD_REKOR_URL": "https://rekor.acme", "PACTO_DASHBOARD_TIMESTAMP_URL": "https://tsa.acme",
+		"PACTO_DASHBOARD_REGISTRY": "ghcr.io/acme"} {
+		if e, ok := env[name]; !ok || e.Value == nil || *e.Value != want {
+			t.Errorf("%s: want %q, got %+v", name, want, e)
+		}
+	}
+	for name := range envByName(podSpec(Config{Image: "i", Namespace: "n"})) {
+		if strings.Contains(name, "SIGN") || strings.Contains(name, "FULCIO") || strings.Contains(name, "REKOR") ||
+			strings.Contains(name, "TIMESTAMP") || name == "PACTO_DASHBOARD_REGISTRY" {
+			t.Errorf("nothing configured, no %s", name)
+		}
+	}
+}
+
+func TestAuthEnvSignSecretBySecretKeyRef(t *testing.T) {
+	cfg := Config{Image: "i", Namespace: "n", Auth: AuthConfig{SignClientID: "c-sign", SignClientSecretName: "sign-oidc"}}
+	secret := envByName(podSpec(cfg))["PACTO_DASHBOARD_SIGN_CLIENT_SECRET"]
+	if secret.Value != nil || secret.ValueFrom == nil || *secret.ValueFrom.SecretKeyRef.Name != "sign-oidc" ||
+		*secret.ValueFrom.SecretKeyRef.Key != "client-secret" {
+		t.Fatalf("the sign client secret goes by secretKeyRef only: %+v", secret)
+	}
+	cfg.Auth.SignClientSecretKey = "secret"
+	if k := *envByName(podSpec(cfg))["PACTO_DASHBOARD_SIGN_CLIENT_SECRET"].ValueFrom.SecretKeyRef.Key; k != "secret" {
+		t.Fatalf("a custom key is used, got %q", k)
+	}
+}
+
+// TestDashboardDeclarePushSecretMounted: the push Secret mounts read-only at its
+// own path, never where the read credentials (dashboard.ociSecrets) live.
+func TestDashboardDeclarePushSecretMounted(t *testing.T) {
+	pod := podSpec(Config{Image: "i", Namespace: "n", OCISecrets: []string{"read"}, DeclareRegistrySecret: "push"})
+	if e := envByName(pod)["PACTO_DASHBOARD_DECLARE_REGISTRY_CONFIG"]; e.Value == nil ||
+		*e.Value != "/etc/pacto/declare-registry/config.json" {
+		t.Fatalf("PACTO_DASHBOARD_DECLARE_REGISTRY_CONFIG: %+v", e)
+	}
+	mount := slices.ContainsFunc(pod.Containers[0].VolumeMounts, func(m corev1ac.VolumeMountApplyConfiguration) bool {
+		return *m.Name == "declare-registry" && *m.MountPath == "/etc/pacto/declare-registry" && *m.ReadOnly
+	})
+	vol := slices.ContainsFunc(pod.Volumes, func(v corev1ac.VolumeApplyConfiguration) bool {
+		return *v.Name == "declare-registry" && v.Secret != nil && *v.Secret.SecretName == "push" &&
+			*v.Secret.Items[0].Key == ".dockerconfigjson" && *v.Secret.Items[0].Path == "config.json"
+	})
+	if !mount || !vol {
+		t.Errorf("mount %v volume %v", mount, vol)
+	}
+	for _, v := range pod.Volumes {
+		if v.Secret != nil && *v.Secret.SecretName == "push" && *v.Name != "declare-registry" {
+			t.Errorf("the push Secret also mounts as %s", *v.Name)
+		}
+	}
+	for _, m := range pod.Containers[0].VolumeMounts {
+		if *m.Name == "declare-registry" && strings.HasPrefix(*m.MountPath, "/home/pacto/.docker") {
+			t.Error("the push Secret mounts where the read keychain is")
+		}
+		if *m.Name == "oci-creds" && strings.HasPrefix(*m.MountPath, "/etc/pacto/declare-registry") {
+			t.Error("the read secret mounts where the push keychain is")
+		}
+	}
+}
+
+func TestNoDeclarePushSecretNoVolume(t *testing.T) {
+	pod := podSpec(Config{Image: "i", Namespace: "n", OCISecrets: []string{"read"}})
+	if _, ok := envByName(pod)["PACTO_DASHBOARD_DECLARE_REGISTRY_CONFIG"]; ok {
+		t.Error("push config env without a push Secret")
+	}
+	for _, v := range pod.Volumes {
+		if *v.Name == "declare-registry" {
+			t.Error("push volume without a push Secret")
+		}
+	}
+}
+
+// The dashboard verifies what it signs with the installation's trusted root,
+// mounted from the ConfigMap the operator names.
+func TestApplyMountsTrustedRoot(t *testing.T) {
+	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns", TrustedRootConfigMap: "pacto-operator-owner-policy-0123456789"}
+	env := envByName(podSpec(cfg))
+	if e, ok := env["PACTO_DASHBOARD_TRUSTED_ROOT"]; !ok || e.Value == nil || *e.Value != "/etc/pacto/trusted-root/trusted_root.json" {
+		t.Errorf("env %+v", e)
+	}
+	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
+	vol := slices.ContainsFunc(deploy.Spec.Template.Spec.Volumes, func(v corev1ac.VolumeApplyConfiguration) bool {
+		return *v.Name == "trusted-root" && v.ConfigMap != nil && *v.ConfigMap.Name == cfg.TrustedRootConfigMap && *v.ConfigMap.Items[0].Key == "trusted_root.json"
+	})
+	mount := slices.ContainsFunc(deploy.Spec.Template.Spec.Containers[0].VolumeMounts, func(vm corev1ac.VolumeMountApplyConfiguration) bool {
+		return *vm.Name == "trusted-root" && *vm.MountPath == "/etc/pacto/trusted-root" && *vm.ReadOnly
+	})
+	if !vol || !mount {
+		t.Errorf("volume %v mount %v", vol, mount)
+	}
+	if _, ok := envByName(podSpec(Config{Image: "i", Namespace: "n"}))["PACTO_DASHBOARD_TRUSTED_ROOT"]; ok {
+		t.Error("no root configured, no PACTO_DASHBOARD_TRUSTED_ROOT")
+	}
+}

@@ -178,3 +178,32 @@ func searchString(s, substr string) bool {
 	}
 	return false
 }
+
+// TestConfigRefusesSignClientEqualToClient: the signing client must be a second
+// client, so the session token never reaches Fulcio.
+func TestConfigRefusesSignClientEqualToClient(t *testing.T) {
+	cfg := Config{Enabled: true, Image: "ghcr.io/trianalab/pacto/dashboard:1.0.0", Namespace: "ns",
+		Auth: AuthConfig{IssuerURL: "https://idp", ClientID: "c", RedirectURL: "https://d/cb", SignClientID: "c",
+			SignRedirectURL: "https://d/auth/sign/callback"}}
+	if err := cfg.Validate(); err == nil || !containsString(err.Error(), "differ") {
+		t.Fatalf("a sign client equal to the sign-in client: %v", err)
+	}
+	cfg.Auth.SignClientID = "c-sign"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("a separate sign client is valid: %v", err)
+	}
+}
+
+// TestConfigRefusesSignClientWithoutIssuer: the signing login runs at the
+// sign-in issuer and returns to its own redirect URL.
+func TestConfigRefusesSignClientWithoutIssuer(t *testing.T) {
+	cfg := Config{Enabled: true, Image: "ghcr.io/trianalab/pacto/dashboard:1.0.0", Namespace: "ns",
+		Auth: AuthConfig{SignClientID: "c-sign", SignRedirectURL: "https://d/auth/sign/callback"}}
+	if err := cfg.Validate(); err == nil || !containsString(err.Error(), "issuer") {
+		t.Fatalf("a sign client without an issuer: %v", err)
+	}
+	cfg.Auth = AuthConfig{IssuerURL: "https://idp", ClientID: "c", RedirectURL: "https://d/cb", SignClientID: "c-sign"}
+	if err := cfg.Validate(); err == nil || !containsString(err.Error(), "redirect URL") {
+		t.Fatalf("a sign client without a redirect URL: %v", err)
+	}
+}

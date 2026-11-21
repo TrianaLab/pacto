@@ -289,7 +289,7 @@ func (q *Query) replacedAttention() []AttentionItem {
 		it := AttentionItem{
 			Entity: serviceEntityRef(s), Service: string(s.Key), Label: from + " was replaced by " + s.Name,
 			Severity: severityInfo, Code: attentionInferredReplaced, Category: categoryKnowledge,
-			Summary: "Inferred service taken over by a contract",
+			Summary: "Inferred service taken over by a contract", NextAction: editContract(),
 		}
 		if r.Link != linkPactoTarget {
 			it.Reason = r.Line(q.snap.GeneratedAt)

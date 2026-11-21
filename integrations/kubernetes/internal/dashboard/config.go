@@ -120,6 +120,26 @@ type Config struct {
 	// may set a service owner. The dashboard reads it as a kubelet-mounted
 	// file. Empty: no policy, so owner changes read as unverified.
 	OwnerPolicyConfigMap string
+
+	// TrustedRootConfigMap names the immutable ConfigMap, in the operator
+	// namespace, holding the Sigstore trusted root (trusted_root.json) a
+	// declaration signed in the dashboard is verified with. Empty:
+	// public-good Sigstore.
+	TrustedRootConfigMap string
+
+	// FulcioURL, RekorURL and TimestampURL are the Sigstore a person's
+	// declaration is signed with in the dashboard; empty: public-good Sigstore.
+	FulcioURL    string
+	RekorURL     string
+	TimestampURL string
+	// Registry is where declarations made in the dashboard are published
+	// (<host>/<path>); empty: the dashboard offers no Declare.
+	Registry string
+	// DeclareRegistrySecret names an existing kubernetes.io/dockerconfigjson
+	// Secret, in the operator namespace, with push access to Registry. Only the
+	// dashboard's Declare writer reads it, from its own mount; OCISecrets stay
+	// read-only. Empty: the dashboard plans declarations only.
+	DeclareRegistrySecret string
 }
 
 // KeyRef names one key of a ConfigMap or a Secret in the operator namespace.
@@ -173,6 +193,15 @@ type AuthConfig struct {
 	// AllowAnonymous serves the dashboard without sign-in; everyone who
 	// reaches it reads what its ServiceAccount reads. Ignored with sign-in.
 	AllowAnonymous bool
+	// SignClientID is a second client at IssuerURL whose audience Fulcio
+	// trusts and the API server does not: a signed-in person logs in again
+	// with it to sign a declaration as themselves. Empty: the dashboard saves
+	// drafts. Its secret reaches the pod by secretKeyRef, as the sign-in
+	// client's does.
+	SignClientID         string
+	SignClientSecretName string
+	SignClientSecretKey  string
+	SignRedirectURL      string
 }
 
 // ResourcesConfig holds optional resource quantity overrides for the dashboard container.
@@ -215,7 +244,27 @@ func (c Config) Validate() error {
 	if a := c.Auth; a.CAConfigMap != "" && a.CASecret != "" {
 		return fmt.Errorf("the dashboard's issuer CA bundle comes from a ConfigMap or a Secret, not both")
 	}
+	if err := c.Auth.validateSign(); err != nil {
+		return err
+	}
 	return c.validateObservation()
+}
+
+// validateSign checks the signing client: a second client at the sign-in
+// issuer, with its own redirect URL.
+func (a AuthConfig) validateSign() error {
+	switch {
+	case a.SignClientID == "":
+		return nil
+	case a.IssuerURL == "":
+		return fmt.Errorf("the dashboard's sign client %s needs the sign-in issuer: it logs in at the same issuer", a.SignClientID)
+	case a.SignClientID == a.ClientID:
+		return fmt.Errorf("the dashboard's sign client must differ from its sign-in client %s: "+
+			"the session's token must never reach Fulcio", a.ClientID)
+	case a.SignRedirectURL == "":
+		return fmt.Errorf("the dashboard's sign client %s needs a redirect URL", a.SignClientID)
+	}
+	return nil
 }
 
 // needsClusterRole reports whether the dashboard needs a ClusterRole: it watches the whole cluster,

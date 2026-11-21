@@ -72,6 +72,9 @@ pacto.inferred.yaml as inferred.`,
 			if err := declareSubject(&req, args[0]); err != nil {
 				return err
 			}
+			if req.Draft && req.FromDraft != "" {
+				return errors.New("--draft writes a new draft and --from-draft accepts one: pass only one of them")
+			}
 			dyn, err := declareDynamic(req)
 			if err != nil {
 				return err
@@ -98,6 +101,7 @@ pacto.inferred.yaml as inferred.`,
 	f.StringSliceVar(&req.Accept, "accept", nil, "a dependency whose proposed range you accept as declared; repeat it for more")
 	f.BoolVar(&yes, "yes", false, "publish the plan (or write a draft) after printing it")
 	f.StringVar(&req.IntentDigest, "intent", "", "the intent digest of the plan you reviewed: a different plan is refused")
+	f.BoolVar(&req.Draft, "draft", false, "write a draft-<n> a person accepts later, without a person's login: signed only by --sign-key or an ambient OIDC token when one is set")
 	f.StringVar(&req.FromDraft, "from-draft", "", "accept this draft-<n> tag: the workload is read again and you sign")
 	f.IntVar(&req.MaxItems, "max-items", 0, "the most items read per kind of object; a kind cut short reads as partial (default 10000)")
 	f.DurationVar(&req.CallWindow, "call-window", 0, "how far back a call counts as a dependency (at least 1m, default 24h)")
@@ -241,7 +245,53 @@ func printDeclarePlan(w io.Writer, p *app.DeclarePlan) {
 	if p.PolicyNote != "" {
 		_, _ = fmt.Fprintln(w, p.PolicyNote)
 	}
+	printDeclareDrafts(w, p)
 	_, _ = fmt.Fprintln(w, "intent: "+p.IntentDigest)
+}
+
+// printDeclareDrafts prints the drafts waiting in the bundle repository, one
+// line each: who asked, for whom and what it requests.
+func printDeclareDrafts(w io.Writer, p *app.DeclarePlan) {
+	if p.DraftsTotal == 0 {
+		return
+	}
+	shown := ""
+	if p.DraftsTotal > len(p.Drafts) {
+		shown = fmt.Sprintf(" (newest %d of %d)", len(p.Drafts), p.DraftsTotal)
+	}
+	_, _ = fmt.Fprintf(w, "Drafts%s:\n", shown)
+	for _, d := range p.Drafts {
+		_, _ = fmt.Fprintln(w, "  "+draftLine(d))
+	}
+}
+
+// draftLine is one draft as the plan lists it.
+func draftLine(d app.DraftView) string {
+	if d.State == "unreadable" {
+		return d.Tag + " unreadable: " + d.Reason
+	}
+	// Only a signature proves who asked: an unsigned record's asker is a claim.
+	by := "an agent"
+	switch {
+	case d.Signed && d.Asker.Subject != "":
+		by = d.Asker.Subject
+	case d.Asker.Class == contract.SignerClassHuman:
+		by = "a person"
+	}
+	line := d.Tag + " by " + by
+	if d.OnBehalfOf != "" {
+		line += " for " + d.OnBehalfOf
+	}
+	if len(d.Requested) > 0 {
+		line += ", requests " + strings.Join(d.Requested, ", ")
+	}
+	if !d.Signed {
+		line += " (unsigned)"
+	}
+	if d.Reason != "" {
+		line += " (" + d.Reason + ")"
+	}
+	return line
 }
 
 // rangeText is one dependency's declared range, what proposed it and

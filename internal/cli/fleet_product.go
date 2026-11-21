@@ -453,6 +453,7 @@ func appendCount(parts []string, n int, words string) []string {
 }
 
 func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string) error {
+	res.KeepServedTools(fleet.NoTools) // the CLI serves no MCP tool
 	return formatResult(cmd, format, res, func() error {
 		w := cmd.OutOrStdout()
 		_, _ = fmt.Fprintf(w, "Kind: %s\nKey: %s\nLabel: %s\nStatus: %s\n", res.Entity.Kind, res.Entity.Key, res.Entity.Label, orDash(res.Status))
@@ -925,20 +926,14 @@ func provisioningText(st fleet.ProvisioningStatus) string {
 }
 
 func printFleetAttention(cmd *cobra.Command, res *fleet.AttentionList, format string) error {
+	fleet.KeepServedTools(res.Items, fleet.NoTools) // the CLI serves no MCP tool
 	return formatResult(cmd, format, res, func() error {
 		w := cmd.OutOrStdout()
 		_, _ = fmt.Fprintf(w, "%d of %d attention item(s):\n", res.Count, res.Total)
 		for _, it := range res.Items {
 			action := ""
 			if a := it.NextAction; a != nil {
-				action = fmt.Sprintf(" (action: %s via %s)", a.Verb, a.Tool)
-				switch {
-				case a.Verb == "declare" && it.Entity.Kind == fleet.KindExternal:
-					// pacto declare reads only workloads: the next step says how.
-					action = " (action: declare a contract for it)"
-				case a.Verb == "declare":
-					action = " (action: declare a contract with pacto declare)"
-				}
+				action = fmt.Sprintf(" (action: %s: %s)", a.Verb, a.CLI)
 			}
 			if it.Caller != nil {
 				action += " (inferred service " + it.Caller.Key + ")"

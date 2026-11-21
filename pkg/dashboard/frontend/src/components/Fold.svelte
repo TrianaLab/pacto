@@ -4,11 +4,12 @@
   // the page leads with its one question. A real <details>, so the keyboard
   // and a screen reader open it like any disclosure. `open` is only where it
   // starts: a fold holding a problem starts open, because a problem never
-  // hides behind a click.
-  let { title = '', meta = '', id = '', open = false, testid = '', level = 2, labelledby = '', children } = $props();
+  // hides behind a click. ontoggle hears every open and close, so a fold can
+  // load what it holds only once a reader opens it.
+  let { title = '', meta = '', id = '', open = false, testid = '', level = 2, labelledby = '', ontoggle = undefined, children } = $props();
 </script>
 
-<details class="disclosure fold" {open} data-testid={testid || undefined} aria-labelledby={labelledby || undefined}>
+<details class="disclosure fold" {open} data-testid={testid || undefined} aria-labelledby={labelledby || undefined} {ontoggle}>
   <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><svelte:element this={`h${level}`} class="fold-title" id={id || undefined}>{title}</svelte:element>{#if meta}<span class="t-meta fold-meta">{meta}</span>{/if}</summary>
   <div class="fold-body">{@render children?.()}</div>
 </details>

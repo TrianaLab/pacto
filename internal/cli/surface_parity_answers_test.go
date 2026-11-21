@@ -164,6 +164,12 @@ func normalise(t *testing.T, what, body string) any {
 		switch v := v.(type) {
 		case map[string]any:
 			delete(v, "href")
+			// A nextAction's tool is per server (#562): MCP names the tools
+			// it registers, the CLI and the dashboard none.
+			// TestSurfaceParityAnswers checks the MCP tool is listed.
+			if a, ok := v["nextAction"].(map[string]any); ok {
+				delete(a, "tool")
+			}
 			for _, k := range buildVolatile {
 				if x, ok := v[k]; ok && x != "" {
 					v[k] = "<build>"
@@ -314,6 +320,14 @@ func TestSurfaceParityAnswers(t *testing.T) {
 	// the fixture must hold one for the comparison to mean anything.
 	attention := cliJSON(t, flags, "fleet", "attention")
 	expect(t, strings.Contains(attention, `"verb": "edit-contract"`), "the fixture has no attention item with a nextAction: %s", attention)
+	// normalise drops the tool; the MCP answer's tool is one its server lists.
+	listed, err := plain.ListTools(context.Background(), nil)
+	expect(t, err == nil, "tools/list: %v", err)
+	mcpAttention, _ := callText(t, plain, "pacto_fleet_attention", map[string]any{})
+	expect(t, strings.Contains(mcpAttention, `"tool": "pacto_edit"`), "the stdio answer names no tool: %s", mcpAttention)
+	for _, m := range regexp.MustCompile(`"tool": "([a-z_]+)"`).FindAllStringSubmatch(mcpAttention, -1) {
+		expect(t, slices.ContainsFunc(listed.Tools, func(x *mcpsdk.Tool) bool { return x.Name == m[1] }), "nextAction names %s, which the server does not list", m[1])
+	}
 	// The inferred edge and the replacement are compared above: the fixture
 	// must hold worker's inferred call to ledger and checkout's replacement.
 	worker := cliJSON(t, flags, "fleet", "neighborhood", parityWorker, "--views", "expected,observed")

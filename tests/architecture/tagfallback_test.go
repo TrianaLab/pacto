@@ -89,6 +89,10 @@ var writeOnceTagWriters = map[string]string{
 	"draft-": "pkg/publish/apply.go",
 }
 
+// writeOnceTagSimulators name a write-once tag and write no registry: the
+// WASM demo's declarer keeps its draft-<n> list in the browser tab (513-S6).
+var writeOnceTagSimulators = []string{"examples/demo/source_declare.go"}
+
 // TestOnlyAllowedCallersWriteOnceTags keeps write-once tags where the
 // operator may push. Tests and the primitive itself are exempt.
 func TestOnlyAllowedCallersWriteOnceTags(t *testing.T) {
@@ -242,7 +246,7 @@ func checkWriteOnceTagWriters(t *testing.T, root string) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if found, err := tagLiterals(rel, src, prefix); err != nil || found && rel != writer {
+			if found, err := tagLiterals(rel, src, prefix); err != nil || found && rel != writer && !slices.Contains(writeOnceTagSimulators, rel) {
 				t.Errorf("%s names a %q tag (%v): only %s writes those write-once tags", rel, prefix, err, writer)
 			}
 		}

@@ -116,6 +116,7 @@ type options struct {
 	dashboardExternalCatalog string
 	dashboardFingerprints    string
 	dashboardOwnerPolicy     string
+	dashboardDeclare         dashboard.Config // the Sigstore, TrustedRootConfigMap, Registry, DeclareRegistrySecret
 
 	enableEvidence            bool
 	evidenceTrustSecret       string
@@ -152,6 +153,34 @@ type options struct {
 	policySigners      string
 
 	zap zap.Options
+}
+
+// bindDashboardDeclareFlags registers how the dashboard signs and publishes
+// declarations.
+func bindDashboardDeclareFlags(fs *flag.FlagSet, o *options) {
+	fs.StringVar(&o.dashboardAuth.SignClientID, "dashboard-sign-client-id", "",
+		"A second OpenID Connect client at the dashboard's issuer whose audience Fulcio trusts and the API server "+
+			"does not: a signed-in person logs in again with it to sign a declaration. Empty: the dashboard saves drafts.")
+	fs.StringVar(&o.dashboardAuth.SignClientSecretName, "dashboard-sign-client-secret-name", "",
+		"Secret in the operator namespace holding the sign client's secret, passed to the dashboard by secretKeyRef.")
+	fs.StringVar(&o.dashboardAuth.SignClientSecretKey, "dashboard-sign-client-secret-key", "client-secret",
+		"Key of the sign client's secret in that Secret.")
+	fs.StringVar(&o.dashboardAuth.SignRedirectURL, "dashboard-sign-redirect-url", "",
+		"The dashboard's signing callback as browsers reach it.")
+	fs.StringVar(&o.dashboardDeclare.FulcioURL, "dashboard-fulcio-url", "",
+		"Fulcio the dashboard gets a person's signing certificate from (empty: public-good Sigstore).")
+	fs.StringVar(&o.dashboardDeclare.RekorURL, "dashboard-rekor-url", "",
+		"Rekor the dashboard records signatures in (empty: public-good Sigstore).")
+	fs.StringVar(&o.dashboardDeclare.TimestampURL, "dashboard-timestamp-url", "",
+		"Timestamp authority the dashboard's signatures use (empty: public-good Sigstore).")
+	fs.StringVar(&o.dashboardDeclare.TrustedRootConfigMap, "dashboard-trusted-root-configmap", "",
+		"Immutable ConfigMap in the operator namespace whose trusted_root.json the dashboard verifies the declarations "+
+			"it signs with (a private Sigstore or an air-gapped install). Empty: public-good Sigstore.")
+	fs.StringVar(&o.dashboardDeclare.Registry, "dashboard-registry", "",
+		"The registry (<host>/<path>) declarations made in the dashboard are published to; empty: no Declare.")
+	fs.StringVar(&o.dashboardDeclare.DeclareRegistrySecret, "dashboard-declare-registry-secret", "",
+		"An existing kubernetes.io/dockerconfigjson Secret in the operator namespace with push access to "+
+			"--dashboard-registry, mounted for the dashboard's Declare writer only. Empty: the dashboard plans only.")
 }
 
 // bindFlags registers every operator flag on fs.
@@ -228,6 +257,7 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.StringVar(&o.dashboardAuth.ClientID, "dashboard-oidc-client-id", "", "The dashboard's OpenID Connect client id.")
 	fs.StringVar(&o.dashboardAuth.RedirectURL, "dashboard-oidc-redirect-url", "",
 		"The dashboard's /auth/callback as browsers reach it; TLS must terminate in front of it.")
+	bindDashboardDeclareFlags(fs, o)
 	fs.StringVar(&o.dashboardExtraScopes, "dashboard-oidc-extra-scopes", "",
 		"Comma-separated scopes beyond openid, profile and groups.")
 	fs.StringVar(&o.dashboardAuth.ClientSecretName, "dashboard-oidc-client-secret-name", "",
@@ -656,6 +686,12 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc authn.Keyc
 		ExternalCatalog:       o.dashboardExternalCatalog,
 		FingerprintsConfigMap: o.dashboardFingerprints,
 		OwnerPolicyConfigMap:  o.dashboardOwnerPolicy,
+		FulcioURL:             o.dashboardDeclare.FulcioURL,
+		RekorURL:              o.dashboardDeclare.RekorURL,
+		TimestampURL:          o.dashboardDeclare.TimestampURL,
+		TrustedRootConfigMap:  o.dashboardDeclare.TrustedRootConfigMap,
+		Registry:              o.dashboardDeclare.Registry,
+		DeclareRegistrySecret: o.dashboardDeclare.DeclareRegistrySecret,
 	}
 	// Detection proposes what the cluster provides in one ConfigMap; it never
 	// changes an argument, a rule or a feature. The managed dashboard mounts it

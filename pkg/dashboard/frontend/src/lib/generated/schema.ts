@@ -408,6 +408,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fleet/accept/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign the accepted ranges or save them as an acceptance draft
+         * @description Carries out an accept plan the person reviewed, by its intent digest: attaches the acceptance signed by the person's fresh login, saves a pacto-accept-draft-<n> a person accepts later, or accepts a draft. It needs update on a workload (else the Pacto resource) of the service and writes only into its bundle repository.
+         */
+        post: operations["fleet-accept-execute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/fleet/attention": {
         parameters: {
             query?: never;
@@ -422,6 +442,46 @@ export interface paths {
         get: operations["fleet-attention"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fleet/declare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan declaring an inferred service
+         * @description Plans what pacto declare would publish for an inferred service, read with the person's own cluster credentials: pacto.yaml, pacto.inferred.yaml, the version, the proposed ranges, the drafts waiting and whether the person can sign here. It writes nothing. Signed-in and local viewers only.
+         */
+        post: operations["fleet-declare"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fleet/declare/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign a declaration or save it as a draft
+         * @description Carries out a declaration plan the person reviewed, by its intent digest: publishes the declared version signed by the person's fresh login, saves a draft-<n> a person accepts later, or accepts a draft. It needs update on the workload and writes only into the service's bundle repository.
+         */
+        post: operations["fleet-declare-accept"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1016,21 +1076,81 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AcceptDraftView: {
+            /** @description Who wrote it, when its signature names someone */
+            asker?: string;
+            /** @description The break it asks a person to accept */
+            break?: components["schemas"]["Delivery.AcceptedBreak"];
+            /** @description Whom it was written for, as its writer asserts */
+            onBehalfOf?: string;
+            /** @description The ranges it asks a person to accept */
+            ranges?: components["schemas"]["Delivery.AcceptedRange"][] | null;
+            reason?: string;
+            /** @description It carries a signature, checked when a person accepts it */
+            signed: boolean;
+            /** @enum {string} */
+            state: "draft" | "unreadable";
+            /** @description The pacto-accept-draft-<n> tag */
+            tag: string;
+        };
+        AcceptExecuteAnswer: {
+            /** @description The command a person accepts the draft with */
+            command?: string;
+            /** @description The acceptance draft written, as <repository>:pacto-accept-draft-<n> */
+            draft?: string;
+            reason?: string;
+            /** @description The acceptance attached, as <repository>@sha256:<hex> */
+            record?: string;
+            refusal?: components["schemas"]["DeclareRefusal"];
+            /** @description How readers judge the acceptance attached */
+            state?: string;
+        };
+        AcceptExecuteInput: {
+            /** @description Accept this acceptance draft, signed by the person */
+            fromDraft?: string;
+            /** @description The intent digest of the plan the person reviewed: a plan that moved since is refused with PlanStale */
+            intentDigest: string;
+            /**
+             * @description sign: attach the acceptance signed by the person's fresh login; draft: save a pacto-accept-draft-<n> a person accepts later
+             * @enum {string}
+             */
+            mode: "sign" | "draft";
+            /** @description The service whose proposed ranges to accept */
+            serviceKey: string;
+        };
+        AcceptExecuteOffer: {
+            /** @description Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page>; present only with signing mode fresh-login */
+            signTicket?: string;
+            /** @description A fresh signing login for this plan's intent is live: the person signs without logging in again */
+            signedIn?: boolean;
+            signing: components["schemas"]["DeclareSigning"];
+            write: components["schemas"]["DeclareWrite"];
+        };
         AcceptPlanAnswer: {
             /** @description The exact pacto accept command, with the plan's intent digest, a person runs to sign the plan */
             command?: string;
+            /** @description What the person can do with the plan here; absent on a dashboard that only plans */
+            execute?: components["schemas"]["AcceptExecuteOffer"];
             /** @description What pacto accept would sign; absent with a refusal */
             plan?: components["schemas"]["AcceptPlanView"];
             /** @description Why there is nothing to accept, and the command a person runs about it */
             refusal?: components["schemas"]["AcceptRefusal"];
         };
         AcceptPlanView: {
+            /** @description The acceptance draft this plan accepts */
+            draft?: string;
+            /** @description The service's acceptance drafts, newest first, at most 20 */
+            drafts?: components["schemas"]["AcceptDraftView"][] | null;
+            /** Format: int64 */
+            draftsTotal?: number;
             /** @description The acceptances already attached to the version, each with its state; only counted accepts */
             existing?: components["schemas"]["Impact.Acceptance"][] | null;
             /** @description The digest that names exactly this plan: pacto accept refuses a plan that moved since */
             intentDigest: string;
             /** @description What the plan could not read or how records were verified */
             notes?: string[] | null;
+            /** @description Whom the draft was written for, as its writer asserts */
+            onBehalfOf?: string;
             /** @description Each proposed range the record accepts, with its source */
             ranges: components["schemas"]["Delivery.AcceptedRange"][] | null;
             /** @description The accepting service's fleet key */
@@ -1044,10 +1164,10 @@ export interface components {
         };
         AcceptRefusal: {
             /**
-             * @description AcceptNothingProposed: the newest published version proposes no range; NotPublished: the service has no published version to attach an acceptance to
+             * @description AcceptNothingProposed: the newest published version proposes no range; NotPublished: the service has no published version to attach an acceptance to; DraftNotFound, PlanStale and SignerUnverified: the acceptance draft is missing, moved or not signed by whom it names
              * @enum {string}
              */
-            code: "AcceptNothingProposed" | "NotPublished";
+            code: "AcceptNothingProposed" | "NotPublished" | "DraftNotFound" | "PlanStale" | "SignerUnverified";
             /** @description The command a person runs about it */
             command: string;
             message: string;
@@ -1171,6 +1291,8 @@ export interface components {
         CapabilitiesOutputBody: {
             /** @description What this caller's Kubernetes permissions leave out of the fleet views */
             auth: components["schemas"]["CapabilityAuth"];
+            /** @description This caller can plan declaring an inferred service: the host declares and knows who the caller is */
+            declare: boolean;
             /** @description The delivery views and actions are served */
             delivery: boolean;
             /** @description The operational-graph (fleet) endpoints are served */
@@ -1322,6 +1444,11 @@ export interface components {
             major?: number;
             sdk: string;
         };
+        "Contract.InferredCoverage": {
+            reason?: string;
+            source: string;
+            state: string;
+        };
         "Contract.InferredExternal": {
             catalog?: string;
             client?: components["schemas"]["Contract.InferredClient"];
@@ -1342,10 +1469,21 @@ export interface components {
             message: string;
             source: string;
         };
+        "Contract.InferredHidden": {
+            /** Format: int64 */
+            callers?: number;
+            /** Format: int64 */
+            services?: number;
+        };
         "Contract.InferredResource": {
             missing?: string[] | null;
             name?: string;
             type: string;
+        };
+        "Contract.InferredSigner": {
+            class: string;
+            issuer: string;
+            subject: string;
         };
         "Contract.InferredSurface": {
             asOf: string;
@@ -1539,6 +1677,175 @@ export interface components {
              * @enum {string}
              */
             signing?: "recorder";
+        };
+        DeclareAcceptAnswer: {
+            /** @description The command a person accepts a draft with */
+            command?: string;
+            draft?: boolean;
+            /** @description The fresh plan of a PlanStale refusal */
+            plan?: components["schemas"]["DeclareAnswer"];
+            /** @description The bundle written, as <repository>@sha256:<hex> */
+            published?: string;
+            refusal?: components["schemas"]["DeclareRefusal"];
+            signed?: boolean;
+            /** @description The version or draft-<n> tag written */
+            tag?: string;
+        };
+        DeclareAcceptInput: {
+            /** @description The dependencies whose proposed range the declaration accepts */
+            accept?: string[] | null;
+            /** @description Accept this draft: its tag must still name the digest the plan showed */
+            fromDraft?: components["schemas"]["DraftRef"];
+            /** @description The intent digest of the plan the person reviewed: a plan that moved since is refused with PlanStale */
+            intentDigest: string;
+            /**
+             * @description sign: publish the declared version signed by the person's fresh login; draft: save a draft-<n> a person accepts later
+             * @enum {string}
+             */
+            mode: "sign" | "draft";
+            /** @description The inferred service to declare */
+            serviceKey: string;
+        };
+        DeclareAnswer: {
+            /** @description The exact pacto declare command a person runs in a terminal */
+            command?: string;
+            /** @description The service's drafts, newest first, at most 20 */
+            drafts?: components["schemas"]["DeclareDraft"][] | null;
+            /** Format: int64 */
+            draftsTotal?: number;
+            /** @description Absent when the plan was refused before it was built */
+            plan?: components["schemas"]["DeclarePlan"];
+            refusal?: components["schemas"]["DeclareRefusal"];
+            /** @description Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page>; present only with signing mode fresh-login */
+            signTicket?: string;
+            /** @description Back from a signing login: the login for the intentDigest asked about is still live, unused and unexpired */
+            signedIn?: boolean;
+            signing: components["schemas"]["DeclareSigning"];
+            write: components["schemas"]["DeclareWrite"];
+        };
+        DeclareBaseline: {
+            bundle: string;
+            signer?: string;
+            version: string;
+        };
+        DeclareDraft: {
+            /** @description Who wrote it; an unsigned draft names nobody and its on-behalf-of person is asserted */
+            asker: components["schemas"]["Contract.InferredSigner"];
+            digest?: string;
+            onBehalfOf?: string;
+            reason?: string;
+            /** @description The ranges it requests, as <dependency> <range> */
+            requested?: string[] | null;
+            signed: boolean;
+            /** @description draft, or unreadable with the reason */
+            state: string;
+            tag: string;
+        };
+        DeclareInput: {
+            /** @description The dependencies whose proposed range the declaration accepts */
+            accept?: string[] | null;
+            /** @description Plan accepting this draft instead: its own texts, what nothing backs and an intent digest that covers the draft digest */
+            fromDraft?: components["schemas"]["DraftRef"];
+            /** @description The intent a signing login was started for: back from that login, the accepted ranges are the ones it was started with, whatever accept says */
+            intentDigest?: string;
+            /** @description The inferred service to declare */
+            serviceKey: string;
+        };
+        DeclarePlan: {
+            baseline?: components["schemas"]["DeclareBaseline"];
+            bundleRepo: string;
+            cluster?: string;
+            /** @description When the cluster read the plan comes from was taken */
+            clusterAsOf?: string;
+            /** @description pacto.yaml as it would be published */
+            contract: components["schemas"]["DeclareText"];
+            coverage?: components["schemas"]["Contract.InferredCoverage"][] | null;
+            /** @description The baseline deploy artifact the version reuses, or none */
+            deploy: string;
+            /** @description The called Services and callers the person's own credentials could not read: left out of the ranges */
+            hidden?: components["schemas"]["Contract.InferredHidden"];
+            inferredFrom: string;
+            intentDigest: string;
+            /** @description Who may set the owner this plan changes */
+            mayAccept?: string[] | null;
+            notes?: string[] | null;
+            owner?: string;
+            policyNote?: string;
+            ranges: components["schemas"]["DeclareRange"][] | null;
+            /** @description pacto.inferred.yaml as it would be published */
+            record: components["schemas"]["DeclareText"];
+            service: string;
+            signer: components["schemas"]["DeclareSigner"];
+            /** @description The published versions never taken as the baseline, and why */
+            skipped?: components["schemas"]["DeclareSkipped"][] | null;
+            /** @description declared for a person's login, else draft */
+            state: string;
+            /** @description Declared changes of an accepted draft that neither the baseline, the cluster read nor an accepted range backs */
+            unbacked?: string[] | null;
+            /** @description Why what backs the draft's changes could not be checked */
+            unbackedUnchecked?: string;
+            /** @description The baseline version when nothing changed since it: nothing is written */
+            unchanged?: string;
+            version: string;
+        };
+        DeclareRange: {
+            accepted?: boolean;
+            /** @description The declared range; unknown unless a person accepts the proposal */
+            compatibility: string;
+            dependency: string;
+            /** @description The versions observed */
+            observed?: string;
+            /** @description The range the cluster read proposes */
+            proposed?: string;
+        };
+        DeclareRefusal: {
+            /**
+             * @description The pacto declare refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable and NotAllowed
+             * @enum {string}
+             */
+            code: "PlanStale" | "IntentRequired" | "WorkloadNotFound" | "WorkloadAmbiguous" | "AlreadyDeclared" | "RangeNotProposed" | "NoRegistry" | "RegistryUnreadable" | "VersionConflict" | "SignerNotAllowed" | "SignerUnverified" | "DraftNotFound" | "ExecuteNeedsStdio" | "BaselineNeedsMigration" | "BundleRepoMismatch" | "AcceptNothingProposed" | "FieldNotAcceptable" | "BreakNotAnnounced" | "NotPublished" | "PersonSigningUnavailable" | "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED" | "IdentityRequired" | "SignInLinkReadsFleet" | "ReviewFailed" | "ClusterNotReviewable" | "NotAllowed";
+            /** @description The command a person runs about it */
+            command?: string;
+            message: string;
+        };
+        DeclareSigner: {
+            class: string;
+            issuer?: string;
+            /** @description key, ambient, login or none */
+            source: string;
+            subject?: string;
+            why?: string;
+        };
+        DeclareSigning: {
+            /** @description Who the fresh login signs as */
+            identity?: string;
+            /**
+             * @description fresh-login: the person signs with a fresh login at the identity provider; none: the person saves a draft or runs the command
+             * @enum {string}
+             */
+            mode: "fresh-login" | "none";
+            /** @description Why the person cannot sign here */
+            reason?: string;
+        };
+        DeclareSkipped: {
+            signer?: string;
+            tag: string;
+            why: string;
+        };
+        DeclareText: {
+            text: string;
+            /** @description The file is longer than 64 KiB and only its start is shown */
+            truncated?: boolean;
+        };
+        DeclareWrite: {
+            available: boolean;
+            reason?: string;
+        };
+        "Delivery.AcceptedBreak": {
+            announcement: string;
+            bundle?: string;
+            provider: string;
+            version: string;
         };
         "Delivery.AcceptedRange": {
             field: string;
@@ -2439,6 +2746,12 @@ export interface components {
             path: string;
             title: string;
             truncated?: boolean;
+        };
+        DraftRef: {
+            /** @description The digest of the draft the plan showed */
+            digest: string;
+            /** @description The draft tag, draft-<n> */
+            tag: string;
         };
         EnvironmentCount: {
             /**
@@ -3865,16 +4178,18 @@ export interface components {
             sourcesTruncated?: boolean;
         };
         "Fleet.NextAction": {
+            /** @description The CLI command a person runs for this step */
+            cli: string;
             /**
-             * @description The MCP tool that performs the operation
+             * @description The MCP tool that performs the operation, set only when the server answering registers it
              * @enum {string}
              */
-            tool: "pacto_edit" | "pacto_declare";
+            tool?: "pacto_edit" | "pacto_declare" | "pacto_accept";
             /**
-             * @description The operation: edit-contract changes the contract of the item's service; declare writes a declared contract for what only an inferred one describes
+             * @description The operation. edit-contract changes the contract of the item's service. declare writes a declared contract for a workload only an inferred one describes. accept accepts the proposed ranges of a service. claim declares a contract for an external system. approve-cluster approves a pending cluster
              * @enum {string}
              */
-            verb: "edit-contract" | "declare";
+            verb: "edit-contract" | "declare" | "accept" | "claim" | "approve-cluster";
         };
         "Fleet.OCIReferrer": {
             artifactType: string;
@@ -5037,6 +5352,8 @@ export interface components {
             subject: string;
         };
         FleetAcceptInputBody: {
+            /** @description Plan accepting this acceptance draft instead */
+            fromDraft?: string;
             /** @description The service whose proposed ranges to accept */
             serviceKey: string;
         };
@@ -6380,6 +6697,8 @@ export interface components {
             consumer?: components["schemas"]["ProductRef"];
             /** Format: date-time */
             lastSeen?: string;
+            /** @description The next step for an uncontracted row: declare a contract for the caller */
+            nextAction?: components["schemas"]["Fleet.NextAction"];
             /** @enum {string} */
             provenance: "observed";
             provider: components["schemas"]["ProductRef"];
@@ -6834,6 +7153,8 @@ export interface components {
             inferredOfferings: components["schemas"]["ProductInferredOffering"][] | null;
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
+            /** @description The next step for an inferred service: declare a contract for its workload */
+            nextAction?: components["schemas"]["Fleet.NextAction"];
             origin?: components["schemas"]["ProductOriginDetail"];
             ownerRevision?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
@@ -9724,6 +10045,39 @@ export interface operations {
             };
         };
     };
+    "fleet-accept-execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptExecuteInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptExecuteAnswer"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
     "fleet-attention": {
         parameters: {
             query?: {
@@ -9760,6 +10114,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProductAttentionList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-declare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeclareInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeclareAnswer"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-declare-accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeclareAcceptInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeclareAcceptAnswer"];
                 };
             };
             /** @description Error */

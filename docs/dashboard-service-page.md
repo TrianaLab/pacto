@@ -215,3 +215,43 @@ Each result is cached for 5 minutes, and a failed check for 1 minute. The
 checks of one refresh share a 20 second budget. `pacto fleet` runs the same check on
 each registry reference given with `--oci`. The result is the `provenance` field of each revision in
 `pacto_fleet_get` and in `/api/fleet/entities/revision?key=<key>`.
+
+## Declare an inferred service
+
+An [inferred service](operational-graph-inferred.md) offers **Declare this
+service**, a fold closed by default.
+
+![The Declare this service panel of legacy-billing](assets/screenshots/dashboard-declare-panel-light.png#only-light)
+![The Declare this service panel of legacy-billing](assets/screenshots/dashboard-declare-panel-dark.png#only-dark)
+
+- **What it shows.** Opening it plans what
+  [`pacto declare`](publishing.md#declare-a-running-service) would publish,
+  reading the cluster with your own credentials: the version, the signer, one
+  row per proposed range with an accept box and a mark for where it comes
+  from, then `pacto.yaml`, `pacto.inferred.yaml` and the drafts, collapsed.
+  Only a checked range is declared as accepted.
+- **Who may.** A signed-in person, or anyone on a local dashboard. Signing,
+  saving a draft and accepting one need `update` on the workload in its own
+  cluster, the rule delivery applies to approvals. A sign-in link or a
+  dashboard without sign-in plans nothing. The panel shows only on a
+  dashboard with a registry to publish to (`--registry`, the chart's
+  `registry` value). Elsewhere the page names the `pacto declare` command
+  to run instead.
+- **Sign.** With a signing client Fulcio trusts
+  ([signing in the dashboard](integrations/kubernetes/dashboard-authentication.md#sign-declarations)),
+  a person who signed in through OIDC gets **Sign as** their name. It asks for a
+  fresh login with a second client, so the token Fulcio sees is never the
+  session's, then shows the whole plan again and publishes on **Publish**.
+- **Save draft.** Everywhere else, after a token sign-in or on a local
+  dashboard, **Save draft** writes an unsigned, write-once `draft-<n>` tag on
+  your behalf. A shared dashboard saves drafts only with its own push
+  credential; without one the panel shows the reason and the command.
+- **Accept a draft.** **Accept** on a draft written by `pacto declare --draft`,
+  an agent through `pacto_declare` or this panel first shows that draft's own
+  plan, with every change nothing backs, and then signs it. A draft that
+  changed since you read it is refused as stale. Drafts never become versions.
+- **The command.** The panel always shows the CLI command that does the same
+  in a terminal, such as
+  `pacto declare <workload> --registry <registry> --from-draft draft-<n>`.
+- **Links.** Attention items and observed callers with no contract link here
+  with `?declare=1`, which opens the panel.

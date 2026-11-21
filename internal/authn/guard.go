@@ -45,6 +45,8 @@ type Dashboard struct {
 	// bearerReview checks the per-request bearer token of a server-side
 	// reader on /api/backstage/*; nil refuses every bearer read.
 	bearerReview TokenReview
+	// signer runs the signing login; nil serves no /auth/sign.
+	signer *Signer
 }
 
 // NewOpen is a shared dashboard without sign-in.
@@ -75,6 +77,13 @@ func (d *Dashboard) AcceptBearer(review TokenReview) *Dashboard {
 	return d
 }
 
+// WithSigner serves the signing login of s under /auth/sign; nil serves
+// none. It returns d.
+func (d *Dashboard) WithSigner(s *Signer) *Dashboard {
+	d.signer = s
+	return d
+}
+
 // Local reports whether this is local mode.
 func (d *Dashboard) Local() bool { return !d.SignsIn() && !d.open }
 
@@ -82,8 +91,8 @@ func (d *Dashboard) Local() bool { return !d.SignsIn() && !d.open }
 // per-launch token once, and the dashboard moves it into a cookie.
 func (d *Dashboard) LaunchURL(base string) string { return base + "/?token=" + d.launch }
 
-// Routes serves /auth/*: in shared mode the OIDC sign-in, the token sign-in
-// and logout, which ends either kind of session; nothing in local mode.
+// Routes serves /auth/*: in shared mode the OIDC sign-in, the signing login,
+// the token sign-in and logout, which ends either kind of session; nothing in local mode.
 func (d *Dashboard) Routes() http.Handler {
 	mux := http.NewServeMux()
 	if d.oidc != nil {
@@ -92,6 +101,10 @@ func (d *Dashboard) Routes() http.Handler {
 			d.endToken(r) // an identity provider sign-in replaces a token session
 			d.oidc.Callback(w, r)
 		})
+	}
+	if d.signer != nil {
+		mux.HandleFunc("GET /auth/sign", d.signer.Start)
+		mux.HandleFunc("GET /auth/sign/callback", d.signer.Callback)
 	}
 	if d.tokens != nil {
 		mux.HandleFunc("POST /auth/token", d.tokens.Login)

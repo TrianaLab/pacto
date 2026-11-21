@@ -205,7 +205,10 @@ type loginState struct {
 	Verifier string `json:"v"`
 	Return   string `json:"r"`
 	Fresh    bool   `json:"f,omitempty"`
-	Started  int64  `json:"t"`
+	// Intent is the digest of what a signing login signs; empty for a
+	// sign-in.
+	Intent  string `json:"i,omitempty"`
+	Started int64  `json:"t"`
 }
 
 func (o *OIDC) sign(b []byte) string {
@@ -258,11 +261,11 @@ func (o *OIDC) Login(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, p.oauth.AuthCodeURL(st.State, opts...), http.StatusFound)
 }
 
-// readLogin returns the login cookie's state if its signature holds and it is
-// not older than loginTimeout.
-func (o *OIDC) readLogin(r *http.Request) (loginState, bool) {
+// readLogin returns the state in the login cookie named name if its
+// signature holds and it is not older than loginTimeout.
+func (o *OIDC) readLogin(r *http.Request, name string) (loginState, bool) {
 	var st loginState
-	c, err := r.Cookie(loginCookie)
+	c, err := r.Cookie(name)
 	if err != nil {
 		return st, false
 	}
@@ -296,7 +299,7 @@ func (o *OIDC) Callback(w http.ResponseWriter, r *http.Request) {
 		Refused(r.Context(), r, "dashboard refused a sign-in", "issuer", o.cfg.IssuerURL, "client", o.cfg.ClientID, "reason", msg)
 		http.Error(w, msg, code)
 	}
-	st, ok := o.readLogin(r)
+	st, ok := o.readLogin(r, loginCookie)
 	http.SetCookie(w, &http.Cookie{Name: loginCookie, Path: "/", MaxAge: -1, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	q := r.URL.Query()
 	switch {
