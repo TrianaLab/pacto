@@ -66,6 +66,23 @@ type RuntimeCollection struct {
 	LastResyncAt *metav1.Time `json:"lastResyncAt,omitempty"`
 }
 
+// RuntimeDNS reports the health of DNS answer capture on one node.
+type RuntimeDNS struct {
+	// State is Running, Degraded or Failed.
+	State CollectionState `json:"state"`
+
+	// Reason is a CamelCase machine-readable cause for a non-Running state.
+	// +kubebuilder:validation:MaxLength=128
+	// +optional
+	Reason string `json:"reason,omitempty"`
+
+	// DroppedAnswers is the cumulative number of DNS answers lost because the
+	// ring buffer was full, since the agent started.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	DroppedAnswers int64 `json:"droppedAnswers,omitempty"`
+}
+
 // RuntimeListener is a TCP socket in LISTEN state inside a pod's network namespace.
 type RuntimeListener struct {
 	// Port is the local (container) port.
@@ -97,6 +114,17 @@ type RuntimeConnection struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=45
 	Address string `json:"address"`
+
+	// Host is the name the pod's own DNS answers gave the address, empty when
+	// none did. Only lowercase letters, digits, hyphens and dots.
+	// +kubebuilder:validation:MaxLength=253
+	// +optional
+	Host string `json:"host,omitempty"`
+
+	// Ambiguous is true when the pod's DNS answers named the address under more
+	// than one registrable domain (a CDN or shared ingress), so Host is empty.
+	// +optional
+	Ambiguous bool `json:"ambiguous,omitempty"`
 
 	// Port is the peer port.
 	// +kubebuilder:validation:Minimum=1
@@ -193,6 +221,11 @@ type NodeRuntimeObservationStatus struct {
 	// Collection is the health of the kernel collection.
 	// +optional
 	Collection RuntimeCollection `json:"collection,omitzero"`
+
+	// DNS is the health of DNS answer capture, the source of connection hosts.
+	// Absent from an agent that does not capture DNS answers.
+	// +optional
+	DNS RuntimeDNS `json:"dns,omitzero"`
 
 	// Pods are the pods running on the node, sorted by UID.
 	// +kubebuilder:validation:MaxItems=256

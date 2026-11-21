@@ -485,6 +485,10 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.collection.message` | `string` | no |  |  | Message is a human-readable explanation of a non-Running state. |
 | `status.collection.reason` | `string` | no |  |  | Reason is a CamelCase machine-readable cause for a non-Running state. |
 | `status.collection.state` | `string` | yes |  | `Running`, `Degraded`, `Failed` | State is Running, Degraded or Failed. |
+| `status.dns` | `object` | no |  |  | DNS is the health of DNS answer capture, the source of connection hosts. Absent from an agent that does not capture DNS answers. |
+| `status.dns.droppedAnswers` | `integer` | no |  |  | DroppedAnswers is the cumulative number of DNS answers lost because the ring buffer was full, since the agent started. |
+| `status.dns.reason` | `string` | no |  |  | Reason is a CamelCase machine-readable cause for a non-Running state. |
+| `status.dns.state` | `string` | yes |  | `Running`, `Degraded`, `Failed` | State is Running, Degraded or Failed. |
 | `status.kernelRelease` | `string` | no |  |  | KernelRelease is the node's kernel release (uname -r). |
 | `status.lastPublished` | `string` | no |  |  | LastPublished is the heartbeat: the time of the most recent publish. |
 | `status.nodeName` | `string` | no |  |  | NodeName is the Kubernetes node this object describes. |
@@ -493,7 +497,9 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.pods[].baselineAt` | `string` | no |  |  | BaselineAt is the last /proc scan that saw the pod. |
 | `status.pods[].connections` | `[]object` | no |  |  | Connections are the pod's outbound TCP peers within the retention window. |
 | `status.pods[].connections[].address` | `string` | yes |  |  | Address is the peer IP address. |
+| `status.pods[].connections[].ambiguous` | `boolean` | no |  |  | Ambiguous is true when the pod's DNS answers named the address under more than one registrable domain (a CDN or shared ingress), so Host is empty. |
 | `status.pods[].connections[].failures` | `integer` | no |  |  | Failures counts handshakes that went from SYN_SENT straight to CLOSE (refused, reset or timed out). |
+| `status.pods[].connections[].host` | `string` | no |  |  | Host is the name the pod's own DNS answers gave the address, empty when none did. Only lowercase letters, digits, hyphens and dots. |
 | `status.pods[].connections[].lastFailureAt` | `string` | no |  |  | LastFailureAt is the time of the most recent failure. |
 | `status.pods[].connections[].lastSuccessAt` | `string` | no |  |  | LastSuccessAt is the time of the most recent success. |
 | `status.pods[].connections[].port` | `integer` | yes |  |  | Port is the peer port. |

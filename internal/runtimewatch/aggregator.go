@@ -26,6 +26,11 @@ type Bounds struct {
 	MaxConnections     int
 	MaxNodeListeners   int
 	MaxNodeConnections int
+	// MaxDNSNamesPerWorkload caps the addresses a workload's DNS answers name;
+	// the least recently answered address is evicted first.
+	MaxDNSNamesPerWorkload int
+	// MaxNodeHosts caps the connections on the host that carry a name.
+	MaxNodeHosts int
 	// Retention is how long a peer is kept after its last attempt.
 	Retention time.Duration
 }
@@ -34,13 +39,18 @@ type Bounds struct {
 // worst-case status under MaxStatusBytes (1 MiB = 1,048,576 bytes), which the
 // per-workload bounds alone would not (256 x 128 peers is 6.8 MB). Worst-case
 // JSON sizes, every field at its longest (IPv6 addresses of 39 characters,
-// int64 counters of 19 digits, both timestamps, a 15-byte comm):
+// int64 counters of 19 digits, both timestamps, a 15-byte comm, a 253-byte
+// host on every named connection and the ambiguous flag on every other one):
 //
-//	connection  208 bytes x 4096 =  851,968
-//	listener    111 bytes x 1024 =  113,664
-//	workload   ~190 bytes x  256 =   48,640
-//	node frame and collection   ~   1,500
-//	total                       ~ 1,015,772
+//	named connection   472 bytes x  512 =  241,664
+//	other connection   226 bytes x 2560 =  578,560
+//	listener           111 bytes x 1024 =  113,664
+//	workload          ~190 bytes x  256 =   48,640
+//	node frame, collection and dns   ~   1,700
+//	total, measured by the test         973,916
+//
+// Room for names costs connections: the node-wide connection cap is 3072
+// (4096 before hosts were published).
 //
 // TestDefaultBoundsFitMaxStatusBytes builds that object and checks it. The
 // publisher still measures and trims every status as a backstop.
@@ -50,8 +60,11 @@ func DefaultBounds() Bounds {
 		MaxListeners:       64,
 		MaxConnections:     128,
 		MaxNodeListeners:   1024,
-		MaxNodeConnections: 4096,
-		Retention:          10 * time.Minute,
+		MaxNodeConnections: 3072,
+		// ponytail: 64 x 4 names per workload, a few KiB; raise with the budget table.
+		MaxDNSNamesPerWorkload: 64,
+		MaxNodeHosts:           512,
+		Retention:              10 * time.Minute,
 	}
 }
 
@@ -70,6 +83,22 @@ const (
 	ReasonObjectTooLarge = "ObjectTooLarge"
 )
 
+// DNS capture reasons.
+const (
+	// ReasonDNSNotAttached: the DNS program is not attached, so no names.
+	ReasonDNSNotAttached = "DNSNotAttached"
+	// ReasonAnswersDropped: DNS answers were lost within the retention window.
+	ReasonAnswersDropped = "AnswersDropped"
+	// ReasonDNSUnattributed: an answer reached no workload within the
+	// retention window, so a connection may lack its name.
+	ReasonDNSUnattributed = "DNSUnattributed"
+	// ReasonHostLimit: more named connections than the host publishes.
+	ReasonHostLimit = "HostLimit"
+)
+
+// maxNamesPerAddress caps the names one address keeps in a workload's table.
+const maxNamesPerAddress = 4
+
 // CollectorStatus is the kernel side's health as the loader reports it.
 type CollectorStatus struct {
 	// Failed is true while the eBPF program is not attached.
@@ -80,6 +109,11 @@ type CollectorStatus struct {
 	Dropped uint64
 	// AttachedAt is when the program was last attached; zero while detached.
 	AttachedAt time.Time
+	// DNSState is the DNS program's state; empty reads as not attached.
+	DNSState  runtimefacts.CollectorState
+	DNSReason string
+	// DNSDropped is the cumulative DNS ring buffer drop count.
+	DNSDropped uint64
 }
 
 type peerKey struct {
@@ -104,10 +138,18 @@ type listener struct {
 	process string
 }
 
-// peerSet is a bounded set of peers. truncatedAt records the last time a new
-// peer was turned away.
+// dnsName is one name an answer gave an address, and when it was last seen.
+type dnsName struct {
+	name string
+	seen time.Time
+}
+
+// peerSet is a bounded set of peers and the names the same workload's DNS
+// answers gave their addresses. truncatedAt records the last time a new peer
+// was turned away.
 type peerSet struct {
 	peers       map[peerKey]*peer
+	names       map[netip.Addr][]dnsName
 	truncatedAt time.Time
 }
 
@@ -163,6 +205,10 @@ type Aggregator struct {
 	resyncErr  error
 	dropped    uint64
 	lastDrop   time.Time
+
+	dnsDropped       uint64
+	lastDNSDrop      time.Time
+	lastUnattributed time.Time
 }
 
 // NewAggregator returns an empty aggregator. A nil resolve attributes by
@@ -214,6 +260,8 @@ func (a *Aggregator) applyByNetns(ev Event, now time.Time) {
 		a.cookies[ev.Netns] = ev.NetnsCookie
 	}
 	switch ev.Kind {
+	case EventDNSAnswer:
+		a.answerByNetns(id, known, ev, now)
 	case EventListen, EventUnlisten:
 		// Listeners in unmapped namespaces are left to the next baseline, as are
 		// transitions from before the last scan started, which it already counts.
@@ -250,11 +298,96 @@ func (a *Aggregator) recordPending(ev Event, key peerKey, ok bool, now time.Time
 	a.record(ps, key, ok, now, false)
 }
 
+// answerByNetns learns a DNS answer its network namespace attributes; a shared
+// namespace's answers are dropped like its socket events.
+func (a *Aggregator) answerByNetns(id runtimefacts.Identity, known bool, ev Event, now time.Time) {
+	switch {
+	case id != (runtimefacts.Identity{}):
+		a.answer(&a.workloads[id].peerSet, ev, now)
+	case !known:
+		ps := pendingSet(a, a.pending, ev.Netns)
+		if ps != nil && ev.NetnsCookie != 0 {
+			a.cookies[ev.Netns] = ev.NetnsCookie
+		}
+		a.answer(ps, ev, now)
+	}
+}
+
+// answer learns the names of one DNS answer into ps; a nil ps (the pending
+// bound was hit) counts the answer as unattributed.
+func (a *Aggregator) answer(ps *peerSet, ev Event, now time.Time) {
+	name, addrs, ok := parseDNSAnswer(ev.DNS)
+	if !ok {
+		return
+	}
+	if ps == nil {
+		a.lastUnattributed = now
+		return
+	}
+	for _, addr := range addrs {
+		a.learn(ps, addr, dnsName{name: name, seen: now})
+	}
+}
+
+// learn records that n names addr, within the per-address and per-workload
+// bounds: the least recently seen name, then address, is evicted.
+func (a *Aggregator) learn(ps *peerSet, addr netip.Addr, n dnsName) {
+	if ps.names == nil {
+		ps.names = map[netip.Addr][]dnsName{}
+	}
+	list, had := ps.names[addr]
+	if i := slices.IndexFunc(list, func(o dnsName) bool { return o.name == n.name }); i >= 0 {
+		list[i].seen = laterOf(list[i].seen, n.seen)
+		return
+	}
+	if !had && len(ps.names) >= a.bounds.MaxDNSNamesPerWorkload {
+		delete(ps.names, oldestAddr(ps.names))
+	}
+	list = append(list, n)
+	if len(list) > maxNamesPerAddress {
+		i := oldestName(list)
+		list = slices.Delete(list, i, i+1)
+	}
+	ps.names[addr] = list
+}
+
+func lastSeen(list []dnsName) time.Time {
+	return list[newestName(list)].seen
+}
+
+func oldestName(list []dnsName) int {
+	return slices.IndexFunc(list, func(n dnsName) bool {
+		return !slices.ContainsFunc(list, func(o dnsName) bool { return o.seen.Before(n.seen) })
+	})
+}
+
+func newestName(list []dnsName) int {
+	return slices.IndexFunc(list, func(n dnsName) bool {
+		return !slices.ContainsFunc(list, func(o dnsName) bool { return o.seen.After(n.seen) })
+	})
+}
+
+// oldestAddr is the address whose names were seen least recently, the lowest
+// address on a tie.
+func oldestAddr(names map[netip.Addr][]dnsName) netip.Addr {
+	keys := slices.SortedFunc(maps.Keys(names), netip.Addr.Compare)
+	return slices.MinFunc(keys, func(x, y netip.Addr) int {
+		return lastSeen(names[x]).Compare(lastSeen(names[y]))
+	})
+}
+
 // applyIdentified folds in an event its cgroup attributed. A workload the last
 // scan found shared stays empty, exactly as by namespace.
 func (a *Aggregator) applyIdentified(id runtimefacts.Identity, ev Event, now time.Time) {
 	w := a.workloads[id]
 	switch ev.Kind {
+	case EventDNSAnswer:
+		switch {
+		case w == nil:
+			a.answer(pendingSet(a, a.pendingIDs, id), ev, now)
+		case !w.shared:
+			a.answer(&w.peerSet, ev, now)
+		}
 	case EventListen, EventUnlisten:
 		if w == nil || w.shared || ev.LocalPort == 0 || ev.Mono < a.scanMono {
 			return
@@ -416,6 +549,7 @@ func (a *Aggregator) place(id runtimefacts.Identity, nss []uint32, scan Scan, pr
 		a.disown(nss)
 		a.totalPeers -= len(w.peers)
 		w.peers = map[peerKey]*peer{}
+		w.names = nil
 		w.listeners = nil
 		w.listenersTruncated = false
 		delete(a.pendingIDs, id)
@@ -484,6 +618,11 @@ func (a *Aggregator) adopt(p *workloadState, ps *peerSet) {
 		a.totalPeers++
 	}
 	p.truncatedAt = laterOf(p.truncatedAt, ps.truncatedAt)
+	for addr, list := range ps.names {
+		for _, n := range list {
+			a.learn(&p.peerSet, addr, n)
+		}
+	}
 }
 
 func laterOf(x, y time.Time) time.Time {
@@ -514,6 +653,7 @@ func (a *Aggregator) expire(now time.Time) {
 				a.totalPeers--
 			}
 		}
+		expireNames(w.names, cutoff)
 	}
 	expirePending(a.pending, cutoff)
 	expirePending(a.pendingIDs, cutoff)
@@ -526,17 +666,33 @@ func expirePending[K comparable](m map[K]*peerSet, cutoff time.Time) {
 				delete(ps.peers, pk)
 			}
 		}
-		if len(ps.peers) == 0 {
+		expireNames(ps.names, cutoff)
+		if len(ps.peers) == 0 && len(ps.names) == 0 {
 			delete(m, k)
 		}
+	}
+}
+
+// expireNames drops names last seen before cutoff, and addresses left with none.
+func expireNames(names map[netip.Addr][]dnsName, cutoff time.Time) {
+	for addr, list := range names {
+		list = slices.DeleteFunc(list, func(n dnsName) bool { return n.seen.Before(cutoff) })
+		if len(list) == 0 {
+			delete(names, addr)
+			continue
+		}
+		names[addr] = list
 	}
 }
 
 // Snapshot expires old peers and renders the collection health and workloads,
 // sorted so that the same state always renders the same object. Timestamps are
 // at whole seconds, the NodeRuntimeObservation API's precision.
-func (a *Aggregator) Snapshot(now time.Time, c CollectorStatus) (runtimefacts.Collection, []runtimefacts.Workload) {
+func (a *Aggregator) Snapshot(now time.Time, c CollectorStatus) (runtimefacts.Collection, []runtimefacts.Workload, runtimefacts.DNSCollection) {
 	a.ObserveDrops(c.Dropped, now)
+	if c.DNSDropped > a.dnsDropped {
+		a.dnsDropped, a.lastDNSDrop = c.DNSDropped, now
+	}
 	a.expire(now)
 
 	col := runtimefacts.Collection{
@@ -564,6 +720,7 @@ func (a *Aggregator) Snapshot(now time.Time, c CollectorStatus) (runtimefacts.Co
 	col.Reason, col.Message = truncate(col.Reason, 128), truncate(col.Message, 1024)
 
 	out := make([]runtimefacts.Workload, 0, len(a.workloads))
+	hosts := 0
 	for _, id := range slices.SortedFunc(maps.Keys(a.workloads), compareIdentities) {
 		w := a.workloads[id]
 		o := runtimefacts.Workload{
@@ -584,8 +741,12 @@ func (a *Aggregator) Snapshot(now time.Time, c CollectorStatus) (runtimefacts.Co
 		}
 		for _, k := range slices.SortedFunc(maps.Keys(w.peers), comparePeerKeys) {
 			pr := w.peers[k]
+			host, ambiguous := hostOf(w.names[k.addr])
+			host = a.budgetHost(host, &hosts)
 			o.Connections = append(o.Connections, runtimefacts.Connection{
 				Address:       k.addr.String(),
+				Host:          host,
+				Ambiguous:     ambiguous,
 				Port:          int32(k.port),
 				Successes:     pr.successes,
 				Failures:      pr.failures,
@@ -595,7 +756,56 @@ func (a *Aggregator) Snapshot(now time.Time, c CollectorStatus) (runtimefacts.Co
 		}
 		out = append(out, o)
 	}
-	return col, out
+	return col, out, a.dnsCollection(now, c, hosts > a.bounds.MaxNodeHosts)
+}
+
+// budgetHost counts a named connection against MaxNodeHosts and drops the
+// name past it.
+func (a *Aggregator) budgetHost(host string, hosts *int) string {
+	if host == "" {
+		return ""
+	}
+	*hosts++
+	if *hosts > a.bounds.MaxNodeHosts {
+		return ""
+	}
+	return host
+}
+
+// dnsCollection is the health of DNS capture. The zero collector status is
+// never Running: no attached program means no names.
+func (a *Aggregator) dnsCollection(now time.Time, c CollectorStatus, hostLimit bool) runtimefacts.DNSCollection {
+	d := runtimefacts.DNSCollection{State: runtimefacts.StateRunning, DroppedAnswers: int64(a.dnsDropped)}
+	recent := func(t time.Time) bool { return !t.IsZero() && now.Sub(t) < a.bounds.Retention }
+	switch {
+	case c.Failed || c.DNSState == "":
+		d.State, d.Reason = runtimefacts.StateFailed, ReasonDNSNotAttached
+	case c.DNSState == runtimefacts.StateFailed:
+		d.State, d.Reason = runtimefacts.StateFailed, truncate(c.DNSReason, 128)
+	case recent(a.lastDNSDrop):
+		d.State, d.Reason = runtimefacts.StateDegraded, ReasonAnswersDropped
+	case recent(a.lastUnattributed):
+		d.State, d.Reason = runtimefacts.StateDegraded, ReasonDNSUnattributed
+	case hostLimit:
+		d.State, d.Reason = runtimefacts.StateDegraded, ReasonHostLimit
+	}
+	return d
+}
+
+// hostOf names an address from one workload's live answers: the most
+// recently seen name when every name shares one registrable domain, otherwise
+// no name and ambiguous.
+func hostOf(list []dnsName) (host string, ambiguous bool) {
+	if len(list) == 0 {
+		return "", false
+	}
+	domain := registrableDomain(list[0].name)
+	for _, n := range list[1:] {
+		if registrableDomain(n.name) != domain {
+			return "", true
+		}
+	}
+	return list[newestName(list)].name, false
 }
 
 func family(ipv6 bool) string {

@@ -10,6 +10,7 @@ package runtimewatch
 import (
 	"encoding/binary"
 	"net/netip"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -38,7 +39,7 @@ func TestDecodeEvent_IPv4Listen(t *testing.T) {
 		Kind: EventListen, Netns: 4026532000, LocalAddr: netip.MustParseAddr("10.0.0.7"), LocalPort: 8080,
 		RemoteAddr: netip.MustParseAddr("0.0.0.0"), PID: 42, Comm: "server",
 	}
-	if ev != want {
+	if !reflect.DeepEqual(ev, want) {
 		t.Fatalf("got %+v, want %+v", ev, want)
 	}
 }

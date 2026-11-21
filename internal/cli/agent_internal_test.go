@@ -331,3 +331,33 @@ func TestAgentCommand_ForeignNetns(t *testing.T) {
 		t.Fatalf("err %v\nstderr %s", err, errOut.String())
 	}
 }
+
+// namedSnapshot has one connection the workload's DNS answers named and one they did not.
+func namedSnapshot() runtimefacts.Snapshot {
+	return runtimefacts.Snapshot{NodeName: "h1", Workloads: []runtimefacts.Workload{{
+		Identity: runtimefacts.Identity{Kind: runtimefacts.KindSession, ID: "s", Name: "s"},
+		Connections: []runtimefacts.Connection{
+			{Address: "203.0.113.7", Host: "api.stripe.com", Port: 443},
+			{Address: "10.0.0.9", Port: 5432},
+		},
+	}}}
+}
+
+func TestAgentOutputCarriesHost(t *testing.T) {
+	_, d := stubAgent(t, nil, nil)
+	d.runAgent = func(ctx context.Context, cfg runtimewatch.Config) { _ = cfg.Sink.Publish(ctx, namedSnapshot()) }
+	v := viper.New()
+	v.Set(outputFormatKey, "text")
+	cmd := newAgentCommand(&app.Service{}, v, "v9", d)
+	cmd.SetArgs([]string{"--ringbuf-size=4096"})
+	out := &strings.Builder{}
+	cmd.SetOut(out)
+	cmd.SetErr(&strings.Builder{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `{"address":"203.0.113.7","host":"api.stripe.com","port":443}`) ||
+		!strings.Contains(out.String(), `{"address":"10.0.0.9","port":5432}`) {
+		t.Fatalf("output = %s", out)
+	}
+}

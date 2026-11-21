@@ -254,6 +254,35 @@ func TestSnapshotWire(t *testing.T) {
 	}
 }
 
+// TestSnapshotWireHostAndDNS round-trips a named connection and the DNS health block.
+func TestSnapshotWireHostAndDNS(t *testing.T) {
+	s := Snapshot{NodeName: "n", DNS: DNSCollection{State: StateDegraded, Reason: "HostLimit", DroppedAnswers: 2},
+		Workloads: []Workload{{Identity: Identity{Kind: KindPod, ID: "u1"}, Connections: []Connection{
+			{Address: "203.0.113.7", Host: "api.stripe.com", Port: 443},
+			{Address: "203.0.113.8", Ambiguous: true, Port: 443},
+		}}}}
+	b, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"nodeName":"n","dns":{"state":"Degraded","reason":"HostLimit","droppedAnswers":2},"pods":[{"uid":"u1",` +
+		`"connections":[{"address":"203.0.113.7","host":"api.stripe.com","port":443},{"address":"203.0.113.8","ambiguous":true,"port":443}]}]}`
+	if string(b) != want {
+		t.Fatalf("wire:\n got  %s\n want %s", b, want)
+	}
+	var back Snapshot
+	if err := json.Unmarshal(b, &back); err != nil || !reflect.DeepEqual(back, s) {
+		t.Fatalf("round trip: %+v, %v", back, err)
+	}
+}
+
+func TestSnapshotRejectsUnknownDNSField(t *testing.T) {
+	var back Snapshot
+	if err := json.Unmarshal([]byte(`{"dns":{"state":"Running","extra":1}}`), &back); err == nil {
+		t.Fatal("an unknown dns field must be rejected")
+	}
+}
+
 func TestObservationBuilders(t *testing.T) {
 	prov := evidence.Provenance{Collector: "c"}
 	pos := InterfaceObservation("api", evidence.InterfaceObservation{Type: "http", Protocol: evidence.ProtocolHTTP1}, Positive, prov)

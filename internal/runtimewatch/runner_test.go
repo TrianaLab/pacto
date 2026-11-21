@@ -152,14 +152,23 @@ func TestDefaultBoundsFitMaxStatusBytes(t *testing.T) {
 			DroppedEvents: math.MaxInt64, LastDropAt: t0, LastResyncAt: t0,
 		},
 	}
-	conns, listeners := b.MaxNodeConnections, b.MaxNodeListeners
+	st.DNS = runtimefacts.DNSCollection{State: runtimefacts.StateDegraded, Reason: strings.Repeat("R", 128), DroppedAnswers: math.MaxInt64}
+	conns, listeners, hosts := b.MaxNodeConnections, b.MaxNodeListeners, b.MaxNodeHosts
+	host := strings.Repeat(strings.Repeat("a", 62)+".", 5)[:maxHostLen]
 	for i := range b.MaxWorkloads {
 		p := runtimefacts.Workload{
 			Identity: pod(fmt.Sprintf("%08d-0000-0000-0000-000000000000", i)), Shared: true, Truncated: true,
 			ObservedSince: t0, BaselineAt: t0,
 		}
 		for ; conns > 0 && len(p.Connections) < b.MaxConnections; conns-- {
-			p.Connections = append(p.Connections, maxConnection())
+			c := maxConnection()
+			if hosts > 0 {
+				c.Host = host
+				hosts--
+			} else {
+				c.Ambiguous = true
+			}
+			p.Connections = append(p.Connections, c)
 		}
 		for ; listeners > 0 && len(p.Listeners) < b.MaxListeners; listeners-- {
 			p.Listeners = append(p.Listeners, runtimefacts.Listener{
@@ -233,5 +242,39 @@ func TestRunner_PublishTrimsOversizedSnapshot(t *testing.T) {
 	if size := jsonSize(st); size > MaxStatusBytes || !a.Truncated || len(a.Connections) >= 9500 ||
 		st.Collection.State != runtimefacts.StateDegraded || st.Collection.Reason != ReasonObjectTooLarge {
 		t.Fatalf("size %d, pod A truncated=%v with %d connections, collection %+v", size, a.Truncated, len(a.Connections), st.Collection)
+	}
+}
+
+// TestFitSnapshotTrimsHostsFirst: names go before any connection, and the DNS state says so.
+func TestFitSnapshotTrimsHostsFirst(t *testing.T) {
+	c := func(addr, host string) runtimefacts.Connection {
+		return runtimefacts.Connection{Address: addr, Host: host, Port: 443, LastSuccessAt: t0}
+	}
+	st := runtimefacts.Snapshot{DNS: runtimefacts.DNSCollection{State: runtimefacts.StateRunning},
+		Workloads: []runtimefacts.Workload{{Identity: pod("a"), Connections: []runtimefacts.Connection{
+			c("10.0.0.1", ""), c("10.0.0.2", "a-very-long-api-endpoint.stripe.com"), c("10.0.0.3", "hooks.slack.com"),
+		}}}}
+	fitSnapshot(&st, jsonSize(st)-5)
+	w := st.Workloads[0]
+	if len(w.Connections) != 3 || w.Truncated || w.Connections[1].Host != "" || w.Connections[2].Host != "hooks.slack.com" ||
+		st.DNS.State != runtimefacts.StateDegraded || st.DNS.Reason != ReasonHostLimit {
+		t.Fatalf("snapshot = %+v", st)
+	}
+	// A failed DNS state stays failed.
+	st.DNS = runtimefacts.DNSCollection{State: runtimefacts.StateFailed}
+	fitSnapshot(&st, jsonSize(st)-5)
+	if st.DNS.State != runtimefacts.StateFailed || st.Workloads[0].Connections[2].Host != "" {
+		t.Fatalf("snapshot = %+v", st)
+	}
+}
+
+func TestPublishSetsSnapshotDNS(t *testing.T) {
+	pub := &recordingSink{out: make(chan runtimefacts.Snapshot, 1)}
+	r := &Runner{Info: HostInfo{PublishInterval: time.Second}, Aggregator: NewAggregator(DefaultBounds(), nil), Sink: pub,
+		Collector: &fakeCollector{status: CollectorStatus{DNSState: runtimefacts.StateRunning, DNSDropped: 1}},
+		Now:       func() time.Time { return t0 }}
+	r.publish(context.Background())
+	if st := <-pub.out; st.DNS != (runtimefacts.DNSCollection{State: runtimefacts.StateDegraded, Reason: ReasonAnswersDropped, DroppedAnswers: 1}) {
+		t.Fatalf("dns = %+v", st.DNS)
 	}
 }

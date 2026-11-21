@@ -181,6 +181,8 @@ func snapshotOf(st *unversioned.NodeRuntimeObservationStatus) *runtimefacts.Snap
 			LastDropAt:    timeOf(st.Collection.LastDropAt),
 			LastResyncAt:  timeOf(st.Collection.LastResyncAt),
 		},
+		DNS: runtimefacts.DNSCollection{State: runtimefacts.CollectorState(st.DNS.State), Reason: st.DNS.Reason,
+			DroppedAnswers: st.DNS.DroppedAnswers},
 	}
 	for _, p := range st.Pods {
 		w := runtimefacts.Workload{
@@ -194,7 +196,8 @@ func snapshotOf(st *unversioned.NodeRuntimeObservationStatus) *runtimefacts.Snap
 			w.Listeners = append(w.Listeners, runtimefacts.Listener(l))
 		}
 		for _, c := range p.Connections {
-			w.Connections = append(w.Connections, runtimefacts.Connection{Address: c.Address, Port: c.Port, Successes: c.Successes,
+			w.Connections = append(w.Connections, runtimefacts.Connection{Address: c.Address, Host: c.Host, Ambiguous: c.Ambiguous,
+				Port: c.Port, Successes: c.Successes,
 				Failures: c.Failures, LastSuccessAt: timeOf(c.LastSuccessAt), LastFailureAt: timeOf(c.LastFailureAt)})
 		}
 		s.Workloads = append(s.Workloads, w)

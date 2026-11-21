@@ -34,6 +34,8 @@ const (
 	EventConnectOK EventKind = 3
 	// EventConnectFail is an outbound handshake going from SYN_SENT to CLOSE.
 	EventConnectFail EventKind = 4
+	// EventDNSAnswer is a DNS response (UDP source port 53) a socket received.
+	EventDNSAnswer EventKind = 5
 )
 
 // Address families as the kernel reports them.
@@ -68,6 +70,8 @@ type Event struct {
 	// process context. Connect outcomes often complete in softirq context.
 	PID  uint32
 	Comm string
+	// DNS is the raw DNS response of an EventDNSAnswer, at most 512 bytes.
+	DNS []byte
 }
 
 // rawEvent mirrors struct event in sockstate.c byte for byte.
