@@ -17,6 +17,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -349,10 +350,15 @@ type fakeFleetK8sClient struct {
 	versions  map[string]string
 	// down, when set, fails every read of the cluster but its identity.
 	down error
+	// meshReads counts the discoveries a mesh read starts with.
+	meshReads int
 }
 
 // PreferredVersions serves the groups of versions; none by default.
-func (f *fakeFleetK8sClient) PreferredVersions(context.Context, ...string) (map[string]string, error) {
+func (f *fakeFleetK8sClient) PreferredVersions(_ context.Context, groups ...string) (map[string]string, error) {
+	if slices.Contains(groups, "networking.istio.io") {
+		f.meshReads++
+	}
 	return f.versions, nil
 }
 
@@ -520,8 +526,19 @@ func TestLiveK8sRegistersWorkloadSource(t *testing.T) {
 	if wl.Status != fleet.SourceAvailable || wl.InferredCount != 0 {
 		t.Errorf("workload source = %+v; want available with no inferred service", wl)
 	}
-	if len(snap.Clusters) != 1 || !slices.Equal(snap.Clusters[0].Sources, []string{clusterA, clusterA + "-workloads"}) || snap.Clusters[0].ReportedBy != "" {
-		t.Errorf("clusters = %+v; want one cluster both live sources read", snap.Clusters)
+	if len(snap.Clusters) != 1 || !slices.Equal(snap.Clusters[0].Sources, []string{clusterA, clusterA + "-workloads", clusterA + "-mesh"}) || snap.Clusters[0].ReportedBy != "" {
+		t.Errorf("clusters = %+v; want one cluster every live source read", snap.Clusters)
+	}
+}
+
+func TestLiveK8sSourcesIncludeMesh(t *testing.T) {
+	srcs := liveK8sSources("uid-1", nil, &fakeFleetK8sClient{}, nil, nil, &fleetsrc.MeshMemo{})
+	var ids []string
+	for _, s := range srcs {
+		ids = append(ids, s.ID())
+	}
+	if !slices.Equal(ids, []string{"uid-1", "uid-1" + workloadsSuffix, "uid-1" + meshSuffix}) || srcs[2].Kind() != fleet.SourceKindMesh {
+		t.Errorf("live sources %v; want the Pacto, workload and mesh sources", ids)
 	}
 }
 

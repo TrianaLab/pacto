@@ -296,12 +296,31 @@ export function installScaleFixture(): void {
         usedFor: ['proposal for registryPullSecret: it needs push on <registry>/pacto-*; a pod pull Secret usually grants pull only'],
         hint: `--set registryPullSecret=${secret}`,
       });
-      doc.total = 32;
+      // A live edge-source row (509-S9): the OTLP receiver's Collector row, partial
+      // with a long reason, the full receiver snippet for a 63-character namespace as its
+      // hint and the evidence suffix every edge source appends.
+      (doc.providers as Record<string, unknown>[]).push({
+        id: 'otel-collector', source: 'otlp-receiver', provenance: 'inferred', asOf: new Date(Date.now() - 30_000).toISOString(), name: 'OTel Collector',
+        evidence: `OpenTelemetry Collector running in 1 workload (from running pods and Services, cluster ${clusters[0]}); 4999 edges in the last 15 minutes; won: ${longName('the-otlp-receiver-is-off')}`,
+        status: 'partial', cluster: clusters[0], usedFor: ['observed-edges'],
+        objects: [{ kind: 'Service', namespace: 'n'.repeat(63), name: longName('otel-collector-service') }],
+        hint: `exporters: {otlphttp/pacto: {endpoint: "http://pacto-dashboard.${'n'.repeat(63)}:4318", encoding: json}}`,
+        limitations: [{ code: 'EDGE_SOURCE_PARTIAL', source: 'otlp-receiver', message: `not exporting to pacto-dashboard.${'n'.repeat(63)}:4318; ${longName('requests-used-protobuf-set-encoding-json')}` }],
+      });
+      doc.total = 33;
       const meta = doc.meta as Record<string, unknown>;
       meta.sources = [...((meta.sources as unknown[] | undefined) ?? []), ...Array.from({ length: 6 }, (_, i) => ({
         id: longName(`unreadable-cluster-${i}`), kind: 'kubernetes', status: 'unavailable', revisionCount: 0, targetCount: 0,
         error: { code: 'Unavailable', message: longName(`dial-tcp-connection-refused-while-reading-cluster-${i}`) },
       }))];
+    }
+    // The two live edge-source kinds (509-S9), advisory and partial with long ids, so the
+    // sources routes name them in the untallied line and the kind tallies.
+    if (route === '/api/fleet/entities' && q.get('kinds') === 'source' && doc.meta) {
+      const meta = doc.meta as Record<string, unknown>;
+      meta.sources = [...((meta.sources as unknown[] | undefined) ?? []),
+        { id: longName('otlp-receiver'), kind: 'otlp-receiver', status: 'partial', advisory: true, revisionCount: 0, targetCount: 0 },
+        { id: longName('detected-jaeger'), kind: 'traces', status: 'partial', advisory: true, revisionCount: 0, targetCount: 0 }];
     }
     if (route === '/api/fleet/overview') {
       const s = doc.summary as Record<string, unknown>;

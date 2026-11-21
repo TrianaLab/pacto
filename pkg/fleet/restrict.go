@@ -322,6 +322,7 @@ func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadV
 	recountSources(&out)
 
 	hiddenNames = appendNamespaces(hiddenNames, hiddenNS)
+	hiddenNames = append(hiddenNames, hiddenKindlessNames(s, hiddenSvc, workloadHidden(hiddenNS, workloadVisible))...)
 	restrictLimitations(&out, s.Limitations, hiddenNames, restricted)
 	restrictScope(&out, visible, clusters)
 	out.Providers = restrictedProviders(&out, s.Providers, hiddenSvc, hiddenNames, visible, workloadVisible, clusters)
@@ -855,6 +856,28 @@ func droppedReports(out *FleetSnapshot, dropped map[ServiceKey]int, code, what s
 	}
 	return []Limitation{{Code: code, Message: fmt.Sprintf(
 		"%d %s reports about the services you can see were dropped: the fleet holds more than the limit of %d", n, what, limit)}}
+}
+
+// hiddenKindlessNames are the kind-free names ("k8s:ns//name") of every
+// workload the viewer may not see: a hidden inferred service's and a
+// replaced one's. A limitation naming one (an ambiguous kindless name)
+// would tell the viewer a workload of a kind they may not list exists.
+func hiddenKindlessNames(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hidden func(cluster, namespace, kind string) bool) []string {
+	var out []string
+	add := func(cluster, ns, name string) {
+		out = append(out, K8sCaller(cluster, ns, "", name), K8sCaller("", ns, "", name))
+	}
+	for k, svc := range s.Services {
+		if w := svc.Workload; w != nil && svc.Inferred() && hiddenSvc[k] {
+			add(w.Cluster, w.Namespace, w.Name)
+		}
+	}
+	for _, r := range s.replacedNames {
+		if w := r.workload; hiddenSvc[r.to] || hidden(w.cluster, w.namespace, w.kind) {
+			add(w.cluster, w.namespace, w.name)
+		}
+	}
+	return out
 }
 
 // workloadHidden reports whether the viewer may not see the workloads of a

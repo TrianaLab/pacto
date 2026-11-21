@@ -197,18 +197,15 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 		},
 	})
 	// What the cluster's operator detected: an advisory source whose rows are
-	// hints, dated now so they read current.
-	detected, err := detect.Decode(demoDetected)
+	// hints, dated now so they read current. The trace backends it found are
+	// read by their own edge sources, one row each.
+	detected, err := demoDetection(prodCluster.ID)
 	if err != nil {
 		return nil, nil, err
 	}
-	if inst := detected.Installation; inst != nil && inst.LastPush != nil {
-		// The last push keeps its age against the detection.
-		inst.LastPush.At = demoNow().Add(inst.LastPush.At.Sub(detected.AsOf))
-	}
-	detected.AsOf, detected.Cluster = demoNow(), prodCluster.ID
+	rest, traceSources := demoTraceSources(detected, demoNow())
 	detection := fleet.NewMemorySource("cluster-detection", fleet.SourceKindDetection, &fleet.Collection{
-		Advisory: true, Providers: detect.ProviderRows(detected, "cluster-detection", demoNow()),
+		Advisory: true, Providers: detect.ProviderRows(rest, "cluster-detection", demoNow()),
 	})
 	cat, err := demoCatalog()
 	if err != nil {
@@ -216,11 +213,26 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	}
 	snap, err := fleet.Build(context.Background(),
 		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat, DeclarationSigners: demoHandoverSigners()},
-		fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection)
+		append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection, demoMeshSource(prodCluster, demoNow())}, traceSources...)...)
 	if err != nil {
 		return nil, nil, err
 	}
 	return snap, byRef, nil
+}
+
+// demoDetection is what the demo cluster's operator detected, dated now on
+// cluster so its rows read current.
+func demoDetection(cluster string) (detect.Result, error) {
+	detected, err := detect.Decode(demoDetected)
+	if err != nil {
+		return detect.Result{}, err
+	}
+	if inst := detected.Installation; inst != nil && inst.LastPush != nil {
+		// The last push keeps its age against the detection.
+		inst.LastPush.At = demoNow().Add(inst.LastPush.At.Sub(detected.AsOf))
+	}
+	detected.AsOf, detected.Cluster = demoNow(), cluster
+	return detected, nil
 }
 
 // demoTargets are deterministic operational targets covering the range of states

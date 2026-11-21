@@ -180,8 +180,18 @@ identity and must be unique across *every* source the dashboard assembles, so
 `local`, `catalog`, `target-state`, `evidence-http`, `oci` and `cache` are
 already taken, as is the Kubernetes source's identity: your current kube
 context name, or `k8s` when no context is set. A collision is refused, naming
-both claimants. Pacto ships **no OTLP receiver**: the storage owner produces
-and rotates the exports.
+both claimants. The storage owner produces and rotates the exports.
+
+The dashboard also receives OTLP traces:
+
+- It is the fallback for a Collector with no Prometheus: OTLP/HTTP JSON on
+  port 4318 of the operator-applied `pacto-dashboard` Service. The Ingress and HTTPRoute Service keep port 3000 alone, and nothing
+  listens on 4317.
+- The chart renders the `<release>-dashboard` NetworkPolicy, which admits 4318
+  from pods in the cluster only.
+- Point a Collector at `http://pacto-dashboard.<release namespace>:4318` with
+  `encoding: json`. [Trace backends](../../operational-graph-providers.md#trace-backends)
+  has the snippet and the service graph Pacto prefers.
 
 [Sources](../../operational-graph-reference.md#sources) lists every source the graph reads,
 and [Knowledge](../../operational-graph.md#knowledge) tells an unreadable source

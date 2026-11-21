@@ -250,7 +250,10 @@ type NeighborhoodEdge struct {
 	// value the runtime can emit; "inferred" names an edge only inferred, whose
 	// Difference stays empty because declared-versus-observed has no verdict for it.
 	Provenance string `json:"provenance" enum:"declared,observed,declared+observed,inferred"`
-	Difference string `json:"difference,omitempty" enum:"matched,expected-not-observed,observed-not-expected,insufficient"`
+	// corroborated and cautionSeen record whether a corroborating or only a
+	// caution-only source observed the edge (see foldRelationshipIntoEdge).
+	corroborated, cautionSeen bool
+	Difference                string `json:"difference,omitempty" enum:"matched,expected-not-observed,observed-not-expected,insufficient"`
 	// ObservationScope names the granularity at which this edge's observation or
 	// corroboration applies (service or target); empty when there is no observation.
 	ObservationScope string `json:"observationScope,omitempty" enum:"service,target"`
@@ -961,7 +964,11 @@ func (q *Query) foldRelationshipIntoEdge(e *NeighborhoodEdge, rel Relationship) 
 		e.DeclaredClaims.Items = append(e.DeclaredClaims.Items, declaredClaim(rel))
 		foldBehavior(e, rel)
 	case ProvenanceObserved:
-		e.Observed = true
+		if q.snap.CautionOnly(rel) {
+			e.cautionSeen = true
+		} else {
+			e.corroborated = true
+		}
 		foldObservedFacts(e, rel, q.observedStale(rel.LastSeen))
 	case ProvenanceInferred:
 		e.Inferred = true
@@ -972,6 +979,10 @@ func (q *Query) foldRelationshipIntoEdge(e *NeighborhoodEdge, rel Relationship) 
 			foldObservedFacts(e, rel, q.observedStale(rel.LastSeen))
 		}
 	}
+	// An edge only caution-only sources saw adds an undeclared edge and never
+	// corroborates a declared one: it keeps its observed facts and stays
+	// unobserved, so its verdict comes from the declared claims.
+	e.Observed = e.corroborated || e.cautionSeen && !e.Expected
 	e.Provenance = edgeProvenance(*e)
 }
 

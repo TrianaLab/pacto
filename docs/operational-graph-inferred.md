@@ -188,6 +188,9 @@ was seen and each source that saw it.
   end once in `hiddenDependents` or `hiddenDependencies`, even when the same
   workload is also an uncontracted caller.
 
+Calls Istio, Linkerd or Cilium Hubble record join inferred services the same
+way; see [Calls a service mesh records](operational-graph-mesh.md).
+
 ## When a contract takes over
 
 When a Pacto resource's target runs as a workload Pacto showed as an inferred

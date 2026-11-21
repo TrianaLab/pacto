@@ -10,8 +10,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/url"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -106,6 +109,7 @@ func (b builders) currentContext() string {
 type k8sGoClient struct {
 	discovery discovery.DiscoveryInterface
 	dynamic   dynamic.Interface
+	inCluster bool // built from rest.InClusterConfig
 }
 
 // NewGoClient constructs a cluster-backed K8sClient from in-cluster config or
@@ -121,7 +125,7 @@ func NewGoClientFor(context string) (K8sClient, error) {
 }
 
 func (b builders) goClient(context string) (K8sClient, error) {
-	config, err := b.config(context)
+	config, inCluster, err := b.config(context)
 	if err != nil {
 		return nil, fmt.Errorf("loading kubeconfig: %w", err)
 	}
@@ -140,20 +144,28 @@ func (b builders) goClient(context string) (K8sClient, error) {
 	return &k8sGoClient{
 		discovery: disc,
 		dynamic:   dyn,
+		inCluster: inCluster,
 	}, nil
 }
+
+// InCluster reports whether the client was built from the in-cluster config,
+// so it runs inside the cluster it reads. It is not on [K8sClient]: a client
+// without it reads as outside the cluster.
+func (c *k8sGoClient) InCluster() bool { return c.inCluster }
 
 // config is the config of the kubeconfig context named context. "" tries
 // in-cluster config first and falls back to the current context; a named
 // context never reads in-cluster config, so a pod can read it too.
-func (b builders) config(context string) (*rest.Config, error) {
-	config, err := b.inClusterUnless(context)
+// inCluster reports that the in-cluster config answered.
+func (b builders) config(context string) (config *rest.Config, inCluster bool, err error) {
+	config, err = b.inClusterUnless(context)
+	inCluster = err == nil
 	if err != nil {
 		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 		configOverrides := &clientcmd.ConfigOverrides{CurrentContext: context}
 		config, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides).ClientConfig()
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
 	// Server deprecation warnings go to klog, which writes to stderr directly and
@@ -161,7 +173,7 @@ func (b builders) config(context string) (*rest.Config, error) {
 	// under a full-screen TUI they corrupt the frame. Suppress per config rather
 	// than mutating the client-go process global.
 	config.WarningHandlerWithContext = rest.NoWarnings{}
-	return config, nil
+	return config, inCluster, nil
 }
 
 // errNamedContext sends a named context straight to the kubeconfig.
@@ -266,6 +278,22 @@ func (c *k8sGoClient) ListPage(ctx context.Context, gvr schema.GroupVersionResou
 	return data, list.GetContinue(), err
 }
 
+// ServiceProxyGet GETs path with query from port of the Service
+// namespace/name through the API server's service proxy, with the client's
+// own credentials, and returns the answer as a stream for the caller to
+// bound and close. A non-2xx answer is an API status error, so
+// apierrors.IsForbidden tells a refused proxy. The client's 5 s timeout bounds
+// the whole read. It is not on [K8sClient]: a client without it cannot proxy.
+func (c *k8sGoClient) ServiceProxyGet(ctx context.Context, namespace, name string, port int32, path string, query url.Values) (io.ReadCloser, error) {
+	req := c.discovery.RESTClient().Get().AbsPath("/api/v1/namespaces", namespace, "services", name+":"+strconv.Itoa(int(port)), "proxy", path)
+	for k, vs := range query {
+		for _, v := range vs {
+			req = req.Param(k, v)
+		}
+	}
+	return req.Stream(ctx)
+}
+
 func (c *k8sGoClient) ClusterIdentity(ctx context.Context, contextName string) (kubecluster.Identity, error) {
 	return kubecluster.Identify(ctx, c.dynamic, contextName)
 }
@@ -277,7 +305,7 @@ func NewDynamic() (dynamic.Interface, error) {
 }
 
 func (b builders) newDynamic() (dynamic.Interface, error) {
-	config, err := b.config("")
+	config, _, err := b.config("")
 	if err != nil {
 		return nil, fmt.Errorf("loading kubeconfig: %w", err)
 	}
@@ -292,7 +320,8 @@ func Config() (*rest.Config, error) {
 
 // ConfigFor is [Config] for one kubeconfig context; "" is the current one.
 func ConfigFor(context string) (*rest.Config, error) {
-	return defaultBuilders().config(context)
+	config, _, err := defaultBuilders().config(context)
+	return config, err
 }
 
 // ServerOf is the API server cfg reaches and the CA it trusts, as what they

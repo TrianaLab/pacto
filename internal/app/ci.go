@@ -15,7 +15,6 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/internal/discover"
-	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/diff"
@@ -318,11 +317,11 @@ const advertisedSource = "the installation advertised at "
 // PACTO_REGISTRY_* credentials are set: they answer any host, and a detection
 // a ConfigMap writer can forge must not choose where they are sent.
 func (s *Service) ciAdvertised(ctx context.Context, ref string) (ci.Value, string) {
-	srcs := s.detectionSources(ref)
-	if len(srcs) == 0 {
+	src := s.detectionReader(ref)
+	if src == nil {
 		return ci.Value{}, ""
 	}
-	res, st := srcs[0].(*fleetsrc.DetectionSource).Read(ctx)
+	res, st := src.Read(ctx)
 	status := string(st.Status)
 	if st.Status == fleet.SourceAvailable && res.Installation == nil {
 		status = "absent"

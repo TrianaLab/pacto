@@ -123,6 +123,11 @@ and the [knowledge vocabulary](operational-graph.md#knowledge) behind
 [rows the operator detected](operational-graph-providers.md#detected-rows),
 marked `(inferred)`, here and in `pacto fleet status`.
 
+- Each [trace backend](operational-graph-providers.md#trace-backends) is its
+  own row with its own status.
+- A source marked `cautionOnly`, such as the OTLP receiver, never corroborates
+  a declared dependency.
+
 ### Namespace scope
 
 A Kubernetes source that reads a list of namespaces (`--namespace

@@ -91,7 +91,7 @@
                   <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>More details</summary>
                   {#if why(r)}<ul class="t-meta">{#each r.limitations as l}<li>{l.message}</li>{/each}</ul>{/if}
                   {#if r.details?.length}<ul class="t-meta">{#each r.details as d}<li><bdi>{d}</bdi></li>{/each}</ul>{/if}
-                  {#if r.hint}<p class="dp-hint t-meta">Proposal to review: <CopyableIdentifier value={r.hint} label="command" /></p>{/if}
+                  {#if r.hint}<p class="dp-hint t-meta">Proposal to review: <CopyableIdentifier value={r.hint} label="proposal" /></p>{/if}
                 </details>
               {/if}
             {:else if why(r)}

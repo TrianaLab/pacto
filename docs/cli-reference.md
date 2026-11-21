@@ -280,7 +280,7 @@ pacto ci [root] [flags]
   -h, --help[=true|false]                  help for ci
       --image stringArray                  with --publish: the image <service> deploys, pinned by digest, as <service>=<repo>@sha256:...; Pacto builds, signs and copies none. A bare <repo>@sha256:... needs exactly one changed service
       --index string                       organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
-      --k8s[=true|false]                   include live Pacto CRs from the current Kubernetes cluster as targets
+      --k8s[=true|false]                   include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray                  local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray            base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string                   namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
@@ -431,6 +431,7 @@ pacto dashboard [sources...] [flags]
       --oidc-redirect-url string          the dashboard's /auth/callback as browsers reach it (https)
       --oidc-username-claim string        ID token claim the API server takes the username from; must match its claim mapping (default sub)
       --oidc-username-prefix string       prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)
+      --otlp-receiver string              address Collectors in the cluster export OTLP/HTTP JSON traces to, as http://HOST:PORT; Pacto maps spans to observed calls, keeps no span and serves nothing else there; empty turns it off (also PACTO_DASHBOARD_OTLP_RECEIVER)
       --owner-policy string               the mounted owner policy (the chart's declare block as policy.json) that decides who may set a service owner (also PACTO_DASHBOARD_OWNER_POLICY)
       --port int                          port for the dashboard server (default 3000)
       --review string                     how people are reviewed: cluster asks once about every namespace and needs a ClusterRole; local asks in each --namespace only, which a namespaced Role grants, and then services without a namespace show to nobody (also PACTO_DASHBOARD_REVIEW) (default "cluster")
@@ -1363,7 +1364,7 @@ pacto export backstage [flags]
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for backstage
       --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
-      --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
+      --k8s[=true|false]              include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray             local bundle root(s) to scan (repeatable; none unless set)
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string              namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
@@ -1398,7 +1399,7 @@ pacto fleet [flags]
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for fleet
       --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
-      --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
+      --k8s[=true|false]              include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string              namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
@@ -1855,7 +1856,7 @@ pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed
   -h, --help[=true|false]               help for impact
       --include-observed[=true|false]   let observed (runtime) relationships raise consumer confidence
       --index string                    organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
-      --k8s[=true|false]                include live Pacto CRs from the current Kubernetes cluster as targets
+      --k8s[=true|false]                include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray               local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray         base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string                namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
@@ -2202,7 +2203,7 @@ pacto mcp [bundle-ref] [flags]
   -h, --help[=true|false]             help for mcp
       --host string                   bind address for HTTP transport; beyond loopback it needs --auth-issuer, and on loopback without it every request carries the bearer printed at launch (default "127.0.0.1")
       --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
-      --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
+      --k8s[=true|false]              include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray             local bundle root(s) to scan in --fleet mode (repeatable); over HTTP none unless set (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string              namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
@@ -2574,7 +2575,7 @@ pacto stats [flags]
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for stats
       --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
-      --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
+      --k8s[=true|false]              include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --kind stringArray              total only run records of this kind: diff, impact, publish, operation, coverage (repeatable)
       --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -2641,7 +2642,7 @@ pacto tui [flags]
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for tui
       --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
-      --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
+      --k8s[=true|false]              include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string              namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
@@ -2828,6 +2829,7 @@ The following variables configure the dashboard when set (see also [Dashboard Co
 | `PACTO_DASHBOARD_TRACES` | `--traces` | OTLP/JSON trace files to fold observed dependencies from |
 | `PACTO_DASHBOARD_MIRA_SOURCES` | `--mira-source` | Space-separated Mira base URLs whose service map supplies observed calls |
 | `PACTO_DASHBOARD_TRACE_SOURCES` | `--trace-source` | Named offline trace sources as `NAME=PATH`, where `NAME` is the source's identity (what the fleet, the API and the dashboard's Data Source list call it) and `PATH` is the trace file location. Identity and location are separate, so reordering the configuration or moving the file keeps the source's name. Two sources whose files share a basename stay two sources. A name must be unique across every Data Source the dashboard assembles. |
+| `PACTO_DASHBOARD_OTLP_RECEIVER` | `--otlp-receiver` | Address Collectors in the cluster export OTLP/HTTP JSON traces to, as `http://HOST:PORT`. Pacto maps spans to observed calls, keeps no span and serves nothing else there. Empty turns it off. |
 
 !!! warning "The three list variables split on **whitespace**"
     `PACTO_DASHBOARD_TRACES`, `PACTO_DASHBOARD_TRACE_SOURCES` and

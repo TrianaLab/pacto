@@ -412,7 +412,10 @@ describe('DetectedProviders', () => {
       providersFn.mockResolvedValue(resp([inferred('registry')]));
       const t = render();
       await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
-      (rows(t)[0].querySelector('.copyable-btn') as HTMLButtonElement).click();
+      const btn = rows(t)[0].querySelector('.copyable-btn') as HTMLButtonElement;
+      // A hint may be a value or a Collector snippet, never only a command.
+      expect(btn.getAttribute('aria-label')).toBe('Copy proposal');
+      btn.click();
       expect(writeText).toHaveBeenCalledWith('oci://ghcr.io/acme/<service>:<version>');
     });
 

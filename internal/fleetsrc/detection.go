@@ -27,6 +27,8 @@ type DetectionSource struct {
 	id   string
 	read func(context.Context) ([]byte, error)
 	now  func() time.Time
+	// fixed is a Result already read, reported as is.
+	fixed *detect.Result
 }
 
 // errDetectionInvalid and errDetectionForeign are the classes of a Result
@@ -60,6 +62,14 @@ func NewDetectionK8sSource(id string, dyn dynamic.Interface, namespace, name str
 		data, _, _ := unstructured.NestedString(obj.Object, "data", detect.ConfigMapKey)
 		return []byte(data), nil
 	}}
+}
+
+// NewDetectionResultSource reports res, already read, through the same
+// mapping as [DetectionSource.Collect]: the dashboard reads the Result once,
+// hands the entries a live edge source takes to that source and the rest to
+// this one, so every backend is one row.
+func NewDetectionResultSource(id string, res detect.Result, now func() time.Time) *DetectionSource {
+	return &DetectionSource{id: id, now: now, fixed: &res}
 }
 
 // NewDetectionFailedSource is the source of a ConfigMap no client could be
@@ -104,6 +114,9 @@ func (s *DetectionSource) Read(ctx context.Context) (detect.Result, fleet.Source
 // result reads and decodes the Result, refusing one dated beyond
 // detect.MaxFutureSkew.
 func (s *DetectionSource) result(ctx context.Context) (detect.Result, error) {
+	if s.fixed != nil {
+		return *s.fixed, nil
+	}
 	data, err := s.read(ctx)
 	if err != nil {
 		return detect.Result{}, err
