@@ -348,10 +348,13 @@ export function installScaleFixture(): void {
       if (cats) { const parts = split(2400, cats.map((c) => c.count || 1)); cats.forEach((c, i) => { c.count = parts[i] || 1; }); }
       // Each item's cause and next action at their longest: the code chip, the reason and
       // the words of #472's nextAction must wrap inside the row.
+      // The dashboard serves no MCP tool, so its nextAction carries no tool.
       for (const it of (doc.items as Record<string, unknown>[] | undefined) ?? []) {
+        it.nextAction = it.code === 'UNCONTRACTED_CALLER'
+          ? { verb: 'declare', cli: `pacto declare ${longName('legacy-billing')} --namespace ${longName('payments')}` }
+          : { verb: 'edit-contract', cli: 'pacto ci' };
         it.code = `${String(it.code || 'UNKNOWN')}_${'OBSERVATION_UNSUPPORTED_'.repeat(3)}CAUSE`;
         it.reason = longName(String(it.reason || 'reason'));
-        it.nextAction = { verb: 'edit-contract', tool: 'pacto_edit', environment: longName('production-environment') };
         // An inferred caller's name holds ':' and '/' with no break point; walk lengthens its label.
         const caller = it.caller as Record<string, unknown> | undefined;
         if (caller) caller.label = `${String(caller.label)}-${'reconciliation/'.repeat(8)}`;

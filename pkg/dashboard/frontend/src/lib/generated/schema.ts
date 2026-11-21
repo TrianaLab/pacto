@@ -3865,16 +3865,18 @@ export interface components {
             sourcesTruncated?: boolean;
         };
         "Fleet.NextAction": {
+            /** @description The CLI command a person runs for this step */
+            cli: string;
             /**
-             * @description The MCP tool that performs the operation
+             * @description The MCP tool that performs the operation, set only when the server answering registers it
              * @enum {string}
              */
-            tool: "pacto_edit" | "pacto_declare";
+            tool?: "pacto_edit" | "pacto_declare" | "pacto_accept";
             /**
-             * @description The operation: edit-contract changes the contract of the item's service; declare writes a declared contract for what only an inferred one describes
+             * @description The operation. edit-contract changes the contract of the item's service. declare writes a declared contract for a workload only an inferred one describes. accept accepts the proposed ranges of a service. claim declares a contract for an external system. approve-cluster approves a pending cluster
              * @enum {string}
              */
-            verb: "edit-contract" | "declare";
+            verb: "edit-contract" | "declare" | "accept" | "claim" | "approve-cluster";
         };
         "Fleet.OCIReferrer": {
             artifactType: string;
@@ -6380,6 +6382,8 @@ export interface components {
             consumer?: components["schemas"]["ProductRef"];
             /** Format: date-time */
             lastSeen?: string;
+            /** @description The next step for an uncontracted row: declare a contract for the caller */
+            nextAction?: components["schemas"]["Fleet.NextAction"];
             /** @enum {string} */
             provenance: "observed";
             provider: components["schemas"]["ProductRef"];
@@ -6834,6 +6838,8 @@ export interface components {
             inferredOfferings: components["schemas"]["ProductInferredOffering"][] | null;
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
+            /** @description The next step for an inferred service: declare a contract for its workload */
+            nextAction?: components["schemas"]["Fleet.NextAction"];
             origin?: components["schemas"]["ProductOriginDetail"];
             ownerRevision?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];

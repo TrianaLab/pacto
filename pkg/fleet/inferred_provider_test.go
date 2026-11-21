@@ -399,14 +399,15 @@ func TestInferredProviderAttentionNextActionDeclare(t *testing.T) {
 	items := inferredItems(t, infFleet(t, []RawRevision{stripeProvider()}, svc("checkout", "shop", pinStripe("^2023.10"))))
 	// pacto declare reads only workloads, so an external's step is the one
 	// that exists today: a hand-written contract naming it.
-	if len(items) != 1 || items[0].NextAction == nil || *items[0].NextAction != (NextAction{Verb: "declare", Tool: "pacto_declare"}) ||
+	if len(items) != 1 || items[0].NextAction == nil || *items[0].NextAction != *editContract() ||
 		items[0].NextStep != "Write a contract with service.external: stripe, publish it outside pacto-inferred, then point the ranges at it" ||
 		strings.Contains(items[0].Reason, "published") {
 		t.Errorf("items = %+v", items)
 	}
 	// A service under the signer rule is declared with pacto declare.
 	items = inferredItems(t, ledgerFleet(t, "^9.0.0", []string{"9.0.0"}, map[string]bool{"9.0.0": true}))
-	if len(items) != 1 || items[0].NextStep != "Declare a contract for ledger with pacto declare, then point the ranges at it" {
+	if len(items) != 1 || items[0].NextStep != "Declare a contract for ledger with pacto declare, then point the ranges at it" ||
+		items[0].NextAction == nil || *items[0].NextAction != (NextAction{Verb: "declare", Tool: "pacto_declare", CLI: "pacto declare ledger"}) {
 		t.Errorf("service items = %+v", items)
 	}
 }
@@ -438,12 +439,14 @@ func TestKnowledgeTileCountsInferredProvider(t *testing.T) {
 func TestNextActionEnums(t *testing.T) {
 	f, _ := reflect.TypeFor[NextAction]().FieldByName("Verb")
 	g, _ := reflect.TypeFor[NextAction]().FieldByName("Tool")
-	var verbs, tools []string
-	for _, a := range []*NextAction{editContract(), declare()} {
-		verbs, tools = append(verbs, a.Verb), append(tools, a.Tool)
+	verbs, tools := strings.Split(f.Tag.Get("enum"), ","), strings.Split(g.Tag.Get("enum"), ",")
+	if !slices.Equal(verbs, []string{"edit-contract", "declare", "accept", "claim", "approve-cluster"}) || !slices.Equal(tools, []string{"pacto_edit", "pacto_declare", "pacto_accept"}) {
+		t.Errorf("enums %v %v", verbs, tools)
 	}
-	if f.Tag.Get("enum") != strings.Join(verbs, ",") || g.Tag.Get("enum") != strings.Join(tools, ",") {
-		t.Errorf("enums %q %q, constructors %v %v", f.Tag.Get("enum"), g.Tag.Get("enum"), verbs, tools)
+	for _, a := range []*NextAction{editContract(), declareAction("x", "")} {
+		if !slices.Contains(verbs, a.Verb) || !slices.Contains(tools, a.Tool) || a.CLI == "" {
+			t.Errorf("constructor %+v outside the enums", a)
+		}
 	}
 }
 

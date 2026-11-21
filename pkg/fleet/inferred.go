@@ -470,6 +470,7 @@ func (q *Query) inferredServiceDetail(s *ServiceRecord) *EntityDetail {
 		Limitations: attributedLimitationsPreview(lims), Workload: jsonClone(s.Workload),
 		Calls: refPreview(calls), CallsObserved: observed,
 		HiddenDependencies: s.HiddenDependencies, HiddenDependents: s.HiddenDependents,
+		NextAction: declareAction(s.Workload.Name, s.Workload.Namespace),
 	}
 	return &EntityDetail{Meta: q.productMeta(), Entity: self, Service: data, Actions: []string{}}
 }
