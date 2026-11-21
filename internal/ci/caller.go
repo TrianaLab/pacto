@@ -16,7 +16,7 @@ import (
 // equal to it.
 const (
 	ActionsRepo = "TrianaLab/pacto-actions"
-	ActionsSHA  = "9aa2d88798c266c2de13b8bef000c1da750966cd"
+	ActionsSHA  = "8b64cfe46f01f82a1b990afc5b64a01a73d0f4d0"
 	ActionsTag  = "v2.0.0"
 )
 
