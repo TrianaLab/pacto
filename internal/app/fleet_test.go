@@ -520,8 +520,19 @@ func TestLiveK8sRegistersWorkloadSource(t *testing.T) {
 	if wl.Status != fleet.SourceAvailable || wl.InferredCount != 0 {
 		t.Errorf("workload source = %+v; want available with no inferred service", wl)
 	}
-	if len(snap.Clusters) != 1 || !slices.Equal(snap.Clusters[0].Sources, []string{clusterA, clusterA + "-workloads"}) || snap.Clusters[0].ReportedBy != "" {
-		t.Errorf("clusters = %+v; want one cluster both live sources read", snap.Clusters)
+	if len(snap.Clusters) != 1 || !slices.Equal(snap.Clusters[0].Sources, []string{clusterA, clusterA + "-workloads", clusterA + "-mesh"}) || snap.Clusters[0].ReportedBy != "" {
+		t.Errorf("clusters = %+v; want one cluster every live source read", snap.Clusters)
+	}
+}
+
+func TestLiveK8sSourcesIncludeMesh(t *testing.T) {
+	srcs := liveK8sSources("uid-1", nil, &fakeFleetK8sClient{}, nil, nil)
+	var ids []string
+	for _, s := range srcs {
+		ids = append(ids, s.ID())
+	}
+	if !slices.Equal(ids, []string{"uid-1", "uid-1" + workloadsSuffix, "uid-1" + meshSuffix}) || srcs[2].Kind() != fleet.SourceKindMesh {
+		t.Errorf("live sources %v; want the Pacto, workload and mesh sources", ids)
 	}
 }
 

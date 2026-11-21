@@ -277,7 +277,7 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 		f.Kinds = []EntityKind{KindService, KindRevision, KindTarget}
 	}
 	want := kindSet(f.Kinds)
-	refs, offerings := q.candidateRefs(want)
+	refs, offerings := q.candidateRefs(want, f.SourceHealth)
 	consumers := q.offeringConsumers(f.Consumes)
 	if f.Phase != "" {
 		consumers = q.offeringConsumersInPhase(f.Consumes, f.Phase, f.Environment)
@@ -704,8 +704,9 @@ func kindSet(kinds []EntityKind) map[EntityKind]bool {
 	return m
 }
 
-// candidateRefs collects one reference per entity of every requested kind.
-func (q *Query) candidateRefs(want map[EntityKind]bool) ([]EntityRef, map[string]*offeringFacts) {
+// candidateRefs collects one reference per entity of every requested kind;
+// sourceHealth narrows the sources (see sourceListRefs).
+func (q *Query) candidateRefs(want map[EntityKind]bool, sourceHealth string) ([]EntityRef, map[string]*offeringFacts) {
 	var refs []EntityRef
 	var offerings map[string]*offeringFacts
 	if want[KindService] {
@@ -728,9 +729,7 @@ func (q *Query) candidateRefs(want map[EntityKind]bool) ([]EntityRef, map[string
 		refs = append(refs, q.ownerListRefs()...)
 	}
 	if want[KindSource] {
-		for _, st := range q.snap.Sources {
-			refs = append(refs, sourceEntityRef(st))
-		}
+		refs = append(refs, q.sourceListRefs(sourceHealth)...)
 	}
 	if want[KindDomain] {
 		refs = append(refs, q.domainListRefs()...)
@@ -746,6 +745,20 @@ func (q *Query) candidateRefs(want map[EntityKind]bool) ([]EntityRef, map[string
 		}
 	}
 	return refs, offerings
+}
+
+// sourceListRefs is one row per source. Asked for incomplete sources
+// (sourceHealth), it leaves out the advisory sources that are not available,
+// as the Incomplete sources tile does.
+func (q *Query) sourceListRefs(sourceHealth string) []EntityRef {
+	refs := make([]EntityRef, 0, len(q.snap.Sources))
+	for _, st := range q.snap.Sources {
+		if sourceHealth == SourceHealthIncomplete && st.Advisory && st.Status != SourceAvailable {
+			continue
+		}
+		refs = append(refs, sourceEntityRef(st))
+	}
+	return refs
 }
 
 // domainListRefs is one row per declared business domain, with the number of

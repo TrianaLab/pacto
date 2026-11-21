@@ -175,8 +175,8 @@ func (s *Service) entrySources(e K8sEntry, several bool, opts FleetOptions, prom
 	if !opts.LongRunning {
 		return srcs
 	}
-	// srcs is the Pacto source, then the workload source.
-	keys := []string{e.label(), e.label() + workloadsSuffix}
+	// srcs is the Pacto source, then the workload and mesh sources.
+	keys := []string{e.label(), e.label() + workloadsSuffix, e.label() + meshSuffix}
 	for i, src := range srcs {
 		srcs[i] = &rememberingSource{Source: src, last: &s.k8sLast, now: s.env().now, key: k8sMemo{"collection", keys[i]}}
 	}

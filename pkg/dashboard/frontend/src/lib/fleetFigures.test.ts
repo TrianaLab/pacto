@@ -162,6 +162,8 @@ describe('sourcesModel kind tallies (S2 r5)', () => {
     expect(sourceKindNoun('detection', 2)).toBe('cluster detections');
     expect(sourceKindNoun('target-state', 2)).toBe('target-state files');
     expect(sourceKindNoun('kubernetes-workloads', 4)).toBe('Kubernetes workload readers');
+    expect(sourceKindNoun('mesh', 1)).toBe('service mesh reader');
+    expect(sourceKindNoun('mesh', 2)).toBe('service mesh readers');
     expect(sourceKindNoun('acme', 2)).toBe('acme sources');
   });
 });

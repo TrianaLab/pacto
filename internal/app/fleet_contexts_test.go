@@ -65,7 +65,7 @@ func TestContextsOnOneClusterReadOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snap.Sources) != 2 || sourceState(snap, clusterA) == nil || sourceState(snap, clusterA+workloadsSuffix) == nil || snap.Completeness != fleet.CompletenessComplete {
+	if len(snap.Sources) != 3 || sourceState(snap, clusterA) == nil || sourceState(snap, clusterA+workloadsSuffix) == nil || sourceState(snap, clusterA+meshSuffix) == nil || snap.Completeness != fleet.CompletenessComplete {
 		t.Fatalf("sources %+v completeness %s; want the cluster read once", snap.Sources, snap.Completeness)
 	}
 }
@@ -128,7 +128,7 @@ func TestKAndContextOnOneClusterReadOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snap.Sources) != 2 || sourceState(snap, clusterA) == nil {
+	if len(snap.Sources) != 3 || sourceState(snap, clusterA) == nil {
 		t.Fatalf("sources = %+v; want the cluster read once", snap.Sources)
 	}
 }

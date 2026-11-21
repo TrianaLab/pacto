@@ -293,16 +293,22 @@ func (s *Service) detectionSources(ref string) []fleet.Source {
 	return []fleet.Source{fleetsrc.NewDetectionK8sSource(id, dyn, ns, name, s.env().now)}
 }
 
-// workloadsSuffix names a cluster's workload source after its Pacto source.
-const workloadsSuffix = "-workloads"
+// workloadsSuffix and meshSuffix name a cluster's workload and mesh sources
+// after its Pacto source.
+const (
+	workloadsSuffix = "-workloads"
+	meshSuffix      = "-mesh"
+)
 
-// liveK8sSources are a cluster's two live sources: its Pacto CRs and its
-// workloads, the Pacto source named id and the workload source after it.
-// cluster is nil when the cluster identity could not be read.
+// liveK8sSources are a cluster's three live sources: its Pacto CRs, its
+// workloads and the calls a service mesh records, the Pacto source named id
+// and the others after it. cluster is nil when the cluster identity could not
+// be read.
 func liveK8sSources(id string, cluster *fleet.Cluster, client k8sclient.K8sClient, namespaces []string, promoters []workloadmanager.Fingerprint) []fleet.Source {
 	return []fleet.Source{
 		fleetsrc.NewK8sSource(id, cluster, client, namespaces),
 		fleetsrc.NewWorkloadSource(id+workloadsSuffix, cluster, client, namespaces).WithPromoters(promoters),
+		fleetsrc.NewMeshSource(id+meshSuffix, cluster, client, namespaces),
 	}
 }
 
