@@ -137,7 +137,8 @@ names are collected: its `state` reads `Failed` with `DNSNotAttached`,
 `DNSLoadFailed` or `DNSAttachFailed` while the DNS program is not attached,
 and socket collection keeps running. It reads `Degraded`
 with `AnswersDropped`, `DNSUnattributed` or `HostLimit` when some names are
-missing. On Kubernetes these names become
+missing. An answer lost or unattributed keeps it `Degraded` for ten minutes,
+the time a name lives. On Kubernetes these names become
 [calls that leave the cluster](operational-graph-egress.md).
 
 ## Where results go
