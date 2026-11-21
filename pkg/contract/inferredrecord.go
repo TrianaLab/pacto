@@ -418,19 +418,8 @@ func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 	if err := checkDeclaration(r.Declaration); err != nil {
 		return nil, fmt.Errorf("%s: declaration%w", InferredRecordFile, err)
 	}
-	seen := make(map[string]bool, len(r.Fields))
-	for i, f := range r.Fields {
-		err := checkInferredField(f, seen)
-		if err == nil {
-			err = checkClusterField(f, r.Inputs.Cluster)
-		}
-		if err == nil {
-			err = checkProposalKey(f)
-		}
-		if err != nil {
-			return nil, fmt.Errorf("%s: fields[%d]%s", InferredRecordFile, i, err)
-		}
-		seen[f.Field] = true
+	if err := checkInferredFields(&r); err != nil {
+		return nil, fmt.Errorf("%s: %w", InferredRecordFile, err)
 	}
 	for i, f := range r.Findings {
 		if f.Code == "" || !validSource(f.Source) {
@@ -449,6 +438,25 @@ func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 		return nil, fmt.Errorf("%s: %w", InferredRecordFile, err)
 	}
 	return &r, nil
+}
+
+// checkInferredFields is why one of r's fields is malformed, or nil.
+func checkInferredFields(r *InferredRecord) error {
+	seen := make(map[string]bool, len(r.Fields))
+	for i, f := range r.Fields {
+		err := checkInferredField(f, seen)
+		if err == nil {
+			err = checkClusterField(f, r.Inputs.Cluster)
+		}
+		if err == nil {
+			err = checkProposalKey(f)
+		}
+		if err != nil {
+			return fmt.Errorf("fields[%d]%s", i, err)
+		}
+		seen[f.Field] = true
+	}
+	return nil
 }
 
 // checkInferredInputs is why r's migrations or input sources are malformed,

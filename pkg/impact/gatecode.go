@@ -53,6 +53,13 @@ func (r *Result) GateCode() string {
 	if code := r.unclassifiedCode(); code != "" {
 		return code
 	}
+	return r.classifiedCode()
+}
+
+// classifiedCode is the code of gate()'s branches that follow the
+// classification: the class itself unless BREAKING, then why a break passes
+// or is held.
+func (r *Result) classifiedCode() string {
 	switch r.Classification {
 	case "BREAKING":
 	case "POTENTIAL_BREAKING":

@@ -119,6 +119,23 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 		acceptances: sync.OnceValue(func() *acceptanceStore {
 			return newAcceptanceStore(ctx, s.env(), impactTrust(ImpactOptions{Signers: opts.Signers, Fleet: opts.Fleet}))
 		})}
+	pl.planAll(ctx, folders, opts)
+	results, snap, err := s.ciImpacts(ctx, p, folders, opts, pl.allowed)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, f := range folders {
+		pl.propose(ctx, f, snap, opts)
+		f.row.Notes = append(f.row.Notes, breakNotes(f.judged, results[f.row.Service])...)
+		p.Rows = append(p.Rows, f.row)
+	}
+	p.Ranges = ciRanges(folders, opts.Root)
+	p.Settle(opts.Root)
+	return p, results, nil
+}
+
+// planAll plans each folder and records what opts asks to be handed back.
+func (pl *ciPlanner) planAll(ctx context.Context, folders []*ciFolder, opts CIOptions) {
 	for _, f := range folders {
 		pl.plan(ctx, f)
 		f.judged = f.b
@@ -132,18 +149,6 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 			opts.migrations[f.row.Dir] = f.migration
 		}
 	}
-	results, snap, err := s.ciImpacts(ctx, p, folders, opts, pl.allowed)
-	if err != nil {
-		return nil, nil, err
-	}
-	for _, f := range folders {
-		pl.propose(ctx, f, snap, opts)
-		f.row.Notes = append(f.row.Notes, breakNotes(f.judged, results[f.row.Service])...)
-		p.Rows = append(p.Rows, f.row)
-	}
-	p.Ranges = ciRanges(folders, opts.Root)
-	p.Settle(opts.Root)
-	return p, results, nil
 }
 
 // ciFolder is one service folder being planned.
