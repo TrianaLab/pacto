@@ -718,9 +718,13 @@ func (t execTools) Sign(ctx context.Context, sign contract.PublishSign, ref stri
 	// A keyless signature carries whatever identity the CI token had. One the
 	// pinned verify rejects would never reach a Stage, so it fails here, before
 	// any tag is written.
-	if err := t.verify(ctx, p, ref); err != nil {
+	// Only a signature read and rejected is an identity mismatch; a read-back
+	// that failed says nothing about the identity.
+	if err := t.verify(ctx, p, ref); errors.Is(err, publish.ErrSignatureInvalid) {
 		return false, fmt.Errorf("the signature Pacto wrote for %s does not verify against the configured identity (identity %q, issuer %q); check that the CI identity matches publish.sign: %w",
 			ref, p.Identity, p.Issuer, err)
+	} else if err != nil {
+		return false, fmt.Errorf("the signature Pacto wrote for %s could not be read back to verify: %w", ref, err)
 	}
 	return true, nil
 }

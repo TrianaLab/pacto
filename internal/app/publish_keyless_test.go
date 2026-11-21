@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"net/http/httptest"
 	"os"
@@ -171,5 +172,37 @@ func TestKeepRefusalNilSignKeyless(t *testing.T) {
 	got, err := deliveryrecord.ListRefusals(t.Context(), repo, "payments", func(b []byte) error { _, err := p.Verify(b, nil); return err })
 	if err != nil || len(got.Refusals) != 1 {
 		t.Fatalf("refusals: %+v %v", got, err)
+	}
+}
+
+// noReferrers is a registry whose referrers can never be listed.
+type noReferrers struct{ publish.Registry }
+
+func (noReferrers) Referrers(context.Context, string, string, string) ([]string, error) {
+	return nil, errors.New("referrers unavailable")
+}
+
+// TestSignReadBackVersusMismatch: a signature read and rejected names the
+// identity; a read-back that failed says only that it could not verify.
+func TestSignReadBackVersusMismatch(t *testing.T) {
+	key := func() *signing.Keypair {
+		_, k, _ := ed25519.GenerateKey(nil)
+		kp, err := signing.FromPrivateKey(k)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return kp
+	}
+	signer, other := key(), key()
+	host, reg := publishRegistry(t)
+	ref := pushImage(t, reg, host+"/app")
+	tools := signerTools(reg, signing.Keyed(signer, ""), signing.Policy{Key: other.GetPublicKey()})
+	if _, err := tools.Sign(t.Context(), contract.PublishSign{}, ref); err == nil || !strings.Contains(err.Error(), "does not verify against the configured identity") {
+		t.Errorf("mismatch: %v", err)
+	}
+	ref = pushImage(t, reg, host+"/app")
+	tools = signerTools(noReferrers{reg}, signing.Keyed(signer, ""), signing.Policy{Key: signer.GetPublicKey()})
+	if _, err := tools.Sign(t.Context(), contract.PublishSign{}, ref); err == nil || !strings.Contains(err.Error(), "could not be read back to verify") || strings.Contains(err.Error(), "identity") {
+		t.Errorf("read-back: %v", err)
 	}
 }
