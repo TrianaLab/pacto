@@ -81,6 +81,8 @@ helm install pacto-operator \
   --set dashboard.enabled=false
 ```
 
+- `profile` selects `default`, `hardened` or `idp`
+  ([Choose an installation profile](profiles.md)).
 - `controller.watchNamespaces` watches only the listed namespaces (empty means
   the whole cluster).
 - `metrics.serviceMonitor.enabled` creates a Prometheus `ServiceMonitor`.
