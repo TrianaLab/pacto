@@ -238,6 +238,18 @@ func TestHubbleCrossClusterFlowsPartial(t *testing.T) {
 	}
 }
 
+// Flows of two clusters, each with both ends in one, cannot be told apart
+// once Build names every end in this source's cluster: no edge, partial.
+func TestHubbleSeveralClustersPartial(t *testing.T) {
+	at := meshNow.Add(-59 * time.Minute)
+	row, col, _ := readHubble(t, call(at, ep("shop", "Deployment/cart", "eu"), ep("shop", "Deployment/ledger", "eu")),
+		call(at, ep("shop", "Deployment/cart", "us"), ep("shop", "Deployment/ledger", "")))
+	if len(col.Observed) != 0 || row.Status != fleet.SourcePartial ||
+		!hasMessage(row, fleet.LimitationMeshTelemetryUnread, "Hubble Relay holds flows of several clusters; Pacto cannot tell which is this one") {
+		t.Errorf("observed %+v row %+v", col.Observed, row)
+	}
+}
+
 func TestHubbleUnavailableNodesPartial(t *testing.T) {
 	r := newRelay(t, call(meshNow.Add(-59*time.Minute), cart(), ledger()))
 	r.status = pb(1, uint64(4000), 6, pb(1, uint64(2)))
@@ -491,7 +503,7 @@ func TestHubbleScopedDropsOutOfScopeFlows(t *testing.T) {
 			t.Errorf("%q names an out-of-scope end", text)
 		}
 	}
-	_, _, out := flowEdges([]flow{{verdict: verdictForwarded, direction: directionEgress, src: endpoint{namespace: "shop", name: "a"},
+	_, _, out, _ := flowEdges([]flow{{verdict: verdictForwarded, direction: directionEgress, src: endpoint{namespace: "shop", name: "a"},
 		dst: endpoint{namespace: "other", name: "b"}}}, []string{"shop"})
 	if out != 1 {
 		t.Errorf("out of scope %d", out)

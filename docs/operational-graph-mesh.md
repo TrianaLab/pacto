@@ -54,10 +54,10 @@ labels of both ends. For Hubble it reads Relay's status and at most the newest
 10000 flows of the last hour, keeping forwarded egress flows with a workload
 on both ends.
 
-Pacto skips calls between two clusters, and an Istio answer holding several
-clusters reads partial with no edge. Linkerd labels only calls to a mirrored
-service and Hubble only each end's cluster, so Pacto cannot spot their calls
-of another cluster with both ends there.
+Pacto skips calls between two clusters, and an Istio or Hubble answer holding
+several clusters reads partial with no edge. Linkerd labels only calls to a
+mirrored service, so Pacto cannot spot its calls of another cluster with both
+ends there.
 
 Each call pair becomes an observed edge with its call count, first seen one
 hour before the read and last seen at the read. For Hubble, first and last
@@ -147,7 +147,7 @@ Pacto reports the source `unavailable` only when API discovery fails.
 
 | Code | Messages |
 |---|---|
-| `MESH_TELEMETRY_UNREAD` | `no Prometheus found in the namespaces this installation reads`; `several Prometheus servers could record this mesh; Pacto cannot tell which one does`; `the Prometheus Pacto found holds no istio_requests_total series for the last hour, so it does not record this mesh's calls`; `the Prometheus Pacto found refused the query (HTTP 503)`, `timed out`, `answered more than 16 MiB`, `answered with an unreadable body`, `is not reachable from here` or `is not reachable from here and you may not proxy to it`; `this Prometheus holds calls of several clusters; Pacto cannot tell which is this one`; `only the 5000 busiest call pairs were read`; `Services could not be read in every namespace, so Pacto may miss the Prometheus that records this mesh`; `no Hubble Relay found`; `Hubble Relay serves TLS; Pacto reads no Secret for a client certificate, so its flows are not read`; `Hubble Relay is not reachable from here`, `timed out` or `refused the request`; `Hubble Relay served no flow for the last hour`; `only the newest 10000 flows of the last hour were read` |
+| `MESH_TELEMETRY_UNREAD` | `no Prometheus found in the namespaces this installation reads`; `several Prometheus servers could record this mesh; Pacto cannot tell which one does`; `the Prometheus Pacto found holds no istio_requests_total series for the last hour, so it does not record this mesh's calls`; `the Prometheus Pacto found refused the query (HTTP 503)`, `timed out`, `answered more than 16 MiB`, `answered with an unreadable body`, `is not reachable from here` or `is not reachable from here and you may not proxy to it`; `this Prometheus holds calls of several clusters; Pacto cannot tell which is this one`; `only the 5000 busiest call pairs were read`; `Services could not be read in every namespace, so Pacto may miss the Prometheus that records this mesh`; `no Hubble Relay found`; `Hubble Relay serves TLS; Pacto reads no Secret for a client certificate, so its flows are not read`; `Hubble Relay is not reachable from here`, `timed out` or `refused the request`; `Hubble Relay served no flow for the last hour`; `Hubble Relay holds flows of several clusters; Pacto cannot tell which is this one`; `only the newest 10000 flows of the last hour were read` |
 | `MESH_COVERAGE_PARTIAL` | `3 namespaces without sidecars`; `sidecar coverage is unknown because namespaces could not be read`; `2 nodes not reachable through Hubble Relay`; `40 flows were lost before Hubble Relay could serve them`; `Hubble Relay kept only the last 12 minutes of flows` |
 | `MESH_CALLS_UNATTRIBUTED` | `4 call series had an end Pacto could not name`; `2 call series reach namespaces this installation does not read`; `1 cross-cluster call was not attributed`; `3 flows reach namespaces this installation does not read`; `1 cross-cluster flow was not attributed` |
 

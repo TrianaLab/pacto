@@ -234,9 +234,15 @@ func (r hubbleRead) edges(id string, asOf time.Time, namespaces []string) ([]fle
 	add(fleet.LimitationMeshTelemetryUnread, earliest.IsZero(), "Hubble Relay served no flow for the last hour")
 	add(fleet.LimitationMeshCoveragePartial, !r.full && !earliest.IsZero() && kept < meshWindow-hubbleWindowSlack,
 		"Hubble Relay kept only the last "+countOf(max(1, int(kept/time.Minute)), "minute", "minutes")+" of flows")
-	edges, cross, out := flowEdges(r.flows, namespaces)
+	edges, cross, out, clusters := flowEdges(r.flows, namespaces)
 	add(fleet.LimitationMeshCallsUnattributed, out > 0, countOf(out, "flow reaches", "flows reach")+" namespaces this installation does not read")
 	add(fleet.LimitationMeshCallsUnattributed, cross > 0, countOf(cross, "cross-cluster flow was", "cross-cluster flows were")+" not attributed")
+	// Build qualifies every end with this source's cluster, so the flows of
+	// several clusters cannot be told apart: no edge, as for Prometheus.
+	add(fleet.LimitationMeshTelemetryUnread, clusters > 1, "Hubble Relay holds flows of several clusters; Pacto cannot tell which is this one")
+	if clusters > 1 {
+		edges = nil
+	}
 	return edges, lims
 }
 
@@ -285,10 +291,11 @@ func (e endpoint) caller() string { return fleet.K8sCaller("", e.namespace, e.ki
 // flowEdges folds flows into one edge per pair of workloads: how many
 // calls, the earliest and the latest. Flows that are no call are skipped;
 // those with an end outside namespaces or crossing clusters are counted and
-// left out.
-func flowEdges(flows []flow, namespaces []string) (edges []fleet.ObservedEdge, crossCluster, outOfScope int) {
+// left out. clusters is how many distinct clusters the kept flows name.
+func flowEdges(flows []flow, namespaces []string) (edges []fleet.ObservedEdge, crossCluster, outOfScope, clusters int) {
 	type pair struct{ from, to string }
 	per := map[pair]*fleet.ObservedEdge{}
+	seen := map[string]bool{}
 	for _, f := range flows {
 		switch {
 		case !f.call():
@@ -300,6 +307,7 @@ func flowEdges(flows []flow, namespaces []string) (edges []fleet.ObservedEdge, c
 			crossCluster++
 			continue
 		}
+		seen[cmp.Or(f.src.cluster, f.dst.cluster)] = true
 		k := pair{f.src.caller(), f.dst.caller()}
 		if k.from == k.to {
 			continue
@@ -318,7 +326,8 @@ func flowEdges(flows []flow, namespaces []string) (edges []fleet.ObservedEdge, c
 	slices.SortFunc(edges, func(a, b fleet.ObservedEdge) int {
 		return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.From, b.From), cmp.Compare(a.To, b.To))
 	})
-	return edges, crossCluster, outOfScope
+	delete(seen, "")
+	return edges, crossCluster, outOfScope, len(seen)
 }
 
 func minTime(a, b time.Time) time.Time {
