@@ -674,6 +674,9 @@ type ServiceView struct {
 	ReplacedFrom  *Replacement  `json:"replacedFrom,omitempty" doc:"Set when the service was asked for by the key of an inferred service it replaced: that replacement"`
 	Replaces      []Replacement `json:"replaces,omitempty" doc:"The inferred services this service replaced, at most 200"`
 	ReplacesTotal int           `json:"replacesTotal,omitempty" doc:"How many inferred services this service replaced"`
+	// ContractCompleteness is the service's contract checklist; nil for a golden
+	// path or an inferred service.
+	ContractCompleteness *ServiceCompleteness `json:"contractCompleteness,omitempty"`
 }
 
 // GetService returns the logical service, its revisions and targets, its declared
@@ -686,6 +689,7 @@ func (q *Query) GetService(name string) (*ServiceView, error) {
 	}
 	view := &ServiceView{Meta: q.meta(), Service: cloneService(s), Dependencies: []Relationship{}, ReplacedFrom: replaced}
 	view.Replaces, view.ReplacesTotal = q.replacesOf(s.Key)
+	view.ContractCompleteness = q.serviceCompleteness(s)
 	for _, rk := range s.Revisions {
 		rev := cloneRevision(q.snap.Revisions[rk])
 		view.Revisions = append(view.Revisions, rev)
@@ -1263,6 +1267,9 @@ type StatusResult struct {
 	// least healthy first.
 	Providers          []Provider `json:"providers,omitempty" doc:"What Pacto detected in each source, with evidence, what it uses each for and its status"`
 	ProvidersTruncated bool       `json:"providersTruncated,omitempty"`
+	// ContractCompleteness is the contract completeness of every visible
+	// service that is no golden path and no inferred service.
+	ContractCompleteness FleetCompleteness `json:"contractCompleteness"`
 }
 
 // Status reports the entities needing attention in the selected categories. It is
@@ -1346,7 +1353,8 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 		items = items[:limit]
 	}
 	providers, providersTruncated := boundProviders(q.snap.Providers)
-	return &StatusResult{Meta: q.meta(), Total: total, Truncated: total > limit, Items: items, Providers: providers, ProvidersTruncated: providersTruncated}
+	return &StatusResult{Meta: q.meta(), Total: total, Truncated: total > limit, Items: items, Providers: providers, ProvidersTruncated: providersTruncated,
+		ContractCompleteness: q.fleetCompleteness()}
 }
 
 // AssertionRef identifies the declared assertion a reason is about.

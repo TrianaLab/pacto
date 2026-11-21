@@ -422,7 +422,9 @@ func fleetStatusTool() *mcpsdk.Tool {
 			"prefixes; nothing detected is turned on, a Pull Secret is never used until a person sets registryPullSecret, and no " +
 			"provider row clears a gate. The OCI source adds one observed 'registry:<host>' row per registry it read " +
 			"contracts from, with no provenance: Pacto probed it itself, usedFor and details give the mode it uses there and asOf " +
-			"when it probed; it is separate from the operator's inferred registry row. Read-only.",
+			"when it probed; it is separate from the operator's inferred registry row. 'contractCompleteness' is how completely " +
+			"the contracts describe their services: the mean percentComplete over the judged services, how many were judged, how " +
+			"many could not be judged (unknown, never complete), how many declare every section and the most missing sections. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"needs_attention":      {Type: "boolean", Description: "Report every attention category"},
 			"non_compliant":        {Type: "boolean", Description: "Non-compliant targets"},

@@ -342,6 +342,7 @@ func printFleetStatus(cmd *cobra.Command, res *fleet.StatusResult, format string
 		for _, it := range res.Items {
 			_, _ = fmt.Fprintf(w, "  [%s] %s %s — %s\n", it.Code, it.Kind, it.Name, it.Reason)
 		}
+		printContractCompleteness(w, res.ContractCompleteness)
 		printDetected(w, res.Providers, res.Meta.Sources)
 		printPinnedSources(w, res.Meta.Sources, res.Meta.Limitations)
 		printClusters(w, res.Meta.Clusters, res.Meta.Limitations)

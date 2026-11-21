@@ -912,8 +912,9 @@ func (q *Query) Overview() *Overview {
 		}
 		sum.Services++
 		q.addOwnership(&sum.Ownership, s)
-		sum.Knowledge.add(q.serviceKnowledge(s))
+		sum.Knowledge.addService(q, s)
 	}
+	sum.Knowledge.finish()
 	sum.KnowledgeItems = len(q.knowledgeAttention()) + len(q.inferredProviderAttention())
 	sum.Externals, sum.HiddenExternals = len(q.snap.Externals), q.snap.hiddenExternals
 

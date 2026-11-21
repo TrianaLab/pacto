@@ -1,6 +1,9 @@
 package contract
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func sectionState(t *testing.T, cc ContractCompleteness, section string) CompletenessSection {
 	t.Helper()
@@ -21,7 +24,7 @@ func fullContract() *Contract {
 		Dependencies:   []Dependency{{Name: "b", Compatibility: "^1.0.0"}},
 		Workload:       "service",
 		Capabilities:   []Capability{{Type: CapabilityHealth}},
-		Readiness:      &Readiness{Expires: "2030-01-01"},
+		Readiness:      &Readiness{Expires: "2030-01-01", Claims: []ReadinessClaim{{ID: "r", Status: StatusDone}}},
 	}
 }
 
@@ -31,6 +34,9 @@ func TestCompletenessAllDeclared(t *testing.T) {
 		t.Fatalf("got %+v", cc)
 	}
 	want := []string{SectionInterfaces, SectionConfiguration, SectionDependencies, SectionOwner, SectionSummary, SectionDomain, SectionRuntime, SectionReadiness}
+	if !slices.Equal(SectionNames(), want) {
+		t.Errorf("SectionNames() = %v", SectionNames())
+	}
 	for i, s := range cc.Sections {
 		if s.Section != want[i] || s.State != CompletenessDeclared {
 			t.Errorf("section %d = %+v, want %s declared", i, s, want[i])

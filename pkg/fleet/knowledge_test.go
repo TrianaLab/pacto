@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -58,7 +59,7 @@ func knowledgeOf(t *testing.T, q *Query, name string) ([]string, string) {
 
 func TestKnowledgeDescribed(t *testing.T) {
 	q := knowledgeFleet(t, []RawRevision{knowRev("pay", nil)}, []RawTarget{runs("pay")})
-	if k := q.Overview().Summary.Knowledge; k != (KnowledgeTally{Services: 1, Described: 1}) {
+	if k := q.Overview().Summary.Knowledge; knowledgeCountsOf(k) != (knowledgeCounts{Services: 1, Described: 1}) {
 		t.Fatalf("knowledge = %+v", k)
 	}
 }
@@ -441,7 +442,7 @@ func TestEntitiesAggregateMatchesOverviewOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ov := q.Overview().Summary; l.Aggregate.Ownership != ov.Ownership || l.Aggregate.Ownership.Unknown != 1 || l.Aggregate.Knowledge != ov.Knowledge {
+	if ov := q.Overview().Summary; l.Aggregate.Ownership != ov.Ownership || l.Aggregate.Ownership.Unknown != 1 || !reflect.DeepEqual(l.Aggregate.Knowledge, ov.Knowledge) {
 		t.Fatalf("aggregate %+v / %+v, overview %+v / %+v", l.Aggregate.Ownership, l.Aggregate.Knowledge, ov.Ownership, ov.Knowledge)
 	}
 }

@@ -2775,6 +2775,17 @@ export interface components {
              */
             targets: number;
         };
+        "Fleet.CompletenessSection": {
+            /** @description The YAML the inferred record proposes to declare this section */
+            declare?: string;
+            /** @description What else the fleet knows about this section, such as a service that runs nowhere */
+            note?: string;
+            reason: string;
+            /** @enum {string} */
+            section: "interfaces" | "configuration" | "dependencies" | "owner" | "summary" | "domain" | "runtime" | "readiness";
+            /** @enum {string} */
+            state: "declared" | "inferred" | "missing" | "unknown" | "not-applicable";
+        };
         "Fleet.ComplianceTally": {
             /** Format: int64 */
             compliant: number;
@@ -3465,6 +3476,30 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        "Fleet.FleetCompleteness": {
+            /**
+             * Format: int64
+             * @description Judged services whose contract declares every section that applies to them
+             */
+            fullyDescribed: number;
+            /**
+             * Format: int64
+             * @description Services whose contract completeness Pacto can judge
+             */
+            judged: number;
+            /** @description The three sections most often left undeclared (missing or inferred only), most first */
+            mostMissing: components["schemas"]["Fleet.SectionCount"][] | null;
+            /**
+             * Format: int64
+             * @description Mean contract completeness over the judged services, rounded down; absent when no service is judged
+             */
+            percentComplete?: number;
+            /**
+             * Format: int64
+             * @description Services whose contract Pacto cannot read, so no section can be judged; never counted as complete
+             */
+            unknown: number;
+        };
         "Fleet.FleetSnapshot": {
             clusters?: components["schemas"]["Fleet.ClusterRecord"][] | null;
             completeness: string;
@@ -3750,6 +3785,7 @@ export interface components {
             unverifiedCapability: number;
         };
         "Fleet.KnowledgeTally": {
+            contractCompleteness: components["schemas"]["Fleet.FleetCompleteness"];
             /**
              * Format: int64
              * @description Services whose contract and OpenAPI interface documents were read and leave nothing out; gRPC and AsyncAPI documents are never read
@@ -4601,6 +4637,25 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        "Fleet.SectionCount": {
+            /** Format: int64 */
+            count: number;
+            /** @enum {string} */
+            section: "interfaces" | "configuration" | "dependencies" | "owner" | "summary" | "domain" | "runtime" | "readiness";
+        };
+        "Fleet.ServiceCompleteness": {
+            /** Format: date-time */
+            asOf: string;
+            /** @description Whether every source the answer reads was complete */
+            completeness: string;
+            /**
+             * Format: int64
+             * @description Declared sections over applicable sections, rounded down; absent when no section can be judged
+             */
+            percentComplete?: number;
+            /** @description Every section in its fixed order */
+            sections: components["schemas"]["Fleet.CompletenessSection"][] | null;
+        };
         "Fleet.ServiceHit": {
             businessDomain?: string;
             businessDomainUnknown?: boolean;
@@ -4704,6 +4759,7 @@ export interface components {
         };
         "Fleet.ServiceView": {
             capabilities?: components["schemas"]["Fleet.RevisionCapabilities"][] | null;
+            contractCompleteness?: components["schemas"]["Fleet.ServiceCompleteness"];
             dependencies: components["schemas"]["Fleet.Relationship"][] | null;
             dependents: string[] | null;
             meta: components["schemas"]["Fleet.Meta"];
@@ -4824,6 +4880,7 @@ export interface components {
             reason: string;
         };
         "Fleet.StatusResult": {
+            contractCompleteness: components["schemas"]["Fleet.FleetCompleteness"];
             items: components["schemas"]["Fleet.StatusItem"][] | null;
             meta: components["schemas"]["Fleet.Meta"];
             /** @description What Pacto detected in each source, with evidence, what it uses each for and its status */
@@ -6768,6 +6825,7 @@ export interface components {
             changes: components["schemas"]["ProductChangeHistoryPreview"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             consumedOfferings: components["schemas"]["ProductOfferingUsesPreview"];
+            contractCompleteness?: components["schemas"]["Fleet.ServiceCompleteness"];
             creation?: components["schemas"]["Fleet.CreationStep"][] | null;
             currentRevision?: components["schemas"]["ProductRef"];
             dependencies: components["schemas"]["ProductRefPreview"];

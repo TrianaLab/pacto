@@ -1,8 +1,11 @@
 package fleet
 
 import (
+	"fmt"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
@@ -52,13 +55,18 @@ const (
 // Unknown when Pacto cannot tell (an unreadable contract or OpenAPI document,
 // conflicting summaries or business domains, or placement it cannot see),
 // never folded into Described. Gaps counts services per kind: a service with two gaps counts
-// in two kinds and once in WithGaps.
+// in two kinds and once in WithGaps. ContractCompleteness is the checklist
+// figure over the same services; it is set by finish once every service was added.
 type KnowledgeTally struct {
-	Services  int           `json:"services" doc:"Services that are no golden path; the whole the other three partition"`
-	Described int           `json:"described" doc:"Services whose contract and OpenAPI interface documents were read and leave nothing out; gRPC and AsyncAPI documents are never read"`
-	WithGaps  int           `json:"withGaps" doc:"Services with at least one knowledge gap"`
-	Unknown   int           `json:"unknown" doc:"Services whose knowledge Pacto cannot judge: an unreadable contract or OpenAPI document, conflicting summaries or business domains, or placement it cannot see"`
-	Gaps      KnowledgeGaps `json:"gaps"`
+	Services             int               `json:"services" doc:"Services that are no golden path; the whole the other three partition"`
+	Described            int               `json:"described" doc:"Services whose contract and OpenAPI interface documents were read and leave nothing out; gRPC and AsyncAPI documents are never read"`
+	WithGaps             int               `json:"withGaps" doc:"Services with at least one knowledge gap"`
+	Unknown              int               `json:"unknown" doc:"Services whose knowledge Pacto cannot judge: an unreadable contract or OpenAPI document, conflicting summaries or business domains, or placement it cannot see"`
+	Gaps                 KnowledgeGaps     `json:"gaps"`
+	ContractCompleteness FleetCompleteness `json:"contractCompleteness"`
+
+	pctSum  int            // sum of the judged services' percentages
+	missing map[string]int // services per section left undeclared (missing or inferred only)
 }
 
 // KnowledgeGaps counts services per gap kind; the kinds overlap.
@@ -69,6 +77,44 @@ type KnowledgeGaps struct {
 	NoReadiness          int `json:"noReadiness" doc:"Services whose current revision carries no readiness assessment"`
 	NotDeployed          int `json:"notDeployed" doc:"Services that run nowhere, counted only when at least one source reports operational targets and every such source is complete"`
 	UnverifiedCapability int `json:"unverifiedCapability" doc:"Services whose current revision declares an extension capability no evaluator verifies"`
+}
+
+// FleetCompleteness is the contract completeness of a set of services: the
+// mean percentage over the services Pacto can judge, how many it cannot, how
+// many declare every section that applies to them and the sections most often
+// left undeclared. Judged + Unknown is every service counted.
+type FleetCompleteness struct {
+	PercentComplete *int           `json:"percentComplete,omitempty" doc:"Mean contract completeness over the judged services, rounded down; absent when no service is judged"`
+	Judged          int            `json:"judged" doc:"Services whose contract completeness Pacto can judge"`
+	Unknown         int            `json:"unknown" doc:"Services whose contract Pacto cannot read, so no section can be judged; never counted as complete"`
+	FullyDescribed  int            `json:"fullyDescribed" doc:"Judged services whose contract declares every section that applies to them"`
+	MostMissing     []SectionCount `json:"mostMissing" doc:"The three sections most often left undeclared (missing or inferred only), most first"`
+}
+
+// String prints the percentage instead of its address, so two equal figures
+// print alike.
+func (c FleetCompleteness) String() string {
+	pct := "none"
+	if c.PercentComplete != nil {
+		pct = strconv.Itoa(*c.PercentComplete)
+	}
+	return fmt.Sprintf("{PercentComplete:%s Judged:%d Unknown:%d FullyDescribed:%d MostMissing:%v}", pct, c.Judged, c.Unknown, c.FullyDescribed, c.MostMissing)
+}
+
+// SectionCount is how many services leave a completeness section undeclared.
+type SectionCount struct {
+	Section string `json:"section" enum:"interfaces,configuration,dependencies,owner,summary,domain,runtime,readiness"`
+	Count   int    `json:"count"`
+}
+
+// maxMostMissing bounds FleetCompleteness.MostMissing.
+const maxMostMissing = 3
+
+// addService tallies one service that is no golden path into the gap kinds
+// and the contract completeness figure.
+func (k *KnowledgeTally) addService(q *Query, s *ServiceRecord) {
+	k.add(q.serviceKnowledge(s))
+	k.addCompleteness(q.serviceCompleteness(s))
 }
 
 func (k *KnowledgeTally) add(gaps []string, cause string) {
@@ -98,6 +144,42 @@ func (k *KnowledgeTally) add(gaps []string, cause string) {
 			k.Gaps.UnverifiedCapability++
 		}
 	}
+}
+
+func (k *KnowledgeTally) addCompleteness(sc *ServiceCompleteness) {
+	c := &k.ContractCompleteness
+	if sc.Percent == nil {
+		c.Unknown++
+		return
+	}
+	c.Judged++
+	k.pctSum += *sc.Percent
+	c.FullyDescribed += b2i(*sc.Percent == 100)
+	for _, sec := range sc.Sections {
+		if sec.State == contract.CompletenessMissing || sec.State == contract.CompletenessInferred {
+			if k.missing == nil {
+				k.missing = map[string]int{}
+			}
+			k.missing[sec.Section]++
+		}
+	}
+}
+
+// finish sets the figures add cannot keep running: the mean percentage and the
+// most missing sections. Every caller calls it after its last add.
+func (k *KnowledgeTally) finish() {
+	c := &k.ContractCompleteness
+	if c.Judged > 0 {
+		c.PercentComplete = new(k.pctSum / c.Judged)
+	}
+	c.MostMissing = []SectionCount{}
+	for _, sec := range contract.SectionNames() {
+		if n := k.missing[sec]; n > 0 {
+			c.MostMissing = append(c.MostMissing, SectionCount{sec, n})
+		}
+	}
+	slices.SortStableFunc(c.MostMissing, func(a, b SectionCount) int { return b.Count - a.Count })
+	c.MostMissing = c.MostMissing[:min(len(c.MostMissing), maxMostMissing)]
 }
 
 // EvaluationCoverage sums the assertion coverage the sources report over the
@@ -151,27 +233,34 @@ func (q *Query) notDeployed(s *ServiceRecord) (yes, known bool) {
 	return known, known
 }
 
-// serviceKnowledge returns the service's gap kinds in the fixed order, or, when
-// Pacto cannot judge them, no gaps and the first cause.
-func (q *Query) serviceKnowledge(s *ServiceRecord) (gaps []string, cause string) {
-	cur := q.currentRevision(s)
-	switch {
-	case q.ownershipUnknown(s) || cur == nil || cur.Contract == nil:
-		return nil, causeContractUnreadable
-	case slices.ContainsFunc(cur.Contract.Interfaces, func(i contract.Interface) bool {
-		return i.Type == contract.InterfaceTypeOpenAPI && i.Ref != "" && !slices.Contains(cur.SpecsRead, i.Name)
-	}):
-		return nil, causeInterfaceDocsUnread
-	case s.SummaryUnknown:
-		return nil, causeSummaryUnknown
-	case s.BusinessDomainUnknown:
-		return nil, causeDomainUnknown
+// fleetCompleteness is the contract completeness of every visible service
+// that is no golden path and no inferred service, the Overview's own figure.
+func (q *Query) fleetCompleteness() FleetCompleteness {
+	var k KnowledgeTally
+	for _, s := range q.snap.Services {
+		if !s.Template && !s.Inferred() {
+			k.addCompleteness(q.serviceCompleteness(s))
+		}
 	}
+	k.finish()
+	return k.ContractCompleteness
+}
+
+// knowledgeCauses are the causes of an unknown knowledge state a readable
+// current revision can still have, in first-match order.
+var knowledgeCauses = []string{causeInterfaceDocsUnread, causeSummaryUnknown, causeDomainUnknown, causePlacementUnknown}
+
+// knowledgeFacts reports each gap kind and unknown cause that holds for a
+// service whose current revision cur is readable.
+func (q *Query) knowledgeFacts(s *ServiceRecord, cur *ContractRevision) map[string]bool {
 	runsNowhere, known := q.notDeployed(s)
-	if !known {
-		return nil, causePlacementUnknown
-	}
-	has := map[string]bool{
+	return map[string]bool{
+		causeInterfaceDocsUnread: slices.ContainsFunc(cur.Contract.Interfaces, func(i contract.Interface) bool {
+			return i.Type == contract.InterfaceTypeOpenAPI && i.Ref != "" && !slices.Contains(cur.SpecsRead, i.Name)
+		}),
+		causeSummaryUnknown:     s.SummaryUnknown,
+		causeDomainUnknown:      s.BusinessDomainUnknown,
+		causePlacementUnknown:   !known,
 		GapNoSummary:            s.Summary == "",
 		GapNoDomain:             s.BusinessDomain == "" && !s.BusinessDomainUnknown,
 		GapNoInterfaceDocs:      slices.ContainsFunc(cur.Contract.Interfaces, func(i contract.Interface) bool { return i.Ref == "" }),
@@ -179,12 +268,132 @@ func (q *Query) serviceKnowledge(s *ServiceRecord) (gaps []string, cause string)
 		GapNotDeployed:          runsNowhere,
 		GapUnverifiedCapability: slices.ContainsFunc(cur.Contract.Capabilities, func(c contract.Capability) bool { return c.Type == contract.CapabilityExtension }),
 	}
+}
+
+// contractUnread reports whether Pacto cannot read the service's current
+// contract (or its ownership), so nothing about the contract can be judged.
+func (q *Query) contractUnread(s *ServiceRecord, cur *ContractRevision) bool {
+	return q.ownershipUnknown(s) || cur == nil || cur.Contract == nil
+}
+
+// serviceKnowledge returns the service's gap kinds in the fixed order, or, when
+// Pacto cannot judge them, no gaps and the first cause.
+func (q *Query) serviceKnowledge(s *ServiceRecord) (gaps []string, cause string) {
+	cur := q.currentRevision(s)
+	if q.contractUnread(s, cur) {
+		return nil, causeContractUnreadable
+	}
+	has := q.knowledgeFacts(s, cur)
+	for _, c := range knowledgeCauses {
+		if has[c] {
+			return nil, c
+		}
+	}
 	for _, g := range gapKinds {
 		if has[g] {
 			gaps = append(gaps, g)
 		}
 	}
 	return gaps, ""
+}
+
+// ServiceCompleteness is the contract completeness of one service as the fleet
+// sees it: the contract checklist over its current revision and inferred
+// record, with each section Pacto could not read marked unknown and the gap
+// kinds that are no section of their own added as notes. Percent is absent
+// when no section can be judged.
+type ServiceCompleteness struct {
+	Percent      *int                  `json:"percentComplete,omitempty" doc:"Declared sections over applicable sections, rounded down; absent when no section can be judged"`
+	Sections     []CompletenessSection `json:"sections" doc:"Every section in its fixed order"`
+	Completeness Completeness          `json:"completeness" doc:"Whether every source the answer reads was complete"`
+	AsOf         time.Time             `json:"asOf"`
+}
+
+// CompletenessSection is one checklist row with what the fleet adds to it.
+type CompletenessSection struct {
+	contract.CompletenessSection
+	Note string `json:"note,omitempty" doc:"What else the fleet knows about this section, such as a service that runs nowhere"`
+}
+
+// gapSection is where each gap kind and unknown cause lands in the checklist.
+// A row with a note adds that note to the section; a cause with none makes the
+// section unknown; a gap kind with none is the section's own missing state. An
+// unreadable contract makes every section unknown.
+var gapSection = map[string]struct{ section, note string }{
+	GapNoSummary:             {contract.SectionSummary, ""},
+	GapNoDomain:              {contract.SectionDomain, ""},
+	GapNoInterfaceDocs:       {contract.SectionInterfaces, ""},
+	GapNoReadiness:           {contract.SectionReadiness, ""},
+	GapNotDeployed:           {contract.SectionRuntime, "runs nowhere: no source reports an operational target"},
+	GapUnverifiedCapability:  {contract.SectionRuntime, "declares an extension capability no evaluator verifies"},
+	causeInterfaceDocsUnread: {contract.SectionInterfaces, ""},
+	causeSummaryUnknown:      {contract.SectionSummary, ""},
+	causeDomainUnknown:       {contract.SectionDomain, ""},
+	causePlacementUnknown:    {contract.SectionRuntime, "placement unknown: Pacto cannot see every place this service runs"},
+}
+
+// serviceCompleteness is the service's contract completeness, nil for a golden
+// path or an inferred service, which have no contract of their own to judge.
+func (q *Query) serviceCompleteness(s *ServiceRecord) *ServiceCompleteness {
+	if s.Template || s.Inferred() {
+		return nil
+	}
+	out := &ServiceCompleteness{Completeness: q.snap.Completeness, AsOf: q.snap.GeneratedAt}
+	cur := q.currentRevision(s)
+	if q.contractUnread(s, cur) {
+		for _, name := range contract.SectionNames() {
+			out.Sections = append(out.Sections, CompletenessSection{CompletenessSection: contract.CompletenessSection{
+				Section: name, State: contract.CompletenessUnknown, Reason: "Pacto could not read the contract of this service's current revision",
+			}})
+		}
+		out.Percent = sectionPercent(out.Sections)
+		return out
+	}
+	byName := map[string]*CompletenessSection{}
+	for _, sec := range contract.Completeness(cur.Contract, cur.Record).Sections {
+		out.Sections = append(out.Sections, CompletenessSection{CompletenessSection: sec})
+	}
+	for i := range out.Sections {
+		byName[out.Sections[i].Section] = &out.Sections[i]
+	}
+	if o := byName[contract.SectionOwner]; o.State == contract.CompletenessMissing &&
+		(s.OwnerProvenance == OwnerProvenanceAttested || s.OwnerProvenance == OwnerProvenanceInferred) {
+		o.State, o.Reason = contract.CompletenessInferred, "the owner is "+s.OwnerProvenance+"; pacto.yaml does not declare it"
+	}
+	has := q.knowledgeFacts(s, cur)
+	for _, code := range append(slices.Clone(knowledgeCauses), gapKinds...) {
+		at, ok := gapSection[code]
+		if !has[code] || !ok {
+			continue
+		}
+		sec := byName[at.section]
+		switch {
+		case at.note != "":
+			sec.Note = strings.TrimPrefix(sec.Note+"; "+at.note, "; ")
+		case slices.Contains(knowledgeCauses, code):
+			sec.State, sec.Reason = contract.CompletenessUnknown, knowledgeItems[code].reason
+		}
+	}
+	out.Percent = sectionPercent(out.Sections)
+	return out
+}
+
+// sectionPercent is declared over applicable, rounded down, or nil when every
+// applicable section is unknown.
+func sectionPercent(sections []CompletenessSection) *int {
+	declared, applicable, judged := 0, 0, false
+	for _, s := range sections {
+		if s.State == contract.CompletenessNotApplicable {
+			continue
+		}
+		applicable++
+		declared += b2i(s.State == contract.CompletenessDeclared)
+		judged = judged || s.State != contract.CompletenessUnknown
+	}
+	if !judged {
+		return nil
+	}
+	return new(declared * 100 / applicable)
 }
 
 // withGaps reports whether Pacto can judge the service and finds a gap.

@@ -80,7 +80,16 @@ var sectionRules = []sectionRule{
 	{SectionRuntime, func(c *Contract) bool { return c.Workload != "" },
 		func(c *Contract) bool { return c.Workload != "" && hasHealth(c) }, "no workload or no health capability"},
 	{SectionReadiness, func(c *Contract) bool { return c.Service.Template == nil },
-		func(c *Contract) bool { return c.Readiness != nil }, "no readiness assessment"},
+		func(c *Contract) bool { return c.Readiness != nil && len(c.Readiness.Claims) > 0 }, "no readiness assessment"},
+}
+
+// SectionNames is every completeness section in its fixed order.
+func SectionNames() []string {
+	out := make([]string, 0, len(sectionRules))
+	for _, r := range sectionRules {
+		out = append(out, r.name)
+	}
+	return out
 }
 
 // SectionOfField is the completeness section an inferred record's field
