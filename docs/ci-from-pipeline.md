@@ -13,9 +13,9 @@ file that Pacto's own CI runs.
 | --- | --- |
 | `curl -fsSL .../get-pacto.sh \| bash` | The reusable workflow and the GitLab component install a pinned Pacto release and check its sha256 |
 | `pacto validate .` | Every `pacto.yaml` under the root is validated as part of the plan |
-| `pacto diff oci://ghcr.io/acme/contracts/my-service .` | Each service is compared with its last published version; `CLASSIFICATION` shows the result |
+| `pacto diff oci://ghcr.io/acme/contracts/my-service .` | Each service is compared with its last published version; `CLASSIFICATION` shows the result. With the reusable workflow's defaults a `BREAKING` change with consumers reads `unverified` and passes with a warning, where `pacto diff` failed; `fail-on: unverified` keeps the check red |
 | `continue-on-error: true` on the diff before the first publish | A service with no published version plans as a first publish |
-| `pacto impact ... --root ./services/checkout` | The organization index names the consumers; `--root` is needed only for one that is not published yet |
+| `pacto impact ... --root ./services/checkout` | The organization index names the consumers; `--root` is needed only for one that is not published yet. Without the delivery trust config a change with consumers reads `unverified`, a warning under the default `fail-on: blocked` |
 | `docker buildx create` plus `pacto publish` | `pacto ci --publish` builds with the tool the folder shows, Docker Buildx included, and publishes every changed service |
 | `COSIGN_KEY` written to `cosign.key` | Keyless signing by default; the `sign-key` secret keeps signing with your key |
 | Raising `service.version` by hand | The version is derived from the change since the last published one |

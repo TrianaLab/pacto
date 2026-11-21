@@ -1,10 +1,16 @@
 # Put it in your repository
 
 Add Pacto to your build pipeline (CI) as one step. On every pull request it
-plans each service of the repository and fails the check when a change would
-break the services using yours; on every merge to the default branch it
-publishes each changed service. This page assumes you have a contract,
-`pacto.yaml`, from [Pactify a service](pactify.md); it may be empty.
+plans each service of the repository and fails the check when a change breaks
+a consumer it sees running. With the reusable workflow's and the GitLab
+component's defaults it cannot see where consumers run, so a breaking change
+with consumers reads `unverified` and passes with a warning; `fail-on:
+unverified` or the delivery trust config turns it red
+([Who breaks](#on-every-pull-request-who-breaks)). On every merge to the
+default branch it publishes each changed service. This page assumes you have
+a contract, `pacto.yaml`, from [Pactify a service](pactify.md). An empty
+contract plans, and it publishes once it declares `service.name`, which still
+fits in two lines.
 
 ## What to commit
 
