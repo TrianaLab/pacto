@@ -903,7 +903,8 @@ declare:
   emailIssuers: []
   # -- A Sigstore trusted root (`trusted_root.json`) the signature of a running bundle that changes its owner must
   # chain to, for an air-gapped install or a private Sigstore. Empty uses `delivery.publishers.trustedRoot`, else
-  # public-good Sigstore. Used only when `defaultApprovers.bootstrap` or `teams` holds a rule
+  # public-good Sigstore. The owner check uses it when `defaultApprovers.bootstrap` or `teams` holds a rule, and the
+  # dashboard (with `registry` set) verifies the declarations it signs with it
   trustedRoot: ""
   # The Sigstore a person's declaration is signed with in the dashboard.
   signing:
