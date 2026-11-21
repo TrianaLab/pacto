@@ -57,7 +57,7 @@ teardown() {
   kind delete cluster --name "$CLUSTER_B" >/dev/null 2>&1 || true
 }
 # shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
-trap 'rc=$?; [ $rc -ne 0 ] && dump_diag "$NS"; keep_or_teardown "$NS" "$CLUSTER" teardown; [ -n "$DASH_PID" ] && kill "$DASH_PID" 2>/dev/null; exit $rc' EXIT
+trap 'rc=$?; [ $rc -ne 0 ] && dump_diag "$NS"; keep_or_teardown "$NS" "$CLUSTER" teardown; { [ -z "$DASH_PID" ] || kill "$DASH_PID" 2>/dev/null || true; }; exit $rc' EXIT
 
 apply_pacto() { # CONTEXT NS NAME
   kubectl --context "$1" apply -f - >/dev/null <<YAML
