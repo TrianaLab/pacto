@@ -5045,7 +5045,7 @@ export interface components {
         GetSourcesOutputBody: {
             /** @description True while the first snapshot is still being built */
             discovering: boolean;
-            /** @description Data sources backing the published snapshot */
+            /** @description Data sources backing the published snapshot, then one row per provider that reads calls leaving the cluster (egress set) */
             sources: components["schemas"]["SourceInfo"][] | null;
         };
         GlobalGraph: {
@@ -7535,6 +7535,13 @@ export interface components {
             name: string;
         };
         SourceInfo: {
+            /**
+             * @description How much of the calls leaving the cluster an egress row read; set on egress rows only
+             * @enum {string}
+             */
+            coverage?: "complete" | "partial" | "unavailable";
+            /** @description Set on a row projected from a detected provider that reads calls leaving the cluster; such a row is not a data source */
+            egress?: boolean;
             enabled: boolean;
             reason?: string;
             type: string;

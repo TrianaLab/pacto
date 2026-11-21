@@ -271,6 +271,17 @@ describe('Navbar — data sources', () => {
     done();
   });
 
+  it('egress rows are no data source pill', () => {
+    let m = mountWith({ sourcesInfo: [{ type: 'kubernetes', enabled: true }, { type: 'kernel-egress', enabled: true, egress: true, coverage: 'partial' }] });
+    const panel = m.target.querySelector('#navbar-sources') as HTMLElement;
+    expect(Array.from(panel.querySelectorAll('li strong')).map((n) => n.textContent)).toEqual(['Kubernetes']);
+    expect(m.target.querySelectorAll('.source-dot-kernel-egress')).toHaveLength(0);
+    m.done();
+    m = mountWith({ sourcesInfo: [{ type: 'istio-egress', enabled: true, egress: true, coverage: 'complete' }] });
+    expect(m.target.querySelector('[data-testid="navbar-sources"]')).toBeNull();
+    m.done();
+  });
+
   it('says it is still discovering, and offers no control when there is nothing to list', () => {
     let m = mountWith({ sourcesInfo: [], discovering: true });
     expect(m.target.querySelector('[data-testid="navbar-sources"]')?.textContent).toContain('discovering');
