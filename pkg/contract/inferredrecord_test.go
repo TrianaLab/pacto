@@ -960,7 +960,8 @@ func TestParseRefusesBadRange(t *testing.T) {
 }
 
 func TestParseRefusesBadInferredFrom(t *testing.T) {
-	for _, bad := range []string{"k8s:a/b", "k8s:a/b/c/d/e", "svc:x", "k8s:a//c"} {
+	// The escaped key form and a name without "k8s:" never reach the fleet.
+	for _, bad := range []string{"k8s:a/b", "k8s:a/b/c/d/e", "svc:x", "k8s:a//c", "k8s:billing%2FDeployment%2Finvoices", "billing/Deployment/invoices"} {
 		refuses(t, declDoc(t, declarationYAML, "inferredFrom: k8s:shop/Deployment/invoices", "inferredFrom: "+bad), "declaration.inferredFrom is not")
 	}
 	refuses(t, declDoc(t, declarationYAML, "cluster: 3f1c0d2e-9a8b-4c7d-8e6f-5a4b3c2d1e0f", "cluster: "+strings.Repeat("a", 65)), "declaration.cluster is longer than 64 bytes")

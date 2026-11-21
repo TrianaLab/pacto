@@ -26,7 +26,7 @@ func TestDemoHandover(t *testing.T) {
 	r := checkHandedOver(t, snap)
 	for _, l := range snap.Limitations {
 		switch l.Code {
-		case fleet.LimitationInferredRecordUnreadable, fleet.LimitationDeclarationSignerUnverified, "INFERRED_LINK_IGNORED":
+		case fleet.LimitationInferredRecordUnreadable, fleet.LimitationDeclarationSignerUnverified, fleet.LimitationInferredLinkIgnored:
 			t.Errorf("limitation %s: %s", l.Code, l.Message)
 		}
 	}

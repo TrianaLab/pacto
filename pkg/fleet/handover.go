@@ -15,7 +15,7 @@ const linkInferredFrom = "inferred-from"
 
 // declareDocs is where a person reads how a declaration takes over its
 // inferred service.
-const declareDocs = "https://pacto.run/latest/bootstrap-contracts/"
+const declareDocs = "https://pacto.run/latest/operational-graph-inferred/#when-a-declaration-replaces-an-inferred-service"
 
 // workloadNote is a limitation that names a workload, with that workload and
 // the services whose declarations it is about, so Restrict can drop it.
