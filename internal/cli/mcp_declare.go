@@ -147,23 +147,31 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 	req.Dynamic = who.own.Dynamic
 	p, _, err := r.svc.PlanDeclare(ctx, req)
 	if p != nil {
-		if !r.writes() {
-			// This server signs nothing and writes no draft: who would sign is
-			// the person who runs the plan's command, whose login decides the state.
+		if !r.writes() || a.Registry != r.registry {
+			// This server signs nothing and writes no draft here: who would sign
+			// is the person who runs the plan's command, whose login decides the state.
 			p.Signer = app.SignerView{Class: contract.SignerClassAgent, Source: "none",
-				Why: "this HTTP server writes nothing: a person runs the plan's pacto declare command"}
+				Why: "this HTTP server writes nothing into " + a.Registry + ": a person runs the plan's pacto declare command"}
 			p.State, p.AcceptCLI = "", ""
 		}
-		baseline := p.Baseline != nil || len(p.Skipped) > 0 || p.DraftsTotal > 0 || baselineRefusal(err)
-		if (baseline || len(p.MayAccept) > 0 || ownerRefusal(err)) && !r.shows(ctx, p.Service) {
-			if baseline {
-				p, err = baselineHidden(p), hiddenRefusal(p.Service, err)
-			}
-			p, err = ownerHidden(p), hiddenOwnerRefusal(err)
-		}
+		p, err = r.hide(ctx, p, err)
 		p.Notes = append(p.Notes, "a person carries out this plan on their machine with: "+a.Command(p.IntentDigest))
 	}
 	return declareAnswer(p, err)
+}
+
+// hide is p and err as a caller reads them: for a caller the fleet view
+// does not show the service to, with nothing its baseline, drafts or owner
+// hold.
+func (r remoteDeclarer) hide(ctx context.Context, p *app.DeclarePlan, err error) (*app.DeclarePlan, error) {
+	baseline := p.Baseline != nil || len(p.Skipped) > 0 || p.DraftsTotal > 0 || baselineRefusal(err)
+	if (baseline || len(p.MayAccept) > 0 || ownerRefusal(err)) && !r.shows(ctx, p.Service) {
+		if baseline {
+			p, err = baselineHidden(p), hiddenRefusal(p.Service, err)
+		}
+		p, err = ownerHidden(p), hiddenOwnerRefusal(err)
+	}
+	return p, err
 }
 
 // refused refuses, before any read, a plan this server cannot carry out: a
@@ -242,7 +250,8 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 	who := reviewedFrom(ctx)
 	switch {
 	case a.Registry != r.registry:
-		return nil, &pactomcp.Refused{Code: pactomcp.RefusalNoRegistry, Message: "this server writes drafts only into " + r.registry + ": plan again with that registry"}, nil
+		return nil, &pactomcp.Refused{Code: pactomcp.RefusalNoRegistry, Message: "this server writes drafts only into " + r.registry + ": plan again with that registry",
+			CLI: a.Command(a.IntentDigest)}, nil
 	case who.own == nil:
 		return nil, nil, errNobodyReviewed
 	case a.OnBehalfOf != "" && a.OnBehalfOf != who.person.User:
@@ -256,7 +265,12 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 	req.Draft, req.OnBehalfOf, req.Dynamic = true, who.person.User, who.own.Dynamic
 	p, decl, err := r.svc.PlanDeclare(ctx, req)
 	if err != nil {
-		// The plan was shown with a dry run; a refusal now names no baseline.
+		// Execute may come without a plan, or the baseline may move since it:
+		// a refusal reaches the caller only as Plan would show it.
+		if p == nil {
+			p = &app.DeclarePlan{Service: req.Service}
+		}
+		_, err = r.hide(ctx, p, err)
 		return declareAnswer[app.DeclarePlan](nil, err)
 	}
 	if p.IntentDigest != a.IntentDigest {

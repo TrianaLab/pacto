@@ -130,6 +130,13 @@ func (d *dashboardDeclarer) AcceptRanges(r *http.Request, t dashboard.AcceptTarg
 	if in.FromDraft != "" {
 		opts.Draft = repo + ":" + in.FromDraft
 	}
+	// A contract may name another service's repository in publish.bundle:
+	// a plan of another service answers as a hidden one, before any write
+	// and before any message read from that repository reaches the caller.
+	if p, err := d.svc.AcceptPlan(ctx, app.AcceptOptions{Ref: repo, Proposed: opts.Proposed, Draft: opts.Draft, Trust: d.trust}); err == nil &&
+		!fleet.NamesService(fleet.ServiceKey(t.Key), fleet.ServiceKey(p.Service)) {
+		return &dashboard.AcceptExecuteAnswer{Refusal: refused("NotFound", "no service with this serviceKey", "")}, nil
+	}
 	switch {
 	case in.Mode == "draft" && in.FromDraft != "":
 		return &dashboard.AcceptExecuteAnswer{Refusal: refused("NotAllowed", "a draft is accepted only with a person's signature", cmd)}, nil

@@ -831,7 +831,7 @@ func (pl *declarePlanner) finish(ctx context.Context, raw []byte, rec *contract.
 	rec.Declaration = pl.declarationBlock(accepted)
 	p.Coverage, p.Hidden = rec.Coverage, rec.Hidden
 	if p.State == contract.DeclarationDraft {
-		p.AcceptCLI = acceptCLI(p.Service, pl.req.Registry, "<tag>")
+		p.AcceptCLI = AcceptDraftCLI(p.Service, pl.req.Registry, "<tag>")
 	}
 	version, err := pl.version(ctx, raw, rec)
 	if err != nil || p.Unchanged != "" {
@@ -1153,7 +1153,7 @@ func (s *Service) writeDraft(ctx context.Context, req DeclareRequest, res *Decla
 	}
 	res.Plan.Publish = r.Plan
 	res.Executed, res.Draft, res.Signed, res.Tag, res.Published = true, true, signed, tag, d.repo+"@"+r.Digests[publish.BundleItem]
-	res.Plan.State, res.Plan.AcceptCLI = contract.DeclarationDraft, acceptCLI(res.Plan.Service, req.Registry, tag)
+	res.Plan.State, res.Plan.AcceptCLI = contract.DeclarationDraft, AcceptDraftCLI(res.Plan.Service, req.Registry, tag)
 	return nil
 }
 
@@ -1183,8 +1183,8 @@ func (req DeclareRequest) command(intent string) string {
 	return strings.Join(parts, " ")
 }
 
-// acceptCLI is the command a person accepts the draft tag of service with.
-func acceptCLI(service, registry, tag string) string {
+// AcceptDraftCLI is the command a person accepts the draft tag of service with.
+func AcceptDraftCLI(service, registry, tag string) string {
 	return "pacto declare " + service + " --registry " + registry + " --from-draft " + tag
 }
 

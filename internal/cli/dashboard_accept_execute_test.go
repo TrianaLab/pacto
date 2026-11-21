@@ -15,6 +15,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/signing"
@@ -219,4 +220,18 @@ func TestAcceptPlanViewDrafts(t *testing.T) {
 	v := acceptPlanView(&app.AcceptPlan{DraftsTotal: 3, Drafts: []app.AcceptDraftView{{Ref: "r:pacto-accept-draft-2", State: "draft",
 		Asker: contract.InferredSigner{Subject: "bo@acme.com"}}}})
 	expect(t, v.Draft == "" && len(v.Drafts) == 1 && v.Drafts[0].Tag == "pacto-accept-draft-2" && v.Drafts[0].Asker == "bo@acme.com" && v.DraftsTotal == 3, "view %+v", v)
+}
+
+func TestAcceptExecuteRefusesAnotherServicesRepository(t *testing.T) {
+	h := newAcceptHost(t, false)
+	p := h.plan(t, "")
+	// payments, read from a folder, names reports' repository in publish.bundle.
+	h.target.Key = "payments"
+	h.target.Rev = &fleet.ContractRevision{Contract: &contract.Contract{Service: contract.Service{Name: "payments"},
+		Publish: &contract.Publish{Bundle: "oci://" + h.repo}}, ResolvedRef: "/srv/payments"}
+	for _, intent := range []string{"sha256:" + strings.Repeat("0", 64), p.Plan.IntentDigest} {
+		out := h.execute(t, dashboard.AcceptExecuteInput{IntentDigest: intent, Mode: "draft"})
+		expect(t, out.Refusal != nil && out.Refusal.Code == "NotFound" && !strings.Contains(out.Refusal.Message, "sha256:") && len(h.written(t)) == 0,
+			"answer %+v", out)
+	}
 }

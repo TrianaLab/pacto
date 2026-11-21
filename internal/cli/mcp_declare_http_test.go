@@ -293,3 +293,57 @@ func TestMCPWrittenPassesErrors(t *testing.T) {
 	_, refused, err := mcpWritten(nil, errors.New("push failed"))
 	expect(t, refused == nil && err != nil && err.Error() == "push failed", "%+v %v", refused, err)
 }
+
+// TestMCPHTTPExecuteHidesBaselineRefusal: an execute that never planned,
+// for a service the fleet does not show the caller, is refused as Plan
+// refuses it: naming no tag, signer or repository of the baseline.
+func TestMCPHTTPExecuteHidesBaselineRefusal(t *testing.T) {
+	w := newDeclareWorld(t)
+	declareFirst(t, w)
+	a := invoicesArgs(w)
+	a.Accept, a.IntentDigest = nil, "sha256:"+strings.Repeat("0", 64)
+	raw, refused, err := httpDeclarer(w).Execute(callerCtx("alice", newSelfReviewed(true), &bytes.Buffer{}), a)
+	expect(t, err == nil && raw == nil && refused != nil && refused.Code == pactomcp.RefusalVersionConflict &&
+		strings.Contains(refused.Message, "is hidden") && !strings.Contains(refused.Message, "signed by") && !strings.Contains(refused.Message, "0.1.0"),
+		"%+v %v", refused, err)
+}
+
+// TestMCPHTTPPlanPromisesNoDraftElsewhere: a registry the server reads but
+// never writes plans no draft, and the execute refusal names the command.
+func TestMCPHTTPPlanPromisesNoDraftElsewhere(t *testing.T) {
+	w := newDeclareWorld(t)
+	rd := httpDeclarer(w)
+	rd.repos = append(rd.repos, w.host+"/other/x")
+	a := invoicesArgs(w)
+	a.Registry = w.host + "/other"
+	ctx := callerCtx("alice", newSelfReviewed(true), &bytes.Buffer{})
+	raw, refused, err := rd.Plan(ctx, a)
+	var p app.DeclarePlan
+	_ = json.Unmarshal(raw, &p)
+	expect(t, err == nil && refused == nil && p.State == "" && p.AcceptCLI == "", "%s %+v %v", raw, refused, err)
+	a.IntentDigest = p.IntentDigest
+	_, refused, _ = rd.Execute(ctx, a)
+	expect(t, refused != nil && refused.Code == pactomcp.RefusalNoRegistry && strings.HasPrefix(refused.CLI, "pacto declare invoices"), "%+v", refused)
+}
+
+// TestMCPHTTPRepeatedDraftSameAcceptCLI: a repeated write of a k8s subject
+// answers the draft it already wrote with the command the first answer named.
+func TestMCPHTTPRepeatedDraftSameAcceptCLI(t *testing.T) {
+	w := newDeclareWorld(t)
+	rd := httpDeclarer(w)
+	ctx := callerCtx("alice", newSelfReviewed(true), &bytes.Buffer{})
+	a := invoicesArgs(w)
+	a.Service, a.Namespace = "k8s:billing/Deployment/invoices", ""
+	var clis []string
+	for range 2 {
+		raw, refused := planThenWrite(t, rd, ctx, a)
+		var run struct {
+			AcceptCLI string `json:"acceptCLI"`
+		}
+		_ = json.Unmarshal(raw, &run)
+		expect(t, refused == nil, "%+v", refused)
+		clis = append(clis, run.AcceptCLI)
+	}
+	want := "pacto declare invoices --registry " + w.host + "/acme --from-draft draft-1"
+	expect(t, clis[0] == want && clis[1] == want && slices.Equal(tagsOf(t, w), []string{"draft-1"}), "%q tags %v", clis, tagsOf(t, w))
+}
