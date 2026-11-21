@@ -23,10 +23,12 @@ import (
 // what the demo itself holds: the targets the cluster reports plus the
 // inferred workloads. The detected rows are TestDemoFleetHasDetectedRows's,
 // the registry rows TestDemoRegistryRows's; the grouping rows' evidence is
-// TestDemoGroups's.
+// TestDemoGroups's. The mesh source's Istio row is reported too, partial,
+// and left out of the count here: it is TestDemoMeshEdgeAndRow's.
 func TestDemoProviderRows(t *testing.T) {
 	snap := demoFleet(t)
 	reported, reporting := splitReporting(snap.Providers)
+	reported = slices.DeleteFunc(reported, func(p fleet.Provider) bool { return p.Source == demoMeshID })
 	if len(reported) != 6 || len(reporting) != 5 {
 		t.Fatalf("providers = %+v, reporting = %+v, want 6 and 5 rows", reported, reporting)
 	}
