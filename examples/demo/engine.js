@@ -12,9 +12,15 @@
 //                   { type: "failed" }
 //
 // Sibling assets carry the same cache-busting query this script was loaded with.
+// A fleet=N in it (boot.js passes the page's ?fleet=N) is handed to the engine
+// as __pactoFleet, which then builds a generated fleet of N services, and is
+// left out of the sibling URLs so the cached engine is the same for every size.
 "use strict";
 
-var v = self.location.search;
+var query = new URLSearchParams(self.location.search);
+self.__pactoFleet = query.get("fleet") || "";
+query.delete("fleet");
+var v = query.toString() ? "?" + query.toString() : "";
 importScripts("wasm_exec.js" + v);
 
 self.__pactoOnReady = function () {

@@ -19,7 +19,12 @@ const WORKER_CLOCK = `{const T=Date.parse('${NOW}'),D=Date;self.Date=class exten
 const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: number; y: number; width: number; height: number }; clipTo?: string; element?: string }[] = [
   { name: 'overview', open: (p) => go(p, '/#/fleet', 'Is anything wrong?') },
   { name: 'service', open: (p) => go(p, '/#/fleet/services/payments-service', 'payments-service') },
-  { name: 'graph', open: async (p) => { await go(p, '/#/fleet/graph/service/payments-service', 'Operational graph'); await p.waitForTimeout(1500); } },
+  { name: 'graph', open: async (p) => { await go(p, '/#/fleet/graph/service/payments-service', 'Operational graph'); await mapIdle(p); } },
+  // The fleet map (509-S12): beside the attention list on the Overview, full screen on the
+  // Operational graph, and in focus on orders-service with its callers and callees two hops out.
+  { name: 'overview-map', open: async (p) => { await go(p, '/#/fleet', 'Is anything wrong?'); await mapIdle(p); }, element: 'section[aria-label="Dependency map"]' },
+  { name: 'fleet-map', open: async (p) => { await go(p, '/#/fleet/graph', 'Operational graph'); await mapIdle(p); } },
+  { name: 'fleet-map-focus', open: async (p) => { await go(p, '/#/fleet/graph/service/orders-service?hops=2', 'Operational graph'); await expect(p.getByTestId('fleet-map-focus')).toBeVisible(); await mapIdle(p); } },
   {
     name: 'change-analysis',
     open: async (p) => {
@@ -134,6 +139,13 @@ async function finish(page: Page) {
   await settle(page);
 }
 
+/** mapIdle waits until the fleet map has drawn its answer and stopped moving. */
+async function mapIdle(page: Page) {
+  await expect(page.getByTestId('fleet-map-summary')).toBeVisible();
+  await page.waitForFunction(() => !!(window as unknown as { __fleetMap?: unknown }).__fleetMap);
+  await page.evaluate(() => (window as unknown as { __fleetMap: { idle: () => Promise<void> } }).__fleetMap.idle());
+}
+
 async function go(page: Page, hash: string, heading: string) {
   await page.goto(hash);
   await expect(page.getByRole('heading', { level: 1 }).filter({ hasText: heading }).first()).toBeVisible();
@@ -141,7 +153,8 @@ async function go(page: Page, hash: string, heading: string) {
 
 for (const theme of ['light', 'dark'] as const) {
   test.describe(theme, () => {
-    test.use({ colorScheme: theme });
+    // Reduced motion: the map jumps to its final view, so a shot never catches it moving.
+    test.use({ colorScheme: theme, reducedMotion: 'reduce' });
     for (const s of SHOTS) {
       test(s.name, async ({ page }) => {
         // A fixed clock, so "as of" times and relative ages read the same on every run.

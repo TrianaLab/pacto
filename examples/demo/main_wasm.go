@@ -70,7 +70,16 @@ func main() {
 	// Wire the operational graph (fleet) and impact provider from the embedded
 	// bundles + deterministic targets, so the Operational Graph and Impact pages
 	// prove the full product story in the browser with no server and no OCI.
-	if snap, byRef, err := buildDemoFleet(src, partners); err != nil {
+	// ?fleet=N (engine.js hands it over as __pactoFleet) swaps the narrative
+	// fleet for a generated one of N services, to see the map at real sizes.
+	var snap *fleet.FleetSnapshot
+	var byRef map[string]*contract.Bundle
+	if n := demoFleetSize(js.Global().Get("__pactoFleet").String()); n > 0 {
+		snap, err = buildGeneratedFleet(n)
+	} else {
+		snap, byRef, err = buildDemoFleet(src, partners)
+	}
+	if err != nil {
 		panic(err)
 	} else {
 		q := fleet.NewQuery(snap)

@@ -228,11 +228,12 @@ e2e-dashboard-wasm: test-browser
 # and on the changesets Version PR, where `required` gates the release on it.
 # PW_SHARD=i/n runs one Playwright slice, as in test-browser. The matrix carries the G1
 # gate too, and here both run in both themes: PRs gate geometry in dark only, so this is
-# where the light theme's geometry is gated.
+# where the light theme's geometry is gated. It also runs the fleet map at 400, 3000
+# and 10000 generated services (fleet-map-scale.spec.ts), with its time budgets asserted.
 test-browser-layout-full:
 	$(MAKE) -C examples/demo build
 	$(MAKE) -C examples/demo doc-export
-	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && PACTO_LAYOUT_FULL=1 npx playwright test e2e/layout-matrix.spec.ts --project=desktop$(if $(PW_SHARD), --shard=$(PW_SHARD))
+	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && PACTO_LAYOUT_FULL=1 npx playwright test e2e/layout-matrix.spec.ts e2e/fleet-map-scale.spec.ts --project=desktop$(if $(PW_SHARD), --shard=$(PW_SHARD))
 
 # The dashboard screenshots in docs/assets/screenshots, captured from the built WASM
 # demo at 1600x1000 in both themes, so they are reproducible rather than hand-made.
