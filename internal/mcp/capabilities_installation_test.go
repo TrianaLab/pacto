@@ -72,3 +72,15 @@ func TestCapabilitiesInstallationWithoutFleet(t *testing.T) {
 		t.Errorf("mcp %#v clusters %#v", inst["mcp"], inst["clusters"])
 	}
 }
+
+// assertInstallationParts: every installation part names its source,
+// provenance and completeness.
+func assertInstallationParts(t *testing.T, got map[string]any) {
+	t.Helper()
+	inst, _ := got["installation"].(map[string]any)
+	for _, part := range []string{"profile", "registry", "delivery", "provisioning", "clusters", "mcp"} {
+		if p, _ := inst[part].(map[string]any); p["source"] == nil || p["provenance"] == nil || p["completeness"] == nil {
+			t.Errorf("installation.%s = %#v", part, inst[part])
+		}
+	}
+}

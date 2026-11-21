@@ -169,12 +169,7 @@ func TestCapabilitiesReportsModes(t *testing.T) {
 	if s, _ := got["asOf"].(string); s == "" {
 		t.Error("no asOf")
 	}
-	inst, _ := got["installation"].(map[string]any)
-	for _, part := range []string{"profile", "registry", "delivery", "provisioning", "clusters", "mcp"} {
-		if p, _ := inst[part].(map[string]any); p["source"] == nil || p["provenance"] == nil || p["completeness"] == nil {
-			t.Errorf("installation.%s = %#v", part, inst[part])
-		}
-	}
+	assertInstallationParts(t, got)
 	caller := got["caller"].(map[string]any)
 	for key, want := range map[string]any{"user": "local", "callerSource": "local", "class": "agent", "policyError": "", "writes": true} {
 		if caller[key] != want {
