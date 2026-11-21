@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -161,6 +162,22 @@ func TestInstallationRowNamesProfile(t *testing.T) {
 		r.Status != fleet.SourceAvailable || len(r.Details) == 0 ||
 		r.UsedFor[0] != "installation profile, target snapshot, organization index and inferred contracts; set by a person with the profile and registry values" {
 		t.Errorf("installation row = %+v", r)
+	}
+}
+
+// The dashboard layout gate's Installation fixture (a profile and a registry)
+// must carry the longest "Used for" this row emits, or the gate measures a
+// shorter string than production sends.
+func TestLayoutGateInstallationFixtureMatchesUsedFor(t *testing.T) {
+	inst := installation(pushed)
+	inst.Profile = []string{"hardened", "idp"}
+	r := row(t, ProviderRows(Result{AsOf: asOf, Installation: inst}, "detection", asOf), "installation")
+	ts, err := os.ReadFile("../dashboard/frontend/e2e/layoutGate.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "usedFor: ['" + r.UsedFor[0] + "']"; !strings.Contains(string(ts), want) {
+		t.Errorf("layoutGate.ts Installation fixture lacks %s", want)
 	}
 }
 
