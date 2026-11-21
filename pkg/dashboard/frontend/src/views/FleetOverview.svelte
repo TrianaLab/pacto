@@ -25,7 +25,7 @@
   import DistributionBar from '../components/viz/DistributionBar.svelte';
   import { completenessTile } from '../lib/fleetHeadline.ts';
   import { MISSING_SECTIONS } from '../lib/fleetMap/modes.ts';
-  import { setHashParams } from '../lib/hashQuery.svelte.ts';
+  import { replaceHashParams } from '../lib/hashQuery.svelte.ts';
   import { hashWith } from '../lib/paging.ts';
 
   // The operational landing page. It consumes /api/fleet/overview
@@ -90,8 +90,8 @@
   onDestroy(() => statsLoader.destroy());
   const stats = $derived(statsLoader.data ?? null);
   const gapsShown = $derived(!!params.gaps);
-  // The match tile shows its gaps on the map; the completeness tile opens the checklist.
-  const toggleGaps = () => setHashParams({ gaps: gapsShown ? null : 'all', only: null, missing: null });
+  // The match tile shows its gaps on the map, in place: the reader keeps their scroll; the completeness tile opens the checklist.
+  const toggleGaps = () => replaceHashParams({ gaps: gapsShown ? null : 'all', only: null, missing: null });
   const openChecklist = () => document.getElementById('sec-knowledge')?.scrollIntoView({ block: 'start' });
 
   const knowledge = $derived(snapshotKnowledge(overview?.meta));

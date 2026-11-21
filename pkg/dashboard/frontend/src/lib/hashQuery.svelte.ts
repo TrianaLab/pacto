@@ -28,6 +28,19 @@ export function listState(defaultLimit: number, prefix = '') {
   return { offset, limit, href };
 }
 
+/**
+ * replaceHashParams writes query keys onto the current route in place: a
+ * view's own state, such as the fleet map's lens, is no navigation. It
+ * notifies with a bare Event, so scroll restoration leaves the page where the
+ * reader is (a new history entry would scroll it to the top).
+ */
+export function replaceHashParams(patch: Record<string, string | number | null | undefined>): void {
+  const h = hashWith(location.hash, patch);
+  if (h === location.hash) return;
+  history.replaceState(history.state, '', h);
+  window.dispatchEvent(new Event('hashchange'));
+}
+
 /** setHashParams writes query keys onto the current route (one history entry). */
 export function setHashParams(patch: Record<string, string | number | null | undefined>): void {
   location.hash = hashWith(location.hash, patch);

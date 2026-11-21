@@ -30,6 +30,9 @@ describe('FleetMapSearch', () => {
     expect(first.textContent).toContain('✕');
     expect(first.textContent).toContain('Not compliant');
     expect(first.textContent).toContain('payments · team-pay');
+    // The name and its context ellipsize: their whole values are in titles.
+    expect(first.querySelector('.fms-name')?.getAttribute('title')).toBe('payments');
+    expect(first.querySelector('.fms-ctx')?.getAttribute('title')).toBe('payments · team-pay');
     press('ArrowDown'); press('ArrowDown');
     flushSync();
     expect(input.getAttribute('aria-activedescendant')).toBe('fleet-map-find-opt-1');

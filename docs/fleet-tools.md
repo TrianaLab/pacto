@@ -155,7 +155,7 @@ $ pacto fleet overview --local examples/demo/bundles --target-state examples/dem
 asOf 2026-11-21T14:32:54+01:00  completeness complete
 Targets 14: compliant 8 (8 stale) · not compliant 2 · unknown 4
 Health: healthy 0 · failing 1 · unknown 13 · not observed 0
-Contract completeness: 47% · 0 of 40 judged services fully described · most missing: domain 35, runtime 33, readiness 33
+Contract completeness: 47% · 0 of 40 judged services fully described · most missing: domain 35, readiness 33, summary 32
 Owners: 38 declared · 1 disputed · 1 none declared · 0 unknown
 Next: pacto fleet attention --category health  (Operational targets failing their health check: 1)
 ```

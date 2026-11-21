@@ -149,7 +149,7 @@ describe('FleetMap', () => {
     const { target, map } = await renderMap(mapAnswer(), { onparams });
     expect(pressed(target, 'Group by')).toEqual(['Domain']);
     expect(pressed(target, 'Show')).toEqual(['Both']);
-    expect(target.querySelector('[data-testid="fleet-map-summary"]')?.textContent).toBe('Showing 8 services and 3 dependencies, expected and observed, in 2 domains.');
+    expect(target.querySelector('[data-testid="fleet-map-summary"]')?.textContent).toMatch(/^Showing 8 services and 3 dependencies, expected and observed, in 2 domains\. As of .+\.$/);
     button(target, 'Owner team').click();
     flushSync();
     expect(onparams).toHaveBeenLastCalledWith({ groupBy: 'team' });
@@ -418,5 +418,91 @@ describe('FleetMap', () => {
     const tip = target.querySelector('[data-testid="fleet-map-edge-tip"]');
     expect(tip?.textContent).toContain('→');
     expect(tip?.textContent).toContain('Accepts: ^1.0');
+  });
+
+  it('the embedded map writes its state in place, so the page keeps its scroll', async () => {
+    location.hash = '#/fleet';
+    const { target } = await renderMap(mapAnswer(), { onparams: undefined });
+    const before = history.length;
+    const events: Event[] = [];
+    const seen = (e: Event) => events.push(e);
+    window.addEventListener('hashchange', seen);
+    button(target, 'Expected').click();
+    flushSync();
+    window.removeEventListener('hashchange', seen);
+    expect(location.hash).toBe('#/fleet?lens=expected');
+    expect(history.length).toBe(before);
+    // A bare Event: scroll restoration reads it as a canonicalization, never a push to the top.
+    expect(events).toHaveLength(1);
+    expect('oldURL' in events[0]).toBe(false);
+  });
+
+  it('a narrow embedded map starts with the rail closed, unless a link opens it', async () => {
+    vi.mocked(HTMLCanvasElement.prototype.getBoundingClientRect).mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 358, bottom: 420, width: 358, height: 420, toJSON: () => ({}) } as DOMRect);
+    const { target } = await renderMap();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="fleet-map-rail"]')).toBeNull());
+    expect(target.querySelector('[data-testid="fleet-map-rail-open"]')).not.toBeNull();
+    done();
+    const linked = await renderMap(mapAnswer(), { params: { rail: 'open' } });
+    expect(linked.target.querySelector('[data-testid="fleet-map-rail"]')).not.toBeNull();
+  });
+
+  it('the wheel scrolls the page past the embedded map; Ctrl or a click into it zooms', async () => {
+    const { canvas } = await renderMap();
+    const k = hooks().view().k;
+    const wheel = (over: WheelEventInit = {}) => {
+      const e = new WheelEvent('wheel', { deltaY: -100, clientX: 400, clientY: 250, bubbles: true, cancelable: true, ...over });
+      canvas.dispatchEvent(e);
+      return e;
+    };
+    expect(wheel().defaultPrevented).toBe(false);
+    expect(hooks().view().k).toBe(k);
+    expect(wheel({ ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(hooks().view().k).toBeGreaterThan(k);
+    const k2 = hooks().view().k;
+    canvas.focus();
+    expect(wheel().defaultPrevented).toBe(true);
+    expect(hooks().view().k).toBeGreaterThan(k2);
+  });
+
+  it('a tap on a group shows its figures and a second frames it; Enter does the same for the centre group', async () => {
+    const big = mapAnswer('snap-1', { bounds: { minX: -1500, minY: -900, maxX: 1500, maxY: 900 } });
+    const { target, canvas } = await renderMap(big);
+    expect(hooks().view().level).toBe(0);
+    const at = toScreen(hooks().view(), 0, 0) as [number, number];
+    tap(canvas, at);
+    // The finger leaving the canvas as it lifts keeps the tooltip.
+    canvas.dispatchEvent(new PointerEvent('pointerleave', { pointerId: 1, pointerType: 'touch', bubbles: true }));
+    flushSync();
+    expect(target.querySelector('[data-testid="fleet-map-group-tip"]')?.textContent).toContain('Payments');
+    expect(live(target)).toBe('Payments: 5 services, 75% match · 80% observed, Contract completeness not judged. Enter frames it.');
+    const k = hooks().view().k;
+    tap(canvas, at);
+    expect(target.querySelector('[data-testid="fleet-map-group-tip"]')).toBeNull();
+    await settle();
+    expect(hooks().view().k).toBeGreaterThan(k);
+    key(canvas, '0');
+    await settle();
+    // Keyboard: the group under the centre.
+    const centred = { ...hooks().view() };
+    const [cx, cy] = toScreen(centred, 0, 0);
+    expect(cx).toBeGreaterThan(0); expect(cy).toBeGreaterThan(0);
+    while (Math.abs(toScreen(hooks().view(), 0, 0)[0] - 400) > 40) key(canvas, toScreen(hooks().view(), 0, 0)[0] > 400 ? 'ArrowRight' : 'ArrowLeft');
+    while (Math.abs(toScreen(hooks().view(), 0, 0)[1] - 250) > 40) key(canvas, toScreen(hooks().view(), 0, 0)[1] > 250 ? 'ArrowDown' : 'ArrowUp');
+    key(canvas, 'Enter');
+    flushSync();
+    expect(target.querySelector('[data-testid="fleet-map-group-tip"]')?.textContent).toContain('Payments');
+    key(canvas, 'Escape');
+    flushSync();
+    expect(target.querySelector('[data-testid="fleet-map-group-tip"]')).toBeNull();
+  });
+
+  it('the selection panel sits under the measured HUD', async () => {
+    const { target, canvas, nodes } = await renderMap();
+    const at = await nodeScreen(nodes);
+    tap(canvas, at);
+    const panel = target.querySelector('[data-testid="fleet-map-selection"]') as HTMLElement;
+    const hud = target.querySelector('.fm-hud') as HTMLElement;
+    expect(panel.style.top).toBe(`${hud.offsetTop + hud.offsetHeight + 8}px`);
   });
 });

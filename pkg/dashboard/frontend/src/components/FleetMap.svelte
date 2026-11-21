@@ -10,7 +10,8 @@
    * lens (Both, Expected, Observed) and the Only problems mode, and picks an
    * environment to dim what does not run there. The map's state lives in the
    * hash query (groupBy, lens, only, gaps, missing, env, focus, hops, rail):
-   * every change is written through onparams, so a view is shareable.
+   * every change is written through onparams, so a view is shareable. By
+   * default it replaces the current entry, so the page keeps its scroll.
    *
    * One click selects a service and shows its panel; a second click or Enter
    * opens it. Focus (from the panel, Find, the attention rail or a hash link)
@@ -27,18 +28,19 @@
   import { fleetEntityUrl } from '../lib/router';
   import { MOTION, prefersReducedMotion } from '../lib/motion';
   import { FleetMapStore, type GroupBy } from '../lib/fleetMap/store.svelte';
-  import { LENSES, groupCount, summary, type Lens } from '../lib/fleetMap/lens';
+  import { LENSES, groupCount, mapNote, summary, type Lens } from '../lib/fleetMap/lens';
+  import { formatRelative } from '../lib/dateFormat';
   import { GAP_KINDS, MISSING_SECTIONS, environmentChoices, gapCount, modeFrom, modeParams, toggleGap, type GapKind, type Mode } from '../lib/fleetMap/modes';
   import { attentionCategoryLabel } from '../lib/entityLabels';
   import { countOf, formatCount, statusLabel } from '../lib/format';
-  import { setHashParams } from '../lib/hashQuery.svelte';
+  import { replaceHashParams } from '../lib/hashQuery.svelte';
   import { Grid, circleAt } from '../lib/fleetMap/hit';
   import {
-    render, readPalette, placeNodes, placeEdges, drawMinimap, LEGEND, EDGE_DASH,
+    render, readPalette, placeNodes, placeEdges, drawMinimap, clearWidths, LEGEND, EDGE_DASH,
     type DrawnLabel, type LegendEntry, type MiniTransform, type Palette, type PlacedEdge, type PlacedNode, type Rect,
   } from '../lib/fleetMap/render';
   import {
-    Camera, L1, L2, L3, LEVEL_NAMES, NODE_R, clampK, fitK, fitView, gapOf, kForGap, level, toWorld, viewFor, zoomAt,
+    Camera, L1, L2, L3, LEVEL_NAMES, NODE_R, clampK, fitK, fitView, gapOf, kForGap, level, toScreen, toWorld, viewFor, zoomAt,
     type View, type Viewport,
   } from '../lib/fleetMap/view';
   import type { GroupPage } from '../lib/fleetMap/store.svelte';
@@ -48,7 +50,7 @@
     variant = 'embedded',
     params = {},
     store = new FleetMapStore(),
-    onparams = setHashParams,
+    onparams = replaceHashParams,
   }: { variant?: 'embedded' | 'full'; params?: Record<string, string>; store?: FleetMapStore; onparams?: (patch: Patch) => void } = $props();
 
   const GROUPINGS: readonly GroupBy[] = ['domain', 'team', 'environment'];
@@ -70,8 +72,12 @@
   const environment = $derived(groupBy === 'environment' ? '' : q.env ?? '');
   const focusKey = $derived(q.focus ?? '');
   const hops = $derived(q.hops === '2' ? 2 : 1);
-  // The rail is open by default beside the Overview's map and closed on the full page.
-  const railParam = $derived(q.rail === 'open' ? true : q.rail === 'closed' ? false : variant !== 'full');
+  // The map's own width under 40rem: the rail would cover nearly all of it.
+  let narrow = $state(typeof window !== 'undefined' && window.innerWidth < 640);
+  // The rail is open by default beside the Overview's map, unless the map is
+  // narrow, and closed on the full page; rail=open (an attention link) wins.
+  const railDefault = $derived(variant !== 'full' && !narrow);
+  const railParam = $derived(q.rail === 'open' ? true : q.rail === 'closed' ? false : railDefault);
   // Two hops need the width: the rail folds away for as long as they show.
   const railShown = $derived(railParam && !(focusKey && hops > 1));
   const railFilters = $derived(Object.fromEntries(RAIL_FILTERS.filter((k) => q[k]).map((k) => [k, q[k]])));
@@ -99,6 +105,8 @@
   // The group tooltip, pinned where the pointer entered the bubble so the reader can reach its action.
   let tip = $state<{ key: string; x: number; y: number } | null>(null);
   let tipEl: HTMLDivElement | undefined = $state();
+  // The tooltip's measured size and the map's, so the tooltip is kept whole inside the map.
+  let tipW = $state(0), tipH = $state(0), mapW = $state(0), mapH = $state(0);
   let lastLabels: DrawnLabel[] = [];
   // Focus: the diagram, the view to return to, the entry fade and what the pointer is over.
   let layout = $state.raw<FocusLayout | null>(null);
@@ -111,7 +119,7 @@
   let etip = $state<{ tip: EdgeTip; x: number; y: number } | null>(null);
   // The service one click selected: its panel shows, a second click or Enter opens it.
   let selected = $state.raw<PlacedNode | null>(null);
-  let railW = 0;
+  let railW = $state(0);
   /** The viewport with the width the rail covers. */
   const vpr = (): Viewport => ({ ...vp, rail: railShown ? railW : 0 });
   const frames: number[] = [];
@@ -191,9 +199,17 @@
     return circleAt(groups, cx, cy)?.label ?? null;
   }
 
+  // The HUD's box in the map, measured: on a phone its crumbs and ladder wrap
+  // under the rail button and grow far taller than on a desktop.
+  let hudEl: HTMLDivElement | undefined = $state();
+  let hud = $state<Rect>([0, 0, 320, 96]);
+  function measureHud() {
+    if (hudEl) hud = [hudEl.offsetLeft, hudEl.offsetTop, hudEl.offsetLeft + hudEl.offsetWidth, hudEl.offsetTop + hudEl.offsetHeight];
+  }
+
   /** The screen corners the HUD covers. */
   function reserved(): Rect[] {
-    const r: Rect[] = [[0, 0, 320, 96], [vp.w - 64, vp.h - 172, vp.w, vp.h]];
+    const r: Rect[] = [[0, 0, Math.max(hud[2], 1) + 8, hud[3] + 8], [vp.w - 64, vp.h - 172, vp.w, vp.h]];
     if (showMini) r.push([0, vp.h - 140, 190, vp.h]);
     r.push(railShown && railW ? [vp.w - railW, 0, vp.w, vp.h] : [vp.w - 200, 0, vp.w, 56]);
     return r;
@@ -203,6 +219,7 @@
     if (!canvas) return false;
     const r = canvas.getBoundingClientRect();
     if (!r.width || !r.height) return false;
+    narrow = r.width < 640;
     if (Math.abs(r.width - vp.w) > 0.5 || Math.abs(r.height - vp.h) > 0.5) {
       const old = vp;
       dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -356,8 +373,16 @@
     else if (e.key === 'ArrowUp') pan(0, step);
     else if (e.key === 'ArrowDown') pan(0, -step);
     else if (e.key === 'Enter' && (layout || selected)) open(layout ? layout.focus.key : selected!.node.key);
+    else if (e.key === 'Enter' && lvl === 0 && answer) {
+      // The group under the centre: Enter shows its figures, again frames it.
+      const [wx, wy] = toWorld(camera.view, cx, cy);
+      const g = circleAt(groups, wx, wy);
+      if (!g) return;
+      if (tip?.key === g.key) { tip = null; zoomToGroup(g); } else tip = tipAt(g.key, cx, cy);
+    }
     else if (e.key === 'Escape' && layout) leaveFocus();
     else if (e.key === 'Escape' && selected) selected = null;
+    else if (e.key === 'Escape' && tip) tip = null;
     else if (e.key === 'Escape' && mode) setMode(null);
     else return;
     e.preventDefault();
@@ -409,12 +434,15 @@
     const v = camera.view;
     const [wx, wy] = toWorld(v, x, y);
     const g = lvl === 0 ? circleAt(groups, wx, wy)?.key ?? null : null;
-    if (g !== hoverGroup) { hoverGroup = g; tip = g ? { key: g, x: Math.max(8, Math.min(x + 12, vp.w - 268)), y: Math.max(8, Math.min(y + 12, vp.h - 180)) } : null; request(); }
+    if (g !== hoverGroup) { hoverGroup = g; tip = g ? tipAt(g, x, y) : null; request(); }
     const n = lvl >= 1 ? nodeAt(wx, wy, v.k) : null;
     const nk = n?.node.key ?? null;
     if (nk !== hoverNode) { hoverNode = nk; request(); }
     if (canvas) canvas.style.cursor = g || n ? 'pointer' : '';
   }
+
+  /** tipAt places a group's tooltip beside (x, y); its style keeps it whole, clear of the rail and the map's edges. */
+  const tipAt = (key: string, x: number, y: number) => ({ key, x: x + 12, y: y + 12 });
 
   function hoverFocus(x: number, y: number) {
     const h = layout && lastFocus ? hitFocus(layout, lastFocus, x, y) : {};
@@ -427,6 +455,8 @@
   function unhover(e: PointerEvent) {
     etip = null;
     if (hoverEdge) { hoverEdge = null; request(); }
+    // A finger leaves the canvas as it lifts: a tapped group keeps its tooltip.
+    if (e.pointerType === 'touch') return;
     if (drag || (tipEl && e.relatedTarget instanceof Node && tipEl.contains(e.relatedTarget))) return;
     if (hoverGroup || hoverNode) { hoverGroup = null; hoverNode = null; request(); }
     tip = null;
@@ -463,10 +493,17 @@
     }
     if (selected) { selected = null; request(); }
     const g = lvl === 0 ? circleAt(groups, wx, wy) : null;
+    // A group's first tap (or click, where the pointer did not hover it) shows
+    // its figures; the next one frames it.
+    if (g && tip?.key !== g.key) { tip = tipAt(g.key, x, y); return; }
     if (g) { tip = null; zoomToGroup(g); }
+    else tip = null;
   }
 
   function onWheel(e: WheelEvent) {
+    // Beside the Overview's other sections the wheel scrolls the page: the map
+    // zooms with Ctrl or Cmd held, or once the reader has clicked into it.
+    if (variant !== 'full' && !e.ctrlKey && !e.metaKey && document.activeElement !== canvas) return;
     e.preventDefault();
     tip = null;
     zoomBy(...point(e), Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0018)));
@@ -487,6 +524,22 @@
 
   const choices = $derived(environmentChoices(store.environments));
   const tipGroup = $derived(tip ? byKey.get(tip.key) ?? null : null);
+  // Whole inside the map, clear of the rail and the zoom column, and under the HUD when beside it.
+  const tipBox = $derived.by(() => {
+    if (!tip) return { left: 0, top: 0, max: 0 };
+    // The right edge keeps clear of the zoom column (44px and its margins).
+    const left = Math.max(8, Math.min(tip.x, mapW - (railShown ? railW : 0) - tipW - 64));
+    const floor = left < hud[2] + 8 ? hud[3] + 8 : 8;
+    const top = Math.max(floor, Math.min(tip.y, mapH - tipH - 8));
+    return { left, top, max: Math.max(64, mapH - top - 8) };
+  });
+  /** tipWords are a group's figures, as its tooltip and the live region say them. */
+  const tipWords = (g: NonNullable<typeof tipGroup>) => [
+    countOf(groupCount(g, shown), 'service'),
+    g.match.percent == null ? 'Pacto observes nothing yet' : `${g.match.percent}% match · ${g.match.coverage ?? 0}% observed`,
+    g.percentComplete == null ? 'Contract completeness not judged' : `${g.percentComplete}% contract completeness`,
+  ];
+  const note = $derived(answer ? mapNote(answer, (iso) => formatRelative(iso)) : '');
   /** Legend tones as design tokens. */
   const TONE: Partial<Record<keyof Palette, string>> = { text2: '--c-text-2', text3: '--c-text-3', err: '--c-err', warn: '--c-warn', info: '--c-info', neutral: '--c-neutral' };
   const tone = (e: LegendEntry) => `var(${TONE[e.tone] ?? '--c-text-3'})`;
@@ -498,7 +551,8 @@
   const live = $derived(
     layout ? `Focus on ${layout.focus.name}: ${callWords(layout.callers, layout.callees)}. Escape returns to the whole fleet.`
       : selected ? `Selected ${selected.node.label || selected.node.name}. Enter opens it, Escape clears the selection.`
-        : `Level ${lvl}, ${LEVEL_NAMES[lvl]}${centre ? `, ${centre}` : ''}`,
+        : tipGroup ? `${tipGroup.label}: ${tipWords(tipGroup).join(', ')}. Enter frames it.`
+          : `Level ${lvl}, ${LEVEL_NAMES[lvl]}${centre ? `, ${centre}` : ''}`,
   );
   const focusGroup = $derived(layout ? byKey.get(layout.group)?.label ?? layout.group : '');
 
@@ -513,12 +567,31 @@
   }
 
   const railToggle = (open: boolean) =>
-    set({ rail: open === (variant !== 'full') ? null : open ? 'open' : 'closed' });
+    set({ rail: open === railDefault ? null : open ? 'open' : 'closed' });
   const clearRail = () => set(Object.fromEntries(RAIL_FILTERS.map((k) => [k, null])));
 
-  /** Test hooks: frame times, the labels last drawn and a promise for the end of motion. */
-  type Hooks = { bench: () => { frames: number[]; p95: number }; labels: () => DrawnLabel[]; idle: () => Promise<void>; view: () => View & { level: number } };
+  /**
+   * Test hooks: frame times, the labels last drawn, a promise for the end of
+   * motion, and the selection and group tooltip a pointer would open (select
+   * picks a drawn service, the first by default; pin a group, the first by default).
+   */
+  type Hooks = {
+    bench: () => { frames: number[]; p95: number }; labels: () => DrawnLabel[]; idle: () => Promise<void>; view: () => View & { level: number };
+    select: (key?: string) => boolean; pin: (key?: string) => boolean;
+  };
   const hooks: Hooks = {
+    select: (key) => {
+      const n = drawn.find((p) => p.vis > 0 && (!key || p.node.key === key));
+      if (n) { selected = n; tip = null; request(); }
+      return !!n;
+    },
+    pin: (key) => {
+      const g = key ? byKey.get(key) : groups.find((x) => x.services > 0);
+      if (!g) return false;
+      const [x, y] = toScreen(camera.view, g.x, g.y);
+      tip = tipAt(g.key, x, y);
+      return true;
+    },
     bench: () => {
       const s = [...frames].sort((a, b) => a - b);
       return { frames: [...frames], p95: s.length ? s[Math.min(s.length - 1, Math.floor(s.length * 0.95))] : 0 };
@@ -534,11 +607,18 @@
   let observer: ResizeObserver | undefined;
   onMount(() => {
     (window as unknown as { __fleetMap?: Hooks }).__fleetMap = hooks;
-    observer = new ResizeObserver(() => { if (measure()) request(); });
+    observer = new ResizeObserver(() => { measureHud(); if (measure()) request(); });
     if (canvas) observer.observe(canvas);
-    const theme = new MutationObserver(() => { palette = null; request(); });
-    theme.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    return () => theme.disconnect();
+    if (hudEl) observer.observe(hudEl);
+    measureHud();
+    // A theme or a root font change, or a webfont arriving late, changes what a
+    // label measures: read the palette and measure every label again.
+    const restyle = () => { palette = null; clearWidths(); request(); };
+    const theme = new MutationObserver(restyle);
+    theme.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'style', 'class'] });
+    theme.observe(document.head, { childList: true });
+    document.fonts?.addEventListener?.('loadingdone', restyle);
+    return () => { theme.disconnect(); document.fonts?.removeEventListener?.('loadingdone', restyle); };
   });
   onDestroy(() => {
     observer?.disconnect();
@@ -583,7 +663,7 @@
     </label>
   {/if}
 </div>
-{#if answer}<p class="fm-summary" data-testid="fleet-map-summary">{summary(answer, shown)}</p>{/if}
+{#if answer}<p class="fm-summary" data-testid="fleet-map-summary">{summary(answer, shown)}{#if note}{' '}<span class="fm-note" data-testid="fleet-map-note">{note}</span>{/if}</p>{/if}
 {#if layout}
   <div class="fm-modebar" data-testid="fleet-map-focus">
     <p>
@@ -615,7 +695,7 @@
     <button type="button" class="fm-clear" onclick={() => setMode(null)}>Show everything</button>
   </div>
 {/if}
-<div class="fm" class:fm-full={variant === 'full'} class:fm-railed={railShown} data-testid="fleet-map">
+<div class="fm" class:fm-full={variant === 'full'} class:fm-railed={railShown} data-testid="fleet-map" bind:clientWidth={mapW} bind:clientHeight={mapH}>
   <!-- svelte-ignore a11y_no_interactive_element_to_noninteractive_role (the map is an image to assistive technology; it is focusable only for its zoom and pan keys, and its words are the HUD, the ladder and the live region) -->
   <canvas
     bind:this={canvas}
@@ -632,7 +712,7 @@
     onpointerleave={unhover}
     onwheel={onWheel}
   ></canvas>
-  <div class="fm-hud">
+  <div class="fm-hud" bind:this={hudEl}>
     <nav class="fm-crumbs" aria-label="Where you are">
       {#if layout}
         <button type="button" onclick={leaveFocus}>Whole fleet</button>
@@ -665,12 +745,11 @@
   {/if}
   {#if tip && tipGroup}
     <div class="fm-tip" bind:this={tipEl} data-testid="fleet-map-group-tip" role="group" aria-label={tipGroup.label}
-      style:left="{tip.x}px" style:top="{tip.y}px"
+      bind:offsetWidth={tipW} bind:offsetHeight={tipH}
+      style:left="{tipBox.left}px" style:top="{tipBox.top}px" style:max-block-size="{tipBox.max}px"
       onpointerleave={(e) => { if (!(e.relatedTarget instanceof Node && canvas?.contains(e.relatedTarget))) tip = null; }}>
       <b>{tipGroup.label}</b>
-      <span>{countOf(groupCount(tipGroup, shown), 'service')}</span>
-      <span>{tipGroup.match.percent == null ? 'Pacto observes nothing yet' : `${tipGroup.match.percent}% match · ${tipGroup.match.coverage ?? 0}% observed`}</span>
-      <span>{tipGroup.percentComplete == null ? 'Contract completeness not judged' : `${tipGroup.percentComplete}% contract completeness`}</span>
+      {#each tipWords(tipGroup) as w (w)}<span>{w}</span>{/each}
       {#each (tipGroup.attention.worst ?? []).slice(0, 3) as w (w.category)}
         <span class="fm-tip-worst">{attentionCategoryLabel(w.category)} {w.count}</span>
       {/each}
@@ -681,7 +760,7 @@
   {/if}
   {#if selected && !layout}
     {@const n = selected.node}
-    <div class="fm-panel" data-testid="fleet-map-selection" role="group" aria-label="Selected: {n.label || n.name}">
+    <div class="fm-panel" data-testid="fleet-map-selection" role="group" aria-label="Selected: {n.label || n.name}" style:top="{hud[3] + 8}px">
       <button type="button" class="fm-panel-close" aria-label="Clear the selection" onclick={() => { selected = null; request(); }}>✕</button>
       <b><bdi>{n.label || n.name}</bdi></b>
       <span>{[n.version ? `v${n.version}` : '', n.external ? 'external system' : n.owner || 'no owner', selected.group.label].filter(Boolean).join(' · ')}</span>
@@ -736,19 +815,21 @@
   .fm-env { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--c-text-2); }
   .fm-env select { min-block-size: 32px; max-inline-size: 16rem; }
   .fm-summary { margin: 0; font-size: var(--text-sm); color: var(--c-text-2); overflow-wrap: anywhere; }
+  .fm-note { color: var(--c-text-3); }
   .fm-modebar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface-raised); font-size: var(--text-sm); }
   .fm-modebar p { margin: 0; flex: 1 1 18rem; }
   .fm-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
   .fm-chip { display: inline-flex; align-items: center; gap: var(--sp-1); }
   .fm-sw { inline-size: 22px; block-size: 12px; flex: none; }
-  .fm-tip { position: absolute; z-index: 2; display: flex; flex-direction: column; gap: 2px; inline-size: max-content; max-inline-size: 16rem; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface-raised); box-shadow: var(--shadow-md, 0 4px 16px rgb(0 0 0 / 0.25)); font-size: var(--text-sm); color: var(--c-text-2); overflow-wrap: anywhere; }
+  .fm-tip { position: absolute; z-index: 3; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; inline-size: max-content; max-inline-size: min(16rem, calc(100% - 5rem)); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface-raised); box-shadow: var(--shadow-md, 0 4px 16px rgb(0 0 0 / 0.25)); font-size: var(--text-sm); color: var(--c-text-2); overflow-wrap: anywhere; }
   .fm-tip b { color: var(--c-text); }
   .fm-tip-worst { color: var(--c-text-3); }
   .fm-tip button { margin-block-start: var(--sp-1); align-self: flex-start; border: 0; background: none; padding: 0; color: var(--c-accent); cursor: pointer; font-size: inherit; text-align: start; }
   .fm-legend { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); margin: 0; padding: 0; list-style: none; font-size: var(--text-xs); color: var(--c-text-2); }
   .fm-legend li { display: inline-flex; align-items: center; gap: var(--sp-2); }
   .fm-glyph { font-weight: 700; }
-  .fm { position: relative; block-size: clamp(420px, calc(100dvh - 300px), 1100px); background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-sm); overflow: hidden; }
+  /* Never taller than the screen less a margin, so the page can scroll past it on a landscape phone. */
+  .fm { position: relative; block-size: min(clamp(420px, calc(100dvh - 300px), 1100px), calc(100dvh - 4rem)); background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-sm); overflow: hidden; }
   .fm.fm-full { block-size: clamp(460px, calc(100dvh - 200px), 1400px); }
   canvas:not(.fm-mini) { display: block; inline-size: 100%; block-size: 100%; touch-action: none; cursor: grab; }
   canvas.dragging { cursor: grabbing; }
@@ -783,7 +864,9 @@
   @media (max-width: 40rem) { .fm-ladder { flex-wrap: wrap; max-inline-size: 100%; border-radius: var(--radius-sm); } }
   .fm-mini { position: absolute; inset-block-end: var(--sp-3); inset-inline-start: var(--sp-3); inline-size: 10.5rem; block-size: 7.5rem; border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); cursor: pointer; }
   .fm-mini[hidden] { display: none; }
-  .fm-panel { position: absolute; z-index: 2; inset-block-start: 6.5rem; inset-inline-start: var(--sp-3); display: flex; flex-direction: column; gap: 2px; inline-size: max-content; max-inline-size: min(18rem, calc(100% - 2rem)); padding: var(--sp-2) var(--sp-3); padding-inline-end: var(--sp-6, 2rem); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface-raised); font-size: var(--text-sm); color: var(--c-text-2); overflow-wrap: anywhere; }
+  /* Its top sits under the measured HUD (style:top), so it never covers the crumbs or the ladder. */
+  /* It keeps clear of the zoom column on its right and of its own close button. */
+  .fm-panel { position: absolute; z-index: 2; inset-block-start: 6.5rem; inset-inline-start: var(--sp-3); display: flex; flex-direction: column; gap: 2px; inline-size: max-content; max-inline-size: min(18rem, calc(100% - 2 * var(--sp-3) - 44px - var(--sp-2))); padding: var(--sp-2) var(--sp-3); padding-inline-end: calc(2px + 28px + var(--sp-2)); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface-raised); font-size: var(--text-sm); color: var(--c-text-2); overflow-wrap: anywhere; }
   .fm-panel b { color: var(--c-text); }
   .fm-panel-close { position: absolute; inset-block-start: 2px; inset-inline-end: 2px; border: 0; background: none; color: var(--c-text-3); cursor: pointer; min-inline-size: 28px; min-block-size: 28px; }
   .fm-panel-actions { display: flex; gap: var(--sp-2); margin-block-start: var(--sp-1); }
@@ -794,4 +877,5 @@
   .fm-error { position: absolute; inset-block-start: 50%; inset-inline: var(--sp-4); margin: 0; text-align: center; color: var(--c-err); }
   @media (pointer: coarse) { .fm-zoom button, .fm-ladder button, .fm-crumbs button { min-inline-size: 44px; min-block-size: 44px; } }
   @media (pointer: coarse) { .fm-seg button, .fm-toggle, .fm-chip, .fm-clear, .fm-env select, .fm-tip button, .fm-panel button { min-inline-size: 44px; min-block-size: 44px; } }
+  @media (pointer: coarse) { .fm-panel { padding-inline-end: calc(2px + 44px + var(--sp-2)); } }
 </style>

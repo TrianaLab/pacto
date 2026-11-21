@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LENSES, edgeVisible, groupCount, nodeVisibility, ribbonCount, summary, type MapEdge, type MapGroup, type MapNode } from './lens';
+import { LENSES, edgeVisible, groupCount, mapNote, nodeVisibility, ribbonCount, summary, type MapEdge, type MapGroup, type MapNode } from './lens';
 import { placeNodes } from './render';
 import { mapAnswer, nodesPage } from './testkit';
 
@@ -69,5 +69,18 @@ describe('fleet map lens', () => {
     const groups = mapAnswer().groups!.map((g, i) => ({ ...g, subs: i ? [sub('t3')] : [sub('t1'), sub('t2')] })) as MapGroup[];
     expect(summary(mapAnswer('s', { groupBy: 'team', nested: true, groups }), 'both')).toContain('in 3 teams across 2 domains.');
     expect(summary(mapAnswer('s', { groupBy: 'team', groups }), 'both')).toContain('in 2 teams.');
+  });
+
+  it('notes when the map was read and what it left out or could not tell', () => {
+    const at = () => '2 min ago';
+    expect(mapNote(mapAnswer(), at)).toBe('As of 2 min ago.');
+    const a = mapAnswer('s', {
+      groupBy: 'environment', environmentOrder: 'name', ribbonsTruncated: true,
+      totals: { services: 8, inferred: 1, externals: 0, targets: 0, groups: 302, folded: 3, ribbons: 2500 },
+      meta: { ...mapAnswer().meta, completeness: 'partial', sourceCounts: { total: 2, available: 1, partial: 0, stale: 0, unavailable: 1 }, limitations: [{ code: 'HIDDEN_BY_PERMISSIONS', message: 'x' }] },
+    } as never);
+    expect(mapNote(a, at)).toBe('As of 2 min ago; partial: 1 data source is unavailable; some services are hidden from you; '
+      + 'environments read by name, as no Stage you may read orders them; the 3 smallest groups are folded into Other; '
+      + 'the 2,499 smallest links between groups are left out.');
   });
 });

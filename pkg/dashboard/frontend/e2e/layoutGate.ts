@@ -1625,9 +1625,14 @@ export function installScaleFixture(): void {
   });
 }
 
-/** Forces the wide font CI renders (DejaVu stands behind Verdana) and the final frame. */
+/**
+ * Forces the wide font CI renders (DejaVu stands behind Verdana) and the final frame.
+ * The fleet map's canvas reads its fonts from --font-sans and --font-display, which
+ * an element rule never reaches, so those are forced too.
+ */
 export async function gateMode(page: Page): Promise<void> {
-  await page.addStyleTag({ content: '*{font-family: Verdana, "DejaVu Sans", sans-serif !important}' });
+  const wide = 'Verdana, "DejaVu Sans", sans-serif';
+  await page.addStyleTag({ content: `*{font-family: ${wide} !important} :root{--font-sans: ${wide} !important; --font-display: ${wide} !important}` });
   await page.evaluate(() => { document.documentElement.dataset.narrate = 'final'; });
 }
 
@@ -2295,6 +2300,20 @@ function openGenerated(n: number): (page: Page) => Promise<void> {
   };
 }
 
+// 509-S12: the full map at a level of detail with what a pointer opens there (a
+// selected service or a group's tooltip), through the map's test hooks.
+type MapStateHooks = { idle: () => Promise<void>; select: () => boolean; pin: () => boolean };
+function openMapState(level: string, hook: 'select' | 'pin'): (page: Page) => Promise<void> {
+  return async (page) => {
+    await page.goto('/#/fleet/graph');
+    await expect(page.getByTestId('fleet-map-summary')).toBeVisible({ timeout: 30_000 });
+    const ladder = page.getByRole('group', { name: 'Level of detail' });
+    if (await ladder.isVisible()) await ladder.getByRole('button', { name: level }).click();
+    await page.evaluate(() => (window as unknown as { __fleetMap: MapStateHooks }).__fleetMap.idle());
+    await expect.poll(() => page.evaluate((h) => (window as unknown as { __fleetMap: MapStateHooks }).__fleetMap[h](), hook), { timeout: 30_000 }).toBe(true);
+  };
+}
+
 // 514-S2: a list under the three-cluster fixture, waiting for what it adds.
 function openMultiCluster(hash: string, ready = '[data-testid="cluster-caption"]'): (page: Page) => Promise<void> {
   return async (page) => {
@@ -2342,6 +2361,14 @@ export const ROUTES: Route[] = [
   { name: 'fleet map full', hash: '#/fleet/graph' },
   { name: 'fleet map focus', hash: '#/fleet/graph/service/orders-service?hops=2' },
   { name: 'fleet map environments', hash: '#/fleet/graph?groupBy=environment' },
+  // The map's modes, its environment picker, its selection panel and its group tooltip.
+  { name: 'fleet map only problems', hash: '#/fleet/graph?only=problems' },
+  { name: 'fleet map gaps', hash: '#/fleet/graph?gaps=all' },
+  { name: 'fleet map missing', hash: '#/fleet?missing=configuration' },
+  { name: 'fleet map environment picked', hash: '#/fleet/graph?env=production' },
+  { name: 'overview map focus', hash: '#/fleet?focus=orders-service&rail=open' },
+  { name: 'fleet map selection', open: openMapState('Names', 'select') },
+  { name: 'fleet map group tooltip', open: openMapState('Groups', 'pin') },
   { name: 'fleet map 3000', full: true, fleet: 3000, open: openGenerated(3000) },
   { name: 'fleet map 10000', full: true, fleet: 10000, open: openGenerated(10000) },
   { name: 'graph focused', hash: '#/fleet/graph/service/payments-service' },

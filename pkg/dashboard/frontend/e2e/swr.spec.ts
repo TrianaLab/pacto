@@ -148,7 +148,8 @@ test.describe('WASM demo — retained rows answer the question that is on screen
     // filtered-empty state. What it may never be is the unfiltered backlog.
     await expect(rail.getByTestId('fleet-map-rail-filtered')).toContainText('Severity Error', { timeout: T });
     await expect.poll(async () => (await rail.getByTestId('fleet-map-rail-item').count()) > 0
-      || (await rail.getByText('Nothing needs attention with these filters.').count()) > 0, { timeout: T }).toBe(true);
+      || (await rail.getByText('Nothing needs attention with these filters.').count()) > 0
+      || (await rail.getByTestId('fleet-map-rail-unknown').count()) > 0, { timeout: T }).toBe(true);
     for (const label of await rail.locator('section').evaluateAll((ss) => ss.map((x) => x.getAttribute('aria-label')))) expect(label).toBe('Error');
   });
 

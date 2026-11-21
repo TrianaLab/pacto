@@ -24,11 +24,13 @@
 {#snippet option(r, q)}
   {@const [a, m, b] = parts(r.label, q)}
   {@const tone = statusTone(r.status)}
+  {@const ctx = [r.businessDomain, r.owner].filter(Boolean).join(' · ')}
   <span class="fms-opt">
     <span class="fms-glyph fms-{tone}" title={statusLabel(r.status)} aria-hidden="true">{GLYPH[tone]}</span>
     <span class="visually-hidden">{statusLabel(r.status)}</span>
-    <bdi class="fms-name">{a}{#if m}<mark>{m}</mark>{/if}{b}</bdi>
-    <span class="fms-ctx">{[r.businessDomain, r.owner].filter(Boolean).join(' · ')}</span>
+    <!-- Both ellipsize: the whole value is in the title. -->
+    <bdi class="fms-name" title={r.label}>{a}{#if m}<mark>{m}</mark>{/if}{b}</bdi>
+    <span class="fms-ctx" title={ctx || undefined}>{ctx}</span>
   </span>
 {/snippet}
 

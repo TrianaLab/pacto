@@ -5,7 +5,8 @@
  * services hidden); Observed shows what Pacto can see (a service it cannot
  * observe is a grey ghost, a declared one Pacto sees not running is hidden).
  */
-import { countOf } from '../format';
+import { countOf, formatCount } from '../format';
+import { degradedSourceSummary, snapshotKnowledge } from '../knowledgeState';
 import type { FleetMapAnswer, FleetMapNodesPage } from '../api';
 
 export type Lens = 'both' | 'expected' | 'observed';
@@ -84,4 +85,24 @@ export function summary(a: FleetMapAnswer, lens: Lens): string {
     where = a.groupBy === 'team' ? countOf(real.length, 'team') : countOf(real.length, 'domain');
   }
   return `Showing ${countOf(n, 'service')} and ${countOf(dependencyCount(a, lens), 'dependency', 'dependencies')}, ${LENS_WORDS[lens]}, in ${where}.`;
+}
+
+/**
+ * mapNote is what the reader must know to trust the map, under the summary:
+ * when it was read, whether every source was complete and what the answer
+ * left out or could not tell (hidden services, environments by name, folded
+ * groups, dropped links). Empty parts are left out.
+ */
+export function mapNote(a: FleetMapAnswer, asOf: (iso: string) => string): string {
+  const k = snapshotKnowledge(a.meta);
+  const codes = new Set([...(a.meta?.limitations ?? []), ...(a.limitations?.items ?? [])].map((l) => l.code));
+  const parts = [
+    a.meta?.asOf ? `As of ${asOf(a.meta.asOf)}` : '',
+    k.incomplete ? `partial: ${degradedSourceSummary(k) || 'not every source is complete'}` : '',
+    codes.has('HIDDEN_BY_PERMISSIONS') ? 'some services are hidden from you' : '',
+    a.groupBy === 'environment' && a.environmentOrder === 'name' ? 'environments read by name, as no Stage you may read orders them' : '',
+    a.totals.folded ? `the ${formatCount(a.totals.folded)} smallest groups are folded into Other` : '',
+    a.ribbonsTruncated ? `the ${formatCount(a.totals.ribbons - (a.ribbons?.length ?? 0))} smallest links between groups are left out` : '',
+  ].filter(Boolean);
+  return parts.length ? `${parts.join('; ')}.` : '';
 }

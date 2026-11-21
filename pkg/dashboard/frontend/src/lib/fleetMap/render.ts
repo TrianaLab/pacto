@@ -78,7 +78,7 @@ export function placeEdges(page: GroupPage, nodes: readonly PlacedNode[]): Place
 export type Rect = [number, number, number, number];
 
 /** One drawn label: its text, rectangle in CSS pixels and font size in pixels. */
-export interface DrawnLabel { text: string; x: number; y: number; w: number; h: number; size: number }
+export interface DrawnLabel { text: string; x: number; y: number; w: number; h: number; size: number; font: string }
 
 export interface Scene {
   groups: readonly MapGroup[];
@@ -164,6 +164,8 @@ class Occ {
 }
 
 const widths = new Map<string, number>();
+/** clearWidths forgets every measured width: a webfont that arrived late draws wider or narrower than its fallback. */
+export function clearWidths(): void { widths.clear(); }
 function textW(ctx: CanvasRenderingContext2D, s: string, font: string): number {
   const k = `${font}|${s}`;
   let w = widths.get(k);
@@ -204,7 +206,7 @@ export function render(ctx: CanvasRenderingContext2D, s: Scene): RenderResult {
     ctx.fillStyle = color; ctx.fillText(txt, x, y);
     const w = textW(ctx, txt, font);
     const left = align === 'center' ? x - w / 2 : x;
-    labels.push({ text: txt, x: left, y: y - size * 0.575, w, h: size * 1.15, size });
+    labels.push({ text: txt, x: left, y: y - size * 0.575, w, h: size * 1.15, size, font });
   };
   const shown = a1 > 0.5 ? s.nodes.filter((p) => p.vis && inView(p.x, p.y)) : [];
   const rpx = dotRadius(k);

@@ -255,7 +255,7 @@ export function renderFocus(ctx: CanvasRenderingContext2D, L: FocusLayout, s: Fo
     ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'middle';
     ctx.fillText(t, x, y);
     const w = ctx.measureText(t).width;
-    labels.push({ text: t, x: align === 'center' ? x - w / 2 : x, y: y - size * 0.575, w, h: size * 1.15, size });
+    labels.push({ text: t, x: align === 'center' ? x - w / 2 : x, y: y - size * 0.575, w, h: size * 1.15, size, font });
   };
   const fits = (r: Rect) => r[0] >= 0 && r[1] >= 0 && r[2] <= s.w && r[3] <= s.h && free(taken, r);
   ctx.globalAlpha = s.t;

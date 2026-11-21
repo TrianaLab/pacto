@@ -21,6 +21,7 @@
   import { SEVERITY_GLYPH } from '../lib/fleetMap/render';
   import { hashForHref } from '../lib/router';
   import { ownerKeyLabel, ownerKeyKind } from '../lib/owners';
+  import { degradedSourceSummary, snapshotKnowledge } from '../lib/knowledgeState';
 
   const STEP = 30;
   const SEVERITIES = ['error', 'warning', 'info'] as const;
@@ -70,6 +71,8 @@
   const total = $derived(list?.total ?? 0);
   const bySeverity = $derived(SEVERITIES.map((s) => [s, items.filter((i) => i.severity === s)] as const).filter(([, l]) => l.length));
   const counted = $derived((list?.severities?.errors ?? 0) + (list?.severities?.warnings ?? 0));
+  // An empty list from an incomplete snapshot is no all-clear.
+  const knowledge = $derived(snapshotKnowledge(list?.meta));
 
   const valueWords = (k: string, v: string) =>
     k === 'category' ? attentionCategoryLabel(v) : k === 'severity' ? severityLabel(v) : k === 'status' ? statusLabel(v) : k === 'staleOnly' ? 'yes'
@@ -111,7 +114,11 @@
       {#if error}
         <p class="rail-msg" role="alert">The attention list could not load: {error}</p>
       {:else if list && !items.length}
-        <p class="rail-msg">Nothing needs attention{active.length ? ' with these filters' : ''}.</p>
+        {#if knowledge.incomplete}
+          <p class="rail-msg" data-testid="fleet-map-rail-unknown">Nothing found{active.length ? ' with these filters' : ''}, but Pacto cannot tell for sure: {degradedSourceSummary(knowledge) || 'the snapshot is incomplete'}.</p>
+        {:else}
+          <p class="rail-msg">Nothing needs attention{active.length ? ' with these filters' : ''}.</p>
+        {/if}
       {/if}
       {#each bySeverity as [sev, its] (sev)}
         <section aria-label={severityLabel(sev)}>

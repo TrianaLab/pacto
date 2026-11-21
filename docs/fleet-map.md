@@ -107,7 +107,7 @@ $ pacto fleet map --local examples/demo/bundles --target-state examples/demo/fle
 Declared ↔ observed match: 6% of what Pacto can observe · 34% observed coverage · unknown never counts as matched
   services: 2 matched · 29 expected only · 0 observed only · 9 insufficient
   dependencies: 0 matched · 0 expected only · 0 observed only · 51 insufficient
-Contract completeness: 47% · 0 of 40 judged services fully described · most missing: domain 35, runtime 33, readiness 33
+Contract completeness: 47% · 0 of 40 judged services fully described · most missing: domain 35, readiness 33, summary 32
 Grouped by domain: 5 groups · services 40 (0 inferred) · external systems 4
 GROUP        KIND      SERVICES  INFERRED  EXTERNAL  MATCH  COMPLETE  ERRORS  WARNINGS  WORST
 commerce     domain    3         0         0         0%     66%       4       7         non-compliant 1, lifecycle 3, health 1

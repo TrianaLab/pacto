@@ -9,7 +9,7 @@ type Item = { entity: { kind: string; key: string; label: string; href: string; 
 const item = (kind: string, key: string, severity = 'error', over: Partial<Item> = {}): Item =>
   ({ entity: { kind, key, label: key, href: `#/fleet/${kind}s/${key}` }, category: 'health', severity, code: `C-${key}`, summary: `${key} summary`, ...over });
 const answer = (items: Item[], total = items.length) =>
-  ({ items, total, count: items.length, limit: 30, offset: 0, truncated: total > items.length, categories: [], severities: { errors: items.filter((i) => i.severity === 'error').length, warnings: 1, infos: 0, unknown: 0 }, meta: {} }) as never;
+  ({ items, total, count: items.length, limit: 30, offset: 0, truncated: total > items.length, categories: [], severities: { errors: items.filter((i) => i.severity === 'error').length, warnings: 1, infos: 0, unknown: 0 }, meta: { completeness: 'complete' } }) as never;
 
 let done: () => void = () => {};
 beforeEach(() => { location.hash = ''; });
@@ -35,6 +35,15 @@ describe('FleetMapRail', () => {
     expect(line.textContent).toContain('Filtered: Category Health check failing · Severity Error');
     (line.querySelector('button') as HTMLButtonElement).click();
     expect(onclear).toHaveBeenCalled();
+  });
+
+  it('an empty list from an incomplete snapshot is no all-clear', async () => {
+    const partial = { ...(answer([]) as object), meta: { completeness: 'partial', sourceCounts: { total: 2, available: 1, partial: 0, stale: 0, unavailable: 1 } } };
+    vi.spyOn(api, 'fleetAttention').mockResolvedValue(partial as never);
+    const t = renderRail({ filters: { category: 'health' } });
+    await vi.waitFor(() => expect(t.querySelector('[data-testid="fleet-map-rail-unknown"]')).toBeTruthy());
+    expect(t.textContent).toContain('Nothing found with these filters, but Pacto cannot tell for sure: 1 data source is unavailable.');
+    expect(t.textContent).not.toContain('Nothing needs attention');
   });
 
   it('names an item\'s source and the caller with no contract', async () => {
