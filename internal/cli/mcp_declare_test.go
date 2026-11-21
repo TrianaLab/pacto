@@ -423,6 +423,22 @@ func TestMCPDeclareHTTPRestrictsBaselineEndToEnd(t *testing.T) {
 	}
 }
 
+// TestMCPDeclareHTTPHidesDraftsEndToEnd: a repository holding only drafts
+// is a baseline too, so a caller the fleet does not show invoices to sees
+// none of its drafts, askers or onBehalfOf names.
+func TestMCPDeclareHTTPHidesDraftsEndToEnd(t *testing.T) {
+	w := newDeclareWorld(t)
+	declareTwice(t, func() *mcpsdk.Server { return stdioDeclareServer(t) }, w.args(nil))
+	rd := newRemoteDeclarer(app.NewService(nil, nil), []string{"oci://" + w.host + "/acme"}, nil)
+	raw, _, err := rd.Plan(remoteCtx(declareCluster()), pactomcp.DeclareArgs{Service: "invoices", Namespace: "billing", Registry: w.host + "/acme"})
+	var p app.DeclarePlan
+	_ = json.Unmarshal(raw, &p)
+	if err != nil || len(p.Drafts) != 0 || p.DraftsTotal != 0 || strings.Contains(string(raw), "ana") ||
+		!strings.Contains(strings.Join(p.Notes, " "), "the published baseline of invoices is hidden") {
+		t.Fatalf("%s %v", raw, err)
+	}
+}
+
 // declareFirst writes draft-1 and tags its bundle 0.1.0, an unsigned version.
 func declareFirst(t *testing.T, w *declareWorld) {
 	t.Helper()

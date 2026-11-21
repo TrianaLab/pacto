@@ -215,11 +215,9 @@ func codesIn(fn *ast.FuncDecl, consts map[string]string) []string {
 	ast.Inspect(fn, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.CompositeLit:
-			if id, ok := n.Type.(*ast.Ident); ok && id.Name == "AttentionItem" {
-				for _, e := range n.Elts {
-					if kv, ok := e.(*ast.KeyValueExpr); ok && isIdent(kv.Key, "Code") {
-						resolve(kv.Value)
-					}
+			for _, e := range attentionLits(n) {
+				if kv, ok := e.(*ast.KeyValueExpr); ok && isIdent(kv.Key, "Code") {
+					resolve(kv.Value)
 				}
 			}
 		case *ast.AssignStmt:
@@ -231,6 +229,23 @@ func codesIn(fn *ast.FuncDecl, consts map[string]string) []string {
 		}
 		return true
 	})
+	return out
+}
+
+// attentionLits is the fields of n when n is an AttentionItem literal, and
+// of each element whose type n's []AttentionItem type leaves out.
+func attentionLits(n *ast.CompositeLit) []ast.Expr {
+	if isIdent(n.Type, "AttentionItem") {
+		return n.Elts
+	}
+	var out []ast.Expr
+	if at, ok := n.Type.(*ast.ArrayType); ok && isIdent(at.Elt, "AttentionItem") {
+		for _, e := range n.Elts {
+			if cl, ok := e.(*ast.CompositeLit); ok && cl.Type == nil {
+				out = append(out, cl.Elts...)
+			}
+		}
+	}
 	return out
 }
 
@@ -290,12 +305,12 @@ func TestAttentionCodesAreClassified(t *testing.T) {
 	}
 	// A new code in a new file fails the walk.
 	dir := t.TempDir()
-	src := "package fleet\n\nconst codeNew = \"NEW_CODE\"\n\nfunc newAttention() []AttentionItem {\n\tit := AttentionItem{Code: \"NON_COMPLIANT\"}\n\tit.Code = codeNew\n\treturn []AttentionItem{it, AttentionItem{Code: pick()}}\n}\n"
+	src := "package fleet\n\nconst codeNew = \"NEW_CODE\"\n\nfunc newAttention() []AttentionItem {\n\tit := AttentionItem{Code: \"NON_COMPLIANT\"}\n\tit.Code = codeNew\n\treturn append([]AttentionItem{it, AttentionItem{Code: pick()}}, []AttentionItem{{Code: \"ELIDED_CODE\"}}...)\n}\n"
 	if err := os.WriteFile(filepath.Join(dir, "new.go"), []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := unclassified(attentionCodes(t, dir)); !slices.Equal(got, []string{"NEW_CODE", "func:newAttention"}) {
-		t.Errorf("unclassified = %v, want the new code and the new producer", got)
+	if got := unclassified(attentionCodes(t, dir)); !slices.Equal(got, []string{"NEW_CODE", "func:newAttention", "ELIDED_CODE"}) {
+		t.Errorf("unclassified = %v, want the new codes and the new producer", got)
 	}
 }
 
