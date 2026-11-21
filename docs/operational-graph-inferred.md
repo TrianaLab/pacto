@@ -34,7 +34,8 @@ limitation per source counts those workloads.
 | `PACTO_CRD_NOT_INSTALLED` | The cluster serves no Pacto CRD. The Kubernetes source reads no target and is partial; the workloads still show as inferred services |
 | `INFERRED_SERVICES_CAPPED` | A source reported more than 5000 workloads. The rest are left out and the source is partial |
 | `DECLARATION_UNVERIFIED` | Pacto could not read the Pacto resources of the inferred service's namespace, so a contract may describe it. The service carries `declarationUnverified`, one limitation per source counts them and the Overview counts them as `inferredUnverified` |
-| `INFERRED_REPLACEMENT_AMBIGUOUS` | More than one declared service targets the workload, or a target of unknown cluster names it in a snapshot of several clusters. The workload stays an inferred service; see [When a contract takes over](#when-a-contract-takes-over) |
+| `INFERRED_REPLACEMENT_AMBIGUOUS` | More than one declared service targets the workload or names it in its declaration, a target of unknown cluster names it in a snapshot of several clusters, or a declaration names it with no cluster in a fleet of several clusters. The workload stays an inferred service; see [When a contract takes over](#when-a-contract-takes-over) |
+| `INFERRED_LINK_IGNORED` | A declaration names the workload but hands nothing over: no accepted person signed it or the source checks no signatures, a Pacto target runs as the workload, the workload is in a namespace where the service has no target, its cluster contradicts the fleet's, or a newer revision ships an inferred record Pacto cannot read. The workload stays an inferred service; see [When a declaration replaces an inferred service](#when-a-declaration-replaces-an-inferred-service) |
 | `SUBJECT_REPLACED` | `pacto impact --event` was asked about the key of an inferred service a declared service replaced, and answers for the declared service |
 | `SERVICE_INFERRED` | The answer is about an inferred service. `pacto fleet graph` and `pacto impact --event` answer partial, since no contract can depend on it; `pacto fleet explain` lists it as a reason |
 | `SERVICE_GROUP_AMBIGUOUS` | Two groups of one rule claim the workload, so it stays ungrouped; see [Groups and repositories](#groups-and-repositories) |
@@ -251,7 +252,9 @@ reported it).
   no cluster merges nothing either.
 - **One claim per service.** Only the newest declared revision of a service
   counts. A newer declaration that names no workload retracts the claim; a CI
-  publish without a declaration keeps it. A service with Kubernetes targets
+  publish without a declaration keeps it. A newer revision whose inferred
+  record Pacto cannot read may have retracted it, so the claim hands nothing
+  over. A service with Kubernetes targets
   claims a workload only in a namespace where one of its targets runs.
 - **Attention.** Each hand-over raises an `INFERRED_REPLACED` item in the
   `knowledge` category that asks you to confirm the workload is the service.
