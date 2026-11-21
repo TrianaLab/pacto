@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -119,5 +121,27 @@ func TestImpactRunningPrintsRunningLine(t *testing.T) {
 		if !strings.Contains(buf.String(), c.want) {
 			t.Errorf("missing %q in:\n%s", c.want, buf.String())
 		}
+	}
+}
+
+// TestImpactRunningMissingTrustFileFails: the Kargo template points
+// $PACTO_DELIVERY_TRUST at an optional Secret's file; when the Secret is
+// missing, the run fails (exit 1) and names the trust config.
+func TestImpactRunningMissingTrustFileFails(t *testing.T) {
+	repo, _ := publishedTargets(t)
+	host := strings.TrimSuffix(strings.TrimPrefix(repo, "oci://"), "/acme/pacto-targets")
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{"pacto.yaml": "pactoVersion: \"2.0\"\nservice: {name: payments, version: 1.0.0}\n"})
+	svc := app.NewService(oci.NewClient(authn.DefaultKeychain, oci.WithInsecureRegistries(host)), nil)
+	if _, err := svc.Push(t.Context(), app.PushOptions{Ref: "oci://" + host + "/acme/payments:1.0.0", Path: dir}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(app.TrustEnv, filepath.Join(t.TempDir(), "trust.yaml"))
+	root := newRootCommand(svc, VersionInfo{Version: "dev"}, defaultDeps())
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	err := Execute(t.Context(), root, []string{"impact", "--running", "oci://" + host + "/acme/payments:1.0.0", "--local", ""})
+	if err == nil || ciExit(err) != -1 || !strings.Contains(err.Error(), "reading the delivery trust config") {
+		t.Fatalf("err = %v", err)
 	}
 }

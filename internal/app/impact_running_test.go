@@ -236,6 +236,22 @@ func TestImpactRunningBound(t *testing.T) {
 	}
 }
 
+// TestRunningExcludedNewTakesNoBoundSlot: the new revision is left out
+// before the MaxRunningRevisions cut, so it never takes a baseline's slot.
+func TestRunningExcludedNewTakesNoBoundSlot(t *testing.T) {
+	e := &runEnv{}
+	for i := range MaxRunningRevisions + 1 {
+		v, d := "1.0."+strconv.Itoa(i), "sha256:p"+strconv.Itoa(i)
+		e.col.Revisions = append(e.col.Revisions, payRev(v, d))
+		e.col.Targets = append(e.col.Targets, payTarget("pay"+strconv.Itoa(i), d))
+	}
+	res := mustRun(t, e, "1.0.0", ociNew("oci://"+runReg+"/payments:1.0.0@sha256:p0"))
+	r := res.Running
+	if len(r.Refs) != MaxRunningRevisions || len(r.Excluded) != 1 || len(r.Unread) != 0 {
+		t.Fatalf("running %+v", r)
+	}
+}
+
 func TestImpactRunningDomainFromRunningRef(t *testing.T) {
 	res := mustRun(t, onePayments().withLedger("^1"), "1.1.0")
 	if res.Classification != "BREAKING" || res.Gate != impact.GateUnverified || len(res.Consumers) != 1 || res.Consumers[0].Service != "ledger" {
