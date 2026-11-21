@@ -1,6 +1,6 @@
 # Publish a version
 
-This page describes how `pacto publish` works. To take a new service to its
+This page describes `pacto publish`. To take a new service to its
 first release, follow [Pactify a service](pactify.md). In CI, publish every
 changed service of a repository with
 [`pacto ci --publish`](publish-from-ci.md), which runs the same engine;
@@ -200,7 +200,7 @@ Every published version also writes one entry to the
 [organization index](impact-consumers.md#consumers-from-the-organization-index),
 `<registry>/pacto-index:<hash>-<version>`. It exposes the service name,
 version, bundle digest, every dependency reference and the publisher it claims.
-An entry is never overwritten. A failed write prints a warning and the publish
+An entry is never overwritten. A failed write warns and the publish
 still succeeds; publishing the current version again writes a missing entry.
 
 - `--index` names another `<registry>/pacto-index`, with no tag or digest, and
@@ -225,7 +225,7 @@ through MCP: `pacto mcp --publish` adds `pacto_publish_plan` and
 ## Declare a running service
 
 `pacto declare <workload> --registry <registry>` publishes a contract for a
-workload the cluster already runs, without a repository or a build.
+running workload, without a repository or a build.
 
 - **Source.** It drafts the contract from the cluster with your kubeconfig
   credentials, as
