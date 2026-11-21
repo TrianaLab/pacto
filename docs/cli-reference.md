@@ -415,6 +415,7 @@ pacto dashboard [sources...] [flags]
       --detected string                   what the operator detected, shown as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (also PACTO_DASHBOARD_DETECTED)
       --external-catalog string           organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_DASHBOARD_EXTERNAL_CATALOG)
       --fingerprints string               a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers (also PACTO_DASHBOARD_FINGERPRINTS)
+      --fulcio-url string                 Fulcio to get the signing certificate from (default "https://fulcio.sigstore.dev")
   -h, --help[=true|false]                 help for dashboard
       --host string                       bind address for the dashboard server (default "127.0.0.1")
       --mira-source stringArray           base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)
@@ -433,13 +434,18 @@ pacto dashboard [sources...] [flags]
       --oidc-username-prefix string       prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)
       --owner-policy string               the mounted owner policy (the chart's declare block as policy.json) that decides who may set a service owner (also PACTO_DASHBOARD_OWNER_POLICY)
       --port int                          port for the dashboard server (default 3000)
+      --rekor-url string                  Rekor transparency log the signature is recorded in (default "https://rekor.sigstore.dev")
       --review string                     how people are reviewed: cluster asks once about every namespace and needs a ClusterRole; local asks in each --namespace only, which a namespaced Role grants, and then services without a namespace show to nobody (also PACTO_DASHBOARD_REVIEW) (default "cluster")
       --session-idle-timeout duration     a session without a request for this long ends (default 1h)
       --session-max-age duration          a session ends this long after sign-in, renewed or not (default 12h)
+      --sign-client-id string             a second OpenID Connect client at the sign-in issuer whose ID tokens Fulcio accepts: a signed-in person logs in again with it to sign a declaration as themselves (also PACTO_DASHBOARD_SIGN_CLIENT_ID; the client secret comes from PACTO_DASHBOARD_SIGN_CLIENT_SECRET)
+      --sign-redirect-url string          the dashboard's /auth/sign/callback as browsers reach it (https)
       --stats-registry string             stats repository the Metrics page reads run records from (unsigned statistics; also PACTO_STATS_REGISTRY); a public repository is read anonymously, otherwise with the dashboard's registry credentials
+      --timestamp-url string              timestamp authority to date the signature with
       --token-login[=true|false]          let people sign in with a Kubernetes token: a ServiceAccount token minted with --audience pacto-dashboard reads the fleet only, and a person's own token acts as them (also PACTO_DASHBOARD_TOKEN_LOGIN)
       --trace-source stringArray          named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)
       --traces stringArray                OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
+      --trusted-root string               Sigstore trusted root JSON to verify with (default: public-good Sigstore)
 ```
 
 It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached).

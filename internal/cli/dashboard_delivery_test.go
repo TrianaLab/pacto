@@ -223,7 +223,7 @@ func TestDashboardConfigSchemaMatchesTheFlags(t *testing.T) {
 	if err := json.Unmarshal(data, &s); err != nil {
 		t.Fatal(err)
 	}
-	envOnly := map[string]bool{"PACTO_DASHBOARD_REPO": true, "PACTO_DASHBOARD_OIDC_CLIENT_SECRET": true}
+	envOnly := map[string]bool{"PACTO_DASHBOARD_REPO": true, "PACTO_DASHBOARD_OIDC_CLIENT_SECRET": true, "PACTO_DASHBOARD_SIGN_CLIENT_SECRET": true}
 	for k := range s.Properties {
 		rest, ok := strings.CutPrefix(k, "PACTO_DASHBOARD_")
 		if !ok || envOnly[k] {
@@ -233,7 +233,9 @@ func TestDashboardConfigSchemaMatchesTheFlags(t *testing.T) {
 			t.Errorf("schema lists %s but the dashboard reads no such setting", k)
 		}
 	}
-	for _, k := range []string{"PACTO_DASHBOARD_DELIVERY_NAMESPACE", "PACTO_DASHBOARD_DELIVERY_TRUST"} {
+	for _, k := range []string{"PACTO_DASHBOARD_DELIVERY_NAMESPACE", "PACTO_DASHBOARD_DELIVERY_TRUST", "PACTO_DASHBOARD_SIGN_CLIENT_ID",
+		"PACTO_DASHBOARD_SIGN_CLIENT_SECRET", "PACTO_DASHBOARD_SIGN_REDIRECT_URL", "PACTO_DASHBOARD_FULCIO_URL", "PACTO_DASHBOARD_REKOR_URL",
+		"PACTO_DASHBOARD_TIMESTAMP_URL", "PACTO_DASHBOARD_TRUSTED_ROOT"} {
 		if s.Properties[k] == nil {
 			t.Errorf("schema leaves out %s", k)
 		}

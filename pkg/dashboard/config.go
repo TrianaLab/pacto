@@ -31,6 +31,13 @@ type DashboardConfig struct {
 	OIDCUsernamePrefix string `json:"PACTO_DASHBOARD_OIDC_USERNAME_PREFIX,omitempty" doc:"Prefix the API server puts before the username (default the issuer URL and #, none for the email claim; - for none); must match its claim mapping"`
 	OIDCGroupsClaim    string `json:"PACTO_DASHBOARD_OIDC_GROUPS_CLAIM,omitempty" doc:"ID token claim the API server takes the groups from (default groups); must match its claim mapping"`
 	OIDCGroupsPrefix   string `json:"PACTO_DASHBOARD_OIDC_GROUPS_PREFIX,omitempty" doc:"Prefix the API server puts before every group; must match its claim mapping"`
+	SignClientID       string `json:"PACTO_DASHBOARD_SIGN_CLIENT_ID,omitempty" doc:"A second OpenID Connect client at the sign-in issuer whose ID tokens Fulcio accepts; a signed-in person logs in again with it to sign a declaration as themselves"`
+	SignClientSecret   string `json:"PACTO_DASHBOARD_SIGN_CLIENT_SECRET,omitempty" doc:"OpenID Connect client secret of the signing client"`
+	SignRedirectURL    string `json:"PACTO_DASHBOARD_SIGN_REDIRECT_URL,omitempty" doc:"The dashboard's /auth/sign/callback as browsers reach it"`
+	FulcioURL          string `json:"PACTO_DASHBOARD_FULCIO_URL,omitempty" default:"https://fulcio.sigstore.dev" doc:"Fulcio to get the signing certificate from"`
+	RekorURL           string `json:"PACTO_DASHBOARD_REKOR_URL,omitempty" default:"https://rekor.sigstore.dev" doc:"Rekor transparency log the signature is recorded in"`
+	TimestampURL       string `json:"PACTO_DASHBOARD_TIMESTAMP_URL,omitempty" doc:"Timestamp authority to date the signature with"`
+	TrustedRoot        string `json:"PACTO_DASHBOARD_TRUSTED_ROOT,omitempty" doc:"Sigstore trusted root JSON to verify with (default: public-good Sigstore)"`
 	SessionIdleTimeout string `json:"PACTO_DASHBOARD_SESSION_IDLE_TIMEOUT,omitempty" doc:"A session without a request for this long ends, as a Go duration (default 1h)"`
 	SessionMaxAge      string `json:"PACTO_DASHBOARD_SESSION_MAX_AGE,omitempty" doc:"A session ends this long after sign-in, as a Go duration (default 12h)"`
 	TokenLogin         bool   `json:"PACTO_DASHBOARD_TOKEN_LOGIN,omitempty" default:"false" doc:"Let people sign in with a Kubernetes token: a ServiceAccount token minted for the dashboard reads the fleet only, and a person's own token acts as them"`

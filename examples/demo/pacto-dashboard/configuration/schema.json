@@ -18,6 +18,11 @@
       "description": "Trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config)",
       "type": "string"
     },
+    "PACTO_DASHBOARD_FULCIO_URL": {
+      "default": "https://fulcio.sigstore.dev",
+      "description": "Fulcio to get the signing certificate from",
+      "type": "string"
+    },
     "PACTO_DASHBOARD_HOST": {
       "default": "127.0.0.1",
       "description": "Bind address for the server",
@@ -77,6 +82,11 @@
       "format": "int64",
       "type": "integer"
     },
+    "PACTO_DASHBOARD_REKOR_URL": {
+      "default": "https://rekor.sigstore.dev",
+      "description": "Rekor transparency log the signature is recorded in",
+      "type": "string"
+    },
     "PACTO_DASHBOARD_REPO": {
       "description": "Comma-separated OCI repositories to scan",
       "type": "string"
@@ -98,10 +108,30 @@
       "description": "A session ends this long after sign-in, as a Go duration (default 12h)",
       "type": "string"
     },
+    "PACTO_DASHBOARD_SIGN_CLIENT_ID": {
+      "description": "A second OpenID Connect client at the sign-in issuer whose ID tokens Fulcio accepts; a signed-in person logs in again with it to sign a declaration as themselves",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_SIGN_CLIENT_SECRET": {
+      "description": "OpenID Connect client secret of the signing client",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_SIGN_REDIRECT_URL": {
+      "description": "The dashboard's /auth/sign/callback as browsers reach it",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_TIMESTAMP_URL": {
+      "description": "Timestamp authority to date the signature with",
+      "type": "string"
+    },
     "PACTO_DASHBOARD_TOKEN_LOGIN": {
       "default": false,
       "description": "Let people sign in with a Kubernetes token: a ServiceAccount token minted for the dashboard reads the fleet only, and a person's own token acts as them",
       "type": "boolean"
+    },
+    "PACTO_DASHBOARD_TRUSTED_ROOT": {
+      "description": "Sigstore trusted root JSON to verify with (default: public-good Sigstore)",
+      "type": "string"
     },
     "PACTO_NO_CACHE": {
       "default": false,

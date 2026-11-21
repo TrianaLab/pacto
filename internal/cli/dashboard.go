@@ -173,6 +173,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			if err != nil {
 				return err
 			}
+			go identity.signing.report(cmd.Context())
 			if !identity.auth.Local() && !identity.auth.SignsIn() {
 				logging.LoggerFromContext(cmd.Context()).Warn("serving beyond loopback without sign-in: everyone who reaches this address reads the whole fleet")
 			}
@@ -233,6 +234,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().String("oidc-ca-file", "", "PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DASHBOARD_OIDC_CA_FILE)")
 	cmd.Flags().String("oidc-internal-issuer-url", "", "address the dashboard reaches the issuer at when it differs from the public issuer URL browsers use, such as an in-cluster Service; ID tokens must still name the public issuer (also PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL)")
 	addClaimFlags(cmd)
+	addSignFlags(cmd, v)
 	cmd.Flags().Duration("session-idle-timeout", 0, "a session without a request for this long ends (default 1h)")
 	cmd.Flags().Duration("session-max-age", 0, "a session ends this long after sign-in, renewed or not (default 12h)")
 	cmd.Flags().Bool("token-login", false, "let people sign in with a Kubernetes token: a ServiceAccount token minted with --audience pacto-dashboard reads the fleet only, and a person's own token acts as them (also PACTO_DASHBOARD_TOKEN_LOGIN)")
