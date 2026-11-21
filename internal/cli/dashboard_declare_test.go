@@ -27,6 +27,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/publish"
@@ -555,36 +556,13 @@ func TestDeclarePlanFromDraftShowsUnbacked(t *testing.T) {
 	// A hand-built draft-2: draft-1 plus a dependency range and a publish
 	// section nothing backs.
 	repo := h.w.host + "/acme/invoices"
-	b, err := publish.NewClient(oci.NewKeychain(oci.EnvCredentialOptions()), h.w.host).Pull(t.Context(), repo+":draft-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	files := fstest.MapFS{}
-	if err := fs.WalkDir(b.FS, ".", func(path string, de fs.DirEntry, err error) error {
-		if err != nil || de.IsDir() {
-			return err
+	digest := h.pushDraftVariant(t, "draft-2", func(raw []byte) []byte {
+		raw, err := contract.SetCompatibility(raw, "ledger", "^9.0.0")
+		if err != nil {
+			t.Fatal(err)
 		}
-		data, err := fs.ReadFile(b.FS, path)
-		files[path] = &fstest.MapFile{Data: data, Mode: 0o644}
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := contract.SetCompatibility(files["pacto.yaml"].Data, "ledger", "^9.0.0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw = append(raw, "publish:\n  bundle: oci://"+repo+"\n"...)
-	files["pacto.yaml"].Data = raw
-	c, err := contract.Parse(bytes.NewReader(raw))
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest, err := oci.NewClient(gcrauthn.DefaultKeychain, oci.WithInsecureRegistries(h.w.host)).
-		Push(t.Context(), repo+":draft-2", &contract.Bundle{Contract: c, RawYAML: raw, FS: files})
-	if err != nil {
-		t.Fatal(err)
-	}
+		return append(raw, "publish:\n  bundle: oci://"+repo+"\n"...)
+	})
 	h.freshLogin(t, personToken())
 	ref := &dashboard.DraftRef{Tag: "draft-2", Digest: digest}
 	fd := h.plan(t, dashboard.DeclareInput{FromDraft: ref})
@@ -610,4 +588,70 @@ func TestDeclareAcceptFromDraftPublishes(t *testing.T) {
 	if rec := h.w.pulled(t, "0.1.0"); rec.Declaration.State != contract.DeclarationDeclared || rec.Declaration.Asker.Subject != "ana@acme.com" {
 		t.Fatalf("%s", rec.Marshal())
 	}
+}
+
+// pushDraftVariant pushes tag as draft-1 with its pacto.yaml edited, and
+// returns its digest.
+func (h *declareHost) pushDraftVariant(t *testing.T, tag string, edit func([]byte) []byte) string {
+	t.Helper()
+	repo := h.w.host + "/acme/invoices"
+	b, err := publish.NewClient(oci.NewKeychain(oci.EnvCredentialOptions()), h.w.host).Pull(t.Context(), repo+":draft-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := fstest.MapFS{}
+	if err := fs.WalkDir(b.FS, ".", func(path string, de fs.DirEntry, err error) error {
+		if err != nil || de.IsDir() {
+			return err
+		}
+		data, err := fs.ReadFile(b.FS, path)
+		files[path] = &fstest.MapFile{Data: data, Mode: 0o644}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	raw := edit(files["pacto.yaml"].Data)
+	files["pacto.yaml"].Data = raw
+	c, err := contract.Parse(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := oci.NewClient(gcrauthn.DefaultKeychain, oci.WithInsecureRegistries(h.w.host)).
+		Push(t.Context(), repo+":"+tag, &contract.Bundle{Contract: c, RawYAML: raw, FS: files})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
+}
+
+// TestDeclareAcceptOwnerCheckboxUsesOwnerRule: 513-S4 takes no owner input
+// on a declare request; an owner change reaches a declaration only through
+// pacto.yaml (a folder, or an accepted draft). Accepting a draft that sets
+// the owner runs 513-S4's owner rule, and its refusal reaches the dashboard
+// answer word for word, before anything is tagged.
+func TestDeclareAcceptOwnerCheckboxUsesOwnerRule(t *testing.T) {
+	h := newDeclareHost(t, false, true)
+	p := h.plan(t, dashboard.DeclareInput{})
+	h.accept(t, wl, dashboard.DeclareAcceptInput{IntentDigest: p.Plan.IntentDigest, Mode: "draft"})
+	digest := h.pushDraftVariant(t, "draft-2", func(raw []byte) []byte {
+		return []byte(strings.Replace(string(raw), "service:\n", "service:\n  owner:\n    team: payments\n", 1))
+	})
+	h.freshLogin(t, personToken())
+	ref := &dashboard.DraftRef{Tag: "draft-2", Digest: digest}
+	fd := h.plan(t, dashboard.DeclareInput{FromDraft: ref})
+	expect(t, fd.Plan.Owner == "team:payments" && slices.ContainsFunc(fd.Plan.Notes, func(n string) bool { return strings.HasPrefix(n, "service.owner changes from") }),
+		"the plan shows the owner change: %+v", fd.Plan)
+	// What 513-S4's rule answers for this very request, straight from the engine.
+	req, err := h.d.request(h.req(), wl, nil, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.IntentDigest, req.Login = fd.Plan.IntentDigest, func(context.Context) (string, error) { return personToken(), nil }
+	_, direct := h.d.svc.Declare(t.Context(), req)
+	var de *app.DeclareError
+	expect(t, errors.As(direct, &de) && de.Code == delivery.OwnerPolicyUnverified, "the engine refuses with an owner code: %v", direct)
+	want := dashboard.DeclareRefusal{Code: de.Code, Message: de.Message, Command: de.CLI}
+	out := h.accept(t, wl, dashboard.DeclareAcceptInput{IntentDigest: fd.Plan.IntentDigest, Mode: "sign", FromDraft: ref})
+	expect(t, out.Refusal != nil && *out.Refusal == want && !out.Signed && !slices.Contains(h.tags(t), "0.1.0"),
+		"the owner refusal reaches the answer unchanged: got %+v want %+v tags %v", out.Refusal, want, h.tags(t))
 }

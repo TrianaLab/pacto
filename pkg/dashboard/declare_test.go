@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -212,8 +214,10 @@ func TestOpenAPIDeclareSchemas(t *testing.T) {
 		}
 	}
 	codes := sortedKeys(schemaFieldEnum(t, doc, "DeclareRefusal", "code"))
-	for _, c := range []string{"PlanStale", "IdentityRequired", "SignInLinkReadsFleet", "ReviewFailed", "ClusterNotReviewable", "NotAllowed", "OwnerSignerNotAllowed"} {
-		if !strings.Contains(strings.Join(codes, ","), c) {
+	// The owner codes are 513-S4's own strings: its refusal reaches the
+	// answer unchanged.
+	for _, c := range append([]string{"PlanStale", "IdentityRequired", "SignInLinkReadsFleet", "ReviewFailed", "ClusterNotReviewable", "NotAllowed"}, delivery.OwnerRightCodes...) {
+		if !slices.Contains(codes, c) {
 			t.Errorf("DeclareRefusal.code has no %s: %v", c, codes)
 		}
 	}
