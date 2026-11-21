@@ -707,6 +707,6 @@ func TestPrintServiceReplacedByInferredFrom(t *testing.T) {
 		By: "ana@acme.com", Revision: "invoices@sha256:a"}
 	view := &fleet.ServiceView{Service: &fleet.ServiceRecord{Name: "invoices"}, ReplacedFrom: &r, Replaces: []fleet.Replacement{r}, ReplacesTotal: 1}
 	out := printed(t, func(c *cobra.Command) error { return printFleetService(c, view, "text") })
-	line := "Declared by ana@acme.com from inferred k8s:billing/Deployment/invoices (revision invoices@sha256:a)\n"
+	line := "Declared by ana@acme.com from inferred k8s:billing/Deployment/invoices (revision invoices@sha256:a); Pacto read no workload for it here\n"
 	expect(t, strings.HasPrefix(out, line+"Service: invoices\n") && strings.Count(out, line) == 2, "get lacks the inferred-from lines:\n%s", out)
 }

@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"context"
 	"encoding/json"
 	"slices"
 	"strings"
@@ -175,5 +176,49 @@ func TestInferredWorkloadScopesIncludesInferredFrom(t *testing.T) {
 	q := NewQuery(handSnap(t, []RawRevision{handoverRev(t, declOf{from: "k8s:payments/StatefulSet/ledger"})}, nil, false))
 	if sc := q.InferredWorkloadScopes(); !slices.Contains(sc, WorkloadScope{"payments", "StatefulSet"}) {
 		t.Errorf("scopes %v", sc)
+	}
+}
+
+// The twin's repository is another object's content: after the hand-over a
+// viewer who may not list that object sees it hidden, as before it.
+func TestRestrictHandoverHidesTwinRepository(t *testing.T) {
+	cl := clusterOf(clusterA, "eu", ClusterNameFromContext)
+	w := invoicesWorkload()
+	w.Repositories = []InferredRepository{{URL: "https://github.com/acme/billing", From: "Application argocd/invoices spec.source.repoURL", Namespace: "argocd", Kind: "Application"}}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow, DeclarationSigners: anaPolicy()},
+		NewMemorySource("oci", "oci", &Collection{Revisions: []RawRevision{anaDecl(t)}}),
+		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Cluster: cl, Targets: []RawTarget{workload("billing", "invoices")}}),
+		workloadsSource("k8s-workloads", cl, w))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := NewQuery(snap)
+	if len(snap.Replacements) != 1 || !strings.Contains(handoverAnswers(t, q), "github.com/acme/billing") {
+		t.Fatalf("the fixture must hand over and show the twin's repository: %+v", snap.Replacements)
+	}
+	if sc := q.InferredWorkloadScopes(); !slices.Contains(sc, WorkloadScope{"argocd", "Application"}) {
+		t.Errorf("scopes %v", sc)
+	}
+	got := handoverAnswers(t, q.Restrict(inBilling, func(_, kind string) bool { return kind != "Application" }))
+	if strings.Contains(got, "github.com/acme/billing") || strings.Contains(got, "argocd/invoices") || !strings.Contains(got, "hidden by your permissions") {
+		t.Errorf("a restricted answer shows the twin's repository: %s", got)
+	}
+}
+
+// A Pacto target's takeover the viewer may not see is counted, and the
+// answer keeps the shape an unrestricted viewer gets: no field provenance.
+func TestRestrictPactoTargetTakeoverKeepsNoFields(t *testing.T) {
+	q := NewQuery(handSnap(t, []RawRevision{handoverRev(t, declOf{noDeclaration: true})}, []RawTarget{invoicesTarget("invoices")}, true))
+	if len(q.snap.Replacements) != 1 || q.snap.Replacements[0].Link != linkPactoTarget {
+		t.Fatalf("replacements %+v", q.snap.Replacements)
+	}
+	for name, r := range map[string]*Query{"unrestricted": q, "restricted": q.Restrict(inBilling, noDeployments)} {
+		v, err := r.GetService("invoices")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v.Fields != nil {
+			t.Errorf("%s: fields %+v", name, v.Fields)
+		}
 	}
 }

@@ -231,8 +231,8 @@ func renderServiceDetail(b *strings.Builder, service string, s *fleet.ServiceDet
 func renderProvenance(b *strings.Builder, s *fleet.ServiceDetailData, asOf time.Time) {
 	if len(s.Replaces) > 0 || s.ReplacesHidden > 0 {
 		section(b, "Replaces")
-		for _, r := range s.Replaces {
-			b.WriteString(safeText(r.Line(asOf)) + "\n")
+		for _, l := range fleet.ReplacesLines(s.Replaces, asOf) {
+			b.WriteString(safeText(l) + "\n")
 		}
 		if more := s.ReplacesTotal - len(s.Replaces); more > 0 {
 			fmt.Fprintf(b, "  %d more\n", more)

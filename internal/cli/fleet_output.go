@@ -56,8 +56,8 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 		s := sv.Service
 		printReplacedFrom(w, sv.ReplacedFrom, sv.Meta.AsOf)
 		_, _ = fmt.Fprintf(w, "Service: %s%s\n", s.Name, nameInferredMark(s.NameInferred))
-		for _, r := range sv.Replaces {
-			_, _ = fmt.Fprintln(w, r.Line(sv.Meta.AsOf))
+		for _, l := range fleet.ReplacesLines(sv.Replaces, sv.Meta.AsOf) {
+			_, _ = fmt.Fprintln(w, l)
 		}
 		if more := sv.ReplacesTotal - len(sv.Replaces); more > 0 {
 			_, _ = fmt.Fprintf(w, "  %d more\n", more)

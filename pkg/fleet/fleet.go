@@ -1450,6 +1450,10 @@ type FleetSnapshot struct {
 	// hiddenReplacements counts, in a restricted snapshot, the replacements
 	// of each visible service whose workload the view hides. Only counted.
 	hiddenReplacements map[ServiceKey]int
+	// hiddenHandovers marks, in a restricted snapshot, each visible service
+	// with a hidden replacement whose link is not a Pacto target, so it keeps
+	// the field provenance the unrestricted view gives it.
+	hiddenHandovers map[ServiceKey]bool
 	// UncontractedCallers are observed callers with no contract of a service
 	// that has one. Sorted by (ToService, Caller).
 	UncontractedCallers []UncontractedCaller `json:"uncontractedCallers,omitempty"`

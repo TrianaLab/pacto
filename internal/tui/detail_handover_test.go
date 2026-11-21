@@ -32,6 +32,7 @@ func TestRenderServiceDetailFields(t *testing.T) {
 		ReplacesHidden: 2, Fields: g.DetailFields}, fleet.CompletenessComplete, time.Time{})
 	want := []string{
 		"Declared by ana@acme.com from inferred k8s:billing/Deployment/invoices (revision invoices@sha256:invoices-0.1.0)",
+		"  Workload: Deployment 9f1c4e2a-0000-4000-8000-00000000000a billing/invoices",
 		"  1 more",
 		"  2 whose workload you cannot see",
 		"  owner         billing    declared",
@@ -52,5 +53,15 @@ func TestRenderServiceDetailFields(t *testing.T) {
 	renderServiceDetail(&plain, "web", &fleet.ServiceDetailData{}, fleet.CompletenessComplete, time.Time{})
 	if strings.Contains(plain.String(), "Replaces") || strings.Contains(plain.String(), "Fields") {
 		t.Errorf("a service with no replacement or field provenance renders them:\n%s", plain.String())
+	}
+}
+
+// A replacement no source reported says so, never nothing.
+func TestRenderServiceDetailReplacementWithoutWorkload(t *testing.T) {
+	r := fleet.Replacement{From: fleet.NewServiceKey("k8s:billing/Deployment/invoices"), To: "invoices", Link: "inferred-from", By: "ana@acme.com", Revision: "invoices@sha256:a"}
+	var out strings.Builder
+	renderServiceDetail(&out, "invoices", &fleet.ServiceDetailData{Replaces: []fleet.Replacement{r}, ReplacesTotal: 1}, fleet.CompletenessComplete, time.Time{})
+	if !strings.Contains(out.String(), "(revision invoices@sha256:a); Pacto read no workload for it here\n") || strings.Contains(out.String(), "Workload:") {
+		t.Errorf("detail:\n%s", out.String())
 	}
 }

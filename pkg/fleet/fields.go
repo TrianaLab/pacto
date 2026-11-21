@@ -41,15 +41,16 @@ type FieldsPreview struct {
 	Count     int               `json:"count"`
 	Total     int               `json:"total"`
 	Truncated bool              `json:"truncated"`
-	Hidden    int               `json:"hidden,omitempty" doc:"Fields read from a workload you may not see"`
+	Hidden    int               `json:"hidden,omitempty" doc:"Fields hidden by your permissions: read from a workload, or naming a service, you may not see"`
 }
 
 // fieldsOf says where each field of s's current revision comes from: the
 // owner, each dependency's compatibility, then every other field of its
-// inferred record. Nil unless that revision carries a declaration, s replaced
-// an inferred service through a link other than a Pacto target, or a
-// replacement of s is hidden from the viewer: a plain inferred record (shown as
-// inferredFields) and a Pacto target's takeover answer as they did before.
+// inferred record. Nil unless that revision carries a declaration or s
+// replaced an inferred service through a link other than a Pacto target,
+// visible or hidden from the viewer, so every viewer gets the same shape: a
+// plain inferred record (shown as inferredFields) and a Pacto target's
+// takeover answer as they did before.
 func (q *Query) fieldsOf(s *ServiceRecord) *FieldsPreview {
 	cur := q.currentRevision(s)
 	if cur == nil || !q.hasFields(s, cur) {
@@ -83,7 +84,7 @@ func (q *Query) fieldsOf(s *ServiceRecord) *FieldsPreview {
 }
 
 func (q *Query) hasFields(s *ServiceRecord, cur *ContractRevision) bool {
-	return (cur.Record != nil && cur.Record.Declaration != nil) || q.snap.hiddenReplacements[s.Key] > 0 ||
+	return (cur.Record != nil && cur.Record.Declaration != nil) || q.snap.hiddenHandovers[s.Key] ||
 		slices.ContainsFunc(q.snap.Replacements, func(r Replacement) bool { return r.To == s.Key && r.Link != linkPactoTarget })
 }
 
@@ -99,9 +100,12 @@ func (q *Query) ownerRow(s *ServiceRecord, byField map[string]contract.Inferred)
 			row.Source, row.AsOf = "pacto.yaml of "+string(r.Key), copyTime(r.FetchedAt)
 		}
 	case OwnerProvenanceDeclaredViaTarget:
-		row.Provenance, row.Source = FieldDeclared, "Pacto target"
+		row.Provenance, row.Source, row.AsOf = FieldDeclared, "Pacto target", q.ownerTargetAsOf(s)
 	case OwnerProvenanceAttested:
 		row.Provenance, row.Source = FieldAttested, s.OwnerSource
+		if r := newestOwnerRevision(q.snap, s, tierAttested); r != nil {
+			row.AsOf = copyTime(r.FetchedAt)
+		}
 	default:
 		f, ok := byField["service.owner"]
 		if !ok {
@@ -110,6 +114,17 @@ func (q *Query) ownerRow(s *ServiceRecord, byField map[string]contract.Inferred)
 		return []FieldProvenance{inferredRow(f)}
 	}
 	return []FieldProvenance{row}
+}
+
+// ownerTargetAsOf is when the source last read the target deriveOwner took
+// s's owner from (the first, sorted, that reports one), nil when unknown.
+func (q *Query) ownerTargetAsOf(s *ServiceRecord) *time.Time {
+	for _, tk := range slices.Sorted(slices.Values(s.Targets)) {
+		if t := q.snap.Targets[tk]; t != nil && !t.Owner.IsEmpty() {
+			return copyTime(cmp.Or(t.ReconciledAt, t.EvidenceAt))
+		}
+	}
+	return nil
 }
 
 // dependencyRows is one row per dependency of cur: its compatibility,
@@ -207,7 +222,7 @@ func (p *FieldsPreview) Lines() []string {
 		out = append(out, "  "+strconv.Itoa(more)+" more")
 	}
 	if p.Hidden > 0 {
-		out = append(out, "  "+strconv.Itoa(p.Hidden)+" fields read from a workload you cannot see")
+		out = append(out, "  "+strconv.Itoa(p.Hidden)+" fields hidden by your permissions")
 	}
 	return out
 }

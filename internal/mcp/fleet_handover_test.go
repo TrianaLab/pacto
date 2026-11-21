@@ -22,8 +22,14 @@ func TestFleetGetHandoverProvenance(t *testing.T) {
 	if out.Fields == nil || out.Fields.Total != len(want.Fields.Items) || out.Fields.Items[1].Provenance != fleet.FieldAccepted || out.Fields.Items[1].By != "ana@acme.com" {
 		t.Errorf("fields %+v, want %+v", out.Fields, want.Fields)
 	}
+	for _, d := range []string{fleetGetTool().Description, fleetEntityTool().Description} {
+		if !strings.Contains(d, "or a person's accepted declaration named them ('link')") {
+			t.Errorf("description says only a Pacto target replaces:\n%s", d)
+		}
+	}
 	for _, d := range []string{fleetGetTool().Description, fleetExplainTool().Description, fleetEntityTool().Description} {
-		for _, w := range []string{"'replacesHidden'", "'fields'", "inferred-from", "accepted", "attested", "'asOf'", "'completeness'", "never declared"} {
+		for _, w := range []string{"'replacesHidden'", "'fields'", "inferred-from", "accepted", "attested", "'asOf'", "'completeness'", "never declared",
+			"present only for a service whose current revision carries a declaration", "its absence says nothing about provenance"} {
 			if !strings.Contains(d, w) {
 				t.Errorf("description lacks %s:\n%s", w, d)
 			}

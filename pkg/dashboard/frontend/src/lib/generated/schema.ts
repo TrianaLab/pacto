@@ -3318,7 +3318,7 @@ export interface components {
             count: number;
             /**
              * Format: int64
-             * @description Fields read from a workload you may not see
+             * @description Fields hidden by your permissions: read from a workload, or naming a service, you may not see
              */
             hidden?: number;
             items: components["schemas"]["Fleet.FieldProvenance"][] | null;

@@ -568,8 +568,12 @@ func TestPactoTargetWinsOverEveryLink(t *testing.T) {
 
 func TestReplacementLine(t *testing.T) {
 	r := Replacement{From: NewServiceKey(invoicesName), Link: linkInferredFrom, By: anaSubject, Revision: "invoices@sha256:x"}
-	if got := r.Line(fixedNow()); got != "Declared by ana@acme.com from inferred "+invoicesName+" (revision invoices@sha256:x)" {
+	if got := r.Line(fixedNow()); got != "Declared by ana@acme.com from inferred "+invoicesName+" (revision invoices@sha256:x); Pacto read no workload for it here" {
 		t.Errorf("line %q", got)
+	}
+	r.Workload = &InferredWorkload{Kind: "Deployment", Namespace: "billing", Name: "invoices"}
+	if got := r.Line(fixedNow()); strings.Contains(got, "no workload") {
+		t.Errorf("line with a workload %q", got)
 	}
 	p := Replacement{From: NewServiceKey(cartName), Link: linkPactoTarget, Target: NewTargetKey("shop", "kubernetes", "cart"), At: new(fixedNow().Add(-3 * 60e9))}
 	if got := p.Line(fixedNow()); got != "Replaces "+cartName+" 3m ago (linked by Pacto shop/cart target)" {
@@ -589,5 +593,37 @@ func TestInferredFromWorkloadFromLowestSource(t *testing.T) {
 		if len(snap.Replacements) != 1 || snap.Replacements[0].Workload.Source != "wa" {
 			t.Errorf("%v: replacements %+v", order, snap.Replacements)
 		}
+	}
+}
+
+// A newer revision whose inferred record Pacto cannot read may retract the
+// older claim: the twin stays and a limitation says why.
+func TestInferredFromUnreadableNewerRecordKeepsTwin(t *testing.T) {
+	newer := handoverRev(t, declOf{version: "0.2.0", noDeclaration: true})
+	newer.Bundle.FS.(fstest.MapFS)[contract.InferredRecordFile] = &fstest.MapFile{Data: []byte("not: [a record")}
+	snap := handSnap(t, []RawRevision{anaDecl(t), newer}, nil, true)
+	if !twinStays(snap, invoicesName) {
+		t.Errorf("a claim an unreadable newer record may retract handed over: %+v", snap.Replacements)
+	}
+	if ls := limitationsWith(snap, LimitationInferredLinkIgnored); len(ls) != 1 || !strings.Contains(ls[0].Message, "invoices@0.2.0 ships an inferred record Pacto cannot read") {
+		t.Errorf("limitations %+v", ls)
+	}
+	// An unreadable record older than the claim does not touch it.
+	older := handoverRev(t, declOf{version: "0.0.1", noDeclaration: true})
+	older.Bundle.FS.(fstest.MapFS)[contract.InferredRecordFile] = &fstest.MapFile{Data: []byte("not: [a record")}
+	if snap := handSnap(t, []RawRevision{anaDecl(t), older}, nil, true); !handedTo(snap, invoicesName, invoicesKey) {
+		t.Errorf("an older unreadable record blocked the claim: %+v", snap.Limitations)
+	}
+}
+
+// The newest replacement Pacto read a workload for carries its facts; every
+// other one is a single line.
+func TestReplacesLines(t *testing.T) {
+	bare := Replacement{From: NewServiceKey(cartName), Link: linkInferredFrom, By: anaSubject, Revision: "cart@sha256:x"}
+	read := bare
+	read.From, read.Workload = NewServiceKey(invoicesName), &InferredWorkload{Kind: "Deployment", Namespace: "billing", Name: "invoices", Source: "k8s"}
+	got := ReplacesLines([]Replacement{bare, read, read}, fixedNow())
+	if len(got) != 4 || !strings.HasSuffix(got[0], "; Pacto read no workload for it here") || got[2] != "  Workload: Deployment billing/invoices" || strings.HasPrefix(got[3], " ") {
+		t.Errorf("lines %q", got)
 	}
 }

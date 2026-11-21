@@ -104,10 +104,17 @@ func replaceByInferredFrom(snap *FleetSnapshot, inputs []inferredInput) []inferr
 // revision names it and whose declaration a person's verified signature
 // carries and the installation's signer policy accepts. An older declaration
 // of a service counts for nothing, a newer one naming no workload retracts
-// it, and a revision with no declaration (a CI publish) retracts none.
+// it, and a revision with no declaration (a CI publish) retracts none. A
+// newer revision whose inferred record Pacto cannot read may retract it, so
+// the claim is not trusted: unknown is never positive.
 func inferredFromClaims(snap *FleetSnapshot, byWorkload map[workloadKey][]inferredInput) map[workloadKey][]inferredClaim {
-	newest := map[ServiceKey]*ContractRevision{}
+	newest, unreadable := map[ServiceKey]*ContractRevision{}, map[ServiceKey]*ContractRevision{}
 	for _, rev := range snap.Revisions {
+		if rev.recordUnreadable {
+			if cur := unreadable[rev.ServiceKey]; cur == nil || LessRevisionChrono(cur, rev) {
+				unreadable[rev.ServiceKey] = rev
+			}
+		}
 		if rev.Record == nil || rev.Record.Declaration == nil || rev.Record.Declaration.State != contract.DeclarationDeclared {
 			continue
 		}
@@ -121,9 +128,17 @@ func inferredFromClaims(snap *FleetSnapshot, byWorkload map[workloadKey][]inferr
 		if rev.Record.Declaration.InferredFrom == "" {
 			continue // declared from its folder alone: it claims no workload
 		}
-		if wk, ok := claimedWorkload(snap, rev, byWorkload); ok {
-			claims[wk] = append(claims[wk], inferredClaim{rev: rev, by: rev.Record.Declaration.Asker.Subject})
+		wk, ok := claimedWorkload(snap, rev, byWorkload)
+		if !ok {
+			continue
 		}
+		if u := unreadable[svc]; u != nil && LessRevisionChrono(rev, u) {
+			linkLimitation(snap, wk, Limitation{Code: LimitationInferredLinkIgnored, Source: u.Source,
+				Message: "the newest revision " + u.Service + "@" + u.Version + " ships an inferred record Pacto cannot read, so the claim of revision " +
+					rev.Service + "@" + rev.Version + " on " + K8sCaller(wk.cluster, wk.namespace, wk.kind, wk.name) + " is not trusted"}, svc)
+			continue
+		}
+		claims[wk] = append(claims[wk], inferredClaim{rev: rev, by: rev.Record.Declaration.Asker.Subject})
 	}
 	return claims
 }

@@ -173,14 +173,37 @@ func ambiguousReplacement(snap *FleetSnapshot, message string) {
 
 // Line is r in words: "Replaces <from> <age> ago (linked by Pacto
 // <namespace>/<name> target)" for a Pacto target, "Declared by <by> from
-// inferred <from> (revision <revision>)" for an inferred-from link.
+// inferred <from> (revision <revision>)" for an inferred-from link, which
+// adds "; Pacto read no workload for it here" when no source reported it.
 func (r Replacement) Line(asOf time.Time) string {
 	_, from := ParseServiceKey(r.From)
 	if r.Link != linkPactoTarget {
-		return "Declared by " + r.By + " from inferred " + from + " (revision " + string(r.Revision) + ")"
+		line := "Declared by " + r.By + " from inferred " + from + " (revision " + string(r.Revision) + ")"
+		if r.Workload == nil {
+			line += "; Pacto read no workload for it here"
+		}
+		return line
 	}
 	_, scope, _, name, _ := ParseTargetKey(r.Target)
 	return "Replaces " + from + " " + Age(asOf.Sub(*cmp.Or(r.At, &asOf))) + " ago (linked by Pacto " + scope + "/" + name + " target)"
+}
+
+// ReplacesLines is rs as text rows, newest first: one [Replacement.Line]
+// each, and under the newest one Pacto read a workload for, that workload's
+// facts, so hundreds of replacements never stack hundreds of blocks (the
+// dashboard's fold reads the same way).
+func ReplacesLines(rs []Replacement, asOf time.Time) []string {
+	var out []string
+	facts := slices.IndexFunc(rs, func(r Replacement) bool { return r.Workload != nil })
+	for i, r := range rs {
+		out = append(out, r.Line(asOf))
+		if i == facts {
+			for _, l := range r.Workload.Lines() {
+				out = append(out, "  "+l)
+			}
+		}
+	}
+	return out
 }
 
 // ReplacedLine is r read from the side of the replaced service: "<from> was
@@ -200,17 +223,22 @@ func (r Replacement) ReplacedLine(asOf time.Time) string {
 // and collects the limitations of replaceByInferredFrom that name a hidden
 // workload or service.
 func restrictReplacements(out, s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hidden func(namespace, kind string) bool) {
-	out.hiddenReplacements = map[ServiceKey]int{}
+	out.hiddenReplacements, out.hiddenHandovers = map[ServiceKey]int{}, map[ServiceKey]bool{}
 	out.Replacements = slices.DeleteFunc(slices.Clone(s.Replacements), func(r Replacement) bool {
 		if hiddenSvc[r.To] {
 			return true
 		}
 		if hidden(r.workload.namespace, r.workload.kind) {
 			out.hiddenReplacements[r.To]++
+			out.hiddenHandovers[r.To] = out.hiddenHandovers[r.To] || r.Link != linkPactoTarget
 			return true
 		}
 		return false
 	})
+	listed := func(ns, kind string) bool { return ns != "" && !hidden(ns, kind) }
+	for i := range out.Replacements {
+		out.Replacements[i].Workload = restrictRepositories(out.Replacements[i].Workload, listed)
+	}
 	out.replacedNames = maps.Clone(s.replacedNames)
 	maps.DeleteFunc(out.replacedNames, func(_ string, r replacedName) bool {
 		return hiddenSvc[r.to] || hidden(r.workload.namespace, r.workload.kind)

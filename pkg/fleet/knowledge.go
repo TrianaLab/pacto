@@ -9,11 +9,12 @@ import (
 
 // categoryKnowledge is the attention category of a gap in what a service's
 // contract says, of a service whose contract Pacto cannot read, or of an
-// inferred service a contract took over in the last 24h.
+// inferred service a contract took over (see attentionInferredReplaced).
 const categoryKnowledge = "knowledge"
 
 // attentionInferredReplaced is the attention code of an inferred service a
-// declared service replaced within RecentEvidenceWindow.
+// declared service replaced: through a Pacto target within
+// RecentEvidenceWindow, through a declaration while it holds.
 const attentionInferredReplaced = "INFERRED_REPLACED"
 
 // Knowledge gap kinds, the values of [EntityFilter.Gap]. GapUnknown keeps the

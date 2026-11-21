@@ -60,6 +60,8 @@ func TestPrintFleetServiceHandover(t *testing.T) {
 	inOrder(t, out,
 		"Service: invoices",
 		"Declared by ana@acme.com from inferred k8s:billing/Deployment/invoices (revision invoices@sha256:invoices-0.1.0)",
+		"  Workload: Deployment 9f1c4e2a-0000-4000-8000-00000000000a billing/invoices",
+		"    image ghcr.io/acme/invoices:0.9.0 (from k8s-workloads: spec.template.spec.containers[name=invoices].image)",
 		"Owner: billing",
 		"Status: unknown",
 		"Sources: [oci]",
@@ -94,7 +96,7 @@ func TestPrintFleetServiceReplacesWithoutTime(t *testing.T) {
 		Revision: "invoices@sha256:a", By: "ana@acme.com"}
 	view := &fleet.ServiceView{Service: &fleet.ServiceRecord{Name: "invoices"}, ReplacedFrom: &r, Replaces: []fleet.Replacement{r}, ReplacesTotal: 1}
 	out := printed(t, func(c *cobra.Command) error { return printFleetService(c, view, "text") })
-	line := "Declared by ana@acme.com from inferred k8s:billing/Deployment/invoices (revision invoices@sha256:a)"
+	line := "Declared by ana@acme.com from inferred k8s:billing/Deployment/invoices (revision invoices@sha256:a); Pacto read no workload for it here"
 	inOrder(t, out, line, "Service: invoices", line)
 	expect(t, !strings.Contains(out, " ago"), "an untimed replacement prints an age:\n%s", out)
 }

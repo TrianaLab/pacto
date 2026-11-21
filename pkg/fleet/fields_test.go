@@ -204,12 +204,18 @@ func TestFieldsAbsentWithoutRecordOrReplacement(t *testing.T) {
 	if f := NewQuery(snap).fieldsOf(snap.Services[invoicesKey]); f != nil {
 		t.Errorf("fields of a Pacto target takeover %+v", f)
 	}
-	// A hidden replacement is enough: the count needs the block.
+	// A hidden Pacto target's takeover counts in replacesHidden alone: every
+	// viewer gets the same shape.
 	snap.hiddenReplacements = map[ServiceKey]int{invoicesKey: 1}
-	if f := NewQuery(snap).fieldsOf(snap.Services[invoicesKey]); f == nil {
-		t.Error("no fields with a hidden replacement")
+	if f := NewQuery(snap).fieldsOf(snap.Services[invoicesKey]); f != nil {
+		t.Errorf("fields of a hidden Pacto target takeover %+v", f)
 	}
-	snap.hiddenReplacements = nil
+	// A hidden hand-over keeps the block a viewer who sees it gets.
+	snap.hiddenHandovers = map[ServiceKey]bool{invoicesKey: true}
+	if f := NewQuery(snap).fieldsOf(snap.Services[invoicesKey]); f == nil {
+		t.Error("no fields with a hidden hand-over")
+	}
+	snap.hiddenReplacements, snap.hiddenHandovers = nil, nil
 	// Any other replacement is enough: its owner and dependency rows.
 	snap.Replacements = append(snap.Replacements, Replacement{To: invoicesKey, Link: linkInferredFrom})
 	if f := NewQuery(snap).fieldsOf(snap.Services[invoicesKey]); f == nil || f.Items[0].Field != "service.owner" {
@@ -249,7 +255,7 @@ func TestFieldsHideClusterSourcesWhenReplacementHidden(t *testing.T) {
 			if !slices.ContainsFunc(f.Items, func(r FieldProvenance) bool { return r.Field == "workload" }) {
 				t.Errorf("a folder row was hidden: %+v", f.Items)
 			}
-			if got := f.Lines(); tc.accepted && got[len(got)-1] != "  1 fields read from a workload you cannot see" {
+			if got := f.Lines(); tc.accepted && got[len(got)-1] != "  1 fields hidden by your permissions" {
 				t.Errorf("lines %q", got)
 			}
 			if a := handoverAnswers(t, q); strings.Contains(a, "billing/Deployment/invoices") {
@@ -300,7 +306,7 @@ func TestReplacementLineByLink(t *testing.T) {
 		t.Errorf("replaced line %q", got)
 	}
 	i := Replacement{From: NewServiceKey(invoicesName), To: invoicesKey, Link: linkInferredFrom, By: anaSubject, Revision: "invoices@sha256:x"}
-	want := "Declared by ana@acme.com from inferred " + invoicesName + " (revision invoices@sha256:x)"
+	want := "Declared by ana@acme.com from inferred " + invoicesName + " (revision invoices@sha256:x); Pacto read no workload for it here"
 	if i.Line(now) != want || i.ReplacedLine(now) != want {
 		t.Errorf("line %q", i.Line(now))
 	}
@@ -329,5 +335,24 @@ func TestFieldProvenanceLineForms(t *testing.T) {
 	p := &FieldsPreview{Items: []FieldProvenance{{Field: "workload", Value: "service", Provenance: FieldInferred, Source: "x"}}, Count: 1, Total: 3}
 	if got := p.Lines(); len(got) != 2 || got[1] != "  2 more" {
 		t.Errorf("lines %q", got)
+	}
+}
+
+// Every owner row carries when its source was read.
+func TestFieldsOwnerRowAsOf(t *testing.T) {
+	at := fixedNow().Add(-time.Hour)
+	q := ownerProvenanceFleet(t, contract.Owner{}, payTarget("a", contract.Owner{Team: "pay"}))
+	s := q.snap.Services[NewServiceKey("pay")]
+	q.snap.Targets[s.Targets[0]].ReconciledAt = &at
+	if rows := q.ownerRow(s, nil); len(rows) != 1 || rows[0].AsOf == nil || !rows[0].AsOf.Equal(at) {
+		t.Errorf("via target rows %+v", rows)
+	}
+	a := attestedFleet(t, []attRev{{version: "1.0.0", attested: "payments", repo: attRepo}}, nil)
+	as := a.snap.Services[rInv]
+	for _, rk := range as.Revisions {
+		a.snap.Revisions[rk].FetchedAt = &at
+	}
+	if rows := a.ownerRow(as, nil); len(rows) != 1 || rows[0].Provenance != FieldAttested || rows[0].AsOf == nil || !rows[0].AsOf.Equal(at) {
+		t.Errorf("attested rows %+v", rows)
 	}
 }
