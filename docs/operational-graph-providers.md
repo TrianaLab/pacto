@@ -237,7 +237,7 @@ exporters:
 service:
   pipelines:
     traces:
-      exporters: [servicegraph]
+      exporters: [servicegraph]  # add to the exporters already listed
     metrics/servicegraph:
       receivers: [servicegraph]
       exporters: [prometheus]
@@ -254,7 +254,7 @@ exporters:
 service:
   pipelines:
     traces:
-      exporters: [otlphttp/pacto]
+      exporters: [otlphttp/pacto]  # add to the exporters already listed
 ```
 
 ## Not read and not installed

@@ -2,6 +2,7 @@ package fleetsrc
 
 import (
 	"cmp"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -50,9 +51,10 @@ type Receiver struct {
 	pairs   map[[2]string]*pairSeen
 	names   map[string]int
 	senders map[string]time.Time
-	// requests counts JSON requests, protobuf refused protobuf ones, dropped
-	// calls beyond a cap and unattributed calls with a refused name.
-	requests, protobuf, dropped, unattributed windowCount
+	// requests counts JSON requests, protobuf refused protobuf ones, encoded
+	// refused ones in an encoding it does not read, dropped calls beyond a cap
+	// and unattributed calls with a refused name.
+	requests, protobuf, encoded, dropped, unattributed windowCount
 	// offBy is the source that won the last time the receiver source read,
 	// empty while the receiver is on.
 	offBy string
@@ -87,11 +89,15 @@ func NewReceiver(advertised string, now func() time.Time) (*Receiver, error) {
 		return nil, fmt.Errorf("--otlp-receiver %q is not http://HOST:PORT", advertised)
 	}
 	port, err := strconv.ParseUint(u.Port(), 10, 16)
-	if err != nil {
+	ip := net.ParseIP(u.Hostname())
+	loopback := u.Hostname() == "localhost" || ip != nil && ip.IsLoopback()
+	// Port 0 listens on any free port, which Collectors cannot be told:
+	// only a loopback receiver (a test) may take it.
+	if err != nil || port == 0 && !loopback {
 		return nil, fmt.Errorf("--otlp-receiver %q names no port", advertised)
 	}
 	addr := ":" + strconv.FormatUint(port, 10)
-	if ip := net.ParseIP(u.Hostname()); u.Hostname() == "localhost" || ip != nil && ip.IsLoopback() {
+	if loopback {
 		addr = "127.0.0.1" + addr
 	}
 	return &Receiver{
@@ -132,9 +138,14 @@ func (r *Receiver) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "send OTLP JSON: set encoding: json", http.StatusUnsupportedMediaType)
 		return
 	}
-	data, err := io.ReadAll(http.MaxBytesReader(w, req.Body, maxReceiverBody))
+	data, err := readBody(w, req)
 	var tooBig *http.MaxBytesError
-	if errors.As(err, &tooBig) {
+	switch {
+	case errors.Is(err, errEncoding):
+		r.count(&r.encoded)
+		http.Error(w, "send OTLP JSON with no compression or gzip", http.StatusUnsupportedMediaType)
+		return
+	case errors.As(err, &tooBig), errors.Is(err, errTooBig):
 		http.Error(w, "body over 4 MiB", http.StatusRequestEntityTooLarge)
 		return
 	}
@@ -149,6 +160,35 @@ func (r *Receiver) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// errEncoding and errTooBig are a body in an encoding the receiver does not
+// read and a gzip body over 4 MiB once decompressed.
+var (
+	errEncoding = errors.New("unsupported Content-Encoding")
+	errTooBig   = errors.New("decompressed body over 4 MiB")
+)
+
+// readBody is req's body, at most 4 MiB as sent and, gzip-compressed (the
+// Collector's otlphttp default), at most 4 MiB decompressed too.
+func readBody(w http.ResponseWriter, req *http.Request) ([]byte, error) {
+	body := io.Reader(http.MaxBytesReader(w, req.Body, maxReceiverBody))
+	switch strings.ToLower(strings.TrimSpace(req.Header.Get("Content-Encoding"))) {
+	case "", "identity":
+	case "gzip":
+		zr, err := gzip.NewReader(body)
+		if err != nil {
+			return nil, err
+		}
+		body = io.LimitReader(zr, maxReceiverBody+1)
+	default:
+		return nil, errEncoding
+	}
+	data, err := io.ReadAll(body)
+	if err == nil && len(data) > maxReceiverBody {
+		err = errTooBig
+	}
+	return data, err
 }
 
 // spanCount is how many spans td holds.
@@ -166,7 +206,9 @@ func spanCount(td *otelobserver.TracesData) int {
 func (r *Receiver) count(c *windowCount) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	c.add(1, r.now())
+	at := r.now()
+	c.prune(at)
+	c.add(1, at)
 }
 
 // record keeps the calls of td from the sender at remote (host only, counted)
@@ -236,16 +278,16 @@ func (r *Receiver) prune(at time.Time) {
 			delete(r.senders, h)
 		}
 	}
-	for _, c := range []*windowCount{&r.requests, &r.protobuf, &r.dropped, &r.unattributed} {
+	for _, c := range []*windowCount{&r.requests, &r.protobuf, &r.encoded, &r.dropped, &r.unattributed} {
 		c.prune(at)
 	}
 }
 
 // receiverWindow is what the receiver holds for the last 15 minutes.
 type receiverWindow struct {
-	edges                                     []fleet.ObservedEdge
-	calls, senders                            int
-	requests, protobuf, dropped, unattributed int
+	edges                                              []fleet.ObservedEdge
+	calls, senders                                     int
+	requests, protobuf, encoded, dropped, unattributed int
 }
 
 // window is the receiver's last 15 minutes, edges sorted.
@@ -253,7 +295,7 @@ func (r *Receiver) window() receiverWindow {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.prune(r.now())
-	w := receiverWindow{senders: len(r.senders), requests: r.requests.n, protobuf: r.protobuf.n, dropped: r.dropped.n, unattributed: r.unattributed.n}
+	w := receiverWindow{senders: len(r.senders), requests: r.requests.n, protobuf: r.protobuf.n, encoded: r.encoded.n, dropped: r.dropped.n, unattributed: r.unattributed.n}
 	for k, p := range r.pairs {
 		w.calls += p.count
 		w.edges = append(w.edges, fleet.ObservedEdge{From: k[0], To: k[1], Count: p.count, FirstSeen: p.first, LastSeen: p.last})
@@ -315,6 +357,10 @@ func (s *ReceiverSource) Collect(context.Context) (*fleet.Collection, error) {
 	case w.requests == 0:
 		live.Status, live.Reason = fleet.SourcePartial, "not exporting to "+r.host
 		live.Hint, live.Details = s.hint()
+	case w.calls == 0:
+		// A probe, an empty export or server spans only: nothing to report.
+		live.Status, live.Reason = fleet.SourcePartial, "the requests it received held no call between named services"
+		live.Hint, live.Details = s.hint()
 	default:
 		edges = w.edges
 		live.Details = []string{fmt.Sprintf("received %d calls from %d in-cluster senders in the last 15 minutes", w.calls, w.senders)}
@@ -336,7 +382,7 @@ func (s *ReceiverSource) Collect(context.Context) (*fleet.Collection, error) {
 	switch {
 	case s.collector != nil:
 		res, e = *s.res, *s.collector
-	case w.requests == 0 && w.protobuf == 0:
+	case w.requests == 0 && w.protobuf == 0 && w.encoded == 0:
 		// With no Collector detected the row appears once something was sent.
 		return col, nil
 	default:
@@ -351,6 +397,9 @@ func receiverReasons(w receiverWindow) []string {
 	var out []string
 	if w.protobuf > 0 {
 		out = append(out, fmt.Sprintf("%d requests used protobuf; set encoding: json", w.protobuf))
+	}
+	if w.encoded > 0 {
+		out = append(out, fmt.Sprintf("%d requests used a compression other than gzip; set compression: gzip", w.encoded))
 	}
 	if w.dropped > 0 {
 		out = append(out, fmt.Sprintf("%d calls dropped beyond %d call pairs or %d names", w.dropped, maxReceiverPairs, maxReceiverNames))
@@ -367,9 +416,11 @@ func receiverReasons(w receiverWindow) []string {
 func (s *ReceiverSource) hint() (string, []string) {
 	exporter := `exporters: {otlphttp/pacto: {endpoint: "` + s.live.Receiver.url + `", encoding: json}}`
 	if s.collector != nil && s.collector.Endpoint != "" {
+		// Additive only: a list here would replace the Collector's own
+		// traces exporters when merged.
 		return `connectors: {servicegraph: {}}, exporters: {prometheus: {endpoint: "0.0.0.0:8889"}}, ` +
-				`service: {pipelines: {traces: {exporters: [servicegraph]}, metrics/servicegraph: {receivers: [servicegraph], exporters: [prometheus]}}}`,
-			[]string{"let Prometheus scrape the prometheus exporter; or send traces to Pacto: " + exporter}
+				`service: {pipelines: {metrics/servicegraph: {receivers: [servicegraph], exporters: [prometheus]}}}`,
+			[]string{"add servicegraph to service.pipelines.traces.exporters and let Prometheus scrape the prometheus exporter; or send traces to Pacto: " + exporter}
 	}
 	return exporter, []string{"add otlphttp/pacto to service.pipelines.traces.exporters"}
 }

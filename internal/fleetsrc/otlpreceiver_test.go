@@ -1,6 +1,8 @@
 package fleetsrc
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -104,7 +106,7 @@ func TestNewReceiverAddresses(t *testing.T) {
 			t.Errorf("NewReceiver(%q) = %v, %v; want %s", in, r, err, want)
 		}
 	}
-	for _, bad := range []string{"https://x:4318", "http://x", "http://u:p@x:1", "http://x:1/v1/traces", "http://x:1?a=b", "http://x:1#f", "::", "http://x:99999"} {
+	for _, bad := range []string{"https://x:4318", "http://x", "http://u:p@x:1", "http://x:1/v1/traces", "http://x:1?a=b", "http://x:1#f", "::", "http://x:99999", "http://pacto-dashboard.pacto-system:0"} {
 		if _, err := NewReceiver(bad, time.Now); err == nil {
 			t.Errorf("NewReceiver(%q) accepted", bad)
 		}
@@ -344,7 +346,10 @@ func TestCollectorRowOffersServiceGraphFirst(t *testing.T) {
 	_, live, _ := newTestReceiver(t)
 	res, c := collector(true)
 	row := collectReceiver(t, NewReceiverSource("otlp-receiver", res, c, live)).Providers[0]
-	if !strings.HasPrefix(row.Hint, "connectors: {servicegraph: {}}") || strings.Contains(row.Hint, "\n") || !strings.Contains(rowText(row), "otlphttp/pacto") {
+	// Additive: no list a merge would put in place of the Collector's own
+	// traces exporters.
+	if !strings.HasPrefix(row.Hint, "connectors: {servicegraph: {}}") || strings.Contains(row.Hint, "\n") || strings.Contains(row.Hint, "traces:") ||
+		!strings.Contains(rowText(row), "add servicegraph to service.pipelines.traces.exporters") || !strings.Contains(rowText(row), "otlphttp/pacto") {
 		t.Fatalf("row = %+v", row)
 	}
 }
@@ -367,10 +372,78 @@ func TestReceiverRowAbsentUntilARequest(t *testing.T) {
 	if col := collectReceiver(t, s); len(col.Providers) != 0 || col.State.Status != fleet.SourcePartial {
 		t.Fatalf("before a request: %+v", col)
 	}
-	post(r, `{"resourceSpans":[]}`)
-	col := collectReceiver(t, s)
-	if len(col.Providers) != 1 || col.Providers[0].ID != "otlp-receiver" || col.Providers[0].Name != "OTLP receiver" || col.Providers[0].Status != fleet.SourceAvailable ||
-		strings.Contains(rowText(col.Providers[0]), "detected ") {
-		t.Fatalf("after a request: %+v", col.Providers)
+	// A request with no call (a probe, an empty export) makes the row
+	// appear partial, with the hint; a call makes it available.
+	for _, body := range []string{`{"resourceSpans":[]}`, `{}`, `null`} {
+		post(r, body)
+		col := collectReceiver(t, s)
+		if len(col.Providers) != 1 || col.Providers[0].ID != "otlp-receiver" || col.Providers[0].Name != "OTLP receiver" || col.Providers[0].Status != fleet.SourcePartial ||
+			col.State.Status != fleet.SourcePartial || col.Providers[0].Hint == "" || !strings.Contains(rowText(col.Providers[0]), "held no call between named services") ||
+			strings.Contains(rowText(col.Providers[0]), "detected ") {
+			t.Fatalf("after %s: %+v", body, col.Providers)
+		}
+	}
+	post(r, spanBody(map[string][]string{"web": {"payments"}}))
+	if col := collectReceiver(t, s); col.Providers[0].Status != fleet.SourceAvailable || col.Providers[0].Hint != "" {
+		t.Fatalf("after a call: %+v", col.Providers)
+	}
+}
+
+// gzip is body compressed with gzip.
+func gzipped(t *testing.T, body string) string {
+	t.Helper()
+	var b bytes.Buffer
+	zw := gzip.NewWriter(&b)
+	if _, err := zw.Write([]byte(body)); err != nil || zw.Close() != nil {
+		t.Fatal(err)
+	}
+	return b.String()
+}
+
+// sendEncoded posts body as JSON with Content-Encoding enc.
+func sendEncoded(r *Receiver, enc, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, receiverPath, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", enc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+// The Collector's otlphttp exporter compresses with gzip by default: the
+// receiver reads it, bounded once decompressed too, and refuses and counts
+// any other encoding.
+func TestReceiverReadsGzip(t *testing.T) {
+	r, live, _ := newTestReceiver(t)
+	if w := sendEncoded(r, "gzip", gzipped(t, spanBody(map[string][]string{"web": {"payments"}}))); w.Code != 200 {
+		t.Fatalf("gzip = %d %s", w.Code, w.Body)
+	}
+	if w := sendEncoded(r, "gzip", "not gzip"); w.Code != 400 {
+		t.Fatalf("broken gzip = %d", w.Code)
+	}
+	bomb := gzipped(t, `{"resourceSpans":[`+strings.Repeat(" ", maxReceiverBody)+`]}`)
+	if w := sendEncoded(r, "gzip", bomb); w.Code != 413 {
+		t.Fatalf("gzip over 4 MiB decompressed = %d", w.Code)
+	}
+	if w := sendEncoded(r, "zstd", "x"); w.Code != 415 {
+		t.Fatalf("zstd = %d", w.Code)
+	}
+	col := collectReceiver(t, NewReceiverSource("otlp-receiver", nil, nil, live))
+	if len(col.Observed) != 1 || !strings.Contains(reason(col.Providers[0]), "1 requests used a compression other than gzip") {
+		t.Fatalf("collection = %+v", col)
+	}
+}
+
+// A refused request counts in its own window: the count restarts once the
+// last one is older than 15 minutes, even with nothing read in between.
+func TestReceiverRefusedCountRestarts(t *testing.T) {
+	r, _, clk := newTestReceiver(t)
+	for range 3 {
+		send(r, http.MethodPost, receiverPath, "application/x-protobuf", "x", "10.0.0.1:1")
+	}
+	clk.t = clk.t.Add(time.Hour)
+	send(r, http.MethodPost, receiverPath, "application/x-protobuf", "x", "10.0.0.1:1")
+	if r.protobuf.n != 1 {
+		t.Fatalf("protobuf = %d, want 1", r.protobuf.n)
 	}
 }
