@@ -2193,7 +2193,8 @@ export const acceptPlanRoute = (mode: 'plan' | 'refused' | 'forbidden' | 'execut
   await page.reload();
   const block = page.getByTestId('service-inferred');
   await expect(block).toBeVisible({ timeout: 30_000 });
-  await block.locator('summary').first().click();
+  // Back from a signing login the block opens on its own.
+  if (mode !== 'signed') await block.locator('summary').first().click();
   if (mode === 'forbidden') {
     await expect(block.getByTestId('accept-sign-in')).toBeVisible({ timeout: 30_000 });
   } else if (mode === 'signed') {

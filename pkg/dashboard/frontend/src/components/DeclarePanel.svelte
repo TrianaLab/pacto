@@ -199,7 +199,7 @@
             <p class="dp-p" data-testid="declare-signed-return">Signed in again as <bdi>{signing.identity}</bdi>.</p>
             <button type="button" class="btn btn-sm btn-primary" aria-disabled={busy ? 'true' : undefined} onclick={() => send('sign')}>Publish {p.version}</button>
           {:else if signHref}
-            <a class="btn btn-sm btn-primary" href={signHref} onclick={startSign} data-testid="declare-sign">Sign as <bdi>{signing.identity}</bdi></a>
+            <a class="btn btn-sm btn-primary" href={signHref} onclick={startSign} data-testid="declare-sign"><span class="dp-nowrap">Sign as</span> <bdi class="dp-id">{signing.identity}</bdi></a>
           {/if}
           {#if writes && !draft}
             <button type="button" class="btn btn-sm" aria-disabled={busy || loading ? 'true' : undefined} onclick={() => send('draft')} data-testid="declare-save-draft">Save draft</button>
@@ -269,7 +269,10 @@
   .dp-unbacked { border-inline-start: 3px solid var(--c-warn-border); padding-inline-start: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-1); }
   .dp-moved { color: var(--c-text); }
   .dp-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-  .dp-actions :global(.btn) { overflow-wrap: anywhere; }
+  .dp-actions :global(.btn) { overflow-wrap: anywhere; max-inline-size: 100%; }
+  /* "Sign as" stays one line; the identity beside it wraps. */
+  .dp-nowrap { white-space: nowrap; flex: none; }
+  .dp-id { min-inline-size: 0; }
   .dp-link { border: 0; background: none; padding: 0; color: var(--c-accent); font: inherit; text-decoration: underline; cursor: pointer; }
   .dp-command { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-inline-size: 0; }
   /* One long YAML line scrolls inside its box instead of widening the page. */
