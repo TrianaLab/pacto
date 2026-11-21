@@ -37,7 +37,10 @@ NS=pacto-system
 APP_NS=demo
 KARGO_NS=kargo
 ROLLOUTS_NS=argo-rollouts
-REG_HOST="pacto-registry.${NS}.svc.cluster.local:5000"
+# REG_HOST is the registry Service's ClusterIP:5000, set once the registry runs:
+# Kargo reads image tags over plain HTTP only from an RFC 1918 or loopback host,
+# and asks a DNS name over HTTPS, which the in-cluster registry does not speak.
+REG_HOST=
 LOCAL_REG_PORT=5604
 # Kargo v1.12.6 (2026-11-16) and Argo Rollouts v1.10.2 (2026-11-04), the latest
 # stable releases when this scenario was written. Each download and image is
@@ -220,6 +223,7 @@ done
 
 section "the operator with only the registry value: delivery absent"
 install_registry
+REG_HOST="$(kubectl -n "$NS" get svc pacto-registry -o jsonpath='{.spec.clusterIP}'):5000"
 REG_PF_PID="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
 helm install pacto-operator "$OP_CHART" -n "$NS" \
   --set global.imageRegistry= --set "image.repository=$OP_REPO" --set "image.tag=$VER" --set "image.pullPolicy=Never" \
@@ -239,7 +243,7 @@ section "publish the bundles: payments and ledger for A, B and D; inventory and 
 # prints its in-cluster digest-pinned ref.
 push() {
   local digest
-  digest="$(push_bundle "$PACTO" "$LOCAL_REG_PORT" "$(contract_dir "$@")" "$1:$2")"
+  digest="$(push_bundle "$PACTO" "$LOCAL_REG_PORT" "$(contract_dir "$@")" "$1:$2" "$REG_HOST")"
   [ -n "$digest" ] || fail "pushing $1 $2 resolved no digest"
   echo "oci://${REG_HOST}/demo/$1@${digest}"
 }

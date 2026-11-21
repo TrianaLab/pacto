@@ -138,7 +138,7 @@ YAML
 # prints its in-cluster digest-pinned ref.
 push() {
   local digest
-  digest="$(push_bundle "$PACTO" "$LOCAL_REG_PORT" "$(contract_dir "$@")" "$1:$2")"
+  digest="$(push_bundle "$PACTO" "$LOCAL_REG_PORT" "$(contract_dir "$@")" "$1:$2" "$REG_HOST")"
   [ -n "$digest" ] || fail "pushing $1 $2 resolved no digest"
   echo "oci://${REG_HOST}/demo/$1@${digest}"
 }
