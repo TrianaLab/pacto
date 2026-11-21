@@ -570,24 +570,35 @@ type callerInputs struct {
 	pactos   []unversioned.Pacto
 }
 
-// loadCallerInputs reads the node agents' snapshots, the target's Service and its EndpointSlices, every Pod
-// and every Pacto. A read it cannot make returns the reason caller coverage is unavailable instead.
+// loadCallerInputs reads what loadRuntimeInputs reads plus the target's Service and its EndpointSlices. A
+// read it cannot make returns the reason caller coverage is unavailable instead.
 func (o *Observer) loadCallerInputs(ctx context.Context, input CollectInput) (callerInputs, string) {
+	in, reason := o.loadRuntimeInputs(ctx, input)
+	if reason != "" {
+		return callerInputs{}, reason
+	}
+	in.svc = &corev1.Service{}
+	if err := o.client.Get(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.ServiceName}, in.svc); err != nil {
+		return callerInputs{}, "service-unreadable"
+	}
+	var epSlices discoveryv1.EndpointSliceList
+	if err := o.client.List(ctx, &epSlices, client.InNamespace(input.Namespace),
+		client.MatchingLabels{discoveryv1.LabelServiceName: in.svc.Name}); err != nil {
+		return callerInputs{}, "service-unreadable"
+	}
+	in.epSlices = epSlices.Items
+	return in, ""
+}
+
+// loadRuntimeInputs reads the node agents' snapshots, every Pod and every Pacto. A read it cannot make
+// returns the reason the coverage built on them is unavailable instead.
+func (o *Observer) loadRuntimeInputs(ctx context.Context, input CollectInput) (callerInputs, string) {
 	nodes, err := o.loadNodes(ctx, input)
 	if err != nil {
 		return callerInputs{}, "agent-data-unreadable"
 	}
 	if len(nodes) == 0 {
 		return callerInputs{}, "no-agent-data"
-	}
-	svc := &corev1.Service{}
-	if err := o.client.Get(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.ServiceName}, svc); err != nil {
-		return callerInputs{}, "service-unreadable"
-	}
-	var epSlices discoveryv1.EndpointSliceList
-	if err := o.client.List(ctx, &epSlices, client.InNamespace(input.Namespace),
-		client.MatchingLabels{discoveryv1.LabelServiceName: svc.Name}); err != nil {
-		return callerInputs{}, "service-unreadable"
 	}
 	var pods corev1.PodList
 	if err := o.client.List(ctx, &pods); err != nil {
@@ -599,7 +610,7 @@ func (o *Observer) loadCallerInputs(ctx context.Context, input CollectInput) (ca
 		o.fail("kernel", fmt.Errorf("failed to list Pacto CRs: %w", err))
 		return callerInputs{}, "pactos-unreadable"
 	}
-	return callerInputs{nodes: nodes, svc: svc, epSlices: epSlices.Items, pods: pods.Items, pactos: pactos.Items}, ""
+	return callerInputs{nodes: nodes, pods: pods.Items, pactos: pactos.Items}, ""
 }
 
 // partialCoverage marks cov partial for reason, unless an earlier reason already did.

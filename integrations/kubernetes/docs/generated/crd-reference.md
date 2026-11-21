@@ -734,6 +734,19 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.observedCallersCoverage.reason` | `string` | no |  |  |  |
 | `status.observedCallersCoverage.refreshSeconds` | `integer` | no |  |  | RefreshSeconds is how often the operator rewrites this status. A reader treats a status not reconciled within twice that as stale, so an operator that stopped never leaves a complete coverage in place. |
 | `status.observedCallersCoverage.state` | `string` | yes |  | `complete`, `partial`, `unavailable` |  |
+| `status.observedEgress` | `[]object` | no |  |  | ObservedEgress are the systems outside the cluster the node agent saw the target workload's pods call inside the caller window, named from the DNS answers each pod received and one entry per identity. Capped at 32, sorted by identity. |
+| `status.observedEgress[].class` | `string` | yes |  | `vendor-api`, `managed-cloud`, `legacy`, `unclassified` |  |
+| `status.observedEgress[].firstSeen` | `string` | yes |  |  | FirstSeen is set once, when the external first appears, so the status does not change on every reconcile. |
+| `status.observedEgress[].host` | `string` | yes |  |  |  |
+| `status.observedEgress[].identity` | `string` | yes |  |  | Identity is the external's canonical identity (stripe, host/&lt;registrable-domain&gt;). |
+| `status.observedEgress[].port` | `integer` | yes |  |  |  |
+| `status.observedEgress[].source` | `string` | yes |  | `ebpf`, `egress-gateway-log` | Source is what saw the calls: the node agent (ebpf) or an egress gateway's access log. |
+| `status.observedEgressCoverage` | `object` | no |  |  | ObservedEgressCoverage says whether observedEgress can be trusted as complete: partial or unavailable means a missing external is unknown, not absent. The reason names the first gap: a read the operator could not make (no-agent-data, agent-data-unreadable, pods-unreadable, pactos-unreadable, services-unreadable), a node it cannot trust (node-without-agent, stale-node, degraded-node, collection-failed, shared-netns), no running pod to watch (no-running-pods), calls it cannot name (dns-unavailable, ambiguous-peers, unnamed-public, unnamed-private-peers), truncated or not-evaluated. Absent when runtime observation is not configured for this Pacto. |
+| `status.observedEgressCoverage.nodes` | `integer` | no |  |  | Nodes is how many nodes run pods. |
+| `status.observedEgressCoverage.nodesWithAgent` | `integer` | no |  |  | NodesWithAgent is how many of those nodes publish node agent data. |
+| `status.observedEgressCoverage.reason` | `string` | no |  |  |  |
+| `status.observedEgressCoverage.refreshSeconds` | `integer` | no |  |  | RefreshSeconds is how often the operator rewrites this status. A reader treats a status not reconciled within twice that as stale, so an operator that stopped never leaves a complete coverage in place. |
+| `status.observedEgressCoverage.state` | `string` | yes |  | `complete`, `partial`, `unavailable` |  |
 | `status.observedGeneration` | `integer` | no |  |  | ObservedGeneration is the most recent generation observed by the controller. |
 | `status.observedRuntime` | `object` | no |  |  | ObservedRuntime describes the actual runtime state observed from the cluster. Only populated when a target workload exists. This is a lean evidence view. |
 | `status.observedRuntime.containerImages` | `[]string` | no |  |  | ContainerImages lists the container images from the pod spec. |
@@ -793,7 +806,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.resources.workload.exists` | `boolean` | yes |  |  | Exists indicates whether the resource was found in the cluster. |
 | `status.resources.workload.kind` | `string` | no |  |  | Kind of the resource (only set for workloads). |
 | `status.resources.workload.name` | `string` | yes |  |  | Name of the resource. |
-| `status.statusFormat` | `integer` | no |  |  | StatusFormat is the layout this status is written in. Format 1 records interface guarantees and dependency requirements. Format 2 also records the contract's business domain in contract.domain, so its absence there means the contract declares none. Format 3 also records the external systems the target workload names in externals, with externalsCoverage saying how far that list can be trusted. A status without a format, or with an older one, was written by an older operator, so readers treat what it would record as unknown until the operator reconciles the Pacto again. |
+| `status.statusFormat` | `integer` | no |  |  | StatusFormat is the layout this status is written in. Format 1 records interface guarantees and dependency requirements. Format 2 also records the contract's business domain in contract.domain, so its absence there means the contract declares none. Format 3 also records the external systems the target workload names in externals, with externalsCoverage saying how far that list can be trusted. Format 4 also records the external systems the node agent saw the workload call in observedEgress, with observedEgressCoverage. A status without a format, or with an older one, was written by an older operator, so readers treat what it would record as unknown until the operator reconciles the Pacto again. |
 | `status.summary` | `object` | no |  |  | Summary provides severity-based finding counts. |
 | `status.summary.errorCount` | `integer` | yes |  |  | ErrorCount is the number of error-severity findings. |
 | `status.summary.infoCount` | `integer` | yes |  |  | InfoCount is the number of info-severity findings. |

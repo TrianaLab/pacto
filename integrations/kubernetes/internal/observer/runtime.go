@@ -219,10 +219,13 @@ type collectRun struct {
 	// externals and externalsCoverage are what observeExternals found.
 	externals         []unversioned.ExternalStatus
 	externalsCoverage unversioned.CallerCoverage
-	now               time.Time
-	monitors          map[string]*monitorList
-	failures          []error
-	seen              map[string]bool
+	// egress and egressCoverage are what observeEgress found, as of now.
+	egress         []unversioned.EgressStatus
+	egressCoverage *unversioned.EgressCoverage
+	now            time.Time
+	monitors       map[string]*monitorList
+	failures       []error
+	seen           map[string]bool
 }
 
 func newCollectRun() *collectRun {
@@ -338,6 +341,7 @@ func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.Ev
 	o.run.now = now
 	o.run.callers, o.run.callerCoverage = o.observeCallers(ctx, input, now)
 	o.run.externals, o.run.externalsCoverage = o.observeExternals(ctx, input)
+	o.run.egress, o.run.egressCoverage = o.observeEgress(ctx, input, now)
 
 	log := logf.FromContext(ctx)
 	for _, err := range o.run.failures {

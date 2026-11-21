@@ -292,6 +292,47 @@ func TestKernelEvidence(t *testing.T) {
 	})
 }
 
+// TestKernelEgress: the node agent names a connection of the target's pod to an address outside the cluster
+// from the pod's own DNS answer, and the status lists the external it reaches, never the address.
+func TestKernelEgress(t *testing.T) {
+	ns := newNamespace(t)
+	createService(t, ns, "svc", port)
+	createDeployment(t, ns, "svc", deployOpts{})
+	uid := createRunningPod(t, ns, "svc", port)
+	createPodEndpointSlice(t, ns, "svc", port, uid)
+	createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
+		Target:      pactov1alpha1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")},
+	})
+	publishNode(t, ns, time.Now(), pactov1alpha1.CollectionRunning, pactov1alpha1.PodRuntimeObservation{
+		UID: uid, Connections: []pactov1alpha1.RuntimeConnection{{
+			Address: "203.0.113.10", Host: "api.stripe.com", Port: 443, Successes: 1, LastSuccessAt: &metav1.Time{Time: time.Now()},
+		}},
+	})
+	nro := &pactov1alpha1.NodeRuntimeObservation{}
+	if err := k8sClient.Get(testCtx, client.ObjectKey{Namespace: ns, Name: kernelNode}, nro); err != nil {
+		t.Fatalf("get node runtime observation: %v", err)
+	}
+	nro.Status.DNS = pactov1alpha1.RuntimeDNS{State: pactov1alpha1.CollectionRunning}
+	if err := k8sClient.Status().Update(testCtx, nro); err != nil {
+		t.Fatalf("publish dns state: %v", err)
+	}
+	p := reconcile(t, "p", ns, reconcileOpts{kernelNamespace: ns}).pacto
+	if p.Status.StatusFormat != pactov1alpha1.PactoStatusFormat {
+		t.Fatalf("statusFormat = %d", p.Status.StatusFormat)
+	}
+	got := p.Status.ObservedEgress
+	if len(got) != 1 || got[0].Identity != "stripe" || got[0].Class != "vendor-api" || got[0].Host != "api.stripe.com" ||
+		got[0].Port != 443 || got[0].Source != pactov1alpha1.EgressSourceKernel || got[0].FirstSeen.IsZero() {
+		t.Fatalf("observedEgress = %+v", got)
+	}
+	// Other cases share the cluster, so only what this namespace's agent object decides is asserted.
+	if c := p.Status.ObservedEgressCoverage; c == nil || c.NodesWithAgent < 1 || c.RefreshSeconds == 0 {
+		t.Fatalf("observedEgressCoverage = %+v", c)
+	}
+	requireNoIP(t, p)
+}
+
 // TestObserverRegressions covers the observer bugs kernel evidence would otherwise contradict.
 func TestObserverRegressions(t *testing.T) {
 	// EndpointSlices carry the target (container) port: a Service with port 80 -> targetPort 8080 must read

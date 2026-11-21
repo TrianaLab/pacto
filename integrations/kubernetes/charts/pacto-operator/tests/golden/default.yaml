@@ -1568,6 +1568,99 @@ spec:
                 required:
                 - state
                 type: object
+              observedEgress:
+                description: |-
+                  ObservedEgress are the systems outside the cluster the node agent saw
+                  the target workload's pods call inside the caller window, named from the
+                  DNS answers each pod received and one entry per identity. Capped at 32,
+                  sorted by identity.
+                items:
+                  description: |-
+                    EgressStatus is one external system the target workload's pods were seen
+                    calling. Host is one host it was reached by, never a path or a value.
+                  properties:
+                    class:
+                      enum:
+                      - vendor-api
+                      - managed-cloud
+                      - legacy
+                      - unclassified
+                      type: string
+                    firstSeen:
+                      description: |-
+                        FirstSeen is set once, when the external first appears, so the status
+                        does not change on every reconcile.
+                      format: date-time
+                      type: string
+                    host:
+                      maxLength: 253
+                      type: string
+                    identity:
+                      description: |-
+                        Identity is the external's canonical identity (stripe,
+                        host/<registrable-domain>).
+                      type: string
+                    port:
+                      format: int32
+                      type: integer
+                    source:
+                      description: |-
+                        Source is what saw the calls: the node agent (ebpf) or an egress
+                        gateway's access log.
+                      enum:
+                      - ebpf
+                      - egress-gateway-log
+                      type: string
+                  required:
+                  - class
+                  - firstSeen
+                  - host
+                  - identity
+                  - port
+                  - source
+                  type: object
+                maxItems: 32
+                type: array
+              observedEgressCoverage:
+                description: |-
+                  ObservedEgressCoverage says whether observedEgress can be trusted as
+                  complete: partial or unavailable means a missing external is unknown,
+                  not absent. The reason names the first gap: a read the operator could
+                  not make (no-agent-data, agent-data-unreadable, pods-unreadable,
+                  pactos-unreadable, services-unreadable), a node it cannot trust
+                  (node-without-agent, stale-node, degraded-node, collection-failed,
+                  shared-netns), no running pod to watch (no-running-pods), calls it
+                  cannot name (dns-unavailable, ambiguous-peers, unnamed-public,
+                  unnamed-private-peers), truncated or not-evaluated. Absent when runtime
+                  observation is not configured for this Pacto.
+                properties:
+                  nodes:
+                    description: Nodes is how many nodes run pods.
+                    format: int32
+                    type: integer
+                  nodesWithAgent:
+                    description: NodesWithAgent is how many of those nodes publish
+                      node agent data.
+                    format: int32
+                    type: integer
+                  reason:
+                    type: string
+                  refreshSeconds:
+                    description: |-
+                      RefreshSeconds is how often the operator rewrites this status. A reader
+                      treats a status not reconciled within twice that as stale, so an operator
+                      that stopped never leaves a complete coverage in place.
+                    format: int32
+                    type: integer
+                  state:
+                    enum:
+                    - complete
+                    - partial
+                    - unavailable
+                    type: string
+                required:
+                - state
+                type: object
               observedGeneration:
                 description: ObservedGeneration is the most recent generation observed
                   by the controller.
@@ -1881,7 +1974,9 @@ spec:
                   the contract's business domain in contract.domain, so its absence there
                   means the contract declares none. Format 3 also records the external
                   systems the target workload names in externals, with externalsCoverage
-                  saying how far that list can be trusted. A status without a format, or with an
+                  saying how far that list can be trusted. Format 4 also records the
+                  external systems the node agent saw the workload call in observedEgress,
+                  with observedEgressCoverage. A status without a format, or with an
                   older one, was written by an older operator, so readers treat what it
                   would record as unknown until the operator reconciles the Pacto again.
                 format: int32
@@ -2081,8 +2176,10 @@ rules:
     resourceNames: [kube-system]
     verbs: [get]
   # Detection reads each node's providerID, labels and kernel to propose the
-  # cloud and the node kernels in <fullname>-detected. It writes nothing on
-  # nodes, and with controller.watchNamespaces this rule is not rendered.
+  # cloud and the node kernels in <fullname>-detected; kernel egress reads each
+  # node's pod CIDRs to tell a gone pod's address from an external one. It
+  # writes nothing on nodes, and with controller.watchNamespaces this rule is
+  # not rendered.
   - apiGroups: [""]
     resources: [nodes]
     verbs: [list]

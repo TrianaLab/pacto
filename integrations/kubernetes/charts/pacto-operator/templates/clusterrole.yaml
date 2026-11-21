@@ -113,8 +113,10 @@ rules:
   {{- end }}
   {{- if not $scoped }}
   # Detection reads each node's providerID, labels and kernel to propose the
-  # cloud and the node kernels in <fullname>-detected. It writes nothing on
-  # nodes, and with controller.watchNamespaces this rule is not rendered.
+  # cloud and the node kernels in <fullname>-detected; kernel egress reads each
+  # node's pod CIDRs to tell a gone pod's address from an external one. It
+  # writes nothing on nodes, and with controller.watchNamespaces this rule is
+  # not rendered.
   - apiGroups: [""]
     resources: [nodes]
     verbs: [list]

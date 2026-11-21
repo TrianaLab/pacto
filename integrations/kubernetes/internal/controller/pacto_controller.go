@@ -338,7 +338,12 @@ func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alp
 	pacto.Status.ObservedCallers, pacto.Status.ObservedCallersCoverage = obs.ObservedCallers(pacto.Status.ObservedCallers)
 	pacto.Status.Externals, pacto.Status.ExternalsCoverage = obs.Externals()
 	pacto.Status.ExternalCatalog = observer.ExternalCatalog()
-	for _, c := range []*pactov1alpha1.CallerCoverage{pacto.Status.ObservedCallersCoverage, pacto.Status.ExternalsCoverage} {
+	pacto.Status.ObservedEgress, pacto.Status.ObservedEgressCoverage = obs.ObservedEgress(pacto.Status.ObservedEgress)
+	coverages := []*pactov1alpha1.CallerCoverage{pacto.Status.ObservedCallersCoverage, pacto.Status.ExternalsCoverage}
+	if e := pacto.Status.ObservedEgressCoverage; e != nil {
+		coverages = append(coverages, &e.CallerCoverage)
+	}
+	for _, c := range coverages {
 		if c != nil {
 			c.RefreshSeconds = int32(r.requeueInterval(pacto) / time.Second)
 		}
@@ -521,6 +526,13 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 	// interval, so delivery reads it as not evaluated rather than as a status the operator stopped writing.
 	if c := pacto.Status.ObservedCallersCoverage; c != nil {
 		pacto.Status.ObservedCallersCoverage = &pactov1alpha1.CallerCoverage{State: pactov1alpha1.CallerCoverageUnavailable, Reason: "not-evaluated", RefreshSeconds: c.RefreshSeconds}
+	}
+	// Egress is kept for its FirstSeen the same way, its coverage reading not evaluated with its node counts.
+	if c := pacto.Status.ObservedEgressCoverage; c != nil {
+		pacto.Status.ObservedEgressCoverage = &pactov1alpha1.EgressCoverage{
+			CallerCoverage: pactov1alpha1.CallerCoverage{State: pactov1alpha1.CallerCoverageUnavailable, Reason: "not-evaluated", RefreshSeconds: c.RefreshSeconds},
+			Nodes:          c.Nodes, NodesWithAgent: c.NodesWithAgent,
+		}
 	}
 	// Preserve: CurrentRevision (set in step 7), ObservationWindows (temporal state, spec 9.5), LastReconciledAt/ObservedGeneration (set in finish)
 }
