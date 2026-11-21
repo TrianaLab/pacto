@@ -275,6 +275,12 @@ func runningRefs(snap *fleet.FleetSnapshot, key fleet.ServiceKey, name, newDiges
 func targetRef(snap *fleet.FleetSnapshot, t *fleet.TargetRecord) (ref, why string) {
 	rev := snap.Revisions[t.ContractRevision]
 	switch {
+	case rev == nil && pinnedTargetRef(t) != "":
+		// The target itself names the exact revision it runs, pinned by its own
+		// digest: a live cluster read whose running revision is no longer the
+		// tag the registry lists has no revision record to link to, but the
+		// ref is still exact proof of what runs, so it is judged, never unread.
+		return pinnedTargetRef(t), ""
 	case rev == nil:
 		return "", string(t.Key) + " runs a revision Pacto could not link"
 	case rev.ResolvedRef == "":
@@ -291,6 +297,17 @@ func targetRef(snap *fleet.FleetSnapshot, t *fleet.TargetRecord) (ref, why strin
 		why = string(t.Key) + " is linked to " + ref + " by tag, not digest"
 	}
 	return ref, why
+}
+
+// pinnedTargetRef is the oci:// ref t reports running when it is pinned by a
+// digest that agrees with t's own, "" otherwise: a tag alone, or a digest
+// that contradicts the target's, proves nothing.
+func pinnedTargetRef(t *fleet.TargetRecord) string {
+	_, d := contract.SplitOCIDigest(t.ResolvedRef)
+	if d == "" || d != t.Digest {
+		return ""
+	}
+	return "oci://" + contract.TrimOCIScheme(t.ResolvedRef)
 }
 
 // inferredRunning names, in any domain, each inferred workload whose

@@ -163,6 +163,21 @@ func TestImpactRunningUnlinkedTargetIsUnread(t *testing.T) {
 	}
 }
 
+// A live cluster read runs a digest-pinned revision the registry no longer
+// lists by tag: the target's own pinned ref is judged rather than left unread.
+func TestImpactRunningJudgesTargetPinnedRefWithoutRevision(t *testing.T) {
+	e := &runEnv{col: fleet.Collection{Targets: []fleet.RawTarget{payTarget("pay", "sha256:p1")}}}
+	e.col.Targets[0].ResolvedRef = runReg + "/payments:1.0.0@sha256:p1"
+	res := mustRun(t, e.withLedger("^1"), "2.0.0")
+	if res.Gate != impact.GateBlocked || res.Running.Judged != "oci://"+runReg+"/payments:1.0.0@sha256:p1" || len(res.Running.Unread) != 0 {
+		t.Fatalf("gate %s %q running %+v", res.Gate, res.GateReason, res.Running)
+	}
+	// A pinned ref whose digest contradicts the target's proves nothing.
+	e = &runEnv{col: fleet.Collection{Targets: []fleet.RawTarget{payTarget("pay", "sha256:p1")}}}
+	e.col.Targets[0].ResolvedRef = runReg + "/payments:1.0.0@sha256:other"
+	unread(t, e, "could not link")
+}
+
 func TestImpactRunningInferredLinkNeverClears(t *testing.T) {
 	e := onePayments()
 	// The target names the tag only: a mutable correlation, never proof.

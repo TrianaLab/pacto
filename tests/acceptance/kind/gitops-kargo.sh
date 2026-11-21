@@ -509,7 +509,10 @@ pass "the reader reads the cluster identity, Pacto CRs and workloads; no other n
 verify shop test-k8s "$F200" Failed
 has "Release gate: blocked"
 has ledger
-has "${CLUSTER_UID:0:8}"
+# The live read names the running payments 1.0.0 by the digest its Pacto CR pins,
+# though the registry now lists payments at 2.0.0.
+has "${P100##*@}"
+has "impact exit 1"
 pass "Failed from a live read of cluster ${CLUSTER_UID:0:8}"
 
 kill "$REG_PF_PID" 2>/dev/null || true
