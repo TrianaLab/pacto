@@ -81,15 +81,14 @@ func (s *JaegerSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	at := s.now()
 	live := detect.LiveState{ReadAt: at}
 	var edges []fleet.ObservedEdge
+	// Each refresh builds a new source: its connection must not outlive it.
+	defer s.client.CloseIdleConnections()
 	links, err := s.read(ctx, at)
 	if err != nil {
 		live.Status, live.Reason = fleet.SourceUnavailable, err.Error()
 	} else {
 		var reasons []string
 		edges, reasons = jaegerEdges(links, at)
-		if n := s.candidates(); n > 1 {
-			reasons = append(reasons, fmt.Sprintf("%d Jaeger query Services found; Pacto read none of them as complete", n))
-		}
 		live.Status, live.Edges, live.Reason = fleet.SourceAvailable, len(edges), strings.Join(reasons, "; ")
 		if len(reasons) > 0 {
 			live.Status = fleet.SourcePartial
@@ -103,7 +102,10 @@ func (s *JaegerSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 // read with complete coverage (an available row) recorded in le under name.
 // The winner's row says whether the receiver is off or what it misses.
 // The source state is never unavailable: that would drop the row, which says
-// why instead.
+// why instead. An entry the detection could not read as complete (several
+// candidates, a sampled or scoped read) names a backend anyone might have
+// put there: its edges are caution-only, adding callers and never
+// corroborating.
 func edgeCollection(res detect.Result, e detect.Entry, id string, live detect.LiveState, le *LiveEdges, name string, edges []fleet.ObservedEdge) *fleet.Collection {
 	row := detect.EdgeSourceRow(res, e, id, live)
 	if row.Status != fleet.SourceAvailable {
@@ -127,20 +129,9 @@ func edgeCollection(res detect.Result, e detect.Entry, id string, live detect.Li
 	}
 	at := live.ReadAt
 	return &fleet.Collection{
-		Advisory: true, Observed: edges, ObservedUndeclaredOnly: true, Providers: []fleet.Provider{row},
+		Advisory: true, Observed: edges, ObservedUndeclaredOnly: true, ObservedCautionOnly: e.Completeness != detect.Complete, Providers: []fleet.Provider{row},
 		State: &fleet.SourceState{Status: state, ObservedAt: &at},
 	}
-}
-
-// candidates is how many Jaeger query Services the entry names.
-func (s *JaegerSource) candidates() int {
-	n := 0
-	for _, o := range s.entry.Objects {
-		if o.Kind == "Service" {
-			n++
-		}
-	}
-	return n
 }
 
 // jaegerError is why a read failed, never with the URL or a raw body.
@@ -192,11 +183,13 @@ func jaegerEdges(links []jaegerLink, at time.Time) ([]fleet.ObservedEdge, []stri
 		reasons = append(reasons, fmt.Sprintf("the read stopped at %d dependencies", maxJaegerLinks))
 	}
 	var edges []fleet.ObservedEdge
-	index, unattributed := map[[2]string]int{}, 0
+	index, unattributed, empty := map[[2]string]int{}, 0, 0
 	for _, l := range links {
 		switch {
-		case !otelobserver.AttributableName(l.Parent) || !otelobserver.AttributableName(l.Child) || l.CallCount <= 0:
+		case !otelobserver.AttributableName(l.Parent) || !otelobserver.AttributableName(l.Child):
 			unattributed++
+		case l.CallCount <= 0:
+			empty++
 		case l.Parent == l.Child:
 		default:
 			k := [2]string{l.Parent, l.Child}
@@ -209,7 +202,10 @@ func jaegerEdges(links []jaegerLink, at time.Time) ([]fleet.ObservedEdge, []stri
 		}
 	}
 	if unattributed > 0 {
-		reasons = append(reasons, fmt.Sprintf("%d calls are not attributable to a named service", unattributed))
+		reasons = append(reasons, fmt.Sprintf("dependencies naming no attributable service: %d", unattributed))
+	}
+	if empty > 0 {
+		reasons = append(reasons, fmt.Sprintf("dependencies with no calls: %d", empty))
 	}
 	slices.SortFunc(edges, func(a, b fleet.ObservedEdge) int {
 		return cmp.Or(cmp.Compare(a.From, b.From), cmp.Compare(a.To, b.To))

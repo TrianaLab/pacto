@@ -174,7 +174,11 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 	if err := errors.Join(wsErr, svcErr); err != nil {
 		res.Entries = append(res.Entries, detect.TracesUnknown("reading the cluster failed: "+reason(err)))
 	} else {
-		res.Entries = append(res.Entries, detect.Traces(ws, svcs, d.Namespace)...)
+		// A rule judged on part of the cluster proves no single backend.
+		for _, e := range detect.Traces(ws, svcs, d.Namespace) {
+			e = sampledEntry(e, sampled, fmt.Sprintf("sampled the first %d running pods", detect.MaxPods))
+			res.Entries = append(res.Entries, sampledEntry(e, scoped, scopedReason))
+		}
 	}
 	return res
 }

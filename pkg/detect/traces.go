@@ -80,7 +80,11 @@ func workloadsFigure(n int) string {
 
 // prometheus is the Prometheus a service graph would be read from: the
 // first trusted candidate's URL and Service object, or, when several
-// Prometheus servers leave none, why there is none.
+// Prometheus servers leave none, why there is none. Candidates in several
+// namespaces (one per label class) are several servers too: the first is
+// read and the reason says none is complete. Candidates in one namespace
+// are taken as one server's Services (prometheus-operated next to
+// prometheus).
 func prometheus(svcs []Service) (endpoint string, objects []Object, reasons []string) {
 	cands, several := PrometheusCandidates(svcs, nil, false)
 	if len(cands) == 0 {
@@ -90,7 +94,19 @@ func prometheus(svcs []Service) (endpoint string, objects []Object, reasons []st
 		return "", nil, reasons
 	}
 	c := cands[0]
-	return fmt.Sprintf("http://%s.%s.svc:%d", c.Name, c.Namespace, PrometheusPort(c)), []Object{{Kind: "Service", Namespace: c.Namespace, Name: c.Name}}, nil
+	if nss := namespacesOf(cands); nss > 1 {
+		reasons = []string{fmt.Sprintf("%d Prometheus servers could hold the service graph; Pacto read none of them as complete", nss)}
+	}
+	return fmt.Sprintf("http://%s.%s.svc:%d", c.Name, c.Namespace, PrometheusPort(c)), []Object{{Kind: "Service", Namespace: c.Namespace, Name: c.Name}}, reasons
+}
+
+// namespacesOf is how many namespaces svcs sit in.
+func namespacesOf(svcs []Service) int {
+	nss := map[string]bool{}
+	for _, s := range svcs {
+		nss[s.Namespace] = true
+	}
+	return len(nss)
 }
 
 // graphEntry is the entry of kind running in ws across namespaces, with the
@@ -129,7 +145,9 @@ func tempoEntry(ws []Workload, svcs []Service) Entry {
 
 // jaegerEntry finds a Jaeger query API: a Service with port 16686 in a
 // namespace running a jaegertracing/ image. Every candidate is an object;
-// the first by namespace then name is the Endpoint.
+// the first by namespace then name is the Endpoint. Several candidates make
+// the entry partial here, where all of them are known: anyone who can create
+// a Service may have made one, so none reads as complete.
 func jaegerEntry(ws []Workload, svcs []Service) Entry {
 	_, nss := running(ws, func(repo string) bool { return strings.HasPrefix(repo, "jaegertracing/") })
 	var cands []Object
@@ -141,6 +159,10 @@ func jaegerEntry(ws []Workload, svcs []Service) Entry {
 	if len(cands) == 0 {
 		return Entry{}
 	}
+	var reasons []string
+	if len(cands) > 1 {
+		reasons = []string{fmt.Sprintf("%d Jaeger query Services found; Pacto read none of them as complete", len(cands))}
+	}
 	cands = capped(cands, MaxNamed)
 	e := Entry{Kind: "jaeger", Value: "Jaeger", Evidence: fmt.Sprintf("query API on port %d", jaegerPort), Source: tracesSource, Completeness: Complete,
 		Endpoint: fmt.Sprintf("http://%s.%s.svc:%d", cands[0].Name, cands[0].Namespace, jaegerPort)}
@@ -150,7 +172,7 @@ func jaegerEntry(ws []Workload, svcs []Service) Entry {
 		e.Details = []string{fmt.Sprintf("%d more candidates; Pacto reads the first", more)}
 	}
 	place(&e, nil, cands)
-	return e
+	return partial(e, reasons...)
 }
 
 // datadogEntry finds a Datadog Agent and names its controller and the Secret

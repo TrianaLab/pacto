@@ -177,3 +177,35 @@ func TestDetectionAddsNoGrant(t *testing.T) {
 		}
 	}
 }
+
+// A trace rule judged on part of the cluster (the watched namespaces or a
+// sample of the pods) proves no single backend: its entries are partial.
+func TestDetectorTracesOnPartOfTheClusterArePartial(t *testing.T) {
+	c := newClient(routesInterceptor(), traceObjects()...)
+	if err := newDetector(c, servedAll, "obs", "tracing").Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_, res := readResult(t, c)
+	for _, kind := range []string{"otel-collector", "tempo", "jaeger"} {
+		if e := entry(t, res, kind); e.Completeness != detect.Partial || !strings.Contains(e.Reason, scopedReason) {
+			t.Errorf("scoped %s = %+v", kind, e)
+		}
+	}
+
+	pages := 0
+	big := func(l client.ObjectList, i int) {
+		if l, ok := l.(*corev1.PodList); ok {
+			l.Items = make([]corev1.Pod, detect.MaxPods/2+1)
+			for j := range l.Items {
+				l.Items[j] = *pod("tracing", "p", "", "jaegertracing/all-in-one:1.60")
+				l.Items[j].UID = types.UID(strings.Repeat("u", i) + string(rune(j)))
+			}
+		}
+	}
+	c = newClient(pagedList(&pages, 3, big), operatorDeployment(), service("tracing", "jaeger-query", nil, corev1.ServicePort{Port: 16686}))
+	_ = newDetector(c, servedAll).Sync(context.Background())
+	_, res = readResult(t, c)
+	if e := entry(t, res, "jaeger"); e.Completeness != detect.Partial || !strings.Contains(e.Reason, "sampled the first 20000 running pods") {
+		t.Errorf("sampled jaeger = %+v", e)
+	}
+}

@@ -72,6 +72,8 @@ func (s *ServiceGraphSource) Kind() string { return fleet.SourceKindTraces }
 func (s *ServiceGraphSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	at := s.now()
 	live := detect.LiveState{ReadAt: at, Row: s.row, Name: serviceGraphName}
+	// Each refresh builds a new source: its connection must not outlive it.
+	defer s.prom.http.CloseIdleConnections()
 	var edges []fleet.ObservedEdge
 	if s.entry.Endpoint == "" {
 		live.Status, live.Reason = fleet.SourcePartial, serviceGraphNoProm

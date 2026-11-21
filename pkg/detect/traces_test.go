@@ -124,6 +124,22 @@ func TestTracesSeveralPrometheusIsPartial(t *testing.T) {
 	}
 }
 
+// One Prometheus per label class in different namespaces is several servers:
+// the first is read and the entry is partial; two Services of one server in
+// one namespace are not.
+func TestTracesPrometheusAcrossClassesIsPartial(t *testing.T) {
+	tempo := []Workload{{ID: "a", Namespace: "obs", Images: []string{"grafana/tempo:2.6"}}}
+	app := map[string]string{"app.kubernetes.io/name": "prometheus"}
+	e := traceEntry(t, Traces(tempo, []Service{prom("team-a", "prom", operated), prom("monitoring", "prometheus", app)}, "p"), "tempo")
+	if e.Completeness != Partial || e.Endpoint == "" || e.Reason != "2 Prometheus servers could hold the service graph; Pacto read none of them as complete" {
+		t.Errorf("tempo = %+v", e)
+	}
+	e = traceEntry(t, Traces(tempo, []Service{prom("monitoring", "prometheus-operated", operated), prom("monitoring", "prometheus", app)}, "p"), "tempo")
+	if e.Completeness != Complete || e.Endpoint == "" {
+		t.Errorf("one namespace = %+v", e)
+	}
+}
+
 func TestTracesJaegerNeedsPortAndImage(t *testing.T) {
 	q := Service{Namespace: "obs", Name: "jaeger-query", Ports: []ServicePort{{Port: 16686}}}
 	if es := Traces([]Workload{{ID: "a", Namespace: "obs", Images: []string{"nginx"}}}, []Service{q}, "p"); len(es) != 0 {
@@ -202,7 +218,8 @@ func jaegerFleet(n int) []Entry {
 
 func TestTracesSeveralCandidatesAreObjects(t *testing.T) {
 	e := traceEntry(t, jaegerFleet(3), "jaeger")
-	if len(e.Objects) != 3 || e.Endpoint != "http://jaeger-query.obs-a.svc:16686" || !slices.Equal(e.Details, []string{"2 more candidates; Pacto reads the first"}) {
+	if len(e.Objects) != 3 || e.Endpoint != "http://jaeger-query.obs-a.svc:16686" || !slices.Equal(e.Details, []string{"2 more candidates; Pacto reads the first"}) ||
+		e.Completeness != Partial || e.Reason != "3 Jaeger query Services found; Pacto read none of them as complete" {
 		t.Errorf("jaeger = %+v", e)
 	}
 	if e := traceEntry(t, jaegerFleet(2), "jaeger"); !slices.Equal(e.Details, []string{"1 more candidate; Pacto reads the first"}) {
@@ -213,7 +230,9 @@ func TestTracesSeveralCandidatesAreObjects(t *testing.T) {
 			t.Errorf("details name a namespace: %q", d)
 		}
 	}
-	if e := traceEntry(t, jaegerFleet(fleet.MaxProviderObjects+1), "jaeger"); e.Scope != fleet.ScopeCluster || e.Objects != nil {
+	// Too many to name as objects: the entry still says how many and is partial.
+	if e := traceEntry(t, jaegerFleet(fleet.MaxProviderObjects+1), "jaeger"); e.Scope != fleet.ScopeCluster || e.Objects != nil ||
+		e.Completeness != Partial || !strings.HasPrefix(e.Reason, "21 Jaeger query Services found") {
 		t.Errorf("too many candidates to name = %+v", e)
 	}
 }

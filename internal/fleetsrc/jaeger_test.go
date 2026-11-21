@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -32,11 +33,15 @@ func jaegerServer(t *testing.T, links any) (*httptest.Server, *string) {
 	return srv, &query
 }
 
-// jaegerSource reads endpoint for an entry naming candidates query Services.
+// jaegerSource reads endpoint for an entry naming candidates query Services,
+// partial with several as the detector writes it.
 func jaegerSource(endpoint string, candidates int) (*JaegerSource, *LiveEdges) {
 	e := detect.Entry{Kind: "jaeger", Value: "Jaeger", Evidence: "query API on port 16686", Completeness: detect.Complete, Endpoint: endpoint}
 	for i := range candidates {
 		e.Objects = append(e.Objects, detect.Object{Kind: "Service", Namespace: "observability", Name: fmt.Sprintf("jaeger-query-%d", i)})
+	}
+	if candidates > 1 {
+		e.Completeness, e.Reason = detect.Partial, fmt.Sprintf("%d Jaeger query Services found; Pacto read none of them as complete", candidates)
 	}
 	res := detect.Result{SchemaVersion: detect.SchemaVersion, AsOf: jaegerNow.Add(-time.Minute), Entries: []detect.Entry{e}}
 	live := NewLiveEdges(clockAt(jaegerNow))
@@ -102,9 +107,14 @@ func TestJaegerSourceSeveralCandidatesIsPartialAndNeverWins(t *testing.T) {
 	srv, _ := jaegerServer(t, []any{link("a", "b", 1)})
 	s, live := jaegerSource(srv.URL, 2)
 	col, row := collectJaeger(t, s)
-	if row.Status != fleet.SourcePartial || len(col.Observed) != 1 ||
+	// Anyone may have made one of them: the edges add callers and never
+	// corroborate.
+	if row.Status != fleet.SourcePartial || len(col.Observed) != 1 || !col.ObservedCautionOnly ||
 		!strings.Contains(row.Limitations[0].Message, "2 Jaeger query Services found; Pacto read none of them as complete") {
 		t.Fatalf("row = %+v", row)
+	}
+	if single, _ := jaegerSource(srv.URL, 1); collectCol(t, single).ObservedCautionOnly {
+		t.Fatal("a single complete candidate is caution-only")
 	}
 	if len(live.complete) != 0 {
 		t.Fatal("several candidates won")
@@ -161,7 +171,7 @@ func TestJaegerSourceDropsK8sShapedNames(t *testing.T) {
 	s, live := jaegerSource(srv.URL, 1)
 	col, row := collectJaeger(t, s)
 	if len(col.Observed) != 1 || col.Observed[0].From != "a" || row.Status != fleet.SourcePartial ||
-		!strings.Contains(row.Limitations[0].Message, "3 calls are not attributable to a named service") {
+		!strings.Contains(row.Limitations[0].Message, "dependencies naming no attributable service: 2; dependencies with no calls: 1") {
 		t.Fatalf("observed %+v, row %+v", col.Observed, row)
 	}
 	if len(live.complete) != 0 {
@@ -189,5 +199,48 @@ func TestJaegerSourceErrorNamesNoURL(t *testing.T) {
 	}
 	if s, _ := jaegerSource("", 1); s.ID() != "detected-jaeger" || s.Kind() != fleet.SourceKindTraces {
 		t.Fatalf("id/kind = %s/%s", s.ID(), s.Kind())
+	}
+}
+
+// collectCol is s's collection.
+func collectCol(t *testing.T, s fleet.Source) *fleet.Collection {
+	t.Helper()
+	col, err := s.Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return col
+}
+
+// Every refresh builds new sources: each closes its connection once read, so
+// none is left idle behind a discarded client.
+func TestEdgeSourcesCloseTheirConnections(t *testing.T) {
+	for name, serve := range map[string]func(w http.ResponseWriter){
+		"jaeger": func(w http.ResponseWriter) {
+			_, _ = w.Write([]byte(`{"data":[{"parent":"a","child":"b","callCount":1}]}`))
+		},
+		"graph": func(w http.ResponseWriter) { _, _ = w.Write([]byte(vector(edge("a", "b", "1")))) },
+	} {
+		closed := make(chan struct{}, 1)
+		srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { serve(w) }))
+		srv.Config.ConnState = func(_ net.Conn, st http.ConnState) {
+			if st == http.StateClosed {
+				closed <- struct{}{}
+			}
+		}
+		srv.Start()
+		var s fleet.Source
+		if name == "jaeger" {
+			s, _ = jaegerSource(srv.URL, 1)
+		} else {
+			s, _ = graphSource("tempo", srv.URL)
+		}
+		collectCol(t, s)
+		select {
+		case <-closed:
+		case <-time.After(5 * time.Second):
+			t.Errorf("%s left its connection open", name)
+		}
+		srv.Close()
 	}
 }

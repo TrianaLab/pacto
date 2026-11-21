@@ -181,3 +181,18 @@ func TestServiceGraphSourceDropsUnattributableNames(t *testing.T) {
 		t.Fatalf("observed %+v, row %+v", col.Observed, row)
 	}
 }
+
+// A Prometheus the detection could not read as the only one (several
+// servers) answers with caution-only edges and never wins.
+func TestServiceGraphPartialEntryIsCautionOnly(t *testing.T) {
+	srv, _ := graphServer(t, 200, vector(edge("web", "payments", "3")))
+	s, live := graphSource("tempo", srv.URL)
+	s.entry.Completeness, s.entry.Reason = detect.Partial, "2 Prometheus servers could hold the service graph; Pacto read none of them as complete"
+	col, row := collectGraph(t, s)
+	if !col.ObservedCautionOnly || len(col.Observed) != 1 || row.Status != fleet.SourcePartial || len(live.complete) != 0 {
+		t.Fatalf("collection %+v row %+v", col, row)
+	}
+	if s, _ := graphSource("tempo", srv.URL); collectCol(t, s).ObservedCautionOnly {
+		t.Fatal("a complete entry is caution-only")
+	}
+}
