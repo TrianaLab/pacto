@@ -1,0 +1,54 @@
+suite: dashboard NetworkPolicy
+templates:
+  - templates/dashboard-networkpolicy.yaml
+tests:
+  - it: renders one policy for the dashboard pod by default
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pacto-operator-dashboard
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+      - equal:
+          path: spec.podSelector.matchLabels
+          value:
+            app.kubernetes.io/component: dashboard
+            app.kubernetes.io/name: pacto-dashboard
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress]
+
+  - it: keeps port 3000 open to every source
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports
+          value:
+            - port: 3000
+              protocol: TCP
+      - notExists:
+          path: spec.ingress[0].from
+
+  - it: admits OTLP on 4318 from pods in the cluster only
+    asserts:
+      - equal:
+          path: spec.ingress[1].from
+          value:
+            - namespaceSelector: {}
+      - equal:
+          path: spec.ingress[1].ports
+          value:
+            - port: 4318
+              protocol: TCP
+      - lengthEqual:
+          path: spec.ingress
+          count: 2
+
+  - it: is absent without the dashboard
+    set:
+      dashboard.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0

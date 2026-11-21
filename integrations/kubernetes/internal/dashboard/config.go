@@ -79,8 +79,9 @@ type Config struct {
 	// Observation declares offline OTLP/JSON trace files to mount read-only into
 	// the dashboard, each under a stable Data Source name. Pacto reads exactly the
 	// declared files and never scans the mount; the trace exports themselves are
-	// produced and rotated by whoever owns their storage. This configures OFFLINE
-	// input only — Pacto ships no OTLP receiver and no collector.
+	// produced and rotated by whoever owns their storage. These files are offline
+	// input; the dashboard also receives OTLP/HTTP JSON from Collectors in the
+	// cluster on OTLPPort, and Pacto deploys no collector.
 	Observation []ObservationSource
 
 	// Auth is how people sign in to the dashboard. With it, every view and

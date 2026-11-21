@@ -185,7 +185,7 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.Func("dashboard-trace-source",
 		"Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as "+
 			"name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source "+
-			"identity. Configures offline input only; Pacto runs no OTLP receiver.",
+			"identity. Configures offline input; the dashboard also receives OTLP/HTTP JSON in the cluster.",
 		func(spec string) error {
 			src, err := dashboard.ParseObservationSource(spec)
 			if err != nil {

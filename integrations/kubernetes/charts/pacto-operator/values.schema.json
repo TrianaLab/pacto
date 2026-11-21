@@ -624,7 +624,7 @@
         "observation": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Offline OTLP/JSON trace exports mounted read-only into the dashboard. Not an OTLP receiver and not a trace collector.",
+          "description": "Offline OTLP/JSON trace exports mounted read-only into the dashboard. The dashboard also receives OTLP/HTTP JSON in the cluster; Pacto deploys no trace collector.",
           "properties": {
             "sources": {
               "type": "array",

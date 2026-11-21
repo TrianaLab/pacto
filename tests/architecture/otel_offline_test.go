@@ -48,19 +48,23 @@ func TestOTelObserverStaysOffline(t *testing.T) {
 	}
 }
 
-// TestOperatorObservationPackagingStaysOffline extends the same guard to the
-// packaging layer. The operator can MOUNT an offline trace export read-only and
-// tell the dashboard where it is; it must never grow into deploying a receiver.
-// A collector sidecar, an OTLP port or an ingest path in the operator's dashboard
-// wiring or in the chart would make the "no live OTLP receiver" claim false
+// TestOperatorObservationPackagingStaysOffline guards the shipped receiver
+// surface in the packaging layer. The dashboard receives OTLP/HTTP JSON on one
+// port, OTLPPort in internal/dashboard/resources.go, exposed only by the
+// operator-applied Service and admitted only from pods in the cluster by the
+// chart's NetworkPolicy. The operator never deploys a collector, never opens
+// OTLP/gRPC and never routes the chart Service (and so no Ingress or
+// HTTPRoute) to the receiver. A collector image, an ingest path or a second
+// copy of the port in the wiring would make docs/operational-graph.md wrong
 // without a single line of pkg/otelobserver changing.
 func TestOperatorObservationPackagingStaysOffline(t *testing.T) {
 	root := repoRoot(t)
+	chart := filepath.Join(root, "integrations", "kubernetes", "charts", "pacto-operator")
 	var files []string
 	for _, pattern := range []string{
 		filepath.Join(root, "integrations", "kubernetes", "internal", "dashboard", "*.go"),
-		filepath.Join(root, "integrations", "kubernetes", "charts", "pacto-operator", "values.yaml"),
-		filepath.Join(root, "integrations", "kubernetes", "charts", "pacto-operator", "templates", "_helpers.tpl"),
+		filepath.Join(chart, "values.yaml"),
+		filepath.Join(chart, "templates", "_helpers.tpl"),
 	} {
 		matches, err := filepath.Glob(pattern)
 		if err != nil {
@@ -72,15 +76,15 @@ func TestOperatorObservationPackagingStaysOffline(t *testing.T) {
 		t.Fatal("no operator dashboard packaging sources found — moved or renamed?")
 	}
 
-	// Tokens that would signal ingest infrastructure rather than a mounted file.
 	forbidden := []string{
-		"/v1/traces", // the OTLP/HTTP trace ingest path
-		"4317",       // OTLP/gRPC default port
-		"4318",       // OTLP/HTTP default port
+		"/v1/traces", // the ingest path belongs to the dashboard binary, not its packaging
+		"4317",       // OTLP/gRPC is not served
 		"otel-collector",
 		"opentelemetry-collector",
 	}
+	const why = " — the dashboard receives OTLP/HTTP JSON on OTLPPort only; the operator never deploys a collector or a second ingest surface. Update docs/operational-graph.md before changing this guard."
 
+	var port int
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
@@ -89,8 +93,32 @@ func TestOperatorObservationPackagingStaysOffline(t *testing.T) {
 		src := string(b)
 		for _, tok := range forbidden {
 			if strings.Contains(src, tok) {
-				t.Errorf("%s contains %q — the operator configures OFFLINE trace files (a read-only mount plus a source name), never a receiver or a deployed collector. Update docs/operational-graph.md and the chart's honesty about what is deployed before removing this guard.", filepath.Base(f), tok)
+				t.Errorf("%s contains %q%s", filepath.Base(f), tok, why)
 			}
+		}
+		n := strings.Count(src, "4318")
+		if filepath.Base(f) == "resources.go" {
+			port += n
+		} else if n > 0 {
+			t.Errorf("%s contains %q: use OTLPPort from resources.go%s", filepath.Base(f), "4318", why)
+		}
+	}
+	if port != 1 {
+		t.Errorf("resources.go holds 4318 %d times, want exactly once (OTLPPort)%s", port, why)
+	}
+
+	// The chart Service backs the Ingress and HTTPRoute: it never carries the receiver port.
+	services, err := filepath.Glob(filepath.Join(chart, "templates", "*-service.yaml"))
+	if err != nil || len(services) == 0 {
+		t.Fatalf("no chart Service templates found (%v)", err)
+	}
+	for _, f := range append(services, filepath.Join(chart, "templates", "_resources.tpl")) {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		if strings.Contains(string(b), "4318") {
+			t.Errorf("%s contains %q: only the operator-applied Service exposes the receiver%s", filepath.Base(f), "4318", why)
 		}
 	}
 }

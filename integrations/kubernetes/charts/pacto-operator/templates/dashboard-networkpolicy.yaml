@@ -1,0 +1,28 @@
+{{- /* ponytail: reads dashboard.enabled directly; switch to pacto-operator.dashboardEnabled when 510-S7's helper lands */ -}}
+{{- if .Values.dashboard.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pacto-operator.fullname" . }}-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pacto-operator.labels" (dict "ctx" . "component" "dashboard") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: dashboard
+      app.kubernetes.io/name: pacto-dashboard
+  policyTypes:
+    - Ingress
+  ingress:
+    # The web UI keeps its reach: Ingress, HTTPRoute and port-forward.
+    - ports:
+        - port: 3000
+          protocol: TCP
+    # OTLP/HTTP from Collectors: pods in this cluster only.
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - port: 4318
+          protocol: TCP
+{{- end }}

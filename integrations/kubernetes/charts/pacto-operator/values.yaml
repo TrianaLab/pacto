@@ -246,8 +246,9 @@ dashboard:
     # static exports only, ~1 MiB cap) supplies it. Pacto reads only the
     # declared files, through a root that blocks symlinks out of the mount, and
     # never writes to them or scans the mount. Whoever owns that storage
-    # produces and rotates the exports. This configures OFFLINE input only:
-    # Pacto ships no OTLP receiver and no trace collector. The optional node
+    # produces and rotates the exports. These files are offline input; the
+    # dashboard also receives OTLP/HTTP JSON from Collectors in the cluster,
+    # and Pacto deploys no trace collector. The optional node
     # agent observes sockets with eBPF and handles no traces.
     sources: []
     #   - name: orders
