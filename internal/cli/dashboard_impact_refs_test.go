@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
@@ -48,5 +49,24 @@ func TestDashboardImpactLocalRefsUnchanged(t *testing.T) {
 	_, _ = impactProviderForFleet(svc, true, nil)(context.Background(), viewSnapshot(), "oci://other.example/x:1", "oci://other.example/x:2", false)
 	if len(*pulled) != 1 || !strings.Contains((*pulled)[0], "other.example/x:1") {
 		t.Fatalf("resolved %v, want the caller's ref", *pulled)
+	}
+}
+
+// TestPinVisibleRefInferredProvider: the inferred contract revision a caller
+// sees on an external system pins like a fleet revision; one with no
+// immutable ref is refused.
+func TestPinVisibleRefInferredProvider(t *testing.T) {
+	d := "sha256:" + strings.Repeat("b", 64)
+	pinned := "oci://zot:5000/demo/pacto-inferred/stripe@" + d
+	snap := &fleet.FleetSnapshot{Externals: map[fleet.ExternalKey]*fleet.ExternalRecord{
+		"none":   {Key: "none"},
+		"stripe": {Key: "stripe", Provider: &fleet.ExternalProvider{Revisions: []fleet.ExternalProviderRevision{{Version: "0.0.1", Digest: d, Ref: pinned}}}},
+		"mq":     {Key: "mq", Provider: &fleet.ExternalProvider{Revisions: []fleet.ExternalProviderRevision{{Version: "0.0.1", Digest: "sha256:" + strings.Repeat("c", 64), Ref: "oci://zot:5000/demo/pacto-inferred/mq:0.0.1"}}}},
+	}}
+	if got, err := pinVisibleRef(snap, pinned); err != nil || got != pinned {
+		t.Errorf("visible provider: %q %v", got, err)
+	}
+	if _, err := pinVisibleRef(snap, "oci://zot:5000/demo/pacto-inferred/mq:0.0.1"); err == nil {
+		t.Error("a mutable provider ref was pinned")
 	}
 }

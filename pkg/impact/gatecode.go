@@ -16,11 +16,15 @@ const (
 	GateCodeAnswerPartial               = "ANSWER_PARTIAL"
 	GateCodeConsumersUnchecked          = "CONSUMERS_UNCHECKED"
 	GateCodeInferredPossibleBreak       = "INFERRED_POSSIBLE_BREAK"
+	GateCodeInferredProvider            = LimitationInferredProvider
+	GateCodeRunningUnread               = "RUNNING_UNREAD"
+	GateCodeFirstVersionUnchecked       = "FIRST_VERSION_UNCHECKED"
 	// Clear.
-	GateCodeNotBreaking       = "NOT_BREAKING"
-	GateCodePotentialBreaking = "POTENTIAL_BREAKING"
-	GateCodeNoConsumers       = "NO_CONSUMERS"
-	GateCodeBreakingAccepted  = "BREAKING_ACCEPTED"
+	GateCodeNotBreaking          = "NOT_BREAKING"
+	GateCodePotentialBreaking    = "POTENTIAL_BREAKING"
+	GateCodeNoConsumers          = "NO_CONSUMERS"
+	GateCodeBreakingAccepted     = "BREAKING_ACCEPTED"
+	GateCodeFirstVersionAccepted = "FIRST_VERSION_ACCEPTED"
 )
 
 // GateCode is the stable reason code of the gate of a contract change answer,
@@ -30,6 +34,9 @@ func (r *Result) GateCode() string {
 	if r.Event != nil {
 		return ""
 	}
+	if r.inferredProvider() != "" {
+		return GateCodeInferredProvider
+	}
 	code := r.blockingCode()
 	if code == GateCodeConsumersIncompatible || code == GateCodePolicyReferrersFailRunning {
 		return code
@@ -38,6 +45,9 @@ func (r *Result) GateCode() string {
 		return policy
 	}
 	if code != "" {
+		return code
+	}
+	if code := r.runningCode(); code != "" {
 		return code
 	}
 	if code := r.unclassifiedCode(); code != "" {

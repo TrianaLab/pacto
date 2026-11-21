@@ -1,0 +1,55 @@
+# This file is published verbatim in integrations/kubernetes/docs/gitops-kargo.md.
+# Only for targets: k8s. It is what `pacto impact --k8s` reads: the cluster
+# identity, the Pacto CRs and the workload lists. The default targets: snapshot
+# needs none of it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pacto-impact-reader
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    resourceNames: [kube-system]
+    verbs: [get]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactos]
+    verbs: [get, list]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets]
+    verbs: [list]
+  - apiGroups: [batch]
+    resources: [cronjobs]
+    verbs: [list]
+# For each Kargo project namespace, after creating the pacto-impact
+# ServiceAccount there:
+#
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: ClusterRoleBinding
+# metadata:
+#   name: pacto-impact-<project>
+# roleRef:
+#   apiGroup: rbac.authorization.k8s.io
+#   kind: ClusterRole
+#   name: pacto-impact-reader
+# subjects:
+#   - kind: ServiceAccount
+#     name: pacto-impact
+#     namespace: <project>
+#
+# Narrower: a RoleBinding to the same ClusterRole in each namespace the project
+# may read. Pacto lists every namespace, so a refused list makes the answer
+# partial: at best unverified.
+#
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: RoleBinding
+# metadata:
+#   name: pacto-impact-<project>
+#   namespace: <namespace>
+# roleRef:
+#   apiGroup: rbac.authorization.k8s.io
+#   kind: ClusterRole
+#   name: pacto-impact-reader
+# subjects:
+#   - kind: ServiceAccount
+#     name: pacto-impact
+#     namespace: <project>

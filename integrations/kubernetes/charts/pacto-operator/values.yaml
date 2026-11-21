@@ -505,14 +505,23 @@ fingerprints:
   managers: []
   # -- Tools that promote versions, each named by a `crd` (`<plural>.<group>`)
   # the cluster serves, or a `label` or `annotation` key on a workload. Data
-  # sources reads `promotion owned by <product>` for each one found. These
-  # three are examples of an open list: add any IDP's promoter, public or
+  # sources reads `promotion owned by <product>` for each one found, with the
+  # entry's optional `offer` (`id`, `text`, an `https` `doc`) as the Pacto
+  # integration that row offers. These three are examples of an open list: add any IDP's promoter, public or
   # private, as one more entry, or set it to null for none.
   promoters:
     - product: Kargo
       crd: stages.kargo.akuity.io
+      offer:
+        id: kargo-analysis-template
+        text: Gate every Kargo promotion with one shared AnalysisTemplate
+        doc: https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo
     - product: Kargo
       crd: warehouses.kargo.akuity.io
+      offer:
+        id: kargo-analysis-template
+        text: Gate every Kargo promotion with one shared AnalysisTemplate
+        doc: https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo
     - product: Argo CD Image Updater
       annotation: argocd-image-updater.argoproj.io/image-list
     - product: Flux ImageUpdateAutomation

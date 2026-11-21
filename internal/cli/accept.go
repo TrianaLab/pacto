@@ -63,7 +63,7 @@ on_behalf_of, and signed by you after a Sigstore login.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			acceptSubject(&opts, args[0])
 			opts.Fields = append(opts.Fields, args[1:]...)
-			opts.Trust, opts.Getenv = publisherTrust(cmd, d), os.Getenv
+			opts.Trust, opts.Getenv = publisherTrust(cmd, d, ""), os.Getenv
 			asJSON := v.GetString(outputFormatKey) == "json"
 			if dryRun {
 				p, err := d.planAccept(svc, cmd.Context(), opts)

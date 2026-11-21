@@ -468,6 +468,12 @@ func renderExternalDetail(b *strings.Builder, e *fleet.ExternalDetailData) {
 	default:
 		b.WriteString("  none (" + r.JoinWords() + ")\n")
 	}
+	if p := r.Provider; p != nil {
+		section(b, "Inferred contract")
+		for _, l := range p.Lines() {
+			b.WriteString("  " + safeText(l) + "\n")
+		}
+	}
 }
 
 // renderOfferingDetail lists an offering's availability, the services that

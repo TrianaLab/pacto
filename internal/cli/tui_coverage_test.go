@@ -88,6 +88,7 @@ var excludedFromTUI = map[string]string{
 	"delivery record get":      "reads one signed record of a Stage, which is not a fleet entity",
 	"delivery record verify":   "verifies a Stage's records, which are not a fleet entity",
 	"delivery targets publish": "signs and pushes a target snapshot, a pipeline step",
+	"fleet publish-inferred":   "signs and pushes inferred contracts as the installation's publisher, a pipeline step",
 	"delivery status":          "reads Stages, which are not fleet entities, with the caller's cluster identity",
 	"delivery types":           "lists operation types, not fleet entities",
 	"delivery undo":            "plans a change to what runs; it belongs next to the propose it precedes",

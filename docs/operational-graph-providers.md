@@ -60,6 +60,13 @@ view reads no Kubernetes cluster (add --k8s)`. When no source reported a service
 a target, the answer's completeness is `empty`, so the CLI also prints
 `warning: answer is empty` on stderr while it still lists the rows.
 
+A row can carry `offers`: Pacto integrations that fit the detected provider,
+each with an `id`, a one-sentence `text` and a setup guide in `doc`. Pacto
+installs nothing. The Argo CD row offers "Gate every Argo CD sync with one
+repo-server plugin" ([setup](integrations/kubernetes/gitops.md#gate-every-argo-cd-sync)),
+which the CLI prints as an `offer:` line under the row and the dashboard as a
+**Set up** link.
+
 ## Fingerprints
 
 `--fingerprints <file>` on `pacto fleet`, `pacto dashboard`, `pacto mcp` and
@@ -69,7 +76,11 @@ workload managers and promoters an installation runs. Each entry names a
 for a manager, and a `crd` (`<plural>.<group>`), `label` or `annotation` for a
 promoter. A file holds at most 64 entries. Pacto names no product in code:
 the chart's three defaults are entries of an open list, and a private IDP is
-one more.
+one more. A promoter entry can also carry an `offer` (an `id`, a `text` that
+starts with "Gate every " and an `https` `doc`), which its row lists under
+`offers`; the Kargo entries offer
+"Gate every Kargo promotion with one shared AnalysisTemplate"
+([setup](integrations/kubernetes/gitops-kargo.md#kargo)).
 
 ```yaml
 managers:
@@ -78,6 +89,16 @@ managers:
 promoters:
   - product: Kargo
     crd: stages.kargo.akuity.io
+    offer:
+      id: kargo-analysis-template
+      text: Gate every Kargo promotion with one shared AnalysisTemplate
+      doc: https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo
+  - product: Kargo
+    crd: warehouses.kargo.akuity.io
+    offer:
+      id: kargo-analysis-template
+      text: Gate every Kargo promotion with one shared AnalysisTemplate
+      doc: https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo
   - product: Argo CD Image Updater
     annotation: argocd-image-updater.argoproj.io/image-list
   - product: Flux ImageUpdateAutomation

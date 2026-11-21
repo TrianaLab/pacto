@@ -1200,6 +1200,29 @@ grep -q "^Targets: registry:5000/demo/pacto-targets@sha256:[0-9a-f]* (cluster $T
 	fail "pacto impact on the verified snapshot exited $verified_rc, want 2: $verified_out"
 pass "pacto impact reads the demo's signed target snapshot: unverified exits 2, verified names orders and exits 2"
 
+# The inferred service publishes stripe's inferred contract to
+# registry:5000/demo/pacto-inferred/stripe, as an operator does once the
+# chart's registry value is set. The fleet shows it on the stripe external,
+# and card-payments' range on it stays unknown with INFERRED_PROVIDER: an
+# inferred contract never clears a range.
+INFERRED_REG_PORT="${V1_PORTS[2]#*=}"
+curl -fsS "http://127.0.0.1:$INFERRED_REG_PORT/v2/_catalog" | jq -e '.repositories | index("demo/pacto-inferred/stripe")' >/dev/null ||
+	fail "the inferred service published no demo/pacto-inferred/stripe repository"
+inferred_fleet() { # ARGS...: a pacto fleet command over the Compose-only consumer and stripe's inferred contract
+	docker compose -p "$PROJ1" exec -T inferred pacto fleet "$@" --local /demo/inferred/card-payments \
+		--oci oci://registry:5000/demo/pacto-inferred/stripe --output-format json
+}
+ext_json=$(inferred_fleet get external:stripe) || fail "pacto fleet get external:stripe failed: $ext_json"
+jq -e '.external.provider.repository == "registry:5000/demo/pacto-inferred/stripe" and .external.provider.rangeStatus == "unknown" and .external.provider.rangeReason == "INFERRED_PROVIDER"' <<<"$ext_json" >/dev/null ||
+	fail "stripe shows no inferred contract provider: $ext_json"
+svc_json=$(inferred_fleet get card-payments) || fail "pacto fleet get card-payments failed: $svc_json"
+jq -e '[.dependencies[] | select(.to == "stripe-pinned")] | length == 1 and .[0].rangeStatus == "unknown" and .[0].rangeReason == "INFERRED_PROVIDER"' <<<"$svc_json" >/dev/null ||
+	fail "card-payments' stripe-pinned range is not unknown with INFERRED_PROVIDER: $svc_json"
+att_json=$(inferred_fleet attention) || fail "pacto fleet attention failed: $att_json"
+jq -e '[.items[] | select(.code == "INFERRED_PROVIDER")] | length == 1 and .[0].nextAction.verb == "declare"' <<<"$att_json" >/dev/null ||
+	fail "attention does not list exactly one INFERRED_PROVIDER item with the declare next action: $att_json"
+pass "the inferred service published stripe's inferred contract and a range on it reads unknown with INFERRED_PROVIDER"
+
 # The Metrics page reads the CI run records the seed published to the demo's
 # own registry. Compose runs no delivery, so no record is an operation. The
 # dashboard is shared without sign-in (--allow-anonymous), so it is a restricted

@@ -239,6 +239,7 @@ nav:
       - Inferred services: operational-graph-inferred.md
       - Detected providers: operational-graph-providers.md
       - External catalog reference: external-catalog-reference.md
+      - Inferred contracts: inferred-contracts.md
       - Platform offerings reference: platform-offerings.md
       - Offering availability and lifecycle: offering-availability.md
       - Golden paths reference: golden-paths-reference.md
@@ -305,6 +306,7 @@ nav:
           - Evidence Server: integrations/kubernetes/evidence-server.md
           - Upgrade the operator: integrations/kubernetes/upgrade.md
           - GitOps promotion gates: integrations/kubernetes/gitops.md
+          - Kargo promotion gate: integrations/kubernetes/gitops-kargo.md
           - CRD reference: integrations/kubernetes/crd-reference.md
           - Helm reference: integrations/kubernetes/helm-reference.md
           - RBAC: integrations/kubernetes/rbac.md

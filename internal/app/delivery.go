@@ -67,7 +67,11 @@ type Delivery struct {
 	// PolicyNamespace is where the chart's delivery section publishes the promoter's
 	// ClassPolicy (delivery.PolicyConfigMap); empty uses Policy as is.
 	PolicyNamespace string
-	Now             func() time.Time
+	// Detected is what the operator detected (--detected): k8s:<ns>/<name>
+	// of its ConfigMap or a file. Its advertised installation key is the
+	// operator's signer, which never makes a publisher; "" reads none.
+	Detected string
+	Now      func() time.Time
 	// Records opens repositories to read operation records from; nil reads
 	// none, and history comes from the cluster only.
 	Records RecordRepo

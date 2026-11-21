@@ -334,8 +334,8 @@ version the fleet holds satisfies the consumer's `compatibility` range:
 |---------------|---------|
 | `satisfied` | Every revision of the provider in the fleet (or the one `pacto.lock` pins) is inside the range. |
 | `unsatisfied` | None is. `status` reports it as `DEPENDENCY_RANGE_UNSATISFIED` in the `out-of-range` category. |
-| `unknown` | The range or a version cannot be read as semver, the provider has no revision in the fleet, or its revisions disagree. |
-| *absent* | The dependency declares no range, is unresolved or joins an [external system](#external-systems), which is never ranged. |
+| `unknown` | The range or a version cannot be read as semver, the provider has no revision in the fleet, or its revisions disagree. With `rangeReason: INFERRED_PROVIDER` the provider is an [inferred contract](inferred-contracts.md) or a revision only the operator signed, which no range is checked against and `fleet versions` never names `latestCompatible`; a view that hides the provider blanks both fields. |
+| *absent* | The dependency declares no range, is unresolved or joins an [external system](#external-systems) without a ref, which is never ranged. |
 
 A consumer that asks for `ledger ^2.0.0` while the fleet holds `ledger 1.6.2`
 is resolved and unsatisfied.
@@ -465,7 +465,9 @@ covers identities, the join order and catalogs.
 
 | Surface | Behaviour |
 |---|---|
-| Relationship | `toExternal` names the identity and `resolved` stays `false`, because no fleet service delivers it. It never gets `rangeStatus` or `resolvedRevision` and never counts in impact, dependents or delivery |
+| Relationship | `toExternal` names the identity and `resolved` stays `false`, because no fleet service delivers it. It never gets `resolvedRevision` and never counts in impact, dependents or delivery. Only a dependency whose ref names `pacto-inferred/<identity>` gets `rangeStatus: unknown` with `rangeReason: INFERRED_PROVIDER` |
+| Provider | `provider` on the record holds the system's [inferred contract](inferred-contracts.md): `repository`, `revisions` (operator-signed first, each group newest first, each with `version`, `digest`, `ref`, `surface` and `signature`), `revisionsTotal`, and `rangeStatus: unknown` with `rangeReason: INFERRED_PROVIDER`. A restricted view that hides any source or consumer drops every `surface`. A contract under `pacto-inferred` whose `service.external` disagrees with its path is attached nowhere and raises `INFERRED_IDENTITY_MISMATCH` |
+| Attention | One `INFERRED_PROVIDER` item in the `knowledge` category per inferred contract that ranges check against, counting only visible consumers |
 | Snapshot | `externals`, one record per identity, and `externalCatalogs`, the catalogs used with `digest`, `origin`, `copy`, `signature` and `reason`; every answer's meta repeats `externalCatalogs` |
 | Record | `key`, `label`, `class`, `aliases`, `sources` (one per consumer and dependency position, each with `provenance`, `match` and `superseded` when a newer consumer revision no longer declares it), `sourcesTotal`, `catalog` (origin, digest and entry; absent when no entry classifies it), `joinedBy` (`identity`, `catalog-alias`, `host` or `normalized-name`), `consumers`, `consumersTotal`, `hiddenConsumers` |
 | Entities | `--kind external` (MCP `kind: external`) lists them, `--class` keeps one class; the default listing leaves them out |

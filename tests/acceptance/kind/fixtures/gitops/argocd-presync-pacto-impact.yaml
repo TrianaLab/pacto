@@ -1,0 +1,54 @@
+# Per-Application fallback: a PreSync hook that runs pacto impact on the
+# published bundle before Argo CD applies anything. Exit 1 or 2 fails the sync.
+# To let an unverified answer pass, replace args with:
+#   command: [sh, -c]
+#   args: ['pacto impact --running oci://ghcr.io/acme/payments:2.0.0 --local "" --target-snapshot oci://ghcr.io/acme/pacto-targets:cluster-<uid> || [ $? -eq 2 ]']
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pacto-impact
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+        - name: pacto-impact
+          image: ghcr.io/trianalab/pacto/dashboard:4.5.0
+          args:
+            - impact
+            - --running
+            - oci://ghcr.io/acme/payments:2.0.0
+            - --local
+            - ""
+            - --target-snapshot
+            - oci://ghcr.io/acme/pacto-targets:cluster-<uid>
+          env:
+            - name: HOME
+              value: /tmp
+            - name: PACTO_NO_UPDATE_CHECK
+              value: "1"
+            - name: PACTO_DELIVERY_TRUST
+              value: /etc/pacto/trust.yaml
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: pacto-tmp
+              mountPath: /tmp
+            - name: pacto-trust
+              mountPath: /etc/pacto
+      volumes:
+        - name: pacto-tmp
+          emptyDir: {}
+        - name: pacto-trust
+          configMap:
+            name: pacto-trust

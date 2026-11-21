@@ -14,6 +14,7 @@
 package impact
 
 import (
+	"cmp"
 	"context"
 	"io/fs"
 	"slices"
@@ -95,6 +96,15 @@ type Options struct {
 	// so an inferred name may miss every one of them: the answer then carries
 	// SERVICE_NAME_INFERRED and the gate never clears a BREAKING change.
 	NameInferredFrom string
+	// InferredProvider names the provider when the new revision is an
+	// inferred contract: the external identity when its ref is under
+	// pacto-inferred (contract.InferredRef, the location only), or the
+	// changed service's name when only this installation's operator signed
+	// the new revision in the snapshot. Pacto never checks a range against
+	// it: the answer carries INFERRED_PROVIDER, every consumer verdict is
+	// unknown and the gate is unverified, never clear or blocked. Empty
+	// judges the change as usual.
+	InferredProvider string
 	// Index is how the organization index was read; nil when the caller read none.
 	Index *ConsumerIndex
 	// Indexed reports whether the index lists a service; nil skips both cross-checks.
@@ -110,6 +120,25 @@ type Options struct {
 	// Policy is the range policy a BREAKING answer is held to; empty
 	// values default to warn.
 	Policy Policy
+	// FirstVersion says no running revision Pacto could judge: old equals
+	// new, so only the consumers' ranges speak. A consumer that runs on a
+	// known target and does not accept the new version blocks the change.
+	FirstVersion bool
+	// UnreadBaselines are the running revisions Pacto could not read, link
+	// or trust, in words; the gate never clears over them.
+	UnreadBaselines []string
+	// NewRevisionRuns says a known target already runs the new revision,
+	// left out of the baseline: a FirstVersion answer then has no earlier
+	// revision to judge against, which is not a first version.
+	NewRevisionRuns bool
+	// Running says the old side is a revision that runs (--running): a
+	// running consumer whose range rejects the new version blocks whatever
+	// the classification, and a partial answer never clears.
+	Running bool
+	// NotInFleet says the new revision's service is in no fleet domain, so
+	// consumers that depend on it by registry ref cannot be found: the
+	// answer says SERVICE_NOT_IN_FLEET and never clears.
+	NotInFleet bool
 }
 
 // ConsumerIndex is how the organization index was read for this answer.
@@ -279,11 +308,24 @@ type Result struct {
 	// unknownRanges names every direct consumer whose range is unknown and
 	// not accepted, beyond the coverage's bound.
 	unknownRanges []string
+	// Running is set by --running; nil on any other answer.
+	Running *RunningBaseline `json:"running,omitempty" doc:"Set by --running: the revisions that run, the one this answer judged and the ones Pacto could not read"`
+	// firstVersion and unreadBaselines are Options.FirstVersion and
+	// Options.UnreadBaselines (see runningGate).
+	firstVersion    bool
+	unreadBaselines []string
+	// newRevisionRuns is Options.NewRevisionRuns (see firstVersionLead).
+	newRevisionRuns bool
+	// running is Options.Running.
+	running bool
 	// observationSources are the observation sources an event answer read.
 	observationSources []string
 	// hiddenReferrers counts the services this viewer may not see that may
 	// reference the changed service's policy: none of them was checked.
 	hiddenReferrers int
+	// inferredExternal is the external system whose inferred contract the
+	// answer is about (the ref rule); empty otherwise.
+	inferredExternal string
 }
 
 // RegistryLookup is where Pacto looked for a target snapshot: the
@@ -373,8 +415,10 @@ func (r *Result) blocks(c AffectedConsumer) bool {
 	return r.breaks(c) || c.policyVerdict == CompatibilityIncompatible && len(c.Targets) > 0
 }
 
-// breaks reports whether a BREAKING change breaks a consumer that runs on a
-// known target through its range or a guarantee it requires.
+// breaks reports whether a BREAKING change, a first version (see
+// Options.FirstVersion) or any change judged against a running revision
+// (Options.Running), breaks a consumer that runs on a known target
+// through its range or a guarantee it requires.
 func (r *Result) breaks(c AffectedConsumer) bool {
 	verdict := c.CompatibilityVerdict
 	if c.policyVerdict != "" {
@@ -384,7 +428,7 @@ func (r *Result) breaks(c AffectedConsumer) bool {
 	if c.Break != nil && c.Break.State == BreakAccepted {
 		return false
 	}
-	return r.Classification == "BREAKING" &&
+	return (r.Classification == "BREAKING" || r.firstVersion || r.running) &&
 		(verdict == CompatibilityIncompatible || len(c.Unmet) > 0) && len(c.Targets) > 0
 }
 
@@ -475,20 +519,6 @@ func inferredNote(n int, lead string) string {
 		"declare each dependency with a compatibility range in those services' pacto.yaml"
 }
 
-// heldGate is the gate when the answer holds the change: blockingGate's
-// blocked, then a fail range policy (blocked), then blockingGate's
-// unverified; "" otherwise.
-func (r *Result) heldGate() (string, string) {
-	gate, why := r.blockingGate()
-	if gate == GateBlocked {
-		return gate, why
-	}
-	if code, policyWhy := r.policyGate(); code != "" {
-		return GateBlocked, "the change is BREAKING: " + policyWhy
-	}
-	return gate, why
-}
-
 // blockingGate is the gate when a consumer is shown to break: blocked when one
 // runs on a known target, unverified when only policy referrers that run
 // nowhere known fail the new policy, and "" otherwise.
@@ -501,9 +531,21 @@ func (r *Result) blockingGate() (string, string) {
 		if unmet {
 			accept += " or require a guarantee it does not meet"
 		}
-		if r.anyStale(active) {
-			why = append(why, "breaking changes affect consumers that "+accept+": "+r.whereRun(active))
-		} else {
+		// A first version or a running revision the diff does not call
+		// BREAKING blocks on a range alone: never say breaking changes.
+		lead := ""
+		switch {
+		case r.firstVersion:
+			lead = r.firstVersionLead() + ": "
+		case r.Classification != "BREAKING":
+			lead = "the change is " + r.Classification + ", but "
+		}
+		switch {
+		case r.anyStale(active):
+			why = append(why, cmp.Or(lead, "breaking changes affect ")+"consumers that "+accept+": "+r.whereRun(active))
+		case lead != "":
+			why = append(why, lead+"running consumers "+accept+": "+strings.Join(active, ", "))
+		default:
 			why = append(why, "breaking changes affect active consumers, which run on known targets and "+accept+": "+strings.Join(active, ", "))
 		}
 	}
@@ -798,6 +840,14 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		res = analyze(ctx, old, new, oldFS, newFS, snap, opts)
 		res.adviseConsumers()
 		res.noteRangeOnlyMatches()
+		res.firstVersion, res.unreadBaselines, res.running = opts.FirstVersion, opts.UnreadBaselines, opts.Running
+		res.newRevisionRuns = opts.NewRevisionRuns
+		if opts.NotInFleet {
+			res.Limitations = append(res.Limitations, fleet.Limitation{
+				Code: "SERVICE_NOT_IN_FLEET", Source: limitationSource,
+				Message: res.Service + " is in no fleet domain, so consumers that depend on it by registry ref cannot be found",
+			})
+		}
 		if opts.Index != nil {
 			idx := *opts.Index
 			res.ConsumerIndex = &idx
@@ -856,7 +906,28 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		}
 	}
 
-	graph := res.dependents(snap, q, fleet.NewServiceKeyDomain(opts.Domain, svc), true)
+	key := fleet.NewServiceKeyDomain(opts.Domain, svc)
+	if opts.InferredProvider != "" {
+		res.Limitations = append(res.Limitations, fleet.Limitation{Code: LimitationInferredProvider, Source: limitationSource,
+			Message: opts.InferredProvider + " is an inferred contract under " + contract.InferredRepository + "; Pacto never checks a range against it"})
+		defer res.forceUnknownVerdicts()
+		if snap.Services[key] == nil {
+			// The ref rule: an inferred contract is never a fleet service, so
+			// its consumers are the ranges pinned on its external system.
+			res.inferredExternal = opts.InferredProvider
+			res.Consumers = inferredProviderConsumers(snap, fleet.ExternalKey(opts.InferredProvider))
+			if q.ExternalsUnreported() {
+				// A target that cannot say which external systems it uses may
+				// hide a consumer of this one.
+				res.Completeness = fleet.CompletenessPartial
+				res.Limitations = append(res.Limitations, fleet.Limitation{Code: fleet.LimitationExternalsUnreported, Source: limitationSource,
+					Message: "some targets do not report the external systems they use, so the consumers of " + opts.InferredProvider + " listed may be incomplete"})
+			}
+			res.collectOwnersAndTargets(snap)
+			return res
+		}
+	}
+	graph := res.dependents(snap, q, key, true)
 	if graph == nil {
 		return res
 	}

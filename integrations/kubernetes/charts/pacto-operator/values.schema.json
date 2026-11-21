@@ -919,6 +919,33 @@
                 "minLength": 1,
                 "maxLength": 253,
                 "pattern": "^[ -~]+$"
+              },
+              "offer": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "The Pacto integration this promoter's detected row offers",
+                "required": [
+                  "id",
+                  "text",
+                  "doc"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "maxLength": 63,
+                    "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 160,
+                    "pattern": "^Gate every [ -~]+[^.]$"
+                  },
+                  "doc": {
+                    "type": "string",
+                    "maxLength": 253,
+                    "pattern": "^https://"
+                  }
+                }
               }
             },
             "oneOf": [

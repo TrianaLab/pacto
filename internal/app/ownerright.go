@@ -350,7 +350,7 @@ func (pl *declarePlanner) historyRevision(ctx context.Context, tm root.TrustedMa
 	}
 	rec, _ := contract.ReadInferredRecord(b.FS) // ponytail: an unreadable record holds no declaration and no attested owner
 	v, signers, commit := publish.CheckPublisher(ctx, pl.reg, tm, pl.req.Signing.RekorURL != "", pl.repo(), h.Digest,
-		delivery.ServiceRef{Name: pl.plan.Service}, "", pl.rules, delivery.PublisherSourceRule, nil)
+		delivery.ServiceRef{Name: pl.plan.Service}, "", pl.rules, delivery.PublisherSourceRule, nil, nil)
 	return &fleet.ContractRevision{Key: fleet.RevisionKey(h.Digest), Service: pl.plan.Service, Version: version, Digest: h.Digest,
 		Owner: b.Contract.Service.Owner, Record: rec, Provenance: &fleet.BundleProvenance{Signature: signing.BundleSignatureFor(v, commit),
 			Signers: verifiedSigners(signers, pl.req.Signing.Rules)}}, nil

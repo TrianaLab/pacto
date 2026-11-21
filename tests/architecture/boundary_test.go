@@ -266,6 +266,26 @@ func TestCorePackagesHaveNoKubernetesOrIntegrationDeps(t *testing.T) {
 	}
 }
 
+// TestInferredContractIsKubernetesFree keeps pkg/inferredcontract usable by
+// the CLI and the operator alike: it publishes through pkg/publish (which
+// reaches the registry, so it is not a core package) and never reaches a
+// Kubernetes client, an integration or the CLI's internal packages. Only
+// k8s.io/klog, the logger pkg/signing's sigstore dependencies log through,
+// is allowed.
+func TestInferredContractIsKubernetesFree(t *testing.T) {
+	const mod = "github.com/trianalab/pacto/v4/"
+	for _, dep := range deps(t, mod+"pkg/inferredcontract") {
+		if strings.HasPrefix(dep, "k8s.io/klog/") {
+			continue
+		}
+		for _, bad := range []string{"k8s.io/", "sigs.k8s.io/", "github.com/trianalab/pacto/integrations/", mod + "integrations/", mod + "internal/"} {
+			if strings.HasPrefix(dep, bad) {
+				t.Errorf("boundary violation: pkg/inferredcontract reaches %q; it stays Kubernetes-free", dep)
+			}
+		}
+	}
+}
+
 // TestDiscoverReadsNoClusterOrRuntime keeps folder discovery a pure read of
 // the repository: what Pacto infers for a contract comes from files, never
 // from a cluster or runtime observation, so internal/discover reaches no

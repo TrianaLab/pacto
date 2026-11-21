@@ -310,7 +310,7 @@ func (oc *OwnerCheck) bundle(ctx context.Context, reg publish.Registry, tm root.
 		ruleSource = core.PublisherSourceInferred // no rule: never an accepted signer, never attested
 	}
 	v, signers, commit := publish.CheckPublisher(ctx, reg, tm, hasTLog(tm), repo, lr.ResolvedDigest,
-		core.ServiceRef{Name: lr.Contract.Service.Name}, "", oc.Rules, ruleSource, nil)
+		core.ServiceRef{Name: lr.Contract.Service.Name}, "", oc.Rules, ruleSource, nil, nil)
 	ids := make([]fleet.VerifiedSigner, 0, len(signers))
 	for _, s := range signers {
 		s = core.Classified(s, oc.classes)

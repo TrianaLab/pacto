@@ -88,3 +88,54 @@ func TestFingerprintsDecodeBounds(t *testing.T) {
 		t.Error("read error accepted")
 	}
 }
+
+const offerDoc = "https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo"
+
+func promoterWithOffer(id, text, doc string) string {
+	return "promoters:\n- product: Promoter\n  crd: stages.promoter.example.com\n  offer:\n    id: " + id + "\n    text: " + text + "\n    doc: " + doc + "\n"
+}
+
+func TestOfferDecodes(t *testing.T) {
+	fp, err := ParseFingerprints(strings.NewReader(promoterWithOffer("promoter-gate", "Gate every promotion with one template", offerDoc)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fp.Promoters[0].Offer; got == nil || *got != (Offer{ID: "promoter-gate", Text: "Gate every promotion with one template", Doc: offerDoc}) {
+		t.Fatalf("offer = %+v", got)
+	}
+	if fp, _ := ParseFingerprints(strings.NewReader("promoters:\n- product: P\n  crd: a.example.com\n")); fp.Promoters[0].Offer != nil {
+		t.Error("an entry with no offer decoded one")
+	}
+}
+
+func TestOfferRefusesNonHTTPSDoc(t *testing.T) {
+	for _, doc := range []string{"http://pacto.run/x", "javascript:alert(1)", "/latest/x", "https:///x", "https://pacto.run/%zz", "''"} {
+		_, err := ParseFingerprints(strings.NewReader(promoterWithOffer("promoter-gate", "Gate every promotion with one template", doc)))
+		if err == nil || !strings.Contains(err.Error(), "promoters[0]: offer promoter-gate: doc must be an absolute https URL") {
+			t.Errorf("doc %s: err = %v", doc, err)
+		}
+	}
+}
+
+func TestOfferRefusesLongText(t *testing.T) {
+	for _, text := range []string{"Gate every " + strings.Repeat("x", maxOfferText), "Gate every promotion.", "Offer a template", "'Gate every \t tab'"} {
+		_, err := ParseFingerprints(strings.NewReader(promoterWithOffer("promoter-gate", text, offerDoc)))
+		if err == nil || !strings.Contains(err.Error(), "promoters[0]: offer promoter-gate: text must") {
+			t.Errorf("text %q: err = %v", text, err)
+		}
+	}
+	for _, id := range []string{"Upper", "-dash", "dash-", strings.Repeat("a", 64), "''"} {
+		_, err := ParseFingerprints(strings.NewReader(promoterWithOffer(id, "Gate every promotion with one template", offerDoc)))
+		if err == nil || !strings.Contains(err.Error(), "offer id") {
+			t.Errorf("id %q: err = %v", id, err)
+		}
+	}
+}
+
+func TestOfferOnlyOnPromoters(t *testing.T) {
+	in := "managers:\n- product: M\n  label: m.example.com/app\n  offer:\n    id: m\n    text: Gate every deploy with m\n    doc: " + offerDoc + "\n"
+	_, err := ParseFingerprints(strings.NewReader(in))
+	if err == nil || !strings.Contains(err.Error(), "managers[0]: offer names a promoter's integration") {
+		t.Fatalf("err = %v", err)
+	}
+}

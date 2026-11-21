@@ -234,6 +234,7 @@ const ATTENTION_CAUSES: Record<string, string> = {
   NO_INTERFACE_DOCS: 'An interface declares no document',
   NOT_DEPLOYED: 'No source reports an operational target of this service',
   UNVERIFIED_CAPABILITY: 'An extension capability no evaluator checks',
+  INFERRED_PROVIDER: 'A dependency range points at an inferred contract, so Pacto never checks it',
 };
 /** attentionCause words an attention item's code, or returns the code itself. */
 export function attentionCause(code: string | undefined): string {
@@ -244,6 +245,7 @@ export function attentionCause(code: string | undefined): string {
 const NEXT_ACTION_VERBS: Record<string, string> = {
   'edit-contract': 'edit the contract',
   'plan-rollback': 'plan a rollback',
+  declare: 'declare a contract',
 };
 /** nextActionWords says a next action as words only: it is advice, never a control. */
 export function nextActionWords(a: { verb?: string; tool?: string; environment?: string } | null | undefined): string {

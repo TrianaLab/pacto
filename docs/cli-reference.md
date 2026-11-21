@@ -1561,6 +1561,26 @@ pacto fleet providers [flags]
   -h, --help[=true|false]   help for providers
 ```
 
+### `pacto fleet publish-inferred`
+
+Builds the fleet snapshot from the source flags and, for every external system it knows with at least one consumer, publishes an inferred contract to &lt;registry&gt;/pacto-inferred/&lt;identity&gt;: a pacto.yaml naming the external and a pacto.inferred.yaml listing the hosts, ports and client majors the fleet sees, each with the sources that saw it. A new 0.0.&lt;n&gt; tag is pushed only when that surface changed, annotated run.pacto.contract.provenance: inferred and signed with --key. It names no consumer, and a range is never checked against it.
+
+Clusters publish from the operator once the chart's registry value is set. This command is for installations that run no operator, such as the Compose demo; never run it against a registry an operator already writes.
+
+--key takes a PEM private key or a `pacto evidence keygen` seed. Readers recognise its signature as the operator's only when their --detected advertisement names its public key; otherwise they say the signature could not be checked.
+
+```
+pacto fleet publish-inferred [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for publish-inferred
+      --key string          the installation signing key: a PEM private key or a seed that pacto evidence keygen wrote
+      --registry string     registry host and path the installation repositories live under, as <registry>/pacto-inferred/<identity>
+```
+
 ### `pacto fleet reconcile`
 
 Reconciles what the fleet's contracts declare against what runtime traces prove. Reports matched dependencies, declared-but-not-observed (dormant or unseen in the trace window, so possibly still in use) and observed-but-not-declared (shadow dependencies).
@@ -1742,6 +1762,8 @@ Composes a semantic contract diff (old→new) with the operational graph to answ
 
 When no fleet source holds the changed service, the new revision is added to the snapshot so the services that depend on it are found.
 
+With --running, impact judges &lt;new&gt; against the revisions of its service that run on known targets instead of an &lt;old&gt; revision, and keeps the worst gate. A running consumer whose range rejects &lt;new&gt; blocks it whatever the classification, and a partial answer never clears. A local &lt;new&gt; takes the fleet domain that holds its service name; a name several domains hold exits 1 with their keys (judge the oci:// reference instead). With no running revision the new one is a first version: it is blocked when a running consumer's range rejects it, and clear only on a complete answer whose running consumers all accept it. A running revision Pacto could not link, pull or trust, one linked by tag only, an inferred workload of the service, a workload source Pacto could not read and a local &lt;new&gt; in no fleet domain each make the answer unverified at best. Running revisions are pulled only from the hosts of the target snapshots and of an oci:// &lt;new&gt;, plus the comma-separated hosts in $PACTO_RUNNING_REGISTRIES.
+
 With --unavailable, --removed or --regressed, impact answers what happens if that service becomes unavailable, is removed or a revision of it regressed. --unavailable and --removed also take offering:&lt;name&gt;, which asks the same of every service that provides the platform offering. Consumers are graded breaks (every edge on their path is required), may degrade (an optional edge) or unknown. The gate is unverified (exit 2) when anything depends on the service and clear (exit 0) only when the complete snapshot shows nothing does. --regressed with an artifact digest reads delivery's recorded failures with your own cluster credentials when a cluster is reachable.
 
 The answer ends in a release gate, and the exit status follows it:
@@ -1757,7 +1779,7 @@ When you pass no --k8s, --target-state, --evidence-url or --target-snapshot, imp
 From the same ref impact also reads the consumers published to the organization index, &lt;host&gt;/<first path segment>/pacto-index then &lt;host&gt;/pacto-index, checks them against the target snapshot it reads and prints a Consumers line; --index names another &lt;registry&gt;/pacto-index, --index none reads none, a --root list skips it and a pair of --local folders reads no index.
 
 ```
-pacto impact <old> <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision> [flags]
+pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision> [flags]
 ```
 
 **Examples:**
@@ -1769,6 +1791,10 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
   # Impact of a published service against the clusters that run it, read
   # from the target snapshot next to its registry
   pacto impact oci://ghcr.io/acme/svc:1.0.0 ./svc --delivery-trust trust.yaml
+
+  # Judge a folder's contract against the revisions that run in the pinned
+  # clusters, as a GitOps render gate does
+  pacto impact --running . --target-snapshot oci://ghcr.io/acme/pacto-targets:cluster-<uid> --delivery-trust trust.yaml
 
   # Include observed (runtime) evidence and emit JSON
   pacto impact oci://ghcr.io/acme/svc:1.0.0 ./svc --include-observed --output-format json
@@ -1811,6 +1837,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --regressed string                what happens if <service>@<revision> regressed; an artifact digest reads delivery's recorded failures
       --removed string                  what happens if this service (a fleet service key, or a name only one domain holds) is removed; offering:<name> asks it of every provider of an offering
       --root stringArray                contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --running[=true|false]            judge <new> against the revisions of its service that run on known targets instead of an <old> revision; a running revision with the new digest is not a baseline; with no running revision only consumers' ranges are checked
       --stats-context string            comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
       --stats-file string               write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
       --stats-registry string           publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
@@ -2210,7 +2237,7 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 | `pacto_fleet_neighborhood` | `service` (**required**): a service name or key, then `direction` (`dependencies`, `dependents` or `both`, the default), `depth`, `views` (comma-separated `expected`, `observed` and `differences`; empty means `expected,observed`), `max_nodes` and `max_edges` |
 | `pacto_fleet_versions` | `offering` (**required**), then `provider` (a key, or a name only one domain uses) and `range` (a semver range; each version then carries `rangeStatus` and each provider its `latestCompatible` version) |
 | `pacto_fleet_revision_document` | `key` and `path` (**both required**): a revision key and a document path its docs list |
-| `pacto_impact` | `old_ref` and `new_ref`, plus `include_observed` and `traces`; or `event` (`unavailable`, `removed` or `regressed`) with `service`, plus `revision` for `regressed` |
+| `pacto_impact` | `old_ref` and `new_ref`, plus `include_observed` and `traces`; or `running` with `new_ref` alone; or `event` (`unavailable`, `removed` or `regressed`) with `service`, plus `revision` for `regressed` |
 | `pacto_stats` | `registry` (stdio only), `since` and `until` (`30d`, `12h`, a date or RFC 3339; default the last 30 days), `by` (`service`, `owner`, `domain`, `repository` or `environment`), `service` and `kinds` (comma-separated run-record kinds, for example `diff,impact`). It appears with `--fleet` over stdio, and over HTTP only when the server was started with `--stats-read-registry` |
 
 Argument names differ from flag names: the substring filter is `text`. Every tool above closes its schema, so an unknown argument is an error.

@@ -223,6 +223,41 @@ pull-request step that gates on the JSON. The file `--target-state` expects is
 documented under
 [target-state fixtures](operational-graph-reference.md#what-a-target-state-fixture-looks-like).
 
+### Against what runs
+
+`pacto impact --running <new>` judges `<new>` against every running revision
+of its service, keeping the worst gate, as the
+[Argo CD plugin](integrations/kubernetes/gitops.md#gate-every-argo-cd-sync) does:
+
+```bash
+pacto impact --running . \
+  --target-snapshot oci://ghcr.io/acme/pacto-targets:cluster-<uid> \
+  --delivery-trust trust.yaml
+```
+
+- **Domain.** A local `<new>` takes the fleet domain holding its service name;
+  several exit `1` (judge the `oci://` reference instead), none is
+  `unverified` with `SERVICE_NOT_IN_FLEET`.
+- **Ranges.** A running consumer whose range rejects `<new>` blocks, whatever
+  the classification. A partial answer never clears.
+- **First version.** With nothing running, a consumer range that rejects
+  `<new>` blocks; a complete answer clears.
+- **Unread.** A revision Pacto could not link, pull or trust, a tag-only link,
+  an inferred workload and a workload source Pacto could not read each make
+  the answer `unverified` at best. A failed
+  pull names the ref only, because the registry error can carry credentials.
+- **Hosts.** Revisions are pulled only from the snapshot hosts, an `oci://`
+  `<new>` and `PACTO_RUNNING_REGISTRIES` (or `running-registries` in the
+  config file).
+- **Itself.** A target already running the digest of an `oci://` `<new>` is
+  never its baseline, so a gate that runs after a deploy, such as a
+  [Kargo verification](integrations/kubernetes/gitops-kargo.md#kargo), passes
+  `oci://<repo>@<digest>` and Pacto judges it against the other revisions.
+- **Bounds.** At most 8 running revisions are judged and 32 unread lines are
+  listed; the last line counts the rest, and the answer never clears over them.
+
+The answer lists them in `running`.
+
 ## The MCP tool and the dashboard
 
 Agents get the same analysis as the read-only `pacto_impact` MCP tool. It belongs

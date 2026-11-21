@@ -212,6 +212,8 @@ type EditInput struct {
 	Lifecycle *LifecycleInput
 	// Template sets or clears service.template; setting it needs
 	// pactoVersion 2.4. service.origin has no setter: only creation writes it.
+	// service.external (2.5) has none either: only the inferred-contract
+	// publisher and a claim write it.
 	Template *TemplateInput
 
 	Workload                  *string

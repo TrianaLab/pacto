@@ -172,3 +172,17 @@ func TestInferredEnvNeverReachesCLIOrMCPOrTUI(t *testing.T) {
 		}
 	}
 }
+
+// TestFleetAttentionDeclareWordsFollowTheEntity: only a service's declare
+// action names pacto declare.
+func TestFleetAttentionDeclareWordsFollowTheEntity(t *testing.T) {
+	act := &fleet.NextAction{Verb: "declare", Tool: "pacto_declare"}
+	res := &fleet.AttentionList{Count: 2, Total: 2, Items: []fleet.AttentionItem{
+		{Entity: fleet.EntityRef{Kind: fleet.KindService, Key: "ledger"}, Label: "ledger", NextAction: act},
+		{Entity: fleet.EntityRef{Kind: fleet.KindExternal, Key: "stripe"}, Label: "stripe", NextAction: act},
+	}}
+	out := printed(t, func(c *cobra.Command) error { return printFleetAttention(c, res, "text") })
+	if strings.Count(out, "(action: declare a contract with pacto declare)") != 1 || strings.Count(out, "(action: declare a contract for it)") != 1 {
+		t.Errorf("attention:\n%s", out)
+	}
+}

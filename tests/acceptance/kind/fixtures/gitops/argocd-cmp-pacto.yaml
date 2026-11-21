@@ -1,0 +1,137 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pacto-cmp-plugin
+  namespace: argocd
+data:
+  plugin.yaml: |
+    apiVersion: argoproj.io/v1alpha1
+    kind: ConfigManagementPlugin
+    metadata:
+      name: pacto
+    spec:
+      discover:
+        # A contract has neither top-level key; a Pacto object saved as
+        # pacto.yaml has both, and is left to Argo CD's own detection.
+        find:
+          command:
+            - sh
+            - -c
+            - 'test -f pacto.yaml && ! grep -qE "^(apiVersion|kind):" pacto.yaml && echo pacto.yaml'
+      generate:
+        command: [sh, /home/argocd/cmp-server/config/generate.sh]
+  generate.sh: |
+    # Pacto sync gate: render, judge the contract the render applies against
+    # what runs, and print the manifests only after a pass. Stdout is the
+    # manifest stream, so nothing else writes to it.
+    set -u
+    fail() { echo "pacto plugin: $*" >&2; exit 1; }
+
+    # Unpinned (no word, or a word without :cluster-) reads only the clusters
+    # that published a tag right now, so a missing one reads as no consumers.
+    pinned=false
+    for ref in ${PACTO_TARGET_SNAPSHOT:-}; do
+      case "$ref" in
+        *:cluster-*) pinned=true ;;
+        *) pinned=false; break ;;
+      esac
+    done
+    if [ "$pinned" != true ] && [ "${PACTO_ALLOW_CLUSTER_DISCOVERY:-false}" != true ]; then
+      fail "pin each destination cluster (oci://<registry>/pacto-targets:cluster-<uid>)"
+    fi
+
+    work=$(mktemp -d /tmp/pacto-cmp.XXXXXX) || fail "cannot create a temp folder under /tmp"
+    trap 'rm -rf "$work"' EXIT
+    render="$work/render.yaml"
+
+    # Render with the folder's own tool. Registry credentials meant for Pacto
+    # never reach helm or kustomize.
+    if [ -f Chart.yaml ]; then
+      (
+        unset PACTO_REGISTRY_USERNAME PACTO_REGISTRY_PASSWORD PACTO_REGISTRY_TOKEN
+        if [ -f Chart.lock ] && [ ! -d charts ]; then
+          helm dependency build . >&2 || exit 1
+        fi
+        set -- template "${ARGOCD_APP_NAME:-}" . --namespace "${ARGOCD_APP_NAMESPACE:-}" --include-crds
+        if [ -n "${KUBE_VERSION:-}" ]; then set -- "$@" --kube-version "$KUBE_VERSION"; fi
+        IFS=,
+        for v in ${KUBE_API_VERSIONS:-}; do set -- "$@" --api-versions "$v"; done
+        unset IFS
+        exec helm "$@"
+      ) > "$render" || fail "helm template failed"
+    elif [ -f kustomization.yaml ] || [ -f kustomization.yml ] || [ -f Kustomization ]; then
+      (
+        unset PACTO_REGISTRY_USERNAME PACTO_REGISTRY_PASSWORD PACTO_REGISTRY_TOKEN
+        # shellcheck disable=SC2086 # build options are a word list
+        exec kustomize build ${PACTO_KUSTOMIZE_BUILD_OPTIONS:-} .
+      ) > "$render" || fail "kustomize build failed"
+    else
+      fail "${ARGOCD_APP_SOURCE_PATH:-$PWD} has no Chart.yaml or kustomization.yaml; add one, or exclude the folder from the plugin"
+    fi
+
+    # The contract the render applies: the contractRef.oci of its Pacto objects.
+    refs=$(awk '
+      function flush() { if (pacto) for (i = 1; i <= n; i++) print r[i]; pacto = 0; n = 0 }
+      /^---/ { flush(); next }
+      /^kind:[ \t]*Pacto[ \t]*$/ { pacto = 1 }
+      /^[ \t]+oci:[ \t]*[^ \t]/ { v = $0; sub(/^[ \t]+oci:[ \t]*/, "", v); gsub(/["'\'' \t]/, "", v); r[++n] = v }
+      END { flush() }' "$render" | sed 's|^oci://||; s|^|oci://|' | sort -u)
+    contract=.
+    if [ -n "$refs" ]; then
+      if [ "$(echo "$refs" | wc -l)" -ne 1 ]; then
+        fail "ERROR rendered contractRef values disagree: $(echo "$refs" | tr '\n' ' ')"
+      fi
+      contract=$refs
+      # service.version of the folder contract, block or flow style.
+      want=$(awk '
+        function out(v) { sub(/^[ \t]*version:[ \t]*/, "", v); gsub(/["'\'' \t]/, "", v); print v; exit }
+        /^service:/ { if (match($0, /version:[ \t]*[^,} \t]+/)) out(substr($0, RSTART, RLENGTH)); svc = 1; ind = ""; next }
+        /^[^ \t#]/ { svc = 0 }
+        svc && /^[ \t]+[^ \t#]/ { match($0, /^[ \t]+/); i = substr($0, 1, RLENGTH); if (ind == "") ind = i; if (i == ind && $0 ~ /^[ \t]+version:/) out($0) }' pacto.yaml 2> /dev/null)
+      path=${refs##*/}
+      case "$path" in
+        *@*) ;;
+        *:*) if [ -n "$want" ] && [ "${path##*:}" != "$want" ]; then
+               fail "ERROR rendered contractRef $refs does not match pacto.yaml $want"
+             fi ;;
+      esac
+    fi
+
+    # The installation's config only: the folder's pacto.yaml is the
+    # contract, and would otherwise be read as Pacto's config.
+    set -- impact --running --local "" --config /etc/pacto/config.yaml
+    for ref in ${PACTO_TARGET_SNAPSHOT:-}; do set -- "$@" --target-snapshot "$ref"; done
+    pacto "$@" "$contract" > "$work/out" 2> "$work/err"
+    rc=$?
+    # The full text goes to the sidecar log. Argo CD shows the render error
+    # to every Application reader, and a repository writer picks the service
+    # judged, so the reason (consumers, clusters, refs) stays in the log
+    # unless the installation sets PACTO_SHOW_REASON=true.
+    { cat "$work/err" > "${PACTO_PLUGIN_LOG:-/proc/1/fd/2}"; } 2> /dev/null || true
+    reason="(the reason is in the pacto container log of argocd-repo-server)"
+    if [ "${PACTO_SHOW_REASON:-false}" = true ]; then
+      reason=$(head -n 1 "$work/err" | sed 's/^unverified: //' | cut -c1-512)
+    fi
+
+    allow=false
+    case "${PACTO_ALLOW_UNVERIFIED:-false}" in
+      true) allow=true ;;
+      per-application) [ "${ARGOCD_ENV_PACTO_ALLOW_UNVERIFIED:-false}" = true ] && allow=true ;;
+    esac
+
+    case "$rc" in
+      0) ;;
+      2) if [ "$allow" != true ]; then
+           echo "pacto impact: UNVERIFIED $reason, exit 2" >&2
+           exit 2
+         fi ;;
+      1) if [ -s "$work/out" ]; then
+           echo "pacto impact: BLOCKED $reason, exit 1" >&2
+         else
+           echo "pacto impact: ERROR $reason, exit 1" >&2
+         fi
+         exit 1 ;;
+      *) echo "pacto impact: ERROR $reason, exit $rc" >&2
+         exit 1 ;;
+    esac
+    cat "$render"

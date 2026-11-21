@@ -49,6 +49,7 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/delivery"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/detection"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/evidence"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/inferredpublish"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/installkey"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
@@ -756,13 +757,14 @@ func addNodeAgent(mgr ctrl.Manager, o *options, namespace string) error {
 var lastPush atomic.Pointer[detect.PushResult]
 
 // addTargetSnapshot runs the target snapshot publisher when --registry is set: it ensures the installation
-// key, then publishes <registry>/pacto-targets:cluster-<uid> on the elected leader. It returns the
+// key, then publishes <registry>/pacto-targets:cluster-<uid> and the inferred contracts under
+// <registry>/pacto-inferred on the elected leader. It returns the
 // installation detection advertises, nil without --registry. Any missing piece stops the operator at start
 // with its reason.
 func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace, clusterID, evidenceURL string,
 	kc authn.Keychain) (*detect.Installation, error) {
 	if o.registry == "" {
-		setupLog.Info("Target snapshot is off: set the registry value")
+		setupLog.Info("Target snapshot and inferred contracts are off: set the registry value")
 		return nil, nil
 	}
 	deploy := os.Getenv("OPERATOR_DEPLOYMENT_NAME")
@@ -780,6 +782,16 @@ func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace, clusterID, evide
 		Watched: o.namespaces, Key: key, Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(),
 		OnPush: func(r detect.PushResult) { lastPush.Store(&r) }, OwnerPolicy: readOwnerPolicy(o.ownerPolicy)})
 	if err != nil {
+		return nil, err
+	}
+	// The inferred contracts of the externals the Pactos name, signed with the same key, under
+	// <registry>/pacto-inferred: the same push scope, on the elected leader.
+	inferred, err := inferredpublish.ForOperator(inferredpublish.Config{Registry: o.registry, Key: key, Keychain: kc,
+		Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(), Watched: o.namespaces, Pacto: version})
+	if err != nil {
+		return nil, err
+	}
+	if err := mgr.Add(inferred); err != nil {
 		return nil, err
 	}
 	inst := &detect.Installation{Registry: o.registry,

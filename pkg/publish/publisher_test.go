@@ -2,12 +2,16 @@ package publish
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/registry"
@@ -16,6 +20,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	"github.com/trianalab/pacto/v4/pkg/signing/testutil"
 )
@@ -91,7 +96,7 @@ func TestCheckPublisherAcceptedByRule(t *testing.T) {
 	ss := testutil.New(t)
 	host, reg := testRegistry(t, true)
 	repo, d := signed(t, host, reg, ciSigner(t, ss, acmeSubject, acmeRepo))
-	v, _, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, acmeRepo, acmeRules(t), delivery.PublisherSourceRule, nil)
+	v, _, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, acmeRepo, acmeRules(t), delivery.PublisherSourceRule, nil, nil)
 	if v.Verdict != delivery.VerdictAccepted || v.Source != delivery.PublisherSourceRule || v.Digest != d || v.At == "" || v.Identity.Repository != acmeRepo {
 		t.Fatalf("verdict %+v", v)
 	}
@@ -103,7 +108,7 @@ func TestCheckPublisherAcceptedByPin(t *testing.T) {
 	const sub = "https://github.com/contractor/payments/.github/workflows/ci.yml@refs/heads/main"
 	repo, d := signed(t, host, reg, ciSigner(t, ss, sub, "https://github.com/contractor/payments"))
 	pin := delivery.IdentityPin{Service: paymentsRef, Issuer: ghIssuer, Subject: sub, Repository: "https://github.com/contractor/payments", Approver: "ana"}
-	v, _, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, []delivery.IdentityPin{pin})
+	v, _, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, []delivery.IdentityPin{pin}, nil)
 	if v.Verdict != delivery.VerdictAccepted || v.Source != delivery.PublisherSourcePin {
 		t.Fatalf("verdict %+v", v)
 	}
@@ -114,7 +119,7 @@ func TestCheckPublisherNewSigner(t *testing.T) {
 	host, reg := testRegistry(t, true)
 	const sub = "https://github.com/contractor/payments/.github/workflows/ci.yml@refs/heads/main"
 	repo, d := signed(t, host, reg, ciSigner(t, ss, sub, "https://github.com/contractor/payments"))
-	v, _, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+	v, _, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil, nil)
 	if v.Verdict != delivery.VerdictNewSigner || v.Identity == nil || v.Identity.Subject != sub {
 		t.Fatalf("verdict %+v", v)
 	}
@@ -126,7 +131,7 @@ func TestCheckPublisherKeepsLookingPastOutsideSigner(t *testing.T) {
 	ss := testutil.New(t)
 	host, reg := testRegistry(t, true)
 	repo, d := signed(t, host, reg, signerFor(t, ss, testutil.Token("ana@acme.example", "https://accounts.example")), ciSigner(t, ss, acmeSubject, acmeRepo))
-	v, _, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+	v, _, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil, nil)
 	if v.Verdict != delivery.VerdictAccepted || v.Identity.Subject != acmeSubject {
 		t.Fatalf("verdict %+v", v)
 	}
@@ -146,7 +151,7 @@ func TestCheckPublisherUnsigned(t *testing.T) {
 	ss := testutil.New(t)
 	host, reg := testRegistry(t, true)
 	repo, d := signed(t, host, reg)
-	v, _, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+	v, _, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil, nil)
 	if v.Verdict != delivery.VerdictUnsigned || v.Source != delivery.PublisherSourceNone || !strings.Contains(v.Reason, d) {
 		t.Fatalf("verdict %+v", v)
 	}
@@ -156,7 +161,7 @@ func TestCheckPublisherUnreachable(t *testing.T) {
 	ss := testutil.New(t)
 	host, reg := testRegistry(t, true)
 	repo, d := signed(t, host, reg, ciSigner(t, ss, acmeSubject, acmeRepo))
-	v, _, _ := CheckPublisher(t.Context(), failingReferrers{reg}, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+	v, _, _ := CheckPublisher(t.Context(), failingReferrers{reg}, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil, nil)
 	if v.Verdict != delivery.VerdictUnknown || !strings.Contains(v.Reason, "registry down") || len([]rune(v.Reason)) > maxVerdictReason+1 {
 		t.Fatalf("verdict %+v", v)
 	}
@@ -173,7 +178,7 @@ func TestCheckPublisherWrongRoot(t *testing.T) {
 		if root != nil {
 			tm = root.Root
 		}
-		v, _, _ := CheckPublisher(t.Context(), reg, tm, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+		v, _, _ := CheckPublisher(t.Context(), reg, tm, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil, nil)
 		if v.Verdict != delivery.VerdictUnknown {
 			t.Fatalf("verdict %+v", v)
 		}
@@ -186,7 +191,7 @@ func TestCheckPublisherReadsSigTags(t *testing.T) {
 	ss := testutil.New(t)
 	host, reg := testRegistry(t, false)
 	repo, d := signed(t, host, reg, ciSigner(t, ss, acmeSubject, acmeRepo))
-	v, _, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+	v, _, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil, nil)
 	if v.Verdict != delivery.VerdictAccepted {
 		t.Fatalf("verdict %+v", v)
 	}
@@ -229,4 +234,75 @@ func (oneReferrer) Referrers(context.Context, string, string, string) ([]string,
 
 func (o oneReferrer) Layer(context.Context, string, string) ([]byte, map[string]string, error) {
 	return o.b, map[string]string{deliveryrecord.AnnPredicateType: SignPredicate}, nil
+}
+
+func TestPolicyVerifierPredicateType(t *testing.T) {
+	host, reg := testRegistry(t, true)
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	kp, _ := signing.FromPrivateKey(priv)
+	repo := host + "/acme/x"
+	b := bundleOf(host, "1.0.0", workloadService)
+	d, err := oci.BundleDigest(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, _ := oci.BundleImage(b)
+	h, _ := v1.NewHash(d)
+	if _, err := reg.Write(t.Context(), repo, streamed{img, h}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SignDigest(t.Context(), reg, signing.Keyed(kp, ""), repo, d); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyDigest(t.Context(), reg, PolicyVerifier(signing.Policy{Key: pub}), repo, d); err != nil {
+		t.Errorf("own key: %v", err)
+	}
+	other, _, _ := ed25519.GenerateKey(rand.Reader)
+	if err := VerifyDigest(t.Context(), reg, PolicyVerifier(signing.Policy{Key: other}), repo, d); err == nil {
+		t.Error("another key verified")
+	}
+}
+
+// seenTransport records every request a client sends.
+type seenTransport struct {
+	mu   sync.Mutex
+	reqs []string
+}
+
+func (s *seenTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	s.mu.Lock()
+	s.reqs = append(s.reqs, r.Method+" "+r.URL.Path)
+	s.mu.Unlock()
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+func TestNewScopedClientTransport(t *testing.T) {
+	host, _ := testRegistry(t, true)
+	rt := &seenTransport{}
+	reg := NewScopedClient(anonymous, oci.NewPushScope("", host+"/acme"), rt)
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	kp, _ := signing.FromPrivateKey(priv)
+	repo := host + "/acme/x"
+	b := bundleOf(host, "1.0.0", workloadService)
+	d, _ := oci.BundleDigest(b)
+	img, _ := oci.BundleImage(b)
+	h, _ := v1.NewHash(d)
+	if _, err := reg.Write(t.Context(), repo, streamed{img, h}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Tag(t.Context(), repo, d, "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SignDigest(t.Context(), reg, signing.Keyed(kp, ""), repo, d); err != nil {
+		t.Fatal(err)
+	}
+	var write, tag, referrer bool
+	for _, r := range rt.reqs {
+		write = write || r == "PUT /v2/acme/x/manifests/"+d
+		tag = tag || r == "PUT /v2/acme/x/manifests/1.0.0"
+		referrer = referrer || (strings.HasPrefix(r, "PUT /v2/acme/x/manifests/sha256:") && !strings.HasSuffix(r, d))
+	}
+	if !write || !tag || !referrer {
+		t.Errorf("the transport saw write %v, tag %v, referrer %v: %v", write, tag, referrer, rt.reqs)
+	}
 }

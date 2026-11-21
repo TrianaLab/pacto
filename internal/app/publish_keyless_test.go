@@ -71,8 +71,8 @@ func TestPublishKeylessWithoutSignSection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ours := bundleVerifier(signing.Policy{Identity: ciIdentity, Issuer: ghIssuer, Root: ss.Root})
-	other := bundleVerifier(signing.Policy{Identity: "https://github.com/acme/other/.github/workflows/ci.yml@refs/heads/main", Issuer: ghIssuer, Root: ss.Root})
+	ours := publish.PolicyVerifier(signing.Policy{Identity: ciIdentity, Issuer: ghIssuer, Root: ss.Root})
+	other := publish.PolicyVerifier(signing.Policy{Identity: "https://github.com/acme/other/.github/workflows/ci.yml@refs/heads/main", Issuer: ghIssuer, Root: ss.Root})
 	for _, ref := range []string{host + "/payments@" + res.Digests["api"], host + "/pacto/payments@" + res.Digests[publish.BundleItem]} {
 		repo, digest, _ := strings.Cut(ref, "@")
 		if err := publish.VerifyDigest(t.Context(), reg, ours, repo, digest); err != nil {

@@ -183,6 +183,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	buildRelationships(snap, cat)
 	foldObservedRelationships(snap, observed)
 	foldExternalUses(snap, append(uses, recordExternalUses(snap)...))
+	attachInferredProviders(snap, cat)
 	finalizeExternals(snap)
 	reconcileDeclared(snap, undeclaredOnly)
 	matchProvisioning(snap)
@@ -456,6 +457,14 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	recordProblems := slices.Clone(clusters.problems[i])
 	for _, raw := range col.Revisions {
 		rev, lims := revisionFrom(raw, src.ID(), now)
+		if rev != nil && divertInferredProvider(snap, rev, src.ID()) {
+			// An inferred contract is never a service: it becomes its
+			// external system's provider. What reading it could not
+			// establish (its record, say) is still said.
+			snap.Limitations = append(snap.Limitations, lims...)
+			revCount++
+			continue
+		}
 		if rev != nil {
 			rev.registryBacked = registryBacked(src.Kind(), rev)
 			var ingest bool
@@ -3106,9 +3115,11 @@ func revisionDependencyEdges(snap *FleetSnapshot, cat *externalcatalog.Catalog, 
 	for i, dep := range rev.Contract.Dependencies {
 		var toSvc ServiceKey
 		ok := false
+		inferredKey, inferredPath, inferred := inferredLocation(dep.Ref)
 		// An external dependency with no contract has only a local name, which
-		// may be any unrelated fleet service's: it never resolves.
-		if dep.Ref != "" || !dep.External {
+		// may be any unrelated fleet service's: it never resolves. Nor does a
+		// ref to an inferred contract, which is never a service.
+		if !inferred && (dep.Ref != "" || !dep.External) {
 			toSvc, ok = resolveDepService(snap, rev.Domain, dep)
 		}
 		rel := Relationship{
@@ -3125,6 +3136,8 @@ func revisionDependencyEdges(snap *FleetSnapshot, cat *externalcatalog.Catalog, 
 			}
 		}
 		switch {
+		case inferred:
+			joinInferredRef(snap, cat, rk, rev, i, dep, inferredKey, inferredPath, &rel)
 		case !ok && dep.External:
 			rel.ToExternal, rel.Reason = joinExternal(snap, cat, rk, rev, i, dep)
 		case !ok && dep.NameFromRef:
@@ -3136,7 +3149,7 @@ func revisionDependencyEdges(snap *FleetSnapshot, cat *externalcatalog.Catalog, 
 				indexConsumption(snap, rk, rev.ServiceKey, toSvc)
 			}
 			rel.ResolvedRevision = resolveDepRevision(snap, toSvc, rel.LockedDigest)
-			rel.RangeStatus = dependencyRangeStatus(snap, rel)
+			rel.RangeStatus, rel.RangeReason = dependencyRangeStatus(snap, rel)
 			rel.DeprecatedInterfaces = providerDeprecations(snap, rel)
 			rel.ProviderLifecycle = providerServiceLifecycle(snap, rel)
 			// A contested lock reaches this edge exactly as a missing one does — nil —
@@ -3217,9 +3230,16 @@ func joinExternal(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk Revision
 		return "", externalReason
 	}
 	key := ExternalKey(id)
-	reason := "joined external " + string(id) + " through " + match + "; this Pacto system does not deliver it"
+	recordExternalDeclaration(snap, cat, rk, rev, idx, dep, key, match)
+	return key, "joined external " + string(id) + " through " + match + "; this Pacto system does not deliver it"
+}
+
+// recordExternalDeclaration records on key's [ExternalRecord] that dependency
+// idx of revision rk declares it, joined by match. A golden path consumes
+// nothing, so no record counts it.
+func recordExternalDeclaration(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk RevisionKey, rev *ContractRevision, idx int, dep contract.Dependency, key ExternalKey, match string) {
 	if snap.Services[rev.ServiceKey].Template {
-		return key, reason
+		return
 	}
 	rec := externalRecord(snap, cat, key)
 	rec.declarations[rev.ServiceKey]++
@@ -3233,11 +3253,10 @@ func joinExternal(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk Revision
 			if LessRevisionChrono(snap.Revisions[s.Revision], rev) {
 				rec.Sources[i] = src
 			}
-			return key, reason
+			return
 		}
 	}
 	rec.Sources = append(rec.Sources, src)
-	return key, reason
 }
 
 // externalRecord returns the record of key, creating it classified by the
@@ -3315,7 +3334,10 @@ func finalizeExternal(rec *ExternalRecord) {
 	}
 	rec.JoinedBy = ""
 	for _, m := range joinStrength {
-		if slices.ContainsFunc(rec.Sources, func(s ExternalSource) bool { return s.Match == m }) {
+		// A ref to its inferred contract names the identity itself.
+		if slices.ContainsFunc(rec.Sources, func(s ExternalSource) bool {
+			return s.Match == m || m == externalcatalog.MatchIdentity && s.Match == matchInferredContract
+		}) {
 			rec.JoinedBy = m
 			break
 		}
@@ -3408,35 +3430,50 @@ func CheckRange(constraint, version string) string {
 // dependencyRangeStatus checks a resolved dependency's range against the
 // provider: the locked revision when the lock pins one, otherwise every revision
 // of the provider the fleet holds. Revisions that disagree make it unknown,
-// because the fleet cannot tell which one the consumer reaches.
-func dependencyRangeStatus(snap *FleetSnapshot, rel Relationship) string {
+// because the fleet cannot tell which one the consumer reaches. A revision only
+// this installation's operator signed is never checked: when it is all the
+// dependency reaches, the range is unknown with reason INFERRED_PROVIDER.
+func dependencyRangeStatus(snap *FleetSnapshot, rel Relationship) (status, reason string) {
 	if rel.Compatibility == "" {
-		return ""
+		return "", ""
 	}
-	status := RangeUnknown
-	for i, v := range providerVersions(snap, rel) {
+	versions := providerVersions(snap, rel)
+	if len(versions) == 0 && slices.ContainsFunc(providerRevisions(snap, rel), func(rk RevisionKey) bool { return operatorSigned(snap.Revisions[rk]) }) {
+		return RangeUnknown, RangeReasonInferredProvider
+	}
+	status = RangeUnknown
+	for i, v := range versions {
 		st := CheckRange(rel.Compatibility, v)
 		if i > 0 && st != status {
-			return RangeUnknown
+			return RangeUnknown, ""
 		}
 		status = st
 	}
-	return status
+	return status, ""
 }
 
 // providerVersions lists the versions a resolved dependency can reach: the
 // locked revision's when the lock pins one, otherwise every revision the
-// provider has in the fleet, in revision order.
+// provider has in the fleet, in revision order. A revision only this
+// installation's operator signed is left out (see [operatorSigned]).
 func providerVersions(snap *FleetSnapshot, rel Relationship) []string {
-	revs := snap.Services[rel.ToService].Revisions
-	if rel.ResolvedRevision != "" {
-		revs = []RevisionKey{rel.ResolvedRevision}
-	}
+	revs := providerRevisions(snap, rel)
 	out := make([]string, 0, len(revs))
 	for _, rk := range revs {
-		out = append(out, snap.Revisions[rk].Version)
+		if r := snap.Revisions[rk]; !operatorSigned(r) {
+			out = append(out, r.Version)
+		}
 	}
 	return out
+}
+
+// providerRevisions are the revisions a resolved dependency can reach: the
+// locked one when the lock pins one, otherwise every revision of the provider.
+func providerRevisions(snap *FleetSnapshot, rel Relationship) []RevisionKey {
+	if rel.ResolvedRevision != "" {
+		return []RevisionKey{rel.ResolvedRevision}
+	}
+	return snap.Services[rel.ToService].Revisions
 }
 
 // resolveDepRevision pins the exact revision of the resolved service that a

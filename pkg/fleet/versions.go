@@ -23,6 +23,9 @@ type ProviderVersion struct {
 	// RangeStatus is present only when a range is given. It is unknown for a
 	// version semver cannot read and for a revision that is invalid or unread.
 	RangeStatus string `json:"rangeStatus,omitempty" enum:"satisfied,unsatisfied,unknown"`
+	// RangeReason is INFERRED_PROVIDER on a revision only this installation's
+	// operator signed: its range is unknown and it is never LatestCompatible.
+	RangeReason string `json:"rangeReason,omitempty" enum:"INFERRED_PROVIDER" doc:"INFERRED_PROVIDER on a revision only this installation's operator signed: a range is never checked against it"`
 }
 
 // ProviderVersionsPreview is a bounded, newest-first preview of a provider's
@@ -77,7 +80,9 @@ func (q *Query) offeringProviderVersions(s *ServiceRecord, rng string) ProviderV
 		}
 		if rng != "" {
 			v.RangeStatus = RangeUnknown
-			if readableRevision(r) {
+			if operatorSigned(r) {
+				v.RangeReason = RangeReasonInferredProvider
+			} else if readableRevision(r) {
 				v.RangeStatus = CheckRange(rng, r.Version)
 			}
 			if v.RangeStatus == RangeSatisfied && out.LatestCompatible == nil {

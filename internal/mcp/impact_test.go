@@ -140,6 +140,8 @@ func TestImpactToolNeedsPairOrEvent(t *testing.T) {
 		{"event": "unavailable", "service": "redis", "revision": "sha256:abc"},
 		{"event": "removed", "service": "redis", "revision": "1.0.0"},
 		{"event": "unavailable", "service": "redis", "include_observed": true},
+		{"running": true},
+		{"running": true, "old_ref": "a", "new_ref": "b"},
 	} {
 		called := false
 		provide := func(context.Context, *fleet.FleetSnapshot, ImpactRequest) (*impact.Result, error) {
@@ -213,5 +215,45 @@ func TestMCPImpactCarriesInferredAdvisory(t *testing.T) {
 	}
 	if d := impactTool().Description; !strings.Contains(d, "'advisories'") || !strings.Contains(d, "never clears or blocks") || !strings.Contains(d, "INFERRED_POSSIBLE_BREAK") {
 		t.Error("the description does not name the advisory")
+	}
+}
+
+func TestMCPImpactRunningRejectsOldRef(t *testing.T) {
+	if req, err := (impactArgs{Running: true, OldRef: "a", NewRef: "b"}).request(); err == nil || !strings.Contains(err.Error(), "leave old_ref empty") || req != (ImpactRequest{}) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestMCPImpactRunningRejectsEvent(t *testing.T) {
+	for _, a := range []impactArgs{{Event: "removed"}, {Service: "x"}, {Offering: "o"}, {Revision: "1"}} {
+		a.Running, a.NewRef = true, "b"
+		if _, err := a.request(); err == nil || !strings.Contains(err.Error(), "pass no event, service, offering or revision") {
+			t.Errorf("%+v: %v", a, err)
+		}
+	}
+}
+
+// TestMCPImpactRunningRequest: running with new_ref alone reaches the
+// provider as a running request.
+func TestMCPImpactRunningRequest(t *testing.T) {
+	var seen ImpactRequest
+	provide := func(_ context.Context, _ *fleet.FleetSnapshot, req ImpactRequest) (*impact.Result, error) {
+		seen = req
+		return &impact.Result{}, nil
+	}
+	if res := callHandler(t, impactTool(), impactHandler(provide, nil), map[string]any{"running": true, "new_ref": "oci://r/p:2"}); res.IsError || !seen.Running || seen.NewRef != "oci://r/p:2" || seen.OldRef != "" {
+		t.Fatalf("seen %+v error %v", seen, res.IsError)
+	}
+}
+
+// TestImpactToolNamesRunningExcluded: the tool and its 'running' argument
+// say why a running digest is missing from running.refs, as the CLI help does.
+func TestImpactToolNamesRunningExcluded(t *testing.T) {
+	tool := impactTool()
+	running := tool.InputSchema.(map[string]any)["properties"].(map[string]any)["running"].(map[string]any)["description"].(string)
+	for _, d := range []string{tool.Description, running} {
+		if !strings.Contains(d, "'running.excluded'") {
+			t.Errorf("lacks running.excluded: %s", d)
+		}
 	}
 }

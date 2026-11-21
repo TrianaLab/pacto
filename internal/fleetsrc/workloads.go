@@ -186,13 +186,13 @@ func (s *WorkloadSource) promoterRows(versions map[string]string, discovered boo
 	for i, f := range s.promoters {
 		switch group := crdGroup(f.CRD); {
 		case f.CRD != "" && versions[group] != "":
-			promotionFound(row(f.Product), "API group "+group+" served", nil)
+			promotionFound(row(f.Product), "API group "+group+" served", nil, f.Offer)
 		case len(promoted[i]) > 0:
 			found := "annotation " + f.Annotation + " on workloads"
 			if f.Label != "" {
 				found = "label " + f.Label + " on workloads"
 			}
-			promotionFound(row(f.Product), found, promoted[i])
+			promotionFound(row(f.Product), found, promoted[i], f.Offer)
 		case f.CRD != "" && !discovered:
 			p := row(f.Product)
 			p.Status = fleet.SourcePartial
@@ -209,8 +209,12 @@ func (s *WorkloadSource) promoterRows(versions map[string]string, discovered boo
 }
 
 // promotionFound adds found, and the objects it names, to the evidence of a
-// promotion row, once.
-func promotionFound(p *fleet.Provider, found string, objects []fleet.ProviderObject) {
+// promotion row, once, and the fingerprint's offer to its offers; finalize
+// merges offers by id.
+func promotionFound(p *fleet.Provider, found string, objects []fleet.ProviderObject, offer *workloadmanager.Offer) {
+	if offer != nil {
+		p.Offers = append(p.Offers, fleet.ProviderOffer(*offer))
+	}
 	switch {
 	case p.Evidence == "":
 		p.Evidence = fleet.PromotionOwnedBy + p.Name + " (" + found + ")"

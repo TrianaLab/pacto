@@ -254,6 +254,10 @@ send an empty EvidenceSet.
   dependency ref is an `oci://` ref to a repository under one of the prefixes, and refuses any
   other, a local path or a dependency with no ref included, with HTTP 403 and the code `provider_not_allowed`.
 - A scope requires `ResourceProvisioned` or `ResourceUsage` in `allowedObservationKinds`.
+- No key, scoped or not, accepts a report whose ref names a `pacto-inferred`
+  repository, and loading refuses a prefix under one: an
+  [inferred contract](inferred-contracts.md) never anchors provisioning or
+  usage evidence.
 - The server logs a warning at startup for every provisioning or usage key with no scope.
 - The scope applies to reports accepted after the change. Reports already
   accepted stay until a newer report replaces them or they pass the

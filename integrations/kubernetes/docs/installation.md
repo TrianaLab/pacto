@@ -209,7 +209,10 @@ Delivery stays off until `delivery.enabled=true`.
 - **Read ACL:** pull on `pacto-targets` reads every namespace's Pacto status
   and workload shape, so give that repository its own read ACL.
 - **Installation key:** the operator creates the Secret
-  `pacto-operator-installation-key` once. To rotate the key, delete the
+  `pacto-operator-installation-key` once. It signs the target snapshot and
+  the [inferred contracts](../../inferred-contracts.md) of external systems,
+  and readers name the operator signer from the advertised `snapshotKey`.
+  An operator signature never makes a publisher. To rotate the key, delete the
   Secret and run
   `kubectl -n pacto-operator-system rollout restart deploy/pacto-operator`.
   Until the restart the old key still signs. Every reader then updates its

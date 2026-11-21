@@ -354,6 +354,26 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.origin.digest/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.origin.digest/invalid
       e2e: []
+  service.external:
+    meaning: Canonical identity of the external system the contract describes; pactoVersion 2.5.
+    runtime: not-applicable
+    evidence: identity only; joins the fleet External node
+    rule: 'schema: identity pattern, at most 253 characters, pactoVersion 2.5; cross-field: it must parse as an identity
+      (other-egress is reserved); diff: any change is non-breaking'
+    outcomes: SCHEMA_VIOLATION, INVALID_EXTERNAL_IDENTITY, NEEDS_PACTO_2_5 before 2.5
+    limitations: Pacto never observes the external system here; the identity only names the node the contract joins
+    tests:
+      unit:
+      - pkg/validation/serviceexternal_test.go:TestServiceExternalValid
+      - pkg/validation/serviceexternal_test.go:TestServiceExternalNeeds25
+      - pkg/validation/serviceexternal_test.go:TestServiceExternalPattern
+      - pkg/validation/serviceexternal_test.go:TestServiceExternalReservedRefused
+      - pkg/diff/inferredsurface_test.go:TestDiffServiceExternalNonBreaking
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.external/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.external/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.external/needs-2.5
+      e2e: []
   service.owner:
     meaning: Who owns the service.
     runtime: static-only

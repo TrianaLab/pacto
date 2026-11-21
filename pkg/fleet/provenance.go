@@ -20,14 +20,20 @@ const (
 	SignatureNotChecked = "not-checked"
 )
 
+// SignatureSourceOperator is the source of a signature only this
+// installation's operator made: it signs the inferred contracts it publishes,
+// so the status is unverified and it never makes a publisher.
+const SignatureSourceOperator = "operator"
+
 // BundleSignature is the outcome of checking the Sigstore bundles attached to a
 // revision's bundle digest.
 type BundleSignature struct {
 	Status string `json:"status" enum:"verified,unverified,unsigned,unknown"`
 	// Source is what judged the signer: an installation rule, a person's pin,
 	// the signed policy, a rule inferred from where the artifact lives (never
-	// verified), the Pacto release signer, or nothing.
-	Source string `json:"source,omitempty" enum:"rule,pin,policy,inferred,release,none"`
+	// verified), the Pacto release signer, nothing, or this installation's
+	// operator, which signs only inferred contracts (never verified).
+	Source string `json:"source,omitempty" enum:"rule,pin,policy,inferred,release,none,operator"`
 	// Signer and Issuer are who signed, read from the verified certificate.
 	Signer string `json:"signer,omitempty"`
 	Issuer string `json:"issuer,omitempty"`

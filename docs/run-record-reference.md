@@ -226,10 +226,14 @@ actor, approver, note, message, citation or correlation id.
 | `SERVICE_NAME_INFERRED` | `unverified` |
 | `ANSWER_PARTIAL` | `unverified` |
 | `CONSUMERS_UNCHECKED` | `unverified` |
+| `INFERRED_PROVIDER` | `unverified` |
+| `RUNNING_UNREAD` | `unverified` |
+| `FIRST_VERSION_UNCHECKED` | `unverified` |
 | `NOT_BREAKING` | `clear` |
 | `POTENTIAL_BREAKING` | `clear` |
 | `NO_CONSUMERS` | `clear` |
 | `BREAKING_ACCEPTED` | `clear` |
+| `FIRST_VERSION_ACCEPTED` | `clear` |
 
 ## Context fields
 

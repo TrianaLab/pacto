@@ -193,6 +193,6 @@ func declaredClaim(rel Relationship) DeclaredClaim {
 		SourceRevision: rel.FromRevision, Required: rel.Required, Compatibility: rel.Compatibility,
 		Reconciliation: rel.Reconciliation, RequestedRef: rel.RequestedRef,
 		LockedVersion: rel.LockedVersion, LockedDigest: rel.LockedDigest,
-		RangeStatus: rel.RangeStatus, NameFromRef: rel.NameFromRef, DependencyBehavior: rel.copyBehavior(),
+		RangeStatus: rel.RangeStatus, RangeReason: rel.RangeReason, NameFromRef: rel.NameFromRef, DependencyBehavior: rel.copyBehavior(),
 	}
 }

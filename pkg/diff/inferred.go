@@ -20,7 +20,7 @@ const inferredChangeReason = "inferred by Pacto, not part of the declared contra
 // missing FS, a missing record or an unreadable one compares as empty. A
 // proposed range and a range the declarer accepted are compared too; when a
 // cluster fact was read, how completely, the coverage, hidden counts, who
-// asked and the draft are not.
+// asked and the draft are not. A surface's values are compared (diffSurface).
 func diffInferred(oldFS, newFS fs.FS) []Change {
 	oldRec, newRec := inferredRecord(oldFS), inferredRecord(newFS)
 	oldF, newF := inferredFields(oldRec), inferredFields(newRec)
@@ -53,7 +53,56 @@ func diffInferred(oldFS, newFS fs.FS) []Change {
 				Classification: NonBreaking, Reason: inferredChangeReason}, o, n))
 		}
 	}
+	changes = append(changes, diffSurface(oldRec, newRec)...)
 	return redact(changes, sensitiveInferred(changes))
+}
+
+// diffSurface compares the surface values of two records, list by list: a
+// value added or removed is a NON_BREAKING inferred.surface.<list> change.
+// Sources, catalogs, times, identity, class, asOf and completeness are
+// provenance and emit nothing, so a new caller, which adds only a source,
+// changes nothing.
+func diffSurface(oldRec, newRec *contract.InferredRecord) []Change {
+	oldS, newS := surfaceOf(oldRec), surfaceOf(newRec)
+	var changes []Change
+	for _, l := range []struct {
+		name     string
+		old, new []contract.SurfaceValue
+	}{{"hosts", oldS.Hosts, newS.Hosts}, {"ports", oldS.Ports, newS.Ports}, {"clients", oldS.Clients, newS.Clients}} {
+		o, n := surfaceValues(l.old), surfaceValues(l.new)
+		for _, v := range sortedUnion(o, n) {
+			if o[v] != n[v] {
+				changes = append(changes, valueChange(Change{Path: "inferred.surface." + l.name,
+					Classification: NonBreaking, Reason: inferredChangeReason}, keep(o[v], v), keep(n[v], v)))
+			}
+		}
+	}
+	return changes
+}
+
+// surfaceOf is the record's surface, empty when there is none.
+func surfaceOf(rec *contract.InferredRecord) contract.InferredSurface {
+	if rec == nil || rec.Surface == nil {
+		return contract.InferredSurface{}
+	}
+	return *rec.Surface
+}
+
+// surfaceValues is the set of values of one surface list.
+func surfaceValues(vals []contract.SurfaceValue) map[string]bool {
+	m := make(map[string]bool, len(vals))
+	for _, v := range vals {
+		m[v.Value] = true
+	}
+	return m
+}
+
+// keep is v when present holds, empty otherwise.
+func keep(present bool, v string) string {
+	if present {
+		return v
+	}
+	return ""
 }
 
 // valueChange is c adding after, removing before or changing one into the

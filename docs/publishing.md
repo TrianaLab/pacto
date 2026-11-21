@@ -186,6 +186,8 @@ publishes through TUF. `publish.sign` only says how publish signs: who may
 publish a service is the installation's decision, checked against a
 publisher rule, a person's pin or a signed policy
 ([which publishers Pacto accepts](integrations/kubernetes/delivery-security.md#which-publishers-pacto-accepts)).
+An operator signature never declares a contract
+([`run.pacto.contract.provenance: inferred`](inferred-contracts.md#the-signer)).
 The repository a keyless CI certificate attests must match the artifact's
 `org.opencontainers.image.source`. The dashboard and `pacto_fleet_get` show whether a
 published version's signature verifies; see [Bundle signatures and

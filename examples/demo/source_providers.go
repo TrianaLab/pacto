@@ -1,11 +1,22 @@
 package main
 
 import (
+	"bytes"
+	_ "embed"
 	"slices"
+	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
+	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
 )
+
+// demoFingerprints are the chart's default fingerprints, pinned equal by
+// TestDemoFingerprintsMatchChartDefaults, so no demo Go file names a
+// promoter.
+//
+//go:embed fingerprints.yaml
+var demoFingerprints []byte
 
 // demoNativeRegistry and demoTagsRegistry are what a probe of the demo's two
 // registries would find: demo.pacto.local serves the Referrers API and
@@ -75,4 +86,32 @@ func demoProviders(targets []fleet.RawTarget, inferred []fleet.RawInferredServic
 		add(in.Kind, in.Namespace)
 	}
 	return crd, workloads
+}
+
+// demoPromoterRows are the promotion rows the workload source reports for a
+// cluster that serves the CRD of every promoter fingerprint carrying an offer,
+// shaped as internal/fleetsrc's promoterRows shapes them (that package links
+// client-go, which the WASM bundle must not), with each CRD as an object.
+// ponytail: the evidence names the first CRD's API group; a product whose CRDs
+// span groups would list only that one.
+func demoPromoterRows() ([]fleet.Provider, error) {
+	fp, err := workloadmanager.ParseFingerprints(bytes.NewReader(demoFingerprints))
+	if err != nil {
+		return nil, err
+	}
+	var rows []fleet.Provider
+	for _, f := range fp.Promoters {
+		if f.Offer == nil || f.CRD == "" {
+			continue
+		}
+		i := slices.IndexFunc(rows, func(p fleet.Provider) bool { return p.Name == f.Product })
+		if i < 0 {
+			_, group, _ := strings.Cut(f.CRD, ".")
+			i, rows = len(rows), append(rows, fleet.Provider{ID: "promotion/" + f.Product, Name: f.Product,
+				UsedFor: []string{fleet.UsePromotion}, Evidence: fleet.PromotionOwnedBy + f.Product + " (API group " + group + " served)"})
+		}
+		rows[i].Objects = append(rows[i].Objects, fleet.ProviderObject{Kind: "CustomResourceDefinition", Name: f.CRD})
+		rows[i].Offers = append(rows[i].Offers, fleet.ProviderOffer(*f.Offer))
+	}
+	return rows, nil
 }

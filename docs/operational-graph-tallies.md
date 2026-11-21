@@ -95,7 +95,7 @@ sidebar badge counts only items above `info`.
 | `undeclared` | `UNCONTRACTED_CALLER`, a caller with no contract | info |
 | `golden-path` | `GOLDEN_PATH_DEPLOYED` | warning |
 | `readiness` | `MISSING_READINESS` | info |
-| `knowledge` | the gap: `NO_SUMMARY`, `NO_DOMAIN`, `NO_INTERFACE_DOCS`, `NOT_DEPLOYED` or `UNVERIFIED_CAPABILITY`; or the cause of an unknown service: `CONTRACT_UNREADABLE`, `INTERFACE_DOCS_UNREAD`, `SUMMARY_UNKNOWN`, `DOMAIN_UNKNOWN` or `PLACEMENT_UNKNOWN`; or `INFERRED_REPLACED`, an inferred service a contract took over in the last 24 hours | info |
+| `knowledge` | the gap: `NO_SUMMARY`, `NO_DOMAIN`, `NO_INTERFACE_DOCS`, `NOT_DEPLOYED` or `UNVERIFIED_CAPABILITY`; or the cause of an unknown service: `CONTRACT_UNREADABLE`, `INTERFACE_DOCS_UNREAD`, `SUMMARY_UNKNOWN`, `DOMAIN_UNKNOWN` or `PLACEMENT_UNKNOWN`; or `INFERRED_REPLACED`, an inferred service a contract took over in the last 24 hours; or `INFERRED_PROVIDER`, services check a range against an [inferred contract](inferred-contracts.md) | info |
 | `unowned` | `UNOWNED_SERVICE` | info |
 
 A revision with no readiness assessment raises a `readiness` item, so
@@ -108,7 +108,8 @@ item.
 it, `{"verb": "edit-contract", "tool": "pacto_edit"}`, on
 `DEPENDENCY_UNDECLARED`, `UNOWNED_SERVICE` (when a contract could be read),
 `INVALID_CONTRACT`, `MISSING_READINESS`, `DEPENDENCY_RANGE_UNSATISFIED`,
-`GOLDEN_PATH_DEPLOYED` and a range that excludes a provider's successor.
+`GOLDEN_PATH_DEPLOYED` and a range that excludes a provider's successor, and
+`{"verb": "declare", "tool": "pacto_declare"}` on `INFERRED_PROVIDER`.
 Pacto infers it from the item's code, beside the `nextStep` prose. It grants
 nothing, and an unknown, stale, unresolved or non-compliant item carries
 none.

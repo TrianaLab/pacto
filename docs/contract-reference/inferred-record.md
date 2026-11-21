@@ -308,6 +308,27 @@ declaration:
 - A draft is never a version: the fleet leaves it out with
   `DECLARATION_DRAFT_IGNORED`.
 
+### Surface
+
+The inferred contract of an [external system](../inferred-contracts.md) holds
+a `surface` block: the hosts, ports and client majors the
+fleet sees of it. [The bundle](../inferred-contracts.md#the-bundle) shows an
+example.
+
+| Key | Meaning |
+|---|---|
+| `identity` | The external identity; it equals the contract's `service.external` (`INFERRED_RECORD_INVALID` otherwise) |
+| `class` | The external class, required |
+| `asOf`, `completeness` | When the surface was computed and whether the fleet snapshot was complete |
+| `catalog` | The catalog entry that classified it: `origin`, `digest` and `entry`, all required when present |
+| `hosts`, `ports`, `clients` | Each value once, with the `sources` that saw it, the catalog digest and `firstSeen` and `lastSeen`, both set or both left out |
+
+- A client is `<name>/<major>`, such as `stripe-go/76` or
+  `npm:@stripe/stripe-js/4`: up to 500 letters, digits and `@._~:/-`, then a
+  major of up to 9 digits.
+- A source is 1 to 253 characters with no whitespace or control character.
+- A value listed twice is `INFERRED_RECORD_INVALID`.
+
 ## When Pacto writes it
 
 - `pacto init` and the MCP tool `pacto_create` (with `pactify: true`) on a

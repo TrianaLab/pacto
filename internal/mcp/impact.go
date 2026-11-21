@@ -27,6 +27,9 @@ type ImpactRequest struct {
 	Event           *impact.Event
 	// Policy is the range policy a BREAKING answer is held to.
 	Policy impact.Policy
+	// Running judges NewRef against the revisions of its service that run
+	// on known targets; OldRef is empty.
+	Running bool
 }
 
 // impactProvider answers req over snap, the snapshot the fleet tools answer
@@ -67,6 +70,10 @@ func impactTool() *mcpsdk.Tool {
 			"(breaks, may-degrade, unknown) and the gate is never blocked for an event. Pass 'offering' instead of 'service' " +
 			"to ask it of every provider of a platform offering (unavailable or removed only); 'providers' lists them, and the top-level " +
 			"'service' then holds the offering's name, the same as 'event.offering'. " +
+			"Pass 'running' with new_ref and no old_ref to judge new_ref against the revisions of its service that run on known targets " +
+			"('running' in the answer names them, the one judged and the ones Pacto could not read, which never let the gate clear); " +
+			"a running revision whose digest is new_ref's is left out of the baseline and listed in 'running.excluded'; " +
+			"with none running, only consumers' ranges are checked, and a server whose answers are restricted to your view refuses it. " +
 			"Read-only: it lists review targets, never recommends or takes actions.",
 		InputSchema: inputSchema(map[string]property{
 			"old_ref":          {Type: "string", Description: "Old contract revision: a local directory or oci:// ref over stdio, an oci:// ref of a revision in your fleet view over HTTP"},
@@ -78,6 +85,7 @@ func impactTool() *mcpsdk.Tool {
 			"offering":         {Type: "string", Description: "A platform offering instead of 'service': the event is about every provider of it; unavailable or removed only"},
 			"revision":         {Type: "string", Description: "For regressed: the revision that regressed, a version or an artifact digest (sha256:...)"},
 			"policy":           {Type: "array", Items: "string", Description: "Range policy for a BREAKING change, as key=value: unknown-range=warn|fail and uncontracted=warn|fail:<window> (such as fail:7d); default warn"},
+			"running":          {Type: "boolean", Description: "Judge new_ref against the revisions of its service that run on known targets; one whose digest is new_ref's is left out and listed in 'running.excluded'; leave old_ref empty"},
 		}, nil),
 	}
 }
@@ -92,6 +100,7 @@ type impactArgs struct {
 	Offering        string   `json:"offering"`
 	Revision        string   `json:"revision"`
 	Policy          []string `json:"policy"`
+	Running         bool     `json:"running"`
 }
 
 // errImpactArgs is the answer to a call that names neither a change nor an event.
@@ -107,6 +116,11 @@ func (a impactArgs) request() (ImpactRequest, error) {
 	pair := a.OldRef != "" || a.NewRef != ""
 	event := a.Event != "" || a.Service != "" || a.Offering != "" || a.Revision != ""
 	switch {
+	case a.Running:
+		if err := a.runningErr(event); err != nil {
+			return ImpactRequest{}, err
+		}
+		req.Running = true
 	case pair == event, pair && (a.OldRef == "" || a.NewRef == ""):
 		return ImpactRequest{}, errImpactArgs
 	case event:
@@ -116,6 +130,20 @@ func (a impactArgs) request() (ImpactRequest, error) {
 		req.Event = &impact.Event{Kind: a.Event, Service: a.Service, Offering: a.Offering, Revision: a.Revision}
 	}
 	return req, nil
+}
+
+// runningErr checks the arguments of a running question, as `pacto impact
+// --running` checks its argument and flags.
+func (a impactArgs) runningErr(event bool) error {
+	switch {
+	case a.NewRef == "":
+		return errors.New("running judges new_ref: pass new_ref")
+	case a.OldRef != "":
+		return errors.New("running judges new_ref against the revisions that run: leave old_ref empty")
+	case event:
+		return errors.New("running asks about a contract change: pass no event, service, offering or revision")
+	}
+	return nil
 }
 
 // eventErr checks the arguments of an event, as `pacto impact` checks its
