@@ -167,6 +167,9 @@ Controller arguments derived from values
 {{- if or .Values.controller.watchNamespaces .Values.controller.watchNamespace }}
 - --watch-namespaces={{ include "pacto-operator.watchNamespaces" . | fromYamlArray | join "," }}
 {{- end }}
+{{- with include "pacto-operator.profiles" . | fromYamlArray | join "," }}{{ if ne . "default" }}
+- --profile={{ . }}
+{{- end }}{{ end }}
 {{- with .Values.registry }}
 - --registry={{ . }}
 {{- end }}

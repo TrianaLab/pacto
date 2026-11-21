@@ -135,8 +135,14 @@ func Encode(res Result) ([]byte, error) {
 		return nil, err
 	}
 	if res.Installation != nil {
+		// Decode only caps the profile, so an older reader keeps a newer
+		// operator's Result; the operator never writes more than the cap.
+		if n := len(res.Installation.Profile); n > MaxProfiles {
+			return nil, fmt.Errorf("detection installation names %d profiles, more than %d", n, MaxProfiles)
+		}
 		inst := *res.Installation
 		inst.Pushes = slices.Clone(inst.Pushes)
+		inst.Profile = slices.Clone(inst.Profile)
 		if inst.LastPush != nil {
 			lp := *inst.LastPush
 			inst.LastPush = &lp

@@ -317,6 +317,16 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].args
           content: --profile=default
+  - it: a hardened and idp list renders --profile with the sorted names
+    template: templates/deployment.yaml
+    set: {profile: [idp, hardened], controller.watchNamespaces: [payments]}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: "--profile=hardened,idp"}
+  - it: idp renders --profile=idp
+    template: templates/deployment.yaml
+    set: {profile: idp}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --profile=idp}
 
   # idp (510-S7 P2): probing and metrics observation go from auto to on, OIDC
   # stays and Pacto delivery turns on. Under hardened only the observation half

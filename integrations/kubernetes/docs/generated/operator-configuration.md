@@ -88,6 +88,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-node-agent-namespace` | `string` | `pacto-node-agent` | always on | Dedicated namespace the node agent runs and publishes in. The operator labels it privileged for Pod Security, so it must not be the operator namespace. |
 | `-node-agent-publish-interval` | `duration` | `30s` | chart value | How often each node agent publishes its node's NodeRuntimeObservation. |
 | `-owner-policy` | `string` |  | chart value | File holding the owner policy (policy.json from the chart's declare block): who may set a service owner. Published in the target snapshot; empty publishes none. |
+| `-profile` | `string` | `default` | chart value | Installation profile the chart rendered (default, hardened, idp or hardened,idp); advertised in the detected ConfigMap, never acted on. |
 | `-publishers-default-branch` | `string` | `main` | chart value | The default branch whose CI the derived publisher rule accepts. |
 | `-publishers-policy` | `string` |  | chart value | The signed delivery policy's tag reference (delivery.publishers.policy): once verified, its publisher rules replace the derived rule and its signer class rules classify who signed an owner change, as the fleet does. |
 | `-publishers-policy-signers` | `string` |  | chart value | A trust config (YAML) whose role: policy keys sign the delivery policy. Required with --publishers-policy. |

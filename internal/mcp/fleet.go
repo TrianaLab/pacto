@@ -430,7 +430,7 @@ func fleetStatusTool() *mcpsdk.Tool {
 			"selected, including empty input, it reports every category. The answer's 'providers' lists what Pacto detected in each " +
 			"source (evidence, usedFor, status, limitations). providers includes what the operator detected (registry, cloud, " +
 			"sign-in, exposure, metrics, nodes and a Pull Secret proposal) with provenance inferred and asOf, and an Installation " +
-			"row with provenance declared naming the registry, the target snapshot, index and inferred repositories and the push " +
+			"row with provenance declared naming the profile, the registry, the target snapshot, index and inferred repositories and the push " +
 			"prefixes; nothing detected is turned on, a Pull Secret is never used until a person sets registryPullSecret, and no " +
 			"provider row clears a gate. The OCI source adds one observed 'registry:<host>' row per registry it read " +
 			"contracts from, with no provenance: Pacto probed it itself, usedFor and details give the mode it uses there and asOf " +

@@ -282,8 +282,8 @@ export function installScaleFixture(): void {
       const secret = `${'n'.repeat(63)}/${'s'.repeat(189)}`;
       (doc.providers as Record<string, unknown>[]).push({
         id: 'installation', source: 'cluster-detection', provenance: 'declared', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Installation',
-        evidence: `registry ${runes('ghcr.io/acme')}; tags only under the listed prefixes, referrers by digest elsewhere`, status: 'available', cluster: clusters[0],
-        usedFor: ['target snapshot, organization index and inferred contracts; set by a person with the registry value'],
+        evidence: `profile hardened, idp; registry ${runes('ghcr.io/acme')}; tags only under the listed prefixes, referrers by digest elsewhere`, status: 'available', cluster: clusters[0],
+        usedFor: ['installation profile and registry; set by a person with the profile and registry values'],
         details: [[`target snapshot ${runes('ghcr.io/acme/pacto-targets')}`, `organization index ${runes('ghcr.io/acme/pacto-index')}`,
           `inferred contracts ${runes('ghcr.io/acme/pacto-inferred')}`].join('; '),
           `push prefixes ${Array.from({ length: 8 }, (_, i) => runes(`quay.io/stats-${i}/pacto`)).join(', ')}`, `snapshot key ${'f'.repeat(64)}`,

@@ -14,6 +14,9 @@ import (
 // MaxPushes caps the push prefixes an installation advertises.
 const MaxPushes = 8
 
+// MaxProfiles caps the profile names an installation advertises.
+const MaxProfiles = 3
+
 // PushResult is the last target snapshot push the operator attempted: when,
 // to which ref and, on failure, why. A failed push is never shown as healthy.
 type PushResult struct {
@@ -23,12 +26,15 @@ type PushResult struct {
 }
 
 // Installation is what the operator was configured with, so CI and people
-// read it: the registry value, the fixed repositories under it, every prefix
+// read it: the installation profile, the registry value, the fixed repositories under it, every prefix
 // a cluster-side process may push under, the installation's public snapshot
 // key and the last snapshot push. It is declared configuration, never
 // inferred, and it sets nothing.
 type Installation struct {
-	Registry string `json:"registry"`
+	// Profile is the sorted profile names the chart rendered; nil from an
+	// operator that does not advertise it.
+	Profile  []string `json:"profile,omitempty"`
+	Registry string   `json:"registry"`
 	// Targets, Index and Inferred are <registry>/pacto-targets, pacto-index
 	// and pacto-inferred.
 	Targets  string `json:"targets,omitempty"`
@@ -61,7 +67,8 @@ func checkInstallation(inst *Installation) error {
 	return nil
 }
 
-// sanitizeInstallation cleans every string of inst and caps its prefixes.
+// sanitizeInstallation cleans every string of inst and caps its prefixes and
+// profiles.
 func sanitizeInstallation(inst *Installation) {
 	if inst == nil {
 		return
@@ -70,17 +77,23 @@ func sanitizeInstallation(inst *Installation) {
 		*s = clean(*s)
 	}
 	inst.Pushes = cleanAll(inst.Pushes, MaxPushes)
+	inst.Profile = cleanAll(inst.Profile, MaxProfiles)
 	if p := inst.LastPush; p != nil {
 		p.Ref, p.Error = clean(p.Ref), clean(p.Error)
 	}
 }
 
-// installationRow is the one declared row: the registry, every push prefix,
-// the fixed repositories and the snapshot key. It is partial until a push has
-// succeeded, and a failed push says why, so it never reads healthy unconfirmed.
+// installationRow is the one declared row: the profile, the registry, every
+// push prefix, the fixed repositories and the snapshot key. With a registry it
+// is partial until a push has succeeded, and a failed push says why, so it
+// never reads healthy unconfirmed. Without one it is complete: the operator
+// pushes nothing to confirm.
 func installationRow(res Result, source string, now time.Time) fleet.Provider {
 	inst, asOf := res.Installation, res.AsOf
-	evidence := "registry " + inst.Registry + "; tags only under the listed prefixes, referrers by digest elsewhere"
+	if inst.Registry == "" {
+		return installationProvider(res, profileEvidence(inst)+"no registry value: the operator pushes nothing", Complete, now)
+	}
+	evidence := profileEvidence(inst) + "registry " + inst.Registry + "; tags only under the listed prefixes, referrers by digest elsewhere"
 	completeness, why := Partial, ""
 	switch p := inst.LastPush; {
 	case p != nil && p.Error != "":
@@ -120,11 +133,32 @@ func installationRow(res Result, source string, now time.Time) fleet.Provider {
 	if p := inst.LastPush; completeness == Complete {
 		details = append(details, "last push "+p.Ref+" at "+p.At.UTC().Format(time.RFC3339))
 	}
+	p := installationProvider(res, evidence, completeness, now)
+	p.Details, p.Limitations = details, lims
+	return p
+}
+
+// profileEvidence is the row's leading "profile <names>; ", empty for a block
+// from an operator that does not advertise its profile.
+func profileEvidence(inst *Installation) string {
+	if len(inst.Profile) == 0 {
+		return ""
+	}
+	return "profile " + strings.Join(inst.Profile, ", ") + "; "
+}
+
+// installationProvider is the declared Installation row with no details.
+func installationProvider(res Result, evidence, completeness string, now time.Time) fleet.Provider {
+	asOf := res.AsOf
+	usedFor := "target snapshot, organization index and inferred contracts; set by a person with the registry value"
+	if len(res.Installation.Profile) > 0 {
+		usedFor = "installation profile and registry; set by a person with the profile and registry values"
+	}
 	return fleet.Provider{
 		ID: "installation", Name: "Installation", Evidence: evidence,
-		UsedFor:    []string{"target snapshot, organization index and inferred contracts; set by a person with the registry value"},
+		UsedFor:    []string{usedFor},
 		Status:     status(completeness, now.Sub(asOf)),
-		Provenance: fleet.ProvenanceDeclared, AsOf: &asOf, Details: details, Limitations: lims,
+		Provenance: fleet.ProvenanceDeclared, AsOf: &asOf,
 		Cluster: cmp.Or(res.ClusterName, res.Cluster), ClusterID: res.Cluster,
 	}
 }

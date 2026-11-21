@@ -149,3 +149,65 @@ func TestInstallationRowUnconfirmedPush(t *testing.T) {
 		}
 	}
 }
+
+const profileUsedFor = "installation profile and registry; set by a person with the profile and registry values"
+
+func TestInstallationRowNamesProfile(t *testing.T) {
+	inst := installation(pushed)
+	inst.Profile = []string{"hardened", "idp"}
+	r := row(t, ProviderRows(Result{AsOf: asOf, Installation: inst}, "detection", asOf), "installation")
+	if r.Evidence != "profile hardened, idp; registry ghcr.io/acme; tags only under the listed prefixes, referrers by digest elsewhere" ||
+		r.Status != fleet.SourceAvailable || len(r.Details) == 0 || r.UsedFor[0] != profileUsedFor {
+		t.Errorf("installation row = %+v", r)
+	}
+}
+
+func TestInstallationRowWithoutRegistryIsComplete(t *testing.T) {
+	r := row(t, ProviderRows(Result{AsOf: asOf, Cluster: "uid", Installation: &Installation{Profile: []string{"default"}}}, "detection", asOf), "installation")
+	if r.Evidence != "profile default; no registry value: the operator pushes nothing" || r.Status != fleet.SourceAvailable ||
+		r.Details != nil || r.Limitations != nil || r.Provenance != fleet.ProvenanceDeclared || r.ClusterID != "uid" || r.UsedFor[0] != profileUsedFor {
+		t.Errorf("installation row = %+v", r)
+	}
+}
+
+// A block from an operator that does not advertise its profile reads exactly
+// as it did before profiles.
+func TestInstallationRowWithoutProfile(t *testing.T) {
+	r := row(t, ProviderRows(Result{AsOf: asOf, Installation: installation(pushed)}, "detection", asOf), "installation")
+	if r.Evidence != "registry ghcr.io/acme; tags only under the listed prefixes, referrers by digest elsewhere" ||
+		r.UsedFor[0] != "target snapshot, organization index and inferred contracts; set by a person with the registry value" {
+		t.Errorf("installation row = %+v", r)
+	}
+}
+
+func TestDecodeKeepsResultWithoutProfile(t *testing.T) {
+	res, err := Decode([]byte(`{"schemaVersion":"` + SchemaVersion + `","installation":{"registry":"ghcr.io/acme"}}`))
+	if err != nil || res.Installation == nil || res.Installation.Profile != nil || res.Installation.Registry != "ghcr.io/acme" {
+		t.Errorf("decoded = %+v, %v", res.Installation, err)
+	}
+}
+
+func TestDecodeCapsProfile(t *testing.T) {
+	data := []byte(`{"schemaVersion":"` + SchemaVersion + `","installation":{"registry":"","profile":["a\u202eb","b","c","d","e"]}}`)
+	res, err := Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := res.Installation.Profile; len(got) != MaxProfiles || got[0] != "ab" {
+		t.Errorf("profile = %q", got)
+	}
+}
+
+func TestEncodeRefusesLongProfile(t *testing.T) {
+	if _, err := Encode(Result{Installation: &Installation{Profile: []string{"a", "b", "c", "d"}}}); err == nil || !strings.Contains(err.Error(), "profiles") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestEncodeLeavesProfileUntouched(t *testing.T) {
+	profile := []string{"a\u202eb"}
+	data, err := Encode(Result{Installation: &Installation{Profile: profile}})
+	if err != nil || profile[0] != "a\u202eb" || !strings.Contains(string(data), `"profile":["ab"]`) {
+		t.Errorf("Encode = %s, %v; caller's profile = %q", data, err, profile)
+	}
+}
