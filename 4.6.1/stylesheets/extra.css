@@ -1,0 +1,1425 @@
+/* ===========================================================================
+   Pacto docs theme: the dashboard's "signed document" identity on Material.
+
+   The tokens below are copied from pkg/dashboard/frontend/src/styles/tokens.css
+   (same names, same values) so the docs and the dashboard read as one product:
+   serif titles in Source Serif 4, a double rule under the page title, italic
+   subsections, small caps labels and the dashboard palette in light and dark.
+   Change a value there, change it here. Material still owns navigation, search
+   and layout; this file only repaints them.
+   =========================================================================== */
+
+/* Source Serif 4 (Adobe, SIL OFL 1.1), the unmodified variable release shipped by
+   the dashboard; licence in assets/fonts/source-serif-4-OFL.txt. One file per
+   style covers every weight. Served from this site: no font CDN. */
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("../assets/fonts/SourceSerif4Variable-Roman.otf.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("../assets/fonts/SourceSerif4Variable-Italic.otf.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* ---- Tokens (dashboard tokens.css) ---------------------------------------- */
+:root {
+  --font-display: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  /* Material appends its own system fallback stack to these two. */
+  --md-text-font: "Inter";
+  --md-code-font: "JetBrains Mono";
+
+  --role-label-tracking: 0.05em;
+
+  --radius: 10px;
+  --radius-md: 8px;
+  --radius-sm: 6px;
+  --radius-xs: 4px;
+  --radius-pill: 999px;
+}
+
+/* Dark: the dashboard's default theme. */
+[data-md-color-scheme="slate"] {
+  --c-bg: #0a0e17;
+  --c-surface: #111827;
+  --c-surface-raised: #1a2332;
+  --c-surface-hover: #1e293b;
+  --c-surface-inset: #060a12;
+  --c-text: #f1f5f9;
+  --c-text-2: #b4bfcf;
+  --c-text-3: #9aa6b8;
+  --c-border: #1e293b;
+  --c-border-subtle: rgba(148, 163, 184, 0.06);
+  --c-ok: #34d399;
+  --c-ok-bg: rgba(52, 211, 153, 0.08);
+  --c-warn: #fbbf24;
+  --c-warn-bg: rgba(251, 191, 36, 0.08);
+  --c-err: #f87171;
+  --c-err-bg: rgba(248, 113, 113, 0.08);
+  --c-info: #60a5fa;
+  --c-info-bg: rgba(96, 165, 250, 0.08);
+  --c-neutral: #94a3b8;
+  --c-neutral-bg: rgba(100, 116, 139, 0.08);
+  --c-accent: #818cf8;
+  --c-accent-bg: rgba(129, 140, 248, 0.08);
+  --c-accent-hover: #a5b4fc;
+  --c-on-accent: #0a0e17;
+  /* Code sits on the page here, not inside a card as in the dashboard, so it takes
+     the surface: the dashboard's inset (#060a12) would vanish into #0a0e17. */
+  --c-code-bg: var(--c-surface);
+  /* ...and inline code would then vanish into tables and admonitions, which are
+     surface too, so it steps up one. */
+  --c-code-inline-bg: var(--c-surface-raised);
+}
+
+[data-md-color-scheme="default"] {
+  --c-bg: #f8fafc;
+  --c-surface: #ffffff;
+  --c-surface-raised: #f1f5f9;
+  --c-surface-hover: #e2e8f0;
+  --c-surface-inset: #f1f5f9;
+  --c-text: #0f172a;
+  --c-text-2: #3f4b5c;
+  --c-text-3: #526073;
+  --c-border: #e2e8f0;
+  --c-border-subtle: rgba(0, 0, 0, 0.04);
+  --c-ok: #047857;
+  --c-ok-bg: rgba(4, 120, 87, 0.06);
+  --c-warn: #b45309;
+  --c-warn-bg: rgba(180, 83, 9, 0.06);
+  --c-err: #b91c1c;
+  --c-err-bg: rgba(185, 28, 28, 0.06);
+  --c-info: #2563eb;
+  --c-info-bg: rgba(37, 99, 235, 0.06);
+  --c-neutral: #64748b;
+  --c-neutral-bg: rgba(100, 116, 139, 0.06);
+  --c-accent: #4f46e5;
+  --c-accent-bg: rgba(79, 70, 229, 0.06);
+  --c-accent-hover: #4338ca;
+  --c-on-accent: #ffffff;
+  --c-code-bg: var(--c-surface-inset);
+  --c-code-inline-bg: var(--c-surface-inset);
+}
+
+/* ---- Tokens -> Material (primary/accent are `custom` in mkdocs.yml) -------- */
+[data-md-color-scheme] {
+  --md-default-bg-color: var(--c-bg);
+  --md-default-fg-color: var(--c-text);
+  --md-default-fg-color--light: var(--c-text-2);
+  /* Material's own value here is a 32% grey that fails AA wherever it carries
+     text (icons, footnotes, the copy button); text-3 clears it in both themes. */
+  --md-default-fg-color--lighter: var(--c-text-3);
+  --md-default-fg-color--lightest: var(--c-border);
+
+  /* The header and tabs bar are the dashboard navbar: surface, ink, a hairline. */
+  --md-primary-fg-color: var(--c-surface);
+  --md-primary-fg-color--light: var(--c-surface-hover);
+  --md-primary-fg-color--dark: var(--c-border);
+  --md-primary-bg-color: var(--c-text);
+  --md-primary-bg-color--light: var(--c-text-3);
+
+  --md-accent-fg-color: var(--c-accent);
+  --md-accent-fg-color--transparent: var(--c-accent-bg);
+  --md-accent-bg-color: var(--c-on-accent);
+  --md-accent-bg-color--light: var(--c-on-accent);
+  --md-typeset-a-color: var(--c-accent);
+
+  --md-code-bg-color: var(--c-code-bg);
+  --md-code-fg-color: var(--c-text);
+  /* Comments, punctuation and friends resolve to --light (text-2) otherwise, which
+     is fine; text-3 keeps them a step dimmer than code and still AA on the code
+     surface in both themes. */
+  --md-code-hl-comment-color: var(--c-text-3);
+  --md-code-hl-generic-color: var(--c-text-3);
+  --md-code-hl-operator-color: var(--c-text-2);
+  --md-code-hl-punctuation-color: var(--c-text-2);
+  --md-code-hl-variable-color: var(--c-text-2);
+
+  --md-typeset-table-color: var(--c-border);
+  --md-typeset-table-color--light: var(--c-surface-hover);
+  --md-admonition-bg-color: var(--c-surface);
+  --md-admonition-fg-color: var(--c-text);
+
+  --md-footer-bg-color: var(--c-surface);
+  --md-footer-bg-color--dark: var(--c-bg);
+  --md-footer-fg-color: var(--c-text);
+  --md-footer-fg-color--light: var(--c-text-2);
+  --md-footer-fg-color--lighter: var(--c-text-3);
+}
+
+/* ---- Header and logo ------------------------------------------------------ */
+.md-header,
+.md-header--shadow {
+  box-shadow: none;
+  border-bottom: 1px solid var(--c-border);
+}
+/* The brand reads like the dashboard's: serif, bold, the mark in the accent. */
+.md-header__topic:first-child {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+/* Brand and mark sit together, as in the dashboard navbar. */
+[dir="ltr"] .md-header__title {
+  margin-left: 0.2rem;
+}
+/* The mark is an <img>, so it cannot take currentColor; swap the file instead.
+   logo.svg carries the light accent, logo-dark.svg the dark one. */
+[data-md-color-scheme="slate"] .md-header__button.md-logo img {
+  content: url("../assets/images/logo-dark.svg");
+}
+/* The mike version selector is the dashboard's version tag: a quiet pill. The
+   pill's border is the affordance, so the dropdown chevron goes. */
+.md-version {
+  font-family: var(--md-text-font-family);
+  font-weight: 500;
+}
+.md-version__current {
+  padding: 0 0.4rem;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-pill);
+  background: var(--c-bg);
+  color: var(--c-text-3);
+  font-size: 0.6rem;
+}
+.md-version__current::after {
+  display: none;
+}
+.md-version__current:hover {
+  color: var(--c-text);
+}
+/* Search: the dashboard's search box, bordered on the page background. */
+@media screen and (min-width: 60em) {
+  .md-search__form,
+  .md-search__form:hover {
+    background-color: var(--c-bg);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-sm);
+  }
+  .md-search__form:hover {
+    border-color: var(--c-text-3);
+  }
+  .md-search__input::placeholder,
+  .md-search__input + .md-search__icon {
+    color: var(--c-text-3);
+  }
+}
+
+/* ---- Tabs bar: the dashboard's nav links ---------------------------------- */
+.md-tabs {
+  background-color: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+}
+.md-tabs__item {
+  height: 2.2rem;
+  padding: 0 0.1rem;
+}
+.md-tabs__link {
+  margin-top: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--radius-xs);
+  color: var(--c-text-3);
+  font-size: 0.66rem;
+  font-weight: 500;
+  opacity: 1;
+  transition: color 160ms, background-color 160ms;
+}
+.md-tabs__link:hover {
+  color: var(--c-text);
+  background-color: var(--c-surface-hover);
+}
+.md-tabs__item--active .md-tabs__link {
+  color: var(--c-accent);
+  background-color: var(--c-accent-bg);
+}
+
+/* ---- Sidebar: section titles are labels ----------------------------------- */
+.md-nav__item--section > .md-nav__link,
+.md-nav--secondary > .md-nav__title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-caps: all-small-caps;
+  letter-spacing: var(--role-label-tracking);
+  font-size: 0.75rem;
+  color: var(--c-text-3);
+}
+.md-nav__item--section > .md-nav__link[for] {
+  color: var(--c-text-3);
+}
+.md-nav__link--active,
+.md-nav__link:is(:hover, :focus) {
+  color: var(--c-accent);
+}
+
+/* ---- Headings: the signed document ---------------------------------------- */
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-typeset h4,
+.md-typeset h5,
+.md-typeset h6 {
+  font-family: var(--font-display);
+  color: var(--c-text);
+}
+/* The page title, closed with a double rule like a signed agreement. The rule is
+   as wide as the title, as in the dashboard, not the whole column. */
+.md-typeset h1 {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 0 1em;
+  padding-bottom: 10px;
+  border-bottom: 3px double var(--c-text);
+  font-size: 2.1em;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.md-typeset h2 {
+  font-size: 1.4em;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+.md-typeset h3 {
+  font-size: 1.15em;
+  font-style: italic;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.md-typeset h4,
+.md-typeset h5,
+.md-typeset h6 {
+  font-size: 1.05em;
+  font-weight: 600;
+  font-variant-caps: all-small-caps;
+  letter-spacing: var(--role-label-tracking);
+  text-transform: none;
+  color: var(--c-text-2);
+}
+
+/* ---- Tables: the dashboard's, small caps headers -------------------------- */
+.md-typeset table:not([class]) {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--c-surface);
+  font-size: 0.7rem;
+}
+.md-typeset table:not([class]) th {
+  border-bottom: 1px solid var(--c-border);
+  color: var(--c-text-3);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-caps: all-small-caps;
+  letter-spacing: var(--role-label-tracking);
+  font-size: 1.05em;
+}
+.md-typeset table:not([class]) td {
+  border-top: 1px solid var(--c-border);
+}
+.md-typeset table:not([class]) tbody tr:hover {
+  background-color: var(--c-surface-hover);
+  box-shadow: none;
+}
+
+/* ---- Code ----------------------------------------------------------------- */
+.md-typeset code {
+  border-radius: var(--radius-xs);
+}
+.md-typeset :not(pre) > code {
+  background-color: var(--c-code-inline-bg);
+}
+.md-typeset pre > code {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+}
+.md-typeset .highlight span.filename {
+  border: 1px solid var(--c-border);
+  border-bottom: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background-color: var(--c-surface-raised);
+  font-family: var(--md-code-font-family);
+  font-weight: 500;
+}
+.md-typeset .highlight span.filename + pre > code {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* Content tabs (=== "Tab"): the dashboard's tab bar. */
+.md-typeset .tabbed-labels {
+  border-bottom: 1px solid var(--c-border);
+  box-shadow: none;
+}
+.md-typeset .tabbed-labels > label {
+  color: var(--c-text-3);
+  font-weight: 500;
+}
+.md-typeset .tabbed-labels > label:hover,
+.md-typeset .tabbed-set > input:checked + label {
+  color: var(--c-accent);
+}
+.js .md-typeset .tabbed-labels::before {
+  background: var(--c-accent);
+}
+
+/* ---- Admonitions: a card with a status edge and a small caps title --------
+   Material colours each type in rules of specificity (0,3,0); the doubled
+   .md-typeset lifts the shared rules above them without !important. */
+.md-typeset :is(.admonition, details):is(.note, .info, .abstract, .summary, .tldr, .todo) {
+  --pacto-tone: var(--c-info);
+  --pacto-tone-bg: var(--c-info-bg);
+}
+.md-typeset :is(.admonition, details):is(.tip, .hint, .important, .success, .check, .done) {
+  --pacto-tone: var(--c-ok);
+  --pacto-tone-bg: var(--c-ok-bg);
+}
+.md-typeset :is(.admonition, details):is(.question, .help, .faq, .example) {
+  --pacto-tone: var(--c-accent);
+  --pacto-tone-bg: var(--c-accent-bg);
+}
+.md-typeset :is(.admonition, details):is(.warning, .caution, .attention) {
+  --pacto-tone: var(--c-warn);
+  --pacto-tone-bg: var(--c-warn-bg);
+}
+.md-typeset :is(.admonition, details):is(.failure, .fail, .missing, .danger, .error, .bug) {
+  --pacto-tone: var(--c-err);
+  --pacto-tone-bg: var(--c-err-bg);
+}
+.md-typeset :is(.admonition, details):is(.quote, .cite) {
+  --pacto-tone: var(--c-neutral);
+  --pacto-tone-bg: var(--c-neutral-bg);
+}
+.md-typeset.md-typeset :is(.admonition, details) {
+  border: 1px solid var(--c-border);
+  border-left: 3px solid var(--pacto-tone, var(--c-info));
+  border-radius: var(--radius-sm);
+  background-color: var(--c-surface);
+  box-shadow: none;
+  font-size: 0.7rem;
+}
+.md-typeset.md-typeset :is(.admonition, details) > :is(.admonition-title, summary) {
+  background-color: var(--pacto-tone-bg, var(--c-info-bg));
+  border: none;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-caps: all-small-caps;
+  letter-spacing: var(--role-label-tracking);
+  font-size: 1.1em;
+}
+.md-typeset.md-typeset :is(.admonition, details) > :is(.admonition-title, summary)::before {
+  background-color: var(--pacto-tone, var(--c-info));
+}
+
+/* ---- Buttons: the dashboard's .btn / .btn-primary ------------------------- */
+.md-typeset .md-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--c-surface);
+  color: var(--c-text);
+  font-size: 0.7rem;
+  font-weight: 500;
+  transition: background-color 90ms, border-color 90ms, color 90ms;
+}
+.md-typeset .md-button:is(:hover, :focus) {
+  background-color: var(--c-surface-hover);
+  border-color: var(--c-text-3);
+  color: var(--c-text);
+}
+.md-typeset .md-button--primary {
+  background-color: var(--c-accent);
+  border-color: var(--c-accent);
+  color: var(--c-on-accent);
+}
+.md-typeset .md-button--primary:is(:hover, :focus) {
+  background-color: var(--c-accent-hover);
+  border-color: var(--c-accent-hover);
+  color: var(--c-on-accent);
+}
+
+/* ---- Landing (overrides/home.html) ----------------------------------------
+   The title page of the document: copy on the left, the contract graph of the
+   "Who breaks" example on the right, over a faint isometric grid; then the real
+   `pacto impact` output beside what it means, and a band of three facts. Sizes are px because the hero sits outside .md-typeset and Material's
+   rem is 20px. Widths follow Material's grid (61rem). Motion respects
+   prefers-reduced-motion. */
+.pacto-home {
+  color: var(--c-text-2);
+  font-size: 16px;
+  line-height: 1.6;
+}
+.pacto-wrap {
+  max-width: 61rem;
+  margin: 0 auto;
+  padding: 0 1.2rem;
+}
+.pacto-home p {
+  margin: 0;
+}
+.pacto-home :is(p, li, .pacto-install) code {
+  padding: 1px 5px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-xs);
+  background: var(--c-code-inline-bg);
+  color: var(--c-text);
+  font: 0.86em var(--md-code-font-family);
+  font-variant-ligatures: none;
+}
+.pacto-home a:not(.md-button) {
+  color: var(--c-accent);
+}
+.pacto-home a:not(.md-button):hover {
+  color: var(--c-accent-hover);
+}
+
+.pacto-hero {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--c-border);
+}
+/* A 2:1 isometric grid, the plane the slabs sit on, with an accent glow behind the
+   art. Both fade out toward the copy so the text sits on the plain page. */
+.pacto-hero__grid {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(40% 55% at 76% 55%, var(--c-accent-glow), transparent 70%),
+    repeating-linear-gradient(26.565deg, var(--c-grid) 0 1px, transparent 1px 25px),
+    repeating-linear-gradient(-26.565deg, var(--c-grid) 0 1px, transparent 1px 25px);
+  -webkit-mask: radial-gradient(60% 85% at 75% 50%, #000 20%, transparent 75%);
+  mask: radial-gradient(60% 85% at 75% 50%, #000 20%, transparent 75%);
+}
+[data-md-color-scheme="default"] {
+  --c-grid: rgba(79, 70, 229, 0.1);
+  --c-accent-glow: rgba(79, 70, 229, 0.1);
+}
+[data-md-color-scheme="slate"] {
+  --c-grid: rgba(129, 140, 248, 0.09);
+  --c-accent-glow: rgba(129, 140, 248, 0.14);
+}
+.pacto-hero__inner {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 40px;
+  align-items: center;
+  padding-top: 64px;
+  padding-bottom: 64px;
+}
+.pacto-hero__inner > *,
+.pacto-facts__inner > * {
+  min-width: 0;
+}
+.pacto-hero .pacto-hero__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--c-accent) 30%, transparent);
+  border-radius: var(--radius-pill);
+  background: var(--c-accent-bg);
+  color: var(--c-accent);
+  font: 600 15px var(--font-display);
+  font-variant-caps: all-small-caps;
+  letter-spacing: var(--role-label-tracking);
+  animation: pacto-fade-up 0.6s ease both;
+}
+.pacto-hero .pacto-hero__logo {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+.pacto-hero .pacto-hero__title {
+  margin: 22px 0 0;
+  font-family: var(--font-display);
+  font-size: clamp(36px, 4.4vw, 58px);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: var(--c-text);
+  text-wrap: balance;
+  animation: pacto-fade-up 0.6s ease 0.06s both;
+}
+/* The one word the product is about: in the accent, on a highlighter stroke. */
+.pacto-hero__title em {
+  /* One box, so the stroke below spans the word rather than a line fragment. */
+  display: inline-block;
+  position: relative;
+  z-index: 0;
+  font-style: italic;
+  color: var(--c-accent);
+}
+.pacto-hero__title em::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: -2px;
+  right: -4px;
+  bottom: 0.08em;
+  height: 0.22em;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--c-accent) 20%, transparent);
+  transform-origin: left;
+  animation: pacto-mark 0.7s cubic-bezier(0.3, 0.7, 0.2, 1) 0.5s both;
+}
+/* The signed-document double rule, short, under the headline. */
+.pacto-hero .pacto-hero__tagline {
+  max-width: 34em;
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 3px double var(--c-border);
+  font-size: 18px;
+  line-height: 1.65;
+  color: var(--c-text-2);
+  animation: pacto-fade-up 0.6s ease 0.12s both;
+}
+.pacto-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 30px;
+  animation: pacto-fade-up 0.6s ease 0.18s both;
+}
+.pacto-hero__actions.md-typeset .md-button {
+  min-height: 44px;
+  padding: 10px 20px;
+  font-size: 15px;
+}
+.pacto-hero__actions.md-typeset .md-button--primary {
+  box-shadow: 0 10px 24px -12px var(--c-accent);
+}
+.pacto-install {
+  display: inline-flex;
+  max-width: 100%;
+  margin-top: 22px;
+  padding: 9px 14px;
+  border: 1px dashed var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+  color: var(--c-text-2);
+  font: 500 13px/1.55 var(--md-code-font-family);
+  animation: pacto-fade-up 0.6s ease 0.24s both;
+}
+.pacto-install b {
+  margin-right: 10px;
+  color: var(--c-accent);
+  font-weight: 600;
+}
+/* Longer than the column at most widths: break after `main/` (the <wbr>) and keep
+   `scripts/get-pacto.sh | bash` together, so the pipe stays visible. On a phone it
+   breaks anywhere it must. Copying it still gives one line. */
+.pacto-home .pacto-install code {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  overflow-wrap: anywhere;
+}
+.pacto-install code span {
+  white-space: nowrap;
+}
+@media (max-width: 560px) {
+  .pacto-install code span {
+    white-space: normal;
+  }
+}
+.pacto-hero .pacto-hero__note {
+  text-wrap: pretty;
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--c-text-3);
+  animation: pacto-fade-up 0.6s ease 0.3s both;
+}
+.pacto-hero__note a {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+/* The art: the contract graph in one 2:1 isometric projection, with the impact
+   report lifted off the provider like a signed page. */
+[data-md-color-scheme="default"] {
+  --iso-face: #ffffff;
+  --iso-side: #e0e4fb;
+  --iso-side-2: #c7cdf6;
+  --iso-shadow: rgba(49, 46, 129, 0.22);
+}
+[data-md-color-scheme="slate"] {
+  --iso-face: #141b2d;
+  --iso-side: #1b2340;
+  --iso-side-2: #121933;
+  --iso-shadow: rgba(0, 0, 0, 0.55);
+}
+.pacto-hero__art {
+  display: flex;
+  justify-content: center;
+}
+.pacto-iso {
+  display: block;
+  width: 100%;
+  max-width: 620px;
+  height: auto;
+  overflow: visible;
+  filter: drop-shadow(0 30px 40px var(--iso-shadow));
+}
+.pacto-iso .slab {
+  --tone: var(--c-accent);
+}
+.pacto-iso .slab.bad {
+  --tone: var(--c-err);
+}
+.pacto-iso .slab.ok {
+  --tone: var(--c-ok);
+}
+.pacto-iso .top {
+  fill: var(--iso-face);
+}
+.pacto-iso .side {
+  fill: color-mix(in srgb, var(--tone) 14%, var(--iso-side));
+}
+.pacto-iso .side.dk {
+  fill: color-mix(in srgb, var(--tone) 14%, var(--iso-side-2));
+}
+.pacto-iso .edge {
+  fill: none;
+  stroke: var(--tone);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.pacto-iso .prev .edge {
+  stroke-dasharray: 4 4;
+  opacity: 0.6;
+}
+.pacto-iso .glow {
+  fill: var(--c-accent);
+  opacity: 0.2;
+  filter: blur(8px);
+}
+.pacto-iso .ring {
+  fill: none;
+  stroke: var(--c-err);
+  stroke-width: 1.5;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pacto-ring 2.4s ease-out 1.6s infinite;
+}
+.pacto-iso .face {
+  fill: var(--c-text);
+  font: 700 14px var(--font-display);
+}
+.pacto-iso .face--auth {
+  font-size: 19px;
+}
+.pacto-iso .e {
+  fill: none;
+  stroke-width: 2;
+  stroke-dasharray: 5 6;
+  animation: pacto-flow 1.4s linear infinite;
+}
+.pacto-iso .e--bad {
+  stroke: var(--c-err);
+}
+.pacto-iso .e--ok {
+  stroke: var(--c-ok);
+}
+.pacto-iso .chip rect {
+  fill: var(--c-bg);
+  stroke: currentColor;
+}
+.pacto-iso .chip text {
+  fill: currentColor;
+  font: 500 11.5px var(--md-code-font-family);
+}
+.pacto-iso .chip--bad,
+.pacto-iso .verdict--bad {
+  color: var(--c-err);
+}
+.pacto-iso .chip--ok,
+.pacto-iso .verdict--ok {
+  color: var(--c-ok);
+}
+.pacto-iso text {
+  fill: var(--c-text-3);
+  font: 500 12px var(--md-code-font-family);
+}
+/* The drawing scales down with its column; keep its labels legible on a phone. */
+@media (max-width: 600px) {
+  .pacto-iso text {
+    font-size: 15px;
+  }
+}
+.pacto-iso .em {
+  fill: var(--c-text);
+  font-weight: 600;
+}
+.pacto-iso .verdict {
+  fill: currentColor;
+  font-weight: 600;
+  font-size: 13px;
+}
+.pacto-iso :is(.ldr, .drop) {
+  fill: none;
+  stroke: var(--c-text-3);
+  stroke-dasharray: 3 4;
+  opacity: 0.7;
+}
+.pacto-iso .drop {
+  stroke: var(--c-accent);
+}
+.pacto-iso .dot {
+  fill: var(--c-accent);
+}
+.pacto-iso .dot--dim {
+  opacity: 0.6;
+}
+.pacto-iso .lift {
+  filter: drop-shadow(0 18px 22px var(--iso-shadow));
+  animation: pacto-lift 1.3s cubic-bezier(0.2, 0.9, 0.25, 1.1) 0.2s both;
+}
+.pacto-iso .paper {
+  fill: var(--c-surface);
+  stroke: color-mix(in srgb, var(--c-accent) 35%, var(--c-border));
+}
+.pacto-iso .fold {
+  fill: var(--c-surface-hover);
+  stroke: color-mix(in srgb, var(--c-accent) 35%, var(--c-border));
+}
+.pacto-iso .rule {
+  stroke: var(--c-border);
+}
+.pacto-iso .t {
+  fill: var(--c-text);
+  font: 700 21px var(--font-display);
+}
+.pacto-iso :is(.s, .k) {
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.pacto-iso .v {
+  fill: var(--c-text);
+  font-size: 12.5px;
+}
+.pacto-iso .stamp rect {
+  fill: color-mix(in srgb, var(--c-surface) 85%, transparent);
+  stroke: var(--c-err);
+  stroke-width: 2.2;
+}
+.pacto-iso .stamp .in {
+  fill: none;
+  stroke-width: 1;
+}
+.pacto-iso .stamp text {
+  fill: var(--c-err);
+  font: 700 15px var(--md-code-font-family);
+  letter-spacing: 0.12em;
+}
+
+/* See it run: real `pacto impact` output next to what each line means. */
+.pacto-run {
+  border-bottom: 1px solid var(--c-border);
+}
+.pacto-run__inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 56px;
+  align-items: center;
+  padding-top: 72px;
+  padding-bottom: 72px;
+}
+.pacto-run__inner > * {
+  min-width: 0;
+}
+.pacto-eyebrow {
+  color: var(--c-accent);
+  font: 500 12.5px var(--md-code-font-family);
+  letter-spacing: 0.04em;
+}
+.pacto-home .pacto-run h2 {
+  margin: 10px 0 0;
+  font: 700 32px/1.2 var(--font-display);
+  letter-spacing: -0.015em;
+  color: var(--c-text);
+  text-wrap: balance;
+}
+/* Dark in both schemes, like every terminal. */
+.pacto-term {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid #1e293b;
+  border-radius: 14px;
+  background: #0b1120;
+  box-shadow: 0 30px 60px -30px rgba(10, 14, 23, 0.6),
+    0 0 0 6px color-mix(in srgb, var(--c-accent) 8%, transparent);
+  color: #cbd5e1;
+  font: 13px/1.75 var(--md-code-font-family);
+}
+[data-md-color-scheme="slate"] .pacto-term {
+  background: #060a12;
+}
+.pacto-term__bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 11px 14px;
+  border-bottom: 1px solid #1e293b;
+}
+.pacto-term__bar i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #273244;
+}
+.pacto-term__bar span {
+  margin-left: 10px;
+  color: #8b98ab;
+  font-size: 12px;
+}
+.pacto-term pre {
+  margin: 0;
+  padding: 18px 20px 20px;
+  font: inherit;
+  font-variant-ligatures: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* On a phone, scroll the output sideways: wrapped rows split flags and verdicts. */
+@media (max-width: 480px) {
+  .pacto-term pre {
+    white-space: pre;
+    overflow-x: auto;
+  }
+}
+.pacto-term .g {
+  color: #6ee7b7;
+}
+.pacto-term .pr {
+  color: #a5b4fc;
+}
+.pacto-term .w {
+  color: #f1f5f9;
+  font-weight: 600;
+}
+.pacto-term .r {
+  color: #fca5a5;
+  font-weight: 600;
+}
+.pacto-term .y {
+  color: #fcd34d;
+}
+.pacto-term .d {
+  color: #8b98ab;
+}
+.pacto-term .hit {
+  display: block;
+  margin: 2px -20px;
+  padding: 2px 20px 2px 17px;
+  border-left: 3px solid #34d399;
+  background: rgba(52, 211, 153, 0.07);
+}
+.pacto-term .hit--bad {
+  border-left-color: #f87171;
+  background: rgba(248, 113, 113, 0.09);
+}
+.pacto-term .cur {
+  display: inline-block;
+  width: 8px;
+  height: 15px;
+  margin-left: 6px;
+  background: #a5b4fc;
+  vertical-align: -3px;
+  animation: pacto-blink 1.1s steps(1) infinite;
+}
+.pacto-run__explain ol {
+  margin: 26px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: pacto-step;
+}
+.pacto-run__explain li {
+  position: relative;
+  padding: 13px 0 13px 42px;
+  border-top: 1px solid var(--c-border);
+  counter-increment: pacto-step;
+  font-size: 15.5px;
+}
+.pacto-run__explain li:last-child {
+  border-bottom: 1px solid var(--c-border);
+}
+.pacto-run__explain li::before {
+  content: counter(pacto-step);
+  position: absolute;
+  top: 13px;
+  left: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--c-accent-bg);
+  color: var(--c-accent);
+  font: 600 12.5px/26px var(--md-code-font-family);
+  text-align: center;
+}
+.pacto-run__explain b {
+  color: var(--c-text);
+}
+.pacto-run__explain code {
+  white-space: nowrap;
+}
+.pacto-home .pacto-run__more {
+  margin-top: 18px;
+  font-size: 15px;
+}
+.pacto-run__more a {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+.pacto-run__more a::after {
+  content: " →";
+}
+
+/* Facts band. */
+.pacto-facts {
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface);
+}
+.pacto-facts__inner {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  padding-top: 36px;
+  padding-bottom: 36px;
+}
+.pacto-fact {
+  padding: 20px 22px 22px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+  transition: border-color 120ms, transform 120ms;
+}
+.pacto-fact:hover {
+  border-color: color-mix(in srgb, var(--c-accent) 45%, var(--c-border));
+}
+.pacto-home .pacto-fact__k {
+  color: var(--c-accent);
+  font: 500 12px var(--md-code-font-family);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pacto-home .pacto-fact__title {
+  margin: 8px 0 6px;
+  font: 700 20px/1.25 var(--font-display);
+  letter-spacing: -0.01em;
+}
+.pacto-home .pacto-fact__title a {
+  color: var(--c-text);
+  text-decoration: none;
+}
+.pacto-home .pacto-fact__title a:hover {
+  color: var(--c-accent);
+}
+.pacto-fact__title a::after {
+  content: " →";
+  color: var(--c-accent);
+}
+.pacto-fact p:last-child {
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--c-text-3);
+}
+
+@media (max-width: 1100px) {
+  .pacto-hero__inner {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 44px;
+    padding-top: 52px;
+    padding-bottom: 56px;
+  }
+  .pacto-hero__grid {
+    -webkit-mask: radial-gradient(80% 45% at 50% 78%, #000 20%, transparent 75%);
+    mask: radial-gradient(80% 45% at 50% 78%, #000 20%, transparent 75%);
+  }
+  .pacto-run__inner {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 40px;
+    padding-top: 56px;
+    padding-bottom: 56px;
+  }
+  /* Stacked, the headline introduces the terminal instead of following it. */
+  .pacto-run__explain {
+    order: -1;
+  }
+}
+@media (max-width: 820px) {
+  .pacto-facts__inner {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+}
+@media (max-width: 560px) {
+  .pacto-wrap {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+  .pacto-hero__inner {
+    padding-top: 36px;
+  }
+  .pacto-hero .pacto-hero__tagline {
+    font-size: 16.5px;
+  }
+  .pacto-hero__actions.md-typeset .md-button {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+  .pacto-install {
+    display: flex;
+    font-size: 11.5px;
+  }
+  .pacto-hero__art {
+    margin: 0 -10px;
+  }
+  .pacto-term {
+    font-size: 11.5px;
+    line-height: 1.7;
+  }
+  .pacto-term pre {
+    padding: 14px 14px 16px;
+  }
+  .pacto-term .hit {
+    margin-right: -14px;
+    margin-left: -14px;
+    padding-right: 14px;
+    padding-left: 11px;
+  }
+  .pacto-home .pacto-run h2 {
+    font-size: 26px;
+  }
+}
+
+@keyframes pacto-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes pacto-mark {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes pacto-flow {
+  to {
+    stroke-dashoffset: -22;
+  }
+}
+@keyframes pacto-blink {
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes pacto-ring {
+  0% {
+    opacity: 0.9;
+    transform: none;
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+@keyframes pacto-lift {
+  from {
+    opacity: 0;
+    transform: translateY(36px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pacto-home *,
+  .pacto-home *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Drop the near-empty footer-meta bar (generator removed, no copyright). The
+   header already links the repo, so the footer is just prev/next navigation. */
+.md-footer-meta {
+  display: none;
+}
+
+/* Scroll-driven hero exit: as the first screen scrolls, the hero copy and art dissolve
+   upward while the page content rises into view. Progressive enhancement — only browsers
+   that support scroll-driven animations get it, and it is disabled under
+   prefers-reduced-motion. GPU-friendly: opacity/transform/filter only. Tunable knobs:
+   where the dissolve starts and ends (animation-range) and the hold keyframe that keeps
+   the hero legible through the first part of that range. */
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .pacto-hero__inner {
+      animation: pacto-hero-dissolve linear both;
+      animation-timeline: scroll(root);
+      /* Starts at 15vh, not 0: a nudge of the wheel used to blur the headline while it
+         was still the only thing on screen. Paired with the hold keyframe below, the
+         hero stays fully legible for roughly the first 38vh of scroll. */
+      animation-range: 15vh 90vh;
+    }
+  }
+}
+@keyframes pacto-hero-dissolve {
+  /* Hold: the first third of the range changes nothing, so the dissolve reads as a
+     deliberate exit rather than as the text going out of focus the moment you scroll. */
+  0%,
+  30% {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-3rem) scale(0.985);
+    filter: blur(3px);
+  }
+}
+
+/* Logo spin on click — header mark + hero mark, toggled by javascripts/logo-spin.js. */
+.md-header__button.md-logo img,
+.pacto-hero__logo {
+  transform-origin: 50% 50%;
+}
+.pacto-spin {
+  animation: pacto-logo-spin 0.6s ease;
+}
+@keyframes pacto-logo-spin {
+  from {
+    transform: rotate(0);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pacto-spin {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Mermaid diagram contrast fixes for the dark (slate) color scheme.
+
+   Material's built-in mermaid integration sets theme variables, but in dark
+   mode the default node fills and edge strokes can lack contrast against
+   the dark background. The overrides below pin nodes/labels/edges to
+   Material's own CSS variables so contrast follows the theme.
+   --------------------------------------------------------------------------- */
+
+[data-md-color-scheme="slate"] .mermaid {
+    background: transparent;
+}
+
+/* Node shapes (rectangles, circles, diamonds, etc.) */
+[data-md-color-scheme="slate"] .mermaid .node rect,
+[data-md-color-scheme="slate"] .mermaid .node circle,
+[data-md-color-scheme="slate"] .mermaid .node ellipse,
+[data-md-color-scheme="slate"] .mermaid .node polygon,
+[data-md-color-scheme="slate"] .mermaid .node path {
+    fill: var(--md-code-bg-color) !important;
+    stroke: var(--md-default-fg-color--lighter) !important;
+    stroke-width: 1px !important;
+}
+
+/* Node and edge text labels */
+[data-md-color-scheme="slate"] .mermaid .nodeLabel,
+[data-md-color-scheme="slate"] .mermaid .edgeLabel,
+[data-md-color-scheme="slate"] .mermaid .label,
+[data-md-color-scheme="slate"] .mermaid foreignObject div {
+    color: var(--md-default-fg-color) !important;
+    background: transparent !important;
+}
+
+/* Edge label backgrounds (the small chip behind labels on links) */
+[data-md-color-scheme="slate"] .mermaid .edgeLabel rect {
+    fill: var(--md-default-bg-color) !important;
+}
+
+/* Connector lines and arrowheads */
+[data-md-color-scheme="slate"] .mermaid .edgePath .path,
+[data-md-color-scheme="slate"] .mermaid .flowchart-link,
+[data-md-color-scheme="slate"] .mermaid .messageLine0,
+[data-md-color-scheme="slate"] .mermaid .messageLine1 {
+    stroke: var(--md-default-fg-color--light) !important;
+}
+
+[data-md-color-scheme="slate"] .mermaid .arrowheadPath,
+[data-md-color-scheme="slate"] .mermaid marker path {
+    fill: var(--md-default-fg-color--light) !important;
+    stroke: var(--md-default-fg-color--light) !important;
+}
+
+/* Subgraph (cluster) backgrounds and borders */
+[data-md-color-scheme="slate"] .mermaid .cluster rect {
+    fill: rgba(255, 255, 255, 0.03) !important;
+    stroke: var(--md-default-fg-color--lightest) !important;
+    stroke-width: 1px !important;
+}
+
+[data-md-color-scheme="slate"] .mermaid .cluster .nodeLabel,
+[data-md-color-scheme="slate"] .mermaid .cluster .label {
+    color: var(--md-default-fg-color) !important;
+    font-weight: 600;
+}
+
+/* Sequence diagram actor boxes */
+[data-md-color-scheme="slate"] .mermaid .actor {
+    fill: var(--md-code-bg-color) !important;
+    stroke: var(--md-default-fg-color--lighter) !important;
+}
+
+[data-md-color-scheme="slate"] .mermaid text.actor {
+    fill: var(--md-default-fg-color) !important;
+}
+
+/* ---- Page-navigation motion ------------------------------------------------
+   navigation.instant (mkdocs.yml) swaps pages client-side with no full reload; these
+   add a clean, subtle transition on top. The main content gently fades/rises in on each
+   page render, and — where the browser + Material support the View Transitions API — the
+   root cross-fade is tuned. Both are disabled under prefers-reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .md-content__inner {
+    animation: pacto-page-in 0.28s ease both;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0.28s;
+  }
+}
+@keyframes pacto-page-in {
+  from { opacity: 0; transform: translateY(0.5rem); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ---- Header: keep the mike version selector visible ------------------------
+   The mike version selector is injected into the header's site-name topic.
+   Material swaps that topic for the page-title topic on scroll (adds
+   .md-header__title--active), which hides the selector — and with the sticky
+   tabs header that active state is set even at the top, so the selector never
+   shows. Keep the site-name topic (and its version selector) visible and drop
+   the page-title-in-header swap; the page title still shows as the content H1. */
+.md-header__title--active .md-header__ellipsis > .md-header__topic:first-child {
+  z-index: 1;
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+.md-header__title--active .md-header__ellipsis > .md-header__topic[data-md-component="header-topic"] {
+  z-index: -1;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Version selector: open on CLICK only (toggled by javascripts/version-selector.js),
+   never on hover/focus. Material opens .md-version__list on :hover — but that list is
+   absolutely positioned directly over the nav tabs below it, so it popped open when
+   the mouse merely passed over the header and swallowed the tabs' clicks. Neutralise
+   the hover/focus open triggers and drive visibility from the .md-version--open class.
+   The suppress rules are gated with :not(.md-version--open) because clicking the
+   trigger FOCUSES it, and an un-gated .md-version:focus-within rule (specificity 0,3,0)
+   would out-rank the .md-version--open show rule and keep the list collapsed on click.
+   Keep Material's collapsed default (max-height:0) so the closed list never overlays
+   the tabs; cap the OPEN height so a long version list scrolls instead of running
+   off-screen (.md-version__list already has overflow:auto). */
+.md-version:not(.md-version--open):hover .md-version__list,
+.md-version:not(.md-version--open):focus-within .md-version__list {
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  animation: none;
+}
+.md-version.md-version--open .md-version__list {
+  max-height: 75vh;
+  opacity: 1;
+  pointer-events: auto;
+  animation: none;
+}
+/* max-height:0 and opacity:0 hide the collapsed list from the eye but not from
+   the tab order: every published version stayed focusable, so a keyboard reader
+   crossed one invisible stop per release between the header and the first nav
+   tab. visibility takes them out of the sequence and the open rule puts them
+   back — it is the one hiding property that is both animatable and focus-aware. */
+.md-version .md-version__list {
+  visibility: hidden;
+}
+.md-version.md-version--open .md-version__list {
+  visibility: visible;
+}
+
+/* Material draws a focus ring on the search field and little else, so most of
+   the header, the version selector, the tabs and the sidebar showed no sign of
+   where the keyboard was. One accent outline for everything, on :focus-visible
+   only, so pointer users never see it. */
+:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+/* Material gives the search result list an explicit `tabindex="0"` so it can be
+   scrolled from the keyboard, and leaves it there while the search is closed and
+   the panel is zero-height — an invisible stop between the search field and the
+   repository link, on every page. Take the closed panel out of the sequence;
+   opening the search restores it. The selector mirrors Material's own
+   `[data-md-toggle=search]:checked ~ .md-header` form, so it tracks the same
+   toggle the theme does. */
+[data-md-toggle="search"]:not(:checked) ~ .md-header .md-search__output {
+  visibility: hidden;
+}
+
+/* The palette switch is a 0×0 radio standing behind the icon label the reader
+   actually sees, so an outline on the input paints nothing. Put the ring on the
+   label instead — the one that is not `hidden` belongs to the checked radio,
+   which is the only one in the tab order. */
+.md-option:focus-visible + label:not([hidden]) {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* Inline links are told apart from the text around them by colour alone, and no
+   indigo can carry that on its own: to clear 3:1 against #212121 body text a
+   link needs a relative luminance of at least 0.143, and to clear 4.5:1 against
+   a white page it needs at most 0.183 -- a window too thin to sit in safely,
+   and the dark scheme measures worse (1.83:1). Underline links that sit inside
+   a block of text, which is the only place the rule is about; buttons, nav,
+   tabs, heading anchors and the hero are untouched because nothing surrounds
+   them to be confused with. Image links keep their clean edge. */
+.md-typeset p > a:not(.md-button),
+.md-typeset li > a:not(.md-button),
+.md-typeset td > a:not(.md-button),
+.md-typeset dd > a:not(.md-button) {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+}
+.md-typeset p > a:has(> img),
+.md-typeset li > a:has(> img),
+.md-typeset td > a:has(> img) {
+  text-decoration: none;
+}
