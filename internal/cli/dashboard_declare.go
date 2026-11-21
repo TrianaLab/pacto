@@ -44,6 +44,9 @@ type dashboardDeclarer struct {
 	ticket   func(r *http.Request, intent string, accept []string) string
 	take     func(r *http.Request, intent string) (string, bool)
 	accepted func(r *http.Request, intent string) []string
+	// trust reads the installation signer policy accepted ranges are judged
+	// by, as the accept plan reads it.
+	trust func(context.Context) (app.Installation, error)
 }
 
 // newDashboardDeclarer declares into --registry; nil without one. A local
@@ -78,7 +81,7 @@ func newDashboardDeclarer(v *viper.Viper, svc *app.Service, id *dashboardIdentit
 
 // newDashboardHost is the dashboard's identity and, with --registry, its
 // declarer (a nil Declarer without one).
-func newDashboardHost(v *viper.Viper, host string, cluster *rest.Config, svc *app.Service, entries func(context.Context) []app.K8sEntry, dp deps) (*dashboardIdentity, dashboard.Declarer, error) {
+func newDashboardHost(v *viper.Viper, host string, cluster *rest.Config, svc *app.Service, entries func(context.Context) []app.K8sEntry, trust func(context.Context) (app.Installation, error), dp deps) (*dashboardIdentity, dashboard.Declarer, error) {
 	id, err := newDashboardIdentity(v, host, cluster, entries, dp)
 	if err != nil {
 		return nil, nil, err
@@ -87,6 +90,7 @@ func newDashboardHost(v *viper.Viper, host string, cluster *rest.Config, svc *ap
 	if d == nil {
 		return id, nil, err
 	}
+	d.trust = trust
 	return id, d, err
 }
 
@@ -255,7 +259,7 @@ func draftViews(in []app.DraftView) []dashboard.DeclareDraft {
 // write.
 func (d *dashboardDeclarer) Accept(r *http.Request, w dashboard.DeclareWorkload, in dashboard.DeclareAcceptInput) (*dashboard.DeclareAcceptAnswer, error) {
 	ctx := r.Context()
-	if refusal := d.mayUpdate(ctx, w); refusal != nil {
+	if refusal := d.mayUpdate(ctx, w, "declaring "+w.Name); refusal != nil {
 		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, nil
 	}
 	req, err := d.request(r, w, in.Accept, in.FromDraft)
@@ -338,19 +342,19 @@ func (d *dashboardDeclarer) login(r *http.Request, req *app.DeclareRequest) *das
 // mayUpdate asks, on a shared host, whether the person may update the
 // workload in its own cluster: the rule delivery counts approvals by. A local
 // host acts with the person's own kubeconfig, which the API server
-// authorizes.
-func (d *dashboardDeclarer) mayUpdate(ctx context.Context, w dashboard.DeclareWorkload) *dashboard.DeclareRefusal {
+// authorizes. what names the write a refusal is about.
+func (d *dashboardDeclarer) mayUpdate(ctx context.Context, w dashboard.DeclareWorkload, what string) *dashboard.DeclareRefusal {
 	if d.id.auth.Local() {
 		return nil
 	}
 	ok, err := d.id.viewer.MayUpdateWorkload(ctx, d.id.state(ctx).Person, w.Cluster, w.Namespace, w.Kind, w.Name)
 	switch {
 	case errors.Is(err, authn.ErrClusterNotReviewable):
-		return refused("ClusterNotReviewable", "Pacto cannot review you in the cluster that runs "+w.Name+", so it declares nothing there", "")
+		return refused("ClusterNotReviewable", "Pacto cannot review you in the cluster that runs "+w.Name+", so it writes nothing there", "")
 	case err != nil:
 		return refused("ReviewFailed", "asking whether you may update "+w.Kind+" "+w.Namespace+"/"+w.Name+" failed: "+err.Error(), "")
 	case !ok:
-		return refused("NotAllowed", "declaring "+w.Name+" needs update on "+w.Kind+" "+w.Namespace+"/"+w.Name, "")
+		return refused("NotAllowed", what+" needs update on "+w.Kind+" "+w.Namespace+"/"+w.Name, "")
 	}
 	return nil
 }

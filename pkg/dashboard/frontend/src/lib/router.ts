@@ -641,6 +641,12 @@ export function serviceDeclareUrl(key: string, opts: { signed?: string } = {}): 
   return pagedHash(fleetEntityUrl('service', key), { declare: '1', signed: opts.signed });
 }
 
+// serviceAcceptSignedUrl is a service page a signing login for its accept plan comes
+// back to; signed is the intent the login was started for.
+export function serviceAcceptSignedUrl(key: string, signed: string): string {
+  return pagedHash(fleetEntityUrl('service', key), { signed });
+}
+
 // fleetGraphDiscoveryUrl is the search-first graph landing (no focus). It never
 // carries a focus, so it opens the discovery state rather than a fleet hairball.
 export function fleetGraphDiscoveryUrl(): string {

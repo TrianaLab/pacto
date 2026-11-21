@@ -23,6 +23,13 @@ type Declarer interface {
 	// CanWrite reports whether the host can write at all: a local host, or
 	// a shared one with a push credential of its own.
 	CanWrite() bool
+	// AcceptOffer is what the person behind r can do here with the accept
+	// plan whose intent digest is intent: sign, save a draft, or neither.
+	AcceptOffer(r *http.Request, intent string) AcceptExecuteOffer
+	// AcceptRanges signs the accept plan the person reviewed, saves it as an
+	// acceptance draft or accepts a draft, with the same signer, review and
+	// write rules as a declaration.
+	AcceptRanges(r *http.Request, t AcceptTarget, in AcceptExecuteInput) (*AcceptExecuteAnswer, error)
 }
 
 // DeclareWorkload is the inferred service a declaration is for, as the
@@ -248,17 +255,26 @@ func (s *Server) declares(ctx context.Context) bool {
 	return a != nil && (a.Local || s.authState(ctx).SignedIn)
 }
 
+// declareIdentity refuses a caller who cannot be identified or whose
+// session came from a sign-in link: a write names its actor.
+func (s *Server) declareIdentity(ctx context.Context) error {
+	switch {
+	case !s.declares(ctx):
+		return Refuse(http.StatusForbidden, "IdentityRequired",
+			"sign in to declare a service: Pacto reads the cluster and writes as you")
+	case s.authState(ctx).FleetOnly:
+		return Refuse(http.StatusForbidden, "SignInLinkReadsFleet",
+			"a sign-in link reads the fleet only: sign in with your identity provider or paste your own token to declare a service")
+	}
+	return nil
+}
+
 // declareWorkload is the inferred service key names in the viewer's
 // snapshot, after the caller's identity is checked: a hidden service and a
 // declared one answer as a missing one.
 func (s *Server) declareWorkload(ctx context.Context, key string) (DeclareWorkload, error) {
-	switch {
-	case !s.declares(ctx):
-		return DeclareWorkload{}, Refuse(http.StatusForbidden, "IdentityRequired",
-			"sign in to declare a service: Pacto reads the cluster and writes as you")
-	case s.authState(ctx).FleetOnly:
-		return DeclareWorkload{}, Refuse(http.StatusForbidden, "SignInLinkReadsFleet",
-			"a sign-in link reads the fleet only: sign in with your identity provider or paste your own token to declare a service")
+	if err := s.declareIdentity(ctx); err != nil {
+		return DeclareWorkload{}, err
 	}
 	q, err := s.fleetQuery(ctx)
 	if err != nil {

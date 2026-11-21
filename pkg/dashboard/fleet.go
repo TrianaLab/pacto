@@ -105,6 +105,7 @@ func (s *Server) registerFleetOperations(api huma.API) {
 		return
 	}
 	s.registerAcceptOperation(api)
+	s.registerAcceptExecuteOperation(api)
 	s.registerDeclareOperations(api)
 	huma.Register(api, huma.Operation{
 		OperationID: "fleet-snapshot",

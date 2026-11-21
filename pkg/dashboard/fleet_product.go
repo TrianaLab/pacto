@@ -467,7 +467,7 @@ func (s *Server) stubProvidersForSchemaExport() {
 		return nil, errors.New("schema export only")
 	}
 	s.opts.Delivery = func(*http.Request) (DeliveryAPI, error) { return nil, errors.New("schema export only") }
-	s.opts.AcceptPlan = func(context.Context, fleet.ServiceKey, *fleet.ContractRevision) (AcceptPlanAnswer, error) {
+	s.opts.AcceptPlan = func(context.Context, fleet.ServiceKey, *fleet.ContractRevision, string) (AcceptPlanAnswer, error) {
 		return AcceptPlanAnswer{}, errors.New("schema export only")
 	}
 	s.opts.Stats = func(context.Context, []string) (stats.RecordSet, error) {
@@ -488,6 +488,14 @@ func (schemaDeclarer) Accept(*http.Request, DeclareWorkload, DeclareAcceptInput)
 }
 
 func (schemaDeclarer) CanWrite() bool { return true }
+
+func (schemaDeclarer) AcceptOffer(*http.Request, string) AcceptExecuteOffer {
+	return AcceptExecuteOffer{}
+}
+
+func (schemaDeclarer) AcceptRanges(*http.Request, AcceptTarget, AcceptExecuteInput) (*AcceptExecuteAnswer, error) {
+	return nil, errors.New("schema export only")
+}
 
 func parseViews(s string) []fleet.KnowledgeView {
 	if s == "" {

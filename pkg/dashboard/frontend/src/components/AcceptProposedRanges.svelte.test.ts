@@ -38,7 +38,7 @@ describe('AcceptProposedRanges', () => {
       whoMayAccept: 'ana@acme.com (the DRI of reports)', intentDigest: 'sha256:abc',
       existing: [{ state: 'routed', by: 'bob@acme.com', record: 'r@sha256:3', reason: 'waiting for the owner of reports' }, { state: 'counted', by: 'ana@acme.com' }] } });
     await open();
-    expect(acceptFn).toHaveBeenCalledWith('acme/reports');
+    expect(acceptFn).toHaveBeenCalledWith('acme/reports', undefined);
     const plan = target.querySelector('[data-testid="accept-plan"]')!;
     expect(text(plan)).toContain('dependencies[ledger].compatibility ^2.3.0 from snapshot:ghcr.io/acme/s@sha256:2');
     expect(text(plan)).toContain('ana@acme.com (the DRI of reports)');

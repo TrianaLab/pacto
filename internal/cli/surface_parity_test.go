@@ -392,20 +392,24 @@ func declareRows() []surfaceRow {
 // --dry-run and --intent, and an agent's write is a draft a person accepts
 // with --draft.
 func acceptRows() []surfaceRow {
-	const why = "the dashboard plans only Accept all proposed ranges, by the service's fleet key, and never signs or writes (POST /api/fleet/accept)"
+	const why = "the dashboard accepts only all proposed ranges, by the service's fleet key: POST /api/fleet/accept plans and POST /api/fleet/accept/execute signs or saves a draft"
 	const whyLocal = "a person's local signing: MCP callers are agents and never sign an acceptance"
+	const plan, exec = "POST /api/fleet/accept", "POST /api/fleet/accept/execute"
+	const svcWhy = "the dashboard names the service by its fleet key and reads its bundle repository from the revision; over MCP a folder is stdio only"
 	return slices.Concat(
 		[]surfaceRow{
-			{"accept <service-ref-or-dir>", "pacto_accept.service", "POST /api/fleet/accept body.serviceKey",
-				"the dashboard names the service by its fleet key and reads its bundle repository from the revision; over MCP a folder is stdio only"},
+			{"accept <service-ref-or-dir>", "pacto_accept.service", plan + " body.serviceKey", svcWhy},
+			{"", "", exec + " body.serviceKey", svcWhy},
 			{"accept [field", "", "", "the positional fields are --field without the flag"},
 			{"accept --field", "pacto_accept.fields", "", why},
-			{"accept --intent", "pacto_accept.intent_digest", "", why + "; its answer carries the intent digest in the command"},
-			{"accept --dry-run", "pacto_accept.dry_run", "", why + "; dry_run defaults to true and false writes a draft, the CLI signs unless --dry-run"},
-			{"", "pacto_accept.on_behalf_of", "", "an MCP caller is an agent and names the person it acts for; the CLI runs as that person; " + why},
+			{"accept --intent", "pacto_accept.intent_digest", exec + " body.intentDigest", "the plan's answer carries the intent digest in the command"},
+			{"accept --dry-run", "pacto_accept.dry_run", exec + " body.mode", "dry_run defaults to true and false writes a draft, the CLI signs unless --dry-run; the dashboard signs (mode sign) or saves a draft (mode draft)"},
+			{"", "pacto_accept.on_behalf_of", "", "an MCP caller is an agent and names the person it acts for; the CLI and the dashboard run as that person"},
+			{"accept --draft", "", plan + " body.fromDraft", "MCP callers are agents and never accept a draft; the dashboard names the draft by tag and plans it before it is signed"},
+			{"", "", exec + " body.fromDraft", "MCP callers are agents and never accept a draft"},
 		},
 		alike("accept", "pacto_accept", "", why, "proposed", "break", "from"),
-		alike("accept", "", "", whyLocal, "draft", "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
+		alike("accept", "", "", whyLocal, "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
 			"rekor-url", "trusted-root"),
 	)
 }

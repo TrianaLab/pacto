@@ -688,12 +688,18 @@ func reviewer(p Person) string {
 // for the person.
 var ErrClusterNotReviewable = errors.New("this cluster cannot review you")
 
+// PactoKind names a Pacto resource to MayUpdateWorkload.
+const PactoKind = "Pacto"
+
 // MayUpdateWorkload asks the reviewer of cluster (the only one when cluster
-// is empty) whether p may update the workload kind/name in namespace: the
-// rule delivery counts approvals by. A kind Pacto does not read is never
-// allowed; a cluster nobody reviews p in is ErrClusterNotReviewable.
+// is empty) whether p may update the workload kind/name in namespace (or the
+// Pacto resource name, for PactoKind): the rule delivery counts approvals
+// by. A kind Pacto does not read is never allowed; a cluster nobody reviews p in is ErrClusterNotReviewable.
 func (v *Viewer) MayUpdateWorkload(ctx context.Context, p Person, cluster, namespace, kind, name string) (bool, error) {
 	res, ok := workloadResources[kind]
+	if kind == PactoKind {
+		res, ok = PactoResource, true
+	}
 	if !ok {
 		return false, nil
 	}

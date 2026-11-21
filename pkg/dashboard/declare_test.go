@@ -15,10 +15,11 @@ import (
 
 // fakeDeclarer records what the routes hand it.
 type fakeDeclarer struct {
-	write  bool
-	plans  []DeclareWorkload
-	accept func(DeclareAcceptInput) (*DeclareAcceptAnswer, error)
-	err    error
+	write   bool
+	plans   []DeclareWorkload
+	accept  func(DeclareAcceptInput) (*DeclareAcceptAnswer, error)
+	err     error
+	targets []AcceptTarget
 }
 
 func (f *fakeDeclarer) Plan(_ *http.Request, w DeclareWorkload, in DeclareInput) (*DeclareAnswer, error) {
@@ -37,6 +38,18 @@ func (f *fakeDeclarer) Accept(_ *http.Request, w DeclareWorkload, in DeclareAcce
 }
 
 func (f *fakeDeclarer) CanWrite() bool { return f.write }
+
+func (f *fakeDeclarer) AcceptOffer(_ *http.Request, intent string) AcceptExecuteOffer {
+	return AcceptExecuteOffer{Signing: DeclareSigning{Mode: "fresh-login", Identity: "ana@acme.com"}, Write: DeclareWrite{Available: f.write}, SignTicket: "ticket-" + intent}
+}
+
+func (f *fakeDeclarer) AcceptRanges(_ *http.Request, t AcceptTarget, in AcceptExecuteInput) (*AcceptExecuteAnswer, error) {
+	f.targets = append(f.targets, t)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &AcceptExecuteAnswer{Draft: "x/" + t.Rev.Contract.Service.Name + ":pacto-accept-draft-1", Command: in.Mode}, nil
+}
 
 // declareServer serves inferredSnap (cart is inferred, orders declared)
 // through view with d as the declarer.
@@ -227,6 +240,9 @@ func TestOpenAPIDeclareSchemas(t *testing.T) {
 	}
 	if _, err := s.Accept(nil, DeclareWorkload{}, DeclareAcceptInput{}); err == nil {
 		t.Error("the schema declarer accepts nothing")
+	}
+	if _, err := s.AcceptRanges(nil, AcceptTarget{}, AcceptExecuteInput{}); err == nil || s.AcceptOffer(nil, "") != (AcceptExecuteOffer{}) {
+		t.Error("the schema declarer executes nothing")
 	}
 }
 

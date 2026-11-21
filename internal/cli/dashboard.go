@@ -169,7 +169,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			// clusterCfg is the sign-in cluster the callers' own clients are
 			// built from: its address and CA, never its credentials. No
 			// cluster, no delivery.
-			identity, declarer, err := newDashboardHost(v, host, clusterCfg, svc, fleetEntries(svc, d, fopts), d)
+			identity, declarer, err := newDashboardHost(v, host, clusterCfg, svc, fleetEntries(svc, d, fopts), fopts.Provenance.Trust, d)
 			if err != nil {
 				return err
 			}

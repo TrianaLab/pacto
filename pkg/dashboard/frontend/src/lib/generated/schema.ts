@@ -408,6 +408,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fleet/accept/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign the accepted ranges or save them as an acceptance draft
+         * @description Carries out an accept plan the person reviewed, by its intent digest: attaches the acceptance signed by the person's fresh login, saves a pacto-accept-draft-<n> a person accepts later, or accepts a draft. It needs update on a workload (else the Pacto resource) of the service and writes only into its bundle repository.
+         */
+        post: operations["fleet-accept-execute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/fleet/attention": {
         parameters: {
             query?: never;
@@ -1056,21 +1076,79 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AcceptDraftView: {
+            /** @description Who wrote it, when its signature names someone */
+            asker?: string;
+            /** @description The break it asks a person to accept */
+            break?: components["schemas"]["Delivery.AcceptedBreak"];
+            /** @description Whom it was written for, as its writer asserts */
+            onBehalfOf?: string;
+            /** @description The ranges it asks a person to accept */
+            ranges?: components["schemas"]["Delivery.AcceptedRange"][] | null;
+            reason?: string;
+            /** @description It carries a signature, checked when a person accepts it */
+            signed: boolean;
+            /** @enum {string} */
+            state: "draft" | "unreadable";
+            /** @description The pacto-accept-draft-<n> tag */
+            tag: string;
+        };
+        AcceptExecuteAnswer: {
+            /** @description The command a person accepts the draft with */
+            command?: string;
+            /** @description The acceptance draft written, as <repository>:pacto-accept-draft-<n> */
+            draft?: string;
+            reason?: string;
+            /** @description The acceptance attached, as <repository>@sha256:<hex> */
+            record?: string;
+            refusal?: components["schemas"]["DeclareRefusal"];
+            /** @description How readers judge the acceptance attached */
+            state?: string;
+        };
+        AcceptExecuteInput: {
+            /** @description Accept this acceptance draft, signed by the person */
+            fromDraft?: string;
+            /** @description The intent digest of the plan the person reviewed: a plan that moved since is refused with PlanStale */
+            intentDigest: string;
+            /**
+             * @description sign: attach the acceptance signed by the person's fresh login; draft: save a pacto-accept-draft-<n> a person accepts later
+             * @enum {string}
+             */
+            mode: "sign" | "draft";
+            /** @description The service whose proposed ranges to accept */
+            serviceKey: string;
+        };
+        AcceptExecuteOffer: {
+            /** @description Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page>; present only with signing mode fresh-login */
+            signTicket?: string;
+            signing: components["schemas"]["DeclareSigning"];
+            write: components["schemas"]["DeclareWrite"];
+        };
         AcceptPlanAnswer: {
             /** @description The exact pacto accept command, with the plan's intent digest, a person runs to sign the plan */
             command?: string;
+            /** @description What the person can do with the plan here; absent on a dashboard that only plans */
+            execute?: components["schemas"]["AcceptExecuteOffer"];
             /** @description What pacto accept would sign; absent with a refusal */
             plan?: components["schemas"]["AcceptPlanView"];
             /** @description Why there is nothing to accept, and the command a person runs about it */
             refusal?: components["schemas"]["AcceptRefusal"];
         };
         AcceptPlanView: {
+            /** @description The acceptance draft this plan accepts */
+            draft?: string;
+            /** @description The service's acceptance drafts, newest first, at most 20 */
+            drafts?: components["schemas"]["AcceptDraftView"][] | null;
+            /** Format: int64 */
+            draftsTotal?: number;
             /** @description The acceptances already attached to the version, each with its state; only counted accepts */
             existing?: components["schemas"]["Impact.Acceptance"][] | null;
             /** @description The digest that names exactly this plan: pacto accept refuses a plan that moved since */
             intentDigest: string;
             /** @description What the plan could not read or how records were verified */
             notes?: string[] | null;
+            /** @description Whom the draft was written for, as its writer asserts */
+            onBehalfOf?: string;
             /** @description Each proposed range the record accepts, with its source */
             ranges: components["schemas"]["Delivery.AcceptedRange"][] | null;
             /** @description The accepting service's fleet key */
@@ -1084,10 +1162,10 @@ export interface components {
         };
         AcceptRefusal: {
             /**
-             * @description AcceptNothingProposed: the newest published version proposes no range; NotPublished: the service has no published version to attach an acceptance to
+             * @description AcceptNothingProposed: the newest published version proposes no range; NotPublished: the service has no published version to attach an acceptance to; DraftNotFound, PlanStale and SignerUnverified: the acceptance draft is missing, moved or not signed by whom it names
              * @enum {string}
              */
-            code: "AcceptNothingProposed" | "NotPublished";
+            code: "AcceptNothingProposed" | "NotPublished" | "DraftNotFound" | "PlanStale" | "SignerUnverified";
             /** @description The command a person runs about it */
             command: string;
             message: string;
@@ -1741,6 +1819,12 @@ export interface components {
         DeclareWrite: {
             available: boolean;
             reason?: string;
+        };
+        "Delivery.AcceptedBreak": {
+            announcement: string;
+            bundle?: string;
+            provider: string;
+            version: string;
         };
         "Delivery.AcceptedRange": {
             field: string;
@@ -5247,6 +5331,8 @@ export interface components {
             subject: string;
         };
         FleetAcceptInputBody: {
+            /** @description Plan accepting this acceptance draft instead */
+            fromDraft?: string;
             /** @description The service whose proposed ranges to accept */
             serviceKey: string;
         };
@@ -9925,6 +10011,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AcceptPlanAnswer"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-accept-execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptExecuteInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptExecuteAnswer"];
                 };
             };
             /** @description Error */

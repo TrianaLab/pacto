@@ -89,11 +89,12 @@ type Options struct {
 	// nil, the endpoint is not registered.
 	Impact func(ctx context.Context, snap *fleet.FleetSnapshot, old, new string, includeObserved bool) (*impact.Result, error)
 	// AcceptPlan plans accepting every range the current revision rev of
-	// service svc proposes, as pacto accept would, and returns the plan and
-	// the command; it never signs and never writes. The route resolves svc
-	// in the viewer's snapshot first. Nil does not register
-	// /api/fleet/accept.
-	AcceptPlan func(ctx context.Context, svc fleet.ServiceKey, rev *fleet.ContractRevision) (AcceptPlanAnswer, error)
+	// service svc proposes, as pacto accept would, or accepting the
+	// acceptance draft fromDraft (a pacto-accept-draft-<n> tag) when it is
+	// set, and returns the plan and the command; it never signs and never
+	// writes. The route resolves svc in the viewer's snapshot first. Nil does
+	// not register /api/fleet/accept.
+	AcceptPlan func(ctx context.Context, svc fleet.ServiceKey, rev *fleet.ContractRevision, fromDraft string) (AcceptPlanAnswer, error)
 	// Declare plans and carries out declaring an inferred service for the
 	// person behind a request. Nil registers neither /api/fleet/declare nor
 	// /api/fleet/declare/accept; a declarer that cannot write registers only

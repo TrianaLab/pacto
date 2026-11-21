@@ -50,7 +50,8 @@
   // the service's COMPLETE target / revision / edge populations. It is deliberately not
   // computed from the previews beside it: those are capped at 200 items, so counting
   // them would quietly turn "the first 200 targets" into "this service".
-  let { detail, deliveryState = 'unknown', refreshTick = 0, miraURL = '', changesQuery = {} } = $props();
+  // acceptSigned is the intent a signing login for the accept plan came back with.
+  let { detail, deliveryState = 'unknown', refreshTick = 0, miraURL = '', changesQuery = {}, acceptSigned = '' } = $props();
   const d = $derived(detail.service ?? {});
   // The Delivery section's Stage rows, bound out so the Environments section joins them without a second fetch.
   let deliveryRows = $state([]);
@@ -637,12 +638,12 @@
        list (muted, filterable), so this block shows only an unreadable record. -->
   {#if d.inferredFields?.unreadable || (d.inferredFields?.total && !d.fields?.items?.some((f) => f.provenance === 'inferred'))}
     <div class="se-wrap" data-testid="service-inferred">
-      <PreviewSection title="Inferred by Pacto" collapsible open={false} clip={false} total={d.inferredFields.total} count={d.inferredFields.count ?? 0}
+      <PreviewSection title="Inferred by Pacto" collapsible open={!!acceptSigned} clip={false} total={d.inferredFields.total} count={d.inferredFields.count ?? 0}
         summary={d.inferredFields.unreadable ? 'Could not be read' : ''} tone={d.inferredFields.unreadable ? 'warn' : ''}
         empty="Pacto could not read the inferred record"
         help="Values Pacto read from the service's folder and keeps apart from the contract. Declare one to make it part of the contract.">
         <InferredFieldList items={d.inferredFields.items ?? []} total={d.inferredFields.total} unreadable={!!d.inferredFields.unreadable} />
-        {#if proposesRanges}<AcceptProposedRanges serviceKey={key} service={self} />{/if}
+        {#if proposesRanges}<AcceptProposedRanges serviceKey={key} service={self} signed={acceptSigned} />{/if}
       </PreviewSection>
     </div>
   {/if}

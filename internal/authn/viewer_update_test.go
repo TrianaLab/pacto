@@ -73,4 +73,8 @@ func TestMayUpdateWorkloadUsesClusterReviewer(t *testing.T) {
 	if ok, err := v.MayUpdateWorkload(ctx, alice, "dev", "billing", "Pod", "invoices"); ok || err != nil {
 		t.Errorf("a kind Pacto does not read: %v %v", ok, err)
 	}
+	// A Pacto resource stands in for a workload Pacto does not know.
+	if ok, err := v.MayUpdateWorkload(ctx, alice, "dev", "billing", PactoKind, "invoices"); !ok || err != nil || got[len(got)-1] != "dev/billing/pactos/update/invoices" {
+		t.Errorf("a Pacto: %v %v %v", ok, err, got)
+	}
 }

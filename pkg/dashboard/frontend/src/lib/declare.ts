@@ -4,7 +4,7 @@
  * what moved between two plans. Pure, so the panel only draws.
  */
 
-import { serviceDeclareUrl } from './router.ts';
+import { serviceAcceptSignedUrl, serviceDeclareUrl } from './router.ts';
 
 type Range = { dependency: string; compatibility: string; proposed?: string; observed?: string; accepted?: boolean };
 type Signer = { subject?: string; issuer?: string; class?: string };
@@ -58,6 +58,13 @@ export function draftMark(d: Draft): string {
  *  on the ticket, never on the URL. */
 export function signUrl(ticket: string, serviceKey: string, intent: string): string {
   const ret = '/' + serviceDeclareUrl(serviceKey, { signed: intent });
+  return `/auth/sign?ticket=${encodeURIComponent(ticket)}&return=${encodeURIComponent(ret)}`;
+}
+
+/** acceptSignUrl starts the signing login for an accept plan and comes back to the
+ *  service page with the intent it was started for. */
+export function acceptSignUrl(ticket: string, serviceKey: string, intent: string): string {
+  const ret = '/' + serviceAcceptSignedUrl(serviceKey, intent);
   return `/auth/sign?ticket=${encodeURIComponent(ticket)}&return=${encodeURIComponent(ret)}`;
 }
 

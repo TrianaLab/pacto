@@ -229,7 +229,7 @@ the note says where that answer lives instead.
 | Is this contract valid? | `pacto validate` | `pacto_check` | - | The dashboard validates nothing |
 | What may a contract say? | - | `pacto_schema` | - | The JSON Schema is published with the docs |
 | Declare a running service | `pacto declare` | `pacto_declare` | `POST /api/fleet/declare`, `POST /api/fleet/declare/accept` | An agent writes a draft a person accepts with `pacto declare --from-draft`; over HTTP the tool only plans; the dashboard plans for the signed-in person, signs with their fresh login or saves a draft |
-| Accept proposed ranges or a break | `pacto accept` | `pacto_accept` | `POST /api/fleet/accept` | An agent writes an acceptance draft a person signs with `pacto accept --draft`; the tool is served over stdio only; the dashboard shows the plan and the `pacto accept` command and never signs or writes |
+| Accept proposed ranges or a break | `pacto accept` | `pacto_accept` | `POST /api/fleet/accept`, `POST /api/fleet/accept/execute` | An agent writes an acceptance draft a person signs with `pacto accept --draft`; the tool is served over stdio only; the dashboard accepts every proposed range: it plans for the signed-in person, signs with their fresh login or saves an acceptance draft, and lists the drafts waiting |
 
 For one fleet, the three surfaces return the same `asOf`, `completeness`,
 `limitations` and unknown counts. The dashboard, and MCP with `--dashboard-url`,

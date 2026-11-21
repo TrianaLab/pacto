@@ -1109,7 +1109,7 @@ export function installScaleFixture(): void {
   // multiCluster (514-S2) answers every entities list as a view over three clusters with
   // 63-character names: the demo's own cluster, one the reader may not read and one whose
   // review failed, so the Cluster filter, its caption and the Clusters block render.
-  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden'; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed'; __pactoMultiCluster?: boolean };
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden' | 'execute' | 'drafts'; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed'; __pactoMultiCluster?: boolean };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1493,7 +1493,28 @@ export function installScaleFixture(): void {
         whoMayAccept: `${longName('ana')}@acme.example (the DRI of ${longName('payments-service')})`,
         existing: [{ state: 'routed', by: `${longName('bob')}@acme.example`, issuer: 'https://oauth2.sigstore.dev/auth', record: `${repo}@sha256:${'d1'.repeat(32)}`,
           reason: `waiting for the owner of ${longName('payments-service')}` }] },
+      ...acceptExecutePlan(repo),
     };
+  };
+  // What the person can do with the plan here (513-S6): sign with a long identity and
+  // save a draft; 'drafts' also lists the acceptance drafts waiting, one unreadable.
+  const acceptExecutePlan = (repo: string) => {
+    if (flags.__pactoAccept !== 'execute' && flags.__pactoAccept !== 'drafts') return {};
+    const planExtra = flags.__pactoAccept !== 'drafts' ? {} : { draftsTotal: 27, drafts: Array.from({ length: 20 }, (_, i) => i === 3
+      ? { tag: `pacto-accept-draft-${27 - i}`, state: 'unreadable', reason: `${repo}:pacto-accept-draft-${27 - i} holds no acceptance draft: ${longName('decode error')}`, signed: false }
+      : { tag: `pacto-accept-draft-${27 - i}`, state: 'draft', onBehalfOf: `${longName('ana')}@acme.example`, asker: i % 2 ? `${longName('ci')}@acme.example` : '', signed: i % 2 === 1,
+        ranges: Array.from({ length: 3 }, (_, j) => ({ field: `dependencies[${longName(`provider-${j}`)}].compatibility`, value: `^${j + 2}.${j}.0` })) }) };
+    return { execute: { signing: { mode: 'fresh-login', identity: `${longName('ana')}@acme.example` }, write: { available: true }, signTicket: 'f'.repeat(43) }, planExtra };
+  };
+  const acceptExecuteAnswer = (body: string | null) => {
+    const repo = `ghcr.io/trianalab/${longName('payments-service')}`;
+    const b = JSON.parse(body || '{}') as { mode?: string; fromDraft?: string };
+    if (b.fromDraft) {
+      return { refusal: { code: 'NotAllowed', message: `accepting ranges for ${longName('payments-service')} needs update on Deployment ${longName('payments')}/${longName('payments-api')}`,
+        command: `pacto accept oci://${repo} --draft ${repo}:${b.fromDraft} --intent sha256:${'a7'.repeat(32)}` } };
+    }
+    return b.mode === 'sign' ? { record: `${repo}@sha256:${'e2'.repeat(32)}`, state: 'counted' }
+      : { draft: `${repo}:pacto-accept-draft-28`, command: `pacto accept ${repo} --draft ${repo}:pacto-accept-draft-28` };
   };
   const breakStates = (method: string, route: string, doc: Record<string, unknown>) => {
     const consumers = doc.consumers as { items?: Record<string, unknown>[] } | undefined;
@@ -1528,7 +1549,12 @@ export function installScaleFixture(): void {
         detail: 'the Stage moved since you planned; review the fresh plan and propose again', plan: JSON.parse(plan.body) }) };
     }
     if (flags.__pactoAccept && method === 'POST' && route === '/api/fleet/accept') {
-      return { status: 200, contentType: 'application/json', body: JSON.stringify(acceptAnswer()) };
+      const { planExtra, ...a } = acceptAnswer() as Record<string, unknown> & { planExtra?: Record<string, unknown>; plan?: Record<string, unknown> };
+      if (a.plan && planExtra) Object.assign(a.plan, planExtra);
+      return { status: 200, contentType: 'application/json', body: JSON.stringify(a) };
+    }
+    if (flags.__pactoAccept && method === 'POST' && route === '/api/fleet/accept/execute') {
+      return { status: 200, contentType: 'application/json', body: JSON.stringify(acceptExecuteAnswer(body)) };
     }
     // Planning reads acceptances, so only a local viewer or a signed-in person is
     // offered it: the plan routes run as a local viewer, 'forbidden' as an open
@@ -2031,7 +2057,7 @@ const firstLink = (list: string, href: string) => async (page: Page) => {
  *  them there), presses "Accept all proposed ranges" and waits for the plan or refusal;
  *  'forbidden' is a viewer who is not signed in, offered only the CLI dry run. The page
  *  reloads so the session is read with the flag set. */
-export const acceptPlanRoute = (mode: 'plan' | 'refused' | 'forbidden') => async (page: Page) => {
+export const acceptPlanRoute = (mode: 'plan' | 'refused' | 'forbidden' | 'execute' | 'drafts') => async (page: Page) => {
   const flag = (m: string) => { (window as unknown as { __pactoAccept?: string }).__pactoAccept = m; };
   await page.addInitScript(flag, mode);
   await page.goto('/#/fleet/services/payments-service');
@@ -2043,7 +2069,14 @@ export const acceptPlanRoute = (mode: 'plan' | 'refused' | 'forbidden') => async
     await expect(block.getByTestId('accept-sign-in')).toBeVisible({ timeout: 30_000 });
   } else {
     await block.getByRole('button', { name: /Accept all proposed ranges/ }).click();
-    await expect(block.getByTestId(mode === 'plan' ? 'accept-waiting' : 'accept-refusal')).toBeVisible({ timeout: 30_000 });
+    await expect(block.getByTestId(mode === 'refused' ? 'accept-refusal' : 'accept-waiting')).toBeVisible({ timeout: 30_000 });
+  }
+  if (mode === 'execute') {
+    await block.getByTestId('accept-save-draft').click();
+    await expect(block.getByTestId('accept-result')).toBeVisible({ timeout: 30_000 });
+  } else if (mode === 'drafts') {
+    await block.getByTestId('accept-drafts').locator('summary').click();
+    await expect(block.getByTestId('accept-drafts').locator('li').first()).toBeVisible({ timeout: 30_000 });
   }
   await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
 };
@@ -2350,6 +2383,8 @@ export const ROUTES: Route[] = [
   { name: 'service entity', hash: '#/fleet/services/payments-service' },
   { name: 'service inferred accept plan', open: acceptPlanRoute('plan') },
   { name: 'service inferred accept refused', open: acceptPlanRoute('refused') },
+  { name: 'service inferred accept execute', open: acceptPlanRoute('execute') },
+  { name: 'service inferred accept drafts', open: acceptPlanRoute('drafts') },
   { name: 'service inferred accept forbidden', open: acceptPlanRoute('forbidden') },
   { name: 'revision list', list: true, hash: '#/fleet/revisions?service=payments-service' },
   { name: 'revision entity', open: firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/') },
