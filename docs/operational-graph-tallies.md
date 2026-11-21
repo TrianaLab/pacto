@@ -75,28 +75,29 @@ environment when both ends run there; its observation stays per service.
 
 `pacto validate`, `pacto_check`, a service's detail and the fleet answers
 carry `contractCompleteness`: how much of a service its contract declares, in
-eight sections. A section reads `declared`, `inferred` (Pacto knows it from
-running workloads and the contract does not say it), `missing`, `unknown` or
-`not-applicable`, and a gap the inferred record can fill carries `declare`,
+eight sections. A section reads `declared`, `inferred` (the contract does not
+fully declare it and the inferred record holds a field for it), `missing`,
+`unknown` or `not-applicable`, and a gap the inferred record can fill carries `declare`,
 the YAML to add.
 
 | Section | Applies when | Declared when |
 |---------|--------------|---------------|
-| `interfaces` | the contract declares an interface or Pacto infers one | every interface names a document (`ref`) |
-| `configuration` | the contract declares a configuration or Pacto infers configuration fields | every configuration has a schema |
+| `interfaces` | the contract declares an interface or Pacto infers one or a port | every interface names a document (`ref`) |
+| `configuration` | the contract declares a configuration or Pacto infers configuration fields | every configuration has a schema or a reference (`ref`); values alone read `missing` |
 | `dependencies` | the contract declares a dependency or Pacto infers one | every dependency accepts a version range |
 | `owner` | always | the contract names an owner |
 | `summary` | always | the contract declares `service.summary` |
 | `domain` | always | the contract declares a business domain |
-| `runtime` | the contract declares a workload or Pacto infers runtime facts | it declares the workload and a health capability |
-| `readiness` | the service is no golden path | the revision carries a readiness assessment |
+| `runtime` | the contract declares a workload or Pacto infers the workload or a health check (an image alone does not count) | it declares the workload and a health capability |
+| `readiness` | the service is no golden path | the contract carries a readiness assessment with at least one claim |
 
 `percentComplete` is declared sections over sections that apply; `inferred`
 and `unknown` count only in the base, so neither is ever complete. An owner
 that only an attestation or an inference names reads `inferred`. The fleet
 figure is the mean over the services Pacto can judge, with `judged`,
 `unknown`, `fullyDescribed` (every section that applies is declared) and the
-three sections most often `mostMissing`.
+three sections most often `missing` or only `inferred` as `mostMissing` (an
+`unknown` section never counts there).
 
 The knowledge gaps keep their filters and attention items and land in the
 checklist:
