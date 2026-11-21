@@ -56,6 +56,9 @@ export type ProductEntityDetail = JSON200<'fleet-entity-detail'>;
 export type ProductNeighborhood = JSON200<'fleet-neighborhood'>;
 export type ProductAttentionList = JSON200<'fleet-attention'>;
 export type ProductImpact = JSON200<'fleet-impact-post'>;
+export type FleetMapAnswer = JSON200<'fleet-map'>;
+export type FleetMapNodesPage = JSON200<'fleet-map-nodes'>;
+export type FleetMapFocusAnswer = JSON200<'fleet-map-focus'>;
 /** What accepting every proposed range of a service would sign, and the command that signs it. */
 export type AcceptPlanAnswer = JSON200<'fleet-accept'>;
 export type ProductRevisionDocument = JSON200<'fleet-revision-document'>;
@@ -141,6 +144,9 @@ type FleetEntitiesQuery = NonNullable<operations['fleet-entities']['parameters']
 type FleetNeighborhoodQuery = NonNullable<operations['fleet-neighborhood']['parameters']['query']>;
 type FleetAttentionQuery = NonNullable<operations['fleet-attention']['parameters']['query']>;
 type FleetVersionsQuery = operations['fleet-versions']['parameters']['query'];
+type FleetMapQuery = NonNullable<operations['fleet-map']['parameters']['query']>;
+type FleetMapNodesQuery = operations['fleet-map-nodes']['parameters']['query'];
+type FleetMapFocusQuery = operations['fleet-map-focus']['parameters']['query'];
 type FleetImpactBody = NonNullable<operations['fleet-impact-post']['requestBody']>['content']['application/json'];
 
 export type FleetEntitiesInput = FleetEntitiesQuery;
@@ -501,6 +507,12 @@ export const api = {
       params: { query: { ...rest, views: views?.length ? views.join(',') : undefined } },
     }));
   },
+  fleetMap: (params: FleetMapQuery = {}): Promise<FleetMapAnswer> =>
+    productGet(client.GET('/api/fleet/map', { params: { query: params } })),
+  fleetMapNodes: (params: FleetMapNodesQuery): Promise<FleetMapNodesPage> =>
+    productGet(client.GET('/api/fleet/map/nodes', { params: { query: params } })),
+  fleetMapFocus: (params: FleetMapFocusQuery): Promise<FleetMapFocusAnswer> =>
+    productGet(client.GET('/api/fleet/map/focus', { params: { query: params } })),
   fleetAttention: (params: FleetAttentionInput = {}): Promise<ProductAttentionList> =>
     productGet(client.GET('/api/fleet/attention', {
       params: { query: { ...params, staleOnly: params.staleOnly || undefined } },
