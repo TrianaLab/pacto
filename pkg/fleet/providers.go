@@ -69,6 +69,12 @@ const (
 	UseIndexListedByCatalog = "index-listed-by-catalog"
 	// UseIndexListedByTag: the registry refuses _catalog, so Pacto lists by tag.
 	UseIndexListedByTag = "index-listed-by-tag"
+	// ProviderKernelEgress is the row of the calls leaving the cluster that
+	// the node agent saw, built from the Pacto statuses a source read.
+	ProviderKernelEgress = "kernel-egress"
+	// UseExternalEgress: Pacto reads calls leaving the cluster, to Externals,
+	// from what the row read.
+	UseExternalEgress = "external-egress"
 )
 
 // LimitationRegistryProbeFailed: Pacto could not probe a registry host, so it
@@ -511,18 +517,20 @@ func hideDetectedCluster(p Provider) (string, []Limitation) {
 		slices.DeleteFunc(slices.Clone(p.Limitations), func(l Limitation) bool { return l.Code == LimitationDetectionClusterMismatch })
 }
 
-// redactDetected redacts a detected row p a reader visible says yes to may
-// not read whole, its objects already narrowed from had: a cluster-wide row
-// for a reader who may not read the cluster scope, and a row that lost an
-// object to the view or to the cap. Its evidence then says only that it
+// redactDetected redacts a row p a reader visible says yes to may not read
+// whole, its objects already narrowed from had: a cluster-wide row of any
+// provenance for a reader who may not read the cluster scope, and a detected
+// row that lost an object to the view or to the cap. Its evidence then says only that it
 // exists, and its hint and details go, so the view never repeats what the
 // operator read with grants the reader lacks.
 func redactDetected(p *Provider, had int, visible func(string) bool) {
 	switch {
-	case p.Provenance != ProvenanceInferred:
 	case p.Scope == ScopeCluster && !visible(""):
+		// Whatever its provenance: a source-reported cluster-wide row (kernel
+		// egress) counts nodes the reader may not see either.
 		p.Evidence = p.Name + " detected cluster-wide; you may read only some namespaces"
 		p.Hint, p.Details = "", nil
+	case p.Provenance != ProvenanceInferred:
 	case len(p.Objects) < max(p.ObjectsTotal, had):
 		p.Evidence = p.Name + " found in a namespace you cannot read"
 		p.Hint, p.Details = "", nil
@@ -581,7 +589,7 @@ func startsWithCount(s string) bool { return s != "" && s[0] >= '0' && s[0] <= '
 // detectedNarrowed reports whether a reader visible says yes to would see p
 // redacted by redactDetected while losing none of its objects.
 func detectedNarrowed(p Provider, visible func(string) bool) bool {
-	return p.Provenance == ProvenanceInferred && !visible("") && (p.Scope == ScopeCluster || p.ObjectsTotal > len(p.Objects))
+	return !visible("") && (p.Scope == ScopeCluster || p.Provenance == ProvenanceInferred && p.ObjectsTotal > len(p.Objects))
 }
 
 // restrictedEvidence is the evidence of p, already narrowed, with the counts

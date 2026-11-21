@@ -8,9 +8,11 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 
 	"github.com/spf13/cobra"
@@ -139,4 +141,11 @@ func TestFleetProvidersParity(t *testing.T) {
 func TestFleetProvidersNotReadBeyondBound(t *testing.T) {
 	out, _ := providersText(t, &fleet.ProvidersResult{KubernetesSources: 3, NotReadTotal: 3, NotRead: []fleet.SourceState{{ID: "a", Status: fleet.SourceUnavailable}}})
 	expect(t, strings.Contains(out, "a  not read") && strings.Contains(out, "... 2 more not read") && !strings.Contains(out, "No providers detected"), "not read:\n%s", out)
+}
+
+func TestFleetProvidersEgressDetectedRowCell(t *testing.T) {
+	at := time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)
+	row := detect.ProviderRows(detect.Result{AsOf: at, Entries: []detect.Entry{detect.IstioEgress(true, nil)}}, "detected", at)[0]
+	got := providerUsedFor(row)
+	expect(t, strings.HasPrefix(got, "reads calls leaving the cluster; nothing is turned on"), "the istio-egress cell prints the sentence: %s", got)
 }

@@ -47,6 +47,7 @@ const (
 	gatewayGV    = "gateway.networking.k8s.io/v1"
 	monitoringGV = "monitoring.coreos.com/v1"
 	dexGV        = "dex.coreos.com/v1"
+	istioGV      = "networking.istio.io/v1"
 )
 
 // pageSize is the List page of the paginated reads.
@@ -157,6 +158,9 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 
 	served, servedErr := d.Served(monitoringGV)
 	res.Entries = append(res.Entries, detect.Metrics(served, classed(servedErr)))
+
+	istioServed, istioErr := d.Served(istioGV)
+	res.Entries = append(res.Entries, detect.IstioEgress(istioServed, classed(istioErr)))
 
 	dexServed, dexErr := d.Served(dexGV)
 	services, err := d.dexServices(ctx)

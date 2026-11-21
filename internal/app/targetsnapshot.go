@@ -20,6 +20,7 @@ import (
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/errcode"
 
+	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
@@ -295,8 +296,12 @@ type snapshotRead struct {
 func (rd snapshotRead) sources() []fleet.Source {
 	vlims := verdictLimitations(rd.id, rd.snap.Cluster, rd.verdict)
 	wid := rd.id + workloadsSuffix
+	pactos := delivery.PactoCollection(rd.id, rd.snap.Pactos, nil, rd.now)
+	if row, ok := fleetsrc.KernelEgressRow(rd.id, rd.snap.Pactos, rd.now); ok {
+		pactos.Providers = append(pactos.Providers, row)
+	}
 	out := []fleet.Source{
-		rd.section(rd.id, fleet.SourceKindTargetSnapshot, fleet.SourceKindKubernetes, delivery.PactoCollection(rd.id, rd.snap.Pactos, nil, rd.now),
+		rd.section(rd.id, fleet.SourceKindTargetSnapshot, fleet.SourceKindKubernetes, pactos,
 			append(slices.Clone(vlims), withSource(rd.id, rd.snap.Limitations)...)),
 		rd.section(wid, fleet.SourceKindKubernetesWorkloads, fleet.SourceKindKubernetesWorkloads, &fleet.Collection{InferredServices: rd.snap.Workloads}, withSource(wid, vlims)),
 	}

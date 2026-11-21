@@ -87,6 +87,10 @@ func TestPactoStatusFillsTheDeliveryReadContract(t *testing.T) {
 	p.Status.Externals = []pactov1alpha1.ExternalStatus{ext}
 	p.Status.ExternalsCoverage = &pactov1alpha1.CallerCoverage{State: "partial", Reason: "truncated", RefreshSeconds: 300}
 	p.Status.ExternalCatalog = "sha256:c (embedded)"
+	p.Status.StatusFormat = pactov1alpha1.PactoStatusFormat
+	egress := pactov1alpha1.EgressStatus{Identity: "stripe", Class: "vendor-api", Host: "api.stripe.com", Port: 443, Source: pactov1alpha1.EgressSourceKernel}
+	p.Status.ObservedEgress = []pactov1alpha1.EgressStatus{egress}
+	p.Status.ObservedEgressCoverage = &pactov1alpha1.EgressCoverage{CallerCoverage: pactov1alpha1.CallerCoverage{State: "partial", Reason: "dns-unavailable", RefreshSeconds: 300}, Nodes: 4, NodesWithAgent: 3}
 	p.Status.Findings = append(p.Status.Findings, pactov1alpha1.FindingStatus{Code: "DEPENDENCY_UNDECLARED", Severity: "warning",
 		Category: "RuntimeDrift", Subject: "dependency/fraud", Message: "m",
 		EvidenceRefs: []pactov1alpha1.EvidenceRefStatus{{Source: "k8s", ObservedAt: "t", Collector: "ebpf", DetectedAt: "2026-10-20T10:00:00Z"}}})
@@ -112,7 +116,10 @@ func TestPactoStatusFillsTheDeliveryReadContract(t *testing.T) {
 		s.ObservedCallersCoverage == nil || *s.ObservedCallersCoverage != (delivery.CallerCoverageView{State: "partial", Reason: "stale-node", RefreshSeconds: 300}) ||
 		len(s.Externals) != 1 || s.Externals[0] != (delivery.ExternalView{Identity: ext.Identity, Class: ext.Class, Confidence: ext.Confidence, Kind: ext.Kind, Where: ext.Where, Host: ext.Host, Entry: ext.Entry}) ||
 		s.ExternalsCoverage == nil || *s.ExternalsCoverage != (delivery.CallerCoverageView{State: "partial", Reason: "truncated", RefreshSeconds: 300}) ||
-		s.ExternalCatalog != "sha256:c (embedded)" {
+		s.ExternalCatalog != "sha256:c (embedded)" || s.StatusFormat != delivery.StatusFormatEgress ||
+		len(s.ObservedEgress) != 1 || s.ObservedEgress[0] != (delivery.EgressView{Identity: "stripe", Class: "vendor-api", Host: "api.stripe.com", Port: 443, Source: "ebpf"}) ||
+		s.ObservedEgressCoverage == nil || *s.ObservedEgressCoverage != (delivery.EgressCoverageView{
+		CallerCoverageView: delivery.CallerCoverageView{State: "partial", Reason: "dns-unavailable", RefreshSeconds: 300}, Nodes: 4, NodesWithAgent: 3}) {
 		t.Fatalf("the delivery read contract lost a field: %+v", v)
 	}
 }

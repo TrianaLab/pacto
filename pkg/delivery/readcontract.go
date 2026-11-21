@@ -78,6 +78,11 @@ const StatusFormatDomain = 2
 // external systems the workload uses is unknown.
 const StatusFormatExternals = 3
 
+// StatusFormatEgress is the first statusFormat that records the external
+// systems the node agent saw the target workload call (status.observedEgress)
+// and how far that list can be trusted (status.observedEgressCoverage).
+const StatusFormatEgress = 4
+
 // PactoStatusView is the part of Pacto.status the promoter reads.
 type PactoStatusView struct {
 	// StatusFormat is the layout the operator wrote the status in (see
@@ -108,6 +113,31 @@ type PactoStatusView struct {
 	// ExternalCatalog is the digest of the catalog Externals were classified
 	// with, followed by " (embedded)" for the copy compiled into the operator.
 	ExternalCatalog string `json:"externalCatalog"`
+	// ObservedEgress are the systems outside the cluster the node agent saw
+	// the target workload call (status format 4).
+	ObservedEgress []EgressView `json:"observedEgress"`
+	// ObservedEgressCoverage says whether ObservedEgress is complete; nil
+	// when runtime observation is not configured for this Pacto.
+	ObservedEgressCoverage *EgressCoverageView `json:"observedEgressCoverage"`
+}
+
+// EgressView is one Pacto.status.observedEgress entry: an external system
+// reached by Host, never a path or a value.
+type EgressView struct {
+	Identity string `json:"identity"`
+	Class    string `json:"class"`
+	Host     string `json:"host"`
+	Port     int32  `json:"port"`
+	Source   string `json:"source"`
+}
+
+// EgressCoverageView is Pacto.status.observedEgressCoverage: the caller
+// coverage fields and the nodes running pods, with how many run the node
+// agent.
+type EgressCoverageView struct {
+	CallerCoverageView
+	Nodes          int32 `json:"nodes"`
+	NodesWithAgent int32 `json:"nodesWithAgent"`
 }
 
 // ExternalView is one Pacto.status.externals entry. Where names an object
@@ -263,7 +293,7 @@ func PactoCollection(source string, pactos []PactoView, listErr error, now time.
 		rev, digest := revisionFromStatus(p)
 		col.Revisions = append(col.Revisions, rev)
 		reconciled := parseTime(p.Status.LastReconciledAt)
-		lims := append(CallerLimitations(p, reconciled, now), ExternalLimitations(p, reconciled, now)...)
+		lims := RuntimeLimitations(p, reconciled, now)
 		for i := range lims {
 			lims[i].Source = source
 		}
@@ -294,15 +324,22 @@ func CallerLimitations(p PactoView, reconciled *time.Time, now time.Time) []flee
 	if cov == nil {
 		return nil
 	}
-	state, reason := cov.State, cov.Reason
-	if staleStatus(reconciled, cov.RefreshSeconds, now) {
-		state, reason = "unavailable", "stale-status"
-	}
+	state, reason := freshCoverage(*cov, reconciled, now)
 	if state == "complete" {
 		return nil
 	}
 	return []fleet.Limitation{{Code: LimitationCallersUnseen, Source: SnapshotSourceID,
 		Message: "runtime callers of " + p.Status.Contract.ServiceName + " cannot be ruled out: " + coverageWhy(state, reason)}}
+}
+
+// freshCoverage is the state and reason of cov, or unavailable with
+// stale-status when the operator has not rewritten it in time (see
+// staleStatus).
+func freshCoverage(cov CallerCoverageView, reconciled *time.Time, now time.Time) (state, reason string) {
+	if staleStatus(reconciled, cov.RefreshSeconds, now) {
+		return "unavailable", "stale-status"
+	}
+	return cov.State, cov.Reason
 }
 
 // staleStatus reports whether a coverage the operator should rewrite every
@@ -389,6 +426,14 @@ var coverageReasons = map[string]string{
 	"serviceentry-reader-off":  "the cluster serves no Istio ServiceEntries API, so the operator cannot read Istio ServiceEntries",
 	"serviceentry-unreadable":  "the operator could not read the Istio ServiceEntries",
 	"object-host-unclassified": "a Service or ServiceEntry names a host outside the cluster that gives no identity, such as one under a private suffix",
+	"services-unreadable":      "the operator could not read the cluster's Services, so it cannot tell a call inside the cluster from one leaving it",
+	"no-running-pods":          "the workload runs no pod the node agent can watch",
+	"dns-unavailable":          "a node agent cannot read DNS answers, so it cannot name the systems the workload calls",
+	"ambiguous-peers":          "an address the workload called answers for more than one domain, so the node agent cannot tell which one it called",
+	"unnamed-public":           "the workload called a public address the node agent saw no DNS answer for",
+	"unnamed-private-peers":    "the workload called a private address outside the cluster that the node agent cannot name",
+	"gateway-log-format":       "the egress gateway's access log is in a format the operator cannot read",
+	"gateway-access-log-off":   "the egress gateway writes no access log",
 }
 
 // InitClusterCommand is the command a hold prints to draft a contract for an
@@ -400,8 +445,10 @@ func InitClusterCommand(namespace string) string {
 
 // ObservedEdges are the runtime calls a Pacto's status shows: one edge per
 // DEPENDENCY_UNDECLARED finding the node agent raised, from this service to
-// the one it called, and one per uncontracted caller of this service, under a
-// k8s: name that never resolves to a contracted service. They carry no count
+// the one it called, one per uncontracted caller of this service, under a
+// k8s: name that never resolves to a contracted service, and one per
+// observedEgress entry, from this service to the host it reached, which the
+// fold classifies into an External. They carry no count
 // or time, so the snapshot changes only when the set of calls does. p must
 // carry status.contract.
 func ObservedEdges(p PactoView) []fleet.ObservedEdge {
@@ -414,6 +461,9 @@ func ObservedEdges(p PactoView) []fleet.ObservedEdge {
 	}
 	for _, c := range p.Status.ObservedCallers {
 		out = append(out, fleet.ObservedEdge{From: CallerName(c.Namespace, c.Kind, c.Name), To: svc, Count: 1})
+	}
+	for _, e := range p.Status.ObservedEgress {
+		out = append(out, fleet.ObservedEdge{From: svc, To: e.Host, Count: 1})
 	}
 	return out
 }

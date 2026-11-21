@@ -5,6 +5,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // Route is one HTTPRoute parent: the route's namespace and the Gateway it
@@ -29,6 +31,21 @@ func Metrics(served bool, err error) Entry {
 	if served {
 		e.Value, e.Evidence = "Prometheus Operator", "serves monitoring.coreos.com/v1; read passively"
 	}
+	return e
+}
+
+// IstioEgress says whether the Istio ServiceEntry API is served: the
+// operator reads the ServiceEntries that name the systems a workload calls
+// outside the cluster. The entry comes from a cluster-wide read.
+func IstioEgress(served bool, err error) Entry {
+	e := Entry{Kind: "istio-egress", Evidence: "ServiceEntry CRD present", Source: "API discovery", Completeness: Complete}
+	switch {
+	case err != nil:
+		e = discoveryFailed("istio-egress", err)
+	case !served:
+		e.Evidence, e.Completeness, e.Reason = "no ServiceEntry CRD", Unknown, "the cluster serves no networking.istio.io/v1 API, so no ServiceEntry is read"
+	}
+	e.Scope = fleet.ScopeCluster
 	return e
 }
 

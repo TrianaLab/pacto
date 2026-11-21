@@ -18,6 +18,7 @@ var rowNames = map[string]string{
 	"exposure": "Exposure", "metrics": "Metrics", "nodes": "Nodes",
 	"pull-secret": "Pull Secret", "otel-collector": "OTel Collector", "tempo": "Tempo",
 	"jaeger": "Jaeger", "datadog": "Datadog", "traces": "Traces",
+	"istio-egress": "Istio egress",
 }
 
 // usedFor says, per kind, what a person may do with the proposal. Nothing is
@@ -36,7 +37,15 @@ var usedFor = map[string]string{
 	"jaeger":         observedEdges,
 	"datadog":        observedEdges,
 	"traces":         observedEdges,
+	"istio-egress":   egressSentence,
 }
+
+// egressSentence is what an egress reader's row is used for.
+const egressSentence = "reads calls leaving the cluster; nothing is turned on"
+
+// EgressKinds are the kinds whose rows read calls leaving the cluster: their
+// UsedFor carries [fleet.UseExternalEgress] after the sentence.
+var EgressKinds = []string{"istio-egress"}
 
 // observedEdges is what a trace-backend row is used for.
 const observedEdges = "observed edges, read by the dashboard; nothing is turned on"
@@ -58,7 +67,7 @@ func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
 		asOf, cluster := res.AsOf, cmp.Or(res.ClusterName, res.Cluster)
 		p := fleet.Provider{
 			ID: e.Kind, Name: rowName(e.Kind), Evidence: evidence(e, source, cluster),
-			UsedFor: []string{cmp.Or(usedFor[e.Kind], "proposal; nothing is turned on")}, Status: status(e.Completeness, now.Sub(asOf)),
+			UsedFor: rowUsedFor(e.Kind), Status: status(e.Completeness, now.Sub(asOf)),
 			Provenance: fleet.ProvenanceInferred, AsOf: &asOf, Hint: e.Hint, Details: slices.Clone(e.Details),
 			Scope: e.Scope, Cluster: cluster, ClusterID: res.Cluster,
 		}
@@ -75,6 +84,16 @@ func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
 		rows = append(rows, p)
 	}
 	return rows
+}
+
+// rowUsedFor is the UsedFor of a row of kind: its sentence, then
+// [fleet.UseExternalEgress] for an egress kind.
+func rowUsedFor(kind string) []string {
+	out := []string{cmp.Or(usedFor[kind], "proposal; nothing is turned on")}
+	if slices.Contains(EgressKinds, kind) {
+		out = append(out, fleet.UseExternalEgress)
+	}
+	return out
 }
 
 // rowName is the row name of kind.
