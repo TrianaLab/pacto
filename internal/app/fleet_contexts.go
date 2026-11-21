@@ -4,11 +4,13 @@ import (
 	"cmp"
 	"context"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	"k8s.io/client-go/rest"
 
+	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
@@ -171,7 +173,10 @@ func (s *Service) entrySources(e K8sEntry, several bool, opts FleetOptions, prom
 			"the cluster of context "+e.label()+" cannot be told apart from the others: Pacto could not read its identity")}
 	}
 	id := cmp.Or(e.UID, e.label())
-	srcs := liveK8sSources(id, e.cluster, e.client, opts.K8sNamespaces, promoters)
+	// The mesh source is rebuilt for every build; its memo outlives them so
+	// the mesh is read at most once per interval per process.
+	memo, _ := s.k8sLast.LoadOrStore(k8sMemo{"mesh", id + "|" + strings.Join(opts.K8sNamespaces, ",")}, &fleetsrc.MeshMemo{})
+	srcs := liveK8sSources(id, e.cluster, e.client, opts.K8sNamespaces, promoters, memo.(*fleetsrc.MeshMemo))
 	if !opts.LongRunning {
 		return srcs
 	}

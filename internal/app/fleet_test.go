@@ -17,6 +17,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -349,10 +350,15 @@ type fakeFleetK8sClient struct {
 	versions  map[string]string
 	// down, when set, fails every read of the cluster but its identity.
 	down error
+	// meshReads counts the discoveries a mesh read starts with.
+	meshReads int
 }
 
 // PreferredVersions serves the groups of versions; none by default.
-func (f *fakeFleetK8sClient) PreferredVersions(context.Context, ...string) (map[string]string, error) {
+func (f *fakeFleetK8sClient) PreferredVersions(_ context.Context, groups ...string) (map[string]string, error) {
+	if slices.Contains(groups, "networking.istio.io") {
+		f.meshReads++
+	}
 	return f.versions, nil
 }
 
@@ -526,7 +532,7 @@ func TestLiveK8sRegistersWorkloadSource(t *testing.T) {
 }
 
 func TestLiveK8sSourcesIncludeMesh(t *testing.T) {
-	srcs := liveK8sSources("uid-1", nil, &fakeFleetK8sClient{}, nil, nil)
+	srcs := liveK8sSources("uid-1", nil, &fakeFleetK8sClient{}, nil, nil, &fleetsrc.MeshMemo{})
 	var ids []string
 	for _, s := range srcs {
 		ids = append(ids, s.ID())

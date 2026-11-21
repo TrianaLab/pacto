@@ -335,3 +335,21 @@ func TestRememberingSourceKeepsItsCluster(t *testing.T) {
 		t.Error("a source with no cluster names none")
 	}
 }
+
+// Every build makes new sources, yet the mesh is read once per interval per
+// context: its last read is kept on the Service, one-shot builds included.
+func TestMeshReadOncePerIntervalAcrossBuilds(t *testing.T) {
+	c := clusterFake(clusterA)
+	svc := contextService("eu-prod", map[string]*fakeFleetK8sClient{"eu-prod": c}, map[string]string{"eu-prod": "https://eu"})
+	for _, longRunning := range []bool{false, true, false} {
+		if _, err := svc.Fleet(context.Background(), FleetOptions{K8sContexts: []string{"eu-prod"}, LongRunning: longRunning}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if c.meshReads != 1 {
+		t.Errorf("mesh read %d times in three builds; want once", c.meshReads)
+	}
+	if _, err := svc.Fleet(context.Background(), FleetOptions{K8sContexts: []string{"eu-prod"}, K8sNamespaces: []string{"prod"}}); err != nil || c.meshReads != 2 {
+		t.Errorf("another scope read %d times, %v; want its own read", c.meshReads, err)
+	}
+}
