@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -173,7 +174,7 @@ func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) 
 		_, _ = fmt.Fprintf(w, "Classification: %s\n", colorClassification(w, result.Classification))
 		_, _ = fmt.Fprintf(w, "Required bump: %s\n", result.RequiredBump)
 
-		if len(result.Changes) == 0 && len(result.DependencyDiffs) == 0 && rendered == "" && !hasSBOM && !hasDepSBOM {
+		if !hasDiffContent(result) && rendered == "" && !hasSBOM && !hasDepSBOM {
 			_, _ = fmt.Fprintln(w, "No changes detected.")
 			return nil
 		}
@@ -203,6 +204,7 @@ func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) 
 		if hasSBOM {
 			printSBOMDiff(w, result.SBOMDiff)
 		}
+		printDiffAdvisories(w, result.Advisories)
 
 		return nil
 	}, func() error {
@@ -210,11 +212,40 @@ func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) 
 	})
 }
 
+// hasDiffContent reports whether the diff has changes, dependency diffs or
+// advisories to print.
+func hasDiffContent(r *app.DiffResult) bool {
+	return len(r.Changes) > 0 || len(r.DependencyDiffs) > 0 || len(r.Advisories) > 0
+}
+
+// printDiffAdvisories prints the possible breaks on inferred interfaces,
+// each with the YAML that declares the interface.
+func printDiffAdvisories(w io.Writer, advisories []diff.Advisory) {
+	if len(advisories) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, "\nPossible breaks (inferred, advisory):")
+	for _, a := range advisories {
+		_, _ = fmt.Fprintf(w, "  possible break (inferred) %s\n  declare it:\n%s", a.Summary(), indent("    ", a.Declare))
+	}
+}
+
+// printDiffAdvisoriesMarkdown is printDiffAdvisories as Markdown.
+func printDiffAdvisoriesMarkdown(w io.Writer, advisories []diff.Advisory) {
+	if len(advisories) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "### Possible breaks (inferred, advisory)\n\n")
+	for _, a := range advisories {
+		_, _ = fmt.Fprintf(w, "- possible break (inferred) `%s`\n\n```yaml\n%s```\n\n", strings.ReplaceAll(a.Summary(), "`", "'"), a.Declare)
+	}
+}
+
 func printDiffMarkdown(cmd *cobra.Command, result *app.DiffResult) error {
 	w := cmd.OutOrStdout()
 	_, _ = fmt.Fprintf(w, "## Contract Diff\n\n**Classification:** `%s`\n\n**Required bump:** `%s`\n\n", result.Classification, result.RequiredBump)
 
-	hasChanges := len(result.Changes) > 0 || len(result.DependencyDiffs) > 0
+	hasChanges := hasDiffContent(result)
 	rendered := graph.RenderDiffTree(result.GraphDiff)
 	hasSBOM := result.SBOMDiff != nil && len(result.SBOMDiff.Changes) > 0
 	hasDepSBOM := hasAnyDepSBOM(result.DependencyDiffs)
@@ -247,6 +278,7 @@ func printDiffMarkdown(cmd *cobra.Command, result *app.DiffResult) error {
 		_, _ = fmt.Fprintf(w, "### SBOM Changes\n\n")
 		printSBOMChangeRows(w, result.SBOMDiff.Changes)
 	}
+	printDiffAdvisoriesMarkdown(w, result.Advisories)
 
 	return nil
 }
@@ -367,10 +399,13 @@ func printExplainDependencies(w io.Writer, deps []app.ExplainDependency) {
 		if dep.Required {
 			req = "required"
 		}
-		if dep.Ref == "" {
-			_, _ = fmt.Fprintf(w, "  - %s: external, version %s (cannot be checked, %s)\n", dep.Name, dep.Version, req)
-		} else {
+		switch {
+		case dep.Ref != "":
 			_, _ = fmt.Fprintf(w, "  - %s: %s (%s, %s)\n", dep.Name, dep.Ref, contract.RangeLabel(dep.Compatibility), req)
+		case dep.External:
+			_, _ = fmt.Fprintf(w, "  - %s: external, version %s (cannot be checked, %s)\n", dep.Name, dep.Version, req)
+		default:
+			_, _ = fmt.Fprintf(w, "  - %s: by name, compatibility %s (%s)\n", dep.Name, contract.RangeLabel(dep.Compatibility), req)
 		}
 		for _, r := range dep.Requires {
 			_, _ = fmt.Fprintf(w, "      requires from %s\n", r)
@@ -518,6 +553,7 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 // one JSON object for the configuration schema's properties.
 func printExplainInferred(w io.Writer, result *app.ExplainResult) {
 	defer printDiscoveryFindings(w, result)
+	defer printExplainDeclaration(w, result) // a declaration with no field still says who declared it
 	if !result.InferredUnreadable && len(result.Inferred) == 0 {
 		return
 	}
@@ -560,9 +596,49 @@ func printExplainInferred(w io.Writer, result *app.ExplainResult) {
 	}
 }
 
+// printExplainDeclaration prints who the record says declared the service,
+// or for a draft who proposed it and what it requests, and how completely
+// the cluster was read. Explain checks no signature, so it says the signer
+// is unchecked.
+func printExplainDeclaration(w io.Writer, result *app.ExplainResult) {
+	switch d := result.Declaration; {
+	case d == nil:
+	case d.State == contract.DeclarationDraft:
+		_, _ = fmt.Fprintf(w, "\nDraft by %s for %s (asserted) from %s, awaiting a person: accept it with pacto declare %s --from-draft <tag>; %s\n",
+			cmp.Or(d.Asker.Subject, "nobody (unsigned)"), cmp.Or(d.OnBehalfOf, "nobody named"), cmp.Or(d.InferredFrom, "a folder"), result.Name, app.DeclarationSignerNote)
+		for _, r := range d.Requested {
+			_, _ = fmt.Fprintf(w, "  requests %s %s\n", r.Field, r.Range)
+		}
+	default:
+		_, _ = fmt.Fprintf(w, "\nDeclared by %s (%s) from %s; %s\n", d.Asker.Subject, d.Asker.Issuer, cmp.Or(d.InferredFrom, "a folder"), app.DeclarationSignerNote)
+	}
+	if n := len(result.InferredCoverage); n > 0 {
+		k := 0
+		for _, c := range result.InferredCoverage {
+			if c.State == contract.CoverageComplete {
+				k++
+			}
+		}
+		_, _ = fmt.Fprintf(w, "Cluster read: %d of %d sources complete\n", k, n)
+	}
+	if h := result.InferredHidden; h != nil {
+		_, _ = fmt.Fprintf(w, "Hidden from the cluster read: %d services, %d callers\n", h.Services, h.Callers)
+	}
+}
+
 // explainInferredLine is the line explain prints for the inferred field f.
 func explainInferredLine(f contract.Inferred) string {
 	line := fmt.Sprintf("  %s  inferred  %s  from %s", f.Field, f.Value, explainSource(f.Source))
+	if f.AsOf != "" {
+		line += " (read from the cluster " + f.AsOf
+		if f.Completeness == contract.CoveragePartial {
+			line += ", partial"
+		}
+		line += ")"
+	}
+	if f.Proposed != "" {
+		line += "; proposed " + f.Proposed
+	}
 	if f.Class == contract.InferredClassOwnerFile {
 		line += "; read from an owner file, not verified"
 	}

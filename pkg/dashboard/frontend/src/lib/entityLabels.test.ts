@@ -9,6 +9,7 @@ import {
   provenanceLabel, provenanceIsImplied,
   sourceHealthTallyParts, sourceHealthSentence,
   collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED, serviceKeyName, replacesTip, ownerProvenanceText,
+  attentionCause, nextActionWords,
 } from './entityLabels.ts';
 
 describe('acceptsLabel', () => {
@@ -288,6 +289,16 @@ describe('replacesTip', () => {
   });
 });
 
+describe('replacesTip for an inferred-from link', () => {
+  it('names the signer and the revision, and says when Pacto read no workload', () => {
+    const r = { from: 'k8s:billing%2FDeployment%2Finvoices', link: 'inferred-from', by: 'ana@acme.example', revision: 'invoices@0.1.0' };
+    expect(replacesTip([{ ...r, workload: { name: 'invoices' } }], 1)).toBe('Declared by ana@acme.example from this inferred service in revision invoices@0.1.0.');
+    expect(replacesTip([r], 1)).toBe('Declared by ana@acme.example from this inferred service in revision invoices@0.1.0. Pacto read no workload for it here.');
+    const pt = { from: 'k8s:prod%2FDeployment%2Fa', target: 'prod/kubernetes/a', at: '2026-11-17T11:56:00Z' };
+    expect(replacesTip([pt, r], 2)).toContain('Also replaces k8s:billing/Deployment/invoices (declared by ana@acme.example in revision invoices@0.1.0).');
+  });
+});
+
 describe('ownerProvenanceText', () => {
   it('says nothing for a declared or absent owner and a sentence for the rest', () => {
     expect(ownerProvenanceText('declared')).toBe('');
@@ -295,5 +306,12 @@ describe('ownerProvenanceText', () => {
     expect(ownerProvenanceText('declared-via-target')).toBe('Declared by the contract a running target reports; no revision Pacto read declares an owner');
     expect(ownerProvenanceText('attested')).toBe('Read from the repository at the commit a verified CI identity signed; routes reviews, never clears a gate');
     expect(ownerProvenanceText('inferred')).toBe('Inferred; Pacto never routes approvals or clears a gate on it');
+  });
+});
+
+describe('inferred provider attention words', () => {
+  it('words the declare next action and the INFERRED_PROVIDER cause', () => {
+    expect(nextActionWords({ verb: 'declare', tool: 'pacto_declare' })).toBe('Fix: declare a contract with pacto_declare');
+    expect(attentionCause('INFERRED_PROVIDER')).not.toBe('INFERRED_PROVIDER');
   });
 });

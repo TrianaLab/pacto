@@ -203,14 +203,14 @@ func (p *Publishers) watch(ctx context.Context, reg publish.Registry, tm root.Tr
 	for _, t := range tags {
 		var v delivery.PublisherVerdict
 		if t.err != nil {
-			v = publish.JudgeRead(t.digest, nil, t.err, svc, t.source, b.rules, b.source, b.pins)
+			v = publish.JudgeRead(t.digest, nil, t.err, svc, t.source, b.rules, b.source, b.pins, nil)
 		} else {
 			signers, err := p.signersOf(ctx, reg, tm, repo, t.digest)
 			signers = slices.Clone(signers) // the memo's, classified on every pass like the verdict
 			for i := range signers {
 				signers[i] = delivery.Classified(signers[i], b.classes)
 			}
-			v = publish.JudgeRead(t.digest, signers, err, svc, t.source, b.rules, b.source, b.pins)
+			v = publish.JudgeRead(t.digest, signers, err, svc, t.source, b.rules, b.source, b.pins, nil)
 		}
 		v.Version = t.version
 		out = append(out, b.unknownIfDegraded(v))
@@ -245,7 +245,7 @@ func rejudge(svc delivery.ServiceRef, old *delivery.PublisherStatus, b basis, at
 			continue
 		}
 		// It was accepted, so its source matched: only the rules and pins decide again.
-		n := b.unknownIfDegraded(delivery.JudgePublisher(svc, *v.Identity, "", b.rules, b.source, b.pins))
+		n := b.unknownIfDegraded(delivery.JudgePublisher(svc, *v.Identity, "", b.rules, b.source, b.pins, nil))
 		if n.Verdict != delivery.VerdictAccepted {
 			n.Digest, n.Version, n.At = v.Digest, v.Version, at
 			out[i] = n
@@ -506,6 +506,14 @@ func (p *Publishers) policy(ctx context.Context, reg publish.Registry, old *deli
 		return keep(fmt.Sprintf("the delivery policy %s now names %s signed at %s, older than %s", p.Policy, h.Digest, got.At, old.PolicyAt), false)
 	}
 	return &got, h.Digest, "", false
+}
+
+// VerifiedPolicy is the delivery policy its tag names, verified against
+// PolicyVerify, for a reader that keeps no high-water mark (the manager's
+// owner check); nil and why when it cannot be read or verified.
+func (p *Publishers) VerifiedPolicy(ctx context.Context) (*delivery.PublisherPolicy, string) {
+	pol, _, why, _ := p.policy(ctx, p.Reg(), &delivery.PublisherStatus{})
+	return pol, why
 }
 
 // errPolicyRead marks a policy that could not be read, as opposed to one

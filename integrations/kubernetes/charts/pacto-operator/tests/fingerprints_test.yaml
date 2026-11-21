@@ -27,13 +27,41 @@ tests:
             managers: []
             promoters:
             - crd: stages.kargo.akuity.io
+              offer:
+                doc: https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo
+                id: kargo-analysis-template
+                text: Gate every Kargo promotion with one shared AnalysisTemplate
               product: Kargo
             - crd: warehouses.kargo.akuity.io
+              offer:
+                doc: https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo
+                id: kargo-analysis-template
+                text: Gate every Kargo promotion with one shared AnalysisTemplate
               product: Kargo
             - annotation: argocd-image-updater.argoproj.io/image-list
               product: Argo CD Image Updater
             - crd: imageupdateautomations.image.toolkit.fluxcd.io
               product: Flux ImageUpdateAutomation
+
+  - it: the default Kargo promoter carries the template offer
+    template: templates/fingerprints.yaml
+    asserts:
+      - matchRegex:
+          path: data["fingerprints.yaml"]
+          pattern: "- crd: stages.kargo.akuity.io\\n  offer:\\n    doc: https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo\\n    id: kargo-analysis-template\\n    text: Gate every Kargo promotion with one shared AnalysisTemplate\\n  product: Kargo"
+
+  - it: refuses an offer with an http doc
+    template: templates/fingerprints.yaml
+    set:
+      fingerprints.promoters:
+        - product: Promoter
+          crd: stages.promoter.example.com
+          offer:
+            id: promoter-gate
+            text: Gate every promotion with one template
+            doc: http://example.com
+    asserts:
+      - failedTemplate: {}
 
   - it: hands the ConfigMap to the managed dashboard
     template: templates/deployment.yaml

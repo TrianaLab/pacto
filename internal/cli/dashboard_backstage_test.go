@@ -49,7 +49,7 @@ func TestBackstageBearerReaderSeesItsRBACScope(t *testing.T) {
 	v.Set("dashboard.token-login", true)
 	d := deliveryDeps("alice", nil)
 	d.dynamicFor = func(*rest.Config) (dynamic.Interface, error) { return c, nil }
-	id, err := newDashboardIdentity(v, "0.0.0.0", &rest.Config{Host: "https://k"}, d)
+	id, err := newDashboardIdentity(v, "0.0.0.0", &rest.Config{Host: "https://k"}, homeEntries(&rest.Config{Host: "https://k"}), d)
 	if err != nil {
 		t.Fatal(err)
 	}

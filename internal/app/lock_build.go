@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -31,8 +32,9 @@ func (s *Service) buildLock(ctx context.Context, ref string, bundle *contract.Bu
 
 	// Fail closed on any edge that failed to resolve. walkClosure skips
 	// nil-Node edges, so unresolved dependencies would otherwise be dropped.
+	// A 2.5 dependency by name has no ref, so the error names the dependency.
 	if e, ok := firstFailedEdge(res.Root); ok {
-		return nil, &lock.UnresolvedError{Ref: e.Ref, Reason: e.Error}
+		return nil, &lock.UnresolvedError{Ref: cmp.Or(e.Ref, e.Name), Reason: e.Error}
 	}
 
 	l := &lock.Lock{

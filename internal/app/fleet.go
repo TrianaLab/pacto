@@ -1,7 +1,6 @@
 package app
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -82,7 +81,10 @@ type FleetOptions struct {
 	// Kubernetes cluster as targets. An unreachable cluster surfaces as an
 	// unavailable-source limitation rather than a build failure.
 	IncludeK8s bool
-	// K8sNamespaces scopes the live Kubernetes source; empty means all namespaces.
+	// K8sContexts are kubeconfig contexts read like IncludeK8s reads the
+	// current one, each cluster once (also in a pod).
+	K8sContexts []string
+	// K8sNamespaces scopes the live Kubernetes sources; empty means all namespaces.
 	K8sNamespaces []string
 	// Detected adds what the operator detected as inferred provider rows:
 	// k8s:<namespace>/<name> of its ConfigMap, read with the kubeconfig, or a
@@ -121,7 +123,7 @@ type FleetOptions struct {
 // hasTargetInput reports whether o names a source of targets: a cluster, a
 // target-state file, an Evidence Server or a target snapshot.
 func (o FleetOptions) hasTargetInput() bool {
-	return o.IncludeK8s || len(o.TargetStateFiles) > 0 || len(o.EvidenceURLs) > 0 || len(o.TargetSnapshot) > 0
+	return o.IncludeK8s || len(o.K8sContexts) > 0 || len(o.TargetStateFiles) > 0 || len(o.EvidenceURLs) > 0 || len(o.TargetSnapshot) > 0
 }
 
 // addedSources are the sources impact adds: extraSources, then the
@@ -151,12 +153,15 @@ func (o FleetOptions) ConsumerSources() []string {
 	if o.IncludeCache {
 		add("--cache", "")
 	}
+	ns := "(all namespaces)"
+	if len(o.K8sNamespaces) > 0 {
+		ns = "(namespace " + strings.Join(o.K8sNamespaces, ",") + ")"
+	}
 	if o.IncludeK8s {
-		ns := "(all namespaces)"
-		if len(o.K8sNamespaces) > 0 {
-			ns = "(namespace " + strings.Join(o.K8sNamespaces, ",") + ")"
-		}
 		add("--k8s", ns)
+	}
+	for _, c := range o.K8sContexts {
+		add("--context", c+" "+ns)
 	}
 	add("--evidence-url", o.EvidenceURLs...)
 	add("--mira-source", o.MiraURLs...)
@@ -204,6 +209,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 			src := fleetsrc.NewOCISource("oci", s.BundleStore, opts.OCIRefs)
 			if opts.Provenance != nil {
 				src.Provenance = opts.Provenance.Check
+				src.OwnerRights = opts.Provenance.ownerRights(s.fleetOwnerPolicy(opts.TargetSnapshotTrustFile))
 			}
 			src.RegistryProbe = opts.RegistryProbe
 			sources = append(sources, src)
@@ -218,19 +224,8 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 			sources = append(sources, fleet.NewFailingSource("cache", "cache", errNoBundleStore))
 		}
 	}
-	if opts.IncludeK8s {
-		contextName := s.env().kubeContext()
-		id := cmp.Or(contextName, "k8s")
-		client, err := s.env().newK8s()
-		if err != nil {
-			// An unreachable cluster (no kubeconfig, no API server) surfaces as an
-			// unavailable source, consistent with the other source kinds; both
-			// the Pacto and the workload source read unavailable.
-			sources = append(sources, fleet.NewFailingSource(id, fleet.SourceKindKubernetes, err),
-				fleet.NewFailingSource(id+workloadsSuffix, fleet.SourceKindKubernetesWorkloads, err))
-		} else {
-			sources = append(sources, liveK8sSources(ctx, contextName, client, opts.K8sNamespaces, fp.Promoters)...)
-		}
+	if opts.IncludeK8s || len(opts.K8sContexts) > 0 {
+		sources = append(sources, s.k8sSources(ctx, opts, fp.Promoters)...)
 	}
 	sources = append(sources, s.detectionSources(opts.Detected)...)
 	sources = append(sources, snaps...)
@@ -239,6 +234,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		return nil, err
 	}
 	return fleet.Build(ctx, fleet.BuildOptions{
+		DeclarationSigners:         s.declarationSigners(ctx, opts),
 		ExternalCatalog:            cat,
 		ExternalCatalogLimitations: catLims,
 		Now:                        opts.Now,
@@ -249,6 +245,17 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		// planner's own build leaves this false.
 		DiscloseUncheckedFreshness: true,
 	}, sources...)
+}
+
+// declarationSigners is the installation signer policy a declared
+// revision's signer is judged with. Only the registry source checks
+// provenance, so only it can show a declaration's cluster facts: without it
+// none is read.
+func (s *Service) declarationSigners(ctx context.Context, opts FleetOptions) *fleet.DeclarationSignerPolicy {
+	if opts.Provenance == nil || len(opts.OCIRefs) == 0 || s.BundleStore == nil {
+		return nil
+	}
+	return opts.Provenance.DeclarationSigners(ctx)
 }
 
 // CheckDetectedRef refuses a --detected k8s: reference that does not name
@@ -290,15 +297,9 @@ func (s *Service) detectionSources(ref string) []fleet.Source {
 const workloadsSuffix = "-workloads"
 
 // liveK8sSources are a cluster's two live sources: its Pacto CRs and its
-// workloads. Each is named by the cluster UID when the cluster identity can be
-// read, so two contexts on one cluster are one source. When it cannot be read
-// (no get on namespaces/kube-system) the sources keep the context name ("k8s"
-// without one) and report no cluster.
-func liveK8sSources(ctx context.Context, contextName string, client k8sclient.K8sClient, namespaces []string, promoters []workloadmanager.Fingerprint) []fleet.Source {
-	id, cluster := cmp.Or(contextName, "k8s"), (*fleet.Cluster)(nil)
-	if ident, err := client.ClusterIdentity(ctx, contextName); err == nil {
-		id, cluster = ident.ID, &fleet.Cluster{ID: ident.ID, Name: ident.Name, NameSource: ident.NameSource}
-	}
+// workloads, the Pacto source named id and the workload source after it.
+// cluster is nil when the cluster identity could not be read.
+func liveK8sSources(id string, cluster *fleet.Cluster, client k8sclient.K8sClient, namespaces []string, promoters []workloadmanager.Fingerprint) []fleet.Source {
 	return []fleet.Source{
 		fleetsrc.NewK8sSource(id, cluster, client, namespaces),
 		fleetsrc.NewWorkloadSource(id+workloadsSuffix, cluster, client, namespaces).WithPromoters(promoters),

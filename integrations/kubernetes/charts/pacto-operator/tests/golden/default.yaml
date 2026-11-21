@@ -42,7 +42,7 @@ metadata:
     app.kubernetes.io/version: "VERSION"
     app.kubernetes.io/managed-by: Helm
 data:
-  fingerprints.yaml: "managers: []\npromoters:\n- crd: stages.kargo.akuity.io\n  product: Kargo\n- crd: warehouses.kargo.akuity.io\n  product: Kargo\n- annotation: argocd-image-updater.argoproj.io/image-list\n  product: Argo CD Image Updater\n- crd: imageupdateautomations.image.toolkit.fluxcd.io\n  product: Flux ImageUpdateAutomation"
+  fingerprints.yaml: "managers: []\npromoters:\n- crd: stages.kargo.akuity.io\n  offer:\n    doc: https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo\n    id: kargo-analysis-template\n    text: Gate every Kargo promotion with one shared AnalysisTemplate\n  product: Kargo\n- crd: warehouses.kargo.akuity.io\n  offer:\n    doc: https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo\n    id: kargo-analysis-template\n    text: Gate every Kargo promotion with one shared AnalysisTemplate\n  product: Kargo\n- annotation: argocd-image-updater.argoproj.io/image-list\n  product: Argo CD Image Updater\n- crd: imageupdateautomations.image.toolkit.fluxcd.io\n  product: Flux ImageUpdateAutomation"
 ---
 # Source: pacto-operator/templates/crds.yaml
 apiVersion: apiextensions.k8s.io/v1
@@ -2396,6 +2396,9 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: OPERATOR_DEPLOYMENT_NAME
+              value: pacto-operator
+            # The publisher the target snapshot claims.
+            - name: OPERATOR_SERVICE_ACCOUNT
               value: pacto-operator
           args:
             - --leader-elect=true

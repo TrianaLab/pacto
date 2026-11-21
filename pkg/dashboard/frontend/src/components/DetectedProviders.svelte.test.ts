@@ -225,6 +225,68 @@ describe('DetectedProviders', () => {
     await vi.waitFor(() => expect(rows(t)).toHaveLength(5));
     expect(text(t.querySelector('[data-testid="providers-truncated"]'))).toBe('Showing 7 of 260 detected providers, reported before inferred, least healthy first.');
   });
+
+  describe('offers (516-S6)', () => {
+    const DOC = 'https://pacto.run/latest/integrations/kubernetes/gitops/#gate-every-argo-cd-sync';
+    const TEXT = 'Gate every Argo CD sync with one repo-server plugin';
+    const offer = (doc = DOC) => ({ id: 'argocd-repo-server-plugin', text: TEXT, doc });
+    const offerLines = (r: HTMLElement) => [...r.querySelectorAll('[data-testid="provider-offer"]')] as HTMLElement[];
+
+    it('renders the offer line on a row that has one', async () => {
+      providersFn.mockResolvedValue(resp([row('argocd', { name: 'Argo CD', offers: [offer()] })]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
+      const lines = offerLines(rows(t)[0]);
+      expect(lines).toHaveLength(1);
+      expect(text(lines[0])).toBe(`${TEXT} Set up`);
+      // Below the evidence, never a disclosure of its own.
+      expect(rows(t)[0].querySelector('details')).toBeNull();
+    });
+
+    it('renders no offer line otherwise', async () => {
+      providersFn.mockResolvedValue(resp([row('flux'), row('helm', { offers: [] })]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
+      expect(t.querySelector('[data-testid="provider-offer"]')).toBeNull();
+    });
+
+    it('the Set up link names the offer and opens a new tab', async () => {
+      providersFn.mockResolvedValue(resp([row('argocd', { offers: [offer()] })]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
+      const a = offerLines(rows(t)[0])[0].querySelector('a') as HTMLAnchorElement;
+      expect(a.getAttribute('href')).toBe(DOC);
+      expect(a.getAttribute('aria-label')).toBe(`Set up: ${TEXT}`);
+      expect(a.getAttribute('target')).toBe('_blank');
+      expect(a.getAttribute('rel')).toBe('noopener noreferrer');
+    });
+
+    it('renders the Kargo offer as a link to the docs', async () => {
+      const kargo = { id: 'kargo-analysis-template', text: 'Gate every Kargo promotion with one shared AnalysisTemplate',
+        doc: 'https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo' };
+      providersFn.mockResolvedValue(resp([row('promotion/Kargo', { name: 'Kargo', usedFor: ['promotion'],
+        evidence: 'promotion owned by Kargo (API group kargo.akuity.io served)', offers: [kargo] })]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
+      const [line] = offerLines(rows(t)[0]);
+      expect(text(line)).toBe(`${kargo.text} Set up`);
+      const a = line.querySelector('a') as HTMLAnchorElement;
+      expect(a.getAttribute('href')).toBe(kargo.doc);
+      expect(a.getAttribute('aria-label')).toBe(`Set up: ${kargo.text}`);
+    });
+
+    it('an offer whose doc is not https renders no link', async () => {
+      providersFn.mockResolvedValue(resp([row('a', { offers: [offer('javascript:alert(1)')] }), row('b', { offers: [offer('http://x')] })]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
+      for (const r of rows(t)) {
+        const [line] = offerLines(r);
+        expect(text(line)).toBe(TEXT);
+        expect(line.querySelector('a')).toBeNull();
+      }
+    });
+  });
+
   describe('inferred rows (510-S5)', () => {
     const AS_OF = new Date(Date.now() - 4 * 60_000).toISOString();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
@@ -242,8 +304,34 @@ describe('DetectedProviders', () => {
       await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
       const [r, plain] = rows(t);
       expect(r.querySelector('.prov-mark button')?.getAttribute('aria-label')).toBe('Inferred: from cluster-detection');
-      expect(text(r.querySelector('.prov-tip'))).toBe('Inferred from cluster-detection, as of 4 minutes ago, partial. Nothing was turned on.');
+      expect(text(r.querySelector('.prov-tip'))).toBe('Inferred from cluster-detection, as of 4 minutes ago, partial. Nothing was turned on. ghcr.io/acme in 9 of 11 namespaces, 87% of workloads');
       expect(plain.querySelector('.prov-mark')).toBeNull();
+    });
+
+    it('inferred tip carries the evidence', async () => {
+      const evidence = 'shop/ghcr-pull named in the pod specs of 4 running workloads that pulled from ghcr.io; Pacto did not read the Secret';
+      providersFn.mockResolvedValue(resp([inferred('pull-secret', { name: 'Pull Secret', evidence }), inferred('bare', { evidence: '' })]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
+      expect(text(rows(t)[0].querySelector('.prov-tip'))).toContain(`Nothing was turned on. ${evidence}`);
+      expect(text(rows(t)[1].querySelector('.prov-tip'))).toMatch(/Nothing was turned on\.$/);
+    });
+
+    it('declared row gets the declared mark', async () => {
+      const installation = row('installation', { source: 'cluster-detection', provenance: 'declared', asOf: AS_OF, name: 'Installation',
+        evidence: 'registry ghcr.io/acme; tags only under the listed prefixes, referrers by digest elsewhere', details: ['push prefixes ghcr.io/acme/pacto-targets'] });
+      providersFn.mockResolvedValue(resp([installation, inferred('pull-secret', { name: 'Pull Secret' })]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
+      const r = rows(t)[0];
+      expect(r.querySelector('.prov-mark button')?.getAttribute('aria-label')).toBe("Declared: by the operator's configuration");
+      expect(text(r.querySelector('.prov-tip'))).toBe("Declared by the operator's configuration, as of 4 minutes ago, complete.");
+      expect(r.classList.contains('dp-inferred')).toBe(false);
+      expect(text(r.querySelector('details summary'))).toBe('More details');
+      // The Inferred toggle hides the proposal and keeps the declared row.
+      (t.querySelector('[data-testid="providers-inferred-toggle"] input') as HTMLInputElement).click();
+      window.dispatchEvent(new HashChangeEvent('hashchange')); flushSync();
+      expect(rows(t).map((x) => text(x.querySelector('.dp-name bdi')))).toEqual(['Installation']);
     });
 
     it('names an unavailable inferred row as unknown and an available one as complete', async () => {

@@ -32,7 +32,7 @@ var impactEventFlags = []string{impact.EventUnavailable, impact.EventRemoved, im
 // instead. Source flags mirror `pacto fleet`; override flags mirror `pacto diff`.
 func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "impact <old> <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision>",
+		Use:   "impact <old> <new> | --running <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision>",
 		Short: "Analyze which consumers a change affects across the fleet",
 		Long: "Composes a semantic contract diff (old→new) with the operational " +
 			"graph to answer which consumers a change really affects, how strong " +
@@ -40,6 +40,16 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 			"holds.\n\n" +
 			"When no fleet source holds the changed service, the new revision is added " +
 			"to the snapshot so the services that depend on it are found.\n\n" +
+			"With --running, impact judges <new> against the revisions of its service that run on known targets instead of " +
+			"an <old> revision, and keeps the worst gate. A running consumer whose range rejects <new> blocks it whatever the " +
+			"classification, and a partial answer never clears. A local <new> takes the fleet domain that holds its service name; a " +
+			"name several domains hold exits 1 with their keys (judge the oci:// reference instead). With no running revision the new one is a first version: it " +
+			"is blocked when a running consumer's range rejects it, and clear only on a complete answer whose running consumers " +
+			"all accept it. A running revision Pacto could not link, pull or trust, one linked by tag only, an inferred workload " +
+			"of the service, a workload source Pacto could not read and a local <new> in no fleet domain each make the answer " +
+			"unverified at best. Running revisions are " +
+			"pulled only from the hosts of the target snapshots and of an oci:// <new>, plus the comma-separated hosts in " +
+			"$PACTO_RUNNING_REGISTRIES.\n\n" +
 			"With --unavailable, --removed or --regressed, impact answers what happens if that " +
 			"service becomes unavailable, is removed or a revision of it regressed. --unavailable and --removed " +
 			"also take offering:<name>, which asks the same of every service that provides the platform offering. Consumers are " +
@@ -64,8 +74,9 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 			"Pacto sees only the contracts in those folders, so \"No affected " +
 			"consumers\" is not evidence of safety.\n\n" +
 			"When you pass no --k8s, --target-state, --evidence-url or --target-snapshot, impact reads the signed " +
-			"target snapshot each cluster's delivery recorder publishes (--target-snapshot auto, the default): from " +
-			"the oci:// ref of the change it tries <host>/<first path segment>/pacto-targets, then <host>/pacto-targets, " +
+			"target snapshot each cluster's operator publishes (--target-snapshot auto, the default): from " +
+			"the oci:// ref of the change it tries <prefix>/pacto-targets under each path prefix of its repository, deepest first " +
+			"and at most three segments deep (the registry value the operator publishes under), then <host>/pacto-targets, " +
 			"and prints a Registry line saying where it looked and a Targets line per cluster snapshot it read. " +
 			"auto reads only the clusters whose snapshot exists at that moment, so CI that knows its clusters pins " +
 			"them with --target-snapshot oci://<registry>/pacto-targets:cluster-<uid> (repeatable). --delivery-trust " +
@@ -81,6 +92,10 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
   # Impact of a published service against the clusters that run it, read
   # from the target snapshot next to its registry
   pacto impact oci://ghcr.io/acme/svc:1.0.0 ./svc --delivery-trust trust.yaml
+
+  # Judge a folder's contract against the revisions that run in the pinned
+  # clusters, as a GitOps render gate does
+  pacto impact --running . --target-snapshot oci://ghcr.io/acme/pacto-targets:cluster-<uid> --delivery-trust trust.yaml
 
   # Include observed (runtime) evidence and emit JSON
   pacto impact oci://ghcr.io/acme/svc:1.0.0 ./svc --include-observed --output-format json
@@ -114,6 +129,10 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 			if err != nil {
 				return err
 			}
+			policy, err := parsePolicy(cmd)
+			if err != nil {
+				return err
+			}
 			start := time.Now()
 			sp := startSpinner(cmd, format, "Analyzing impact")
 			var result *impact.Result
@@ -121,9 +140,8 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 				result, err = runImpactEvent(cmd, svc, d, kind, value, traces)
 			} else {
 				oldOverrides, newOverrides := getDiffOverrides(cmd)
-				result, err = svc.Impact(cmd.Context(), app.ImpactOptions{
-					OldPath:            args[0],
-					NewPath:            args[1],
+				opts := app.ImpactOptions{
+					NewPath:            args[len(args)-1],
 					OldOverrides:       oldOverrides,
 					NewOverrides:       newOverrides,
 					Fleet:              fleetOptions(cmd),
@@ -131,7 +149,17 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 					Traces:             traces,
 					OnResolved:         rec.hook(cmd, &revs),
 					TargetSnapshotAuto: auto,
-				})
+					Acceptances:        true,
+					Getenv:             os.Getenv,
+					Policy:             policy,
+				}
+				if running, _ := cmd.Flags().GetBool("running"); running {
+					opts.RunningRegistries = runningRegistries(cmd)
+					result, err = svc.ImpactRunning(cmd.Context(), opts, nil)
+				} else {
+					opts.OldPath = args[0]
+					result, err = svc.Impact(cmd.Context(), opts)
+				}
 			}
 			if err != nil {
 				sp.Stop()
@@ -164,6 +192,8 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 	for _, f := range impactEventFlags {
 		cmd.Flags().String(f, "", impactEventFlagHelp[f])
 	}
+	cmd.Flags().Bool("running", false, "judge <new> against the revisions of its service that run on known targets instead of an <old> revision; "+
+		"a running revision with the new digest is not a baseline; with no running revision only consumers' ranges are checked")
 	cmd.Flags().Bool("include-observed", false, "let observed (runtime) relationships raise consumer confidence")
 	// Declared before the shared set so this narrowing wins: impact takes ONE
 	// trace document and reads it itself (see divergentFleetFlagTypes).
@@ -172,6 +202,7 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 	addFleetSourceFlags(cmd.Flags())
 	addStatsFlags(cmd)
 	addDiffOverrideFlags(cmd)
+	addPolicyFlag(cmd)
 
 	return cmd
 }
@@ -183,8 +214,12 @@ var impactEventFlagHelp = map[string]string{
 	impact.EventRegressed:   "what happens if <service>@<revision> regressed; an artifact digest reads delivery's recorded failures",
 }
 
-// impactArgs takes two revisions, or none with exactly one event flag.
+// impactArgs takes two revisions, one with --running, or none with exactly
+// one event flag.
 func impactArgs(cmd *cobra.Command, args []string) error {
+	if running, _ := cmd.Flags().GetBool("running"); running {
+		return runningArgs(cmd, args)
+	}
 	var set []string
 	for _, f := range impactEventFlags {
 		if cmd.Flags().Changed(f) {
@@ -201,6 +236,19 @@ func impactArgs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s takes no <old> <new> arguments, got %d", set[0], len(args))
 	case len(set) == 0 && len(args) != 2:
 		return fmt.Errorf("accepts <old> <new> (2 arguments) or one of --unavailable, --removed, --regressed, received %d arguments", len(args))
+	}
+	return nil
+}
+
+// runningArgs takes the one revision --running judges, with no event flag
+// and no flag that shapes an old revision: the running revisions are the
+// old side.
+func runningArgs(cmd *cobra.Command, args []string) error {
+	if f := changedFlag(cmd, append([]string{"old-values", "old-set"}, impactEventFlags...)); f != "" {
+		return fmt.Errorf("--running judges <new> against the revisions that run, so it takes no --%s", f)
+	}
+	if len(args) != 1 {
+		return fmt.Errorf("--running takes one argument, <new>, received %d arguments", len(args))
 	}
 	return nil
 }
@@ -314,6 +362,9 @@ func printImpactResult(cmd *cobra.Command, result *impact.Result, format string)
 			printRegression(w, result)
 		}
 		_, _ = fmt.Fprintf(w, "Release gate: %s\n", result.Gate)
+		for _, a := range result.Advisories {
+			_, _ = fmt.Fprintln(w, a.Line(result.Service))
+		}
 
 		// The impact result carries completeness inline (not a fleet.Meta), so
 		// wrap it to reuse the shared partial-answer warning.
@@ -334,6 +385,36 @@ func printChangeHeader(w io.Writer, result *impact.Result) {
 	_, _ = fmt.Fprintf(w, "Potentially breaking changes: %d\n", len(result.PotentiallyBreakingChanges))
 	if result.NewRevisionAdded {
 		_, _ = fmt.Fprintf(w, "%s is in none of the fleet sources; the new revision was added to the snapshot to find its consumers.\n", result.Service)
+	}
+	printRunning(w, result.Running)
+}
+
+// printRunning writes what a --running answer judged against; nothing for
+// any other answer.
+func printRunning(w io.Writer, r *impact.RunningBaseline) {
+	if r == nil {
+		return
+	}
+	also := ""
+	if len(r.Excluded) > 0 {
+		also = "; the new revision also runs and is not its own baseline"
+	}
+	switch {
+	case r.Judged != "":
+		noun := "revisions"
+		if len(r.Refs) == 1 {
+			noun = "revision"
+		}
+		_, _ = fmt.Fprintf(w, "Running: %d %s (judged against %s)%s\n", len(r.Refs), noun, r.Judged, also)
+	case len(r.Unread) > 0:
+		_, _ = fmt.Fprintf(w, "Running: none Pacto could read (judged as a first version)%s\n", also)
+	case also != "":
+		_, _ = fmt.Fprintln(w, "Running: only the new revision, which is not its own baseline (judged as a first version)")
+	default:
+		_, _ = fmt.Fprintln(w, "Running: none on a known target (first version)")
+	}
+	if len(r.Unread) > 0 {
+		_, _ = fmt.Fprintf(w, "Not read: %s\n", strings.Join(r.Unread, "; "))
 	}
 }
 
@@ -358,6 +439,9 @@ func printTargetSnapshots(w io.Writer, result *impact.Result) {
 	}
 	if text := ci.IndexText(result); text != "" {
 		_, _ = fmt.Fprintf(w, "Consumers: %s\n", text)
+	}
+	for _, l := range append(ci.RangesLines(result.Ranges), result.Notes...) {
+		_, _ = fmt.Fprintln(w, l)
 	}
 }
 
@@ -424,8 +508,18 @@ func printImpactConsumers(w io.Writer, result *impact.Result) {
 	}
 	_, _ = fmt.Fprintf(w, "Affected consumers (%d):\n", len(result.Consumers))
 	if result.Event == nil {
+		unaccepted, announced := 0, false
 		for _, c := range result.Consumers {
 			printImpactConsumer(w, result, c)
+			if c.Break != nil {
+				announced = true
+				if c.Break.State != impact.BreakAccepted {
+					unaccepted++
+				}
+			}
+		}
+		if announced {
+			_, _ = fmt.Fprintf(w, "Announced break: %d unaccepted %s\n", unaccepted, map[bool]string{true: "consumer", false: "consumers"}[unaccepted == 1])
 		}
 		return
 	}
@@ -463,6 +557,9 @@ func printImpactConsumer(w io.Writer, result *impact.Result, c impact.AffectedCo
 	_, _ = fmt.Fprintf(w, "  %-28s %-10s confidence=%-12s %-19s owner=%s\n",
 		c.Service, scope, c.Confidence, verdict, orDash(c.Owner))
 	_, _ = fmt.Fprintf(w, "    path: %s  provenance: %s  via: %s\n", strings.Join(c.Path, " > "), orDash(c.Provenance), orDash(strings.Join(c.Via, ",")))
+	if b := c.Break; b != nil {
+		_, _ = fmt.Fprintf(w, "    break: %s\n", b.Text(c.Service))
+	}
 	for _, m := range c.Unmet {
 		_, _ = fmt.Fprintf(w, "    refused: %s\n", m)
 	}
@@ -516,4 +613,19 @@ func printRegression(w io.Writer, result *impact.Result) {
 			_, _ = fmt.Fprintf(w, "Delivery evidence not read: %s\n", l.Message)
 		}
 	}
+}
+
+// runningRegistriesKey carries the running-registries value root read
+// (PACTO_RUNNING_REGISTRIES or the config file) on the command context.
+type runningRegistriesKey struct{}
+
+// runningRegistries is the extra registry hosts --running may pull from, as
+// root read them; PACTO_RUNNING_REGISTRIES when cmd never ran through root.
+func runningRegistries(cmd *cobra.Command) []string {
+	if ctx := cmd.Context(); ctx != nil {
+		if v, ok := ctx.Value(runningRegistriesKey{}).(string); ok {
+			return strings.Split(v, ",")
+		}
+	}
+	return strings.Split(os.Getenv("PACTO_RUNNING_REGISTRIES"), ",")
 }

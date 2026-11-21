@@ -60,7 +60,7 @@ compliance evidence that a source carries.
   Server](evidence.md)'s read-only contribution over HTTP, exposing a
   remote environment's signed `EvidenceSet` reports as operational targets.
 - **Target snapshots** (`--target-snapshot <oci://ref>`, repeatable): the
-  signed snapshot each cluster's delivery recorder publishes to
+  signed snapshot each cluster's operator publishes to
   `<registry>/pacto-targets:cluster-<uid>`, read with registry access and no
   kubeconfig. A repository reads every `cluster-*` tag (at most 32); a tag or
   digest pins one cluster. Each snapshot becomes up to three sources with the
@@ -99,7 +99,7 @@ Snapshot sources carry:
 |---|---|
 | `ref` | The snapshot read, pinned as `<repository>@<digest>` |
 | `signer` | The trust entry that verified it: its `name`, or `key:<fingerprint>`; empty when unverified. Never the `publisher` the payload claims |
-| `publisher` | Who the payload says published it, such as the recorder's ServiceAccount; a claim, with control characters dropped like the publisher's limitations |
+| `publisher` | Who the payload says published it, such as the operator's ServiceAccount; a claim, with control characters dropped like the publisher's limitations |
 | `cluster` | The cluster the snapshot describes, its id the `kube-system` UID |
 | `lastSuccessfulSync` | The snapshot's `asOf` |
 | `TARGET_SNAPSHOT_UNVERIFIED` | Read with no delivery trust config (`--delivery-trust` or `$PACTO_DELIVERY_TRUST`); the source is `partial` |
@@ -107,6 +107,7 @@ Snapshot sources carry:
 | `TARGET_SNAPSHOT_STALE` | Its `asOf` is more than 15 minutes old; `stale` |
 | `TARGET_SNAPSHOT_INVALID` | Missing (a pinned tag), a bad signature, a cluster other than its tag, an unknown predicate or an `asOf` in the future; not used, `unavailable` |
 | `TARGET_SNAPSHOT_BOUND` | More than 32 cluster tags, a snapshot over 8 MiB or the 20 second read timeout; `partial` or `unavailable` |
+| `TARGET_SNAPSHOT_SCOPED` | The publishing operator watches only the namespaces the message names (`controller.watchNamespaces`), so any other namespace is unknown; `partial` |
 | Text line | `pacto fleet status` and `pacto fleet snapshot` print one per source, such as `Source targets-<uid> (target-snapshot): available, ref <repository>@<digest>, signed by <signer>, asOf <time>`; `unverified` replaces the signer when no trust entry verified it, and a source that is not available ends with its reason |
 
 ### Observed calls under a restricted view
@@ -126,6 +127,13 @@ limitation per source.
   system's hidden consumers.
 - An inferred edge whose inferred end is hidden is dropped and that end counted
   once, and a replacement shows only when both of its services do.
+
+### Clusters under a restricted view
+
+| Limitation | Raised when |
+|------------|-------------|
+| `CLUSTER_HIDDEN` | The view hides one cluster: you may read no namespace there, its review failed or Pacto cannot review you there ([Multi-cluster](multi-cluster.md)). Its `source` is the cluster id; the answer is partial |
+| `CLUSTER_FILTER_UNKNOWN` | A list filtered by a cluster id that no cluster of the answer has, such as a display name or a retired cluster, so its empty list says nothing about it. Completeness is unchanged |
 
 ### What a target-state fixture looks like
 
@@ -326,8 +334,8 @@ version the fleet holds satisfies the consumer's `compatibility` range:
 |---------------|---------|
 | `satisfied` | Every revision of the provider in the fleet (or the one `pacto.lock` pins) is inside the range. |
 | `unsatisfied` | None is. `status` reports it as `DEPENDENCY_RANGE_UNSATISFIED` in the `out-of-range` category. |
-| `unknown` | The range or a version cannot be read as semver, the provider has no revision in the fleet, or its revisions disagree. |
-| *absent* | The dependency declares no range, is unresolved or joins an [external system](#external-systems), which is never ranged. |
+| `unknown` | The range or a version cannot be read as semver, the provider has no revision in the fleet, or its revisions disagree. With `rangeReason: INFERRED_PROVIDER` the provider is an [inferred contract](inferred-contracts.md) or a revision only the operator signed, which no range is checked against and `fleet versions` never names `latestCompatible`; a view that hides the provider blanks both fields. |
+| *absent* | The dependency declares no range, is unresolved or joins an [external system](#external-systems) without a ref, which is never ranged. |
 
 A consumer that asks for `ledger ^2.0.0` while the fleet holds `ledger 1.6.2`
 is resolved and unsatisfied.
@@ -372,8 +380,18 @@ revision declares an owner and no source reports one. A service with no owner
 claim whose contract Pacto cannot read counts as `unknown` instead: the
 dashboard labels it Owner unknown and never No declared owner.
 
-`get` also returns `ownerProvenance`, where the owner comes from: `declared`,
-`declared-via-target`, `attested` or `inferred`.
+`get` also returns where the owner comes from; see
+[Who may set a service owner](owner-setting.md):
+
+| Field or code | Meaning |
+|---|---|
+| `ownerProvenance` | `declared` (a revision's `pacto.yaml`), `attested`, `declared-via-target` (the running contract the operator read) or `inferred`, in that precedence |
+| `ownerSource` | For `attested` only: the file and line, the commit and the CI identity that signed it, such as `CODEOWNERS:7 at a1b2c3, signed by github.com/acme/invoices/.github/workflows/ci.yml` |
+| `provenance.signature.signerRepository`, `signerCommit` | On a revision, the repository and commit an accepted CI signer's certificate names |
+| `provenance.ownerRight` | On a revision, the owner rule's verdict on the owner it sets: `allowed`, `code` and `message` |
+| `OWNER_CONFLICT` | Also raised when attested revisions of the service were signed from different repositories; no attested owner is set |
+| `OWNER_DECLARATION_REFUSED` | A registry revision sets an owner its signer may not set, so its owner is not used |
+| `OWNER_DECLARATION_UNVERIFIED` | A registry revision sets an owner the rule could not check (no verified signer or policy, or no earlier owner read), so its owner is not used and the answer is `partial` |
 
 ## Business domains
 
@@ -447,7 +465,9 @@ covers identities, the join order and catalogs.
 
 | Surface | Behaviour |
 |---|---|
-| Relationship | `toExternal` names the identity and `resolved` stays `false`, because no fleet service delivers it. It never gets `rangeStatus` or `resolvedRevision` and never counts in impact, dependents or delivery |
+| Relationship | `toExternal` names the identity and `resolved` stays `false`, because no fleet service delivers it. It never gets `resolvedRevision` and never counts in impact, dependents or delivery. Only a dependency whose ref names `pacto-inferred/<identity>` gets `rangeStatus: unknown` with `rangeReason: INFERRED_PROVIDER` |
+| Provider | `provider` on the record holds the system's [inferred contract](inferred-contracts.md): `repository`, `revisions` (operator-signed first, each group newest first, each with `version`, `digest`, `ref`, `surface` and `signature`), `revisionsTotal`, and `rangeStatus: unknown` with `rangeReason: INFERRED_PROVIDER`. A restricted view that hides any source or consumer drops every `surface`. A contract under `pacto-inferred` whose `service.external` disagrees with its path is attached nowhere and raises `INFERRED_IDENTITY_MISMATCH` |
+| Attention | One `INFERRED_PROVIDER` item in the `knowledge` category per inferred contract that ranges check against, counting only visible consumers |
 | Snapshot | `externals`, one record per identity, and `externalCatalogs`, the catalogs used with `digest`, `origin`, `copy`, `signature` and `reason`; every answer's meta repeats `externalCatalogs` |
 | Record | `key`, `label`, `class`, `aliases`, `sources` (one per consumer and dependency position, each with `provenance`, `match` and `superseded` when a newer consumer revision no longer declares it), `sourcesTotal`, `catalog` (origin, digest and entry; absent when no entry classifies it), `joinedBy` (`identity`, `catalog-alias`, `host` or `normalized-name`), `consumers`, `consumersTotal`, `hiddenConsumers` |
 | Entities | `--kind external` (MCP `kind: external`) lists them, `--class` keeps one class; the default listing leaves them out |

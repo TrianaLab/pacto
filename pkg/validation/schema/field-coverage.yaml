@@ -354,6 +354,26 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.origin.digest/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.origin.digest/invalid
       e2e: []
+  service.external:
+    meaning: Canonical identity of the external system the contract describes; pactoVersion 2.5.
+    runtime: not-applicable
+    evidence: identity only; joins the fleet External node
+    rule: 'schema: identity pattern, at most 253 characters, pactoVersion 2.5; cross-field: it must parse as an identity
+      (other-egress is reserved); diff: any change is non-breaking'
+    outcomes: SCHEMA_VIOLATION, INVALID_EXTERNAL_IDENTITY, NEEDS_PACTO_2_5 before 2.5
+    limitations: Pacto never observes the external system here; the identity only names the node the contract joins
+    tests:
+      unit:
+      - pkg/validation/serviceexternal_test.go:TestServiceExternalValid
+      - pkg/validation/serviceexternal_test.go:TestServiceExternalNeeds25
+      - pkg/validation/serviceexternal_test.go:TestServiceExternalPattern
+      - pkg/validation/serviceexternal_test.go:TestServiceExternalReservedRefused
+      - pkg/diff/inferredsurface_test.go:TestDiffServiceExternalNonBreaking
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.external/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.external/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.external/needs-2.5
+      e2e: []
   service.owner:
     meaning: Who owns the service.
     runtime: static-only
@@ -1768,16 +1788,25 @@ fields:
     evidence: 'resolution key: matched against sibling Pacto status.contract.resolvedRef to find the provider Service'
     rule: a ref that matches no sibling cannot be observed
     outcomes: OBSERVATION_UNSUPPORTED when no sibling matches; INVALID_OCI_REF and TAG_NOT_DIGEST (warning) statically;
-      DEPENDENCY_REF_REQUIRED when missing on a dependency that is not external
-    limitations: a ref without a scheme is a local path and gets no static check; only an external dependency may leave
-      it out
+      from 2.5 a dependency by name may leave it out (VERSION_WITHOUT_REF beside a version); NEEDS_PACTO_2_5 for one under
+      2.1 to 2.4; DEPENDENCY_REF_REQUIRED when missing on a dependency that is neither external nor by name
+    limitations: a ref without a scheme is a local path and gets no static check; a dependency by name resolves only in
+      the consumer's domain, and the catalog closure cannot follow it (DEPENDENCY_BY_NAME)
     tests:
       unit:
       - pkg/validation/crossfield_test.go:TestValidateDependencyRefs_InvalidOCI
       - pkg/validation/crossfield_test.go:TestValidateDependencyRefs_TagNotDigestWarning
+      - pkg/validation/byname_test.go:TestRefLessDependencyValidIn25
+      - pkg/validation/byname_test.go:TestRefLessDependencyWithVersionRefused
+      - pkg/validation/byname_test.go:TestRefLessDependencyNeeds25
+      - pkg/fleet/byname_test.go:TestRefLessDependencyResolvesByName
+      - pkg/catalog/byname_test.go:TestCatalogByNameIsPartial
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].ref/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].ref/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].ref/by-name
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].ref/by-name-with-version
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].ref/by-name-needs-2.5
       e2e:
       - tests/acceptance/kind/runtime-conformance.sh:dependency-reachable-kernel
     platforms:
@@ -1833,13 +1862,16 @@ fields:
     rule: a version inside the range satisfies; outside contradicts; an unknown or non-semver version is unverified;
       compatibility unknown (pactoVersion 2.5) is valid and never counted as compatible, so it is always unverified
     outcomes: Compliant; DEPENDENCY_VERSION_MISMATCH (error, warning when optional); listed in evaluationCoverage.unverified
-      otherwise; INVALID_COMPATIBILITY statically; NEEDS_PACTO_2_5 for unknown under 2.0 to 2.4
+      otherwise; INVALID_COMPATIBILITY statically; NEEDS_PACTO_2_5 for unknown under 2.0 to 2.4; optional on a dependency
+      by name, where an absent range reads unknown
     limitations: the provider's contract version is trusted as its deployed version; judged only when the dependency is Observed
     tests:
       unit:
       - pkg/validation/evaluate_test.go:TestEvaluate_DependencyCompatibilityFacet
       - pkg/validation/crossfield_test.go:TestValidateDependencyRefs_InvalidCompatibility
       - pkg/validation/crossfield_test.go:TestCompatibilityUnknownValid
+      - pkg/validation/byname_test.go:TestRefLessDependencyInvalidRange
+      - pkg/contract/contract_test.go:TestRefLessDependencyDefaultsToUnknown
       - pkg/validation/structural_test.go:TestNeeds25CompatibilityUnknown
       - pkg/validation/evaluate_test.go:TestVersionVerdictUnknownIsUnverified
       - integrations/kubernetes/internal/observer/regressions_test.go:TestDependency_VersionTieBreak
@@ -1848,6 +1880,7 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/invalid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/unknown
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/by-name
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/needs-2.5
       e2e:
       - tests/acceptance/kind/runtime-conformance.sh:dependency-version-mismatch

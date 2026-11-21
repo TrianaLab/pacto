@@ -77,7 +77,7 @@ func TestExternalEvidenceRestrictedDropsHiddenCaller(t *testing.T) {
 	uses := append(stripeUses(), RawExternalUse{Service: "billing", Namespace: "secret", Identity: "stripe", Confidence: "likely", Kind: "env",
 		Where: "deployment/billing env STRIPE_URL", Host: "api.stripe.com", Entry: "stripe"})
 	snap := inferredFleet(t, svcs, uses, []ObservedEdge{{From: "billing", To: "api.stripe.com", Count: 1}}, nil)
-	q := NewQuery(snap).Restrict(func(ns string) bool { return ns == "shop" }, nil)
+	q := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns == "shop" }), anyClusterKind(nil))
 	d, err := q.EntityDetail(KindExternal, "stripe")
 	if err != nil {
 		t.Fatal(err)

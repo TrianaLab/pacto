@@ -627,7 +627,7 @@
   }
   .mx-tile-value a:hover, .mx-tile-value a:focus-visible { text-decoration-color: currentColor; }
   .mx-tile-value :global(.mx-unk) { font-size: var(--text-lg); }
-  .mx-tile-sub { grid-column: 1; align-self: end; min-width: 0; overflow-wrap: anywhere; font-size: var(--text-xs); color: var(--c-text-3); }
+  .mx-tile-sub { grid-column: 1; align-self: end; min-width: 0; margin-top: var(--sp-1); overflow-wrap: anywhere; font-size: var(--text-xs); color: var(--c-text-3); }
   .mx-tile-fig { grid-column: 2; grid-row: 2 / 4; align-self: end; min-width: 0; }
   .mx-tile-fig.wide { grid-column: 1 / -1; grid-row: auto; margin-top: var(--sp-3); }
   .mx-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(46ch, 100%), 1fr)); gap: var(--sp-4); }

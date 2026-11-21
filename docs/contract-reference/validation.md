@@ -26,7 +26,8 @@ Validates against the embedded schema of the contract's version, `pacto-v2.0.sch
 - Fields that must carry a value are non-empty (for example `interfaces[].ref` and `checks[].file`)
 - Discriminated shapes hold: a `configurations[]` entry has exactly one of `schema` or `ref`, a `capabilities[]` `extension` requires a namespaced `ref` and `health` or `metrics` sets no `ref`
 - State invariants hold (`stateless` requires `ephemeral` durability)
-- A `pacto.inferred.yaml` in the bundle parses, and every file it cites is in the bundle with the digest it records (`INFERRED_RECORD_INVALID`)
+- A `pacto.inferred.yaml` in the bundle parses, and every file it cites is in the bundle with the digest it records, and a `surface` section names the identity `service.external` names (`INFERRED_RECORD_INVALID`)
+- A [declaration](inferred-record.md#declaration) in that record agrees with `pacto.yaml`: each range it accepts or requests is the declared `compatibility` (`DECLARATION_ACCEPTED_MISMATCH`), and each other proposed range stays `unknown` (`DECLARATION_RANGE_NOT_ACCEPTED`)
 
 Structural failures report `SCHEMA_VIOLATION`. A field a later version adds,
 in an older contract, reports that version's code for each use instead: set
@@ -38,7 +39,7 @@ in an older contract, reports that version's code for each use instead: set
 | An interface `lifecycle`, `compatibilityEpoch` or `guarantees`, a dependency `requires` | `"2.2"` | `NEEDS_PACTO_2_2` |
 | `environments` | `"2.3"` | `NEEDS_PACTO_2_3` |
 | `service.domain`, `service.offering`, `service.summary`, `service.lifecycle`, `service.template`, `service.origin`, `values` or a `configuration` selector beside a configuration `ref` | `"2.4"` | `NEEDS_PACTO_2_4` |
-| A dependency `compatibility: unknown` or `identity`, an interface `port`, `breaks`, a `pacto.inferred.yaml` in the bundle | `"2.5"` | `NEEDS_PACTO_2_5` |
+| `service.external`, a dependency `compatibility: unknown` or `identity`, an interface `port`, `breaks`, a `pacto.inferred.yaml` in the bundle | `"2.5"` | `NEEDS_PACTO_2_5` |
 | No field: the contract declares a `pactoVersion` older than the CLI's newest | any older 2.x | `CONTRACT_BEHIND` (info, never fails `pacto validate`) |
 
 - `pacto validate` and `pacto_check` report `CONTRACT_BEHIND` on the
@@ -113,11 +114,12 @@ Validates semantic references and consistency:
 | `capabilities[].binding.path` is a safe application path | `CAPABILITY_PATH_INVALID` |
 | OCI dependency refs (`oci://`) are valid OCI references | `INVALID_OCI_REF` |
 | A dependency has a `name`, or a `ref` its name is derived from | `DEPENDENCY_NAME_REQUIRED` |
-| A dependency without `ref` is `external` | `DEPENDENCY_REF_REQUIRED` |
+| A dependency without `ref` is `external`, or from 2.5 a dependency by name | `DEPENDENCY_REF_REQUIRED`, `NEEDS_PACTO_2_5` |
+| A dependency by name gives no `version` | `VERSION_WITHOUT_REF` |
 | An external dependency without `ref` has a `version` | `EXTERNAL_VERSION_REQUIRED` |
 | `compatibility` appears only with `ref`, and `version` only without it | `COMPATIBILITY_WITHOUT_REF`, `VERSION_WITH_REF` |
 | `identity` appears only on an `external` dependency without `ref` | `IDENTITY_WITHOUT_EXTERNAL` |
-| `identity` is a canonical external identity, other than `other-egress` | `INVALID_EXTERNAL_IDENTITY` |
+| `identity` and `service.external` are canonical external identities, other than `other-egress` | `INVALID_EXTERNAL_IDENTITY` |
 | A dependency with `ref` has a `compatibility` range | `EMPTY_COMPATIBILITY` |
 | Compatibility ranges are valid semver constraints | `INVALID_COMPATIBILITY` |
 | OCI dependency pins a digest | `TAG_NOT_DIGEST` (warning) |

@@ -82,7 +82,7 @@ func TestUseCarriesProviderAvailability(t *testing.T) {
 	pgIn := func(ns string) RawTarget {
 		return RawTarget{Scope: ns, Kind: SourceKindKubernetes, Name: "pg", Service: "postgresql", Domain: acme, Compliance: StatusCompliant}
 	}
-	hidden := catalogQuery(t, pgIn("db"), pgIn("secret")).Restrict(func(ns string) bool { return ns != "secret" }, nil)
+	hidden := catalogQuery(t, pgIn("db"), pgIn("secret")).Restrict(anyCluster(func(ns string) bool { return ns != "secret" }), anyClusterKind(nil))
 	av := catalogUses(t, hidden)["postgresql/dependency"].ProviderAvailability
 	if av == nil || av.State != AvailabilityUnknown || av.ByEnvironment[0].Reason != targetsIncompleteReason {
 		t.Errorf("hidden-target availability = %+v", av)

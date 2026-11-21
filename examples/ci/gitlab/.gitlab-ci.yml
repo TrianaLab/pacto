@@ -1,0 +1,2 @@
+include:
+  - remote: https://raw.githubusercontent.com/TrianaLab/pacto-actions/9aa2d88798c266c2de13b8bef000c1da750966cd/templates/pacto.yml

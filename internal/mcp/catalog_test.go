@@ -331,7 +331,7 @@ func TestCatalogModeCannotReachTheAuthoringTools(t *testing.T) {
 	t.Parallel()
 	cat, _ := platformCatalog(t)
 	s := catalogSession(t, NewCatalogServer("v-test", cat))
-	for _, name := range []string{"pacto_create", "pacto_edit", "pacto_check", "pacto_schema"} {
+	for _, name := range []string{"pacto_create", "pacto_edit", "pacto_check", "pacto_schema", "pacto_declare"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			// The arguments are the ones that would make the call succeed on an
@@ -868,7 +868,7 @@ func TestCatalogInstructionsSeparateDiscoveryFromTheFleet(t *testing.T) {
 	}
 	// Instructions must not send a client at a tool this server does not have:
 	// catalog mode registers none of the authoring tools.
-	for _, absent := range []string{"pacto_create", "pacto_edit", "pacto_check", "pacto_schema"} {
+	for _, absent := range []string{"pacto_create", "pacto_edit", "pacto_check", "pacto_schema", "pacto_declare"} {
 		if strings.Contains(got, absent) {
 			t.Errorf("catalog instructions name %s, which catalog mode does not expose, got:\n%s", absent, got)
 		}

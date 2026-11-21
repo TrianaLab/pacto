@@ -1200,6 +1200,29 @@ grep -q "^Targets: registry:5000/demo/pacto-targets@sha256:[0-9a-f]* (cluster $T
 	fail "pacto impact on the verified snapshot exited $verified_rc, want 2: $verified_out"
 pass "pacto impact reads the demo's signed target snapshot: unverified exits 2, verified names orders and exits 2"
 
+# The inferred service publishes stripe's inferred contract to
+# registry:5000/demo/pacto-inferred/stripe, as an operator does once the
+# chart's registry value is set. The fleet shows it on the stripe external,
+# and card-payments' range on it stays unknown with INFERRED_PROVIDER: an
+# inferred contract never clears a range.
+INFERRED_REG_PORT="${V1_PORTS[2]#*=}"
+curl -fsS "http://127.0.0.1:$INFERRED_REG_PORT/v2/_catalog" | jq -e '.repositories | index("demo/pacto-inferred/stripe")' >/dev/null ||
+	fail "the inferred service published no demo/pacto-inferred/stripe repository"
+inferred_fleet() { # ARGS...: a pacto fleet command over the Compose-only consumer and stripe's inferred contract
+	docker compose -p "$PROJ1" exec -T inferred pacto fleet "$@" --local /demo/inferred/card-payments \
+		--oci oci://registry:5000/demo/pacto-inferred/stripe --output-format json
+}
+ext_json=$(inferred_fleet get external:stripe) || fail "pacto fleet get external:stripe failed: $ext_json"
+jq -e '.external.provider.repository == "registry:5000/demo/pacto-inferred/stripe" and .external.provider.rangeStatus == "unknown" and .external.provider.rangeReason == "INFERRED_PROVIDER"' <<<"$ext_json" >/dev/null ||
+	fail "stripe shows no inferred contract provider: $ext_json"
+svc_json=$(inferred_fleet get card-payments) || fail "pacto fleet get card-payments failed: $svc_json"
+jq -e '[.dependencies[] | select(.to == "stripe-pinned")] | length == 1 and .[0].rangeStatus == "unknown" and .[0].rangeReason == "INFERRED_PROVIDER"' <<<"$svc_json" >/dev/null ||
+	fail "card-payments' stripe-pinned range is not unknown with INFERRED_PROVIDER: $svc_json"
+att_json=$(inferred_fleet attention) || fail "pacto fleet attention failed: $att_json"
+jq -e '[.items[] | select(.code == "INFERRED_PROVIDER")] | length == 1 and .[0].nextAction.verb == "declare"' <<<"$att_json" >/dev/null ||
+	fail "attention does not list exactly one INFERRED_PROVIDER item with the declare next action: $att_json"
+pass "the inferred service published stripe's inferred contract and a range on it reads unknown with INFERRED_PROVIDER"
+
 # The Metrics page reads the CI run records the seed published to the demo's
 # own registry. Compose runs no delivery, so no record is an operation. The
 # dashboard is shared without sign-in (--allow-anonymous), so it is a restricted
@@ -1225,6 +1248,34 @@ ops=$(stats_cli --since 90d --kind operation | jq -r '.runs') || fail "pacto sta
 recent=$(stats_cli --since 15m --kind publish | jq -r '.runs') || fail "pacto stats --since 15m failed"
 [ "$recent" -ge 1 ] || fail "no run record in the last 15 minutes: the seed did not shift the records to seed time"
 pass "the Metrics page reads $STATS_READ CI run records the seed shifted to seed time, and no operation record"
+
+# pacto declare writes a draft into the demo's own registry and pacto pull checks
+# its signature, all inside the dashboard container. A key names no person, so
+# the run writes draft-1, never a version. The stack has no Kubernetes API, so the
+# folder's cluster facts cannot be read again: they are dropped and the plan says
+# so, which is a partial draft and never an error. The key is made on the host
+# because nothing from here on reads the checkout; docker cp hands it to root, so
+# this throwaway key is made readable to the dashboard's non-root user.
+openssl ecparam -name prime256v1 -genkey -noout -out "$WORK/declare.key" || fail "openssl could not make the declare signing key"
+openssl ec -in "$WORK/declare.key" -pubout -out "$WORK/declare.pub" 2>/dev/null || fail "openssl could not derive the declare public key"
+chmod 0644 "$WORK/declare.key" "$WORK/declare.pub"
+docker compose -p "$PROJ1" cp "$WORK/declare.key" dashboard:/tmp/declare.key >/dev/null
+docker compose -p "$PROJ1" cp "$WORK/declare.pub" dashboard:/tmp/declare.pub >/dev/null
+declare_out=$(docker compose -p "$PROJ1" exec -T -e PACTO_INSECURE_REGISTRIES=registry:5000 dashboard sh -c '
+	set -e; mkdir -p /tmp/declare-invoices && cd /tmp/declare-invoices
+	printf "%s\n" "pactoVersion: \"2.5\"" "service:" "  name: invoices" >pacto.yaml
+	printf "%s\n" "format: pacto.inferred/v1" "inputs:" "  pacto: dev" "  cluster:" "    asOf: \"2026-11-14T10:02:00Z\"" \
+		"    object: demo/Deployment/invoices" "    callWindow: 24h" "    maxItems: 10000" "fields:" "  - field: service.owner" \
+		"    value: billing" "    source: cluster:label demo/Deployment/invoices app.kubernetes.io/team" "    confidence: likely" \
+		"    asOf: \"2026-11-14T10:02:00Z\"" >pacto.inferred.yaml
+	pacto declare invoices --dir /tmp/declare-invoices --registry registry:5000/demo --sign-key /tmp/declare.key --yes --output-format json' 2>&1) ||
+	fail "pacto declare --sign-key failed in the demo: $declare_out"
+jq -e '.tag == "draft-1" and .draft and (.plan.notes | any(test("cluster")))' <<<"$declare_out" >/dev/null ||
+	fail "pacto declare did not write draft-1 with a note about the dropped cluster facts: $declare_out"
+pull_out=$(docker compose -p "$PROJ1" exec -T -e PACTO_INSECURE_REGISTRIES=registry:5000 dashboard \
+	pacto pull oci://registry:5000/demo/invoices:draft-1 --verify-key /tmp/declare.pub --output /tmp/declare-pulled 2>&1) ||
+	fail "pacto pull --verify-key refused the draft pacto declare signed: $pull_out"
+pass "pacto declare wrote a key-signed draft-1 with its cluster facts dropped, and pacto pull verified its signature"
 
 # The same live journeys the Kind vertical runs, against the published demo
 # instead of a cluster. The suite reads the fixture the gate just discovered, so it

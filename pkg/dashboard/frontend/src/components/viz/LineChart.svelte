@@ -8,7 +8,7 @@
    * The plot is one keyboard stop: hover or Left / Right move a crosshair, and the shared
    * chart tooltip (plus a polite live region) reads that bucket. Words are HTML.
    */
-  import { bandScale, niceMax, showTick, runs } from '../../lib/chart.ts';
+  import { bandScale, niceMax, xTicks, runs } from '../../lib/chart.ts';
   import { tipState, hideTip, tipLabel, TIP_ID, type TipModel } from '../../lib/chartTip.ts';
   import { formatCount } from '../../lib/format.ts';
 
@@ -45,6 +45,7 @@
   const hi = $derived(compact ? Math.max(lo + 1, ...known.map((v) => v * 1.05)) : niceMax(Math.max(1, ...known)));
   const y = (v: number) => m.t + ph - ((v - lo) / (hi - lo)) * ph;
   const x = (i: number) => m.l + sc.mid(i);
+  const xt = $derived(xTicks(n, sc.band, widestX, W, x));
   // Counts: a mid tick only where it is a whole number.
   const ticks = $derived(compact ? [] : Number.isInteger(hi / 2) ? [0, hi / 2, hi] : [0, hi]);
   // Why a bucket draws no point: the caller's reason (records with no value to draw), else no records.
@@ -152,7 +153,7 @@
           style:max-inline-size="{g.len * sc.band - 6}px">{reason(g.start)}</span>
       {/each}
       {#each buckets as b, i (i)}
-        <span class="lc-x" class:off={!showTick(i, n, sc.band, widestX)} style:left="{Math.min(Math.max(x(i), widestX / 2), W - widestX / 2)}px" style:top="{H - m.b + 9}px">{b.short}</span>
+        <span class="lc-x" class:off={!xt[i].on} style:left="{xt[i].left}px" style:top="{H - m.b + 9}px">{b.short}</span>
       {/each}
     </div>
   {/if}

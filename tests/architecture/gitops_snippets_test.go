@@ -1,12 +1,15 @@
 package architecture
 
 import (
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // The GitOps promotion gates page ships two snippets a reader is meant to paste
@@ -27,6 +30,9 @@ const (
 	gitopsPage      = "gitops.md"
 	fluxFixture     = "flux-kustomization.yaml"
 	argocdFixture   = "argocd-cm-pacto-health.yaml"
+	argoPlugin      = "argocd-cmp-pacto.yaml"
+	argoPatch       = "argocd-repo-server-pacto-patch.yaml"
+	argoPreSync     = "argocd-presync-pacto-impact.yaml"
 	pactoAPIVersion = "pacto.trianalab.io/v1alpha1"
 )
 
@@ -283,7 +289,7 @@ func celLiterals(expr string) []string {
 // something: the page must publish these exact files, not a copy of them.
 func TestGitOpsPageIncludesTheTestedFixtures(t *testing.T) {
 	page := readRepoFile(t, "integrations", "kubernetes", "docs", gitopsPage)
-	for _, fixture := range []string{fluxFixture, argocdFixture} {
+	for _, fixture := range []string{fluxFixture, argocdFixture, argoPlugin, argoPatch, argoPreSync} {
 		include := `--8<-- "tests/acceptance/kind/fixtures/gitops/` + fixture + `"`
 		if !strings.Contains(page, include) {
 			t.Errorf("%s does not include %s verbatim; expected the line %s so the published "+
@@ -306,4 +312,167 @@ func TestGitOpsPageNamesEveryVerdict(t *testing.T) {
 				"say which way the gate treats it", verdict)
 		}
 	}
+}
+
+// The Argo CD sync gate: a repo-server sidecar patch a reader applies once.
+// The plugin's behaviour is run in tests/acceptance/gitopsplugin; what is left
+// here is the shape of the patch that the plugin's guarantees rest on.
+
+type securityContext struct {
+	RunAsNonRoot             *bool `yaml:"runAsNonRoot"`
+	ReadOnlyRootFilesystem   *bool `yaml:"readOnlyRootFilesystem"`
+	AllowPrivilegeEscalation *bool `yaml:"allowPrivilegeEscalation"`
+	Capabilities             struct {
+		Drop []string `yaml:"drop"`
+	} `yaml:"capabilities"`
+}
+
+type patchContainer struct {
+	Name            string          `yaml:"name"`
+	Image           string          `yaml:"image"`
+	Command         []string        `yaml:"command"`
+	SecurityContext securityContext `yaml:"securityContext"`
+	Env             []struct {
+		Name  string `yaml:"name"`
+		Value string `yaml:"value"`
+	} `yaml:"env"`
+	VolumeMounts []struct {
+		Name      string `yaml:"name"`
+		MountPath string `yaml:"mountPath"`
+	} `yaml:"volumeMounts"`
+}
+
+func (c patchContainer) mount(volume string) string {
+	for _, m := range c.VolumeMounts {
+		if m.Name == volume {
+			return m.MountPath
+		}
+	}
+	return ""
+}
+
+func (c patchContainer) env(name string) string {
+	for _, e := range c.Env {
+		if e.Name == name {
+			return e.Value
+		}
+	}
+	return ""
+}
+
+// repoServerPatch returns the patch's init container and sidecar.
+func repoServerPatch(t *testing.T) (initC, sidecar patchContainer) {
+	t.Helper()
+	var patch struct {
+		Spec struct {
+			Template struct {
+				Spec struct {
+					InitContainers []patchContainer `yaml:"initContainers"`
+					Containers     []patchContainer `yaml:"containers"`
+				} `yaml:"spec"`
+			} `yaml:"template"`
+		} `yaml:"spec"`
+	}
+	if err := yaml.Unmarshal([]byte(readRepoFile(t, gitopsFixture(argoPatch))), &patch); err != nil {
+		t.Fatalf("cannot parse %s: %v", argoPatch, err)
+	}
+	pod := patch.Spec.Template.Spec
+	if len(pod.InitContainers) != 1 || len(pod.Containers) != 1 || pod.Containers[0].Name != "pacto" {
+		t.Fatalf("%s must add one init container and one sidecar named pacto; got %d and %d",
+			argoPatch, len(pod.InitContainers), len(pod.Containers))
+	}
+	return pod.InitContainers[0], pod.Containers[0]
+}
+
+var (
+	argoImageTag  = regexp.MustCompile(`quay\.io/argoproj/argocd:(\S+)`)
+	kindArgoPin   = regexp.MustCompile(`(?m)^ARGOCD_VERSION=(\S+)$`)
+	markdownTitle = regexp.MustCompile(`(?m)^#{1,6} +(.+?) *$`)
+)
+
+// TestArgoPluginSidecarTagMatchesKindPin keeps the sidecar on the Argo CD
+// release the kind scenarios install, whose argocd-cmp-server it runs, in the
+// health scenario and in the sync-gate scenario that runs the plugin.
+func TestArgoPluginSidecarTagMatchesKindPin(t *testing.T) {
+	_, sidecar := repoServerPatch(t)
+	tag := argoImageTag.FindStringSubmatch(sidecar.Image)
+	for _, script := range []string{"gitops-argocd.sh", "gitops-argocd-sync.sh"} {
+		pin := kindArgoPin.FindStringSubmatch(readRepoFile(t, "tests", "acceptance", "kind", script))
+		if tag == nil || pin == nil || tag[1] != pin[1] {
+			t.Errorf("sidecar image %q does not match ARGOCD_VERSION in %s (%v)", sidecar.Image, script, pin)
+		}
+	}
+}
+
+// TestArgoPluginPatchAddsNoRBAC: the plugin reads registries only, so the patch
+// must not hand the repo-server a Kubernetes identity.
+func TestArgoPluginPatchAddsNoRBAC(t *testing.T) {
+	patch := readRepoFile(t, gitopsFixture(argoPatch))
+	for _, banned := range []string{"serviceAccountName", "automountServiceAccountToken: true", "projected:", "serviceAccountToken"} {
+		if strings.Contains(patch, banned) {
+			t.Errorf("%s contains %q; the sync gate needs registry read only", argoPatch, banned)
+		}
+	}
+}
+
+func TestArgoPluginSidecarIsHardened(t *testing.T) {
+	initC, sidecar := repoServerPatch(t)
+	for _, c := range []patchContainer{initC, sidecar} {
+		sc := c.SecurityContext
+		if sc.RunAsNonRoot == nil || !*sc.RunAsNonRoot || sc.ReadOnlyRootFilesystem == nil || !*sc.ReadOnlyRootFilesystem ||
+			sc.AllowPrivilegeEscalation == nil || *sc.AllowPrivilegeEscalation ||
+			len(sc.Capabilities.Drop) != 1 || sc.Capabilities.Drop[0] != "ALL" {
+			t.Errorf("container %s is not hardened: want runAsNonRoot, readOnlyRootFilesystem, "+
+				"allowPrivilegeEscalation false and capabilities drop [ALL]", c.Name)
+		}
+	}
+}
+
+// TestArgoPluginSidecarFindsPacto: the binary is copied into an emptyDir that
+// leads the sidecar's PATH, and the emptyDir never shadows /usr/local/bin,
+// where the Argo CD image keeps helm and kustomize.
+func TestArgoPluginSidecarFindsPacto(t *testing.T) {
+	initC, sidecar := repoServerPatch(t)
+	bin := initC.mount("pacto-bin")
+	if bin == "" || bin == "/usr/local/bin" || sidecar.mount("pacto-bin") != bin {
+		t.Fatalf("pacto-bin is mounted at %q in the init container and %q in the sidecar; want one "+
+			"path other than /usr/local/bin", bin, sidecar.mount("pacto-bin"))
+	}
+	if n := len(initC.Command); n == 0 || filepath.Dir(initC.Command[n-1]) != bin {
+		t.Fatalf("the init container copies to %v, outside pacto-bin %s", initC.Command, bin)
+	}
+	if first, _, _ := strings.Cut(sidecar.env("PATH"), ":"); first != bin {
+		t.Fatalf("sidecar PATH %q does not start with %s", sidecar.env("PATH"), bin)
+	}
+}
+
+// mkdocsSlug is the default toc slug: lowercase, punctuation dropped, spaces
+// to hyphens.
+func mkdocsSlug(title string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(title) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
+			b.WriteRune(r)
+		case r == ' ':
+			b.WriteRune('-')
+		}
+	}
+	return b.String()
+}
+
+// TestArgoSyncGateAnchorResolves: Detected providers links to this anchor on
+// every surface, so a renamed heading would ship a dead link.
+func TestArgoSyncGateAnchorResolves(t *testing.T) {
+	u, err := url.Parse(fleet.ArgoSyncGateDoc)
+	if err != nil || u.Fragment == "" || !strings.HasSuffix(u.Path, "/gitops/") {
+		t.Fatalf("ArgoSyncGateDoc %q is not an anchor on the gitops page", fleet.ArgoSyncGateDoc)
+	}
+	page := readRepoFile(t, "integrations", "kubernetes", "docs", gitopsPage)
+	for _, m := range markdownTitle.FindAllStringSubmatch(page, -1) {
+		if mkdocsSlug(m[1]) == u.Fragment {
+			return
+		}
+	}
+	t.Fatalf("no heading on %s slugifies to #%s", gitopsPage, u.Fragment)
 }

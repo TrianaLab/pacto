@@ -72,7 +72,7 @@ func (d *demoDelivery) judge(s *delivery.StageObject, at string) {
 	}
 	id := signerOf(svc.Name)
 	for i := len(digests) - 1; i >= 0 && len(p.Verdicts) < delivery.MaxPublisherVerdicts; i-- {
-		v := delivery.JudgePublisher(svc, id, id.Repository, []delivery.PublisherRule{rule}, delivery.PublisherSourceRule, pins)
+		v := delivery.JudgePublisher(svc, id, id.Repository, []delivery.PublisherRule{rule}, delivery.PublisherSourceRule, pins, nil)
 		v.Digest, v.Version, v.At = digests[i], cmpOr(versionOf(svc.Name, digests[i]), map[string]string{auditLogPending: "1.1.0"}[digests[i]]), at
 		p.Verdicts = append(p.Verdicts, v)
 	}

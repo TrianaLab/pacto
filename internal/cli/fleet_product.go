@@ -52,6 +52,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("consumes", "", "services that depend on or reference a provider of this platform offering")
 	f.String("phase", "", "with --consumes: only the consumers with a provisioning status of that offering in this phase")
 	f.String("environment", "", "with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment")
+	f.String("cluster", "", "entities in this cluster, by its UID as meta.clusters lists it: targets, services with a target or an inferred workload there and revisions a target there runs; other kinds ignore it")
 	f.String("ownership", "", "how ownership is declared on a service (consistent, conflicting, unowned, unknown or unidentified; conflicting means owners disagree: targets run different owners, or one version declares two; unknown is a service whose contract Pacto cannot read, unidentified every service with no single canonical owner)")
 	f.String("gap", "", "services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge")
 	f.String("status", "", "canonical compliance status")
@@ -135,7 +136,7 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	failed, _ := cmd.Flags().GetBool("failed")
 	f := fleet.EntityFilter{
 		Text: text, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
-		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Environment: get("environment"), Ownership: get("ownership"), Gap: get("gap"), Status: get("status"), Sort: get("sort"),
+		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Environment: get("environment"), Cluster: get("cluster"), Ownership: get("ownership"), Gap: get("gap"), Status: get("status"), Sort: get("sort"),
 		Template: get("template"), Declaration: get("declaration"), Group: get("group"), CreatedFrom: get("created-from"),
 		HasNonCompliant: nc, SourceKind: get("source-kind"), Lifecycle: get("lifecycle"), Failed: failed, Limit: limit, Offset: offset,
 		Capability: get("capability"), Domain: get("domain"), Service: get("service"), Source: get("source"),
@@ -555,12 +556,21 @@ func versionNotes(v fleet.ProviderVersion) string {
 		notes = append(notes, l)
 	}
 	if v.RangeStatus != "" {
-		notes = append(notes, v.RangeStatus)
+		notes = append(notes, rangeStatusText(v.RangeStatus, v.RangeReason))
 	}
 	if len(notes) == 0 {
 		return ""
 	}
 	return " [" + strings.Join(notes, ", ") + "]"
+}
+
+// rangeStatusText is a range status followed by the reason code that explains an
+// unknown one, such as INFERRED_PROVIDER.
+func rangeStatusText(status, reason string) string {
+	if reason != "" {
+		return status + ": " + reason
+	}
+	return status
 }
 
 // lifecycleText renders a service lifecycle, empty when there is none.
@@ -825,7 +835,7 @@ func printResource(w io.Writer, u fleet.OfferingUse) {
 func useNotes(u fleet.OfferingUse) string {
 	var s string
 	if u.RangeStatus != "" {
-		s += ", range " + u.RangeStatus
+		s += ", range " + rangeStatusText(u.RangeStatus, u.RangeReason)
 	}
 	if l := lifecycleText(u.ProviderLifecycle); l != "" {
 		s += ", provider " + l
@@ -922,6 +932,13 @@ func printFleetAttention(cmd *cobra.Command, res *fleet.AttentionList, format st
 			action := ""
 			if a := it.NextAction; a != nil {
 				action = fmt.Sprintf(" (action: %s via %s)", a.Verb, a.Tool)
+				switch {
+				case a.Verb == "declare" && it.Entity.Kind == fleet.KindExternal:
+					// pacto declare reads only workloads: the next step says how.
+					action = " (action: declare a contract for it)"
+				case a.Verb == "declare":
+					action = " (action: declare a contract with pacto declare)"
+				}
 			}
 			if it.Caller != nil {
 				action += " (inferred service " + it.Caller.Key + ")"

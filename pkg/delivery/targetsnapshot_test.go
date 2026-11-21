@@ -102,3 +102,57 @@ func TestTargetSnapshotCheckSources(t *testing.T) {
 		}
 	}
 }
+
+// TestTargetSnapshotOwnerPolicyRoundTrip: the owner policy travels in the
+// signed snapshot and decodes back strictly.
+func TestTargetSnapshotOwnerPolicyRoundTrip(t *testing.T) {
+	s := targetSnapshot()
+	p := ownerPolicy()
+	s.OwnerPolicy = &p
+	st := NewTargetSnapshotStatement(s)
+	b, err := SignTargetSnapshot(t.Context(), plainSigner{}, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := OpenTargetSnapshot(b, nil, nil)
+	if err != nil || !reflect.DeepEqual(got, st) {
+		t.Fatalf("opened %+v, %v", got, err)
+	}
+}
+
+// TestTargetSnapshotRefusesOpenOwnerRule: a snapshot whose owner policy holds
+// a rule that matches anyone is refused, by Check and when opened.
+func TestTargetSnapshotRefusesOpenOwnerRule(t *testing.T) {
+	s := targetSnapshot()
+	p := ownerPolicy()
+	p.DefaultApprovers[0].Subject = ".*"
+	s.OwnerPolicy = &p
+	if err := s.Check(); err == nil || !strings.Contains(err.Error(), "owner policy") {
+		t.Fatalf("err = %v", err)
+	}
+	b, err := SignTargetSnapshot(t.Context(), plainSigner{}, NewTargetSnapshotStatement(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := OpenTargetSnapshot(b, nil, nil); err == nil {
+		t.Fatal("an open owner rule opened")
+	}
+}
+
+// TestTargetSnapshotWithoutOwnerPolicyUnchanged: a snapshot with no owner
+// policy encodes with no ownerPolicy key, and decodes and re-encodes byte
+// identical.
+func TestTargetSnapshotWithoutOwnerPolicyUnchanged(t *testing.T) {
+	body, err := json.Marshal(targetSnapshot())
+	if err != nil || strings.Contains(string(body), "ownerPolicy") {
+		t.Fatalf("body %s, %v", body, err)
+	}
+	var back TargetSnapshot
+	if err := json.Unmarshal(body, &back); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := json.Marshal(back)
+	if string(again) != string(body) {
+		t.Fatalf("re-encoded %s, want %s", again, body)
+	}
+}

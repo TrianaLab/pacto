@@ -40,12 +40,26 @@ const remoteInstructions = contractIntro + schemaSentence + remoteAuthoringSente
 const remoteAuthoringSentence = "Over this HTTP server only pacto_schema is offered from the contract tools; " +
 	"pacto_create, pacto_edit and pacto_check run beside the agent over stdio, from pacto mcp --transport stdio."
 
-// baseFor is the instructions for the contract tools a server registers.
+// baseFor is the instructions for the contract tools a server registers,
+// with pacto_declare named only when it registers.
 func baseFor(a Authoring) string {
-	if a.Remote {
-		return remoteInstructions
+	switch {
+	case a.Remote:
+		return remoteInstructions + writeSentences(Authoring{Declare: a.Declare}, remoteDeclareSentence, "")
 	}
-	return stdioInstructions
+	return stdioInstructions + writeSentences(a, declareSentence, acceptSentence)
+}
+
+// writeSentences names the registry write tools a registers.
+func writeSentences(a Authoring, declare, accept string) string {
+	out := ""
+	if a.Declare != nil {
+		out += " " + declare
+	}
+	if a.Accept != nil {
+		out += " " + accept
+	}
+	return out
 }
 
 // Validator runs the `pacto validate` path for the bundle in dir: lockfile
@@ -96,12 +110,18 @@ type FromRequest struct {
 // content cannot steer an agent into picking the classifier. Nil is the
 // default catalog. CatalogUnavailable says why the organization catalog the
 // server names could not be read.
+//
+// Declare, when set, registers pacto_declare: over stdio it plans and writes
+// drafts, over HTTP it plans with the caller's own credentials only. Accept,
+// when set, registers pacto_accept the same way.
 type Authoring struct {
 	Validate           Validator
 	Init               Initializer
 	Remote             bool
 	Catalog            *externalcatalog.Catalog
 	CatalogUnavailable string
+	Declare            Declarer
+	Accept             Acceptor
 }
 
 // newBareServer builds a server with no tools registered at all. A mode whose
@@ -141,6 +161,12 @@ func registerTools(server *mcpsdk.Server, version string, a Authoring, opts Edit
 		addTool(server, checkTool(), checkHandler(a.Validate))
 	}
 	addTool(server, schemaTool(), schemaHandler(a.Remote))
+	if a.Declare != nil {
+		registerDeclare(server, a.Declare, a.Remote)
+	}
+	if a.Accept != nil && !a.Remote {
+		registerAccept(server, a.Accept)
+	}
 }
 
 // jsonResult marshals v to JSON and returns it as a CallToolResult with text content.

@@ -196,7 +196,7 @@ func sameConclusion(t *testing.T, a, b statsResult) {
 // however slow the runner.
 func hangingEmitter(t *testing.T, host string) *runstats.Emitter {
 	t.Helper()
-	em, err := runstats.New(host+"/stats", nil, []string{host}, "cid", "test")
+	em, err := runstats.New(host+"/stats", nil, []string{host}, nil, "cid", "test")
 	must(t, err)
 	em.PublishTimeout = time.Hour
 	return em

@@ -10,7 +10,7 @@
    * reason plate) is HTML placed from the same scale, and label spacing comes from the
    * measured widest label, never a font guess (SPEC 12, SPEC 24.1).
    */
-  import { bandScale, niceMax, colPath, showTick, directLabelIndexes, runs, SERIES } from '../../lib/chart.ts';
+  import { bandScale, niceMax, colPath, xTicks, directLabelIndexes, runs, SERIES } from '../../lib/chart.ts';
   import { chartTip, type TipModel } from '../../lib/chartTip.ts';
   import { formatCount } from '../../lib/format.ts';
 
@@ -49,6 +49,7 @@
   const max = $derived(niceMax(Math.max(1, ...totals.filter((v): v is number => v != null))));
   const y = (v: number) => m.t + ph - (v / max) * ph;
   const cx = (i: number) => m.l + sc.mid(i);
+  const xt = $derived(xTicks(n, sc.band, widestX, W, cx));
   // Counts: a mid tick only where it is a whole number, never half a change.
   const ticks = $derived(compact ? [] : stacked && Number.isInteger(max / 2) ? [0, max / 2, max] : [0, max]);
   const peak = $derived(Math.max(...totals.map((v) => v ?? -1)));
@@ -149,7 +150,7 @@
           style:max-inline-size="{g.len * sc.band - 6}px">{reason(g.start)}</span>
       {/each}
       {#each buckets as b, i (i)}
-        <span class="cc-x" class:off={!showTick(i, n, sc.band, widestX)} style:left="{Math.min(Math.max(cx(i), widestX / 2), W - widestX / 2)}px" style:top="{H - m.b + 9}px">{b.short}</span>
+        <span class="cc-x" class:off={!xt[i].on} style:left="{xt[i].left}px" style:top="{H - m.b + 9}px">{b.short}</span>
         {#if inSegment}
           {#each columns[i] as c (c.key)}
             {#if c.h >= 18 && bw >= 16}<span class="cc-in" style:left="{cx(i)}px" style:top="{c.y + c.h / 2}px">{c.v}</span>{/if}

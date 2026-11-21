@@ -13,9 +13,12 @@ import (
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/registry"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/types"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 )
@@ -336,5 +339,30 @@ func TestClientSigTagFailures(t *testing.T) {
 	maxSigTags = 1
 	if _, err := tr.c.sigTagReferrers(ctx, repo, d); err == nil || !strings.Contains(err.Error(), "at most 1") {
 		t.Fatalf("too many tags: %v", err)
+	}
+}
+
+// TestScopedClientGuardsTheSigTag: on a registry without the Referrers API a
+// scoped client's write-once signature tag goes through the push scope too,
+// and the client reaches its insecure hosts over plain HTTP.
+func TestScopedClientGuardsTheSigTag(t *testing.T) {
+	tr := newTagRegistry(t)
+	repo, d := signedImage(t, tr.c, tr.host)
+	outside := NewScopedClient(anonymous, oci.NewPushScope("", tr.host+"/other"), nil)
+	h, _ := v1.NewHash(d)
+	_, art := newReferrer(delivery.BundleMediaType, delivery.BundleMediaType, []byte("{}"), delivery.BundleMediaType, []byte("sig"), nil,
+		v1.Descriptor{MediaType: types.OCIManifestSchema1, Size: 1, Digest: h})
+	if _, err := outside.PutSigTag(t.Context(), repo, d, art); !errors.Is(err, oci.ErrOutsidePushScope) {
+		t.Fatalf("PutSigTag outside the scope = %v, want the push-scope refusal", err)
+	}
+	if tags := tr.sigTags(t, repo, d); len(tags) != 0 {
+		t.Errorf("a signature tag was written outside the scope: %v", tags)
+	}
+	inside := NewScopedClient(anonymous, oci.NewPushScope("", repo), nil)
+	if err := SignDigest(t.Context(), inside, echoSigner{}, repo, d); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := NewScopedClient(anonymous, oci.NewPushScope(""), nil, "zot.test:5000").open("zot.test:5000/x"); !r.PlainHTTP {
+		t.Error("an insecure host of a scoped client is reached over HTTPS")
 	}
 }

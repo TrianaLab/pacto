@@ -26,10 +26,10 @@ Hand the `edge-eu-west__edge-eu-west-2026.pub` file to the platform and put it i
 
 ## How it works
 
-Traffic goes one way. Pacto never connects to a remote environment; the remote side starts every request and only pushes. Accepted evidence is stored in your contract registry as an OCI 1.1 *referrer*: an artifact attached to the contract revision it is about. The registry is the only store, so the Evidence Server needs no bucket, volume or database. When the dashboard reads a contract revision from a registry, accepted evidence records appear in the referrers list on that revision's page; see [Bundle signatures and referrers](dashboard-service-page.md#bundle-signatures-and-referrers).
+Traffic goes one way: Pacto never connects to a remote environment, which starts every request. Accepted evidence is stored in your contract registry as an OCI 1.1 *referrer*: an artifact attached to the contract revision it is about. The registry is the only store, so the Evidence Server needs no bucket, volume or database. When the dashboard reads a contract revision from a registry, accepted evidence records appear in the referrers list on that revision's page; see [Bundle signatures and referrers](dashboard-service-page.md#bundle-signatures-and-referrers).
 
 !!! warning "GHCR cannot host Pacto evidence"
-    GitHub Container Registry does not serve the native OCI Referrers API, which the Evidence Server requires. GHCR works for contracts; only evidence needs the Referrers endpoint. Publish contracts you want to carry evidence to a conformant registry (zot, Docker Hub, Harbor, ECR, ACR, Artifactory).
+    GitHub Container Registry does not serve the native OCI Referrers API, which the Evidence Server requires. Publish contracts you want to carry evidence to a conformant registry (zot, Docker Hub, Harbor, ECR, ACR, Artifactory).
 
 **The protocol signs evidence *envelopes*:** the wrapper around one report. Every envelope is Ed25519-signed and checked against a trust store (the list of public keys you accept) before it is stored.
 
@@ -117,6 +117,10 @@ Two sources that report one record with two clusters raise `CLUSTER_CONFLICT`.
 The targets endpoint answers `pacto.dev/evidence-source/v5` when it carries a
 cluster, and older readers accept only v2 to v4: upgrade them before you set
 `--cluster-id`. See [Clusters and target keys](operational-graph-clusters.md).
+
+With the operator chart's `registry` set, accepted targets reach CI through
+the operator's signed target snapshot. The server still needs
+`evidence.enabled`, its subjects and its trust config.
 
 ---
 
@@ -250,6 +254,10 @@ send an empty EvidenceSet.
   dependency ref is an `oci://` ref to a repository under one of the prefixes, and refuses any
   other, a local path or a dependency with no ref included, with HTTP 403 and the code `provider_not_allowed`.
 - A scope requires `ResourceProvisioned` or `ResourceUsage` in `allowedObservationKinds`.
+- No key, scoped or not, accepts a report whose ref names a `pacto-inferred`
+  repository, and loading refuses a prefix under one: an
+  [inferred contract](inferred-contracts.md) never anchors provisioning or
+  usage evidence.
 - The server logs a warning at startup for every provisioning or usage key with no scope.
 - The scope applies to reports accepted after the change. Reports already
   accepted stay until a newer report replaces them or they pass the

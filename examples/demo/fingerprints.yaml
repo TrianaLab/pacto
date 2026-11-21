@@ -1,0 +1,22 @@
+# The chart's default fingerprints (integrations/kubernetes values.yaml
+# `fingerprints`), kept equal by TestDemoFingerprintsMatchChartDefaults. The
+# demo cluster serves the CRD of each promoter that carries an offer, so Data
+# sources shows the offer an installation running it would see.
+managers: []
+promoters:
+  - product: Kargo
+    crd: stages.kargo.akuity.io
+    offer:
+      id: kargo-analysis-template
+      text: Gate every Kargo promotion with one shared AnalysisTemplate
+      doc: https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo
+  - product: Kargo
+    crd: warehouses.kargo.akuity.io
+    offer:
+      id: kargo-analysis-template
+      text: Gate every Kargo promotion with one shared AnalysisTemplate
+      doc: https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo
+  - product: Argo CD Image Updater
+    annotation: argocd-image-updater.argoproj.io/image-list
+  - product: Flux ImageUpdateAutomation
+    crd: imageupdateautomations.image.toolkit.fluxcd.io

@@ -44,7 +44,7 @@ func TestEntityFilterCreatedFrom(t *testing.T) {
 	if got := entityKeys(t, q, EntityFilter{CreatedFrom: path}); !slices.Equal(got, []string{"gift-cards"}) {
 		t.Errorf("created from the path = %v", got)
 	}
-	r := hiddenPathFleet(t).Restrict(shopOnly, nil)
+	r := hiddenPathFleet(t).Restrict(anyCluster(shopOnly), anyClusterKind(nil))
 	var metas []ProductMeta
 	for _, key := range []string{path, string(NewServiceKeyDomain(acme, "absent")), string(NewServiceKeyDomain(acme, "postgresql"))} {
 		l, err := r.Entities(EntityFilter{CreatedFrom: key})

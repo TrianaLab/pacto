@@ -107,7 +107,7 @@ func TestTemplateDetail_Instantiate(t *testing.T) {
 }
 
 func TestTemplateDetailRestricted(t *testing.T) {
-	r := goldenRestrictFleet(t, templated("http-service", "1.0.0")).Restrict(shopOnly, nil)
+	r := goldenRestrictFleet(t, templated("http-service", "1.0.0")).Restrict(anyCluster(shopOnly), anyClusterKind(nil))
 	d := goldenDetail(t, r, "http-service").Template
 	if d == nil || d.HiddenCreatedServices != 1 {
 		t.Fatalf("template detail = %+v", d)

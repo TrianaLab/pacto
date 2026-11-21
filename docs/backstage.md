@@ -93,8 +93,8 @@ catalog:
 
 Backstage shows the reader's scope to every Backstage user. A namespace-scoped
 reader sees no service known only from a registry, so give a reader that should
-see the whole fleet a cluster-wide grant. Until per-cluster restriction lands, a
-namespace grant shows that namespace from every cluster the fleet reads.
+see the whole fleet a cluster-wide grant. A namespace grant shows that
+namespace in its own cluster only ([Multi-cluster](multi-cluster.md)).
 
 Open and local dashboards serve the route without a token. Whenever
 `pacto export backstage` would write nothing, the route answers 503 naming why,

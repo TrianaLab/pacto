@@ -44,8 +44,8 @@ func TestRunSignsWhatTheDerivedRuleAccepts(t *testing.T) {
 		t.Fatal(err)
 	}
 	rule, _ := delivery.DeriveRule("ghcr.io/acme", "main")
-	v := publish.CheckPublisher(t.Context(), reg, tr, false, host+"/apps/payments", d, delivery.ServiceRef{Name: "payments"}, repo,
-		[]delivery.PublisherRule{rule}, delivery.PublisherSourceRule, nil)
+	v, _, _ := publish.CheckPublisher(t.Context(), reg, tr, false, host+"/apps/payments", d, delivery.ServiceRef{Name: "payments"}, repo,
+		[]delivery.PublisherRule{rule}, delivery.PublisherSourceRule, nil, nil)
 	if v.Verdict != delivery.VerdictAccepted || v.Source != delivery.PublisherSourceRule {
 		t.Fatalf("verdict %+v", v)
 	}

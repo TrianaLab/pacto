@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"net"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -54,4 +56,46 @@ func TestFleetWiresRegistryProbe(t *testing.T) {
 	if len(probed) != 1 || len(snap.Providers) != 1 || snap.Providers[0].ID != fleet.ProviderRegistryPrefix+"ghcr.io" || snap.Providers[0].Source != "oci" {
 		t.Fatalf("probed %q, rows %+v", probed, snap.Providers)
 	}
+}
+
+// TestFreshProbesForgetsAReusedPort: a test server that reuses the port of an
+// earlier one with native referrers must be probed again, or a publish
+// reading back its signature takes the earlier answer and fails (CI run
+// 44700352090, TestCIPublishRefusedKeepsThePlanModeNote).
+func TestFreshProbesForgetsAReusedPort(t *testing.T) {
+	probeOn := func(t *testing.T, h http.Handler, addr string) (string, capabilities.ReferrersMode) {
+		srv := httptest.NewUnstartedServer(h)
+		if addr != "" {
+			l, err := net.Listen("tcp", addr)
+			if err != nil {
+				t.Skipf("the port was taken meanwhile: %v", err)
+			}
+			_ = srv.Listener.Close()
+			srv.Listener = l
+		}
+		srv.Start()
+		defer srv.Close()
+		host := strings.TrimPrefix(srv.URL, "http://")
+		repo, _ := ocireferrer.Open(host+"/team/app", ocireferrer.Options{})
+		art := ocireferrer.Build("application/x-subject", "application/x-layer", []byte("s"), nil, nil)
+		if err := ocireferrer.Push(t.Context(), repo, art); err != nil {
+			t.Fatal(err)
+		}
+		c, err := ocireferrer.Probes.Probe(t.Context(), repo, art.ManifestDesc.Digest.String(), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return host, c.Referrers
+	}
+	freshProbes(t)
+	host, mode := probeOn(t, testutil.NewReferrersRegistry(testutil.ReferrersOptions{}), "")
+	if mode != capabilities.ReferrersNative {
+		t.Fatalf("first server: %s", mode)
+	}
+	t.Run("reused", func(t *testing.T) {
+		freshProbes(t)
+		if _, mode := probeOn(t, testutil.NewReferrersRegistry(testutil.ReferrersOptions{Unsupported: true}), host); mode != capabilities.ReferrersWriteOnceTags {
+			t.Fatalf("the reused port kept the earlier answer: %s", mode)
+		}
+	})
 }

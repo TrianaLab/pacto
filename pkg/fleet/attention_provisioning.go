@@ -37,7 +37,7 @@ func (q *Query) provisioningAttention() []AttentionItem {
 			continue
 		}
 		rels[k] = append(rels[k], rel)
-		if r := q.snap.Revisions[rel.FromRevision]; r != nil && (current[k] == nil || lessRevisionChrono(current[k], r)) {
+		if r := q.snap.Revisions[rel.FromRevision]; r != nil && (current[k] == nil || LessRevisionChrono(current[k], r)) {
 			current[k] = r
 		}
 	}

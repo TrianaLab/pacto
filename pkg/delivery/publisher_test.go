@@ -42,7 +42,7 @@ func TestDeriveRuleGitHub(t *testing.T) {
 	if r.Issuer != issuerGitHubActions || r.Ref != "refs/heads/main" || r.Name != "derived from ghcr.io/acme" {
 		t.Fatalf("rule %+v", r)
 	}
-	if v := JudgePublisher(payments, ciAcme, "", []PublisherRule{r}, PublisherSourceRule, nil); v.Verdict != VerdictAccepted {
+	if v := JudgePublisher(payments, ciAcme, "", []PublisherRule{r}, PublisherSourceRule, nil, nil); v.Verdict != VerdictAccepted {
 		t.Fatalf("the org's workflow on main: %+v", v)
 	}
 	other := ciAcme
@@ -116,7 +116,7 @@ func TestNormalizeRepo(t *testing.T) {
 }
 
 func TestJudgeRuleAccepts(t *testing.T) {
-	v := JudgePublisher(payments, ciAcme, "https://github.com/acme/payments.git", []PublisherRule{acmeRule(t)}, PublisherSourcePolicy, nil)
+	v := JudgePublisher(payments, ciAcme, "https://github.com/acme/payments.git", []PublisherRule{acmeRule(t)}, PublisherSourcePolicy, nil, nil)
 	if v.Verdict != VerdictAccepted || v.Source != PublisherSourcePolicy || v.Identity == nil || v.Identity.Subject != ciAcme.Subject ||
 		!strings.Contains(v.Reason, "derived from ghcr.io/acme") {
 		t.Fatalf("verdict %+v", v)
@@ -126,14 +126,14 @@ func TestJudgeRuleAccepts(t *testing.T) {
 func TestJudgeRuleNeedsDefaultBranchRef(t *testing.T) {
 	branch := ciAcme
 	branch.Ref = "refs/heads/feature"
-	if v := JudgePublisher(payments, branch, "", []PublisherRule{acmeRule(t)}, PublisherSourceRule, nil); v.Verdict != VerdictNewSigner {
+	if v := JudgePublisher(payments, branch, "", []PublisherRule{acmeRule(t)}, PublisherSourceRule, nil, nil); v.Verdict != VerdictNewSigner {
 		t.Fatalf("a feature branch: %+v", v)
 	}
 }
 
 func TestJudgeSourceMismatchRefused(t *testing.T) {
 	pin := IdentityPin{Service: payments, Issuer: ciAcme.Issuer, Subject: ciAcme.Subject, Repository: ciAcme.Repository}
-	v := JudgePublisher(payments, ciAcme, "https://github.com/acme/other", []PublisherRule{acmeRule(t)}, PublisherSourceRule, []IdentityPin{pin})
+	v := JudgePublisher(payments, ciAcme, "https://github.com/acme/other", []PublisherRule{acmeRule(t)}, PublisherSourceRule, []IdentityPin{pin}, nil)
 	if v.Verdict != VerdictRefused || v.Source != PublisherSourceNone || !strings.Contains(v.Reason, "acme/other") {
 		t.Fatalf("verdict %+v", v)
 	}
@@ -141,7 +141,7 @@ func TestJudgeSourceMismatchRefused(t *testing.T) {
 
 func TestJudgePinAccepts(t *testing.T) {
 	pin := IdentityPin{Service: payments, Issuer: ciAcme.Issuer, Subject: ciAcme.Subject, Repository: ciAcme.Repository + ".git", Approver: "ana", At: "2026-11-17T10:00:00Z"}
-	v := JudgePublisher(payments, ciAcme, "", nil, PublisherSourceRule, []IdentityPin{pin})
+	v := JudgePublisher(payments, ciAcme, "", nil, PublisherSourceRule, []IdentityPin{pin}, nil)
 	if v.Verdict != VerdictAccepted || v.Source != PublisherSourcePin || !strings.Contains(v.Reason, "ana pinned for payments") {
 		t.Fatalf("verdict %+v", v)
 	}
@@ -149,7 +149,7 @@ func TestJudgePinAccepts(t *testing.T) {
 
 func TestJudgePinOtherServiceIgnored(t *testing.T) {
 	pin := IdentityPin{Service: ServiceRef{Name: "orders"}, Issuer: ciAcme.Issuer, Subject: ciAcme.Subject, Repository: ciAcme.Repository}
-	if v := JudgePublisher(payments, ciAcme, "", nil, PublisherSourceRule, []IdentityPin{pin}); v.Verdict != VerdictNewSigner {
+	if v := JudgePublisher(payments, ciAcme, "", nil, PublisherSourceRule, []IdentityPin{pin}, nil); v.Verdict != VerdictNewSigner {
 		t.Fatalf("verdict %+v", v)
 	}
 }
@@ -157,7 +157,7 @@ func TestJudgePinOtherServiceIgnored(t *testing.T) {
 func TestJudgeCIOutsideRuleIsNewSigner(t *testing.T) {
 	other := PublisherIdentity{Issuer: issuerGitHubActions, Subject: "https://github.com/contractor/payments/.github/workflows/x.yml@refs/heads/main",
 		Repository: "https://github.com/contractor/payments", CI: true}
-	v := JudgePublisher(payments, other, "", []PublisherRule{acmeRule(t)}, PublisherSourceRule, nil)
+	v := JudgePublisher(payments, other, "", []PublisherRule{acmeRule(t)}, PublisherSourceRule, nil, nil)
 	if v.Verdict != VerdictNewSigner || v.Source != PublisherSourceNone || !strings.Contains(v.Reason, "a person confirms it") {
 		t.Fatalf("verdict %+v", v)
 	}
@@ -167,7 +167,7 @@ func TestJudgeCIOutsideRuleIsNewSigner(t *testing.T) {
 // registry-declared wording, even when a pin names it.
 func TestJudgePersonNeverTOFU(t *testing.T) {
 	pin := IdentityPin{Service: payments, Issuer: person.Issuer, Subject: person.Subject}
-	v := JudgePublisher(payments, person, "https://github.com/acme/payments", []PublisherRule{acmeRule(t)}, PublisherSourceRule, []IdentityPin{pin})
+	v := JudgePublisher(payments, person, "https://github.com/acme/payments", []PublisherRule{acmeRule(t)}, PublisherSourceRule, []IdentityPin{pin}, nil)
 	if v.Verdict != VerdictRefused || !strings.Contains(v.Reason, "a person identity") || !strings.Contains(v.Reason, "must reuse its CI-signed baseline") {
 		t.Fatalf("verdict %+v", v)
 	}
@@ -176,15 +176,15 @@ func TestJudgePersonNeverTOFU(t *testing.T) {
 func TestJudgePolicyServicesScope(t *testing.T) {
 	r := acmeRule(t)
 	r.Services = []string{"pay*"}
-	if v := JudgePublisher(payments, ciAcme, "", []PublisherRule{r}, PublisherSourcePolicy, nil); v.Verdict != VerdictAccepted {
+	if v := JudgePublisher(payments, ciAcme, "", []PublisherRule{r}, PublisherSourcePolicy, nil, nil); v.Verdict != VerdictAccepted {
 		t.Fatalf("in scope: %+v", v)
 	}
-	if v := JudgePublisher(ServiceRef{Name: "orders"}, ciAcme, "", []PublisherRule{r}, PublisherSourcePolicy, nil); v.Verdict != VerdictNewSigner {
+	if v := JudgePublisher(ServiceRef{Name: "orders"}, ciAcme, "", []PublisherRule{r}, PublisherSourcePolicy, nil, nil); v.Verdict != VerdictNewSigner {
 		t.Fatalf("out of scope: %+v", v)
 	}
 	open := acmeRule(t)
 	open.Subject = "^.*$"
-	if v := JudgePublisher(payments, ciAcme, "", []PublisherRule{open}, PublisherSourcePolicy, nil); v.Verdict == VerdictAccepted {
+	if v := JudgePublisher(payments, ciAcme, "", []PublisherRule{open}, PublisherSourcePolicy, nil, nil); v.Verdict == VerdictAccepted {
 		t.Fatalf("an open rule accepted: %+v", v)
 	}
 }
@@ -192,16 +192,16 @@ func TestJudgePolicyServicesScope(t *testing.T) {
 func TestJudgeSignersFirstAcceptedWins(t *testing.T) {
 	rules := []PublisherRule{acmeRule(t)}
 	stranger := PublisherIdentity{Issuer: issuerGitHubActions, Subject: "https://github.com/x/y/.github/workflows/a@refs/heads/main", Repository: "https://github.com/x/y", CI: true}
-	if v := JudgeSigners(payments, []PublisherIdentity{person, ciAcme}, "", rules, PublisherSourceRule, nil); v.Verdict != VerdictAccepted || v.Identity.Subject != ciAcme.Subject {
+	if v := JudgeSigners(payments, []PublisherIdentity{person, ciAcme}, "", rules, PublisherSourceRule, nil, nil); v.Verdict != VerdictAccepted || v.Identity.Subject != ciAcme.Subject {
 		t.Fatalf("accepted second: %+v", v)
 	}
-	if v := JudgeSigners(payments, []PublisherIdentity{stranger, person}, "", rules, PublisherSourceRule, nil); v.Verdict != VerdictRefused {
+	if v := JudgeSigners(payments, []PublisherIdentity{stranger, person}, "", rules, PublisherSourceRule, nil, nil); v.Verdict != VerdictRefused {
 		t.Fatalf("refused wins over new-signer: %+v", v)
 	}
-	if v := JudgeSigners(payments, []PublisherIdentity{person, stranger}, "", rules, PublisherSourceRule, nil); v.Verdict != VerdictRefused {
+	if v := JudgeSigners(payments, []PublisherIdentity{person, stranger}, "", rules, PublisherSourceRule, nil, nil); v.Verdict != VerdictRefused {
 		t.Fatalf("refused stays: %+v", v)
 	}
-	if v := JudgeSigners(payments, nil, "", rules, PublisherSourceRule, nil); v.Verdict != VerdictUnknown {
+	if v := JudgeSigners(payments, nil, "", rules, PublisherSourceRule, nil, nil); v.Verdict != VerdictUnknown {
 		t.Fatalf("no signer: %+v", v)
 	}
 }

@@ -24,7 +24,6 @@
   import EntitySearch from './EntitySearch.svelte';
   import FleetOverview from './views/FleetOverview.svelte';
   import FleetServicesView from './views/FleetServicesView.svelte';
-  import FleetEntityListView from './views/FleetEntityListView.svelte';
   import FleetAttentionView from './views/FleetAttentionView.svelte';
   import LegacyEntityRedirect from './views/LegacyEntityRedirect.svelte';
 
@@ -51,6 +50,7 @@
   const loadDeliveryPublishView = once(() => import('./views/DeliveryPublishView.svelte'));
   // The two least visited fleet lists, loaded on first use to keep the first download in budget.
   const loadFleetSourcesView = once(() => import('./views/FleetSourcesView.svelte'));
+  const loadFleetEntityListView = once(() => import('./views/FleetEntityListView.svelte'));
   const loadFleetDomainsView = once(() => import('./views/FleetDomainsView.svelte'));
   const loadFleetOwnersView = once(() => import('./views/FleetOwnersView.svelte'));
   // The legacy list views serve only the offline `pacto doc` export, never a Fleet host.
@@ -486,6 +486,7 @@
       declaration={route.params.declaration || ''}
       group={route.params.group || ''}
       phase={route.params.phase || ''}
+      cluster={route.params.cluster || ''}
       offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''}
@@ -527,7 +528,7 @@
       {refreshTick}
     />
   {:else if route.view === 'fleet-entity-list'}
-    <FleetEntityListView
+    <LazyView load={loadFleetEntityListView}
       kind={route.params.kind || 'revision'}
       service={route.params.service || ''}
       text={route.params.text || ''}
@@ -535,6 +536,7 @@
       scope={route.params.scope || ''}
       readiness={route.params.readiness || ''}
       environment={route.params.environment || ''}
+      cluster={route.params.cluster || ''}
       offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''}

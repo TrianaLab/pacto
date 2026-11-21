@@ -245,11 +245,11 @@ func (s *Server) readStats(ctx context.Context, window string) (*statsRead, erro
 		return nil, huma.Error503ServiceUnavailable(msg, err)
 	}
 	if s.opts.View != nil && s.opts.OperationAccess != nil {
-		visible, err := s.opts.OperationAccess(ctx, stats.OperationNamespaces(r.set))
+		access, err := s.opts.OperationAccess(ctx, stats.OperationNamespaces(r.set))
 		if err != nil {
 			return nil, Refuse(http.StatusServiceUnavailable, "PermissionCheckFailed", "checking your Kubernetes permissions failed: "+err.Error())
 		}
-		r.scope.OperationVisible = visible
+		r.scope.OperationVisible, r.scope.Clusters = access.Visible, access.Clusters
 	}
 	return r, nil
 }

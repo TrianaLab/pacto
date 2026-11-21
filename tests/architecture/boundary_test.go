@@ -10,7 +10,14 @@
 package architecture
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"os/exec"
+	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -259,6 +266,26 @@ func TestCorePackagesHaveNoKubernetesOrIntegrationDeps(t *testing.T) {
 	}
 }
 
+// TestInferredContractIsKubernetesFree keeps pkg/inferredcontract usable by
+// the CLI and the operator alike: it publishes through pkg/publish (which
+// reaches the registry, so it is not a core package) and never reaches a
+// Kubernetes client, an integration or the CLI's internal packages. Only
+// k8s.io/klog, the logger pkg/signing's sigstore dependencies log through,
+// is allowed.
+func TestInferredContractIsKubernetesFree(t *testing.T) {
+	const mod = "github.com/trianalab/pacto/v4/"
+	for _, dep := range deps(t, mod+"pkg/inferredcontract") {
+		if strings.HasPrefix(dep, "k8s.io/klog/") {
+			continue
+		}
+		for _, bad := range []string{"k8s.io/", "sigs.k8s.io/", "github.com/trianalab/pacto/integrations/", mod + "integrations/", mod + "internal/"} {
+			if strings.HasPrefix(dep, bad) {
+				t.Errorf("boundary violation: pkg/inferredcontract reaches %q; it stays Kubernetes-free", dep)
+			}
+		}
+	}
+}
+
 // TestDiscoverReadsNoClusterOrRuntime keeps folder discovery a pure read of
 // the repository: what Pacto infers for a contract comes from files, never
 // from a cluster or runtime observation, so internal/discover reaches no
@@ -277,4 +304,67 @@ func TestDiscoverReadsNoClusterOrRuntime(t *testing.T) {
 			}
 		}
 	}
+}
+
+// clusterViewSymbols are the pkg/fleet names that carry what a restricted
+// reader may see of each cluster: access marks, per-cluster summaries and the
+// cluster records they come from.
+var clusterViewSymbols = []string{"ClusterSummary", "ClusterRecord", "ClusterNoAccess", "ClusterReviewFailed", "ClusterNotReviewable"}
+
+// TestNoGateReadsClusterAccess keeps cluster access marks, per-cluster
+// summaries and the Cluster list filter out of every gate: they describe what
+// one reader may see, so a gate that read them would pass or fail by who asked.
+// It matches by name (see deadcode_test.go for why), so a red run is always real.
+func TestNoGateReadsClusterAccess(t *testing.T) {
+	root := repoRoot(t)
+	for _, dir := range []string{"pkg/impact", "pkg/delivery", "internal/ci"} {
+		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return err
+			}
+			rel, _ := filepath.Rel(root, path)
+			for _, at := range clusterViewReads(t, path, filepath.ToSlash(rel)) {
+				t.Errorf("%s: a gate reads cluster access, a cluster summary or the Cluster filter", at)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// clusterViewReads lists, as rel:line, every read of a cluster view fact in
+// the file at path.
+func clusterViewReads(t *testing.T, path, rel string) []string {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parsing %s: %v", rel, err)
+	}
+	var out []string
+	at := func(n ast.Node) { out = append(out, rel+":"+strconv.Itoa(fset.Position(n.Pos()).Line)) }
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.SelectorExpr:
+			x, ok := n.X.(*ast.Ident)
+			if (ok && x.Name == "fleet" && slices.Contains(clusterViewSymbols, n.Sel.Name)) || n.Sel.Name == "Clusters" || n.Sel.Name == "ClustersTruncated" {
+				at(n)
+			}
+		case *ast.CompositeLit:
+			if sel, ok := n.Type.(*ast.SelectorExpr); ok && sel.Sel.Name == "EntityFilter" && slices.ContainsFunc(n.Elts, func(e ast.Expr) bool {
+				kv, ok := e.(*ast.KeyValueExpr)
+				if !ok {
+					return false
+				}
+				k, ok := kv.Key.(*ast.Ident)
+				return ok && k.Name == "Cluster"
+			}) {
+				at(n)
+			}
+		}
+		return true
+	})
+	return out
 }

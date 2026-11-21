@@ -243,7 +243,7 @@ func TestRenderServiceDetailWithAllFields(t *testing.T) {
 			},
 		},
 	}
-	renderServiceDetail(&b, "web", s, fleet.CompletenessComplete)
+	renderServiceDetail(&b, "web", s, fleet.CompletenessComplete, time.Time{})
 	out := b.String()
 	if !strings.Contains(out, "example.com") || !strings.Contains(out, "team-a") {
 		t.Fatalf("missing expected content:\n%s", out)
@@ -607,7 +607,7 @@ func TestRenderServiceDetail_GoldenPath(t *testing.T) {
 		HiddenRequirements:    1,
 		Signature:             &fleet.BundleSignature{Status: fleet.SignatureUnsigned},
 		Instantiate:           &fleet.TemplateInstantiation{CLI: "pacto init <name> --from oci://r/p@sha256:x --owner <team>"},
-	}}, fleet.CompletenessComplete)
+	}}, fleet.CompletenessComplete, time.Time{})
 	out := b.String()
 	for _, want := range []string{"Golden path", "unsigned", "dockerfile: A Dockerfile", "3 (0 unresolved)", "3", "pacto init <name> --from oci://r/p@sha256:x"} {
 		if !strings.Contains(out, want) {
@@ -615,7 +615,7 @@ func TestRenderServiceDetail_GoldenPath(t *testing.T) {
 		}
 	}
 	b.Reset()
-	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Template: &fleet.TemplateDetail{InstantiateReason: "no digest-pinned reference"}}, fleet.CompletenessComplete)
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Template: &fleet.TemplateDetail{InstantiateReason: "no digest-pinned reference"}}, fleet.CompletenessComplete, time.Time{})
 	if !strings.Contains(b.String(), "no digest-pinned reference") || !strings.Contains(b.String(), "not-checked") {
 		t.Errorf("a golden path with no pinned reference gives the reason:\n%s", b.String())
 	}
@@ -629,7 +629,7 @@ func TestRenderServiceDetail_Origin(t *testing.T) {
 			{Step: fleet.StepContract, Status: fleet.StepStatusDone, Detail: "read"},
 			{Step: fleet.StepPlugin, Name: "dockerfile", Status: fleet.StepStatusUnknown, Detail: "not observed"},
 		},
-	}, fleet.CompletenessComplete)
+	}, fleet.CompletenessComplete, time.Time{})
 	out := b.String()
 	for _, want := range []string{"Created from (declared)", "oci://r/http-service:1.0.0", "sha256:abc", "http-service", "done: read", "plugin dockerfile", "unknown: not observed"} {
 		if !strings.Contains(out, want) {
@@ -637,7 +637,7 @@ func TestRenderServiceDetail_Origin(t *testing.T) {
 		}
 	}
 	b.Reset()
-	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Origin: &fleet.OriginDetail{Ref: "oci://r/p:1", Reason: "the golden path it names is not in this view"}}, fleet.CompletenessComplete)
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Origin: &fleet.OriginDetail{Ref: "oci://r/p:1", Reason: "the golden path it names is not in this view"}}, fleet.CompletenessComplete, time.Time{})
 	if !strings.Contains(b.String(), "not in this view") {
 		t.Errorf("an unresolved origin gives the reason:\n%s", b.String())
 	}
@@ -650,7 +650,7 @@ func TestRenderServiceEnvironments(t *testing.T) {
 			Declaration: &fleet.EnvironmentResult{Status: fleet.EnvironmentPass, Lifetime: fleet.LifetimeNotDeclared},
 			Owner:       fleet.EnvironmentOwner{Owner: "team-a", Provenance: "declared"}, TargetsComplete: true,
 			ProvisioningReason: "no resource use of the current revision provisions a resource"},
-	}, DifferencesError: "environment b: cannot read b.yaml"}}, fleet.CompletenessComplete)
+	}, DifferencesError: "environment b: cannot read b.yaml"}}, fleet.CompletenessComplete, time.Time{})
 	out := b.String()
 	for _, want := range []string{"Environments", "prod", "declared: values pass, lifetime not declared; owner team-a (declared); targets you can see: 1 (1 declared), 1.0.0",
 		"provisioning not tracked", "1 more environments", "Differences unknown: environment b: cannot read b.yaml", "Stages: pacto delivery status --service web"} {
@@ -662,12 +662,12 @@ func TestRenderServiceEnvironments(t *testing.T) {
 		t.Errorf("environment names go through safeText:\n%q", out)
 	}
 	b.Reset()
-	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Placement: fleet.PlacementPreview{Total: 1, Count: 1, Items: []fleet.EnvironmentPlacement{{Targets: 1}}}}, fleet.CompletenessPartial)
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Placement: fleet.PlacementPreview{Total: 1, Count: 1, Items: []fleet.EnvironmentPlacement{{Targets: 1}}}}, fleet.CompletenessPartial, time.Time{})
 	if !strings.Contains(b.String(), "Environments (targets Pacto can see)") || !strings.Contains(b.String(), "targets you can see: 1 (incomplete)") {
 		t.Errorf("a partial answer says the targets are those Pacto can see:\n%s", b.String())
 	}
 	b.Reset()
-	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{}, fleet.CompletenessComplete)
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{}, fleet.CompletenessComplete, time.Time{})
 	if strings.Contains(b.String(), "Environments") {
 		t.Errorf("no environments, no section:\n%s", b.String())
 	}
@@ -679,7 +679,7 @@ func TestRenderServiceChanges(t *testing.T) {
 	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Changes: fleet.ChangeHistoryPreview{Total: 2, Count: 2, Gaps: 1, Items: []fleet.ChangeEvent{
 		{Kind: "environment", Subject: "prod", Change: "changed", Fields: []string{"owner"}, Revision: rev},
 		{Kind: "owner", Change: "present", To: "team:web", Revision: rev},
-	}}}, fleet.CompletenessComplete)
+	}}}, fleet.CompletenessComplete, time.Time{})
 	out := b.String()
 	for _, want := range []string{"Changes, version order (2 of 2, 1 revision(s) unread)", "environment prod changed (owner)  time not read", "owner team:web declared since at least svc 1.1.0"} {
 		if !strings.Contains(out, want) {
@@ -690,7 +690,7 @@ func TestRenderServiceChanges(t *testing.T) {
 		t.Errorf("change lines:\n%q", out)
 	}
 	b.Reset()
-	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{}, fleet.CompletenessComplete)
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{}, fleet.CompletenessComplete, time.Time{})
 	if strings.Contains(b.String(), "Changes") {
 		t.Errorf("no changes, no section:\n%s", b.String())
 	}
@@ -739,7 +739,7 @@ func TestRenderServiceResources(t *testing.T) {
 		Requested:     []fleet.RequestedConfiguration{{Provenance: "declared", Configuration: "db", Values: fleet.RuntimePreview{Items: []fleet.RuntimeFact{{Key: "size", Value: "medium"}}}}},
 		Provisioning:  []fleet.ProvisioningStatus{{Environment: "production", Phase: "Ready", Provider: "aws", Source: "evidence", Verified: true, AsOf: &at}},
 		Consumption:   []fleet.ResourceConsumption{{State: "unknown", Reason: "the usage report is not signed", Reported: &fleet.UsageFigures{}, Source: "target-state"}},
-	}}}}, fleet.CompletenessComplete)
+	}}}}, fleet.CompletenessComplete, time.Time{})
 	out := b.String()
 	for _, want := range []string{"Resources (3)", " (offering postgresql) via configuration_reference", "infra-data",
 		"requested (declared): size=medium, configuration db", "production  Ready  aws  signed  asOf 2026-11-01T09:00:00Z",
@@ -752,12 +752,12 @@ func TestRenderServiceResources(t *testing.T) {
 		t.Errorf("provider labels go through safeText:\n%q", out)
 	}
 	b.Reset()
-	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{}, fleet.CompletenessComplete)
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{}, fleet.CompletenessComplete, time.Time{})
 	if strings.Contains(b.String(), "Resources") {
 		t.Errorf("no resources, no section:\n%s", b.String())
 	}
 	b.Reset()
-	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{ConsumedOfferings: fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{{Provider: fleet.EntityRef{Label: "email-provider"}, Via: fleet.RelationshipDependency, RequestedTruncated: true}}}}, fleet.CompletenessComplete)
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{ConsumedOfferings: fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{{Provider: fleet.EntityRef{Label: "email-provider"}, Via: fleet.RelationshipDependency, RequestedTruncated: true}}}}, fleet.CompletenessComplete, time.Time{})
 	// A cut request list and an unknown owner say so, as the CLI prints them.
 	for _, want := range []string{"email-provider (no offering) via dependency", "owner unknown, availability unknown", "requested values may be missing: the configurations list was cut"} {
 		if !strings.Contains(b.String(), want) {
@@ -843,6 +843,15 @@ func TestTUIExternalDetail(t *testing.T) {
 	}
 }
 
+func TestServiceDetailAttestedSource(t *testing.T) {
+	src := "CODEOWNERS:7 at a1b2c3d, signed by github.com/acme/invoices/.github/workflows/ci.yml@refs/heads/main"
+	var b strings.Builder
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Ownership: &fleet.OwnershipInfo{Owner: "payments", Provenance: fleet.OwnerProvenanceAttested, Source: src}}, fleet.CompletenessComplete, time.Time{})
+	if !strings.Contains(b.String(), "payments (attested: "+src+")") {
+		t.Errorf("attested source missing:\n%s", b.String())
+	}
+}
+
 func TestServiceDetailOwnerProvenance(t *testing.T) {
 	for prov, want := range map[string]string{
 		fleet.OwnerProvenanceDeclaredViaTarget: "pay (declared via target)",
@@ -850,14 +859,32 @@ func TestServiceDetailOwnerProvenance(t *testing.T) {
 		fleet.OwnerProvenanceInferred:          "pay (inferred)",
 	} {
 		var b strings.Builder
-		renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Ownership: &fleet.OwnershipInfo{Owner: "pay", Provenance: prov}}, fleet.CompletenessComplete)
+		renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Ownership: &fleet.OwnershipInfo{Owner: "pay", Provenance: prov}}, fleet.CompletenessComplete, time.Time{})
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("%q: want %q in:\n%s", prov, want, b.String())
 		}
 	}
 	var b strings.Builder
-	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Ownership: &fleet.OwnershipInfo{Owner: "pay", Provenance: fleet.OwnerProvenanceDeclared}}, fleet.CompletenessComplete)
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Ownership: &fleet.OwnershipInfo{Owner: "pay", Provenance: fleet.OwnerProvenanceDeclared}}, fleet.CompletenessComplete, time.Time{})
 	if strings.Contains(b.String(), "(declared") {
 		t.Errorf("a declared owner is marked:\n%s", b.String())
+	}
+}
+
+// TestTUIExternalProvider: an external with an inferred contract shows the
+// CLI's lines for it.
+func TestTUIExternalProvider(t *testing.T) {
+	rec := fleet.ExternalRecord{Key: "stripe", Class: "vendor-api", Provider: &fleet.ExternalProvider{Repository: "r/pacto-inferred/stripe", RevisionsTotal: 1,
+		RangeStatus: fleet.RangeUnknown, RangeReason: fleet.RangeReasonInferredProvider,
+		Revisions: []fleet.ExternalProviderRevision{{Version: "0.0.1", Digest: "sha256:a"}}}}
+	out := renderDetail(&fleet.EntityDetail{External: &fleet.ExternalDetailData{External: rec}})
+	for _, want := range []string{"Inferred contract", "r/pacto-inferred/stripe:0.0.1 (sha256:a)", "signature not checked, publisher unknown", "range checks: unverified (INFERRED_PROVIDER)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("external detail lacks %q:\n%s", want, out)
+		}
+	}
+	rec.Provider = nil
+	if out := renderDetail(&fleet.EntityDetail{External: &fleet.ExternalDetailData{External: rec}}); strings.Contains(out, "Inferred contract") {
+		t.Errorf("no provider still shows the block:\n%s", out)
 	}
 }

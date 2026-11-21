@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"slices"
 	"sort"
 	"time"
 )
@@ -19,17 +20,27 @@ const (
 	SignatureNotChecked = "not-checked"
 )
 
+// SignatureSourceOperator is the source of a signature only this
+// installation's operator made: it signs the inferred contracts it publishes,
+// so the status is unverified and it never makes a publisher.
+const SignatureSourceOperator = "operator"
+
 // BundleSignature is the outcome of checking the Sigstore bundles attached to a
 // revision's bundle digest.
 type BundleSignature struct {
 	Status string `json:"status" enum:"verified,unverified,unsigned,unknown"`
 	// Source is what judged the signer: an installation rule, a person's pin,
 	// the signed policy, a rule inferred from where the artifact lives (never
-	// verified), the Pacto release signer, or nothing.
-	Source string `json:"source,omitempty" enum:"rule,pin,policy,inferred,release,none"`
+	// verified), the Pacto release signer, nothing, or this installation's
+	// operator, which signs only inferred contracts (never verified).
+	Source string `json:"source,omitempty" enum:"rule,pin,policy,inferred,release,none,operator"`
 	// Signer and Issuer are who signed, read from the verified certificate.
 	Signer string `json:"signer,omitempty"`
 	Issuer string `json:"issuer,omitempty"`
+	// SignerRepository and SignerCommit are the source repository and commit
+	// an accepted, verified CI certificate was issued for; empty otherwise.
+	SignerRepository string `json:"signerRepository,omitempty" doc:"The source repository an accepted, verified CI signer's certificate attests"`
+	SignerCommit     string `json:"signerCommit,omitempty" doc:"The commit an accepted, verified CI signer's certificate was issued for"`
 	// ExpectedSigner and ExpectedIssuer are the rule or pin the signature was
 	// judged against when Status is unverified.
 	ExpectedSigner string `json:"expectedSigner,omitempty"`
@@ -64,6 +75,36 @@ type BundleProvenance struct {
 	ReferrersUnavailable string    `json:"referrersUnavailable,omitempty"`
 	Source               string    `json:"source"`
 	CheckedAt            time.Time `json:"checkedAt"`
+	// Signers is every keyless identity whose signature of the digest
+	// verified, whoever it names, sorted, at most MaxProvenanceSigners, a
+	// declaration's signer always kept (boundSigners): read
+	// in the same check as Signature, which judges them against a publisher
+	// rule. A declaration's signer is matched against it.
+	Signers []VerifiedSigner `json:"signers,omitempty" doc:"Every keyless identity whose signature of the digest verified, at most 5, sorted, a declaration's signer always kept"`
+	// OwnerRight is the owner rule's verdict on the owner this revision sets
+	// over its service's effective owner: present on a declaration and on a
+	// bundle signed by anyone but an accepted CI identity that changes the
+	// owner, nil when no check ran.
+	OwnerRight *OwnerRightCheck `json:"ownerRight,omitempty" doc:"The owner rule's verdict on the owner this revision sets; absent when no check ran"`
+}
+
+// OwnerRightCheck is the owner rule's verdict on a published revision's
+// owner change, the fleet's copy of delivery.OwnerRight.
+type OwnerRightCheck struct {
+	Allowed bool   `json:"allowed"`
+	Code    string `json:"code,omitempty" enum:"OWNER_SIGNER_NOT_PERSON,OWNER_SIGNER_NOT_ALLOWED,OWNER_POLICY_UNVERIFIED,OWNER_SIGNER_UNVERIFIED" doc:"Why the signer may not set the owner; empty when allowed"`
+	Message string `json:"message,omitempty"`
+}
+
+// MaxProvenanceSigners bounds BundleProvenance.Signers.
+const MaxProvenanceSigners = 5
+
+// VerifiedSigner is one keyless identity whose signature verified, and its
+// signer class (human, agent or ci).
+type VerifiedSigner struct {
+	Subject string `json:"subject"`
+	Issuer  string `json:"issuer"`
+	Class   string `json:"class" enum:"human,agent,ci"`
 }
 
 // SignatureTally buckets the in-use revisions of a service by signature status.
@@ -139,6 +180,11 @@ func cloneProvenance(p *BundleProvenance) *BundleProvenance {
 		return nil
 	}
 	c := *p
+	c.Signers = slices.Clone(p.Signers)
+	if p.OwnerRight != nil {
+		o := *p.OwnerRight
+		c.OwnerRight = &o
+	}
 	c.Referrers.Items = make([]OCIReferrer, len(p.Referrers.Items))
 	for i, r := range p.Referrers.Items {
 		r.Created = copyTime(r.Created)
@@ -149,8 +195,10 @@ func cloneProvenance(p *BundleProvenance) *BundleProvenance {
 
 // mergeProvenance folds a second contribution's provenance into existing. A
 // source that checked wins over one that did not; two that both checked keep
-// the one whose Source sorts first, so the snapshot is order-independent.
+// the one whose Source sorts first, so the snapshot is order-independent. A
+// revision any registry source contributed is registry-backed.
 func mergeProvenance(existing, add *ContractRevision) {
+	existing.registryBacked = existing.registryBacked || add.registryBacked
 	if add.Provenance == nil {
 		return
 	}
@@ -163,7 +211,7 @@ func mergeProvenance(existing, add *ContractRevision) {
 // revs may be clones: Provenance is exported and survives them.
 func revisionSignatures(revs []*ContractRevision) RevisionSignaturesPreview {
 	ordered := append([]*ContractRevision{}, revs...)
-	sort.Slice(ordered, func(i, j int) bool { return lessRevisionChrono(ordered[j], ordered[i]) })
+	sort.Slice(ordered, func(i, j int) bool { return LessRevisionChrono(ordered[j], ordered[i]) })
 	src, total, trunc := boundSlice(ordered, MaxDetailPreview)
 	items := make([]RevisionSignature, len(src))
 	for i, r := range src {

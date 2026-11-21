@@ -367,6 +367,17 @@ func TestExternalAnswerPartialWhenTargetUnreported(t *testing.T) {
 	}
 }
 
+func TestExternalsUnreportedFromTargetLimitation(t *testing.T) {
+	svcs := []inferredSvc{{name: "checkout", ns: []string{"shop"}, deps: []string{"stripe"}}, {name: "billing", ns: []string{"shop"}}}
+	if NewQuery(inferredFleet(t, svcs, nil, nil, nil)).ExternalsUnreported() {
+		t.Error("a fleet whose targets all report externals is unreported")
+	}
+	lims := map[string][]Limitation{"billing": {{Code: LimitationExternalsUnreported, Message: "status-format"}}}
+	if !NewQuery(inferredFleet(t, svcs, nil, nil, lims)).ExternalsUnreported() {
+		t.Error("a target that does not report its externals is not reported")
+	}
+}
+
 func TestTargetsByScope(t *testing.T) {
 	snap := &FleetSnapshot{Targets: map[TargetKey]*TargetRecord{
 		"shop/kubernetes/b": {Kind: SourceKindKubernetes, Scope: "shop", ServiceKey: "web", Source: "east"},

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sigstore/sigstore-go/pkg/bundle"
+	"github.com/sigstore/sigstore-go/pkg/fulcio/certificate"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/tuf"
 	"github.com/sigstore/sigstore-go/pkg/verify"
@@ -31,6 +32,10 @@ type Policy struct {
 	// AnyIdentity accepts a keyless certificate of any identity under Root:
 	// the caller checks who it names (VerifyPerson checks the issuer).
 	AnyIdentity bool
+	// Repository, when set, replaces the exact Identity: the certificate's
+	// SAN must match IdentityRegexp and Fulcio must attest the source
+	// repository URI Repository at the ref Ref (PolicyForToken).
+	IdentityRegexp, Repository, Ref string
 }
 
 // Verify checks bundle (JSON) against p. digest, the sha256 of the artifact
@@ -63,7 +68,7 @@ func (p Policy) Verify(raw, digest []byte) (*verify.VerificationResult, error) {
 	default:
 		tm, popt = p.Root, verify.WithoutIdentitiesUnsafe()
 		if !p.AnyIdentity {
-			id, err := verify.NewShortCertificateIdentity(p.Issuer, "", p.Identity, "")
+			id, err := p.certificateIdentity()
 			if err != nil {
 				return nil, err
 			}
@@ -85,6 +90,20 @@ func (p Policy) Verify(raw, digest []byte) (*verify.VerificationResult, error) {
 	return v.Verify(&b, verify.NewPolicy(art, popt))
 }
 
+// certificateIdentity is who p's certificate must name: Identity exactly, or
+// with a Repository the SAN pattern and the attested repository and ref.
+func (p Policy) certificateIdentity() (verify.CertificateIdentity, error) {
+	if p.Repository == "" {
+		return verify.NewShortCertificateIdentity(p.Issuer, "", p.Identity, "")
+	}
+	san, err := verify.NewSANMatcher("", p.IdentityRegexp)
+	if err != nil {
+		return verify.CertificateIdentity{}, err
+	}
+	issuer, _ := verify.NewIssuerMatcher(p.Issuer, "") // an empty pattern always compiles
+	return verify.NewCertificateIdentity(san, issuer, certificate.Extensions{SourceRepositoryURI: p.Repository, SourceRepositoryRef: p.Ref})
+}
+
 // VerifyPerson checks a keyless bundle (JSON) signed by any identity issuer
 // vouches for under trustedRoot (a trusted_root.json), at a time a timestamp
 // authority or the transparency log observed. It returns who the
@@ -96,12 +115,22 @@ func VerifyPerson(raw []byte, issuer, trustedRoot string) (signer delivery.Publi
 	if err != nil {
 		return signer, time.Time{}, fmt.Errorf("trustedRoot: %w", err)
 	}
-	res, err := Policy{AnyIdentity: true, Root: tr}.Verify(raw, nil)
+	if signer, signedAt, err = VerifyKeyless(raw, tr); err != nil {
+		return delivery.PublisherIdentity{}, time.Time{}, err
+	}
+	if signer.Issuer != issuer {
+		return delivery.PublisherIdentity{}, time.Time{}, fmt.Errorf("the bundle is not signed by a certificate from %s", issuer)
+	}
+	return signer, signedAt, nil
+}
+
+// VerifyKeyless is VerifyPerson for a certificate from any issuer tm's
+// certificate authority vouches for: a reader with no issuer list (public-good
+// Sigstore) checks the issuer it returns itself.
+func VerifyKeyless(raw []byte, tm root.TrustedMaterial) (signer delivery.PublisherIdentity, signedAt time.Time, err error) {
+	res, err := Policy{AnyIdentity: true, Root: tm}.Verify(raw, nil)
 	if err != nil {
 		return signer, time.Time{}, err
-	}
-	if signer = IdentityOf(res); signer.Issuer != issuer {
-		return delivery.PublisherIdentity{}, time.Time{}, fmt.Errorf("the bundle is not signed by a certificate from %s", issuer)
 	}
 	// Verify required an observer timestamp: a timestamp authority's time
 	// wins over the log's.
@@ -110,7 +139,7 @@ func VerifyPerson(raw []byte, issuer, trustedRoot string) (signer delivery.Publi
 			signedAt = ts.Timestamp.UTC()
 		}
 	}
-	return signer, signedAt, nil
+	return IdentityOf(res), signedAt, nil
 }
 
 // PublicGoodRoot fetches public-good Sigstore's trusted root through TUF from

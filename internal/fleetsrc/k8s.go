@@ -91,6 +91,10 @@ func (s *K8sSource) ID() string { return s.id }
 // Kind implements [fleet.Source].
 func (s *K8sSource) Kind() string { return fleet.SourceKindKubernetes }
 
+// Cluster implements [fleet.ClusterSource]: nil when the identity could not
+// be read.
+func (s *K8sSource) Cluster() *fleet.Cluster { return s.cluster }
+
 // Collect discovers the Pacto CRD, lists its resources in each configured
 // namespace (or once across all of them), and projects each into a target. A
 // cluster with no Pacto CRD installed yields no target and a

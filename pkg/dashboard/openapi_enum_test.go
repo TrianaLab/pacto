@@ -134,6 +134,7 @@ func TestOpenAPI_FiniteEnums(t *testing.T) {
 		{"direction", sortedSet("dependencies", "dependents", "both")},
 		{"impact outcome", sortedSet("incompatible", "unknown", "compatible", "unclassified", "breaks", "may-degrade")},
 		{"lifecycle filter", sortedSet("deprecated", "sunset")},
+		{"accept refusal", sortedSet("AcceptNothingProposed", "NotPublished")},
 	}
 	for _, c := range cases {
 		if !hasEnumEqual(enums, c.want) {
@@ -284,5 +285,43 @@ func TestEntitiesKindsEnumMatchesEntityKinds(t *testing.T) {
 	}
 	if got := queryParamEnum(t, doc, "/api/fleet/entities", "class"); !equalStrs(got, fleet.ExternalClasses()) {
 		t.Errorf("class enum = %v, want fleet.ExternalClasses() %v", got, fleet.ExternalClasses())
+	}
+}
+
+// TestOpenAPIRevisionDeclaration: a revision's declaration, its cluster
+// coverage and the signers a provenance check read reach the wire with their
+// finite vocabularies.
+func TestOpenAPIRevisionDeclaration(t *testing.T) {
+	raw, err := ExportOpenAPI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		schema, field string
+		want          []string
+	}{
+		{"Fleet.DeclarationView", "state", sortedSet("declared", "draft")},
+		{"Fleet.InferredCoverageRow", "state", sortedSet("complete", "partial", "failed")},
+		{"Fleet.InferredField", "completeness", sortedSet("complete", "partial")},
+		{"Fleet.VerifiedSigner", "class", sortedSet("human", "agent", "ci")},
+		{"Fleet.OwnerRightCheck", "code", sortedSet("OWNER_SIGNER_NOT_PERSON", "OWNER_SIGNER_NOT_ALLOWED", "OWNER_POLICY_UNVERIFIED", "OWNER_SIGNER_UNVERIFIED")},
+	} {
+		if got := sortedKeys(schemaFieldEnum(t, doc, c.schema, c.field)); !equalStrs(got, c.want) {
+			t.Errorf("%s.%s enum = %v, want %v", c.schema, c.field, got, c.want)
+		}
+	}
+	schemas := doc["components"].(map[string]any)["schemas"].(map[string]any)
+	props := schemas["ProductRevisionDetail"].(map[string]any)["properties"].(map[string]any)
+	for _, f := range []string{"declaration", "inferredCoverage", "inferredHidden"} {
+		if props[f] == nil {
+			t.Errorf("ProductRevisionDetail has no %s", f)
+		}
+	}
+	if schemas["Fleet.BundleProvenance"].(map[string]any)["properties"].(map[string]any)["signers"] == nil {
+		t.Error("Fleet.BundleProvenance has no signers")
 	}
 }

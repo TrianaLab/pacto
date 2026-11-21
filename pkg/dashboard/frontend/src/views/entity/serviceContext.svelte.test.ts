@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import { fleetAttentionUrl, fleetServicesUrl, fleetGraphFocusUrl, fleetEntityListUrl } from '../../lib/router.ts';
 import { formatDate } from '../../lib/dateFormat.ts';
+import { session } from '../../lib/session.svelte.ts';
 
 const { detailFn, entitiesFn } = vi.hoisted(() => ({ detailFn: vi.fn(), entitiesFn: vi.fn() }));
 vi.mock('../../lib/api.ts', async (importOriginal) => {
@@ -755,6 +756,42 @@ describe('service page: inferred by Pacto', () => {
     expect(inner).toEqual(['7 more']);
     expect(sec.querySelector('button[aria-label="About inferred configuration.KEY_0"]')).toBeTruthy();
     done();
+  });
+
+  it('offers to accept every proposed range, only when a range is proposed', async () => {
+    const proposal = { field: 'dependencies[ledger].compatibility', value: 'compatibility unknown', proposed: '^2.3.0', source: 'snapshot:reg/s@sha256:1', provenance: 'inferred' };
+    const opened = async (items: unknown[]) => {
+      const r = await render(detail({ inferredFields: preview(items) }));
+      const sec = fact(r.target, 'service-inferred')!.querySelector('details') as HTMLDetailsElement;
+      sec.open = true;
+      sec.dispatchEvent(new Event('toggle'));
+      flushSync();
+      return r;
+    };
+    session.data = { mode: 'local', signedIn: true } as never; // planning reads acceptances: a local or signed-in viewer
+    let r = await opened([field(0), proposal]);
+    expect(text(fact(r.target, 'accept-proposed'))).toContain('Accept all proposed ranges for payments');
+    r.done();
+    session.data = null;
+    // A proposed ref or an ordinary inferred field is no range to accept.
+    r = await opened([field(0), { ...proposal, field: 'dependencies[ledger].ref', proposed: undefined }]);
+    expect(fact(r.target, 'service-inferred')).toBeTruthy();
+    expect(fact(r.target, 'accept-proposed')).toBeNull();
+    r.done();
+  });
+
+  it('leaves the inferred values to the provenance fold when it lists them', async () => {
+    const inferredRow = { field: 'configuration.KEY_0', value: 'string', provenance: 'inferred', source: 'deploy/app.yaml:1' };
+    const declaredRow = { field: 'service.owner', value: 'billing', provenance: 'declared' };
+    const withFold = (rows: unknown[]) => ({ ...fields(3), fields: { items: rows, count: rows.length, total: rows.length, truncated: false } });
+    let r = await render(detail(withFold([declaredRow, inferredRow])));
+    expect(fact(r.target, 'service-inferred')).toBeNull();
+    expect(fact(r.target, 'field-provenance-fold')).toBeTruthy();
+    r.done();
+    // A fold of declared values only keeps the block: it is then the one list.
+    r = await render(detail(withFold([declaredRow])));
+    expect(fact(r.target, 'service-inferred')).toBeTruthy();
+    r.done();
   });
 
   it('renders nothing when nothing is inferred', async () => {

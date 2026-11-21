@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { boot } from './typographyChecks';
+import { settle } from './ready';
 
 /**
  * Data sources as a product surface: findable from the overview, walkable to a source,
@@ -150,18 +152,20 @@ test.describe('the inventory says what Pacto detected', () => {
     const block = page.getByTestId('detected-providers');
     await expect(block.getByRole('heading', { level: 2, name: 'Detected providers' })).toBeVisible();
     const rows = block.getByTestId('provider-row');
-    // Twelve reported rows (the Pacto CRD, Kubernetes workloads, the Argo CD,
-    // Flux and Helm rows that group the inferred services, the demo and
+    // Thirteen reported rows (the Pacto CRD, Kubernetes workloads, the Argo CD,
+    // Flux and Helm rows that group the inferred services, the Kargo
+    // promotion row, the demo and
     // partner registries and five reporting adapter rows, one producer's
-    // signed and unsigned reports apart) plus the six the cluster's operator
-    // detected: five show, the reported ones first, the rest behind Show all,
-    // and no cluster is unread in the demo.
+    // signed and unsigned reports apart), the operator's declared Installation
+    // row and the seven the cluster's operator detected: five show, the
+    // reported and declared ones first, the rest behind Show all, and no
+    // cluster is unread in the demo.
     await expect(rows).toHaveCount(5);
     for (const i of [0, 1, 2, 3, 4]) await expect(rows.nth(i)).not.toHaveClass(/dp-inferred/);
     await expect(block).toContainText('Pacto CRD');
     await expect(block).toContainText('reports provisioning');
-    await block.getByRole('button', { name: 'Show all 18 providers' }).click();
-    await expect(rows).toHaveCount(18);
+    await block.getByRole('button', { name: 'Show all 21 providers' }).click();
+    await expect(rows).toHaveCount(21);
     await expect(block).toContainText('Kubernetes workloads');
     await expect(block).toContainText('service grouping, repository provenance');
     // One registry serves Referrers and _catalog; the other serves neither,
@@ -169,13 +173,64 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(block).toContainText('Registry demo.pacto.local');
     await expect(block).toContainText('Registry partners.demo.pacto.local');
     await expect(block).toContainText('no Referrers, no _catalog');
-    await expect(rows.nth(11)).not.toHaveClass(/dp-inferred/);
-    await expect(rows.nth(12)).toHaveClass(/dp-inferred/);
+    await expect(rows.nth(13)).not.toHaveClass(/dp-inferred/);
+    await expect(rows.nth(14)).toHaveClass(/dp-inferred/);
     await expect(block.getByTestId('provider-not-read')).toHaveCount(0);
     // The block lives inside Data sources: the primary navigation gained no entry.
     const primary = page.getByRole('navigation', { name: 'Primary' }).first();
     await expect(primary.getByRole('link', { name: /provider/i })).toHaveCount(0);
   });
+
+  test('the Argo CD row offers the sync gate in one muted line', async ({ page }) => {
+    await boot(page, '#/fleet/sources');
+    const block = page.getByTestId('detected-providers');
+    await block.getByRole('button', { name: /^Show all \d+ providers$/ }).click();
+    const argo = block.getByTestId('provider-row').filter({ has: page.locator('.dp-name bdi[title="Argo CD"]') });
+    await expect(argo).toHaveCount(1);
+    const offer = argo.getByTestId('provider-offer');
+    await expect(offer).toHaveCount(1);
+    await expect(offer).toContainText('Gate every Argo CD sync with one repo-server plugin');
+    const link = offer.getByRole('link', { name: 'Set up: Gate every Argo CD sync with one repo-server plugin' });
+    await expect(link).toHaveAttribute('href', 'https://pacto.run/latest/integrations/kubernetes/gitops/#gate-every-argo-cd-sync');
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    // The Argo CD and Kargo rows are the only ones that offer a gate.
+    await expect(block.getByTestId('provider-offer')).toHaveCount(2);
+  });
+
+  test('Kargo row offers the shared AnalysisTemplate', async ({ page }) => {
+    await boot(page, '#/fleet/sources');
+    const block = page.getByTestId('detected-providers');
+    await block.getByRole('button', { name: /^Show all \d+ providers$/ }).click();
+    const kargo = block.getByTestId('provider-row').filter({ has: page.locator('.dp-name bdi[title="Kargo"]') });
+    await expect(kargo).toHaveCount(1);
+    await expect(kargo).toContainText('promotion owned by Kargo');
+    const offer = kargo.getByTestId('provider-offer');
+    await expect(offer).toHaveCount(1);
+    await expect(offer).toContainText('Gate every Kargo promotion with one shared AnalysisTemplate');
+    const link = offer.getByRole('link', { name: 'Set up: Gate every Kargo promotion with one shared AnalysisTemplate' });
+    await expect(link).toHaveAttribute('href', 'https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo');
+    await settle(page);
+    const r = await new AxeBuilder({ page }).include('[data-testid="detected-providers"]')
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+    expect(r.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) }))).toEqual([]);
+  });
+
+  // axe.spec.ts audits Data sources with the rows collapsed, so the offer line (behind
+  // "Show all") is audited here, contrast included, in both palettes.
+  for (const colorScheme of ['dark', 'light'] as const) {
+    test(`the expanded providers block, offer line included, passes axe in ${colorScheme}`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme });
+      await boot(page, '#/fleet/sources');
+      const block = page.getByTestId('detected-providers');
+      await block.getByRole('button', { name: /^Show all \d+ providers$/ }).click();
+      await expect(block.getByTestId('provider-offer')).toHaveCount(2);
+      await settle(page);
+      const r = await new AxeBuilder({ page }).include('[data-testid="detected-providers"]')
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+      expect(r.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) }))).toEqual([]);
+    });
+  }
 });
 
 test.describe('a source page answers about itself', () => {

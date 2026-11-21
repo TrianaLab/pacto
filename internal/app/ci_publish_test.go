@@ -25,6 +25,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/orgindex"
 	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
 // ciPubEnv is a repository root, an in-memory registry behind a hookable
@@ -583,6 +584,15 @@ func TestExecToolsSigner(t *testing.T) {
 	}
 	tools.signers[kms] = loadedSigner{}
 	if got := tools.signer(kms); got != "kms awskms:///k" {
+		t.Fatal(got)
+	}
+	// A reusable workflow's policy keeps a signature any workflow of the
+	// caller wrote on that ref: the row never names the current pin as its
+	// signer.
+	keyless := contract.PublishSign{Keyless: true}
+	tools.signers[keyless] = loadedSigner{p: signing.Policy{Identity: "https://github.com/TrianaLab/pacto-actions/.github/workflows/ci.yml@b",
+		Repository: "https://github.com/acme/app", Ref: "refs/heads/main"}}
+	if got := tools.signer(keyless); got != "keyless (repository https://github.com/acme/app at refs/heads/main)" {
 		t.Fatal(got)
 	}
 }

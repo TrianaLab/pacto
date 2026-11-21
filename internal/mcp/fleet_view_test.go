@@ -126,7 +126,7 @@ func secretFleet(t *testing.T, extra ...fleet.ObservedEdge) *fleet.Query {
 func TestNewFleetToolsAnswerFromTheView(t *testing.T) {
 	q := secretFleet(t)
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns != "secretns" }, nil), nil
+		return q.Restrict(func(_, ns string) bool { return ns != "secretns" }, nil), nil
 	}
 	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(q), Opts: FleetOptions{View: view}}})
 	calls := []struct {
@@ -178,7 +178,7 @@ func TestNewFleetToolsAnswerFromTheView(t *testing.T) {
 func TestNeighborhoodToolAnswersFromTheView(t *testing.T) {
 	q := secretFleet(t, fleet.ObservedEdge{From: "legacy-batch", To: "web", Count: 2})
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns != "" && ns != "secretns" }, nil), nil
+		return q.Restrict(func(_, ns string) bool { return ns != "" && ns != "secretns" }, nil), nil
 	}
 	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(q), Opts: FleetOptions{View: view}}})
 	for _, dir := range []string{"dependents", "both"} {
@@ -204,7 +204,7 @@ func TestNeighborhoodToolAnswersFromTheView(t *testing.T) {
 // from it.
 func TestFleetEntitiesTemplateFromTheView(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns != "shop" }, nil), nil
+		return q.Restrict(func(_, ns string) bool { return ns != "shop" }, nil), nil
 	}
 	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(goldenPathFleet(t)), Opts: FleetOptions{View: view}}})
 	if got := listedKeys(t, callToolOn(t, server, "pacto_fleet_entities", map[string]any{"template": "only"})); !slices.Equal(got, []string{"service/http-service"}) {

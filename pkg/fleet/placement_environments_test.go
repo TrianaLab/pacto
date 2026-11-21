@@ -251,7 +251,7 @@ func restrictedEnvFleet(t *testing.T) *Query {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewQuery(snap).Restrict(func(ns string) bool { return ns != "secret" }, nil)
+	return NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns != "secret" }), anyClusterKind(nil))
 }
 
 func TestPlacementDeclaredGroupTargetsHidden(t *testing.T) {

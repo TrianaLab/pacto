@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"slices"
@@ -56,19 +57,19 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 		s := sv.Service
 		printReplacedFrom(w, sv.ReplacedFrom, sv.Meta.AsOf)
 		_, _ = fmt.Fprintf(w, "Service: %s%s\n", s.Name, nameInferredMark(s.NameInferred))
-		_, _ = fmt.Fprintf(w, "Owner: %s%s\n", orDash(s.Owner.DisplayString()), tui.OwnerProvenanceMark(s.OwnerProvenance))
+		for _, l := range fleet.ReplacesLines(sv.Replaces, sv.Meta.AsOf) {
+			_, _ = fmt.Fprintln(w, l)
+		}
+		if more := sv.ReplacesTotal - len(sv.Replaces); more > 0 {
+			_, _ = fmt.Fprintf(w, "  %d more\n", more)
+		}
+		_, _ = fmt.Fprintf(w, "Owner: %s%s\n", orDash(s.Owner.DisplayString()), tui.OwnerProvenanceMark(s.OwnerProvenance, s.OwnerSource))
 		_, _ = fmt.Fprintf(w, "Status: %s\n", orDash(s.Status))
 		_, _ = fmt.Fprintf(w, "Sources: %v\n", s.Sources)
 		if s.Workload != nil {
 			_, _ = fmt.Fprintln(w, strings.Join(s.Workload.Lines(), "\n"))
 		}
-		for _, r := range sv.Replaces {
-			from, when := replacementWords(r, sv.Meta.AsOf)
-			_, _ = fmt.Fprintf(w, "Replaces %s %s\n", from, when)
-		}
-		if more := sv.ReplacesTotal - len(sv.Replaces); more > 0 {
-			_, _ = fmt.Fprintf(w, "  %d more\n", more)
-		}
+		printFields(w, sv.Fields, sv.ReplacesHidden)
 		printRevisions(w, sv.Revisions)
 		printServiceTargets(w, sv.Targets)
 		printServiceEdges(w, sv)
@@ -80,18 +81,24 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 // printReplacedFrom says the answer is about the service that replaced the
 // inferred service asked for, when it is.
 func printReplacedFrom(w io.Writer, r *fleet.Replacement, asOf time.Time) {
-	if r != nil {
-		from, when := replacementWords(*r, asOf)
-		_, _ = fmt.Fprintf(w, "%s was replaced by %s %s\n", from, r.To, when)
+	if r == nil {
+		return
 	}
+	_, _ = fmt.Fprintln(w, r.ReplacedLine(asOf))
 }
 
-// replacementWords are the name of the inferred service r replaced and
-// "<age> ago (linked by Pacto <namespace>/<name> target)".
-func replacementWords(r fleet.Replacement, asOf time.Time) (from, when string) {
-	_, from = fleet.ParseServiceKey(r.From)
-	_, scope, _, name, _ := fleet.ParseTargetKey(r.Target)
-	return from, fmt.Sprintf("%s ago (linked by Pacto %s/%s target)", fleet.Age(asOf.Sub(*r.At)), scope, name)
+// printFields prints where each field of a service comes from and how many
+// of its replacements the viewer may not see.
+func printFields(w io.Writer, f *fleet.FieldsPreview, replacesHidden int) {
+	if f != nil {
+		_, _ = fmt.Fprintln(w, "Fields:")
+		for _, l := range f.Lines() {
+			_, _ = fmt.Fprintln(w, l)
+		}
+	}
+	if replacesHidden > 0 {
+		_, _ = fmt.Fprintf(w, "Replaces hidden: %d\n", replacesHidden)
+	}
 }
 
 // printInferredEdges prints the graph's runtime-inferred edges: calls one of
@@ -189,7 +196,7 @@ func inferredSourceLine(s fleet.ExternalInferredSource) string {
 // printExternal is the text of one external system: its identity line, the
 // sources that declare, call or use it (an inferred one with its kind, where
 // it was found and the normalized host, never a value) and the catalog that
-// classified it.
+// classified it, then its inferred contract, when a source read one.
 func printExternal(w io.Writer, rec fleet.ExternalRecord, into fleet.ExternalKey, ev fleet.ExternalEvidence) {
 	consumers := "consumers"
 	if rec.ConsumersTotal == 1 {
@@ -238,6 +245,19 @@ func printExternal(w io.Writer, rec fleet.ExternalRecord, into fleet.ExternalKey
 	}
 	if rec.HiddenConsumers > 0 {
 		_, _ = fmt.Fprintf(w, "  hidden consumers %d\n", rec.HiddenConsumers)
+	}
+	printExternalProvider(w, rec.Provider)
+}
+
+// printExternalProvider is the inferred contract block of an external
+// system; nothing when no source read one.
+func printExternalProvider(w io.Writer, p *fleet.ExternalProvider) {
+	if p == nil {
+		return
+	}
+	_, _ = fmt.Fprintln(w, "  inferred contract")
+	for _, l := range p.Lines() {
+		_, _ = fmt.Fprintln(w, "    "+l)
 	}
 }
 
@@ -330,9 +350,58 @@ func printFleetStatus(cmd *cobra.Command, res *fleet.StatusResult, format string
 		}
 		printDetected(w, res.Providers, res.Meta.Sources)
 		printPinnedSources(w, res.Meta.Sources, res.Meta.Limitations)
+		printClusters(w, res.Meta.Clusters, res.Meta.Limitations)
 		warnPartial(cmd, res.Meta)
 		return nil
 	}, nil)
+}
+
+// clusterWords are the status words of a cluster: why a restricted view hides
+// it, else how its sources answered.
+var clusterWords = map[string]string{
+	fleet.ClusterNoAccess: "no access", fleet.ClusterReviewFailed: "review failed", fleet.ClusterNotReviewable: "not reviewable",
+	string(fleet.SourceAvailable): "complete", string(fleet.SourcePartial): "partial", string(fleet.SourceStale): "stale", string(fleet.SourceUnavailable): "unreachable",
+}
+
+// refusedWords word a cluster Pacto refused to read by why: its limitation
+// code. Its server may have answered, so it never reads unreachable.
+var refusedWords = map[string]string{fleet.LimitationClusterConflict: "conflicting id", fleet.LimitationClusterUnknown: "unidentified"}
+
+// printClusters prints one Clusters line, "eu-prod (uid) complete, us-prod
+// (uid) no access", when the answer knows two or more clusters or hides one.
+// The UID is what --cluster takes; a context Pacto refused (no UID) is worded
+// by its limitation.
+func printClusters(w io.Writer, clusters []fleet.ClusterSummary, lims []fleet.Limitation) {
+	words := make([]string, 0, len(clusters))
+	hidden := false
+	for _, c := range clusters {
+		hidden = hidden || c.Access != ""
+		words = append(words, clusterLabelOf(c)+" "+clusterWordOf(c, lims))
+	}
+	if len(clusters) >= 2 || hidden {
+		_, _ = fmt.Fprintln(w, "Clusters: "+strings.Join(words, ", "))
+	}
+}
+
+// clusterLabelOf is a cluster's name and, when known, its UID.
+func clusterLabelOf(c fleet.ClusterSummary) string {
+	if c.ID == "" || c.ID == c.Name {
+		return c.Name
+	}
+	return c.Name + " (" + c.ID + ")"
+}
+
+// clusterWordOf is a cluster's status word: why a context with no UID was
+// refused, else clusterWords.
+func clusterWordOf(c fleet.ClusterSummary, lims []fleet.Limitation) string {
+	if c.ID == "" {
+		for _, l := range lims {
+			if word := refusedWords[l.Code]; word != "" && l.Source == c.Name {
+				return word
+			}
+		}
+	}
+	return clusterWords[cmp.Or(c.Access, string(c.Status))]
 }
 
 // printPinnedSources prints one line per source that read a pinned ref (each
@@ -371,24 +440,29 @@ func sourceReason(id string, lims []fleet.Limitation) string {
 	return why
 }
 
-// printDetected prints the inferred provider rows, what the operator
-// detected, with each status and first reason and each hint for a person to
+// printDetected prints the declared installation row with its asOf and
+// details, then the inferred
+// provider rows, what the operator detected, with each status and first reason and each hint for a person to
 // review, then one line per advisory source that is not available, so a
 // detection Pacto could not read never reads as nothing detected. Every row
 // of one detection shares its asOf, so the first one is named.
 func printDetected(w io.Writer, rows []fleet.Provider, sources []fleet.SourceState) {
 	defer printAdvisorySources(w, sources)
+	for _, p := range rows {
+		if p.Provenance == fleet.ProvenanceDeclared {
+			_, _ = fmt.Fprintf(w, "%s: %s (declared, as of %s) [%s]\n", p.Name, p.Evidence, asOfText(p.AsOf), p.Status)
+			for _, d := range p.Details {
+				_, _ = fmt.Fprintf(w, "    %s\n", d)
+			}
+		}
+	}
 	header := false
 	for _, p := range rows {
 		if p.Provenance != fleet.ProvenanceInferred {
 			continue
 		}
 		if !header {
-			asOf := "unknown"
-			if p.AsOf != nil {
-				asOf = p.AsOf.UTC().Format(time.RFC3339)
-			}
-			_, _ = fmt.Fprintf(w, "Detected (inferred, as of %s, nothing turned on):\n", asOf)
+			_, _ = fmt.Fprintf(w, "Detected (inferred, as of %s, nothing turned on):\n", asOfText(p.AsOf))
 			header = true
 		}
 		status := string(p.Status)
@@ -400,6 +474,14 @@ func printDetected(w io.Writer, rows []fleet.Provider, sources []fleet.SourceSta
 			_, _ = fmt.Fprintf(w, "    %s\n", p.Hint)
 		}
 	}
+}
+
+// asOfText is a detected row's asOf in RFC 3339, or unknown.
+func asOfText(at *time.Time) string {
+	if at == nil {
+		return "unknown"
+	}
+	return at.UTC().Format(time.RFC3339)
 }
 
 // printAdvisorySources prints one line per advisory source that is not
@@ -433,6 +515,7 @@ func printFleetExplain(cmd *cobra.Command, res *fleet.ExplainResult, format stri
 		for _, r := range res.Reasons {
 			_, _ = fmt.Fprintf(w, "  [%s] %s\n", r.Code, r.Message)
 		}
+		printFields(w, res.Fields, res.ReplacesHidden)
 		warnPartial(cmd, res.Meta)
 		return nil
 	}, nil)

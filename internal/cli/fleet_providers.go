@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"strings"
 	"text/tabwriter"
 
@@ -37,25 +38,7 @@ func printFleetProviders(cmd *cobra.Command, res *fleet.ProvidersResult, format 
 		if !printAdvisorySources(w, res.Meta.Sources) && len(res.Providers) == 0 && res.KubernetesSources == 0 {
 			_, _ = fmt.Fprintln(w, "No providers detected: this view reads no Kubernetes cluster (add --k8s)")
 		}
-		if len(res.Providers) > 0 {
-			clusters := map[string]bool{}
-			for _, p := range res.Providers {
-				clusters[p.Cluster] = true
-			}
-			many := len(clusters) > 1
-			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-			if many {
-				_, _ = fmt.Fprint(tw, "CLUSTER\t")
-			}
-			_, _ = fmt.Fprintln(tw, "PROVIDER\tEVIDENCE\tUSED FOR")
-			for _, p := range res.Providers {
-				if many {
-					_, _ = fmt.Fprintf(tw, "%s\t", p.Cluster)
-				}
-				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", providerName(p), p.Evidence, providerUsedFor(p))
-			}
-			_ = tw.Flush()
-		}
+		printProviderTable(w, res.Providers)
 		for _, s := range res.NotRead {
 			reason := ""
 			if s.Error != nil {
@@ -94,10 +77,42 @@ func providerUsedFor(p fleet.Provider) string {
 	return out + fmt.Sprintf(" (%s: %s)", p.Status, p.Limitations[0].Message)
 }
 
-// providerName is the PROVIDER cell: the name, marked when Pacto detected it.
+// providerName is the PROVIDER cell: the name, marked when Pacto detected it
+// or the operator's configuration declared it.
 func providerName(p fleet.Provider) string {
-	if p.Provenance == fleet.ProvenanceInferred {
-		return p.Name + " (inferred)"
+	if p.Provenance == fleet.ProvenanceInferred || p.Provenance == fleet.ProvenanceDeclared {
+		return p.Name + " (" + p.Provenance + ")"
 	}
 	return p.Name
+}
+
+// printProviderTable prints the rows, with a cluster column when they come
+// from more than one cluster and one line under a row per offer it carries.
+func printProviderTable(w io.Writer, rows []fleet.Provider) {
+	if len(rows) == 0 {
+		return
+	}
+	clusters := map[string]bool{}
+	for _, p := range rows {
+		clusters[p.Cluster] = true
+	}
+	many := len(clusters) > 1
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	// An offer line leaves the cluster and provider cells empty.
+	lead := "\t"
+	if many {
+		_, _ = fmt.Fprint(tw, "CLUSTER\t")
+		lead = "\t\t"
+	}
+	_, _ = fmt.Fprintln(tw, "PROVIDER\tEVIDENCE\tUSED FOR")
+	for _, p := range rows {
+		if many {
+			_, _ = fmt.Fprintf(tw, "%s\t", p.Cluster)
+		}
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", providerName(p), p.Evidence, providerUsedFor(p))
+		for _, o := range p.Offers {
+			_, _ = fmt.Fprintf(tw, "%s  offer: %s (%s)\n", lead, o.Text, o.Doc)
+		}
+	}
+	_ = tw.Flush()
 }

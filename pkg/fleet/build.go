@@ -71,6 +71,10 @@ type BuildOptions struct {
 	// ExternalCatalog (an organization catalog it could not read, for
 	// example). Any of them makes the snapshot partial.
 	ExternalCatalogLimitations []Limitation
+	// DeclarationSigners is the reader's installation signer policy: a
+	// declared revision's cluster facts are shown only when its verified
+	// signer is a person it allows. Nil or unread shows none of them.
+	DeclarationSigners *DeclarationSignerPolicy
 }
 
 // Build composes an immutable [FleetSnapshot] from the given sources. It calls
@@ -111,6 +115,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 		provisioningWindow:    opts.FreshnessWindow,
 		Clusters:              clusters.records,
 		clusterKeyed:          clusters.multi,
+		declarationSigners:    opts.DeclarationSigners,
 	}
 
 	// Zero configured sources is NOT the same as "every source was available and
@@ -164,6 +169,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	boundTargetLabels(snap)
 	linkTargets(snap)
 	inferred = replaceInferred(snap, inferred)
+	inferred = replaceByInferredFrom(snap, inferred)
 	revalidateConfigRefs(snap)
 	aggregateServices(snap)
 	addInferredServices(snap, inferred)
@@ -178,6 +184,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	buildRelationships(snap, cat)
 	foldObservedRelationships(snap, observed)
 	foldExternalUses(snap, append(uses, recordExternalUses(snap)...))
+	attachInferredProviders(snap, cat)
 	finalizeExternals(snap)
 	reconcileDeclared(snap, undeclaredOnly)
 	matchProvisioning(snap)
@@ -207,13 +214,13 @@ func computeSnapshotID(snap *FleetSnapshot) string {
 	// The catalogs are build inputs whose signature status changes as checks
 	// complete; what they classified is hashed through Externals.
 	clone.ExternalCatalogs = nil
-	// OwnerProvenance is derived from the revisions and targets already
-	// hashed, so it adds nothing to the identity; leaving it out keeps the
+	// OwnerProvenance and OwnerSource are derived from the revisions and
+	// targets already hashed, so it adds nothing to the identity; leaving it out keeps the
 	// ids of snapshots built before it existed.
 	clone.Services = make(map[ServiceKey]*ServiceRecord, len(snap.Services))
 	for k, s := range snap.Services {
 		cp := *s
-		cp.OwnerProvenance = ""
+		cp.OwnerProvenance, cp.OwnerSource = "", ""
 		clone.Services[k] = &cp
 	}
 	data, err := json.Marshal(&clone)
@@ -233,22 +240,11 @@ func computeSnapshotID(snap *FleetSnapshot) string {
 // another service and inherits its targets or consumers. Each source that loses
 // a revision gets one SERVICE_NAME_COLLISION limitation per name, which makes
 // it partial. A source's own Collection is never mutated: it may be reused.
+// An inferred name its own baseline declares (a folder pacto ci planned from
+// that published revision) joins that service, so it claims like a declared
+// one: the baseline is present and declares the name, so no guess is made.
 func dropNameCollisions(results []sourceResult, sources []Source) {
-	var claims []contract.NameClaim
-	seen := map[[2]string]bool{} // name, bundle of an inferred claim already made
-	for i, r := range results {
-		for _, c := range nameClaims(sources[i].ID(), r.col) {
-			// One bundle read by two sources (overlapping roots, a catalog root
-			// inside --local) is one claimant, not two competing ones.
-			if c.Inferred && c.Bundle != "" {
-				if seen[[2]string{c.Name, c.Bundle}] {
-					continue
-				}
-				seen[[2]string{c.Name, c.Bundle}] = true
-			}
-			claims = append(claims, c.NameClaim)
-		}
-	}
+	claims, confirmed := competingClaims(results, sources)
 	collided := map[string]string{} // name -> limitation message
 	for _, c := range contract.NameCollisions(claims) {
 		var who []string
@@ -263,15 +259,53 @@ func dropNameCollisions(results []sourceResult, sources []Source) {
 	}
 	for i := range results {
 		if col := results[i].col; col != nil {
-			results[i].col = withoutInferredClaims(col, sources[i].ID(), collided)
+			results[i].col = withoutInferredClaims(col, sources[i].ID(), collided, confirmed)
 		}
 	}
+}
+
+// competingClaims is every source's name claims, one per bundle, and the
+// inferred claimants (name, bundle) their own baseline confirms, which claim
+// as declared ones.
+func competingClaims(results []sourceResult, sources []Source) ([]contract.NameClaim, map[[2]string]bool) {
+	var all []digestClaim
+	declared := map[[2]string]bool{} // name, bundle of a declared claim
+	for i, r := range results {
+		for _, c := range nameClaims(sources[i].ID(), r.col) {
+			all = append(all, c)
+			if !c.Inferred && c.Bundle != "" {
+				declared[[2]string{c.Name, c.Bundle}] = true
+			}
+		}
+	}
+	confirmed := map[[2]string]bool{} // name, bundle of an inferred claim its baseline declares
+	for _, c := range all {
+		if c.Inferred && c.Baseline != "" && c.Bundle != "" && declared[[2]string{c.Name, c.Baseline}] {
+			confirmed[[2]string{c.Name, c.Bundle}] = true
+		}
+	}
+	var claims []contract.NameClaim
+	seen := map[[2]string]bool{} // name, bundle of an inferred claim already made
+	for _, c := range all {
+		key := [2]string{c.Name, c.Bundle}
+		c.Inferred = c.Inferred && !confirmed[key]
+		// One bundle read by two sources (overlapping roots, a catalog root
+		// inside --local) is one claimant, not two competing ones.
+		if c.Inferred && c.Bundle != "" {
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
+		claims = append(claims, c.NameClaim)
+	}
+	return claims, confirmed
 }
 
 // digestClaim is a name claim and the identity of the bundle making it.
 type digestClaim struct {
 	contract.NameClaim
-	Bundle string
+	Bundle, Baseline string
 }
 
 // bundleIdentity is the folder a local revision was read from, made absolute,
@@ -300,7 +334,7 @@ func bundleIdentity(rev RawRevision) string {
 func nameClaims(sourceID string, col *Collection) []digestClaim {
 	var claims []digestClaim
 	for _, rev := range collectionRevisions(col) {
-		claim := digestClaim{contract.NameClaim{Dir: sourceID + " " + cmp.Or(rev.ResolvedRef, rev.RequestedRef), Name: rev.Bundle.Contract.Service.Name, Source: "declared"}, bundleIdentity(rev)}
+		claim := digestClaim{contract.NameClaim{Dir: sourceID + " " + cmp.Or(rev.ResolvedRef, rev.RequestedRef), Name: rev.Bundle.Contract.Service.Name, Source: "declared"}, bundleIdentity(rev), rev.Baseline}
 		if inf, ok := rev.Bundle.NameInferred(); ok {
 			claim.Source, claim.Inferred = inf.Source, true
 		}
@@ -332,8 +366,9 @@ func collectionRevisions(col *Collection) []RawRevision {
 }
 
 // withoutInferredClaims is a copy of col without the inferred claimants of the
-// collided names, plus one limitation per name it lost.
-func withoutInferredClaims(col *Collection, sourceID string, collided map[string]string) *Collection {
+// collided names, plus one limitation per name it lost. A confirmed claimant
+// (name, bundle) stays.
+func withoutInferredClaims(col *Collection, sourceID string, collided map[string]string, confirmed map[[2]string]bool) *Collection {
 	cp := *col
 	lost := map[string]bool{}
 	cp.Revisions = slices.DeleteFunc(slices.Clone(col.Revisions), func(rev RawRevision) bool {
@@ -342,6 +377,7 @@ func withoutInferredClaims(col *Collection, sourceID string, collided map[string
 		}
 		name := rev.Bundle.Contract.Service.Name
 		_, inferred := rev.Bundle.NameInferred()
+		inferred = inferred && !confirmed[[2]string{name, bundleIdentity(rev)}]
 		_, hit := collided[name]
 		lost[name] = lost[name] || hit && inferred
 		return hit && inferred
@@ -422,6 +458,26 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	recordProblems := slices.Clone(clusters.problems[i])
 	for _, raw := range col.Revisions {
 		rev, lims := revisionFrom(raw, src.ID(), now)
+		if rev != nil && divertInferredProvider(snap, rev, src.ID()) {
+			// An inferred contract is never a service: it becomes its
+			// external system's provider. What reading it could not
+			// establish (its record, say) is still said.
+			snap.Limitations = append(snap.Limitations, lims...)
+			revCount++
+			continue
+		}
+		if rev != nil {
+			rev.registryBacked = registryBacked(src.Kind(), rev)
+			var ingest bool
+			var declLims []Limitation
+			rev.Record, declLims, ingest = acceptDeclaration(rev, rev.Record, snap.declarationSigners)
+			if !ingest {
+				// A draft is no record problem: the source read it whole.
+				snap.Limitations = append(snap.Limitations, declLims...)
+				continue
+			}
+			lims = append(lims, declLims...)
+		}
 		if rev == nil {
 			// A nil revision may still carry a limitation stating why it was omitted
 			// (e.g. no immutable digest and unhashable content); record it so the
@@ -1278,10 +1334,15 @@ func sourceStateFor(src Source, col *Collection, now time.Time, revCount, target
 
 // unavailableState builds a sanitized unavailable state for a failed source.
 func unavailableState(src Source, err error) SourceState {
-	return SourceState{
+	st := SourceState{
 		ID: src.ID(), Kind: src.Kind(), Status: SourceUnavailable,
 		Error: sanitizeError(err),
 	}
+	if cs, ok := src.(ClusterSource); ok && cs.Cluster() != nil {
+		c := *cs.Cluster()
+		st.Cluster = &c
+	}
+	return st
 }
 
 // sanitizeError maps an arbitrary error into a category code plus a fixed,
@@ -2065,7 +2126,7 @@ func domainConflict(name string, conflict []string) []Limitation {
 }
 
 // businessDomainOf is a service's business domain: the service.domain of its
-// newest revision ([lessRevisionChrono]) that is not invalid. An older revision
+// newest revision ([LessRevisionChrono]) that is not invalid. An older revision
 // that declares another domain is a move, not a conflict. When no such revision
 // declares a domain, it is the one the observing sources read from the contracts
 // the service's targets run, as deriveOwner does for owners; sources that report
@@ -2094,7 +2155,7 @@ func declaredServiceValue(snap *FleetSnapshot, s *ServiceRecord, declared func(c
 			continue
 		}
 		isDeclared = isDeclared || declared(r.Contract.Service) != ""
-		if newest == nil || lessRevisionChrono(newest, r) {
+		if newest == nil || LessRevisionChrono(newest, r) {
 			newest = r
 		}
 	}
@@ -2230,36 +2291,31 @@ func validBusinessDomain(d string) bool {
 }
 
 // deriveOwner sets a deterministic owner SUMMARY for a service — the owner
-// declared by its NEWEST revision that declares one — and reports an
+// declared by its NEWEST revision that declares one, else attested by its
+// newest attested revision (see [ownerTier]) — and reports an
 // OWNER_CONFLICT limitation when its current claims disagree (see
 // [serviceOwnerClaims]): an older version's owner is a handover, not a dispute. Per-revision ownership is
 // always retained on the revisions themselves; the service field is only a
 // documented summary, not the authority.
 //
-// The order is [lessRevisionChrono] reversed, NOT RevisionKey lexicography. A
+// The order is [LessRevisionChrono] reversed, NOT RevisionKey lexicography. A
 // RevisionKey embeds a content digest, so key order is digest order: under it,
 // editing any byte of any bundle could silently change who Pacto says to notify.
 func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
-	revs := make([]*ContractRevision, 0, len(s.Revisions))
-	for _, rk := range s.Revisions {
-		revs = append(revs, snap.Revisions[rk])
-	}
-	// Newest first: the reverse of the canonical ascending chronology.
-	sort.Slice(revs, func(i, j int) bool { return lessRevisionChrono(revs[j], revs[i]) })
-	for _, r := range revs {
-		if s.Owner.IsEmpty() {
-			s.Owner = r.Owner
+	t, _ := ownerTier(snap, s)
+	if newest := newestOwnerRevision(snap, s, t); newest != nil {
+		s.Owner, _ = claimOwner(newest, t)
+		s.OwnerProvenance = OwnerProvenanceDeclared
+		if t == tierAttested {
+			// An owner read from the repository at a commit a verified CI
+			// identity signed: after the revisions, before the target fallback.
+			_, s.OwnerSource, _, _ = AttestedOwner(newest)
+			s.OwnerProvenance = OwnerProvenanceAttested
 		}
 	}
-	if !s.Owner.IsEmpty() {
-		s.OwnerProvenance = OwnerProvenanceDeclared
-	}
-	// An attested owner (OwnerProvenanceAttested) slots in here: after the
-	// revisions, before the target fallback.
-	//
-	// No revision declares an owner (a fleet read only from Kubernetes has no
-	// revisions at all): fall back to the owner the observing sources read from
-	// the contract each target runs.
+	// No revision declares or attests an owner (a fleet read only from
+	// Kubernetes has no revisions at all): fall back to the owner the observing
+	// sources read from the contract each target runs.
 	if s.Owner.IsEmpty() {
 		for _, tk := range slices.Sorted(slices.Values(s.Targets)) {
 			if s.Owner.IsEmpty() {
@@ -2270,14 +2326,179 @@ func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 			s.OwnerProvenance = OwnerProvenanceDeclaredViaTarget
 		}
 	}
-	return ownerConflict(snap, s)
+	return append(ownerConflict(snap, s), ownerBlockedLimitations(snap, s)...)
+}
+
+// registrySourceKinds are the source kinds whose revisions were published to
+// a registry, so the owner rule's verdict on them applies.
+var registrySourceKinds = []string{"oci", "cache"}
+
+// pullingSourceKinds read a revision from a registry when the resolver
+// pinned it to a digest, and from a local folder otherwise (catalog roots,
+// the org index's closure).
+var pullingSourceKinds = []string{"catalog", "index"}
+
+// registryBacked reports whether rev, read by a source of kind, was pulled
+// from a registry.
+func registryBacked(kind string, rev *ContractRevision) bool {
+	return slices.Contains(registrySourceKinds, kind) || (slices.Contains(pullingSourceKinds, kind) && rev.ResolvedRef != "")
+}
+
+// ownerBlocked is why r's owner claim is not read, "" when it is: a registry
+// revision the owner rule refused (OWNER_DECLARATION_REFUSED), or whose check
+// could not decide, or a declaration no check stamped (budget spent, no
+// checker, a disk-cache read with no provenance): OWNER_DECLARATION_UNVERIFIED.
+// Only an explicit allowed verdict keeps a declaration's owner. A local
+// folder is its author's own files and is never blocked.
+func ownerBlocked(r *ContractRevision) string {
+	if !r.registryBacked {
+		return ""
+	}
+	var check *OwnerRightCheck
+	if r.Provenance != nil {
+		check = r.Provenance.OwnerRight
+	}
+	switch {
+	case check == nil:
+		if r.Record != nil && r.Record.Declaration != nil {
+			return LimitationOwnerDeclarationUnverified
+		}
+	case check.Allowed:
+	case check.Code == ownerPolicyUnverified || check.Code == ownerSignerUnverified:
+		return LimitationOwnerDeclarationUnverified
+	default:
+		return LimitationOwnerDeclarationRefused
+	}
+	return ""
+}
+
+// The owner right codes that mean the rule could not decide (delivery's
+// OwnerPolicyUnverified and OwnerSignerUnverified).
+const (
+	ownerPolicyUnverified = "OWNER_POLICY_UNVERIFIED"
+	ownerSignerUnverified = "OWNER_SIGNER_UNVERIFIED"
+)
+
+// ownerBlockedLimitations counts, once per service and code, the revisions of
+// s that claim an owner ownerBlocked leaves out.
+func ownerBlockedLimitations(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
+	counts := map[string]int{}
+	for _, rk := range s.Revisions {
+		r := snap.Revisions[rk]
+		if r == nil {
+			continue
+		}
+		if _, _, _, attested := AttestedOwner(r); r.Owner.IsEmpty() && !attested {
+			continue // nothing left out
+		}
+		if code := ownerBlocked(r); code != "" {
+			counts[code]++
+		}
+	}
+	var out []Limitation
+	for _, l := range []Limitation{
+		{Code: LimitationOwnerDeclarationRefused, Message: "set an owner their signer may not set"},
+		{Code: LimitationOwnerDeclarationUnverified, Message: "set an owner the owner rule could not check"},
+	} {
+		if n := counts[l.Code]; n > 0 {
+			l.Source, l.Message = "fleet", s.Name+": "+strconv.Itoa(n)+" registry revision(s) "+l.Message+", so that owner is not used"
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// claimTier is which owner claim of a revision the readers of a service ask
+// for: its pacto.yaml owner, or the owner attested for it (see
+// [AttestedOwner]). tierNone reads no revision claim.
+type claimTier int
+
+const (
+	tierNone claimTier = iota
+	tierDeclared
+	tierAttested
+)
+
+// claimOwner is the ONLY reader of a revision's owner claim: r's owner in
+// tier t and whether r makes a claim there. Every owner reader of a service
+// routes through it, in the tier [ownerTier] picks.
+func claimOwner(r *ContractRevision, t claimTier) (contract.Owner, bool) {
+	if ownerBlocked(r) != "" {
+		return contract.Owner{}, false
+	}
+	switch t {
+	case tierDeclared:
+		return r.Owner, !r.Owner.IsEmpty()
+	case tierAttested:
+		o, _, _, ok := AttestedOwner(r)
+		return o, ok
+	}
+	return contract.Owner{}, false
+}
+
+// ownerTier is the tier a service's owner claims are read in: declared when
+// any of its revisions declares an owner, attested when none does and its
+// attested revisions were all signed from one repository, none otherwise.
+// repos is every repository that signed an attested revision when the tier is
+// not declared: more than one is an OWNER_CONFLICT, never newest-wins, so the
+// first repository whose CI signs a service is trusted until a second appears.
+// ponytail: recomputed per reader, O(revisions) per call; cache on the
+// snapshot when a service with thousands of revisions shows up in a profile.
+func ownerTier(snap *FleetSnapshot, s *ServiceRecord) (t claimTier, repos []string) {
+	for _, rk := range s.Revisions {
+		r := snap.Revisions[rk]
+		if r == nil {
+			continue
+		}
+		if _, ok := claimOwner(r, tierDeclared); ok {
+			return tierDeclared, nil
+		}
+		if _, _, repo, ok := AttestedOwner(r); ok && !slices.Contains(repos, repo) {
+			repos = append(repos, repo)
+		}
+	}
+	if len(repos) == 1 {
+		return tierAttested, repos
+	}
+	return tierNone, repos
+}
+
+// revisionClaim is r's owner claim in the tier its service's claims are read in.
+func revisionClaim(snap *FleetSnapshot, r *ContractRevision) contract.Owner {
+	if o, ok := claimOwner(r, tierDeclared); ok {
+		return o
+	}
+	if s := snap.Services[r.ServiceKey]; s != nil {
+		if t, _ := ownerTier(snap, s); t == tierAttested {
+			o, _ := claimOwner(r, t)
+			return o
+		}
+	}
+	return contract.Owner{}
+}
+
+// attestedRepositoriesDisagree reports whether the attested revisions of s
+// were signed from more than one repository while none declares an owner.
+func attestedRepositoriesDisagree(snap *FleetSnapshot, s *ServiceRecord) bool {
+	t, repos := ownerTier(snap, s)
+	return t == tierNone && len(repos) > 1
+}
+
+// ownerDisputed reports whether the current owner claims of s disagree, or
+// its attested revisions were signed from different repositories.
+func ownerDisputed(snap *FleetSnapshot, s *ServiceRecord) bool {
+	if attestedRepositoriesDisagree(snap, s) {
+		return true
+	}
+	claims := serviceOwnerClaims(snap, s)
+	return claims.len() > 1
 }
 
 // ownerConflict is the OWNER_CONFLICT limitation for a service whose current
 // owner claims disagree (see [serviceOwnerClaims]), nil when they agree. Its
 // message is [conflictReason], so it names why.
 func ownerConflict(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
-	if claims := serviceOwnerClaims(snap, s); claims.len() > 1 {
+	if ownerDisputed(snap, s) {
 		return []Limitation{{Code: LimitationOwnerConflict, Source: "fleet", Message: conflictReason(snap, s)}}
 	}
 	return nil
@@ -2291,21 +2512,28 @@ func ownerConflict(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 // presented as authoritative. Called on a restricted snapshot, it reads only the
 // targets that view holds.
 func conflictReason(snap *FleetSnapshot, s *ServiceRecord) string {
-	newest := newestOwnerRevision(snap, s)
+	if attestedRepositoriesDisagree(snap, s) {
+		return "attested revisions of " + s.Name + " were signed from different repositories"
+	}
+	t, _ := ownerTier(snap, s)
+	newest := newestOwnerRevision(snap, s, t)
 	var base ownerClaimSet
-	for _, r := range sameVersionRevisions(snap, s, newest) {
-		base.add(r.Owner)
+	for _, r := range sameVersionRevisions(snap, s, newest, t) {
+		o, _ := claimOwner(r, t)
+		base.add(o)
 	}
 	if base.len() > 1 {
 		return "two revisions of " + s.Name + " " + newest.Version + " declare different owners"
 	}
 	for _, tk := range s.Targets {
-		t := snap.Targets[tk]
-		if t.RevisionMatch != revisionMatchInferred {
+		tg := snap.Targets[tk]
+		if tg.RevisionMatch != revisionMatchInferred {
 			continue
 		}
-		if r := snap.Revisions[t.ContractRevision]; r != nil && !r.Owner.IsEmpty() && !base.has(r.Owner) {
-			return "targets of " + s.Name + " are linked by tag (inferred) to revisions that declare different owners"
+		if r := snap.Revisions[tg.ContractRevision]; r != nil {
+			if o, ok := claimOwner(r, t); ok && !base.has(o) {
+				return "targets of " + s.Name + " are linked by tag (inferred) to revisions that declare different owners"
+			}
 		}
 	}
 	return "targets of " + s.Name + " run revisions that declare different owners"
@@ -2320,8 +2548,10 @@ func conflictReason(snap *FleetSnapshot, s *ServiceRecord) string {
 // conflict.
 func serviceOwnerClaims(snap *FleetSnapshot, s *ServiceRecord) ownerClaimSet {
 	var claims ownerClaimSet
-	for _, r := range currentOwnerRevisions(snap, s) {
-		claims.add(r.Owner)
+	revs, t := currentOwnerRevisions(snap, s)
+	for _, r := range revs {
+		o, _ := claimOwner(r, t)
+		claims.add(o)
 	}
 	if claims.len() == 0 {
 		for _, tk := range s.Targets {
@@ -2332,48 +2562,57 @@ func serviceOwnerClaims(snap *FleetSnapshot, s *ServiceRecord) ownerClaimSet {
 }
 
 // currentOwnerRevisions is the revisions of a service whose owners are its
-// current claims, in [lessRevisionChrono] order: the newest revision that
+// current claims, in [LessRevisionChrono] order: the newest revision that
 // declares an owner, every other revision of that version that declares one,
 // and every revision a target of the service is linked to now (exact or
 // inferred) that declares one.
-func currentOwnerRevisions(snap *FleetSnapshot, s *ServiceRecord) []*ContractRevision {
-	out := sameVersionRevisions(snap, s, newestOwnerRevision(snap, s))
+func currentOwnerRevisions(snap *FleetSnapshot, s *ServiceRecord) ([]*ContractRevision, claimTier) {
+	t, _ := ownerTier(snap, s)
+	out := sameVersionRevisions(snap, s, newestOwnerRevision(snap, s, t), t)
 	for _, tk := range s.Targets {
-		if r := snap.Revisions[snap.Targets[tk].ContractRevision]; r != nil && r.ServiceKey == s.Key && !r.Owner.IsEmpty() && !slices.Contains(out, r) {
-			out = append(out, r)
+		if r := snap.Revisions[snap.Targets[tk].ContractRevision]; r != nil && r.ServiceKey == s.Key && !slices.Contains(out, r) {
+			if _, ok := claimOwner(r, t); ok {
+				out = append(out, r)
+			}
 		}
 	}
 	slices.SortFunc(out, func(a, b *ContractRevision) int {
-		if lessRevisionChrono(a, b) {
+		if LessRevisionChrono(a, b) {
 			return -1
 		}
 		return 1
 	})
-	return out
+	return out, t
 }
 
 // sameVersionRevisions is the revisions of s with newest's version that
-// declare an owner; nil when newest is nil.
-func sameVersionRevisions(snap *FleetSnapshot, s *ServiceRecord, newest *ContractRevision) []*ContractRevision {
+// claim an owner in tier t; nil when newest is nil.
+func sameVersionRevisions(snap *FleetSnapshot, s *ServiceRecord, newest *ContractRevision, t claimTier) []*ContractRevision {
 	if newest == nil {
 		return nil
 	}
 	var out []*ContractRevision
 	for _, rk := range s.Revisions {
-		if r := snap.Revisions[rk]; r != nil && r.Version == newest.Version && !r.Owner.IsEmpty() {
-			out = append(out, r)
+		if r := snap.Revisions[rk]; r != nil && r.Version == newest.Version {
+			if _, ok := claimOwner(r, t); ok {
+				out = append(out, r)
+			}
 		}
 	}
 	return out
 }
 
-// newestOwnerRevision is the newest revision (see [lessRevisionChrono]) of s
-// that declares an owner, the one [deriveOwner] takes the service owner from;
-// nil when none does.
-func newestOwnerRevision(snap *FleetSnapshot, s *ServiceRecord) *ContractRevision {
+// newestOwnerRevision is the newest revision (see [LessRevisionChrono]) of s
+// that claims an owner in tier t, the one [deriveOwner] takes the service
+// owner from; nil when none does.
+func newestOwnerRevision(snap *FleetSnapshot, s *ServiceRecord, t claimTier) *ContractRevision {
 	var newest *ContractRevision
 	for _, rk := range s.Revisions {
-		if r := snap.Revisions[rk]; r != nil && !r.Owner.IsEmpty() && (newest == nil || lessRevisionChrono(newest, r)) {
+		r := snap.Revisions[rk]
+		if r == nil || (newest != nil && !LessRevisionChrono(newest, r)) {
+			continue
+		}
+		if _, ok := claimOwner(r, t); ok {
 			newest = r
 		}
 	}
@@ -2877,9 +3116,11 @@ func revisionDependencyEdges(snap *FleetSnapshot, cat *externalcatalog.Catalog, 
 	for i, dep := range rev.Contract.Dependencies {
 		var toSvc ServiceKey
 		ok := false
+		inferredKey, inferredPath, inferred := inferredLocation(dep.Ref)
 		// An external dependency with no contract has only a local name, which
-		// may be any unrelated fleet service's: it never resolves.
-		if dep.Ref != "" || !dep.External {
+		// may be any unrelated fleet service's: it never resolves. Nor does a
+		// ref to an inferred contract, which is never a service.
+		if !inferred && (dep.Ref != "" || !dep.External) {
 			toSvc, ok = resolveDepService(snap, rev.Domain, dep)
 		}
 		rel := Relationship{
@@ -2896,6 +3137,8 @@ func revisionDependencyEdges(snap *FleetSnapshot, cat *externalcatalog.Catalog, 
 			}
 		}
 		switch {
+		case inferred:
+			joinInferredRef(snap, cat, rk, rev, i, dep, inferredKey, inferredPath, &rel)
 		case !ok && dep.External:
 			rel.ToExternal, rel.Reason = joinExternal(snap, cat, rk, rev, i, dep)
 		case !ok && dep.NameFromRef:
@@ -2907,7 +3150,7 @@ func revisionDependencyEdges(snap *FleetSnapshot, cat *externalcatalog.Catalog, 
 				indexConsumption(snap, rk, rev.ServiceKey, toSvc)
 			}
 			rel.ResolvedRevision = resolveDepRevision(snap, toSvc, rel.LockedDigest)
-			rel.RangeStatus = dependencyRangeStatus(snap, rel)
+			rel.RangeStatus, rel.RangeReason = dependencyRangeStatus(snap, rel)
 			rel.DeprecatedInterfaces = providerDeprecations(snap, rel)
 			rel.ProviderLifecycle = providerServiceLifecycle(snap, rel)
 			// A contested lock reaches this edge exactly as a missing one does — nil —
@@ -2988,9 +3231,16 @@ func joinExternal(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk Revision
 		return "", externalReason
 	}
 	key := ExternalKey(id)
-	reason := "joined external " + string(id) + " through " + match + "; this Pacto system does not deliver it"
+	recordExternalDeclaration(snap, cat, rk, rev, idx, dep, key, match)
+	return key, "joined external " + string(id) + " through " + match + "; this Pacto system does not deliver it"
+}
+
+// recordExternalDeclaration records on key's [ExternalRecord] that dependency
+// idx of revision rk declares it, joined by match. A golden path consumes
+// nothing, so no record counts it.
+func recordExternalDeclaration(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk RevisionKey, rev *ContractRevision, idx int, dep contract.Dependency, key ExternalKey, match string) {
 	if snap.Services[rev.ServiceKey].Template {
-		return key, reason
+		return
 	}
 	rec := externalRecord(snap, cat, key)
 	rec.declarations[rev.ServiceKey]++
@@ -3001,14 +3251,13 @@ func joinExternal(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk Revision
 	// bounded by the declarations the snapshot already holds.
 	for i, s := range rec.Sources {
 		if s.Service == src.Service && s.Index == idx {
-			if lessRevisionChrono(snap.Revisions[s.Revision], rev) {
+			if LessRevisionChrono(snap.Revisions[s.Revision], rev) {
 				rec.Sources[i] = src
 			}
-			return key, reason
+			return
 		}
 	}
 	rec.Sources = append(rec.Sources, src)
-	return key, reason
 }
 
 // externalRecord returns the record of key, creating it classified by the
@@ -3056,7 +3305,7 @@ func supersededSource(snap *FleetSnapshot, src ExternalSource) bool {
 	}
 	return slices.ContainsFunc(snap.Services[src.Service].Revisions, func(k RevisionKey) bool {
 		r := snap.Revisions[k]
-		return r != nil && lessRevisionChrono(rev, r)
+		return r != nil && LessRevisionChrono(rev, r)
 	})
 }
 
@@ -3086,7 +3335,10 @@ func finalizeExternal(rec *ExternalRecord) {
 	}
 	rec.JoinedBy = ""
 	for _, m := range joinStrength {
-		if slices.ContainsFunc(rec.Sources, func(s ExternalSource) bool { return s.Match == m }) {
+		// A ref to its inferred contract names the identity itself.
+		if slices.ContainsFunc(rec.Sources, func(s ExternalSource) bool {
+			return s.Match == m || m == externalcatalog.MatchIdentity && s.Match == matchInferredContract
+		}) {
 			rec.JoinedBy = m
 			break
 		}
@@ -3179,35 +3431,50 @@ func CheckRange(constraint, version string) string {
 // dependencyRangeStatus checks a resolved dependency's range against the
 // provider: the locked revision when the lock pins one, otherwise every revision
 // of the provider the fleet holds. Revisions that disagree make it unknown,
-// because the fleet cannot tell which one the consumer reaches.
-func dependencyRangeStatus(snap *FleetSnapshot, rel Relationship) string {
+// because the fleet cannot tell which one the consumer reaches. A revision only
+// this installation's operator signed is never checked: when it is all the
+// dependency reaches, the range is unknown with reason INFERRED_PROVIDER.
+func dependencyRangeStatus(snap *FleetSnapshot, rel Relationship) (status, reason string) {
 	if rel.Compatibility == "" {
-		return ""
+		return "", ""
 	}
-	status := RangeUnknown
-	for i, v := range providerVersions(snap, rel) {
+	versions := providerVersions(snap, rel)
+	if len(versions) == 0 && slices.ContainsFunc(providerRevisions(snap, rel), func(rk RevisionKey) bool { return operatorSigned(snap.Revisions[rk]) }) {
+		return RangeUnknown, RangeReasonInferredProvider
+	}
+	status = RangeUnknown
+	for i, v := range versions {
 		st := CheckRange(rel.Compatibility, v)
 		if i > 0 && st != status {
-			return RangeUnknown
+			return RangeUnknown, ""
 		}
 		status = st
 	}
-	return status
+	return status, ""
 }
 
 // providerVersions lists the versions a resolved dependency can reach: the
 // locked revision's when the lock pins one, otherwise every revision the
-// provider has in the fleet, in revision order.
+// provider has in the fleet, in revision order. A revision only this
+// installation's operator signed is left out (see [operatorSigned]).
 func providerVersions(snap *FleetSnapshot, rel Relationship) []string {
-	revs := snap.Services[rel.ToService].Revisions
-	if rel.ResolvedRevision != "" {
-		revs = []RevisionKey{rel.ResolvedRevision}
-	}
+	revs := providerRevisions(snap, rel)
 	out := make([]string, 0, len(revs))
 	for _, rk := range revs {
-		out = append(out, snap.Revisions[rk].Version)
+		if r := snap.Revisions[rk]; !operatorSigned(r) {
+			out = append(out, r.Version)
+		}
 	}
 	return out
+}
+
+// providerRevisions are the revisions a resolved dependency can reach: the
+// locked one when the lock pins one, otherwise every revision of the provider.
+func providerRevisions(snap *FleetSnapshot, rel Relationship) []RevisionKey {
+	if rel.ResolvedRevision != "" {
+		return []RevisionKey{rel.ResolvedRevision}
+	}
+	return snap.Services[rel.ToService].Revisions
 }
 
 // resolveDepRevision pins the exact revision of the resolved service that a
@@ -3470,7 +3737,9 @@ func completenessExcept(snap *FleetSnapshot, skip string) Completeness {
 		}
 	}
 	for _, l := range snap.Limitations {
-		if l.Code == LimitationExternalCatalogUnavailable || l.Code == LimitationInferredRecordUnreadable {
+		switch l.Code {
+		case LimitationExternalCatalogUnavailable, LimitationInferredRecordUnreadable,
+			LimitationDeclarationSignerUnverified, LimitationDeclarationSignerNotAllowed, LimitationOwnerDeclarationUnverified:
 			return CompletenessPartial
 		}
 	}

@@ -66,6 +66,7 @@ Impact: auth 2.1.0 -> 3.0.0
 Classification: BREAKING
 Breaking changes: 1
 Potentially breaking changes: 0
+Ranges: 2 declared and 0 accepted of 2 dependency edges (100%)
 Affected consumers (2):
   checkout                     direct     confidence=contractual  compat=incompatible owner=commerce
     path: checkout > auth  provenance: declared  via: dependency

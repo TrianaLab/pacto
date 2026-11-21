@@ -299,8 +299,11 @@ func (r *resolver) checkGuarantees(from string, deps []contract.Dependency, edge
 // resolveEdge resolves a single dependency edge, recursing into its dependencies.
 // base is the declaring contract's base; dep.Ref is resolved against it.
 func (r *resolver) resolveEdge(ctx context.Context, dep contract.Dependency, base string, path []string) Edge {
-	if dep.Ref == "" {
+	if dep.Ref == "" && dep.External {
 		return Edge{Type: EdgeExternal, External: true, Name: dep.Name, Version: dep.Version, Required: dep.Required}
+	}
+	if dep.Ref == "" { // by name (pactoVersion 2.5): nothing to fetch without a ref
+		return Edge{Type: EdgeDependency, Name: dep.Name, Required: dep.Required, Compatibility: dep.Compatibility, Error: "no ref: resolved by name in the fleet"}
 	}
 	local := ParseDependencyRef(dep.Ref).IsLocal()
 	edge := Edge{

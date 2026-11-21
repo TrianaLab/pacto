@@ -96,7 +96,7 @@ func newClient(funcs interceptor.Funcs, objs ...client.Object) client.WithWatch 
 func servedAll(string) (bool, error) { return true, nil }
 
 func newDetector(c client.WithWatch, served func(string) (bool, error), watched ...string) *Detector {
-	d := ForOperator(deploy, opNS, watched, "pacto-node-agent", kubecluster.Identity{ID: "cluster-uid", Name: "kind-pacto"}, c, c, served)
+	d := ForOperator(deploy, opNS, watched, "pacto-node-agent", kubecluster.Identity{ID: "cluster-uid", Name: "kind-pacto"}, c, c, served, nil, nil)
 	d.Now = func() time.Time { return now }
 	return d
 }
@@ -517,5 +517,65 @@ func TestServedForErrorIsError(t *testing.T) {
 	bad := &rest.Config{Host: "https://127.0.0.1:1", TLSClientConfig: rest.TLSClientConfig{CAFile: "/nonexistent/ca.crt"}}
 	if _, err := ServedFor(bad)(monitoringGV); err == nil {
 		t.Error("an unbuildable client read as not served")
+	}
+}
+
+// pulling is a running pod in ns that names pull Secrets.
+func pulling(ns, name, image string, secrets ...string) *corev1.Pod {
+	p := pod(ns, name, "", image)
+	for _, s := range secrets {
+		p.Spec.ImagePullSecrets = append(p.Spec.ImagePullSecrets, corev1.LocalObjectReference{Name: s})
+	}
+	return p
+}
+
+func TestDetectorCopiesPullSecretNames(t *testing.T) {
+	c := newClient(interceptor.Funcs{}, operatorDeployment(),
+		pulling("a", "a1", "ghcr.io/acme/app:1", "ghcr-pull"), pulling("b", "b1", "ghcr.io/acme/web:1", "ghcr-pull", "other"),
+		pulling("b", "b2", "ghcr.io/acme/web:1", "other"))
+	if err := newDetector(c, servedAll).Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_, res := readResult(t, c)
+	if e := entry(t, res, "pull-secret"); e.Value != "b/other" || !strings.Contains(e.Evidence, "named in the pod specs of 2 running workloads") {
+		t.Errorf("pull-secret = %+v", e)
+	}
+	// No pod names a pull Secret: no entry, and no unknown row either.
+	c = newClient(interceptor.Funcs{}, clusterObjects()...)
+	_ = newDetector(c, servedAll).Sync(context.Background())
+	if _, res := readResult(t, c); slices.ContainsFunc(res.Entries, func(e detect.Entry) bool { return e.Kind == "pull-secret" }) {
+		t.Errorf("entries = %+v", res.Entries)
+	}
+}
+
+func TestDetectorWritesInstallationBlock(t *testing.T) {
+	c := newClient(interceptor.Funcs{}, clusterObjects()...)
+	d := newDetector(c, servedAll)
+	if err := d.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, res := readResult(t, c); res.Installation != nil {
+		t.Errorf("no --registry, still an installation: %+v", res.Installation)
+	}
+	inst := &detect.Installation{Registry: "ghcr.io/acme", Targets: "ghcr.io/acme/pacto-targets", SnapshotKey: "AAEC", Pushes: []string{"ghcr.io/acme/pacto-targets"}}
+	d.Installation, d.LastPush = inst, func() *detect.PushResult { return nil }
+	_ = d.Sync(context.Background())
+	_, res := readResult(t, c)
+	if res.Installation == nil || res.Installation.Registry != "ghcr.io/acme" || res.Installation.LastPush != nil ||
+		!slices.Equal(res.Installation.Pushes, inst.Pushes) {
+		t.Errorf("installation = %+v", res.Installation)
+	}
+}
+
+func TestDetectorCopiesLastPush(t *testing.T) {
+	c := newClient(interceptor.Funcs{}, clusterObjects()...)
+	last := &detect.PushResult{At: now, Ref: "ghcr.io/acme/pacto-targets:cluster-cluster-uid"}
+	inst := &detect.Installation{Registry: "ghcr.io/acme"}
+	d := ForOperator(deploy, opNS, nil, "", kubecluster.Identity{ID: "cluster-uid"}, c, c, servedAll, inst, func() *detect.PushResult { return last })
+	d.Now = func() time.Time { return now }
+	_ = d.Sync(context.Background())
+	_, res := readResult(t, c)
+	if res.Installation == nil || res.Installation.LastPush == nil || res.Installation.LastPush.Ref != last.Ref || inst.LastPush != nil {
+		t.Errorf("installation = %+v, configured = %+v", res.Installation, inst)
 	}
 }

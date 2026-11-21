@@ -32,8 +32,17 @@ import (
 
 // plainRegistry starts an unauthenticated in-process OCI registry and returns
 // its host (127.0.0.1:PORT — always a host:port reference).
+// isolateCache points the disk cache at a fresh directory. Its entries are
+// keyed by host:port, so a test registry that reuses a port from an earlier
+// run would otherwise be answered from that run's cache, never asked.
+func isolateCache(t *testing.T) {
+	t.Helper()
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+}
+
 func plainRegistry(t *testing.T) string {
 	t.Helper()
+	isolateCache(t)
 	srv := httptest.NewServer(registry.New())
 	t.Cleanup(srv.Close)
 	return strings.TrimPrefix(srv.URL, "http://")
@@ -55,6 +64,7 @@ func closableRegistry(t *testing.T) (host string, stop func()) {
 // which go-containerregistry's transport answers with the keychain's basic creds.
 func authRegistry(t *testing.T, user, pass string) string {
 	t.Helper()
+	isolateCache(t)
 	reg := registry.New()
 	want := "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

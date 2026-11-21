@@ -91,6 +91,9 @@ func instructionCombos(t *testing.T) map[string]*mcpsdk.Server {
 		tr := map[bool]string{false: "stdio", true: "http"}[remote]
 		out["publish/"+tr] = NewPublishServer("test", nil, a)
 		// A fleet server whose stats provider is unset names no pacto_stats.
+		out[tr+"+declare"] = mustNew("test", Authoring{Remote: remote, Declare: stubDeclarer{}}, Modes{})
+		out[tr+"+accept"] = mustNew("test", Authoring{Remote: remote, Accept: stubAcceptor{}}, Modes{})
+		out[tr+"+declare+accept"] = mustNew("test", Authoring{Remote: remote, Declare: stubDeclarer{}, Accept: stubAcceptor{}}, Modes{})
 		out[tr+"+fleet-without-stats"] = mustNew("test", a, Modes{Fleet: &FleetMode{Src: staticFleet(buildFleetQuery(t)), Opts: FleetOptions{Impact: stubImpact(nil, nil, nil)}}})
 		for mask := range 16 {
 			full := composedModes(t, mask&8 != 0)
@@ -179,6 +182,15 @@ func TestCapabilitiesReportsModes(t *testing.T) {
 	remote := capabilitiesOf(t, Authoring{Remote: true}, Modes{Transport: "http"})
 	if authoring, _ := json.Marshal(remote["authoring"]); string(authoring) != `["pacto_schema"]` {
 		t.Errorf("remote authoring = %s", authoring)
+	}
+	// pacto_declare writes drafts over stdio and only plans over HTTP.
+	declared := capabilitiesOf(t, Authoring{Declare: stubDeclarer{}}, Modes{Transport: "stdio"})
+	if authoring, _ := json.Marshal(declared["authoring"]); string(authoring) != `["pacto_create","pacto_edit","pacto_check","pacto_schema","pacto_declare"]` || declared["writes"] != true {
+		t.Errorf("stdio declare authoring = %s, writes %v", authoring, declared["writes"])
+	}
+	declared = capabilitiesOf(t, Authoring{Remote: true, Declare: stubDeclarer{}}, Modes{Transport: "http"})
+	if authoring, _ := json.Marshal(declared["authoring"]); string(authoring) != `["pacto_schema","pacto_declare"]` || declared["writes"] != false {
+		t.Errorf("http declare authoring = %s, writes %v", authoring, declared["writes"])
 	}
 	t.Run("unreadable policy", capabilitiesUnreadablePolicy)
 	t.Run("remote callers", capabilitiesRemoteCallers)

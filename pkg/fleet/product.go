@@ -64,7 +64,8 @@ func ProductKinds() []string {
 // (services for template only or inferred, revisions for readiness, targets for scope,
 // sources for sourceKind or sourceHealth, external systems for class); nil, the kind set every surface
 // lists by default, when it names a service, domain or source, so the listing
-// holds that service's revisions and targets as the dashboard's does; else the
+// holds that service's revisions and targets as the dashboard's does, or a
+// cluster, whose listing is then its services, revisions and targets; else the
 // ProductKinds.
 func ListKinds(kind string, f EntityFilter) []EntityKind {
 	switch {
@@ -80,7 +81,7 @@ func ListKinds(kind string, f EntityFilter) []EntityKind {
 		return []EntityKind{KindSource}
 	case f.Class != "":
 		return []EntityKind{KindExternal}
-	case f.Service != "" || f.Domain != "" || f.Source != "":
+	case f.Service != "" || f.Domain != "" || f.Source != "" || f.Cluster != "":
 		return nil
 	}
 	var out []EntityKind
@@ -328,6 +329,89 @@ type ProductMeta struct {
 	// ExternalCatalogs are the catalogs that classified external systems, with
 	// their digest and how far their signature was checked.
 	ExternalCatalogs []ExternalCatalogRef `json:"externalCatalogs,omitempty"`
+	// Clusters is the status of each cluster the answer knows, present only
+	// when it knows one (see [ClusterSummary]).
+	Clusters          []ClusterSummary `json:"clusters,omitempty" doc:"The status of each cluster the answer knows, least healthy first when truncated. Absent when no cluster is known."`
+	ClustersTruncated bool             `json:"clustersTruncated,omitempty" doc:"The snapshot knows more clusters than the answer carries."`
+}
+
+// ClusterSummary is the status of one cluster in an answer: the worst status
+// of the sources that reported it, why a restricted view hides it, and how
+// many targets it shows there. A Kubernetes source that read no cluster
+// identity (a context that failed) is listed with an empty id and its source
+// id as name.
+type ClusterSummary struct {
+	ID         string       `json:"id" doc:"The kube-system namespace UID; empty for a Kubernetes source whose cluster could not be identified."`
+	Name       string       `json:"name" doc:"A display name for the cluster, or the source id when the cluster could not be identified; never an identity."`
+	NameSource string       `json:"nameSource,omitempty" enum:"node-label,context,file,uid" doc:"How the name was found."`
+	Status     SourceStatus `json:"status" enum:"available,partial,stale,unavailable" doc:"The worst status of the sources that reported the cluster."`
+	Access     string       `json:"access,omitempty" enum:"no-access,review-failed,not-reviewable" doc:"Why a restricted view shows nothing of this cluster; empty when it shows what you may read."`
+	Targets    int          `json:"targets" doc:"The targets of this cluster the answer shows."`
+}
+
+// clusterSummaries is the per-cluster status of s, nil when s knows no
+// cluster, capped at MaxMetaClusters (least healthy kept first).
+func clusterSummaries(s *FleetSnapshot) ([]ClusterSummary, bool) {
+	if len(s.Clusters) == 0 {
+		return nil, false
+	}
+	status := map[string]SourceStatus{}
+	for _, st := range s.Sources {
+		status[st.ID] = st.Status
+	}
+	targets := map[string]int{}
+	for _, t := range s.Targets {
+		targets[t.Cluster]++
+	}
+	named, at := map[string]bool{}, map[string]int{}
+	out := make([]ClusterSummary, 0, len(s.Clusters))
+	for _, c := range s.Clusters {
+		sum := ClusterSummary{ID: c.ID, Name: cmp.Or(c.Name, c.ID), NameSource: c.NameSource, Status: SourceAvailable, Access: c.Access, Targets: targets[c.ID]}
+		for _, src := range c.Sources {
+			named[src] = true
+			sum.Status = worseStatus(sum.Status, status[src])
+		}
+		at[c.ID] = len(out)
+		out = append(out, sum)
+	}
+	for _, st := range s.Sources {
+		switch {
+		case named[st.ID]:
+		case st.Cluster != nil:
+			// A live source of a known cluster that failed reported no
+			// collection, so no ClusterRecord names it: it still lowers its
+			// cluster's status.
+			out = foldFailedSource(out, at, st)
+		case st.Kind == SourceKindKubernetes:
+			out = append(out, ClusterSummary{Name: st.ID, Status: st.Status})
+		}
+	}
+	if len(out) <= MaxMetaClusters {
+		return out, false
+	}
+	sort.SliceStable(out, func(i, j int) bool { return sourceHealthRank(out[i].Status) < sourceHealthRank(out[j].Status) })
+	return out[:MaxMetaClusters], true
+}
+
+// worseStatus is the less healthy of a and b.
+func worseStatus(a, b SourceStatus) SourceStatus {
+	if sourceHealthRank(b) < sourceHealthRank(a) {
+		return b
+	}
+	return a
+}
+
+// foldFailedSource lowers the status of st's cluster in out (at indexes it
+// by id), adding the cluster under its own name when no summary has it.
+func foldFailedSource(out []ClusterSummary, at map[string]int, st SourceState) []ClusterSummary {
+	c := st.Cluster
+	i, ok := at[c.ID]
+	if !ok {
+		i, at[c.ID] = len(out), len(out)
+		out = append(out, ClusterSummary{ID: c.ID, Name: cmp.Or(c.Name, c.ID), NameSource: c.NameSource, Status: SourceAvailable})
+	}
+	out[i].Status = worseStatus(out[i].Status, st.Status)
+	return out
 }
 
 func (q *Query) productMeta() ProductMeta { return q.productMetaWith(nil) }
@@ -340,6 +424,7 @@ func (q *Query) productMetaWith(derived []Limitation) ProductMeta {
 	// unbounded with the fleet's source or limitation count.
 	srcs, srcTrunc := boundSources(cloneSources(q.snap.Sources))
 	lims, limTrunc := BoundLimitations(append(derived, cloneLimitations(q.snap.Limitations)...))
+	clusters, clusterTrunc := clusterSummaries(q.snap)
 	return ProductMeta{
 		SchemaVersion:        ProductSchemaVersion,
 		SnapshotID:           q.snap.SnapshotID,
@@ -351,6 +436,8 @@ func (q *Query) productMetaWith(derived []Limitation) ProductMeta {
 		Limitations:          lims,
 		LimitationsTruncated: limTrunc,
 		ExternalCatalogs:     slices.Clone(q.snap.ExternalCatalogs),
+		Clusters:             clusters,
+		ClustersTruncated:    clusterTrunc,
 	}
 }
 
@@ -827,7 +914,7 @@ func (q *Query) Overview() *Overview {
 		q.addOwnership(&sum.Ownership, s)
 		sum.Knowledge.add(q.serviceKnowledge(s))
 	}
-	sum.KnowledgeItems = len(q.knowledgeAttention())
+	sum.KnowledgeItems = len(q.knowledgeAttention()) + len(q.inferredProviderAttention())
 	sum.Externals, sum.HiddenExternals = len(q.snap.Externals), q.snap.hiddenExternals
 
 	var recent []EvidenceItem
@@ -1048,12 +1135,15 @@ type AttentionItem struct {
 // tool that performs it. Only contract edits are named; the caller's own
 // permissions still decide whether the edit happens.
 type NextAction struct {
-	Verb string `json:"verb" enum:"edit-contract" doc:"The operation: edit-contract changes the contract of the item's service"`
-	Tool string `json:"tool" enum:"pacto_edit" doc:"The MCP tool that performs the operation"`
+	Verb string `json:"verb" enum:"edit-contract,declare" doc:"The operation: edit-contract changes the contract of the item's service; declare writes a declared contract for what only an inferred one describes"`
+	Tool string `json:"tool" enum:"pacto_edit,pacto_declare" doc:"The MCP tool that performs the operation"`
 }
 
 // editContract is the action of every item whose next step is a contract edit.
 func editContract() *NextAction { return &NextAction{Verb: "edit-contract", Tool: "pacto_edit"} }
+
+// declare is the action of an item whose next step is a declared contract.
+func declare() *NextAction { return &NextAction{Verb: "declare", Tool: "pacto_declare"} }
 
 // Attention categories (stable, used for filtering and for overview entry points).
 const (
@@ -1248,6 +1338,7 @@ func (q *Query) collectAttention() []AttentionItem {
 	items = append(items, q.lifecycleAttention()...)
 	items = append(items, q.provisioningAttention()...)
 	items = append(items, q.knowledgeAttention()...)
+	items = append(items, q.inferredProviderAttention()...)
 	items = append(items, q.unownedAttention()...)
 	items = append(items, q.undeclaredAttention()...)
 	items = append(items, q.deployedTemplateAttention()...)

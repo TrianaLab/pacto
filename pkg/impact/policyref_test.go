@@ -226,7 +226,7 @@ func TestPolicyReferrerHiddenCounted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snap := fleet.NewQuery(full).Restrict(func(ns string) bool { return ns == "shop" }, nil).SnapshotForSerialization()
+	snap := fleet.NewQuery(full).Restrict(func(_, ns string) bool { return ns == "shop" }, nil).SnapshotForSerialization()
 	res := analyzePolicy(snap, tierPolicy)
 	if len(res.Consumers) != 0 || res.Hidden != 2 {
 		t.Errorf("a hidden referrer is named: %+v, hidden %d", res.Consumers, res.Hidden)

@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 )
@@ -97,7 +98,7 @@ func renderChildren(b *strings.Builder, edges []Edge, prefix string, col TreeCol
 		}
 
 		if edge.Error != "" {
-			fmt.Fprintf(b, "%s%s%s %s\n", prefix, connector, apply(col.Name, ShortRef(edge.Ref)), apply(col.Error, fmt.Sprintf("(error: %s)", edge.Error)))
+			fmt.Fprintf(b, "%s%s%s %s\n", prefix, connector, apply(col.Name, cmp.Or(ShortRef(edge.Ref), edge.Name)), apply(col.Error, fmt.Sprintf("(error: %s)", edge.Error)))
 			continue
 		}
 

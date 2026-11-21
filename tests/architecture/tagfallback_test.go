@@ -65,6 +65,10 @@ func TestOnlyRunRecordsFallBackToTags(t *testing.T) {
 // adds a caller adds its row here, so no one tags a user's apply or contract
 // repository through the primitive unnoticed (#452 decision 11).
 var writeOnceCallers = []string{
+	// writeAcceptance and writeAcceptanceDraft: acceptance records and
+	// acceptance drafts of a service's published version, in its own bundle
+	// repository (#524 D8).
+	"internal/app/acceptance.go",
 	// keepIndexEntry: one write-once entry per published version in the
 	// organization index, <registry>/pacto-index (CLI only, #452 decision 11).
 	"internal/app/index_write.go",
@@ -77,10 +81,19 @@ var writeOnceCallers = []string{
 	"pkg/publish/registry.go",
 }
 
+// writeOnceTagWriters write write-once tags outside PushWriteOnce, each with
+// the tag literal only it may name and the repository it writes.
+var writeOnceTagWriters = map[string]string{
+	// pkg/publish.ApplyDraft: draft-<n> contract bundles in the service's own
+	// bundle repository; bundle manifests go through the publish applier.
+	"draft-": "pkg/publish/apply.go",
+}
+
 // TestOnlyAllowedCallersWriteOnceTags keeps write-once tags where the
 // operator may push. Tests and the primitive itself are exempt.
 func TestOnlyAllowedCallersWriteOnceTags(t *testing.T) {
 	root := repoRoot(t)
+	checkWriteOnceTagWriters(t, root)
 	var found []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -124,10 +137,10 @@ func TestOnlyAllowedCallersWriteOnceTags(t *testing.T) {
 // tag index (a sha256-<hex> tag): oras-go's fallback for run records.
 var tagIndexBuilders = []string{"pkg/ocireferrer/repository.go", "pkg/runrecord/registry/registry.go"}
 
-// sha256TagLiterals reports whether a Go source holds a string literal that
-// starts with "sha256-", the shared referrers tag index cosign and
+// tagLiterals reports whether a Go source holds a string literal that starts
+// with prefix: "sha256-" is the shared referrers tag index cosign and
 // go-containerregistry write on a registry without the Referrers API.
-func sha256TagLiterals(name string, src []byte) (bool, error) {
+func tagLiterals(name string, src []byte, prefix string) (bool, error) {
 	f, err := parser.ParseFile(token.NewFileSet(), name, src, parser.SkipObjectResolution)
 	if err != nil {
 		return false, err
@@ -136,7 +149,7 @@ func sha256TagLiterals(name string, src []byte) (bool, error) {
 	ast.Inspect(f, func(n ast.Node) bool {
 		if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
 			v, _ := strconv.Unquote(lit.Value)
-			found = found || strings.HasPrefix(v, "sha256-")
+			found = found || strings.HasPrefix(v, prefix)
 		}
 		return !found
 	})
@@ -154,8 +167,8 @@ func TestNoPactoReaderBuildsTheReferrersTagIndex(t *testing.T) {
 		`package p; var t = "pacto-sig-" + hex`:                     false,
 		"package p\n// the sha256-<hex> index\nvar d = \"sha256:\"": false,
 	} {
-		if got, err := sha256TagLiterals("x.go", []byte(src)); err != nil || got != want {
-			t.Errorf("sha256TagLiterals(%q) = %v, %v; want %v", src, got, err, want)
+		if got, err := tagLiterals("x.go", []byte(src), "sha256-"); err != nil || got != want {
+			t.Errorf("tagLiterals(%q) = %v, %v; want %v", src, got, err, want)
 		}
 	}
 	root := repoRoot(t)
@@ -179,7 +192,7 @@ func TestNoPactoReaderBuildsTheReferrersTagIndex(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		found, err := sha256TagLiterals(rel, src)
+		found, err := tagLiterals(rel, src, "sha256-")
 		if err != nil {
 			return err
 		}
@@ -190,5 +203,48 @@ func TestNoPactoReaderBuildsTheReferrersTagIndex(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// productionGo lists the repository's production Go files, relative to root.
+func productionGo(t *testing.T, root string) []string {
+	t.Helper()
+	var files []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".claude", "vendor", "node_modules", ".git":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if rel, _ := filepath.Rel(root, path); strings.HasSuffix(rel, ".go") && !strings.HasSuffix(rel, "_test.go") {
+			files = append(files, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+// checkWriteOnceTagWriters fails every production file but its writer that
+// names a writeOnceTagWriters tag literal.
+func checkWriteOnceTagWriters(t *testing.T, root string) {
+	t.Helper()
+	for prefix, writer := range writeOnceTagWriters {
+		for _, rel := range productionGo(t, root) {
+			src, err := os.ReadFile(filepath.Join(root, rel)) //nolint:gosec // a path under the repository root
+			if err != nil {
+				t.Fatal(err)
+			}
+			if found, err := tagLiterals(rel, src, prefix); err != nil || found && rel != writer {
+				t.Errorf("%s names a %q tag (%v): only %s writes those write-once tags", rel, prefix, err, writer)
+			}
+		}
 	}
 }

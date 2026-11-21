@@ -668,6 +668,7 @@ def gen_operator_configuration(repo_root: str, k8s: str) -> str:
         purpose = {
             "POD_NAMESPACE": "Namespace the operator (and its managed dashboard) runs in. Required.",
             "OPERATOR_DEPLOYMENT_NAME": "Operator Deployment name, used to set ownerReferences on dashboard resources.",
+            "OPERATOR_SERVICE_ACCOUNT": "Operator ServiceAccount name, written as the publisher the target snapshot claims.",
         }
         for v in env_vars:
             out.append(f"| `{v}` | {purpose.get(v, 'See cmd/main.go.')} |")

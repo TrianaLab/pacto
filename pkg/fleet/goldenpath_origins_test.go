@@ -101,7 +101,7 @@ func TestAggregateOriginsRanking(t *testing.T) {
 }
 
 func TestAggregateOriginsHidden(t *testing.T) {
-	r := goldenRestrictFleet(t, templated("http-service", "1.0.0")).Restrict(shopOnly, nil)
+	r := goldenRestrictFleet(t, templated("http-service", "1.0.0")).Restrict(anyCluster(shopOnly), anyClusterKind(nil))
 	l, err := r.Entities(EntityFilter{Kinds: []EntityKind{KindService}, Template: TemplateExclude})
 	if err != nil {
 		t.Fatal(err)

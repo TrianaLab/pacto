@@ -77,7 +77,7 @@ func TestFleetEntitiesRouteGroup(t *testing.T) {
 
 func TestFleetEntitiesRouteHidesRepository(t *testing.T) {
 	noApps := func(q *fleet.Query) *fleet.Query {
-		return q.Restrict(func(string) bool { return true }, func(ns, kind string) bool { return ns != "argocd" || kind != "Application" })
+		return q.Restrict(func(_, _ string) bool { return true }, func(_, ns, kind string) bool { return ns != "argocd" || kind != "Application" })
 	}
 	base := groupedServer(t, noApps)
 	for key, row := range groupRows(t, base+"/api/fleet/entities?declaration=inferred") {

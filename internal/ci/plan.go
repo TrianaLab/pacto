@@ -27,9 +27,12 @@ type Plan struct {
 	// indexComplete is whether Index says complete.
 	indexComplete bool
 	Skipped       []Skip `json:"skipped,omitempty"`
-	Rows          []Row  `json:"rows"`
-	Gate          string `json:"gate"`
-	Exit          int    `json:"exit"`
+	// Ranges is the range coverage of every walked service's dependencies
+	// on other services; nil when none was read.
+	Ranges *impact.RangeCoverage `json:"ranges,omitempty"`
+	Rows   []Row                 `json:"rows"`
+	Gate   string                `json:"gate"`
+	Exit   int                   `json:"exit"`
 	// Reason is the line a non-zero exit writes to stderr, "" on exit 0.
 	Reason string `json:"reason"`
 	// Refused is why a publish run as a whole was refused, "" when it ran.
@@ -59,20 +62,23 @@ type Skip struct {
 
 // Row is one service folder's plan.
 type Row struct {
-	Service        string   `json:"service"`
-	Dir            string   `json:"dir"`
-	Repository     string   `json:"repository,omitempty"`
-	Changed        string   `json:"changed,omitempty"` // "yes", "no" or "" (not decided)
-	Baseline       string   `json:"baseline,omitempty"`
-	BaselineDigest string   `json:"baselineDigest,omitempty"`
-	Next           string   `json:"next,omitempty"`
-	Derived        bool     `json:"derived,omitempty"`
-	Classification string   `json:"classification,omitempty"`
-	Impact         Impact   `json:"impact"`
-	Inferred       int      `json:"inferred"`
-	Reason         string   `json:"reason,omitempty"`
-	Notes          []string `json:"notes,omitempty"`
-	Errors         []string `json:"errors,omitempty"`
+	Service        string `json:"service"`
+	Dir            string `json:"dir"`
+	Repository     string `json:"repository,omitempty"`
+	Changed        string `json:"changed,omitempty"` // "yes", "no" or "" (not decided)
+	Baseline       string `json:"baseline,omitempty"`
+	BaselineDigest string `json:"baselineDigest,omitempty"`
+	Next           string `json:"next,omitempty"`
+	Derived        bool   `json:"derived,omitempty"`
+	Classification string `json:"classification,omitempty"`
+	Impact         Impact `json:"impact"`
+	Inferred       int    `json:"inferred"`
+	// Accepted is how many inferred fields signed acceptances made
+	// declared, carried from the baseline into this bundle.
+	Accepted int      `json:"accepted,omitempty"`
+	Reason   string   `json:"reason,omitempty"`
+	Notes    []string `json:"notes,omitempty"`
+	Errors   []string `json:"errors,omitempty"`
 	// Publish mode only (pacto ci --publish), empty in plan mode: the version
 	// published, the tool that built the image, who signed, the bundle as
 	// <ref>@<digest>, the outcome (a State constant) and the attempts made.
@@ -85,6 +91,9 @@ type Row struct {
 	// Images are the images the published bundle deploys, as
 	// <repository>@<digest>, recorded with it.
 	Images []string `json:"images,omitempty"`
+	// Advisories are the possible breaks on inferred interfaces the row's
+	// impact answer found; they never change its gate or exit code.
+	Advisories []impact.InferredAdvisory `json:"advisories,omitempty"`
 }
 
 // The outcomes of a row in publish mode.

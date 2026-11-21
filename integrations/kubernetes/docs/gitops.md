@@ -1,17 +1,16 @@
 # GitOps promotion gates
 
 Make Flux or Argo CD stop the next rollout step when a service breaks its
-contract. Copy one snippet below and a `NonCompliant` Pacto turns the
-Kustomization unready or the Application Degraded.
+contract. For Kargo, see [Kargo](gitops-kargo.md#kargo). A `NonCompliant`
+Pacto turns the Kustomization unready or the Application Degraded.
 
-These snippets stop **the next step**, not the current deploy: by the time the
-operator has a verdict the pods are already serving. The Kustomization goes
-unready, the dependent one waits and the Argo Application goes Degraded. To catch
-a breaking change *before* it lands, use [`pacto impact`](../../cli-reference.md) in the pull request.
+The health snippets stop **the next step**: by the time the operator has a
+verdict the pods are already serving. The [Argo CD plugin](#gate-every-argo-cd-sync)
+stops **the render**, before Argo CD applies anything. With Flux, catch a
+breaking change in the pull request with [`pacto impact`](../../cli-reference.md).
 
-Flux and Argo CD read `status.contractStatus` only through an extension point.
-Without one, a Kustomization holding a `NonCompliant` Pacto reports healthy. The
-two snippets below configure that extension point.
+Flux and Argo CD read `status.contractStatus` only through an extension point,
+which the two health snippets below configure.
 
 ## Flux
 
@@ -108,6 +107,119 @@ A key that did not take prints `Health script is not configured` while
 **exiting 0**, so read the output and ignore the exit code. Both checks read the
 ConfigMap, so they also pass on a controller that started before the patch.
 
+## Gate every Argo CD sync
+
+A Config Management Plugin sidecar on `argocd-repo-server` gates every
+auto-detected Application whose folder holds a contract `pacto.yaml`. It
+renders the folder with `helm template` or `kustomize build`, then runs
+`pacto impact --running` on the rendered Pacto object's `contractRef`, or on
+`pacto.yaml` when the render holds none. That judges the contract against the
+revisions that run on known targets, read from the signed
+[target snapshots](../../impact-consumers.md#target-snapshot-consumers).
+Argo CD receives the manifests only after a pass.
+
+An Application that sets `spec.source.helm`, `kustomize` or `directory` skips
+plugin discovery, so its editors can opt out: restrict who edits Applications
+with AppProjects and Argo CD RBAC.
+
+```yaml
+--8<-- "tests/acceptance/kind/fixtures/gitops/argocd-cmp-pacto.yaml"
+```
+
+The patch adds no ServiceAccount, Role or binding:
+
+```yaml
+--8<-- "tests/acceptance/kind/fixtures/gitops/argocd-repo-server-pacto-patch.yaml"
+```
+
+```bash
+kubectl apply -f argocd-cmp-pacto.yaml
+kubectl -n argocd create configmap pacto-trust --from-file=trust.yaml
+kubectl -n argocd patch deployment argocd-repo-server \
+  --patch-file argocd-repo-server-pacto-patch.yaml
+```
+
+`tests/acceptance/gitopsplugin` and `tests/acceptance/kind/gitops-argocd-sync.sh`
+run **that exact script**.
+
+### Point it at your clusters
+
+Change one line: `PACTO_TARGET_SNAPSHOT` holds one
+`oci://<registry>/pacto-targets:cluster-<uid>` word per destination cluster,
+published by each cluster's operator (see
+[Target snapshot](delivery-records.md#target-snapshot)). A missing tag reads
+partial. An empty value, or a word without `:cluster-`, is refused unless
+`PACTO_ALLOW_CLUSTER_DISCOVERY=true`.
+
+`trust.yaml` holds one entry per cluster, from its installation key and scoped
+to its UID: see [Target snapshot consumers](../../impact-consumers.md#target-snapshot-consumers)
+and [the registry value](installation.md#turn-on-the-registry-backed-features).
+
+For registry reads, mount a host-keyed Docker config and set `DOCKER_CONFIG`,
+or use workload identity. `PACTO_REGISTRY_*` sends its credentials to every
+host Pacto pulls from; the plugin unsets it before Helm or Kustomize. Running
+revisions are pulled only from the snapshot hosts and an `oci://`
+`contractRef`'s host, plus the comma-separated `PACTO_RUNNING_REGISTRIES`;
+any other host makes the answer unverified. The plugin reads Pacto settings
+from `/etc/pacto/config.yaml` in the trust ConfigMap, if present, and never
+from the folder's `pacto.yaml`, which is the contract.
+
+### Exit codes
+
+| `pacto impact` | The render | Message |
+| --- | --- | --- |
+| `0` clear | Passes | |
+| `1` blocked | Fails | `pacto impact: BLOCKED` |
+| `1`, could not run | Fails | `pacto impact: ERROR` |
+| `2` unverified | Fails unless allowed | `pacto impact: UNVERIFIED` |
+
+A rendered `contractRef` whose tag disagrees with `service.version` fails
+with `pacto plugin: ERROR`; a digest `contractRef` has no tag to compare and is
+judged as rendered. `PACTO_ALLOW_UNVERIFIED` decides exit `2`: `false`
+(default, also any unknown value) fails, `true` renders, `per-application`
+renders only for an Application with
+`spec.source.plugin.env: [{name: PACTO_ALLOW_UNVERIFIED, value: "true"}]`.
+
+### What the message shows
+
+```console
+$ argocd app get payments
+CONDITION        MESSAGE
+ComparisonError  ... plugin pacto: pacto impact: BLOCKED (the reason is in the pacto container log of argocd-repo-server), exit 1
+```
+
+Core installs read the Application's `ComparisonError` condition. The full
+reason is in the `pacto` container log (`PACTO_PLUGIN_LOG` names another
+file). The plugin judges whatever service the folder or its rendered Pacto
+object names, so anyone who can write to a repository the plugin renders
+could otherwise read consumer names, clusters and refs of any service in the
+snapshot through their own Application. With `PACTO_SHOW_REASON=true` the
+message carries the first line of the reason, cut at 512 bytes: set it only
+when every writer of those repositories may read the snapshot. Either way,
+Application readers see the verdict.
+
+### Before you install
+
+- `spec.source.helm` values and parameters skip the plugin; keep values in
+  the chart folder.
+- Copy `argocd-cm` `kustomize.buildOptions` into `PACTO_KUSTOMIZE_BUILD_OPTIONS`.
+- A folder with no `Chart.yaml` or Kustomization fails the render.
+
+### Fallback: a PreSync Job per Application
+
+An Application with an explicit source type can run this hook on its
+published bundle, one Job each; exit 1 or 2 fails the sync:
+
+```yaml
+--8<-- "tests/acceptance/kind/fixtures/gitops/argocd-presync-pacto-impact.yaml"
+```
+
+## Kargo
+
+Kargo verifies Freight after each promotion. One shared
+`ClusterAnalysisTemplate` runs `pacto impact --running` on the Freight's
+contract bundle in every Stage: see [Kargo](gitops-kargo.md#kargo).
+
 ## Timing
 
 The gate is as fresh as the verdict behind it, and verdicts land at different
@@ -130,8 +242,13 @@ changes at once and the message catches up later.
 
 - **Argo health customizations are instance-global.** One Argo serving several
   teams cannot give one a blocking `Warning` and another a passing one.
-- **Neither tool can refuse an artifact for what is inside it.** "Reject this
-  because its contract breaks three consumers" is a pull-request check.
+- **Flux cannot refuse an artifact for what is inside it.** There, "reject
+  this because it breaks three consumers" is a pull-request check.
+- **The plugin gates discovered Applications only**, and judges at render
+  time: a consumer deployed later counts at the next render or hard refresh.
+- **`ARGOCD_EXEC_TIMEOUT`** (default 90 seconds) bounds the render and
+  `pacto impact` together; each snapshot read stops at 20 seconds.
+- **Each destination cluster is pinned by hand** in `PACTO_TARGET_SNAPSHOT`.
 - **The verdict is about the contract.** `Compliant` says the workload matches
   its contract. It says nothing about request errors or saturation.
 - **`status.lastReconciledAt` cannot gate on freshness.** Neither tool hands the

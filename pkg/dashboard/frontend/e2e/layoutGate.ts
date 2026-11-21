@@ -136,7 +136,7 @@ export function installScaleFixture(): void {
     // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
     // keeps the engine's total: the fixture leaves the tallies that link to it (an
     // offering's phases, the non-compliant rankings) alone.
-    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle', 'gap', 'class', 'declaration'].some((k) => q.get(k));
+    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle', 'gap', 'class', 'declaration', 'cluster'].some((k) => q.get(k));
     // The golden path list keeps the engine's paths: a fleet has a handful.
     if (route === '/api/fleet/entities' && Number(q.get('limit') || 25) > 1 && !narrowed && q.get('template') !== 'only') {
       const total = LIST_TOTAL[q.get('kinds') || ''];
@@ -258,6 +258,11 @@ export function installScaleFixture(): void {
         objectsTotal: 40,
         limitations: i < 2 ? [{ code: 'PROVIDER_SOURCE_DEGRADED', source: `k8s-${i % 4}`, message: longName(`source-k8s-${i}-is-partial-the-counts-cover-only-what-it-read`) }] : undefined,
       }));
+      // The first row carries an offer (516-S6) whose text runs to 200 characters, so the
+      // line has to wrap under the row at every width, its Set up link included.
+      Object.assign((doc.providers as Record<string, unknown>[])[0], { offers: [{ id: 'argocd-repo-server-plugin',
+        text: `Gate every Argo CD sync with one repo-server plugin ${longName('offer')}`.padEnd(200, 'o').slice(0, 200),
+        doc: 'https://pacto.run/latest/integrations/kubernetes/gitops/#gate-every-argo-cd-sync' }] });
       // Six of them the operator inferred (510-S5): 200-character values, five details,
       // a long hint, and one redacted for a viewer who cannot read its namespace.
       const pad = (s: string) => (s + '-' + 'x'.repeat(200)).slice(0, 200);
@@ -269,7 +274,29 @@ export function installScaleFixture(): void {
           hint: `--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs[0].name=${longName(`gateway-${i}`)} --set dashboard.httpRoute.parentRefs[0].namespace=${longName(`infra-${i}`)}` });
         if (i === 7) Object.assign(r, { evidence: 'Registry found in a namespace you cannot read', hint: undefined, details: undefined, objects: undefined, objectsTotal: 3 });
       }
-      doc.total = 30;
+      // The operator's declared Installation row (510-S6), with no scope or objects and
+      // its worst case in details: three 256-rune refs, eight 256-rune push prefixes, a
+      // 64-character key id and a last push to a cluster-uid tag, and its inferred
+      // Pull Secret proposal with a 253-character <namespace>/<name> and a long hint.
+      const runes = (s: string) => (s + '/' + 'r'.repeat(256)).slice(0, 256);
+      const secret = `${'n'.repeat(63)}/${'s'.repeat(189)}`;
+      (doc.providers as Record<string, unknown>[]).push({
+        id: 'installation', source: 'cluster-detection', provenance: 'declared', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Installation',
+        evidence: `registry ${runes('ghcr.io/acme')}; tags only under the listed prefixes, referrers by digest elsewhere`, status: 'available', cluster: clusters[0],
+        usedFor: ['target snapshot, organization index and inferred contracts; set by a person with the registry value'],
+        details: [[`target snapshot ${runes('ghcr.io/acme/pacto-targets')}`, `organization index ${runes('ghcr.io/acme/pacto-index')}`,
+          `inferred contracts ${runes('ghcr.io/acme/pacto-inferred')}`].join('; '),
+          `push prefixes ${Array.from({ length: 8 }, (_, i) => runes(`quay.io/stats-${i}/pacto`)).join(', ')}`, `snapshot key ${'f'.repeat(64)}`,
+          `last push ${runes('ghcr.io/acme/pacto-targets')}:cluster-5b0c6c3e-1f2a-4c3d-9e8f-0a1b2c3d4e5f at 2026-11-16T09:00:00Z`],
+      });
+      (doc.providers as Record<string, unknown>[]).push({
+        id: 'pull-secret', source: 'cluster-detection', provenance: 'inferred', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Pull Secret',
+        evidence: `${secret} named in the pod specs of 4 running workloads that pulled from ghcr.io; Pacto did not read the Secret`,
+        status: 'available', cluster: clusters[0], objects: [{ kind: 'Namespace', namespace: 'n'.repeat(63), name: 'n'.repeat(63) }],
+        usedFor: ['proposal for registryPullSecret: it needs push on <registry>/pacto-*; a pod pull Secret usually grants pull only'],
+        hint: `--set registryPullSecret=${secret}`,
+      });
+      doc.total = 32;
       const meta = doc.meta as Record<string, unknown>;
       meta.sources = [...((meta.sources as unknown[] | undefined) ?? []), ...Array.from({ length: 6 }, (_, i) => ({
         id: longName(`unreadable-cluster-${i}`), kind: 'kubernetes', status: 'unavailable', revisionCount: 0, targetCount: 0,
@@ -361,6 +388,26 @@ export function installScaleFixture(): void {
       delete x.catalog; delete rec.catalog;
       Object.assign(rec, { class: 'unclassified', joinedBy: 'normalized-name', consumersTotal: 120, sourcesTotal: 140, hiddenConsumers: 3 });
       x.foldedInto = 'other-egress';
+    }
+    // 'external entity, inferred contract' (517-S3): the provider block at its longest, a
+    // 200-character managed-cloud identity, operator-signed, from a partial run with long
+    // limitation codes, with 2,000 hosts, ports and clients (past the 12-row cap), each
+    // with two sources.
+    if (route === '/api/fleet/entities/external' && (window as unknown as { __inferredContract?: boolean }).__inferredContract) {
+      const rec = (doc.external as Record<string, unknown>).external as Record<string, unknown>;
+      const id = `aws/rds/123456789012/eu-west-1/${'orders-db-replica-'.repeat(12)}`.slice(0, 200).replace(/-+$/, '');
+      const seen = '2026-07-29T12:00:00Z';
+      const fifty = (f: (i: number) => string) => Array.from({ length: 2000 }, (_, i) => ({ value: f(i), sources: ['k8s-production', longName(`inferred-source-${i}`)], firstSeen: seen, lastSeen: seen }));
+      rec.provider = {
+        repository: `registry.example.com/acme/pacto-inferred/${id}`, revisionsTotal: 120, rangeStatus: 'unknown', rangeReason: 'INFERRED_PROVIDER',
+        revisions: [{
+          version: '0.0.1234', digest: `sha256:${'9f8e'.repeat(16)}`, ref: `registry.example.com/acme/pacto-inferred/${id}@sha256:${'9f8e'.repeat(16)}`,
+          signature: { status: 'unverified', source: 'operator', bundles: 1 },
+          surface: { identity: id, class: 'managed-cloud', asOf: seen, completeness: { state: 'partial', limitations: ['EXTERNALS_UNREPORTED', 'TARGET_SNAPSHOT_SCOPED', longName('SOURCE_LIMITATION_CODE').toUpperCase()] },
+            hosts: fifty((i) => `${longName(`inferred-host-${i}`).replace(/[^a-z0-9-]/g, '')}.eu-west-1.rds.amazonaws.com:5432`),
+            ports: fifty((i) => String(5000 + i)), clients: fifty((i) => `@aws-sdk/${longName(`client-${i}`).replace(/[^a-z0-9-]/g, '')}/3`) },
+        }],
+      };
     }
     // 509-S3: an inferred service's Group and Repository facts at their longest.
     const groupWorkload = (doc.service as Record<string, Record<string, unknown>> | undefined)?.workload;
@@ -982,6 +1029,28 @@ export function installScaleFixture(): void {
       const rf = doc.replacedFrom as Record<string, unknown> | undefined;
       if (rf) doc.replacedFrom = { ...rf, from: longKey, target: `${'prod-'.repeat(12)}/Deployment/${'experiment-service-'.repeat(8)}` };
     }
+    // Where the values come from at its bound (513-S5): 200 of 1200 field rows with
+    // long fields and values, every provenance, 7 values from a workload the viewer
+    // cannot see, 3 hidden replacements and 200 of 260 replacements, on the declared service
+    // that has the fold.
+    if (route === '/api/fleet/entities/service' && (doc.service as Record<string, unknown> | undefined)?.fields) {
+      const svc = doc.service as Record<string, unknown>;
+      const kinds = ['declared', 'accepted', 'attested', 'inferred'];
+      svc.fields = { total: 1200, count: 200, truncated: true, hidden: 7,
+        items: Array.from({ length: 200 }, (_, i) => ({
+          field: i % 2 ? `dependencies[${'settlement-reconciliation-'.repeat(4)}${i}].compatibility` : `inputs.${'cluster-runtime-observation-'.repeat(5)}${i}`,
+          value: `>=${i}.0.0 <${i + 1}.0.0 || ${'^1.2.3-rc.4+build.'.repeat(4)}${i}`, provenance: kinds[i % 4],
+          by: i % 4 === 1 ? `${'ana.maria.'.repeat(6)}@acme.example` : undefined,
+          source: `cluster:fleet reported versions ${'2.3.1, '.repeat(12)}${i}`, completeness: 'partial',
+        })) };
+      svc.replacesHidden = 3;
+      // 200 of 260 replacements, the bound: one facts block, 199 single lines and "60 more".
+      const reps = (svc.replaces as Record<string, unknown>[] | undefined) ?? [];
+      if (reps.length) {
+        svc.replaces = Array.from({ length: 200 }, (_, i) => (i ? { ...reps[0], from: `k8s:billing%2FDeployment%2F${'invoices-worker-'.repeat(4)}${i}`, workload: undefined } : reps[0]));
+        svc.replacesTotal = 260;
+      }
+    }
     if (route === '/api/fleet/entities/service') {
       const rel = (doc.service as Record<string, unknown> | undefined)?.relationships as { items?: Record<string, unknown>[]; count?: number; total?: number } | undefined;
       const added = extEdges(rel?.items, doc.entity as Record<string, unknown>).length;
@@ -1028,7 +1097,16 @@ export function installScaleFixture(): void {
   // inferredUnreadable answers every service and revision as one whose inferred record
   // Pacto could not read: the service has no record field, the revision keeps only the
   // values a local read infers on its own (pactoVersion, service.name).
-  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean };
+  // clusterFacts answers newsletter-service's revision as a signed declaration: 9 inferred
+  // rows (cluster and folder sources, partial, a proposed range, 80-character values),
+  // coverage, hidden counts and a long signer. 'dropped' answers it as a declaration by an
+  // unverified signer whose namespace the viewer may not read: no rows, no namespace and
+  // no hidden count (its cluster facts were already dropped). 'notAllowed' answers it as a
+  // checked signature the installation signer policy refuses.
+  // multiCluster (514-S2) answers every entities list as a view over three clusters with
+  // 63-character names: the demo's own cluster, one the reader may not read and one whose
+  // review failed, so the Cluster filter, its caption and the Clusters block render.
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden'; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed'; __pactoMultiCluster?: boolean };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1358,6 +1436,82 @@ export function installScaleFixture(): void {
       rev.inferredUnreadable = true;
     }
   };
+  // Read before amend renames the service; applied after amend scales the rows.
+  const declaredRevision = (route: string, doc: Record<string, unknown>) => {
+    const rev = doc.revision as Record<string, unknown> | undefined;
+    return route === '/api/fleet/entities/revision' && !!rev && String((rev.service as { key?: string } | undefined)?.key ?? '').endsWith('newsletter-service');
+  };
+  const clusterFacts = (doc: Record<string, unknown>) => {
+    const rev = doc.revision as Record<string, unknown>;
+    if (flags.__pactoClusterFacts === 'dropped') {
+      Object.assign(rev, { inferred: [], inferredTotal: 0,
+        declaration: { state: 'declared', signatureChecked: false, claimedSubject: `${'mallory'.repeat(10)}@unverified.example.com`, inferredFromHidden: true } });
+      return;
+    }
+    if (flags.__pactoClusterFacts === 'notAllowed') {
+      Object.assign(rev, { inferred: [], inferredTotal: 0,
+        declaration: { state: 'declared', signatureChecked: true, claimedSubject: 'mallory@gmail.com', baseline: '1.4.0',
+          notAccepted: 'the installation signer policy lists no issuer https://accounts.google.com', inferredFrom: 'k8s:newsletter/Deployment/newsletter-service' } });
+      return;
+    }
+    const wide = (s: string) => `${s}-${'x'.repeat(Math.max(0, 79 - s.length))}`;
+    const workload = `cluster:${wide('newsletter')}/Deployment/newsletter-service`;
+    rev.inferred = Array.from({ length: 9 }, (_, i) => (i % 3 === 2
+      ? { field: `configuration.${wide(`KEY_${i}`)}`, value: wide(`value-${i}`), source: `deploy/deployment.yaml:${i + 1}`, confidence: 'likely', provenance: 'inferred' }
+      : { field: `dependencies[${wide(`callee-${i}`)}]`, value: wide(`callee-${i}`), source: workload, provenance: 'inferred',
+        asOf: '2026-11-17T10:00:00Z', completeness: i % 2 ? 'partial' : 'complete', ...(i === 0 ? { proposed: '^2.0.0' } : {}) }));
+    rev.inferredTotal = 9;
+    rev.inferredCoverage = [{ source: workload, state: 'complete' }, { source: 'cluster:runtime-calls', state: 'partial', reason: 'a node went unobserved' }];
+    rev.inferredHidden = { services: 2, callers: 5 };
+    rev.declaration = { state: 'declared', signatureChecked: true, signer: { subject: `${'ana'.repeat(25)}@acme.example.com`, issuer: 'https://accounts.google.com', class: 'human' },
+      inferredFrom: `k8s:${wide('newsletter')}/Deployment/newsletter-service`, baseline: '1.4.0', accepted: [`dependencies[${wide('callee-0')}] ^2.0.0`] };
+  };
+  // Range proposals, the accept plan and announced breaks (508-S7): the published demo
+  // bundles propose nothing and stay immutable, so the fixture puts them on the page.
+  const SNAPSHOT_SRC = `snapshot:ghcr.io/trianalab/${longName('pacto-target-snapshots')}@sha256:${'5e'.repeat(32)}`;
+  const acceptProposals = (route: string, doc: Record<string, unknown>) => {
+    const svc = doc.service as Record<string, unknown> | undefined;
+    if (route !== '/api/fleet/entities/service' || !svc) return;
+    const items = Array.from({ length: 3 }, (_, i) => ({ field: `dependencies[${longName(`provider-${i}`)}].compatibility`, value: 'compatibility unknown',
+      proposed: `^${i + 2}.${i}.0`, source: SNAPSHOT_SRC, confidence: 'likely', provenance: 'inferred' }));
+    svc.inferredFields = { items, count: items.length, total: items.length, truncated: false };
+  };
+  const acceptAnswer = () => {
+    if (flags.__pactoAccept === 'refused') {
+      return { refusal: { code: 'AcceptNothingProposed', message: `the newest published version of ${longName('payments-service')} proposes no dependency range to accept`,
+        command: `pacto ci --publish ./services/${longName('payments-service')}` } };
+    }
+    const repo = `ghcr.io/trianalab/${longName('payments-service')}`;
+    const intent = `sha256:${'a7'.repeat(32)}`;
+    return {
+      command: `pacto accept oci://${repo} --proposed --intent ${intent}`,
+      plan: { service: `trianalab/${longName('payments-service')}`, version: '2.0.1', subject: `${repo}@sha256:${'c0'.repeat(32)}`, intentDigest: intent,
+        ranges: Array.from({ length: 3 }, (_, i) => ({ field: `dependencies[${longName(`provider-${i}`)}].compatibility`, value: `^${i + 2}.${i}.0`, proposed: `^${i + 2}.${i}.0`, source: SNAPSHOT_SRC })),
+        whoMayAccept: `${longName('ana')}@acme.example (the DRI of ${longName('payments-service')})`,
+        existing: [{ state: 'routed', by: `${longName('bob')}@acme.example`, issuer: 'https://oauth2.sigstore.dev/auth', record: `${repo}@sha256:${'d1'.repeat(32)}`,
+          reason: `waiting for the owner of ${longName('payments-service')}` }] },
+    };
+  };
+  const breakStates = (method: string, route: string, doc: Record<string, unknown>) => {
+    const consumers = doc.consumers as { items?: Record<string, unknown>[] } | undefined;
+    if (method !== 'POST' || route !== '/api/fleet/impact' || !consumers?.items) return;
+    const states = [
+      { state: 'accepted', by: `${longName('ana')}@acme.example`, record: `ghcr.io/trianalab/${longName('reports')}@sha256:${'e2'.repeat(32)}`, expires: '2026-12-20' },
+      { state: 'announced', expires: '2026-12-20', route: `${longName('ana')}@acme.example (the DRI of ${longName('reports')})` },
+      { state: 'expired', reason: `the announcement expired on 2026-10-01 at ${longName('ledger')}` },
+    ];
+    let n = 0;
+    for (const c of consumers.items) if (c.direct) c.break = states[n++ % states.length];
+    doc.ranges = { scope: `consumers of ${longName('payments-service')}`, edges: 58, declared: 41, accepted: 6, unknownTotal: 11,
+      unknown: Array.from({ length: 11 }, (_, i) => ({ from: longName(`consumer-${i}`), to: longName('payments-service'), proposed: `^2.${i}.0` })) };
+    doc.notes = [`POLICY_WARNING: ${longName('payments-service')} -> ${longName('reports')} range unknown, 1 consumer (policy unknown-range=warn)`];
+    // A possible break on an inferred interface, with long values: one muted span in What changed.
+    doc.advisories = [{ interface: 'api', kind: 'openapi', source: `services/${longName('payments-service')}/openapi/${longName('v1')}.yaml:1`,
+      declare: `interfaces:\n  - name: api\n    type: openapi\n    ref: openapi/${longName('v1')}.yaml\n`,
+      changes: Array.from({ length: 5 }, (_, i) => ({ path: `openapi.paths[/${longName('payments')}].methods[GET].parameters[${longName(`currency-${i}`)}]`,
+        type: 'added', classification: 'BREAKING', reason: `parameter ${longName(`currency-${i}`)} added as required` })),
+      consumers: Array.from({ length: 12 }, (_, i) => ({ service: longName(`consumer-${i}`), confidence: 'inferred', compatibility: 'unknown' })) }];
+  };
   const wrapped: Serve = async (method, path, body) => {
     body = engineBody(path, body);
     const route = path.split('?')[0];
@@ -1369,6 +1523,16 @@ export function installScaleFixture(): void {
       const plan = await (real as Serve)('POST', '/api/delivery/plan', body);
       return { status: 409, contentType: 'application/json', body: JSON.stringify({ status: 409, code: 'PlanStale',
         detail: 'the Stage moved since you planned; review the fresh plan and propose again', plan: JSON.parse(plan.body) }) };
+    }
+    if (flags.__pactoAccept && method === 'POST' && route === '/api/fleet/accept') {
+      return { status: 200, contentType: 'application/json', body: JSON.stringify(acceptAnswer()) };
+    }
+    // Planning reads acceptances, so only a local viewer or a signed-in person is
+    // offered it: the plan routes run as a local viewer, 'forbidden' as an open
+    // dashboard where nobody signs in.
+    if (flags.__pactoAccept && flags.__pactoAccept !== 'breaks' && method === 'GET' && route === '/api/session') {
+      const local = flags.__pactoAccept !== 'forbidden';
+      return { status: 200, contentType: 'application/json', body: JSON.stringify({ mode: local ? 'local' : 'open', login: false, signedIn: local }) };
     }
     const ambiguousQuery = new URLSearchParams(path.split('?')[1] ?? '');
     if (flags.__pactoAmbiguousTarget && method === 'GET' && ambiguousQuery.get('key') === 'scale-ambiguous/kubernetes/payments'
@@ -1391,6 +1555,7 @@ export function installScaleFixture(): void {
     let doc: Record<string, unknown>;
     try { doc = JSON.parse(res.body); } catch { return res; }
     if (flags.__pactoInferredUnreadable) unreadableRecord(route, doc);
+    const declared = !!flags.__pactoClusterFacts && declaredRevision(route, doc);
     try { amend(method, path, doc, body); } catch (e) {
       // An override that throws would leave the route unscaled and the gate green:
       // layoutProblems reports it.
@@ -1399,6 +1564,26 @@ export function installScaleFixture(): void {
       (w.__pactoScaleErrors ??= []).push(`scale fixture ${path}: ${e}`);
       return res;
     }
+    if (declared) clusterFacts(doc);
+    if (flags.__pactoMultiCluster && method === 'GET' && route === '/api/fleet/entities' && doc.meta) {
+      const n63 = (s: string) => `${s}-${'x'.repeat(63)}`.slice(0, 63);
+      (doc.meta as Record<string, unknown>).clusters = [
+        { id: '5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11', name: n63('production-eu-west-1'), nameSource: 'context', status: 'available', targets: 12 },
+        { id: '9f1c4e2a-7f1a-4c55-9d1e-2b8a4e6f0a12', name: n63('production-us-east-2'), nameSource: 'context', status: 'available', access: 'no-access', targets: 0 },
+        { id: '9f1c4e2a-7f1a-4c55-9d1e-2b8a4e6f0a13', name: n63('production-ap-south-1'), nameSource: 'context', status: 'stale', access: 'review-failed', targets: 0 },
+        // Every other state, with the long values a 320px sweep must hold: a partial and a
+        // stale cluster with no mark (warn tone), one nobody can review, and a context
+        // whose identity read failed (no id, named by its source id, err tone).
+        { id: '9f1c4e2a-7f1a-4c55-9d1e-2b8a4e6f0a14', name: n63('production-sa-east-1'), nameSource: 'context', status: 'partial', targets: 4 },
+        { id: '9f1c4e2a-7f1a-4c55-9d1e-2b8a4e6f0a15', name: n63('production-me-central-1'), nameSource: 'context', status: 'available', access: 'not-reviewable', targets: 0 },
+        { id: '', name: n63('context-staging-unidentified'), status: 'unavailable', targets: 0 },
+        { id: '9f1c4e2a-7f1a-4c55-9d1e-2b8a4e6f0a16', name: n63('production-ca-central-1'), nameSource: 'context', status: 'stale', targets: 2 },
+      ];
+      // More clusters exist than meta.clusters lists (MaxMetaClusters).
+      (doc.meta as Record<string, unknown>).clustersTruncated = true;
+    }
+    if (flags.__pactoAccept === 'breaks') breakStates(method, route, doc);
+    else if (flags.__pactoAccept) acceptProposals(route, doc);
     return { ...res, body: JSON.stringify(doc) };
   };
   Object.defineProperty(window, '__pactoServe', {
@@ -1839,6 +2024,27 @@ const firstLink = (list: string, href: string) => async (page: Page) => {
   await page.goto(`/${await a.getAttribute('href')}`);
 };
 
+/** Opens payments-service with range proposals in its Inferred block (the fixture puts
+ *  them there), presses "Accept all proposed ranges" and waits for the plan or refusal;
+ *  'forbidden' is a viewer who is not signed in, offered only the CLI dry run. The page
+ *  reloads so the session is read with the flag set. */
+export const acceptPlanRoute = (mode: 'plan' | 'refused' | 'forbidden') => async (page: Page) => {
+  const flag = (m: string) => { (window as unknown as { __pactoAccept?: string }).__pactoAccept = m; };
+  await page.addInitScript(flag, mode);
+  await page.goto('/#/fleet/services/payments-service');
+  await page.reload();
+  const block = page.getByTestId('service-inferred');
+  await expect(block).toBeVisible({ timeout: 30_000 });
+  await block.locator('summary').first().click();
+  if (mode === 'forbidden') {
+    await expect(block.getByTestId('accept-sign-in')).toBeVisible({ timeout: 30_000 });
+  } else {
+    await block.getByRole('button', { name: /Accept all proposed ranges/ }).click();
+    await expect(block.getByTestId(mode === 'plan' ? 'accept-waiting' : 'accept-refusal')).toBeVisible({ timeout: 30_000 });
+  }
+  await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+};
+
 /** Opens a service page and waits for its Delivery rows, so an error page fails the route. */
 const serviceWithStages = (hash: string) => async (page: Page) => {
   await page.goto(`/${hash}`);
@@ -2045,6 +2251,15 @@ async function openGroupedInferred(page: Page): Promise<void> {
   await expect(page.locator('[data-testid="inferred-workload"]')).toBeVisible({ timeout: 30_000 });
 }
 
+// 514-S2: a list under the three-cluster fixture, waiting for what it adds.
+function openMultiCluster(hash: string, ready = '[data-testid="cluster-caption"]'): (page: Page) => Promise<void> {
+  return async (page) => {
+    await page.evaluate(() => { (window as unknown as { __pactoMultiCluster?: boolean }).__pactoMultiCluster = true; });
+    await page.goto(`/${hash}`);
+    await expect(page.locator(ready)).toBeVisible({ timeout: 30_000 });
+  };
+}
+
 export const ROUTES: Route[] = [
   { name: 'overview', hash: '#/fleet' },
   { name: 'overview watched namespaces', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __scoped?: boolean }).__scoped = true; }); await page.goto('/#/fleet'); await page.reload(); } }, // reload: the init script only runs on a new document
@@ -2070,10 +2285,11 @@ export const ROUTES: Route[] = [
       await page.goto('/#/fleet/sources');
       const block = page.locator('[data-testid=detected-providers]');
       await block.getByRole('button', { name: /Show all/ }).click();
-      const more = block.locator('.dp-inferred details');
+      // Every row's More details, the declared Installation row's included.
+      const more = block.locator('.dp-row details');
       await expect(more.first()).toBeAttached({ timeout: 30_000 });
       await more.evaluateAll((ds) => { for (const d of ds) (d as HTMLDetailsElement).open = true; });
-      await expect(block.locator('.dp-inferred details:not([open])')).toHaveCount(0);
+      await expect(block.locator('.dp-row details:not([open])')).toHaveCount(0);
       await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the block into view; the gate reads from the top
     },
   },
@@ -2093,6 +2309,26 @@ export const ROUTES: Route[] = [
       await expect(page.locator('#sec-affected-consumers')).toBeVisible({ timeout: 30_000 });
     },
   },
+  {
+    // Announced, accepted and expired consumers of a BREAKING change, the Ranges line
+    // and its note: one mark per announced consumer.
+    name: 'change analysis breaks',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __pactoAccept?: string }).__pactoAccept = 'breaks'; });
+      await page.goto('/#/fleet/changes/payments-service');
+      await page.evaluate(() => { (window as unknown as { __pactoAccept?: string }).__pactoAccept = 'breaks'; });
+      await chooseRevision(page, '#impact-old-rev', '1.0.0');
+      await chooseRevision(page, '#impact-new-rev', '2.0.1');
+      await page.getByRole('button', { name: /Compare revisions/ }).click();
+      await expect(page.getByTestId('changes-ranges')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('changes-inferred-advisory')).toBeVisible();
+      // The marks sit in the Affected consumers fold, closed by default: open it so
+      // the gate measures them in the table and the stacked cards.
+      await page.locator('#sec-affected-consumers > summary').click();
+      await expect(page.getByTestId('consumer-break').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
   { name: 'change analysis event idle', hash: '#/fleet/changes/redis?mode=event' },
   {
     name: 'change analysis event answered',
@@ -2109,9 +2345,27 @@ export const ROUTES: Route[] = [
   { name: 'change analysis event clear', hash: '#/fleet/changes/storefront-web?event=unavailable' },
   { name: 'change analysis event regressed clean', hash: `#/fleet/changes/redis?event=regressed&rev=sha256:${'c1ea'.repeat(16)}` },
   { name: 'service entity', hash: '#/fleet/services/payments-service' },
+  { name: 'service inferred accept plan', open: acceptPlanRoute('plan') },
+  { name: 'service inferred accept refused', open: acceptPlanRoute('refused') },
+  { name: 'service inferred accept forbidden', open: acceptPlanRoute('forbidden') },
   { name: 'revision list', list: true, hash: '#/fleet/revisions?service=payments-service' },
   { name: 'revision entity', open: firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/') },
   { name: 'revision entity, implicit contract', open: firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/') },
+  {
+    // A signed declaration: the declaration line and the cluster rows, the "N more" open
+    // so the 80-character values are measured. Reload: the flag is read per answer.
+    name: 'revision entity, cluster facts',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __pactoClusterFacts?: boolean }).__pactoClusterFacts = true; });
+      await firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/')(page);
+      await page.reload();
+      const block = page.getByTestId('revision-inferred');
+      await expect(block.getByTestId('inferred-declaration')).toBeVisible({ timeout: 30_000 });
+      await block.locator('.ifl-more > summary').click();
+      await expect(block.locator('.ifl-more [data-testid="inferred-field"]').first()).toBeVisible();
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
   {
     // pacto ci raised the authored pactoVersion in memory: muted text, behind badge and
     // the provenance mark that ends the row. Reload: the init script runs on a new document.
@@ -2136,6 +2390,9 @@ export const ROUTES: Route[] = [
       await block.locator('.ifl-more > summary').click();
       await expect(block.locator('.ifl-more [data-testid="inferred-field"]').first()).toBeVisible();
       await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+      // The pointer stays where the last click was: once the page scrolls back, a help
+      // tip can sit under it and hover opens it. Park it in the corner.
+      await page.mouse.move(0, 0);
     },
   },
   {
@@ -2161,6 +2418,7 @@ export const ROUTES: Route[] = [
       await block.locator('summary').first().click();
       await expect(block).toContainText('Pacto could not read the inferred record');
       await page.evaluate(() => window.scrollTo(0, 0));
+      await page.mouse.move(0, 0); // as above: no help tip left open under the pointer
     },
   },
   {
@@ -2251,6 +2509,20 @@ export const ROUTES: Route[] = [
   { name: 'externals vendor', list: true, hash: '#/fleet/externals?class=vendor-api' },
   { name: 'external entity', hash: '#/fleet/externals/parcel-carrier' },
   { name: 'external entity name only, hidden, folded and truncated', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __externalStates?: boolean }).__externalStates = true; }); await page.goto('/#/fleet/externals/parcel-carrier'); await page.reload(); await expect(page.getByTestId('external-folded-into')).toBeVisible({ timeout: 30_000 }); } }, // reload: the init script only runs on a new document
+  {
+    name: 'external entity, inferred contract',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __inferredContract?: boolean }).__inferredContract = true; });
+      await page.goto('/#/fleet/externals/parcel-carrier');
+      await page.reload(); // the init script only runs on a new document
+      const block = page.getByTestId('external-inferred-contract');
+      await block.locator('summary').first().click();
+      await block.getByText("What this installation's operator saw").click();
+      // G1 measures only what is visible: both summaries are open before it does.
+      await expect(block.locator('.xe-surface li').last()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
   { name: 'graph external focus', hash: '#/fleet/graph/external/parcel-carrier' },
   { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
   {
@@ -2575,6 +2847,19 @@ export const ROUTES: Route[] = [
   { name: 'service replaced inferred', hash: '#/fleet/services/experiment-service' },
   { name: 'replaced inferred key', hash: `#/fleet/services/${encodeURIComponent('k8s:prod%2FDeployment%2Fexperiments')}` },
   {
+    name: 'service handover fields',
+    open: async (page) => {
+      // The fold opened, so the gates read its rows; a closed fold hides them.
+      await page.goto('/#/fleet/services/invoices');
+      const d = page.locator('[data-testid=field-provenance-fold]');
+      await d.waitFor();
+      await d.evaluate((el) => { (el as HTMLDetailsElement).open = true; });
+      await d.locator('dl dt').first().waitFor();
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  { name: 'service handover fields closed', hash: '#/fleet/services/invoices' },
+  {
     name: 'revision entity, discovery findings open',
     open: async (page) => {
       await firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/')(page);
@@ -2584,6 +2869,11 @@ export const ROUTES: Route[] = [
       await page.evaluate(() => window.scrollTo(0, 0));
     },
   },
+  // 514-S2: three clusters (one hidden by access, one by a failed review) behind the
+  // __pactoMultiCluster flag: the Cluster filter and caption, and the Clusters block.
+  { name: 'services list, multi-cluster', list: true, open: openMultiCluster('#/fleet/services') },
+  { name: 'targets list, multi-cluster filter', list: true, open: openMultiCluster('#/fleet/targets?cluster=5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11') },
+  { name: 'sources, multi-cluster scope', list: true, open: openMultiCluster('#/fleet/sources', '[data-testid="source-clusters"]') },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

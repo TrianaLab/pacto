@@ -310,7 +310,7 @@ func TestChangesRestrictedPartial(t *testing.T) {
 	tmpl.Service.Template = &contract.Template{}
 	q := changesQuery([]string{"v1.0.0", "v2.0.0"}, []*contract.Contract{secret, tmpl})
 	q.snap.Services["svc"].Template = true
-	r := q.Restrict(func(string) bool { return false }, nil)
+	r := q.Restrict(anyCluster(func(string) bool { return false }), anyClusterKind(nil))
 	h := r.serviceChanges(r.snap.Services["svc"])
 	checkChanges(t, changeText(h), []string{"v2.0.0 owner  present  ->team:a -"})
 	if h.Completeness != "partial" || h.CompletenessReason != historyPartialReason || !strings.Contains(h.Heading(), "partial: "+historyPartialReason) {
@@ -429,7 +429,7 @@ func TestServiceDetailJSONKeys(t *testing.T) {
 		"activeRevisions", "signatures", "deployments", "placement", "dependencies", "dependents", "changes",
 		"hiddenDependencies", "hiddenProviders", "hiddenDependents", "dependentsStatus", "referencedBy", "relationships",
 		"findings", "evidence", "limitations", "template", "origin", "creation", "workload", "calls", "callsObserved",
-		"replaces", "replacesTotal"}
+		"replaces", "replacesTotal", "replacesHidden", "fields"}
 	ty := reflect.TypeFor[ServiceDetailData]()
 	got := make([]string, ty.NumField())
 	for i := range got {

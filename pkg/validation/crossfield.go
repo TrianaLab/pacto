@@ -32,6 +32,7 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateServiceLifecycle(c, &result)
 	validateTemplate(c, &result)
 	validateOrigin(c, &result)
+	validateServiceExternal(c, &result)
 	validateConfigurationNamesUnique(c, &result)
 	validatePolicyNamesUnique(c, &result)
 	validateDependencyNamesUnique(c, &result)
@@ -482,12 +483,13 @@ func validatePolicyFields(c *contract.Contract, bundleFS fs.FS, result *Validati
 }
 
 // validateDependencyForm enforces a name (declared or derived from ref) and the
-// two shapes a dependency takes: a ref to
-// its contract with a compatibility range, or, for a dependency this Pacto
-// system does not deliver and nobody wrote a contract for, external: true with
-// the free-text version it runs against. It reports false when the shape is
+// shapes a dependency takes: a ref to its contract with a compatibility range;
+// from pactoVersion 2.5 a name alone, which Pacto resolves in the consumer's
+// domain, with an optional range; or, for a dependency this Pacto system does
+// not deliver and nobody wrote a contract for, external: true with the
+// free-text version it runs against. It reports false when the shape is
 // wrong, so the ref and range checks do not pile on.
-func validateDependencyForm(i int, dep contract.Dependency, result *ValidationResult) bool {
+func validateDependencyForm(c *contract.Contract, i int, dep contract.Dependency, result *ValidationResult) bool {
 	base := fmt.Sprintf("dependencies[%d]", i)
 	switch {
 	case dep.Name == "":
@@ -497,7 +499,7 @@ func validateDependencyForm(i int, dep contract.Dependency, result *ValidationRe
 	case dep.Identity != "" && identityErr(dep.Identity) != nil:
 		result.AddError(base+".identity", "INVALID_EXTERNAL_IDENTITY", fmt.Sprintf("dependency %q: %v", dep.Name, identityErr(dep.Identity)))
 	case dep.Ref == "" && !dep.External:
-		result.AddError(base+".ref", "DEPENDENCY_REF_REQUIRED", fmt.Sprintf("dependency %q has no ref: set ref to its contract (for a contract not published yet, the repository it will be published at, with the versions you accept in compatibility), or, if this Pacto system does not deliver it, set external: true and the version you run against", dep.Name))
+		return byNameForm(c, base, dep, result)
 	case dep.Ref == "" && dep.Version == "":
 		result.AddError(base+".version", "EXTERNAL_VERSION_REQUIRED", fmt.Sprintf("external dependency %q has no ref, so it needs a version: write the version you run against, for example version: \"2025-01\"", dep.Name))
 	case dep.Ref == "" && dep.Compatibility != "":
@@ -510,6 +512,18 @@ func validateDependencyForm(i int, dep contract.Dependency, result *ValidationRe
 	return false
 }
 
+// validateServiceExternal refuses a service.external the schema pattern
+// admits but that is no canonical external identity, such as the reserved
+// other-egress.
+func validateServiceExternal(c *contract.Contract, result *ValidationResult) {
+	if c.Service.External == "" {
+		return
+	}
+	if err := identityErr(c.Service.External); err != nil {
+		result.AddError("service.external", "INVALID_EXTERNAL_IDENTITY", fmt.Sprintf("service.external: %v", err))
+	}
+}
+
 // identityErr is why id is not a canonical external identity, or nil.
 func identityErr(id string) error {
 	_, err := externalid.Parse(id)
@@ -518,7 +532,13 @@ func identityErr(id string) error {
 
 func validateDependencyRefs(c *contract.Contract, result *ValidationResult) {
 	for i, dep := range c.Dependencies {
-		if !validateDependencyForm(i, dep, result) || dep.Ref == "" {
+		if !validateDependencyForm(c, i, dep, result) {
+			continue
+		}
+		if dep.Ref == "" {
+			if !dep.External { // by name: a range is optional, a bad one an error
+				checkCompatibility(i, dep, result)
+			}
 			continue
 		}
 		parsed := graph.ParseDependencyRef(dep.Ref)
@@ -537,21 +557,28 @@ func validateDependencyRefs(c *contract.Contract, result *ValidationResult) {
 			}
 		}
 
-		// compatibility: unknown says the versions that work are not known yet:
-		// valid, and never counted as compatible.
 		if dep.Compatibility == "" {
 			result.AddError(
 				fmt.Sprintf("dependencies[%d].compatibility", i),
 				"EMPTY_COMPATIBILITY",
 				fmt.Sprintf("dependency %q has a ref, so it needs compatibility: the versions that work, for example ^2.0.0", dep.Name),
 			)
-		} else if _, err := contract.ParseRange(dep.Compatibility); err != nil && contract.IsRange(dep.Compatibility) {
-			result.AddError(
-				fmt.Sprintf("dependencies[%d].compatibility", i),
-				"INVALID_COMPATIBILITY",
-				fmt.Sprintf("invalid compatibility range %q: %v", dep.Compatibility, err),
-			)
+			continue
 		}
+		checkCompatibility(i, dep, result)
+	}
+}
+
+// checkCompatibility reports a compatibility that reads as a range but does
+// not parse. compatibility: unknown says the versions that work are not known
+// yet: valid, and never counted as compatible.
+func checkCompatibility(i int, dep contract.Dependency, result *ValidationResult) {
+	if _, err := contract.ParseRange(dep.Compatibility); err != nil && contract.IsRange(dep.Compatibility) {
+		result.AddError(
+			fmt.Sprintf("dependencies[%d].compatibility", i),
+			"INVALID_COMPATIBILITY",
+			fmt.Sprintf("invalid compatibility range %q: %v", dep.Compatibility, err),
+		)
 	}
 }
 

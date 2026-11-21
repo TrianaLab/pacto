@@ -124,3 +124,65 @@ func TestExplainInferredWithoutDeclare(t *testing.T) {
 		t.Fatalf("output:\n%s", buf.String())
 	}
 }
+
+func TestPrintExplainDeclarationLines(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.ExplainResult{Name: "invoices", Inferred: []contract.Inferred{
+		{Field: "dependencies[ledger].compatibility", Value: "compatibility unknown", Source: "cluster:fleet reported versions 2.3.1",
+			AsOf: "2026-11-14T09:58:12Z", Completeness: contract.CoveragePartial, Proposed: "^2.3.0"},
+		{Field: "workload", Value: "service", Source: "cluster:manifest billing/Deployment/invoices deploy.yaml", AsOf: "2026-11-14T09:58:12Z"},
+	},
+		InferredCoverage: []contract.InferredCoverage{{Source: "pods", State: contract.CoverageComplete}, {Source: "calls", State: contract.CoveragePartial, Reason: "forbidden"}},
+		InferredHidden:   &contract.InferredHidden{Services: 2, Callers: 1},
+		Declaration: &contract.InferredDeclaration{State: contract.DeclarationDeclared, InferredFrom: "k8s:billing/Deployment/invoices",
+			Asker: contract.InferredSigner{Subject: "ana@acme.com", Issuer: "https://accounts.google.com", Class: contract.SignerClassHuman}}}
+	if err := printExplainResult(cmd, result, "text"); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"  dependencies[ledger].compatibility  inferred  compatibility unknown  from cluster:fleet reported versions 2.3.1 (read from the cluster 2026-11-14T09:58:12Z, partial); proposed ^2.3.0\n",
+		"  workload  inferred  service  from cluster:manifest billing/Deployment/invoices deploy.yaml (read from the cluster 2026-11-14T09:58:12Z)\n",
+		"\nDeclared by ana@acme.com (https://accounts.google.com) from k8s:billing/Deployment/invoices; signer not checked: run pacto pull --verify-identity\n",
+		"Cluster read: 1 of 2 sources complete\n",
+		"Hidden from the cluster read: 2 services, 1 callers\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	result.Declaration.InferredFrom = ""
+	buf.Reset()
+	if err := printExplainResult(cmd, result, "text"); err != nil || !strings.Contains(buf.String(), " from a folder; signer") {
+		t.Fatalf("folder declaration:\n%s", buf.String())
+	}
+}
+
+// A draft reads as a proposal awaiting a person, never as declared, and a
+// declaration with no field still says who declared it.
+func TestPrintExplainDraftAndFieldlessDeclaration(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.ExplainResult{Name: "invoices", Declaration: &contract.InferredDeclaration{State: contract.DeclarationDraft, OnBehalfOf: "ana",
+		InferredFrom: "k8s:billing/Deployment/invoices", Asker: contract.InferredSigner{Issuer: contract.SignerUnsigned, Class: contract.SignerClassAgent},
+		Requested: []contract.InferredAcceptance{{Field: "dependencies[ledger].compatibility", Range: "^2.3.0"}}}}
+	if err := printExplainResult(cmd, result, "text"); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"\nDraft by nobody (unsigned) for ana (asserted) from k8s:billing/Deployment/invoices, awaiting a person: accept it with pacto declare invoices --from-draft <tag>; signer not checked",
+		"  requests dependencies[ledger].compatibility ^2.3.0\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Declared by") {
+		t.Errorf("a draft reads as declared:\n%s", out)
+	}
+	result.Declaration = &contract.InferredDeclaration{State: contract.DeclarationDeclared, Asker: contract.InferredSigner{Subject: "ana@acme.com", Issuer: "https://accounts.google.com"}}
+	buf.Reset()
+	if err := printExplainResult(cmd, result, "text"); err != nil || !strings.Contains(buf.String(), "Declared by ana@acme.com") {
+		t.Fatalf("a declaration with no field:\n%s", buf.String())
+	}
+}

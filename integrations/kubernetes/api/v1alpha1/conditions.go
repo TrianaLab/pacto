@@ -29,6 +29,14 @@ const (
 	// ConditionReadinessSatisfied indicates whether the derived readiness gate is met
 	// (score >= minScore). Absent when the contract declares no readiness.
 	ConditionReadinessSatisfied = "ReadinessSatisfied"
+
+	// ConditionOwnerVerified says whether the signer of a running bundle that
+	// changes the service owner may set it: True allowed, False refused,
+	// Unknown when the signer or the owner policy could not be verified. On
+	// anything but True the status leaves the owner out. Absent for a bundle
+	// that changes no owner, an unsigned one without declaration keys and an
+	// inline contract.
+	ConditionOwnerVerified = "OwnerVerified"
 )
 
 // Condition reasons.
@@ -57,6 +65,19 @@ const (
 	ReasonReadinessSatisfied     = "Satisfied"
 	ReasonReadinessBelowMinScore = "BelowMinScore"
 	ReasonReadinessExpired       = "Expired"
+
+	// OwnerVerified reasons. ReasonOwnerSignerAllowed: a member of the
+	// current owner or a default approver signed the owner change.
+	ReasonOwnerSignerAllowed = "OwnerSignerAllowed"
+	// ReasonOwnerSignerNotPerson: an agent, CI or workload identity signed it;
+	// only a person sets an owner, whoever it acts for.
+	ReasonOwnerSignerNotPerson = "OwnerSignerNotPerson"
+	// ReasonOwnerSignerNotAllowed: a person outside the owner's members and
+	// the default approvers signed it.
+	ReasonOwnerSignerNotAllowed = "OwnerSignerNotAllowed"
+	// ReasonOwnerSignerUnverified: no signature verified, the owner policy or
+	// the previous owner could not be read.
+	ReasonOwnerSignerUnverified = "OwnerSignerUnverified"
 )
 
 // Event reasons (free-form, emitted via the recorder). Readiness and contract-status

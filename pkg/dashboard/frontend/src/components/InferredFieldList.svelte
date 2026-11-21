@@ -1,6 +1,8 @@
 <script>
   import ProvenanceMark from './ProvenanceMark.svelte';
   import { formatCount } from '../lib/format.ts';
+  import { formatWhen } from '../lib/dateFormat.ts';
+  import { ownerProvenanceText } from '../lib/entityLabels.ts';
 
   // Values Pacto inferred and keeps apart from the contract. Each row is muted and
   // carries one discreet mark; where the value came from and how sure Pacto is sit in
@@ -19,12 +21,17 @@
   const all = $derived(Math.max(total, items.length));
   // A `repository:` source is a file read from the repository root, outside the folder
   // and the bundle (only CODEOWNERS). An ownerFile row is an owner read from CODEOWNERS
-  // or catalog-info.yaml: a source marker, never a trust word.
+  // or catalog-info.yaml: a source marker, never a trust word, unless the revision's
+  // signature attests it (`attested`), and then it says so as the owner mark does.
   const where = (s) => (s.startsWith('repository:') ? `${s.slice('repository:'.length)} (repository file, not in the bundle)` : s);
   const note = (f) => `Inferred, not declared. Source: ${where(f.source)}.`
     + (f.confidence ? ` Confidence: ${f.confidence}.` : '')
-    + (f.class === 'ownerFile' ? ` Read from ${where(f.source)}; not verified; never clears a gate.` : '')
-    + (f.outranks?.length ? ` Outranks ${f.outranks.map(where).join(', ')}${more(f)}.` : '');
+    + (f.class === 'ownerFile' && f.attested ? ` Attested: ${ownerProvenanceText('attested')}.` : '')
+    + (f.class === 'ownerFile' && !f.attested ? ` Read from ${where(f.source)}; not verified; never clears a gate.` : '')
+    + (f.outranks?.length ? ` Outranks ${f.outranks.map(where).join(', ')}${more(f)}.` : '')
+    + (formatWhen(f.asOf) ? ` Read from the cluster ${formatWhen(f.asOf)}.` : '')
+    + (f.completeness === 'partial' ? ' Partial: some nodes, pods or supporting sources were not observed.' : '')
+    + (f.proposed ? ` Proposed ${f.proposed}, not declared.` : '');
   // The server lists the first outranked sources and counts them all.
   const more = (f) => (f.outranksTotal > f.outranks.length ? ` and ${formatCount(f.outranksTotal - f.outranks.length)} more` : '');
 </script>

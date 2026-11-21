@@ -28,6 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       contract: ${{ steps.filter.outputs.contract }}
+      ci-step: ${{ steps.filter.outputs.ci-step }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -37,6 +38,15 @@ jobs:
             contract:
               - 'pactos/**'
               - 'pkg/dashboard/**'
+              - '.github/workflows/pacto.yml'
+            ci-step:
+              - 'examples/demo/monorepo/**'
+              - 'examples/ci/**'
+              - 'internal/ci/**'
+              - 'internal/cli/ci*.go'
+              - 'internal/app/ci*.go'
+              - 'pkg/publish/**'
+              - 'pkg/signing/**'
               - '.github/workflows/pacto.yml'
 
   bundle:
@@ -99,6 +109,47 @@ jobs:
           pacto doc ./pactos/pacto-dashboard \
             --set service.version=0.0.0-pr.${{ github.event.pull_request.number }}
 
+  # The pacto this pull request builds, as an artifact the reusable workflow
+  # runs instead of downloading a release (its pacto-artifact input).
+  pacto-bin:
+    needs: changes
+    if: needs.changes.outputs.ci-step == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - name: Build pacto
+        env:
+          CGO_ENABLED: "0"
+          GOBIN: ${{ runner.temp }}/pacto-bin
+        run: bash release/scripts/retry.sh go install ./cmd/pacto
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: pacto-bin
+          path: ${{ runner.temp }}/pacto-bin/pacto
+          retention-days: 1
+
+  # Dogfood: the caller pacto ci init writes, run over the demo monorepo with
+  # this pull request's pacto. uses: and permissions: stay equal to
+  # ci.Caller("github") (tests/release/ci_step_pin_test.go): the permissions
+  # are the union of the reusable workflow's job maps, since GitHub refuses to
+  # start it when any job, skipped or not, asks for more. publish: false keeps
+  # the push-to-main trigger from publishing.
+  ci-step:
+    needs: [changes, pacto-bin]
+    if: needs.changes.outputs.ci-step == 'true'
+    permissions: {contents: read, packages: write, id-token: write, pull-requests: write}
+    uses: TrianaLab/pacto-actions/.github/workflows/ci.yml@9aa2d88798c266c2de13b8bef000c1da750966cd # v2.0.0
+    with:
+      path: examples/demo/monorepo
+      pacto-artifact: pacto-bin
+      publish: false
+
   # Single required status for branch protection, mirroring ci.yml's `required`
   # and docs-check.yml's `docs-required`: green when the bundle validated AND
   # when it was correctly skipped, red only when it actually failed. Without it
@@ -111,6 +162,8 @@ jobs:
     needs:
       - changes
       - bundle
+      - pacto-bin
+      - ci-step
     runs-on: ubuntu-latest
     steps:
       - name: Verify no contract leg failed

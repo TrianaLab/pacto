@@ -536,6 +536,15 @@ func newExecTools(dir string, run runner, reg publish.Registry) execTools {
 	return execTools{dir: dir, run: run, reg: reg, signers: map[contract.PublishSign]loadedSigner{}, built: map[string]time.Time{}}
 }
 
+// signerTools is execTools that signs with s, and verifies under p, whatever
+// the publish section's sign config: the signer a caller chose, such as a
+// person's Sigstore login.
+func signerTools(reg publish.Registry, s signing.Signer, p signing.Policy) execTools {
+	t := newExecTools("", nil, reg)
+	t.signers[contract.PublishSign{}] = loadedSigner{s: s, p: p}
+	return t
+}
+
 // Build implements publish.Tools.
 func (t execTools) Build(ctx context.Context, a contract.PublishArtifact, out string, env []string) error {
 	if a.SBOM != "" {
@@ -633,14 +642,15 @@ func (t execTools) load(ctx context.Context, sign contract.PublishSign) (signing
 		if err != nil {
 			return signing.Signer{}, signing.Policy{}, fmt.Errorf("public-good Sigstore's trusted root: %w", err)
 		}
-		identity, issuer := sign.Identity, sign.Issuer
-		if identity == "" {
-			if identity, issuer, err = tokenIdentity(ctx); err != nil {
+		p := signing.Policy{Identity: sign.Identity, Issuer: sign.Issuer}
+		if sign.Identity == "" {
+			if p, err = tokenPolicy(ctx); err != nil {
 				return signing.Signer{}, signing.Policy{}, err
 			}
 		}
+		p.Root, p.Tlog = root, rekorURL != ""
 		s, err := signing.Keyless(fulcioURL, tsaURL, rekorURL, signing.IDToken(""), root)
-		return s, signing.Policy{Identity: identity, Issuer: issuer, Root: root, Tlog: rekorURL != ""}, err
+		return s, p, err
 	}
 	if err != nil {
 		return signing.Signer{}, signing.Policy{}, err
@@ -653,7 +663,10 @@ func (t execTools) load(ctx context.Context, sign contract.PublishSign) (signing
 }
 
 // signer is who signed for sign, as a row prints it: keyless (<identity>),
-// key <path> or kms <uri>; "" when the signer never loaded.
+// key <path> or kms <uri>; "" when the signer never loaded. A policy that
+// matches the caller (a reusable workflow, signing.PolicyForToken) keeps a
+// signature another workflow of the caller wrote, so the row names what every
+// kept or new signature shares: the repository and ref.
 func (t execTools) signer(sign contract.PublishSign) string {
 	l, ok := t.signers[sign]
 	switch {
@@ -664,17 +677,21 @@ func (t execTools) signer(sign contract.PublishSign) string {
 	case sign.KMS != "":
 		return "kms " + sign.KMS
 	}
+	if l.p.Repository != "" {
+		return "keyless (repository " + l.p.Repository + " at " + l.p.Ref + ")"
+	}
 	return "keyless (" + l.p.Identity + ")"
 }
 
-// tokenIdentity is the identity and issuer the CI's OIDC token names, which a
-// signer with no declared identity signs as and its signatures verify against.
-func tokenIdentity(ctx context.Context) (string, string, error) {
+// tokenPolicy is the keyless policy of the identity the CI's OIDC token
+// names, which a signer with no declared identity signs as and its
+// signatures verify against.
+func tokenPolicy(ctx context.Context) (signing.Policy, error) {
 	tok, err := signing.IDToken("")(ctx)
 	if err != nil {
-		return "", "", err
+		return signing.Policy{}, err
 	}
-	return signing.TokenIdentity(tok)
+	return signing.PolicyForToken(tok)
 }
 
 // Verify implements publish.Tools: a signature referrer of ref that verifies
@@ -689,19 +706,7 @@ func (t execTools) Verify(ctx context.Context, sign contract.PublishSign, ref st
 
 func (t execTools) verify(ctx context.Context, p signing.Policy, ref string) error {
 	repo, digest, _ := strings.Cut(ref, "@")
-	return publish.VerifyDigest(ctx, t.reg, bundleVerifier(p), repo, digest)
-}
-
-// bundleVerifier verifies a bundle under p and returns the predicate type of
-// the statement its signature covers.
-func bundleVerifier(p signing.Policy) publish.BundleVerifier {
-	return func(b, d []byte) (string, error) {
-		res, err := p.Verify(b, d)
-		if err != nil {
-			return "", err
-		}
-		return res.Statement.GetPredicateType(), nil
-	}
+	return publish.VerifyDigest(ctx, t.reg, publish.PolicyVerifier(p), repo, digest)
 }
 
 // Sign implements publish.Tools: a valid signature by the configured identity
@@ -721,9 +726,13 @@ func (t execTools) Sign(ctx context.Context, sign contract.PublishSign, ref stri
 	// A keyless signature carries whatever identity the CI token had. One the
 	// pinned verify rejects would never reach a Stage, so it fails here, before
 	// any tag is written.
-	if err := t.verify(ctx, p, ref); err != nil {
+	// Only a signature read and rejected is an identity mismatch; a read-back
+	// that failed says nothing about the identity.
+	if err := t.verify(ctx, p, ref); errors.Is(err, publish.ErrSignatureInvalid) {
 		return false, fmt.Errorf("the signature Pacto wrote for %s does not verify against the configured identity (identity %q, issuer %q); check that the CI identity matches publish.sign: %w",
 			ref, p.Identity, p.Issuer, err)
+	} else if err != nil {
+		return false, fmt.Errorf("the signature Pacto wrote for %s could not be read back to verify: %w", ref, err)
 	}
 	return true, nil
 }

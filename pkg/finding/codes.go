@@ -68,9 +68,11 @@ const (
 	CodeEnvironmentExpiresNotTemporary Code = "ENVIRONMENT_EXPIRES_NOT_TEMPORARY" // expires on an environment whose lifetime is not temporary
 	CodeEnvironmentUnknownConfig       Code = "ENVIRONMENT_UNKNOWN_CONFIGURATION" // an environment file names a configuration the contract does not declare
 	CodeEnvironmentValuesInvalid       Code = "ENVIRONMENT_VALUES_INVALID"
-	CodeEnvironmentValuesMissing       Code = "ENVIRONMENT_VALUES_MISSING"    // a required configuration an environment leaves out fails its schema on its defaults
-	CodeEnvironmentValuesUnverified    Code = "ENVIRONMENT_VALUES_UNVERIFIED" // no schema file in the bundle to check an environment's values against
-	CodeInferredRecordInvalid          Code = "INFERRED_RECORD_INVALID"       // pacto.inferred.yaml is malformed or cites a file the bundle lacks or holds with another digest
+	CodeEnvironmentValuesMissing       Code = "ENVIRONMENT_VALUES_MISSING"     // a required configuration an environment leaves out fails its schema on its defaults
+	CodeEnvironmentValuesUnverified    Code = "ENVIRONMENT_VALUES_UNVERIFIED"  // no schema file in the bundle to check an environment's values against
+	CodeInferredRecordInvalid          Code = "INFERRED_RECORD_INVALID"        // pacto.inferred.yaml is malformed or cites a file the bundle lacks or holds with another digest
+	CodeDeclarationRangeNotAccepted    Code = "DECLARATION_RANGE_NOT_ACCEPTED" // pacto.yaml declares a range the record only proposed and the declaration did not accept
+	CodeDeclarationAcceptedMismatch    Code = "DECLARATION_ACCEPTED_MISMATCH"  // a range the declaration accepted, or a draft requested, is not the compatibility pacto.yaml declares
 
 	// Family 1 — confirmed violations (emitted only by Evaluate). Registry: {RuntimeDrift, Error}.
 	CodeWorkloadMismatch      Code = "WORKLOAD_MISMATCH"
@@ -182,6 +184,8 @@ var registry = map[Code]codeMeta{
 	CodeEnvironmentValuesMissing:       {CategoryMissingConfiguration, SeverityError},
 	CodeEnvironmentValuesUnverified:    {CategoryUnresolvedReference, SeverityWarning},
 	CodeInferredRecordInvalid:          {CategoryInvalidFile, SeverityError},
+	CodeDeclarationRangeNotAccepted:    {CategoryInvalidFile, SeverityError},
+	CodeDeclarationAcceptedMismatch:    {CategoryInvalidFile, SeverityError},
 
 	// Family 1 — confirmed violations
 	CodeWorkloadMismatch:            {CategoryRuntimeDrift, SeverityError},

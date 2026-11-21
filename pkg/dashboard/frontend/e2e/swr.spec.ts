@@ -255,9 +255,20 @@ test.describe('WASM demo — retained rows answer the question that is on screen
     // ...and the failure is not swallowed either: a frozen list must not read as a live one.
     await expect(page.getByTestId('stale-refresh')).toContainText(/could not be refreshed/i);
 
-    // Recovering clears the notice rather than requiring a reload.
-    await g.fail(null);
-    await page.getByRole('button', { name: 'Try again' }).click();
+    // Recovering clears the notice rather than requiring a reload. Lifting the failure and
+    // pressing Try again happen in ONE page turn: done as two Playwright steps, the app's
+    // own poll can land in between, succeed, and remove the button before the click.
+    await expect(async () => {
+      const clicked = await page.evaluate(() => {
+        const btn = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="stale-refresh"] button')]
+          .find((b) => b.textContent?.trim() === 'Try again');
+        if (!btn) return false;
+        (window as unknown as { __gate: { fail: string | null } }).__gate.fail = null;
+        btn.click();
+        return true;
+      });
+      expect(clicked).toBe(true);
+    }).toPass({ timeout: T });
     await expect(page.getByTestId('stale-refresh')).toHaveCount(0, { timeout: T });
     await expect(page.getByTestId('service-list').locator('li')).toHaveCount(before);
   });

@@ -386,7 +386,7 @@ func TestRemoteDeliveryReadsNarrowedByFleetView(t *testing.T) {
 		if _, ok := personFrom(ctx); !ok {
 			return nil, errNobodyReviewed
 		}
-		return q.Restrict(func(ns string) bool { return ns == "prod" }, nil), nil
+		return q.Restrict(func(_, ns string) bool { return ns == "prod" }, nil), nil
 	}
 	fm := &pactomcp.FleetMode{Src: func(context.Context) (*fleet.Query, error) { return q, nil }, Opts: pactomcp.FleetOptions{View: view}}
 	id := baseDashboardIdentity(&rest.Config{Host: "https://k"}, d, nil, delivery.PolicyNamespace)

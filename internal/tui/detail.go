@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -103,7 +104,7 @@ func renderDetail(d *fleet.EntityDetail) string {
 		field(&b, "domain", businessDomainText(d.Entity))
 		field(&b, "offering", d.Entity.Offering)
 		field(&b, "lifecycle", strings.TrimPrefix(lifecycleText(d.Service.Lifecycle), ", "))
-		renderServiceDetail(&b, d.Entity.Label, d.Service, d.Meta.Completeness)
+		renderServiceDetail(&b, d.Entity.Label, d.Service, d.Meta.Completeness, d.Meta.AsOf)
 	case d.Revision != nil:
 		renderRevisionDetail(&b, d.Revision)
 	case d.Target != nil:
@@ -159,11 +160,15 @@ func styledField(b *strings.Builder, label, value string) {
 
 // OwnerProvenanceMark is the text suffix that says where a service's owner
 // comes from: empty for a declared or absent provenance, else
-// " (declared via target)", " (attested)" or " (inferred)". The CLI and the
-// TUI share it so the owner reads the same on both.
-func OwnerProvenanceMark(p string) string {
+// " (declared via target)", " (attested: <source>)" or " (inferred)"; an
+// attested owner without a source prints " (attested)". The CLI and the TUI
+// share it so the owner reads the same on both.
+func OwnerProvenanceMark(p, source string) string {
 	if p == "" || p == fleet.OwnerProvenanceDeclared {
 		return ""
+	}
+	if p == fleet.OwnerProvenanceAttested && source != "" {
+		return " (attested: " + source + ")"
 	}
 	return " (" + strings.ReplaceAll(p, "-", " ") + ")"
 }
@@ -174,11 +179,12 @@ func section(b *strings.Builder, title string) {
 
 // renderServiceDetail renders a service's page; service is its label, named
 // in the Stages hint under its environments.
-func renderServiceDetail(b *strings.Builder, service string, s *fleet.ServiceDetailData, c fleet.Completeness) {
+func renderServiceDetail(b *strings.Builder, service string, s *fleet.ServiceDetailData, c fleet.Completeness, asOf time.Time) {
 	field(b, "registry", s.Domain)
 	if s.Ownership != nil {
-		field(b, "owner", s.Ownership.Owner+OwnerProvenanceMark(s.Ownership.Provenance))
+		field(b, "owner", s.Ownership.Owner+OwnerProvenanceMark(s.Ownership.Provenance, s.Ownership.Source))
 	}
+	renderProvenance(b, s, asOf)
 	section(b, "Summary")
 	field(b, "revisions", fmt.Sprintf("%d (%d in use)", s.Summary.Revisions, s.Summary.RevisionsInUse))
 	field(b, "targets", fmt.Sprintf("%d", s.Summary.Targets))
@@ -216,6 +222,29 @@ func renderServiceDetail(b *strings.Builder, service string, s *fleet.ServiceDet
 		}
 		if s.Findings.Truncated {
 			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", s.Findings.Total-len(s.Findings.Items))) + "\n")
+		}
+	}
+}
+
+// renderProvenance writes the inferred services s replaced and where each
+// field of its current revision comes from, in the CLI's words.
+func renderProvenance(b *strings.Builder, s *fleet.ServiceDetailData, asOf time.Time) {
+	if len(s.Replaces) > 0 || s.ReplacesHidden > 0 {
+		section(b, "Replaces")
+		for _, l := range fleet.ReplacesLines(s.Replaces, asOf) {
+			b.WriteString(safeText(l) + "\n")
+		}
+		if more := s.ReplacesTotal - len(s.Replaces); more > 0 {
+			fmt.Fprintf(b, "  %d more\n", more)
+		}
+		if s.ReplacesHidden > 0 {
+			fmt.Fprintf(b, "  %d whose workload you cannot see\n", s.ReplacesHidden)
+		}
+	}
+	if s.Fields != nil {
+		section(b, "Fields")
+		for _, l := range s.Fields.Lines() {
+			b.WriteString(safeText(l) + "\n")
 		}
 	}
 }
@@ -463,6 +492,12 @@ func renderExternalDetail(b *strings.Builder, e *fleet.ExternalDetailData) {
 		field(b, "folds", fmt.Sprintf("%d external systems", r.Folded))
 	default:
 		b.WriteString("  none (" + r.JoinWords() + ")\n")
+	}
+	if p := r.Provider; p != nil {
+		section(b, "Inferred contract")
+		for _, l := range p.Lines() {
+			b.WriteString("  " + safeText(l) + "\n")
+		}
 	}
 }
 

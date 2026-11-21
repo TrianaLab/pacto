@@ -50,7 +50,13 @@ type deps struct {
 	// clusterConfig is the ambient cluster config the dashboard builds callers' clients from (address and CA
 	// only); served asks discovery whether an API group version is installed.
 	clusterConfig func() (*rest.Config, error)
-	served        func(*rest.Config, string) (bool, error)
+	// contextConfig is the config of one named kubeconfig context; inCluster is the pod's own config, an
+	// error outside a pod.
+	contextConfig func(string) (*rest.Config, error)
+	inCluster     func() (*rest.Config, error)
+	// resolveK8s resolves the kubeconfig contexts the fleet reads, once for its sources and its reviewers.
+	resolveK8s func(svc *app.Service, ctx context.Context, includeCurrent bool, contexts []string) []app.K8sEntry
+	served     func(*rest.Config, string) (bool, error)
 	// dynamicFor builds a client from a caller's own config; newMCPAuth reads the remote MCP issuer.
 	dynamicFor func(*rest.Config) (dynamic.Interface, error)
 	newMCPAuth func(authn.MCPConfig) (mcpAuth, error)
@@ -70,6 +76,13 @@ type deps struct {
 	publish func(svc *app.Service, ctx context.Context, opts app.PublishOptions) (*publish.Result, error)
 	// ciPublish runs `pacto ci --publish`: it publishes every changed service of a repository.
 	ciPublish func(svc *app.Service, ctx context.Context, opts app.CIPublishOptions) (*ci.Plan, error)
+	// planDeclare plans `pacto declare`; declare carries it out: it logs the person in, signs and writes to a registry.
+	planDeclare func(svc *app.Service, ctx context.Context, req app.DeclareRequest) (*app.DeclarePlan, error)
+	declare     func(svc *app.Service, ctx context.Context, req app.DeclareRequest) (*app.DeclareResult, error)
+	// planAccept plans `pacto accept`: it reads the registry and writes nothing.
+	planAccept func(svc *app.Service, ctx context.Context, opts app.AcceptOptions) (*app.AcceptPlan, error)
+	// accept carries out `pacto accept`: it signs as the person, or drafts, and writes to the service's bundle repository.
+	accept func(svc *app.Service, ctx context.Context, opts app.AcceptOptions) (*app.AcceptResult, error)
 	// publishRunRecord writes one unsigned run record to a stats repository and returns "<repo>@<digest>".
 	publishRunRecord func(ctx context.Context, repo string, r runrecord.Record) (string, error)
 	// selfProc is this process's own /proc, read for its network namespace.
@@ -95,6 +108,9 @@ func defaultDeps() deps {
 		newCollector:        ebpf.New,
 		newDynamic:          k8sclient.NewDynamic,
 		clusterConfig:       k8sclient.Config,
+		contextConfig:       k8sclient.ConfigFor,
+		inCluster:           rest.InClusterConfig,
+		resolveK8s:          (*app.Service).ResolveK8sContexts,
 		served:              k8sclient.Served,
 		dynamicFor:          newDynamicForConfig,
 		newMCPAuth:          newMCPAuth,
@@ -109,6 +125,10 @@ func defaultDeps() deps {
 		resolveBundle:       (*app.Service).ResolveBundle,
 		publish:             (*app.Service).Publish,
 		ciPublish:           (*app.Service).CIPublish,
+		planDeclare:         planDeclare,
+		declare:             (*app.Service).Declare,
+		planAccept:          (*app.Service).AcceptPlan,
+		accept:              (*app.Service).Accept,
 		publishRunRecord:    defaultPublishRunRecord,
 		selfProc:            runtimewatch.OSProcFS{Root: "/proc"},
 		attachTimeout:       10 * time.Second,
@@ -210,6 +230,9 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 		// Carry the --no-anim decision on the command context (per-invocation),
 		// so concurrent in-process Execute calls never race on shared state.
 		cmd.SetContext(withAnimDisabled(cmd.Context(), v.GetBool("no-anim")))
+		// The running registries as pacto impact reads them (flag-less: env
+		// or config file), so pacto mcp reads the same list.
+		cmd.SetContext(context.WithValue(cmd.Context(), runningRegistriesKey{}, v.GetString("running-registries")))
 
 		// Start async update check
 		if info.Version != "dev" && !envFlag("PACTO_NO_UPDATE_CHECK") {
@@ -254,6 +277,8 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 	root.AddCommand(newPackCommand(svc, v))
 	root.AddCommand(newPushCommand(svc, v))
 	root.AddCommand(newPublishCommand(svc, v, d, rec))
+	root.AddCommand(newDeclareCommand(svc, v, d))
+	root.AddCommand(newAcceptCommand(svc, v, d))
 	root.AddCommand(newPullCommand(svc, v))
 	root.AddCommand(newGraphCommand(svc, v))
 	root.AddCommand(newExportCommand(svc))

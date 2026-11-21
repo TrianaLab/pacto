@@ -13,6 +13,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -512,3 +513,18 @@ type (
 	fleetProvider      = func(ctx context.Context) (*fleet.Query, error)
 	impactProviderFunc = func(ctx context.Context, snap *fleet.FleetSnapshot, old, new string, includeObserved bool) (*impact.Result, error)
 )
+
+func TestImpactRouteCarriesInferredAdvisory(t *testing.T) {
+	want := &impact.Result{Service: "orders", Classification: "NON_BREAKING", Gate: impact.GateUnverified,
+		Advisories: []impact.InferredAdvisory{{Advisory: diff.Advisory{Interface: "api", Kind: "openapi", Source: "openapi.yaml:1"},
+			Consumers: []impact.AdvisoryConsumer{{Service: "web", Confidence: impact.ConfidenceInferred, Compatibility: impact.CompatibilityUnknown}}}}}
+	base, cancel := startFleetTestServer(t, nil, func(context.Context, *fleet.FleetSnapshot, string, string, bool) (*impact.Result, error) {
+		return want, nil
+	})
+	defer cancel()
+	var out impact.Result
+	getJSON(t, base+"/api/fleet/impact?old=oci://x/svc:1.0.0&new=oci://x/svc:1.0.1", http.StatusOK, &out)
+	if len(out.Advisories) != 1 || out.Advisories[0].Source != "openapi.yaml:1" || out.Advisories[0].Consumers[0].Service != "web" {
+		t.Fatalf("advisories %+v", out.Advisories)
+	}
+}

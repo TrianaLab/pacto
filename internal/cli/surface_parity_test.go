@@ -90,11 +90,11 @@ const (
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
 // the fleet, delivery, impact and contract surfaces to its concept. A story
 // that adds one adds its row here in the same commit.
-var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows())
+var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), acceptRows())
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
-		alike("fleet entities", "pacto_fleet_entities", "GET /api/fleet/entities", "", "business-domain", "consumes", "created-from", "environment",
+		alike("fleet entities", "pacto_fleet_entities", "GET /api/fleet/entities", "", "business-domain", "consumes", "created-from", "environment", "cluster",
 			"has-non-compliant", "limit", "offering", "offset", "owner", "owner-key", "ownership", "phase", "sort", "source-kind", "status", "template",
 			"declaration", "group", "capability", "domain", "readiness", "scope", "service", "source", "source-health", "failed", "lifecycle", "gap", "class"),
 		[]surfaceRow{
@@ -159,6 +159,7 @@ func impactRows() []surfaceRow {
 			{"impact <new>", "pacto_impact.new_ref", "GET /api/fleet/impact?new", whyImpactRefs},
 			{"impact --include-observed", "pacto_impact.include_observed", "GET /api/fleet/impact?includeObserved", ""},
 			{"", "", "POST /api/fleet/impact body.includeObserved", whyKeyedImpact},
+			{"impact --running", "pacto_impact.running", "", "the dashboard compares two revisions the reader picks; its service page shows which revision runs where"},
 			{"impact --traces", "pacto_impact.traces", "", "the dashboard reads the trace sources it was started with"},
 			{"impact --unavailable", "pacto_impact.event", "POST /api/fleet/impact body.event", "each CLI event flag names the event and its service at once"},
 			{"impact --removed", "", "", "pacto_impact.event and the dashboard's body.event take removed as a value"},
@@ -166,6 +167,7 @@ func impactRows() []surfaceRow {
 			{"", "pacto_impact.service", "POST /api/fleet/impact body.serviceKey", "the CLI takes the service as the event flag's value"},
 			{"", "pacto_impact.revision", "POST /api/fleet/impact body.revision", "the CLI takes the revision after @ in --regressed"},
 			{"", "pacto_impact.offering", "POST /api/fleet/impact body.offeringKey", "the CLI takes the offering as offering:<name> in --unavailable or --removed"},
+			{"impact --policy", "pacto_impact.policy", "", "the dashboard answers with the default policy, warn"},
 		},
 		alike("impact", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs",
 			"stats-context", "stats-file", "stats-registry"),
@@ -349,9 +351,53 @@ func evidenceRows() []surfaceRow {
 func ciRows() []surfaceRow {
 	const whyCI = "pacto ci is the CI entry point over a repository and a registry baseline; MCP has no repository-wide plan, pacto_impact answers one revision pair without ci's consumer-source and inferred rules, and the dashboard publishes nothing"
 	return slices.Concat(
-		alike("ci", "", "", whyCI, "registry", "explain"),
+		alike("ci", "", "", whyCI, "registry", "explain", "policy"),
 		alike("ci", "", "", "publishing runs in CI on the merged commit, signed as the CI identity; MCP never publishes and the dashboard publishes nothing", "publish", "image", "sign-key", "no-transparency-log"),
 		alike("ci", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs", "stats-context", "stats-file", "stats-registry"),
+	)
+}
+
+// declareRows map pacto declare and pacto_declare, the agent write
+// contract's first tool: the agent's dry_run and intent_digest are the
+// person's --yes and --intent.
+func declareRows() []surfaceRow {
+	const why = "the dashboard Declare panel is 513-S6"
+	const whyLocal = "a person's local signing: MCP callers are agents and never sign a declared record"
+	return slices.Concat(
+		[]surfaceRow{
+			{"declare <service>", "pacto_declare.service", "", why},
+			{"declare --intent", "pacto_declare.intent_digest", "", why},
+			{"declare --yes", "pacto_declare.dry_run", "", why + "; dry_run false writes a draft, --yes publishes after a person's login"},
+			{"declare --dir", "pacto_declare.dir", "", why + "; over MCP dir is stdio only"},
+			{"", "pacto_declare.on_behalf_of", "", "an MCP caller is an agent and names the person it acts for; the CLI runs as that person; " + why},
+			{"declare --delivery-trust", "", "", "stdio pacto_declare reads the server's own --delivery-trust; " + why},
+		},
+		alike("declare", "pacto_declare", "", why, "namespace", "registry", "accept", "max-items", "call-window"),
+		alike("declare", "", "", whyLocal, "from-draft", "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
+			"rekor-url", "trusted-root"),
+	)
+}
+
+// acceptRows map pacto accept and pacto_accept, the agent write contract's
+// second tool: the agent's dry_run and intent_digest are the person's
+// --dry-run and --intent, and an agent's write is a draft a person accepts
+// with --draft.
+func acceptRows() []surfaceRow {
+	const why = "the dashboard plans only Accept all proposed ranges, by the service's fleet key, and never signs or writes (POST /api/fleet/accept)"
+	const whyLocal = "a person's local signing: MCP callers are agents and never sign an acceptance"
+	return slices.Concat(
+		[]surfaceRow{
+			{"accept <service-ref-or-dir>", "pacto_accept.service", "POST /api/fleet/accept body.serviceKey",
+				"the dashboard names the service by its fleet key and reads its bundle repository from the revision; over MCP a folder is stdio only"},
+			{"accept [field", "", "", "the positional fields are --field without the flag"},
+			{"accept --field", "pacto_accept.fields", "", why},
+			{"accept --intent", "pacto_accept.intent_digest", "", why + "; its answer carries the intent digest in the command"},
+			{"accept --dry-run", "pacto_accept.dry_run", "", why + "; dry_run defaults to true and false writes a draft, the CLI signs unless --dry-run"},
+			{"", "pacto_accept.on_behalf_of", "", "an MCP caller is an agent and names the person it acts for; the CLI runs as that person; " + why},
+		},
+		alike("accept", "pacto_accept", "", why, "proposed", "break", "from"),
+		alike("accept", "", "", whyLocal, "draft", "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
+			"rekor-url", "trusted-root"),
 	)
 }
 
@@ -361,6 +407,7 @@ func ciRows() []surfaceRow {
 var excludedFromSurfaces = map[string]string{
 	"agent":                    "a long-running host daemon that reports what runs on its node; the other surfaces read what it reports",
 	"delivery targets publish": "signs with a local key and pushes a target snapshot, a pipeline step the other surfaces never take",
+	"ci init":                  "writes a CI file into the local repository; an agent runs pacto ci init --dry-run and commits the result itself",
 	"dashboard":                "starts the dashboard server, which is itself the surface the routes belong to",
 	"diff":                     "compares two contracts in a pipeline without the fleet; MCP and the dashboard compare revisions with their consumers (pacto_impact, GET /api/fleet/impact)",
 	"doc":                      "renders a contract's documentation to a file or a local site, a build step with no fleet to read",
@@ -370,6 +417,7 @@ var excludedFromSurfaces = map[string]string{
 	"evidence serve":           "starts the long-running Evidence Server",
 	"evidence sign":            "signs with a local key, which belongs at a shell prompt",
 	"evidence verify":          "verifies a signed evidence file on disk",
+	"fleet publish-inferred":   "writes signed inferred contracts as the installation's publisher; agents and HTTP servers never publish",
 	"export backstage":         "writes a catalog file for a repository; the dashboard serves the same entities at GET /api/backstage/entities outside the OpenAPI document",
 	"generate":                 "runs a code generation plugin over a local contract, a build step",
 	"graph":                    "resolves the dependency tree of a bundle path or ref outside any fleet; the fleet's tree is pacto fleet graph, which pacto_fleet_graph and GET /api/fleet/services/{name}/graph mirror",
@@ -499,7 +547,7 @@ func mcpNames(t *testing.T) map[string]bool {
 	svc := app.NewService(nil, nil)
 	server, err := pactomcp.New("v", mcpAuthoring(newMCPCommand(svc, "v", defaultDeps()), svc), pactomcp.Modes{
 		Fleet: &pactomcp.FleetMode{Src: func(context.Context) (*fleet.Query, error) { return q, nil }, Opts: pactomcp.FleetOptions{Impact: signedInImpact(t, defaultDeps()),
-			Stats: mcpStatsProvider(newMCPCommand(svc, "v", defaultDeps()), svc, true)}},
+			Stats: mcpStatsProvider(newMCPCommand(svc, "v", defaultDeps()), svc, true, nil)}},
 		Delivery: &pactomcp.DeliveryMode{Writes: true, Reads: func(context.Context, string, url.Values) (json.RawMessage, error) { return nil, nil }, Refs: &app.Delivery{}},
 	})
 	expect(t, err == nil, "server: %v", err)
@@ -850,7 +898,9 @@ func TestUsageErrorsEmitOneJSONDocument(t *testing.T) {
 // registry), which is the case under test. A mapped command without an entry
 // fails the test, so the table is deny-by-default too.
 var jsonRuns = map[string][]string{
+	"accept":                 {"--dry-run", "does-not-exist"},
 	"ci":                     {"."},
+	"declare":                {"invoices", "--dir", "/nonexistent"},
 	"delivery approve":       {"-n", "prod", "held"},
 	"delivery autonomy":      {},
 	"delivery blame":         {"--stage", "prod"},
@@ -907,6 +957,12 @@ func TestEverySurfaceCommandEmitsOneJSONDocument(t *testing.T) {
 	t.Setenv("KUBECONFIG", filepath.Join(t.TempDir(), "none"))
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	t.Chdir(t.TempDir())
+	kube := noKube(t)
+	t.Cleanup(func() {
+		if *kube != 0 {
+			t.Errorf("the runs built %d kubeconfig clients", *kube)
+		}
+	})
 	root := newRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"}, defaultDeps())
 	for path, cmd := range commandTree(root) {
 		if _, excluded := excludedFromSurfaces[path]; excluded || !cmd.Runnable() {

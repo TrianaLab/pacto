@@ -222,7 +222,7 @@ func TestInferredEdgeStaysOutOfDeclaredReaders(t *testing.T) {
 
 func TestRestrictHidesInferredEdgesOfHiddenServices(t *testing.T) {
 	q := recordFleet(t, validRecordOpts())
-	r := q.Restrict(func(ns string) bool { return ns == "shop" }, nil)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns == "shop" }), anyClusterKind(nil))
 	s := r.SnapshotForSerialization()
 	for _, rel := range s.Relationships {
 		if rel.FromService == rNews || strings.Contains(rel.To, "newsletter") {

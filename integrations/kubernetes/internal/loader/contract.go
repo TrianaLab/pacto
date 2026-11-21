@@ -54,15 +54,34 @@ type Loader struct {
 	tagCacheTTL time.Duration
 }
 
+// Option configures a Loader.
+type Option func(*Loader)
+
+// WithKeychain makes the Loader pull contracts, list tags and resolve
+// configuration refs with kc instead of NewOCIPuller's default chain.
+func WithKeychain(kc authn.Keychain) Option {
+	return func(l *Loader) { l.oci.keychain = kc }
+}
+
+// Keychain is the keychain l pulls with for auth (nil: its own), for a client
+// that reads the same registry with the same credentials.
+func (l *Loader) Keychain(auth *authn.AuthConfig) authn.Keychain {
+	return l.oci.effectiveKeychain(auth)
+}
+
 // New creates a Loader with OCI pulling configured.
-func New() *Loader {
-	return &Loader{
+func New(opts ...Option) *Loader {
+	l := &Loader{
 		oci:         NewOCIPuller(),
 		cache:       make(map[string]cacheEntry),
 		cacheTTL:    30 * time.Second,
 		tagCache:    make(map[string]tagCacheEntry),
 		tagCacheTTL: 5 * time.Minute,
 	}
+	for _, o := range opts {
+		o(l)
+	}
+	return l
 }
 
 // Load resolves a Pacto contract from the given spec.

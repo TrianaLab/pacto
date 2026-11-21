@@ -60,7 +60,7 @@ func TestMCPFleetGetExternal(t *testing.T) {
 // found.
 func TestMCPFleetGetExternalRestricted(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns != "secretns" }, nil), nil
+		return q.Restrict(func(_, ns string) bool { return ns != "secretns" }, nil), nil
 	}
 	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(externalFleet(t)), Opts: FleetOptions{View: view}}})
 	res := callToolOn(t, server, "pacto_fleet_get", map[string]any{"service": "external:stripe"})
@@ -154,7 +154,7 @@ func TestFleetGetExternalInferredSources(t *testing.T) {
 
 func TestFleetGetExternalRestrictedCountsHidden(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns != "secretns" }, nil), nil
+		return q.Restrict(func(_, ns string) bool { return ns != "secretns" }, nil), nil
 	}
 	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(inferredExternalFleet(t)), Opts: FleetOptions{View: view}}})
 	for _, c := range []struct {
@@ -230,4 +230,39 @@ func TestFleetGetExternalRepositorySource(t *testing.T) {
 func sha256Of(s string) []byte {
 	sum := sha256.Sum256([]byte(s))
 	return sum[:]
+}
+
+// TestMCPFleetGetExternalProvider: an agent reads the provider of
+// external:stripe and the pinning consumer's edge as unknown with
+// INFERRED_PROVIDER, and the instructions say why.
+func TestMCPFleetGetExternalProvider(t *testing.T) {
+	const repo = "ghcr.io/acme/pacto-inferred/stripe"
+	pinner := &contract.Contract{PactoVersion: "2.0", Workload: contract.WorkloadService, Service: contract.Service{Name: "checkout", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{{Name: "stripe-pinned", Ref: "oci://" + repo, Compatibility: "^0.0.1"}}}
+	inferred := &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "stripe", Version: "0.0.1", External: "stripe"}}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fixedNow }}, fleet.NewMemorySource("oci", "oci", &fleet.Collection{
+		Revisions: []fleet.RawRevision{
+			{Bundle: &contract.Bundle{Contract: inferred, FS: fstest.MapFS{}}, ResolvedRef: repo + ":0.0.1", Digest: "sha256:s"},
+			{Bundle: &contract.Bundle{Contract: pinner, FS: fstest.MapFS{}}, Digest: "sha256:c"},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	var v fleet.ExternalView
+	decode(t, callHandler(t, fleetGetTool(), fleetGetHandler(q), map[string]any{"service": "external:stripe"}), &v)
+	if p := v.External.Provider; p == nil || p.Repository != repo || p.RangeStatus != fleet.RangeUnknown || p.RangeReason != fleet.RangeReasonInferredProvider {
+		t.Fatalf("provider = %+v", v.External.Provider)
+	}
+	var sv fleet.ServiceView
+	decode(t, callHandler(t, fleetGetTool(), fleetGetHandler(q), map[string]any{"service": "checkout"}), &sv)
+	if len(sv.Dependencies) != 1 || sv.Dependencies[0].RangeStatus != fleet.RangeUnknown || sv.Dependencies[0].RangeReason != fleet.RangeReasonInferredProvider {
+		t.Errorf("edge = %+v", sv.Dependencies)
+	}
+	for _, text := range []string{fleetInstructions, fleetGetTool().Description, fleetVersionsTool().Description} {
+		if !strings.Contains(text, "INFERRED_PROVIDER") {
+			t.Errorf("lacks INFERRED_PROVIDER: %s", text)
+		}
+	}
 }

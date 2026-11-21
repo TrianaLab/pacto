@@ -24,6 +24,8 @@
   import { changeSegments, verdictSegments, confidenceSegments, outcomeSegments } from '../lib/distributions.ts';
   import { OUTCOMES, EFFECTS, EFFECT_META, effectOf } from '../lib/impactFigure.ts';
   import { formatRelative } from '../lib/dateFormat.ts';
+  import ProvenanceMark from '../components/ProvenanceMark.svelte';
+  import { advisoryText, breakText, rangesLine, unknownRanges } from '../lib/acceptance.ts';
 
   // The Change analysis workspace: ONE screen for the two halves of a single question --
   // WHAT CHANGED between two revisions of a service, and WHAT THAT CHANGE AFFECTS in the
@@ -630,6 +632,16 @@
          ranked highlights, so paging the table below never changes it. Its card says what
          changed, who it reaches and what the gate decides; the table stays the full answer. -->
     <ImpactFigure impact={result} autoplay={readerAsked} laneHref={(o) => changesUrl(o)} onlane={showOutcome} />
+    {#if result.ranges || result.notes?.length || result.advisories?.length}
+      <!-- One muted line: the range coverage the answer used, its scope and unknown ranges in the mark, then its notes
+           and a possible break on an inferred interface, with its details in the mark (a mark in the What changed
+           summary would nest a button in a disclosure). -->
+      <div class="ca-ranges t-meta" data-testid="changes-ranges">
+        {#if result.ranges}<p><span>{rangesLine(result.ranges, result.consumers?.hidden ?? 0)}</span> <ProvenanceMark label="About range coverage" text={[`Counted over ${result.ranges.scope}.`, ...unknownRanges(result.ranges)].join(' ')} /></p>{/if}
+        {#each result.notes ?? [] as n, ni (ni)}<p data-testid="changes-note">{n}</p>{/each}
+        {#if result.advisories?.length}<p data-testid="changes-inferred-advisory"><span>Possible break (inferred), advisory: never blocks or clears</span> <ProvenanceMark label="About the possible break (inferred)" text={result.advisories.map(advisoryText).join(' ')} /></p>{/if}
+      </div>
+    {/if}
     {#if planOffers}
       <!-- What the caller may already do about this answer: each button plans, nothing is proposed until the panel's second press. -->
       <div class="ca-plan" data-testid="changes-plan"><StageOffers rows={planOffers.rows} service={planOffers.service} match={planOffers.match} onlyAvailable labelPrefix="Plan" correlation={params.correlationID ?? ''} /></div>
@@ -759,6 +771,7 @@
                         {#if c.uncontracted}<bdi class="cell-clip" title={c.service?.label || c.service?.key}>{c.service?.label || c.service?.key}</bdi><span class="badge badge-neutral">uncontracted</span>
                         {:else}<EntityLink ref={c.service} showStatus={false} />{/if}
                         {#if c.direct}<span class="badge badge-info">Direct</span>{:else}<span class="badge badge-neutral">Transitive · depth {c.depth}</span>{/if}
+                        {#if c.break}<span data-testid="consumer-break"><ProvenanceMark label={`About ${c.break.state} ${c.service?.label || c.service?.key}`} text={breakText(c.break)} /></span>{/if}
                       </div>
                     </td>
                     <td data-label="Path" class="path-cell">
@@ -906,8 +919,13 @@
   .field :global(select) { padding: var(--sp-2) var(--sp-3); min-height: var(--touch-min); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); color: var(--c-text); font: inherit; font-size: var(--text-sm); max-width: 100%; }
   /* Names ellipsize on one line (the whole name is in the link's title) instead of
      breaking mid-word down a narrow column. */
-  .consumer-cell :global(.ei-label) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
-  .consumer-cell :global(.entity-identity) { flex-wrap: nowrap; max-width: 100%; }
+  .consumer-cell :global(.ei-label) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; min-width: 0; max-width: 100%; }
+  /* The context (a registry domain) wraps to a line of its own instead of being
+     squeezed beside a long name. */
+  .consumer-cell :global(.entity-identity) { max-width: 100%; }
+  /* The link holding a name is capped at its cell, so the name ellipsizes inside it
+     instead of running into the next column or out of a card. */
+  .consumer-cell :global(.entity-link), .runs-list :global(.entity-link) { max-width: 100%; }
   .form-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
   .check-field { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--c-text-2); }
   .check-field input:disabled { cursor: not-allowed; }
@@ -916,6 +934,8 @@
   .consumer-note { margin: var(--sp-1) 0 0; font-size: var(--text-xs); }
   .consumer-range { display: block; margin-top: var(--sp-1); overflow-wrap: anywhere; }
   .ca-stack { border-top: 1px solid var(--c-border); }
+  .ca-ranges { margin-block: var(--sp-2); color: var(--c-text-3); min-inline-size: 0; overflow-wrap: anywhere; }
+  .ca-ranges p { margin: 0; display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
   .ca-plan { display: flex; flex-direction: column; gap: var(--sp-2); min-inline-size: 0; margin-block: var(--sp-3); }
   .ca-fold { border-bottom: 1px solid var(--c-border); padding: var(--sp-2) 0; scroll-margin-top: calc(var(--navbar-h) + var(--sp-4)); }
   .ca-fold > summary h2 { margin: 0; }
@@ -943,8 +963,11 @@
      narrower than that, every row becomes a card of labelled values. */
   .ca-consumers { container-name: dtable ca-consumers; }
   @container ca-consumers (min-width: 66rem) {
-    .ca-table { display: grid; grid-template-columns: minmax(18ch, 1.3fr) minmax(14ch, 1fr) minmax(12ch, 0.8fr) minmax(26ch, 2fr) minmax(14ch, 1fr) minmax(12ch, 0.9fr); }
+    /* The Verdict column never narrows below its widest word, a status badge such as
+       "incompatible" in a wide font: a 12ch floor let the badge spill out of its box. */
+    .ca-table { display: grid; grid-template-columns: minmax(18ch, 1.3fr) minmax(14ch, 1fr) minmax(min-content, 0.8fr) minmax(26ch, 2fr) minmax(14ch, 1fr) minmax(12ch, 0.9fr); }
     .ca-table thead, .ca-table tbody, .ca-table tr { display: contents; }
+    .ca-table td { min-width: 0; }
   }
   /* Exclusive of the grid's 66rem, so at exactly that width only one form applies. */
   @container ca-consumers (width < 66rem) {
@@ -958,7 +981,9 @@
   .why-evidence, .why-resources, .runs-list { list-style: none; margin: var(--sp-1) 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); min-width: 0; }
   .why-msg { overflow-wrap: anywhere; }
   .runs-list { margin: 0; }
-  .runs-list :global(.ei-label) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+  .runs-list :global(.ei-label) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; min-width: 0; max-width: 100%; }
+  .runs-list :global(.entity-identity) { max-width: 100%; }
+  .runs-list li { min-width: 0; }
 
   .path-cell { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
   .consumer-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-4); margin: var(--sp-3) 0; }

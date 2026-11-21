@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
+	"regexp"
 	"slices"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -23,6 +26,44 @@ type Fingerprint struct {
 	Label        string `yaml:"label,omitempty"`
 	Annotation   string `yaml:"annotation,omitempty"`
 	CRD          string `yaml:"crd,omitempty"`
+	// Offer, on a promoter only, is the Pacto integration its detected row
+	// offers.
+	Offer *Offer `yaml:"offer,omitempty"`
+}
+
+// Offer is one Pacto integration a detected promoter row offers: a stable
+// id, one sentence "Gate every <thing> with <mechanism>" and an https setup
+// guide.
+type Offer struct {
+	ID   string `yaml:"id" json:"id"`
+	Text string `yaml:"text" json:"text"`
+	Doc  string `yaml:"doc" json:"doc"`
+}
+
+// maxOfferText bounds an offer's sentence.
+const maxOfferText = 160
+
+var offerID = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// validateOffer refuses an offer on a manager, an id that is no DNS label, a
+// sentence that is unprintable, longer than maxOfferText, not "Gate every ..."
+// or ends with a period, and a doc that is no absolute https URL with a host.
+func validateOffer(o *Offer, promoter bool) error {
+	if o == nil {
+		return nil
+	}
+	u, err := url.Parse(o.Doc)
+	switch {
+	case !promoter:
+		return errors.New("offer names a promoter's integration, never a workload manager's")
+	case !offerID.MatchString(o.ID):
+		return fmt.Errorf("offer id %q must be lowercase letters, digits and dashes, at most 63 bytes", sanitize(o.ID))
+	case sanitize(o.Text) != o.Text || len(o.Text) > maxOfferText || !strings.HasPrefix(o.Text, "Gate every ") || strings.HasSuffix(o.Text, "."):
+		return fmt.Errorf("offer %s: text must be printable ASCII of at most %d bytes that starts with \"Gate every \" and ends with no period", o.ID, maxOfferText)
+	case err != nil || sanitize(o.Doc) != o.Doc || u.Scheme != "https" || u.Host == "":
+		return fmt.Errorf("offer %s: doc must be an absolute https URL", o.ID)
+	}
+	return nil
 }
 
 // Fingerprints are an installation's open list of workload managers and
@@ -41,8 +82,8 @@ const maxFingerprintsBytes = 64 << 10
 // ParseFingerprints decodes a Fingerprints file (YAML or JSON) strictly:
 // unknown fields, a second document, more than MaxFingerprints entries, an
 // entry with no product or with other than exactly one matcher, a CRD on a
-// manager, a field manager on a promoter and a value sanitize would change
-// are refused. Empty input is no fingerprint.
+// manager, a field manager on a promoter, a value sanitize would change and
+// an offer validateOffer refuses are refused. Empty input is no fingerprint.
 func ParseFingerprints(r io.Reader) (Fingerprints, error) {
 	var fp Fingerprints
 	data, err := io.ReadAll(io.LimitReader(r, maxFingerprintsBytes+1))
@@ -96,7 +137,7 @@ func (f Fingerprint) check(promoter bool) error {
 	case f.FieldManager != "" && promoter:
 		return fmt.Errorf("product %s: a promoter is named by a crd, label or annotation", f.Product)
 	}
-	return nil
+	return validateOffer(f.Offer, promoter)
 }
 
 // Match reports whether f's field manager, label or annotation is on o and

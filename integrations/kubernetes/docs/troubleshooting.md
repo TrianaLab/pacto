@@ -32,6 +32,10 @@ each one's `reason` is a fixed identifier you can match on:
 | `ReadinessSatisfied` | `True` | `Satisfied` | `score >= minScore`. |
 | `ReadinessSatisfied` | `False` | `BelowMinScore` | The gate is not met. The message breaks the score down by claim status. |
 | `ReadinessSatisfied` | `False` | `Expired` | The assessment is past its `expires:` date, which scores it 0. |
+| `OwnerVerified` | `True` | `OwnerSignerAllowed` | A member of the current owner or a default approver signed the bundle that changes the owner. |
+| `OwnerVerified` | `False` | `OwnerSignerNotPerson` | An agent, CI or workload identity signed the owner change. `status.contract.owner` is left out. |
+| `OwnerVerified` | `False` | `OwnerSignerNotAllowed` | A person outside the owner's members and the default approvers (`declare` chart values) signed it. `status.contract.owner` is left out. |
+| `OwnerVerified` | `Unknown` | `OwnerSignerUnverified` | No signature verified, or the owner policy, the Sigstore root or the previous revision could not be read. `status.contract.owner` is left out until it is judged again. |
 
 Two absences are meaningful:
 
@@ -40,6 +44,9 @@ Two absences are meaningful:
   No observation ran, so none failed.
 - **`ReadinessSatisfied` is missing entirely** when the contract declares no
   `readiness:` block.
+- **`OwnerVerified` is missing entirely** when the bundle keeps the owner of
+  the revision it replaces, is unsigned and carries no declaration, was
+  published by a CI identity the publisher rule accepts, or is inline.
 
 Conditions are sticky: each keeps its `lastTransitionTime` while its status is
 unchanged, and carries the `observedGeneration` it was set from. A condition
@@ -317,13 +324,12 @@ Read what the line ends with:
 | The line says | Why | Fix |
 |---|---|---|
 | `unverified` | The job has no delivery trust config | Set `PACTO_DELIVERY_TRUST` or pass `--delivery-trust` |
-| `signed by <key> (not scoped to this cluster)` | The trust entry has no `streams` naming the cluster's UID, or is a bare PEM | Add `streams: ["<uid>/*/*"]` to the recorder's entry |
-| `stale` | The snapshot is older than 15 minutes | Check the recorder logs for `target snapshot not published`: push credentials for `<registry>/pacto-targets` or a snapshot over 8 MiB |
-| `unavailable, not used` | A pinned tag is missing, or the signature or cluster does not match | Check the recorder runs in that cluster and that the trust entry holds its current public key |
+| `signed by <key> (not scoped to this cluster)` | The trust entry has no `streams` naming the cluster's UID, or is a bare PEM | Add `streams: ["<uid>/pacto-targets/snapshot"]` to the cluster's installation entry |
+| `stale` | The snapshot is older than 15 minutes | Check the operator logs for `target snapshot not published`: push credentials for `<registry>/pacto-targets` or a snapshot over 8 MiB |
+| `unavailable, not used` | A pinned tag is missing, or the signature or cluster does not match | Check the operator runs in that cluster with `registry` set and that the trust entry holds the `public.b64` of its installation key Secret |
 
 A `Registry:` line that says `no pacto-targets` means no cluster published:
-check that the chart's top-level `registry` value is set, or the recorder
-logs `target snapshot off`. See
+check that the chart's top-level `registry` value is set. See
 [Target snapshot](delivery-records.md#target-snapshot).
 
 ## An approval does not count

@@ -50,8 +50,12 @@ describe('Figure teardown', () => {
     const c = mount(ImpactFigure, { target, props: { impact, autoplay: true } });
     for (let i = 0; i < 5; i++) await tick();
     expect(target.querySelector('[data-fig]')?.getAttribute('data-narration')).toBe('playing');
+    const fig = target.querySelector('[data-fig]')!;
     unmount(c);
     await new Promise((r) => setTimeout(r, 0));
+    // A key press that reaches the detached figure skips to the end: its ring must not
+    // reach for the stage it no longer has.
+    fig.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
     window.removeEventListener('error', onErr);
     process.off('unhandledRejection', onRej);
     process.off('uncaughtException', onRej);

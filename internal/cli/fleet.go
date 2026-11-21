@@ -48,6 +48,7 @@ func newFleetCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder)
 	cmd.AddCommand(newFleetNeighborhoodCommand(svc, v))
 	cmd.AddCommand(newFleetVersionsCommand(svc, v))
 	cmd.AddCommand(newFleetOverviewCommand(svc, v))
+	cmd.AddCommand(newFleetPublishInferredCommand(svc, v))
 	return cmd
 }
 
@@ -71,6 +72,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")
 	shared.Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
 	shared.Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
+	shared.StringArray("context", nil, "kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once")
 	shared.String("namespace", "", "namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)")
 	shared.Duration("freshness", fleet.RecentEvidenceWindow, "mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so)")
 	shared.String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused")
@@ -90,7 +92,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 func fleetFlagNames() []string {
 	return []string{
 		"local", "root", "target-state", "evidence-url", "mira-source", "traces", "oci",
-		"cache", "k8s", "namespace", "freshness", "external-catalog", "detected", "fingerprints",
+		"cache", "k8s", "context", "namespace", "freshness", "external-catalog", "detected", "fingerprints",
 		"target-snapshot", "delivery-trust", "index",
 	}
 }
@@ -151,14 +153,16 @@ var fleetDeps = defaultDeps
 // publisherTrust is the fleet provenance checker's reader of the
 // installation's publisher trust config and pins over the ambient cluster,
 // in the namespace --delivery-namespace names (the chart's default when the
-// command has no such flag). nil when there is no cluster config, so a
-// signature is judged against the rule inferred from where it lives.
-func publisherTrust(cmd *cobra.Command, d deps) func(context.Context) (app.Installation, error) {
-	if d.clusterConfig == nil {
-		return nil
-	}
-	if _, err := d.clusterConfig(); err != nil {
-		return nil
+// command has no such flag). detected (--detected) advertises the
+// operator's signer, which never makes a publisher. With no cluster config a
+// signature is judged against the rule inferred from where it lives: nil, or
+// only the signer a --detected file advertises.
+func publisherTrust(cmd *cobra.Command, d deps, detected string) func(context.Context) (app.Installation, error) {
+	if !hasClusterConfig(d) {
+		if detected == "" || strings.HasPrefix(detected, "k8s:") {
+			return nil
+		}
+		return (&app.Delivery{Detected: detected, Now: time.Now}).DetectionTrust
 	}
 	ns, _ := cmd.Flags().GetString("delivery-namespace")
 	ns = cmp.Or(ns, delivery.PolicyNamespace)
@@ -167,9 +171,18 @@ func publisherTrust(cmd *cobra.Command, d deps) func(context.Context) (app.Insta
 		if err != nil {
 			return app.Installation{}, err
 		}
-		c := &app.Delivery{Dynamic: dyn, Records: d.newRecordRepo, Policy: delivery.DefaultClassPolicy(), PolicyNamespace: ns, Now: time.Now}
+		c := &app.Delivery{Dynamic: dyn, Records: d.newRecordRepo, Policy: delivery.DefaultClassPolicy(), PolicyNamespace: ns, Detected: detected, Now: time.Now}
 		return c.InstallationTrust(ctx)
 	}
+}
+
+// hasClusterConfig reports whether d finds an ambient cluster config.
+func hasClusterConfig(d deps) bool {
+	if d.clusterConfig == nil {
+		return false
+	}
+	_, err := d.clusterConfig()
+	return err == nil
 }
 
 func fleetOptions(cmd *cobra.Command) app.FleetOptions {
@@ -191,6 +204,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	// onto the flag, so this one read covers all three.
 	noCache, _ := cmd.Flags().GetBool("no-cache")
 	includeK8s, _ := cmd.Flags().GetBool("k8s")
+	contexts, _ := cmd.Flags().GetStringArray("context")
 	freshness, _ := cmd.Flags().GetDuration("freshness")
 	externalCatalog, _ := cmd.Flags().GetString("external-catalog")
 	detected, _ := cmd.Flags().GetString("detected")
@@ -198,7 +212,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	snapshots, _ := cmd.Flags().GetStringArray("target-snapshot")
 	index, _ := cmd.Flags().GetString("index")
 	prov := app.NewProvenanceChecker()
-	prov.Trust = publisherTrust(cmd, fleetDeps())
+	prov.Trust = publisherTrust(cmd, fleetDeps(), detected)
 	return app.FleetOptions{
 		LocalRoots:         local,
 		CatalogRoots:       roots,
@@ -209,6 +223,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		OCIRefs:            ociRefs,
 		IncludeCache:       includeCache && !noCache,
 		IncludeK8s:         includeK8s,
+		K8sContexts:        contextNames(contexts),
 		K8sNamespaces:      flagNamespaces(cmd),
 		FreshnessWindow:    freshness,
 		ExternalCatalogRef: externalCatalog,
@@ -231,6 +246,18 @@ func targetSnapshotRefs(values []string) []string {
 	var out []string
 	for _, v := range values {
 		if v != "auto" && v != "off" && v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// contextNames is the --context list: trimmed, empty entries and repeated
+// names dropped, order kept.
+func contextNames(values []string) []string {
+	var out []string
+	for _, v := range values {
+		if v = strings.TrimSpace(v); v != "" && !slices.Contains(out, v) {
 			out = append(out, v)
 		}
 	}

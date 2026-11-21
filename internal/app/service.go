@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"io"
@@ -8,9 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
@@ -35,6 +38,11 @@ type Service struct {
 	// (pacto init --external-catalog, PACTO_EXTERNAL_CATALOG). Empty is the
 	// default catalog alone.
 	ExternalCatalogRef string
+	// OwnerPolicyPath is the mounted owner policy a server reads (the
+	// dashboard's PACTO_DASHBOARD_OWNER_POLICY, the HTTP MCP server's
+	// --owner-policy). Empty reads the policy from the signed target
+	// snapshots beside the registry.
+	OwnerPolicyPath string
 
 	// sys holds the side effects the methods reach for; read it through env.
 	sys sysDeps
@@ -45,6 +53,10 @@ type Service struct {
 	// indexListings remembers organization index reads and, with no cache
 	// directory, their entries.
 	indexListings indexMemo
+	// k8sLast remembers, per kubeconfig context, the last cluster identity
+	// and the last collection of each live source read through it, so a
+	// long-running process serves an unreachable cluster stale.
+	k8sLast sync.Map
 }
 
 // sysDeps are the clock, filesystem, entropy and network the Service touches. A
@@ -59,7 +71,11 @@ type sysDeps struct {
 	rand        io.Reader
 	generateDoc func(*contractview.ServiceDetails, *graph.Result) (string, error)
 	marshalLock func(*lock.Lock) ([]byte, error)
-	newK8s      func() (k8sclient.K8sClient, error)
+	// newK8s builds the client of one kubeconfig context, "" the current one.
+	newK8s func(context string) (k8sclient.K8sClient, error)
+	// contextConfig is the config of one kubeconfig context, "" the current
+	// one; its server and CA tell two clusters with one id apart.
+	contextConfig func(context string) (*rest.Config, error)
 	// newDynamic builds the client a k8s: detection ref is read with.
 	newDynamic  func() (dynamic.Interface, error)
 	kubeContext func() string
@@ -82,6 +98,8 @@ type sysDeps struct {
 	refusalRepo func(path string) (*remote.Repository, error)
 	// statsRepo opens the stats repository run records are read from.
 	statsRepo func(path string) (*remote.Repository, error)
+	// login is the person's interactive Sigstore login `pacto declare` signs with.
+	login func(context.Context, declareLogin) (string, error)
 }
 
 // env is sys with every unset field at its production default.
@@ -112,7 +130,10 @@ func (s *Service) env() sysDeps {
 		d.marshalLock = (*lock.Lock).Marshal
 	}
 	if d.newK8s == nil {
-		d.newK8s = k8sclient.NewGoClient
+		d.newK8s = k8sclient.NewGoClientFor
+	}
+	if d.contextConfig == nil {
+		d.contextConfig = k8sclient.ConfigFor
 	}
 	if d.newDynamic == nil {
 		d.newDynamic = k8sclient.NewDynamic
@@ -147,6 +168,9 @@ func publishDefaults(d *sysDeps) {
 	}
 	if d.statsRepo == nil {
 		d.statsRepo = defaultStatsRepo
+	}
+	if d.login == nil {
+		d.login = interactiveLogin
 	}
 }
 

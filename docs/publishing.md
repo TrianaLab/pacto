@@ -1,9 +1,10 @@
 # Publish a version
 
-This page describes how `pacto publish` works. To take a new service to its
+This page describes `pacto publish`. To take a new service to its
 first release, follow [Pactify a service](pactify.md). In CI, publish every
 changed service of a repository with
-[`pacto ci --publish`](publish-from-ci.md), which runs the same engine.
+[`pacto ci --publish`](publish-from-ci.md), which runs the same engine;
+[After a merge: publish](ci.md#after-a-merge-publish) sets it up.
 
 `pacto publish` publishes what a contract's [`publish`](contract-reference/publish.md)
 section declares: the contract bundle, the service's images and the manifests
@@ -186,6 +187,8 @@ publishes through TUF. `publish.sign` only says how publish signs: who may
 publish a service is the installation's decision, checked against a
 publisher rule, a person's pin or a signed policy
 ([which publishers Pacto accepts](integrations/kubernetes/delivery-security.md#which-publishers-pacto-accepts)).
+An operator signature never declares a contract
+([`run.pacto.contract.provenance: inferred`](inferred-contracts.md#the-signer)).
 The repository a keyless CI certificate attests must match the artifact's
 `org.opencontainers.image.source`. The dashboard and `pacto_fleet_get` show whether a
 published version's signature verifies; see [Bundle signatures and
@@ -197,11 +200,12 @@ Every published version also writes one entry to the
 [organization index](impact-consumers.md#consumers-from-the-organization-index),
 `<registry>/pacto-index:<hash>-<version>`. It exposes the service name,
 version, bundle digest, every dependency reference and the publisher it claims.
-An entry is never overwritten. A failed write prints a warning and the publish
+An entry is never overwritten. A failed write warns and the publish
 still succeeds; publishing the current version again writes a missing entry.
-`pacto push` under a tag other than the version writes none. `--index` names
-another `<registry>/pacto-index`, with no tag or digest, and `--index none`
-writes none.
+
+- `--index` names another `<registry>/pacto-index`, with no tag or digest, and
+  `--index none` writes none.
+- `pacto push` under a tag other than the version writes none.
 
 ## In CI and from agents
 
@@ -209,6 +213,64 @@ CI calls [`pacto ci --publish`](publish-from-ci.md) as one step after the
 tests pass, on the merged commit. An agent calls `pacto publish`
 through MCP: `pacto mcp --publish` adds `pacto_publish_plan` and
 `pacto_publish` beside the authoring tools, over stdio only.
+
+- **Carry-forward.** `pacto ci --publish` reads the signed
+  [acceptances](ci.md#accept-proposed-ranges) attached to the version before
+  and re-reads the ones its inferred record cites. It pins each counted range
+  into the published `pacto.yaml`, unless the repository's `pacto.yaml`
+  declares that field, and cites every carried record in
+  [`inputs.acceptances`](contract-reference/inferred-record.md). A record that
+  no longer verifies stops carrying. A plain `pacto publish` carries none.
+
+## Declare a running service
+
+`pacto declare <workload> --registry <registry>` publishes a contract for a
+running workload, without a repository or a build.
+
+- **Source.** It drafts the contract from the cluster with your kubeconfig
+  credentials, as
+  [`pacto init --cluster`](bootstrap-contracts.md#draft-from-a-running-cluster)
+  does, or reads `--dir`, a folder that command wrote.
+- **Plan.** Without `--yes` it prints the plan and writes nothing; the plan
+  ends with its intent digest, and `--intent <digest>` refuses a run whose
+  plan changed since you reviewed it.
+- **Contract only.** The bundle holds `pacto.yaml`, the files it references
+  and `pacto.inferred.yaml`. Nothing is built and no deploy tag is written:
+  the plan reads `deploy: none`, or the deploy artifact of the published
+  baseline, which keeps pointing at the baseline.
+- **Version.** A first declaration is `0.1.0`. With a published baseline the
+  version is the baseline raised by the change, as `pacto ci` derives it, and
+  an unchanged declaration publishes nothing. A baseline below
+  `pactoVersion: "2.5"` is refused until you run `pacto migrate`.
+- **Who signs.** Only your interactive Sigstore login, in a browser or with
+  `--device`, publishes a declared version. A key, an ambient OIDC token such
+  as `SIGSTORE_ID_TOKEN`, a CI token or a workload identity writes the next
+  `draft-<n>` tag instead. The plan warns that a keyless signature records your
+  email in the public Rekor log.
+- **Ranges.** A range the cluster read proposes stays `unknown` until you name
+  its dependency with `--accept`. The record lists each accepted range.
+- **Owner.** Setting, changing or removing `service.owner` takes a person who
+  belongs to the current owner, declared or attested, or a default approver;
+  anyone else is refused before anything is pushed. An owner read from the
+  workload's team label stays inferred. An unsigned version pushed without
+  `pacto declare` keeps its owner: registry write access is the trust
+  boundary for unsigned pushes. See
+  [Who may set a service owner](owner-setting.md).
+- **Drafts.** `pacto declare <workload> --from-draft draft-<n> --yes` accepts a
+  draft an agent or CI wrote: the workload is read again under your
+  credentials, every declared change the read and the baseline do not back is
+  flagged and you sign.
+- **Verify.** `pacto pull --verify-identity <email> --verify-issuer <issuer>`
+  pulls a bundle only when that person signed it; `--verify-key` checks a key
+  instead. The record's `declaration` block is in the
+  [inferred record](contract-reference/inferred-record.md#declaration).
+- **What the fleet shows after you declare.** Once a registry read verifies
+  your signature and the installation signer rule allows you, the fleet
+  shows one service: the inferred service the declaration names is handed
+  over to the declared one, and each field says whether it is declared,
+  accepted by you or inferred. A Pacto target that runs as the workload wins.
+  See
+  [When a declaration replaces an inferred service](operational-graph-inferred.md#when-a-declaration-replaces-an-inferred-service).
 
 ## Hand-off to delivery
 

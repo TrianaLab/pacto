@@ -76,6 +76,23 @@ export function showTick(i: number, n: number, band: number, widestLabel: number
 }
 
 /**
+ * xTicks places every band label of n: its centre clamped into [widest/2, W - widest/2]
+ * so the first and last never spill out of the chart, and whether it shows. Clamping
+ * pulls an end label toward its neighbour, so a label showTick keeps is still dropped
+ * when its CLAMPED box would come within 8px of the next shown one.
+ */
+export function xTicks(n: number, band: number, widestLabel: number, W: number, center: (i: number) => number): { left: number; on: boolean }[] {
+  const out = Array.from({ length: n }, (_, i) => ({ left: Math.min(Math.max(center(i), widestLabel / 2), W - widestLabel / 2), on: false }));
+  let next = Infinity;
+  for (let i = n - 1; i >= 0; i--) {
+    if (!showTick(i, n, band, widestLabel) || next - out[i].left < widestLabel + 8) continue;
+    out[i].on = true;
+    next = out[i].left;
+  }
+  return out;
+}
+
+/**
  * directLabelIndexes picks the values worth a direct label: the peak and the last known
  * value, never every mark. The peak goes when it is the last, sits next to it or its
  * label box would come within 8px of the last one's.

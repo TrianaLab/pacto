@@ -896,7 +896,7 @@ func TestCancellationIsPartialKnowledge(t *testing.T) {
 
 func TestEmptyReferenceIsRejectedWithoutCallingTheResolver(t *testing.T) {
 	root := at("root", "er")
-	f := newFake().ok("reg/root:1", rev(root, ct("root", "1.0.0", dep("blank", ""))))
+	f := newFake().ok("reg/root:1", rev(root, ct("root", "1.0.0", dep("", "")))) // a nameless dependency by name names nothing
 
 	c := build(t, f, Bounds{}, "reg/root:1")
 

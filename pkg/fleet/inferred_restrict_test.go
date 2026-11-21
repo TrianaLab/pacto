@@ -85,13 +85,13 @@ func answersOf(t *testing.T, q *Query) string {
 }
 
 func TestNamespacesIncludeInferred(t *testing.T) {
-	if got := inferredRestrictFleet(t).Namespaces(); !slices.Contains(got, "ops") || !slices.Contains(got, "shop") {
+	if got := namespaceNames(inferredRestrictFleet(t).Namespaces()); !slices.Contains(got, "ops") || !slices.Contains(got, "shop") {
 		t.Errorf("namespaces %v miss an inferred namespace", got)
 	}
 }
 
 func TestInferredWorkloadScopes(t *testing.T) {
-	want := []WorkloadScope{{"ops", "DaemonSet"}, {"shop", "CronJob"}, {"shop", "Deployment"}, {"shop", "StatefulSet"}}
+	want := []WorkloadScope{{Namespace: "ops", Kind: "DaemonSet"}, {Namespace: "shop", Kind: "CronJob"}, {Namespace: "shop", Kind: "Deployment"}, {Namespace: "shop", Kind: "StatefulSet"}}
 	if got := inferredRestrictFleet(t).InferredWorkloadScopes(); !slices.Equal(got, want) {
 		t.Errorf("scopes %v, want %v", got, want)
 	}
@@ -101,7 +101,7 @@ func TestInferredWorkloadScopes(t *testing.T) {
 }
 
 func TestRestrictHidesInferredByNamespace(t *testing.T) {
-	r := inferredRestrictFleet(t).Restrict(func(ns string) bool { return ns != "ops" }, everyWorkload)
+	r := inferredRestrictFleet(t).Restrict(anyCluster(func(ns string) bool { return ns != "ops" }), anyClusterKind(everyWorkload))
 	got := serviceNames(r)
 	if slices.Contains(got, agentName) || !slices.Contains(got, cartName) || !slices.Contains(got, nightlyName) {
 		t.Errorf("services %v", got)
@@ -116,7 +116,7 @@ func TestRestrictNeverNamesHiddenInferred(t *testing.T) {
 	if !strings.Contains(answersOf(t, q), "agent") {
 		t.Fatal("the unrestricted answers never name agent: the test proves nothing")
 	}
-	r := q.Restrict(func(ns string) bool { return ns != "ops" }, everyWorkload)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "ops" }), anyClusterKind(everyWorkload))
 	if a := answersOf(t, r); strings.Contains(a, "agent") || strings.Contains(a, string(NewServiceKey(agentName))) {
 		t.Errorf("a restricted answer names the hidden agent: %s", a)
 	}
@@ -129,7 +129,7 @@ func TestRestrictNeverNamesHiddenInferred(t *testing.T) {
 }
 
 func TestRestrictInferredCallerCountsHiddenDependents(t *testing.T) {
-	r := inferredRestrictFleet(t).Restrict(everyNamespace, func(_, kind string) bool { return kind != "Deployment" })
+	r := inferredRestrictFleet(t).Restrict(anyCluster(everyNamespace), anyClusterKind(func(_, kind string) bool { return kind != "Deployment" }))
 	s := r.SnapshotForSerialization()
 	if web := s.Services[NewServiceKey("web")]; web.HiddenDependents != 1 {
 		t.Errorf("web counts %d hidden dependents, want cart's one", web.HiddenDependents)
@@ -142,7 +142,7 @@ func TestRestrictInferredCallerCountsHiddenDependents(t *testing.T) {
 }
 
 func TestRestrictInferredCountsHiddenCallee(t *testing.T) {
-	r := inferredRestrictFleet(t).Restrict(func(ns string) bool { return ns != "secret" }, everyWorkload)
+	r := inferredRestrictFleet(t).Restrict(anyCluster(func(ns string) bool { return ns != "secret" }), anyClusterKind(everyWorkload))
 	s := r.SnapshotForSerialization()
 	ledger := s.Services[NewServiceKey(ledgerShop)]
 	if ledger == nil || ledger.HiddenDependencies != 1 {
@@ -159,7 +159,7 @@ func TestRestrictInferredCountsHiddenCallee(t *testing.T) {
 }
 
 func TestRestrictInferredKeepsStatusEmpty(t *testing.T) {
-	r := inferredRestrictFleet(t).Restrict(func(ns string) bool { return ns != "secret" }, everyWorkload)
+	r := inferredRestrictFleet(t).Restrict(anyCluster(func(ns string) bool { return ns != "secret" }), anyClusterKind(everyWorkload))
 	for _, s := range r.SnapshotForSerialization().Services {
 		if s.Inferred() && (s.Status != "" || !s.BusinessDomainUnknown || !s.SummaryUnknown) {
 			t.Errorf("%s: status %q domain unknown %v summary unknown %v", s.Name, s.Status, s.BusinessDomainUnknown, s.SummaryUnknown)
@@ -172,14 +172,14 @@ func TestRestrictRecountsInferredCount(t *testing.T) {
 	if n := sourceState(t, q.SnapshotForSerialization(), "k8s-workloads").InferredCount; n != 4 {
 		t.Fatalf("unrestricted count %d", n)
 	}
-	r := q.Restrict(func(ns string) bool { return ns != "ops" }, everyWorkload)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "ops" }), anyClusterKind(everyWorkload))
 	if n := sourceState(t, r.SnapshotForSerialization(), "k8s-workloads").InferredCount; n != 3 {
 		t.Errorf("restricted count %d, want 3", n)
 	}
 }
 
 func TestRestrictInferredNeedsWorkloadRead(t *testing.T) {
-	r := inferredRestrictFleet(t).Restrict(everyNamespace, func(ns, kind string) bool { return ns != "shop" || kind != "Deployment" })
+	r := inferredRestrictFleet(t).Restrict(anyCluster(everyNamespace), anyClusterKind(func(ns, kind string) bool { return ns != "shop" || kind != "Deployment" }))
 	got := serviceNames(r)
 	if slices.Contains(got, cartName) || !slices.Contains(got, nightlyName) || !slices.Contains(got, "web") {
 		t.Errorf("services %v", got)
@@ -194,7 +194,7 @@ func TestRestrictInferredNeedsWorkloadRead(t *testing.T) {
 
 func TestRestrictNilWorkloadVisibleHidesInferred(t *testing.T) {
 	q := inferredRestrictFleet(t)
-	r := q.Restrict(everyNamespace, nil)
+	r := q.Restrict(anyCluster(everyNamespace), anyClusterKind(nil))
 	if r == q {
 		t.Fatal("a nil workload predicate returned the whole view")
 	}
@@ -203,7 +203,7 @@ func TestRestrictNilWorkloadVisibleHidesInferred(t *testing.T) {
 			t.Errorf("%s shows with no workload predicate", s.Name)
 		}
 	}
-	if q := restrictFleet(t); q.Restrict(everyNamespace, nil) != q {
+	if q := restrictFleet(t); q.Restrict(anyCluster(everyNamespace), anyClusterKind(nil)) != q {
 		t.Error("a nil workload predicate restricted a fleet with no inferred service")
 	}
 }
@@ -219,7 +219,7 @@ func TestRestrictKeepsInferredStateUnderSubstringNames(t *testing.T) {
 	if ov := q.Overview().Summary; ov.InferredServices != 2 || ov.InferredUnverified != 2 {
 		t.Fatalf("full view %+v", ov)
 	}
-	r := q.Restrict(func(ns string) bool { return ns != "" && ns != "payments" }, everyWorkload)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "" && ns != "payments" }), anyClusterKind(everyWorkload))
 	if ov := r.Overview().Summary; ov.InferredServices != 1 || ov.InferredUnverified != 1 {
 		t.Errorf("restricted view %+v", ov)
 	}
@@ -255,7 +255,7 @@ func TestConsumerCompletenessIgnoresOnlyWorkloadSources(t *testing.T) {
 	if snap.Completeness != CompletenessPartial || snap.ConsumerCompleteness() != CompletenessComplete {
 		t.Errorf("snapshot %s consumers %s", snap.Completeness, snap.ConsumerCompleteness())
 	}
-	r := NewQuery(snap).Restrict(func(ns string) bool { return ns != "shop" }, everyWorkload).SnapshotForSerialization()
+	r := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns != "shop" }), anyClusterKind(everyWorkload)).SnapshotForSerialization()
 	if r.ConsumerCompleteness() != CompletenessPartial {
 		t.Error("a restricted view reads complete")
 	}
@@ -269,7 +269,7 @@ func TestConsumerCompletenessIgnoresOnlyWorkloadSources(t *testing.T) {
 // A visible inferred service's call to a hidden service was seen, so its
 // detail counts it and never reads "none seen".
 func TestRestrictInferredDetailCountsHiddenCalls(t *testing.T) {
-	r := inferredRestrictFleet(t).Restrict(func(ns string) bool { return ns != "secret" }, everyWorkload)
+	r := inferredRestrictFleet(t).Restrict(anyCluster(func(ns string) bool { return ns != "secret" }), anyClusterKind(everyWorkload))
 	d, err := r.EntityDetail(KindService, string(NewServiceKey(ledgerShop)))
 	if err != nil {
 		t.Fatal(err)
@@ -285,11 +285,11 @@ func TestRestrictInferredDetailCountsHiddenCalls(t *testing.T) {
 
 func TestRestrictSaysWhyInferredIsHidden(t *testing.T) {
 	q := inferredRestrictFleet(t)
-	byKind := q.Restrict(everyNamespace, func(_, kind string) bool { return kind != "Deployment" }).SnapshotForSerialization()
+	byKind := q.Restrict(anyCluster(everyNamespace), anyClusterKind(func(_, kind string) bool { return kind != "Deployment" })).SnapshotForSerialization()
 	if !limitationMentions(byKind, LimitationHiddenByPermissions, "may not list their workload kind") {
 		t.Errorf("no workload-kind reason: %+v", limitationsWith(byKind, LimitationHiddenByPermissions))
 	}
-	byNS := q.Restrict(func(ns string) bool { return ns != "ops" }, everyWorkload).SnapshotForSerialization()
+	byNS := q.Restrict(anyCluster(func(ns string) bool { return ns != "ops" }), anyClusterKind(everyWorkload)).SnapshotForSerialization()
 	if limitationMentions(byNS, LimitationHiddenByPermissions, "workload kind") {
 		t.Error("a namespace-hidden inferred service blames its workload kind")
 	}

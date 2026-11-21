@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -53,9 +54,34 @@ type ImpactOptions struct {
 	// OnResolved is called by [Service.Impact] once both revisions resolve;
 	// nil does nothing. The snapshot paths never call it.
 	OnResolved func(old, new *contract.Bundle)
+	// Acceptances reads the acceptances attached to the consumers a break
+	// in the new revision names, and to the direct consumers whose range is
+	// unknown, with this process's registry credentials:
+	// the CLI, a stdio MCP server and pacto ci set it, the dashboard and an
+	// HTTP MCP server never do.
+	Acceptances bool
+	// Signers verifies acceptances in place of the installation signer
+	// policy the fleet's provenance checker reads; nil reads that.
+	Signers *delivery.ClassPolicy
+	// Getenv reads SOURCE_DATE_EPOCH for the default expiry of an undated
+	// break in a checkout; nil reads none.
+	Getenv func(string) string
+	// Policy is the range policy a BREAKING answer is held to (--policy).
+	Policy impact.Policy
+	// RunningRegistries are extra registry hosts [Service.ImpactRunning]
+	// may pull running revisions from, beyond the hosts of the target
+	// snapshots and of an oci:// NewPath.
+	RunningRegistries []string
 	// unpublished are the services pacto ci reads from repository folders
 	// never published: no index can hold them, so none is reported missing.
 	unpublished map[fleet.ServiceKey]bool
+	// firstVersion, unreadBaselines, running, notInFleet and newRevisionRuns are impact's
+	// Options of the same names; only [Service.ImpactRunning] sets them.
+	firstVersion    bool
+	unreadBaselines []string
+	running         bool
+	notInFleet      bool
+	newRevisionRuns bool
 }
 
 // Impact builds a fleet snapshot from the configured sources and analyzes the
@@ -146,10 +172,29 @@ func (s *Service) ImpactOnSnapshot(ctx context.Context, opts ImpactOptions, snap
 }
 
 // impactOnResolved is [Service.ImpactOnSnapshot] with the revisions resolved.
-// With addMissing and no index source from the caller, it adds the
-// organization index (Decision 12): one rebuild carries the index and, when
-// no source holds the changed service, the new revision.
 func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, addMissing bool, oldBundle, newBundle *contract.Bundle) (*impact.Result, error) {
+	p, err := s.prepareImpact(ctx, opts, snap, addMissing, newBundle)
+	if err != nil {
+		return nil, err
+	}
+	return s.analyzePrepared(ctx, p, oldBundle, newBundle)
+}
+
+// preparedImpact is the snapshot a change is analysed over, with the options
+// and index answer that built it.
+type preparedImpact struct {
+	opts    ImpactOptions
+	snap    *fleet.FleetSnapshot
+	skipped impact.ConsumerIndex
+	added   bool
+}
+
+// prepareImpact settles the changed service's domain and, with addMissing
+// and no index source from the caller, adds the organization index
+// (Decision 12): one rebuild carries the index and, when no source holds the
+// changed service, the new revision. It reads opts.OldPath only through its
+// repository, so revisions of one repository share the answer.
+func (s *Service) prepareImpact(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, addMissing bool, newBundle *contract.Bundle) (preparedImpact, error) {
 	var skipped impact.ConsumerIndex
 	created := false
 	if opts.Fleet.indexSrc == nil && addMissing {
@@ -168,22 +213,29 @@ func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap
 		skipped = impact.ConsumerIndex{Status: impact.IndexSkipped, Completeness: fleet.CompletenessEmpty,
 			Reason: "a local source holds " + name + ", so its local consumers are read; the index names consumers of " + src.provider.Repo}
 	}
-	added := addMissing && snap.Services[fleet.NewServiceKeyDomain(domain, name)] == nil
+	// An inferred contract is never a fleet service, so it is never added as one.
+	_, inferred := contract.InferredRef(opts.NewPath)
+	added := addMissing && !inferred && snap.Services[fleet.NewServiceKeyDomain(domain, name)] == nil
 	if added || created || dropped {
 		var err error
 		if snap, err = s.Fleet(ctx, withNewRevision(opts, newBundle, added)); err != nil {
-			return nil, fmt.Errorf("build fleet snapshot: %w", err)
+			return preparedImpact{}, fmt.Errorf("build fleet snapshot: %w", err)
 		}
 	}
-	ix, indexed := opts.Fleet.indexSrc.result(skipped)
-	if listed := indexed; listed != nil && len(opts.unpublished) > 0 {
-		indexed = func(k fleet.ServiceKey) bool { return listed(k) || opts.unpublished[k] }
+	return preparedImpact{opts: opts, snap: snap, skipped: skipped, added: added}, nil
+}
+
+// analyzePrepared analyses the change over p.
+func (s *Service) analyzePrepared(ctx context.Context, p preparedImpact, oldBundle, newBundle *contract.Bundle) (*impact.Result, error) {
+	ix, indexed := p.opts.Fleet.indexSrc.result(p.skipped)
+	if listed := indexed; listed != nil && len(p.opts.unpublished) > 0 {
+		indexed = func(k fleet.ServiceKey) bool { return listed(k) || p.opts.unpublished[k] }
 	}
-	res, err := s.analyzeImpact(ctx, opts, snap, oldBundle, newBundle, ix, indexed)
+	res, err := s.analyzeImpact(ctx, p.opts, p.snap, oldBundle, newBundle, ix, indexed)
 	if err != nil {
 		return nil, err
 	}
-	res.NewRevisionAdded = added
+	res.NewRevisionAdded = p.added
 	return res, nil
 }
 
@@ -267,6 +319,14 @@ func (s *Service) resolveImpactPair(ctx context.Context, opts ImpactOptions) (ol
 	if oldBundle, err = s.resolveBundleWithOverrides(ctx, opts.OldPath, opts.OldOverrides); err != nil {
 		return nil, nil, fmt.Errorf("old revision: %w", err)
 	}
+	if newBundle, err = s.resolveNewRevision(ctx, opts); err != nil {
+		return nil, nil, err
+	}
+	return oldBundle, newBundle, nil
+}
+
+// resolveNewRevision resolves opts.NewPath with opts.NewOverrides.
+func (s *Service) resolveNewRevision(ctx context.Context, opts ImpactOptions) (newBundle *contract.Bundle, err error) {
 	logging.LoggerFromContext(ctx).Debug("resolving new revision", "path", opts.NewPath)
 	if opts.NewDirName != "" && !graph.ParseDependencyRef(opts.NewPath).IsOCI() {
 		var cat *externalcatalog.Catalog
@@ -278,9 +338,9 @@ func (s *Service) resolveImpactPair(ctx context.Context, opts ImpactOptions) (ol
 		newBundle, err = s.resolveBundleWithOverrides(ctx, opts.NewPath, opts.NewOverrides)
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("new revision: %w", err)
+		return nil, fmt.Errorf("new revision: %w", err)
 	}
-	return oldBundle, newBundle, nil
+	return newBundle, nil
 }
 
 func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, oldBundle, newBundle *contract.Bundle, ix *impact.ConsumerIndex, indexed func(fleet.ServiceKey) bool) (*impact.Result, error) {
@@ -291,6 +351,7 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 	if err != nil {
 		return nil, fmt.Errorf("parse traces: %w", err)
 	}
+	breaks := s.breakInput(ctx, opts, newBundle, snap)
 	res := impact.Analyze(ctx, oldBundle.Contract, newBundle.Contract, oldBundle.FS, newBundle.FS, snap,
 		impact.Options{
 			// Domain-qualify the changed service from its new reference so impact is
@@ -299,11 +360,54 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 			IncludeObserved:  opts.IncludeObserved,
 			ObservedEdges:    observed,
 			NameInferredFrom: nameInferredFrom(oldBundle, newBundle),
+			InferredProvider: inferredProvider(snap, opts.NewPath, fleet.NewServiceKeyDomain(opts.Domain, newBundle.Contract.Service.Name), newBundle.Contract.Service.Version),
 			Index:            ix,
 			Indexed:          indexed,
+			Breaks:           breaks,
+			Acceptances:      s.impactAcceptances(ctx, opts, snap, breaks),
+			Policy:           opts.Policy,
+			FirstVersion:     opts.firstVersion,
+			UnreadBaselines:  opts.unreadBaselines,
+			Running:          opts.running,
+			NotInFleet:       opts.notInFleet,
+			NewRevisionRuns:  opts.newRevisionRuns,
 		})
 	res.TargetSnapshots = targetSnapshotStates(snap)
+	notePublicGood(opts, res)
 	return res, nil
+}
+
+// notePublicGood says when res counts a signed acceptance (a break a person
+// accepted, or a range an acceptance made known) judged with public-good
+// issuers because no installation signer policy was read.
+func notePublicGood(opts ImpactOptions, res *impact.Result) {
+	counted := res.Ranges != nil && res.Ranges.Accepted > 0 ||
+		slices.ContainsFunc(res.Consumers, func(c impact.AffectedConsumer) bool { return c.Break != nil && c.Break.By != "" })
+	if opts.Acceptances && impactTrust(opts) == nil && counted {
+		res.Notes = append(res.Notes, publicGoodNote)
+	}
+}
+
+// inferredProvider is impact's Options.InferredProvider for a new revision
+// read from newPath as version of the service key: the external identity
+// when newPath is under pacto-inferred (the location only, so a
+// claimed contract that keeps service.external or a surface elsewhere is
+// judged), else key's name when only this installation's operator signed that
+// revision in snap, else "".
+func inferredProvider(snap *fleet.FleetSnapshot, newPath string, key fleet.ServiceKey, version string) string {
+	if id, ok := contract.InferredRef(newPath); ok {
+		return id
+	}
+	s := snap.Services[key]
+	if s == nil {
+		return ""
+	}
+	for _, rk := range s.Revisions {
+		if r := snap.Revisions[rk]; r != nil && r.Version == version && r.Provenance != nil && r.Provenance.Signature.Source == fleet.SignatureSourceOperator {
+			return s.Name
+		}
+	}
+	return ""
 }
 
 // nameInferredFrom is where the new, else the old, revision's service.name

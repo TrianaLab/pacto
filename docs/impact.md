@@ -147,11 +147,19 @@ The CLI exits on it, and the MCP tool returns it:
 
 | `gate` | Exit | When |
 |--------|------|------|
-| `blocked` | `1` | The change is `BREAKING` and reaches a consumer that does not accept the new version, or has an `unmet` guarantee, and is *active*. Or a policy referrer that fails the new policy is active, whatever the classification. |
+| `blocked` | `1` | The change is `BREAKING` and reaches a consumer that does not accept the new version, or has an `unmet` guarantee, and is *active*. Or a policy referrer that fails the new policy is active, whatever the classification. Or a [`--policy`](ci.md#accept-proposed-ranges) set to `fail` meets an unknown range or an uncontracted caller. |
 | `unverified` | `2` | Nothing is shown to block the change, but the answer cannot clear it: a `BREAKING` change whose answer is partial or whose consumers none is shown to be safe, or a policy referrer that fails the new policy and runs nowhere known, could not be checked or could not be resolved. |
-| `clear` | `0` | The change is not `BREAKING` and every policy referrer was checked and passes the new policy, or the snapshot is complete and no service depends on the changed one. |
+| `clear` | `0` | The change is not `BREAKING` and every policy referrer was checked and passes the new policy, or the snapshot is complete and no service depends on the changed one, or every consumer [accepted the announced break](impact-consumers.md#announced-breaks) (`BREAKING_ACCEPTED`). |
 
 A command that could not run also exits `1`, with nothing on stdout.
+
+The answer also carries:
+
+- `ranges`: the [range coverage](impact-consumers.md#range-coverage) of the
+  changed service's consumers
+- each announced consumer's `break` state
+- an [advisory](impact-consumers.md#a-possible-break-on-an-inferred-interface)
+  when a changed spec is only inferred
 
 **Active means the snapshot knows of somewhere that consumer is deployed**: at
 least one operational target. Compatibility is a statement about contracts;
@@ -168,6 +176,7 @@ Impact: api 1.0.0 -> 2.0.0
 Classification: BREAKING
 Breaking changes: 2
 Potentially breaking changes: 0
+Ranges: 1 declared and 0 accepted of 1 dependency edges (100%)
 Affected consumers (1):
   web                          direct     confidence=contractual  compat=incompatible owner=frontend
     path: web > api  provenance: declared  via: dependency
@@ -188,6 +197,7 @@ Impact: api 1.0.0 -> 2.0.0
 Classification: BREAKING
 Breaking changes: 2
 Potentially breaking changes: 0
+Ranges: 1 declared and 0 accepted of 1 dependency edges (100%)
 Affected consumers (1):
   web                          direct     confidence=contractual  compat=incompatible owner=frontend
     path: web > api  provenance: declared  via: dependency
@@ -215,6 +225,40 @@ before reading any other field.
 pull-request step that gates on the JSON. The file `--target-state` expects is
 documented under
 [target-state fixtures](operational-graph-reference.md#what-a-target-state-fixture-looks-like).
+
+### Against what runs
+
+`pacto impact --running <new>` judges `<new>` against every running revision
+of its service, keeping the worst gate, as the
+[Argo CD plugin](integrations/kubernetes/gitops.md#gate-every-argo-cd-sync) does:
+
+```bash
+pacto impact --running . \
+  --target-snapshot oci://ghcr.io/acme/pacto-targets:cluster-<uid> \
+  --delivery-trust trust.yaml
+```
+
+- **Domain.** A local `<new>` takes the fleet domain holding its service name;
+  several exit `1` (judge the `oci://` reference instead), none is
+  `unverified` with `SERVICE_NOT_IN_FLEET`.
+- **Ranges.** A running consumer whose range rejects `<new>` blocks, whatever
+  the classification. A partial answer never clears.
+- **First version.** With nothing running, a consumer range that rejects
+  `<new>` blocks; a complete answer clears.
+- **Unread.** A revision Pacto could not link, pull or trust, a tag-only link,
+  an inferred workload or an unreadable workload source makes the answer
+  `unverified` at best. A failed pull names only the ref: a registry error can
+  carry credentials.
+- **Hosts.** Revisions are pulled only from the snapshot hosts, an `oci://`
+  `<new>` and `PACTO_RUNNING_REGISTRIES` (or `running-registries` in the
+  config file).
+- **Itself.** A target already running the digest of an `oci://` `<new>` is
+  never its baseline, so a post-deploy gate, such as a
+  [Kargo verification](integrations/kubernetes/gitops-kargo.md#kargo), passes
+  `oci://<repo>@<digest>`.
+- **Bounds.** At most 8 running revisions are judged and 32 unread lines are
+  listed; the last line counts the rest, and the answer never clears over them.
+- **Output.** `running` lists the revisions that run and those Pacto could not read.
 
 ## The MCP tool and the dashboard
 

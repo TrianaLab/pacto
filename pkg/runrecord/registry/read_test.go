@@ -34,7 +34,7 @@ func serveWith(t *testing.T, opts testutil.ReferrersOptions, wrap func(http.Hand
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
-	repo, err := Open(host+"/acme/pacto-stats", nil, []string{host})
+	repo, err := Open(host+"/acme/pacto-stats", nil, []string{host}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func attach(t *testing.T, repo *remote.Repository, service string, layers ...[]b
 func fresh(t *testing.T, repo *remote.Repository) *remote.Repository {
 	t.Helper()
 	host := repo.Reference.Registry
-	r, err := Open(host+"/"+repo.Reference.Repository, nil, []string{host})
+	r, err := Open(host+"/"+repo.Reference.Repository, nil, []string{host}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -72,9 +72,10 @@ findings:                      # what Pacto recognized and could not read
   no version. An image passed on the command line cites `flag:--image`.
 - `class: ownerFile` marks a `service.owner` read from CODEOWNERS or
   `catalog-info.yaml`, the only value and the only field it goes on.
-  `pacto init` shows it as "attested". The marker only names the file: an
-  owner it marks is inferred, unverified, never routes a decision and never
-  clears a gate.
+  `pacto init` shows it as "attested". The marker alone raises no trust: the
+  owner stays inferred unless a CI identity the publisher rule accepts signed
+  the bundle at the commit `inputs.commit` names, which makes it
+  [attested](../owner-setting.md#attested-owners). Neither ever clears a gate.
 - `outranks` lists, sorted, the other sources that gave the same field. The
   ranks are in
   [What Pacto reads from your folder](../pactify.md#what-pacto-reads-from-your-folder).
@@ -84,6 +85,11 @@ findings:                      # what Pacto recognized and could not read
   100 are kept; `findingsDropped` counts the rest.
 - `inputs.chartDependencies` lists each chart dependency `Chart.lock` pins,
   with the repository URL stripped of credentials. Pacto never downloads one.
+- `inputs.acceptances` lists each signed acceptance `pacto ci --publish`
+  carried from the previous version: the record as `<repository>@sha256:<hex>`,
+  its signer and the fields it pinned into the published `pacto.yaml` (or the
+  break it accepts). The next run reads them again and drops one that no longer
+  verifies.
 - `confidence` is `likely` (read from a file in the repository) or `possible`.
 - `declare` is the YAML to add to `pacto.yaml`. For a configuration key it is
   the property to add to the configuration's JSON Schema.
@@ -250,9 +256,78 @@ hidden: {services: 1, callers: 2}
   `no running pods observed` when no pod of the workload ran on a node.
 - `hidden` counts the Services the workload called and the callers of its own
   Services that a read on behalf of a viewer drops. It never names them.
-- Bundle verification refuses these keys until a signed declaration carries
-  them: a bundle whose record holds a cluster source, `inputs.cluster`,
-  `coverage` or `hidden` is `INFERRED_RECORD_INVALID`.
+- Bundle verification accepts these keys only beside a
+  [`declaration`](#declaration): a bundle whose record holds a cluster source,
+  `inputs.cluster`, `coverage` or `hidden` without one is
+  `INFERRED_RECORD_INVALID`.
+
+### Declaration
+
+[`pacto declare`](../publishing.md#declare-a-running-service) adds a
+`declaration` block after `fields`. It says who declared the service, which
+workload it came from and which proposed ranges the signer accepted.
+
+```yaml
+declaration:
+  state: declared
+  asker: {subject: ana@acme.com, issuer: https://accounts.google.com, class: human}
+  inferredFrom: k8s:billing/Deployment/invoices
+  cluster: 3f1c0b6e-...
+  baseline:
+    version: 1.4.0
+    bundle: ghcr.io/acme/invoices@sha256:...
+    deploy: ghcr.io/acme/invoices-deploy@sha256:...
+  accepted:
+    - {field: dependencies[ledger].compatibility, range: ^2.3.0}
+  draft: {tag: draft-3, digest: sha256:..., asker: {subject: "", issuer: none, class: agent}, onBehalfOf: ana}
+```
+
+| Key | Meaning |
+|---|---|
+| `state` | `declared`, signed through a person's Sigstore login, or `draft`, written by anyone else |
+| `asker` | The identity that signed: `subject`, `issuer` and `class` (`human`, `agent` or `ci`). A declared record needs `human`, a draft never has it. An unsigned draft has exactly `{subject: "", issuer: none, class: agent}`, a draft signed with a key `{subject: "", issuer: key, class: agent}`, and a draft whose token names no readable identity has issuer `unknown` |
+| `onBehalfOf` | On a draft only: the person an agent asserts it acts for, never verified |
+| `inferredFrom` | The inferred service it came from, `k8s:<namespace>/<Kind>/<name>` |
+| `cluster` | The uid of the cluster's `kube-system` namespace, left out when it could not be read |
+| `baseline` | The published version it starts from, its bundle and its deploy artifact, each pinned by digest |
+| `accepted` | On a declared record only: each proposed range the signer accepted, which `pacto.yaml` declares |
+| `requested` | On a draft only: each proposed range the agent asks a person to accept |
+| `draft` | On a declared record that accepted a draft: the draft's tag, digest, signer and `onBehalfOf` |
+
+- Validation checks the block against `pacto.yaml`: each accepted or
+  requested range is the declared `compatibility`
+  (`DECLARATION_ACCEPTED_MISMATCH`), and each other proposed range stays
+  `unknown` (`DECLARATION_RANGE_NOT_ACCEPTED`). A draft's `pacto.yaml`
+  declares the ranges it requests; accepting it sets them back to `unknown`
+  unless the person accepts them again.
+- A reader shows the cluster facts of a declared record only when the bundle
+  carries a signature it verified naming exactly `asker` and its installation
+  signer policy allows that person. Otherwise the cluster facts, `coverage`
+  and `hidden` are dropped with `DECLARATION_SIGNER_UNVERIFIED` or
+  `DECLARATION_SIGNER_NOT_ALLOWED`, and the answer is `partial`.
+- A draft is never a version: the fleet leaves it out with
+  `DECLARATION_DRAFT_IGNORED`.
+
+### Surface
+
+The inferred contract of an [external system](../inferred-contracts.md) holds
+a `surface` block: the hosts, ports and client majors the
+fleet sees of it. [The bundle](../inferred-contracts.md#the-bundle) shows an
+example.
+
+| Key | Meaning |
+|---|---|
+| `identity` | The external identity; it equals the contract's `service.external` (`INFERRED_RECORD_INVALID` otherwise) |
+| `class` | The external class, required |
+| `asOf`, `completeness` | When the surface was computed and whether the fleet snapshot was complete |
+| `catalog` | The catalog entry that classified it: `origin`, `digest` and `entry`, all required when present |
+| `hosts`, `ports`, `clients` | Each value once, with the `sources` that saw it, the catalog digest and `firstSeen` and `lastSeen`, both set or both left out |
+
+- A client is `<name>/<major>`, such as `stripe-go/76` or
+  `npm:@stripe/stripe-js/4`: up to 500 letters, digits and `@._~:/-`, then a
+  major of up to 9 digits.
+- A source is 1 to 253 characters with no whitespace or control character.
+- A value listed twice is `INFERRED_RECORD_INVALID`.
 
 ## When Pacto writes it
 
@@ -305,7 +380,9 @@ built from that commit.
   `clear`. Dependents and the dashboard's expected dependencies list declared
   ones only.
 - The dashboard shows inferred values in a collapsed **Inferred by Pacto**
-  block on the service page and in the **Inferred** block of a revision. A
+  block on the service page, or in its **Where the values come from** fold
+  when the revision carries a declaration, and in the **Inferred** block of a
+  revision. A
   mark beside each value gives its source and confidence.
 - A record Pacto cannot read or verify shows as "Pacto could not read the
   inferred record", never as an empty list, and the fleet answer is `partial`.

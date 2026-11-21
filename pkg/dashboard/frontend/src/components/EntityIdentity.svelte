@@ -51,7 +51,7 @@
   .entity-identity { display: inline-flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
   .ei-kind {
     color: var(--c-text-3); background: var(--c-surface-inset);
-    padding: 1px 6px; border-radius: var(--radius-xs); flex-shrink: 0;
+    padding: 1px 6px; border-radius: var(--radius-xs); min-width: 0; overflow-wrap: anywhere;
     font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   .ei-label { font-weight: 600; color: var(--c-text); overflow-wrap: anywhere; }

@@ -266,7 +266,12 @@ var vocabulariesWithoutSchemaEnum = map[string]string{
 	"dri,team":      "OwnerKind*: which of owner's mutually exclusive fields was set",
 	// Coverage* states live in pacto.inferred.yaml, a non-contract format the
 	// strict decoder checks, never in pacto.yaml.
-	"complete,failed,partial": "Coverage*: how completely a cluster read saw a source, in the inferred record",
+	"complete,failed,partial":  "Coverage*: how completely a cluster read saw a source, in the inferred record",
+	"declared,draft":           "Declaration*: whether a person declared the service or an agent only drafted it, in the inferred record",
+	"agent,ci,human,none":      "SignerClass*: who asked for or signed a declaration, in the inferred record",
+	"commit:,index:,snapshot:": "Source*: the prefixes of what pacto ci proposes from, in the inferred record",
+	// An OCI manifest annotation, never a pacto.yaml value.
+	"inferred,run.pacto.contract.provenance": "AnnotationProvenance and its value: the manifest annotation of an inferred contract",
 }
 
 // TestVocabularyParityWithSchema is the DRY gate over contract vocabularies.

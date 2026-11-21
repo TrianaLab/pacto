@@ -388,6 +388,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fleet/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan accepting every proposed range of a service
+         * @description Plans the acceptance record pacto accept would sign for every dependency range the service's newest published version proposes, and returns the exact pacto accept command with its intent digest. It never signs and never writes: a person runs the command. Signed-in and local viewers only.
+         */
+        post: operations["fleet-accept"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/fleet/attention": {
         parameters: {
             query?: never;
@@ -996,6 +1016,42 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AcceptPlanAnswer: {
+            /** @description The exact pacto accept command, with the plan's intent digest, a person runs to sign the plan */
+            command?: string;
+            /** @description What pacto accept would sign; absent with a refusal */
+            plan?: components["schemas"]["AcceptPlanView"];
+            /** @description Why there is nothing to accept, and the command a person runs about it */
+            refusal?: components["schemas"]["AcceptRefusal"];
+        };
+        AcceptPlanView: {
+            /** @description The acceptances already attached to the version, each with its state; only counted accepts */
+            existing?: components["schemas"]["Impact.Acceptance"][] | null;
+            /** @description The digest that names exactly this plan: pacto accept refuses a plan that moved since */
+            intentDigest: string;
+            /** @description What the plan could not read or how records were verified */
+            notes?: string[] | null;
+            /** @description Each proposed range the record accepts, with its source */
+            ranges: components["schemas"]["Delivery.AcceptedRange"][] | null;
+            /** @description The accepting service's fleet key */
+            service: string;
+            /** @description The bundle the record attaches to: <repository>@sha256:<hex> */
+            subject: string;
+            /** @description The newest published version the record attaches to */
+            version: string;
+            /** @description Whose signature counts: the service's declared owner, or the route to one */
+            whoMayAccept: string;
+        };
+        AcceptRefusal: {
+            /**
+             * @description AcceptNothingProposed: the newest published version proposes no range; NotPublished: the service has no published version to attach an acceptance to
+             * @enum {string}
+             */
+            code: "AcceptNothingProposed" | "NotPublished";
+            /** @description The command a person runs about it */
+            command: string;
+            message: string;
+        };
         AggregatedService: {
             merged: components["schemas"]["ServiceDetails"];
             name: string;
@@ -1256,6 +1312,11 @@ export interface components {
             source: string;
             value: string;
         };
+        "Contract.InferredCatalogMatch": {
+            digest: string;
+            entry: string;
+            origin: string;
+        };
         "Contract.InferredClient": {
             /** Format: int64 */
             major?: number;
@@ -1285,6 +1346,16 @@ export interface components {
             missing?: string[] | null;
             name?: string;
             type: string;
+        };
+        "Contract.InferredSurface": {
+            asOf: string;
+            catalog?: components["schemas"]["Contract.InferredCatalogMatch"];
+            class: string;
+            clients?: components["schemas"]["Contract.SurfaceValue"][] | null;
+            completeness: components["schemas"]["Contract.SurfaceCompleteness"];
+            hosts?: components["schemas"]["Contract.SurfaceValue"][] | null;
+            identity: string;
+            ports?: components["schemas"]["Contract.SurfaceValue"][] | null;
         };
         "Contract.Interface": {
             /** Format: int64 */
@@ -1397,6 +1468,7 @@ export interface components {
         };
         "Contract.Service": {
             domain?: string;
+            external?: string;
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
             offering?: string;
@@ -1410,6 +1482,17 @@ export interface components {
             dataCriticality: string;
             persistence: components["schemas"]["Contract.Persistence"];
             type: string;
+        };
+        "Contract.SurfaceCompleteness": {
+            limitations?: string[] | null;
+            state: string;
+        };
+        "Contract.SurfaceValue": {
+            catalog?: string;
+            firstSeen?: string;
+            lastSeen?: string;
+            sources: string[] | null;
+            value: string;
         };
         "Contract.Template": {
             plugins?: components["schemas"]["Contract.TemplatePlugin"][] | null;
@@ -1456,6 +1539,12 @@ export interface components {
              * @enum {string}
              */
             signing?: "recorder";
+        };
+        "Delivery.AcceptedRange": {
+            field: string;
+            proposed?: string;
+            source?: string;
+            value: string;
         };
         "Delivery.Actor": {
             groups?: string[] | null;
@@ -2012,10 +2101,10 @@ export interface components {
             /** @description Why, in words */
             reason: string;
             /**
-             * @description What decided: an installation rule, a person's pin, the signed policy, a rule inferred from where the artifact lives, or nothing
+             * @description What decided: an installation rule, a person's pin, the signed policy, a rule inferred from where the artifact lives, nothing, or operator when only this installation's operator signed, which never makes a publisher
              * @enum {string}
              */
-            source: "rule" | "pin" | "policy" | "inferred" | "none";
+            source: "rule" | "pin" | "policy" | "inferred" | "none" | "operator";
             /**
              * @description What the check concluded; only accepted lets the digest through
              * @enum {string}
@@ -2565,9 +2654,13 @@ export interface components {
         "Fleet.BundleProvenance": {
             /** Format: date-time */
             checkedAt: string;
+            /** @description The owner rule's verdict on the owner this revision sets; absent when no check ran */
+            ownerRight?: components["schemas"]["Fleet.OwnerRightCheck"];
             referrers: components["schemas"]["Fleet.ReferrersPreview"];
             referrersUnavailable?: string;
             signature: components["schemas"]["Fleet.BundleSignature"];
+            /** @description Every keyless identity whose signature of the digest verified, at most 5, sorted, a declaration's signer always kept */
+            signers?: components["schemas"]["Fleet.VerifiedSigner"][] | null;
             source: string;
         };
         "Fleet.BundleSignature": {
@@ -2578,8 +2671,12 @@ export interface components {
             issuer?: string;
             reason?: string;
             signer?: string;
+            /** @description The commit an accepted, verified CI signer's certificate was issued for */
+            signerCommit?: string;
+            /** @description The source repository an accepted, verified CI signer's certificate attests */
+            signerRepository?: string;
             /** @enum {string} */
-            source?: "rule" | "pin" | "policy" | "inferred" | "release" | "none";
+            source?: "rule" | "pin" | "policy" | "inferred" | "release" | "none" | "operator";
             /** @enum {string} */
             status: "verified" | "unverified" | "unsigned" | "unknown";
         };
@@ -2633,6 +2730,11 @@ export interface components {
             reportedBy?: string;
         };
         "Fleet.ClusterRecord": {
+            /**
+             * @description Why a restricted view shows nothing of this cluster: you may read no namespace there, the review failed or took too long, or nobody can be reviewed there. Empty when the view shows what you may read.
+             * @enum {string}
+             */
+            access?: "no-access" | "review-failed" | "not-reviewable";
             /** @description The kube-system namespace UID: the identity of the cluster. */
             id: string;
             /** @description A display name for the cluster; never an identity. */
@@ -2646,6 +2748,32 @@ export interface components {
             reportedBy?: string;
             /** @description Every source that reported this cluster id. */
             sources: string[] | null;
+        };
+        "Fleet.ClusterSummary": {
+            /**
+             * @description Why a restricted view shows nothing of this cluster; empty when it shows what you may read.
+             * @enum {string}
+             */
+            access?: "no-access" | "review-failed" | "not-reviewable";
+            /** @description The kube-system namespace UID; empty for a Kubernetes source whose cluster could not be identified. */
+            id: string;
+            /** @description A display name for the cluster, or the source id when the cluster could not be identified; never an identity. */
+            name: string;
+            /**
+             * @description How the name was found.
+             * @enum {string}
+             */
+            nameSource?: "node-label" | "context" | "file" | "uid";
+            /**
+             * @description The worst status of the sources that reported the cluster.
+             * @enum {string}
+             */
+            status: "available" | "partial" | "stale" | "unavailable";
+            /**
+             * Format: int64
+             * @description The targets of this cluster the answer shows.
+             */
+            targets: number;
         };
         "Fleet.ComplianceTally": {
             /** Format: int64 */
@@ -2748,6 +2876,29 @@ export interface components {
             /** @enum {string} */
             step: "signature" | "contract" | "validation" | "plugin" | "delivery" | "published" | "fleet" | "deployed" | "provisioning";
         };
+        "Fleet.DeclarationView": {
+            /** @description The proposed ranges the declarer accepted, as <field> <range> */
+            accepted?: string[] | null;
+            /** @description The published version the declaration started from */
+            baseline?: string;
+            /** @description The declarer the record claims; set only when the declarer is not accepted */
+            claimedSubject?: string;
+            /** @description The uid of the kube-system namespace of the cluster read */
+            cluster?: string;
+            /** @description The draft tag the declaration accepted */
+            draft?: string;
+            /** @description The inferred service the declaration came from, k8s:<namespace>/<kind>/<name> */
+            inferredFrom?: string;
+            /** @description You may not read the workload the declaration came from, so its cluster facts are left out */
+            inferredFromHidden?: boolean;
+            /** @description Why this reader does not accept the declarer, so its cluster facts are not shown; empty when it is accepted */
+            notAccepted?: string;
+            /** @description A signature this reader verified names the declarer as a person */
+            signatureChecked: boolean;
+            signer?: components["schemas"]["Fleet.VerifiedSigner"];
+            /** @enum {string} */
+            state: "declared" | "draft";
+        };
         "Fleet.DeclaredClaim": {
             compatibility?: string;
             guaranteeReason?: string;
@@ -2756,6 +2907,11 @@ export interface components {
             lockedDigest?: string;
             lockedVersion?: string;
             nameFromRef?: boolean;
+            /**
+             * @description Why rangeStatus is unknown: INFERRED_PROVIDER, the provider is an inferred contract
+             * @enum {string}
+             */
+            rangeReason?: "INFERRED_PROVIDER";
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             reconciliation?: string;
@@ -3193,6 +3349,39 @@ export interface components {
             service: string;
             source: string;
         };
+        "Fleet.ExternalProvider": {
+            /**
+             * @description Always INFERRED_PROVIDER
+             * @enum {string}
+             */
+            rangeReason: "INFERRED_PROVIDER";
+            /**
+             * @description Always unknown: a range is never checked against an inferred contract
+             * @enum {string}
+             */
+            rangeStatus: "unknown";
+            /** @description The pacto-inferred repository the revisions were read from */
+            repository: string;
+            /** @description The revisions, those this installation's operator signed first, each group newest first; at most 50 */
+            revisions: components["schemas"]["Fleet.ExternalProviderRevision"][] | null;
+            /**
+             * Format: int64
+             * @description How many revisions were read
+             */
+            revisionsTotal: number;
+            /** @description True when the caller's view is restricted, so the surface is not shown; absent when the record holds none */
+            surfaceHidden?: boolean;
+        };
+        "Fleet.ExternalProviderRevision": {
+            digest: string;
+            ref?: string;
+            /** @description The signature check of the revision; absent when no source that read it checks signatures */
+            signature?: components["schemas"]["Fleet.BundleSignature"];
+            /** @description What the record says Pacto saw of the external system, on the first revision only; absent when the record holds none or the caller's view is restricted (surfaceHidden) */
+            surface?: components["schemas"]["Contract.InferredSurface"];
+            /** @description The 0.0.<n> version: a count of surface changes, never a vendor version */
+            version: string;
+        };
         "Fleet.ExternalRecord": {
             /** @description The aliases of the catalog entry that classified it */
             aliases?: string[] | null;
@@ -3229,6 +3418,8 @@ export interface components {
             key: string;
             /** @description The catalog label, else the name the first visible consumer, by service key, declared */
             label: string;
+            /** @description The inferred contract published for it under pacto-inferred; never a service, and a range is never checked against it */
+            provider?: components["schemas"]["Fleet.ExternalProvider"];
             /** @description The evidence that names this external system, one per consumer and dependency position, each with its own provenance */
             sources: components["schemas"]["Fleet.ExternalSource"][] | null;
             /**
@@ -3250,7 +3441,7 @@ export interface components {
              * @enum {string}
              */
             kind: "contract" | "observed" | "pod-spec" | "repository";
-            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value), keyName (a configuration key name only), sdk (a client library in a manifest) or resource (a Terraform resource or Crossplane object) */
+            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value), keyName (a configuration key name only), sdk (a client library in a manifest), resource (a Terraform resource or Crossplane object) or its inferred contract (a ref to its pacto-inferred repository) */
             match: string;
             /** @enum {string} */
             provenance: "declared" | "observed" | "inferred";
@@ -3265,6 +3456,35 @@ export interface components {
             target?: string;
             /** @description The free-text version the dependency declares */
             version?: string;
+        };
+        "Fleet.FieldProvenance": {
+            /** Format: date-time */
+            asOf?: string;
+            /** @description Who accepted it: the person whose verified signature carries the accepted declaration */
+            by?: string;
+            /** @enum {string} */
+            completeness?: "complete" | "partial";
+            /** @description service.owner, dependencies[<name>].compatibility or a field of the inferred record */
+            field: string;
+            /** @description A range Pacto proposes for a compatibility the contract leaves unknown; never declared */
+            proposed?: string;
+            /** @enum {string} */
+            provenance: "declared" | "accepted" | "attested" | "inferred";
+            source?: string;
+            value: string;
+        };
+        "Fleet.FieldsPreview": {
+            /** Format: int64 */
+            count: number;
+            /**
+             * Format: int64
+             * @description Fields hidden by your permissions: read from a workload, or naming a service, you may not see
+             */
+            hidden?: number;
+            items: components["schemas"]["Fleet.FieldProvenance"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
         };
         "Fleet.FindingsPreview": {
             /** Format: int64 */
@@ -3330,12 +3550,27 @@ export interface components {
             truncated?: boolean;
             unresolved?: components["schemas"]["Fleet.Relationship"][] | null;
         };
+        "Fleet.InferredCoverageRow": {
+            reason?: string;
+            source: string;
+            /** @enum {string} */
+            state: "complete" | "partial" | "failed";
+        };
         "Fleet.InferredField": {
+            /** @description When the cluster fact was read (RFC 3339 UTC) */
+            asOf?: string;
+            /** @description Set on the ownerFile service.owner row of a revision whose signature attests it: read at the commit an accepted CI identity signed. It still never clears a gate */
+            attested?: boolean;
             /**
-             * @description ownerFile: read from CODEOWNERS or catalog-info.yaml; not verified; never clears a gate
+             * @description ownerFile: read from CODEOWNERS or catalog-info.yaml; not verified unless attested; never clears a gate
              * @enum {string}
              */
             class?: "ownerFile";
+            /**
+             * @description partial when a node, pod or supporting source went unobserved
+             * @enum {string}
+             */
+            completeness?: "complete" | "partial";
             /**
              * @description How sure the inference is, set for a field of the inferred record: likely when a file states it, possible when only a convention suggests it
              * @enum {string}
@@ -3349,6 +3584,8 @@ export interface components {
              * @description Every lower-ranked source, set when outranks lists only the first MaxOutranks
              */
             outranksTotal?: number;
+            /** @description A semver range proposed for a dependency's compatibility, never declared */
+            proposed?: string;
             /** @enum {string} */
             provenance: "inferred";
             source: string;
@@ -3371,6 +3608,17 @@ export interface components {
              * @enum {string}
              */
             rule: "argocd" | "flux-kustomization" | "flux-helmrelease" | "helm" | "part-of" | "instance" | "workload";
+        };
+        "Fleet.InferredHiddenCounts": {
+            /** Format: int64 */
+            callers?: number;
+            /**
+             * Format: int64
+             * @description Cluster fields left out because you may not read the workload the declaration came from or the service they name
+             */
+            fields?: number;
+            /** Format: int64 */
+            services?: number;
         };
         "Fleet.InferredPort": {
             /** @description The object path Pacto read the port from */
@@ -3603,6 +3851,10 @@ export interface components {
         "Fleet.Meta": {
             /** Format: date-time */
             asOf: string;
+            /** @description The status of each cluster the answer knows, least healthy first when truncated. Absent when no cluster is known. */
+            clusters?: components["schemas"]["Fleet.ClusterSummary"][] | null;
+            /** @description The snapshot knows more clusters than the answer carries. */
+            clustersTruncated?: boolean;
             completeness: string;
             externalCatalogs?: components["schemas"]["Fleet.ExternalCatalogRef"][] | null;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
@@ -3617,12 +3869,12 @@ export interface components {
              * @description The MCP tool that performs the operation
              * @enum {string}
              */
-            tool: "pacto_edit";
+            tool: "pacto_edit" | "pacto_declare";
             /**
-             * @description The operation: edit-contract changes the contract of the item's service
+             * @description The operation: edit-contract changes the contract of the item's service; declare writes a declared contract for what only an inferred one describes
              * @enum {string}
              */
-            verb: "edit-contract";
+            verb: "edit-contract" | "declare";
         };
         "Fleet.OCIReferrer": {
             artifactType: string;
@@ -3862,6 +4114,15 @@ export interface components {
             /** Format: int64 */
             targets: number;
         };
+        "Fleet.OwnerRightCheck": {
+            allowed: boolean;
+            /**
+             * @description Why the signer may not set the owner; empty when allowed
+             * @enum {string}
+             */
+            code?: "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED";
+            message?: string;
+        };
         "Fleet.OwnerSummary": {
             compliance: components["schemas"]["Fleet.ComplianceTally"];
             evidence: components["schemas"]["Fleet.EvidenceWindow"];
@@ -3971,6 +4232,10 @@ export interface components {
         "Fleet.ProductMeta": {
             /** Format: date-time */
             asOf: string;
+            /** @description The status of each cluster the answer knows, least healthy first when truncated. Absent when no cluster is known. */
+            clusters?: components["schemas"]["Fleet.ClusterSummary"][] | null;
+            /** @description The snapshot knows more clusters than the answer carries. */
+            clustersTruncated?: boolean;
             completeness: string;
             externalCatalogs?: components["schemas"]["Fleet.ExternalCatalogRef"][] | null;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
@@ -4036,7 +4301,9 @@ export interface components {
              * @description How many objects the row had before the cap or your permissions narrowed it
              */
             objectsTotal?: number;
-            /** @description inferred for a row Pacto detected; empty for a row a source reported directly */
+            /** @description Pacto integrations that fit this provider, offered because it was detected; Pacto installs nothing */
+            offers?: components["schemas"]["Fleet.ProviderOffer"][] | null;
+            /** @description declared for the operator's Installation row (its configuration); inferred for a row Pacto detected; empty for a row a source reported directly */
             provenance?: string;
             /**
              * @description cluster when the row was read cluster-wide
@@ -4054,6 +4321,14 @@ export interface components {
             kind: string;
             name: string;
             namespace?: string;
+        };
+        "Fleet.ProviderOffer": {
+            /** @description The setup guide, an https URL */
+            doc: string;
+            /** @description Stable offer id */
+            id: string;
+            /** @description One sentence, Gate every <thing> with <mechanism> */
+            text: string;
         };
         "Fleet.ProvidersResult": {
             /**
@@ -4214,6 +4489,11 @@ export interface components {
             observedSources?: components["schemas"]["Fleet.ObservedSourceStat"][] | null;
             provenance: string;
             providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
+            /**
+             * @description Why rangeStatus is unknown: INFERRED_PROVIDER, the provider is an inferred contract the operator published, never checked against a range
+             * @enum {string}
+             */
+            rangeReason?: "INFERRED_PROVIDER";
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             reason?: string;
@@ -4235,20 +4515,26 @@ export interface components {
         "Fleet.Replacement": {
             /**
              * Format: date-time
-             * @description When the Pacto that links them was created.
+             * @description When the Pacto that links them was created; absent on an inferred-from link, whose signed record carries no time.
              */
-            at: string | null;
+            at?: string;
+            /** @description Who signed that revision, read from its verified signature. */
+            by?: string;
             /** @description The key of the inferred service that was replaced. */
             from: string;
             /**
-             * @description How the two are linked: pacto-target when a Pacto target runs as the workload.
+             * @description How the two are linked: pacto-target when a Pacto target runs as the workload, inferred-from when a person's accepted declaration names the inferred service.
              * @enum {string}
              */
-            link: "pacto-target";
+            link: "pacto-target" | "inferred-from";
+            /** @description The revision whose signed inferred record names the replaced service. */
+            revision?: string;
             /** @description The Pacto target that runs as the workload. */
             target?: string;
             /** @description The key of the declared service that replaced it. */
             to: string;
+            /** @description What the replaced inferred service showed, when Pacto read its workload. */
+            workload?: components["schemas"]["Fleet.InferredWorkload"];
         };
         "Fleet.ResourceConsumption": {
             /** Format: date-time */
@@ -4410,6 +4696,8 @@ export interface components {
             owner?: components["schemas"]["Contract.Owner"];
             /** @enum {string} */
             ownerProvenance?: "declared" | "declared-via-target" | "attested" | "inferred";
+            /** @description Where an attested owner was read: file and line, commit and the CI identity that signed it. Empty for any other provenance */
+            ownerSource?: string;
             revisions?: string[] | null;
             sources?: string[] | null;
             status?: string;
@@ -4453,11 +4741,18 @@ export interface components {
             capabilities?: components["schemas"]["Fleet.RevisionCapabilities"][] | null;
             dependencies: components["schemas"]["Fleet.Relationship"][] | null;
             dependents: string[] | null;
+            /** @description Where each field of the current revision comes from: declared, accepted, attested or inferred */
+            fields?: components["schemas"]["Fleet.FieldsPreview"];
             meta: components["schemas"]["Fleet.Meta"];
             /** @description Set when the service was asked for by the key of an inferred service it replaced: that replacement */
             replacedFrom?: components["schemas"]["Fleet.Replacement"];
             /** @description The inferred services this service replaced, at most 200 */
             replaces?: components["schemas"]["Fleet.Replacement"][] | null;
+            /**
+             * Format: int64
+             * @description Replacements of this service whose workload you may not see
+             */
+            replacesHidden?: number;
             /**
              * Format: int64
              * @description How many inferred services this service replaced
@@ -4735,6 +5030,16 @@ export interface components {
             status: "pass" | "fail" | "skip";
             unverified?: boolean;
         };
+        "Fleet.VerifiedSigner": {
+            /** @enum {string} */
+            class: "human" | "agent" | "ci";
+            issuer: string;
+            subject: string;
+        };
+        FleetAcceptInputBody: {
+            /** @description The service whose proposed ranges to accept */
+            serviceKey: string;
+        };
         GetSourcesOutputBody: {
             /** @description True while the first snapshot is still being built */
             discovering: boolean;
@@ -4813,7 +5118,40 @@ export interface components {
                 [key: string]: string;
             };
         };
+        "Impact.Acceptance": {
+            /** @description The break the record accepts, for a break acceptance */
+            break?: components["schemas"]["Impact.BreakRef"];
+            /** @description Who signed the record: the certificate's subject */
+            by?: string;
+            /** @description The dependency fields the record accepts, such as dependencies[ledger].compatibility, for a ranges acceptance */
+            fields?: string[] | null;
+            /** @description The OIDC issuer of the signer's certificate */
+            issuer?: string;
+            /** @description Why the record does not count, or the route to the owner who may accept */
+            reason?: string;
+            /** @description Where the record is: <repository>@sha256:<hex> */
+            record?: string;
+            /**
+             * Format: date-time
+             * @description When a timestamp authority or the transparency log saw the record signed
+             */
+            signedAt?: string;
+            /**
+             * @description How the record was judged; only counted accepts
+             * @enum {string}
+             */
+            state: "counted" | "routed" | "proposal" | "expired" | "ignored";
+        };
+        "Impact.AdvisoryConsumer": {
+            /** @enum {string} */
+            compatibility: "unknown";
+            /** @enum {string} */
+            confidence: "inferred";
+            service: string;
+        };
         "Impact.AffectedConsumer": {
+            /** @description Where the break the new revision announces for this consumer stands: announced, accepted (it never blocks) or expired */
+            break?: components["schemas"]["Impact.BreakState"];
             compatibility?: string;
             compatibilityVerdict: string;
             confidence: string;
@@ -4850,6 +5188,31 @@ export interface components {
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;
             /** @description The edge types that make this service a consumer: dependency, configuration_reference, policy_reference, observed or inferred (named by the consumer's inferred record, never with a known verdict) */
             via?: string[] | null;
+        };
+        "Impact.BreakRef": {
+            /** @description The sha256 of the provider's breaks[] entry naming the consumer */
+            announcement: string;
+            /** @description The provider's fleet key */
+            provider: string;
+            /** @description The provider version the break ships in */
+            version: string;
+        };
+        "Impact.BreakState": {
+            /** @description Who signed the counted acceptance */
+            by?: string;
+            /** @description When the announcement expires (YYYY-MM-DD); empty when none is recorded */
+            expires?: string;
+            /** @description Why the break is not accepted, in plain words; it says when acceptances were not read */
+            reason?: string;
+            /** @description Where the counted acceptance is: <repository>@sha256:<hex> */
+            record?: string;
+            /** @description Whom an acceptance by somebody other than the declared owner waits for, such as 'waiting for the owner of reports: ana@acme.com', or how to get an owner */
+            route?: string;
+            /**
+             * @description announced: the provider announces the break and nothing accepts it; accepted: the consumer's declared owner signed a counted acceptance, or its ranges admit the new version; expired: the announcement expired or records no expiry
+             * @enum {string}
+             */
+            state: "announced" | "accepted" | "expired";
         };
         "Impact.ChangesPreview": {
             /** Format: int64 */
@@ -4934,6 +5297,20 @@ export interface components {
             /** @description The fact is older than 24h before the snapshot's asOf, or has no time, so it does not count as current */
             stale?: boolean;
         };
+        "Impact.InferredAdvisory": {
+            /** @description The breaking findings of the spec diff. Advisory: a possible break on an inferred interface, never part of the classification */
+            changes: components["schemas"]["Diff.Change"][] | null;
+            /** @description The direct consumers of the changed service the possible break would hit, each inferred with compatibility unknown, bounded to 500 */
+            consumers: components["schemas"]["Impact.AdvisoryConsumer"][] | null;
+            /** @description The YAML that declares the interface in pacto.yaml, so the change is classified */
+            declare: string;
+            /** @description The inferred interface, as pacto.inferred.yaml names it (api, events or grpc) */
+            interface: string;
+            /** @description The spec kind: openapi, asyncapi or grpc */
+            kind: string;
+            /** @description Where Pacto found the spec, as path:line */
+            source: string;
+        };
         "Impact.OwnerTally": {
             /** Format: int64 */
             consumers: number;
@@ -4942,6 +5319,20 @@ export interface components {
             owner: string;
             /** @description The owner's canonical key (for example team:shop): the ranking groups by it */
             ownerKey?: string;
+        };
+        "Impact.Policy": {
+            /**
+             * @description fail holds a BREAKING change while a caller no contract describes was seen within uncontractedWindow
+             * @enum {string}
+             */
+            uncontracted: "warn" | "fail";
+            /** @description How recent an uncontracted call holds the change, as a Go duration such as 168h0m0s */
+            uncontractedWindow?: string;
+            /**
+             * @description fail holds a BREAKING change while a direct consumer's range is unknown and not accepted
+             * @enum {string}
+             */
+            unknownRange: "warn" | "fail";
         };
         "Impact.ProductChange": {
             classification: string;
@@ -4952,6 +5343,32 @@ export interface components {
             path: string;
             reason?: string;
             type: string;
+        };
+        "Impact.RangeCoverage": {
+            /**
+             * Format: int64
+             * @description Edges whose range a counted acceptance makes known, not yet declared in the contract
+             */
+            accepted: number;
+            /**
+             * Format: int64
+             * @description Edges whose contract declares a compatibility range
+             */
+            declared: number;
+            /**
+             * Format: int64
+             * @description Dependency edges counted
+             */
+            edges: number;
+            /** @description The edges counted, such as 'consumers of ledger' or 'dependencies of 12 services in .' */
+            scope: string;
+            /** @description Edges whose range is unknown, at most 20 */
+            unknown?: components["schemas"]["Impact.UnknownRange"][] | null;
+            /**
+             * Format: int64
+             * @description How many edges have an unknown range, including those beyond the bound
+             */
+            unknownTotal?: number;
         };
         "Impact.RegistryLookup": {
             /**
@@ -4992,6 +5409,8 @@ export interface components {
         };
         "Impact.Result": {
             activeTargets?: string[] | null;
+            /** @description Possible breaks on interfaces only pacto.inferred.yaml names: advisory, never part of the classification. A non-BREAKING answer with one reads unverified; it never blocks or clears */
+            advisories?: components["schemas"]["Impact.InferredAdvisory"][] | null;
             /** Format: date-time */
             asOf: string;
             breakingChanges?: components["schemas"]["Diff.Change"][] | null;
@@ -5017,15 +5436,23 @@ export interface components {
             newRevisionAdded?: boolean;
             newVersion?: string;
             nonBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
+            /** @description Informational notes, such as a range policy set to warn; never a limitation */
+            notes?: string[] | null;
             oldVersion?: string;
             /** @description The canonical owner keys of the affected consumers */
             owners?: string[] | null;
+            /** @description The range policy the answer was held to; absent on an event answer */
+            policy?: components["schemas"]["Impact.Policy"];
             potentiallyBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
             /** @description The service keys of the services that provide the offering of an offering event */
             providers?: string[] | null;
+            /** @description How many direct consumers declare a compatibility range or accepted one, and which ranges stay unknown; absent on an event answer */
+            ranges?: components["schemas"]["Impact.RangeCoverage"];
             /** @description Where Pacto looked for a target snapshot when none was named */
             registry?: components["schemas"]["Impact.RegistryLookup"];
             regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
+            /** @description Set by --running: the revisions that run, the one this answer judged and the ones Pacto could not read */
+            running?: components["schemas"]["Impact.RunningBaseline"];
             schemaVersion: string;
             service: string;
             snapshotId: string;
@@ -5036,10 +5463,30 @@ export interface components {
             /** @description The service keys of the golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate, but a service created from one checks against the new policy. Review each */
             templates?: string[] | null;
         };
+        "Impact.RunningBaseline": {
+            /** @description The running revisions with the new revision's digest, left out of the baseline: a revision is never its own baseline */
+            excluded?: string[] | null;
+            /** @description No running revision other than the new one could be judged, so the new revision was compared with itself and only the consumers' ranges speak */
+            firstVersion?: boolean;
+            /** @description The running revision this answer compared the new one with; empty for a first version */
+            judged?: string;
+            /** @description The registry refs of the revisions that run on known targets, sorted, the new revision left out (see excluded); empty when no other revision runs */
+            refs: string[] | null;
+            /** @description The running revisions Pacto could not read, link or trust, in words; the gate never clears over them */
+            unread?: string[] | null;
+        };
         "Impact.TallyBucket": {
             /** Format: int64 */
             count: number;
             key: string;
+        };
+        "Impact.UnknownRange": {
+            /** @description The consumer */
+            from: string;
+            /** @description The range Pacto proposes from what runs, such as ^2.3.0; inferred, so it never counts */
+            proposed?: string;
+            /** @description The provider it depends on */
+            to: string;
         };
         ImpactRequest: {
             /**
@@ -5761,6 +6208,8 @@ export interface components {
         };
         ProductImpact: {
             activeTargets: components["schemas"]["ProductRefPreview"];
+            /** @description Possible breaks on interfaces only pacto.inferred.yaml names: advisory, never part of the classification. A non-BREAKING answer with one reads unverified; it never blocks or clears */
+            advisories?: components["schemas"]["Impact.InferredAdvisory"][] | null;
             changedOwner?: components["schemas"]["ProductRef"];
             changes: components["schemas"]["Impact.ChangesPreview"];
             classification: string;
@@ -5773,12 +6222,16 @@ export interface components {
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
             meta: components["schemas"]["Fleet.ProductMeta"];
             newRevision?: components["schemas"]["ProductRef"];
+            /** @description Informational notes, such as a range policy set to warn; never a limitation */
+            notes?: string[] | null;
             /** @description The platform offering an offering event is about; service is then the same offering reference */
             offering?: components["schemas"]["ProductRef"];
             oldRevision?: components["schemas"]["ProductRef"];
             owners: components["schemas"]["ProductRefPreview"];
             /** @description The services that provide the offering of an offering event, each with its owner */
             providers?: components["schemas"]["ProductRef"][] | null;
+            /** @description How many direct consumers declare a compatibility range or accepted one, and which ranges stay unknown; absent on an event answer */
+            ranges?: components["schemas"]["Impact.RangeCoverage"];
             /** @description The delivery evidence about a regressed revision, at most 50 */
             regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
             service: components["schemas"]["ProductRef"];
@@ -5789,6 +6242,8 @@ export interface components {
         };
         ProductImpactConsumer: {
             blocking?: boolean;
+            /** @description Where the break the new revision announces for this consumer stands: announced, accepted (it never blocks) or expired */
+            break?: components["schemas"]["Impact.BreakState"];
             compatibility?: string;
             compatibilityVerdict: string;
             confidence: string;
@@ -5993,6 +6448,11 @@ export interface components {
             providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             providerOwner?: components["schemas"]["ProductOwnership"];
             provisioning?: components["schemas"]["ProductProvisioningStatus"][] | null;
+            /**
+             * @description Why rangeStatus is unknown: INFERRED_PROVIDER, the provider is an inferred contract
+             * @enum {string}
+             */
+            rangeReason?: "INFERRED_PROVIDER";
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             requested?: components["schemas"]["ProductRequestedConfiguration"][] | null;
@@ -6048,7 +6508,12 @@ export interface components {
             summary: components["schemas"]["Fleet.OwnerSummary"];
         };
         ProductOwnership: {
-            /** @description Why the owners disagree: targets run revisions that declare different owners, or two revisions of one version do. Empty when they agree */
+            /**
+             * @description Set on a revision whose owner its service does not take: OWNER_DECLARATION_REFUSED when its signer may not set it, OWNER_DECLARATION_UNVERIFIED when the owner rule could not check it. Empty when the owner counts
+             * @enum {string}
+             */
+            blocked?: "OWNER_DECLARATION_REFUSED" | "OWNER_DECLARATION_UNVERIFIED";
+            /** @description Why the owners disagree: targets run revisions that declare different owners, two revisions of one version do, or attested revisions were signed from different repositories. Empty when they agree */
             conflictReason?: string;
             conflicts: components["schemas"]["Fleet.StringsPreview"];
             contacts?: components["schemas"]["Fleet.ContactsPreview"];
@@ -6057,6 +6522,8 @@ export interface components {
             /** @enum {string} */
             provenance?: "declared" | "declared-via-target" | "attested" | "inferred";
             ref?: components["schemas"]["ProductRef"];
+            /** @description Where an attested owner was read: file and line, commit and the CI identity that signed it. Empty for any other provenance */
+            source?: string;
             unknown?: boolean;
         };
         ProductPlacementPreview: {
@@ -6094,6 +6561,11 @@ export interface components {
         ProductProviderVersion: {
             inUse?: boolean;
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
+            /**
+             * @description INFERRED_PROVIDER on a revision only this installation's operator signed: a range is never checked against it
+             * @enum {string}
+             */
+            rangeReason?: "INFERRED_PROVIDER";
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             revision: components["schemas"]["ProductRef"];
@@ -6252,6 +6724,7 @@ export interface components {
             capabilities: components["schemas"]["Fleet.CapabilitiesPreview"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             current?: boolean;
+            declaration?: components["schemas"]["Fleet.DeclarationView"];
             dependencies: components["schemas"]["ProductRelationshipsPreview"];
             discoveryFindings: components["schemas"]["Fleet.DiscoveryFindingsPreview"];
             docs: components["schemas"]["Fleet.DocsPreview"];
@@ -6261,6 +6734,8 @@ export interface components {
             exactTargets: components["schemas"]["ProductRefPreview"];
             identity: components["schemas"]["Fleet.RevisionIdentity"];
             inferred?: components["schemas"]["Fleet.InferredField"][] | null;
+            inferredCoverage?: components["schemas"]["Fleet.InferredCoverageRow"][] | null;
+            inferredHidden?: components["schemas"]["Fleet.InferredHiddenCounts"];
             inferredTargets: components["schemas"]["ProductRefPreview"];
             /** Format: int64 */
             inferredTotal?: number;
@@ -6343,6 +6818,8 @@ export interface components {
             deployments: components["schemas"]["ProductRefPreview"];
             domain?: string;
             evidence: components["schemas"]["ProductEvidencePreview"];
+            /** @description Where each field of the current revision comes from: declared, accepted, attested or inferred */
+            fields?: components["schemas"]["Fleet.FieldsPreview"];
             findings: components["schemas"]["ProductAttributedFindingsPreview"];
             /** Format: int64 */
             hiddenDependencies?: number;
@@ -6366,6 +6843,11 @@ export interface components {
             relationships: components["schemas"]["ProductRelationshipsPreview"];
             /** @description The inferred services this service replaced, at most 200 */
             replaces?: components["schemas"]["Fleet.Replacement"][] | null;
+            /**
+             * Format: int64
+             * @description Replacements of this service whose workload you may not see
+             */
+            replacesHidden?: number;
             /**
              * Format: int64
              * @description How many inferred services this service replaced
@@ -7187,6 +7669,11 @@ export interface components {
             metrics: components["schemas"]["Stats.Metrics"];
         };
         "Stats.Hidden": {
+            /**
+             * Format: int64
+             * @description Operation records of services in the caller's view whose Stage is in a cluster the caller was not reviewed in; they are left out of every number. Records of services outside the view are never counted
+             */
+            otherClusters?: number;
             /** @description True when run records name services outside the caller's view; they are left out of every number */
             present: boolean;
         };
@@ -7302,7 +7789,7 @@ export interface components {
             /** @description What the groups are by */
             by?: string;
             /**
-             * @description partial when a record was skipped, the read was cut, records are outside the caller's view or a blocked change was judged on a partial snapshot; empty when the window holds no records
+             * @description partial when a record was skipped, the read was cut, records are outside the caller's view, operation records of other clusters were left out or a blocked change was judged on a partial snapshot; empty when the window holds no records
              * @enum {string}
              */
             completeness: "complete" | "partial" | "empty";
@@ -9204,6 +9691,39 @@ export interface operations {
             };
         };
     };
+    "fleet-accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FleetAcceptInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptPlanAnswer"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
     "fleet-attention": {
         parameters: {
             query?: {
@@ -9269,6 +9789,8 @@ export interface operations {
                 businessDomain?: string;
                 /** @description Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label; with consumes and phase it also narrows the consumers to statuses in that environment */
                 environment?: string;
+                /** @description Cluster UID as meta.clusters lists it: targets in that cluster, services with a target or an inferred workload there and revisions a target there runs */
+                cluster?: string;
                 /** @description Capability key a service's revisions declare (service entities): health, metrics or, for an extension, its namespaced ref such as acme.io/cost */
                 capability?: string;
                 /** @description Exact platform offering (service.offering) a service provides (service and offering entities) */

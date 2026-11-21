@@ -25,6 +25,9 @@ spec:
                   fieldPath: metadata.namespace
             - name: OPERATOR_DEPLOYMENT_NAME
               value: {{ include "pacto-operator.fullname" . }}
+            # The publisher the target snapshot claims.
+            - name: OPERATOR_SERVICE_ACCOUNT
+              value: {{ include "pacto-operator.serviceAccountName" . }}
             {{- with .Values.insecureRegistries }}
             {{- /* Inherited by the managed dashboard and Evidence Server, which
                    resolve contract refs themselves. Per-host, so https registries
@@ -39,6 +42,18 @@ spec:
           {{- include "pacto-operator.securityContext" (dict "ctx" . "values" .Values) | nindent 10 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if include "pacto-operator.ownerPolicy.mounted" . }}
+          volumeMounts:
+            - name: owner-policy
+              mountPath: /etc/pacto/owner-policy
+              readOnly: true
+          {{- end }}
+      {{- if include "pacto-operator.ownerPolicy.mounted" . }}
+      volumes:
+        - name: owner-policy
+          configMap:
+            name: {{ include "pacto-operator.ownerPolicy.name" . }}
+      {{- end }}
       {{- with include "pacto-operator.scheduling" .Values | trim }}
       {{- . | nindent 6 }}
       {{- end }}

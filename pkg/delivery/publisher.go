@@ -29,12 +29,15 @@ const (
 // accepted by a named person, rule the installation's default derived from a
 // chart value, and inferred a rule derived from where the artifact lives when
 // no installation config was read: it never makes a signature verified.
+// operator is a signature by this installation's operator, which signs only
+// the inferred contracts it publishes: it is always refused.
 const (
 	PublisherSourceRule     = "rule"
 	PublisherSourcePin      = "pin"
 	PublisherSourcePolicy   = "policy"
 	PublisherSourceInferred = "inferred"
 	PublisherSourceNone     = "none"
+	PublisherSourceOperator = "operator"
 )
 
 // CI issuers the derived rule knows, by registry host.
@@ -146,7 +149,7 @@ type PublisherVerdict struct {
 	// +kubebuilder:validation:Enum=accepted;new-signer;refused;unsigned;unknown
 	Verdict string `json:"verdict" enum:"accepted,new-signer,refused,unsigned,unknown" doc:"What the check concluded; only accepted lets the digest through"`
 	// +kubebuilder:validation:Enum=rule;pin;policy;inferred;none
-	Source string `json:"source" enum:"rule,pin,policy,inferred,none" doc:"What decided: an installation rule, a person's pin, the signed policy, a rule inferred from where the artifact lives, or nothing"`
+	Source string `json:"source" enum:"rule,pin,policy,inferred,none,operator" doc:"What decided: an installation rule, a person's pin, the signed policy, a rule inferred from where the artifact lives, nothing, or operator when only this installation's operator signed, which never makes a publisher"`
 	// +optional
 	Identity *PublisherIdentity `json:"identity,omitempty" doc:"Who signed it, when a signature verified"`
 	Reason   string             `json:"reason" doc:"Why, in words"`
@@ -217,6 +220,10 @@ func NormalizeRepo(s string) string {
 	return strings.ToLower(host) + "/" + rest
 }
 
+// PactoActionsWorkflow is the shared reusable workflow pacto ci init calls:
+// a certificate names it, at the caller's pin, as its subject.
+const PactoActionsWorkflow = "TrianaLab/pacto-actions/.github/workflows/ci.yml"
+
 // DeriveRule is the default publisher rule of an installation whose services
 // publish to registry (host/org): the CI of host's provider, any workflow of
 // org on defaultBranch (main when empty). The second result says why there is
@@ -237,8 +244,11 @@ func DeriveRule(registry, defaultBranch string) (PublisherRule, string) {
 	var r PublisherRule
 	switch host {
 	case "ghcr.io":
+		// The pacto-actions reusable workflow signs at whatever commit the
+		// caller pins; Repository and Ref still anchor the caller.
 		r = PublisherRule{Issuer: issuerGitHubActions,
-			Subject:    `^https://github\.com/` + o + `/[^/]+/\.github/workflows/[^@]+@refs/heads/` + b + `$`,
+			Subject: `^https://github\.com/(` + o + `/[^/]+/\.github/workflows/[^@]+@refs/heads/` + b + `|` +
+				regexp.QuoteMeta(PactoActionsWorkflow) + `@[^@]+)$`,
 			Repository: `^https://github\.com/` + o + `/[^/]+$`}
 	case "registry.gitlab.com":
 		r = PublisherRule{Issuer: issuerGitLab,
@@ -258,11 +268,16 @@ func DeriveRule(registry, defaultBranch string) (PublisherRule, string) {
 // source pin), it is a CI identity of the artifact's own repository (new-signer:
 // a person decides), or it is refused. source is the artifact's
 // org.opencontainers.image.source annotation, or "" when it carries none. A
-// person identity is never offered for trust on first use.
-func JudgePublisher(service ServiceRef, id PublisherIdentity, source string, rules []PublisherRule, ruleSource string, pins []IdentityPin) PublisherVerdict {
+// person identity is never offered for trust on first use. inferred is the
+// installation operator's signer (nil when none is known): its identity is
+// refused before any rule or pin is read.
+func JudgePublisher(service ServiceRef, id PublisherIdentity, source string, rules []PublisherRule, ruleSource string, pins []IdentityPin, inferred *TrustedKey) PublisherVerdict {
+	if IsInferredSigner(id, inferred) {
+		return OperatorRefusal(id)
+	}
 	idc := id
 	v := PublisherVerdict{Identity: &idc, Source: PublisherSourceNone}
-	r, p := ruleCovering(service, id, rules), pinFor(service, id, pins)
+	r, p := ruleCovering(service, id, rules), PinFor(service, id, pins, rules)
 	switch {
 	case id.CI && !sameSource(source, id.Repository):
 		v.Verdict = VerdictRefused
@@ -284,11 +299,17 @@ func JudgePublisher(service ServiceRef, id PublisherIdentity, source string, rul
 }
 
 // JudgeSigners judges every verified signer of one digest: the first accepted
-// wins, else the most decisive verdict (refused over new-signer).
-func JudgeSigners(service ServiceRef, signers []PublisherIdentity, source string, rules []PublisherRule, ruleSource string, pins []IdentityPin) PublisherVerdict {
+// wins, else the most decisive verdict (refused over new-signer). The
+// operator's signer (inferred) is left out, so it never outweighs another
+// signer; it is the verdict only when it signed alone.
+func JudgeSigners(service ServiceRef, signers []PublisherIdentity, source string, rules []PublisherRule, ruleSource string, pins []IdentityPin, inferred *TrustedKey) PublisherVerdict {
+	others := slices.DeleteFunc(slices.Clone(signers), func(id PublisherIdentity) bool { return IsInferredSigner(id, inferred) })
+	if len(others) == 0 && len(signers) > 0 {
+		return OperatorRefusal(signers[0])
+	}
 	best := PublisherVerdict{Verdict: VerdictUnknown, Source: PublisherSourceNone, Reason: "no signature verified"}
-	for i, id := range signers {
-		v := JudgePublisher(service, id, source, rules, ruleSource, pins)
+	for i, id := range others {
+		v := JudgePublisher(service, id, source, rules, ruleSource, pins, nil)
 		if v.Verdict == VerdictAccepted {
 			return v
 		}
@@ -297,6 +318,19 @@ func JudgeSigners(service ServiceRef, signers []PublisherIdentity, source string
 		}
 	}
 	return best
+}
+
+// IsInferredSigner reports whether id is the keyless identity of inferred,
+// the installation operator's signer.
+func IsInferredSigner(id PublisherIdentity, inferred *TrustedKey) bool {
+	return inferred != nil && inferred.Identity != "" && id.Subject == inferred.Identity && id.Issuer == inferred.Issuer
+}
+
+// OperatorRefusal is the verdict on a signature by the installation's
+// operator, named by id: refused with source operator.
+func OperatorRefusal(id PublisherIdentity) PublisherVerdict {
+	return PublisherVerdict{Verdict: VerdictRefused, Source: PublisherSourceOperator, Identity: &id,
+		Reason: fmt.Sprintf("signed by %s, this installation's operator, which signs only inferred contracts; an operator signature never makes a publisher", id.Subject)}
 }
 
 // sameSource reports whether the artifact's source annotation, when it has
@@ -335,15 +369,43 @@ func servesService(patterns []string, name string) bool {
 	return len(patterns) == 0
 }
 
-// pinFor is the pin of service that names id exactly, or nil. Only a CI
-// identity is ever pinned: a person is trusted only by a policy rule.
-func pinFor(service ServiceRef, id PublisherIdentity, pins []IdentityPin) *IdentityPin {
+// PinFor is the pin of service that names id, or nil. Only a CI identity is
+// ever pinned: a person is trusted only by a policy rule. A subject naming a
+// reusable workflow of another repository matches at whatever ref the caller
+// pins it, and only when id's ref is the ref a rule for this service and
+// repository requires (the default branch): a pin stores no ref, and such a
+// subject does not tie it to a branch.
+func PinFor(service ServiceRef, id PublisherIdentity, pins []IdentityPin, rules []PublisherRule) *IdentityPin {
 	for i, p := range pins {
-		if id.CI && p.Service == service && p.Issuer == id.Issuer && p.Subject == id.Subject && NormalizeRepo(p.Repository) == NormalizeRepo(id.Repository) {
+		if !id.CI || p.Service != service || p.Issuer != id.Issuer || NormalizeRepo(p.Repository) != NormalizeRepo(id.Repository) {
+			continue
+		}
+		stable := stableSubject(id.Subject, id.Repository)
+		if stableSubject(p.Subject, p.Repository) == stable && (stable == id.Subject || refRuled(service, id, rules)) {
 			return &pins[i]
 		}
 	}
 	return nil
+}
+
+// stableSubject is subject without its @<ref> when it names a workflow
+// outside repository, as a reusable workflow's does; otherwise subject.
+func stableSubject(subject, repository string) string {
+	if repository == "" || strings.HasPrefix(NormalizeRepo(subject), NormalizeRepo(repository)+"/") {
+		return subject
+	}
+	base, _, _ := strings.Cut(subject, "@")
+	return base
+}
+
+// refRuled reports whether a rule of id's issuer that applies to service and
+// id's repository requires exactly id's ref: a rule written for another
+// service or repository says nothing about this caller's default branch.
+func refRuled(service ServiceRef, id PublisherIdentity, rules []PublisherRule) bool {
+	return slices.ContainsFunc(rules, func(r PublisherRule) bool {
+		return r.Issuer == id.Issuer && r.Ref != "" && r.Ref == id.Ref &&
+			servesService(r.Services, service.Name) && anchoredMatch(r.Repository, id.Repository)
+	})
 }
 
 // Signed publisher statements: a person's confirmation of one signer, which

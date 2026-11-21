@@ -331,9 +331,10 @@ func TestSurfaceParityAnswers(t *testing.T) {
 // aliceView narrows a fleet to the prod and staging namespaces: one Viewer
 // over a Review that lets alice read those two.
 func aliceView() func(context.Context, *fleet.Query) (*fleet.Query, error) {
-	viewer := authn.NewViewer(func(_ context.Context, p authn.Person, ns string, _ authn.ResourceAttributes) (bool, error) {
+	viewer := authn.NewViewer(oneReview(func(_ context.Context, p authn.Person, ns string, _ authn.ResourceAttributes) (bool, error) {
 		return p.User == "alice" && (ns == "prod" || ns == "staging"), nil
-	})
+	}))
+
 	return func(ctx context.Context, q *fleet.Query) (*fleet.Query, error) {
 		return viewer.Query(ctx, authn.Person{User: "alice"}, q)
 	}
@@ -442,7 +443,7 @@ func TestSurfaceParityImpactRefs(t *testing.T) {
 	}}})
 	expect(t, err == nil, "server: %v", err)
 	session := sessionOn(t, server)
-	dash := dashboard.NewServer(dashboard.Options{Fleet: src, View: view, Impact: impactProviderForFleet(dashSvc, false)}).APIHandler()
+	dash := dashboard.NewServer(dashboard.Options{Fleet: src, View: view, Impact: impactProviderForFleet(dashSvc, false, nil)}).APIHandler()
 	ask := func(old string) (string, string) {
 		m, _ := callText(t, session, "pacto_impact", map[string]any{"old_ref": old, "new_ref": "oci://reg.example/orders:1"})
 		return m, routeBody(t, dash, context.Background(), "/api/fleet/impact?old="+url.QueryEscape(old)+"&new="+url.QueryEscape("oci://reg.example/orders:1"))
@@ -465,7 +466,7 @@ func TestCapabilitiesKeysMatchDashboard(t *testing.T) {
 	for _, installed := range []string{"", "yes", "no"} {
 		withDelivery := installed == "yes"
 		d, args := defaultDeps(), append([]string{"--fleet"}, flags...)
-		opts := dashboard.Options{Fleet: fixtureSource(t, flags), Impact: impactProviderForFleet(app.NewService(nil, nil), true)}
+		opts := dashboard.Options{Fleet: fixtureSource(t, flags), Impact: impactProviderForFleet(app.NewService(nil, nil), true, nil)}
 		if installed != "" {
 			d, args = readDeps(nil), append(args, "--delivery")
 			d.served = func(*rest.Config, string) (bool, error) { return withDelivery, nil }

@@ -11,16 +11,22 @@ import (
 	"cmp"
 	"context"
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/sigstore/sigstore-go/pkg/root"
+	"github.com/sigstore/sigstore-go/pkg/tuf"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -38,14 +44,24 @@ import (
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/controller"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/dashboard"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/delivery"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/detection"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/evidence"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/inferredpublish"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/installkey"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/scope"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/targetsnapshot"
+	core "github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
+	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -99,6 +115,7 @@ type options struct {
 	dashboardRepositories    []string
 	dashboardExternalCatalog string
 	dashboardFingerprints    string
+	dashboardOwnerPolicy     string
 
 	enableEvidence            bool
 	evidenceTrustSecret       string
@@ -122,6 +139,17 @@ type options struct {
 	nodeAgentPullSecrets     []string
 	nodeAgentPublishInterval time.Duration
 	nodeAgentResources       component.Resources
+
+	registry             string
+	registryPullSecret   string
+	registryPushPrefixes []string
+
+	ownerPolicy        string
+	trustedRoot        string
+	publishersRegistry string
+	publishersBranch   string
+	publishersPolicy   string
+	policySigners      string
 
 	zap zap.Options
 }
@@ -304,6 +332,36 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.DurationVar(&o.nodeAgentPublishInterval, "node-agent-publish-interval", 30*time.Second,
 		"How often each node agent publishes its node's NodeRuntimeObservation.")
 	bindResourceFlags(fs, &o.nodeAgentResources, "node-agent", "node agent")
+	fs.StringVar(&o.registry, "registry", "",
+		"The installation registry (host/path): Pacto publishes the target snapshot and inferred contracts under it "+
+			"and pushes nowhere else; empty turns those features off.")
+	fs.StringVar(&o.registryPullSecret, "registry-pull-secret", "",
+		"namespace/name of the Secret that authenticates to the installation registry; used only under the push prefixes.")
+	fs.Func("registry-push-prefix",
+		"Repeatable: a repository prefix a Pacto component may push under; the chart renders every one.",
+		func(v string) error {
+			o.registryPushPrefixes = append(o.registryPushPrefixes, v)
+			return nil
+		})
+	fs.StringVar(&o.ownerPolicy, "owner-policy", "",
+		"File holding the owner policy (policy.json from the chart's declare block): who may set a service owner. "+
+			"Published in the target snapshot; empty publishes none.")
+	fs.StringVar(&o.dashboardOwnerPolicy, "dashboard-owner-policy-configmap", "",
+		"Immutable ConfigMap in the operator namespace holding the owner policy (policy.json) the dashboard mounts.")
+	fs.StringVar(&o.trustedRoot, "trusted-root", "",
+		"File holding a Sigstore trusted root (trusted_root.json) that the signatures of an owner change must chain to. "+
+			"Empty fetches public-good Sigstore's root through TUF, caching nothing on disk.")
+	fs.StringVar(&o.publishersRegistry, "publishers-registry", "",
+		"The registry (host/org) the installation's services publish to: its derived publisher rule (the organization's "+
+			"CI on the default branch) is the only CI identity whose signed CODEOWNERS or catalog-info.yaml owner counts "+
+			"as attested when an owner change is judged. Empty: no owner is attested.")
+	fs.StringVar(&o.publishersBranch, "publishers-default-branch", "main",
+		"The default branch whose CI the derived publisher rule accepts.")
+	fs.StringVar(&o.publishersPolicy, "publishers-policy", "",
+		"The signed delivery policy's tag reference (delivery.publishers.policy): once verified, its publisher rules "+
+			"replace the derived rule and its signer class rules classify who signed an owner change, as the fleet does.")
+	fs.StringVar(&o.policySigners, "publishers-policy-signers", "",
+		"A trust config (YAML) whose role: policy keys sign the delivery policy. Required with --publishers-policy.")
 	o.zap.BindFlags(fs)
 }
 
@@ -380,12 +438,34 @@ func main() {
 		os.Exit(1)
 	}
 
+	// The installation identity (registryPullSecret and the cloud sources) answers the tenant-facing
+	// loader only under the inferred contracts, so a tenant's contract ref never rides on it and never
+	// lists the snapshot, index or delivery repositories with it.
+	prefixes := credentials.InstallationPrefixes(o.registry, o.registryPushPrefixes)
+	tenantPrefixes := credentials.TenantPrefixes(o.registry)
+	keychain, err := credentials.OperatorKeychain(mgr.GetAPIReader(), o.registryPullSecret, tenantPrefixes, false)
+	if err != nil {
+		setupLog.Error(err, "Invalid registry settings")
+		os.Exit(1)
+	}
+	// The snapshot publisher's own instance also answers host-only resources: its one repository is
+	// opened behind the push scope.
+	// The settings were checked just above.
+	publishKeychain, _ := credentials.OperatorKeychain(mgr.GetAPIReader(), o.registryPullSecret, prefixes, true)
+
+	contractLoader := loader.New(loader.WithKeychain(keychain))
+	owners, err := ownerCheck(&o, contractLoader)
+	if err != nil {
+		setupLog.Error(err, "Invalid owner check settings")
+		os.Exit(1)
+	}
+
 	pactoReconciler := &controller.PactoReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder()
 		Recorder:                          mgr.GetEventRecorderFor("pacto-controller"),
-		Loader:                            loader.New(),
+		Loader:                            contractLoader,
 		StabilizationWindow:               o.stabilizationWindow,
 		MetricsObservation:                o.metricsObservation,
 		Probing:                           o.probing,
@@ -396,6 +476,7 @@ func main() {
 		CallerIgnoreNamespaces:            o.callerIgnoreNamespaces,
 		Scoped:                            len(o.namespaces) > 0,
 		ServiceEntries:                    servesServiceEntries(mgr),
+		Owners:                            owners,
 	}
 	if err := pactoReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Pacto")
@@ -411,7 +492,7 @@ func main() {
 	}
 	// +kubebuilder:scaffold:builder
 
-	if err := addComponents(mgr, &o, operatorNamespace); err != nil {
+	if err := addComponents(mgr, &o, operatorNamespace, publishKeychain); err != nil {
 		setupLog.Error(err, "Failed to set up the managed components")
 		os.Exit(1)
 	}
@@ -518,7 +599,8 @@ func newManager(o *options) (ctrl.Manager, error) {
 
 // addComponents validates the dashboard, Evidence Server and node agent configurations and registers each
 // sub-component with the manager. A disabled component is still registered: its first sync is its cleanup.
-func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
+// kc is the target snapshot publisher's keychain.
+func addComponents(mgr ctrl.Manager, o *options, namespace string, kc authn.Keychain) error {
 	if o.enableDashboard && dashboardImage == "" {
 		return fmt.Errorf("dashboard enabled but no dashboard image was set at build time: " +
 			"this binary was not built with the required -ldflags for dashboard support")
@@ -549,6 +631,10 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 	// The cluster id names the cluster in Evidence Server reports and in what
 	// detection writes; read once.
 	ident := readClusterIdentity(mgr)
+	inst, err := addTargetSnapshot(mgr, o, namespace, ident.ID, evidenceSourceURL, kc)
+	if err != nil {
+		return err
+	}
 
 	dashCfg := dashboard.Config{
 		Enabled:               o.enableDashboard,
@@ -569,12 +655,14 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		Repositories:          o.dashboardRepositories,
 		ExternalCatalog:       o.dashboardExternalCatalog,
 		FingerprintsConfigMap: o.dashboardFingerprints,
+		OwnerPolicyConfigMap:  o.dashboardOwnerPolicy,
 	}
 	// Detection proposes what the cluster provides in one ConfigMap; it never
 	// changes an argument, a rule or a feature. The managed dashboard mounts it
 	// as a file.
 	if d := detection.ForOperator(os.Getenv("OPERATOR_DEPLOYMENT_NAME"), namespace, o.namespaces,
-		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig())); d != nil {
+		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig()),
+		inst, lastPush.Load); d != nil {
 		if err := mgr.Add(d); err != nil {
 			return fmt.Errorf("failed to add detection: %w", err)
 		}
@@ -627,6 +715,11 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		return fmt.Errorf("failed to add evidence reconciler: %w", err)
 	}
 
+	return addNodeAgent(mgr, o, namespace)
+}
+
+// addNodeAgent validates the node agent configuration and registers its reconciler.
+func addNodeAgent(mgr ctrl.Manager, o *options, namespace string) error {
 	nodeAgentCfg := nodeagent.Config{
 		Enabled:           o.enableNodeAgent,
 		Image:             cmp.Or(o.nodeAgentImage, dashboardImage), // the runtime image runs `pacto agent`
@@ -658,6 +751,144 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		return fmt.Errorf("failed to add node agent reconciler: %w", err)
 	}
 	return nil
+}
+
+// lastPush is the target snapshot publisher's last attempt, which detection advertises.
+var lastPush atomic.Pointer[detect.PushResult]
+
+// addTargetSnapshot runs the target snapshot publisher when --registry is set: it ensures the installation
+// key, then publishes <registry>/pacto-targets:cluster-<uid> and the inferred contracts under
+// <registry>/pacto-inferred on the elected leader. It returns the
+// installation detection advertises, nil without --registry. Any missing piece stops the operator at start
+// with its reason.
+func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace, clusterID, evidenceURL string,
+	kc authn.Keychain) (*detect.Installation, error) {
+	if o.registry == "" {
+		setupLog.Info("Target snapshot and inferred contracts are off: set the registry value")
+		return nil, nil
+	}
+	deploy := os.Getenv("OPERATOR_DEPLOYMENT_NAME")
+	if deploy == "" {
+		return nil, fmt.Errorf("--registry needs OPERATOR_DEPLOYMENT_NAME: " +
+			"the installation key Secret is named after the operator Deployment")
+	}
+	key, err := installkey.Ensure(context.Background(), mgr.GetAPIReader(), mgr.GetClient(), namespace,
+		installkey.SecretName(deploy))
+	if err != nil {
+		return nil, err
+	}
+	pub, err := targetsnapshot.ForOperator(targetsnapshot.Config{Registry: o.registry, ClusterID: clusterID,
+		Namespace: namespace, ServiceAccount: os.Getenv("OPERATOR_SERVICE_ACCOUNT"), EvidenceURL: evidenceURL,
+		Watched: o.namespaces, Key: key, Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(),
+		OnPush: func(r detect.PushResult) { lastPush.Store(&r) }, OwnerPolicy: readOwnerPolicy(o.ownerPolicy)})
+	if err != nil {
+		return nil, err
+	}
+	// The inferred contracts of the externals the Pactos name, signed with the same key, under
+	// <registry>/pacto-inferred: the same push scope, on the elected leader.
+	inferred, err := inferredpublish.ForOperator(inferredpublish.Config{Registry: o.registry, Key: key, Keychain: kc,
+		Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(), Watched: o.namespaces, Pacto: version})
+	if err != nil {
+		return nil, err
+	}
+	if err := mgr.Add(inferred); err != nil {
+		return nil, err
+	}
+	inst := &detect.Installation{Registry: o.registry,
+		Targets:     oci.InstallationRepository(o.registry, oci.TargetsRepository),
+		Index:       oci.InstallationRepository(o.registry, oci.IndexRepository),
+		Inferred:    oci.InstallationRepository(o.registry, oci.InferredRepository),
+		Pushes:      credentials.InstallationPrefixes(o.registry, o.registryPushPrefixes),
+		SnapshotKey: installkey.PublicKeyBase64(key), SnapshotKeyID: signing.Hint(key.Public())}
+	setupLog.Info("Target snapshot is on", "repository", inst.Targets,
+		"snapshotKeyID", inst.SnapshotKeyID, "snapshotKey", inst.SnapshotKey)
+	return inst, mgr.Add(pub)
+}
+
+// readOwnerPolicy reads the mounted owner policy once at start: the ConfigMap
+// is immutable and content-named, so a chart change rolls the pod. A policy
+// that does not read is logged and none is published, so readers see no policy
+// (unknown) rather than an empty one.
+func readOwnerPolicy(path string) *core.OwnerPolicy {
+	if path == "" {
+		return nil
+	}
+	p, why := core.ReadOwnerPolicy(path)
+	if p == nil {
+		setupLog.Error(errors.New(why), "The owner policy is not published")
+	}
+	return p
+}
+
+// ownerCheck is what OwnerVerified judges a running bundle's owner change
+// with: the mounted owner policy, the trusted root (--trusted-root, else
+// public-good Sigstore through TUF), the publisher rule derived from
+// --publishers-registry and a registry client with each Pacto's pull
+// credentials. A trusted root file that cannot be read fails startup.
+func ownerCheck(o *options, ld *loader.Loader) (*controller.OwnerCheck, error) {
+	fetch := func() (root.TrustedMaterial, error) { return signing.PublicGoodRootReadOnly(tuf.DefaultMirror) }
+	if o.trustedRoot != "" {
+		raw, err := os.ReadFile(o.trustedRoot)
+		if err != nil {
+			return nil, err
+		}
+		tr, err := root.NewTrustedRootFromJSON(raw)
+		if err != nil {
+			return nil, fmt.Errorf("--trusted-root: %w", err)
+		}
+		fetch = func() (root.TrustedMaterial, error) { return tr, nil }
+	}
+	oc := &controller.OwnerCheck{Root: hourlyRoot(fetch), Now: time.Now,
+		PolicyFrom: "no owner policy is mounted (the chart's declare block is empty)",
+		Registry: func(auth *authn.AuthConfig) publish.Registry {
+			return publish.NewClient(ld.Keychain(auth), oci.EnvInsecureRegistries()...)
+		}}
+	if o.ownerPolicy != "" {
+		oc.Policy, oc.PolicyFrom = core.ReadOwnerPolicy(o.ownerPolicy)
+	}
+	pubs := core.PublisherConfig{Registry: o.publishersRegistry, DefaultBranch: o.publishersBranch}
+	if rule, why := pubs.Rule(); why == "" {
+		oc.Rules = []core.PublisherRule{rule}
+	}
+	if o.publishersPolicy != "" {
+		raw, err := os.ReadFile(o.policySigners)
+		if err != nil {
+			return nil, fmt.Errorf("--publishers-policy-signers: %w", err)
+		}
+		verify, err := core.PolicyVerifier(raw, signing.OpenKey)
+		if err != nil {
+			return nil, fmt.Errorf("--publishers-policy-signers: %w", err)
+		}
+		reg := func(...string) publish.Registry {
+			return publish.NewClient(ld.Keychain(nil), oci.EnvInsecureRegistries()...)
+		}
+		pubs := &delivery.Publishers{Policy: o.publishersPolicy, PolicyVerify: verify, Reg: reg, Now: time.Now}
+		oc.DeliveryPolicy = pubs.VerifiedPolicy
+	}
+	return oc, nil
+}
+
+// hourlyRoot is fetch, its last good root reused for an hour: Sigstore
+// rotates keys through TUF. A failed fetch is tried again on the next call.
+// ponytail: one mutex around the fetch; owner checks are rare (a new digest
+// that changes an owner).
+func hourlyRoot(fetch func() (root.TrustedMaterial, error)) func() (root.TrustedMaterial, error) {
+	var mu sync.Mutex
+	var tm root.TrustedMaterial
+	var at time.Time
+	return func() (root.TrustedMaterial, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if tm != nil && time.Since(at) < time.Hour {
+			return tm, nil
+		}
+		got, err := fetch()
+		if err != nil {
+			return nil, err
+		}
+		tm, at = got, time.Now()
+		return tm, nil
+	}
 }
 
 // operatorOwnerRef discovers the operator's own Deployment for the ownerReferences of the managed

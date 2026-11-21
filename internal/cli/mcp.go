@@ -67,7 +67,9 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"asks the apiserver who the caller is (a SelfSubjectReview) and asks Kubernetes RBAC what that user may read.\n\n" +
 			"With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish " +
 			"a contract's version exactly as `pacto publish` does, with this process's registry credentials.\n\n" +
-			"Over HTTP the only contract tool is pacto_schema: pacto_create, pacto_edit and pacto_check read and write the server's folders and follow refs with its credentials, so they run beside the agent over stdio.\n\n" +
+			"Over HTTP the contract tools are pacto_schema and pacto_declare: pacto_create, pacto_edit and pacto_check read and write the server's folders and follow refs with its credentials, so they run beside the agent over stdio. " +
+			"pacto_declare plans declaring a running workload; over stdio it writes a draft-<n> tag a person accepts with pacto declare --from-draft, and over HTTP " +
+			"(with --auth-issuer and token exchange) it plans with the caller's own cluster credentials, only in the registries --oci names, and writes nothing.\n\n" +
 			"A bundle reference, --fleet and --delivery combine in one server; --root and --publish select servers of their own. " +
 			"Call pacto_capabilities to learn what a server serves.",
 		Example: `  # Start MCP server over stdio (default)
@@ -105,8 +107,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			if err := checkFleetOnlyFlags(cmd, fleetMode); err != nil {
 				return err
 			}
-			if publishMode && s.transport != "stdio" {
-				return errPublishOverHTTP
+			if err := checkTransportOnly(cmd, svc, s.transport, publishMode); err != nil {
+				return err
 			}
 			if err := mcpRemote(cmd, d, &s); err != nil {
 				return err
@@ -149,11 +151,13 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().String("stats-read-registry", "", "with --fleet: the stats repository pacto_stats reads; it reads and never records. "+
 		"Over stdio the default is $PACTO_STATS_REGISTRY; over HTTP only this flag enables pacto_stats")
 	cmd.Flags().Bool("delivery", false, "expose the Pacto delivery tools over the ambient cluster")
+	cmd.Flags().String("owner-policy", "", "over HTTP: the mounted owner policy (the chart's declare block as policy.json) that names who may set a service owner in pacto_declare plans; "+
+		"refused over stdio, which reads it from the signed target snapshots")
 	cmd.Flags().Bool("publish", false, "expose pacto_publish_plan and pacto_publish beside the authoring tools")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "in --delivery mode: "+"namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
-	cmd.Flags().String("delivery-trust", "", "the trust config delivery records (in --delivery mode), the golden paths pacto_create creates from and the target snapshots "+
-		"pacto_impact and --target-snapshot read are verified with (the recorder's PEM public key or a YAML trust config; a target snapshot verifies only under a "+
-		"key scoped to its cluster: streams [\"<uid>/*/*\"]; default $"+app.TrustEnv+")")
+	cmd.Flags().String("delivery-trust", "", "the trust config delivery records (in --delivery mode), the golden paths pacto_create creates from and the target snapshots (the owner policy pacto_declare reads included) "+
+		"pacto_impact and --target-snapshot read are verified with (a PEM public key or a YAML trust config: the recorder's key for records, the operator's advertised installation key "+
+		"for a target snapshot, which verifies only under a key scoped to its cluster: streams [\"<uid>/*/*\"]; default $"+app.TrustEnv+")")
 	// Declared before the shared set so this spelling wins: here --root selects a
 	// catalog to discover, not a closure to fold into a snapshot.
 	cmd.Flags().StringArray("root", nil, "contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)")
@@ -244,7 +248,7 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 	if err != nil {
 		return nil, err
 	}
-	view := mcpFleetView(cmd, d)
+	view, home := mcpFleetView(cmd, svc, d)
 	url, _ := cmd.Flags().GetString("dashboard-url")
 	// view is nil for an HTTP server without --auth-issuer too, so only the
 	// transport says whether the caller is this process's own user.
@@ -254,7 +258,7 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 		// the unrestricted sources.
 		Impact: mcpImpactProvider(cmd, svc, d, view == nil, transport == "stdio"), View: view, DashboardURL: url,
 		Reached: stdioReached(cmd, d, transport),
-		Stats:   mcpStatsProvider(cmd, svc, transport == "stdio"),
+		Stats:   mcpStatsProvider(cmd, svc, transport == "stdio", home),
 	}}, nil
 }
 
@@ -413,10 +417,32 @@ var errDeliveryOverHTTP = errors.New("--delivery over HTTP needs --auth-issuer, 
 var errPublishOverHTTP = errors.New("--publish serves stdio only: over HTTP every caller would publish with this process's " +
 	"registry credentials; run `pacto mcp --publish` beside the agent, under the agent's own credentials")
 
+// checkTransportOnly refuses --publish over HTTP and --owner-policy over
+// stdio, and hands an HTTP server its owner policy mount.
+func checkTransportOnly(cmd *cobra.Command, svc *app.Service, transport string, publishMode bool) error {
+	path, _ := cmd.Flags().GetString("owner-policy")
+	switch {
+	case publishMode && transport != "stdio":
+		return errPublishOverHTTP
+	case path != "" && transport == "stdio":
+		return errOwnerPolicyOverStdio
+	}
+	svc.OwnerPolicyPath = cmp.Or(path, svc.OwnerPolicyPath)
+	return nil
+}
+
+// errOwnerPolicyOverStdio refuses a local owner policy file beside the agent:
+// whoever runs the agent could name themselves an approver, so stdio reads
+// the policy only from the signed target snapshots.
+var errOwnerPolicyOverStdio = errors.New("--owner-policy serves HTTP only: over stdio the owner policy is read from the signed target snapshots, " +
+	"never from a file the agent's user writes")
+
 // mcpAuthoring is what every server's authoring tools get. pacto_create,
-// pacto_edit and pacto_check serve stdio only: over HTTP every caller would
-// read and write this process's folders, read its kubeconfig and follow refs
-// with its registry credentials, so Remote leaves only pacto_schema there.
+// pacto_edit, pacto_check and the drafting pacto_declare serve stdio only:
+// over HTTP every caller would read and write this process's folders, read
+// its kubeconfig and follow refs with its registry credentials, so Remote
+// leaves only pacto_schema there (remoteCallerFor adds the planning
+// pacto_declare when it reviews each caller).
 func mcpAuthoring(cmd *cobra.Command, svc *app.Service) pactomcp.Authoring {
 	a := pactomcp.Authoring{Validate: svc.ValidationReport}
 	transport, _ := cmd.Flags().GetString("transport")
@@ -425,6 +451,7 @@ func mcpAuthoring(cmd *cobra.Command, svc *app.Service) pactomcp.Authoring {
 		trust, _ := cmd.Flags().GetString("delivery-trust")
 		a.Init = mcpInit(svc, trust)
 		a.Catalog, a.CatalogUnavailable = mcpCatalog(cmd, svc)
+		a.Declare, a.Accept = newMCPDeclarer(svc, trust), mcpAcceptor{svc: svc, trust: publisherTrust(cmd, fleetDeps(), "")}
 	}
 	return a
 }
@@ -533,6 +560,11 @@ func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing,
 	}
 	auto, _ := impactSnapshotAuto(cmd) // buildFleetMode refused a mix at startup
 	return func(ctx context.Context, snap *fleet.FleetSnapshot, req pactomcp.ImpactRequest) (*impact.Result, error) {
+		if req.Running && !addMissing {
+			// A hidden target could hide a running revision, and an empty
+			// running set reads as a first version.
+			return nil, errRunningRestricted
+		}
 		req, err := refuseUntrustedImpact(req, trusted, snap)
 		if err != nil {
 			return nil, err
@@ -555,10 +587,22 @@ func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing,
 		// Only a trusted (stdio) server derives the change's target snapshot:
 		// reading another cluster for a signed-in viewer needs a review there.
 		opts := app.ImpactOptions{OldPath: req.OldRef, NewPath: req.NewRef, NewDirName: req.NewDirName, Domain: req.Domain, Fleet: fopts,
-			IncludeObserved: req.IncludeObserved, Traces: traces, TargetSnapshotAuto: trusted && auto}
+			IncludeObserved: req.IncludeObserved, Traces: traces, TargetSnapshotAuto: trusted && auto, Acceptances: trusted, Policy: req.Policy}
+		if req.Running {
+			if trusted {
+				opts.RunningRegistries = runningRegistries(cmd)
+			}
+			// Over HTTP the running refs come from the caller's whole view
+			// and only the host of the pinned new_ref is pulled from.
+			return svc.ImpactRunning(ctx, opts, snap)
+		}
 		return svc.ImpactOnSnapshot(ctx, opts, snap, addMissing)
 	}
 }
+
+// errRunningRestricted refuses a running question on a server whose answers
+// are restricted to the caller's view.
+var errRunningRestricted = errors.New("running needs every target of the service, and your view hides some")
 
 // refuseUntrustedImpact keeps an HTTP caller from naming a file path, a
 // local ref or a revision outside their fleet view: the server would read
@@ -571,6 +615,16 @@ func refuseUntrustedImpact(req pactomcp.ImpactRequest, trusted bool, snap *fleet
 	case req.TracesPath != "":
 		return req, errors.New("this server answers over HTTP: it reads no file path a caller names")
 	case req.Event != nil:
+		return req, nil
+	case req.Running:
+		if graph.ParseDependencyRef(req.NewRef).IsLocal() {
+			return req, errors.New("this server answers over HTTP: pass an oci:// reference")
+		}
+		pinned, err := pinVisibleRef(snap, req.NewRef)
+		if err != nil {
+			return req, fmt.Errorf("new_ref %w", err)
+		}
+		req.NewRef = pinned
 		return req, nil
 	case graph.ParseDependencyRef(req.OldRef).IsLocal() || graph.ParseDependencyRef(req.NewRef).IsLocal():
 		return req, errors.New("this server answers over HTTP: pass oci:// references")
@@ -595,31 +649,44 @@ func mcpRegression(ctx context.Context, cmd *cobra.Command, d deps, ev impact.Ev
 
 // mcpFleetView narrows the fleet tools of a server whose callers sign in
 // (HTTP with --auth-issuer) to what each caller's Kubernetes RBAC lets them
-// read, asked with this process's own credentials about the person the
-// apiserver reviewed for the request (remoteCaller). Other servers answer
-// from the whole snapshot, as their single local user would read it.
-// checkFleetOnlyFlags already checked --review.
-func mcpFleetView(cmd *cobra.Command, d deps) pactomcp.FleetView {
+// read, asked in each cluster the fleet reads (--k8s, --context) with that
+// context's own credentials about the person the apiserver reviewed for the
+// request (remoteCaller). Other servers answer from the whole snapshot, as
+// their single local user would read it. checkFleetOnlyFlags already checked
+// --review. home is the sign-in cluster's cached id, which the stats
+// provider reviews operation records in; nil without a view.
+func mcpFleetView(cmd *cobra.Command, svc *app.Service, d deps) (pactomcp.FleetView, func(context.Context) (string, bool)) {
 	transport, _ := cmd.Flags().GetString("transport")
 	issuer, _ := cmd.Flags().GetString("auth-issuer")
 	mode, _ := cmd.Flags().GetString("review")
 	namespaces := flagNamespaces(cmd)
 	if transport != "http" || issuer == "" {
-		return nil
+		return nil, nil
 	}
 	cluster, _ := d.clusterConfig()
-	viewer := clusterViewer(cluster, d.dynamicFor, mode, namespaces)
+	home := newHomeCluster(cluster, d)
+	fopts := mcpFleetOptions(cmd)
+	_, _ = fmt.Fprint(cmd.ErrOrStderr(), mcpSignInLine(fopts))
+	viewer := clusterViewer(fleetEntries(svc, d, fopts), home, d, mode, namespaces)
 	return func(ctx context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
 		p, ok := personFrom(ctx)
 		if !ok {
 			return nil, errNobodyReviewed
 		}
-		r, err := viewer.Query(ctx, p, q)
-		if err != nil {
-			return nil, fmt.Errorf("checking your Kubernetes permissions failed: %w", err)
-		}
-		return r, nil
+		return viewer.Query(ctx, p, q)
+	}, home.UID
+}
+
+// mcpSignInLine names the cluster an MCP server signs callers in against:
+// always the current (or in-cluster) configuration, which --context never
+// replaces. ServiceAccount and node identities and operation records are
+// reviewed there only, so it warns when the fleet does not read it.
+func mcpSignInLine(fopts app.FleetOptions) string {
+	line := "Sign-in cluster: the current context; ServiceAccount and node identities and operation records are reviewed there only"
+	if !fopts.IncludeK8s && len(fopts.K8sContexts) > 0 {
+		line += ". The fleet does not read it: add --k8s, or such callers see no cluster"
 	}
+	return line + "\n"
 }
 
 // parseAuthFlags parses repeated name=value credential flags.
@@ -691,8 +758,9 @@ var errStatsRegistryOverHTTP = errors.New("this server answers over HTTP: it rea
 // only with --stats-read-registry and never reads the environment: a host
 // that exports it for CI recording must not serve that repository to remote
 // callers. A caller with a view is narrowed fail closed and reads only the
-// operation records its own exchanged client may list.
-func mcpStatsProvider(cmd *cobra.Command, svc *app.Service, trusted bool) pactomcp.StatsProvider {
+// operation records its own exchanged client may list, in home, the
+// sign-in cluster whose cached id mcpFleetView read.
+func mcpStatsProvider(cmd *cobra.Command, svc *app.Service, trusted bool, home func(context.Context) (string, bool)) pactomcp.StatsProvider {
 	flag, _ := cmd.Flags().GetString("stats-read-registry")
 	if !trusted && flag == "" {
 		return nil
@@ -724,7 +792,7 @@ func mcpStatsProvider(cmd *cobra.Command, svc *app.Service, trusted bool) pactom
 		// A signed-in caller's own exchanged client reviews the operation
 		// records; without one there is no delivery, never the server's.
 		if act := reviewedFrom(ctx).own; scope.Restricted && act != nil {
-			r.Scope.NoDelivery, r.OperationAccess = "", operationAccess(act, full)
+			r.Scope.NoDelivery, r.OperationAccess = "", operationAccess(act, full, home)
 		}
 		return svc.Stats(ctx, r)
 	}

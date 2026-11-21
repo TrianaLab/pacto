@@ -44,8 +44,8 @@ Pacto writes the contract from your service.
 
 If you only want the contract and its CI checks, run
 `pacto init --describe-only`: its next steps say how to validate the contract
-instead of how to publish it. Then go on to [Put it in your repository](ci.md): `pacto push`
-uploads the contract alone.
+instead of how to publish it. Then go on to [Put it in your repository](ci.md):
+`pacto ci --publish` publishes it when `publish.bundle` is declared.
 
 ## 1. See what Pacto would add
 
@@ -186,12 +186,12 @@ refused, and a published version is never overwritten; see
 !!! warning "Alpha"
     Delivery is new: its settings and commands may still change.
 
-Install, once per cluster, Flux, the Pacto operator (it checks that each
-running service matches its contract) and delivery (it decides which version
-runs in each environment). One Helm chart installs both. Delivery reads your contracts: with a private registry, give it a login
+Install, once per cluster, Flux, the Pacto operator (it checks each
+running service against its contract) and delivery (it decides which version
+runs in each environment). One Helm chart installs both. With a private registry, give delivery a login
 in the operator's namespace and add
 `--set delivery.promoter.registryCredentials.secretName=registry-creds` to the
-command that turns delivery on below:
+delivery command below:
 
 ```bash
 kubectl create namespace pacto-operator-system
@@ -210,10 +210,11 @@ kubectl apply -f https://github.com/fluxcd/flux2/releases/latest/download/instal
 Replace `staff` with your people's group; [Install](integrations/kubernetes/delivery-setup.md#install)
 says why.
 
-Delivery is opt-in: without it, Pacto never changes what runs. Each environment
+Delivery is opt-in: without it, Pacto never changes what runs. The chart's
+`registry` value publishes what runs for CI and keeps delivery off. Each environment
 is a namespace of the same name. A Stage promotes nothing until you set
 `spec.verify.matchOIDCIdentity` in its `delivery/<env>.yaml` to the identity
-`pacto ci --publish` printed when it signed. On GitLab CI, also set its `issuer`
+`pacto ci --publish` printed. On GitLab CI, also set its `issuer`
 to your GitLab's address. Then apply the files:
 
 ```bash

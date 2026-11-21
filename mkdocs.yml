@@ -203,6 +203,7 @@ nav:
           - Quickstart: quickstart.md
           - Generate contracts from what you already have: bootstrap-contracts.md
           - Put it in your repository: ci.md
+          - Move an existing pipeline: ci-from-pipeline.md
           - Pactify a service: pactify.md
       - Approve or unblock a change: pactify-decide.md
       - Verify a record: verify-a-record.md
@@ -235,9 +236,11 @@ nav:
       - Operational graph reference: operational-graph-reference.md
       - Operational graph tallies: operational-graph-tallies.md
       - Clusters and target keys: operational-graph-clusters.md
+      - Multi-cluster: multi-cluster.md
       - Inferred services: operational-graph-inferred.md
       - Detected providers: operational-graph-providers.md
       - External catalog reference: external-catalog-reference.md
+      - Inferred contracts: inferred-contracts.md
       - Platform offerings reference: platform-offerings.md
       - Offering availability and lifecycle: offering-availability.md
       - Golden paths reference: golden-paths-reference.md
@@ -246,6 +249,7 @@ nav:
           - MCP publish and delivery tools: mcp-delivery-tools.md
       - Publish reference: publishing.md
       - Publish from CI: publish-from-ci.md
+      - Who may set a service owner: owner-setting.md
       - Run record reference: run-record-reference.md
       - Dashboard reference:
           - The service page: dashboard-service-page.md
@@ -293,6 +297,7 @@ nav:
       - Kubernetes:
           - Install the operator: integrations/kubernetes/installation.md
           - Run with least privilege: integrations/kubernetes/least-privilege.md
+          - Owner policy: integrations/kubernetes/owner-policy.md
           - What Pacto detects: integrations/kubernetes/detection.md
           - Quickstart profile: integrations/kubernetes/quickstart.md
           - Kubernetes overview: integrations/kubernetes/overview.md
@@ -302,6 +307,7 @@ nav:
           - Evidence Server: integrations/kubernetes/evidence-server.md
           - Upgrade the operator: integrations/kubernetes/upgrade.md
           - GitOps promotion gates: integrations/kubernetes/gitops.md
+          - Kargo promotion gate: integrations/kubernetes/gitops-kargo.md
           - CRD reference: integrations/kubernetes/crd-reference.md
           - Helm reference: integrations/kubernetes/helm-reference.md
           - RBAC: integrations/kubernetes/rbac.md

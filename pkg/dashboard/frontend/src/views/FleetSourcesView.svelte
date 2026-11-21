@@ -2,7 +2,7 @@
   import { onDestroy, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader, productListState } from '../lib/productLoader.svelte.ts';
-  import { sourceHealthLabel, sourceHealthTallyParts } from '../lib/entityLabels.ts';
+  import { sourceHealthLabel, sourceHealthTallyParts, sourceHealthTone } from '../lib/entityLabels.ts';
   import { SOURCE_STATES, bucketLabel, sourceSegments } from '../lib/distributions.ts';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
   import { fleetOverviewUrl, fleetSourcesUrl } from '../lib/router.ts';
@@ -23,6 +23,8 @@
   import LazyView from '../components/LazyView.svelte';
   import DetectedProviders from '../components/DetectedProviders.svelte';
   import { loadTrustFigure } from '../lib/lazyFigures.ts';
+  import HelpTip from '../components/HelpTip.svelte';
+  import { clusterWord, clusterReason, showClusters } from '../lib/clusters.ts';
 
   // The product Sources list: source discovery through
   // /api/fleet/entities?kinds=source via the SDK facade, with a search box and a
@@ -100,6 +102,12 @@
     sourceKind ? { key: 'sourceKind', label: 'Kind', value: sourceKind } : null,
   ].filter(Boolean));
   function removeChip(key) { location.hash = urlWith({ [key]: '' }); }
+
+  // Each cluster's status (514-S2), from the latest answer: shown with two or more
+  // clusters or when a restricted view hides one. An access mark is neutral, never a
+  // status tone: it says what this reader may see, not how the cluster is doing.
+  const clusters = $derived(loader.data?.meta?.clusters ?? []);
+  const clusterTone = (c) => (c.access ? 'neutral' : sourceHealthTone(c.status));
 </script>
 
 <div class="product-page">
@@ -129,6 +137,23 @@
         </div>
       {/snippet}
     </LazyView>
+  {/if}
+
+  {#if showClusters(clusters)}
+    <section class="sc" data-testid="source-clusters" aria-labelledby="sc-title">
+      <h2 id="sc-title" class="t-subsection-title">Clusters</h2>
+      <ul class="sc-list">
+        {#each clusters as c, i (`${c.id}@@${i}`)}
+          <li class="sc-chip tone-{clusterTone(c)}" data-testid="source-cluster">
+            <span class="sc-dot" aria-hidden="true"></span>
+            <bdi title={c.name || c.id}>{c.name || c.id}</bdi>
+            <span class="sc-word">{clusterWord(c)}</span>
+            <HelpTip label={`cluster ${c.name || c.id}`} text={clusterReason(c)} />
+          </li>
+        {/each}
+      </ul>
+      {#if loader.data?.meta?.clustersTruncated}<p class="t-meta">Showing the {formatCount(clusters.length)} least healthy clusters.</p>{/if}
+    </section>
   {/if}
 
   <DetectedProviders {refreshTick} />
@@ -175,6 +200,18 @@
 
 <style>
   .lv-tally { margin: 0; }
+  .sc { display: flex; flex-direction: column; gap: var(--sp-2); min-inline-size: 0; }
+  .sc h2, .sc p { margin: 0; }
+  .sc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-2); min-inline-size: 0; }
+  .sc-chip { display: inline-flex; align-items: center; gap: var(--sp-2); max-inline-size: 100%; min-inline-size: 0; padding: 2px var(--sp-1) 2px var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-pill); font-size: var(--text-sm); }
+  .sc-dot { flex: none; inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--tone-c); }
+  /* A 63-character cluster name ends in an ellipsis; its title holds it whole. */
+  .sc-chip bdi { min-inline-size: 0; max-inline-size: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .sc-word { flex: none; color: var(--c-text-2); }
+  .tone-ok { --tone-c: var(--c-ok); }
+  .tone-warn { --tone-c: var(--c-warn); }
+  .tone-err { --tone-c: var(--c-err); }
+  .tone-neutral { --tone-c: var(--c-neutral); }
   /* Inline links inside a sentence, so they are underlined rather than only accent-
      coloured -- the same rule the overview's "See all" follows (WCAG 1.4.1). */
   .lv-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }

@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -212,12 +212,17 @@ func postReview(ctx context.Context, r dynamic.ResourceInterface, review *unstru
 	return allowed, nil
 }
 
-// Viewer narrows fleet answers to the namespaces a person may read, asking
-// Kubernetes RBAC once per person and namespace for ttl.
+// Viewer narrows fleet answers to what a person may read in each cluster,
+// asking each cluster's own reviewer once per person, resource and namespace
+// for ttl.
 type Viewer struct {
-	review Review
-	ttl    time.Duration
-	now    func() time.Time
+	reviews Reviews
+	// home is the reviewer key of the sign-in cluster, the only one that
+	// reviews a cluster-local identity (ServiceAccount, node); nil takes the
+	// only reviewer when there is one.
+	home func(context.Context) (string, bool)
+	ttl  time.Duration
+	now  func() time.Time
 	// scoped viewers never ask about every namespace at once and ask only
 	// about the watched namespaces; every other namespace is not visible.
 	scoped  bool
@@ -226,10 +231,15 @@ type Viewer struct {
 	mu      sync.Mutex
 	answers map[string]verdict
 	// views are restricted queries of the snapshot viewsOf, one per set of
-	// visible namespaces, so people who see the same namespaces share one.
+	// visible pairs and access marks, so people who see the same share one.
 	viewsOf string
 	views   map[string]*fleet.Query
 }
+
+// Reviews is the reviewer of each cluster, keyed by cluster id; the key ""
+// reviews the items that carry no cluster id. A cluster with no reviewer is
+// not reviewable: its items are hidden from every signed-in reader.
+type Reviews func(ctx context.Context) map[string]Review
 
 type verdict struct {
 	allowed bool
@@ -241,22 +251,27 @@ type verdict struct {
 const (
 	maxAnswers = 8192
 	maxViews   = 64
-	// reviewsAtOnce bounds the reviews one request has in flight.
+	// reviewsAtOnce bounds the reviews one request has in flight per cluster.
 	reviewsAtOnce = 8
 )
 
-// NewViewer asks review, keeping each answer a minute.
-func NewViewer(review Review) *Viewer {
-	return &Viewer{review: review, ttl: time.Minute, now: time.Now, answers: map[string]verdict{}, views: map[string]*fleet.Query{}}
+// clusterReviewTimeout bounds every review of one cluster for one request:
+// past it the cluster is hidden as review-failed and the others still answer.
+// A var so tests can shorten it.
+var clusterReviewTimeout = reviewTimeout
+
+// NewViewer asks each cluster's reviewer, keeping each answer a minute.
+func NewViewer(reviews Reviews) *Viewer {
+	return &Viewer{reviews: reviews, ttl: time.Minute, now: time.Now, answers: map[string]verdict{}, views: map[string]*fleet.Query{}}
 }
 
-// NewScopedViewer asks review only about the watched namespaces, never about
-// every namespace at once, so nobody reads the whole fleet through it and a
-// service without a namespace shows to nobody. Every other namespace, such as
-// that of an observed caller in kube-system, is not visible and is never
-// asked about: the reviewer may hold no grant there.
-func NewScopedViewer(review Review, watched []string) *Viewer {
-	v := NewViewer(review)
+// NewScopedViewer asks each cluster's reviewer only about the watched
+// namespaces, never about every namespace at once, so nobody reads the whole
+// fleet through it and a service without a namespace shows to nobody. Every
+// other namespace, such as that of an observed caller in kube-system, is not
+// visible and is never asked about: the reviewer may hold no grant there.
+func NewScopedViewer(reviews Reviews, watched []string) *Viewer {
+	v := NewViewer(reviews)
 	v.scoped, v.watched = true, map[string]bool{}
 	for _, ns := range watched {
 		v.watched[ns] = true
@@ -264,44 +279,61 @@ func NewScopedViewer(review Review, watched []string) *Viewer {
 	return v
 }
 
-// ErrReview is what a person learns of a failed review. It names no
-// namespace: an apiserver error names the one it was asked in, which the
-// person may not read. The cause is logged.
-var ErrReview = errors.New("the apiserver could not review which namespaces you may read")
+// SignInCluster sets the reviewer key of the cluster people sign in against:
+// a ServiceAccount or node identity exists only there, so only that cluster
+// reviews one. Unknown (false) reviews such an identity nowhere.
+func (v *Viewer) SignInCluster(home func(context.Context) (string, bool)) *Viewer {
+	v.home = home
+	return v
+}
 
-// Query is q as p sees it. A cluster-wide reader sees all of it; anyone else
-// sees the namespaces they may read and nothing without a namespace, such as
-// a service known only from a registry. An inferred service also needs p to
-// be allowed to list its workload kind in its namespace, so a cluster-wide
-// Pacto reader sees all of q only when they may list every such kind
-// cluster-wide too. A failed review is ErrReview, never a quietly smaller
-// answer.
+// clusterWork is what one cluster's reviewer is asked and what it answered.
+type clusterWork struct {
+	key    string
+	review Review
+	// nss and scopes are the namespaces and workload scopes of the items this
+	// reviewer decides; shows says there is at least one.
+	nss    []string
+	scopes []fleet.WorkloadScope
+	shows  bool
+
+	visible      []string
+	all          bool
+	workloads    map[fleet.WorkloadScope]bool
+	allWorkloads bool
+	err          error
+}
+
+// sees reports whether the reviewer let the person read anything.
+func (w *clusterWork) sees() bool { return w.all || len(w.visible) > 0 || len(w.workloads) > 0 }
+
+// Query is q as p sees it. Each cluster is reviewed by its own reviewer, in
+// parallel and within clusterReviewTimeout: a cluster-wide reader there sees
+// all of it, anyone else the namespaces they may read. An inferred service
+// also needs p to be allowed to list its workload kind in its namespace. A
+// service without a namespace shows only to someone every reviewer answered
+// cluster-wide yes for. A cluster with no reviewer, whose review failed or
+// where p may read nothing (with several clusters) is hidden, named in a
+// CLUSTER_HIDDEN limitation, and the answer is partial. Query fails only when
+// ctx ends.
 func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Query, error) {
 	who := p.User + "\x00" + strings.Join(slices.Sorted(slices.Values(p.Groups)), "\x00")
-	scopes := q.InferredWorkloadScopes()
-	visible, all, err := v.visible(ctx, p, who, q.Namespaces())
-	var workloads map[fleet.WorkloadScope]bool
-	allWorkloads := false
-	if err == nil {
-		workloads, allWorkloads, err = v.workloads(ctx, p, who, scopes, all, visible)
+	m := v.reviews(ctx)
+	route := v.router(ctx, m, p)
+	work, access := v.plan(m, route, q)
+	v.reviewAll(ctx, p, who, work)
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	if err != nil {
-		slog.WarnContext(ctx, "reviewing which namespaces a person may read failed", "error", err)
-		return nil, ErrReview
+	everywhere := readsEverywhere(m, work)
+	for _, w := range work {
+		markAccess(ctx, access, w, len(m) > 1)
 	}
-	if all && allWorkloads {
+	if everywhere && len(access) == 0 {
 		return q, nil
 	}
-	nsVisible := func(ns string) bool { _, ok := slices.BinarySearch(visible, ns); return ok && ns != "" }
-	key := strings.Join(visible, "\x00")
-	if all {
-		nsVisible, key = func(string) bool { return true }, "\x01all"
-	}
-	for _, sc := range scopes {
-		if workloads[sc] {
-			key += "\x02" + sc.Namespace + "\x00" + sc.Kind
-		}
-	}
+	visible, workloadVisible := predicates(work, route, everywhere)
+	key := viewKey(work, access, everywhere)
 	v.mu.Lock()
 	r, ok := v.views[key]
 	ok = ok && v.viewsOf == q.SnapshotID()
@@ -311,7 +343,7 @@ func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Qu
 	}
 	// Restricting a large snapshot takes a while, so it runs unlocked: two
 	// people asking at once may both build the same view.
-	r = q.Restrict(nsVisible, func(ns, kind string) bool { return workloads[fleet.WorkloadScope{Namespace: ns, Kind: kind}] })
+	r = q.Restrict(visible, workloadVisible).WithClusterAccess(q, access)
 	v.mu.Lock()
 	if v.viewsOf != q.SnapshotID() || len(v.views) >= maxViews {
 		v.viewsOf, v.views = q.SnapshotID(), map[string]*fleet.Query{}
@@ -321,13 +353,227 @@ func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Qu
 	return r, nil
 }
 
-// visible returns, sorted, the namespaces of nss p may read, and whether p
-// reads every namespace. One review for every namespace at once comes first:
-// it settles a cluster-wide reader. A scoped viewer skips it and asks only
-// about the watched namespaces.
-func (v *Viewer) visible(ctx context.Context, p Person, who string, nss []string) ([]string, bool, error) {
+// readsEverywhere reports whether every reviewer of m answered that p reads
+// every namespace and every workload kind in its cluster; false without one.
+func readsEverywhere(m map[string]Review, work map[string]*clusterWork) bool {
+	everywhere := len(m) > 0
+	for k := range m {
+		w := work[k]
+		everywhere = everywhere && w != nil && w.err == nil && w.all && w.allWorkloads
+	}
+	return everywhere
+}
+
+// predicates are the Restrict predicates of the reviewed work: a pair or a
+// workload scope is visible when its cluster's reviewer let p read it, and
+// the items without a cluster or namespace when every reviewer did.
+func predicates(work map[string]*clusterWork, route func(string) (string, bool), everywhere bool) (func(string, string) bool, func(string, string, string) bool) {
+	visible := func(cluster, ns string) bool {
+		if cluster == "" && ns == "" {
+			return everywhere
+		}
+		w := routed(work, route, cluster)
+		if w == nil {
+			return false
+		}
+		_, ok := slices.BinarySearch(w.visible, ns)
+		return w.all || (ok && ns != "")
+	}
+	workloadVisible := func(cluster, ns, kind string) bool {
+		w := routed(work, route, cluster)
+		return w != nil && w.workloads[fleet.WorkloadScope{Namespace: ns, Kind: kind}]
+	}
+	return visible, workloadVisible
+}
+
+// router returns, for a cluster id, the key of the reviewer that decides its
+// items for p, false when none does.
+func (v *Viewer) router(ctx context.Context, m map[string]Review, p Person) func(string) (string, bool) {
+	local := clusterLocal(p)
+	var home string
+	homeOK := false
+	if local {
+		home, homeOK = v.homeKey(ctx, m)
+	}
+	return func(cluster string) (string, bool) {
+		key, ok := reviewerFor(m, cluster)
+		if ok && local && (!homeOK || key != home) {
+			return "", false
+		}
+		return key, ok
+	}
+}
+
+// homeKey is the reviewer key of the sign-in cluster.
+func (v *Viewer) homeKey(ctx context.Context, m map[string]Review) (string, bool) {
+	if v.home != nil {
+		return v.home(ctx)
+	}
+	if len(m) == 1 {
+		for k := range m {
+			return k, true
+		}
+	}
+	return "", false
+}
+
+// reviewerFor is the key of the reviewer of cluster: its own, or the only
+// one for an item with no cluster id (a single cluster names nothing).
+func reviewerFor(m map[string]Review, cluster string) (string, bool) {
+	if _, ok := m[cluster]; ok {
+		return cluster, true
+	}
+	if cluster == "" && len(m) == 1 {
+		for k := range m {
+			return k, true
+		}
+	}
+	return "", false
+}
+
+// clusterLocal reports an identity that exists in one cluster only: a
+// ServiceAccount or a node.
+func clusterLocal(p Person) bool {
+	return strings.HasPrefix(p.User, "system:serviceaccount:") || strings.HasPrefix(p.User, "system:node:") ||
+		slices.Contains(p.Groups, "system:serviceaccounts") || slices.Contains(p.Groups, "system:nodes")
+}
+
+// routed is the work of cluster's reviewer, nil when it has none or failed.
+func routed(work map[string]*clusterWork, route func(string) (string, bool), cluster string) *clusterWork {
+	key, ok := route(cluster)
+	if w := work[key]; ok && w != nil && w.err == nil {
+		return w
+	}
+	return nil
+}
+
+// plan groups q's namespaces and workload scopes by the reviewer that
+// decides them and marks the clusters no reviewer decides. A viewer that is
+// not scoped also asks every other reviewer about every namespace at once,
+// which a service without a namespace needs.
+func (v *Viewer) plan(m map[string]Review, route func(string) (string, bool), q *fleet.Query) (map[string]*clusterWork, map[string]string) {
+	work, access := map[string]*clusterWork{}, map[string]string{}
+	of := func(cluster string) *clusterWork {
+		key, ok := route(cluster)
+		if !ok {
+			access[cluster] = fleet.ClusterNotReviewable
+			return nil
+		}
+		if work[key] == nil {
+			work[key] = &clusterWork{key: key, review: m[key]}
+		}
+		return work[key]
+	}
+	for _, cn := range q.Namespaces() {
+		if w := of(cn.Cluster); w != nil {
+			w.nss, w.shows = append(w.nss, cn.Namespace), true
+		}
+	}
+	for _, sc := range q.InferredWorkloadScopes() {
+		if w := of(sc.Cluster); w != nil {
+			w.scopes, w.shows = append(w.scopes, fleet.WorkloadScope{Namespace: sc.Namespace, Kind: sc.Kind}), true
+		}
+	}
+	// A cluster only a non-Kubernetes target or a provider row carries still
+	// needs a reviewer, or the full-snapshot shortcut would show it unreviewed.
+	for _, c := range q.ClusterIDs() {
+		of(c)
+	}
 	if !v.scoped {
-		all, err := v.ask(ctx, p, who, "", PactoResource)
+		for k := range m {
+			if _, ok := route(k); ok && work[k] == nil {
+				work[k] = &clusterWork{key: k, review: m[k]}
+			}
+		}
+	}
+	for _, w := range work {
+		slices.Sort(w.nss)
+		w.nss = slices.Compact(w.nss)
+		slices.SortFunc(w.scopes, func(a, b fleet.WorkloadScope) int {
+			return cmp.Or(cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Kind, b.Kind))
+		})
+		w.scopes = slices.Compact(w.scopes)
+	}
+	return work, access
+}
+
+// reviewAll reviews every cluster's work at once, each within
+// clusterReviewTimeout.
+func (v *Viewer) reviewAll(ctx context.Context, p Person, who string, work map[string]*clusterWork) {
+	var wg sync.WaitGroup
+	for _, w := range work {
+		wg.Go(func() {
+			cctx, cancel := context.WithTimeout(ctx, clusterReviewTimeout)
+			defer cancel()
+			v.reviewCluster(cctx, p, who, w)
+		})
+	}
+	wg.Wait()
+}
+
+// reviewCluster asks w's reviewer about w's namespaces, then its workload
+// scopes.
+func (v *Viewer) reviewCluster(ctx context.Context, p Person, who string, w *clusterWork) {
+	w.visible, w.all, w.err = v.visible(ctx, w, p, who, w.nss)
+	if w.err == nil {
+		w.workloads, w.allWorkloads, w.err = v.workloads(ctx, w, p, who, w.scopes, w.all, w.visible)
+	}
+}
+
+// markAccess records why a cluster shows nothing: its review failed, or
+// (with several reviewers, for a cluster with items) p may read nothing
+// there. A failure is logged with the cluster id.
+func markAccess(ctx context.Context, access map[string]string, w *clusterWork, several bool) {
+	if w.err != nil {
+		slog.WarnContext(ctx, "reviewing which namespaces a person may read failed", "cluster", w.key, "error", w.err)
+	}
+	switch {
+	case w.err != nil:
+		// Even with no namespace to decide, a failed review hides what has
+		// no namespace, so it is named, never read as a permission denial.
+		access[w.key] = fleet.ClusterReviewFailed
+	case w.shows && several && !w.sees():
+		access[w.key] = fleet.ClusterNoAccess
+	}
+}
+
+// viewKey names the view work and access build, so people who see the same
+// share it.
+func viewKey(work map[string]*clusterWork, access map[string]string, everywhere bool) string {
+	var b strings.Builder
+	if everywhere {
+		b.WriteString("\x04all")
+	}
+	for _, k := range slices.Sorted(maps.Keys(work)) {
+		w := work[k]
+		b.WriteString("\x03" + k)
+		switch {
+		case w.err != nil:
+			b.WriteString("\x01failed")
+			continue
+		case w.all:
+			b.WriteString("\x01all")
+		}
+		b.WriteString("\x01" + strings.Join(w.visible, "\x00"))
+		for _, sc := range w.scopes {
+			if w.workloads[sc] {
+				b.WriteString("\x02" + sc.Namespace + "\x00" + sc.Kind)
+			}
+		}
+	}
+	for _, k := range slices.Sorted(maps.Keys(access)) {
+		b.WriteString("\x05" + k + "\x00" + access[k])
+	}
+	return b.String()
+}
+
+// visible returns, sorted, the namespaces of nss p may read in w's cluster,
+// and whether p reads every namespace there. One review for every namespace
+// at once comes first: it settles a cluster-wide reader. A scoped viewer
+// skips it and asks only about the watched namespaces.
+func (v *Viewer) visible(ctx context.Context, w *clusterWork, p Person, who string, nss []string) ([]string, bool, error) {
+	if !v.scoped {
+		all, err := v.ask(ctx, w, p, who, "", PactoResource)
 		if err != nil || all {
 			return nss, all, err
 		}
@@ -339,7 +585,7 @@ func (v *Viewer) visible(ctx context.Context, p Person, who string, nss []string
 		if v.scoped && !v.watched[ns] {
 			continue
 		}
-		g.Go(func() (err error) { allowed[i], err = v.ask(gctx, p, who, ns, PactoResource); return err })
+		g.Go(func() (err error) { allowed[i], err = v.ask(gctx, w, p, who, ns, PactoResource); return err })
 	}
 	if err := g.Wait(); err != nil {
 		return nil, false, err
@@ -360,11 +606,11 @@ func (v *Viewer) visible(ctx context.Context, p Person, who string, nss []string
 // about each scope in a visible namespace, or in any namespace for a kind
 // that needs no Pactos there; a scoped viewer asks only about scopes in
 // watched namespaces.
-func (v *Viewer) workloads(ctx context.Context, p Person, who string, scopes []fleet.WorkloadScope, allNS bool, visible []string) (map[fleet.WorkloadScope]bool, bool, error) {
+func (v *Viewer) workloads(ctx context.Context, w *clusterWork, p Person, who string, scopes []fleet.WorkloadScope, allNS bool, visible []string) (map[fleet.WorkloadScope]bool, bool, error) {
 	everywhere := map[string]bool{}
 	if allNS && !v.scoped {
 		var err error
-		if everywhere, err = v.kindsEverywhere(ctx, p, who, scopes); err != nil {
+		if everywhere, err = v.kindsEverywhere(ctx, w, p, who, scopes); err != nil {
 			return nil, false, err
 		}
 	}
@@ -382,7 +628,7 @@ func (v *Viewer) workloads(ctx context.Context, p Person, who string, scopes []f
 			all = false
 		default:
 			all = false
-			g.Go(func() (err error) { allowed[i], err = v.askAll(gctx, p, who, sc.Namespace, res); return err })
+			g.Go(func() (err error) { allowed[i], err = v.askAll(gctx, w, p, who, sc.Namespace, res); return err })
 		}
 	}
 	if err := g.Wait(); err != nil {
@@ -399,12 +645,12 @@ func (v *Viewer) workloads(ctx context.Context, p Person, who string, scopes []f
 
 // kindsEverywhere asks, once per known workload kind of scopes, whether p may
 // list it in every namespace at once.
-func (v *Viewer) kindsEverywhere(ctx context.Context, p Person, who string, scopes []fleet.WorkloadScope) (map[string]bool, error) {
+func (v *Viewer) kindsEverywhere(ctx context.Context, w *clusterWork, p Person, who string, scopes []fleet.WorkloadScope) (map[string]bool, error) {
 	out := map[string]bool{}
 	for _, sc := range scopes {
 		res, _ := reviewedAs(sc.Kind)
 		if _, asked := out[sc.Kind]; res != nil && !asked {
-			ok, err := v.askAll(ctx, p, who, "", res)
+			ok, err := v.askAll(ctx, w, p, who, "", res)
 			if err != nil {
 				return nil, err
 			}
@@ -415,18 +661,18 @@ func (v *Viewer) kindsEverywhere(ctx context.Context, p Person, who string, scop
 }
 
 // askAll reports whether p may list every one of res in ns.
-func (v *Viewer) askAll(ctx context.Context, p Person, who, ns string, res []ResourceAttributes) (bool, error) {
+func (v *Viewer) askAll(ctx context.Context, w *clusterWork, p Person, who, ns string, res []ResourceAttributes) (bool, error) {
 	for _, r := range res {
-		if ok, err := v.ask(ctx, p, who, ns, r); err != nil || !ok {
+		if ok, err := v.ask(ctx, w, p, who, ns, r); err != nil || !ok {
 			return false, err
 		}
 	}
 	return true, nil
 }
 
-// ask is one cached review. Failures are not cached.
-func (v *Viewer) ask(ctx context.Context, p Person, who, ns string, res ResourceAttributes) (bool, error) {
-	key := who + "\x01" + ns + "\x01" + res.Resource + "." + res.Group
+// ask is one cached review in w's cluster. Failures are not cached.
+func (v *Viewer) ask(ctx context.Context, w *clusterWork, p Person, who, ns string, res ResourceAttributes) (bool, error) {
+	key := w.key + "\x01" + who + "\x01" + res.Resource + "." + res.Group + "\x01" + ns
 	now := v.now()
 	v.mu.Lock()
 	a, ok := v.answers[key]
@@ -434,7 +680,7 @@ func (v *Viewer) ask(ctx context.Context, p Person, who, ns string, res Resource
 	if ok && now.Before(a.until) {
 		return a.allowed, nil
 	}
-	allowed, err := v.review(ctx, p, ns, res)
+	allowed, err := w.review(ctx, p, ns, res)
 	if err != nil {
 		return false, err
 	}

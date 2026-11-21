@@ -70,7 +70,7 @@ func TestServiceDetailReplacesBounded(t *testing.T) {
 		r.From = NewServiceKey(cartName + strings.Repeat("x", i+1))
 		q.snap.Replacements = append(q.snap.Replacements, r)
 	}
-	shown, total := q.replacesOf(to)
+	shown, total, _ := q.replacesOf(to)
 	if len(shown) != MaxDetailPreview || total != MaxDetailPreview+3 {
 		t.Errorf("shown %d total %d", len(shown), total)
 	}
@@ -127,7 +127,7 @@ func TestAttentionInferredReplacedWithin24h(t *testing.T) {
 }
 
 func TestReplacedKeyHiddenIsNotFound(t *testing.T) {
-	r := replacedQuery(t, 1).Restrict(func(ns string) bool { return ns != "shop" }, func(string, string) bool { return true })
+	r := replacedQuery(t, 1).Restrict(anyCluster(func(ns string) bool { return ns != "shop" }), anyClusterKind(func(string, string) bool { return true }))
 	_, err := r.GetService(cartName)
 	notFound(t, "get", err)
 	_, err = r.Graph(GraphQuery{Service: cartName})

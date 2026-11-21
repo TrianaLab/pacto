@@ -232,7 +232,7 @@ func TestOfferingUseProvisioningRestricted(t *testing.T) {
 	}
 	// A report about a service the snapshot does not hold is dropped by Restrict too.
 	snap.Provisioning = append(snap.Provisioning, ProvisioningRecord{ServiceKey: NewServiceKeyDomain(acme, "ghost"), Service: "ghost", Producer: "ghost-adapter", ExternalRef: "ghost-ref"})
-	r := q.Restrict(func(ns string) bool { return ns != "secret" }, nil)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "secret" }), anyClusterKind(nil))
 	d, err := r.EntityDetail(KindOffering, "postgresql")
 	if err != nil {
 		t.Fatal(err)
@@ -263,7 +263,7 @@ func TestOfferingUseProvisioningRestricted(t *testing.T) {
 func TestRestrict_OrphanedProvisioningDropped(t *testing.T) {
 	snap := provisioningSnap(t, 0, ordersFleet(), []RawProvisioning{report()})
 	snap.Provisioning = append(snap.Provisioning, ProvisioningRecord{ServiceKey: "ghost", Service: "ghost"})
-	r := NewQuery(snap).Restrict(func(string) bool { return true }, nil)
+	r := NewQuery(snap).Restrict(anyCluster(func(string) bool { return true }), anyClusterKind(nil))
 	if got := r.SnapshotForSerialization().Provisioning; len(got) != 1 || got[0].Service != "orders" {
 		t.Errorf("provisioning = %+v", got)
 	}
@@ -307,11 +307,11 @@ func TestProvisioningTruncatedRestricted(t *testing.T) {
 	if got := truncated(q); len(got) != 1 || !strings.HasPrefix(got[0], "10002 provisioning reports exceed") {
 		t.Errorf("unrestricted = %q", got)
 	}
-	if got := truncated(q.Restrict(open, nil)); len(got) != 1 || !strings.HasPrefix(got[0], "2 provisioning reports about the services you can see") {
+	if got := truncated(q.Restrict(anyCluster(open), anyClusterKind(nil))); len(got) != 1 || !strings.HasPrefix(got[0], "2 provisioning reports about the services you can see") {
 		t.Errorf("restricted = %q", got)
 	}
 	q = build(0) // orders' reports are the newest: only billing's dropped
-	if got := truncated(q.Restrict(open, nil)); len(got) != 0 {
+	if got := truncated(q.Restrict(anyCluster(open), anyClusterKind(nil))); len(got) != 0 {
 		t.Errorf("restricted view with none of its reports dropped = %q", got)
 	}
 }

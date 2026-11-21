@@ -667,6 +667,7 @@ func TestPrintServiceReplaces(t *testing.T) {
 func TestFleetGetTextOwnerProvenance(t *testing.T) {
 	for prov, want := range map[string]string{
 		fleet.OwnerProvenanceDeclaredViaTarget: "Owner: pay (declared via target)\n",
+		fleet.OwnerProvenanceAttested:          "Owner: pay (attested: CODEOWNERS:7 at a1b2c3d, signed by ci)\n",
 		fleet.OwnerProvenanceDeclared:          "Owner: pay\n",
 		"":                                     "Owner: pay\n",
 	} {
@@ -674,6 +675,9 @@ func TestFleetGetTextOwnerProvenance(t *testing.T) {
 		var out bytes.Buffer
 		cmd.SetOut(&out)
 		s := &fleet.ServiceRecord{Name: "payments", Owner: contract.Owner{Team: "pay"}, OwnerProvenance: prov}
+		if prov == fleet.OwnerProvenanceAttested {
+			s.OwnerSource = "CODEOWNERS:7 at a1b2c3d, signed by ci"
+		}
 		if err := printFleetService(cmd, &fleet.ServiceView{Service: s}, "text"); err != nil {
 			t.Fatal(err)
 		}
@@ -681,4 +685,120 @@ func TestFleetGetTextOwnerProvenance(t *testing.T) {
 			t.Errorf("%q: want %q in:\n%s", prov, want, out.String())
 		}
 	}
+}
+
+// pacto fleet status names each cluster, with the UID --cluster takes, and its
+// status when it knows two or more, the access word winning over the source
+// status; a refused context reads as why it was refused, never unreachable.
+func TestFleetStatusPrintsClusters(t *testing.T) {
+	res := &fleet.StatusResult{Meta: fleet.Meta{Clusters: []fleet.ClusterSummary{
+		{ID: "uid-eu", Name: "eu-prod", Status: fleet.SourceAvailable},
+		{ID: "uid-us", Name: "us-prod", Status: fleet.SourceAvailable, Access: fleet.ClusterNoAccess},
+		{ID: "uid-ap", Name: "ap-prod", Status: fleet.SourceStale},
+		{Name: "lab", Status: fleet.SourceUnavailable},
+		{ID: "uid-ca", Name: "ca-prod", Status: fleet.SourcePartial, Access: fleet.ClusterReviewFailed},
+		{ID: "uid-sa", Name: "sa-prod", Status: fleet.SourcePartial},
+		{ID: "uid-me", Name: "me-prod", Status: fleet.SourceAvailable, Access: fleet.ClusterNotReviewable},
+		{Name: "eu-clone", Status: fleet.SourceUnavailable},
+		{Name: "us-ro", Status: fleet.SourceUnavailable},
+		{ID: "uid-x", Name: "uid-x", Status: fleet.SourceAvailable},
+	}, Limitations: []fleet.Limitation{
+		{Code: fleet.LimitationClusterConflict, Source: "eu-clone", Message: "contexts eu-prod and eu-clone reach two servers"},
+		{Code: fleet.LimitationClusterUnknown, Source: "us-ro", Message: "the cluster of context us-ro cannot be told apart"},
+	}}}
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := printFleetStatus(cmd, res, "text"); err != nil {
+		t.Fatal(err)
+	}
+	want := "Clusters: eu-prod (uid-eu) complete, us-prod (uid-us) no access, ap-prod (uid-ap) stale, lab unreachable, ca-prod (uid-ca) review failed, " +
+		"sa-prod (uid-sa) partial, me-prod (uid-me) not reviewable, eu-clone conflicting id, us-ro unidentified, uid-x complete\n"
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("status lacks %q:\n%s", want, out.String())
+	}
+}
+
+// One cluster with nothing hidden prints no Clusters line; one hidden
+// cluster does.
+func TestFleetStatusOmitsClustersForOne(t *testing.T) {
+	for _, tc := range []struct {
+		access string
+		want   bool
+	}{{"", false}, {fleet.ClusterNoAccess, true}} {
+		res := &fleet.StatusResult{Meta: fleet.Meta{Clusters: []fleet.ClusterSummary{{ID: "uid-eu", Name: "eu-prod", Status: fleet.SourceAvailable, Access: tc.access}}}}
+		cmd := &cobra.Command{}
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&bytes.Buffer{})
+		if err := printFleetStatus(cmd, res, "text"); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(out.String(), "Clusters:"); got != tc.want {
+			t.Errorf("access %q: Clusters line = %v, want %v:\n%s", tc.access, got, tc.want, out.String())
+		}
+	}
+}
+
+// TestFleetGetExternalProviderUnsignedWording: only a shown revision this
+// installation's operator signed reads as signed by it; no check reads not
+// checked and another signer reads signed by someone else, never unsigned.
+func TestFleetGetExternalProviderUnsignedWording(t *testing.T) {
+	provider := func(sig *fleet.BundleSignature) fleet.ExternalRecord {
+		return fleet.ExternalRecord{Key: "stripe", Provider: &fleet.ExternalProvider{Repository: "r/pacto-inferred/stripe", RevisionsTotal: 1,
+			RangeStatus: fleet.RangeUnknown, RangeReason: fleet.RangeReasonInferredProvider,
+			Revisions: []fleet.ExternalProviderRevision{{Version: "0.0.1", Digest: "sha256:a", Signature: sig}}}}
+	}
+	var b strings.Builder
+	printExternal(&b, provider(&fleet.BundleSignature{Status: fleet.SignatureUnverified, Source: fleet.SignatureSourceOperator}), "", fleet.ExternalEvidence{})
+	if !strings.Contains(b.String(), "    signed by this installation's operator") || strings.Contains(b.String(), "unsigned") {
+		t.Errorf("operator signed:\n%s", b.String())
+	}
+	for sig, want := range map[*fleet.BundleSignature]string{
+		nil: "    signature not checked, publisher unknown\n",
+		{Status: fleet.SignatureVerified, Source: "rule"}: "    signed, not by this installation's operator (verified)\n",
+		{Status: fleet.SignatureUnsigned, Source: "none"}: "    unsigned, publisher unknown\n",
+	} {
+		b.Reset()
+		printExternal(&b, provider(sig), "", fleet.ExternalEvidence{})
+		if !strings.Contains(b.String(), want) || strings.Contains(b.String(), "signed by this installation's operator") {
+			t.Errorf("signature %+v:\n%s", sig, b.String())
+		}
+	}
+}
+
+// An attested owner prints where it was read, in full.
+func TestFleetGetPrintsAttestedSource(t *testing.T) {
+	src := "CODEOWNERS:7 at a1b2c3d, signed by github.com/acme/invoices/.github/workflows/ci.yml@refs/heads/main"
+	out := printed(t, func(c *cobra.Command) error {
+		s := &fleet.ServiceRecord{Name: "invoices", Owner: contract.Owner{Team: "payments"}, OwnerProvenance: fleet.OwnerProvenanceAttested, OwnerSource: src}
+		return printFleetService(c, &fleet.ServiceView{Service: s}, "text")
+	})
+	expect(t, strings.Contains(out, "Owner: payments (attested: "+src+")\n"), "attested source missing:\n%s", out)
+	bare := printed(t, func(c *cobra.Command) error {
+		s := &fleet.ServiceRecord{Name: "invoices", Owner: contract.Owner{Team: "payments"}, OwnerProvenance: fleet.OwnerProvenanceAttested}
+		return printFleetService(c, &fleet.ServiceView{Service: s}, "text")
+	})
+	expect(t, strings.Contains(bare, "Owner: payments (attested)\n"), "attested without a source:\n%s", bare)
+}
+
+// TestFleetVersionsInferredReason: a version row and an offering use print
+// the reason after an unknown range status.
+func TestFleetVersionsInferredReason(t *testing.T) {
+	if got := versionNotes(fleet.ProviderVersion{RangeStatus: fleet.RangeUnknown, RangeReason: fleet.RangeReasonInferredProvider}); got != " [unknown: INFERRED_PROVIDER]" {
+		t.Errorf("version notes = %q", got)
+	}
+	if got := useNotes(fleet.OfferingUse{RangeStatus: fleet.RangeUnknown, RangeReason: fleet.RangeReasonInferredProvider}); got != ", range unknown: INFERRED_PROVIDER" {
+		t.Errorf("use notes = %q", got)
+	}
+}
+
+func TestPrintServiceReplacedByInferredFrom(t *testing.T) {
+	r := fleet.Replacement{From: fleet.NewServiceKey("k8s:billing/Deployment/invoices"), To: "invoices", Link: "inferred-from",
+		By: "ana@acme.com", Revision: "invoices@sha256:a"}
+	view := &fleet.ServiceView{Service: &fleet.ServiceRecord{Name: "invoices"}, ReplacedFrom: &r, Replaces: []fleet.Replacement{r}, ReplacesTotal: 1}
+	out := printed(t, func(c *cobra.Command) error { return printFleetService(c, view, "text") })
+	line := "Declared by ana@acme.com from inferred k8s:billing/Deployment/invoices (revision invoices@sha256:a); Pacto read no workload for it here\n"
+	expect(t, strings.HasPrefix(out, line+"Service: invoices\n") && strings.Count(out, line) == 2, "get lacks the inferred-from lines:\n%s", out)
 }

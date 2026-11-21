@@ -126,7 +126,7 @@ docker compose -p pacto-demo exec -e PACTO_STATS_REGISTRY=registry:5000/demo/pac
 ## See what CI sees
 
 The `targets` service publishes a signed target snapshot of the demo cluster
-to `registry:5000/demo/pacto-targets` every 5 minutes, as the delivery recorder
+to `registry:5000/demo/pacto-targets` every 5 minutes, as the operator
 does on Kubernetes. `pacto impact` finds it from the provider ref and needs no
 kubeconfig:
 
@@ -162,6 +162,27 @@ Release gate: unverified
 `orders` runs and its range `^1.0.0` accepts 1.1.0, so the gate stays
 unverified (exit 2) until someone checks that `orders` does not call the
 removed path. [CI](../ci.md) shows the same check in a pipeline.
+
+## See an inferred contract
+
+The `inferred` service publishes the [inferred contract](../inferred-contracts.md)
+of every external system the demo knows to
+`registry:5000/demo/pacto-inferred/<identity>` every 5 minutes, as the
+operator does once `registry` is set. A Compose-only contract, `card-payments`,
+pins `stripe`'s inferred contract with `^0.0.1`, and that range stays
+`unknown`:
+
+```sh
+docker compose -p pacto-demo exec inferred pacto fleet get external:stripe \
+  --local /demo/inferred/card-payments \
+  --oci oci://registry:5000/demo/pacto-inferred/stripe --output-format json \
+  | jq '.external.provider.rangeStatus,.external.provider.rangeReason'
+```
+
+```text
+"unknown"
+"INFERRED_PROVIDER"
+```
 
 ## Connect an agent
 

@@ -101,17 +101,28 @@ func (q *Query) GetExternal(key string) (*ExternalView, error) {
 // visible target cannot say which external systems it uses: any of them may
 // be a consumer it does not list. Nil when every target reports.
 func (q *Query) externalsUnreported() []Limitation {
+	n := q.unreportedTargets()
+	if n == 0 {
+		return nil
+	}
+	return []Limitation{{Code: LimitationExternalsUnreported, Source: "fleet",
+		Message: fmt.Sprintf("%d targets do not report the external systems they use, so the consumers listed may be incomplete", n)}}
+}
+
+// ExternalsUnreported reports whether a visible target cannot say which
+// external systems it uses, so any external's consumers may be incomplete.
+func (q *Query) ExternalsUnreported() bool { return q.unreportedTargets() > 0 }
+
+// unreportedTargets counts the visible targets that carry
+// LimitationExternalsUnreported.
+func (q *Query) unreportedTargets() int {
 	n := 0
 	for _, t := range q.snap.Targets {
 		if slices.ContainsFunc(t.Limitations, func(l Limitation) bool { return l.Code == LimitationExternalsUnreported }) {
 			n++
 		}
 	}
-	if n == 0 {
-		return nil
-	}
-	return []Limitation{{Code: LimitationExternalsUnreported, Source: "fleet",
-		Message: fmt.Sprintf("%d targets do not report the external systems they use, so the consumers listed may be incomplete", n)}}
+	return n
 }
 
 // externalMeta is meta for an external answer: partial, citing
@@ -161,6 +172,9 @@ func (q *Query) explainExternal(key string) (*ExplainResult, error) {
 		res.Reasons = append(res.Reasons, Reason{Code: ReasonExternalCatalogMatch,
 			Message: fmt.Sprintf("classified %s by entry %s of the %s catalog %s", rec.Class, rec.Catalog.Entry, rec.Catalog.Origin, rec.Catalog.Digest)})
 	case rec.Folded > 0:
+	case inferredClassRef(rec) != "":
+		res.Reasons = append(res.Reasons, Reason{Code: RangeReasonInferredProvider,
+			Message: "no catalog entry classifies it; it is classified " + rec.Class + " by its inferred contract " + inferredClassRef(rec) + ", which this installation's operator signed"})
 	case rec.JoinedBy == externalcatalog.MatchIdentity:
 		res.Reasons = append(res.Reasons, Reason{Code: ReasonExternalUnclassified, Message: "no catalog entry classifies it; its consumers join through the identity they declare"})
 	case rec.JoinedBy == externalcatalog.MatchHost:

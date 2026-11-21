@@ -9,11 +9,12 @@ import (
 
 // categoryKnowledge is the attention category of a gap in what a service's
 // contract says, of a service whose contract Pacto cannot read, or of an
-// inferred service a contract took over in the last 24h.
+// inferred service a contract took over (see attentionInferredReplaced).
 const categoryKnowledge = "knowledge"
 
 // attentionInferredReplaced is the attention code of an inferred service a
-// declared service replaced within RecentEvidenceWindow.
+// declared service replaced: through a Pacto target within
+// RecentEvidenceWindow, through a declaration while it holds.
 const attentionInferredReplaced = "INFERRED_REPLACED"
 
 // Knowledge gap kinds, the values of [EntityFilter.Gap]. GapUnknown keeps the
@@ -273,24 +274,39 @@ func (q *Query) knowledgeAttention() []AttentionItem {
 }
 
 // replacedAttention reports each inferred service a declared service replaced
-// within RecentEvidenceWindow; an older replacement shows on the service page
-// only, so a settled fact never stays an item.
+// through a Pacto target within RecentEvidenceWindow (an older one shows on
+// the service page only, so a settled fact never stays an item), and every
+// replacement through another link, which carries no time.
+//
+// ponytail: an inferred-from item is untimed, so it stays while the
+// declaration is the newest; a signature integrated time on BundleSignature
+// would let it age out like a Pacto target's.
 func (q *Query) replacedAttention() []AttentionItem {
 	var out []AttentionItem
 	for _, r := range q.snap.Replacements {
+		s := q.snap.Services[r.To] // Restrict keeps only replacements of visible services
+		_, from := ParseServiceKey(r.From)
+		it := AttentionItem{
+			Entity: serviceEntityRef(s), Service: string(s.Key), Label: from + " was replaced by " + s.Name,
+			Severity: severityInfo, Code: attentionInferredReplaced, Category: categoryKnowledge,
+			Summary: "Inferred service taken over by a contract",
+		}
+		if r.Link != linkPactoTarget {
+			it.Reason = r.Line(q.snap.GeneratedAt)
+			it.NextStep = "Confirm that " + from + " is " + s.Name + ": its contract now speaks for that workload; if it is not, publish a new declaration of " + s.Name + " from its own workload"
+			out = append(out, it)
+			continue
+		}
+		if r.At == nil {
+			continue
+		}
 		age := q.snap.GeneratedAt.Sub(*r.At)
 		if age > RecentEvidenceWindow {
 			continue
 		}
-		s := q.snap.Services[r.To] // Restrict keeps only replacements of visible services
-		_, from := ParseServiceKey(r.From)
-		out = append(out, AttentionItem{
-			Entity: serviceEntityRef(s), Service: string(s.Key), Label: from + " was replaced by " + s.Name,
-			Severity: severityInfo, Code: attentionInferredReplaced, Category: categoryKnowledge,
-			Summary:  "Inferred service taken over by a contract",
-			Reason:   "Pacto target " + string(r.Target) + " runs as " + from + ", which ran with no contract before the Pacto was created " + Age(age) + " ago",
-			NextStep: "Check that " + s.Name + "'s contract describes what " + from + " was seen doing",
-		})
+		it.Reason = "Pacto target " + string(r.Target) + " runs as " + from + ", which ran with no contract before the Pacto was created " + Age(age) + " ago"
+		it.NextStep = "Check that " + s.Name + "'s contract describes what " + from + " was seen doing"
+		out = append(out, it)
 	}
 	return out
 }

@@ -82,6 +82,7 @@ func newE2ERepo(t *testing.T) *e2eRepo {
 	privateSigstore(t, ciWorkflow)
 	e := &e2eRepo{root: t.TempDir()}
 	e.emptyRegistry()
+	freshProbes(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { (*e.handler.Load()).ServeHTTP(w, r) }))
 	t.Cleanup(srv.Close)
 	e.host = strings.TrimPrefix(srv.URL, "http://")

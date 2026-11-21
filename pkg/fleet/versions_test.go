@@ -154,7 +154,7 @@ func TestProviderVersionsInUseHiddenForOfferingOnly(t *testing.T) {
 	if v := offeringData(t, q, "relational-db").Providers.Items[0].Versions.Items[0]; v.InUse == nil {
 		t.Errorf("unrestricted version = %+v, want inUse set", v)
 	}
-	if v := offeringData(t, q.Restrict(shopOnly, nil), "relational-db").Providers.Items[0].Versions.Items[0]; v.InUse != nil || v.Version != "1.0.0" {
+	if v := offeringData(t, q.Restrict(anyCluster(shopOnly), anyClusterKind(nil)), "relational-db").Providers.Items[0].Versions.Items[0]; v.InUse != nil || v.Version != "1.0.0" {
 		t.Errorf("restricted version = %+v, want inUse absent", v)
 	}
 }
@@ -179,7 +179,7 @@ func TestProviderVersionsInUseHiddenForPartlyVisibleProvider(t *testing.T) {
 			t.Errorf("unrestricted %s = %+v, want in use", v.Version, v.InUse)
 		}
 	}
-	r := q.Restrict(func(ns string) bool { return ns != "secret" }, nil)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "secret" }), anyClusterKind(nil))
 	for _, v := range r.offeringProviderVersions(acmeService(r, "postgresql"), "").Items {
 		if v.InUse != nil {
 			t.Errorf("restricted %s inUse = %v, want absent", v.Version, *v.InUse)

@@ -2,7 +2,9 @@ package diff
 
 import (
 	"io/fs"
+	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -15,9 +17,13 @@ const inferredChangeReason = "inferred by Pacto, not part of the declared contra
 // Every change is NON_BREAKING and built here, never through the rule table:
 // the record is information beside the declared contract, so an inferred-only
 // diff never asks more than a patch. Inputs are provenance and emit nothing; a
-// missing FS, a missing record or an unreadable one compares as empty.
+// missing FS, a missing record or an unreadable one compares as empty. A
+// proposed range and a range the declarer accepted are compared too; when a
+// cluster fact was read, how completely, the coverage, hidden counts, who
+// asked and the draft are not. A surface's values are compared (diffSurface).
 func diffInferred(oldFS, newFS fs.FS) []Change {
-	oldF, newF := inferredFields(oldFS), inferredFields(newFS)
+	oldRec, newRec := inferredRecord(oldFS), inferredRecord(newFS)
+	oldF, newF := inferredFields(oldRec), inferredFields(newRec)
 	var changes []Change
 	for _, name := range sortedUnion(oldF, newF) {
 		o, inOld := oldF[name]
@@ -32,18 +38,100 @@ func diffInferred(oldFS, newFS fs.FS) []Change {
 			c.Type, c.OldValue, c.NewValue = Modified, o.Value, n.Value
 		case o.Source != n.Source:
 			c.Type, c.OldValue, c.NewValue = Modified, o.Source, n.Source
+		case o.Proposed != n.Proposed:
+			c.Path += ".proposed"
+			c = valueChange(c, o.Proposed, n.Proposed)
 		default:
 			continue
 		}
 		changes = append(changes, c)
 	}
+	oldA, newA := acceptedRanges(oldRec), acceptedRanges(newRec)
+	for _, field := range sortedUnion(oldA, newA) {
+		if o, n := oldA[field], newA[field]; o != n {
+			changes = append(changes, valueChange(Change{Path: "inferred.declaration.accepted." + field,
+				Classification: NonBreaking, Reason: inferredChangeReason}, o, n))
+		}
+	}
+	changes = append(changes, diffSurface(oldRec, newRec)...)
 	return redact(changes, sensitiveInferred(changes))
 }
 
-// inferredFields is the record's fields by name, empty when there is none.
-func inferredFields(fsys fs.FS) map[string]contract.Inferred {
+// diffSurface compares the surface values of two records, list by list: a
+// value added or removed is a NON_BREAKING inferred.surface.<list> change.
+// Sources, catalogs, times, identity, class, asOf and completeness are
+// provenance and emit nothing, so a new caller, which adds only a source,
+// changes nothing.
+func diffSurface(oldRec, newRec *contract.InferredRecord) []Change {
+	oldS, newS := surfaceOf(oldRec), surfaceOf(newRec)
+	var changes []Change
+	for _, l := range []struct {
+		name     string
+		old, new []contract.SurfaceValue
+	}{{"hosts", oldS.Hosts, newS.Hosts}, {"ports", oldS.Ports, newS.Ports}, {"clients", oldS.Clients, newS.Clients}} {
+		o, n := surfaceValues(l.old), surfaceValues(l.new)
+		for _, v := range sortedUnion(o, n) {
+			if o[v] != n[v] {
+				changes = append(changes, valueChange(Change{Path: "inferred.surface." + l.name,
+					Classification: NonBreaking, Reason: inferredChangeReason}, keep(o[v], v), keep(n[v], v)))
+			}
+		}
+	}
+	return changes
+}
+
+// surfaceOf is the record's surface, empty when there is none.
+func surfaceOf(rec *contract.InferredRecord) contract.InferredSurface {
+	if rec == nil || rec.Surface == nil {
+		return contract.InferredSurface{}
+	}
+	return *rec.Surface
+}
+
+// surfaceValues is the set of values of one surface list.
+func surfaceValues(vals []contract.SurfaceValue) map[string]bool {
+	m := make(map[string]bool, len(vals))
+	for _, v := range vals {
+		m[v.Value] = true
+	}
+	return m
+}
+
+// keep is v when present holds, empty otherwise.
+func keep(present bool, v string) string {
+	if present {
+		return v
+	}
+	return ""
+}
+
+// valueChange is c adding after, removing before or changing one into the
+// other, as either is empty.
+func valueChange(c Change, before, after string) Change {
+	switch {
+	case before == "":
+		c.Type, c.NewValue = Added, after
+	case after == "":
+		c.Type, c.OldValue = Removed, before
+	default:
+		c.Type, c.OldValue, c.NewValue = Modified, before, after
+	}
+	return c
+}
+
+// inferredRecord is the record fsys holds, nil when there is none or it
+// cannot be read.
+func inferredRecord(fsys fs.FS) *contract.InferredRecord {
 	rec, err := contract.ReadInferredRecord(fsys)
-	if err != nil || rec == nil {
+	if err != nil {
+		return nil
+	}
+	return rec
+}
+
+// inferredFields is the record's fields by name, empty when there is none.
+func inferredFields(rec *contract.InferredRecord) map[string]contract.Inferred {
+	if rec == nil {
 		return nil
 	}
 	m := make(map[string]contract.Inferred, len(rec.Fields))
@@ -53,7 +141,20 @@ func inferredFields(fsys fs.FS) map[string]contract.Inferred {
 	return m
 }
 
-func sortedUnion(a, b map[string]contract.Inferred) []string {
+// acceptedRanges is the range the record's declarer accepted for each
+// field, empty when it declares nothing.
+func acceptedRanges(rec *contract.InferredRecord) map[string]string {
+	if rec == nil || rec.Declaration == nil {
+		return nil
+	}
+	m := make(map[string]string, len(rec.Declaration.Accepted))
+	for _, a := range rec.Declaration.Accepted {
+		m[a.Field] = a.Range
+	}
+	return m
+}
+
+func sortedUnion[V any](a, b map[string]V) []string {
 	var keys []string
 	for k := range a {
 		keys = append(keys, k)
@@ -78,4 +179,63 @@ func sensitiveInferred(changes []Change) []string {
 		}
 	}
 	return paths
+}
+
+// Advisory is a possible break on an interface only the inferred record
+// names: the breaking findings of the same spec diff a declared interface
+// gets. It never enters Result.Changes, so it never raises the
+// classification, the derived version or a gate.
+type Advisory struct {
+	Interface string   `json:"interface" doc:"The inferred interface, as pacto.inferred.yaml names it (api, events or grpc)"`
+	Kind      string   `json:"kind" doc:"The spec kind: openapi, asyncapi or grpc"`
+	Source    string   `json:"source" doc:"Where Pacto found the spec, as path:line"`
+	Declare   string   `json:"declare" doc:"The YAML that declares the interface in pacto.yaml, so the change is classified"`
+	Changes   []Change `json:"changes" doc:"The breaking findings of the spec diff. Advisory: a possible break on an inferred interface, never part of the classification"`
+}
+
+// Summary is "<interface> <source>: <first path> <reason>", then
+// " (+<n> more)" for the other findings.
+func (a Advisory) Summary() string {
+	out := a.Interface + " " + a.Source
+	if len(a.Changes) > 0 {
+		out += ": " + a.Changes[0].Path + " " + a.Changes[0].Reason
+	}
+	if n := len(a.Changes) - 1; n > 0 {
+		out += " (+" + strconv.Itoa(n) + " more)"
+	}
+	return out
+}
+
+// inferredAdvisories are the possible breaks on the interfaces the new
+// record names and new does not declare: for each, when the old record names
+// the same interface with the same kind and both spec files read, the
+// breaking findings of their spec diff. No old record, a missing or
+// unreadable file, a kind change or no breaking finding gives nothing, and
+// the change reads as it did (unknown is never positive).
+func inferredAdvisories(new *contract.Contract, oldFS, newFS fs.FS) []Advisory {
+	oldF, newF := inferredFields(inferredRecord(oldFS)), inferredFields(inferredRecord(newFS))
+	var out []Advisory
+	for _, name := range slices.Sorted(maps.Keys(newF)) {
+		iface, ok := strings.CutPrefix(name, "interfaces[")
+		iface = strings.TrimSuffix(iface, "]")
+		if !ok || slices.ContainsFunc(new.Interfaces, func(i contract.Interface) bool { return i.Name == iface }) {
+			continue
+		}
+		kind, newRef, _ := strings.Cut(newF[name].Value, " ")
+		oldKind, oldRef, _ := strings.Cut(oldF[name].Value, " ")
+		if oldKind != kind {
+			continue
+		}
+		var breaking []Change
+		for _, c := range specDiff(kind, oldRef, newRef, oldFS, newFS) {
+			if c.Classification == Breaking {
+				breaking = append(breaking, c)
+			}
+		}
+		if len(breaking) > 0 {
+			f := newF[name]
+			out = append(out, Advisory{Interface: iface, Kind: kind, Source: f.Source, Declare: f.Declare, Changes: breaking})
+		}
+	}
+	return out
 }

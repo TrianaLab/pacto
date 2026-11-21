@@ -217,15 +217,23 @@ actor, approver, note, message, citation or correlation id.
 | --- | --- |
 | `CONSUMERS_INCOMPATIBLE` | `blocked` |
 | `POLICY_REFERRERS_FAIL_RUNNING` | `blocked` |
+| `POLICY_UNKNOWN_RANGE` | `blocked` |
+| `POLICY_UNCONTRACTED` | `blocked` |
 | `POLICY_REFERRERS_FAIL_UNPLACED` | `unverified` |
 | `POLICY_UNCHECKED` | `unverified` |
+| `INFERRED_POSSIBLE_BREAK` | `unverified` |
 | `SERVICE_NOT_IN_FLEET` | `unverified` |
 | `SERVICE_NAME_INFERRED` | `unverified` |
 | `ANSWER_PARTIAL` | `unverified` |
 | `CONSUMERS_UNCHECKED` | `unverified` |
+| `INFERRED_PROVIDER` | `unverified` |
+| `RUNNING_UNREAD` | `unverified` |
+| `FIRST_VERSION_UNCHECKED` | `unverified` |
 | `NOT_BREAKING` | `clear` |
 | `POTENTIAL_BREAKING` | `clear` |
 | `NO_CONSUMERS` | `clear` |
+| `BREAKING_ACCEPTED` | `clear` |
+| `FIRST_VERSION_ACCEPTED` | `clear` |
 
 ## Context fields
 
@@ -362,7 +370,7 @@ instead of a table of zeros.
 | `distinctChanges` | distinct changes (`service`, `oldRevision`, `newRevision`) among `diff` and `impact` records in the window. A `publish` record names versions, so it counts in `runs` only |
 | `skipped` | `malformed` (not a valid record, attached to another service's anchor or dated more than 5 minutes in the future), `oversized` (manifest or layer over 64 KiB) and `unreadable` (listed but not served); left out of every number |
 | `truncated` | the bound that cut the read (1000 records, or 64 pages of one listing), empty when the read is whole. The 1000 records count every record listed, in the window or out of it, and the services listed after the cut are not read at all. A read that takes over 30 seconds is an error |
-| `hidden` | `present`: whether records name services outside the caller's view; they are never counted |
+| `hidden` | `present`: whether records name services outside the caller's view; they are never counted. `otherClusters`: how many operation records of services in the view come from a cluster other than the sign-in cluster; they are left out of every number |
 | `completeness` | `partial` when a record was skipped, the read was cut, records are outside the view, delivery was unavailable, the attribution is partial or a blocked change was judged on a partial snapshot; `empty` when the window holds no records; else `complete` |
 | `limitations` | a `code` and a `message` for each reason the answer is incomplete |
 | `by` | what the groups are by |
@@ -400,6 +408,8 @@ instead of a table of zeros.
 | `CONSUMERS_FROM_PARTIAL_SNAPSHOT` | some blocked changes were judged on a partial fleet snapshot, so `consumersProtected` is a lower bound |
 | `LEAD_TIME_UNJOINED` | some promotions have no publish record with their digest, so their lead time is unknown; the answer stays complete |
 | `OUTSIDE_YOUR_VIEW` | some records name services outside your view and are left out of every number, or your view holds no service, so no record is read for you |
+| `OTHER_CLUSTERS_NOT_SHOWN` | operation records of services in your view name a cluster other than the sign-in cluster, where your access was reviewed; they are counted in `hidden.otherClusters` and left out of every number |
+| `HOME_CLUSTER_UNKNOWN` | Pacto could not read the sign-in cluster's identity, so the operation records of services in your view that name a cluster are left out of every number; the message counts them |
 | `COVERAGE_OUTSIDE_YOUR_VIEW` | coverage records exist, or could not be checked, and are hidden from a reader who may see only part of the fleet |
 | `DELIVERY_UNAVAILABLE_OVER_HTTP` | a signed-in HTTP caller whose identity the server could not exchange gets no operation records |
 | `ATTRIBUTION_PARTIAL` | the fleet snapshot owner and domain come from is partial |

@@ -442,6 +442,16 @@ describe('FleetMetricsView headline and weekly charts', () => {
     done();
   });
 
+  it('says how many operation records from other clusters are not shown, in the hidden note', async () => {
+    statsFn.mockResolvedValue(populated({ hidden: { present: false, otherClusters: 12 }, completeness: 'partial',
+      limitations: [{ code: 'OTHER_CLUSTERS_NOT_SHOWN', message: '12 operation records from other clusters are not shown' }] }));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-hidden"]')).not.toBeNull());
+    expect(target.querySelector('[data-testid="metrics-hidden"]')?.textContent).toBe('12 operation records from other clusters are not shown.');
+    expect(target.querySelector('[data-testid="metrics-note"]')?.textContent ?? '').not.toContain('other clusters');
+    done();
+  });
+
   it('prints unknown when a restricted reader\'s coverage snapshot carries no knowledge tally', async () => {
     statsFn.mockResolvedValue({ ...restricted(), coverageNow: coverage(undefined) });
     const { target, done } = mountView();

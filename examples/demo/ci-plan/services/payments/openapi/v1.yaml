@@ -6,6 +6,12 @@ paths:
   /payments:
     get:
       operationId: listPayments
+      parameters:
+        - name: currency
+          in: query
+          required: true
+          schema:
+            type: string
       responses:
         "200":
           description: The payments.

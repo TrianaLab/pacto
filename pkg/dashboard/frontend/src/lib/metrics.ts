@@ -551,7 +551,7 @@ export function caption(st: ProductStats, chart: 'stopped' | 'gates'): string {
 type Limitation = NonNullable<ProductStats['limitations']>[number];
 // What the provenance line ("3 skipped, cut at"), the hidden line and the coverage card
 // already say, so the note never repeats them.
-const SAID_ELSEWHERE = ['RUN_RECORDS_SKIPPED', 'RUN_RECORDS_TRUNCATED', 'OUTSIDE_YOUR_VIEW', COVERAGE_HIDDEN];
+const SAID_ELSEWHERE = ['RUN_RECORDS_SKIPPED', 'RUN_RECORDS_TRUNCATED', 'OUTSIDE_YOUR_VIEW', 'OTHER_CLUSTERS_NOT_SHOWN', COVERAGE_HIDDEN];
 // The note's order: what empties the page first, then what leaves a number unknown.
 const NOTE_FIRST = ['NO_RUN_RECORDS', 'NO_CI_OR_DELIVERY_RUN_RECORDS', 'LEAD_TIME_UNJOINED', 'CONSUMERS_FROM_PARTIAL_SNAPSHOT',
   'ENVIRONMENT_ORDER_UNKNOWN', 'ATTRIBUTION_PARTIAL', 'DELIVERY_UNAVAILABLE_OVER_HTTP'];
@@ -566,9 +566,15 @@ export function noteLimitations(st: Pick<ProductStats, 'limitations'>): { note: 
   return { note, rest: all.filter((l) => l !== note) };
 }
 
-/** hiddenLine says that records outside the reader's view exist; it never counts them. */
+/** hiddenLine says that records outside the reader's view exist, never counting them,
+ *  and how many operation records of services in the view come from other clusters. */
 export function hiddenLine(st: Pick<ProductStats, 'hidden'>): string {
-  return st.hidden?.present ? 'Some run records name services outside your view and are left out of every number.' : '';
+  const other = st.hidden?.otherClusters ?? 0;
+  return [
+    st.hidden?.present ? 'Some run records name services outside your view and are left out of every number.' : '',
+    other === 1 ? '1 operation record from another cluster is not shown.' : '',
+    other > 1 ? `${formatCount(other)} operation records from other clusters are not shown.` : '',
+  ].filter(Boolean).join(' ');
 }
 
 /** The labels the records panel uses for each metric. */

@@ -102,6 +102,9 @@ const (
 	// LimitationLimitationLimit: Bounds.MaxLimitations was reached, so further
 	// distinct limitations are not recorded.
 	LimitationLimitationLimit = "LIMITATION_LIMIT_EXCEEDED"
+	// LimitationDependencyByName: a dependency names its provider with no ref
+	// (pactoVersion 2.5), so the closure cannot follow it.
+	LimitationDependencyByName = "DEPENDENCY_BY_NAME"
 	// LimitationCancelled: the caller's context ended mid-construction.
 	LimitationCancelled = "CANCELLED"
 )

@@ -76,18 +76,29 @@ func (s *DetectionSource) Kind() string { return fleet.SourceKindDetection }
 
 // Collect reads the Result. It never returns an error.
 func (s *DetectionSource) Collect(ctx context.Context) (*fleet.Collection, error) {
+	res, state := s.Read(ctx)
+	col := &fleet.Collection{Advisory: true, State: &state}
+	if state.Status != fleet.SourceUnavailable {
+		col.Providers = detect.ProviderRows(res, s.id, s.now())
+	}
+	return col, nil
+}
+
+// Read is the decoded Result with the source's state: unavailable with why
+// when it could not be read, stale when older than [detect.StaleAfter],
+// available otherwise. Collect and pacto ci's installation advertisement both
+// read through it, so there is one reader.
+func (s *DetectionSource) Read(ctx context.Context) (detect.Result, fleet.SourceState) {
 	res, err := s.result(ctx)
 	if err != nil {
-		return &fleet.Collection{Advisory: true, State: &fleet.SourceState{Status: fleet.SourceUnavailable, Error: detectionError(err)}}, nil
+		return detect.Result{}, fleet.SourceState{Status: fleet.SourceUnavailable, Error: detectionError(err)}
 	}
-	now := s.now()
 	status := fleet.SourceAvailable
-	if now.Sub(res.AsOf) > detect.StaleAfter {
+	if s.now().Sub(res.AsOf) > detect.StaleAfter {
 		status = fleet.SourceStale
 	}
 	asOf := res.AsOf
-	return &fleet.Collection{Advisory: true, Providers: detect.ProviderRows(res, s.id, now),
-		State: &fleet.SourceState{Status: status, ObservedAt: &asOf, LastSuccessfulSync: &asOf}}, nil
+	return res, fleet.SourceState{Status: status, ObservedAt: &asOf, LastSuccessfulSync: &asOf}
 }
 
 // result reads and decodes the Result, refusing one dated beyond

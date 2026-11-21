@@ -22,6 +22,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	sigtest "github.com/trianalab/pacto/v4/pkg/signing/testutil"
 )
 
 // provRule is a policy rule that covers acme's release workflow of provRepo.
@@ -344,9 +345,9 @@ func TestProvenancePolicyRollbackKeepsNewer(t *testing.T) {
 
 // TestProvenanceUnguardedCapsUnknown: when the Stages that hold the
 // promoter's high-water marks cannot be listed, a policy or pin accept is
-// unknown and the reason says why.
+// unknown, names no signer repository or commit, and the reason says why.
 func TestProvenanceUnguardedCapsUnknown(t *testing.T) {
-	_, s := ciSigstore(t)
+	_, s := keylessSigstoreFor(t, sigtest.CITokenAt(provWorkflow, provIssuer, provRepo, "refs/heads/main", provCommit))
 	reg := provenanceTestRegistry(t)
 	pub, key, _ := ed25519.GenerateKey(rand.Reader)
 	signPolicy(t, reg, key, provRule)
@@ -355,6 +356,9 @@ func TestProvenanceUnguardedCapsUnknown(t *testing.T) {
 		Unguarded: "the Stages could not be listed (forbidden), so the promoter's no-rollback guards were not applied"}, nil)
 	p := pc.Check(t.Context(), "oci", pushSigned(t, reg, s), nil)
 	wantStatus(t, p, fleet.SignatureUnknown, "The Stages could not be listed (forbidden)")
+	if p.Signature.SignerRepository != "" || p.Signature.SignerCommit != "" {
+		t.Fatalf("an unknown signature names %+v", p.Signature)
+	}
 }
 
 // TestInstallationTrustPinRollback: a namespace whose newest pin is older
@@ -382,5 +386,31 @@ func TestInstallationTrustPinRollback(t *testing.T) {
 	})
 	if in, err := e.d.InstallationTrust(context.Background()); err != nil || !strings.Contains(in.Unguarded, "the Stages could not be listed (") || !strings.Contains(in.Unguarded, "forbidden") {
 		t.Fatalf("%+v %v", in, err)
+	}
+}
+
+// TestProvenancePinSurvivesReusableWorkflowBump: a pin taken at one
+// pacto-actions commit verifies a bundle signed at another from the caller's
+// default branch, and its reason names the pin's namespace instead of
+// failing to find the pin by its exact subject.
+func TestProvenancePinSurvivesReusableWorkflowBump(t *testing.T) {
+	actions := "https://github.com/" + delivery.PactoActionsWorkflow
+	_, s := keylessSigstoreFor(t, sigtest.CIToken(actions+"@2222", provIssuer, provRepo, "refs/heads/main"))
+	reg := provenanceTestRegistry(t)
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	onMain := provRule // covers only acme/app's own release.yml, so a pin decides
+	onMain.Ref = "refs/heads/main"
+	signPolicy(t, reg, key, onMain)
+	pc := checkerFor(reg)
+	trusting(pc, delivery.PublisherConfig{Policy: reg.host + "/policy:v1", PolicySigners: policySigners(t, pub)},
+		func(_ context.Context, svc delivery.ServiceRef) ([]delivery.IdentityPin, string, string, error) {
+			pin := provPin(svc)
+			pin.Subject = actions + "@1111"
+			return []delivery.IdentityPin{pin}, "", "", nil
+		}, nil)
+	p := pc.Check(t.Context(), "oci", pushSigned(t, reg, s), signedBy(nil))
+	wantStatus(t, p, fleet.SignatureVerified, "an identity a person pinned for app in namespace prod")
+	if p.Signature.Source != delivery.PublisherSourcePin {
+		t.Fatalf("signature %+v", p.Signature)
 	}
 }

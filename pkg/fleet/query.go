@@ -105,8 +105,8 @@ func (q *Query) resolveServiceOrReplaced(identifier string) (*ServiceRecord, *Re
 }
 
 // replacesOf is the bounded list of the inferred services key replaced, the
-// newest first, and how many there are.
-func (q *Query) replacesOf(key ServiceKey) ([]Replacement, int) {
+// newest first, how many there are and how many the view hides.
+func (q *Query) replacesOf(key ServiceKey) ([]Replacement, int, int) {
 	var out []Replacement
 	for _, r := range q.snap.Replacements {
 		if r.To == key {
@@ -119,7 +119,7 @@ func (q *Query) replacesOf(key ServiceKey) ([]Replacement, int) {
 		return cmp.Or(at(b).Compare(at(a)), cmp.Compare(a.From, b.From))
 	})
 	shown, total, _ := boundSlice(out, MaxDetailPreview)
-	return shown, total
+	return shown, total, q.snap.hiddenReplacements[key]
 }
 
 // Snapshot returns a deep copy of the snapshot for serialization. It never
@@ -170,6 +170,9 @@ type Meta struct {
 	// ExternalCatalogs are the catalogs that classified external systems, with
 	// their digest and how far their signature was checked.
 	ExternalCatalogs []ExternalCatalogRef `json:"externalCatalogs,omitempty"`
+	// Clusters and ClustersTruncated are ProductMeta's.
+	Clusters          []ClusterSummary `json:"clusters,omitempty" doc:"The status of each cluster the answer knows, least healthy first when truncated. Absent when no cluster is known."`
+	ClustersTruncated bool             `json:"clustersTruncated,omitempty" doc:"The snapshot knows more clusters than the answer carries."`
 }
 
 // meta applies the SAME hard caps as productMeta. Limitations are emitted per
@@ -181,6 +184,7 @@ type Meta struct {
 func (q *Query) meta() Meta {
 	srcs, srcTrunc := boundSources(cloneSources(q.snap.Sources))
 	lims, limTrunc := BoundLimitations(cloneLimitations(q.snap.Limitations))
+	clusters, clusterTrunc := clusterSummaries(q.snap)
 	return Meta{
 		SchemaVersion:        q.snap.SchemaVersion,
 		SnapshotID:           q.snap.SnapshotID,
@@ -191,6 +195,8 @@ func (q *Query) meta() Meta {
 		LimitationsTruncated: limTrunc,
 		SourcesTruncated:     srcTrunc,
 		ExternalCatalogs:     slices.Clone(q.snap.ExternalCatalogs),
+		Clusters:             clusters,
+		ClustersTruncated:    clusterTrunc,
 	}
 }
 
@@ -547,8 +553,13 @@ func (q *Query) matchOwnerKey(s *ServiceRecord, key string) bool {
 // other. "Consistently owned by x" is this predicate plus OwnershipConsistent,
 // never a narrower reading of the predicate itself.
 func (q *Query) ownerClaims(s *ServiceRecord, pred func(contract.Owner) bool) bool {
-	return s != nil && slices.ContainsFunc(currentOwnerRevisions(q.snap, s), func(r *ContractRevision) bool {
-		return pred(r.Owner)
+	if s == nil {
+		return false
+	}
+	revs, t := currentOwnerRevisions(q.snap, s)
+	return slices.ContainsFunc(revs, func(r *ContractRevision) bool {
+		o, _ := claimOwner(r, t)
+		return pred(o)
 	})
 }
 
@@ -660,9 +671,14 @@ type ServiceView struct {
 	Capabilities []RevisionCapabilities `json:"capabilities,omitempty"`
 	// ReplacedFrom is set when the service was asked for by the key of an
 	// inferred service it replaced.
-	ReplacedFrom  *Replacement  `json:"replacedFrom,omitempty" doc:"Set when the service was asked for by the key of an inferred service it replaced: that replacement"`
-	Replaces      []Replacement `json:"replaces,omitempty" doc:"The inferred services this service replaced, at most 200"`
-	ReplacesTotal int           `json:"replacesTotal,omitempty" doc:"How many inferred services this service replaced"`
+	ReplacedFrom   *Replacement  `json:"replacedFrom,omitempty" doc:"Set when the service was asked for by the key of an inferred service it replaced: that replacement"`
+	Replaces       []Replacement `json:"replaces,omitempty" doc:"The inferred services this service replaced, at most 200"`
+	ReplacesTotal  int           `json:"replacesTotal,omitempty" doc:"How many inferred services this service replaced"`
+	ReplacesHidden int           `json:"replacesHidden,omitempty" doc:"Replacements of this service whose workload you may not see"`
+	// Fields says where each field of the current revision comes from; nil
+	// unless it carries a declaration or the service replaced an inferred
+	// service through one (fieldsOf).
+	Fields *FieldsPreview `json:"fields,omitempty" doc:"Where each field of the current revision comes from: declared, accepted, attested or inferred"`
 }
 
 // GetService returns the logical service, its revisions and targets, its declared
@@ -674,7 +690,8 @@ func (q *Query) GetService(name string) (*ServiceView, error) {
 		return nil, err
 	}
 	view := &ServiceView{Meta: q.meta(), Service: cloneService(s), Dependencies: []Relationship{}, ReplacedFrom: replaced}
-	view.Replaces, view.ReplacesTotal = q.replacesOf(s.Key)
+	view.Replaces, view.ReplacesTotal, view.ReplacesHidden = q.replacesOf(s.Key)
+	view.Fields = q.fieldsOf(s)
 	for _, rk := range s.Revisions {
 		rev := cloneRevision(q.snap.Revisions[rk])
 		view.Revisions = append(view.Revisions, rev)
@@ -1361,7 +1378,14 @@ type ExplainResult struct {
 	Kind    string   `json:"kind"`
 	Status  string   `json:"status"`
 	Reasons []Reason `json:"reasons"`
+	// Fields and ReplacesHidden are set for a service, as in [ServiceView].
+	Fields         *FieldsPreview `json:"fields,omitempty" doc:"Where each field of the service's current revision comes from"`
+	ReplacesHidden int            `json:"replacesHidden,omitempty" doc:"Replacements of this service whose workload you may not see"`
 }
+
+// ReasonReplacesInferred is the reason a service gives for each inferred
+// service it replaced.
+const ReasonReplacesInferred = "REPLACES_INFERRED"
 
 // Explain produces deterministic reasons for a subject's state. A subject
 // with the external: prefix is an external system; any other is resolved as a
@@ -1392,7 +1416,12 @@ func (q *Query) explainService(s *ServiceRecord) *ExplainResult {
 	// The canonical ServiceKey, matching explainTarget's TargetKey: ExplainResult
 	// carries no domain field, so a bare name would name a DIFFERENT service (with a
 	// different status) in any fleet holding two domains' worth of the same name.
-	res := &ExplainResult{Meta: q.meta(), Subject: string(s.Key), Kind: "service", Status: s.Status, Reasons: []Reason{}}
+	res := &ExplainResult{Meta: q.meta(), Subject: string(s.Key), Kind: "service", Status: s.Status, Reasons: []Reason{}, Fields: q.fieldsOf(s)}
+	var replaces []Replacement
+	replaces, _, res.ReplacesHidden = q.replacesOf(s.Key)
+	for _, r := range replaces {
+		res.Reasons = append(res.Reasons, Reason{Code: ReasonReplacesInferred, Message: r.Line(q.snap.GeneratedAt), Source: cmp.Or(string(r.Revision), string(r.Target))})
+	}
 	if s.Inferred() {
 		res.Reasons = append(res.Reasons, Reason{
 			Code: LimitationServiceInferred, Source: s.Workload.Source, ObservedAt: copyTime(s.Workload.ObservedAt),

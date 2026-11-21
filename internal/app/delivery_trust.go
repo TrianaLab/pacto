@@ -12,8 +12,10 @@ import (
 	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go/v2/registry/remote"
 
+	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
@@ -79,11 +81,15 @@ type PinsFunc func(ctx context.Context, s delivery.ServiceRef) (pins []delivery.
 // the promoter's policy high-water mark: the newest policy a Stage's watch
 // judges with. Unguarded says why the Stages could not be listed, so neither
 // of the promoter's no-rollback guards (policyAt, pinAt) was applied.
+// Signers is the installation signer policy (ClassPolicy.Signers) a
+// declaration's signer is judged with; SignersUnread says why it was not read.
 type Installation struct {
 	Config                 delivery.PublisherConfig
 	Pins                   PinsFunc
 	PolicyDigest, PolicyAt string
 	Unguarded              string
+	Signers                []delivery.PersonSigner
+	SignersUnread          string
 }
 
 // InstallationTrust is what the installation trusts, read as PublisherTrust
@@ -92,12 +98,19 @@ type Installation struct {
 // It is ProvenanceChecker.Trust, so fleet provenance judges with the rule,
 // policy and pins the promoter uses: the newest pin of each namespace, unless
 // a Stage of that namespace already used a newer one.
+//
+// The operator's signer comes from the detection advertisement, which a
+// cluster without delivery still has: it is read first and kept even when
+// the publisher trust config cannot be read.
 func (d *Delivery) InstallationTrust(ctx context.Context) (Installation, error) {
+	signer := d.inferredSigner(ctx)
 	cfg, err := d.publisherConfig(ctx)
+	cfg.InferredSigner = signer
 	if err != nil {
 		return Installation{Config: cfg}, err
 	}
 	in := Installation{Config: cfg}
+	in.Signers, in.SignersUnread = d.installationSigners(ctx)
 	pinAt := map[pinKey]time.Time{}
 	stages, serr := d.Stages(ctx, "")
 	if serr != nil {
@@ -144,6 +157,50 @@ func (d *Delivery) InstallationTrust(ctx context.Context) (Installation, error) 
 		return out, cutNote(s, l.Cut), strings.Join(notes, "; "), err
 	}
 	return in, nil
+}
+
+// inferredSigner is the key the installation's operator signs inferred
+// contracts with, as the detection at d.Detected advertises it; nil when
+// none is named or it cannot be read. A stale advertisement still names the
+// key, and trusting it only ever refuses a signer.
+func (d *Delivery) inferredSigner(ctx context.Context) *delivery.TrustedKey {
+	rest, k8s := strings.CutPrefix(d.Detected, "k8s:")
+	var src *fleetsrc.DetectionSource
+	switch {
+	case d.Detected == "":
+		return nil
+	case k8s:
+		ns, name, _ := strings.Cut(rest, "/")
+		src = fleetsrc.NewDetectionK8sSource("detection", d.Dynamic, ns, name, d.Now)
+	default:
+		src = fleetsrc.NewDetectionFileSource("detection", d.Detected, d.Now)
+	}
+	res, st := src.Read(ctx)
+	if st.Status == fleet.SourceUnavailable || res.Installation == nil {
+		return nil
+	}
+	return delivery.InferredSignerFromAdvertisement(res.Installation.SnapshotKey)
+}
+
+// ErrNoInstallationTrust is DetectionTrust's error: there is no cluster to
+// read the installation's trust from, so a signature is judged against the
+// rule inferred from where it lives, recognising only the operator's signer.
+var ErrNoInstallationTrust = errors.New("no cluster to read the installation's trust from")
+
+// DetectionTrust is the trust of a reader with no cluster: only the
+// operator's signer a --detected file advertises, and ErrNoInstallationTrust.
+func (d *Delivery) DetectionTrust(ctx context.Context) (Installation, error) {
+	return Installation{Config: delivery.PublisherConfig{InferredSigner: d.inferredSigner(ctx)}}, ErrNoInstallationTrust
+}
+
+// installationSigners is the installation signer policy, or why it could
+// not be read.
+func (d *Delivery) installationSigners(ctx context.Context) ([]delivery.PersonSigner, string) {
+	pol, err := d.classPolicy(ctx)
+	if err != nil {
+		return nil, err.Error()
+	}
+	return pol.Signers, ""
 }
 
 // rfcTime is the RFC 3339 time s, zero when s is not one.

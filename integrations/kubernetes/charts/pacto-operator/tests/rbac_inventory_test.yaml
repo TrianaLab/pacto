@@ -1927,15 +1927,6 @@ tests:
         - apiGroups: [authorization.k8s.io]
           resources: [subjectaccessreviews]
           verbs: [create]
-        - apiGroups: [pacto.trianalab.io]
-          resources: [pactos]
-          verbs: [get, list]
-        - apiGroups: [apps]
-          resources: [deployments, statefulsets, daemonsets]
-          verbs: [list]
-        - apiGroups: [batch]
-          resources: [cronjobs]
-          verbs: [list]
         - apiGroups: [source.toolkit.fluxcd.io]
           resources: [ocirepositories]
           verbs: [get]
@@ -2650,15 +2641,6 @@ tests:
         - apiGroups: [authorization.k8s.io]
           resources: [subjectaccessreviews]
           verbs: [create]
-        - apiGroups: [pacto.trianalab.io]
-          resources: [pactos]
-          verbs: [get, list]
-        - apiGroups: [apps]
-          resources: [deployments, statefulsets, daemonsets]
-          verbs: [list]
-        - apiGroups: [batch]
-          resources: [cronjobs]
-          verbs: [list]
         - apiGroups: [source.toolkit.fluxcd.io]
           resources: [ocirepositories]
           verbs: [get]
@@ -3800,3 +3782,456 @@ tests:
         value:
         - {kind: ServiceAccount, name: pacto-viewer, namespace: pacto-operator-system}
       documentIndex: 4
+  - it: 'registry with registryPullSecret: every rule, roleRef and subject of secret-grants.yaml is pinned'
+    template: templates/secret-grants.yaml
+    set:
+      registry: ghcr.io/acme
+      registryPullSecret: ci/regcred
+    asserts:
+    - hasDocuments: {count: 2}
+    - equal: {path: kind, value: Role}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-secret-grant}
+      documentIndex: 0
+    - equal: {path: metadata.namespace, value: ci}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: [get]
+          resourceNames: [regcred]
+      documentIndex: 0
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-secret-grant}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-operator-secret-grant}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+      documentIndex: 1
+  - it: 'registry: every rule, roleRef and subject of role.yaml is pinned'
+    template: templates/role.yaml
+    set: {registry: ghcr.io/acme}
+    asserts:
+    - hasDocuments: {count: 2}
+    - equal: {path: kind, value: Role}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-manager}
+      documentIndex: 0
+    - equal: {path: metadata.namespace, value: pacto-operator-system}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resourceNames: [pacto-dashboard]
+          resources: [serviceaccounts, services]
+          verbs: [get, delete]
+        - apiGroups: ['']
+          resourceNames: [pacto-dashboard-oci-creds]
+          resources: [secrets]
+          verbs: [get, delete]
+        - apiGroups: [apps]
+          resourceNames: [pacto-dashboard]
+          resources: [deployments]
+          verbs: [get, delete]
+        - apiGroups: ['']
+          resourceNames: [pacto-evidence]
+          resources: [services]
+          verbs: [get, delete]
+        - apiGroups: [apps]
+          resourceNames: [pacto-evidence]
+          resources: [deployments]
+          verbs: [get, delete]
+        - apiGroups: [apps]
+          resourceNames: [pacto-node-agent]
+          resources: [daemonsets]
+          verbs: [get, delete]
+        - apiGroups: [rbac.authorization.k8s.io]
+          resourceNames: [pacto-node-agent]
+          resources: [roles, rolebindings]
+          verbs: [get, delete]
+        - apiGroups: ['']
+          resourceNames: [pacto-node-agent]
+          resources: [serviceaccounts]
+          verbs: [get, delete]
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: [get]
+        - apiGroups: ['']
+          resources: [configmaps]
+          verbs: [create]
+        - apiGroups: ['']
+          resourceNames: [pacto-operator-detected]
+          resources: [configmaps]
+          verbs: [get, patch]
+        - apiGroups: [apps]
+          resourceNames: [pacto-operator]
+          resources: [deployments]
+          verbs: [get]
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: [create]
+        - apiGroups: ['']
+          resources: [secrets, serviceaccounts, services]
+          verbs: [create, delete, get, patch, update]
+        - apiGroups: [apps]
+          resources: [deployments]
+          verbs: [create, delete, get, patch, update]
+      documentIndex: 0
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-manager}
+      documentIndex: 1
+    - equal: {path: metadata.namespace, value: pacto-operator-system}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-operator-manager}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+      documentIndex: 1
+  - it: 'registry with declare: every rule, roleRef and subject of role.yaml is pinned'
+    template: templates/role.yaml
+    set: {registry: ghcr.io/acme, declare.defaultApprovers.bootstrap: [{name: platform-admins, issuer: 'https://accounts.google.com', subject: '^admin@acme\.com$'}]}
+    asserts:
+    - hasDocuments: {count: 2}
+    - equal: {path: kind, value: Role}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-manager}
+      documentIndex: 0
+    - equal: {path: metadata.namespace, value: pacto-operator-system}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resourceNames: [pacto-dashboard]
+          resources: [serviceaccounts, services]
+          verbs: [get, delete]
+        - apiGroups: ['']
+          resourceNames: [pacto-dashboard-oci-creds]
+          resources: [secrets]
+          verbs: [get, delete]
+        - apiGroups: [apps]
+          resourceNames: [pacto-dashboard]
+          resources: [deployments]
+          verbs: [get, delete]
+        - apiGroups: ['']
+          resourceNames: [pacto-evidence]
+          resources: [services]
+          verbs: [get, delete]
+        - apiGroups: [apps]
+          resourceNames: [pacto-evidence]
+          resources: [deployments]
+          verbs: [get, delete]
+        - apiGroups: [apps]
+          resourceNames: [pacto-node-agent]
+          resources: [daemonsets]
+          verbs: [get, delete]
+        - apiGroups: [rbac.authorization.k8s.io]
+          resourceNames: [pacto-node-agent]
+          resources: [roles, rolebindings]
+          verbs: [get, delete]
+        - apiGroups: ['']
+          resourceNames: [pacto-node-agent]
+          resources: [serviceaccounts]
+          verbs: [get, delete]
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: [get]
+        - apiGroups: ['']
+          resources: [configmaps]
+          verbs: [create]
+        - apiGroups: ['']
+          resourceNames: [pacto-operator-detected]
+          resources: [configmaps]
+          verbs: [get, patch]
+        - apiGroups: [apps]
+          resourceNames: [pacto-operator]
+          resources: [deployments]
+          verbs: [get]
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: [create]
+        - apiGroups: ['']
+          resources: [secrets, serviceaccounts, services]
+          verbs: [create, delete, get, patch, update]
+        - apiGroups: [apps]
+          resources: [deployments]
+          verbs: [create, delete, get, patch, update]
+      documentIndex: 0
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-manager}
+      documentIndex: 1
+    - equal: {path: metadata.namespace, value: pacto-operator-system}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-operator-manager}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+      documentIndex: 1
+  - it: 'watchNamespaces with registry: every rule, roleRef and subject of watch-namespaces.yaml is pinned'
+    template: templates/watch-namespaces.yaml
+    set: {controller.watchNamespaces: [payments, ledger], registry: ghcr.io/acme}
+    asserts:
+    - hasDocuments: {count: 8}
+    - equal: {path: kind, value: Role}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-watch}
+      documentIndex: 0
+    - equal: {path: metadata.namespace, value: ledger}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [events]
+          verbs: [create, patch]
+        - apiGroups: ['']
+          resources: [configmaps, pods, services]
+          verbs: [get, list, watch]
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: [get]
+        - apiGroups: [networking.k8s.io]
+          resources: [ingresses]
+          verbs: [get, list, watch]
+        - apiGroups: [gateway.networking.k8s.io]
+          resources: [httproutes]
+          verbs: [get, list, watch]
+        - apiGroups: [discovery.k8s.io]
+          resources: [endpointslices]
+          verbs: [get, list, watch]
+        - apiGroups: [apps]
+          resources: [deployments, replicasets, statefulsets]
+          verbs: [get, list, watch]
+        - apiGroups: [apps]
+          resources: [daemonsets]
+          verbs: [list]
+        - apiGroups: [batch]
+          resources: [cronjobs, jobs]
+          verbs: [get, list, watch]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos]
+          verbs: [create, delete, get, list, patch, update, watch]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos/status]
+          verbs: [get, patch, update]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos/finalizers]
+          verbs: [update]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactorevisions]
+          verbs: [create, get, list, watch]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactorevisions/status]
+          verbs: [get, patch, update]
+        - apiGroups: ['']
+          resources: [namespaces]
+          verbs: [get]
+      documentIndex: 0
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-watch}
+      documentIndex: 1
+    - equal: {path: metadata.namespace, value: ledger}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-operator-watch}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+      documentIndex: 1
+    - equal: {path: kind, value: Role}
+      documentIndex: 2
+    - equal: {path: metadata.name, value: pacto-dashboard-watch}
+      documentIndex: 2
+    - equal: {path: metadata.namespace, value: ledger}
+      documentIndex: 2
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos, pactorevisions]
+          verbs: [get, list, watch]
+        - apiGroups: ['']
+          resources: [services]
+          verbs: [get, list, watch]
+        - apiGroups: [apps]
+          resources: [deployments, statefulsets, daemonsets]
+          verbs: [list]
+        - apiGroups: [batch]
+          resources: [cronjobs]
+          verbs: [list]
+        - apiGroups: [argoproj.io]
+          resources: [applications]
+          verbs: [list]
+        - apiGroups: [kustomize.toolkit.fluxcd.io]
+          resources: [kustomizations]
+          verbs: [list]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
+          verbs: [list]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [gitrepositories]
+          verbs: [list]
+        - apiGroups: [authorization.k8s.io]
+          resources: [localsubjectaccessreviews]
+          verbs: [create]
+      documentIndex: 2
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 3
+    - equal: {path: metadata.name, value: pacto-dashboard-watch}
+      documentIndex: 3
+    - equal: {path: metadata.namespace, value: ledger}
+      documentIndex: 3
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-dashboard-watch}
+      documentIndex: 3
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-dashboard, namespace: pacto-operator-system}
+      documentIndex: 3
+    - equal: {path: kind, value: Role}
+      documentIndex: 4
+    - equal: {path: metadata.name, value: pacto-operator-watch}
+      documentIndex: 4
+    - equal: {path: metadata.namespace, value: payments}
+      documentIndex: 4
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [events]
+          verbs: [create, patch]
+        - apiGroups: ['']
+          resources: [configmaps, pods, services]
+          verbs: [get, list, watch]
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: [get]
+        - apiGroups: [networking.k8s.io]
+          resources: [ingresses]
+          verbs: [get, list, watch]
+        - apiGroups: [gateway.networking.k8s.io]
+          resources: [httproutes]
+          verbs: [get, list, watch]
+        - apiGroups: [discovery.k8s.io]
+          resources: [endpointslices]
+          verbs: [get, list, watch]
+        - apiGroups: [apps]
+          resources: [deployments, replicasets, statefulsets]
+          verbs: [get, list, watch]
+        - apiGroups: [apps]
+          resources: [daemonsets]
+          verbs: [list]
+        - apiGroups: [batch]
+          resources: [cronjobs, jobs]
+          verbs: [get, list, watch]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos]
+          verbs: [create, delete, get, list, patch, update, watch]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos/status]
+          verbs: [get, patch, update]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos/finalizers]
+          verbs: [update]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactorevisions]
+          verbs: [create, get, list, watch]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactorevisions/status]
+          verbs: [get, patch, update]
+        - apiGroups: ['']
+          resources: [namespaces]
+          verbs: [get]
+      documentIndex: 4
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 5
+    - equal: {path: metadata.name, value: pacto-operator-watch}
+      documentIndex: 5
+    - equal: {path: metadata.namespace, value: payments}
+      documentIndex: 5
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-operator-watch}
+      documentIndex: 5
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+      documentIndex: 5
+    - equal: {path: kind, value: Role}
+      documentIndex: 6
+    - equal: {path: metadata.name, value: pacto-dashboard-watch}
+      documentIndex: 6
+    - equal: {path: metadata.namespace, value: payments}
+      documentIndex: 6
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos, pactorevisions]
+          verbs: [get, list, watch]
+        - apiGroups: ['']
+          resources: [services]
+          verbs: [get, list, watch]
+        - apiGroups: [apps]
+          resources: [deployments, statefulsets, daemonsets]
+          verbs: [list]
+        - apiGroups: [batch]
+          resources: [cronjobs]
+          verbs: [list]
+        - apiGroups: [argoproj.io]
+          resources: [applications]
+          verbs: [list]
+        - apiGroups: [kustomize.toolkit.fluxcd.io]
+          resources: [kustomizations]
+          verbs: [list]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
+          verbs: [list]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [gitrepositories]
+          verbs: [list]
+        - apiGroups: [authorization.k8s.io]
+          resources: [localsubjectaccessreviews]
+          verbs: [create]
+      documentIndex: 6
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 7
+    - equal: {path: metadata.name, value: pacto-dashboard-watch}
+      documentIndex: 7
+    - equal: {path: metadata.namespace, value: payments}
+      documentIndex: 7
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-dashboard-watch}
+      documentIndex: 7
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-dashboard, namespace: pacto-operator-system}
+      documentIndex: 7

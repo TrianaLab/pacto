@@ -1,0 +1,82 @@
+# Strategic merge patch for argocd-repo-server: a Pacto Config Management
+# Plugin sidecar. Apply it once; no Application changes.
+#   kubectl -n argocd patch deployment argocd-repo-server --patch-file argocd-repo-server-pacto-patch.yaml
+# Change PACTO_TARGET_SNAPSHOT: one pinned tag per Argo CD destination cluster.
+# Registry credentials: mount a host-keyed docker config and set DOCKER_CONFIG;
+# PACTO_REGISTRY_* would send its credentials to every host Pacto pulls from.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-repo-server
+  namespace: argocd
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: pacto-install
+          image: ghcr.io/trianalab/pacto/dashboard:4.5.0
+          command: [cp, /usr/local/bin/pacto, /pacto/bin/pacto]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: pacto-bin
+              mountPath: /pacto/bin
+      containers:
+        - name: pacto
+          image: quay.io/argoproj/argocd:v3.5.2
+          command: [/var/run/argocd/argocd-cmp-server]
+          env:
+            - name: PATH
+              value: /pacto/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            - name: HOME
+              value: /tmp
+            - name: PACTO_NO_UPDATE_CHECK
+              value: "1"
+            - name: PACTO_TARGET_SNAPSHOT
+              value: oci://ghcr.io/acme/pacto-targets:cluster-<uid-a> oci://ghcr.io/acme/pacto-targets:cluster-<uid-b>
+            - name: PACTO_DELIVERY_TRUST
+              value: /etc/pacto/trust.yaml
+            - name: PACTO_ALLOW_UNVERIFIED
+              value: "false"
+            - name: PACTO_SHOW_REASON
+              value: "false"
+            - name: PACTO_KUSTOMIZE_BUILD_OPTIONS
+              value: ""
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: var-files
+              mountPath: /var/run/argocd
+            - name: plugins
+              mountPath: /home/argocd/cmp-server/plugins
+            - name: pacto-cmp-plugin
+              mountPath: /home/argocd/cmp-server/config
+            - name: pacto-bin
+              mountPath: /pacto/bin
+            - name: pacto-tmp
+              mountPath: /tmp
+            - name: pacto-trust
+              mountPath: /etc/pacto
+      volumes:
+        - name: pacto-bin
+          emptyDir: {}
+        - name: pacto-tmp
+          emptyDir: {}
+        - name: pacto-cmp-plugin
+          configMap:
+            name: pacto-cmp-plugin
+        - name: pacto-trust
+          configMap:
+            name: pacto-trust

@@ -386,7 +386,7 @@ func TestBuildProduct_HiddenUnderRestrict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	q := fleet.NewQuery(full).Restrict(func(ns string) bool { return ns == "shop" }, nil)
+	q := fleet.NewQuery(full).Restrict(func(_, ns string) bool { return ns == "shop" }, nil)
 	snap := q.SnapshotForSerialization()
 	newC := svcContract("auth-service", "2.0.0", contract.Owner{Team: "platform"})
 	res := Analyze(context.Background(), auth, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{})
@@ -475,5 +475,19 @@ func TestVerdictOrder(t *testing.T) {
 		if b.Key != want[i] || b.Count != 0 {
 			t.Errorf("bucket %d = %+v, want {%s 0}", i, b, want[i])
 		}
+	}
+}
+
+// The product answer Change analysis reads carries the range coverage, the
+// notes and each consumer's break state.
+func TestBuildProduct_CarriesBreakStateRangesAndNotes(t *testing.T) {
+	snap := productSnapshot()
+	rev := snap.Revisions["api@1"]
+	bs := &BreakState{State: BreakAccepted, By: "ana@acme.com"}
+	res := &Result{Ranges: &RangeCoverage{Scope: "consumers of api", Edges: 2, Declared: 1}, Notes: []string{"POLICY_WARNING: x"},
+		Consumers: []AffectedConsumer{{Service: "web", Break: bs}}, Advisories: []InferredAdvisory{{}}}
+	p := BuildProduct(fleet.ProductMeta{}, snap, rev.ServiceKey, rev, rev, res, 0, 0)
+	if p.Ranges != res.Ranges || len(p.Notes) != 1 || p.Consumers.Items[0].Break != bs || len(p.Advisories) != 1 {
+		t.Errorf("product = %+v", p)
 	}
 }

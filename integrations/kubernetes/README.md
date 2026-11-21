@@ -141,7 +141,7 @@ The evaluator compares only what the contract declares and the operator can obse
 
 ### Health and metrics capabilities
 
-Health and metrics are contract **capabilities**, evaluated like any other assertion: a declared-but-absent health or metrics capability is `CAPABILITY_ABSENT` (`error`, so `NonCompliant`) or `unknown` when it cannot be observed — never a bare `Warning`. There is no separate `status.endpoints` field and no `HealthEndpointValid`/`MetricsEndpointValid` condition; the only status conditions are `ContractValid`, `RuntimeObserved` and `ReadinessSatisfied`.
+Health and metrics are contract **capabilities**, evaluated like any other assertion: a declared-but-absent health or metrics capability is `CAPABILITY_ABSENT` (`error`, so `NonCompliant`) or `unknown` when it cannot be observed — never a bare `Warning`. There is no separate `status.endpoints` field and no `HealthEndpointValid`/`MetricsEndpointValid` condition; the only status conditions are `ContractValid`, `RuntimeObserved`, `ReadinessSatisfied` and `OwnerVerified`.
 
 With no flag the operator observes health passively (readiness-probe and EndpointSlice signals) and sends no traffic. Active probing and full metrics observation take `on`, `off` or `auto`; the chart renders `auto`, which turns each one on only in namespaces labelled `pacto.trianalab.io/observe` (`probing`, `metrics` or `probing.metrics`):
 

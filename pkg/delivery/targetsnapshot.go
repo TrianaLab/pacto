@@ -29,7 +29,7 @@ const (
 	// TargetSnapshotTagPrefix starts every snapshot tag, so a reader lists
 	// cluster-* tags only.
 	TargetSnapshotTagPrefix = "cluster-"
-	// TargetSnapshotInterval is how often a recorder publishes.
+	// TargetSnapshotInterval is how often the operator publishes.
 	TargetSnapshotInterval = 5 * time.Minute
 	// TargetSnapshotFreshness is the age past which a snapshot reads stale:
 	// three missed publishes.
@@ -75,6 +75,10 @@ type TargetSnapshot struct {
 	// A reader maps it with evidenceingest.TargetsCollection, as it maps the
 	// body of an --evidence-url source.
 	Evidence json.RawMessage `json:"evidence,omitempty"`
+	// OwnerPolicy is the installation's owner policy, from the chart's
+	// declare block: who may set a service owner. Absent when the chart
+	// sets none.
+	OwnerPolicy *OwnerPolicy `json:"ownerPolicy,omitempty"`
 }
 
 // SnapshotSource is one section of a target snapshot: its kind, when it was
@@ -127,7 +131,8 @@ func TargetSnapshotTag(cluster string) (string, error) {
 // Check refuses a snapshot a reader could not place: a cluster that cannot sit
 // in a tag, an asOf that is not RFC 3339, a completeness other than complete
 // or partial, no publisher, a section of an unknown or repeated kind or with
-// the same faults, or an evidence section over evidenceingest's body bound.
+// the same faults, an evidence section over evidenceingest's body bound or an
+// owner policy OwnerPolicy.Check refuses.
 func (s TargetSnapshot) Check() error {
 	if _, err := TargetSnapshotTag(s.Cluster); err != nil {
 		return err
@@ -151,6 +156,11 @@ func (s TargetSnapshot) Check() error {
 	if len(s.Evidence) > evidenceingest.MaxTargetsBodyBytes {
 		return fmt.Errorf("evidence is %d bytes, over the %d byte bound", len(s.Evidence), evidenceingest.MaxTargetsBodyBytes)
 	}
+	if s.OwnerPolicy != nil {
+		if err := s.OwnerPolicy.Check(); err != nil {
+			return fmt.Errorf("owner policy: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -169,7 +179,7 @@ func checkRead(asOf string, c fleet.Completeness) error {
 // TargetSnapshotStream is the stream a snapshot of cluster is verified under,
 // <uid>/pacto-targets/snapshot, shaped like a record stream
 // (<cluster>/<namespace>/<stage>) so a trust entry's streams scope it. Every
-// cluster's recorder can write every cluster-* tag, so a snapshot counts as
+// cluster's operator can write every cluster-* tag, so a snapshot counts as
 // verified only under a key scoped to its cluster: one whose streams hold a
 // pattern that starts with the literal UID.
 func TargetSnapshotStream(cluster string) string {

@@ -82,6 +82,8 @@ func row(t *testing.T, rows []fleet.Provider, id string) fleet.Provider {
 	return rows[i]
 }
 
+// TestProviderRowsAreInferred: every row built from the entries is inferred;
+// only the Installation block adds a declared row (TestInstallationRowIsDeclared).
 func TestProviderRowsAreInferred(t *testing.T) {
 	res := Result{AsOf: asOf, Entries: []Entry{
 		{Kind: "registry", Value: "ghcr.io/acme", Evidence: "in 9 of 11 namespaces", Source: "running pods", Completeness: Complete, Hint: "oci://ghcr.io/acme/<service>:<version>", Details: []string{"a", "b"}},
@@ -202,7 +204,7 @@ func TestRestrictRedactsExposureRows(t *testing.T) {
 			t.Fatal(err)
 		}
 		reader := tc.reader
-		got := row(t, fleet.NewQuery(snap).Restrict(func(ns string) bool { return ns == reader }, nil).SnapshotForSerialization().Providers, "exposure")
+		got := row(t, fleet.NewQuery(snap).Restrict(func(_, ns string) bool { return ns == reader }, nil).SnapshotForSerialization().Providers, "exposure")
 		if got.Hint != "" || strings.ContainsAny(got.Evidence, "0123456789") {
 			t.Errorf("%s: %+v", name, got)
 		}

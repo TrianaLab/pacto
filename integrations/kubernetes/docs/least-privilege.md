@@ -66,6 +66,14 @@ HTTPRoutes, Ingresses and Services come from reads the operator already has.
 A namespace-list install renders no `nodes` rule, so cloud and nodes read
 unknown.
 
+## Registry pushes
+
+With `registry` set, the operator pushes only to `<registry>/pacto-targets`,
+the target snapshot, and `<registry>/pacto-inferred`, the
+[inferred contracts](../../inferred-contracts.md) of external systems. Its
+push guard refuses every other tag, delete and manifest push, so its registry
+credential needs push on those two repositories only.
+
 ## The delivery namespace
 
 Watching or granting the delivery namespace gives the operator its Secrets:

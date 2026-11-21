@@ -46,6 +46,9 @@ type dashboardIdentity struct {
 	// viewer narrows the fleet views to what the signed-in person's Kubernetes
 	// RBAC lets them read; nil outside shared mode with sign-in.
 	viewer *authn.Viewer
+	// homeUID is the sign-in cluster's cached id (homeCluster.UID), set with
+	// viewer; nil reads as unknown.
+	homeUID func(context.Context) (string, bool)
 	// loginName is the identity provider's name on the sign-in button.
 	loginName string
 	// selfMu guards the kubeconfig user a local dashboard acts as (see

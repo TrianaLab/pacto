@@ -16,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"k8s.io/client-go/rest"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/authn"
@@ -108,7 +109,12 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				}
 			}
 			externalCatalog := v.GetString("dashboard.external-catalog")
-			if err := errors.Join(app.CheckExternalCatalogRef(externalCatalog), app.CheckDetectedRef(v.GetString("dashboard.detected"))); err != nil {
+			svc.OwnerPolicyPath = v.GetString("dashboard.owner-policy")
+			// Named contexts outside a pod replace the ambient one, as a source
+			// and as the sign-in cluster.
+			contexts := splitList(v.GetStringSlice("dashboard.context"))
+			includeCurrent, clusterCfg, signInErr := signInCluster(v, contexts, d)
+			if err := errors.Join(app.CheckExternalCatalogRef(externalCatalog), app.CheckDetectedRef(v.GetString("dashboard.detected")), signInErr); err != nil {
 				return err
 			}
 
@@ -125,11 +131,12 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			// not a source. Reachability is NOT probed here: an unreachable cluster
 			// is reported per refresh, as an unavailable source with a reason, which
 			// is the only place that answer stays true.
-			cluster, _ := k8sclient.NewGoClient()
+			cluster := currentClient(includeCurrent)
 			det := dashboardSources{
 				local:           localRootHasBundle(dir),
 				cache:           !noCache && cacheHasEntries(cacheDir),
 				cluster:         cluster,
+				contexts:        contexts,
 				evidenceURL:     v.GetString("evidence-source-url"),
 				miraURLs:        miraURLs,
 				externalCatalog: externalCatalog,
@@ -138,7 +145,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			}
 
 			fopts := dashboardFleetOptions(dir, repos, namespaces, observation, det)
-			fopts.Provenance.Trust = publisherTrust(cmd, d)
+			fopts.Provenance.Trust = publisherTrust(cmd, d, det.detected)
 			configured := configuredSources(fopts)
 			if answersNothing(configured) {
 				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no cached bundles and no Kubernetes configuration", dir)
@@ -148,7 +155,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			// atomically-refreshed view of the whole fleet, rather than rebuilding
 			// per request. The dashboard is a CONSUMER of the reusable fleet layer:
 			// graph, freshness and completeness semantics live there, once.
-			discover := clusterContractRefs(cluster, namespaces)
+			discover := clusterContractRefs(contractRefClients(cluster, contexts), namespaces)
 			cacheUse := cacheLifecycle{
 				permitted:    !noCache,
 				baseline:     fopts.IncludeCache,
@@ -159,10 +166,10 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			})
 			go mgr.Start(cmd.Context(), fleetRefreshInterval)
 
-			// The cluster config the callers' own clients are built from: its
-			// address and CA, never its credentials. No cluster, no delivery.
-			clusterCfg, _ := d.clusterConfig()
-			identity, err := newDashboardIdentity(v, host, clusterCfg, d)
+			// clusterCfg is the sign-in cluster the callers' own clients are
+			// built from: its address and CA, never its credentials. No
+			// cluster, no delivery.
+			identity, err := newDashboardIdentity(v, host, clusterCfg, fleetEntries(svc, d, fopts), d)
 			if err != nil {
 				return err
 			}
@@ -181,7 +188,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				CORSOrigin: corsOrigin,
 				Fleet:      managerFleetProvider(mgr),
 				Published:  managerPublished(mgr),
-				Impact:     impactProviderForFleet(svc, identity.auth.Local()),
+				Impact:     impactProviderForFleet(svc, identity.auth.Local(), fopts.Provenance),
+				AcceptPlan: dashboardAcceptPlan(svc, fopts.Provenance.Trust),
 				Refresh:    mgr.Refresh,
 				MiraURL:    v.GetString("dashboard.mira-url"),
 
@@ -199,7 +207,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				// The per-launch token: delivery actions in this browser need it.
 				addr = identity.auth.LaunchURL(addr)
 			}
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nPacto Dashboard running at %s\nSources: %s\nPress Ctrl+C to stop\n", addr, strings.Join(configured, ", "))
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nPacto Dashboard running at %s\nSources: %s\n%sPress Ctrl+C to stop\n", addr, strings.Join(configured, ", "), signInLine(includeCurrent, contexts, clusterCfg != nil))
 
 			return server.Serve(ctx)
 		},
@@ -208,6 +216,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().String("host", "127.0.0.1", "bind address for the dashboard server")
 	cmd.Flags().Int("port", 3000, "port for the dashboard server")
 	cmd.Flags().String("namespace", "", "Kubernetes namespaces to read, comma-separated (empty = all namespaces); delivery reads narrow to it only when it names one")
+	cmd.Flags().StringArray("context", nil, "kubeconfig context to read live Pacto CRs from (repeatable, each cluster read once); outside a pod the named contexts replace the current one and people sign in against the first (also PACTO_DASHBOARD_CONTEXT)")
 	cmd.Flags().String("detected", "", "what the operator detected, shown as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (also PACTO_DASHBOARD_DETECTED)")
 	cmd.Flags().String("fingerprints", "", "a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers (also PACTO_DASHBOARD_FINGERPRINTS)")
 	cmd.Flags().String("cors-origin", "", "explicit cross-origin allowed to call the API (default: same-origin only)")
@@ -215,6 +224,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().StringArray("trace-source", nil, "named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)")
 	cmd.Flags().StringArray("mira-source", nil, "base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)")
 	cmd.Flags().String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_DASHBOARD_EXTERNAL_CATALOG)")
+	cmd.Flags().String("owner-policy", "", "the mounted owner policy (the chart's declare block as policy.json) that decides who may set a service owner (also PACTO_DASHBOARD_OWNER_POLICY)")
 	cmd.Flags().String("oidc-issuer-url", "", "OpenID Connect issuer people sign in with before the dashboard shows anything; every view then shows what the signed-in person's Kubernetes RBAC lets them read, and every action runs as them (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)")
 	cmd.Flags().String("oidc-client-id", "", "OpenID Connect client id of the dashboard")
 	cmd.Flags().String("oidc-redirect-url", "", "the dashboard's /auth/callback as browsers reach it (https)")
@@ -240,11 +250,13 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.host", cmd.Flags().Lookup("host"))
 	_ = v.BindPFlag("dashboard.port", cmd.Flags().Lookup("port"))
 	_ = v.BindPFlag("dashboard.namespace", cmd.Flags().Lookup("namespace"))
+	_ = v.BindPFlag("dashboard.context", cmd.Flags().Lookup("context"))
 	_ = v.BindPFlag("dashboard.cors-origin", cmd.Flags().Lookup("cors-origin"))
 	_ = v.BindPFlag("dashboard.traces", cmd.Flags().Lookup("traces"))
 	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
 	_ = v.BindPFlag("dashboard.mira-sources", cmd.Flags().Lookup("mira-source"))
 	_ = v.BindPFlag("dashboard.external-catalog", cmd.Flags().Lookup("external-catalog"))
+	_ = v.BindPFlag("dashboard.owner-policy", cmd.Flags().Lookup("owner-policy"))
 	_ = v.BindPFlag("dashboard.detected", cmd.Flags().Lookup("detected"))
 	_ = v.BindPFlag("dashboard.fingerprints", cmd.Flags().Lookup("fingerprints"))
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-display-name", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
@@ -328,6 +340,9 @@ type dashboardSources struct {
 	local   bool
 	cache   bool
 	cluster k8sclient.K8sClient // nil when no cluster client could be built
+	// contexts are the kubeconfig contexts read beside (or, outside a pod,
+	// instead of) the current one.
+	contexts []string
 	// evidenceURL is the operator-wired Evidence Server (PACTO_EVIDENCE_SOURCE_URL);
 	// empty means none is configured.
 	evidenceURL string
@@ -404,6 +419,7 @@ func configuredSources(fopts app.FleetOptions) []string {
 		{"oci", len(fopts.OCIRefs) > 0},
 		{"cache", fopts.IncludeCache},
 		{"k8s", fopts.IncludeK8s},
+		{"context " + strings.Join(fopts.K8sContexts, ", context "), len(fopts.K8sContexts) > 0},
 		{"observation", len(fopts.ObservationSources) > 0},
 		{"evidence", len(fopts.EvidenceURLs) > 0},
 		{"mira", len(fopts.MiraURLs) > 0},
@@ -470,7 +486,7 @@ func managerPublished(mgr *fleet.Manager) func() *fleet.Query {
 // A shared or open dashboard (not trusted) resolves no local dir and no ref a
 // caller names: each ref must name a revision in the caller's view, and the
 // revision's pinned ResolvedRef is what gets read.
-func impactProviderForFleet(svc *app.Service, trusted bool) func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+func impactProviderForFleet(svc *app.Service, trusted bool, prov *app.ProvenanceChecker) func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
 	return func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
 		if !trusted {
 			var err error
@@ -478,9 +494,13 @@ func impactProviderForFleet(svc *app.Service, trusted bool) func(ctx context.Con
 				return nil, err
 			}
 		}
+		// Acceptances are read for a local viewer or a signed-in person
+		// only, over revisions of the snapshot they see.
 		return svc.ImpactWithSnapshot(ctx, app.ImpactOptions{
 			OldPath: oldRef, NewPath: newRef,
 			IncludeObserved: includeObserved,
+			Acceptances:     dashboard.ReadsAcceptances(ctx),
+			Fleet:           app.FleetOptions{Provenance: prov},
 		}, snap)
 	}
 }
@@ -550,18 +570,93 @@ func observationSources(traces, named []string) ([]app.ObservationSourceSpec, er
 // Both fold into one revision key, and the merge keeps the first arrival's
 // requested ref, so ascending order would record every pinned target as having
 // requested a bare repository. Reversing puts the exact ref first.
-func clusterContractRefs(client k8sclient.K8sClient, namespaces []string) func(context.Context) []string {
-	if client == nil {
+func clusterContractRefs(clients []k8sclient.K8sClient, namespaces []string) func(context.Context) []string {
+	if len(clients) == 0 {
 		return nil
 	}
 	return func(ctx context.Context) []string {
-		refs, err := fleetsrc.ContractRefs(ctx, client, namespaces)
-		if err != nil {
-			return nil
+		var all []string
+		for _, client := range clients {
+			refs, err := fleetsrc.ContractRefs(ctx, client, namespaces)
+			if err != nil {
+				continue
+			}
+			all = append(all, refs...)
 		}
-		slices.Reverse(refs)
-		return refs
+		// One sort over every cluster's refs: reversing each cluster's list
+		// alone would let one cluster's bare repository come before another
+		// cluster's exact tag of it.
+		slices.Sort(all)
+		all = slices.Compact(all)
+		slices.Reverse(all)
+		return all
 	}
+}
+
+// contractRefClients are the clients contract references are discovered
+// through: the current context's (when it is read) and one per named context
+// that a client can be built for.
+func contractRefClients(current k8sclient.K8sClient, contexts []string) []k8sclient.K8sClient {
+	var out []k8sclient.K8sClient
+	if current != nil {
+		out = append(out, current)
+	}
+	for _, c := range contexts {
+		if client, err := k8sclient.NewGoClientFor(c); err == nil {
+			out = append(out, client)
+		}
+	}
+	return out
+}
+
+// dashboardClusters says whether the dashboard reads the current context and
+// which cluster people sign in against: named contexts outside a pod replace
+// the current one and the first of them is the sign-in cluster; otherwise
+// the ambient config (the in-cluster one in a pod) is both.
+// The error is why the first named context's config cannot be loaded.
+func dashboardClusters(contexts []string, d deps) (includeCurrent bool, signIn *rest.Config, err error) {
+	if len(contexts) > 0 {
+		if _, inErr := d.inCluster(); inErr != nil {
+			cfg, err := d.contextConfig(contexts[0])
+			return false, cfg, err
+		}
+	}
+	cfg, _ := d.clusterConfig() // nil: no sign-in cluster, as without a kubeconfig
+	return true, cfg, nil
+}
+
+// signInCluster is dashboardClusters, failing start-up when people sign in
+// (OIDC or token sign-in) and the named sign-in cluster cannot be loaded:
+// every reader would otherwise be reviewed nowhere while the banner names it.
+func signInCluster(v *viper.Viper, contexts []string, d deps) (bool, *rest.Config, error) {
+	include, cfg, err := dashboardClusters(contexts, d)
+	if err != nil && (v.GetString("dashboard.oidc-issuer-url") != "" || v.GetBool("dashboard.token-login")) {
+		return false, nil, fmt.Errorf("the sign-in cluster, context %s, cannot be loaded: %w", contexts[0], err)
+	}
+	return include, cfg, nil
+}
+
+// currentClient is the current context's client when the dashboard reads
+// it, nil when it does not or no client can be built.
+func currentClient(include bool) k8sclient.K8sClient {
+	if !include {
+		return nil
+	}
+	c, _ := k8sclient.NewGoClient() // nil when no client can be built
+	return c
+}
+
+// signInLine names the sign-in cluster on the startup banner when named
+// contexts replace the current one, and says so when its config could not be
+// loaded.
+func signInLine(includeCurrent bool, contexts []string, loaded bool) string {
+	if includeCurrent || len(contexts) == 0 {
+		return ""
+	}
+	if !loaded {
+		return "Sign-in cluster: context " + contexts[0] + " cannot be loaded; delivery reads are unavailable\n"
+	}
+	return "Sign-in cluster: context " + contexts[0] + "\n"
 }
 
 // cacheLifecycle answers one question per refresh — may the disk cache
@@ -669,8 +764,9 @@ func dashboardFleetOptions(dir string, repos []string, namespaces []string, obse
 	if det.cache {
 		fopts.IncludeCache = true
 	}
-	if det.cluster != nil {
-		fopts.IncludeK8s = true
+	if det.cluster != nil || len(det.contexts) > 0 {
+		fopts.IncludeK8s = det.cluster != nil
+		fopts.K8sContexts = det.contexts
 		fopts.K8sNamespaces = namespaces
 	}
 	// An operator-wired dashboard learns its managed Evidence Server via env; when

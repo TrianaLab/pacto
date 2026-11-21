@@ -138,8 +138,9 @@ func normalizeRegistryHost(host string) string {
 		host = host[:i]
 	}
 	host = strings.TrimRight(host, "/")
-	// Canonicalize Docker Hub
-	if host == dockerIORegistry {
+	// Canonicalize Docker Hub, including registry-1.docker.io, the host ORAS
+	// sends a docker.io request to.
+	if host == dockerIORegistry || host == "registry-1.docker.io" {
 		return dockerHubHost
 	}
 	return host

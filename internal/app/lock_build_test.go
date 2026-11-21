@@ -372,6 +372,26 @@ func TestBuildLockUnresolvedFailedEdge(t *testing.T) {
 	}
 }
 
+// TestBuildLockByNameDependencyNamesTheDependency pins that a 2.5 dependency
+// by name, which the lock cannot follow, fails closed naming the dependency
+// rather than an empty ref.
+func TestBuildLockByNameDependencyNamesTheDependency(t *testing.T) {
+	s := NewService(&testutil.MockBundleStore{}, nil)
+	root := &contract.Bundle{Contract: &contract.Contract{
+		PactoVersion: "2.5",
+		Service:      contract.Service{Name: "root", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{{Name: "ledger", Compatibility: contract.CompatibilityUnknown, Required: true}},
+	}}
+	_, err := s.buildLock(context.Background(), "testdata/root", root, nil)
+	var ue *lock.UnresolvedError
+	if !errors.As(err, &ue) {
+		t.Fatalf("expected *lock.UnresolvedError, got %v", err)
+	}
+	if ue.Ref != "ledger" || !strings.Contains(err.Error(), "cannot resolve ledger: no ref") {
+		t.Errorf("unresolved by-name dependency: got %q", err)
+	}
+}
+
 // TestBuildLockUnresolvedDigestError covers the resolveDigest error path:
 // the node resolves (fetched) but the subsequent digest resolution fails.
 func TestBuildLockUnresolvedDigestError(t *testing.T) {

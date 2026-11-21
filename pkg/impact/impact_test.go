@@ -733,8 +733,22 @@ func gateCases() []gateCase {
 	failingRunning := AffectedConsumer{Service: "ref", CompatibilityVerdict: CompatibilityIncompatible, policyVerdict: CompatibilityIncompatible, Targets: []string{"prod/k8s/ref"}}
 	failingUnplaced := AffectedConsumer{Service: "ref", CompatibilityVerdict: CompatibilityIncompatible, policyVerdict: CompatibilityIncompatible}
 	unchecked := AffectedConsumer{Service: "ref", CompatibilityVerdict: CompatibilityUnknown, policyVerdict: CompatibilityUnknown}
+	accepted := active
+	accepted.Break = &BreakState{State: BreakAccepted, By: "ana@acme.com"}
+	caller := AffectedConsumer{Service: "batch", Uncontracted: true, Evidence: []Evidence{{Kind: EvidenceObservedCall}}}
 	return []gateCase{
+		{name: "policy unknown range", gate: GateBlocked, reason: "api -> web range unknown, 1 consumer FAIL (policy unknown-range=fail)", code: GateCodePolicyUnknownRange,
+			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{paper},
+				unknownRanges: []string{"web"}, Policy: &Policy{UnknownRange: PolicyFail}}},
+		{name: "policy uncontracted", gate: GateBlocked, reason: "1 caller no contract describes calls api: batch FAIL (policy uncontracted=fail:24h0m0s)", code: GateCodePolicyUncontracted,
+			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessPartial, Consumers: []AffectedConsumer{caller},
+				Policy: &Policy{Uncontracted: PolicyFail, UncontractedWindow: "24h0m0s"}}},
+		{name: "policy over unplaced referrers", gate: GateBlocked, reason: "FAIL (policy unknown-range=fail)", code: GateCodePolicyUnknownRange,
+			r: Result{Classification: "BREAKING", Service: "api", Consumers: []AffectedConsumer{paper, failingUnplaced},
+				unknownRanges: []string{"web"}, Policy: &Policy{UnknownRange: PolicyFail}}},
 		{name: "non breaking", gate: GateClear, reason: "the change is NON_BREAKING", code: GateCodeNotBreaking, r: Result{Classification: "NON_BREAKING"}},
+		{name: "inferred possible break", gate: GateUnverified, reason: "a possible break on inferred interface api (openapi/v1.yaml:4): declare the interface to classify the change",
+			code: GateCodeInferredPossibleBreak, r: Result{Classification: "NON_BREAKING", Advisories: []InferredAdvisory{{Advisory: diff.Advisory{Interface: "api", Source: "openapi/v1.yaml:4"}}}}},
 		{name: "potential", gate: GateClear, reason: "review the potentially breaking changes by hand", code: GateCodePotentialBreaking, r: Result{Classification: "POTENTIAL_BREAKING"}},
 		{name: "blocked", gate: GateBlocked, reason: "do not accept api 2.0.0: web", code: GateCodeConsumersIncompatible,
 			r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Consumers: []AffectedConsumer{active, paper}}},
@@ -771,6 +785,23 @@ func gateCases() []gateCase {
 			r: Result{Classification: "NON_BREAKING", Service: "api", Consumers: []AffectedConsumer{unchecked}}},
 		{name: "hidden referrers", gate: GateUnverified, reason: "2 services you may not see may reference api", code: GateCodePolicyUnchecked,
 			r: Result{Classification: "NON_BREAKING", Service: "api", hiddenReferrers: 2}},
+		{name: "every consumer accepted", gate: GateClear, reason: "the change is BREAKING and every consumer accepted it: web (signed by ana@acme.com)", code: GateCodeBreakingAccepted,
+			r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{accepted}}},
+		{name: "one consumer accepted", gate: GateUnverified, reason: "1 consumer depends on api", code: GateCodeConsumersUnchecked,
+			r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{accepted, paper}}},
+		// An inferred contract never clears and never blocks, whatever else holds.
+		{name: "inferred provider", gate: GateUnverified, reason: "stripe 0.0.2 is an inferred contract, so no range against it can be verified: 0 of 1 consumer pins a range on it. Declare a contract for it with pacto declare", code: GateCodeInferredProvider,
+			r: Result{Classification: "BREAKING", Service: "stripe", NewVersion: "0.0.2", Consumers: []AffectedConsumer{active},
+				Limitations: []fleet.Limitation{{Code: LimitationInferredProvider}}}},
+		{name: "inferred provider, not breaking", gate: GateUnverified, reason: "0 of 0 consumers pin", code: GateCodeInferredProvider,
+			r: Result{Classification: "NON_BREAKING", Service: "stripe", Completeness: fleet.CompletenessComplete, Limitations: []fleet.Limitation{{Code: LimitationInferredProvider}}}},
+		// --running: an unread running revision never clears; a first version clears only when every running consumer accepts it.
+		{name: "running unread", gate: GateUnverified, reason: "could not read every revision of api that runs", code: GateCodeRunningUnread,
+			r: Result{Classification: "NON_BREAKING", Service: "api", unreadBaselines: []string{"prod/k8s/api runs a revision Pacto could not link"}}},
+		{name: "first version unchecked", gate: GateUnverified, reason: "first version of api on a known target, but the answer is partial", code: GateCodeFirstVersionUnchecked,
+			r: Result{Classification: "NON_BREAKING", Service: "api", Completeness: fleet.CompletenessPartial, firstVersion: true}},
+		{name: "first version accepted", gate: GateClear, reason: "first version of api on a known target: no consumer runs", code: GateCodeFirstVersionAccepted,
+			r: Result{Classification: "NON_BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, firstVersion: true, Consumers: []AffectedConsumer{paper}}},
 		{name: "both", gate: GateBlocked, reason: "do not accept api 2.0.0: web", code: GateCodeConsumersIncompatible,
 			r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Consumers: []AffectedConsumer{active, failingRunning}}},
 	}
@@ -1058,7 +1089,7 @@ func TestUnresolvedRefsCountHiddenReferrers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snap := fleet.NewQuery(full).Restrict(func(ns string) bool { return ns == "shop" }, nil).SnapshotForSerialization()
+	snap := fleet.NewQuery(full).Restrict(func(_, ns string) bool { return ns == "shop" }, nil).SnapshotForSerialization()
 	res := Analyze(context.Background(), pgContract("16.1.0", "provisioning", true), pgContract("16.2.0", "provisioning", false),
 		pgSchema("small", "medium", "large"), pgSchema("small", "large"), snap, Options{})
 	l := limitation(res, "CONFIG_REF_CONSUMERS_UNRESOLVED")

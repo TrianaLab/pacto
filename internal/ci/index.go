@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -71,4 +72,28 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// RangesLines is the "Ranges:" line of a coverage and one "unknown:" line
+// per listed unknown range, as pacto ci and pacto impact print them; none
+// when no coverage was read.
+func RangesLines(c *impact.RangeCoverage) []string {
+	switch {
+	case c == nil:
+		return nil
+	case c.Edges == 0:
+		return []string{"Ranges: no dependency edges"}
+	}
+	out := []string{fmt.Sprintf("Ranges: %d declared and %d accepted of %d dependency edges (%d%%)", c.Declared, c.Accepted, c.Edges, (c.Declared+c.Accepted)*100/c.Edges)}
+	for _, u := range c.Unknown {
+		line := "  unknown: " + u.From + " -> " + u.To
+		if u.Proposed != "" {
+			line += " (proposed " + u.Proposed + ")"
+		}
+		out = append(out, line)
+	}
+	if more := c.UnknownTotal - len(c.Unknown); more > 0 {
+		out = append(out, "  and "+strconv.Itoa(more)+" more")
+	}
+	return out
 }

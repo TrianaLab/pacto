@@ -243,9 +243,9 @@ function parseFleet(path: string, query: string): Route {
     // `readiness` is parsed for REVISIONS only. Readiness is declared and assessed per
     // contract revision, and the Entities API rejects the filter on any other kind, so
     // carrying it on /fleet/targets would be an inert param that 422s if anyone used it.
-    // `environment` is the mirror case: only a target runs in an environment.
+    // `environment` and `cluster` are the mirror case: only a target runs in an environment or a cluster.
     const keys = ['text', 'service', 'status', 'scope', 'offset', 'limit', 'sort'];
-    for (const k of isRevisions ? [...keys, 'readiness'] : [...keys, 'environment']) {
+    for (const k of isRevisions ? [...keys, 'readiness'] : [...keys, 'environment', 'cluster']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -488,7 +488,7 @@ function setPaging(qs: URLSearchParams, p: ListPaging) {
 
 // SERVICE_FILTERS are the Services list filters, in their URL order: the route
 // parses exactly these and fleetServicesUrl writes exactly these.
-const SERVICE_FILTERS = ['text', 'owner', 'ownerKey', 'ownership', 'gap', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'phase', 'createdFrom', 'declaration', 'group'];
+const SERVICE_FILTERS = ['text', 'owner', 'ownerKey', 'ownership', 'gap', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'phase', 'createdFrom', 'declaration', 'group', 'cluster'];
 
 // fleetServicesUrl builds the product service-list route, preserving the backend
 // filters the list implements and the page offset in the URL so a filtered/paged
@@ -498,7 +498,7 @@ const SERVICE_FILTERS = ['text', 'owner', 'ownerKey', 'ownership', 'gap', 'statu
 // carrying them would be an inert URL filter.
 export function fleetServicesUrl(opts: {
   text?: string; owner?: string; ownerKey?: string; ownership?: string; gap?: string; status?: string; domain?: string;
-  businessDomain?: string; capability?: string; offering?: string; consumes?: string; phase?: string; createdFrom?: string; declaration?: string; group?: string; offset?: number;
+  businessDomain?: string; capability?: string; offering?: string; consumes?: string; phase?: string; createdFrom?: string; declaration?: string; group?: string; cluster?: string; offset?: number;
 } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   // Two owner questions, two params. `owner` is free-text SEARCH (a substring over
@@ -512,7 +512,8 @@ export function fleetServicesUrl(opts: {
   // narrows those consumers to the ones with a provisioning status in it, so phase
   // alone is dropped. createdFrom keeps the services whose declared origin is that
   // golden path; declaration keeps the declared or the inferred services (absent
-  // lists both); group keeps the inferred services the cluster groups under one key.
+  // lists both); group keeps the inferred services the cluster groups under one key;
+  // cluster keeps the services with a target in that cluster (by its UID).
   const o = opts as Record<string, unknown>;
   for (const k of SERVICE_FILTERS) {
     if (o[k] && (k !== 'phase' || opts.consumes)) qs.set(k, String(o[k]));
@@ -593,7 +594,7 @@ export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string; so
 // into a complete, paged answer. Any other kind falls back to its own list route,
 // because services/owners/sources already have one.
 export function fleetEntityListUrl(kind: string, opts: {
-  service?: string; text?: string; status?: string; scope?: string; readiness?: string; environment?: string;
+  service?: string; text?: string; status?: string; scope?: string; readiness?: string; environment?: string; cluster?: string;
 } & ListPaging = {}): string {
   if (kind !== 'revision' && kind !== 'target') {
     const lists: Record<string, () => string> = { owner: fleetOwnersUrl, source: fleetSourcesUrl, domain: fleetDomainsUrl, offering: fleetOfferingsUrl, external: fleetExternalsUrl };
@@ -608,6 +609,7 @@ export function fleetEntityListUrl(kind: string, opts: {
   // emitting one here would build a URL that 422s.
   if (opts.readiness && kind === 'revision') qs.set('readiness', opts.readiness);
   if (opts.environment && kind === 'target') qs.set('environment', opts.environment);
+  if (opts.cluster && kind === 'target') qs.set('cluster', opts.cluster);
   setPaging(qs, opts);
   const str = qs.toString();
   const plural = kind === 'revision' ? 'revisions' : 'targets';

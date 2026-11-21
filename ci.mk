@@ -12,8 +12,9 @@ REPOWISE_VERSION ?= 0.36.0
        test-acceptance-local-runtime-docker test-acceptance-local-runtime-run \
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
-       test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-runtime-conformance \
-       test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-demo test-acceptance-kind-least-privilege ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
+       test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
+       test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-demo test-acceptance-kind-least-privilege \
+       test-acceptance-kind-multi-cluster ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
 
@@ -124,8 +125,9 @@ ci-perf-envtest:
 # say which boundary broke, and cannot be sharded.
 test-acceptance-kind: test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
 	test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
-	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-runtime-conformance \
-	test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-least-privilege
+	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
+	test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-least-privilege \
+	test-acceptance-kind-multi-cluster
 
 test-acceptance-kind-dashboard:
 	bash tests/acceptance/kind/dashboard-modes.sh
@@ -136,6 +138,14 @@ test-acceptance-kind-dashboard:
 # only its namespaces and reports a partial fleet that names them.
 test-acceptance-kind-least-privilege:
 	bash tests/acceptance/kind/least-privilege.sh
+
+# Multi-cluster reads on two real API servers: one dashboard started with
+# --context on the runner reads two kind clusters (an alias context of the
+# first is read once), signs people in against the first context, and a
+# ServiceAccount reader sees its namespace in its own cluster only while the
+# other cluster is hidden as not-reviewable and the answer is partial.
+test-acceptance-kind-multi-cluster:
+	bash tests/acceptance/kind/multi-cluster.sh
 
 # Operator-managed OFFLINE observation packaging: a declared Helm observation
 # source becomes a read-only mount whose stable Data Source identity and observed
@@ -178,6 +188,22 @@ test-acceptance-kind-gitops-flux:
 # because a customization Argo does not recognise leaves the Application green.
 test-acceptance-kind-gitops-argocd:
 	bash tests/acceptance/kind/gitops-argocd.sh
+
+# The Argo CD sync gate: the documented Pacto plugin sidecar on argocd-repo-server
+# judges each render with `pacto impact --running` against the operator's signed
+# target snapshot, with delivery absent. Clear syncs; blocked, mismatched and
+# unverified renders fail, and only the installation can let unverified through.
+test-acceptance-kind-gitops-argocd-sync:
+	bash tests/acceptance/kind/gitops-argocd-sync.sh
+
+# The Kargo promotion gate: the documented pacto-impact ClusterAnalysisTemplate
+# verifies Freight after each promotion with `pacto impact --running`, against
+# the operator's signed target snapshot with delivery absent. Clear Freight
+# verifies; blocked Freight fails; unverified Freight fails unless the Stage sets
+# allow-unverified; the opt-in targets: k8s reads the cluster through the
+# documented reader role.
+test-acceptance-kind-gitops-kargo:
+	bash tests/acceptance/kind/gitops-kargo.sh
 
 # A service's first Stage on a cluster with Argo CD and no Flux CRD: the
 # promoter's registry watch (candidates.registry) verifies the signatures of a
@@ -356,6 +382,8 @@ artifact-drift:
 		integrations/kubernetes/charts/pacto-operator/README.md \
 		docs/examples/compose-demo.md docs/dashboard-docker.md \
 		integrations/kubernetes/docs/installation.md \
+		tests/acceptance/kind/fixtures/gitops/argocd-repo-server-pacto-patch.yaml \
+		tests/acceptance/kind/fixtures/gitops/argocd-presync-pacto-impact.yaml \
 		|| { echo "artifact drift: apply-release-plan is not idempotent (re-run mutated tracked files)"; exit 1; }
 	@echo "    artifact-drift: OK"
 
@@ -381,7 +409,7 @@ verify-k8s-standalone:
 COVER_PKGS = $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /cmd/genexternalcatalog | grep -v /examples/ | grep -v /internal/runtimewatch/ebpf)
 ci-test:
 	@echo "==> Running unit tests with race detector and coverage..."
-	@go test -race $(COVER_PKGS) -coverprofile=coverage.out
+	@go test -race -timeout 20m $(COVER_PKGS) -coverprofile=coverage.out
 	@total=$$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $$NF}'); \
 	if [ "$$total" != "100.0%" ]; then \
 		echo "FAIL: total coverage is $$total, expected 100.0%"; \

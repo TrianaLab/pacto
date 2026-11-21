@@ -31,10 +31,13 @@ const (
 )
 
 // Workload is one running workload: a controller owner (or a bare pod), its
-// namespace and the images its pods run.
+// namespace, the images its pods run and the imagePullSecrets their pod specs
+// name (ServiceAccount pull Secrets are merged into the pod spec at
+// admission). No Secret is read.
 type Workload struct {
 	ID, Namespace string
 	Images        []string
+	PullSecrets   []string
 }
 
 // Registries is the registry most namespaces pull from. Each candidate is an

@@ -78,7 +78,7 @@
   }
 
   function ring(on) {
-    for (const r of stageEl.querySelectorAll('[data-ring]')) r.classList.toggle('ring-on', on);
+    for (const r of stageEl?.querySelectorAll('[data-ring]') ?? []) r.classList.toggle('ring-on', on);
   }
 
   function start() {

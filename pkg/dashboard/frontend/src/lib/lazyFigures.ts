@@ -17,3 +17,6 @@ export const loadOriginFigure = once(() => import('../components/figure/OriginFi
 export const loadCreationExplainer = once(() => import('../components/figure/explain/CreationExplainer.svelte'));
 // @ts-expect-error — Svelte component has no declaration file
 export const loadOfferingsFigure = once(() => import('../components/figure/OfferingsFigure.svelte'));
+// The Cluster filter shows only with two or more clusters, so the list views' first load skips it.
+// @ts-expect-error — Svelte component has no declaration file
+export const loadClusterFilter = once(() => import('../components/ClusterFilter.svelte'));

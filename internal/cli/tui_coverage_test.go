@@ -34,8 +34,10 @@ var embodiedByTUI = map[string]string{
 // exclusion is a decision on the record rather than an oversight. Adding a new
 // command forces a choice: give it a verb, or add it here with a reason.
 var excludedFromTUI = map[string]string{
+	"accept":               "plans, and later signs, an acceptance record a person writes to a registry; the TUI never acts",
 	"agent":                "a long-running host daemon",
-	"ci":                   "a CI pipeline step that plans every service of a repository; the TUI never runs it",
+	"declare":              "logs a person in to Sigstore, signs and writes to a registry; the TUI never acts",
+	"ci init":              "writes a CI file into the local repository, a step a person reviews and commits; the TUI never writes",
 	"run":                  "wraps a process and lives as long as it does",
 	"fleet reconcile":      "requires a --traces file, which no selection can supply",
 	"dashboard":            "a long-running server; the TUI is the terminal equivalent of it",
@@ -86,6 +88,7 @@ var excludedFromTUI = map[string]string{
 	"delivery record get":      "reads one signed record of a Stage, which is not a fleet entity",
 	"delivery record verify":   "verifies a Stage's records, which are not a fleet entity",
 	"delivery targets publish": "signs and pushes a target snapshot, a pipeline step",
+	"fleet publish-inferred":   "signs and pushes inferred contracts as the installation's publisher, a pipeline step",
 	"delivery status":          "reads Stages, which are not fleet entities, with the caller's cluster identity",
 	"delivery types":           "lists operation types, not fleet entities",
 	"delivery undo":            "plans a change to what runs; it belongs next to the propose it precedes",

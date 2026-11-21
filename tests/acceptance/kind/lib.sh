@@ -500,8 +500,14 @@ trust_keypair() {
   echo "$keydir"
 }
 
-# push_bundle PACTO_BIN LOCAL_PORT DIR REPO:TAG — publish a bundle through a
+# push_bundle PACTO_BIN LOCAL_PORT DIR REPO:TAG [HOST] — publish a bundle through a
 # forwarded registry port; prints the resolved manifest digest.
+#
+# With HOST (the in-cluster registry host), the bundle is pushed AS HOST: the
+# forwarded port serves as a plain-HTTP proxy, so the organization index entry
+# the push writes names HOST, the host the cluster reads the index from. An
+# entry naming 127.0.0.1:PORT is "on another host" there and is never used, so
+# a `pacto impact --running` gate reading it is partial.
 #
 # The push output is CAPTURED rather than piped straight into grep. Piped, a
 # failed push produced no match, `grep` exited 1, and under `set -o pipefail`
@@ -510,7 +516,12 @@ trust_keypair() {
 # stderr, because stdout here is the digest the caller captures.
 push_bundle() {
   local out digest
-  out="$(PACTO_INSECURE_REGISTRIES="127.0.0.1:$2" "$1" push "oci://127.0.0.1:$2/demo/$4" -p "$3" 2>&1)" || true
+  if [ -n "${5:-}" ]; then
+    out="$(HTTP_PROXY="http://127.0.0.1:$2" NO_PROXY="" no_proxy="" PACTO_INSECURE_REGISTRIES="$5" \
+      "$1" push "oci://$5/demo/$4" -p "$3" 2>&1)" || true
+  else
+    out="$(PACTO_INSECURE_REGISTRIES="127.0.0.1:$2" "$1" push "oci://127.0.0.1:$2/demo/$4" -p "$3" 2>&1)" || true
+  fi
   digest="$(printf '%s' "$out" | grep -oE 'sha256:[0-9a-f]{64}' | head -1 || true)"
   [ -n "$digest" ] || { echo "  push of $4 resolved no digest; output was:" >&2; printf '%s\n' "$out" >&2; }
   printf '%s' "$digest"

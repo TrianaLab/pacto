@@ -781,3 +781,26 @@ func TestGraphUnresolvedConfigRefIsUnresolved(t *testing.T) {
 		t.Fatalf("nodes = %+v", got)
 	}
 }
+
+// TestRefLessRenderersNotExternal: a dependency by name resolves by its name
+// like any other, never an external node, and what it requires waits on the
+// provider's contract.
+func TestRefLessRenderersNotExternal(t *testing.T) {
+	c := &contract.Contract{Service: contract.Service{Name: "reports"},
+		Dependencies: []contract.Dependency{{Name: "ledger", Compatibility: contract.CompatibilityUnknown, Requires: []contract.Requirement{{Interface: "api"}}}}}
+	deps := depsFromContract(c)
+	if deps[0].GuaranteeReason != reasonNotFetched {
+		t.Fatalf("reason = %q", deps[0].GuaranteeReason)
+	}
+	services := []Service{{Name: "reports"}, {Name: "ledger"}}
+	index := map[string]*ServiceDetails{"reports": {Service: Service{Name: "reports"}, Dependencies: deps}, "ledger": {Service: Service{Name: "ledger"}}}
+	graph := buildGlobalGraph(services, index, nil)
+	for _, n := range graph.Nodes {
+		if n.Status == StatusExternalNode {
+			t.Fatalf("external node: %+v", graph)
+		}
+		if n.ID == "reports" && (n.Edges[0].TargetID != "ledger" || !n.Edges[0].Resolved) {
+			t.Fatalf("edge = %+v", n.Edges)
+		}
+	}
+}

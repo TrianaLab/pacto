@@ -347,6 +347,8 @@ type fakeFleetK8sClient struct {
 	// workloads is the list JSON of each workload resource; missing: none.
 	workloads map[string]string
 	versions  map[string]string
+	// down, when set, fails every read of the cluster but its identity.
+	down error
 }
 
 // PreferredVersions serves the groups of versions; none by default.
@@ -355,11 +357,14 @@ func (f *fakeFleetK8sClient) PreferredVersions(context.Context, ...string) (map[
 }
 
 func (f *fakeFleetK8sClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
-	return f.disc, nil
+	return f.disc, f.down
 }
 
 // ListPage answers from workloads, else reads as a cluster with no workloads.
 func (f *fakeFleetK8sClient) ListPage(_ context.Context, gvr schema.GroupVersionResource, _, _ string) ([]byte, string, error) {
+	if f.down != nil {
+		return nil, "", f.down
+	}
 	if l, ok := f.workloads[gvr.Resource]; ok {
 		return []byte(l), "", nil
 	}
@@ -379,7 +384,7 @@ func (f *fakeFleetK8sClient) ClusterIdentity(_ context.Context, contextName stri
 
 func TestService_Fleet_IncludeK8s(t *testing.T) {
 	svc := NewService(nil, nil)
-	svc.sys.newK8s = func() (k8sclient.K8sClient, error) {
+	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) {
 		return &fakeFleetK8sClient{
 			disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 			listData: []byte(`{"items":[{"metadata":{"name":"svc-a","namespace":"prod"},"status":{"contractStatus":"Compliant","contract":{"serviceName":"svc-a"}}}]}`),
@@ -403,7 +408,7 @@ func TestService_Fleet_IncludeK8s(t *testing.T) {
 
 func TestService_Fleet_IncludeK8s_ClientError(t *testing.T) {
 	svc := NewService(nil, nil)
-	svc.sys.newK8s = func() (k8sclient.K8sClient, error) { return nil, errors.New("no cluster") }
+	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) { return nil, errors.New("no cluster") }
 	svc.sys.kubeContext = func() string { return "" } // exercise the "k8s" id fallback
 
 	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeK8s: true})
@@ -497,7 +502,7 @@ func TestFleetRejectsBadMiraURL(t *testing.T) {
 
 func TestLiveK8sRegistersWorkloadSource(t *testing.T) {
 	svc := k8sService("eu-prod-ctx")
-	svc.sys.newK8s = func() (k8sclient.K8sClient, error) {
+	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) {
 		return &fakeFleetK8sClient{
 			disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 			listData: []byte(`{"items":[]}`),
@@ -522,7 +527,7 @@ func TestLiveK8sRegistersWorkloadSource(t *testing.T) {
 
 func TestUnreachableClusterMarksBothSourcesUnavailable(t *testing.T) {
 	svc := NewService(nil, nil)
-	svc.sys.newK8s = func() (k8sclient.K8sClient, error) { return nil, errors.New("no cluster") }
+	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) { return nil, errors.New("no cluster") }
 	svc.sys.kubeContext = func() string { return "" }
 	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeK8s: true})
 	if err != nil {
@@ -537,7 +542,7 @@ func TestUnreachableClusterMarksBothSourcesUnavailable(t *testing.T) {
 
 func TestWorkloadOfDeclaredTargetNotInferred(t *testing.T) {
 	svc := k8sService("")
-	svc.sys.newK8s = func() (k8sclient.K8sClient, error) {
+	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) {
 		return &fakeFleetK8sClient{
 			disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 			listData: []byte(`{"items":[{"metadata":{"name":"cart","namespace":"shop"},"spec":{"target":{"serviceName":"cart"}},"status":{"contractStatus":"Compliant","contract":{"serviceName":"cart"}}}]}`),
@@ -563,7 +568,7 @@ func TestWorkloadOfDeclaredTargetNotInferred(t *testing.T) {
 
 func TestFleetK8sProviderRows(t *testing.T) {
 	svc := NewService(nil, nil)
-	svc.sys.newK8s = func() (k8sclient.K8sClient, error) {
+	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) {
 		return &fakeFleetK8sClient{
 			disc:      &k8sclient.CRDDiscovery{Found: true, Version: "v1alpha1", ResourceName: "pactos"},
 			listData:  []byte(`{"items":[]}`),
@@ -589,7 +594,7 @@ func TestFleetK8sProviderRows(t *testing.T) {
 
 func TestFleetK8sGroupingRows(t *testing.T) {
 	svc := NewService(nil, nil)
-	svc.sys.newK8s = func() (k8sclient.K8sClient, error) {
+	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) {
 		return &fakeFleetK8sClient{
 			disc:     &k8sclient.CRDDiscovery{Found: true, Version: "v1alpha1", ResourceName: "pactos"},
 			listData: []byte(`{"items":[]}`),

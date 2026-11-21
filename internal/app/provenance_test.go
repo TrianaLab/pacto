@@ -66,6 +66,13 @@ func provenanceTestRegistryOf(t *testing.T, referrers bool) *provRegistry {
 	t.Helper()
 	p := &provRegistry{}
 	inner := registry.New(registry.WithReferrersSupport(referrers), registry.Logger(log.New(io.Discard, "", 0)))
+	// Only the registry without referrers gets a fresh prober: a stale native
+	// answer for its port is what breaks it, and the external catalog tests
+	// leave a check reading the prober running past their end, so swapping it
+	// under them is a race.
+	if !referrers {
+		freshProbes(t)
+	}
 	p.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p.requests.Add(1)
 		if f := p.fail.Load(); f != nil && (*f)(r) {
@@ -217,7 +224,7 @@ func TestProvenanceIgnoresSelfDeclaredSigner(t *testing.T) {
 	p := checkerFor(reg).Check(t.Context(), "oci", pushSigned(t, reg, s), keylessContract(provIdentity))
 	wantStatus(t, p, fleet.SignatureUnverified, "a person identity")
 	sig := p.Signature
-	if sig.Source != delivery.PublisherSourceNone || sig.Signer != provIdentity || !strings.Contains(sig.ExpectedSigner, `github\.com/(?i:acme)`) || sig.ExpectedIssuer != provIssuer {
+	if sig.Source != delivery.PublisherSourceNone || sig.Signer != provIdentity || !strings.Contains(sig.ExpectedSigner, `github\.com/((?i:acme)`) || sig.ExpectedIssuer != provIssuer {
 		t.Fatalf("signature %+v", sig)
 	}
 }
@@ -245,7 +252,7 @@ func TestSignatureOfInstallationSources(t *testing.T) {
 	id := &delivery.PublisherIdentity{Subject: provWorkflow, Issuer: provIssuer}
 	for _, src := range []string{delivery.PublisherSourceRule, delivery.PublisherSourcePin, delivery.PublisherSourcePolicy} {
 		sig := signatureOf(delivery.PublisherVerdict{Verdict: delivery.VerdictAccepted, Source: src, Identity: id, Reason: "signed by x"},
-			delivery.PublisherRule{}, fleet.BundleSignature{Bundles: 1})
+			delivery.PublisherRule{}, "", fleet.BundleSignature{Bundles: 1})
 		if sig.Status != fleet.SignatureVerified || sig.Source != src || sig.Signer != provWorkflow || sig.Reason != "Signed by x" {
 			t.Fatalf("%s: %+v", src, sig)
 		}

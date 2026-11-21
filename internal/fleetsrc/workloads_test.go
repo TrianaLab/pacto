@@ -1,6 +1,7 @@
 package fleetsrc
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
@@ -638,5 +640,60 @@ func TestPromoterRowFromAnnotation(t *testing.T) {
 	}
 	if got := promoterRowsOf(col); !reflect.DeepEqual(got, want) {
 		t.Errorf("rows = %+v", got)
+	}
+}
+
+var promoterOffer = workloadmanager.Offer{ID: "promoter-gate", Text: "Gate every promotion with one template", Doc: "https://pacto.run/latest/x/#y"}
+
+func TestPromoterOfferFromFingerprint(t *testing.T) {
+	fps := []workloadmanager.Fingerprint{
+		{Product: "Promoter", CRD: "stages.promoter.example.com", Offer: &promoterOffer},
+		{Product: "Plain", CRD: "stages.plain.example.com"},
+		{Product: "Unserved", CRD: "stages.unserved.example.com", Offer: &promoterOffer},
+	}
+	f := &workloadFake{versions: map[string]string{"promoter.example.com": "v1", "plain.example.com": "v1"}}
+	col, err := NewWorkloadSource("w", nil, f, nil).WithPromoters(fps).Collect(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := promoterRowsOf(col)
+	if len(rows) != 2 || !reflect.DeepEqual(rows[0].Offers, []fleet.ProviderOffer{fleet.ProviderOffer(promoterOffer)}) || rows[1].Offers != nil {
+		t.Fatalf("rows = %+v", rows)
+	}
+	// A promoter discovery could not check is partial and offers nothing.
+	f.discErr = errors.New("down")
+	col, _ = NewWorkloadSource("w", nil, f, nil).WithPromoters(fps[:1]).Collect(t.Context())
+	if rows := promoterRowsOf(col); len(rows) != 1 || rows[0].Offers != nil {
+		t.Fatalf("unchecked rows = %+v", rows)
+	}
+}
+
+func TestKargoFingerprintsGiveOneOffer(t *testing.T) {
+	values, err := os.ReadFile("../../integrations/kubernetes/charts/pacto-operator/values.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var chart struct {
+		Fingerprints yaml.Node `yaml:"fingerprints"`
+	}
+	if err := yaml.Unmarshal(values, &chart); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := yaml.Marshal(&chart.Fingerprints)
+	fp, err := workloadmanager.ParseFingerprints(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &workloadFake{versions: map[string]string{"kargo.akuity.io": "v1alpha1"}}
+	snap := buildOne(t, NewWorkloadSource("w", nil, f, nil).WithPromoters(fp.Promoters))
+	var kargo []fleet.Provider
+	for _, p := range snap.Providers {
+		if p.ID == "promotion/Kargo" {
+			kargo = append(kargo, p)
+		}
+	}
+	want := []fleet.ProviderOffer{{ID: "kargo-analysis-template", Text: "Gate every Kargo promotion with one shared AnalysisTemplate", Doc: "https://pacto.run/latest/integrations/kubernetes/gitops-kargo/#kargo"}}
+	if len(kargo) != 1 || !reflect.DeepEqual(kargo[0].Offers, want) {
+		t.Fatalf("Kargo rows = %+v", kargo)
 	}
 }

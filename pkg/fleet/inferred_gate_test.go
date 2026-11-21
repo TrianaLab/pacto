@@ -80,7 +80,7 @@ func TestRestrictCallersCountsByEntity(t *testing.T) {
 		},
 	}
 	deps, dependents := map[ServiceKey]map[ServiceKey]bool{}, map[ServiceKey]map[ServiceKey]bool{}
-	if got := restrictCallers(s, map[ServiceKey]bool{cart: true}, map[string]bool{"secret": true}, false, deps, dependents); len(got) != 0 {
+	if got := restrictCallers(s, map[ServiceKey]bool{cart: true}, map[ClusterNamespace]bool{{Namespace: "secret"}: true}, false, deps, dependents); len(got) != 0 {
 		t.Errorf("kept %+v", got)
 	}
 	want := map[ServiceKey]map[ServiceKey]bool{web: {cart: true, "caller:k8s:secret/Job/x": true}}

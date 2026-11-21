@@ -124,7 +124,9 @@ absent `service.name` is read from the first of these that names it:
 A file `.pactoignore` leaves out is never read. When two folders end up with
 the same name and at least one of them was inferred, the operational graph
 drops the inferred ones and reports a `SERVICE_NAME_COLLISION` limitation, so
-an inferred name never joins another service.
+an inferred name never joins another service. In `pacto ci`, a folder whose
+inferred name is the one its own published baseline declares is that service,
+so it joins it without a collision.
 
 `pacto pack`, `pacto push` and `pacto publish` need a declared `service.name`
 (`PUBLISH_NEEDS_SERVICE_NAME`) and `service.version`

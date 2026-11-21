@@ -56,6 +56,8 @@ export type ProductEntityDetail = JSON200<'fleet-entity-detail'>;
 export type ProductNeighborhood = JSON200<'fleet-neighborhood'>;
 export type ProductAttentionList = JSON200<'fleet-attention'>;
 export type ProductImpact = JSON200<'fleet-impact-post'>;
+/** What accepting every proposed range of a service would sign, and the command that signs it. */
+export type AcceptPlanAnswer = JSON200<'fleet-accept'>;
 export type ProductRevisionDocument = JSON200<'fleet-revision-document'>;
 export type ProductOfferingVersions = JSON200<'fleet-versions'>;
 export type ProductStats = JSON200<'get-stats'>;
@@ -122,6 +124,8 @@ export type ChangeEvent = components['schemas']['ProductChangeEvent'];
 export type ProductEntityRef = NonNullable<ProductEntityList['entities']>[number];
 export type EntityKind = ProductEntityRef['kind'];
 export type SourceHealth = components['schemas']['Fleet.SourceState']['status'];
+/** One cluster's status in an answer (meta.clusters), with why a restricted view hides it. */
+export type ClusterSummary = components['schemas']['Fleet.ClusterSummary'];
 export type Direction = NonNullable<ProductNeighborhood['direction']>;
 export type KnowledgeView = NonNullable<ProductNeighborhood['views']>[number];
 /** Attention severity is the narrower domain (no "unknown"), derived from the wire. */
@@ -506,6 +510,10 @@ export const api = {
     productGet(client.GET('/api/fleet/versions', { params: { query: params } })),
   fleetImpactByIdentity: (body: FleetImpactInput): Promise<ProductImpact> =>
     productGet(client.POST('/api/fleet/impact', { body })),
+  /** Plans "Accept all proposed ranges" for a service: the plan and the exact
+   *  pacto accept command a person runs. It never signs and never writes. */
+  fleetAccept: (serviceKey: string): Promise<AcceptPlanAnswer> =>
+    unwrap(client.POST('/api/fleet/accept', { body: { serviceKey } })),
   /** Lazily reads ONE document body belonging to exactly this revision. Kept off
    *  the entity detail so a revision page stays bounded. */
   fleetRevisionDocument: (key: string, path: string): Promise<ProductRevisionDocument> =>

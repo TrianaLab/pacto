@@ -711,7 +711,7 @@ func TestFleetEntitiesConsumes(t *testing.T) {
 // is never named.
 func TestFleetOfferingToolsAnswerFromTheView(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns != "secretns" }, nil), nil
+		return q.Restrict(func(_, ns string) bool { return ns != "secretns" }, nil), nil
 	}
 	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(offeringFleet(t)), Opts: FleetOptions{View: view}}})
 	for _, c := range []struct {
@@ -966,7 +966,7 @@ func TestFleetStatusCarriesProviders(t *testing.T) {
 // what names a namespace the caller may not read.
 func TestFleetStatusProvidersRestricted(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns == "shop" }, nil), nil
+		return q.Restrict(func(_, ns string) bool { return ns == "shop" }, nil), nil
 	}
 	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(providerQuery(t)), Opts: FleetOptions{View: view}}})
 	text := resultText(t, callToolOn(t, server, "pacto_fleet_status", map[string]any{}))
@@ -980,6 +980,16 @@ func TestFleetGetDescribesOwnerProvenance(t *testing.T) {
 	for _, want := range []string{"'ownerProvenance'", "declared-via-target", "attested", "inferred", "never fills 'owner'"} {
 		if !strings.Contains(d, want) {
 			t.Errorf("pacto_fleet_get description lacks %q: %s", want, d)
+		}
+	}
+}
+
+// The service owner's provenance and its attested source are named for agents.
+func TestFleetGetDescriptionNamesOwnerSource(t *testing.T) {
+	d := fleetGetTool().Description
+	for _, want := range []string{"'ownerSource'", "declared (", "declared-via-target (", "attested (", "or inferred;"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("pacto_fleet_get description lacks %q", want)
 		}
 	}
 }

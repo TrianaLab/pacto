@@ -170,8 +170,11 @@ func demoImpactProvider(byRef map[string]*contract.Bundle) func(context.Context,
 		if oldB == nil || newB == nil {
 			return nil, fmt.Errorf("unknown revision reference (old=%q new=%q)", oldRef, newRef)
 		}
+		// An inferred contract is read like the CLI reads it: by its location.
+		inferred, _ := contract.InferredRef(newRef)
 		return impact.Analyze(ctx, oldB.Contract, newB.Contract, oldB.FS, newB.FS, snap, impact.Options{
-			IncludeObserved: includeObserved,
+			IncludeObserved:  includeObserved,
+			InferredProvider: inferred,
 		}), nil
 	}
 }

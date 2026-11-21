@@ -99,10 +99,12 @@ type Provider struct {
 	Objects      []ProviderObject `json:"objects,omitempty" doc:"The objects the evidence names, at most 20"`
 	ObjectsTotal int              `json:"objectsTotal,omitempty" doc:"How many objects the row had before the cap or your permissions narrowed it"`
 	Limitations  []Limitation     `json:"limitations,omitempty"`
+	Offers       []ProviderOffer  `json:"offers,omitempty" doc:"Pacto integrations that fit this provider, offered because it was detected; Pacto installs nothing"`
 	// Provenance, AsOf, Hint, Details and Scope are set on a row Pacto
 	// detected (see pkg/detect); a row a source reported directly leaves them
-	// empty.
-	Provenance string     `json:"provenance,omitempty" doc:"inferred for a row Pacto detected; empty for a row a source reported directly"`
+	// empty. The operator's Installation row, from the same detection, is the
+	// one row with Provenance declared.
+	Provenance string     `json:"provenance,omitempty" doc:"declared for the operator's Installation row (its configuration); inferred for a row Pacto detected; empty for a row a source reported directly"`
 	AsOf       *time.Time `json:"asOf,omitempty" doc:"When the row was detected"`
 	Hint       string     `json:"hint,omitempty" doc:"A command or value for a person to review that would turn the proposal on. Nothing is turned on until a person runs it"`
 	Details    []string   `json:"details,omitempty" doc:"Further candidates or facts behind the row, at most 5"`
@@ -126,6 +128,33 @@ type ProviderObject struct {
 	Kind      string `json:"kind"`
 	Namespace string `json:"namespace,omitempty"`
 	Name      string `json:"name"`
+}
+
+// ProviderOffer is one Pacto integration a detected provider row offers.
+type ProviderOffer struct {
+	ID   string `json:"id" doc:"Stable offer id"`
+	Text string `json:"text" doc:"One sentence, Gate every <thing> with <mechanism>"`
+	Doc  string `json:"doc" doc:"The setup guide, an https URL"`
+}
+
+// ArgoSyncGateDoc is the setup guide of the Argo CD sync gate.
+const ArgoSyncGateDoc = "https://pacto.run/latest/integrations/kubernetes/gitops/#gate-every-argo-cd-sync"
+
+// providerOffers are the offers finalizeProviders puts on a row by its id.
+var providerOffers = map[string][]ProviderOffer{
+	ProviderArgoCD: {{ID: "argocd-repo-server-plugin", Text: "Gate every Argo CD sync with one repo-server plugin", Doc: ArgoSyncGateDoc}},
+}
+
+// rowOffers is p's offers merged by id with the table's for its id (the
+// table wins, then the first of a duplicate), sorted by id, in a new slice. A
+// row that is unavailable offers nothing, whatever set its offers.
+func rowOffers(p *Provider) []ProviderOffer {
+	if p.Status == SourceUnavailable {
+		return nil
+	}
+	out := append(slices.Clone(providerOffers[p.ID]), p.Offers...)
+	slices.SortStableFunc(out, func(a, b ProviderOffer) int { return cmp.Compare(a.ID, b.ID) })
+	return slices.CompactFunc(out, func(a, b ProviderOffer) bool { return a.ID == b.ID })
 }
 
 // ProviderCount is how many objects of one kind a source read in one namespace.
@@ -230,6 +259,7 @@ func finalizeRows(rows []Provider, state map[string]SourceStatus) []Provider {
 				Message: "source " + p.Source + " reported this row as " + string(status) + " and gave no reason"})
 		}
 		p.Status = status
+		p.Offers = rowOffers(p)
 		if p.Counts != nil || p.UnreadableKinds != nil {
 			p.Evidence = countsEvidence(p.Counts, p.UnreadableKinds)
 		}
@@ -253,9 +283,9 @@ const reportingAdapterID = "reporting-adapter/"
 // row an evidence source reported from its trust config (a producer the
 // installation allows to report) names no report and stays for every viewer:
 // the Evidence Server lists those producers to anyone on GET /producers.
-func restrictedProviders(out *FleetSnapshot, rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNames []string, visible func(string) bool, workloadVisible func(namespace, kind string) bool) []Provider {
+func restrictedProviders(out *FleetSnapshot, rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNames []string, visible func(cluster, namespace string) bool, workloadVisible func(cluster, namespace, kind string) bool, srcClusters map[string]string) []Provider {
 	rows = slices.DeleteFunc(slices.Clone(rows), func(p Provider) bool { return strings.HasPrefix(p.ID, reportingAdapterID) })
-	rows = append(restrictProviders(rows, hiddenSvc, hiddenNames, visible, workloadVisible, out.Clusters), finalizeRows(reportingRows(out.Provisioning), sourceStates(out.Sources))...)
+	rows = append(restrictProviders(rows, hiddenSvc, hiddenNames, visible, workloadVisible, out.Clusters, srcClusters), finalizeRows(reportingRows(out.Provisioning), sourceStates(out.Sources))...)
 	slices.SortStableFunc(rows, func(a, b Provider) int { return cmp.Or(cmp.Compare(a.Source, b.Source), cmp.Compare(a.ID, b.ID)) })
 	return rows
 }
@@ -363,7 +393,8 @@ func PluralKind(k string) string {
 
 // restrictProviders is rows as a reader visible and workloadVisible say yes
 // to sees them. Every row stays, except a registry row whose every service is
-// in hiddenSvc; what changes is cloned. An object in a
+// in hiddenSvc and a declared row from a cluster the view hides; what changes
+// is cloned. An object in a
 // namespace the reader may not read goes, a cluster-scoped one included unless
 // visible("") says yes, and ObjectsTotal keeps the count. A count stays only
 // when the reader may read its namespace and list its kind there (a nil
@@ -373,8 +404,10 @@ func PluralKind(k string) string {
 // names a hidden name, goes; the degraded limitation names no namespace and
 // stays. A row that is not available and lost every reason gets a degraded
 // one, so it still says why. Evidence a producer wrote that names a hidden
-// name is masked; evidence rendered from counts names none.
-func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNames []string, visible func(string) bool, workloadVisible func(namespace, kind string) bool, clusters []ClusterRecord) []Provider {
+// name is masked; evidence rendered from counts names none. Every namespace
+// of a row is read in the row's cluster (see providerCluster; srcClusters maps
+// source ids to cluster ids).
+func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNames []string, visibleIn func(cluster, namespace string) bool, workloadVisibleIn func(cluster, namespace, kind string) bool, clusters []ClusterRecord, srcClusters map[string]string) []Provider {
 	if rows == nil {
 		return nil
 	}
@@ -385,14 +418,16 @@ func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNam
 	for _, c := range clusters {
 		shown[c.ID], shown[c.Name] = true, true
 	}
+	// Offers stay shared with rows: finalize built them and nothing writes
+	// them after, and their static text discloses nothing.
 	out := make([]Provider, 0, len(rows))
 	for i, p := range rows {
 		if allServicesHidden(p, hiddenSvc) {
 			continue
 		}
-		if !shown[p.Cluster] {
-			p.Evidence, p.Limitations = hideDetectedCluster(p)
-			p.Cluster = ""
+		visible, workloadVisible := inCluster(providerCluster(p, srcClusters), visibleIn, workloadVisibleIn)
+		if !hideCluster(&p, shown) {
+			continue
 		}
 		p.Objects, p.ObjectsTotal = restrictObjects(p, visible, workloadVisible)
 		hidden := map[string]int{}
@@ -411,7 +446,7 @@ func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNam
 		}
 		redactDetected(&p, len(rows[i].Objects), visible)
 		p.Limitations = slices.DeleteFunc(slices.Clone(p.Limitations), func(l Limitation) bool {
-			return l.Code != LimitationProviderSourceDegraded && (hiddenByScope(l, visible) || mentionsHidden(l.Message))
+			return l.Code != LimitationProviderSourceDegraded && (hiddenByScope(l, visibleIn, srcClusters) || mentionsHidden(l.Message))
 		})
 		if p.Status != SourceAvailable && len(p.Limitations) == 0 {
 			p.Limitations = []Limitation{{Code: LimitationProviderSourceDegraded, Source: p.Source,
@@ -426,6 +461,21 @@ func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNam
 // every one of them, so the row goes with them.
 func allServicesHidden(p Provider, hiddenSvc map[ServiceKey]bool) bool {
 	return len(p.Services) > 0 && !slices.ContainsFunc(p.Services, func(k ServiceKey) bool { return !hiddenSvc[k] })
+}
+
+// hideCluster takes from p its cluster when shown does not name it, and
+// reports whether p stays. A declared row goes whole: the Installation row's
+// details and push error name the cluster's snapshot tag.
+func hideCluster(p *Provider, shown map[string]bool) bool {
+	if shown[p.Cluster] {
+		return true
+	}
+	if p.Provenance == ProvenanceDeclared && p.Cluster != "" {
+		return false
+	}
+	p.Evidence, p.Limitations = hideDetectedCluster(*p)
+	p.Cluster = ""
+	return true
 }
 
 // hideDetectedCluster is the evidence and limitations of p without the
@@ -560,11 +610,22 @@ func countVisible(c ProviderCount, visible func(string) bool, workloadVisible fu
 	return c.N == 0 || visible(c.Namespace) && workloadVisible != nil && workloadVisible(c.Namespace, c.Kind)
 }
 
+// inCluster is visible and workloadVisible with their cluster fixed to
+// cluster. A nil workloadVisible stays nil.
+func inCluster(cluster string, visible func(cluster, namespace string) bool, workloadVisible func(cluster, namespace, kind string) bool) (func(string) bool, func(string, string) bool) {
+	vis := func(ns string) bool { return visible(cluster, ns) }
+	if workloadVisible == nil {
+		return vis, nil
+	}
+	return vis, func(ns, kind string) bool { return workloadVisible(cluster, ns, kind) }
+}
+
 // providersNarrowed reports whether a reader visible and workloadVisible say
 // yes to would lose an object or a count of some row of s, or see a detected
-// row redacted.
-func providersNarrowed(s *FleetSnapshot, visible func(string) bool, workloadVisible func(namespace, kind string) bool) bool {
+// row redacted. srcClusters maps source ids to cluster ids.
+func providersNarrowed(s *FleetSnapshot, visibleIn func(cluster, namespace string) bool, workloadVisibleIn func(cluster, namespace, kind string) bool, srcClusters map[string]string) bool {
 	return slices.ContainsFunc(s.Providers, func(p Provider) bool {
+		visible, workloadVisible := inCluster(providerCluster(p, srcClusters), visibleIn, workloadVisibleIn)
 		return detectedNarrowed(p, visible) || slices.ContainsFunc(p.Objects, func(o ProviderObject) bool { return !objectVisible(o, visible, workloadVisible) }) ||
 			slices.ContainsFunc(p.Counts, func(c ProviderCount) bool { return !countVisible(c, visible, workloadVisible) })
 	})

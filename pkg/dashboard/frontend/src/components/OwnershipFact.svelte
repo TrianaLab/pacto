@@ -26,10 +26,24 @@
 
   // unownedHref: where the two unowned states lead (the service page's own `unowned`
   // attention item). declaredIn: the revision whose owner block the service takes, where
-  // its contacts are shown; contacts are never copied onto a service.
+  // its contacts are shown; contacts are never copied onto a service. An attested owner
+  // was read from a repository file, not declared in that revision, so it gets no note:
+  // its tip already says where it was read.
   let { ownership, unownedHref = '', declaredIn = null } = $props();
-  // Where the owner comes from, as a discreet mark: a declared owner shows none.
-  const provenanceText = $derived(ownerProvenanceText(ownership?.provenance));
+  // Where the owner comes from, as a discreet mark: a declared owner shows none. An
+  // attested owner's tip also says where it was read, in full (the mark wraps it).
+  const provenanceText = $derived(
+    ownerProvenanceText(ownership?.provenance) + (ownership?.provenance === 'attested' && ownership?.source ? `. Source: ${ownership.source}.` : ''),
+  );
+  // A revision whose owner the owner rule refused or could not check: its pacto.yaml
+  // still names the owner, and its service does not take it. A muted note, not a block.
+  const blocked = $derived(
+    ownership?.blocked === 'OWNER_DECLARATION_REFUSED'
+      ? { label: 'Not used: refused', title: "This revision's signer may not set this owner, so its service does not take it." }
+      : ownership?.blocked === 'OWNER_DECLARATION_UNVERIFIED'
+        ? { label: 'Not used: unverified', title: 'The owner rule could not check who signed this revision, so its service does not take this owner.' }
+        : null,
+  );
   const unknownTitle = "Pacto could not read this service's contracts, so it cannot tell whether an owner is declared. Pacto counts it as owner unknown, never as unowned.";
 </script>
 
@@ -52,7 +66,10 @@
 {#if provenanceText}
   <span class="of-prov" data-testid="owner-provenance"><ProvenanceMark label="About owner provenance" text={provenanceText} /></span>
 {/if}
-{#if ownership?.declared && declaredIn}
+{#if ownership?.declared && blocked}
+  <span class="of-note of-in" data-testid="owner-blocked" title={blocked.title}>{blocked.label}</span>
+{/if}
+{#if ownership?.declared && declaredIn && ownership.provenance !== 'attested'}
   <span class="of-note of-in" data-testid="owner-declared-in" title="Its contacts are on that revision's page">Declared in <EntityLink ref={declaredIn} showStatus={false} showKind={false} /></span>
 {/if}
 

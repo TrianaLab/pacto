@@ -3,16 +3,29 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 
+	"github.com/sigstore/sigstore/pkg/cryptoutils"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
 // PullOptions holds options for the pull command.
 type PullOptions struct {
 	Ref    string
 	Output string
+	// Verify, when set, is the signature the bundle must carry (a key, or a
+	// keyless identity and issuer): one that does not verify refuses the
+	// pull before anything is extracted.
+	Verify *contract.PublishSign
+	// TrustedRoot is the Sigstore trusted root JSON a keyless Verify checks
+	// against; empty is public-good Sigstore's.
+	TrustedRoot string
 }
 
 // PullResult holds the result of the pull command.
@@ -38,6 +51,12 @@ func (s *Service) Pull(ctx context.Context, opts PullOptions) (*PullResult, erro
 	location, err := oci.ResolveRef(ctx, s.BundleStore, parsed.Location, "")
 	if err != nil {
 		return nil, err
+	}
+
+	if opts.Verify != nil {
+		if location, err = s.verifyPull(ctx, location, *opts.Verify, opts.TrustedRoot); err != nil {
+			return nil, err
+		}
 	}
 
 	logging.LoggerFromContext(ctx).Debug("pulling bundle from registry", "ref", location)
@@ -68,4 +87,55 @@ func (s *Service) Pull(ctx context.Context, opts PullOptions) (*PullResult, erro
 		Name:    bundle.Contract.Service.Name,
 		Version: bundle.Contract.Service.Version,
 	}, nil
+}
+
+// verifyPull resolves location to its digest and checks that digest carries
+// a signature that verifies under sign, with the verifier publish uses. It
+// returns repo@digest, so the bundle pulled is the one verified.
+func (s *Service) verifyPull(ctx context.Context, location string, sign contract.PublishSign, trustedRoot string) (string, error) {
+	reg := s.env().publishRegistry()
+	rest, digest := contract.SplitOCIDigest(location)
+	repo, _, _ := contract.SplitOCITag(rest)
+	if digest == "" {
+		r, err := reg.Head(ctx, location)
+		if err != nil {
+			return "", err
+		}
+		if r == nil {
+			return "", fmt.Errorf("%s does not exist", location)
+		}
+		digest = r.Digest
+	}
+	ref := repo + "@" + digest
+	p, err := pullPolicy(sign, trustedRoot)
+	if err == nil {
+		err = publish.VerifyDigest(ctx, reg, publish.PolicyVerifier(p), repo, digest)
+	}
+	if err != nil {
+		return "", fmt.Errorf("%s is not signed as required, so nothing was pulled: %w", ref, err)
+	}
+	return ref, nil
+}
+
+// pullPolicy is the policy a pulled bundle's signature must verify under:
+// the public key file sign.Key, else the keyless identity and issuer under
+// the trusted root at trustedRoot (public-good Sigstore's when empty), at a
+// time its timestamp authority or transparency log observed.
+func pullPolicy(sign contract.PublishSign, trustedRoot string) (signing.Policy, error) {
+	if sign.Key != "" {
+		raw, err := os.ReadFile(sign.Key)
+		if err != nil {
+			return signing.Policy{}, err
+		}
+		pub, err := cryptoutils.UnmarshalPEMToPublicKey(raw)
+		if err != nil {
+			return signing.Policy{}, fmt.Errorf("the public key %s: %w", sign.Key, err)
+		}
+		return signing.Policy{Key: pub}, nil
+	}
+	tm, err := declareRoot(trustedRoot)
+	if err != nil {
+		return signing.Policy{}, err
+	}
+	return signing.Policy{Identity: sign.Identity, Issuer: sign.Issuer, Root: tm}, nil
 }

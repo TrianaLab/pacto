@@ -32,7 +32,7 @@ var statsTimeout = 30 * time.Second
 func defaultPublishRunRecord(ctx context.Context, repo string, r runrecord.Record) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, statsTimeout)
 	defer cancel()
-	target, err := registry.Open(repo, oci.NewKeychain(oci.EnvCredentialOptions()), oci.EnvInsecureRegistries())
+	target, err := registry.Open(repo, oci.NewKeychain(oci.EnvCredentialOptions()), oci.EnvInsecureRegistries(), nil)
 	if err != nil {
 		return "", err
 	}

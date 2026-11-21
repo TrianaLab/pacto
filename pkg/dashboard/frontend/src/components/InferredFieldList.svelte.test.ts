@@ -3,10 +3,12 @@
  * mark whose note names the source and confidence, the first five shown and the rest
  * one disclosure away.
  */
+import { formatWhen } from '../lib/dateFormat.ts';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import InferredFieldList from './InferredFieldList.svelte';
+import { ownerProvenanceText } from '../lib/entityLabels.ts';
 // @ts-expect-error — a raw import has no declaration file
 import source from './InferredFieldList.svelte?raw';
 
@@ -102,6 +104,13 @@ describe('InferredFieldList', () => {
     expect(target.querySelectorAll('.tag').length).toBe(0);
   });
 
+  it('says an owner file row the revision signature attests is attested, never "not verified"', () => {
+    render({ items: [field(0, { field: 'service.owner', source: 'catalog-info.yaml:7', class: 'ownerFile', attested: true })], total: 1 });
+    const note = target.querySelector('[role="note"]')!.textContent!;
+    expect(note).toContain(`Attested: ${ownerProvenanceText('attested')}.`);
+    expect(note).not.toContain('not verified');
+  });
+
   it('counts the outranked sources the server left out', () => {
     render({ items: [field(0, { outranks: ['a.yaml:1', 'b.yaml:2'], outranksTotal: 299 })], total: 1 });
     expect(target.querySelector('[role="note"]')!.textContent).toContain('Outranks a.yaml:1, b.yaml:2 and 297 more.');
@@ -119,5 +128,22 @@ describe('InferredFieldList', () => {
     const note = target.querySelector('[role="note"]')!.textContent!;
     expect(note).not.toContain('not verified');
     expect(note).not.toContain('Outranks');
+  });
+});
+
+describe('InferredFieldList, cluster facts', () => {
+  it('says when a cluster fact was read, that it is partial and what it proposes', () => {
+    render({ items: [field(0, { field: 'dependencies[payments]', source: 'cluster:billing/Deployment/invoices', asOf: '2026-11-17T10:00:00Z', completeness: 'partial', proposed: '^2.0.0' })], total: 1 });
+    const note = target.querySelector('[role="note"]')!.textContent!;
+    expect(note).toContain(`Read from the cluster ${formatWhen('2026-11-17T10:00:00Z')}.`);
+    expect(note).not.toContain('2026-11-17T10:00:00Z');
+    expect(note).toContain('Partial: some nodes, pods or supporting sources were not observed.');
+    expect(note).toContain('Proposed ^2.0.0, not declared.');
+  });
+
+  it('leaves a folder row note unchanged', () => {
+    render({ items: [field(0)], total: 1 });
+    const note = target.querySelector('[role="note"]')!.textContent!;
+    expect(note).toBe('Inferred, not declared. Source: deploy/app.yaml:1. Confidence: likely.');
   });
 });

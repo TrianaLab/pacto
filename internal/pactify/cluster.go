@@ -55,7 +55,27 @@ type ClusterOptions struct {
 	// Visible says which namespaces the person the read runs for may read;
 	// nil means the API server already authorized the caller's credentials.
 	Visible func(namespace string) bool
+	// Workload, when set, drafts only the one workload it names: name,
+	// ns/name or ns/Kind/name. None, or several, is an error.
+	Workload string
 }
+
+// The ways ClusterOptions.Workload can fail to name one workload to draft.
+var (
+	ErrWorkloadNotFound  = errors.New("workload not found")
+	ErrWorkloadAmbiguous = errors.New("workload ambiguous")
+	ErrAlreadyDeclared   = errors.New("workload already declared")
+)
+
+// matchError is a workload match refusal: its message, and the kind of
+// refusal errors.Is finds.
+type matchError struct {
+	kind error
+	msg  string
+}
+
+func (e *matchError) Error() string { return e.msg }
+func (e *matchError) Unwrap() error { return e.kind }
 
 // The defaults of ClusterOptions.
 const (
@@ -114,13 +134,7 @@ type cluster struct {
 // adds the dependencies its pods were seen calling. A draft that fails
 // validation does not stop the others; the error names it.
 func Cluster(ctx context.Context, dyn dynamic.Interface, base Options, c ClusterOptions, writeFile func(string, []byte, os.FileMode) error) (*Bulk, error) {
-	if c.Out == "" {
-		return nil, errors.New("reading a cluster needs a folder to write the drafts in (--out)")
-	}
-	if base.Name != "" || base.Dir != "" {
-		return nil, errors.New("reading a cluster names each service after its workload, so it takes no name or folder")
-	}
-	if err := c.defaults(); err != nil {
+	if err := c.check(base); err != nil {
 		return nil, err
 	}
 	nss := slices.Compact(slices.Sorted(slices.Values(c.Namespaces)))
@@ -147,6 +161,9 @@ func Cluster(ctx context.Context, dyn dynamic.Interface, base Options, c Cluster
 	}
 	deps := cl.inferred(since)
 	described := cl.described()
+	if err := cl.only(c.Workload, described); err != nil {
+		return b, err
+	}
 	var errs []error
 	for _, w := range cl.workloads {
 		ns, name := w.GetNamespace(), w.GetName()
@@ -164,6 +181,18 @@ func Cluster(ctx context.Context, dyn dynamic.Interface, base Options, c Cluster
 		}
 	}
 	return b, errors.Join(errs...)
+}
+
+// check refuses options no read can run with, once their defaults are
+// filled in.
+func (c *ClusterOptions) check(base Options) error {
+	switch {
+	case c.Out == "":
+		return errors.New("reading a cluster needs a folder to write the drafts in (--out)")
+	case base.Name != "" || base.Dir != "":
+		return errors.New("reading a cluster names each service after its workload, so it takes no name or folder")
+	}
+	return c.defaults()
 }
 
 // defaults fills the zero options in and refuses the ones no read can run
@@ -587,7 +616,7 @@ func (cl *cluster) facts(w unstructured.Unstructured, deps []Inferred, snap bool
 	asOf, k, m := cl.nodesObserved(w)
 	partial := k < m || f.Hidden.Services > 0 || !cl.complete("pods", "replicasets", "jobs", "services", "endpointslices")
 	for _, d := range deps {
-		f.Calls = append(f.Calls, discover.ClusterCall{Name: d.Name, Ref: d.Ref, Proposed: proposedRange(d.Versions), Versions: reportedVersions(d.Versions),
+		f.Calls = append(f.Calls, discover.ClusterCall{Name: d.Name, Ref: d.Ref, Proposed: contract.ProposedRange(d.Versions), Versions: reportedVersions(d.Versions),
 			AsOf: asOf, Partial: partial || len(d.Unknown) > 0 || !cl.complete("pactos")})
 	}
 	f.Coverage = cl.rows()
@@ -680,6 +709,46 @@ func (cl *cluster) images(w unstructured.Unstructured) []discover.ClusterImage {
 
 func key(o unstructured.Unstructured) string {
 	return o.GetNamespace() + "/" + o.GetKind() + "/" + o.GetName()
+}
+
+// only keeps the one workload w names (name, ns/name or ns/Kind/name) that
+// no Pacto describes; an empty w keeps them all. It runs after restrict, so
+// a workload the viewer may not read is never counted.
+func (cl *cluster) only(w string, described map[string]bool) error {
+	if w == "" {
+		return nil
+	}
+	parts := strings.Split(w, "/")
+	match := func(o unstructured.Unstructured) bool {
+		switch len(parts) {
+		case 1:
+			return o.GetName() == w
+		case 2:
+			return o.GetNamespace() == parts[0] && o.GetName() == parts[1]
+		}
+		return key(o) == w
+	}
+	var found []unstructured.Unstructured
+	declared := ""
+	for _, o := range cl.workloads {
+		switch {
+		case !match(o):
+		case described[key(o)]:
+			declared = key(o)
+		default:
+			found = append(found, o)
+		}
+	}
+	switch {
+	case len(found) == 1:
+		cl.workloads = found
+		return nil
+	case len(found) > 1:
+		return &matchError{ErrWorkloadAmbiguous, fmt.Sprintf("%d workloads are named %s: pass ns/Kind/name", len(found), w)}
+	case declared != "":
+		return &matchError{ErrAlreadyDeclared, declared + " already has a contract: change it with pacto publish"}
+	}
+	return &matchError{ErrWorkloadNotFound, "no workload named " + w + " that no Pacto describes"}
 }
 
 // described are the workloads a Pacto targets, as ns/Kind/name.

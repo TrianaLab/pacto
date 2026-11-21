@@ -131,13 +131,13 @@ func TestDetectionClusterMismatchIsNamed(t *testing.T) {
 }
 
 func TestQueryNamespacesIncludesDetected(t *testing.T) {
-	if got := detectedFleet(t).Namespaces(); !slices.Contains(got, "infra") {
+	if got := namespaceNames(detectedFleet(t).Namespaces()); !slices.Contains(got, "infra") {
 		t.Errorf("Namespaces = %q, want the Gateway namespace reviewed", got)
 	}
 }
 
 func TestRestrictRedactsDetectedNamespaces(t *testing.T) {
-	r := detectedFleet(t).Restrict(readerOf("team-a", "infra"), nil).SnapshotForSerialization()
+	r := detectedFleet(t).Restrict(anyCluster(readerOf("team-a", "infra")), anyClusterKind(nil)).SnapshotForSerialization()
 	reg := providerByID(t, r.Providers, "registry")
 	if !redacted(reg) || reg.Evidence != "Registry found in a namespace you cannot read" || len(reg.Objects) != 1 {
 		t.Errorf("registry row = %+v", reg)
@@ -145,7 +145,7 @@ func TestRestrictRedactsDetectedNamespaces(t *testing.T) {
 }
 
 func TestRestrictKeepsVisibleDetectedNamespaces(t *testing.T) {
-	r := detectedFleet(t).Restrict(readerOf("team-a", "team-b", "infra"), nil).SnapshotForSerialization()
+	r := detectedFleet(t).Restrict(anyCluster(readerOf("team-a", "team-b", "infra")), anyClusterKind(nil)).SnapshotForSerialization()
 	for _, id := range []string{"registry", "exposure"} {
 		if p := providerByID(t, r.Providers, id); redacted(p) || p.Hint == "" || len(p.Details) != 1 {
 			t.Errorf("%s row redacted for a reader of its namespaces: %+v", id, p)
@@ -154,7 +154,7 @@ func TestRestrictKeepsVisibleDetectedNamespaces(t *testing.T) {
 }
 
 func TestRestrictRedactsDetectedNamespaceNotInSnapshot(t *testing.T) {
-	r := detectedFleet(t).Restrict(readerOf("team-a", "team-b"), nil).SnapshotForSerialization()
+	r := detectedFleet(t).Restrict(anyCluster(readerOf("team-a", "team-b")), anyClusterKind(nil)).SnapshotForSerialization()
 	if p := providerByID(t, r.Providers, "exposure"); !redacted(p) || len(p.Objects) != 0 || strings.Contains(p.Hint+p.Evidence, "infra") {
 		t.Errorf("exposure row = %+v", p)
 	}
@@ -162,7 +162,7 @@ func TestRestrictRedactsDetectedNamespaceNotInSnapshot(t *testing.T) {
 
 func TestRestrictRedactsClusterScopedDetectedRows(t *testing.T) {
 	q := detectedFleet(t)
-	r := q.Restrict(func(ns string) bool { return ns != "" }, nil)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "" }), anyClusterKind(nil))
 	if r == q {
 		t.Fatal("a cluster-scoped detected row must restrict a reader without cluster scope")
 	}
@@ -170,7 +170,7 @@ func TestRestrictRedactsClusterScopedDetectedRows(t *testing.T) {
 	if !redacted(cloud) || cloud.Evidence != "Cloud detected cluster-wide; you may read only some namespaces" {
 		t.Errorf("cloud row = %+v", cloud)
 	}
-	if q.Restrict(func(string) bool { return true }, anyKind) != q {
+	if q.Restrict(anyCluster(func(string) bool { return true }), anyClusterKind(anyKind)) != q {
 		t.Error("a cluster-wide reader gets the same query")
 	}
 }
@@ -179,7 +179,7 @@ func TestRestrictDetectedNoEarlyReturn(t *testing.T) {
 	q := NewQuery(buildProviders(t,
 		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Targets: []RawTarget{workload("team-a", "web")}}),
 		detectedSource(SourceAvailable, detectedRow("exposure", "", ProviderObject{Kind: "Gateway", Namespace: "infra", Name: "public"}))))
-	r := q.Restrict(readerOf("team-a", ""), nil)
+	r := q.Restrict(anyCluster(readerOf("team-a", "")), anyClusterKind(nil))
 	if r == q {
 		t.Fatal("a hidden Gateway namespace must restrict")
 	}
@@ -198,7 +198,7 @@ func TestRestrictRedactsCappedDetectedRow(t *testing.T) {
 		objs = append(objs, ProviderObject{Kind: "Namespace", Namespace: ns, Name: ns})
 	}
 	q := NewQuery(buildProviders(t, detectedSource(SourceAvailable, detectedRow("registry", "", objs...))))
-	r := q.Restrict(func(ns string) bool { return ns != "" }, nil)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "" }), anyClusterKind(nil))
 	if r == q || !redacted(providerByID(t, r.SnapshotForSerialization().Providers, "registry")) {
 		t.Error("a capped detected row must be redacted for a restricted reader")
 	}
@@ -236,11 +236,57 @@ func TestRestrictHidesDetectedClusterName(t *testing.T) {
 		"another cluster": {NewMemorySource("k8s", SourceKindKubernetes, &Collection{Cluster: clusterOf("uid-1", "staging", ClusterNameFromContext), Targets: []RawTarget{workload("team-a", "web")}}),
 			detectedSource(SourceAvailable, metrics, cloud)},
 	} {
-		r := NewQuery(buildProviders(t, sources...)).Restrict(readerOf("team-a"), nil)
+		r := NewQuery(buildProviders(t, sources...)).Restrict(anyCluster(readerOf("team-a")), anyClusterKind(nil))
 		p := providerByID(t, r.SnapshotForSerialization().Providers, "metrics")
 		if p.Cluster != "" || strings.Contains(p.Evidence, "prod-eu") || p.Evidence != "Prometheus Operator (from API discovery)" ||
 			slices.ContainsFunc(p.Limitations, func(l Limitation) bool { return strings.Contains(l.Message, "uid-2") }) {
 			t.Errorf("%s: %+v", name, p)
 		}
+	}
+}
+
+// TestPullSecretRowRedactedForHiddenNamespace: the Pull Secret proposal names
+// its namespace, so a viewer who cannot read it gets the row redacted (no
+// value, hint or details) through the detected-row branch, while the declared
+// Installation row, which names no namespace, reaches every viewer whole.
+func TestPullSecretRowRedactedForHiddenNamespace(t *testing.T) {
+	at := fixedNow()
+	inst := Provider{ID: "installation", Name: "Installation", Evidence: "registry ghcr.io/acme; tags only under the listed prefixes, referrers by digest elsewhere",
+		Status: SourceAvailable, Provenance: ProvenanceDeclared, AsOf: &at, Details: []string{"push prefix ghcr.io/acme/pacto-targets"}}
+	q := NewQuery(buildProviders(t,
+		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Targets: []RawTarget{workload("team-a", "web"), workload("shop", "api")}}),
+		detectedSource(SourceAvailable, inst, detectedRow("pull-secret", "", ProviderObject{Kind: "Namespace", Namespace: "shop", Name: "shop"}))))
+	r := q.Restrict(anyCluster(readerOf("team-a")), anyClusterKind(nil)).SnapshotForSerialization()
+	if p := providerByID(t, r.Providers, "pull-secret"); !redacted(p) || strings.Contains(p.Evidence+p.Hint, "shop") {
+		t.Errorf("pull-secret row = %+v", p)
+	}
+	if p := providerByID(t, r.Providers, "installation"); p.Evidence != inst.Evidence || len(p.Details) != 1 {
+		t.Errorf("installation row = %+v", p)
+	}
+	if p := providerByID(t, q.Restrict(anyCluster(readerOf("shop")), anyClusterKind(nil)).SnapshotForSerialization().Providers, "pull-secret"); redacted(p) {
+		t.Errorf("a reader of shop got the row redacted: %+v", p)
+	}
+}
+
+// TestRestrictDropsDeclaredRowOfHiddenCluster: the Installation row's last
+// push names the cluster's snapshot tag, so a view that hides the cluster
+// hides the row; a view that names the cluster keeps it whole.
+func TestRestrictDropsDeclaredRowOfHiddenCluster(t *testing.T) {
+	at := fixedNow()
+	inst := Provider{ID: "installation", Name: "Installation", Evidence: "registry ghcr.io/acme; last push failed: denied ghcr.io/acme/pacto-targets:cluster-uid-2",
+		Status: SourcePartial, Provenance: ProvenanceDeclared, AsOf: &at, Cluster: "prod-eu", ClusterID: "uid-2",
+		Details: []string{"last push ghcr.io/acme/pacto-targets:cluster-uid-2 at 2026-11-16T09:00:00Z"}}
+	q := NewQuery(buildProviders(t,
+		NewMemorySource("k8s-1", SourceKindKubernetes, &Collection{Cluster: clusterOf("uid-1", "staging", ClusterNameFromContext), Targets: []RawTarget{workload("team-a", "web")}}),
+		NewMemorySource("k8s-2", SourceKindKubernetes, &Collection{Cluster: clusterOf("uid-2", "prod-eu", ClusterNameFromContext), Targets: []RawTarget{workload("shop", "api")}}),
+		detectedSource(SourceAvailable, inst)))
+	for _, p := range q.Restrict(anyCluster(readerOf("team-a")), anyClusterKind(nil)).SnapshotForSerialization().Providers {
+		if p.ID == "installation" {
+			t.Errorf("a view hiding cluster uid-2 got its installation row: %+v", p)
+		}
+	}
+	r := q.Restrict(anyCluster(readerOf("team-a", "shop")), anyClusterKind(nil)).SnapshotForSerialization()
+	if p := providerByID(t, r.Providers, "installation"); len(p.Details) != 1 {
+		t.Errorf("installation row = %+v", p)
 	}
 }

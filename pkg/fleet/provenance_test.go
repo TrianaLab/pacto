@@ -3,6 +3,8 @@ package fleet
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -154,5 +156,13 @@ func TestNewReferrersPreview(t *testing.T) {
 	}
 	if empty := NewReferrersPreview(nil); empty.Items == nil || empty.Total != 0 {
 		t.Errorf("empty = %+v", empty)
+	}
+}
+
+// TestBundleSignatureSourceEnum: operator is a signature source clients read.
+func TestBundleSignatureSourceEnum(t *testing.T) {
+	f, _ := reflect.TypeFor[BundleSignature]().FieldByName("Source")
+	if !slices.Contains(strings.Split(f.Tag.Get("enum"), ","), SignatureSourceOperator) {
+		t.Fatalf("enum %q lacks %s", f.Tag.Get("enum"), SignatureSourceOperator)
 	}
 }

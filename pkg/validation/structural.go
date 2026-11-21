@@ -166,11 +166,11 @@ func PublishNeedsRaise(version string) bool {
 	return contract.Known(version) && contract.Older(version, "2.1")
 }
 
-// needsServiceFields records a NEEDS_PACTO_2_4 error for each of the service
-// fields only pactoVersion 2.4 has, in an older contract in place of the older
+// needsServiceFields records the code error for each of the service fields
+// only pactoVersion version has, in an older contract in place of the older
 // schema's generic "not allowed", and returns data with a service without
 // them for that schema to check the rest.
-func needsServiceFields(result *ValidationResult, data any, fields ...string) any {
+func needsServiceFields(result *ValidationResult, data any, version string, code finding.Code, fields ...string) any {
 	m, _ := data.(map[string]any) // an older pactoVersion was read from it
 	svc, _ := m["service"].(map[string]any)
 	var found []string
@@ -184,7 +184,7 @@ func needsServiceFields(result *ValidationResult, data any, fields ...string) an
 	}
 	svc = maps.Clone(svc)
 	for _, f := range found {
-		result.AddError("service."+f, string(finding.CodeNeedsPacto24), "service."+f+` needs pactoVersion "2.4"; set pactoVersion: "2.4", which keeps every older field`)
+		result.AddError("service."+f, string(code), "service."+f+` needs pactoVersion "`+version+`"; set pactoVersion: "`+version+`", which keeps every older field`)
 		delete(svc, f)
 	}
 	out := maps.Clone(m)
@@ -201,7 +201,7 @@ func needsServiceFields(result *ValidationResult, data any, fields ...string) an
 // configuration and environment stays in place so its other errors keep their
 // index.
 func needs24(result *ValidationResult, data any) any {
-	data = needsServiceFields(result, data, "domain", "offering", "summary", "lifecycle", "template", "origin")
+	data = needsServiceFields(result, data, "2.4", finding.CodeNeedsPacto24, "domain", "offering", "summary", "lifecycle", "template", "origin")
 	m, _ := data.(map[string]any) // an older pactoVersion was read from it
 	m = needsItems(result, m, "2.4", finding.CodeNeedsPacto24, "configurations", func(im map[string]any) []needsKey {
 		_, ref := im["ref"]
@@ -213,12 +213,13 @@ func needs24(result *ValidationResult, data any) any {
 }
 
 // needs25 records a NEEDS_PACTO_2_5 error for each part only pactoVersion 2.5
-// has (compatibility: unknown or identity on a dependency, a port on an
-// interface, the breaks section and an artifact without build) in an older
+// has (service.external, compatibility: unknown or identity on a dependency, a
+// port on an interface, the breaks section and an artifact without build) in an older
 // contract, in place of the older schema's generic error, and returns data
 // without it for that schema to check the rest. Every dependency, interface
 // and artifact stays in place so its other errors keep their index.
 func needs25(result *ValidationResult, data any) any {
+	data = needsServiceFields(result, data, "2.5", finding.CodeNeedsPacto25, "external")
 	m, _ := data.(map[string]any) // an older pactoVersion was read from it
 	if _, ok := m["breaks"]; ok {
 		result.AddError("breaks", string(finding.CodeNeedsPacto25), `breaks need pactoVersion "2.5"; set pactoVersion: "2.5", which keeps every older field`)

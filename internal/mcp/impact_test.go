@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
@@ -22,6 +23,7 @@ func stubImpactTraces(res *impact.Result, err error, seen *impact.Options, seenT
 		if seen != nil {
 			seen.IncludeObserved = req.IncludeObserved
 			seen.Event = req.Event
+			seen.Policy = req.Policy
 		}
 		if seenTraces != nil {
 			*seenTraces = req.TracesPath
@@ -37,6 +39,24 @@ func TestImpactHandler_TracesReachProvider(t *testing.T) {
 	})
 	if seenTraces != "/tmp/traces.json" {
 		t.Errorf("traces path = %q, want /tmp/traces.json", seenTraces)
+	}
+}
+
+// TestImpactToolTakesPolicy: policy reads as pacto impact's --policy
+// values, and a bad one is an error result before any analysis.
+func TestImpactToolTakesPolicy(t *testing.T) {
+	var seen impact.Options
+	callHandler(t, impactTool(), impactHandler(stubImpact(&impact.Result{}, nil, &seen), nil), map[string]any{
+		"old_ref": "a", "new_ref": "b", "policy": []any{"unknown-range=fail", "uncontracted=fail:7d"},
+	})
+	if seen.Policy != (impact.Policy{UnknownRange: impact.PolicyFail, Uncontracted: impact.PolicyFail, UncontractedWindow: "168h0m0s"}) {
+		t.Fatalf("policy = %+v", seen.Policy)
+	}
+	if _, err := (impactArgs{OldRef: "a", NewRef: "b", Policy: []string{"unknown-range=maybe"}}).request(); err == nil {
+		t.Fatal("a bad policy was taken")
+	}
+	if d := impactTool().Description; !strings.Contains(d, "'ranges'") || !strings.Contains(d, "'policy'") {
+		t.Error("the description names neither coverage nor policy")
 	}
 }
 
@@ -120,6 +140,8 @@ func TestImpactToolNeedsPairOrEvent(t *testing.T) {
 		{"event": "unavailable", "service": "redis", "revision": "sha256:abc"},
 		{"event": "removed", "service": "redis", "revision": "1.0.0"},
 		{"event": "unavailable", "service": "redis", "include_observed": true},
+		{"running": true},
+		{"running": true, "old_ref": "a", "new_ref": "b"},
 	} {
 		called := false
 		provide := func(context.Context, *fleet.FleetSnapshot, ImpactRequest) (*impact.Result, error) {
@@ -177,6 +199,61 @@ func TestImpactToolDescriptionNamesIndex(t *testing.T) {
 	for _, want := range []string{"consumerIndex", "CONSUMER_NOT_INDEXED", "CONSUMER_INDEX_UNCHECKED", "Over HTTP the index is never read"} {
 		if !strings.Contains(d, want) {
 			t.Errorf("description lacks %q", want)
+		}
+	}
+}
+
+func TestMCPImpactCarriesInferredAdvisory(t *testing.T) {
+	want := &impact.Result{Service: "orders", Classification: "NON_BREAKING", Gate: impact.GateUnverified,
+		Advisories: []impact.InferredAdvisory{{Advisory: diff.Advisory{Interface: "api", Source: "openapi.yaml:1"},
+			Consumers: []impact.AdvisoryConsumer{{Service: "web", Confidence: impact.ConfidenceInferred, Compatibility: impact.CompatibilityUnknown}}}}}
+	res := callHandler(t, impactTool(), impactHandler(stubImpact(want, nil, nil), nil), map[string]any{"old_ref": "a", "new_ref": "b"})
+	var out impact.Result
+	decode(t, res, &out)
+	if len(out.Advisories) != 1 || out.Advisories[0].Interface != "api" || out.Advisories[0].Consumers[0] != want.Advisories[0].Consumers[0] {
+		t.Fatalf("advisories %+v", out.Advisories)
+	}
+	if d := impactTool().Description; !strings.Contains(d, "'advisories'") || !strings.Contains(d, "never clears or blocks") || !strings.Contains(d, "INFERRED_POSSIBLE_BREAK") {
+		t.Error("the description does not name the advisory")
+	}
+}
+
+func TestMCPImpactRunningRejectsOldRef(t *testing.T) {
+	if req, err := (impactArgs{Running: true, OldRef: "a", NewRef: "b"}).request(); err == nil || !strings.Contains(err.Error(), "leave old_ref empty") || req != (ImpactRequest{}) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestMCPImpactRunningRejectsEvent(t *testing.T) {
+	for _, a := range []impactArgs{{Event: "removed"}, {Service: "x"}, {Offering: "o"}, {Revision: "1"}} {
+		a.Running, a.NewRef = true, "b"
+		if _, err := a.request(); err == nil || !strings.Contains(err.Error(), "pass no event, service, offering or revision") {
+			t.Errorf("%+v: %v", a, err)
+		}
+	}
+}
+
+// TestMCPImpactRunningRequest: running with new_ref alone reaches the
+// provider as a running request.
+func TestMCPImpactRunningRequest(t *testing.T) {
+	var seen ImpactRequest
+	provide := func(_ context.Context, _ *fleet.FleetSnapshot, req ImpactRequest) (*impact.Result, error) {
+		seen = req
+		return &impact.Result{}, nil
+	}
+	if res := callHandler(t, impactTool(), impactHandler(provide, nil), map[string]any{"running": true, "new_ref": "oci://r/p:2"}); res.IsError || !seen.Running || seen.NewRef != "oci://r/p:2" || seen.OldRef != "" {
+		t.Fatalf("seen %+v error %v", seen, res.IsError)
+	}
+}
+
+// TestImpactToolNamesRunningExcluded: the tool and its 'running' argument
+// say why a running digest is missing from running.refs, as the CLI help does.
+func TestImpactToolNamesRunningExcluded(t *testing.T) {
+	tool := impactTool()
+	running := tool.InputSchema.(map[string]any)["properties"].(map[string]any)["running"].(map[string]any)["description"].(string)
+	for _, d := range []string{tool.Description, running} {
+		if !strings.Contains(d, "'running.excluded'") {
+			t.Errorf("lacks running.excluded: %s", d)
 		}
 	}
 }

@@ -147,6 +147,9 @@ func TestVerifyInferredRecord(t *testing.T) {
 		"digest":   {func(r *InferredRecord) { r.Inputs.Sources[1].Digest = digestOf("other") }, "has digest"},
 		"unlisted": {func(r *InferredRecord) { r.Fields[1].Source = "chart/values.yaml:3" }, "chart/values.yaml"},
 		"outranks": {func(r *InferredRecord) { r.Fields[1].Outranks = []string{"Dockerfile:4"} }, "cites Dockerfile"},
+		"cited": {func(r *InferredRecord) {
+			r.Inputs.Acceptances = []CitedAcceptance{{Record: "ghcr.io/acme/reports@sha256:abc", Signer: "ana@acme.com", Fields: "x"}}
+		}, "inputs.acceptances[0].record"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -789,5 +792,253 @@ func TestInferredJSONKeepsKeys(t *testing.T) {
 	}
 	if data, _ := json.Marshal(zero); strings.Contains(string(data), `"hidden"`) {
 		t.Fatalf("zero hidden in JSON: %s", data)
+	}
+}
+
+// declarationYAML is the Decision 1 block of a declared record that accepted
+// a draft, in Marshal's layout.
+const declarationYAML = `declaration:
+    state: declared
+    asker:
+        subject: ana@acme.com
+        issuer: https://accounts.google.com
+        class: human
+    inferredFrom: k8s:shop/Deployment/invoices
+    cluster: 3f1c0d2e-9a8b-4c7d-8e6f-5a4b3c2d1e0f
+    baseline:
+        version: 1.4.0
+        bundle: ghcr.io/acme/invoices@sha256:1111111111111111111111111111111111111111111111111111111111111111
+        deploy: ghcr.io/acme/invoices-deploy@sha256:2222222222222222222222222222222222222222222222222222222222222222
+    accepted:
+        - field: dependencies[ledger].compatibility
+          range: ^2.3.0
+    draft:
+        tag: draft-3
+        digest: ghcr.io/acme/invoices@sha256:3333333333333333333333333333333333333333333333333333333333333333
+        asker:
+            subject: ""
+            issuer: none
+            class: agent
+        onBehalfOf: ana
+`
+
+// draftDeclarationYAML is an unsigned agent draft's block.
+const draftDeclarationYAML = `declaration:
+    state: draft
+    asker:
+        subject: ""
+        issuer: none
+        class: agent
+    onBehalfOf: ana
+    inferredFrom: k8s:shop/Deployment/invoices
+    requested:
+        - field: dependencies[ledger].compatibility
+          range: ^2.3.0
+`
+
+// declaredDoc is clusterRecordYAML with block before its coverage.
+func declaredDoc(block string) string {
+	return strings.Replace(clusterRecordYAML, "coverage:\n", block+"coverage:\n", 1)
+}
+
+// declDoc is declaredDoc(declarationYAML) with old replaced by new once.
+func declDoc(t *testing.T, block, old, new string) string {
+	t.Helper()
+	if !strings.Contains(block, old) {
+		t.Fatalf("fixture lacks %q", old)
+	}
+	return declaredDoc(strings.Replace(block, old, new, 1))
+}
+
+func TestDeclarationRoundTrip(t *testing.T) {
+	for _, block := range []string{declarationYAML, draftDeclarationYAML} {
+		doc := declaredDoc(block)
+		rec, err := ParseInferredRecord([]byte(doc))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := string(rec.Marshal()); got != doc {
+			t.Fatalf("round trip:\n%s\nwant:\n%s", got, doc)
+		}
+	}
+}
+
+func TestDeclarationMarshalSortsRanges(t *testing.T) {
+	rec, err := ParseInferredRecord([]byte(declaredDoc(declarationYAML)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.Declaration.Accepted = []InferredAcceptance{{Field: "dependencies[z].compatibility", Range: "^1.0.0"}, {Field: "dependencies[a].compatibility", Range: "^1.0.0"}}
+	got, err := ParseInferredRecord(rec.Marshal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Declaration.Accepted[0].Field != "dependencies[a].compatibility" || rec.Declaration.Accepted[0].Field != "dependencies[z].compatibility" {
+		t.Fatalf("accepted = %v, receiver %v", got.Declaration.Accepted, rec.Declaration.Accepted)
+	}
+}
+
+func TestDeclarationJSONKeys(t *testing.T) {
+	rec, err := ParseInferredRecord([]byte(declaredDoc(declarationYAML)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(rec.Declaration)
+	for _, key := range []string{"state", "asker", "subject", "issuer", "class", "inferredFrom", "cluster", "baseline", "version", "bundle", "deploy", "accepted", "field", "range", "draft", "tag", "digest", "onBehalfOf"} {
+		if !strings.Contains(string(data), `"`+key+`":`) {
+			t.Errorf("JSON lacks %q: %s", key, data)
+		}
+	}
+	if regexp.MustCompile(`"[A-Z][A-Za-z]*":`).Match(data) {
+		t.Errorf("JSON carries a Go name: %s", data)
+	}
+	data, _ = json.Marshal(InferredDeclaration{State: DeclarationDraft, Asker: InferredSigner{Issuer: SignerUnsigned, Class: SignerClassAgent}})
+	if want := `{"state":"draft","asker":{"subject":"","issuer":"none","class":"agent"}}`; string(data) != want {
+		t.Fatalf("empty members written: %s, want %s", data, want)
+	}
+}
+
+func TestParseRefusesDeclaredByNonHuman(t *testing.T) {
+	refuses(t, declDoc(t, declarationYAML, "class: human", "class: ci"), "a declared record is signed by a person")
+	refuses(t, declDoc(t, declarationYAML, "subject: ana@acme.com", `subject: ""`), "a declared record is signed by a person")
+	refuses(t, declDoc(t, declarationYAML, "class: human", "class: robot"), `declaration.asker.class is "robot"`)
+	refuses(t, declDoc(t, declarationYAML, "issuer: https://accounts.google.com", `issuer: ""`), "declaration.asker.issuer is empty")
+}
+
+func TestParseRefusesDraftByHuman(t *testing.T) {
+	signed := strings.Replace(draftDeclarationYAML, "        subject: \"\"\n        issuer: none\n", "        subject: ana@acme.com\n        issuer: https://accounts.google.com\n", 1)
+	refuses(t, declDoc(t, signed, "class: agent", "class: human"), "a draft is never signed by a person")
+	refuses(t, declDoc(t, declarationYAML, "            class: agent", "            class: human"), "declaration.draft.asker: a draft is never signed by a person")
+	refuses(t, declDoc(t, declarationYAML, "            class: agent", "            class: robot"), `declaration.draft.asker.class is "robot"`)
+}
+
+func TestParseAcceptsUnsignedDraft(t *testing.T) {
+	rec, err := ParseInferredRecord([]byte(declaredDoc(draftDeclarationYAML)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := rec.Declaration; d.State != DeclarationDraft || d.Asker != (InferredSigner{Issuer: SignerUnsigned, Class: SignerClassAgent}) || d.OnBehalfOf != "ana" {
+		t.Fatalf("declaration = %+v", d)
+	}
+	// A draft signed by a CI token names it.
+	ci := strings.Replace(draftDeclarationYAML, "        subject: \"\"\n        issuer: none\n        class: agent\n",
+		"        subject: https://github.com/acme/invoices/.github/workflows/ci.yml@refs/heads/main\n        issuer: https://token.actions.githubusercontent.com\n        class: ci\n", 1)
+	if _, err := ParseInferredRecord([]byte(declaredDoc(ci))); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestParseRefusesUnsignedDraftWithAsker(t *testing.T) {
+	refuses(t, declDoc(t, draftDeclarationYAML, `subject: ""`, "subject: ana@acme.com"), "of an unsigned draft is exactly")
+	refuses(t, declDoc(t, draftDeclarationYAML, "class: agent", "class: ci"), "of an unsigned draft is exactly")
+	refuses(t, declDoc(t, declarationYAML, `            subject: ""`, "            subject: bot"), "declaration.draft.asker of an unsigned draft is exactly")
+}
+
+func TestParseRefusesOnBehalfOfOnDeclared(t *testing.T) {
+	refuses(t, declDoc(t, declarationYAML, "    inferredFrom:", "    onBehalfOf: ana\n    inferredFrom:"), "declaration.onBehalfOf is only on a draft")
+}
+
+func TestParseRefusesAcceptedOnDraft(t *testing.T) {
+	refuses(t, declDoc(t, draftDeclarationYAML, "    requested:", "    accepted:"), "declaration.accepted is only on a declared record")
+	refuses(t, declDoc(t, draftDeclarationYAML, "    requested:", "    draft:\n        tag: draft-1\n        digest: r@sha256:"+strings.Repeat("4", 64)+
+		"\n        asker:\n            subject: \"\"\n            issuer: none\n            class: agent\n    requested:"), "declaration.draft is only on a declared record")
+}
+
+func TestParseRefusesRequestedOnDeclared(t *testing.T) {
+	refuses(t, declDoc(t, declarationYAML, "    accepted:", "    requested:"), "declaration.requested is only on a draft")
+}
+
+func TestParseRefusesAcceptedOtherKey(t *testing.T) {
+	for _, field := range []string{"dependencies[ledger]", "dependencies[ledger].version", "service.owner", "dependencies[].compatibility"} {
+		refuses(t, declDoc(t, declarationYAML, "field: dependencies[ledger].compatibility", "field: "+field), "declaration.accepted[0].field")
+	}
+	twice := "        - field: dependencies[ledger].compatibility\n          range: ^2.3.0\n"
+	refuses(t, declDoc(t, declarationYAML, twice, twice+twice), "declaration.accepted[1].field \"dependencies[ledger].compatibility\" is listed twice")
+	refuses(t, declDoc(t, draftDeclarationYAML, "field: dependencies[ledger].compatibility", "field: x"), "declaration.requested[0].field")
+}
+
+func TestParseRefusesBadRange(t *testing.T) {
+	refuses(t, declDoc(t, declarationYAML, "range: ^2.3.0", "range: ^two"), "declaration.accepted[0].range is not a semver range")
+	refuses(t, declDoc(t, draftDeclarationYAML, "range: ^2.3.0", "range: ^two"), "declaration.requested[0].range is not a semver range")
+}
+
+func TestParseRefusesBadInferredFrom(t *testing.T) {
+	// The escaped key form and a name without "k8s:" never reach the fleet.
+	for _, bad := range []string{"k8s:a/b", "k8s:a/b/c/d/e", "svc:x", "k8s:a//c", "k8s:billing%2FDeployment%2Finvoices", "billing/Deployment/invoices"} {
+		refuses(t, declDoc(t, declarationYAML, "inferredFrom: k8s:shop/Deployment/invoices", "inferredFrom: "+bad), "declaration.inferredFrom is not")
+	}
+	refuses(t, declDoc(t, declarationYAML, "cluster: 3f1c0d2e-9a8b-4c7d-8e6f-5a4b3c2d1e0f", "cluster: "+strings.Repeat("a", 65)), "declaration.cluster is longer than 64 bytes")
+}
+
+func TestParseRefusesBadBaselineDigest(t *testing.T) {
+	for _, tc := range []struct{ old, new, want string }{
+		{"bundle: ghcr.io/acme/invoices@", "bundle: ghcr.io/acme/invoices:", "declaration.baseline.bundle and .deploy"},
+		{"deploy: ghcr.io/acme/invoices-deploy@sha256:2", "deploy: ghcr.io/acme/invoices-deploy@sha256:x", "declaration.baseline.bundle and .deploy"},
+		{"version: 1.4.0", "version: v1", `declaration.baseline.version "v1" is not a version`},
+		{"digest: ghcr.io/acme/invoices@sha256", "digest: sha256", "declaration.draft.digest"},
+		{"tag: draft-3", "tag: 1.0.0", `declaration.draft.tag is "1.0.0"`},
+		{"state: declared", "state: accepted", `declaration.state is "accepted"`},
+	} {
+		refuses(t, declDoc(t, declarationYAML, tc.old, tc.new), tc.want)
+	}
+	// A baseline with no deploy artifact names none.
+	if _, err := ParseInferredRecord([]byte(declDoc(t, declarationYAML, "        deploy: ghcr.io/acme/invoices-deploy@sha256:"+strings.Repeat("2", 64)+"\n", ""))); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestVerifyAcceptsClusterFactsBesideDeclaration(t *testing.T) {
+	bundle := fstest.MapFS{"openapi/v1.yaml": &fstest.MapFile{Data: []byte("openapi: 3.0.0\n")}}
+	rec, err := ParseInferredRecord([]byte(declaredDoc(declarationYAML)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.Inputs.Sources[0].Digest = digestOf("openapi: 3.0.0\n")
+	if err := VerifyInferredRecord(bundle, rec); err != nil {
+		t.Fatal(err)
+	}
+	// A file source must still be in the bundle.
+	rec.Inputs.Sources = nil
+	if err := VerifyInferredRecord(bundle, rec); err == nil || !strings.Contains(err.Error(), "cites openapi/v1.yaml") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestVerifyStillRefusesClusterFactsWithoutDeclaration(t *testing.T) {
+	rec, err := ParseInferredRecord([]byte(declaredDoc(declarationYAML)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.Declaration = nil
+	rec.Inputs.Sources[0].Digest = digestOf("openapi: 3.0.0\n")
+	if err := VerifyInferredRecord(fstest.MapFS{"openapi/v1.yaml": &fstest.MapFile{Data: []byte("openapi: 3.0.0\n")}}, rec); err == nil || err.Error() != "inputs.cluster: "+clusterBundleRefusal {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestCitedAcceptancesRoundTrip(t *testing.T) {
+	r := sampleRecord()
+	r.Inputs.Acceptances = []CitedAcceptance{{Record: "ghcr.io/acme/reports@sha256:" + strings.Repeat("a", 64), Signer: "ana@acme.com",
+		Fields: "dependencies[ledger].compatibility"}}
+	got, err := ParseInferredRecord(r.Marshal())
+	if err != nil || !reflect.DeepEqual(got.Inputs.Acceptances, r.Inputs.Acceptances) {
+		t.Fatalf("%v %+v", err, got)
+	}
+	bundle := fstest.MapFS{"openapi/v1.yaml": &fstest.MapFile{Data: []byte("openapi: 3.0.0\n")}, "deploy/app.yaml": &fstest.MapFile{Data: []byte("kind: Deployment\n")}}
+	if err := VerifyInferredRecord(bundle, got); err != nil {
+		t.Fatal(err)
+	}
+	// The strict decoder refuses a key a citation does not have.
+	bad := strings.Replace(string(r.Marshal()), "signer: ana@acme.com", "signer: ana@acme.com\n          by: bob", 1)
+	if _, err := ParseInferredRecord([]byte(bad)); err == nil || !strings.Contains(err.Error(), "by") {
+		t.Fatalf("%v\n%s", err, bad)
+	}
+}
+
+func TestInferredRecordProposed(t *testing.T) {
+	var none *InferredRecord
+	rec := &InferredRecord{Fields: []Inferred{{Field: "image"}, {Field: "dependencies[ledger].compatibility", Proposed: "^2.3.0"}}}
+	if none.Proposed("x") != "" || rec.Proposed("dependencies[billing].compatibility") != "" || rec.Proposed("dependencies[ledger].compatibility") != "^2.3.0" {
+		t.Fatal("Proposed read the wrong field")
 	}
 }

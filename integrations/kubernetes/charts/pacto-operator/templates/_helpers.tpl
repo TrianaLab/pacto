@@ -103,6 +103,56 @@ The controller's ServiceAccount name.
 {{- end }}
 
 {{/*
+The owner policy JSON (an OwnerPolicy) from the declare block, empty when
+neither defaultApprovers.bootstrap nor teams holds a rule. Nil-safe: a release
+upgraded with --reuse-values from 6.x has no declare key.
+*/}}
+{{- define "pacto-operator.ownerPolicy.json" -}}
+{{- $d := .Values.declare | default dict }}
+{{- $approvers := dig "defaultApprovers" "bootstrap" list $d | default list }}
+{{- $teams := dig "teams" dict $d | default dict }}
+{{- if or $approvers $teams }}
+{{- dict "defaultApprovers" $approvers "teams" $teams "emailIssuers" (dig "emailIssuers" list $d | default list) | toJson }}
+{{- end }}
+{{- end }}
+
+{{/*
+The Sigstore trusted root owner changes are verified against: declare.trustedRoot,
+else delivery.publishers.trustedRoot; empty uses public-good Sigstore.
+*/}}
+{{- define "pacto-operator.ownerPolicy.trustedRoot" -}}
+{{- $d := .Values.declare | default dict }}
+{{- dig "trustedRoot" "" $d | default (dig "publishers" "trustedRoot" "" (.Values.delivery | default dict)) }}
+{{- end }}
+
+{{/*
+The trust config whose role: policy keys sign the delivery policy, when
+delivery.publishers.policy is set: the owner check classifies signers with
+the verified policy's signer class rules, as the fleet does.
+*/}}
+{{- define "pacto-operator.ownerPolicy.signers" -}}
+{{- $p := dig "publishers" dict (.Values.delivery | default dict) }}
+{{- if dig "policy" "" $p }}{{ dig "policySigners" "" $p }}{{ end }}
+{{- end }}
+
+{{/*
+Whether the manager mounts the owner policy ConfigMap: it holds the owner
+policy or the delivery policy's signers.
+*/}}
+{{- define "pacto-operator.ownerPolicy.mounted" -}}
+{{- if or (include "pacto-operator.ownerPolicy.json" .) (include "pacto-operator.ownerPolicy.signers" .) }}true{{ end }}
+{{- end }}
+
+{{/*
+The immutable owner policy ConfigMap, named after its content (the policy,
+the trusted root and the delivery policy's signers) so only a chart upgrade
+changes what the operator mounts.
+*/}}
+{{- define "pacto-operator.ownerPolicy.name" -}}
+{{- printf "%s-owner-policy-%s" (include "pacto-operator.fullname" .) (printf "%s%s%s" (include "pacto-operator.ownerPolicy.json" .) (include "pacto-operator.ownerPolicy.trustedRoot" .) (include "pacto-operator.ownerPolicy.signers" .) | sha256sum | trunc 10) }}
+{{- end }}
+
+{{/*
 Controller arguments derived from values
 */}}
 {{- define "pacto-operator.controllerArgs" -}}
@@ -116,6 +166,37 @@ Controller arguments derived from values
 {{- end }}
 {{- if or .Values.controller.watchNamespaces .Values.controller.watchNamespace }}
 - --watch-namespaces={{ include "pacto-operator.watchNamespaces" . | fromYamlArray | join "," }}
+{{- end }}
+{{- with .Values.registry }}
+- --registry={{ . }}
+{{- end }}
+{{- with .Values.registryPullSecret }}
+{{- if not $.Values.registry }}
+{{- fail "registryPullSecret needs registry: the Secret is used only under the registry's push prefixes" }}
+{{- end }}
+- --registry-pull-secret={{ . }}
+{{- end }}
+{{- if .Values.registry }}
+{{- range include "pacto-operator.pushPrefixes" . | fromYamlArray }}
+- --registry-push-prefix={{ . }}
+{{- end }}
+{{- end }}
+{{- /* .Values.declare in the guard: the declare block decides (gen_integration_docs reads guards). */}}
+{{- if and .Values.declare (include "pacto-operator.ownerPolicy.json" .) }}
+- --owner-policy=/etc/pacto/owner-policy/policy.json
+- --dashboard-owner-policy-configmap={{ include "pacto-operator.ownerPolicy.name" . }}
+{{- if include "pacto-operator.ownerPolicy.trustedRoot" . }}
+- --trusted-root=/etc/pacto/owner-policy/trusted_root.json
+{{- end }}
+{{- end }}
+{{- /* The owner check reads the publisher rule whether or not a declare block is set: without it every CI publish's owner change reads unverified. */}}
+{{- with dig "publishers" "registry" "" (.Values.delivery | default dict) }}
+- --publishers-registry={{ . }}
+- --publishers-default-branch={{ dig "publishers" "defaultBranch" "" ($.Values.delivery | default dict) | default "main" }}
+{{- end }}
+{{- if include "pacto-operator.ownerPolicy.signers" . }}
+- --publishers-policy={{ .Values.delivery.publishers.policy }}
+- --publishers-policy-signers=/etc/pacto/owner-policy/policy-signers.yaml
 {{- end }}
 {{- if .Values.controller.stabilizationWindow }}
 - --stabilization-window={{ .Values.controller.stabilizationWindow }}
@@ -552,12 +633,103 @@ upgrade from a release without the key rendering. Empty means cluster-wide.
 {{- end }}
 
 {{/*
+Every repository prefix a Pacto component may push under, as a YAML list: the
+installation repositories <registry>/pacto-targets, pacto-index and
+pacto-inferred when registry is set, then, with delivery on, the recorder's
+streams and approvals repositories and the promoter's stats repository, as
+set (an explicit delivery value may name any repository).
+*/}}
+{{- define "pacto-operator.pushPrefixes" -}}
+{{- $out := list }}
+{{- with .Values.registry }}
+{{- range list "pacto-targets" "pacto-index" "pacto-inferred" }}
+{{- $out = append $out (printf "%s/%s" $.Values.registry .) }}
+{{- end }}
+{{- end }}
+{{- if .Values.delivery.enabled }}
+{{- if .Values.delivery.recorder.enabled }}
+{{- with include "pacto-operator.delivery.streamsRepository" . }}
+{{- $out = append $out . }}
+{{- $out = append $out (include "pacto-operator.delivery.approvalsRepository" $) }}
+{{- end }}
+{{- end }}
+{{- with .Values.delivery.stats.repository }}
+{{- $out = append $out . }}
+{{- end }}
+{{- end }}
+{{- toYaml (uniq $out) }}
+{{- end }}
+
+{{/*
+The cloud that owns a registry host, the same host predicates pkg/oci puts in
+front of its cloud sources: google (*.pkg.dev, gcr.io, *.gcr.io), aws (ECR and
+public.ecr.aws), azure (*.azurecr.io, .cn, .us), else empty.
+*/}}
+{{- define "pacto-operator.registryHostCloud" -}}
+{{- $h := lower . }}
+{{- if regexMatch `^(([a-z0-9-]+\.)+pkg\.dev|([a-z0-9-]+\.)*gcr\.io)$` $h }}google
+{{- else if regexMatch `^([0-9]{12}\.dkr\.ecr(-fips)?\.[a-z0-9-]+\.amazonaws\.com(\.cn)?|public\.ecr\.aws)$` $h }}aws
+{{- else if regexMatch `^([a-z0-9-]+\.)+azurecr\.(io|cn|us)$` $h }}azure
+{{- end }}
+{{- end }}
+
+{{/*
+The NOTES line that says which credential reaches the installation registry,
+in order: registryPullSecret; the operator ServiceAccount annotation of the
+cloud that owns the registry host (an annotation for another cloud does not
+count); on upgrade, a detected cloud that owns the host; else none. Takes a
+dict: root, detected (the decoded detection, possibly empty) and pushed (the
+detection holds a last push result).
+*/}}
+{{- define "pacto-operator.registryCredential" -}}
+{{- $root := .root }}
+{{- $host := index (splitList "/" $root.Values.registry) 0 }}
+{{- $cloud := include "pacto-operator.registryHostCloud" $host }}
+{{- $keys := dict "google" "iam.gke.io/gcp-service-account" "aws" "eks.amazonaws.com/role-arn" "azure" "azure.workload.identity/client-id" }}
+{{- $names := dict "google" "GKE workload identity" "aws" "EKS IRSA" "azure" "Azure workload identity" }}
+{{- $clouds := dict "GKE" "google" "GCE" "google" "EKS" "aws" "AWS" "aws" "AKS" "azure" "Azure" "azure" }}
+{{- $id := "" }}
+{{- if $cloud }}{{ $id = get ($root.Values.serviceAccount.annotations | default dict) (get $keys $cloud) | toString }}{{ end }}
+{{- $seen := "" }}
+{{- $entries := get .detected "entries" | default list }}
+{{- if kindIs "slice" $entries }}{{ else }}{{ $entries = list }}{{ end }}
+{{- range $entries }}
+{{- if and $cloud (kindIs "map" .) (eq (toString (get . "kind")) "cloud") (eq (get $clouds (toString (get . "value"))) $cloud) }}{{ $seen = toString (get . "value") }}{{ end }}
+{{- end }}
+{{- if $root.Values.registryPullSecret -}}
+Pulls: Secret {{ $root.Values.registryPullSecret }} (registryPullSecret).{{ if not .pushed }} Pushes: unconfirmed until the first snapshot push.{{ end }}
+{{- else if $id -}}
+Pulls and pushes: {{ get $names $cloud }}{{ if ne $cloud "azure" }} ({{ $id }}){{ end }}. No Secret needed.
+{{- else if $seen -}}
+Pulls and pushes: {{ $seen }} workload identity once ServiceAccount {{ $root.Release.Namespace }}/{{ include "pacto-operator.serviceAccountName" $root }} is bound to an identity with registry access{{ if eq $cloud "aws" }} (EKS Pod Identity needs no annotation){{ end }}.
+{{- else -}}
+No credential found for {{ $host }}: set registryPullSecret, or the registry must allow anonymous pull and push.
+{{- end }}
+{{- end }}
+
+{{/*
+The recorder's streams repository: delivery.recorder.streamsRepository, else
+<registry>/pacto-streams when registry is set, else empty.
+*/}}
+{{- define "pacto-operator.delivery.streamsRepository" -}}
+{{- .Values.delivery.recorder.streamsRepository | default (ternary (printf "%s/pacto-streams" .Values.registry) "" (not (empty .Values.registry))) }}
+{{- end }}
+
+{{/*
+The repository a person's client pushes signed approvals to:
+delivery.recorder.approvalsRepository, else <streams repository>-approvals.
+*/}}
+{{- define "pacto-operator.delivery.approvalsRepository" -}}
+{{- .Values.delivery.recorder.approvalsRepository | default (printf "%s-approvals" (include "pacto-operator.delivery.streamsRepository" .)) }}
+{{- end }}
+
+{{/*
 The Secrets granted by name, as a YAML list of {namespace, name}, from
-controller.secretGrants (namespace/name).
+controller.secretGrants and registryPullSecret (both namespace/name).
 */}}
 {{- define "pacto-operator.secretGrants" -}}
 {{- $out := list }}
-{{- range default list .Values.controller.secretGrants | uniq }}
+{{- range concat (default list .Values.controller.secretGrants) (compact (list .Values.registryPullSecret)) | uniq }}
 {{- $parts := splitList "/" . }}
 {{- $out = append $out (dict "namespace" (index $parts 0) "name" (index $parts 1)) }}
 {{- end }}

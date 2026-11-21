@@ -1,17 +1,22 @@
 # Put it in your repository
 
-Add Pacto to your build pipeline (CI) so a pull request that would break the
-services using yours fails its checks, and every merge publishes a version.
-This page assumes you have a contract, `pacto.yaml`, from
-[Pactify a service](pactify.md). The examples use the names from that page:
-the contract is published to `oci://ghcr.io/acme/contracts/my-service`, the
-`publish.bundle` field of `pacto.yaml`.
+Add Pacto to your build pipeline (CI) as one step. On every pull request it
+plans each service of the repository and fails the check when a change breaks
+a consumer it sees running. With the reusable workflow's and the GitLab
+component's defaults it cannot see where consumers run, so a breaking change
+with consumers reads `unverified` and passes with a warning; `fail-on:
+unverified` or the delivery trust config turns it red
+([Who breaks](#on-every-pull-request-who-breaks)). On every merge to the
+default branch it publishes each changed service. This page assumes you have
+a contract, `pacto.yaml`, from [Pactify a service](pactify.md). An empty
+contract plans, and it publishes once it declares `service.name`, which still
+fits in two lines.
 
 ## What to commit
 
-Commit what `pacto init` wrote (`pacto.yaml`, `.pactoignore`, `.gitignore`,
-`delivery/` and any files the contract points to, such as an OpenAPI
-document).
+Commit what `pacto init` wrote, any files the contract points to, such as an
+OpenAPI document, and the CI file `pacto ci init` writes. No signing key goes
+in the repository: keyless signing needs none, and a key lives in a CI secret.
 
 If your contract lists dependencies, also run `pacto lock .` and commit the
 `pacto.lock` it writes. It records the exact published build of every
@@ -21,7 +26,7 @@ optional: without it, Pacto looks dependencies up fresh each time. See
 
 ## Declare your API first
 
-`pacto diff` sees API changes only in the interfaces the contract declares.
+`pacto ci` sees API changes only in the interfaces the contract declares.
 If `pacto init` did not find your OpenAPI document, add it to `pacto.yaml`
 yourself, with the path from the repository root:
 
@@ -35,64 +40,65 @@ interfaces:
 
 Other interface types and fields are in [Contract sections](contract-reference/sections.md#interfaces).
 
-## On every pull request
+## Add Pacto to your pipeline
 
-The snippets below are steps of a GitHub Actions job, after
-`actions/checkout`. Install Pacto first; the token avoids GitHub's limit on
-anonymous API calls, which shared CI runners hit:
+From the root of your repository:
 
-```yaml
-- name: Install Pacto
-  run: curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | bash
-  env:
-    GH_TOKEN: ${{ github.token }}
+```bash
+pacto ci init
 ```
 
-Add two checks. The second reads your registry, so give the job a login. These
-variables work for any registry; on GitHub's, the built-in token will do:
+It reads which CI the repository uses, writes the caller into the working
+tree and prints it. Review the file and commit it yourself: Pacto never
+commits, pushes or needs write access to your Git host. `--dry-run` prints
+the file and writes nothing; `--platform github` or `--platform gitlab`
+picks one when the repository has both or neither.
+
+### GitHub Actions
+
+`pacto ci init` writes `.github/workflows/pacto.yml`:
 
 ```yaml
-env:
-  PACTO_REGISTRY_USERNAME: ${{ github.actor }}
-  PACTO_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+--8<-- "examples/ci/github/pacto.yml"
 ```
+
+It calls the pacto-actions reusable workflow, pinned by commit, which
+Dependabot can keep current. The `permissions` line is the most any of its jobs
+may use. Inputs, secrets and the jobs are in
+[GitHub Actions](github-actions.md).
+
+### GitLab CI/CD
+
+`pacto ci init` adds one entry to the `include` list of `.gitlab-ci.yml` and
+leaves every other line as it was:
 
 ```yaml
-- name: Validate the contract
-  run: pacto validate .
-
-- name: Check for breaking changes
-  run: pacto diff oci://ghcr.io/acme/contracts/my-service .
+--8<-- "examples/ci/gitlab/.gitlab-ci.yml"
 ```
 
-`pacto validate` catches missing or malformed fields, fields that contradict
-each other and failed policies, the rules your platform team may set for
-every contract.
+The component adds a `pacto-plan` job to the `test` stage and a
+`pacto-publish` job to the `deploy` stage. Run `pacto ci init` again to move
+the pin to a newer commit.
 
-`pacto diff` compares the contract in the pull request (the second argument)
-with the last one you published (the first). With no version after the name,
-it picks the highest published version. It exits 1 only when the change is
-`BREAKING` (`POTENTIAL_BREAKING` and `NON_BREAKING` pass), a
-[breaking change](glossary.md#breaking-change), so the check fails. Your branch protection rules decide whether a failed check
-blocks the merge.
+### Other CI systems
 
-Until the first version is published there is nothing to compare with and
-`pacto diff` fails, so add this step after your first `pacto publish`. To
-compare two folders with no registry, run `pacto diff ./main ./feature-branch`.
+Buildkite, CircleCI, Azure Pipelines and Jenkins run the same command with
+Pacto installed ([installer script](installation.md#via-installer-script)):
 
-## Plan every service with pacto ci
+```sh
+--8<-- "examples/ci/any-ci.sh"
+```
 
-`pacto ci` checks every service of a repository in one step: it finds each
-`pacto.yaml` under the root, skips
+[From an imperative pipeline to one step](ci-from-pipeline.md) maps each step
+of an existing pipeline to `pacto ci`.
+
+## What the plan shows
+
+`pacto ci` finds each `pacto.yaml` under the root, skips
 [ignored and too-deep folders](pactoignore.md#at-the-repository-root) and
-compares each with its last published version. It writes nothing to the registry, so it
-needs only read credentials (`PACTO_REGISTRY_USERNAME` and
-`PACTO_REGISTRY_PASSWORD`):
-
-```yaml
-- name: Plan every service
-  run: pacto ci
-```
+compares each with its last published version. The plan writes nothing to the
+registry, so it needs only read credentials: the workflow's token on GitHub,
+else `PACTO_REGISTRY_USERNAME` and `PACTO_REGISTRY_PASSWORD`.
 
 The plan prints each value it detected with its source:
 
@@ -105,6 +111,9 @@ The plan prints each value it detected with its source:
   or `not read` when no changed service has a published baseline
 - `Index`: the [organization index](#consumers-from-the-organization-index)
   read and how complete the read was; the index alone is no consumer source
+- `Ranges`: how many dependency edges of the services it walked declare a
+  range or carry an [accepted](#accept-proposed-ranges) one, then each
+  `unknown` range with the range Pacto proposes
 
 Then one row per service:
 
@@ -119,8 +128,7 @@ Then one row per service:
 
 --8<-- "examples/demo/generated/ci-plan.md"
 
-`pacto ci` exits like `pacto impact`: `0` clear, `1` blocked and `2`
-unverified. A folder Pacto cannot read makes the run unverified. It reads the
+A folder Pacto cannot read makes the run unverified. It reads the
 [target snapshot](#where-consumers-come-from) as `pacto impact` does; a changed
 service with none reads `unverified (no consumer source)` until you name its
 consumers with the flags `pacto impact` takes, such as `--root`.
@@ -133,9 +141,12 @@ It exits with that row's code. `--output-format json` prints the plan as JSON.
 `PACTO_EXTERNAL_CATALOG` only, never from a `pacto` config file in the working
 directory, which a pull request can change.
 
-On GitHub Actions the plan is also added to the job summary. On GitLab CI it
-is written to `pacto-plan.md`; keep it with
-`artifacts: paths: [pacto-plan.md]`.
+- On GitHub Actions the plan is also added to the job summary, and each
+  service that does not read as unchanged gets an annotation on its
+  `pacto.yaml`.
+- On GitLab CI it is written to `pacto-plan.md`, which the component keeps
+  as the `pacto plan` merge request artifact. Without the component, keep it
+  with `artifacts: paths: [pacto-plan.md]`.
 
 ### Older contracts
 
@@ -152,15 +163,71 @@ No note changes the exit code. The bundle records the raise in
 `pacto.inferred.yaml` ([Migrations](contract-reference/inferred-record.md#migrations)),
 shown as inferred in the dashboard. `pacto migrate` rewrites the file itself.
 
-## On every pull request: who breaks
+### Accept proposed ranges
 
-`pacto diff` says whether a change is breaking. `pacto impact` says which
-consumers it breaks and whether they run. It finds them through the
-organization index that `pacto publish` and `pacto push` keep at
+`pacto ci` proposes, in `pacto.inferred.yaml` and with a source:
+
+- A [dependency by name](contract-reference/dependencies-and-state.md#depend-on-a-service-by-name)
+  gets its `ref` from the organization index entry of the service of that
+  name in your domain (`index:<repo>:<tag>`).
+- A dependency whose range is absent or `unknown` gets `^MAJOR.MINOR.0` of
+  the provider version this service runs with in the target snapshot
+  (`snapshot:<repo>@sha256:<hex>`).
+- A proposal publishes as `compatibility: unknown`: it reads unverified and
+  never clears the gate.
+- A changed spec file that is only inferred may print
+  `possible break (inferred)` with the YAML that declares the interface. The
+  row stays unverified until you declare it; see
+  [a possible break on an inferred interface](impact-consumers.md#a-possible-break-on-an-inferred-interface).
+
+The service owner accepts them:
+
+```bash
+pacto accept oci://ghcr.io/acme/reports --proposed --dry-run    # the plan and its intent digest
+pacto accept oci://ghcr.io/acme/reports --proposed --intent sha256:...
+```
+
+- `--proposed` accepts every proposed range of the newest published version.
+  A proposed `ref` is accepted only by naming it,
+  `--field 'dependencies[ledger].ref'`, and
+  `--field 'dependencies[ledger].compatibility=^2.0.0'` accepts another range.
+- Only your interactive Sigstore login (a browser, or `--device`) signs. The
+  record is attached to that version in its own bundle repository with your
+  registry credentials: a referrer, or on a registry without the Referrers
+  API, such as GHCR, a write-once `pacto-accept-<hex>-<hex>` tag.
+- Only a record signed by the service's declared owner (its DRI or an email
+  contact) counts. One by anybody else reads `waiting for the owner of
+  reports` with who may accept. A key, an ambient OIDC token in CI or an
+  agent through `pacto_accept` writes a `pacto-accept-draft-<n>` that a
+  person accepts with `--draft`.
+- A counted range reads `accepted` in the `Ranges:` line. The next
+  `pacto ci --publish` pins it into the published `pacto.yaml`, where it reads
+  declared, and cites the record in `inputs.acceptances`. A range your
+  `pacto.yaml` declares wins; `compatibility: unknown` declares none. A
+  declared `service.version` that is already published pins nothing until you
+  bump it.
+- One command accepts ranges or a break, never both.
+- The dashboard's service page offers **Accept all proposed ranges** inside
+  **Inferred by Pacto** to a signed-in or local viewer: it shows the plan and
+  the `pacto accept` command, and never signs or writes.
+
+- `--policy` on `pacto ci` and `pacto impact` sets how a `BREAKING` change
+  treats what no range covers. The default `warn` adds a `POLICY_WARNING`
+  note. `unknown-range=fail` blocks while a direct consumer's range is unknown
+  and not accepted (`POLICY_UNKNOWN_RANGE`). `uncontracted=fail:7d` blocks
+  while a caller no contract describes was seen in the last 7 days
+  (`POLICY_UNCONTRACTED`).
+
+## Who breaks { #on-every-pull-request-who-breaks }
+
+`pacto ci` checks each changed service against its consumers and whether they
+run. It finds them through the organization index that every publish keeps at
 `ghcr.io/acme/pacto-index`, so it needs no `--root`, and checks them against
-the signed target snapshot each cluster's delivery recorder publishes. The job
-needs the login variables, the delivery trust config and `jq`, never cluster
-credentials:
+the signed target snapshot each cluster's operator publishes. A snapshot
+counts only when the job has the delivery trust config (`PACTO_DELIVERY_TRUST`),
+never cluster credentials. The reusable workflow and the GitLab component pass
+none, so there a `BREAKING` change with consumers reads `unverified`. To clear
+it, run `pacto ci` or, for one contract, `pacto impact` in a job you write:
 
 ```yaml
 - name: Check who the change breaks
@@ -206,17 +273,17 @@ creates the `pacto-index` package: in its **Manage Actions access** settings,
 grant **write** to each repository that publishes and **read** to each that
 runs impact. Internal visibility shows those names and the dependency graph to
 every organization member, even for packages they cannot read. A publish
-without access still succeeds with a warning.
+without access succeeds with a warning.
 
 ### Where consumers come from
 
-Pacto tries `ghcr.io/acme/pacto-targets`, then `ghcr.io/pacto-targets`, and
-reads every `cluster-<uid>` snapshot in the first that exists (JSON fields
-`registry` and `targetSnapshots`):
+Pacto tries `pacto-targets` under each repository prefix, deepest first,
+and reads every `cluster-<uid>` snapshot in the first that exists (JSON
+fields `registry` and `targetSnapshots`):
 
 ```text
 Registry: ghcr.io/acme (found ghcr.io/acme/pacto-targets, 1 cluster read)
-Targets: ghcr.io/acme/pacto-targets@sha256:4f1c... (cluster 6f1e2a90, asOf 3m, complete, signed by recorder-6f1e2a90 (publisher system:serviceaccount:pacto-system:pacto-operator-delivery-recorder))
+Targets: ghcr.io/acme/pacto-targets@sha256:4f1c... (cluster 6f1e2a90, asOf 3m, complete, signed by installation-6f1e2a90 (publisher system:serviceaccount:pacto-system:pacto-operator))
 ```
 
 Snapshots are pinned by digest; only a verified one clears a `BREAKING`
@@ -225,23 +292,24 @@ change:
 - `unverified`: the job has no trust config. The answer is partial and a
   `BREAKING` change with consumers exits `2`.
 - `not scoped to this cluster`: the key that signed has no `streams` entry for
-  the cluster's UID, so another cluster's recorder could hold it. Partial.
-- `stale`: the snapshot is older than 15 minutes, because its recorder stopped
-  publishing or its tag was moved back. Partial.
+  the cluster's UID, so another cluster's operator could hold it. Partial.
+- `stale`: older than 15 minutes, because its operator stopped publishing
+  or its tag was moved back. Partial.
 - A bad signature, a cluster other than its tag, a registry error or a timeout:
-  the snapshot is not used and the answer is partial.
+  the snapshot is unused and the answer is partial.
 - No `pacto-targets` repository or no cluster tag: the Registry line says so
   (`not found`, `denied (check registry read credentials)` or `no cluster
   tag`) and consumers come only from the sources you name.
 
 The trust config holds one key per cluster, scoped to its `kube-system` UID
-(a bare PEM key is unscoped). Each recorder's key is in
-[Target snapshot](integrations/kubernetes/delivery-records.md#target-snapshot):
+(a bare PEM key is unscoped).
+[Target snapshot](integrations/kubernetes/delivery-records.md#target-snapshot)
+shows where each cluster advertises its key:
 
 ```yaml
 keys:
-  - name: recorder-6f1e2a90
-    streams: ["6f1e2a90-5b7d-4c1e-8a3f-2d6b0e9c7a41/*/*"]
+  - name: installation-6f1e2a90
+    streams: ["6f1e2a90-5b7d-4c1e-8a3f-2d6b0e9c7a41/pacto-targets/snapshot"]
     publicKey: |
       -----BEGIN PUBLIC KEY-----
       ...
@@ -269,43 +337,66 @@ published; name an unpublished one with `--root ./services/checkout`. A
 
 ## After a merge: publish
 
-To publish every changed service of the repository in one step, with the
-version and the build derived and keyless signing, use
-[`pacto ci --publish`](publish-from-ci.md). For one contract with a declared
-`publish` section and the same login variables:
+On a push to the default branch the publish job runs `pacto ci --publish`. It
+derives each changed service's version, builds its image with the tool the
+folder shows and signs it; see [Publish from CI](publish-from-ci.md).
+
+- Signing is keyless by default. Only the publish job has
+  `id-token: write`. The CI mints a short-lived token for it, which the Pacto
+  CLI in that job exchanges with Sigstore for a certificate; the token never
+  leaves the job, and the Pacto installation never holds it.
+- Keyless signing records the repository, workflow and commit in the public
+  Rekor log. A private repository that must not appear there sets the
+  `sign-key` secret, or declares `publish.sign` with a private log; see
+  [Publish a version](publishing.md).
+- One publish runs per repository at a time; a version lost to a concurrent
+  run is planned again.
+- The publisher identity is your repository on its default branch, also when
+  the workflow that signs is the shared pacto-actions one, so a newer pin
+  keeps earlier versions verifying.
+- Publishing never turns delivery on: a cluster rolls out a published version
+  only once you set up [delivery](integrations/kubernetes/delivery.md).
+
+## A breaking change you need to ship { #ship-a-breaking-change }
+
+Announce a deliberate break, with a new major version (`2.4.0` becomes
+`3.0.0`), in [`breaks`](contract-reference/dependencies-and-state.md#breaks):
 
 ```yaml
-- name: Set up a Docker builder
-  run: docker buildx create --use --driver docker-container
-
-- name: Publish a version
-  run: |
-    echo "$COSIGN_KEY" > cosign.key      # publish.sign reads it from the repository root
-    pacto publish
-  env:
-    COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
-    COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+breaks:
+  - consumers: [reports]
+    reason: Amounts move from cents to euros; read amount_eur.
 ```
 
-`pacto publish` builds the image, pushes it to your registry with your
-Kubernetes files and the contract, and signs them; delivery only rolls out
-versions published this way. Store the contents of `cosign.key` and its
-password as CI secrets. On GitHub, the job also needs
-`permissions: packages: write` to push.
+- `pacto ci` shows each announced consumer `announced for reports, not
+  accepted` and the gate holds the change.
+- Each consumer owner accepts with
+  `pacto accept oci://ghcr.io/acme/reports --break ledger@3.0.0`, signed as
+  for [proposed ranges](#accept-proposed-ranges). Before ledger 3.0.0 is
+  published, `--from ../ledger` (its checkout or a pushed `oci://` ref) reads
+  the announcement.
+- A consumer also reads `accepted` when its own published ranges admit the
+  new version, a source shows where it runs and no revision that refuses it
+  runs there.
+- The gate clears (`BREAKING_ACCEPTED`) once every consumer accepted. Nobody
+  overrides a failed check.
+- An announcement without `expires` expires 30 days after the commit time,
+  recorded in `pacto.inferred.yaml`. An expired break blocks again.
+- A plain `pacto publish` carries no acceptance forward, so one stays found
+  only while the accepted version is the consumer's newest or runs on a
+  target. `pacto ci --publish` carries it.
+- Gate on `pacto ci` or `pacto impact`: `pacto diff` still fails on the
+  change, because it is still breaking.
 
-It never overwrites a published version, and a merge that does not raise
-`service.version` in `pacto.yaml` fails here. Raise
-the version with each change you want to ship, or run this step only when
-`pacto.yaml` changed. See [Publish a version](publishing.md) and
-[A breaking change you need to ship](publish-from-ci.md#a-breaking-change-you-need-to-ship).
+## Exit codes
 
-If you use contracts without delivery, `pacto push oci://ghcr.io/acme/contracts/my-service -p .`
-uploads only the contract.
+| Run | `0` | `1` | `2` |
+| --- | --- | --- | --- |
+| `pacto ci` (plan) | clear | blocked | unverified |
+| `pacto ci --publish` | every changed service published | anything else | |
 
-## GitHub Actions and other CI systems
-
-The [GitHub Actions integration](github-actions.md) wraps these steps in an
-action that installs Pacto and comments on the pull request.
-For GitLab CI, Jenkins or CircleCI, install Pacto with the
-[installer script](installation.md#via-installer-script) and run the same
-commands.
+On GitHub, the reusable workflow's `fail-on` input decides what fails the
+plan job: `blocked` (the default) passes on `2` with a warning annotation for
+each unverified service; `unverified` fails on it. On GitLab, `pacto-plan`
+passes with a warning on `2` (`allow_failure: exit_codes: [2]`). An unverified
+plan never reads as a plain pass.
