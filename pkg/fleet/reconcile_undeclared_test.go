@@ -143,50 +143,7 @@ func TestCautionOnlyEdgeNeverMatchesInGraphs(t *testing.T) {
 	declared := NewMemorySource("defs", "local", &Collection{Revisions: []RawRevision{
 		{Bundle: a, Digest: "sha256:a"}, {Bundle: bundleFor(t, "b"), Digest: "sha256:b"}, {Bundle: bundleFor(t, "c"), Digest: "sha256:c"},
 	}})
-	edgeAndNode := func(sources ...Source) (NeighborhoodEdge, NeighborhoodEdge, string) {
-		t.Helper()
-		snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, sources...)
-		if err != nil {
-			t.Fatal(err)
-		}
-		q := NewQuery(snap)
-		nb, err := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: "a", Direction: DirectionBoth, Views: allViews()})
-		if err != nil {
-			t.Fatal(err)
-		}
-		var ab, ac NeighborhoodEdge
-		for _, e := range nb.Edges {
-			switch e.ID {
-			case "a|b":
-				ab = e
-			case "a|c":
-				ac = e
-			}
-		}
-		// The graph labels the pair the same both ways.
-		provs := map[string]bool{}
-		for _, gq := range []GraphQuery{{Service: "a", Direction: DirectionDependencies}, {Service: "b", Direction: DirectionDependents}} {
-			gq.IncludeObserved = true
-			g, err := q.Graph(gq)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, n := range g.Nodes {
-				if n.Depth == 1 && (n.Key == "a" || n.Key == "b") {
-					provs[n.Provenance] = true
-				}
-			}
-		}
-		if len(provs) != 1 {
-			t.Fatalf("graph labels %v", provs)
-		}
-		prov := ""
-		for p := range provs {
-			prov = p
-		}
-		return ab, ac, prov
-	}
-	ab, ac, prov := edgeAndNode(declared, receiverSource(ObservedEdge{From: "a", To: "b", Count: 5}, ObservedEdge{From: "a", To: "c", Count: 2}))
+	ab, ac, prov := edgesAndGraphLabel(t, declared, receiverSource(ObservedEdge{From: "a", To: "b", Count: 5}, ObservedEdge{From: "a", To: "c", Count: 2}))
 	if ab.Difference == DifferenceMatched || ab.Observed || ab.Provenance != ProvenanceDeclared || ab.Count != 5 {
 		t.Errorf("receiver-only a->b = %+v", ab)
 	}
@@ -197,8 +154,60 @@ func TestCautionOnlyEdgeNeverMatchesInGraphs(t *testing.T) {
 		t.Errorf("undeclared receiver a->c = %+v", ac)
 	}
 	mira := NewMemorySource("mira", SourceKindMira, &Collection{ObservedUndeclaredOnly: true, Observed: []ObservedEdge{{From: "a", To: "b", Count: 1}}})
-	ab, _, prov = edgeAndNode(declared, receiverSource(ObservedEdge{From: "a", To: "b", Count: 5}), mira)
+	ab, _, prov = edgesAndGraphLabel(t, declared, receiverSource(ObservedEdge{From: "a", To: "b", Count: 5}), mira)
 	if ab.Difference != DifferenceMatched || prov != ProvenanceDeclaredObserved {
 		t.Errorf("corroborated a->b = %+v, graph %q", ab, prov)
 	}
+}
+
+// edgesAndGraphLabel builds a snapshot from sources and returns a's a|b and
+// a|c neighborhood edges plus the single label the graph gives the a-b pair
+// from both ends.
+func edgesAndGraphLabel(t *testing.T, sources ...Source) (NeighborhoodEdge, NeighborhoodEdge, string) {
+	t.Helper()
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, sources...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := NewQuery(snap)
+	nb, err := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: "a", Direction: DirectionBoth, Views: allViews()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ab, ac NeighborhoodEdge
+	for _, e := range nb.Edges {
+		switch e.ID {
+		case "a|b":
+			ab = e
+		case "a|c":
+			ac = e
+		}
+	}
+	return ab, ac, abGraphLabel(t, q)
+}
+
+// abGraphLabel returns the provenance the graph gives the a-b pair, failing
+// unless both directions agree.
+func abGraphLabel(t *testing.T, q *Query) string {
+	t.Helper()
+	provs := map[string]bool{}
+	for _, gq := range []GraphQuery{{Service: "a", Direction: DirectionDependencies}, {Service: "b", Direction: DirectionDependents}} {
+		gq.IncludeObserved = true
+		g, err := q.Graph(gq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range g.Nodes {
+			if n.Depth == 1 && (n.Key == "a" || n.Key == "b") {
+				provs[n.Provenance] = true
+			}
+		}
+	}
+	if len(provs) != 1 {
+		t.Fatalf("graph labels %v", provs)
+	}
+	for p := range provs {
+		return p
+	}
+	return ""
 }
