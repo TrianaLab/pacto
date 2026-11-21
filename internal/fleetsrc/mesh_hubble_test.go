@@ -513,7 +513,7 @@ func TestHubbleScopedDropsOutOfScopeFlows(t *testing.T) {
 			t.Errorf("%q names an out-of-scope end", text)
 		}
 	}
-	_, _, out, _ := flowEdges([]flow{{verdict: verdictForwarded, direction: directionEgress, src: endpoint{namespace: "shop", name: "a"},
+	_, _, out, _, _ := flowEdges([]flow{{verdict: verdictForwarded, direction: directionEgress, replyKnown: true, src: endpoint{namespace: "shop", name: "a"},
 		dst: endpoint{namespace: "other", name: "b"}}}, []string{"shop"})
 	if out != 1 {
 		t.Errorf("out of scope %d", out)

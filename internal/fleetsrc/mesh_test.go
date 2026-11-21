@@ -325,7 +325,7 @@ func coverageRow(t *testing.T, extra ...string) fleet.Provider {
 			nss = append(nss, nsJSON(name))
 			continue
 		}
-		nss = append(nss, nsJSON(name, labels))
+		nss = append(nss, nsJSON(name, strings.Split(labels, ",")...))
 	}
 	p := newProm(t, answer(istioAnswer()))
 	return istioRow(t, collectMesh(t, meshSource(meshClient(true, svcs, nss), nil, map[string]*promStub{"istio-system/prom-main": p}, nil)))
@@ -375,10 +375,11 @@ func TestMeshNamespacesForbiddenCoverageUnknown(t *testing.T) {
 func TestMeshServicesForbiddenIsPartial(t *testing.T) {
 	f := defaultMesh(true)
 	f.errs = map[string]error{"services|": apierrors.NewForbidden(schema.GroupResource{Resource: "services"}, "", nil)}
-	row := istioRow(t, collectMesh(t, meshSource(f, nil, nil, nil)))
-	if row.Status != fleet.SourcePartial || !hasMessage(row, fleet.LimitationMeshTelemetryUnread,
-		"Services could not be read in every namespace, so Pacto may miss the Prometheus that records this mesh") {
-		t.Errorf("row %+v", row)
+	var asked []string
+	row := istioRow(t, collectMesh(t, meshSource(f, nil, nil, &asked)))
+	if row.Status != fleet.SourcePartial || len(asked) != 0 || row.Evidence != "serves networking.istio.io; Services not read" ||
+		!slices.Equal(messages(row), []string{"Services could not be read in every namespace, so Pacto did not look for the Prometheus that records this mesh"}) {
+		t.Errorf("asked %v row %+v", asked, row)
 	}
 }
 
@@ -401,7 +402,9 @@ func TestMeshPrometheusCandidateOrder(t *testing.T) {
 	f := meshClient(true, svcs, nil)
 	var asked []string
 	col := collectMesh(t, meshSource(f, nil, map[string]*promStub{"monitoring/prometheus-operated": empty, "istio-system/prom-name": full}, &asked))
-	if !slices.Equal(asked, []string{"monitoring/prometheus-operated", "istio-system/prom-name"}) || len(col.Observed) != 2 {
+	// Trusted candidates first, class by class; the lone untrusted one is
+	// never asked beside them.
+	if !slices.Equal(asked, []string{"istio-system/prom-name"}) || len(col.Observed) != 2 {
 		t.Errorf("asked %v observed %+v", asked, col.Observed)
 	}
 	if !slices.Contains(istioRow(t, col).Objects, fleet.ProviderObject{Kind: "Service", Namespace: "istio-system", Name: "prom-name"}) {
@@ -409,7 +412,7 @@ func TestMeshPrometheusCandidateOrder(t *testing.T) {
 	}
 	asked = nil
 	collectMesh(t, meshSource(f, nil, map[string]*promStub{"monitoring/prometheus-operated": empty, "istio-system/prom-name": empty, "istio-system/prom-app": empty, "istio-system/prom-app2": empty}, &asked))
-	if len(asked) != maxPromCandidates {
+	if !slices.Equal(asked, []string{"istio-system/prom-name", "istio-system/prom-app", "istio-system/prom-app2"}) || len(asked) != maxPromCandidates {
 		t.Errorf("asked %v; never more than %d", asked, maxPromCandidates)
 	}
 }

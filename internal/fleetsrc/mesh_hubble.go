@@ -7,7 +7,7 @@ package fleetsrc
 //
 //	GetFlowsRequest       number=1 follow=3 since=7 (Timestamp seconds=1 nanos=2)
 //	GetFlowsResponse      flow=1 lost_events=3
-//	Flow                  time=1 verdict=2 source=8 destination=9
+//	Flow                  time=1 verdict=2 source=8 destination=9 node_name=11
 //	                      traffic_direction=22 is_reply=26 (BoolValue value=1)
 //	Endpoint              namespace=3 workloads=6 cluster_name=7
 //	Workload              name=1 kind=2
@@ -69,13 +69,14 @@ func (bytesCodec) Name() string { return "proto" }
 
 // hubbleRelay is the Hubble Relay Service to read: labelled
 // k8s-app=hubble-relay, else named hubble-relay, in kube-system or the one
-// namespace Cilium's own Services sit in (soleNamespace); never an
-// ExternalName or a selectorless Service, whose address a tenant chooses.
-func hubbleRelay(services []svcInfo) (svcInfo, bool) {
+// namespace Cilium's own Services sit in (soleNamespace, only when every
+// Services list was read); never an ExternalName or a selectorless Service,
+// whose address a tenant chooses.
+func hubbleRelay(services []svcInfo, listComplete bool) (svcInfo, bool) {
 	trusted := []string{"kube-system"}
 	if ns, ok := soleNamespace(services, func(svc svcInfo) bool {
 		return svc.Labels["k8s-app"] == "cilium" || svc.Labels["app.kubernetes.io/part-of"] == "cilium"
-	}); ok {
+	}); ok && listComplete {
 		trusted = append(trusted, ns)
 	}
 	sorted := sortedServices(slices.Clone(services))
@@ -104,20 +105,22 @@ func relayPort(relay svcInfo) svcPort {
 // flows show.
 func (s *MeshSource) hubbleRow(ctx context.Context, cl meshCluster, asOf time.Time) (fleet.Provider, []fleet.ObservedEdge) {
 	const name = "Cilium Hubble"
-	lims := slices.Clone(cl.servicesLim)
-	relay, ok := hubbleRelay(cl.services)
-	if !ok {
-		lims = append(lims, s.unread("no Hubble Relay found"))
-		return meshRow(fleet.ProviderHubble, name, "serves cilium.io; no Hubble Relay found", nil, lims), nil
+	relay, ok := hubbleRelay(cl.services, !cl.servicesErr)
+	switch {
+	case !ok && cl.servicesErr:
+		return meshRow(fleet.ProviderHubble, name, "serves cilium.io; Services not read", asOf, nil, []fleet.Limitation{
+			s.unread("Services could not be read in every namespace, so Pacto may miss Hubble Relay")}), nil
+	case !ok:
+		return meshRow(fleet.ProviderHubble, name, "serves cilium.io; no Hubble Relay found", asOf, nil, []fleet.Limitation{s.unread("no Hubble Relay found")}), nil
 	}
 	objects := []fleet.ProviderObject{serviceObject(relay)}
 	read, err := s.hubbleFetch(ctx, relay, asOf)
 	if err != nil {
-		lims = append(lims, s.unread(hubbleErrorText(err)))
-		return meshRow(fleet.ProviderHubble, name, "serves cilium.io; Hubble Relay found, flows not read", objects, lims), nil
+		return meshRow(fleet.ProviderHubble, name, "serves cilium.io; Hubble Relay found, flows not read", asOf, objects,
+			[]fleet.Limitation{s.unread(hubbleErrorText(err))}), nil
 	}
 	edges, readLims := read.edges(s.id, asOf, s.namespaces)
-	return meshRow(fleet.ProviderHubble, name, "serves cilium.io; flows read from Hubble Relay", objects, append(lims, readLims...)), edges
+	return meshRow(fleet.ProviderHubble, name, "serves cilium.io; flows read from Hubble Relay", asOf, objects, readLims), edges
 }
 
 // hubbleRead is what one Relay read returned.
@@ -227,16 +230,17 @@ func (r hubbleRead) edges(id string, asOf time.Time, namespaces []string) ([]fle
 			lims = append(lims, fleet.Limitation{Code: code, Source: id, Message: message})
 		}
 	}
-	earliest := r.earliest()
-	kept := asOf.Sub(earliest)
+	start := r.shortestSpan()
+	kept := asOf.Sub(start)
 	add(fleet.LimitationMeshCoveragePartial, r.unavailable > 0, countOf(int(r.unavailable), "node", "nodes")+" not reachable through Hubble Relay")
 	add(fleet.LimitationMeshCoveragePartial, !r.nodesKnown, "Hubble Relay did not say how many nodes it reaches")
 	add(fleet.LimitationMeshCoveragePartial, r.lost > 0, countOf(int(r.lost), "flow was", "flows were")+" lost before Hubble Relay could serve them")
 	add(fleet.LimitationMeshTelemetryUnread, r.full, "only the newest "+strconv.Itoa(maxHubbleFlows)+" flows of the last hour were read")
-	add(fleet.LimitationMeshTelemetryUnread, earliest.IsZero(), "Hubble Relay served no flow for the last hour")
-	add(fleet.LimitationMeshCoveragePartial, !r.full && !earliest.IsZero() && kept < meshWindow-hubbleWindowSlack,
+	add(fleet.LimitationMeshTelemetryUnread, start.IsZero(), "Hubble Relay served no flow for the last hour")
+	add(fleet.LimitationMeshCoveragePartial, !r.full && !start.IsZero() && kept < meshWindow-hubbleWindowSlack,
 		"Hubble Relay kept only the last "+countOf(max(1, int(kept/time.Minute)), "minute", "minutes")+" of flows")
-	edges, cross, out, clusters := flowEdges(r.flows, namespaces)
+	edges, cross, out, clusters, undirected := flowEdges(r.flows, namespaces)
+	add(fleet.LimitationMeshCallsUnattributed, undirected > 0, countOf(undirected, "flow", "flows")+" had no request direction")
 	add(fleet.LimitationMeshCallsUnattributed, out > 0, countOf(out, "flow reaches", "flows reach")+" namespaces this installation does not read")
 	add(fleet.LimitationMeshCallsUnattributed, cross > 0, countOf(cross, "cross-cluster flow was", "cross-cluster flows were")+" not attributed")
 	// Build qualifies every end with this source's cluster, so the flows of
@@ -248,30 +252,43 @@ func (r hubbleRead) edges(id string, asOf time.Time, namespaces []string) ([]fle
 	return edges, lims
 }
 
-// earliest is the time of the read's earliest timed flow, zero when none.
-func (r hubbleRead) earliest() time.Time {
-	var t time.Time
+// shortestSpan is the latest of each node's earliest timed flow, zero when
+// no flow is timed. Each node keeps its own ring buffer, so the node whose
+// flows start latest bounds what the read covers. ponytail: a quiet node
+// whose first flow is recent reads as a short buffer too; Relay says nothing
+// that tells the two apart.
+func (r hubbleRead) shortestSpan() time.Time {
+	first := map[string]time.Time{}
 	for _, f := range r.flows {
-		if !f.time.IsZero() && (t.IsZero() || f.time.Before(t)) {
-			t = f.time
+		if t, ok := first[f.node]; !f.time.IsZero() && (!ok || f.time.Before(t)) {
+			first[f.node] = f.time
 		}
 	}
-	return t
+	var start time.Time
+	for _, t := range first {
+		start = maxTime(start, t)
+	}
+	return start
 }
 
 // flow is the part of a Hubble flow an edge needs.
 type flow struct {
 	time               time.Time
+	node               string
 	verdict, direction uint64
-	reply              bool
+	reply, replyKnown  bool
 	src, dst           endpoint
 }
 
-// call reports whether f is a forwarded request leaving a named workload
+// egress reports whether f is forwarded traffic leaving a named workload
 // for another named workload.
-func (f flow) call() bool {
-	return f.verdict == verdictForwarded && f.direction == directionEgress && !f.reply && f.src.named() && f.dst.named()
+func (f flow) egress() bool {
+	return f.verdict == verdictForwarded && f.direction == directionEgress && f.src.named() && f.dst.named()
 }
+
+// call reports whether f is an egress request; an unknown is_reply is no
+// call, since a reply would point the edge backwards.
+func (f flow) call() bool { return f.egress() && f.replyKnown && !f.reply }
 
 // cross reports whether f's two ends sit in different clusters.
 func (f flow) cross() bool {
@@ -293,13 +310,17 @@ func (e endpoint) caller() string { return fleet.K8sCaller("", e.namespace, e.ki
 // flowEdges folds flows into one edge per pair of workloads: how many
 // calls, the earliest and the latest. Flows that are no call are skipped;
 // those with an end outside namespaces or crossing clusters are counted and
-// left out. clusters is how many distinct clusters the kept flows name.
-func flowEdges(flows []flow, namespaces []string) (edges []fleet.ObservedEdge, crossCluster, outOfScope, clusters int) {
+// left out. clusters is how many distinct clusters the kept flows name;
+// undirected is how many egress flows did not say whether they reply.
+func flowEdges(flows []flow, namespaces []string) (edges []fleet.ObservedEdge, crossCluster, outOfScope, clusters, undirected int) {
 	type pair struct{ from, to string }
 	per := map[pair]*fleet.ObservedEdge{}
 	seen := map[string]bool{}
 	for _, f := range flows {
 		switch {
+		case f.egress() && !f.replyKnown:
+			undirected++
+			continue
 		case !f.call():
 			continue
 		case !inScope(namespaces, f.src.namespace) || !inScope(namespaces, f.dst.namespace):
@@ -329,7 +350,7 @@ func flowEdges(flows []flow, namespaces []string) (edges []fleet.ObservedEdge, c
 		return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.From, b.From), cmp.Compare(a.To, b.To))
 	})
 	delete(seen, "")
-	return edges, crossCluster, outOfScope, len(seen)
+	return edges, crossCluster, outOfScope, len(seen), undirected
 }
 
 func minTime(a, b time.Time) time.Time {
@@ -422,12 +443,14 @@ func decodeFlow(b []byte) (flow, error) {
 			f.src, err = decodeEndpoint(val)
 		case 9:
 			f.dst, err = decodeEndpoint(val)
+		case 11:
+			f.node = string(val)
 		case 22:
 			f.direction = x
 		case 26:
 			var v uint64
 			v, err = varintField(val, 1)
-			f.reply = v != 0
+			f.reply, f.replyKnown = v != 0, true
 		}
 		return err
 	})

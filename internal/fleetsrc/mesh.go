@@ -106,10 +106,22 @@ type MeshSource struct {
 	baseURL    func(namespace, name string, port int32) string
 	// dial opens the connection to Hubble Relay at addr.
 	dial func(ctx context.Context, addr string) (net.Conn, error)
+	memo *MeshMemo
+}
 
+// MeshMemo keeps a mesh source's last read, so sources rebuilt for each
+// fleet build still read the mesh at most once per meshReadInterval.
+type MeshMemo struct {
 	mu       sync.Mutex
 	last     *fleet.Collection
 	lastRead time.Time
+}
+
+// WithMemo makes s keep its last read in m, shared with every source given
+// m, and returns s.
+func (s *MeshSource) WithMemo(m *MeshMemo) *MeshSource {
+	s.memo = m
+	return s
 }
 
 // NewMeshSource returns a mesh source over namespaces (empty for all). id is
@@ -119,7 +131,7 @@ func NewMeshSource(id string, cluster *fleet.Cluster, client k8sclient.K8sClient
 	in, ok := client.(interface{ InCluster() bool })
 	return &MeshSource{
 		id: id, cluster: cluster, client: client, namespaces: normalizeNamespaces(namespaces),
-		inCluster: ok && in.InCluster(), now: time.Now,
+		inCluster: ok && in.InCluster(), now: time.Now, memo: &MeshMemo{},
 		// ponytail: in-cluster .svc names never go through an egress proxy.
 		http: &http.Client{Timeout: meshTimeout, Transport: &http.Transport{
 			Proxy: nil, DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
@@ -143,17 +155,22 @@ func (s *MeshSource) Kind() string { return fleet.SourceKindMesh }
 func (s *MeshSource) Cluster() *fleet.Cluster { return s.cluster }
 
 // Collect never fails: it serves the last read while it is younger than
-// meshReadInterval, else reads again under one meshBudget deadline.
+// meshReadInterval, else reads again under one meshBudget deadline. A read
+// its caller cut short is served once and never kept.
 func (s *MeshSource) Collect(ctx context.Context) (*fleet.Collection, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.last == nil || s.now().Sub(s.lastRead) >= meshReadInterval {
-		ctx, cancel := context.WithTimeout(ctx, meshBudget)
+	m := s.memo
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.last == nil || s.now().Sub(m.lastRead) >= meshReadInterval {
+		readCtx, cancel := context.WithTimeout(ctx, meshBudget)
 		defer cancel()
-		s.lastRead = s.now()
-		s.last = s.read(ctx)
+		at, col := s.now(), s.read(readCtx)
+		if ctx.Err() != nil {
+			return col, nil
+		}
+		m.last, m.lastRead = col, at
 	}
-	return cloneCollection(s.last), nil
+	return cloneCollection(m.last), nil
 }
 
 // cloneCollection copies what Build may sort or append to, so two builds
@@ -189,7 +206,9 @@ func (s *MeshSource) read(ctx context.Context) *fleet.Collection {
 	_, hubble := served[ciliumGroup]
 	if len(kinds) > 0 || hubble {
 		cl := s.listCluster(ctx)
-		cl.controlPlanes = controlPlaneNamespaces(cl.services, kinds)
+		if !cl.servicesErr {
+			cl.controlPlanes = controlPlaneNamespaces(cl.services, kinds)
+		}
 		add := func(row fleet.Provider, edges []fleet.ObservedEdge) {
 			col.Providers = append(col.Providers, row)
 			col.Observed = append(col.Observed, edges...)
@@ -232,11 +251,12 @@ type nsInfo struct {
 }
 
 // meshCluster is what a mesh read lists: the Services and Namespaces in
-// scope, and the limitations of what could not be listed.
+// scope, and whether either list failed. When servicesErr is set, services
+// may miss any namespace, so no Service is trusted for being the only one.
 type meshCluster struct {
 	services     []svcInfo
 	namespaces   []nsInfo
-	servicesLim  []fleet.Limitation
+	servicesErr  bool
 	namespaceErr bool
 	// controlPlanes are the namespaces of every mesh found's control plane;
 	// no mesh counts them toward its coverage.
@@ -265,10 +285,7 @@ func (s *MeshSource) listCluster(ctx context.Context) meshCluster {
 	var cl meshCluster
 	for _, ns := range readNamespaces(s.namespaces) {
 		items, err := listAll(ctx, s.client, servicesGVR, ns)
-		if err != nil && cl.servicesLim == nil {
-			cl.servicesLim = []fleet.Limitation{{Code: fleet.LimitationMeshTelemetryUnread, Source: s.id,
-				Message: "Services could not be read in every namespace, so Pacto may miss the Prometheus that records this mesh"}}
-		}
+		cl.servicesErr = cl.servicesErr || err != nil
 		for _, it := range items {
 			cl.services = append(cl.services, svcInfo{Namespace: it.Metadata.Namespace, Name: it.Metadata.Name, Labels: it.Metadata.Labels,
 				Type: it.Spec.Type, HasSelector: len(it.Spec.Selector) > 0, Ports: it.Spec.Ports})
@@ -336,22 +353,30 @@ func soleNamespace(services []svcInfo, match func(svcInfo) bool) (string, bool) 
 // meshRead is the row of mesh k, whose evidence names group, and the calls
 // its Prometheus recorded.
 func (s *MeshSource) meshRead(ctx context.Context, cl meshCluster, now time.Time, k meshKind, group string) (fleet.Provider, []fleet.ObservedEdge) {
-	var objects []fleet.ProviderObject
-	for _, svc := range cl.services {
-		if k.controlPlane(svc) {
-			objects = append(objects, serviceObject(svc))
-		}
+	if cl.servicesErr {
+		// A Service that looks like the only one of its label may only be the
+		// only one read: nothing is trusted, so no Prometheus is asked.
+		return meshRow(k.id, k.name, "serves "+group+"; Services not read", now, nil, []fleet.Limitation{
+			s.unread("Services could not be read in every namespace, so Pacto did not look for the Prometheus that records this mesh")}), nil
 	}
+	var objects []fleet.ProviderObject
+	var lims []fleet.Limitation
 	var trusted []string
-	for _, match := range []func(svcInfo) bool{k.controlPlane, k.trusts} {
-		if match == nil {
-			continue
+	if ns, ok := soleNamespace(cl.services, k.controlPlane); ok {
+		trusted = append(trusted, ns)
+		for _, svc := range cl.services {
+			if k.controlPlane(svc) {
+				objects = append(objects, serviceObject(svc))
+			}
 		}
-		if ns, ok := soleNamespace(cl.services, match); ok && !slices.Contains(trusted, ns) {
+	} else if slices.ContainsFunc(cl.services, k.controlPlane) {
+		lims = append(lims, s.unread("the mesh's control plane could not be told apart from a copy in another namespace"))
+	}
+	if k.trusts != nil {
+		if ns, ok := soleNamespace(cl.services, k.trusts); ok && !slices.Contains(trusted, ns) {
 			trusted = append(trusted, ns)
 		}
 	}
-	lims := slices.Clone(cl.servicesLim)
 	cov, covLims := s.coverage(cl, append(slices.Clone(cl.controlPlanes), trusted...), k.covers)
 	objects, lims = append(objects, cov...), append(lims, covLims...)
 	cands, candLims := prometheusCandidates(cl.services, trusted, k.preferViz)
@@ -375,7 +400,7 @@ func (s *MeshSource) meshRead(ctx context.Context, cl meshCluster, now time.Time
 			lims = append(lims, tally.limitations(s.id)...)
 		}
 	}
-	return meshRow(k.id, k.name, evidence, objects, lims), edges
+	return meshRow(k.id, k.name, evidence, now, objects, lims), edges
 }
 
 // coverage is the uncovered namespaces as objects and their count-only
@@ -415,10 +440,12 @@ func meshCoverage(namespaces []nsInfo, services []svcInfo, excluded []string, co
 }
 
 // istioCovers reports whether Istio injects or captures the namespace's
-// pods: injection enabled, a revision label or ambient mode.
+// pods: injection enabled, a revision label with no istio-injection label
+// (which wins over it, as in Istio's webhook) or ambient mode.
 func istioCovers(ns nsInfo) bool {
 	_, rev := ns.Labels["istio.io/rev"]
-	return ns.Labels["istio-injection"] == "enabled" || rev || ns.Labels["istio.io/dataplane-mode"] == "ambient"
+	injection, labelled := ns.Labels["istio-injection"]
+	return injection == "enabled" || (rev && !labelled) || ns.Labels["istio.io/dataplane-mode"] == "ambient"
 }
 
 // linkerdCovers reports whether Linkerd injects the namespace's pods.
@@ -443,38 +470,42 @@ var promClasses = []promClass{
 // prometheusCandidates are the Prometheus Services to ask, in order, at most
 // maxPromCandidates. An ExternalName or selectorless Service is never one. A
 // candidate is trusted in a namespace of trusted (the mesh's control plane)
-// or when its class has candidates in one other namespace only; a class with
-// candidates in several other namespaces gives none of them, and when no
-// candidate is left that says why.
+// or when every Service of its class sits in one other namespace; a class
+// with Services in several other namespaces gives none of them, and when no
+// candidate is left that says why. When any trusted-namespace candidate
+// exists only those are asked: a tenant's lone Service never outranks or
+// backs up the control plane's Prometheus.
 func prometheusCandidates(services []svcInfo, trusted []string, preferViz bool) (cands []svcInfo, lims []fleet.Limitation) {
-	seen := map[[2]string]bool{}
+	refused := map[[2]string]bool{}
+	var in, out []svcInfo
 	several := false
 	for _, class := range promClasses {
 		if class.vizOnly && !preferViz {
 			continue
 		}
-		var in, out []svcInfo
-		others := map[string]bool{}
-		for _, svc := range services {
-			if !hasLabels(svc, class.labels) || svc.Type == "ExternalName" || !svc.HasSelector || seen[[2]string{svc.Namespace, svc.Name}] {
-				continue
-			}
-			if slices.Contains(trusted, svc.Namespace) {
-				in = append(in, svc)
-				continue
-			}
-			out = append(out, svc)
-			others[svc.Namespace] = true
-		}
-		if len(others) > 1 {
+		classIn, classOut, others := classServices(services, class, trusted)
+		if others > 1 {
 			// A refused Service stays refused under a later class.
-			for _, svc := range out {
-				seen[[2]string{svc.Namespace, svc.Name}] = true
+			for _, svc := range classOut {
+				refused[[2]string{svc.Namespace, svc.Name}] = true
 			}
-			out, several = nil, true
+			classOut, several = nil, true
 		}
-		for _, svc := range sortedServices(append(in, out...)) {
-			seen[[2]string{svc.Namespace, svc.Name}] = true
+		in = append(in, sortedServices(classIn)...)
+		for _, svc := range sortedServices(classOut) {
+			if !refused[[2]string{svc.Namespace, svc.Name}] {
+				out = append(out, svc)
+			}
+		}
+	}
+	pick := in
+	if len(pick) == 0 {
+		pick = out
+	}
+	seen := map[[2]string]bool{}
+	for _, svc := range pick {
+		if k := [2]string{svc.Namespace, svc.Name}; !seen[k] {
+			seen[k] = true
 			cands = append(cands, svc)
 		}
 	}
@@ -483,6 +514,25 @@ func prometheusCandidates(services []svcInfo, trusted []string, preferViz bool) 
 			Message: "several Prometheus servers could record this mesh; Pacto cannot tell which one does"}}
 	}
 	return cands[:min(len(cands), maxPromCandidates)], lims
+}
+
+// classServices are the Services of class in a trusted namespace and the
+// others, and how many other namespaces hold one. Every Service of the class
+// counts, one an earlier class took included, so a copy of a later label
+// never looks alone.
+func classServices(services []svcInfo, class promClass, trusted []string) (in, out []svcInfo, others int) {
+	namespaces := map[string]bool{}
+	for _, svc := range services {
+		switch {
+		case !hasLabels(svc, class.labels) || svc.Type == "ExternalName" || !svc.HasSelector:
+		case slices.Contains(trusted, svc.Namespace):
+			in = append(in, svc)
+		default:
+			out = append(out, svc)
+			namespaces[svc.Namespace] = true
+		}
+	}
+	return in, out, len(namespaces)
 }
 
 // hasLabels reports whether svc carries every label of want.
@@ -522,14 +572,14 @@ func serviceObject(svc svcInfo) fleet.ProviderObject {
 	return fleet.ProviderObject{Kind: "Service", Namespace: svc.Namespace, Name: svc.Name}
 }
 
-// meshRow is one mesh row, partial when lims is not empty.
-func meshRow(id, name, evidence string, objects []fleet.ProviderObject, lims []fleet.Limitation) fleet.Provider {
+// meshRow is one mesh row read at asOf, partial when lims is not empty.
+func meshRow(id, name, evidence string, asOf time.Time, objects []fleet.ProviderObject, lims []fleet.Limitation) fleet.Provider {
 	status := fleet.SourceAvailable
 	if len(lims) > 0 {
 		status = fleet.SourcePartial
 	}
 	return fleet.Provider{ID: id, Name: name, Evidence: evidence, UsedFor: []string{fleet.UseObservedEdges},
-		Status: status, Objects: objects, Limitations: lims}
+		Status: status, AsOf: &asOf, Objects: objects, Limitations: lims}
 }
 
 // scopeMatcher is the PromQL matcher keeping label to namespaces, empty when

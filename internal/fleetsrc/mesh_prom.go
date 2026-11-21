@@ -16,6 +16,7 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -85,14 +86,32 @@ func (s *MeshSource) proxyQuery(ctx context.Context, cand svcInfo, q url.Values)
 		return nil, errPromUnreachable
 	}
 	body, err := p.ServiceProxyGet(ctx, cand.Namespace, cand.Name, servicePort(cand), "/api/v1/query", q)
-	switch {
-	case apierrors.IsForbidden(err):
-		return nil, errPromForbidden
-	case err != nil:
-		return nil, err
+	if err != nil {
+		return nil, proxyError(err)
 	}
 	defer func() { _ = body.Close() }()
 	return readPromBody(body)
+}
+
+// proxyError is err of a proxied read as the direct path would see it: the
+// API server's own RBAC denial is errPromForbidden, and any other status,
+// Prometheus's own relayed through the proxy, a promStatusError.
+func proxyError(err error) error {
+	var api apierrors.APIStatus
+	if !errors.As(err, &api) {
+		return err
+	}
+	st := api.Status()
+	relayed := st.Details != nil && slices.ContainsFunc(st.Details.Causes, func(c metav1.StatusCause) bool {
+		return c.Type == metav1.CauseTypeUnexpectedServerResponse
+	})
+	switch {
+	case st.Reason == metav1.StatusReasonForbidden && !relayed:
+		return errPromForbidden
+	case st.Code != 0:
+		return promStatusError{int(st.Code)}
+	}
+	return err
 }
 
 // readPromBody decodes a Prometheus instant-vector answer of at most
@@ -120,28 +139,32 @@ func readPromBody(body io.Reader) ([]promSeries, error) {
 
 // firstAnswer asks cands in order and keeps the first answer holding at
 // least one series. A timeout stops the loop. Every failure is a fixed text
-// that names no Service; cand is the Service read, else the first asked.
+// that names no Service. Only when every candidate asked answered empty does
+// the text say the mesh's calls are not recorded; else it is the first
+// failure. cand is the Service read, else the first that failed, else the
+// first asked.
 func (s *MeshSource) firstAnswer(ctx context.Context, cands []svcInfo, query, metric string) (cand svcInfo, series []promSeries, lims []fleet.Limitation) {
 	if len(cands) == 0 {
 		return svcInfo{}, nil, []fleet.Limitation{s.unread("no Prometheus found in the namespaces this installation reads")}
 	}
 	var first error
-	answered := false
+	failed := cands[0]
 	for _, c := range cands {
 		got, err := s.promQuery(ctx, c, query)
-		if err == nil && len(got) > 0 {
+		switch {
+		case err == nil && len(got) > 0:
 			return c, got, nil
+		case err != nil && first == nil:
+			first, failed = err, c
 		}
-		answered = answered || err == nil
-		first = cmp.Or(first, err)
 		if isTimeout(err) {
 			break
 		}
 	}
-	if answered {
+	if first == nil {
 		return cands[0], nil, []fleet.Limitation{s.unread("the Prometheus Pacto found holds no " + metric + " series for the last hour, so it does not record this mesh's calls")}
 	}
-	return cands[0], nil, []fleet.Limitation{s.unread(promErrorText(first))}
+	return failed, nil, []fleet.Limitation{s.unread(promErrorText(first))}
 }
 
 // unread is a MESH_TELEMETRY_UNREAD limitation of this source.
@@ -175,8 +198,9 @@ func promErrorText(err error) string {
 	}
 }
 
-// istioBy are the labels the Istio query keeps.
-const istioBy = "reporter, source_cluster, source_workload, source_workload_namespace, destination_cluster, destination_workload, destination_workload_namespace"
+// istioBy are the labels the Istio query keeps. cluster is the external
+// label a Prometheus receiving other clusters' series conventionally adds.
+const istioBy = "reporter, cluster, source_cluster, source_workload, source_workload_namespace, destination_cluster, destination_workload, destination_workload_namespace"
 
 // istioQuery is the calls and TCP connections of the last hour between
 // workloads, both ends narrowed to namespaces when scoped.
@@ -236,12 +260,14 @@ type callEnds struct {
 }
 
 // istioEnds reads an Istio series: kindless names, cross-cluster when its
-// two cluster labels differ.
+// two cluster labels differ, seen in the cluster its external cluster label
+// names, else its own cluster labels (Istio names every cluster Kubernetes
+// by default).
 func istioEnds(m map[string]string) callEnds {
 	srcNS, dstNS := named(m["source_workload_namespace"]), named(m["destination_workload_namespace"])
 	src, dst := named(m["source_workload"]), named(m["destination_workload"])
 	srcCluster, dstCluster := named(m["source_cluster"]), named(m["destination_cluster"])
-	e := callEnds{fromNS: srcNS, toNS: dstNS, reporter: m["reporter"], cluster: cmp.Or(srcCluster, dstCluster),
+	e := callEnds{fromNS: srcNS, toNS: dstNS, reporter: m["reporter"], cluster: cmp.Or(m["cluster"], srcCluster, dstCluster),
 		cross: srcCluster != "" && dstCluster != "" && srcCluster != dstCluster}
 	if srcNS != "" && src != "" {
 		e.from = fleet.K8sCaller("", srcNS, "", src)
@@ -261,7 +287,7 @@ func istioEdges(series []promSeries, asOf time.Time, namespaces []string) ([]fle
 }
 
 // linkerdBy are the labels the Linkerd query keeps.
-const linkerdBy = "namespace, deployment, statefulset, daemonset, dst_namespace, dst_deployment, dst_statefulset, dst_daemonset, target_cluster_name"
+const linkerdBy = "namespace, deployment, statefulset, daemonset, dst_namespace, dst_deployment, dst_statefulset, dst_daemonset, target_cluster_name, cluster"
 
 // linkerdQuery is the outbound responses and TCP connections of the last
 // hour between workloads, both ends narrowed to namespaces when scoped.
@@ -291,10 +317,11 @@ func linkerdEnd(m map[string]string, prefix string) string {
 }
 
 // linkerdEnds reads a Linkerd outbound series: named with their kind, a call
-// to a mirrored service of another cluster (target_cluster_name) crossing.
+// to a mirrored service of another cluster (target_cluster_name) crossing,
+// seen in the cluster its external cluster label names.
 func linkerdEnds(m map[string]string) callEnds {
 	return callEnds{from: linkerdEnd(m, ""), to: linkerdEnd(m, "dst_"), fromNS: m["namespace"], toNS: m["dst_namespace"],
-		cross: m["target_cluster_name"] != ""}
+		cluster: m["cluster"], cross: m["target_cluster_name"] != ""}
 }
 
 // linkerdEdges folds Linkerd series into edges named with their kind; the
