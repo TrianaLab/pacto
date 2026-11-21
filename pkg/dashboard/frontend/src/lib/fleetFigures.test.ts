@@ -166,6 +166,12 @@ describe('sourcesModel kind tallies (S2 r5)', () => {
     expect(sourceKindNoun('mesh', 2)).toBe('service mesh readers');
     expect(sourceKindNoun('acme', 2)).toBe('acme sources');
   });
+  it('names trace backends and OTLP receivers', () => {
+    expect(sourceKindNoun('traces', 1)).toBe('trace backend');
+    expect(sourceKindNoun('traces', 3)).toBe('trace backends');
+    expect(sourceKindNoun('otlp-receiver', 1)).toBe('OTLP receiver');
+    expect(sourceKindNoun('otlp-receiver', 2)).toBe('OTLP receivers');
+  });
 });
 
 describe('provenance', () => {

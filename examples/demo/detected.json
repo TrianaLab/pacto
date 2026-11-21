@@ -67,6 +67,47 @@
       "completeness": "complete",
       "hint": "--set registryPullSecret=shop/ghcr-pull",
       "namespaces": ["shop"]
+    },
+    {
+      "kind": "otel-collector",
+      "value": "OpenTelemetry Collector",
+      "evidence": "running in 1 workload",
+      "source": "running pods and Services",
+      "completeness": "complete",
+      "namespaces": ["observability"],
+      "objects": [{"kind": "Service", "namespace": "observability", "name": "otel-collector"}, {"kind": "Service", "namespace": "monitoring", "name": "prometheus-k8s"}],
+      "endpoint": "http://prometheus-k8s.monitoring.svc:9090"
+    },
+    {
+      "kind": "tempo",
+      "value": "Tempo",
+      "evidence": "running in 1 workload",
+      "source": "running pods and Services",
+      "completeness": "complete",
+      "namespaces": ["observability"],
+      "objects": [{"kind": "Service", "namespace": "monitoring", "name": "prometheus-k8s"}],
+      "endpoint": "http://prometheus-k8s.monitoring.svc:9090"
+    },
+    {
+      "kind": "jaeger",
+      "value": "Jaeger",
+      "evidence": "query API on port 16686",
+      "source": "running pods and Services",
+      "completeness": "complete",
+      "objects": [{"kind": "Service", "namespace": "observability", "name": "jaeger-query"}],
+      "endpoint": "http://jaeger-query.observability.svc:16686"
+    },
+    {
+      "kind": "datadog",
+      "value": "Datadog Agent",
+      "evidence": "Agent found; DD_SITE datadoghq.eu",
+      "source": "running pods and Services",
+      "completeness": "partial",
+      "reason": "Pacto reads Datadog edges through an OTel Collector or a 509-S11 contribution",
+      "hint": "exporters: {otlphttp/pacto: {endpoint: \"http://pacto-dashboard.pacto-system:4318\", encoding: json}}",
+      "details": ["DD_API_KEY comes from a Secret; Pacto did not read it"],
+      "namespaces": ["datadog"],
+      "objects": [{"kind": "DaemonSet", "namespace": "datadog", "name": "datadog-agent"}, {"kind": "Secret", "namespace": "datadog", "name": "datadog-secret"}]
     }
   ],
   "installation": {

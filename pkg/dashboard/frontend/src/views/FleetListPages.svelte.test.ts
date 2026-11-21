@@ -520,6 +520,21 @@ describe('FleetSourcesView (G)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  // The figure beside the bar counts the same population, so it names no untallied
+  // advisory source either; a counted partial one is still named.
+  it('names no untallied advisory source in the figure', async () => {
+    const resp = listResp([{ kind: 'source', key: 'mesh', label: 'mesh', href: '/fleet/sources/mesh', status: 'partial' },
+      { kind: 'source', key: 'oci', label: 'oci', href: '/fleet/sources/oci', status: 'partial' }], { total: 2 });
+    resp.meta.sourceCounts = { total: 1, available: 0, partial: 1, stale: 0, unavailable: 0 };
+    resp.meta.sources = [{ id: 'mesh', status: 'partial', advisory: true }, { id: 'oci', status: 'partial' }];
+    entitiesFn.mockResolvedValue(resp);
+    const { target, component } = mountView(FleetSourcesView);
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="trust-figure"] .srcs a.id')).toBeTruthy());
+    const named = Array.from(target.querySelectorAll('[data-testid="trust-figure"] .srcs a.id')).map((a) => a.getAttribute('title'));
+    expect(named).toEqual(['oci']);
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('summarises source health over the complete population, with each bucket as its filter', async () => {
     const resp = listResp(sourceRows(25), { total: 60, nextOffset: 25 });
     resp.meta.sourceCounts = { total: 60, available: 50, partial: 4, stale: 5, unavailable: 1 };

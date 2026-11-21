@@ -89,7 +89,8 @@
   const worstLoader = createProductLoader(() => api.fleetEntities({ kinds: ['source'], sort: 'health', limit: 8 }));
   $effect(() => { worstLoader.sync(`worst@@${refreshTick}`, 'worst'); });
   onDestroy(() => worstLoader.destroy());
-  const worst = $derived(worstLoader.data?.entities ?? []);
+  // The figure counts what sourceCounts counts, so it names no untallied advisory source.
+  const worst = $derived((worstLoader.data?.entities ?? []).filter((e) => !untallied.some((s) => s.id === e.key)));
 
   function urlWith(patch, off = 0, lim = pageLimit) {
     return fleetSourcesUrl({

@@ -45,6 +45,13 @@ func TestBackstageServable(t *testing.T) {
 			Sources:     []fleet.SourceState{{ID: "old", Status: fleet.SourceStale}},
 			Limitations: []fleet.Limitation{{Code: fleet.LimitationSourceStale, Source: "old"}},
 		}, ""},
+		{"scoped, an advisory source partial or unavailable", fleet.FleetSnapshot{
+			Completeness: fleet.CompletenessPartial, Services: svc,
+			Sources: []fleet.SourceState{k8s(fleet.SourcePartial),
+				{ID: "detected-jaeger", Status: fleet.SourcePartial, Advisory: true},
+				{ID: "mesh", Status: fleet.SourceUnavailable, Advisory: true}},
+			Limitations: []fleet.Limitation{scope, derived},
+		}, ""},
 		{"scoped, a namespace unreadable", scopedWith(fleet.NamespaceUnreadableLimitation("k8s", "ledger", "forbidden")), "source k8s is partial"},
 		{"scoped, a record invalid", scopedWith(fleet.Limitation{Code: fleet.LimitationSourceRecordInvalid, Source: "k8s"}), "source k8s is partial"},
 		{"scoped, a code it does not know", scopedWith(fleet.Limitation{Code: "SOMETHING_NEW", Source: "k8s"}), "source k8s is partial"},

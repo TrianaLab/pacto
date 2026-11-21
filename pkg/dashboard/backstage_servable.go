@@ -24,7 +24,10 @@ var notMissing = map[string]bool{
 // as whole and orphans every entity missing from it, so it is refused while
 // the organization catalog is unread, a source is unavailable, a source is
 // partial for any reason but reading the namespace list it was given, or the
-// fleet is empty. A stale source keeps its records and is served. It is the
+// fleet is empty. A stale source keeps its records and is served. An advisory
+// source (detection, a mesh, a trace backend) is optional evidence whose
+// observed calls come and go with traffic, so its state never holds
+// Backstage back: an optional provider never blocks the catalog. It is the
 // one rule `pacto export backstage` and the dashboard route share. Judge it
 // before any reader's restriction: a restricted view is always partial, and
 // its narrowing drops limitations by prose, so it cannot say what is missing.
@@ -48,6 +51,12 @@ func BackstageServable(snap *fleet.FleetSnapshot) (reason string, ok bool) {
 		}
 	}
 	for _, st := range snap.Sources {
+		// ponytail: an advisory source's observed stubs follow a 15-minute
+		// window anyway; refusing on its state would block the catalog for
+		// as long as an optional backend is down.
+		if st.Advisory {
+			continue
+		}
 		if st.Status == fleet.SourceUnavailable || st.Status == fleet.SourcePartial && (!scoped[st.ID] || missing[st.ID]) {
 			return "source " + st.ID + " is " + string(st.Status), false
 		}

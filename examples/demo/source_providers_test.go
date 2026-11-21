@@ -120,14 +120,15 @@ func TestDemoFingerprintsMatchChartDefaults(t *testing.T) {
 	}
 }
 
-// splitReporting drops the detected and registry rows and splits the rest into the
+// splitReporting drops the detected, trace-backend and registry rows and splits the rest into the
 // reported rows and the reporting adapter rows: the provisioning reports the
 // demo holds add one reporting adapter row each, named by the source that
 // delivered them.
 func splitReporting(providers []fleet.Provider) (reported, reporting []fleet.Provider) {
 	for _, p := range providers {
 		switch {
-		case p.Source == "cluster-detection", strings.HasPrefix(p.ID, fleet.ProviderRegistryPrefix):
+		case p.Source == "cluster-detection", strings.HasPrefix(p.ID, fleet.ProviderRegistryPrefix),
+			p.Source == demoServiceGraphID, p.Source == demoJaegerID, p.Source == demoReceiverID:
 		case slices.Equal(p.UsedFor, []string{fleet.UseReporting}):
 			reporting = append(reporting, p)
 		default:
