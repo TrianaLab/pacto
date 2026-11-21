@@ -112,6 +112,7 @@ test-registry-conformance:
 test-acceptance-local:
 	bash tests/acceptance/local/fleet-graph.sh
 	bash tests/acceptance/local/demo-arc.sh
+	bash tests/acceptance/local/ci-step.sh
 
 # Level 4 — the distributed Compose demo, proved the way a stranger meets it:
 # the application is published with `docker compose publish` and then executed

@@ -81,3 +81,27 @@ func TestCIGuideImpactRecipeRefusesPartial(t *testing.T) {
 		}
 	}
 }
+
+// The one-step pages say what the default caller does with a breaking change
+// it cannot check against a cluster, and that an empty contract publishes
+// only once it declares service.name.
+func TestCIGuidesStateDefaultGateAndPublishName(t *testing.T) {
+	ci := readRepoFile(t, "docs", "ci.md")
+	intro, _, _ := strings.Cut(ci, "## ")
+	for _, want := range []string{"passes with a warning", "fail-on:\nunverified", "declares `service.name`"} {
+		if !strings.Contains(intro, want) {
+			t.Errorf("the docs/ci.md intro does not say %q", want)
+		}
+	}
+	from := readRepoFile(t, "docs", "ci-from-pipeline.md")
+	for _, row := range []string{"| `pacto diff ", "| `pacto impact "} {
+		i := strings.Index(from, row)
+		if i < 0 {
+			t.Fatalf("docs/ci-from-pipeline.md has no %q row", row)
+		}
+		line, _, _ := strings.Cut(from[i:], "\n")
+		if !strings.Contains(line, "`unverified`") {
+			t.Errorf("docs/ci-from-pipeline.md %s row does not say a change with consumers reads unverified", row)
+		}
+	}
+}

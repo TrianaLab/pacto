@@ -44,8 +44,8 @@ Pacto writes the contract from your service.
 
 If you only want the contract and its CI checks, run
 `pacto init --describe-only`: its next steps say how to validate the contract
-instead of how to publish it. Then go on to [Put it in your repository](ci.md): `pacto push`
-uploads the contract alone.
+instead of how to publish it. Then go on to [Put it in your repository](ci.md):
+`pacto ci --publish` publishes it when `publish.bundle` is declared.
 
 ## 1. See what Pacto would add
 

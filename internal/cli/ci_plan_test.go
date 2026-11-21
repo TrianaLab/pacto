@@ -279,12 +279,28 @@ func TestCIJSONRowShape(t *testing.T) {
 			t.Errorf("the changed row has no %s", k)
 		}
 	}
+	requireDirAndReason(t, byService, "reports")
 	answer := byService["reports"]["impact"].(map[string]any)
 	if answer["gate"] != "clear" || answer["text"] != "clear" || answer["digest"] != "" || !slices.Equal(ciStrings(answer["sources"]), []string{"target-state"}) {
 		t.Fatalf("reports impact = %v", answer)
 	}
 	if fresh := byService["fresh"]["impact"].(map[string]any); fresh["gate"] != "unverified" || !slices.Equal(ciStrings(fresh["sources"]), nil) || fresh["sources"] == nil {
 		t.Fatalf("fresh impact = %v", fresh)
+	}
+}
+
+// requireDirAndReason fails unless every row names its folder (each service
+// here lives in a folder of its name) and the changed row says why: the
+// fields pacto-actions annotates a pull request from.
+func requireDirAndReason(t *testing.T, byService map[string]map[string]any, changed string) {
+	t.Helper()
+	for service, row := range byService {
+		if row["dir"] != service {
+			t.Errorf("%s row dir = %v", service, row["dir"])
+		}
+	}
+	if r, _ := byService[changed]["reason"].(string); r == "" {
+		t.Errorf("the changed row has no reason: %v", byService[changed])
 	}
 }
 

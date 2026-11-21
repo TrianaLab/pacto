@@ -200,7 +200,7 @@ with `pacto init --from`, and the fleet links each one back to its path. See
   infrastructure contracts, published policy + schema bundles and the rest
 - [Diff and change classification](contract-reference/diff.md): what counts as breaking
 - [Put it in your repository](ci.md): using Pacto in pipelines
-- [GitHub Actions integration](github-actions.md): the pacto-actions workflow
+- [GitHub Actions integration](github-actions.md): the reusable workflow
 - [Fleet views](fleet-tools.md): all your services at once (dashboard, `pacto fleet`, terminal UI)
 - [Kubernetes operator](integrations/kubernetes/overview.md): checks running
   services against their contracts, including

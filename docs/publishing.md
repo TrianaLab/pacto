@@ -3,7 +3,8 @@
 This page describes how `pacto publish` works. To take a new service to its
 first release, follow [Pactify a service](pactify.md). In CI, publish every
 changed service of a repository with
-[`pacto ci --publish`](publish-from-ci.md), which runs the same engine.
+[`pacto ci --publish`](publish-from-ci.md), which runs the same engine;
+[After a merge: publish](ci.md#after-a-merge-publish) sets it up.
 
 `pacto publish` publishes what a contract's [`publish`](contract-reference/publish.md)
 section declares: the contract bundle, the service's images and the manifests

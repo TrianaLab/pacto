@@ -116,7 +116,7 @@ The identity read from the token:
 
 | CI | Token | Identity |
 |---|---|---|
-| GitHub Actions | `permissions: id-token: write` | `https://github.com/` + `job_workflow_ref`, the reusable workflow's own ref when the job calls one |
+| GitHub Actions | `permissions: id-token: write` | `https://github.com/` + `job_workflow_ref`. When that names a reusable workflow of another repository, such as pacto-actions, an earlier version verifies when that workflow at any commit, or a workflow of your repository, signed it on the repository and branch the token names |
 | GitLab CI | an `id_tokens` entry named `SIGSTORE_ID_TOKEN` with `aud: sigstore` | `https://` + `ci_config_ref_uri` |
 | Other | `SIGSTORE_ID_TOKEN` | the token's `email` claim, else declare `publish.sign.identity` |
 
