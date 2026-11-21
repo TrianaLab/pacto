@@ -217,3 +217,62 @@ func TestCanonical_LeavesUnparseableInputAlone(t *testing.T) {
 		t.Errorf("canonical mapped = %q", got)
 	}
 }
+
+// A worker Pacto whose pod called api.stripe.com, named by the DNS answer it received.
+const egressPacto = `{
+  "metadata": {"name": "egress-caller"},
+  "status": {"contractStatus": "Compliant",
+    "observedEgress": [{"identity": "stripe", "class": "vendor-api", "host": "api.stripe.com", "port": 8080, "source": "ebpf", "firstSeen": "2026-11-22T10:00:00Z"}],
+    "observedEgressCoverage": {"state": "complete", "refreshSeconds": 30, "nodes": 1, "nodesWithAgent": 1}}
+}`
+
+func TestEgressFlagsMatch(t *testing.T) {
+	if errs := status(t, egressPacto, "-egress-identity", "stripe", "-egress-host", "api.stripe.com",
+		"-egress-source", "ebpf", "-egress-coverage", "complete"); errs != nil {
+		t.Fatalf("unexpected failures: %v", errs)
+	}
+	if errs := status(t, egressPacto, "-egress-host", "api.stripe.com"); errs != nil {
+		t.Fatalf("one flag alone: %v", errs)
+	}
+}
+
+// The flags name one entry together: each field matching a different entry is a miss.
+func TestEgressFlagsMiss(t *testing.T) {
+	for name, args := range map[string][]string{
+		"wrong identity": {"-egress-identity", "twilio", "-egress-host", "api.stripe.com"},
+		"wrong host":     {"-egress-identity", "stripe", "-egress-host", "files.stripe.com"},
+		"wrong source":   {"-egress-identity", "stripe", "-egress-source", "egress-gateway-log"},
+		"wrong coverage": {"-egress-coverage", "partial"},
+	} {
+		if errs := status(t, egressPacto, args...); len(errs) != 1 {
+			t.Errorf("%s: want exactly one failure, got %v", name, errs)
+		}
+	}
+	if errs := status(t, conformingPacto, "-egress-identity", "stripe", "-egress-coverage", "complete"); len(errs) != 2 {
+		t.Errorf("no egress: want two failures, got %v", errs)
+	}
+}
+
+const namedNodeList = `{"items": [{"status": {"nodeName": "n", "collection": {"state": "Running"}, "dns": {"state": "Running"},
+  "pods": [{"uid": "u1", "connections": [
+    {"address": "172.18.0.9", "host": "api.stripe.com", "port": 8080, "successes": 4},
+    {"address": "172.18.0.10", "host": "files.stripe.com", "port": 8080, "failures": 2}]}]}}]}`
+
+func TestNROHostFlag(t *testing.T) {
+	if errs := nro(t, namedNodeList, "-uid", "u1", "-nro-host", "api.stripe.com"); errs != nil {
+		t.Fatalf("unexpected failures: %v", errs)
+	}
+	for name, args := range map[string][]string{
+		"unnamed":      {"-uid", "u1", "-nro-host", "api.twilio.com"},
+		"only failed":  {"-uid", "u1", "-nro-host", "files.stripe.com"},
+		"unnamed pods": {"-uid", "11111111-aaaa-bbbb-cccc-000000000001", "-nro-host", "api.stripe.com"},
+	} {
+		payload := namedNodeList
+		if name == "unnamed pods" {
+			payload = nodeList
+		}
+		if errs := nro(t, payload, args...); len(errs) != 1 {
+			t.Errorf("%s: want exactly one failure, got %v", name, errs)
+		}
+	}
+}
