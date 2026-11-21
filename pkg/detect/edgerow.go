@@ -1,7 +1,6 @@
 package detect
 
 import (
-	"fmt"
 	"slices"
 	"time"
 
@@ -36,11 +35,7 @@ func EdgeSourceRow(res Result, e Entry, source string, live LiveState) fleet.Pro
 		res.AsOf = live.ReadAt
 	}
 	if live.Status != fleet.SourceUnavailable {
-		noun := "edges"
-		if live.Edges == 1 {
-			noun = "edge"
-		}
-		e.Evidence = joinEvidence(e.Evidence, fmt.Sprintf("%d %s in the last 15 minutes", live.Edges, noun))
+		e.Evidence = joinEvidence(e.Evidence, fleet.EdgeCountText(live.Edges))
 	}
 	if live.Won != "" {
 		e.Evidence = joinEvidence(e.Evidence, "won: "+live.Won)
@@ -96,14 +91,16 @@ func statusRank(s fleet.SourceStatus) int {
 	return 3
 }
 
-// SplitEdgeKinds splits res into the entries of kinds, in res's order, and
-// the rest: the detection source keeps the rest and each live edge source
-// reports one taken entry, so every backend is one row.
+// SplitEdgeKinds splits res into the first entry of each of kinds, in res's
+// order, and the rest: the detection source keeps the rest and each live edge
+// source reports one taken entry, so every backend is one row. A second entry
+// of a kind (a hand-edited detection) stays a detected row: a live source per
+// kind keeps the source ids unique.
 func SplitEdgeKinds(res Result, kinds []string) (rest Result, taken []Entry) {
 	rest = res
 	rest.Entries = nil
 	for _, e := range res.Entries {
-		if slices.Contains(kinds, e.Kind) {
+		if slices.Contains(kinds, e.Kind) && !slices.ContainsFunc(taken, func(t Entry) bool { return t.Kind == e.Kind }) {
 			taken = append(taken, e)
 		} else {
 			rest.Entries = append(rest.Entries, e)

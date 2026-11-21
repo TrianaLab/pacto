@@ -466,6 +466,9 @@ func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNam
 			p.Evidence = p.Name + " found in a namespace you cannot read"
 		}
 		redactDetected(&p, len(rows[i].Objects), visible)
+		if !visible("") && slices.Contains(p.UsedFor, UseObservedEdges) {
+			redactEdgeCounts(&p)
+		}
 		p.Limitations = slices.DeleteFunc(slices.Clone(p.Limitations), func(l Limitation) bool {
 			return l.Code != LimitationProviderSourceDegraded && (hiddenByScope(l, visibleIn, srcClusters) || mentionsHidden(l.Message))
 		})
@@ -527,6 +530,45 @@ func redactDetected(p *Provider, had int, visible func(string) bool) {
 		p.Hint, p.Details = "", nil
 	}
 }
+
+// EdgeCountText is how a live edge source's row says how many edges it read
+// (see redactEdgeCounts).
+func EdgeCountText(n int) string {
+	if n == 1 {
+		return "1 edge in the last 15 minutes"
+	}
+	return strconv.Itoa(n) + " edges in the last 15 minutes"
+}
+
+// edgeCountHidden replaces [EdgeCountText] for a reader who may read only
+// some namespaces.
+const edgeCountHidden = "edge count hidden by your permissions"
+
+// redactEdgeCounts takes from a live edge source's row p the figures it
+// counted over the whole fleet, for a reader who may read only some
+// namespaces: the edge count in its evidence, its details (calls, senders
+// and what the winner misses) and each reason that starts with a count. The
+// figures would say how busy the services the reader cannot see are.
+func redactEdgeCounts(p *Provider) {
+	parts := strings.Split(p.Evidence, "; ")
+	for i, part := range parts {
+		figure, _, _ := strings.Cut(part, " ")
+		if n, err := strconv.Atoi(figure); err == nil && part == EdgeCountText(n) {
+			parts[i] = edgeCountHidden
+		}
+	}
+	p.Evidence, p.Details = strings.Join(parts, "; "), nil
+	p.Limitations = slices.Clone(p.Limitations)
+	for i := range p.Limitations {
+		if l := &p.Limitations[i]; l.Code == LimitationEdgeSourcePartial {
+			l.Message = strings.Join(slices.DeleteFunc(strings.Split(l.Message, "; "), startsWithCount), "; ")
+		}
+	}
+	p.Limitations = slices.DeleteFunc(p.Limitations, func(l Limitation) bool { return l.Message == "" })
+}
+
+// startsWithCount reports whether s starts with a digit.
+func startsWithCount(s string) bool { return s != "" && s[0] >= '0' && s[0] <= '9' }
 
 // detectedNarrowed reports whether a reader visible says yes to would see p
 // redacted by redactDetected while losing none of its objects.
@@ -647,7 +689,7 @@ func inCluster(cluster string, visible func(cluster, namespace string) bool, wor
 func providersNarrowed(s *FleetSnapshot, visibleIn func(cluster, namespace string) bool, workloadVisibleIn func(cluster, namespace, kind string) bool, srcClusters map[string]string) bool {
 	return slices.ContainsFunc(s.Providers, func(p Provider) bool {
 		visible, workloadVisible := inCluster(providerCluster(p, srcClusters), visibleIn, workloadVisibleIn)
-		return detectedNarrowed(p, visible) || slices.ContainsFunc(p.Objects, func(o ProviderObject) bool { return !objectVisible(o, visible, workloadVisible) }) ||
+		return detectedNarrowed(p, visible) || !visible("") && slices.Contains(p.UsedFor, UseObservedEdges) || slices.ContainsFunc(p.Objects, func(o ProviderObject) bool { return !objectVisible(o, visible, workloadVisible) }) ||
 			slices.ContainsFunc(p.Counts, func(c ProviderCount) bool { return !countVisible(c, visible, workloadVisible) })
 	})
 }

@@ -103,16 +103,17 @@ func TestEdgeSourceRowEvidenceNamesNoNamespace(t *testing.T) {
 
 func TestSplitEdgeKinds(t *testing.T) {
 	res := Result{SchemaVersion: SchemaVersion, AsOf: edgeAsOf, Cluster: "c-1", Entries: []Entry{
-		{Kind: "registry"}, {Kind: "jaeger"}, {Kind: "datadog"}, {Kind: "tempo"},
+		{Kind: "registry"}, {Kind: "jaeger"}, {Kind: "datadog"}, {Kind: "tempo"}, {Kind: "jaeger", Value: "second"},
 	}, Installation: &Installation{}}
 	rest, taken := SplitEdgeKinds(res, []string{"tempo", "jaeger"})
-	if got := kinds(taken); !reflect.DeepEqual(got, []string{"jaeger", "tempo"}) {
+	if got := kinds(taken); !reflect.DeepEqual(got, []string{"jaeger", "tempo"}) || taken[0].Value != "" {
 		t.Fatalf("taken = %v", got)
 	}
-	if got := kinds(rest.Entries); !reflect.DeepEqual(got, []string{"registry", "datadog"}) || rest.Cluster != "c-1" || rest.Installation == nil {
+	// A second jaeger entry stays a detected row.
+	if got := kinds(rest.Entries); !reflect.DeepEqual(got, []string{"registry", "datadog", "jaeger"}) || rest.Cluster != "c-1" || rest.Installation == nil {
 		t.Fatalf("rest = %+v", rest)
 	}
-	if len(res.Entries) != 4 {
+	if len(res.Entries) != 5 {
 		t.Fatal("SplitEdgeKinds changed its input")
 	}
 }

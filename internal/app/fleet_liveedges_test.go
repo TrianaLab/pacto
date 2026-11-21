@@ -255,3 +255,19 @@ func TestReceiverTakesTheCollectorEntry(t *testing.T) {
 		t.Fatalf("sources %+v rows %v", snap.Sources, rowsOf(snap, "detection"))
 	}
 }
+
+// A hand-edited detection with two entries of a kind a live source takes
+// still builds: the first is the live source's row, the second a detected
+// row, so the source ids stay unique.
+func TestDuplicateEdgeKindsStillBuild(t *testing.T) {
+	jaeger := detect.Entry{Kind: "jaeger", Value: "Jaeger", Completeness: detect.Complete}
+	collector := detect.Entry{Kind: "otel-collector", Value: "OTel Collector", Completeness: detect.Complete}
+	path := writeDetected(t, jaeger, jaeger, collector, collector)
+	snap := liveFleet(t, FleetOptions{Detected: path, LiveEdges: receiverEdges(t)})
+	if got := rowsOf(snap, "detection"); !slices.Equal(got, []string{"jaeger", "otel-collector"}) {
+		t.Fatalf("detection rows = %v", got)
+	}
+	if rowsOf(snap, "detected-jaeger") == nil || rowsOf(snap, "otlp-receiver") == nil {
+		t.Fatalf("live rows missing: %+v", snap.Providers)
+	}
+}
