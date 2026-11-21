@@ -215,6 +215,25 @@ tests:
           pattern: "Profile idp with hardened: probing and metrics observation are on and Pacto\ndelivery stays off."
       - notMatchRegexRaw:
           pattern: "Profile idp:"
+  - it: idp names only the observation modes that render on
+    set: {profile: idp, controller.probing: "off", controller.metricsObservation: "off"}
+    asserts:
+      - matchRegexRaw:
+          pattern: "Profile idp: probing and metrics observation are off and Pacto delivery is on.\nIt adds Pacto delivery's cluster roles."
+      - notMatchRegexRaw:
+          pattern: "ServiceMonitors"
+  - it: idp with metrics observation off names probing only
+    set: {profile: idp, controller.metricsObservation: "off"}
+    asserts:
+      - matchRegexRaw:
+          pattern: "Profile idp: probing is on and Pacto delivery is on.\nIt adds Pacto delivery's cluster roles."
+  - it: hardened and idp with metrics observation off names no monitor read
+    set: {profile: [hardened, idp], controller.watchNamespaces: [payments], controller.metricsObservation: "off"}
+    asserts:
+      - matchRegexRaw:
+          pattern: "Profile idp with hardened: probing is on and Pacto\ndelivery stays off."
+      - notMatchRegexRaw:
+          pattern: "ServiceMonitors"
   - it: the default profile names no profile
     asserts:
       - notMatchRegexRaw:

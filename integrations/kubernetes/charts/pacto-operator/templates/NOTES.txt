@@ -71,6 +71,17 @@ Pacto Operator has been installed.
    dashboard.auth.allowAnonymous=false to keep it from starting without sign-in.
 {{- end }}
 {{- end }}
+{{- /* The idp lines name only the observation modes that render on (idp
+upgrades only a resolved auto) and the monitor read only when it renders. */}}
+{{- $idp := include "pacto-operator.idp" . }}
+{{- $observeOn := list }}
+{{- if has (include "pacto-operator.observeMode" (list .Values.controller.probing .Values.controller.enableProbing $idp)) (list "on" "legacy-on") }}{{ $observeOn = append $observeOn "probing" }}{{ end }}
+{{- if has (include "pacto-operator.observeMode" (list .Values.controller.metricsObservation .Values.controller.enableMetricsObservation $idp)) (list "on" "legacy-on") }}{{ $observeOn = append $observeOn "metrics observation" }}{{ end }}
+{{- $observePhrase := "probing and metrics observation are off" }}
+{{- if eq (len $observeOn) 2 }}{{ $observePhrase = "probing and metrics observation are on" }}
+{{- else if eq (len $observeOn) 1 }}{{ $observePhrase = printf "%s is on" (first $observeOn) }}
+{{- end }}
+{{- $monitors := (include "pacto-operator.observeRBAC" . | fromYaml).metricsMonitors }}
 {{- if include "pacto-operator.hardened" . }}
 
 Profile hardened: no ClusterRole, no managed dashboard, no node agent, no Pacto
@@ -79,15 +90,19 @@ https://pacto.run/latest/integrations/kubernetes/profiles/
 {{- if .Values.registry }}
 Pacto reads the cluster id through Role {{ include "pacto-operator.fullname" . }}-{{ .Release.Namespace }}-cluster-identity in kube-system.
 {{- end }}
-{{- if include "pacto-operator.idp" . }}
-Profile idp with hardened: probing and metrics observation are on and Pacto
-delivery stays off. It adds the read of ServiceMonitors and PodMonitors in each
-watched namespace.
+{{- if $idp }}
+Profile idp with hardened: {{ $observePhrase }} and Pacto
+delivery stays off.
+{{- if $monitors }}
+It adds the read of ServiceMonitors and PodMonitors in each watched namespace.
 {{- end }}
-{{- else if include "pacto-operator.idp" . }}
+{{- end }}
+{{- else if $idp }}
 
-Profile idp: probing and metrics observation are on and Pacto delivery is on.
-{{- if include "pacto-operator.watchNamespaces" . | fromYamlArray }}
+Profile idp: {{ $observePhrase }} and Pacto delivery is on.
+{{- if not $monitors }}
+It adds Pacto delivery's cluster roles.
+{{- else if include "pacto-operator.watchNamespaces" . | fromYamlArray }}
 It adds the read of ServiceMonitors and PodMonitors in each watched namespace
 and Pacto delivery's cluster roles.
 {{- else }}
