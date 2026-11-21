@@ -81,6 +81,21 @@ test.describe('WASM demo — external systems', () => {
     await audit(page, 'external entity');
   });
 
+  test('an external only the node agent saw lists the cluster source as its one observed source', async ({ page }) => {
+    // examples/demo/source_externals.go demoKernelEgressEdges: carrier-gateway's SFTP
+    // partner, named by no contract, trace or catalog entry, grouped by its domain.
+    await page.goto('/#/fleet/externals/host/northwind-partners.com');
+    await page.addStyleTag({ content: WIDE_FONT });
+    const rows = page.getByTestId('external-source');
+    const observed = rows.and(page.locator('[data-provenance="observed"]'));
+    await expect(observed).toHaveCount(1, { timeout: T });
+    await expect(observed.locator('[data-cell="where"]')).toContainText('k8s-production');
+    await expect(observed.locator('[data-cell="where"]')).not.toContainText('otel-traces');
+    await expect(observed.locator('[data-cell="service"]')).toContainText('carrier-gateway');
+    await expect(page.locator('[data-testid="external-source"][data-provenance="declared"]')).toHaveCount(0);
+    expect(await noSideScroll(page)).toBe(true);
+  });
+
   test('the graph focused on an external system draws it with its consumers', async ({ page }) => {
     await page.goto('/#/fleet/graph/external/llm-provider');
     await page.addStyleTag({ content: WIDE_FONT });

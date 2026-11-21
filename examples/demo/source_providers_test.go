@@ -24,11 +24,14 @@ import (
 // inferred workloads. The detected rows are TestDemoFleetHasDetectedRows's,
 // the registry rows TestDemoRegistryRows's; the grouping rows' evidence is
 // TestDemoGroups's. The mesh source's Istio row is reported too, partial,
-// and left out of the count here: it is TestDemoMeshEdgeAndRow's.
+// and left out of the count here: it is TestDemoMeshEdgeAndRow's, as the
+// kernel-egress row is TestDemoEgressRows's.
 func TestDemoProviderRows(t *testing.T) {
 	snap := demoFleet(t)
 	reported, reporting := splitReporting(snap.Providers)
-	reported = slices.DeleteFunc(reported, func(p fleet.Provider) bool { return p.Source == demoMeshID })
+	reported = slices.DeleteFunc(reported, func(p fleet.Provider) bool {
+		return p.Source == demoMeshID || p.ID == fleet.ProviderKernelEgress
+	})
 	if len(reported) != 6 || len(reporting) != 5 {
 		t.Fatalf("providers = %+v, reporting = %+v, want 6 and 5 rows", reported, reporting)
 	}

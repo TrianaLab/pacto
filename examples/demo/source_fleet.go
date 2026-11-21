@@ -147,15 +147,17 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	}
 	cluster := fleet.NewMemorySource("k8s-production", fleet.SourceKindKubernetes, &fleet.Collection{
 		Cluster:      prodCluster,
-		Providers:    []fleet.Provider{crdRow},
+		Providers:    []fleet.Provider{crdRow, demoKernelEgressRow()},
 		Targets:      targets,
 		Provisioning: demoProvisioning(src),
 		Usage:        demoUsage(src),
 		ExternalUses: demoExternalUses(demoNow()),
 		// The kernel observer names a caller with no contract by its workload,
 		// so this edge joins the inferred legacy-billing below: attention shows
-		// an uncontracted caller of payments-service that links to it.
-		Observed: append([]fleet.ObservedEdge{{From: "k8s:shop/Deployment/legacy-billing", To: "payments-service", Count: 9}}, demoInferredEdges(demoNow())...),
+		// an uncontracted caller of payments-service that links to it. Its
+		// kernel egress names carrier-gateway's SFTP partner.
+		Observed: append(append([]fleet.ObservedEdge{{From: "k8s:shop/Deployment/legacy-billing", To: "payments-service", Count: 9}},
+			demoInferredEdges(demoNow())...), demoKernelEgressEdges()...),
 	})
 	// The cluster's workload reader: workloads no contract describes show as
 	// inferred services, each value with the object path Pacto read it from.

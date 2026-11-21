@@ -33,6 +33,14 @@ const DEMO_SOURCES_TALLIED = 10;
 const DEMO_UNTALLIED = ['detected-jaeger', 'k8s-production-mesh', 'otlp-receiver'];
 const DEMO_SOURCES_LISTED = DEMO_SOURCES_TALLIED + DEMO_UNTALLIED.length;
 
+/**
+ * The pills the legacy navbar's sources popover lists: the /api/sources rows that are
+ * data sources, one per source kind. The demo's four egress readers come back as rows
+ * of their own with `egress` set, so they never add a pill.
+ */
+const NAV_PILLS = 9;
+const EGRESS_ROWS = { 'kernel-egress': 'partial', 'istio-egress': 'complete', 'cilium-fqdn': 'unavailable', 'egress-gateway': 'partial' };
+
 async function overviewSources(page: Page) {
   const band = page.locator('#sec-sources');
   await expect(band).toBeVisible();
@@ -176,13 +184,14 @@ test.describe('the inventory says what Pacto detected', () => {
     const block = page.getByTestId('detected-providers');
     await expect(block.getByRole('heading', { level: 2, name: 'Detected providers' })).toBeVisible();
     const rows = block.getByTestId('provider-row');
-    // Fourteen reported rows (the Pacto CRD, Kubernetes workloads, the Argo CD,
-    // Flux and Helm rows that group the inferred services, the Kargo
-    // promotion row, the Istio row of the mesh source, the demo and
-    // partner registries and five reporting adapter rows, one producer's
-    // signed and unsigned reports apart), the operator's declared Installation
-    // row, the eight the cluster's operator detected (Datadog among them) and
-    // the three trace backends their edge sources report: five show, the
+    // Fifteen reported rows (the Pacto CRD, the kernel-egress row,
+    // Kubernetes workloads, the Argo CD, Flux and Helm rows that group the
+    // inferred services, the Kargo promotion row, the Istio row of the mesh
+    // source, the demo and partner registries and five reporting adapter
+    // rows, one producer's signed and unsigned reports apart), the operator's
+    // declared Installation row, the eleven the cluster's operator detected
+    // (Datadog and three egress readers among them) and the three trace
+    // backends their edge sources report: five show, the
     // reported and declared ones first and least healthy first, the rest
     // behind Show all, and no cluster is unread in the demo.
     await expect(rows).toHaveCount(5);
@@ -195,8 +204,8 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(istio.locator('.dp-why li')).toHaveText(['1 namespace without sidecars']);
     await expect(block).toContainText('Pacto CRD');
     await expect(block).toContainText('reports provisioning');
-    await block.getByRole('button', { name: 'Show all 26 providers' }).click();
-    await expect(rows).toHaveCount(26);
+    await block.getByRole('button', { name: 'Show all 30 providers' }).click();
+    await expect(rows).toHaveCount(30);
     await expect(block).toContainText('Kubernetes workloads');
     await expect(block).toContainText('service grouping, repository provenance');
     // One registry serves Referrers and _catalog; the other serves neither,
@@ -204,12 +213,32 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(block).toContainText('Registry demo.pacto.local');
     await expect(block).toContainText('Registry partners.demo.pacto.local');
     await expect(block).toContainText('no Referrers, no _catalog');
-    await expect(rows.nth(14)).not.toHaveClass(/dp-inferred/);
-    await expect(rows.nth(15)).toHaveClass(/dp-inferred/);
+    await expect(rows.nth(15)).not.toHaveClass(/dp-inferred/);
+    await expect(rows.nth(16)).toHaveClass(/dp-inferred/);
     await expect(block.getByTestId('provider-not-read')).toHaveCount(0);
     // The block lives inside Data sources: the primary navigation gained no entry.
     const primary = page.getByRole('navigation', { name: 'Primary' }).first();
     await expect(primary.getByRole('link', { name: /provider/i })).toHaveCount(0);
+  });
+
+  test('the egress readers are provider rows and never a data source pill', async ({ page }) => {
+    await boot(page, '#/fleet/sources');
+    const block = page.getByTestId('detected-providers');
+    await expect(block.getByTestId('provider-row').first()).toBeVisible();
+    await block.getByRole('button', { name: /^Show all/ }).click();
+    const row = (name: string) => block.getByTestId('provider-row').filter({ has: page.locator('.dp-name').getByTitle(name, { exact: true }) });
+    // The cluster source reports what the node agent read, so its row is not inferred.
+    const kernel = row('Kernel egress');
+    await expect(kernel).toHaveCount(1);
+    await expect(kernel).not.toHaveClass(/dp-inferred/);
+    await expect(kernel.locator('.dp-evidence')).toContainText('node agent on 3/4 nodes');
+    await expect(kernel.locator('.dp-status')).toHaveText('Partial');
+    for (const name of ['Istio egress', 'Cilium FQDN', 'Egress gateway']) await expect(row(name)).toHaveClass(/dp-inferred/);
+    await expect(row('Egress gateway').locator('.dp-evidence')).toContainText('1 Istio egress gateway found; logs: auto');
+    // /api/sources lists the readers apart from the data sources the nav counts.
+    const sources = await page.evaluate(async () => ((await (await fetch('/api/sources')).json()).sources as Array<{ type: string; egress?: boolean; coverage?: string }>));
+    expect(sources.filter((s) => !s.egress)).toHaveLength(NAV_PILLS);
+    expect(Object.fromEntries(sources.filter((s) => s.egress).map((s) => [s.type, s.coverage]))).toEqual(EGRESS_ROWS);
   });
 
   test('the Argo CD row offers the sync gate in one muted line', async ({ page }) => {

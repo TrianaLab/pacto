@@ -115,3 +115,18 @@ func demoPromoterRows() ([]fleet.Provider, error) {
 	}
 	return rows, nil
 }
+
+// demoKernelEgressRow is the kernel-egress row the cluster source reports,
+// shaped as internal/fleetsrc's KernelEgressRow shapes it (that package links
+// client-go, which the WASM bundle must not): one of the cluster's four
+// nodes runs pods without the node agent, so the calls carrier-gateway makes
+// outside the cluster cannot be ruled out there.
+func demoKernelEgressRow() fleet.Provider {
+	return fleet.Provider{
+		ID: fleet.ProviderKernelEgress, Name: "Kernel egress", Evidence: "node agent on 3/4 nodes",
+		UsedFor: []string{fleet.UseExternalEgress}, Status: fleet.SourcePartial, Scope: fleet.ScopeCluster,
+		Services: []fleet.ServiceKey{fleet.NewServiceKey("carrier-gateway")},
+		Limitations: []fleet.Limitation{{Code: fleet.LimitationExternalsUnreported, Source: "k8s-production",
+			Message: "the node agent cannot rule out an external call: a node runs pods but has no node agent (coverage: partial, node-without-agent)"}},
+	}
+}

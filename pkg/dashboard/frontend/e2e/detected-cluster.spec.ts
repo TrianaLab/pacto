@@ -4,7 +4,7 @@ import { appReady, settle } from './ready';
 
 // What the demo cluster's operator detected (examples/demo/detected.json, the advisory
 // source cluster-detection in examples/demo/source_fleet.go) against the built WASM
-// demo: eight inferred rows inside the Detected providers block of Data sources, each
+// demo: eleven inferred rows (three egress readers among them) inside the Detected providers block of Data sources, each
 // with one provenance mark, the registry's proposal behind More details, and one toggle
 // that hides them and says so in the URL, plus the operator's declared Installation row
 // (510-S6), which the toggle keeps. No total row count is asserted: other stories add
@@ -13,7 +13,7 @@ import { appReady, settle } from './ready';
 // stays a detected row.
 
 const T = 20_000;
-const DETECTED = ['Registry', 'Cloud', 'Sign-in', 'Exposure', 'Metrics', 'Nodes', 'Pull Secret', 'Datadog'];
+const DETECTED = ['Registry', 'Cloud', 'Sign-in', 'Exposure', 'Metrics', 'Nodes', 'Pull Secret', 'Datadog', 'Istio egress', 'Cilium FQDN', 'Egress gateway'];
 const DECLARED = "Declared: by the operator's configuration";
 
 test.describe('WASM demo: what the cluster provides', () => {
@@ -54,6 +54,12 @@ test.describe('WASM demo: what the cluster provides', () => {
     await more.locator('summary').click();
     await expect(more).toContainText('oci://ghcr.io/acme/<service>:<version>');
     await expect(more).toContainText('docker.io/library: 3 of 11 namespaces');
+
+    // The egress gateway's logs need a person's switch: the command waits behind More details.
+    const gateway = detected.filter({ has: page.locator('.dp-name').getByTitle('Egress gateway', { exact: true }) });
+    await expect(gateway.locator('.dp-status')).toHaveText('Partial');
+    await gateway.locator('details summary').click();
+    await expect(gateway.locator('details')).toContainText('--set controller.egressGatewayLogs=on');
 
     await settle(page);
     const axe = await new AxeBuilder({ page }).include('[data-testid="detected-providers"]')
