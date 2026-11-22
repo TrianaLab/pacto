@@ -488,12 +488,78 @@ func restrictRevisions(s *FleetSnapshot, hiddenSvc, offeringOnly map[ServiceKey]
 			} else if c := hideClusterDependencies(s, r, hiddenSvc); c != nil {
 				out[k] = c
 			}
+			if gitopsRepositoryHidden(s, out[k], hidden) {
+				out[k] = withoutDeclarationRepository(out[k])
+			}
 			if offeringOnly[r.ServiceKey] {
 				out[k] = withoutOwnerRightMessage(out[k])
 			}
 		}
 	}
 	return out
+}
+
+// gitopsRepositoryHidden reports whether rev's declaration records a
+// repository or folder its GitOps rung read from objects the viewer may not
+// list, so the record never tells what the live view hides. With the live
+// workload it came from in s, every GitOps object read for it must be
+// listable. Without one, every GitOps kind must be listable where the
+// declare run reads them: the workload's namespace, argocd and flux-system.
+// An inferredFrom that does not parse hides it: unknown is never positive.
+func gitopsRepositoryHidden(s *FleetSnapshot, rev *ContractRevision, hidden func(cluster, namespace, kind string) bool) bool {
+	if rev.Record == nil || rev.Record.Declaration == nil || !gitopsAnswer(rev.Record.Declaration.Repository) {
+		return false
+	}
+	_, ns, kind, name, ok := ParseK8sCaller(rev.Record.Declaration.InferredFrom)
+	if !ok {
+		return true
+	}
+	sc, _ := declarationScope(s, rev)
+	listed := func(c, n, k string) bool { return n != "" && !hidden(c, n, k) }
+	sc.Namespace, sc.Kind = ns, kind
+	if w := liveWorkload(s, sc, name); w != nil {
+		return restrictRepositories(w, listed) != w
+	}
+	for _, n := range []string{ns, "argocd", "flux-system"} {
+		for _, k := range []string{"Application", "GitRepository", "Kustomization", "HelmRelease"} {
+			if !listed(sc.Cluster, n, k) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// gitopsAnswer reports whether r's repository or folder came from the GitOps rung.
+func gitopsAnswer(r *contract.InferredSourceRepository) bool {
+	return r != nil && (r.Rung == contract.RepositoryRungGitOps || r.FolderRung == contract.RepositoryRungGitOps)
+}
+
+// liveWorkload is the inferred service's or replacement's workload of s at
+// sc named name, nil when s read none.
+func liveWorkload(s *FleetSnapshot, sc WorkloadScope, name string) *InferredWorkload {
+	is := func(w *InferredWorkload) bool {
+		return w != nil && w.Cluster == sc.Cluster && w.Namespace == sc.Namespace && w.Kind == sc.Kind && w.Name == name
+	}
+	for _, svc := range s.Services {
+		if is(svc.Workload) {
+			return svc.Workload
+		}
+	}
+	if i := slices.IndexFunc(s.Replacements, func(r Replacement) bool { return is(r.Workload) }); i >= 0 {
+		return s.Replacements[i].Workload
+	}
+	return nil
+}
+
+// withoutDeclarationRepository is a clone of rev with no declaration
+// repository; the snapshot's revision and record are never changed.
+func withoutDeclarationRepository(rev *ContractRevision) *ContractRevision {
+	c, rec := *rev, *rev.Record
+	d := *rec.Declaration
+	d.Repository = nil
+	rec.Declaration, c.Record = &d, &rec
+	return &c
 }
 
 // withoutOwnerRightMessage is r with a refused owner verdict's sentence
@@ -527,7 +593,9 @@ func targetsHidden(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, o
 // not see).
 func keepsEveryName(s *FleetSnapshot, restricted bool, hidden func(cluster, namespace, kind string) bool) bool {
 	return (!restricted || !hasBareNames(s)) && provisioningVisible(s) && !replacementHidden(s, hidden) && !repositoryHidden(s, hidden) &&
-		!slices.ContainsFunc(slices.Collect(maps.Values(s.Revisions)), func(r *ContractRevision) bool { return declarationSourceHidden(s, r, hidden) })
+		!slices.ContainsFunc(slices.Collect(maps.Values(s.Revisions)), func(r *ContractRevision) bool {
+			return declarationSourceHidden(s, r, hidden) || gitopsRepositoryHidden(s, r, hidden)
+		})
 }
 
 // repositoryHidden reports whether some inferred service or replacement of s holds a

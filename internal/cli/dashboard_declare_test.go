@@ -28,6 +28,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/publish"
@@ -164,6 +165,16 @@ func TestDashboardDeclarePlanShowsFilesAndDrafts(t *testing.T) {
 	expect(t, ans.Write.Available && ans.SignTicket == "", "write %+v ticket %q", ans.Write, ans.SignTicket)
 	expect(t, ans.Command == "pacto declare invoices --namespace billing --registry "+h.w.host+"/acme --accept ledger --intent "+p.IntentDigest, "command %q", ans.Command)
 	expect(t, slices.ContainsFunc(p.Ranges, func(r dashboard.DeclareRange) bool { return r.Dependency == "ledger" && r.Accepted }), "ranges %+v", p.Ranges)
+}
+
+// The dashboard never opens the pull request: it hands the person the
+// command that does, keeping the namespace and registry and replaying no
+// intent (a --pr plan binds its target into a new one).
+func TestDashboardPlanPRCLI(t *testing.T) {
+	h := newDeclareHost(t, true, true)
+	ans := h.plan(t, dashboard.DeclareInput{Accept: []string{"ledger"}})
+	expect(t, ans.PRCLI == "pacto declare invoices --namespace billing --registry "+h.w.host+"/acme --accept ledger --pr", "prCli %q", ans.PRCLI)
+	expect(t, !strings.Contains(ans.PRCLI, "--intent") && !strings.Contains(ans.PRCLI, "--yes"), "prCli %q", ans.PRCLI)
 }
 
 func TestDashboardDeclarePlanRefusal(t *testing.T) {
@@ -750,4 +761,15 @@ func TestPlanViewCompleteness(t *testing.T) {
 	v := planView(&app.DeclarePlan{Hidden: &contract.InferredHidden{Services: 2}, ClusterAsOf: "2026-11-20T10:00:00Z",
 		Skipped: []app.SkippedTag{{Tag: "1.0.0", Signer: "bob", Why: "unsigned"}}}, nil)
 	expect(t, v.Hidden != nil && v.Hidden.Services == 2 && v.ClusterAsOf == "2026-11-20T10:00:00Z" && len(v.Skipped) == 1 && v.Skipped[0].Tag == "1.0.0", "%+v", v)
+}
+
+// A baseline another workload of the same name declared is never shown or
+// written, even when the person reads this workload.
+func TestOwnViewRefusesForeignBaseline(t *testing.T) {
+	w := dashboard.DeclareWorkload{Name: "invoices", Namespace: "billing", Kind: "Deployment"}
+	p := &app.DeclarePlan{BundleRepo: "r/invoices", Baseline: &app.DeclareBaseline{From: app.Declared{InferredFrom: "k8s:shop/Deployment/invoices"}}}
+	r := ownView(p, w, nil)
+	expect(t, r != nil && r.Code == "NotAllowed" && strings.Contains(r.Message, "another workload named invoices"), "refusal %+v", r)
+	p.Baseline.From.InferredFrom = fleet.K8sCaller("", "billing", "Deployment", "invoices")
+	expect(t, ownView(p, w, nil) == nil, "its own baseline refused")
 }

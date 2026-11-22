@@ -297,6 +297,12 @@ declaration:
   accepted:
     - {field: dependencies[ledger].compatibility, range: ^2.3.0}
   draft: {tag: draft-3, digest: sha256:..., asker: {subject: "", issuer: none, class: agent}, onBehalfOf: ana}
+  repository:
+    url: https://github.com/acme/invoices
+    rung: signed-provenance
+    signer: https://github.com/acme/invoices/.github/workflows/ci.yml@refs/heads/main
+    folder: deploy
+    folderRung: gitops
 ```
 
 | Key | Meaning |
@@ -310,6 +316,12 @@ declaration:
 | `accepted` | On a declared record only: each proposed range the signer accepted, which `pacto.yaml` declares |
 | `requested` | On a draft only: each proposed range the agent asks a person to accept |
 | `draft` | On a declared record that accepted a draft: the draft's tag, digest, signer and `onBehalfOf` |
+| `repository` | The service's source repository and how Pacto found it ([Open a pull request](../publishing.md#open-a-pull-request)); left out when no source names one |
+| `repository.url` | `https://<host>/<path>`, with no credentials, query, fragment or `.git`, at most 512 bytes |
+| `repository.rung` | `signed-provenance`, `gitops`, `image-label`, `repository-map` or `given` (`--repository`) |
+| `repository.signer` | Exactly when `rung` is `signed-provenance`: the CI certificate subject that named the repository, at most 512 bytes |
+| `repository.folder` | A slash path inside the repository, `.` for the root, with no `..` and no leading `/`, at most 256 bytes |
+| `repository.folderRung` | `gitops`, `repository-map`, `given` (`--folder`) or `default` (the root, when no source names a folder) |
 
 - Validation checks the block against `pacto.yaml`: each accepted or
   requested range is the declared `compatibility`
@@ -324,6 +336,9 @@ declaration:
   `DECLARATION_SIGNER_NOT_ALLOWED`, and the answer is `partial`.
 - A draft is never a version: the fleet leaves it out with
   `DECLARATION_DRAFT_IGNORED`.
+- `repository` is inferred: it names no Application, namespace or object,
+  never changes a publisher verdict, a pin or a gate, and a viewer who may not
+  read the workload's namespace does not see it.
 
 ### Surface
 

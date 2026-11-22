@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "DB_PASSWORD": {
+      "description": "Read from the Secret invoices-env, whose values pacto init does not read.",
+      "type": "string",
+      "writeOnly": true
+    }
+  }
+}

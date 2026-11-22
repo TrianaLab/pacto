@@ -9,7 +9,7 @@ REPOWISE_VERSION ?= 0.36.0
 
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
        ci-e2e-envtest ci-perf-envtest ci-e2e-compose ci-release-version kind-install docs-serve docs-deploy \
-       test-acceptance-local-runtime-docker test-acceptance-local-runtime-run \
+       test-acceptance-local-runtime-docker test-acceptance-local-runtime-run test-acceptance-declare-pr \
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-linked-workloads test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
@@ -83,6 +83,12 @@ test-acceptance-local-runtime-docker:
 
 test-acceptance-local-runtime-run:
 	bash tests/acceptance/local/runtime-run.sh
+
+# pacto declare --pr against a throwaway Gitea and registry on ephemeral
+# loopback ports: one real pull request holding both files (see the script's
+# header). A step of the ci-e2e-compose job, which has the Docker daemon.
+test-acceptance-declare-pr:
+	bash tests/acceptance/local/declare-pr-gitea.sh
 
 # Dashboard leg: frontend lint + tests.
 ci-dashboard: ci-ui

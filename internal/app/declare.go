@@ -55,8 +55,8 @@ type DeclareRequest struct {
 	// declared record.
 	Agent bool
 	// OnPlan, when set, is handed the plan before any login starts or
-	// anything is written.
-	OnPlan func(*DeclarePlan)
+	// anything is written; an error refuses the run there.
+	OnPlan func(*DeclarePlan) error
 	// Draft writes a draft-<n> a person accepts later, without starting the
 	// login, even when a person runs it.
 	Draft bool
@@ -70,6 +70,33 @@ type DeclareRequest struct {
 	// Store is the registry the run reads and writes through; nil is the
 	// one the service's own credentials reach.
 	Store publish.Registry
+	// Observed is what an HTTP surface's caller sees of the workload in
+	// their restricted fleet view. When set, the plan never reads the
+	// cluster or the running image with the service's own identity for the
+	// repository.
+	Observed *DeclareObserved
+	// PR asks for a pull request after the bundle is written: the plan
+	// then reads RepoMap and refuses a repository a person did not confirm.
+	PR bool
+	// Repository and Folder are the person's own answer (rung given);
+	// RepoMap is a repository map file, read only with PR.
+	Repository, Folder, RepoMap string
+	// GitHost is the person's --git-host, replayed by every command the
+	// plan prints; the intent never binds it.
+	GitHost string
+	// draft is the draft tag fromDraft re-plans from its temp folder: the
+	// workload is still read for the repository, and commands name the
+	// draft, not the folder.
+	draft string
+}
+
+// DeclareObserved is a workload as the caller's restricted fleet view shows
+// it: its cluster and GitOps repositories, and why that list may be
+// incomplete (hidden by the caller's permissions or past the bound).
+type DeclareObserved struct {
+	Cluster, Namespace, Kind, Name string
+	Repositories                   []fleet.InferredRepository
+	RepositoryUnknown              string
 }
 
 // store is the registry req reads and writes through.
@@ -125,6 +152,31 @@ type DeclarePlan struct {
 	// most MaxListedDrafts; DraftsTotal counts them all.
 	Drafts      []DraftView `json:"drafts,omitempty"`
 	DraftsTotal int         `json:"draftsTotal,omitempty"`
+	// Repository is where the service's source lives and how it was found;
+	// nil when no rung named it, and RepositoryTried says why each gave
+	// nothing.
+	Repository      *contract.InferredSourceRepository `json:"repository,omitempty"`
+	RepositoryTried []RungNote                         `json:"repositoryTried,omitempty"`
+	// PullRequest is the pull request --pr opens, filled by the CLI before
+	// it prints the plan; it stays off the dashboard API.
+	PullRequest *PRPlan `json:"-"`
+	// pr is the pull request target the intent binds, <url>#<folder>; set
+	// only with --pr.
+	pr string
+	// unchangedFiles are the baseline bundle's own pacto.yaml and
+	// pacto.inferred.yaml when the plan is unchanged.
+	unchangedFiles map[string][]byte
+}
+
+// PRPlan is the pull request --pr would open: the Git host kind, the
+// repository, the folder the files go in, the branch and where the token
+// comes from.
+type PRPlan struct {
+	Kind        string `json:"kind"`
+	URL         string `json:"url"`
+	Folder      string `json:"folder"`
+	Branch      string `json:"branch"`
+	TokenSource string `json:"tokenSource"`
 }
 
 // DeclareBaseline is the published version a declaration starts from and
@@ -136,6 +188,9 @@ type DeclareBaseline struct {
 	// from, ns/Kind/name in cluster; empty for a baseline no declaration
 	// published.
 	From Declared `json:"from,omitzero"`
+	// State is the baseline record's declaration state, "" for a baseline
+	// no declaration published.
+	State string `json:"-"`
 }
 
 // Declared is the workload a declaration or a draft was inferred from.
@@ -145,13 +200,13 @@ type Declared struct {
 }
 
 // declaredFrom is the workload b's record says its declaration was inferred
-// from; zero when b carries no declaration.
-func declaredFrom(b *contract.Bundle) Declared {
+// from and the declaration's state; zero when b carries no declaration.
+func declaredFrom(b *contract.Bundle) (Declared, string) {
 	rec, err := contract.ReadInferredRecord(b.FS)
 	if err != nil || rec == nil || rec.Declaration == nil {
-		return Declared{}
+		return Declared{}, ""
 	}
-	return Declared{InferredFrom: rec.Declaration.InferredFrom, Cluster: rec.Declaration.Cluster}
+	return Declared{InferredFrom: rec.Declaration.InferredFrom, Cluster: rec.Declaration.Cluster}, rec.Declaration.State
 }
 
 // DeclaredRange is one dependency of the declaration: its declared
@@ -209,6 +264,9 @@ const (
 	codeSignerNotAllowed       = "SignerNotAllowed"
 	codeSignerUnverified       = "SignerUnverified"
 	codeDraftNotFound          = "DraftNotFound"
+	// The --pr codes.
+	codeRepositoryUnknown     = "RepositoryUnknown"
+	codeRepositoryUnconfirmed = "RepositoryUnconfirmed"
 	// The pacto accept codes.
 	codeAcceptNothingProposed    = "AcceptNothingProposed"
 	codeFieldNotAcceptable       = "FieldNotAcceptable"
@@ -302,8 +360,11 @@ type declarePlanner struct {
 	policy   *delivery.ClassPolicy
 	rules    []delivery.PublisherRule
 	baseline *contract.Bundle
-	judged   map[string]bool
-	owned    *ownerCheck
+	// baseSigner is the identity the baseline counts by (nil without one):
+	// its CI certificate may name the source repository.
+	baseSigner *delivery.PublisherIdentity
+	judged     map[string]bool
+	owned      *ownerCheck
 	// tags and root are the bundle repository's tags and the trusted root
 	// findBaseline read them with (root only when it holds a version).
 	tags []string
@@ -547,7 +608,7 @@ func (pl *declarePlanner) findBaseline(ctx context.Context) error {
 		return &DeclareError{Code: codeRegistryUnreadable, Message: "reading the deploy artifact of the baseline " + tag + ": " + err.Error()}
 	}
 	pl.plan.Baseline.InferredBaseline = contract.InferredBaseline{Version: tag, Bundle: pl.repo() + "@" + digest, Deploy: deploy}
-	pl.plan.Baseline.From = declaredFrom(base)
+	pl.plan.Baseline.From, pl.plan.Baseline.State = declaredFrom(base)
 	pl.plan.Deploy = cmp.Or(pl.plan.Baseline.Deploy, "none")
 	return pl.redraft(ctx, base)
 }
@@ -594,6 +655,9 @@ func (pl *declarePlanner) countingTag(ctx context.Context, tags []string) (strin
 		"and no person its signer policy allows signed; it is never written over, so no version can be declared above it", pl.repo(), top.Tag, top.Signer)}
 }
 
+// identityText is a signer as a plan names it: subject (issuer).
+func identityText(id delivery.PublisherIdentity) string { return id.Subject + " (" + id.Issuer + ")" }
+
 // judge is whether repo@digest counts as a baseline, who signed it and,
 // when it does not count, why.
 func (pl *declarePlanner) judge(ctx context.Context, tm root.TrustedMaterial, digest string) (bool, string, string) {
@@ -601,20 +665,22 @@ func (pl *declarePlanner) judge(ctx context.Context, tm root.TrustedMaterial, di
 	signer := "nobody"
 	switch {
 	case len(signers) > 0:
-		signer = signers[0].Subject + " (" + signers[0].Issuer + ")"
+		signer = identityText(signers[0])
 	case !errors.Is(err, publish.ErrNoSignature):
 		signer = "unknown (its signatures could not be read)"
 	}
 	v := publish.JudgeRead(digest, signers, err, delivery.ServiceRef{Name: pl.plan.Service}, "", pl.rules, delivery.PublisherSourceRule, nil, nil)
 	if v.Verdict == delivery.VerdictAccepted {
-		return true, signer, ""
+		pl.baseSigner = v.Identity
+		return true, identityText(*v.Identity), ""
 	}
 	// ponytail: a person the signer policy allows counts whatever the
 	// bundle holds; reading its record to see it is a declaration is the
 	// upgrade path.
 	for _, sg := range signers {
 		if sg.Class == delivery.ClassHuman && pl.policy != nil && checkInstallationSigner(sg, pl.policy) == nil {
-			return true, signer, ""
+			pl.baseSigner = &sg
+			return true, identityText(sg), ""
 		}
 	}
 	return false, signer, cmp.Or(v.Reason, "signed by no publisher the installation trusts")
@@ -831,6 +897,9 @@ func (pl *declarePlanner) finish(ctx context.Context, raw []byte, rec *contract.
 	p := pl.plan
 	accepted := rec.Declaration.Accepted
 	rec.Declaration = pl.declarationBlock(accepted)
+	if err := pl.repository(ctx, rec.Declaration); err != nil {
+		return nil, err
+	}
 	p.Coverage, p.Hidden = rec.Coverage, rec.Hidden
 	if c := rec.Inputs.Cluster; c != nil {
 		p.ClusterAsOf = c.AsOf
@@ -921,6 +990,7 @@ func (pl *declarePlanner) version(ctx context.Context, raw []byte, rec *contract
 	}
 	if d.Unchanged {
 		pl.plan.Unchanged, pl.plan.Version = d.Version, d.Version
+		pl.plan.unchangedFiles = bundleFiles(pl.baseline.FS)
 	}
 	return d.Version, nil
 }
@@ -1008,7 +1078,8 @@ func signerText(v SignerView) string {
 // intentDigest binds what a declaration declares, never what was observed
 // or who signs (Decision 15): the inferred service, the service, version
 // and bundle repository, pacto.yaml, the accepted (or requested) ranges, the
-// baseline bundle and the draft accepted.
+// baseline bundle, the draft accepted and, only with --pr, the pull
+// request's repository and folder.
 func intentDigest(p *DeclarePlan, raw []byte, accepted []contract.InferredAcceptance, draft string) string {
 	sum := sha256.Sum256(raw)
 	acc := slices.Clone(accepted)
@@ -1026,7 +1097,8 @@ func intentDigest(p *DeclarePlan, raw []byte, accepted []contract.InferredAccept
 		Accepted   []contract.InferredAcceptance `json:"accepted"`
 		Baseline   string                        `json:"baseline"`
 		Draft      string                        `json:"draft"`
-	}{p.InferredFrom, p.Service, p.Version, p.BundleRepo, "sha256:" + hex.EncodeToString(sum[:]), acc, baseline, draft})
+		PR         string                        `json:"pr,omitempty"`
+	}{p.InferredFrom, p.Service, p.Version, p.BundleRepo, "sha256:" + hex.EncodeToString(sum[:]), acc, baseline, draft, p.pr})
 	out := sha256.Sum256(intent)
 	return "sha256:" + hex.EncodeToString(out[:])
 }
@@ -1041,6 +1113,34 @@ type DeclareResult struct {
 	Tag       string      `json:"tag,omitempty"`
 	Draft     bool        `json:"draft,omitempty"`
 	Signed    bool        `json:"signed,omitempty"`
+	// Files are the exact pacto.yaml and pacto.inferred.yaml written, or
+	// the baseline bundle's own for an unchanged plan: what --pr commits.
+	Files map[string][]byte `json:"-"`
+	// PullRequest is the pull request --pr opened; PullRequestError is why
+	// it failed after the write.
+	PullRequest      *PullRequestResult `json:"pullRequest,omitempty"`
+	PullRequestError *DeclareError      `json:"pullRequestError,omitempty"`
+}
+
+// PullRequestResult is a pull request --pr opened: its URL, the login of
+// the token that opened it, its branch and where the token came from.
+type PullRequestResult struct {
+	URL         string `json:"url"`
+	Login       string `json:"login"`
+	Branch      string `json:"branch"`
+	TokenSource string `json:"tokenSource"`
+}
+
+// bundleFiles is pacto.yaml and pacto.inferred.yaml as fsys holds them; a
+// missing one is left out.
+func bundleFiles(fsys fs.FS) map[string][]byte {
+	out := map[string][]byte{}
+	for _, name := range []string{DefaultContractPath, contract.InferredRecordFile} {
+		if b, err := fs.ReadFile(fsys, name); err == nil {
+			out[name] = b
+		}
+	}
+	return out
 }
 
 // Declare plans a declaration (or the acceptance of req.FromDraft) and
@@ -1056,13 +1156,16 @@ func (s *Service) Declare(ctx context.Context, req DeclareRequest) (*DeclareResu
 		res.Plan = *plan
 	}
 	if err != nil || plan.Unchanged != "" {
+		res.Files = res.Plan.unchangedFiles
 		return res, err
 	}
 	if err := checkDeclarable(req, plan); err != nil {
 		return res, err
 	}
 	if req.OnPlan != nil {
-		req.OnPlan(plan)
+		if err := req.OnPlan(plan); err != nil {
+			return res, err
+		}
 	}
 	c, err := s.declareSigner(ctx, d.signing, req.Agent)
 	switch {
@@ -1138,6 +1241,7 @@ func (s *Service) publishDeclared(ctx context.Context, res *DeclareResult, d *de
 	}
 	res.Plan.Publish, res.Plan.Signer.Subject, res.Plan.Signer.Issuer = r.Plan, c.Identity.Subject, c.Identity.Issuer
 	res.Executed, res.Signed, res.Tag, res.Published = true, true, r.Plan.Version, d.repo+"@"+r.Digests[publish.BundleItem]
+	res.Files = bundleFiles(d.files)
 	return nil
 }
 
@@ -1159,6 +1263,7 @@ func (s *Service) writeDraft(ctx context.Context, req DeclareRequest, res *Decla
 	res.Plan.Publish = r.Plan
 	res.Executed, res.Draft, res.Signed, res.Tag, res.Published = true, true, signed, tag, d.repo+"@"+r.Digests[publish.BundleItem]
 	res.Plan.State, res.Plan.AcceptCLI = contract.DeclarationDraft, AcceptDraftCLI(res.Plan.Service, req.Registry, tag)
+	res.Files = bundleFiles(d.files)
 	return nil
 }
 
@@ -1178,6 +1283,13 @@ func (req DeclareRequest) command(intent string) string {
 		add("--accept", n)
 	}
 	add("--from-draft", req.FromDraft)
+	if req.PR {
+		parts = append(parts, "--pr")
+	}
+	add("--repository", req.Repository)
+	add("--folder", req.Folder)
+	add("--repo-map", req.RepoMap)
+	add("--git-host", req.GitHost)
 	if req.MaxItems != 0 {
 		add("--max-items", strconv.Itoa(req.MaxItems))
 	}
@@ -1265,7 +1377,7 @@ func (s *Service) fromDraft(ctx context.Context, req DeclareRequest) (*DeclarePl
 		return nil, nil, err
 	}
 	sub := req
-	sub.Dir, sub.FromDraft = dir, ""
+	sub.Dir, sub.FromDraft, sub.draft = dir, "", req.FromDraft
 	plan, d, err := s.PlanDeclare(ctx, sub)
 	switch {
 	case err != nil || plan.Unchanged != "":

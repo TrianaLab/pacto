@@ -347,3 +347,15 @@ func TestMCPHTTPRepeatedDraftSameAcceptCLI(t *testing.T) {
 	want := "pacto declare invoices --registry " + w.host + "/acme --from-draft draft-1"
 	expect(t, clis[0] == want && clis[1] == want && slices.Equal(tagsOf(t, w), []string{"draft-1"}), "%q tags %v", clis, tagsOf(t, w))
 }
+
+// TestMCPHTTPExecuteWithoutPlanPassesTheError: an execute whose plan never
+// started (no scratch folder) answers the error, never a refusal.
+func TestMCPHTTPExecuteWithoutPlanPassesTheError(t *testing.T) {
+	w := newDeclareWorld(t)
+	ctx := callerCtx("alice", newSelfReviewed(true), &bytes.Buffer{})
+	a := invoicesArgs(w)
+	a.IntentDigest = "sha256:" + strings.Repeat("0", 64)
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
+	raw, refused, err := httpDeclarer(w).Execute(ctx, a)
+	expect(t, raw == nil && refused == nil && err != nil, "%s %+v %v", raw, refused, err)
+}

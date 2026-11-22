@@ -634,6 +634,9 @@ func printExplainDeclaration(w io.Writer, result *app.ExplainResult) {
 	default:
 		_, _ = fmt.Fprintf(w, "\nDeclared by %s (%s) from %s; %s\n", d.Asker.Subject, d.Asker.Issuer, cmp.Or(d.InferredFrom, "a folder"), app.DeclarationSignerNote)
 	}
+	if d := result.Declaration; d != nil && d.Repository != nil {
+		_, _ = fmt.Fprintf(w, "Repository (the record claims): %s\n", app.RepositoryText(d.Repository))
+	}
 	if n := len(result.InferredCoverage); n > 0 {
 		k := 0
 		for _, c := range result.InferredCoverage {

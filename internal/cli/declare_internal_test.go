@@ -98,7 +98,7 @@ func TestDeclareCommandYesPublishes(t *testing.T) {
 	var got app.DeclareRequest
 	run := func(req app.DeclareRequest) (*app.DeclareResult, error) {
 		p := *declarePlanFixture()
-		req.OnPlan(&p)
+		_ = req.OnPlan(&p)
 		p.Signer.Subject, p.Signer.Issuer = "ana@acme.com", "https://accounts.google.com"
 		return &app.DeclareResult{Plan: p, Executed: true, Signed: true, Tag: "0.1.0", Published: "ghcr.io/acme/invoices@sha256:7c1d"}, nil
 	}
@@ -126,7 +126,7 @@ func TestDeclareCommandPrintsUX(t *testing.T) {
 		p.Ranges = nil
 		p.State, p.Signer = contract.DeclarationDraft, app.SignerView{Subject: "ci", Issuer: "https://token.actions.githubusercontent.com", Class: "ci", Source: "ambient", Why: "an ambient token writes a draft"}
 		p.Skipped = []app.SkippedTag{{Tag: "2.0.0", Signer: "eve@evil.com", Why: "no publisher rule covers it"}}
-		req.OnPlan(&p)
+		_ = req.OnPlan(&p)
 		p.AcceptCLI = "pacto declare invoices --from-draft draft-3"
 		return &app.DeclareResult{Plan: p, Executed: true, Draft: true, Tag: "draft-3", Published: "ghcr.io/acme/invoices@sha256:dd"}, nil
 	}
@@ -238,7 +238,7 @@ func TestDeclareCommandPrintsPlanBeforeLogin(t *testing.T) {
 	out := &sharedOut{}
 	var atLogin string
 	run := func(req app.DeclareRequest) (*app.DeclareResult, error) {
-		req.OnPlan(declarePlanFixture())
+		_ = req.OnPlan(declarePlanFixture())
 		atLogin = out.String()
 		req.Signing.Prompt("Opening https://oauth2.sigstore.dev/auth")
 		return &app.DeclareResult{Plan: *declarePlanFixture()}, nil
@@ -269,7 +269,7 @@ func TestDeclareCommandFromDraft(t *testing.T) {
 	run := func(req app.DeclareRequest) (*app.DeclareResult, error) {
 		p := *declarePlanFixture()
 		p.Unbacked = []string{"service.owner"}
-		req.OnPlan(&p)
+		_ = req.OnPlan(&p)
 		return &app.DeclareResult{Plan: p}, nil
 	}
 	out, _, err := runRoot(t, declareDeps(t, &got, nil, nil, run), nil, "declare", "invoices", "--from-draft", "draft-3", "--accept", "audit", "--yes")

@@ -185,8 +185,9 @@ running workload.
   writes to a registry for an agent follows. `pacto_publish_plan` and
   `pacto_publish` stay outside it.
 - It takes `service`, `namespace`, `dir` (stdio only), `registry`, `accept`,
-  `on_behalf_of`, `dry_run`, `intent_digest`, `max_items`, `call_window` and
-  `draft` (stdio only).
+  `on_behalf_of`, `dry_run`, `intent_digest`, `max_items`, `call_window`,
+  `draft` (stdio only), `pr`, `repository`, `folder` and `repo_map` (stdio
+  only).
 - `dry_run` defaults to true: the call returns the plan and its `intentDigest`.
   The plan lists the service's `drafts` waiting, newest first, with
   `draftsTotal`.
@@ -208,6 +209,16 @@ running workload.
   then it writes an unsigned draft into that registry on behalf of the caller
   it reviewed, when a SelfSubjectAccessReview with the caller's own token
   allows `update` on the workload.
+- `pr` asks for the pull request of
+  [`pacto declare --pr`](publishing.md#open-a-pull-request), and with it the
+  intent digest binds the repository and folder. A stdio server opens it
+  after the write with the stdio process's own Git token and returns
+  `pullRequest`, or `pullRequestError` beside what was published. An HTTP
+  server refuses it with `PullRequestNeedsLocalToken`, because `--pr` runs
+  only where your Git token is. There is no `git_host` argument: a host the
+  URL does not name is refused with `GitHostUnknown`. An agent's `repository`
+  or `repo_map` steers a pull request only when signed provenance or a GitOps
+  source names the same repository.
 - A plan that changes `service.owner` lists who may set it in `mayAccept`;
   see [Who may set a service owner](owner-setting.md). An HTTP server leaves
   it out, with a generic refusal, for a caller who may not see the service.
@@ -232,6 +243,12 @@ the command a person runs:
 | `ExecuteNeedsStdio` | An HTTP server with no registry of its own only plans: run the `cli` command |
 | `BaselineNeedsMigration` | The baseline is below `pactoVersion: "2.5"`: run `pacto migrate` |
 | `BundleRepoMismatch` | The baseline publishes to another repository than `registry` |
+| `RepositoryUnknown` | A pull request was asked for and no source names the service's repository |
+| `RepositoryUnconfirmed` | A pull request was asked for and a person has to confirm the repository: an unsigned image label, or an agent's repository no signed provenance or GitOps source names |
+| `GitHostUnknown` | Pacto cannot tell which Git host serves the repository: the `cli` command adds `--git-host` |
+| `GitTokenMissing` | No Git token for that host in its environment variables or a git credential helper |
+| `PullRequestFailed` | The Git host refused the pull request, the repository is public and needs a person's `--repository`, or the URL is plain HTTP or redirects; what was published stays |
+| `PullRequestNeedsLocalToken` | Over HTTP: a pull request runs only where your Git token is, so run the `cli` command |
 | `NotAllowed` | Over HTTP: the caller may not update the workload, names someone else in `on_behalf_of`, or the repository belongs to another workload |
 | `ReviewFailed` | Over HTTP: the review of the caller failed or could not be evaluated |
 | `OWNER_SIGNER_NOT_PERSON` | Only a person sets `service.owner`: an agent, CI or workload signer never does, whoever it acts for |

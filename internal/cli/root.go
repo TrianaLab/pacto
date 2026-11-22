@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -79,6 +80,10 @@ type deps struct {
 	// planDeclare plans `pacto declare`; declare carries it out: it logs the person in, signs and writes to a registry.
 	planDeclare func(svc *app.Service, ctx context.Context, req app.DeclareRequest) (*app.DeclarePlan, error)
 	declare     func(svc *app.Service, ctx context.Context, req app.DeclareRequest) (*app.DeclareResult, error)
+	// gitTransport carries `pacto declare --pr`'s requests to the Git host (nil is http.DefaultTransport);
+	// gitCredentialFill asks git's credential helper for the person's token (nil runs git credential fill).
+	gitTransport      http.RoundTripper
+	gitCredentialFill func(ctx context.Context, stdin string) (string, error)
 	// planAccept plans `pacto accept`: it reads the registry and writes nothing.
 	planAccept func(svc *app.Service, ctx context.Context, opts app.AcceptOptions) (*app.AcceptPlan, error)
 	// accept carries out `pacto accept`: it signs as the person, or drafts, and writes to the service's bundle repository.

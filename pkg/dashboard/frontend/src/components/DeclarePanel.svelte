@@ -222,6 +222,9 @@
     {#if answer.command}
       <div class="dp-command" data-testid="declare-command"><span class="t-meta">Or run</span> <CopyableIdentifier value={answer.command} label="command" /></div>
     {/if}
+    {#if answer.prCli}
+      <div class="dp-command" data-testid="declare-pr-cli"><span class="t-meta">Open a pull request with your own Git token from your machine:</span> <CopyableIdentifier value={answer.prCli} label="pull request command" /></div>
+    {/if}
     {#if p}
       <Fold title="pacto.yaml" level={3} meta={p.contract?.truncated ? 'truncated' : ''} testid="declare-contract">
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (a long line scrolls inside the box; focus lets a keyboard reader scroll it) -->

@@ -101,6 +101,24 @@ describe('declarationNote', () => {
     expect(declarationNote({ declaration: { ...unverified.declaration, accepted: ['dependencies[ledger] ^2.3.0'], draft: 'draft-3' } }))
       .toContain('The record claims: Accepted dependencies[ledger] ^2.3.0. Accepted draft draft-3.');
   });
+  it('names the repository and the folder with where Pacto found each', () => {
+    const repository = { url: 'https://github.com/acme/invoices', rung: 'signed-provenance', signer: 'https://github.com/acme/invoices/.github/workflows/ci.yml@refs/heads/main', folder: '.', folderRung: 'default' };
+    const note = declarationNote({ declaration: { ...checked.declaration, repository } });
+    expect(note).toContain('Repository https://github.com/acme/invoices (signed provenance, workflow ci.yml@refs/heads/main), folder . (no source names the folder; pass --folder).');
+    expect(note).not.toContain('The record claims');
+    expect(declarationNote(checked)).not.toContain('Repository');
+  });
+  it('words an unverified record\'s repository as a claim', () => {
+    const repository = { url: 'https://github.com/evil/fork', rung: 'signed-provenance', folder: 'deploy', folderRung: 'gitops' };
+    expect(declarationNote({ declaration: { ...unverified.declaration, repository } }))
+      .toContain('The record claims: Repository https://github.com/evil/fork (signed provenance), folder deploy (GitOps source).');
+    expect(declarationNote({ declaration: { ...notAllowed.declaration, repository } }))
+      .toContain('The record claims: Baseline 1.4.0. Repository https://github.com/evil/fork');
+  });
+  it('names a GitLab pipeline signer by its file', () => {
+    const repository = { url: 'https://gitlab.com/acme/invoices', rung: 'signed-provenance', signer: 'https://gitlab.com/acme/invoices//.gitlab-ci.yml@refs/heads/main', folder: '.', folderRung: 'default' };
+    expect(declarationNote({ declaration: { ...checked.declaration, repository } })).toContain('(signed provenance, pipeline .gitlab-ci.yml@refs/heads/main)');
+  });
   it('names a draft the declaration accepted', () => {
     expect(declarationNote({ declaration: { ...checked.declaration, draft: 'draft-3' } })).toContain('Accepted draft draft-3.');
   });

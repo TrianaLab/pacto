@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,7 +137,8 @@ func newDeclareEnv(t *testing.T, objs ...runtime.Object) *declareEnv {
 	}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), declareLists(), objs...)
 	return &declareEnv{host: host, reg: reg, ss: ss, root: rootPath, dyn: dyn,
-		svc: &Service{sys: sysDeps{publishRegistry: func() publish.Registry { return reg }}}}
+		svc: &Service{sys: sysDeps{publishRegistry: func() publish.Registry { return reg },
+			newK8s: func(string) (k8sclient.K8sClient, error) { return nil, errors.New("no kubeconfig") }}}}
 }
 
 func (e *declareEnv) req(accept ...string) DeclareRequest {
