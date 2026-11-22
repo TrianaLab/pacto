@@ -173,6 +173,9 @@ func TestForwardedTokenAudienceIsMember(t *testing.T) {
 	down := NewMemberExchange(MemberExchangeConfig{IssuerURL: "http://127.0.0.1:1"})
 	_, err := down(context.Background(), jwtOf("http://127.0.0.1:1", exp), "uid-a")
 	expect(t, err != nil && !errors.Is(err, errForeignIssuer), "an unreachable issuer fails the exchange: %v", err)
+	f.exchangeFor = func(string) map[string]any { return map[string]any{"expires_in": 600} }
+	out, err := x(context.Background(), session, "uid-d")
+	expect(t, out == "" && err != nil && strings.Contains(err.Error(), "no access token"), "an exchange with no token fails: %q %v", out, err)
 }
 
 // A token of another identity provider is never sent to the hub's issuer:
