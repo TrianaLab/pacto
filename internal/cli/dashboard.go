@@ -204,6 +204,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			}
 			opts.Stats, opts.StatsRegistry = dashboardStats(cmd, svc)
 			identity.options(&opts)
+			opts.Outside = members.outside()
 			opts.ClusterJoins = identity.clusterJoins(joins)
 			server := dashboard.NewServer(opts)
 

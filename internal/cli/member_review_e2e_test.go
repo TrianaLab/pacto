@@ -5,11 +5,14 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
+	"maps"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -17,12 +20,14 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/spf13/viper"
 	"k8s.io/client-go/rest"
 
 	"github.com/trianalab/pacto/v4/internal/authn"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/memberlink"
@@ -64,9 +69,11 @@ func signedInAs(t *testing.T, p authn.Person, token string) context.Context {
 // memberEnv is a dashboard's member hub behind a TLS server, with member
 // clusters linked to it whose reviews answer runs.
 type memberEnv struct {
-	t   *testing.T
-	m   *memberHub
-	srv *httptest.Server
+	t     *testing.T
+	m     *memberHub
+	srv   *httptest.Server
+	url   string
+	roots *x509.CertPool
 
 	mu       sync.Mutex
 	answers  map[string]func(memberlink.Review) memberlink.Answer
@@ -89,7 +96,7 @@ func newMemberEnv(t *testing.T, exchange authn.MemberExchange, now func() time.T
 	}
 	srv.Config.Handler = m.hub
 	srv.StartTLS()
-	e := &memberEnv{t: t, m: m, srv: srv, answers: map[string]func(memberlink.Review) memberlink.Answer{}, sent: map[string][]memberlink.Review{},
+	e := &memberEnv{t: t, m: m, srv: srv, url: srv.URL, roots: srv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs, answers: map[string]func(memberlink.Review) memberlink.Answer{}, sent: map[string][]memberlink.Review{},
 		keys: map[string]ed25519.PrivateKey{}, mappings: map[string][]delivery.GroupMappingState{}, stops: map[string]context.CancelFunc{}}
 	t.Cleanup(func() {
 		e.mu.Lock()
@@ -135,7 +142,7 @@ func (e *memberEnv) link(uid string, answer func(memberlink.Review) memberlink.A
 	k := e.keys[uid]
 	e.mu.Unlock()
 	ctx, stop := context.WithCancel(context.Background())
-	m := memberlink.NewMember(memberlink.MemberOptions{URL: e.srv.URL, RootCAs: e.srv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs,
+	m := memberlink.NewMember(memberlink.MemberOptions{URL: e.url, RootCAs: e.roots,
 		Cluster: uid, KeyID: signing.Hint(k.Public()), Key: k, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Answer: func(_ context.Context, r memberlink.Review) memberlink.Answer {
 			e.mu.Lock()
@@ -466,4 +473,50 @@ func TestMemberHubLinksCarryModelAndMapping(t *testing.T) {
 	expect(t, e.m.links(time.Now())[usUID].Channel == fleet.LinkDown, "a dropped link reads down")
 	_, kept := e.m.links(time.Now().Add(16 * time.Minute))[usUID]
 	expect(t, !kept, "a link down past snapshot freshness is left out")
+}
+
+// TestMembersRouteIsTheOnlyUnauthenticatedAPIPath: pacto dashboard's own
+// server, with token sign-in, mounts the member route before the session
+// guard, and only that path: a member links through it, while every other
+// /api/ path still needs a session.
+func TestMembersRouteIsTheOnlyUnauthenticatedAPIPath(t *testing.T) {
+	expect(t, (*memberHub)(nil).outside() == nil, "no hub, no route")
+	e := newMemberEnv(t, nil, nil)
+	keys := slices.Collect(maps.Keys(e.m.outside()))
+	expect(t, reflect.DeepEqual(keys, []string{memberlink.Path}), "one outside route: %v", keys)
+
+	cert := httptest.NewTLSServer(http.NotFoundHandler()) // only its certificate
+	t.Cleanup(cert.Close)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := ln.Addr().String()
+	e.m.hub, _ = memberlink.NewHub(memberlink.HubOptions{Host: host, Approved: e.m.approvals.lookup, Logger: e.m.logger})
+	e.url, e.roots = "https://"+host, cert.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
+
+	v := viper.New()
+	v.Set("dashboard.token-login", true)
+	id, err := newDashboardIdentity(v, "0.0.0.0", &rest.Config{Host: "https://k"}, homeEntries(&rest.Config{Host: "https://k"}), deliveryDeps("alice", nil), e.m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := dashboard.Options{UI: fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}},
+		Fleet: func(context.Context) (*fleet.Query, error) { return twoClusterQuery(t), nil }}
+	id.options(&o)
+	o.Outside = e.m.outside()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = dashboard.NewServer(o).ServeOnListener(ctx, tls.NewListener(ln, cert.TLS.Clone())) }()
+
+	e.link(usUID, allowAll) // waits until the hub sees the member live
+	client := cert.Client()
+	for _, path := range []string{"/api/members/other", "/api/fleet/services", memberlink.Path + "/x"} {
+		resp, err := client.Get(e.url + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		expect(t, resp.StatusCode == http.StatusUnauthorized, "%s without a session: %d", path, resp.StatusCode)
+	}
 }

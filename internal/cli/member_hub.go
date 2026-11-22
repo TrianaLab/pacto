@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"maps"
+	"net/http"
 	"net/url"
 	"slices"
 	"strings"
@@ -130,6 +131,16 @@ func (m *memberHub) reviewer(uid string) authn.Review {
 		m.reviewers[uid] = r
 	}
 	return r
+}
+
+// outside is the one dashboard route mounted before sign-in for members:
+// the signed nonce authenticates a member, never a session. Nil without a
+// hub.
+func (m *memberHub) outside() map[string]http.Handler {
+	if m == nil {
+		return nil
+	}
+	return map[string]http.Handler{memberlink.Path: m.hub}
 }
 
 // linksFunc is the fleet's member link facts over the hub, nil without one.

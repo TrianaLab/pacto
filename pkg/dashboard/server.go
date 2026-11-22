@@ -140,6 +140,11 @@ type Options struct {
 	// Now is the clock behind the stats window and its buckets; nil is
 	// time.Now.
 	Now func() time.Time
+	// Outside are handlers mounted before sign-in, by path pattern. Each path
+	// either serves public metadata (GET-only, static JSON, no fleet data) or
+	// refuses a request without its credential: the session guard never runs
+	// for them. CORS and the security headers still do.
+	Outside map[string]http.Handler
 }
 
 // Server serves the dashboard web UI and REST API.
@@ -265,6 +270,14 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 
 	// Static UI — served on the raw mux, not through Huma.
 	mux.Handle("/", http.FileServer(http.FS(s.opts.UI)))
+	if len(s.opts.Outside) > 0 {
+		top := http.NewServeMux()
+		for pattern, h := range s.opts.Outside {
+			top.Handle(pattern, h)
+		}
+		top.Handle("/", handler)
+		handler = top
+	}
 
 	// Every request derives from baseCtx, so Ctrl+C can actively cancel slow
 	// in-flight handlers instead of Shutdown blocking on them until the deadline.
