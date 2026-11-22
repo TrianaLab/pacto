@@ -479,14 +479,24 @@ func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNam
 		// A row built over services the reader partly cannot see may owe its
 		// reason to a hidden one: only the degraded limitation stays.
 		someHidden := slices.ContainsFunc(p.Services, func(k ServiceKey) bool { return hiddenSvc[k] })
-		p.Limitations = slices.DeleteFunc(slices.Clone(p.Limitations), func(l Limitation) bool {
-			return l.Code != LimitationProviderSourceDegraded && (someHidden || hiddenByScope(l, visibleIn, srcClusters) || mentionsHidden(l.Message))
+		p.Limitations = restrictRowLimitations(p, func(l Limitation) bool {
+			return someHidden || hiddenByScope(l, visibleIn, srcClusters) || mentionsHidden(l.Message)
 		})
-		if p.Status != SourceAvailable && len(p.Limitations) == 0 {
-			p.Limitations = []Limitation{{Code: LimitationProviderSourceDegraded, Source: p.Source,
-				Message: "source " + p.Source + " reported this row as " + string(p.Status) + "; the reason is hidden by your permissions"}}
-		}
 		out = append(out, p)
+	}
+	return out
+}
+
+// restrictRowLimitations are p's limitations without those hidden reports
+// hidden; the degraded limitation names no namespace and stays. A row that is
+// not available and lost every reason gets a degraded one.
+func restrictRowLimitations(p Provider, hidden func(Limitation) bool) []Limitation {
+	out := slices.DeleteFunc(slices.Clone(p.Limitations), func(l Limitation) bool {
+		return l.Code != LimitationProviderSourceDegraded && hidden(l)
+	})
+	if p.Status != SourceAvailable && len(out) == 0 {
+		out = []Limitation{{Code: LimitationProviderSourceDegraded, Source: p.Source,
+			Message: "source " + p.Source + " reported this row as " + string(p.Status) + "; the reason is hidden by your permissions"}}
 	}
 	return out
 }
