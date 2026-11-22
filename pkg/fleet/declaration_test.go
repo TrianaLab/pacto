@@ -546,8 +546,28 @@ func TestGitOpsRepositoryHiddenFollowsLiveWorkload(t *testing.T) {
 	if gitopsRepositoryHidden(s, rev, noArgo) {
 		t.Error("the live read names no argocd object, yet the repository went")
 	}
+	replaced := &FleetSnapshot{Replacements: []Replacement{{Workload: w}}}
+	if !gitopsRepositoryHidden(replaced, rev, noShop) || gitopsRepositoryHidden(replaced, rev, noArgo) {
+		t.Error("a replaced service's live workload did not decide the repository")
+	}
 	rev.Record.Declaration.InferredFrom = "not-a-caller"
 	if !gitopsRepositoryHidden(s, rev, noArgo) {
 		t.Error("an unparsable inferredFrom kept the repository")
+	}
+}
+
+func TestRepositoriesIncomplete(t *testing.T) {
+	for _, c := range []struct {
+		w    InferredWorkload
+		want string
+	}{
+		{InferredWorkload{}, ""},
+		{InferredWorkload{RepositoryUnknown: "Applications unreadable (forbidden)", Dropped: []string{"repositories[3]"}}, "Applications unreadable (forbidden)"},
+		{InferredWorkload{Dropped: []string{"images[1]", "repositories[3]"}}, "more GitOps repositories than Pacto keeps"},
+		{InferredWorkload{Dropped: []string{"images[1]"}}, ""},
+	} {
+		if got := c.w.RepositoriesIncomplete(); got != c.want {
+			t.Errorf("%+v: RepositoriesIncomplete() = %q, want %q", c.w, got, c.want)
+		}
 	}
 }

@@ -251,6 +251,12 @@ func TestImageSignersReasons(t *testing.T) {
 			t.Errorf("%q: %q", image, why)
 		}
 	}
+	// An HTTP surface never reads the image, whatever path reaches it.
+	pl.req.Observed = &DeclareObserved{}
+	if _, why := pl.imageSigners(t.Context(), runningImage{e.host + "/acme/app@sha256:" + strings.Repeat("a", 64), "app"}); why != imageNotReadOnServer {
+		t.Errorf("%q", why)
+	}
+	pl.req.Observed = nil
 	pl.req.Signing.TrustedRoot = "/nonexistent/root.json"
 	if _, why := pl.imageSigners(t.Context(), runningImage{e.host + "/acme/app@sha256:" + strings.Repeat("a", 64), "app"}); !strings.HasPrefix(why, "the Sigstore trusted root was not read: ") {
 		t.Errorf("%q", why)
@@ -745,6 +751,30 @@ func TestFailedSecondReadNamesOnlyWhatWasRead(t *testing.T) {
 	if got != "Applications outside the namespaces this source reads (namespaces read: billing; argocd, flux-system not read: forbidden; pass --repository <url>)" {
 		t.Fatalf("%q", got)
 	}
+	// The workload is gone by the second read: the first read's reason stays.
+	e := newDeclareEnv(t)
+	c := &vanishingCluster{gitopsCluster: &gitopsCluster{pages: map[string]string{"deployments|billing": argoTracked("reg.io/acme/invoices:1")}}}
+	e.svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) { return c, nil }
+	p, _ := e.plan(t, e.req())
+	if why := p.RepositoryTried[1].Reason; p.Repository != nil || !strings.Contains(why, "namespaces read: billing; argocd, flux-system not read: the workload was not read for the repository") {
+		t.Fatalf("%q", why)
+	}
+}
+
+// vanishingCluster serves billing's workloads on the first read only.
+type vanishingCluster struct {
+	*gitopsCluster
+	read bool
+}
+
+func (c *vanishingCluster) ListPage(ctx context.Context, gvr schema.GroupVersionResource, ns, cont string) ([]byte, string, error) {
+	if gvr.Resource == "deployments" && ns == "billing" {
+		if c.read {
+			return []byte(`{"items":[]}`), "", nil
+		}
+		c.read = true
+	}
+	return c.gitopsCluster.ListPage(ctx, gvr, ns, cont)
 }
 
 // TestCommandReplaysGitHost: every command the plan prints keeps the

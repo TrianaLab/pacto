@@ -343,6 +343,15 @@ func TestProvenanceSignersAcceptsSignature(t *testing.T) {
 	}
 }
 
+func TestProvenanceSignersUnsigned(t *testing.T) {
+	ss := testutil.New(t)
+	host, reg := testRegistry(t, true)
+	repo, d := signed(t, host, reg)
+	if signers, err := ProvenanceSigners(t.Context(), reg, ss.Root, false, repo, d); signers != nil || !errors.Is(err, ErrNoSignature) {
+		t.Fatalf("an unsigned image: signers %+v %v", signers, err)
+	}
+}
+
 func TestVerifyDigestStillSkipsSLSA(t *testing.T) {
 	ss := testutil.New(t)
 	reg, repo, d := slsaAttested(t, ss)
