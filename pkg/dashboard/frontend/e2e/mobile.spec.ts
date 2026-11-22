@@ -1,9 +1,17 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import {
   boot, canonicalKeys, runAnalysis, sampleRoles, normalBody,
   assertPageHierarchy, assertRoleCoherence, type RoleSample,
 } from './typographyChecks';
+
+// mobileReady opens the Overview once the wasm engine answers and the page title is
+// up. appReady waits on the Operational Graph link, which the collapsed drawer hides.
+async function mobileReady(page: Page) {
+  await page.goto('/');
+  await page.evaluate(() => (window as unknown as { __pactoReady?: Promise<void> }).__pactoReady);
+  await expect(page.locator('main h1')).toBeVisible({ timeout: 20_000 });
+}
 
 // Mobile-layout E2E (runs only on the mobile project, see playwright.config.ts):
 // at a narrow viewport the desktop nav is hidden and the primary navigation
@@ -11,9 +19,7 @@ import {
 // hidden navigation is ABSENT from the accessibility tree until opened, the toggle
 // exposes aria-expanded, and Escape closes the overlay.
 test('the navbar collapses into an accessible hamburger drawer on mobile', async ({ page }) => {
-  await page.goto('/');
-  // Wait for the wasm engine (a service from the embedded fleet appears).
-  await expect(page.getByText('payments-service').first()).toBeVisible({ timeout: 20_000 });
+  await mobileReady(page);
 
   // Collapsed: the drawer's navigation is not in the DOM/accessibility tree, and
   // the toggle reports collapsed. The desktop nav is display:none (also absent),
@@ -41,8 +47,7 @@ test('the navbar collapses into an accessible hamburger drawer on mobile', async
 // WCAG A/AA axe gate over the mobile navigation open state; contrast
 // is measured separately, so it is the only disabled rule.
 test('mobile navigation open passes the WCAG A/AA axe gate', async ({ page }) => {
-  await page.goto('/');
-  await expect(page.getByText('payments-service').first()).toBeVisible({ timeout: 20_000 });
+  await mobileReady(page);
   await page.getByRole('button', { name: 'Menu' }).click();
   await expect(page.locator('#mobile-drawer')).toBeVisible();
   const results = await new AxeBuilder({ page })
@@ -73,14 +78,17 @@ test.describe('typography hierarchy on mobile', () => {
       ['Revision detail', `#/fleet/revisions/${e(k.revision)}`],
       ['Target detail', `#/fleet/targets/${e(k.target)}`],
       ['Change analysis', `#/fleet/changes/${e(k.service)}`],
-      // Its placeholder title is a p in the section role, beside the h2 sections.
-      ['Graph discovery', '#/fleet/graph'],
+      // Its empty picker titles a placeholder with a p in the section role, beside the
+      // h2 sections: the one non-h2 section title the tag-independence check needs.
+      ['Change analysis (unscoped)', '#/fleet/changes'],
+      ['Fleet map', '#/fleet/graph'],
     ];
 
     const all: RoleSample[] = [];
     for (const [label, hash] of routes) {
       await boot(page, hash);
       if (label === 'Change analysis') await runAnalysis(page);
+      if (label === 'Change analysis (unscoped)') await expect(page.getByTestId('changes-discovery-placeholder')).toBeAttached({ timeout: 20_000 });
       const s = await sampleRoles(page, label);
       assertPageHierarchy(s, `mobile ${label}`, await normalBody(page));
       all.push(...s);
