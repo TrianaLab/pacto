@@ -226,3 +226,34 @@ func TestListPredicateDedupesByBundle(t *testing.T) {
 		})
 	}
 }
+
+// TestRejectOneCopyRejectsTheBundle: in either form, rejecting the copy
+// ListPredicate returned keeps every other copy of that bundle out too.
+func TestRejectOneCopyRejectsTheBundle(t *testing.T) {
+	for _, mode := range modes {
+		t.Run(string(mode), func(t *testing.T) {
+			_, path := setup(t, testutil.ReferrersOptions{Unsupported: mode == capabilities.ReferrersWriteOnceTags})
+			repo, _ := anchored(t, path)
+			_, key, _ := ed25519.GenerateKey(rand.Reader)
+			copied := approvalAt(t, key, "2026-11-11T00:00:00Z")
+			for i := range 3 {
+				if _, err := Push(t.Context(), repo, stream, mode, delivery.PredicateApproval, copied, map[string]string{"copy": fmt.Sprint(i)}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := Push(t.Context(), repo, stream, mode, delivery.PredicateApproval, approvalAt(t, key, "2026-11-12T00:00:00Z"), nil); err != nil {
+				t.Fatal(err)
+			}
+			r := &Reader{}
+			got, _, err := r.ListPredicate(t.Context(), repo, stream, delivery.PredicateApproval, "", 5)
+			if err != nil || len(got) != 2 {
+				t.Fatalf("got %d records, %v", len(got), err)
+			}
+			r.Reject(stream, delivery.PredicateApproval, got[1].Manifest) // the copied bundle, the older
+			got, cut, err := r.ListPredicate(t.Context(), repo, stream, delivery.PredicateApproval, "", 5)
+			if err != nil || cut || len(got) != 1 || claimedTime(got[0].Bundle) != "2026-11-12T00:00:00Z" {
+				t.Fatalf("got %d records, cut %v, %v", len(got), cut, err)
+			}
+		})
+	}
+}

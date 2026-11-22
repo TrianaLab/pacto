@@ -154,7 +154,7 @@ type Fetched struct {
 // and tag names is remembered, as [Reader.List] does, so a later call
 // fetches only new manifests and the bundles it returns. Copies of one
 // bundle under different manifests are one record: only the first listed
-// counts, before the bound.
+// counts, before the bound, and rejecting one copy rejects them all.
 func (r *Reader) ListPredicate(ctx context.Context, repo *remote.Repository, stream, predicate, uid string, max int) ([]Fetched, bool, error) {
 	return r.listPredicate(ctx, repo, stream, predicate, uid, max, new([]string))
 }
@@ -172,10 +172,17 @@ func (r *Reader) listPredicate(ctx context.Context, repo *remote.Repository, str
 	if err != nil {
 		return nil, false, err
 	}
-	var matched []string
-	bundles := map[digest.Digest]bool{}
+	var candidates []string
+	bundles := map[digest.Digest]bool{} // seen, or rejected under any copy
 	for _, k := range order {
-		if h := heads[k]; h.layer != nil && !h.rejected && h.predicate == predicate && h.subject == anchor.Digest.String() && (uid == "" || h.uid == uid) && !bundles[h.layer.Digest] {
+		if h := heads[k]; h.layer != nil && h.predicate == predicate && h.subject == anchor.Digest.String() && (uid == "" || h.uid == uid) {
+			candidates = append(candidates, k)
+			bundles[h.layer.Digest] = bundles[h.layer.Digest] || h.rejected
+		}
+	}
+	var matched []string
+	for _, k := range candidates {
+		if h := heads[k]; !bundles[h.layer.Digest] {
 			bundles[h.layer.Digest] = true
 			matched = append(matched, k)
 		}
