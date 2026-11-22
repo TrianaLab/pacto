@@ -203,6 +203,16 @@ func externalEntityRef(r *ExternalRecord) EntityRef {
 	return EntityRef{Kind: KindExternal, Key: string(r.Key), Label: r.Label, Secondary: r.Class, Status: StatusUnknown}
 }
 
+// ExternalRef is the route-neutral reference to the external system key in
+// snap, for callers outside the package: its record's, or a bare reference
+// when snap holds no record of it.
+func ExternalRef(snap *FleetSnapshot, key ExternalKey) EntityRef {
+	if r := snap.Externals[key]; r != nil {
+		return externalEntityRef(r)
+	}
+	return EntityRef{Kind: KindExternal, Key: string(key), Label: string(key), Status: StatusUnknown}
+}
+
 // externalListRef is an external list row: its reference with how many
 // visible services declare it and the catalog entry that joined it (empty
 // when joined by name only). Hidden consumers stay off the row, so a

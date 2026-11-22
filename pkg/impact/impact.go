@@ -197,7 +197,11 @@ type AffectedConsumer struct {
 	// first, bounded to MaxConsumerEvidence.
 	Evidence []Evidence `json:"evidence,omitempty" doc:"The facts behind this consumer and their age: its targets, observed calls and unreachable findings, newest first"`
 	// Effect is what an event does to this consumer; empty on a contract change.
-	Effect string `json:"effect,omitempty" enum:"breaks,may-degrade,unknown" doc:"What the event does to this consumer: breaks (every hop of a path is a required dependency), may-degrade (every path holds an optional dependency) or unknown"`
+	Effect string `json:"effect,omitempty" enum:"breaks,may-degrade,attention,unknown" doc:"What the event does to this consumer: breaks (every hop of a path is a required dependency), may-degrade (every path holds an optional dependency), attention (an external system it uses changed) or unknown"`
+	// Sources and Client are an external answer's facts: where each use of
+	// the external system was seen, and the client library its record names.
+	Sources []string              `json:"sources,omitempty" enum:"declared,observed,pod-spec,repository" doc:"For an external answer: where each use of the external system was seen"`
+	Client  *fleet.ExternalClient `json:"client,omitempty" doc:"For an external answer: the client library and major the consumer's inferred record names; absent when none names a major"`
 	// Resources are the provisioning statuses of what this consumer asked a
 	// removed service for, bounded to MaxConsumerResources.
 	Resources      []fleet.ProvisioningStatus `json:"resources,omitempty" doc:"What this consumer asked the removed service for, one provisioning status per environment, at most 20"`
@@ -290,6 +294,10 @@ type Result struct {
 	// Providers are the service keys of the visible providers of an offering
 	// event's offering; empty on any other answer.
 	Providers []string `json:"providers,omitempty" doc:"The service keys of the services that provide the offering of an offering event"`
+	// External and Pin are an external event's subject and the range-pin
+	// YAML for a consumer that declares no range.
+	External *ExternalSubject `json:"external,omitempty" doc:"The external system an external event is about"`
+	Pin      string           `json:"pin,omitempty" doc:"YAML that pins a range on the external system for a consumer that declares none"`
 	// Templates are the golden paths that reference the changed service's
 	// policy. A golden path runs nowhere, so it never holds the gate.
 	Templates []string `json:"templates,omitempty" doc:"The service keys of the golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate, but a service created from one checks against the new policy. Review each"`
@@ -330,6 +338,9 @@ type Result struct {
 	// inferredExternal is the external system whose inferred contract the
 	// answer is about (the ref rule); empty otherwise.
 	inferredExternal string
+	// inferredVersion is the version of the inferred contract an external
+	// answer read; empty otherwise.
+	inferredVersion string
 }
 
 // RegistryLookup is where Pacto looked for a target snapshot: the

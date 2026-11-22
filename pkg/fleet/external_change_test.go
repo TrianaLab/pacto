@@ -319,3 +319,13 @@ func TestKnowledgeTileCountsExternalChanged(t *testing.T) {
 		t.Errorf("tile = %d, list = %d", got, n)
 	}
 }
+
+func TestExternalRef(t *testing.T) {
+	snap := &FleetSnapshot{Externals: map[ExternalKey]*ExternalRecord{"stripe": {Key: "stripe", Label: "Stripe", Class: "vendor-api"}}}
+	if got := ExternalRef(snap, "stripe"); got != (EntityRef{Kind: KindExternal, Key: "stripe", Label: "Stripe", Secondary: "vendor-api", Status: StatusUnknown}) {
+		t.Errorf("record ref %+v", got)
+	}
+	if got := ExternalRef(snap, "adyen"); got != (EntityRef{Kind: KindExternal, Key: "adyen", Label: "adyen", Status: StatusUnknown}) {
+		t.Errorf("bare ref %+v", got)
+	}
+}

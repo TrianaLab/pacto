@@ -80,12 +80,16 @@ type ProductConsumer struct {
 	OwnerRef *fleet.EntityRef `json:"ownerRef,omitempty" doc:"A reference to the owner's page"`
 	// Effect, Resources and ResourcesTotal are the consumer's event facts, as
 	// [AffectedConsumer] carries them.
-	Effect         string                     `json:"effect,omitempty" enum:"breaks,may-degrade,unknown" doc:"What the event does to this consumer: breaks, may-degrade or unknown"`
+	Effect         string                     `json:"effect,omitempty" enum:"breaks,may-degrade,attention,unknown" doc:"What the event does to this consumer: breaks, may-degrade, attention (an external system it uses changed) or unknown"`
 	Resources      []fleet.ProvisioningStatus `json:"resources,omitempty" doc:"What this consumer asked the removed service for, one provisioning status per environment, at most 20"`
 	ResourcesTotal int                        `json:"resourcesTotal,omitempty" doc:"How many provisioning statuses there are, including those beyond the bound"`
 	// Break is where an announced break stands for this consumer, as
 	// [AffectedConsumer.Break].
 	Break *BreakState `json:"break,omitempty" doc:"Where the break the new revision announces for this consumer stands: announced, accepted (it never blocks) or expired"`
+	// Sources and Client are an external answer's facts, as
+	// [AffectedConsumer] carries them.
+	Sources []string              `json:"sources,omitempty" enum:"declared,observed,pod-spec,repository" doc:"For an external answer: where each use of the external system was seen"`
+	Client  *fleet.ExternalClient `json:"client,omitempty" doc:"For an external answer: the client library and major the consumer's inferred record names; absent when none names a major"`
 }
 
 // TallyBucket is one bucket of a COMPLETE consumer distribution: a canonical
@@ -190,6 +194,11 @@ type Product struct {
 	// own reference.
 	Offering  *fleet.EntityRef  `json:"offering,omitempty" doc:"The platform offering an offering event is about; service is then the same offering reference"`
 	Providers []fleet.EntityRef `json:"providers,omitempty" doc:"The services that provide the offering of an offering event, each with its owner"`
+	// External and Pin are an external event's subject and range-pin YAML,
+	// as [Result.External] and [Result.Pin]; Service is then the external's
+	// own reference.
+	External *ExternalSubject `json:"external,omitempty" doc:"The external system an external event is about; service is then the same external reference"`
+	Pin      string           `json:"pin,omitempty" doc:"YAML that pins a range on the external system for a consumer that declares none"`
 	// ChangedOwner is the changed service's own owner.
 	ChangedOwner *fleet.EntityRef `json:"changedOwner,omitempty" doc:"A reference to the changed service's owner"`
 	// Gate and GateReason are the release gate of the analysis, as
@@ -326,14 +335,21 @@ func BuildProductOutcome(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcK
 		Ranges:         res.Ranges,
 		Notes:          slices.Clone(res.Notes),
 		Advisories:     slices.Clone(res.Advisories),
+		External:       res.External,
+		Pin:            res.Pin,
 	}
 	p.setSubject(snap, svcKey, res)
 	return p
 }
 
 // setSubject sets the service the answer is about or, for an offering event,
-// the offering's own reference and its providers.
+// the offering's own reference and its providers, or, for an external event,
+// the external's own reference.
 func (p *Product) setSubject(snap *fleet.FleetSnapshot, svcKey fleet.ServiceKey, res *Result) {
+	if res.Event != nil && res.Event.External != "" {
+		p.Service = fleet.ExternalRef(snap, fleet.ExternalKey(res.Event.External))
+		return
+	}
 	if res.Event == nil || res.Event.Offering == "" {
 		p.Service = serviceRef(snap, svcKey)
 		return
@@ -393,6 +409,8 @@ func productConsumer(snap *fleet.FleetSnapshot, res *Result, c AffectedConsumer)
 		Resources:            slices.Clone(c.Resources),
 		ResourcesTotal:       c.ResourcesTotal,
 		Break:                c.Break,
+		Sources:              slices.Clone(c.Sources),
+		Client:               c.Client,
 	}
 }
 
@@ -665,6 +683,10 @@ func targetRef(snap *fleet.FleetSnapshot, key string) fleet.EntityRef {
 func pathRefs(snap *fleet.FleetSnapshot, keys []string) []fleet.EntityRef {
 	out := make([]fleet.EntityRef, 0, len(keys))
 	for _, k := range keys {
+		if id, ok := fleet.ParseExternalSubject(k); ok {
+			out = append(out, fleet.ExternalRef(snap, id))
+			continue
+		}
 		out = append(out, serviceRef(snap, fleet.ServiceKey(k)))
 	}
 	return out

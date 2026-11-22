@@ -15,10 +15,16 @@ const (
 	EventUnavailable = "unavailable"
 	EventRemoved     = "removed"
 	EventRegressed   = "regressed"
+	// EventChanged is a change of an external system; only with
+	// [Event.External].
+	EventChanged = "changed"
 
 	EffectBreaks     = "breaks"
 	EffectMayDegrade = "may-degrade"
 	EffectUnknown    = "unknown"
+	// EffectAttention: an external system the consumer uses changed; Pacto
+	// cannot say how, so the consumer reviews it.
+	EffectAttention = "attention"
 
 	MaxConsumerResources  = 20
 	MaxRegressionEvidence = 50
@@ -42,13 +48,17 @@ const EvidenceLifecycle = "lifecycle"
 
 // Event is a non-contract what-if: Service (a fleet service key) becomes
 // unavailable, is removed, or Revision of it regressed; or every provider of
-// Offering becomes unavailable or is removed.
+// Offering becomes unavailable or is removed; or the external system External
+// changes or becomes unavailable.
 type Event struct {
-	Kind    string `json:"kind" enum:"unavailable,removed,regressed" doc:"What happens to the service"`
+	Kind    string `json:"kind" enum:"unavailable,removed,regressed,changed" doc:"What happens to the service; changed only with external"`
 	Service string `json:"service" doc:"The fleet service key of the service; empty when the event is about an offering"`
 	// Offering, set instead of Service, makes the event about every service
 	// that provides the platform offering; only with unavailable or removed.
 	Offering string `json:"offering,omitempty" doc:"A platform offering: the event is about every service that provides it"`
+	// External, set instead of Service, makes the event about every service
+	// that uses the external system; only with changed or unavailable.
+	External string `json:"external,omitempty" doc:"An external system's identity: the event is about every service that uses it; changed or unavailable only"`
 	Revision string `json:"revision,omitempty" doc:"The revision that regressed: a version or an artifact digest"`
 }
 
@@ -81,7 +91,7 @@ func effectRank(e string) int {
 	switch e {
 	case EffectBreaks:
 		return 3
-	case EffectUnknown:
+	case EffectUnknown, EffectAttention:
 		return 2
 	case EffectMayDegrade:
 		return 1
@@ -220,8 +230,15 @@ func extendPaths(paths map[fleet.ServiceKey]map[string][]fleet.ServiceKey, n, to
 func analyzeEvent(snap *fleet.FleetSnapshot, opts Options) *Result {
 	ev := *opts.Event
 	q := fleet.NewQuery(snap)
+	if ev.Kind == EventChanged && ev.External == "" {
+		return newEventResult(snap, q, &ev, ev.Service+ev.Offering).partial(LimitationEventNeedsExternal,
+			"a change of a service or an offering is a contract change: compare its two revisions with pacto impact; changed is asked of an external system")
+	}
 	if ev.Offering != "" {
 		return analyzeOfferingEvent(snap, q, opts)
+	}
+	if ev.External != "" {
+		return analyzeExternalEvent(snap, q, opts)
 	}
 	subject := fleet.ServiceKey(ev.Service)
 	_, name := fleet.ParseServiceKey(subject)
@@ -480,6 +497,10 @@ func (r *Result) eventPhrase() string {
 // eventGate is the gate of an event answer. It never blocks: only a contract
 // change has a version a consumer can refuse.
 func (r *Result) eventGate() (string, string) {
+	// An external system is never verified, so nobody found is no proof.
+	if r.Event.External != "" {
+		return GateUnverified, r.externalGateReason()
+	}
 	gate, why := r.eventGateCore()
 	// An inferred name may miss every consumer, so nobody found is no proof.
 	if inferred := r.nameInferred(); inferred != "" && gate == GateClear {

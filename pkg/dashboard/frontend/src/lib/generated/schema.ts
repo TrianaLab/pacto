@@ -3665,6 +3665,18 @@ export interface components {
             signature: "verified" | "unverified" | "unsigned" | "unknown";
             signer?: string;
         };
+        "Fleet.ExternalClient": {
+            /**
+             * @description A client library in a manifest proves no call, so a client major is always possible
+             * @enum {string}
+             */
+            confidence: "possible";
+            /** Format: int64 */
+            major: number;
+            /** @description The consumer revision whose inferred record names it */
+            revision: string;
+            sdk: string;
+        };
         "Fleet.ExternalConsumer": {
             /**
              * @description How the use is known: declared when any contract declares it, else observed in traces, else inferred from configuration
@@ -6043,6 +6055,8 @@ export interface components {
         "Impact.AffectedConsumer": {
             /** @description Where the break the new revision announces for this consumer stands: announced, accepted (it never blocks) or expired */
             break?: components["schemas"]["Impact.BreakState"];
+            /** @description For an external answer: the client library and major the consumer's inferred record names; absent when none names a major */
+            client?: components["schemas"]["Fleet.ExternalClient"];
             compatibility?: string;
             compatibilityVerdict: string;
             confidence: string;
@@ -6051,10 +6065,10 @@ export interface components {
             direct: boolean;
             domain?: string;
             /**
-             * @description What the event does to this consumer: breaks (every hop of a path is a required dependency), may-degrade (every path holds an optional dependency) or unknown
+             * @description What the event does to this consumer: breaks (every hop of a path is a required dependency), may-degrade (every path holds an optional dependency), attention (an external system it uses changed) or unknown
              * @enum {string}
              */
-            effect?: "breaks" | "may-degrade" | "unknown";
+            effect?: "breaks" | "may-degrade" | "attention" | "unknown";
             /** @description The facts behind this consumer and their age: its targets, observed calls and unreachable findings, newest first */
             evidence?: components["schemas"]["Impact.Evidence"][] | null;
             nameInferred?: components["schemas"]["Contract.Inferred"];
@@ -6073,6 +6087,8 @@ export interface components {
              */
             resourcesTotal?: number;
             service: string;
+            /** @description For an external answer: where each use of the external system was seen */
+            sources?: ("declared" | "observed" | "pod-spec" | "repository")[] | null;
             status?: string;
             targets?: string[] | null;
             uncontracted?: boolean;
@@ -6153,11 +6169,13 @@ export interface components {
             owners: number;
         };
         "Impact.Event": {
+            /** @description An external system's identity: the event is about every service that uses it; changed or unavailable only */
+            external?: string;
             /**
-             * @description What happens to the service
+             * @description What happens to the service; changed only with external
              * @enum {string}
              */
-            kind: "unavailable" | "removed" | "regressed";
+            kind: "unavailable" | "removed" | "regressed" | "changed";
             /** @description A platform offering: the event is about every service that provides it */
             offering?: string;
             /** @description The revision that regressed: a version or an artifact digest */
@@ -6187,6 +6205,16 @@ export interface components {
             source?: string;
             /** @description The fact is older than 24h before the snapshot's asOf, or has no time, so it does not count as current */
             stale?: boolean;
+        };
+        "Impact.ExternalSubject": {
+            /** @description What changed between the two revisions of its inferred contract shown first; checked says whether this installation's operator signed both */
+            change?: components["schemas"]["Fleet.ExternalProviderChange"];
+            /** @description The catalog class: vendor-api, managed-cloud, legacy or unclassified; absent when the fleet holds no record of it */
+            class?: string;
+            /** @description The external system's canonical identity */
+            identity: string;
+            /** @description The pacto-inferred repository of its inferred contract; absent when none was read */
+            provider?: string;
         };
         "Impact.InferredAdvisory": {
             /** @description The breaking findings of the spec diff. Advisory: a possible break on an inferred interface, never part of the classification */
@@ -6314,6 +6342,8 @@ export interface components {
             consumerTallies: components["schemas"]["Impact.ConsumerTallies"];
             consumers: components["schemas"]["Impact.AffectedConsumer"][] | null;
             event?: components["schemas"]["Impact.Event"];
+            /** @description The external system an external event is about */
+            external?: components["schemas"]["Impact.ExternalSubject"];
             /** @enum {string} */
             gate: "blocked" | "unverified" | "clear";
             gateReason: string;
@@ -6332,6 +6362,8 @@ export interface components {
             oldVersion?: string;
             /** @description The canonical owner keys of the affected consumers */
             owners?: string[] | null;
+            /** @description YAML that pins a range on the external system for a consumer that declares none */
+            pin?: string;
             /** @description The range policy the answer was held to; absent on an event answer */
             policy?: components["schemas"]["Impact.Policy"];
             potentiallyBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
@@ -7107,6 +7139,8 @@ export interface components {
             consumers: components["schemas"]["ProductImpactConsumersPage"];
             /** @description The what-if this answer is about; absent for a contract change */
             event?: components["schemas"]["Impact.Event"];
+            /** @description The external system an external event is about; service is then the same external reference */
+            external?: components["schemas"]["Impact.ExternalSubject"];
             /** @enum {string} */
             gate: "blocked" | "unverified" | "clear";
             gateReason: string;
@@ -7119,6 +7153,8 @@ export interface components {
             offering?: components["schemas"]["ProductRef"];
             oldRevision?: components["schemas"]["ProductRef"];
             owners: components["schemas"]["ProductRefPreview"];
+            /** @description YAML that pins a range on the external system for a consumer that declares none */
+            pin?: string;
             /** @description The services that provide the offering of an offering event, each with its owner */
             providers?: components["schemas"]["ProductRef"][] | null;
             /** @description How many direct consumers declare a compatibility range or accepted one, and which ranges stay unknown; absent on an event answer */
@@ -7135,6 +7171,8 @@ export interface components {
             blocking?: boolean;
             /** @description Where the break the new revision announces for this consumer stands: announced, accepted (it never blocks) or expired */
             break?: components["schemas"]["Impact.BreakState"];
+            /** @description For an external answer: the client library and major the consumer's inferred record names; absent when none names a major */
+            client?: components["schemas"]["Fleet.ExternalClient"];
             compatibility?: string;
             compatibilityVerdict: string;
             confidence: string;
@@ -7142,10 +7180,10 @@ export interface components {
             depth: number;
             direct: boolean;
             /**
-             * @description What the event does to this consumer: breaks, may-degrade or unknown
+             * @description What the event does to this consumer: breaks, may-degrade, attention (an external system it uses changed) or unknown
              * @enum {string}
              */
-            effect?: "breaks" | "may-degrade" | "unknown";
+            effect?: "breaks" | "may-degrade" | "attention" | "unknown";
             /** @description The facts behind this consumer and their age, newest first */
             evidence?: components["schemas"]["Impact.Evidence"][] | null;
             note?: string;
@@ -7169,6 +7207,8 @@ export interface components {
              */
             resourcesTotal?: number;
             service: components["schemas"]["ProductRef"];
+            /** @description For an external answer: where each use of the external system was seen */
+            sources?: ("declared" | "observed" | "pod-spec" | "repository")[] | null;
             /** @description The keys of the listed targets whose evidence is older than 24h before asOf, has no time, is marked stale by its source or is missing from the snapshot */
             staleTargets?: string[] | null;
             targets?: components["schemas"]["ProductRef"][] | null;

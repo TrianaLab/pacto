@@ -90,7 +90,8 @@ func offeringProviders(snap *fleet.FleetSnapshot, offering string) []fleet.Servi
 
 // mergeEventConsumer adds c to rows, or folds it into the row for the same
 // service: the worst effect wins and carries its own path, depth, provenance,
-// confidence and note; edge types, resources and evidence are unioned. Policy
+// confidence and note; edge types, resources, evidence and an external
+// answer's sources are unioned, and the first client is kept. Policy
 // verdicts are left as they are (see [Result.mergeConsumer] for referrers).
 func mergeEventConsumer(rows []AffectedConsumer, c AffectedConsumer) []AffectedConsumer {
 	i := slices.IndexFunc(rows, func(e AffectedConsumer) bool { return e.Service == c.Service && e.Domain == c.Domain })
@@ -116,6 +117,15 @@ func mergeEventConsumer(rows []AffectedConsumer, c AffectedConsumer) []AffectedC
 		}
 	}
 	e.Evidence = boundEvidence(e.Evidence)
+	for _, s := range c.Sources {
+		if !slices.Contains(e.Sources, s) {
+			e.Sources = append(e.Sources, s)
+		}
+	}
+	slices.Sort(e.Sources)
+	if e.Client == nil {
+		e.Client = c.Client
+	}
 	return rows
 }
 
