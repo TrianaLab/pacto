@@ -21,6 +21,8 @@ const DOC_DIST = '../../../examples/demo/.doc-export';
 // The two legs partition the suite, so every spec runs exactly once.
 const LAYOUT = /[\\/]layout-matrix\.spec\.ts$/;
 const MOBILE = /mobile\.spec\.ts/;
+// The one WebKit smoke: the engine has to boot in Safari's smaller worker stack too.
+const WEBKIT = /[\\/]webkit\.spec\.ts$/;
 const leg = process.env.PW_LEG;
 if (leg && leg !== 'layout' && leg !== 'rest') throw new Error(`PW_LEG=${leg}: want layout or rest`);
 
@@ -48,9 +50,14 @@ export default defineConfig({
     {
       name: 'desktop',
       use: { ...devices['Desktop Chrome'] },
-      ...(leg === 'layout' ? { testMatch: LAYOUT } : { testIgnore: leg === 'rest' ? [MOBILE, LAYOUT] : MOBILE }),
+      ...(leg === 'layout' ? { testMatch: LAYOUT } : { testIgnore: leg === 'rest' ? [MOBILE, LAYOUT, WEBKIT] : [MOBILE, WEBKIT] }),
     },
-    ...(leg === 'layout' ? [] : [{ name: 'mobile', use: { ...devices['Pixel 5'] }, testMatch: MOBILE }]),
+    ...(leg === 'layout'
+      ? []
+      : [
+          { name: 'mobile', use: { ...devices['Pixel 5'] }, testMatch: MOBILE },
+          { name: 'webkit', use: { ...devices['iPhone 13'] }, testMatch: WEBKIT },
+        ]),
   ],
   webServer: [
     {

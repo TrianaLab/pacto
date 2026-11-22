@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"reflect"
+	"regexp/syntax"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -2349,5 +2350,18 @@ func TestGraphNodeNameInferred(t *testing.T) {
 	}
 	if len(g.Nodes) != 1 || g.Nodes[0].NameInferred == nil || g.Nodes[0].NameInferred.Source != "directory reports" {
 		t.Fatalf("nodes = %+v", g.Nodes)
+	}
+}
+
+// ValidClusterID bounds the length in code: a {0,252} repeat compiles to a
+// program deep enough to overflow a WebKit worker's call stack.
+func TestValidClusterIDBound(t *testing.T) {
+	id := "a" + strings.Repeat("b", 252)
+	if !ValidClusterID(id) || ValidClusterID(id+"c") || ValidClusterID(".a") || ValidClusterID("") {
+		t.Error("ValidClusterID must accept 1 to 253 id characters starting alphanumeric, and nothing else")
+	}
+	parsed, _ := syntax.Parse(validClusterIDPattern.String(), syntax.Perl)
+	if prog, _ := syntax.Compile(parsed.Simplify()); len(prog.Inst) > 300 {
+		t.Errorf("validClusterIDPattern compiles to %d instructions, want at most 300", len(prog.Inst))
 	}
 }

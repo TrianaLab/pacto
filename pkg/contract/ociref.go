@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -37,7 +38,9 @@ func InferredRef(ref string) (identity string, ok bool) {
 
 // validIdentity reports whether s has the shape of an external identity.
 func validIdentity(s string) bool {
-	return len(s) <= 253 && inferredIdentityRE.MatchString(s) && !strings.Contains(s, "..")
+	segs := strings.Split(s, "/")
+	return len(s) <= 253 && len(segs) <= 5 && !slices.ContainsFunc(segs, func(seg string) bool { return !identitySegmentRE.MatchString(seg) }) &&
+		!strings.Contains(s, "..")
 }
 
 // AnnotationProvenance is the manifest annotation that says how a contract
