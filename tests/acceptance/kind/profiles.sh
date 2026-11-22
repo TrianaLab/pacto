@@ -31,7 +31,7 @@
 #      and leaves nothing of the release.
 #   7. idp: release pacto-idp cluster-wide: the promoter and the managed
 #      dashboard run, and a pacto-viewer signed in reads installation profile
-#      [idp], delivery on and no MCP endpoint from GET /api/capabilities.
+#      [idp], delivery on and the MCP endpoint served from GET /api/capabilities.
 set -euo pipefail
 # shellcheck source=tests/acceptance/kind/lib.sh
 source "$(dirname "$0")/lib.sh"
@@ -233,15 +233,15 @@ SESSION="$(dash_token_login "$LOCAL_DASH_PORT" "$(kubectl -n "$IDP" create token
 [[ -n "$SESSION" && "$SESSION" != *" "* ]] || { kill "$DASH_PF" 2>/dev/null || true; fail "the pacto-viewer token did not sign in: $SESSION"; }
 installation() { curl -fsS -H "Cookie: __Host-pacto-session=$SESSION" "http://127.0.0.1:${LOCAL_DASH_PORT}/api/capabilities" | jq -c .installation; }
 idp_answer() {
-  installation | jq -e '.profile.value == ["idp"] and .delivery.enabled == true and .mcp.served == false' >/dev/null
+  installation | jq -e '.profile.value == ["idp"] and .delivery.enabled == true and .mcp.served == true' >/dev/null
 }
 eventually 40 idp_answer || {
   installation >&2 || true
   kill "$DASH_PF" 2>/dev/null || true
-  fail "GET /api/capabilities does not read installation profile [idp], delivery on and no MCP endpoint"
+  fail "GET /api/capabilities does not read installation profile [idp], delivery on and the MCP endpoint served"
 }
 kill "$DASH_PF" 2>/dev/null || true
-pass "GET /api/capabilities reads installation profile [idp], delivery enabled and mcp served false"
+pass "GET /api/capabilities reads installation profile [idp], delivery enabled and mcp served true"
 helm uninstall "$IDP" -n "$IDP" --wait >/dev/null
 helm_teardown "$IDP"
 kubectl delete ns "$DNS" --wait=false >/dev/null 2>&1 || true
