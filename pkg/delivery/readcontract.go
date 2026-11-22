@@ -245,6 +245,13 @@ func Snapshot(ctx context.Context, pactos []PactoView, listErr error, sides []Re
 // listErr is the error listing the Pactos, if any: Pacto cannot rule out a
 // consumer it could not list, so it makes the collection partial too.
 func PactoCollection(source string, pactos []PactoView, listErr error, now time.Time) *fleet.Collection {
+	return pactoCollection(source, pactos, listErr, now, false)
+}
+
+// pactoCollection is the body of [PactoCollection] and [LinkedCollection]:
+// linked says the views come from a linker, so a <Kind>/<name> view's link
+// labels are read (see viewLink).
+func pactoCollection(source string, pactos []PactoView, listErr error, now time.Time, linked bool) *fleet.Collection {
 	col := &fleet.Collection{}
 	if listErr != nil {
 		col.Limitations = append(col.Limitations, fleet.Limitation{
@@ -252,6 +259,13 @@ func PactoCollection(source string, pactos []PactoView, listErr error, now time.
 		})
 	}
 	for _, p := range pactos {
+		link, lim, drop := viewLink(source, p, linked)
+		if lim != nil {
+			col.Limitations = append(col.Limitations, *lim)
+		}
+		if drop {
+			continue
+		}
 		c := p.Status.Contract
 		if c == nil || c.ServiceName == "" {
 			col.Limitations = append(col.Limitations, fleet.Limitation{
@@ -271,7 +285,7 @@ func PactoCollection(source string, pactos []PactoView, listErr error, now time.
 			Scope: p.Metadata.Namespace, Kind: fleet.SourceKindKubernetes, Name: p.Metadata.Name,
 			Service: c.ServiceName, Domain: rev.Domain, ResolvedRef: c.ResolvedRef, Digest: digest,
 			Compliance: p.Status.ContractStatus, EvidenceAt: reconciled, ReconciledAt: reconciled,
-			Limitations: lims, Workload: p.Spec.Target.Workload(),
+			Limitations: lims, Workload: p.Spec.Target.Workload(), Link: link,
 		})
 		col.Observed = append(col.Observed, ObservedEdges(p)...)
 		col.ExternalUses = append(col.ExternalUses, ExternalUses(p, reconciled)...)
