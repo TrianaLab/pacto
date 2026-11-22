@@ -322,6 +322,9 @@ type RawTarget struct {
 	// CreatedAt is when the declaration that produced this target was
 	// created (a Pacto's metadata.creationTimestamp), nil when unknown.
 	CreatedAt *time.Time
+	// Link is set when the target is a workload the operator linked to a
+	// published contract with no Pacto.
+	Link *ObservedLink
 }
 
 // MemorySource is an in-memory [Source]. It is the substrate for tests, the

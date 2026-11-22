@@ -108,11 +108,14 @@ func NamesService(k, other ServiceKey) bool {
 type Replacement struct {
 	From ServiceKey `json:"from" doc:"The key of the inferred service that was replaced."`
 	To   ServiceKey `json:"to" doc:"The key of the declared service that replaced it."`
-	Link string     `json:"link" enum:"pacto-target,inferred-from" doc:"How the two are linked: pacto-target when a Pacto target runs as the workload, inferred-from when a person's accepted declaration names the inferred service."`
+	Link string     `json:"link" enum:"pacto-target,inferred-from,observed" doc:"How the two are linked: pacto-target when a Pacto target runs as the workload, inferred-from when a person's accepted declaration names the inferred service, observed when the running workload was linked to a published contract with no Pacto (image digest or annotation)."`
+	// Signal and Value say how an observed link was made.
+	Signal string `json:"signal,omitempty" enum:"image-digest,annotation" doc:"How an observed link was made: the running image digest or the pacto.trianalab.io/contract annotation."`
+	Value  string `json:"value,omitempty" doc:"The running image digest or the pacto.trianalab.io/contract value of an observed link."`
 	// Target is the target that links them.
-	Target TargetKey `json:"target,omitempty" doc:"The Pacto target that runs as the workload."`
+	Target TargetKey `json:"target,omitempty" doc:"The Pacto target that runs as the workload, or the linked target of an observed link."`
 	// At is nil on an inferred-from link, whose signed record carries no time.
-	At *time.Time `json:"at,omitempty" doc:"When the Pacto that links them was created; absent on an inferred-from link, whose signed record carries no time."`
+	At *time.Time `json:"at,omitempty" doc:"When the Pacto that links them was created, or when the operator first linked the workload; absent on an inferred-from link, whose signed record carries no time."`
 	// Revision and By name the declaration of an inferred-from link.
 	Revision RevisionKey `json:"revision,omitempty" doc:"The revision whose signed inferred record names the replaced service."`
 	By       string      `json:"by,omitempty" doc:"Who signed that revision, read from its verified signature."`
@@ -123,6 +126,24 @@ type Replacement struct {
 	// inferred service.
 	workload workloadKey
 }
+
+// ObservedLink is how the operator linked a running workload to a published
+// contract with no Pacto: by the image digest the workload runs, which the
+// contract's signed images record holds, or by the pacto.trianalab.io/contract
+// annotation the workload carries. It is observed evidence: the revision it
+// names stays declared.
+type ObservedLink struct {
+	Signal        string     `json:"signal" enum:"image-digest,annotation" doc:"How the workload was linked: the running image digest or the pacto.trianalab.io/contract annotation."`
+	Value         string     `json:"value" doc:"The running image digest, or the pacto.trianalab.io/contract value"`
+	Since         *time.Time `json:"since,omitempty" doc:"When the operator first linked this workload to this service"`
+	OtherVersions []string   `json:"otherVersions,omitempty" doc:"Other release versions of the service whose images record holds the same digest; the linked version is the newest and may be wrong"`
+}
+
+// The signals an [ObservedLink] is made by.
+const (
+	LinkSignalImageDigest = "image-digest"
+	LinkSignalAnnotation  = "annotation"
+)
 
 // ObservedResolution classifies how a raw observed (e.g. OpenTelemetry
 // service.name) name mapped onto the fleet's domain-qualified identities.
@@ -446,9 +467,13 @@ const (
 	// carries it, a Pacto target runs as that workload, or the claim
 	// contradicts where the service runs, so the inferred service stays.
 	LimitationInferredLinkIgnored = "INFERRED_LINK_IGNORED"
-	LimitationDuplicateSourceID   = "DUPLICATE_SOURCE_ID"
-	LimitationRevisionUnresolved  = "REVISION_IDENTITY_UNRESOLVED"
-	LimitationRevisionAmbiguous   = "REVISION_LINK_AMBIGUOUS"
+	// LimitationLinkVersionAmbiguous: the image digest a linked workload
+	// runs is recorded by several release versions of its service; the
+	// newest is linked and may be wrong, so the target is never verified.
+	LimitationLinkVersionAmbiguous = "LINK_VERSION_AMBIGUOUS"
+	LimitationDuplicateSourceID    = "DUPLICATE_SOURCE_ID"
+	LimitationRevisionUnresolved   = "REVISION_IDENTITY_UNRESOLVED"
+	LimitationRevisionAmbiguous    = "REVISION_LINK_AMBIGUOUS"
 	// LimitationRevisionDocConflict: two sources contributed the same immutable
 	// revision but disagree about its documents (a different set of paths, or the
 	// same path with different content). There is no honest way to pick a winner —
@@ -1154,6 +1179,9 @@ type TargetRecord struct {
 	ClusterNameReportedBy string       `json:"clusterNameReportedBy,omitempty" doc:"The source that reported the cluster name; empty when this process read it itself."`
 	ClusterRelation       string       `json:"clusterRelation,omitempty" enum:"runs-in,reported-through" doc:"runs-in when a Kubernetes source read the target in the cluster; reported-through when the cluster only reported it."`
 	Limitations           []Limitation `json:"limitations,omitempty"`
+	// Link is set when the target is a workload the operator linked to a
+	// published contract with no Pacto.
+	Link *ObservedLink `json:"link,omitempty" doc:"Set when the target is a workload the operator linked to a published contract with no Pacto."`
 	// labels is the bounded projection of Labels, computed once by boundTargetLabels
 	// after ingestion. Labels itself has to stay a raw map because TargetQuery filters
 	// on it, so this is the only way the detail path can honor the same

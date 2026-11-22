@@ -170,6 +170,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	linkTargets(snap)
 	inferred = replaceInferred(snap, inferred)
 	inferred = replaceByInferredFrom(snap, inferred)
+	inferred = replaceByObservedLink(snap, inferred)
 	revalidateConfigRefs(snap)
 	aggregateServices(snap)
 	addInferredServices(snap, inferred)
@@ -1796,6 +1797,9 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 		t.workload = &WorkloadRef{Kind: raw.Workload.Kind, Name: raw.Workload.Name}
 	}
 	t.createdAt = copyTime(raw.CreatedAt)
+	if l := raw.Link; l != nil {
+		t.Link = &ObservedLink{Signal: l.Signal, Value: l.Value, Since: copyTime(l.Since), OtherVersions: slices.Clone(l.OtherVersions)}
+	}
 	t.reportedDomains, t.domainKnown = reportedDomainsFrom(raw)
 	t.reportedOfferings, t.reportedSummaries = reportedValue(raw.Offering, validBusinessDomain), reportedValue(raw.Summary, validSummary)
 	var recordInvalid []Limitation

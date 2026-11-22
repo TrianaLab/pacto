@@ -3890,6 +3890,22 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        "Fleet.ObservedLink": {
+            /** @description Other release versions of the service whose images record holds the same digest; the linked version is the newest and may be wrong */
+            otherVersions?: string[] | null;
+            /**
+             * @description How the workload was linked: the running image digest or the pacto.trianalab.io/contract annotation.
+             * @enum {string}
+             */
+            signal: "image-digest" | "annotation";
+            /**
+             * Format: date-time
+             * @description When the operator first linked this workload to this service
+             */
+            since?: string;
+            /** @description The running image digest, or the pacto.trianalab.io/contract value */
+            value: string;
+        };
         "Fleet.ObservedSourceStat": {
             /** Format: int64 */
             count: number;
@@ -4515,7 +4531,7 @@ export interface components {
         "Fleet.Replacement": {
             /**
              * Format: date-time
-             * @description When the Pacto that links them was created; absent on an inferred-from link, whose signed record carries no time.
+             * @description When the Pacto that links them was created, or when the operator first linked the workload; absent on an inferred-from link, whose signed record carries no time.
              */
             at?: string;
             /** @description Who signed that revision, read from its verified signature. */
@@ -4523,16 +4539,23 @@ export interface components {
             /** @description The key of the inferred service that was replaced. */
             from: string;
             /**
-             * @description How the two are linked: pacto-target when a Pacto target runs as the workload, inferred-from when a person's accepted declaration names the inferred service.
+             * @description How the two are linked: pacto-target when a Pacto target runs as the workload, inferred-from when a person's accepted declaration names the inferred service, observed when the running workload was linked to a published contract with no Pacto (image digest or annotation).
              * @enum {string}
              */
-            link: "pacto-target" | "inferred-from";
+            link: "pacto-target" | "inferred-from" | "observed";
             /** @description The revision whose signed inferred record names the replaced service. */
             revision?: string;
-            /** @description The Pacto target that runs as the workload. */
+            /**
+             * @description How an observed link was made: the running image digest or the pacto.trianalab.io/contract annotation.
+             * @enum {string}
+             */
+            signal?: "image-digest" | "annotation";
+            /** @description The Pacto target that runs as the workload, or the linked target of an observed link. */
             target?: string;
             /** @description The key of the declared service that replaced it. */
             to: string;
+            /** @description The running image digest or the pacto.trianalab.io/contract value of an observed link. */
+            value?: string;
             /** @description What the replaced inferred service showed, when Pacto read its workload. */
             workload?: components["schemas"]["Fleet.InferredWorkload"];
         };
@@ -4924,6 +4947,8 @@ export interface components {
                 [key: string]: string;
             };
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
+            /** @description Set when the target is a workload the operator linked to a published contract with no Pacto. */
+            link?: components["schemas"]["Fleet.ObservedLink"];
             name: string;
             observedRuntime: components["schemas"]["Fleet.RuntimePreview"];
             owner?: components["schemas"]["Contract.Owner"];

@@ -485,7 +485,7 @@ func observedPass(snap *FleetSnapshot, wk workloadKey, to ServiceKey) {
 	if _, done := snap.replacedNames[K8sCaller(wk.cluster, wk.namespace, wk.kind, wk.name)]; done || len(targetsOf(wk, targeting, unknown)) > 0 {
 		return
 	}
-	handOver(snap, wk, to, Replacement{Link: "observed"}, nil)
+	handOver(snap, wk, to, Replacement{Link: linkObserved}, nil)
 }
 
 var invoicesWK = workloadKey{namespace: "billing", kind: "Deployment", name: "invoices"}
@@ -493,7 +493,7 @@ var invoicesWK = workloadKey{namespace: "billing", kind: "Deployment", name: "in
 func TestHandOverAnyLinkFiresReplacement(t *testing.T) {
 	snap := handSnap(t, nil, nil, false)
 	observedPass(snap, invoicesWK, "ledger")
-	if len(snap.Replacements) != 1 || snap.Replacements[0].Link != "observed" || snap.Replacements[0].To != "ledger" || snap.Replacements[0].From != NewServiceKey(invoicesName) {
+	if len(snap.Replacements) != 1 || snap.Replacements[0].Link != linkObserved || snap.Replacements[0].To != "ledger" || snap.Replacements[0].From != NewServiceKey(invoicesName) {
 		t.Errorf("replacements %+v", snap.Replacements)
 	}
 	if k, res := snap.ObservedNameResolver()(invoicesName); k != "ledger" || res != ObservedResolved {
@@ -501,7 +501,7 @@ func TestHandOverAnyLinkFiresReplacement(t *testing.T) {
 	}
 	// An input whose identity is invalid shows nothing.
 	bad := workloadKey{namespace: "billing", kind: "Deployment", name: "bad"}
-	handOver(snap, bad, "ledger", Replacement{Link: "observed"}, []inferredInput{{source: "w", raw: rawInferred("billing", "Deployment", "")}})
+	handOver(snap, bad, "ledger", Replacement{Link: linkObserved}, []inferredInput{{source: "w", raw: rawInferred("billing", "Deployment", "")}})
 	if len(snap.Replacements) != 2 || snap.Replacements[1].Workload != nil {
 		t.Errorf("replacements %+v", snap.Replacements)
 	}
