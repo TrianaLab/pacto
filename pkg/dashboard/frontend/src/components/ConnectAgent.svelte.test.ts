@@ -15,7 +15,10 @@ function render(props: Record<string, unknown>) {
   return target.querySelector('[data-testid="connect-agent"]') as HTMLDetailsElement | null;
 }
 
-beforeEach(() => { session.data = null; target = document.createElement('div'); document.body.appendChild(target); });
+const TOKEN_SIGN_IN = { mode: 'shared', login: false, tokenLogin: true, signedIn: true } as never;
+const ISSUER = 'this dashboard, at https://pacto.example.com/mcp; your MCP client signs in with https://dex.example.com';
+
+beforeEach(() => { session.data = TOKEN_SIGN_IN; target = document.createElement('div'); document.body.appendChild(target); });
 afterEach(() => { unmount(component); target.remove(); });
 
 describe('ConnectAgent', () => {
@@ -35,9 +38,21 @@ describe('ConnectAgent', () => {
   });
 
   it('names the namespace of a pacto-viewer session in the token line', () => {
-    session.data = { mode: 'shared', signedIn: true, user: 'system:serviceaccount:pacto:pacto-viewer' } as never;
+    session.data = { mode: 'shared', tokenLogin: true, signedIn: true, user: 'system:serviceaccount:pacto:pacto-viewer' } as never;
     const d = render({ mcp: { served: true }, origin: 'http://127.0.0.1:3000' });
     expect(d!.textContent).toContain('kubectl -n pacto create token pacto-viewer');
+  });
+
+  it('offers no Kubernetes-token recipe when /mcp takes issuer tokens only', () => {
+    session.data = { mode: 'shared', login: true, signedIn: true, method: 'oidc' } as never;
+    const d = render({ mcp: { served: true, source: ISSUER }, origin: 'http://127.0.0.1:8080' });
+    expect(d!.querySelector('summary')!.textContent?.trim()).toBe('Connect an agent');
+    expect(d!.querySelector('[data-testid="connect-agent-source"]')?.textContent).toBe(ISSUER);
+    expect(d!.textContent).not.toContain('kubectl');
+    expect(d!.textContent).not.toContain('127.0.0.1');
+    expect(d!.querySelector('pre')).toBeNull();
+    expect(d!.textContent).toContain('signs in with your identity provider');
+    expect(d!.querySelector('a')?.getAttribute('href')).toBe('https://pacto.run/latest/mcp-integration/#connect-to-an-installed-pacto');
   });
 
   it('says where an MCP server lives when the host serves none', () => {

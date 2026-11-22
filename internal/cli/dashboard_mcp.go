@@ -45,8 +45,19 @@ func mountDashboardMCP(v *viper.Viper, svc *app.Service, version string, repos [
 	if err != nil {
 		return "", err
 	}
-	opts.Outside, opts.MCPServed, opts.MCPSource = outside, true, dashboardMCPSource
+	opts.Outside, opts.MCPServed, opts.MCPSource = outside, true, dashboardMCPSourceFor(v, id)
 	return "MCP: " + cmp.Or(v.GetString("dashboard.mcp-url"), "/mcp") + "\n", nil
+}
+
+// dashboardMCPSourceFor is installation.mcp's source: without token sign-in
+// /mcp takes only issuer tokens, at the fixed URL they name as audience, so
+// the source says so and the Data sources line shows no Kubernetes-token
+// recipe.
+func dashboardMCPSourceFor(v *viper.Viper, id *dashboardIdentity) string {
+	if id.audience != nil {
+		return dashboardMCPSource
+	}
+	return "this dashboard, at " + v.GetString("dashboard.mcp-url") + "; your MCP client signs in with " + v.GetString("dashboard.oidc-issuer-url")
 }
 
 // newDashboardMCP builds the dashboard's /mcp endpoint and its RFC 9728

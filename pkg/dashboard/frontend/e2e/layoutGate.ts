@@ -133,10 +133,14 @@ export function installScaleFixture(): void {
     const meta = doc.meta as Record<string, unknown> | undefined;
     if (meta && meta.sourceCounts) meta.sourceCounts = { ...SOURCE_COUNTS };
     if (route === '/api/capabilities' && statsMode() !== 'engine') doc.stats = statsMode() !== 'off';
-    // 510-S9: `sessionStorage['fixture.mcp'] = 'served'` answers as a dashboard that serves /mcp,
-    // so the Connect an agent line shows its URL and snippet instead of the demo's text.
+    // 510-S9: `sessionStorage['fixture.mcp'] = 'served'` answers as a token sign-in dashboard that
+    // serves /mcp (a signed-in pacto-viewer), so the Connect an agent line shows its URL and
+    // snippet instead of the demo's text. `issuer` answers as an issuer-only dashboard: /mcp at
+    // a fixed (long) URL, and no Kubernetes-token recipe.
     const inst = doc.installation as Record<string, unknown> | undefined;
     if (route === '/api/capabilities' && inst && mcpMode() === 'served') inst.mcp = { ...(inst.mcp as object), served: true, source: 'this dashboard, at /mcp' };
+    if (route === '/api/session' && mcpMode() === 'served') Object.assign(doc, { mode: 'shared', tokenLogin: true, signedIn: true, method: 'token', user: 'system:serviceaccount:pacto:pacto-viewer' });
+    if (route === '/api/capabilities' && inst && mcpMode() === 'issuer') inst.mcp = { ...(inst.mcp as object), served: true, source: ISSUER_MCP_SOURCE };
     // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
     // keeps the engine's total: the fixture leaves the tallies that link to it (an
     // offering's phases, the non-compliant rankings) alone.
@@ -1126,6 +1130,8 @@ export function installScaleFixture(): void {
   // demo's own run records, #493 S5).
   const statsMode = () => { try { return sessionStorage.getItem('fixture.stats') ?? ''; } catch { return ''; } };
   const mcpMode = () => { try { return sessionStorage.getItem('fixture.mcp') ?? ''; } catch { return ''; } };
+  // An issuer-only /mcp at its longest: a 200-character fixed URL and issuer.
+  const ISSUER_MCP_SOURCE = `this dashboard, at https://${'pacto-'.repeat(31)}example/mcp; your MCP client signs in with https://${'dex-'.repeat(45)}example`;
   // `restricted` serves what a signed-in reader with a narrow view gets: the hidden line,
   // no coverage history. Unset serves a recorded window at the size
   // `sessionStorage['fixture.stats.envs']` picks, read on every call (#597): `5` a small
@@ -2879,6 +2885,22 @@ export const ROUTES: Route[] = [
   { name: 'services list, multi-cluster', list: true, open: openMultiCluster('#/fleet/services') },
   { name: 'targets list, multi-cluster filter', list: true, open: openMultiCluster('#/fleet/targets?cluster=5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11') },
   { name: 'sources, multi-cluster scope', list: true, open: openMultiCluster('#/fleet/sources', '[data-testid="source-clusters"]') },
+  // 510-S9: the Connect an agent line open, as an issuer-only dashboard answers it.
+  {
+    name: 'sources, connect-agent issuer',
+    list: true,
+    open: async (page) => {
+      await page.goto('/#/fleet/sources');
+      await page.evaluate(() => sessionStorage.setItem('fixture.mcp', 'issuer'));
+      await page.reload();
+      const d = page.getByTestId('connect-agent');
+      await expect(d).toBeAttached({ timeout: 30_000 });
+      await d.evaluate((el) => { (el as HTMLDetailsElement).open = true; });
+      await expect(d.getByTestId('connect-agent-source')).toContainText('your MCP client signs in with');
+      await expect(d).not.toContainText('kubectl');
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
   // 510-S9: the Connect an agent line open, as a dashboard that serves /mcp answers it.
   {
     name: 'sources, connect-agent open',

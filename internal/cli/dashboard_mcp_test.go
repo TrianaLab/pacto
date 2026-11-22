@@ -374,6 +374,25 @@ func TestDashboardMCPExchangeNeedsURL(t *testing.T) {
 	expect(t, errors.Is(err, errMCPExchangeNeedsIssuer), "exchange without an issuer: %v", err)
 }
 
+// TestDashboardMCPSourceNamesTheIssuerPath: with token sign-in the source
+// stays the token path's; issuer-only, it names the fixed URL and the issuer,
+// so the Data sources line offers no Kubernetes-token recipe.
+func TestDashboardMCPSourceNamesTheIssuerPath(t *testing.T) {
+	w, _ := issuerWorld(t, true)
+	expect(t, dashboardMCPSourceFor(w.v, w.id) == dashboardMCPSource, "token sign-in: %q", dashboardMCPSourceFor(w.v, w.id))
+	w = newDashMCPWorld(t, func(v *viper.Viper) {
+		v.Set("dashboard.token-login", false)
+		v.Set("dashboard.oidc-issuer-url", dashIssuer)
+		v.Set("dashboard.oidc-client-id", "pacto-dashboard")
+		v.Set("dashboard.oidc-redirect-url", "https://pacto.example/auth/callback")
+		v.Set("dashboard.mcp-url", "https://pacto.example/mcp")
+		v.Set("dashboard.mcp-exchange-audience", "kube")
+	})
+	_ = w.mcp(t)
+	got := dashboardMCPSourceFor(w.v, w.id)
+	expect(t, got == "this dashboard, at https://pacto.example/mcp; your MCP client signs in with "+dashIssuer, "issuer only: %q", got)
+}
+
 // TestDashboardMCPNoUsablePath: an issuer without token sign-in and without
 // an exchange audience has no way to name callers to the cluster.
 func TestDashboardMCPNoUsablePath(t *testing.T) {
