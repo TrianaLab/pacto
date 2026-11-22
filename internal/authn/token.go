@@ -141,12 +141,21 @@ func DashboardTokenReview(audience AudienceCheck, bearer TokenReview) TokenRevie
 // audience comes from the token's issuer. The dashboard's browser sign-in keeps
 // DashboardTokenReview, where a ServiceAccount session is always a link. An
 // audience-only ServiceAccount token stays a fleet-only reader here too.
+//
+// Only an authentication refusal (401) from the bearer check sends the token
+// on to the audience review. Any other bearer error (a timeout, a 429, a 5xx)
+// is ErrReviewUnavailable: never a cached fleet-only verdict, and a person's
+// token is never posted in a TokenReview body because the API server did not
+// answer.
 func MCPTokenReview(audience AudienceCheck, bearer TokenReview) TokenReview {
 	return func(ctx context.Context, token string) (Reviewed, error) {
 		r, berr := bearer(ctx, token)
 		if berr == nil && !isServiceAccount(r.Person.User) {
 			r.Bearer = true
 			return r, nil
+		}
+		if berr != nil && !apierrors.IsUnauthorized(berr) {
+			return Reviewed{}, fmt.Errorf("%w: %w", ErrReviewUnavailable, berr)
 		}
 		link, aerr := audience(ctx, token)
 		if aerr == nil && isServiceAccount(link.Person.User) {
@@ -359,7 +368,7 @@ func refuseReviewed(rv Reviewed, err error, link bool) string {
 	var refusal *TokenRefusal
 	var both *notAccepted
 	switch {
-	case errors.As(err, &refusal) || errors.Is(err, ErrTokenReviewForbidden):
+	case errors.As(err, &refusal) || errors.Is(err, ErrTokenReviewForbidden) || errors.Is(err, ErrReviewUnavailable):
 		return err.Error()
 	case errors.As(err, &both) && !errors.Is(both.audience, errNotForAudience):
 		return "the dashboard could not review this token: " + both.audience.Error()

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/rest"
 
 	"github.com/trianalab/pacto/v4/pkg/logging"
@@ -21,7 +22,9 @@ import (
 
 var (
 	agentSA   = Person{User: "system:serviceaccount:agents:ci-bot", Groups: []string{"system:serviceaccounts"}}
-	errBearer = errors.New("Unauthorized")
+	errBearer = apierrors.NewUnauthorized("Unauthorized")
+	// errThrottled is the API server not answering: no refusal of the token.
+	errThrottled = apierrors.NewTooManyRequests("throttled", 1)
 )
 
 // answers is a fixed answer from one side of MCPTokenReview, counting calls.
@@ -45,6 +48,7 @@ func TestMCPTokenReviewMatrix(t *testing.T) {
 		user          string
 		credential    bool
 		wantErr       string
+		serverSide    bool // a 500, not a 401: the token may be fine
 		reviewed      bool // the audience review ran
 		bearerChecked bool
 	}{
@@ -63,7 +67,13 @@ func TestMCPTokenReviewMatrix(t *testing.T) {
 		{name: "person not accepted", aud: answers{r: Reviewed{Person: personAnn}}, bearer: answers{err: errBearer},
 			wantErr: "did not accept this token", reviewed: true, bearerChecked: true},
 		{name: "review forbidden", aud: answers{err: errReviewDenied}, bearer: answers{err: errBearer},
-			wantErr: "may not review tokens", reviewed: true, bearerChecked: true},
+			wantErr: "may not review tokens", serverSide: true, reviewed: true, bearerChecked: true},
+		{name: "SA dual, bearer check throttled", aud: answers{r: Reviewed{Person: agentSA}}, bearer: answers{err: errThrottled},
+			wantErr: "did not answer", serverSide: true, bearerChecked: true},
+		{name: "person, bearer check times out", token: "k8s-aws-v1.opaque", aud: answers{r: Reviewed{Person: personAnn}},
+			bearer: answers{err: context.DeadlineExceeded}, wantErr: "did not answer", serverSide: true, bearerChecked: true},
+		{name: "review unreachable", aud: answers{err: errors.New("dial tcp: connection refused")}, bearer: answers{err: errBearer},
+			wantErr: "could not review", serverSide: true, reviewed: true, bearerChecked: true},
 		{name: "garbage", token: "not-a-token", aud: answers{err: errNotAudience}, bearer: answers{err: errBearer},
 			wantErr: "did not accept this token", reviewed: true, bearerChecked: true},
 		{name: "oversized", token: strings.Repeat("a", maxTokenBody+1), wantErr: "too large or expired"},
@@ -78,7 +88,8 @@ func TestMCPTokenReviewMatrix(t *testing.T) {
 			expect(t, c.aud.calls > 0 == c.reviewed && c.bearer.calls > 0 == c.bearerChecked,
 				"audience asked %d, bearer asked %d", c.aud.calls, c.bearer.calls)
 			if c.wantErr != "" {
-				expect(t, err != nil && strings.Contains(err.Error(), c.wantErr) && errors.Is(err, auth.ErrInvalidToken), "refusal %v", err)
+				expect(t, err != nil && strings.Contains(err.Error(), c.wantErr) && errors.Is(err, auth.ErrInvalidToken) != c.serverSide, "refusal %v", err)
+				expect(t, len(m.cache) == 0, "a failure is never cached")
 				return
 			}
 			expect(t, err == nil && info.UserID == c.user && (&TokenMCP{}).PersonOf(info).User == c.user, "verified %+v %v", info, err)

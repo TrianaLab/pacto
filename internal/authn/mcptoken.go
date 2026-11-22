@@ -25,6 +25,11 @@ var ErrNoCredential = errors.New("this token reads the fleet only: it is no cred
 // sign in again.
 var ErrReviewBusy = errors.New("too many token reviews in flight; retry")
 
+// ErrReviewUnavailable is a token the API server did not answer about (a
+// timeout, a 429, a 5xx). Like ErrReviewBusy it never wraps
+// auth.ErrInvalidToken and is never cached: the client should retry.
+var ErrReviewUnavailable = errors.New("the API server did not answer about this token; retry")
+
 const (
 	// tokenMCPCacheTTL is the longest a verdict is reused before the API
 	// server is asked again, so a revoked token stops working within it.
@@ -135,9 +140,22 @@ func (m *TokenMCP) reviewOnce(ctx context.Context, r *http.Request, token string
 	rv, err := m.review(ctx, token)
 	if why := refuseReviewed(rv, err, false); why != "" {
 		Refused(ctx, r, "remote MCP refused a token", "reason", why)
+		if reviewFailed(err) {
+			return tokenVerdict{}, errors.New(why) // a 500: the token may be fine
+		}
 		return tokenVerdict{}, fmt.Errorf("%w: %s", auth.ErrInvalidToken, why)
 	}
 	return tokenVerdict{person: rv.Person, bearer: rv.Bearer, until: until}, nil
+}
+
+// reviewFailed reports a review the dashboard could not finish (the API
+// server did not answer, or the dashboard may not review tokens), as opposed
+// to a token the cluster refused: only a refusal tells the client to sign in
+// again.
+func reviewFailed(err error) bool {
+	var both *notAccepted
+	return errors.Is(err, ErrReviewUnavailable) || errors.Is(err, ErrTokenReviewForbidden) ||
+		errors.As(err, &both) && !errors.Is(both.audience, errNotForAudience)
 }
 
 // CanExchange is always true: Exchange decides per caller.
