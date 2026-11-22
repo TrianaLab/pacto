@@ -139,8 +139,8 @@ pacto-operator    1/1     1            1           21s
 
 `1/1` means more than "the process started". Readiness is
 `GET /api/evidence/v1/ready`, which answers `503` until **every** exact
-subject resolves, every subject prefix's ledger can be listed *and* each
-registry has been probed once. A `pacto-evidence` stuck at `0/1` is nearly
+subject resolves (a live manifest check on every call), every subject
+prefix's ledger can be listed *and* each registry has been probed once. A `pacto-evidence` stuck at `0/1` is nearly
 always a subject the cluster cannot pull or a registry the probe cannot
 classify. Read the server's own log:
 

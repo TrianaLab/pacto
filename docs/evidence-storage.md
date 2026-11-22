@@ -22,7 +22,7 @@ The probed mode of each registry is the `Registry <host>` row in [Detected provi
 oras discover --distribution-spec v1.1-referrers-api <repo>@sha256:<digest>
 ```
 
-A registry that serves Referrers answers `GET /v2/<name>/referrers/<digest>` with **HTTP 200** and an OCI image index; one that serves none answers `404`. When the probe cannot tell, the server stays not ready and refuses writes with `503`: an unknown answer never becomes a storage mode. Pacto never writes the shared `sha256-<digest>` referrers tag. Records in both placements are always read, so a registry that starts serving Referrers keeps its earlier records.
+A registry that serves Referrers answers `GET /v2/<name>/referrers/<digest>` with **HTTP 200** and an OCI image index; one that serves none answers `404`. When the probe cannot tell, the server stays not ready and refuses writes with `503`: an unknown answer never becomes a storage mode. Pacto never writes the shared `sha256-<digest>` referrers tag. Records in both placements are always read, so a registry that starts serving Referrers keeps its earlier records. The probe answer lasts for the life of the process: if a registry stops serving Referrers while the server runs, reads fail closed until a restart probes it again.
 
 An exact subject on a registry without Referrers needs a subject prefix that covers it. Uncovered, the server stays not ready with `registry <host> serves no OCI Referrers: add a subject prefix covering <ref> to store its evidence as write-once tags in <prefix>pacto-evidence`.
 

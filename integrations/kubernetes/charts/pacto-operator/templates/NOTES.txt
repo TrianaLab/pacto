@@ -235,7 +235,9 @@ Registry: {{ . }}
     {{ . }}
 {{- end }}
   Outside them only referrers are written, by digest onto an existing
-  manifest: the Evidence Server's records and the recorder's.
+  manifest: the Evidence Server's records and the recorder's
+{{- if include "pacto-operator.evidenceLedgers" $ | fromYamlArray }}, plus the
+  Evidence Server's subject ledger tags named below{{ end }}.
   Pull on {{ . }}/pacto-targets reads every namespace's Pacto status and
   workload shape regardless of Kubernetes RBAC and, with evidence.enabled, every
   target, provisioning and usage record (cost included) the Evidence Server

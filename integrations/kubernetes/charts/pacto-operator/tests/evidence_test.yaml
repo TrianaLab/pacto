@@ -193,6 +193,8 @@ tests:
       - matchRegexRaw:
           pattern: "only\\n?\\s*its subject ledgers:\\n\\s+zot\\.acme\\.internal/acme/pacto-evidence"
       - matchRegexRaw:
+          pattern: "the recorder's, plus the\\n\\s+Evidence Server's subject ledger tags named below\\."
+      - matchRegexRaw:
           pattern: "set allowedContractRepos per key in a trust config"
 
   - it: NOTES drops the unscoped-keys sentence with a trust config
@@ -211,13 +213,16 @@ tests:
   - it: NOTES names no ledger with only subjects
     template: templates/NOTES.txt
     set:
+      registry: ghcr.io/acme
       evidence.enabled: true
       evidence.trust.existingSecret: my-keys
       evidence.registry.subjects:
         - oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111
     asserts:
+      - matchRegexRaw:
+          pattern: "the Evidence Server's records and the recorder's\\.\\n"
       - notMatchRegexRaw:
-          pattern: "subject ledgers"
+          pattern: "subject ledger"
 
   # --- RBAC ---
   # A fresh install grants no storage permission at all. Regaining PVC RBAC would

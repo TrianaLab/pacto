@@ -155,7 +155,7 @@ The ingestion host mounts five endpoints under `/api/evidence/v1`.
 |---------------|---------|---------|
 | `POST /api/evidence/v1/envelopes` | Accept, verify, de-duplicate, evaluate and store one envelope. | `202 Accepted` with `{ id, compliance, findings, acceptedAt }` |
 | `GET /api/evidence/v1/health` | Liveness. Independent of the registry. | `200 OK` with `{ "status": "ok" }` |
-| `GET /api/evidence/v1/ready` | Readiness. `503` until every exact subject resolves, every subject prefix's ledger can be listed and each registry has been probed once. | `200 OK` with `{ "status": "ready" }` |
+| `GET /api/evidence/v1/ready` | Readiness. `503` until every exact subject resolves (a live manifest check on every call), every subject prefix's ledger can be listed and each registry has been probed once. | `200 OK` with `{ "status": "ready" }` |
 | `GET /api/evidence/v1/producers` | List the trusted producer ids the host advertises. | `200 OK` with `{ "producers": [ … ] }` |
 | `GET /api/evidence/v1/targets` | The latest accepted report per target for a read-only HTTP evidence source, plus the latest provisioning reports. | `200 OK` with the versioned targets DTO: schema `pacto.dev/evidence-source/v5` when it carries a cluster, `pacto.dev/evidence-source/v4` when it carries `usage` records, `pacto.dev/evidence-source/v3` when it carries `provisioning` records, `pacto.dev/evidence-source/v2` otherwise |
 
