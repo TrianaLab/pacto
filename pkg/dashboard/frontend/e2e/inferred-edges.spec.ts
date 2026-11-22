@@ -8,7 +8,9 @@ import { appReady } from './ready';
 // no contract for days before the Pacto was created.
 
 const T = 20_000;
-const REPLACED = 'k8s:prod%2FDeployment%2Fexperiments';
+// The demo is a hub with members (514-S3), so an inferred key names its cluster.
+const HUB = '5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11';
+const REPLACED = `k8s:${HUB}%2Fprod%2FDeployment%2Fexperiments`;
 
 test.describe('WASM demo: inferred edges and replaced services', () => {
   test('the graph draws a call one end of which has no contract as inferred and says so in the drawer', async ({ page }) => {
@@ -28,7 +30,7 @@ test.describe('WASM demo: inferred edges and replaced services', () => {
     await edge.click();
     const drawer = page.getByTestId('graph-drawer');
     await expect(drawer).toContainText('Seen at runtime, no contract');
-    await expect(drawer.getByTestId('edge-difference-description')).toContainText(/^No contract describes k8s:shop\/CronJob\/nightly-export\. Seen by k8s-production\. No contract declares this call/);
+    await expect(drawer.getByTestId('edge-difference-description')).toContainText(/^No contract describes k8s:5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11\/shop\/CronJob\/nightly-export\. Seen by k8s-production\. No contract declares this call/);
   });
 
   test('the service page carries one muted Replaces line with its details in the tooltip', async ({ page }) => {
@@ -36,10 +38,10 @@ test.describe('WASM demo: inferred edges and replaced services', () => {
     await appReady(page, '/#/fleet/services/experiment-service');
 
     const line = page.getByTestId('service-replaces');
-    await expect(line).toContainText(/Replaces k8s:prod\/Deployment\/experiments · (\d+ minutes?|just now)/, { timeout: T });
-    await expect(line.locator('bdi')).toHaveAttribute('title', 'k8s:prod/Deployment/experiments');
+    await expect(line).toContainText(/Replaces k8s:5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11\/prod\/Deployment\/experiments · (\d+ minutes?|just now)/, { timeout: T });
+    await expect(line.locator('bdi')).toHaveAttribute('title', `k8s:${HUB}/prod/Deployment/experiments`);
     await line.getByRole('button', { name: 'About Replaces' }).click();
-    await expect(line.getByRole('note')).toContainText('Linked by the Pacto target prod/Deployment/experiment-service, which runs as the workload.');
+    await expect(line.getByRole('note')).toContainText('Linked by the Pacto target 5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11/prod/Deployment/experiment-service, which runs as the workload.');
   });
 
   test('the key of the replaced inferred service opens the declared service with one notice line', async ({ page }) => {
@@ -48,7 +50,7 @@ test.describe('WASM demo: inferred edges and replaced services', () => {
 
     const notice = page.getByTestId('entity-replaced-from');
     await expect(notice).toHaveCount(1, { timeout: T });
-    await expect(notice).toContainText(/^k8s:prod\/Deployment\/experiments was replaced by experiment-service .*, linked by Pacto prod\/Deployment\/experiment-service$/);
+    await expect(notice).toContainText(/^k8s:5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11\/prod\/Deployment\/experiments was replaced by experiment-service .*, linked by Pacto 5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11\/prod\/Deployment\/experiment-service$/);
     await expect(page.getByTestId('inferred-workload')).toHaveCount(0);
     await expect(page.getByTestId('service-contract')).toBeVisible();
   });

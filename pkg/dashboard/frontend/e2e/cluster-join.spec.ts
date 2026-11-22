@@ -4,8 +4,9 @@ import { installScaleFixture } from './layoutGate';
 
 // 514-S3: on a hub, Data sources' Clusters block lists the pending members with their
 // name and its source, the environments they seem to host, their key and an [Approve]
-// that hands the person the exact command. The demo reads no joins, so the join list
-// comes from the scale fixture behind __pactoClusterJoin.
+// that hands the person the exact command. The demo is a hub with two members and one
+// pending cluster; the wide and restricted lists come from the scale fixture behind
+// __pactoClusterJoin.
 
 const KEY = '91ab'.repeat(16);
 
@@ -61,10 +62,25 @@ test('removed members stay collapsed until opened', async ({ page }) => {
   await expect(name).toBeVisible();
 });
 
-test('a host with no join reader shows no error and no Clusters block', async ({ page }) => {
+test('a host with no join reader keeps the Clusters block without join rows or an error', async ({ page }) => {
   await joins(page, 'off');
-  await expect(page.getByTestId('source-list')).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByTestId('source-clusters')).toHaveCount(0);
+  await expect(page.getByTestId('source-clusters')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('cluster-join-row')).toHaveCount(0);
   await expect(page.getByTestId('cluster-join-error')).toHaveCount(0);
   await expect(page.locator('[role="alert"]')).toHaveCount(0);
+});
+
+test('the demo without the flag renders the block with ap-dev pending and two members', async ({ page }) => {
+  await appReady(page);
+  await page.goto('/#/fleet/sources');
+  const block = page.getByTestId('source-clusters');
+  await expect(block).toBeVisible({ timeout: 30_000 });
+  await expect(block).toContainText('eu-prod');
+  await expect(block).toContainText('us-west');
+  const rows = page.getByTestId('cluster-join-row');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first().locator('.sc-name')).toHaveText('ap-dev');
+  await expect(rows.first().locator('.sc-hosts')).toContainText('hosts: dev');
+  await expect(rows.first()).toContainText('no approval yet');
+  await expect(rows.first().getByRole('button', { name: /^Approve/ })).toBeVisible();
 });

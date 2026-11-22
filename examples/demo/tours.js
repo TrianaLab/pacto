@@ -83,7 +83,7 @@
   // for, because a tour that sits there wanting something it has not named is a wall.
   var FLEET_TOUR = [{
     title: "The guided tour",
-    text: NOTICE + " The tour asks fifteen questions about this fleet and opens the screen that answers each one, so press Continue to start.",
+    text: NOTICE + " The tour asks sixteen questions about this fleet and opens the screen that answers each one, so press Continue to start.",
     hash: "#/fleet",
     target: "#ov-answer"
   }, {
@@ -252,6 +252,13 @@
     hash: "#/fleet/services/inventory-service",
     target: "#sec-observed-traffic-and-differences"
   }, {
+    // Only something to read: the demo cluster is a hub, and its Clusters block lists
+    // the members that joined through the registry and the one waiting for a person.
+    title: "Which clusters report here?",
+    text: "This cluster is a hub: eu-prod and us-west joined it through the registry once a person approved their keys, and ap-dev waits under Clusters until someone who may approve it runs the command its Approve button shows.",
+    hash: "#/fleet/sources",
+    target: '[data-testid="source-clusters"]'
+  }, {
     // Also only something to read: the row says what the path gives and how many
     // services were created from it.
     title: "Where do new services start?",
@@ -288,7 +295,7 @@
     }
   }, {
     title: "Recap",
-    text: "You have now seen what runs, what state it is in, whether a change breaks anyone, what happens if a service goes away or regresses, who a change reaches, who owns a service and when its changes reached a Stage, what a provider promises, where new services start and whether a platform offering is available and who can move off it, all from contracts and observations.",
+    text: "You have now seen what runs, what state it is in, whether a change breaks anyone, what happens if a service goes away or regresses, who a change reaches, who owns a service and when its changes reached a Stage, what a provider promises, which clusters report here, where new services start and whether a platform offering is available and who can move off it, all from contracts and observations.",
     href: "../examples/demo-tour/",
     linkText: "The same questions from a terminal"
   }];
@@ -614,7 +621,7 @@
   }, {
     title: "Act from what you found",
     text: "On this page of payments in prod, from ticket CHG-2077, 3.0.0 runs with its check still Unknown, so press Plan undo right here, where you found it.",
-    hash: "#/fleet/targets/prod%2FDeployment%2Fpayments?correlationID=" + INVESTIGATION,
+    hash: "#/fleet/targets/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fprod%2FDeployment%2Fpayments?correlationID=" + INVESTIGATION,
     target: PLAN_UNDO,
     wait: "Waiting for the undo plan to open.",
     gate: function () { return !!q('[data-testid="undo-panel"]'); },
@@ -622,7 +629,7 @@
   }, {
     title: "Act from what you found",
     text: "Press Plan this roll back: the plan carries ticket CHG-2077 from the page address and would put back 2.3.0, and nothing is proposed until a person proposes it.",
-    hash: "#/fleet/targets/prod%2FDeployment%2Fpayments?correlationID=" + INVESTIGATION,
+    hash: "#/fleet/targets/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fprod%2FDeployment%2Fpayments?correlationID=" + INVESTIGATION,
     target: [PLAN_THIS, TICKET],
     wait: "Waiting for the plan to carry the ticket.",
     hold: true,

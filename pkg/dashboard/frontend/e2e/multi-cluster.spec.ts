@@ -4,8 +4,8 @@ import { installScaleFixture } from './layoutGate';
 
 // 514-S2: with two or more clusters the Services and Targets lists filter by cluster and
 // caption the clusters the answer cannot show, and Data sources lists each cluster's
-// status. The demo reads one cluster, so the seven-cluster answer comes from the scale
-// fixture behind __pactoMultiCluster; without the flag neither the filter nor the block shows.
+// status. The seven-cluster answer comes from the scale fixture behind __pactoMultiCluster;
+// the demo itself is a hub with two members (514-S3).
 
 const DEMO = '5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11';
 const HIDDEN = '9f1c4e2a-7f1a-4c55-9d1e-2b8a4e6f0a12';
@@ -63,15 +63,18 @@ test('Data sources lists every cluster with its status word and reason', async (
   await expect(page.getByTestId('source-clusters')).toContainText('Showing the 7 least healthy clusters.');
 });
 
-test('the demo reads one cluster and shows neither the filter nor the Clusters block', async ({ page }) => {
+test('the demo is a hub and shows the filter and the Clusters block with its members', async ({ page }) => {
   await appReady(page);
   await page.goto('/#/fleet/services');
   await expect(page.getByTestId('service-list')).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByLabel('Filter by cluster')).toHaveCount(0);
+  await expect(page.getByLabel('Filter by cluster')).toBeVisible();
   await page.goto('/#/fleet/targets');
   await expect(page.getByTestId('entity-list')).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByLabel('Filter by cluster')).toHaveCount(0);
+  await expect(page.getByLabel('Filter by cluster')).toBeVisible();
   await page.goto('/#/fleet/sources');
-  await expect(page.getByTestId('source-list')).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByTestId('source-clusters')).toHaveCount(0);
+  const block = page.getByTestId('source-clusters');
+  await expect(block).toBeVisible({ timeout: 30_000 });
+  await expect(block).toContainText('eu-prod');
+  await expect(block).toContainText('us-west');
+  await expect(page.getByTestId('cluster-join-row')).toContainText('ap-dev');
 });

@@ -22,8 +22,8 @@ import { settle } from './ready';
 
 const flat = (s: string | null) => (s ?? '').replace(/\s+/g, ' ').trim();
 
-/** The demo fleet: 7 available, 1 partial (registry-mirror), 1 unavailable (edge-cluster). */
-const DEMO_SOURCES = 9;
+/** The demo fleet: 9 available (two of them the hub's members), 1 partial (registry-mirror), 1 unavailable (edge-cluster). */
+const DEMO_SOURCES = 11;
 
 async function overviewSources(page: Page) {
   const band = page.locator('#sec-sources');
@@ -61,13 +61,13 @@ test.describe('the overview leads to the data sources', () => {
     // The trust figure counts the sources by state (one carrier per fact, L3), so the
     // section states no second tally; its chips name the sources and agree with the
     // inventory. Each source that needs a look keeps its own chip; more than three
-    // healthy ones fold into one "7 available" chip.
+    // healthy ones fold into one "9 available" chip.
     await expect(band.locator('.ov-tally')).toHaveCount(0);
     await expect(page.locator('#fig-trust .src-n').last()).toHaveText(String(DEMO_SOURCES - 2));
 
     const chips = band.locator('a.sh-chip');
     await expect(chips).toHaveCount(3);
-    await expect(band.getByTestId('sources-healthy')).toHaveText(/7 available/);
+    await expect(band.getByTestId('sources-healthy')).toHaveText(/9 available/);
     await expect(band.getByTestId('sources-healthy')).toHaveAttribute('href', /#\/fleet\/sources\?.*sourceHealth=available/);
     // Least healthy first, so the source that costs you data is the first one read.
     expect(flat(await chips.first().textContent())).toContain('Unavailable');
