@@ -12,7 +12,9 @@ Words in links are defined in the [glossary](glossary.md): [MCP](glossary.md#mcp
 
 ## Connect your agent
 
-Install the `pacto` command first ([Installation](installation.md)) and
+With the [Kubernetes operator](integrations/kubernetes/installation.md)
+installed, [connect to it](#connect-to-an-installed-pacto) instead. For a
+local server, install the `pacto` command first ([Installation](installation.md)) and
 check that `pacto version` works. Every agent then starts `pacto mcp` and
 talks to it over its standard input and output. Pick yours:
 
@@ -66,6 +68,98 @@ talks to it over its standard input and output. Pick yours:
 
 That starts the default server. To pick another, add its flag to `args`, for
 example `["mcp", "--delivery"]`.
+
+## Connect to an installed Pacto
+
+The operator's managed dashboard also serves MCP at `/mcp`, in the same
+process and with the same sign-in. One entry gives the agent your
+organization's context (services, owners and what runs), the impact of a
+change on its consumers and, where delivery is on, the Stages and the changes
+through them. The install notes print the URL and a token for the read-only
+`pacto-viewer` ServiceAccount:
+
+```bash
+export PACTO_TOKEN=$(kubectl -n pacto-operator-system create token pacto-viewer --audience pacto-dashboard --duration 1h)
+kubectl -n pacto-operator-system port-forward svc/pacto-dashboard 3000:3000
+```
+
+=== "Claude Code"
+
+    ```json
+    {
+      "mcpServers": {
+        "pacto": {
+          "type": "http",
+          "url": "http://127.0.0.1:3000/mcp",
+          "headers": { "Authorization": "Bearer ${PACTO_TOKEN}" }
+        }
+      }
+    }
+    ```
+
+=== "Cursor"
+
+    ```json
+    {
+      "mcpServers": {
+        "pacto": {
+          "url": "http://127.0.0.1:3000/mcp",
+          "headers": { "Authorization": "Bearer ${env:PACTO_TOKEN}" }
+        }
+      }
+    }
+    ```
+
+=== "GitHub Copilot"
+
+    ```json
+    {
+      "servers": {
+        "pacto": {
+          "type": "http",
+          "url": "http://127.0.0.1:3000/mcp",
+          "headers": { "Authorization": "Bearer ${env:PACTO_TOKEN}" }
+        }
+      }
+    }
+    ```
+
+Behind an Ingress or HTTPRoute, use its host instead. What the agent may do
+follows its token:
+
+| Token | The agent can |
+|---|---|
+| `pacto-viewer`, or any ServiceAccount token minted with `--audience pacto-dashboard` only | Read the fleet. `pacto_capabilities` answers `caller.fleetOnly: true` and a `hint` naming the audience to add |
+| A ServiceAccount token minted with `--audience pacto-dashboard` and the cluster's own audience | Read the fleet and delivery, and propose and cancel changes as that ServiceAccount |
+| A person's own token the cluster accepts, such as an OIDC ID token or an EKS token | Read the fleet and delivery as that person |
+| A token from your issuer, with `dashboard.mcp.exchangeAudience` set | Act as the identity the exchanged token names |
+
+Nobody gets an approve tool.
+
+**Agents that propose.** Give the agent its own ServiceAccount, bind it to
+`pacto-operator-delivery-agent` and mint its token for both audiences:
+
+```bash
+kubectl create clusterrolebinding my-agent-delivery \
+  --clusterrole=pacto-operator-delivery-agent --serviceaccount=agents:my-agent
+AUD=$(kubectl -n agents create token my-agent |
+  jq -rR 'split(".")[1] | gsub("-";"+") | gsub("_";"/") | @base64d | fromjson | .aud[0]')
+export PACTO_TOKEN=$(kubectl -n agents create token my-agent \
+  --audience pacto-dashboard --audience "$AUD" --duration 1h)
+```
+
+**Your issuer.** With `dashboard.auth.oidc` set, `dashboard.mcp.exchangeAudience`
+makes the dashboard accept tokens your issuer minted for the MCP URL and
+exchange them with its own OIDC client (RFC 8693) for one the API server
+accepts. The URL must be fixed: `dashboard.mcp.url`, an Ingress host or an
+HTTPRoute hostname. The metadata at `/.well-known/oauth-protected-resource/mcp`
+names the issuer, so a client that supports MCP authorization signs in by
+itself.
+
+To turn the endpoint off, set `dashboard.mcp.enabled=false`. `profile:
+hardened` runs no managed dashboard, so it serves no `/mcp`. A dashboard you
+run yourself serves it with `pacto dashboard --mcp`. See
+[MCP at /mcp](integrations/kubernetes/dashboard-authentication.md#mcp-at-mcp).
 
 ## Pick what the agent may do
 
@@ -174,7 +268,9 @@ change.
 | `pacto_delivery_caller`, `pacto_delivery_inbox`, `pacto_delivery_environments`, `pacto_delivery_autonomy`, `pacto_delivery_published`, `pacto_delivery_refusals`, `pacto_delivery_trust` | `--delivery` | Read: what the dashboard's delivery views show, with the caller's identity |
 | `pacto_delivery_operation_propose`, `pacto_delivery_cancel` | `--delivery`, agents only | Ask for or cancel a change |
 
-Pacto skips any API operation named `pacto_*`, so the prefix always means a
+Over HTTP, from `pacto mcp -t http` or the dashboard's `/mcp`, the contract
+file tools are left out, and the dashboard's `/mcp` serves no `pacto_stats`.
+No server has an approve tool. Pacto skips any API operation named `pacto_*`, so the prefix always means a
 Pacto tool. Inputs and outputs are in the [MCP reference](mcp-reference.md).
 
 ## Try it
