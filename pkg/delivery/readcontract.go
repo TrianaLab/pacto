@@ -438,6 +438,7 @@ var coverageReasons = map[string]string{
 	"gateway-log-format":       "the egress gateway's access log is in a format the operator cannot read",
 	"gateway-access-log-off":   "the egress gateway writes no access log",
 	"gateway-log-unreadable":   "the operator could not read the egress gateway's access log",
+	"gateway-log-truncated":    "the egress gateway logged more lines than the operator reads, so some calls were not read",
 }
 
 // InitClusterCommand is the command a hold prints to draft a contract for an

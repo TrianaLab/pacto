@@ -98,6 +98,7 @@ reasons are:
 | `gateway-access-log-off` | an egress gateway wrote no access log line in the window |
 | `gateway-log-format` | more than half of the log lines could not be read |
 | `gateway-log-unreadable` | the operator could not read a gateway log |
+| `gateway-log-truncated` | a gateway read hit its 2000-line or 1 MiB bound before it covered the window |
 | `cilium-unreadable` | the Cilium policies could not be read |
 | `fqdn-pattern-unbounded` | a `toFQDNs` pattern such as `*` names no registrable domain |
 
@@ -120,8 +121,13 @@ With `on` the chart grants `pods/log get` and `pods list` in a Role in
 `istio=egressgateway` in `istio-system` that a Deployment there owns. Once a
 minute it reads the last 2000 lines, at most 1 MiB, of each gateway's
 `istio-proxy` container. A line counts when its downstream address is the IP
-of a target pod and it was logged after that pod started. Istio writes no
-access log by default.
+of a target pod, it was logged after that pod started and the gateway sent it
+upstream: a line with no upstream host or a refusal flag such as `NR` or `RBAC`
+names no call. The operator reads Istio's default format, as text or JSON, and
+skips a text line whose fields do not all have their expected shape. Istio
+writes no access log by default. The operator reads gateway logs only with
+kernel evidence on; with `on` and kernel evidence off the `egress-gateway` row
+is partial.
 
 ## Mesh egress
 

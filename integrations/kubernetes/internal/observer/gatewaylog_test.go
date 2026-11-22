@@ -298,3 +298,73 @@ func TestGatewayLogUnreadablePartial(t *testing.T) {
 	_, cov = egressFixture().gatewayRun(t, newGatewayLogs(t, srv, &at))
 	wantEgressCoverage(t, cov, pactoapi.CallerCoveragePartial, "gateway-log-unreadable")
 }
+
+// TestGatewayLogSpacedServerNameCannotForgeTheCaller: the server name is the client's and logged unquoted,
+// so a name with spaces that writes another pod's address where the caller's sits is never read.
+func TestGatewayLogSpacedServerNameCannotForgeTheCaller(t *testing.T) {
+	forged := strings.Replace(textLine, "10.0.0.5:51234 api.stripe.com -", "10.0.0.66:51234 pad 10.0.0.5:40000 c2.attacker.example -", 1)
+	if got, ok := parseAccessLine(forged); ok {
+		t.Fatalf("parse = %+v, want unparseable", got)
+	}
+	for _, line := range []string{
+		// Same count, a server name that is no hostname.
+		strings.Replace(textLine, " api.stripe.com -", " api.stripe.com/x -", 1),
+		strings.Replace(textLine, "10.1.0.9:40000", "pad", 1),
+		strings.Replace(jsonLine, `"requested_server_name":null`, `"requested_server_name":"a b.example"`, 1),
+		strings.Replace(jsonLine, `"upstream_host":"54.1.1.1:443"`, `"upstream_host":"nowhere"`, 1),
+	} {
+		if got, ok := parseAccessLine(line); ok {
+			t.Errorf("parse(%q) = %+v, want unparseable", line, got)
+		}
+	}
+}
+
+// TestGatewayLogRefusedCallIsNoEgress: a call the gateway refused (no route, an RBAC denial, no upstream)
+// never left the cluster, so it names no external, and it is no unparseable line either.
+func TestGatewayLogRefusedCallIsNoEgress(t *testing.T) {
+	refused := []string{
+		strings.Replace(textLine, `"- - -" 0 - -`, `"- - -" 0 NR route_not_found`, 1),
+		strings.Replace(textLine, `"- - -" 0 - -`, `"- - -" 403 RBAC rbac_access_denied`, 1),
+		strings.Replace(textLine, `"54.1.1.1:443"`, `"-"`, 1),
+		strings.Replace(jsonLine, `}`, `,"response_flags":"UH,UF"}`, 1),
+	}
+	for _, line := range refused {
+		if l, ok := parseAccessLine(line); !ok || !l.refused {
+			t.Errorf("parse(%q) = %+v %v, want a refused line", line, l, ok)
+		}
+	}
+	srv := &gatewayServer{pods: []corev1.Pod{gatewayPod(detect.GatewayNamespace, "gw-1")}, logs: strings.Join(refused, "\n") + "\n"}
+	at := kNow
+	got, cov := egressFixture().gatewayRun(t, newGatewayLogs(t, srv, &at))
+	if len(got) != 0 {
+		t.Fatalf("egress = %+v, want none from refused calls", got)
+	}
+	wantEgressCoverage(t, cov, pactoapi.CallerCoverageComplete, "")
+}
+
+// TestGatewayLogTruncatedReadPartial: a read that hit the tail before it covered the window, or the byte
+// limit, lowers the coverage.
+func TestGatewayLogTruncatedReadPartial(t *testing.T) {
+	from := kNow.Add(-5 * time.Minute)
+	for _, c := range []struct {
+		size, lines int
+		oldest      time.Time
+		want        bool
+	}{
+		{100, 10, kNow.Add(-time.Second), false},
+		{gatewayLimitBytes, 10, kNow.Add(-time.Second), true},
+		{100, gatewayTailLines, kNow.Add(-time.Second), true},
+		{100, gatewayTailLines, from.Add(-time.Second), false},
+	} {
+		if got := truncatedRead(c.size, c.lines, c.oldest, from); got != c.want {
+			t.Errorf("truncatedRead(%d, %d, %v) = %v, want %v", c.size, c.lines, c.oldest, got, c.want)
+		}
+	}
+	srv := &gatewayServer{pods: []corev1.Pod{gatewayPod(detect.GatewayNamespace, "gw-1")}, logs: strings.Repeat(textLine+"\n", gatewayTailLines)}
+	at := kNow
+	got, cov := egressFixture().gatewayRun(t, newGatewayLogs(t, srv, &at))
+	if len(got) != 1 {
+		t.Fatalf("the lines read still count: %+v", got)
+	}
+	wantEgressCoverage(t, cov, pactoapi.CallerCoveragePartial, "gateway-log-truncated")
+}

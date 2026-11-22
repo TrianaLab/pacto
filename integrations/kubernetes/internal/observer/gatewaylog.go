@@ -88,7 +88,9 @@ func (g *GatewayLogs) read(ctx context.Context, window time.Duration) gatewayRea
 
 // fetch reads the access log tail of every trusted gateway pod. A list or log it cannot read gives
 // gateway-log-unreadable, a pod with no line in the window gateway-access-log-off (Istio writes no access log
-// by default) and a pod whose lines are mostly unparseable gateway-log-format.
+// by default), a pod whose lines are mostly unparseable gateway-log-format and a read cut by its bounds
+// before it covered the window gateway-log-truncated. A refused call (no upstream picked, or a flag of a
+// local refusal) is a parsed line that names no call.
 func (g *GatewayLogs) fetch(ctx context.Context, window time.Duration) gatewayRead {
 	pods, err := g.client.Pods(detect.GatewayNamespace).List(ctx, metav1.ListOptions{LabelSelector: gatewayLabel})
 	if err != nil {
@@ -110,15 +112,22 @@ func (g *GatewayLogs) fetch(ctx context.Context, window time.Duration) gatewayRe
 			continue
 		}
 		total, bad := 0, 0
+		oldest := g.now()
 		for line := range strings.Lines(string(raw)) {
 			if strings.TrimSpace(line) == "" {
 				continue
 			}
 			total++
-			if l, ok := parseAccessLine(line); ok {
-				out.lines = append(out.lines, l)
-			} else {
+			l, ok := parseAccessLine(line)
+			if !ok {
 				bad++
+				continue
+			}
+			if l.start.Before(oldest) {
+				oldest = l.start
+			}
+			if !l.refused {
+				out.lines = append(out.lines, l)
 			}
 		}
 		switch {
@@ -127,8 +136,17 @@ func (g *GatewayLogs) fetch(ctx context.Context, window time.Duration) gatewayRe
 		case bad*2 > total:
 			out.reasons = append(out.reasons, "gateway-log-format")
 		}
+		if truncatedRead(len(raw), total, oldest, g.now().Add(-window)) {
+			out.reasons = append(out.reasons, "gateway-log-truncated")
+		}
 	}
 	return out
+}
+
+// truncatedRead reports whether a read of size bytes and lines hit a bound before it covered the window
+// since from: the byte limit cuts the newest lines, the tail drops lines older than the last 2000.
+func truncatedRead(size, lines int, oldest, from time.Time) bool {
+	return size >= gatewayLimitBytes || (lines >= gatewayTailLines && oldest.After(from))
 }
 
 // deploymentOwned reports whether p's controller is a ReplicaSet of a Deployment, named
@@ -139,14 +157,22 @@ func deploymentOwned(p *corev1.Pod) bool {
 	return o != nil && o.Kind == "ReplicaSet" && hash != "" && strings.HasSuffix(o.Name, "-"+hash)
 }
 
-// accessLine is one gateway access log line: when the call started, the address it came from and the host
-// and port it left for.
+// accessLine is one gateway access log line: when the call started, the address it came from, the host
+// and port it left for and whether the gateway refused it.
 type accessLine struct {
 	start      time.Time
 	downstream netip.Addr
 	host       string
 	port       int32
+	refused    bool
 }
+
+// istioTextFields is the field count of Istio's default text access log format.
+const istioTextFields = 22
+
+// refusalFlags are the Envoy response flags of a call the gateway refused or never sent: no route, no
+// healthy upstream, upstream connection failure, retry limit, RBAC denial and no cluster.
+var refusalFlags = []string{"NR", "UH", "UF", "URX", "RBAC", "NC"}
 
 // parseAccessLine reads one line of Istio's default access log format, as text or as its JSON encoding.
 // A line with no start time, no downstream address or no host is unparseable.
@@ -159,21 +185,42 @@ func parseAccessLine(line string) (accessLine, bool) {
 			Authority  string `json:"authority"`
 			SNI        string `json:"requested_server_name"`
 			Upstream   string `json:"upstream_host"`
+			Flags      string `json:"response_flags"`
 		}
 		if json.Unmarshal([]byte(line), &j) != nil {
 			return accessLine{}, false
 		}
-		return newAccessLine(j.Start, j.Downstream, j.Authority, j.SNI, j.Upstream)
+		return newAccessLine(j.Start, j.Downstream, j.Authority, j.SNI, j.Upstream, j.Flags)
 	}
-	// [START_TIME] "METHOD PATH PROTOCOL" ... "AUTHORITY" "UPSTREAM_HOST" UPSTREAM_CLUSTER UPSTREAM_LOCAL
-	// DOWNSTREAM_LOCAL DOWNSTREAM_REMOTE REQUESTED_SERVER_NAME ROUTE_NAME: read from the end, so a release
-	// that adds a field in the middle still parses.
+	// [START_TIME] "METHOD PATH PROTOCOL" RESPONSE_CODE RESPONSE_FLAGS ... "AUTHORITY" "UPSTREAM_HOST"
+	// UPSTREAM_CLUSTER UPSTREAM_LOCAL DOWNSTREAM_LOCAL DOWNSTREAM_REMOTE REQUESTED_SERVER_NAME ROUTE_NAME.
+	// The server name is the client's and logged unquoted, so a name with spaces would shift every field:
+	// only the exact field count with every address field an address (or "-") is read.
 	f := accessFields(line)
-	if !strings.HasPrefix(line, "[") || len(f) < 21 {
+	if !strings.HasPrefix(line, "[") || len(f) != istioTextFields ||
+		slices.ContainsFunc(f[17:20], func(a string) bool { return !isAddrOrDash(a) }) {
 		return accessLine{}, false
 	}
-	n := len(f)
-	return newAccessLine(f[0], f[n-3], f[n-8], f[n-2], f[n-7])
+	return newAccessLine(f[0], f[19], f[14], f[20], f[15], f[3])
+}
+
+// isAddrOrDash reports whether s is an address and port or "-".
+func isAddrOrDash(s string) bool {
+	_, err := netip.ParseAddrPort(s)
+	return s == "-" || err == nil
+}
+
+// isLDHHost reports whether s is a hostname of letters, digits and hyphens.
+func isLDHHost(s string) bool {
+	if s == "" || len(s) > 253 {
+		return false
+	}
+	for label := range strings.SplitSeq(s, ".") {
+		if label == "" || len(label) > 63 || strings.Trim(strings.ToLower(label), "abcdefghijklmnopqrstuvwxyz0123456789-") != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // accessFields splits a text access line into its fields: a [bracketed] or "quoted" field is one field.
@@ -198,8 +245,10 @@ func accessFields(line string) []string {
 }
 
 // newAccessLine builds a line from its fields: the host is the TLS server name when there is one, else the
-// authority without its port; the port is the upstream host's, else the authority's.
-func newAccessLine(start, downstream, authority, sni, upstream string) (accessLine, bool) {
+// authority without its port; the port is the upstream host's, else the authority's. A server name that is
+// no hostname, or an upstream that is neither an address nor "-", makes the line unparseable; a line with no
+// upstream or with a refusal flag is refused.
+func newAccessLine(start, downstream, authority, sni, upstream, flags string) (accessLine, bool) {
 	t, err := time.Parse(time.RFC3339Nano, start)
 	if err != nil {
 		return accessLine{}, false
@@ -212,11 +261,17 @@ func newAccessLine(start, downstream, authority, sni, upstream string) (accessLi
 	if h, p, err := net.SplitHostPort(authority); err == nil {
 		authHost, authPort = h, p
 	}
+	if (dash(sni) != "" && !isLDHHost(sni)) || (upstream != "" && !isAddrOrDash(upstream)) {
+		return accessLine{}, false
+	}
 	host := strings.ToLower(cmp.Or(dash(sni), dash(authHost)))
 	if host == "" {
 		return accessLine{}, false
 	}
-	l := accessLine{start: t, downstream: ds.Addr().Unmap(), host: host}
+	l := accessLine{start: t, downstream: ds.Addr().Unmap(), host: host, refused: dash(upstream) == ""}
+	for flag := range strings.SplitSeq(flags, ",") {
+		l.refused = l.refused || slices.Contains(refusalFlags, flag)
+	}
 	if up, err := netip.ParseAddrPort(upstream); err == nil {
 		l.port = int32(up.Port())
 	} else if p, err := netip.ParseAddrPort("0.0.0.0:" + authPort); err == nil {
