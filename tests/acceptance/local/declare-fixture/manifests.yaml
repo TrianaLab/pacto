@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    team: billing
+  name: invoices
+spec:
+  selector:
+    matchLabels:
+      app: invoices
+  template:
+    metadata:
+      labels:
+        app: invoices
+    spec:
+      containers:
+        - env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: DB_PASSWORD
+                  name: invoices-env
+          image: reg.io/acme/invoices:1.0.0
+          name: invoices
+          ports:
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: invoices
+spec:
+  ports:
+    - port: 80
+      targetPort: 8080
+  selector:
+    app: invoices

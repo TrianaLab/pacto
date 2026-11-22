@@ -113,6 +113,8 @@ func newDeclareWorld(t *testing.T) *declareWorld {
 	t.Cleanup(srv.Close)
 	w := &declareWorld{host: strings.TrimPrefix(srv.URL, "http://"), dyn: declareCluster(), kubeconfig: new(int)}
 	t.Setenv("PACTO_INSECURE_REGISTRIES", w.host)
+	// The repository read builds its own client from the kubeconfig: none.
+	t.Setenv("KUBECONFIG", filepath.Join(t.TempDir(), "none"))
 	old := initDynamic
 	t.Cleanup(func() { initDynamic = old })
 	initDynamic = func() (dynamic.Interface, error) { *w.kubeconfig++; return w.dyn, nil }

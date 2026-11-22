@@ -91,14 +91,14 @@ func TestCleanRepoURLStripsCredentials(t *testing.T) {
 		"oauth2:glpat-SECRET@gitlab.com:group/repo.git": "gitlab.com:group/repo.git",
 		"github.com:org/repo@v1":                        "github.com:org/repo@v1",
 	} {
-		if got, ok := cleanRepoURL(in); !ok || got != want {
-			t.Errorf("cleanRepoURL(%q) = %q, %v; want %q", in, got, ok, want)
+		if got, ok := CleanRepoURL(in); !ok || got != want {
+			t.Errorf("CleanRepoURL(%q) = %q, %v; want %q", in, got, ok, want)
 		}
 	}
 	for _, in := range []string{"", "https://github.com/a\x00b", "https://[::1", "https://h/%zz", "file:///repo", "not a url", "relative/path", "host:", ":path", "a/b:c",
 		"https:user:pw@host", "deploy:tok@git.example.com/x", "a@b:"} {
-		if got, ok := cleanRepoURL(in); ok {
-			t.Errorf("cleanRepoURL(%q) = %q, want refused", in, got)
+		if got, ok := CleanRepoURL(in); ok {
+			t.Errorf("CleanRepoURL(%q) = %q, want refused", in, got)
 		}
 	}
 }

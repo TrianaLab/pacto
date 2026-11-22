@@ -38,7 +38,30 @@ function signedBy(d: S['Fleet.DeclarationView']): string {
   return d.claimedSubject ? `Claims ${d.claimedSubject}; signature not checked or not by that signer.` : 'Signature not checked.';
 }
 
-/** The mark's note: signer and issuer, baseline, accepted ranges and hidden counts. */
+/** A repository rung or folder rung in words, as pacto declare prints it. */
+const RUNG: Record<string, string> = {
+  given: 'given', 'signed-provenance': 'signed provenance', gitops: 'GitOps source',
+  'image-label': 'image label', 'repository-map': 'repository map', default: 'no source names the folder; pass --folder',
+};
+
+/** A CI signer's subject as pacto declare names it: the workflow or pipeline file at its ref. */
+function signerLabel(subject: string): string {
+  const wf = subject.split('/.github/workflows/');
+  if (wf.length > 1) return `workflow ${wf.slice(1).join('/.github/workflows/')}`;
+  const rest = subject.split('://').slice(1).join('://');
+  const at = rest.indexOf('//');
+  return at >= 0 ? `pipeline ${rest.slice(at + 2)}` : subject;
+}
+
+/** Where the declared service's source lives and how Pacto found it. */
+function repositoryOf(d: S['Fleet.DeclarationView']): string {
+  const r = d.repository;
+  if (!r) return '';
+  const how = (RUNG[r.rung] ?? r.rung) + (r.signer ? `, ${signerLabel(r.signer)}` : '');
+  return `Repository ${r.url} (${how}), folder ${r.folder} (${RUNG[r.folderRung] ?? r.folderRung}).`;
+}
+
+/** The mark's note: signer and issuer, baseline, accepted ranges, repository and hidden counts. */
 export function declarationNote(r: DeclaredRevision): string {
   const d = r.declaration;
   if (!d) return '';
@@ -50,6 +73,7 @@ export function declarationNote(r: DeclaredRevision): string {
     d.baseline ? `Baseline ${d.baseline}.` : '',
     d.accepted?.length ? `Accepted ${joinAnd(d.accepted)}.` : '',
     d.draft ? `Accepted draft ${d.draft}.` : '',
+    repositoryOf(d),
   ].filter(Boolean).join(' ');
   const parts = [
     signedBy(d),

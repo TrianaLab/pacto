@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -94,6 +95,28 @@ func TestDemoDeclarePlanRows(t *testing.T) {
 	rows := []dashboard.DeclareRange{{Dependency: "payments-service", Compatibility: "unknown", Proposed: "^2.1.0", Observed: "2.1.0"}}
 	if !slices.Equal(p.Ranges, rows) {
 		t.Fatalf("ranges %+v", p.Ranges)
+	}
+}
+
+// TestDemoLegacyBillingPlanRepository: the plan names the shop repository
+// from its GitOps source, records it, and hands the person the pull request
+// command with no intent to replay; accepting a draft keeps --from-draft.
+func TestDemoLegacyBillingPlanRepository(t *testing.T) {
+	who := "alice@example.com"
+	h := declareDemo(t, &who)
+	a := plan(t, h, dashboard.DeclareInput{})
+	want := &contract.InferredSourceRepository{URL: "https://github.com/example/shop", Rung: "gitops", Folder: "deploy/legacy", FolderRung: "gitops"}
+	if !reflect.DeepEqual(a.Plan.Repository, want) || !strings.Contains(a.Plan.Record.Text, "folder: deploy/legacy") {
+		t.Fatalf("repository %+v\n%s", a.Plan.Repository, a.Plan.Record.Text)
+	}
+	if a.PRCLI != "pacto declare legacy-billing --namespace shop --registry demo.pacto.local --pr" {
+		t.Fatalf("prCli %q", a.PRCLI)
+	}
+	d := saveDraft(t, h, nil)
+	_, digest, _ := strings.Cut(d.Published, "@")
+	a = plan(t, h, dashboard.DeclareInput{FromDraft: &dashboard.DraftRef{Tag: d.Tag, Digest: digest}})
+	if a.PRCLI != a.Command+" --pr" || !strings.Contains(a.PRCLI, "--from-draft "+d.Tag) {
+		t.Fatalf("draft prCli %q", a.PRCLI)
 	}
 }
 

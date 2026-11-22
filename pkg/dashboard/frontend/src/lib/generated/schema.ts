@@ -1547,6 +1547,13 @@ export interface components {
             issuer: string;
             subject: string;
         };
+        "Contract.InferredSourceRepository": {
+            folder: string;
+            folderRung: string;
+            rung: string;
+            signer?: string;
+            url: string;
+        };
         "Contract.InferredSurface": {
             asOf: string;
             catalog?: components["schemas"]["Contract.InferredCatalogMatch"];
@@ -1777,6 +1784,8 @@ export interface components {
             draftsTotal?: number;
             /** @description Absent when the plan was refused before it was built */
             plan?: components["schemas"]["DeclarePlan"];
+            /** @description The pacto declare command that opens the repository pull request with the person's own Git token; the dashboard never opens it */
+            prCli?: string;
             refusal?: components["schemas"]["DeclareRefusal"];
             /** @description Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page>; present only with signing mode fresh-login */
             signTicket?: string;
@@ -1836,6 +1845,10 @@ export interface components {
             ranges: components["schemas"]["DeclareRange"][] | null;
             /** @description pacto.inferred.yaml as it would be published */
             record: components["schemas"]["DeclareText"];
+            /** @description Where the service's source lives and how Pacto found it; absent when no source named it */
+            repository?: components["schemas"]["Contract.InferredSourceRepository"];
+            /** @description Why each source Pacto tried for the repository gave nothing */
+            repositoryTried?: components["schemas"]["DeclareRungNote"][] | null;
             service: string;
             signer: components["schemas"]["DeclareSigner"];
             /** @description The published versions never taken as the baseline, and why */
@@ -1869,6 +1882,11 @@ export interface components {
             /** @description The command a person runs about it */
             command?: string;
             message: string;
+        };
+        DeclareRungNote: {
+            reason: string;
+            /** @description signed-provenance, gitops, image-label, repository-map or given */
+            rung: string;
         };
         DeclareSigner: {
             class: string;
@@ -3279,6 +3297,8 @@ export interface components {
             inferredFromHidden?: boolean;
             /** @description Why this reader does not accept the declarer, so its cluster facts are not shown; empty when it is accepted */
             notAccepted?: string;
+            /** @description Where the service's source lives and how it was found; left out when no source named it or you may not read the workload the declaration came from */
+            repository?: components["schemas"]["Contract.InferredSourceRepository"];
             /** @description A signature this reader verified names the declarer as a person */
             signatureChecked: boolean;
             signer?: components["schemas"]["Fleet.VerifiedSigner"];

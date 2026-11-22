@@ -311,6 +311,83 @@ running workload, without a repository or a build.
   See
   [When a declaration replaces an inferred service](operational-graph-inferred.md#when-a-declaration-replaces-an-inferred-service).
 
+### Open a pull request
+
+- **What it does.** `pacto declare invoices --pr --yes` opens a pull request
+  with the declaration in the service's own repository. After the bundle is
+  written, declared or draft, its exact `pacto.yaml` and
+  `pacto.inferred.yaml` go into the service's folder in one commit on a new
+  branch `pacto/declare-<service>-<version>`. An unchanged declaration
+  exports the baseline bundle's own files.
+- **Plan first.** Without `--yes` the plan adds the repository and pull
+  request lines, checks the confirmation and the token, and sends nothing to
+  the Git host.
+- **Where it runs.** `--pr` runs where your Git token is: the CLI and a stdio
+  MCP server; the dashboard and the HTTP MCP server show the command.
+  Their plan never reads the running image, and takes the GitOps
+  repositories only from a list your own view shows in full.
+
+```console
+repository: github.com/acme/invoices (signed provenance, workflow ci.yml@refs/heads/main), folder: deploy/ (GitOps source)
+pull request: github https://github.com/acme/invoices, branch pacto/declare-invoices-1.5.0, files deploy/pacto.yaml and deploy/pacto.inferred.yaml, with your GITHUB_TOKEN
+```
+
+- **Where the repository comes from.** Every plan names it and how Pacto
+  found it, kept in
+  [`declaration.repository`](contract-reference/inferred-record.md#declaration).
+  The first source that answers wins:
+
+1. **Signed provenance.** A verified keyless signature or signed SLSA
+   provenance attestation on the baseline bundle, then on the running image,
+   whose Fulcio certificate names the source repository. Pacto reads Sigstore
+   bundle referrers through the Referrers API or its own `pacto-sig` tags.
+   Legacy cosign `.sig` tags and the shared `sha256-` referrers-tag index are
+   not read, so a GitHub attestation on a registry without the Referrers API
+   gives nothing and the plan says why. No allowlist is needed, and the
+   repository it names never makes the signer a publisher or clears a gate.
+2. **GitOps source.** The Argo CD Application or Flux `GitRepository` that
+   deploys the workload, with its path as the folder.
+3. **Image label.** The running image's `org.opencontainers.image.source`.
+4. **Repository map.** A `--repo-map` file, read only with `--pr`: YAML keyed
+   by service name, decoded strictly, at most 1 MiB, such as
+   `invoices: {repository: https://github.com/acme/invoices, folder: deploy}`.
+
+- **Your override.** `--repository` and `--folder` win over every source.
+  The folder defaults to the repository root when no source names one.
+- **Unknown stays unknown.** Several signed or GitOps repositories that
+  disagree give no answer, and neither does a signature left unread. A
+  repository listed with several folders names none. With no answer the record has no `repository`, the
+  plan lists why each source gave nothing and `--pr` is refused.
+- **Confirmation.** An image label is unsigned: `--pr` uses it only when you
+  pass the same `--repository` or the map names it. A repository an agent
+  passes, as `repository` or through `repo_map`, steers a pull request only
+  when signed provenance or a GitOps source names it too. A public repository
+  needs your own `--repository`, since the record names the workload, its
+  namespace, external hosts and config key names.
+- **A failed pull request** keeps what was published: rerun with
+  `--pr --yes`, which reuses the branch the failed run pushed.
+- **Review evidence.** CI recomputes `pacto.inferred.yaml` on its next
+  publish, and the declared values travel through the registry
+  ([Fields declared in the registry](#fields-declared-in-the-registry)).
+
+- **Git host.** Pacto finds it from the URL, or from `--git-host`:
+
+| Host kind | Detected from | Token variables |
+|---|---|---|
+| `github` | `github.com`, `GH_HOST` | `GITHUB_TOKEN` or `GH_TOKEN` for `github.com`; `GH_ENTERPRISE_TOKEN` for `GH_HOST` |
+| `gitlab` | `gitlab.com`, `GITLAB_HOST` | `GITLAB_TOKEN` for `GITLAB_HOST`, default `gitlab.com` |
+| `bitbucket` (Cloud) | `bitbucket.org` | `BITBUCKET_TOKEN` |
+| `gitea` (Gitea 1.20 or later and Forgejo) | `codeberg.org`, `GITEA_HOST` | `GITEA_TOKEN` for `GITEA_HOST` |
+
+- **Token.** A variable's token goes only to the host it names. Otherwise
+  Pacto asks `git credential fill` without a prompt and never stores a
+  credential.
+- **Who opens it.** The token's user, whose login the CLI prints.
+- **Transport.** Plain `http://` is refused except on loopback, and a
+  redirect is refused so the token never follows it.
+- **No fork.** A token that cannot push is refused with `PullRequestFailed`
+  and the host's reason.
+
 ## Hand-off to delivery
 
 With [Pacto delivery](integrations/kubernetes/delivery.md) installed, a Stage

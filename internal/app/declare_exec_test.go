@@ -1,12 +1,16 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io/fs"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -117,7 +121,7 @@ func TestDeclarePrintsPlanBeforeLogin(t *testing.T) {
 		return personToken("ana@acme.com"), nil
 	}
 	req := e.req()
-	req.OnPlan = func(p *DeclarePlan) { order = append(order, "plan "+p.Version) }
+	req.OnPlan = func(p *DeclarePlan) error { order = append(order, "plan "+p.Version); return nil }
 	e.declare(t, req)
 	if !slices.Equal(order, []string{"plan " + firstDeclaration, "login"}) {
 		t.Fatal(order)
@@ -659,5 +663,58 @@ func TestDeclareDraftRecordInvalidRefused(t *testing.T) {
 	e.login(testutil.TokenWith(map[string]string{"sub": "https://ci.example/acme/invoices", "iss": contract.SignerUnsigned, "ci_config_ref_uri": "ci.example/acme/invoices"}))
 	if _, err := e.svc.Declare(t.Context(), e.req()); err == nil || !strings.Contains(err.Error(), "of an unsigned draft is exactly") || len(e.tags(t)) != 0 {
 		t.Fatal(err)
+	}
+}
+
+// wantFiles: files are exactly pacto.yaml and pacto.inferred.yaml as the
+// bundle at tag holds them.
+func (e *declareEnv) wantFiles(t *testing.T, tag string, files map[string][]byte) {
+	t.Helper()
+	b, _ := e.pulled(t, tag)
+	if len(files) != 2 {
+		t.Fatalf("%d files", len(files))
+	}
+	for name, got := range files {
+		want, err := fs.ReadFile(b.FS, name)
+		if err != nil || !bytes.Equal(got, want) {
+			t.Fatalf("%s: %v\n%s\nwant\n%s", name, err, got, want)
+		}
+	}
+}
+
+func TestDeclareResultCarriesWrittenFiles(t *testing.T) {
+	e := newDeclareEnv(t)
+	e.login(personToken("ana@acme.com"))
+	first := e.declare(t, e.req())
+	e.wantFiles(t, firstDeclaration, first.Files)
+	// An unchanged rerun carries the baseline bundle's own files.
+	again := e.declare(t, e.req())
+	e.wantFiles(t, firstDeclaration, again.Files)
+	if raw, _ := json.Marshal(again); bytes.Contains(raw, []byte(`"files"`)) || bytes.Contains(raw, []byte(`"Files"`)) {
+		t.Fatalf("%s", raw)
+	}
+}
+
+func TestDeclareDraftCarriesWrittenFiles(t *testing.T) {
+	e := newDeclareEnv(t)
+	t.Setenv("SIGSTORE_ID_TOKEN", ciWorkflowToken())
+	res := e.declare(t, e.req("ledger"))
+	e.wantFiles(t, res.Tag, res.Files)
+}
+
+func TestDeclareOnPlanRefuses(t *testing.T) {
+	e := newDeclareEnv(t)
+	calls := e.login(personToken("ana@acme.com"))
+	req := e.req()
+	req.OnPlan = func(*DeclarePlan) error { return errors.New("no token") }
+	if _, err := e.svc.Declare(t.Context(), req); err == nil || err.Error() != "no token" || *calls != 0 || len(e.tags(t)) != 0 {
+		t.Fatalf("%v %d", err, *calls)
+	}
+}
+
+func TestBundleFilesLeavesMissingOut(t *testing.T) {
+	got := bundleFiles(fstest.MapFS{DefaultContractPath: {Data: []byte("a")}})
+	if len(got) != 1 || string(got[DefaultContractPath]) != "a" {
+		t.Fatal(got)
 	}
 }

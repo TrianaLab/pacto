@@ -1,0 +1,23 @@
+# Written by pacto init from manifests.yaml.
+# Check it, then see what publishing would do: pacto ci
+pactoVersion: "2.5"
+service:
+  name: invoices
+  owner:
+    team: billing
+workload: service
+dependencies:
+  # inferred from runtime calls (calls seen to the Service billing/audit)
+  - name: audit
+    ref: oci://reg.io/acme/contracts/audit
+    required: true
+    compatibility: unknown   # proposed ^1.4.0, from the Pactos describing the Service billing/audit at 1.4.0
+  # inferred from runtime calls (calls seen to the Service billing/ledger)
+  - name: ledger
+    ref: oci://reg.io/acme/contracts/ledger
+    required: true
+    compatibility: unknown   # proposed ^2.3.0, from the Pactos describing the Service billing/ledger at 2.3.1
+configurations:
+  - name: env
+    schema: configuration/schema.json
+    required: true

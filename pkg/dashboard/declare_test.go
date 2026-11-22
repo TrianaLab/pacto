@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -130,10 +131,18 @@ func TestDeclarePlanHiddenServiceNotFound(t *testing.T) {
 
 func TestDeclarePlanResolvesWorkload(t *testing.T) {
 	d := &fakeDeclarer{write: true}
-	base := declareServer(t, viewerAuth(true, AuthState{}), nil, d)
+	repos := []fleet.InferredRepository{{URL: "https://github.com/acme/shop", Path: "cart"}}
+	// The plan takes the repositories, and why they may be incomplete, from the viewer's view.
+	view := func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
+		w := q.SnapshotForSerialization().Services[fleet.ServiceKey(cartKey)].Workload
+		w.Repositories, w.RepositoryUnknown = repos, "hidden by your permissions"
+		return q, nil
+	}
+	base := declareServer(t, viewerAuth(true, AuthState{}), view, d)
 	var out DeclareAnswer
 	postJSON(t, base+"/api/fleet/declare", map[string]any{"serviceKey": cartKey, "accept": []string{"orders"}}, http.StatusOK, &out)
-	if len(d.plans) != 1 || d.plans[0] != (DeclareWorkload{Key: cartKey, Name: "cart", Namespace: "shop", Kind: "Deployment"}) {
+	want := DeclareWorkload{Key: cartKey, Name: "cart", Namespace: "shop", Kind: "Deployment", Repositories: repos, RepositoryUnknown: "hidden by your permissions"}
+	if len(d.plans) != 1 || !reflect.DeepEqual(d.plans[0], want) {
 		t.Errorf("planned %+v", d.plans)
 	}
 	if out.Plan == nil || out.Command != "pacto declare cart" || !out.Write.Available {
@@ -256,5 +265,20 @@ func TestDeclareFleetUnreadable(t *testing.T) {
 		Auth: viewerAuth(true, AuthState{}), Declare: d})
 	if code, _ := call(t, http.MethodPost, base+"/api/fleet/declare", map[string]string{"serviceKey": cartKey}); code < 500 || len(d.plans) != 0 {
 		t.Errorf("an unreadable fleet answered %d", code)
+	}
+}
+
+// TestDashboardRefusalEnumExcludesPRCodes: the dashboard never opens a pull
+// request (513 D7), so its refusal enum holds none of the pull request codes.
+func TestDashboardRefusalEnumExcludesPRCodes(t *testing.T) {
+	f, _ := reflect.TypeOf(DeclareRefusal{}).FieldByName("Code")
+	enum := strings.Split(f.Tag.Get("enum"), ",")
+	if len(enum) < 10 {
+		t.Fatalf("enum %v", enum)
+	}
+	for _, code := range []string{"RepositoryUnknown", "RepositoryUnconfirmed", "GitHostUnknown", "GitTokenMissing", "PullRequestFailed", "PullRequestNeedsLocalToken"} {
+		if slices.Contains(enum, code) {
+			t.Errorf("the dashboard refusal enum lists %s", code)
+		}
 	}
 }

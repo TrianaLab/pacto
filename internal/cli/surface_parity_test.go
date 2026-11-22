@@ -375,6 +375,7 @@ func declareRows() []surfaceRow {
 	const why = "the dashboard Declare panel names the inferred service by its fleet key and reads its workload from the snapshot"
 	const whyLocal = "a person's local signing: MCP callers are agents and never sign a declared record"
 	const plan, accept = "POST /api/fleet/declare", "POST /api/fleet/declare/accept"
+	const prWhy = "D7: --pr runs only where your Git token is"
 	return slices.Concat(
 		[]surfaceRow{
 			{"declare <service>", "pacto_declare.service", plan + " body.serviceKey", why},
@@ -393,6 +394,13 @@ func declareRows() []surfaceRow {
 		},
 		alike("declare", "pacto_declare", "", "the dashboard reads the workload's namespace from the snapshot, declares into its own --registry and reads the cluster as the person",
 			"namespace", "registry", "max-items", "call-window"),
+		[]surfaceRow{
+			{"declare --pr", "pacto_declare.pr", "", prWhy},
+			{"declare --repository", "pacto_declare.repository", "", prWhy},
+			{"declare --folder", "pacto_declare.folder", "", prWhy},
+			{"declare --repo-map", "pacto_declare.repo_map", "", prWhy + "; over MCP repo_map is stdio only"},
+			{"declare --git-host", "", "", prWhy + "; a stdio agent gets GitHostUnknown with the CLI line"},
+		},
 		alike("declare", "", "", whyLocal, "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
 			"rekor-url", "trusted-root"),
 	)

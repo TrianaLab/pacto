@@ -25,10 +25,12 @@ import (
 // process's kubeconfig and writes drafts with its registry credentials.
 // Every MCP caller is an agent, so a run never writes a declared record, and
 // a person's ambient token is never used to sign one. base holds the signing
-// options.
+// options; git carries a pr run's Git host requests and token helper (the
+// zero value reaches the host and runs git credential fill).
 type mcpDeclarer struct {
 	svc  *app.Service
 	base app.DeclareRequest
+	git  deps
 }
 
 // newMCPDeclarer signs drafts against public-good Sigstore and reads the
@@ -48,7 +50,20 @@ func (m mcpDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.Raw
 		return nil, nil, err
 	}
 	p, _, err := m.svc.PlanDeclare(ctx, req)
-	return declareAnswer(p, err)
+	if err == nil && req.PR {
+		err = m.planPR(ctx, req, p)
+	}
+	if p == nil {
+		return declareAnswer[app.DeclarePlan](nil, err)
+	}
+	return declareAnswer(&mcpPlan{p, p.PullRequest}, err)
+}
+
+// mcpPlan is a stdio plan as pacto_declare answers it: with the pull
+// request pr would open, which the dashboard's plan never carries.
+type mcpPlan struct {
+	*app.DeclarePlan
+	PullRequest *app.PRPlan `json:"pullRequest,omitempty"`
 }
 
 func (m mcpDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (json.RawMessage, *pactomcp.Refused, error) {
@@ -59,6 +74,10 @@ func (m mcpDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (json.
 	if req.Dynamic, err = declareDynamic(req); err != nil {
 		return nil, nil, err
 	}
+	if req.PR {
+		res, err := m.declarePR(ctx, req)
+		return declareAnswer(res, err)
+	}
 	res, err := m.svc.Declare(ctx, req)
 	return declareAnswer(res, err)
 }
@@ -68,6 +87,7 @@ func (m mcpDeclarer) request(a pactomcp.DeclareArgs) (app.DeclareRequest, error)
 	req := m.base
 	req.Namespace, req.Dir, req.Registry, req.Accept = a.Namespace, a.Dir, a.Registry, a.Accept
 	req.OnBehalfOf, req.IntentDigest, req.MaxItems, req.Agent, req.Draft = a.OnBehalfOf, a.IntentDigest, a.MaxItems, true, a.Draft
+	req.PR, req.Repository, req.Folder, req.RepoMap = a.PR, a.Repository, a.Folder, a.RepoMap
 	if a.CallWindow != "" {
 		w, err := time.ParseDuration(a.CallWindow)
 		if err != nil {
@@ -144,7 +164,7 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 	if who.own == nil {
 		return nil, nil, errNobodyReviewed
 	}
-	req.Dynamic = who.own.Dynamic
+	req.Dynamic, req.Observed = who.own.Dynamic, r.observed(ctx, req)
 	p, _, err := r.svc.PlanDeclare(ctx, req)
 	if p != nil {
 		if !r.writes() || a.Registry != r.registry {
@@ -179,6 +199,12 @@ func (r remoteDeclarer) hide(ctx context.Context, p *app.DeclarePlan, err error)
 // reads nor writes.
 func (r remoteDeclarer) refused(a pactomcp.DeclareArgs) *pactomcp.Refused {
 	switch {
+	case a.PR:
+		return &pactomcp.Refused{Code: pactomcp.RefusalPullRequestNeedsLocalToken, Message: "--pr runs only where your Git token is: " +
+			"run the command on your machine, or pacto_declare over stdio", CLI: a.RefusalCLI(pactomcp.RefusalPullRequestNeedsLocalToken)}
+	case a.RepoMap != "":
+		return &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "repo_map names a file of this server: pass it with pacto declare --repo-map " +
+			"on your machine, or pacto_declare over stdio", CLI: a.Command("")}
 	case a.Dir != "":
 		return &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "dir names a folder of this server: declare a folder with pacto declare --dir " +
 			"on your machine, or pacto_declare over stdio", CLI: a.Command("")}
@@ -262,7 +288,7 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 	if err != nil {
 		return nil, nil, err
 	}
-	req.Draft, req.OnBehalfOf, req.Dynamic = true, who.person.User, who.own.Dynamic
+	req.Draft, req.OnBehalfOf, req.Dynamic, req.Observed = true, who.person.User, who.own.Dynamic, r.observed(ctx, req)
 	p, decl, err := r.svc.PlanDeclare(ctx, req)
 	if err != nil {
 		// Execute may come without a plan, or the baseline may move since it:
@@ -333,18 +359,58 @@ func (r remoteDeclarer) reads(registry string) bool {
 // shows is whether the caller's fleet view shows service. With no fleet, or
 // one that cannot be read, it does not.
 func (r remoteDeclarer) shows(ctx context.Context, service string) bool {
-	if r.fleet == nil {
-		return false
-	}
-	q, err := r.fleet.Src(ctx)
-	if err == nil && r.fleet.Opts.View != nil {
-		q, err = r.fleet.Opts.View(ctx, nil, q)
-	}
+	q, err := r.view(ctx)
 	if err != nil {
 		return false
 	}
 	_, err = q.GetService(service)
 	return err == nil
+}
+
+// view is the caller's restricted fleet view.
+func (r remoteDeclarer) view(ctx context.Context) (*fleet.Query, error) {
+	if r.fleet == nil {
+		return nil, errors.New("no fleet")
+	}
+	q, err := r.fleet.Src(ctx)
+	if err == nil && r.fleet.Opts.View != nil {
+		q, err = r.fleet.Opts.View(ctx, nil, q)
+	}
+	return q, err
+}
+
+// observed is the workload req names as the caller's restricted fleet view
+// shows it, when exactly one inferred workload matches; else empty. The
+// plan never reads the cluster with the server's identity for it.
+func (r remoteDeclarer) observed(ctx context.Context, req app.DeclareRequest) *app.DeclareObserved {
+	out := &app.DeclareObserved{}
+	q, err := r.view(ctx)
+	if err != nil {
+		return out
+	}
+	ns, kind, name := req.Namespace, "", req.Service
+	switch parts := strings.Split(req.Service, "/"); len(parts) {
+	case 2:
+		ns, name = parts[0], parts[1]
+	case 3:
+		ns, kind, name = parts[0], parts[1], parts[2]
+	}
+	var found *fleet.InferredWorkload
+	for _, s := range q.SnapshotForSerialization().Services {
+		w := s.Workload
+		if !s.Inferred() || w == nil || w.Name != name || ns != "" && w.Namespace != ns || kind != "" && w.Kind != kind {
+			continue
+		}
+		if found != nil {
+			return out
+		}
+		found = w
+	}
+	if found != nil {
+		out.Cluster, out.Namespace, out.Kind, out.Name = found.Cluster, found.Namespace, found.Kind, found.Name
+		out.Repositories, out.RepositoryUnknown = found.Repositories, found.RepositoriesIncomplete()
+	}
+	return out
 }
 
 // baselineHidden is p for a caller who may not see its service: the

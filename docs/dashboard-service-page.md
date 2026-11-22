@@ -258,5 +258,9 @@ service**, a fold closed by default.
 - **The command.** The panel always shows the CLI command that does the same
   in a terminal, such as
   `pacto declare <workload> --registry <registry> --from-draft draft-<n>`.
+  A second line gives the same command with `--pr`, which opens the pull
+  request into the service's repository with your own Git token from your
+  machine ([Open a pull request](publishing.md#open-a-pull-request)); the
+  dashboard never holds a Git credential.
 - **Links.** Attention items and observed callers with no contract link here
   with `?declare=1`, which opens the panel.

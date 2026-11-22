@@ -40,6 +40,14 @@ const (
 	RefusalExecuteNeedsStdio      WriteRefusal = "ExecuteNeedsStdio"
 	RefusalBaselineNeedsMigration WriteRefusal = "BaselineNeedsMigration"
 	RefusalBundleRepoMismatch     WriteRefusal = "BundleRepoMismatch"
+	RefusalRepositoryUnknown      WriteRefusal = "RepositoryUnknown"
+	RefusalRepositoryUnconfirmed  WriteRefusal = "RepositoryUnconfirmed"
+	// The pull request codes: internal/gitexport's, and
+	// PullRequestNeedsLocalToken, an HTTP server's refusal of pr.
+	RefusalGitHostUnknown             WriteRefusal = "GitHostUnknown"
+	RefusalGitTokenMissing            WriteRefusal = "GitTokenMissing"
+	RefusalPullRequestFailed          WriteRefusal = "PullRequestFailed"
+	RefusalPullRequestNeedsLocalToken WriteRefusal = "PullRequestNeedsLocalToken"
 	// An HTTP server's draft write: the caller may not update the workload,
 	// writes on behalf of someone else or into another workload's
 	// repository (NotAllowed), or the review of the caller failed.
@@ -63,7 +71,8 @@ var writeRefusals = []WriteRefusal{
 	RefusalPlanStale, RefusalIntentRequired, RefusalWorkloadNotFound, RefusalWorkloadAmbiguous, RefusalAlreadyDeclared,
 	RefusalRangeNotProposed, RefusalNoRegistry, RefusalRegistryUnreadable, RefusalVersionConflict,
 	RefusalSignerNotAllowed, RefusalSignerUnverified, RefusalDraftNotFound, RefusalExecuteNeedsStdio,
-	RefusalBaselineNeedsMigration, RefusalBundleRepoMismatch, RefusalNotAllowed, RefusalReviewFailed, RefusalAcceptNothingProposed, RefusalFieldNotAcceptable,
+	RefusalBaselineNeedsMigration, RefusalBundleRepoMismatch, RefusalRepositoryUnknown, RefusalRepositoryUnconfirmed,
+	RefusalGitHostUnknown, RefusalGitTokenMissing, RefusalPullRequestFailed, RefusalPullRequestNeedsLocalToken, RefusalNotAllowed, RefusalReviewFailed, RefusalAcceptNothingProposed, RefusalFieldNotAcceptable,
 	RefusalBreakNotAnnounced, RefusalNotPublished, RefusalPersonSigningUnavailable,
 	RefusalOwnerSignerNotPerson, RefusalOwnerSignerNotAllowed, RefusalOwnerPolicyUnverified, RefusalOwnerSignerUnverified,
 }
@@ -84,16 +93,29 @@ type DraftRef struct {
 	Signed    bool   `json:"signed"`
 }
 
+// PullRequest is the pull request a stdio pacto_declare with pr opened:
+// its URL, the login of the token that opened it, its branch and where the
+// token came from.
+type PullRequest struct {
+	URL         string `json:"url"`
+	Login       string `json:"login"`
+	Branch      string `json:"branch"`
+	TokenSource string `json:"tokenSource"`
+}
+
 // WriteResult is what a write tool answers: the plan and its intent digest,
 // whether anything was written, the draft it left, the command a person
-// accepts that draft with, or the refusal.
+// accepts that draft with, or the refusal; with pr, the pull request it
+// opened after the write or why that failed (the write stays).
 type WriteResult struct {
-	Plan         any       `json:"plan,omitempty"`
-	IntentDigest string    `json:"intentDigest,omitempty"`
-	Executed     bool      `json:"executed"`
-	Draft        *DraftRef `json:"draft,omitempty"`
-	AcceptCLI    string    `json:"acceptCLI,omitempty"`
-	Refusal      *Refused  `json:"refusal,omitempty"`
+	Plan             any          `json:"plan,omitempty"`
+	IntentDigest     string       `json:"intentDigest,omitempty"`
+	Executed         bool         `json:"executed"`
+	Draft            *DraftRef    `json:"draft,omitempty"`
+	AcceptCLI        string       `json:"acceptCLI,omitempty"`
+	Refusal          *Refused     `json:"refusal,omitempty"`
+	PullRequest      *PullRequest `json:"pullRequest,omitempty"`
+	PullRequestError *Refused     `json:"pullRequestError,omitempty"`
 }
 
 // dryRun is whether a call only plans: an unset dry_run does.
@@ -120,6 +142,8 @@ func writeResultSchema() map[string]any {
 		codes[i] = string(c)
 	}
 	str := map[string]any{"type": "string"}
+	refusal := map[string]any{"type": "object", "required": []string{"code", "message", "cli"}, "properties": map[string]any{
+		"code": map[string]any{"type": "string", "enum": codes}, "message": str, "cli": str}}
 	return map[string]any{"type": "object", "required": []string{"executed"}, "properties": map[string]any{
 		"plan":         map[string]any{},
 		"intentDigest": str,
@@ -127,8 +151,10 @@ func writeResultSchema() map[string]any {
 		"acceptCLI":    str,
 		"draft": map[string]any{"type": "object", "properties": map[string]any{
 			"tag": str, "published": str, "signed": map[string]any{"type": "boolean"}}},
-		"refusal": map[string]any{"type": "object", "required": []string{"code", "message", "cli"}, "properties": map[string]any{
-			"code": map[string]any{"type": "string", "enum": codes}, "message": str, "cli": str}},
+		"refusal": refusal,
+		"pullRequest": map[string]any{"type": "object", "properties": map[string]any{
+			"url": str, "login": str, "branch": str, "tokenSource": str}},
+		"pullRequestError": refusal,
 	}}
 }
 
@@ -145,6 +171,12 @@ type DeclareArgs struct {
 	MaxItems     int      `json:"max_items"`
 	CallWindow   string   `json:"call_window"`
 	Draft        bool     `json:"draft"`
+	// PR, Repository, Folder and RepoMap are pacto declare's --pr,
+	// --repository, --folder and --repo-map (RepoMap stdio only).
+	PR         bool   `json:"pr"`
+	Repository string `json:"repository"`
+	Folder     string `json:"folder"`
+	RepoMap    string `json:"repo_map"`
 }
 
 // Command is the pacto declare a person runs for a: it replays every
@@ -172,10 +204,35 @@ func (a DeclareArgs) Command(intent string) string {
 	if a.CallWindow != "" {
 		parts = append(parts, "--call-window", a.CallWindow)
 	}
+	if a.PR {
+		parts = append(parts, "--pr")
+	}
+	for _, f := range [][2]string{{"--repository", a.Repository}, {"--folder", a.Folder}, {"--repo-map", a.RepoMap}} {
+		if f[1] != "" {
+			parts = append(parts, f[0], f[1])
+		}
+	}
 	if intent != "" {
 		parts = append(parts, "--intent", intent)
 	}
 	return strings.Join(parts, " ")
+}
+
+// RefusalCLI is the command a person runs about a refusal of code that
+// names none: the pull request codes add what the person passes, every
+// other code replays the plan.
+func (a DeclareArgs) RefusalCLI(code WriteRefusal) string {
+	pr := a
+	pr.PR = true
+	switch code {
+	case RefusalGitHostUnknown:
+		return pr.Command("") + " --git-host github|gitlab|bitbucket|gitea"
+	case RefusalPullRequestFailed:
+		return pr.Command("") + " --yes"
+	case RefusalGitTokenMissing, RefusalPullRequestNeedsLocalToken:
+		return pr.Command("")
+	}
+	return a.Command("")
 }
 
 // Declarer plans and writes declarations for pacto_declare. The command
@@ -199,4 +256,12 @@ type declaredRun struct {
 	Published    string          `json:"published"`
 	Draft        bool            `json:"draft"`
 	Signed       bool            `json:"signed"`
+	// PullRequest and PullRequestError are a stdio run's pull request.
+	PullRequest      *PullRequest `json:"pullRequest"`
+	PullRequestError *Refused     `json:"pullRequestError"`
+	// Repository is the plan's repository, which a failed pull request's
+	// command names.
+	Repository *struct {
+		URL string `json:"url"`
+	} `json:"repository"`
 }

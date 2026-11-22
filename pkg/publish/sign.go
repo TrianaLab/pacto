@@ -93,6 +93,16 @@ func writeReferrer(ctx context.Context, reg Registry, mode capabilities.Referrer
 // signature, ErrSignatureInvalid when signatures were read and none verified
 // with nothing left unread, and a plain error otherwise.
 func VerifyDigest(ctx context.Context, reg Registry, verify BundleVerifier, repo, digest string) error {
+	return verifyReferrers(ctx, reg, verify, repo, digest, isSignPredicate)
+}
+
+// isSignPredicate accepts Pacto's signature predicate alone.
+func isSignPredicate(p string) bool { return p == SignPredicate }
+
+// verifyReferrers is VerifyDigest over the bundle referrers whose predicate
+// accept takes: the unsigned annotation filters what is read, the verified
+// statement's predicate type decides.
+func verifyReferrers(ctx context.Context, reg Registry, verify BundleVerifier, repo, digest string, accept func(string) bool) error {
 	h, err := v1.NewHash(digest)
 	if err != nil {
 		return err
@@ -120,14 +130,14 @@ func VerifyDigest(ctx context.Context, reg Registry, verify BundleVerifier, repo
 			unreadable = true
 			continue
 		}
-		if ann[deliveryrecord.AnnPredicateType] != SignPredicate {
+		if !accept(ann[deliveryrecord.AnnPredicateType]) {
 			continue // an attestation, not a signature
 		}
 		seen++
 		// The annotation is unsigned: only the predicate the signature covers
 		// says that this bundle signs the digest rather than attests to it.
 		pt, err := verify(bundle, sum)
-		if err == nil && pt != SignPredicate {
+		if err == nil && !accept(pt) {
 			err = fmt.Errorf("it signs a %q statement, not a signature", pt)
 		}
 		if err != nil {
