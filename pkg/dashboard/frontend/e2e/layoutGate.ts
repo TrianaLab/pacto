@@ -1529,7 +1529,7 @@ export function installScaleFixture(): void {
     const rest = [
       { uid: '5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11', name: 'eu-prod', nameSource: 'approval', state: 'approved', keyID: key('a1b2'), approver: `oidc:${longName('alice')}@acme.example`, approvedAt: '2026-11-20T09:00:00Z' },
       { uid: '6e9a3d1f-7f1a-4c55-9d1e-2b8a4e6f0a23', name: 'us-west', nameSource: 'node-label', state: 'approved', keyID: key('c3d4'), approver: 'oidc:bob@acme.example', approvedAt: '2026-11-19T09:00:00Z' },
-      { uid: '7fab4e20-7f1a-4c55-9d1e-2b8a4e6f0a24', name: n63('retired-ap-south-1'), nameSource: 'uid', state: 'removed', keyID: key('e5f6'), reason: `removed by oidc:${longName('alice')}@acme.example on 2026-11-18` },
+      { uid: '7fab4e20-7f1a-4c55-9d1e-2b8a4e6f0a24', name: n63('retired-ap-south-1'), nameSource: 'uid', state: 'removed', keyID: key('e5f6'), approver: `oidc:${longName('alice')}@acme.example`, approvedAt: '2026-11-18T09:00:00Z' },
     ];
     const viewer = flags.__pactoClusterJoin === 'viewer';
     return { hub: { uid: '5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a10', name: 'hub' }, repository: 'ghcr.io/acme/pacto-targets', asOf: '2026-11-22T10:00:00Z',

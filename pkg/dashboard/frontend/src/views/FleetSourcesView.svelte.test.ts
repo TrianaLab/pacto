@@ -97,14 +97,43 @@ describe('FleetSourcesView Clusters block', () => {
     const two = [...one, { id: 'uid-eu', name: 'eu-prod', status: 'available', targets: 3 }];
     const { target, done } = await render(two, joinList({ clusters: [
       { uid: 'uid-eu', name: 'eu-prod', state: 'approved', approver: 'oidc:alice@acme.com', approvedAt: '2026-11-20T09:00:00Z' },
-      { uid: 'uid-old', name: 'eu-old', state: 'removed', reason: 'removed by oidc:alice@acme.com' },
+      { uid: 'uid-old', name: 'eu-old', state: 'removed', approver: 'oidc:bob@acme.com', approvedAt: '2026-11-21T09:00:00Z' },
     ] }));
     const det = await vi.waitFor(() => { const d = target.querySelector('[data-testid="cluster-join-removed"]'); expect(d).not.toBeNull(); return d as HTMLDetailsElement; });
     expect(det.open).toBe(false);
     expect(det.querySelector('summary')?.textContent).toBe('1 removed');
+    expect(det.textContent).toContain('Removed by oidc:bob@acme.com on 2026-11-21.');
     const tip = target.querySelectorAll('[data-testid="source-cluster"]')[1].querySelector('[role="note"]');
     expect(tip?.textContent).toBe('Every data source that reads this cluster answered. Approved by oidc:alice@acme.com on 2026-11-20.');
     done();
+  });
+
+  it('says the review failed instead of a denial, and when a pending snapshot is stale', async () => {
+    const { target, done } = await render(one, joinList({ canApprove: false, hidden: 2, completeness: 'partial',
+      limitations: [{ code: 'SOURCE_UNAVAILABLE', source: 'cluster-join-approver', message: 'whether you may approve clusterjoins could not be checked' }] }));
+    const counts = await vi.waitFor(() => { const c = target.querySelector('[data-testid="cluster-join-counts"]'); expect(c).not.toBeNull(); return c as HTMLElement; });
+    expect(counts.textContent).toBe('2 clusters hidden: whether you may approve them could not be checked.');
+    done();
+    const stale = await render(one, joinList({ clusters: [{ uid: '9f1c4e2a', name: 'ap-dev', state: 'pending', keyID: KEY, status: 'stale', snapshotAsOf: '2026-11-17T10:00:00Z' }] }));
+    const words = await vi.waitFor(() => { const w = stale.target.querySelector('[data-testid="cluster-join-snapshot"]'); expect(w).not.toBeNull(); return w as HTMLElement; });
+    expect(words.textContent).toBe('snapshot stale, from 2026-11-17 10:00');
+    stale.done();
+  });
+
+  it('drops the rows of an earlier read when a refresh fails', async () => {
+    entitiesFn.mockResolvedValue(resp(one));
+    clustersFn.mockResolvedValueOnce(joinList()).mockRejectedValue(new Error('502'));
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const props = $state({ refreshTick: 0 });
+    const c = mount(FleetSourcesView, { target, props });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="cluster-join-row"]')).not.toBeNull());
+    props.refreshTick = 1;
+    flushSync();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="cluster-join-error"]')).not.toBeNull());
+    expect(target.querySelector('[data-testid="cluster-join-row"]')).toBeNull();
+    unmount(c);
+    target.remove();
   });
 
   it('renders as before on a host with no join reader', async () => {

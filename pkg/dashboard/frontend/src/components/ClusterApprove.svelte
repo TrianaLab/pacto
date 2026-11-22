@@ -5,12 +5,12 @@
   // [Approve] on a pending member (514-S3): the dashboard never signs. It hands the
   // person the exact command, with the key they are to check and an optional display
   // name, and they sign it as themselves with pacto cluster approve.
-  let { uid = '', keyID = '', name = '' } = $props();
+  let { uid = '', keyID = '', name = '', registry = '' } = $props();
   const panelId = $props.id();
   let open = $state(false);
   let override = $state('');
   const bad = $derived(!!override && !isDNSLabel(override));
-  const command = $derived(approveCommand(uid, override, keyID));
+  const command = $derived(approveCommand(uid, override, keyID, registry));
 </script>
 
 <div class="ca" data-testid="cluster-approve">

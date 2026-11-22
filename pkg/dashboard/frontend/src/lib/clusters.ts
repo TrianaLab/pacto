@@ -63,10 +63,12 @@ function shellQuote(s: string): string {
 }
 
 /** approveCommand is the command that approves a member: it names the key the person
- *  checked (--key) and, when given, the display name (--name). */
-export function approveCommand(uid: string, name: string, keyID: string): string {
+ *  checked (--key), when given the display name (--name), and the registry the hub read
+ *  (--registry), without which the command does not run. */
+export function approveCommand(uid: string, name: string, keyID: string, registry: string): string {
   const parts = ['pacto cluster approve', shellQuote(uid), '--key', shellQuote(`sha256:${keyID}`)];
   if (name) parts.push('--name', shellQuote(name));
+  if (registry) parts.push('--registry', shellQuote(registry));
   return parts.join(' ');
 }
 
@@ -91,10 +93,27 @@ export function approvedWords(r: ClusterJoinState | undefined): string {
   return ` Approved by ${r.approver}${r.approvedAt ? ` on ${r.approvedAt.slice(0, 10)}` : ''}.`;
 }
 
-/** joinCounts: the rows a reader cannot see and the records the list did not use. */
-export function joinCounts(hidden: number, otherHubs: number): string[] {
+/** removedWords: "Removed by oidc:bob@acme.com on 2026-11-20." for a removed member. */
+export function removedWords(r: ClusterJoinState): string {
+  if (!r.approver) return '';
+  return `Removed by ${r.approver}${r.approvedAt ? ` on ${r.approvedAt.slice(0, 10)}` : ''}.`;
+}
+
+/** snapshotWords: how old a pending cluster's snapshot is when it is not fresh, so a
+ *  person never approves from stale evidence; '' when it is. */
+export function snapshotWords(r: ClusterJoinState): string {
+  if (!r.status || r.status === 'available') return '';
+  const word = STATUS_WORDS[r.status] ?? r.status;
+  return r.snapshotAsOf ? `snapshot ${word}, from ${r.snapshotAsOf.slice(0, 16).replace('T', ' ')}` : `snapshot ${word}`;
+}
+
+/** joinCounts: the rows a reader cannot see and the records the list did not use.
+ *  reviewFailed says the hub could not check whether the reader may approve: then the
+ *  rows are hidden for an unknown reason, never a denial. */
+export function joinCounts(hidden: number, otherHubs: number, reviewFailed = false): string[] {
   const out: string[] = [];
-  if (hidden) out.push(`${hidden} cluster${hidden === 1 ? '' : 's'} you may not approve`);
+  const clusters = `${hidden} cluster${hidden === 1 ? '' : 's'}`;
+  if (hidden) out.push(reviewFailed ? `${clusters} hidden: whether you may approve them could not be checked` : `${clusters} you may not approve`);
   if (otherHubs) out.push(`${otherHubs} record${otherHubs === 1 ? '' : 's'} from another hub not used`);
   return out;
 }

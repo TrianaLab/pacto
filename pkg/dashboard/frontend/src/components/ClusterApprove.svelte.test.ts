@@ -13,7 +13,7 @@ afterEach(() => { cleanup?.(); cleanup = null; });
 
 function render() {
   const target = document.createElement('div'); document.body.appendChild(target);
-  const c = mount(ClusterApprove, { target, props: { uid: '9f1c4e2a', keyID: KEY, name: 'eu-prod' } });
+  const c = mount(ClusterApprove, { target, props: { uid: '9f1c4e2a', keyID: KEY, name: 'eu-prod', registry: 'ghcr.io/acme/pacto-targets' } });
   cleanup = () => { unmount(c); target.remove(); };
   return target;
 }
@@ -28,7 +28,7 @@ describe('ClusterApprove', () => {
     btn.click(); flushSync();
     expect(btn.getAttribute('aria-expanded')).toBe('true');
     expect(t.querySelector('.ca-key bdi')?.getAttribute('title')).toBe(`sha256:${KEY}`);
-    expect(command(t)).toBe(`pacto cluster approve 9f1c4e2a --key sha256:${KEY}`);
+    expect(command(t)).toBe(`pacto cluster approve 9f1c4e2a --key sha256:${KEY} --registry ghcr.io/acme/pacto-targets`);
     expect(t.textContent).toContain('Approving signs a record as you.');
   });
 
@@ -37,10 +37,10 @@ describe('ClusterApprove', () => {
     (t.querySelector('button.ca-btn') as HTMLButtonElement).click(); flushSync();
     const input = t.querySelector('input') as HTMLInputElement;
     input.value = 'eu-prod-2'; input.dispatchEvent(new Event('input')); flushSync();
-    expect(command(t)).toBe(`pacto cluster approve 9f1c4e2a --key sha256:${KEY} --name eu-prod-2`);
+    expect(command(t)).toBe(`pacto cluster approve 9f1c4e2a --key sha256:${KEY} --name eu-prod-2 --registry ghcr.io/acme/pacto-targets`);
     expect(t.querySelector('.ca-bad')).toBeNull();
     input.value = 'EU Prod'; input.dispatchEvent(new Event('input')); flushSync();
-    expect(command(t)).toBe(`pacto cluster approve 9f1c4e2a --key sha256:${KEY} --name 'EU Prod'`);
+    expect(command(t)).toBe(`pacto cluster approve 9f1c4e2a --key sha256:${KEY} --name 'EU Prod' --registry ghcr.io/acme/pacto-targets`);
     expect(t.querySelector('.ca-bad')?.textContent).toContain('DNS label');
     expect(input.getAttribute('aria-invalid')).toBe('true');
   });
@@ -51,6 +51,6 @@ describe('ClusterApprove', () => {
     const t = render();
     (t.querySelector('button.ca-btn') as HTMLButtonElement).click(); flushSync();
     (t.querySelector('button[aria-label="Copy command"]') as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith(`pacto cluster approve 9f1c4e2a --key sha256:${KEY}`));
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith(`pacto cluster approve 9f1c4e2a --key sha256:${KEY} --registry ghcr.io/acme/pacto-targets`));
   });
 });

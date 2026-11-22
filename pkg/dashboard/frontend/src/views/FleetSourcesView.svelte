@@ -24,7 +24,7 @@
   import DetectedProviders from '../components/DetectedProviders.svelte';
   import { loadTrustFigure } from '../lib/lazyFigures.ts';
   import HelpTip from '../components/HelpTip.svelte';
-  import { clusterWord, clusterReason, showClusters, shortKey, joinNameTip, joinHostsTip, approvedWords, joinCounts } from '../lib/clusters.ts';
+  import { clusterWord, clusterReason, showClusters, shortKey, joinNameTip, joinHostsTip, approvedWords, removedWords, snapshotWords, joinCounts } from '../lib/clusters.ts';
   import ProvenanceMark from '../components/ProvenanceMark.svelte';
   import ClusterApprove from '../components/ClusterApprove.svelte';
   import LimitationsList from '../components/LimitationsList.svelte';
@@ -122,7 +122,8 @@
     let live = true;
     api.fleetClusters().then(
       (j) => { if (live) { joins = j; joinsError = ''; } },
-      (e) => { if (live) joinsError = e?.message || 'Pacto could not read the member clusters.'; },
+      // Rows from an earlier read would pass for current, so only the error shows.
+      (e) => { if (live) { joins = null; joinsError = e?.message || 'Pacto could not read the member clusters.'; } },
     );
     return () => { live = false; };
   });
@@ -130,7 +131,7 @@
   const pending = $derived(joinRows.filter((r) => r.state === 'pending'));
   const removed = $derived(joinRows.filter((r) => r.state === 'removed'));
   const approved = $derived(new Map(joinRows.filter((r) => r.state === 'approved').map((r) => [r.uid, r])));
-  const counts = $derived(joinCounts(joins?.hidden ?? 0, joins?.otherHubs ?? 0));
+  const counts = $derived(joinCounts(joins?.hidden ?? 0, joins?.otherHubs ?? 0, (joins?.limitations ?? []).some((l) => l.source === 'cluster-join-approver')));
   const joinLimits = $derived(joins?.limitations ?? []);
   const showBlock = $derived(showClusters(clusters) || !!joinsError || pending.length > 0 || removed.length > 0 || counts.length > 0 || joinLimits.length > 0);
 </script>
@@ -196,8 +197,9 @@
                 </p>
               {/if}
               {#if r.mayReplace}<p class="sc-reason" data-testid="cluster-join-replace">may replace <bdi title={r.mayReplace.name || r.mayReplace.uid}>{r.mayReplace.name || r.mayReplace.uid}</bdi></p>{/if}
+              {#if snapshotWords(r)}<p class="sc-reason" data-testid="cluster-join-snapshot">{snapshotWords(r)}</p>{/if}
               {#if r.reason}<p class="sc-reason">{r.reason}</p>{/if}
-              {#if joins?.canApprove && r.keyID}<ClusterApprove uid={r.uid} keyID={r.keyID} name={r.name} />{/if}
+              {#if joins?.canApprove && r.keyID}<ClusterApprove uid={r.uid} keyID={r.keyID} name={r.name} registry={joins.repository} />{/if}
             </li>
           {/each}
         </ul>
@@ -207,7 +209,7 @@
           <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>{removed.length} removed</summary>
           <ul class="sc-joins">
             {#each removed as r (r.uid)}
-              <li class="sc-line"><bdi class="sc-name" title={r.name || r.uid}>{r.name || r.uid}</bdi>{#if r.reason}<span class="sc-reason">{r.reason}</span>{/if}</li>
+              <li class="sc-line"><bdi class="sc-name" title={r.name || r.uid}>{r.name || r.uid}</bdi>{#if removedWords(r)}<span class="sc-reason">{removedWords(r)}</span>{/if}{#if r.reason}<span class="sc-reason">{r.reason}</span>{/if}</li>
             {/each}
           </ul>
         </details>

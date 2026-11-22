@@ -38,11 +38,11 @@ test('Approve opens the command, the name field rebuilds it and Copy writes it',
   await row.getByRole('button', { name: /^Approve/ }).click();
   const panel = page.getByTestId('cluster-approve-panel');
   const cmd = panel.locator('.copyable-value');
-  await expect(cmd).toHaveText(`pacto cluster approve 3c7e1b9d-7f1a-4c55-9d1e-2b8a4e6f0a21 --key sha256:${KEY}`);
+  await expect(cmd).toHaveText(`pacto cluster approve 3c7e1b9d-7f1a-4c55-9d1e-2b8a4e6f0a21 --key sha256:${KEY} --registry ghcr.io/acme/pacto-targets`);
   await panel.getByLabel('Display name (optional)').fill('eu-north');
-  await expect(cmd).toHaveText(`pacto cluster approve 3c7e1b9d-7f1a-4c55-9d1e-2b8a4e6f0a21 --key sha256:${KEY} --name eu-north`);
+  await expect(cmd).toHaveText(`pacto cluster approve 3c7e1b9d-7f1a-4c55-9d1e-2b8a4e6f0a21 --key sha256:${KEY} --name eu-north --registry ghcr.io/acme/pacto-targets`);
   await panel.getByRole('button', { name: 'Copy command' }).click();
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain(`--key sha256:${KEY} --name eu-north`);
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain(`--key sha256:${KEY} --name eu-north --registry ghcr.io/acme/pacto-targets`);
 });
 
 test('a reader who may not approve sees no Approve and the hidden count', async ({ page }) => {
@@ -60,6 +60,7 @@ test('removed members stay collapsed until opened', async ({ page }) => {
   await expect(name).toBeHidden();
   await removed.locator('summary').click();
   await expect(name).toBeVisible();
+  await expect(removed).toContainText('Removed by oidc:');
 });
 
 test('a host with no join reader keeps the Clusters block without join rows or an error', async ({ page }) => {
