@@ -108,7 +108,7 @@ func everyNS(string, string) bool { return true }
 
 func TestClusterReviewsKeysByUID(t *testing.T) {
 	h := &hostClusters{allow: everyNS}
-	set := clusterReviews(entriesOf(entry("eu-prod", "https://eu", "uid-eu"), entry("us-prod", "https://us", "uid-us")), homeCluster{}, reviewDeps(h), reviewCluster)
+	set := clusterReviews(entriesOf(entry("eu-prod", "https://eu", "uid-eu"), entry("us-prod", "https://us", "uid-us")), homeCluster{}, reviewDeps(h), reviewCluster, nil)
 	m := set.Reviews(context.Background())
 	if len(m) != 2 || m["uid-eu"] == nil || m["uid-us"] == nil {
 		t.Fatalf("reviewers %v", m)
@@ -123,7 +123,7 @@ func TestClusterReviewsDedupesOneCluster(t *testing.T) {
 	h := &hostClusters{allow: everyNS}
 	alias := entry("eu-admin", "https://eu", "uid-eu")
 	alias.Alias = "eu-prod"
-	m := clusterReviews(entriesOf(entry("eu-prod", "https://eu", "uid-eu"), alias), homeCluster{}, reviewDeps(h), reviewCluster).Reviews(context.Background())
+	m := clusterReviews(entriesOf(entry("eu-prod", "https://eu", "uid-eu"), alias), homeCluster{}, reviewDeps(h), reviewCluster, nil).Reviews(context.Background())
 	if len(m) != 1 || m["uid-eu"] == nil {
 		t.Errorf("reviewers %v", m)
 	}
@@ -134,7 +134,7 @@ func TestClusterReviewsConflictUIDHasNoReviewer(t *testing.T) {
 	clone := entry("restored", "https://restored", "uid-eu")
 	clone.Conflict = "eu-prod"
 	m := clusterReviews(entriesOf(entry("eu-prod", "https://eu", "uid-eu"), clone, entry("us-prod", "https://us", "uid-us")),
-		homeCluster{}, reviewDeps(h), reviewCluster).Reviews(context.Background())
+		homeCluster{}, reviewDeps(h), reviewCluster, nil).Reviews(context.Background())
 	if len(m) != 1 || m["uid-us"] == nil {
 		t.Errorf("reviewers %v: a UID two servers report has none", m)
 	}
@@ -153,7 +153,7 @@ func TestClusterReviewsRetriesIdentityAfterFailureTTL(t *testing.T) {
 		return []app.K8sEntry{entry("eu-prod", "https://eu", "uid-eu"), entry("us-prod", "https://us", "uid-us")}
 	}
 	now := time.Unix(1000, 0)
-	set := clusterReviews(entries, homeCluster{}, reviewDeps(h), reviewCluster)
+	set := clusterReviews(entries, homeCluster{}, reviewDeps(h), reviewCluster, nil)
 	set.now = func() time.Time { return now }
 	if m := set.Reviews(context.Background()); len(m) != 1 || m["uid-eu"] == nil {
 		t.Fatalf("an unidentified and a broken context get no reviewer: %v", m)
@@ -176,7 +176,7 @@ func TestClusterReviewsSingleUnidentifiedIsBlankKey(t *testing.T) {
 	h := &hostClusters{allow: everyNS}
 	us := entry("us-prod", "https://us", "")
 	home := homeCluster{Config: &rest.Config{Host: "https://us"}, UID: func(context.Context) (string, bool) { return "", false }}
-	set := clusterReviews(entriesOf(us), home, reviewDeps(h), reviewCluster)
+	set := clusterReviews(entriesOf(us), home, reviewDeps(h), reviewCluster, nil)
 	m := set.Reviews(context.Background())
 	if len(m) != 1 || m[""] == nil {
 		t.Fatalf("reviewers %v", m)
@@ -186,12 +186,12 @@ func TestClusterReviewsSingleUnidentifiedIsBlankKey(t *testing.T) {
 	}
 	// On another server it is no home: the sign-in cluster's id decides.
 	home = homeCluster{Config: &rest.Config{Host: "https://home"}, UID: func(context.Context) (string, bool) { return "uid-home", true }}
-	set = clusterReviews(entriesOf(us), home, reviewDeps(h), reviewCluster)
+	set = clusterReviews(entriesOf(us), home, reviewDeps(h), reviewCluster, nil)
 	if key, ok := set.Home(context.Background()); key != "uid-home" || !ok {
 		t.Errorf("home %q %v", key, ok)
 	}
 	// One of several unidentified contexts is never reviewed.
-	if m := clusterReviews(entriesOf(us, entry("eu-prod", "https://eu", "uid-eu")), home, reviewDeps(h), reviewCluster).Reviews(context.Background()); m[""] != nil {
+	if m := clusterReviews(entriesOf(us, entry("eu-prod", "https://eu", "uid-eu")), home, reviewDeps(h), reviewCluster, nil).Reviews(context.Background()); m[""] != nil {
 		t.Errorf("reviewers %v", m)
 	}
 }
@@ -263,7 +263,7 @@ func TestClusterlessContextNeverReviewedByHome(t *testing.T) {
 func TestClusterReviewsNoSourceReviewsAtHome(t *testing.T) {
 	h := &hostClusters{allow: everyNS}
 	home := homeCluster{Config: &rest.Config{Host: "https://home"}, UID: func(context.Context) (string, bool) { return "", false }}
-	set := clusterReviews(entriesOf(), home, reviewDeps(h), reviewCluster)
+	set := clusterReviews(entriesOf(), home, reviewDeps(h), reviewCluster, nil)
 	m := set.Reviews(context.Background())
 	if len(m) != 1 || m[""] == nil {
 		t.Fatalf("reviewers %v; want the sign-in cluster for clusterless items", m)
@@ -274,7 +274,7 @@ func TestClusterReviewsNoSourceReviewsAtHome(t *testing.T) {
 	if key, ok := set.Home(context.Background()); key != "" || !ok {
 		t.Errorf("home %q %v", key, ok)
 	}
-	if m := clusterReviews(entriesOf(), homeCluster{}, reviewDeps(h), reviewCluster).Reviews(context.Background()); len(m) != 0 {
+	if m := clusterReviews(entriesOf(), homeCluster{}, reviewDeps(h), reviewCluster, nil).Reviews(context.Background()); len(m) != 0 {
 		t.Errorf("no sign-in cluster: reviewers %v", m)
 	}
 }

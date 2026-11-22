@@ -63,7 +63,7 @@ func parityViews(t *testing.T, d deps, home *rest.Config, entries []app.K8sEntry
 	v.Set("dashboard.oidc-issuer-url", "https://idp.example")
 	v.Set("dashboard.oidc-client-id", "pacto-dashboard")
 	v.Set("dashboard.oidc-redirect-url", "https://dash.example/auth/callback")
-	id, err := newDashboardIdentity(v, "0.0.0.0", home, entriesOf(entries...), d)
+	id, err := newDashboardIdentity(v, "0.0.0.0", home, entriesOf(entries...), d, nil)
 	expect(t, err == nil, "identity: %v", err)
 	id.state = func(context.Context) authn.State { return authn.State{SignedIn: true, Person: alice} }
 	dash, err := id.view(context.Background(), q)

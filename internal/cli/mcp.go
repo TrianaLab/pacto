@@ -675,7 +675,8 @@ func mcpFleetView(cmd *cobra.Command, svc *app.Service, d deps) (pactomcp.FleetV
 	home := newHomeCluster(cluster, d)
 	fopts := mcpFleetOptions(cmd)
 	_, _ = fmt.Fprint(cmd.ErrOrStderr(), mcpSignInLine(fopts))
-	viewer := clusterViewer(fleetEntries(svc, d, fopts), home, d, mode, namespaces)
+	// A separate MCP server is no hub: its member clusters stay unreviewable.
+	viewer := clusterViewer(fleetEntries(svc, d, fopts), home, d, mode, namespaces, nil)
 	return func(ctx context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
 		p, ok := personFrom(ctx)
 		if !ok {

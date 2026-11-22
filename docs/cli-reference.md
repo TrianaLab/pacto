@@ -526,6 +526,8 @@ pacto dashboard [sources...] [flags]
       --fingerprints string               a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers (also PACTO_DASHBOARD_FINGERPRINTS)
   -h, --help[=true|false]                 help for dashboard
       --host string                       bind address for the dashboard server (default "127.0.0.1")
+      --members-host string               the dashboard's external host as member clusters dial it (their hub.url host), when it differs from --oidc-redirect-url's or that is not set (also PACTO_DASHBOARD_MEMBERS_HOST)
+      --members-token-audience string     audience a signed-in person's token is exchanged for before a member cluster reviews them, {uid} replaced by the member's UID; each member's apiserver accepts it and the hub's does not (also PACTO_DASHBOARD_MEMBERS_TOKEN_AUDIENCE) (default "pacto-member-{uid}")
       --mira-source stringArray           base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)
       --mira-url string                   Mira's address, to link health-check citations and open a service in Mira
       --namespace string                  Kubernetes namespaces to read, comma-separated (empty = all namespaces); delivery reads narrow to it only when it names one

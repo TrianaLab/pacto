@@ -55,8 +55,9 @@ var errOpenNeedsAllowAnonymous = errors.New("serving beyond loopback without sig
 // with --allow-anonymous.
 //
 // cluster is the sign-in cluster; entries are the resolved contexts the fleet
-// reads, whose reviewers narrow each signed-in person's view.
-func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, entries func(context.Context) []app.K8sEntry, d deps) (*dashboardIdentity, error) {
+// reads, whose reviewers narrow each signed-in person's view; members are
+// the live member clusters, reviewed through their links.
+func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, entries func(context.Context) []app.K8sEntry, d deps, members *memberHub) (*dashboardIdentity, error) {
 	trust, err := app.DeliveryTrust(v.GetString("dashboard.delivery-trust"))
 	if err != nil {
 		return nil, err
@@ -106,7 +107,7 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, ent
 	case o != nil || t != nil:
 		id.auth = authn.NewShared(o, t).AcceptBearer(review)
 		home := newHomeCluster(cluster, d)
-		id.viewer, id.homeUID = clusterViewer(entries, home, d, mode, namespaces), home.UID
+		id.viewer, id.homeUID = clusterViewer(entries, home, d, mode, namespaces, members), home.UID
 	case isLoopback(host):
 		id.auth = authn.NewLocal()
 	case v.GetBool("dashboard.allow-anonymous"):
@@ -292,9 +293,10 @@ func checkReview(mode string, namespaces []string) error {
 // clusterViewer narrows answers to what each person may read in each cluster
 // of entries, reviewed there with that cluster's own credentials, in the
 // namespaces list only when mode is local (checkReview passed). home is the
-// sign-in cluster, the only one that reviews a cluster-local identity.
-func clusterViewer(entries func(context.Context) []app.K8sEntry, home homeCluster, d deps, mode string, namespaces []string) *authn.Viewer {
-	set := clusterReviews(entries, home, d, mode)
+// sign-in cluster, the only one that reviews a cluster-local identity;
+// members adds the live member clusters.
+func clusterViewer(entries func(context.Context) []app.K8sEntry, home homeCluster, d deps, mode string, namespaces []string, members *memberHub) *authn.Viewer {
+	set := clusterReviews(entries, home, d, mode, members)
 	if mode == reviewLocal {
 		return authn.NewScopedViewer(set.Reviews, namespaces).SignInCluster(set.Home)
 	}
