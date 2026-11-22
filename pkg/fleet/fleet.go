@@ -1525,6 +1525,8 @@ type ExternalProvider struct {
 	RangeReason    string `json:"rangeReason" enum:"INFERRED_PROVIDER" doc:"Always INFERRED_PROVIDER"`
 	// SurfaceHidden is set when a restricted view dropped a surface.
 	SurfaceHidden bool `json:"surfaceHidden,omitempty" doc:"True when the caller's view is restricted, so the surface is not shown; absent when the record holds none"`
+	// Change is what changed between the two revisions shown first.
+	Change *ExternalProviderChange `json:"change,omitempty" doc:"What changed between the two revisions shown first; checked says whether this installation's operator signed both; values are absent when the view is restricted"`
 }
 
 // ExternalProviderRevision is one revision of an inferred contract.

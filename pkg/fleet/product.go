@@ -922,7 +922,7 @@ func (q *Query) Overview() *Overview {
 		sum.Knowledge.addService(q, s)
 	}
 	sum.Knowledge.finish()
-	sum.KnowledgeItems = len(q.knowledgeAttention()) + len(q.inferredProviderAttention())
+	sum.KnowledgeItems = len(q.knowledgeAttention()) + len(q.inferredProviderAttention()) + len(q.externalChangedAttention())
 	sum.Externals, sum.HiddenExternals = len(q.snap.Externals), q.snap.hiddenExternals
 
 	var recent []EvidenceItem
@@ -1454,6 +1454,7 @@ func (q *Query) collectScoped() []AttentionItem {
 	items = append(items, q.provisioningAttention()...)
 	items = append(items, q.knowledgeAttention()...)
 	items = append(items, q.inferredProviderAttention()...)
+	items = append(items, q.externalChangedAttention()...)
 	items = append(items, q.unownedAttention()...)
 	items = append(items, q.undeclaredAttention()...)
 	items = append(items, q.crossEnvironmentAttention()...)

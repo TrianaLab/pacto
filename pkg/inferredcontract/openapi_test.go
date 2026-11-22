@@ -73,7 +73,7 @@ func TestBundleWritesOpenAPILink(t *testing.T) {
 func TestBundleOpenAPILinkIsQuotedYAML(t *testing.T) {
 	b := stripeBundle(t, "0.0.1", spec("a"))
 	c, err := contract.Parse(strings.NewReader(string(b.RawYAML)))
-	if err != nil || c.Metadata[OpenAPIMetadataKey] != spec("a") || openAPILink(b) != spec("a") {
+	if err != nil || c.Metadata[fleet.ExternalOpenAPIMetadataKey] != spec("a") || openAPILink(b) != spec("a") {
 		t.Errorf("parsed back = %+v, %v", c, err)
 	}
 }

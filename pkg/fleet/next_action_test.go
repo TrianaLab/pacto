@@ -142,6 +142,7 @@ var preAdoptionCodes = map[string]string{
 	codeProvisioningStale:             "the provider reports again",
 	codeCrossEnvironmentCall:          "a person finds out why the workload calls across environments; no contract edit stops the call",
 	codeCrossEnvironmentPreviewCall:   "a person finds out why the workload calls a preview; no contract edit stops the call",
+	AttentionExternalChanged:          "a person reviews the consumers with pacto impact; no contract edit changes the vendor",
 }
 
 // dynamicCodeProducers are the functions that set a computed code, each with

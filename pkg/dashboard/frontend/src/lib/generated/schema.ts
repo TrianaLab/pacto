@@ -3738,6 +3738,8 @@ export interface components {
             source: string;
         };
         "Fleet.ExternalProvider": {
+            /** @description What changed between the two revisions shown first; checked says whether this installation's operator signed both; values are absent when the view is restricted */
+            change?: components["schemas"]["Fleet.ExternalProviderChange"];
             /**
              * @description Always INFERRED_PROVIDER
              * @enum {string}
@@ -3759,6 +3761,24 @@ export interface components {
             revisionsTotal: number;
             /** @description True when the caller's view is restricted, so the surface is not shown; absent when the record holds none */
             surfaceHidden?: boolean;
+        };
+        "Fleet.ExternalProviderChange": {
+            /** @description Surface values as <list> <value>, for example clients stripe-go/77 */
+            added?: string[] | null;
+            /** @description When the newer revision's surface was computed */
+            at?: string;
+            /** @description True only when this installation's operator signed both revisions; an unchecked change raises no attention */
+            checked: boolean;
+            /** @description The version of the older revision */
+            from: string;
+            /** @description The vendor OpenAPI document the older revision links, set when the digest moved */
+            openapiFrom?: string;
+            /** @description The vendor OpenAPI document the newer revision links, set when the digest moved */
+            openapiTo?: string;
+            /** @description Surface values as <list> <value>, for example clients stripe-go/76 */
+            removed?: string[] | null;
+            /** @description The version of the newer revision */
+            to: string;
         };
         "Fleet.ExternalProviderRevision": {
             digest: string;

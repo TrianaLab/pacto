@@ -126,6 +126,9 @@ func externalProvider(revs []*ContractRevision) *ExternalProvider {
 	revs = append(slices.DeleteFunc(revs, func(r *ContractRevision) bool { return !operatorSigned(r) }), unsigned...)
 	repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(revs[0].ResolvedRef))
 	p := &ExternalProvider{Repository: repo, RevisionsTotal: len(revs), RangeStatus: RangeUnknown, RangeReason: RangeReasonInferredProvider}
+	if len(revs) > 1 {
+		p.Change = providerChange(revs[0], revs[1])
+	}
 	kept, _, _ := boundSlice(revs, MaxExternalSources)
 	for i, r := range kept {
 		pr := ExternalProviderRevision{Version: r.Version, Digest: r.Digest, Ref: r.ResolvedRef}
@@ -148,7 +151,8 @@ func operatorSigned(rev *ContractRevision) bool {
 }
 
 // withoutSurface is p as a restricted view sees it: every revision keeps its
-// version, digest, ref and signature, and no surface. The surface was
+// version, digest, ref and signature, and no surface; its change keeps no
+// surface value. The surface was
 // computed elsewhere, from consumers and sources (fleet source ids, never
 // namespaces) this view cannot check against what it hides, and values a
 // partial run carried forward name consumers that may have left. So every
@@ -163,6 +167,12 @@ func withoutSurface(p *ExternalProvider) *ExternalProvider {
 		if out.Revisions[i].Surface != nil {
 			out.Revisions[i].Surface, out.SurfaceHidden = nil, true
 		}
+	}
+	if c := p.Change; c != nil && len(c.Added)+len(c.Removed) > 0 {
+		// The versions, the check and the catalog-derived link stay.
+		hidden := *c
+		hidden.Added, hidden.Removed = nil, nil
+		out.Change, out.SurfaceHidden = &hidden, true
 	}
 	return &out
 }
