@@ -265,7 +265,7 @@ func printClusterCounts(w io.Writer, l delivery.ClusterJoinList) {
 		_, _ = fmt.Fprintf(w, "%d clusters you may not approve are hidden\n", l.Hidden)
 	}
 	if l.OtherHubs > 0 {
-		_, _ = fmt.Fprintf(w, "%d join records name another hub and were not used\n", l.OtherHubs)
+		_, _ = fmt.Fprintf(w, "%d join or mapping records name another hub and were not used\n", l.OtherHubs)
 	}
 	for _, lim := range l.Limitations {
 		_, _ = fmt.Fprintf(w, "[%s] %s\n", lim.Code, lim.Message)

@@ -241,7 +241,7 @@ func TestClusterListPrintsEveryPart(t *testing.T) {
 	var b bytes.Buffer
 	printClusterList(&b, delivery.ClusterJoinList{Hub: delivery.ClusterRef{UID: "h"}, Hidden: 2, OtherHubs: 1,
 		Limitations: []fleet.Limitation{{Code: "X", Message: "m"}}})
-	if want := "no member clusters\n2 clusters you may not approve are hidden\n1 join records name another hub and were not used\n[X] m\n"; !strings.HasSuffix(b.String(), want) {
+	if want := "no member clusters\n2 clusters you may not approve are hidden\n1 join or mapping records name another hub and were not used\n[X] m\n"; !strings.HasSuffix(b.String(), want) {
 		t.Fatalf("%q", b.String())
 	}
 	l := delivery.ClusterJoinList{Clusters: []delivery.ClusterJoinState{

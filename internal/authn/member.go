@@ -51,8 +51,9 @@ var (
 	// errNoForwardableIdentity: the person signed in some way the member
 	// cannot check (a sign-in link, an opaque, expired or long-lived token).
 	errNoForwardableIdentity = errors.New("your sign-in cannot be checked by a member cluster")
-	// errMemberListOnly: a member answers list over every object only.
-	errMemberListOnly = errors.New("a member cluster answers only whether a person may list a resource")
+	// errMemberListOnly: a member answers list over every object of a
+	// reviewable resource only.
+	errMemberListOnly = errors.New("a member cluster answers only whether a person may list the resources Pacto reads")
 	// errForeignIssuer: the person's token comes from another identity
 	// provider than the one the hub exchanges tokens at, so no member token
 	// can be made for it.
@@ -80,7 +81,7 @@ type memberReviewer struct {
 }
 
 func (m *memberReviewer) review(ctx context.Context, p Person, namespace string, res ResourceAttributes) (bool, error) {
-	if (res.Verb != "" && res.Verb != "list") || res.Name != "" {
+	if (res.Verb != "" && res.Verb != "list") || res.Name != "" || !memberlink.Reviewable(res.Group, res.Resource) {
 		return false, errMemberListOnly
 	}
 	token, issuer, err := m.forwardable(ctx)

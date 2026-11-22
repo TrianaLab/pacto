@@ -105,7 +105,7 @@ func TestMemberReviewRefusesNonListVerb(t *testing.T) {
 	l := &fakeLink{uid: "u1", answer: allow(memberlink.ModelSharedIssuer)}
 	r := MemberReview(l, (&exchanges{}).exchange, nil)
 	ctx := signedIn(jwtOf(issuerA, time.Now().Add(time.Hour-time.Minute)))
-	for _, res := range []ResourceAttributes{ClusterJoinResource, {Group: "apps", Resource: "deployments", Verb: "update"}, {Group: pactos.Group, Resource: pactos.Resource, Name: "one"}} {
+	for _, res := range []ResourceAttributes{ClusterJoinResource, {Group: "apps", Resource: "deployments", Verb: "update"}, {Group: pactos.Group, Resource: pactos.Resource, Name: "one"}, {Resource: "secrets"}} {
 		if ok, err := r(ctx, aliceP, "prod", res); ok || !errors.Is(err, errMemberListOnly) {
 			t.Errorf("%+v: %v %v", res, ok, err)
 		}

@@ -347,7 +347,7 @@ type ClusterJoinList struct {
 	Limitations  []fleet.Limitation `json:"limitations,omitempty"`
 	Clusters     []ClusterJoinState `json:"clusters"`
 	// Hidden counts the rows the reader may not see; OtherHubs the verified
-	// records that name another hub and were not used.
+	// join and group mapping records that name another hub and were not used.
 	Hidden    int `json:"hidden"`
 	OtherHubs int `json:"otherHubs"`
 	// CanApprove says the surface offers the reader the approve command:
