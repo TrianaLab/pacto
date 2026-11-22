@@ -389,9 +389,10 @@ prefix_leg() {
   helm upgrade pacto-operator "$CHART" -n "$NS" "${prefix_sets[@]}" --wait --timeout 180s
   kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=120s
   wait_managed_ready pacto-evidence || fail "evidence Deployment did not become Ready with a subject prefix"
-  kubectl -n "$NS" get deploy pacto-evidence -o jsonpath='{.spec.template.spec.containers[0].args}' \
-    | grep -q -- "--subject-prefix=oci://${REG_HOST}/" \
-    || fail "the evidence Deployment does not carry --subject-prefix=oci://${REG_HOST}/"
+  kubectl -n "$NS" get deploy pacto-evidence -o json \
+    | jq -e --arg p "oci://${REG_HOST}/" '.spec.template.spec.containers[0].args as $a
+        | [range(0; ($a | length) - 1) | select($a[.] == "--subject-prefix" and $a[. + 1] == $p)] | length == 1' >/dev/null \
+    || fail "the evidence Deployment does not carry --subject-prefix oci://${REG_HOST}/"
   pass "the Evidence Server runs with the subject prefix oci://${REG_HOST}/"
   evidence_pod() {
     kubectl -n "$NS" get pod -l app.kubernetes.io/component=evidence -o json \
