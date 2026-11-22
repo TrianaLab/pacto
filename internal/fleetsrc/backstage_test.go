@@ -39,12 +39,50 @@ func newTestBackstage(t *testing.T, srv *httptest.Server, token string) *Backsta
 	return src
 }
 
-func TestBackstageSourceStates(t *testing.T) {
-	full := func(w http.ResponseWriter, r *http.Request) {
-		n := 0
-		_, _ = fmt.Sscanf(r.URL.Query().Get("cursor"), "p%d", &n)
-		_, _ = w.Write([]byte(catalogPage(fmt.Sprintf("svc%d", n), 500, fmt.Sprintf("p%d", n+1))))
+// twoPageCatalog answers the first page only to the full query and the
+// second only to the bare cursor.
+func twoPageCatalog(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	switch {
+	case q.Get("cursor") == "" && q.Get("filter") == "kind=component" && q.Get("limit") == "500" && strings.Contains(q.Get("fields"), "spec.dependsOn"):
+		_, _ = w.Write([]byte(catalogPage("a", 2, "next")))
+	case q.Get("cursor") == "next" && q.Get("filter") == "":
+		_, _ = w.Write([]byte(catalogPage("b", 1, "")))
+	default:
+		w.WriteHeader(http.StatusBadRequest)
 	}
+}
+
+// endlessCatalog answers full pages with a next cursor forever.
+func endlessCatalog(w http.ResponseWriter, r *http.Request) {
+	n := 0
+	_, _ = fmt.Sscanf(r.URL.Query().Get("cursor"), "p%d", &n)
+	_, _ = w.Write([]byte(catalogPage(fmt.Sprintf("svc%d", n), 500, fmt.Sprintf("p%d", n+1))))
+}
+
+// checkBackstageState asserts an advisory collection with status, facts
+// service facts and a message containing msg but never the server URL.
+func checkBackstageState(t *testing.T, col *fleet.Collection, err error, status fleet.SourceStatus, facts int, msg string) {
+	t.Helper()
+	if err != nil || col == nil || !col.Advisory || col.State == nil {
+		t.Fatalf("Collect = %+v, %v", col, err)
+	}
+	if col.State.Status != status || len(col.ServiceFacts) != facts {
+		t.Fatalf("status %s with %d facts, want %s with %d", col.State.Status, len(col.ServiceFacts), status, facts)
+	}
+	got := ""
+	if col.State.Error != nil {
+		got = col.State.Error.Message
+	}
+	for _, l := range col.Limitations {
+		got += l.Message
+	}
+	if !strings.Contains(got, msg) || strings.Contains(got, "127.0.0.1") {
+		t.Errorf("message %q, want %q and no URL", got, msg)
+	}
+}
+
+func TestBackstageSourceStates(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		handler http.HandlerFunc
@@ -56,17 +94,7 @@ func TestBackstageSourceStates(t *testing.T) {
 		{name: "one page", status: fleet.SourceAvailable, facts: 2, handler: func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(catalogPage("a", 2, "")))
 		}},
-		{name: "two pages via cursor", status: fleet.SourceAvailable, facts: 3, handler: func(w http.ResponseWriter, r *http.Request) {
-			q := r.URL.Query()
-			switch {
-			case q.Get("cursor") == "" && q.Get("filter") == "kind=component" && q.Get("limit") == "500" && strings.Contains(q.Get("fields"), "spec.dependsOn"):
-				_, _ = w.Write([]byte(catalogPage("a", 2, "next")))
-			case q.Get("cursor") == "next" && q.Get("filter") == "":
-				_, _ = w.Write([]byte(catalogPage("b", 1, "")))
-			default:
-				w.WriteHeader(http.StatusBadRequest)
-			}
-		}},
+		{name: "two pages via cursor", status: fleet.SourceAvailable, facts: 3, handler: twoPageCatalog},
 		{name: "exactly the cap", status: fleet.SourceAvailable, facts: backstage.MaxCatalogEntities, handler: func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(catalogPage("a", backstage.MaxCatalogEntities, "")))
 		}},
@@ -74,7 +102,7 @@ func TestBackstageSourceStates(t *testing.T) {
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				_, _ = w.Write([]byte(catalogPage("a", backstage.MaxCatalogEntities+1, "")))
 			}},
-		{name: "cap reached", status: fleet.SourcePartial, facts: backstage.MaxCatalogEntities, msg: "the read stopped at 5000 components", handler: full},
+		{name: "cap reached", status: fleet.SourcePartial, facts: backstage.MaxCatalogEntities, msg: "the read stopped at 5000 components", handler: endlessCatalog},
 		{name: "401", status: fleet.SourceUnavailable, msg: "refused", handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(401) }},
 		{name: "403", status: fleet.SourceUnavailable, msg: "refused", handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(403) }},
 		{name: "404", status: fleet.SourceUnavailable, msg: "entities/by-query", handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(404) }},
@@ -103,22 +131,7 @@ func TestBackstageSourceStates(t *testing.T) {
 			}
 			defer cancel()
 			col, err := newTestBackstage(t, srv, "").Collect(ctx)
-			if err != nil || col == nil || !col.Advisory || col.State == nil {
-				t.Fatalf("Collect = %+v, %v", col, err)
-			}
-			if col.State.Status != tc.status || len(col.ServiceFacts) != tc.facts {
-				t.Fatalf("status %s with %d facts, want %s with %d", col.State.Status, len(col.ServiceFacts), tc.status, tc.facts)
-			}
-			got := ""
-			if col.State.Error != nil {
-				got = col.State.Error.Message
-			}
-			for _, l := range col.Limitations {
-				got += l.Message
-			}
-			if !strings.Contains(got, tc.msg) || strings.Contains(got, "127.0.0.1") {
-				t.Errorf("message %q, want %q and no URL", got, tc.msg)
-			}
+			checkBackstageState(t, col, err, tc.status, tc.facts, tc.msg)
 		})
 	}
 }
