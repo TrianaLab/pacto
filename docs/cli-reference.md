@@ -357,19 +357,20 @@ pacto cluster approve <uid> [flags]
 **Examples:**
 
 ```
-  pacto cluster approve 9f1c4e2a --key sha256:91ab...e7 --name eu-prod
+  pacto cluster approve 9f1c4e2a --key sha256:91ab...e7 --name eu-prod --registry ghcr.io/acme
 ```
 
 **Flags:**
 
 ```
-      --context stringArray   kubeconfig context of the hub cluster (default the current context)
-      --detected string       what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
-  -h, --help[=true|false]     help for approve
-      --issuer string         the approver signer's OIDC issuer, when the hub lists several
-      --key string            the member key you checked, sha256:<64 hex> (required)
-      --name string           display name for the member, a DNS label (default the name its snapshot gives)
-      --registry string       the registry the members publish to, or its pacto-targets repository (default the one the hub's operator advertises, read with --detected)
+      --context stringArray         kubeconfig context of the hub cluster (default the current context)
+      --delivery-namespace string   namespace of the hub's delivery identities ConfigMap, which lists the approver signers (default "pacto-delivery")
+      --detected string             what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+  -h, --help[=true|false]           help for approve
+      --issuer string               the approver signer's OIDC issuer, when the hub lists several
+      --key string                  the member key you checked, sha256:<64 hex> (required)
+      --name string                 display name for the member, a DNS label (default the name its snapshot gives)
+      --registry string             the registry the members publish to, or its pacto-targets repository; this or --detected is required
 ```
 
 ### `pacto cluster list`
@@ -383,10 +384,11 @@ pacto cluster list [flags]
 **Flags:**
 
 ```
-      --context stringArray   kubeconfig context of the hub cluster (default the current context)
-      --detected string       what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
-  -h, --help[=true|false]     help for list
-      --registry string       the registry the members publish to, or its pacto-targets repository (default the one the hub's operator advertises, read with --detected)
+      --context stringArray         kubeconfig context of the hub cluster (default the current context)
+      --delivery-namespace string   namespace of the hub's delivery identities ConfigMap, which lists the approver signers (default "pacto-delivery")
+      --detected string             what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+  -h, --help[=true|false]           help for list
+      --registry string             the registry the members publish to, or its pacto-targets repository; this or --detected is required
 ```
 
 ### `pacto cluster remove`
@@ -400,11 +402,12 @@ pacto cluster remove <uid> [flags]
 **Flags:**
 
 ```
-      --context stringArray   kubeconfig context of the hub cluster (default the current context)
-      --detected string       what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
-  -h, --help[=true|false]     help for remove
-      --issuer string         the approver signer's OIDC issuer, when the hub lists several
-      --registry string       the registry the members publish to, or its pacto-targets repository (default the one the hub's operator advertises, read with --detected)
+      --context stringArray         kubeconfig context of the hub cluster (default the current context)
+      --delivery-namespace string   namespace of the hub's delivery identities ConfigMap, which lists the approver signers (default "pacto-delivery")
+      --detected string             what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+  -h, --help[=true|false]           help for remove
+      --issuer string               the approver signer's OIDC issuer, when the hub lists several
+      --registry string             the registry the members publish to, or its pacto-targets repository; this or --detected is required
 ```
 
 ---

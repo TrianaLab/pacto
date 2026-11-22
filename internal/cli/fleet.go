@@ -242,30 +242,19 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 
 // fleetJoins reads the members this cluster approved as a hub when the
 // command reads the current cluster (--k8s) and what its operator detected
-// (--detected k8s:), from the registry the operator advertises; nil
-// otherwise, or with a warning when that cannot be read.
+// (--detected k8s:), from the registry the operator advertises, with the
+// approver signers in --delivery-namespace where the command has it; nil
+// otherwise.
 func fleetJoins(cmd *cobra.Command, d deps, includeK8s bool, detected string) *app.JoinOptions {
 	if !includeK8s || !strings.HasPrefix(detected, "k8s:") || !hasClusterConfig(d) {
 		return nil
 	}
-	return readJoins(cmd, func(ctx context.Context) (app.JoinOptions, error) {
-		_, opts, err := hubJoins(ctx, d, "", "", detected)
+	ns, _ := cmd.Flags().GetString("delivery-namespace")
+	// Resolved at each read, so a long-running reader follows the detection.
+	return &app.JoinOptions{Resolve: func(ctx context.Context) (app.JoinOptions, error) {
+		_, opts, err := hubJoins(ctx, d, "", "", detected, ns)
 		return opts, err
-	})
-}
-
-// readJoins is what read returns, nil with a warning when it fails, and nil
-// when the hub's operator sets no registry: no member can join.
-func readJoins(cmd *cobra.Command, read func(context.Context) (app.JoinOptions, error)) *app.JoinOptions {
-	opts, err := read(cmp.Or(cmd.Context(), context.Background()))
-	if err != nil {
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: member clusters were not read: %v\n", err)
-		return nil
-	}
-	if opts.Repository == "" {
-		return nil
-	}
-	return &opts
+	}}
 }
 
 // targetSnapshotRefs drops auto and off from the --target-snapshot values:

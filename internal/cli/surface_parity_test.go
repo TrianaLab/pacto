@@ -407,7 +407,7 @@ func clusterRows() []surfaceRow {
 	return slices.Concat(
 		[]surfaceRow{{CLI: "cluster list", MCP: "pacto_cluster_list", HTTP: "GET /api/fleet/clusters"}},
 		alike("cluster list", "", "", "pacto_cluster_list and the dashboard read the hub they run in, from the registry its operator advertises; "+
-			"the CLI names the hub and its registry", "context", "registry", "detected"),
+			"the CLI names the hub, its registry and where its approver signers are published", "context", "registry", "detected", "delivery-namespace"),
 	)
 }
 

@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 
@@ -48,19 +47,19 @@ func joinLister(svc *app.Service, opts *app.JoinOptions, now func() time.Time) f
 
 // dashboardJoins are how a dashboard in the hub reads its members: in the
 // sign-in cluster, from the registry its operator's detection advertises,
-// with the approver signers published in policyNS. nil without a sign-in
-// cluster or a detection, or when the joins cannot be read (a warning).
-func dashboardJoins(cmd *cobra.Command, d deps, cluster *rest.Config, detected, policyNS string) *app.JoinOptions {
+// with the approver signers published in policyNS, resolved at each read.
+// nil without a sign-in cluster or a detection.
+func dashboardJoins(d deps, cluster *rest.Config, detected, policyNS string) *app.JoinOptions {
 	if cluster == nil || detected == "" {
 		return nil
 	}
-	return readJoins(cmd, func(ctx context.Context) (app.JoinOptions, error) {
+	return &app.JoinOptions{Resolve: func(ctx context.Context) (app.JoinOptions, error) {
 		dyn, err := d.dynamicFor(cluster)
 		if err != nil {
 			return app.JoinOptions{}, err
 		}
 		return joinsOn(ctx, dyn, "", detected, policyNS)
-	})
+	}}
 }
 
 // clusterJoins serves list as each request's reader may see it: a

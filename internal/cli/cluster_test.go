@@ -205,6 +205,10 @@ func TestClusterListText(t *testing.T) {
 	if err != nil || !strings.HasPrefix(out, "hub "+clusterHubUID+" reads "+e.repo+" (complete, as of ") || !strings.HasSuffix(out, want) {
 		t.Fatalf("%q %v", out, err)
 	}
+	// The person's own list offers the approve command (R3-5).
+	if out, _, _ := e.run(t, "list", "--output-format", "json"); !strings.Contains(out, `"canApprove": true`) {
+		t.Fatalf("%s", out)
+	}
 }
 
 func TestClusterListJSONMatchesApp(t *testing.T) {
@@ -237,25 +241,29 @@ func TestClusterListPrintsEveryPart(t *testing.T) {
 	var b bytes.Buffer
 	printClusterList(&b, delivery.ClusterJoinList{Hub: delivery.ClusterRef{UID: "h"}, Hidden: 2, OtherHubs: 1,
 		Limitations: []fleet.Limitation{{Code: "X", Message: "m"}}})
-	if want := "no member clusters\n2 clusters you may not approve are hidden\n1 join records decide for another hub\n[X] m\n"; !strings.HasSuffix(b.String(), want) {
+	if want := "no member clusters\n2 clusters you may not approve are hidden\n1 join records name another hub and were not used\n[X] m\n"; !strings.HasSuffix(b.String(), want) {
 		t.Fatalf("%q", b.String())
 	}
 	l := delivery.ClusterJoinList{Clusters: []delivery.ClusterJoinState{
 		{UID: "bbbb0000-1111", NameSource: "uid", State: delivery.JoinPending, Reason: "a|b"},
 		{UID: "cccc0000-2222", Name: "eu-prod", State: delivery.JoinApproved, Approver: alice, ApprovedAt: "t", KeyID: "k"},
 		{UID: "dddd0000-3333", Name: "eu-prod", State: delivery.JoinPending, MayReplace: &delivery.ClusterRef{UID: "cccc0000-2222", Name: "eu-prod"}},
+		{UID: "eeee0000-4444", Name: "ap-dev", State: delivery.JoinPending, Status: fleet.SourceStale, SnapshotAsOf: "2026-11-17T10:00:00Z"},
+		{UID: "ffff0000-5555", Name: "ap-old", State: delivery.JoinPending, Status: fleet.SourceUnavailable},
 	}}
 	b.Reset()
 	printClusterList(&b, l)
 	for _, want := range []string{"bbbb0000 (uid)  bbbb0000-1111  pending  a|b\n", "eu-prod ()  cccc0000-2222  approved  key sha256:k  by " + alice + " on t\n",
-		"dddd0000-3333  pending  may replace eu-prod\n"} {
+		"dddd0000-3333  pending  may replace eu-prod\n", "eeee0000-4444  pending  snapshot stale from 2026-11-17T10:00:00Z\n",
+		"ffff0000-5555  pending  snapshot unavailable\n"} {
 		if !strings.Contains(b.String(), want) {
 			t.Fatalf("%q in %q", want, b.String())
 		}
 	}
 	b.Reset()
 	printClusterListMarkdown(&b, l)
-	if !strings.Contains(b.String(), `| a\|b |`) || !strings.Contains(b.String(), "| "+alice+" on t |") || !strings.Contains(b.String(), "| ; may replace eu-prod |") {
+	if !strings.Contains(b.String(), `| a\|b |`) || !strings.Contains(b.String(), "| "+alice+" on t |") || !strings.Contains(b.String(), "| ; may replace eu-prod |") ||
+		!strings.Contains(b.String(), "| pending (snapshot stale from 2026-11-17T10:00:00Z) |") {
 		t.Fatalf("%q", b.String())
 	}
 }
@@ -402,7 +410,7 @@ func TestApproveAmbiguousPrefix(t *testing.T) {
 	for arg, want := range map[string]string{
 		"aaaa0000":  "aaaa0000 names 2 clusters (" + euProd + ", " + b.uid + "): name more of the id",
 		"aaaa":      "name the cluster by its id or at least 8 characters of it",
-		"ffff0000x": "no cluster ffff0000x publishes to " + e.repo + " (the list is complete)",
+		"ffff0000x": "no cluster ffff0000x publishes to " + e.repo,
 	} {
 		if _, _, err := e.run(t, "approve", arg, "--key", key); err == nil || err.Error() != want {
 			t.Fatalf("%s: %v", arg, err)
@@ -481,6 +489,40 @@ func TestRemoveRefusesMemberWithoutKey(t *testing.T) {
 	}
 	if _, _, err := e.run(t, "remove", euProd); err == nil || !strings.Contains(err.Error(), "names no key to decide on: the snapshot carries no join block") {
 		t.Fatal(err)
+	}
+}
+
+// TestRemoveApprovedMemberWithoutJoinBlock: a member that stopped
+// publishing its join block is removed under its approved key (R4-2).
+func TestRemoveApprovedMemberWithoutJoinBlock(t *testing.T) {
+	e := newClusterEnv(t, capabilities.ReferrersNative)
+	m := newJoinMember(euProd, "eu-prod")
+	e.publish(t, m, m.key)
+	if _, _, err := e.approve(t, m); err != nil {
+		t.Fatal(err)
+	}
+	s := delivery.TargetSnapshot{Cluster: euProd, AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: fleet.CompletenessComplete, Publisher: "p"}
+	kp, _ := signing.FromPrivateKey(m.key)
+	b, _ := delivery.SignTargetSnapshot(t.Context(), signing.Keyed(kp, ""), delivery.NewTargetSnapshotStatement(s))
+	if _, err := deliveryrecord.PushTargetSnapshot(t.Context(), e.registry(), euProd, b); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := e.run(t, "remove", euProd); err != nil {
+		t.Fatal(err)
+	}
+	if st := e.state(t, m); st.State != delivery.JoinRemoved {
+		t.Fatalf("%+v", st)
+	}
+}
+
+// TestApproveRefusesSnapshotNotSelfSigned: a snapshot its own key did not
+// sign is refused before the login (R4-8).
+func TestApproveRefusesSnapshotNotSelfSigned(t *testing.T) {
+	e := newClusterEnv(t, capabilities.ReferrersNative)
+	m := newJoinMember(euProd, "eu-prod")
+	e.publish(t, m, newJoinMember("x", "x").key)
+	if _, _, err := e.approve(t, m); err == nil || !strings.Contains(err.Error(), "names no key to decide on: the snapshot is not signed by the key it names") || e.logins != 0 {
+		t.Fatalf("%v after %d logins", err, e.logins)
 	}
 }
 
@@ -580,31 +622,29 @@ func TestFleetReadsJoinsWithDetected(t *testing.T) {
 	}
 	cmd := &cobra.Command{}
 	opts := fleetJoins(cmd, d, true, "k8s:pacto/pacto-detected")
-	if opts == nil || opts.Repository != e.repo || opts.Hub != clusterHubUID {
-		t.Fatalf("%+v", opts)
+	if got, err := opts.Resolve(t.Context()); err != nil || got.Repository != e.repo || got.Hub != clusterHubUID {
+		t.Fatalf("%+v %v", got, err)
 	}
 	snap, err := app.NewService(nil, nil).Fleet(t.Context(), app.FleetOptions{ClusterJoins: opts})
 	if err != nil || !hasSource(snap, "targets-"+euProd) {
 		t.Fatalf("%v %+v", err, snap.Sources)
 	}
 	for name, got := range map[string]*app.JoinOptions{
-		"no --k8s":       fleetJoins(cmd, d, false, "k8s:pacto/pacto-detected"),
-		"a file":         fleetJoins(cmd, d, true, detectedFile(t, e.repo)),
-		"no cluster":     fleetJoins(cmd, deps{}, true, "k8s:pacto/pacto-detected"),
-		"no such detect": fleetJoins(cmd, d, true, "k8s:pacto/none"),
+		"no --k8s":   fleetJoins(cmd, d, false, "k8s:pacto/pacto-detected"),
+		"a file":     fleetJoins(cmd, d, true, detectedFile(t, e.repo)),
+		"no cluster": fleetJoins(cmd, deps{}, true, "k8s:pacto/pacto-detected"),
 	} {
 		if got != nil {
 			t.Errorf("%s: %+v", name, got)
 		}
 	}
-	var stderr bytes.Buffer
-	cmd.SetErr(&stderr)
-	if fleetJoins(cmd, d, true, "k8s:pacto/none") != nil || !strings.Contains(stderr.String(), "warning: member clusters were not read: the detection k8s:pacto/none names no registry") {
-		t.Fatalf("%q", stderr.String())
+	// A detection that is not there yet is resolved again at each read (R3-3).
+	if _, err := fleetJoins(cmd, d, true, "k8s:pacto/none").Resolve(t.Context()); err == nil || !strings.Contains(err.Error(), "the detection k8s:pacto/none names no registry") {
+		t.Fatalf("%v", err)
 	}
 	cm.Object["data"] = map[string]any{detect.ConfigMapKey: strings.Replace(string(b), e.repo, "", 1)}
-	if got := fleetJoins(cmd, d, true, "k8s:pacto/pacto-detected"); got != nil {
-		t.Fatalf("an operator with no registry: %+v", got)
+	if got, err := opts.Resolve(t.Context()); err != nil || got.Repository != "" {
+		t.Fatalf("an operator with no registry: %+v %v", got, err)
 	}
 }
 
@@ -616,4 +656,13 @@ func hasSource(snap *fleet.FleetSnapshot, id string) bool {
 		}
 	}
 	return false
+}
+
+// TestApproveExampleNamesRegistry: the example a person copies names the
+// registry, which every cluster command needs (R3-1).
+func TestApproveExampleNamesRegistry(t *testing.T) {
+	cmd := newClusterDecisionCommand(nil, nil, deps{}, delivery.JoinApprove)
+	if !strings.Contains(cmd.Example, "--registry ") {
+		t.Fatalf("%q", cmd.Example)
+	}
 }

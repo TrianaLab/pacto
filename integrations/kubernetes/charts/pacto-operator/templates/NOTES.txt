@@ -221,7 +221,7 @@ Registry: {{ . }}
   pacto impact.
   A hub that reads {{ . }}/pacto-targets lists this cluster as a
   pending member; approve it there with
-    pacto cluster approve {{ $joinUID }} --key sha256:{{ $joinKey }}
+    pacto cluster approve {{ $joinUID }} --key sha256:{{ $joinKey }} --registry {{ . }}
   Read this cluster's key id to compare:
     kubectl get configmap {{ $fullname }}-detected -n {{ $.Release.Namespace }} -o jsonpath='{.data.detected\.json}' | jq -r .installation.snapshotKeyID
   To list members of this registry from this cluster's dashboard, add a

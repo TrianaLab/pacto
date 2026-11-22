@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -116,7 +114,8 @@ func TestJoinedMemberHiddenAndCountedForSignedInReader(t *testing.T) {
 	}
 	snap, err := fleet.Build(t.Context(), fleet.BuildOptions{},
 		fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, &fleet.Collection{Cluster: hub, Targets: []fleet.RawTarget{target("shop", "web")}}),
-		fleet.NewMemorySource("targets-"+euProd, fleet.SourceKindTargetSnapshot, &fleet.Collection{Cluster: member, Targets: []fleet.RawTarget{target("eu-payments", "ledger")}}))
+		fleet.NewMemorySource("targets-"+euProd, fleet.SourceKindTargetSnapshot, &fleet.Collection{Cluster: member, Targets: []fleet.RawTarget{target("eu-payments", "ledger")},
+			State: &fleet.SourceState{Status: fleet.SourceAvailable, Signer: "member:eu-prod"}}))
 	expect(t, err == nil, "build: %v", err)
 	all := func(context.Context, authn.Person, string, authn.ResourceAttributes) (bool, error) { return true, nil }
 	viewer := authn.NewViewer(func(context.Context) map[string]authn.Review { return map[string]authn.Review{clusterHubUID: all} })
@@ -156,15 +155,14 @@ func TestDashboardJoinsReadsTheSignInCluster(t *testing.T) {
 	e := newClusterEnv(t, capabilities.ReferrersNative)
 	d := e.d
 	d.dynamicFor = func(*rest.Config) (dynamic.Interface, error) { return e.hub(), nil }
-	cmd := &cobra.Command{}
-	got := dashboardJoins(cmd, d, &rest.Config{}, detectedFile(t, e.repo), "pacto-system")
-	expect(t, got != nil && got.Repository == e.repo && got.Hub == clusterHubUID && got.Delivery.PolicyNamespace == "pacto-system", "%+v", got)
-	expect(t, dashboardJoins(cmd, d, nil, detectedFile(t, e.repo), "") == nil, "no sign-in cluster")
-	expect(t, dashboardJoins(cmd, d, &rest.Config{}, "", "") == nil, "no detection")
-	var stderr bytes.Buffer
-	cmd.SetErr(&stderr)
+	got, err := dashboardJoins(d, &rest.Config{}, detectedFile(t, e.repo), "pacto-system").Resolve(t.Context())
+	expect(t, err == nil && got.Repository == e.repo && got.Hub == clusterHubUID && got.Delivery.PolicyNamespace == "pacto-system", "%+v %v", got, err)
+	expect(t, dashboardJoins(d, nil, detectedFile(t, e.repo), "") == nil, "no sign-in cluster")
+	expect(t, dashboardJoins(d, &rest.Config{}, "", "") == nil, "no detection")
+	// A client that fails now is asked again at the next read (R3-3).
 	d.dynamicFor = func(*rest.Config) (dynamic.Interface, error) { return nil, errors.New("no client") }
-	expect(t, dashboardJoins(cmd, d, &rest.Config{}, detectedFile(t, e.repo), "") == nil && strings.Contains(stderr.String(), "no client"), "%q", stderr.String())
+	l := app.NewService(nil, nil).ClusterJoins(t.Context(), *dashboardJoins(d, &rest.Config{}, detectedFile(t, e.repo), ""))
+	expect(t, l.Completeness == fleet.CompletenessPartial && strings.Contains(l.Limitations[0].Message, "no client"), "%+v", l)
 }
 
 func TestMCPClustersReviewsSignedInCallers(t *testing.T) {
@@ -257,6 +255,12 @@ func TestVisibleJoins(t *testing.T) {
 	v = visibleJoins(hubList(), false, nil)
 	expect(t, len(v.Clusters) == 1 && v.Clusters[0].UID == euProd && v.Hidden == 2 && !v.CanApprove && v.Completeness == fleet.CompletenessComplete,
 		"non-approver = %+v", v)
+	// Limitations name no cluster and no approver, so a non-approver keeps
+	// them as they are (R1-1).
+	l := hubList()
+	l.Limitations = []fleet.Limitation{{Code: fleet.LimitationSourceUnavailable, Message: "the approvers of 1 cluster could not be checked"}}
+	v = visibleJoins(l, false, nil)
+	expect(t, len(v.Limitations) == 1 && !strings.Contains(v.Limitations[0].Message, "bbbb0000"), "non-approver limitations = %+v", v.Limitations)
 	v = visibleJoins(hubList(), true, errors.New("timeout"))
 	expect(t, len(v.Clusters) == 1 && v.Hidden == 2 && !v.CanApprove && v.Completeness == fleet.CompletenessPartial &&
 		len(v.Limitations) == 1 && strings.HasSuffix(v.Limitations[0].Message, ": timeout"), "failed review = %+v", v)

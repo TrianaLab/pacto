@@ -146,7 +146,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 
 			fopts := dashboardFleetOptions(dir, repos, namespaces, observation, det)
 			fopts.Provenance.Trust = publisherTrust(cmd, d, det.detected)
-			fopts.ClusterJoins = dashboardJoins(cmd, d, clusterCfg, det.detected, v.GetString("dashboard.delivery-namespace"))
+			fopts.ClusterJoins = dashboardJoins(d, clusterCfg, det.detected, v.GetString("dashboard.delivery-namespace"))
 			configured := configuredSources(fopts)
 			if answersNothing(configured) {
 				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no cached bundles and no Kubernetes configuration", dir)

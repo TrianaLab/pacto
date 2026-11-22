@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -22,6 +23,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 )
@@ -30,7 +32,7 @@ const (
 	// clusterGrant is the grant an approver needs, to their own user.
 	clusterGrant = "kubectl create clusterrole pacto-cluster-approver --verb=approve --resource=clusterjoins.pacto.trianalab.io, bound to your user"
 	// needsRegistry is why a cluster command has no repository to read.
-	needsRegistry = "name the registry with --registry (or the operator's detection with --detected k8s:<namespace>/<release>-detected), or set registry on the hub's operator"
+	needsRegistry = "name the registry with --registry, or the operator's detection with --detected k8s:<namespace>/<release>-detected once registry is set on the hub's operator"
 	// minClusterPrefix is the shortest cluster id prefix a decision takes.
 	minClusterPrefix = 8
 )
@@ -51,8 +53,9 @@ func newClusterCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command 
 func addClusterHubFlags(cmd *cobra.Command) {
 	// A string array, as the fleet's shared --context is, though a hub is one.
 	cmd.Flags().StringArray("context", nil, "kubeconfig context of the hub cluster (default the current context)")
-	cmd.Flags().String("registry", "", "the registry the members publish to, or its pacto-targets repository (default the one the hub's operator advertises, read with --detected)")
+	cmd.Flags().String("registry", "", "the registry the members publish to, or its pacto-targets repository; this or --detected is required")
 	cmd.Flags().String("detected", "", "what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON")
+	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "namespace of the hub's delivery identities ConfigMap, which lists the approver signers")
 }
 
 func newClusterListCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
@@ -67,7 +70,9 @@ func newClusterListCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Comm
 			if err != nil {
 				return err
 			}
-			l := svc.ClusterJoins(cmd.Context(), opts)
+			// The person's own list: every row, and approve offered; the
+			// approve command checks the right itself.
+			l := visibleJoins(svc.ClusterJoins(cmd.Context(), opts), true, nil)
 			return formatResult(cmd, v.GetString(outputFormatKey), l,
 				func() error { printClusterList(cmd.OutOrStdout(), l); return nil },
 				func() error { printClusterListMarkdown(cmd.OutOrStdout(), l); return nil })
@@ -96,7 +101,7 @@ func newClusterDecisionCommand(svc *app.Service, v *viper.Viper, d deps, dec del
 			"--key names the key you checked: compare it out of band with the snapshotKeyID in the member's own <release>-detected ConfigMap. " +
 			"You need approve on clusterjoins.pacto.trianalab.io in the hub, granted to your user (" + clusterGrant + "); " +
 			"groups are not checked, because a certificate names none. The hub's operator must list approver signers in delivery.identities.signers."
-		cmd.Example = "  pacto cluster approve 9f1c4e2a --key sha256:91ab...e7 --name eu-prod"
+		cmd.Example = "  pacto cluster approve 9f1c4e2a --key sha256:91ab...e7 --name eu-prod --registry ghcr.io/acme"
 		cmd.Flags().String("key", "", "the member key you checked, sha256:<64 hex> (required)")
 		cmd.Flags().String("name", "", "display name for the member, a DNS label (default the name its snapshot gives)")
 		_ = cmd.MarkFlagRequired("key")
@@ -112,13 +117,14 @@ func clusterHub(cmd *cobra.Command, d deps) (dynamic.Interface, app.JoinOptions,
 	contexts, _ := cmd.Flags().GetStringArray("context")
 	registry, _ := cmd.Flags().GetString("registry")
 	detected, _ := cmd.Flags().GetString("detected")
+	ns, _ := cmd.Flags().GetString("delivery-namespace")
 	switch {
 	case len(contexts) > 1:
 		return nil, app.JoinOptions{}, errors.New("name one hub cluster with --context")
 	case registry == "" && detected == "":
 		return nil, app.JoinOptions{}, errors.New(needsRegistry)
 	}
-	dyn, opts, err := hubJoins(cmd.Context(), d, strings.Join(contexts, ""), registry, detected)
+	dyn, opts, err := hubJoins(cmd.Context(), d, strings.Join(contexts, ""), registry, detected, ns)
 	if err == nil && opts.Repository == "" {
 		err = errors.New(needsRegistry)
 	}
@@ -128,13 +134,14 @@ func clusterHub(cmd *cobra.Command, d deps) (dynamic.Interface, app.JoinOptions,
 // hubJoins are how the hub at kubeconfig context (or the current one)
 // reads its joins, asking with the caller's own credentials: the
 // repository is registry's pacto-targets, else the one the detection at
-// detected advertises ("" when it names none).
-func hubJoins(ctx context.Context, d deps, contextName, registry, detected string) (dynamic.Interface, app.JoinOptions, error) {
+// detected advertises ("" when it names none); the approver signers are
+// read in policyNS (the chart's default when "").
+func hubJoins(ctx context.Context, d deps, contextName, registry, detected, policyNS string) (dynamic.Interface, app.JoinOptions, error) {
 	dyn, err := hubDynamic(d, contextName)
 	if err != nil {
 		return nil, app.JoinOptions{}, fmt.Errorf("reaching the hub cluster: %w", err)
 	}
-	opts, err := joinsOn(ctx, dyn, registry, detected, delivery.PolicyNamespace)
+	opts, err := joinsOn(ctx, dyn, registry, detected, cmp.Or(policyNS, delivery.PolicyNamespace))
 	return dyn, opts, err
 }
 
@@ -181,9 +188,24 @@ func targetsRepository(registry string) string {
 // shortUID is a cluster id as rows show it.
 func shortUID(uid string) string { return uid[:min(minClusterPrefix, len(uid))] }
 
+// snapshotWords say how old a pending cluster's snapshot is when it is not
+// fresh, so a person never approves a cluster from stale evidence.
+func snapshotWords(c delivery.ClusterJoinState) string {
+	if c.State != delivery.JoinPending || c.Status == "" || c.Status == fleet.SourceAvailable {
+		return ""
+	}
+	if c.SnapshotAsOf == "" {
+		return "snapshot " + string(c.Status)
+	}
+	return "snapshot " + string(c.Status) + " from " + c.SnapshotAsOf
+}
+
 // clusterLine is one member as a text row.
 func clusterLine(c delivery.ClusterJoinState) string {
 	parts := []string{fmt.Sprintf("%s (%s)", clusterName(c), c.NameSource), c.UID, string(c.State)}
+	if w := snapshotWords(c); w != "" {
+		parts = append(parts, w)
+	}
 	if h := hosts(c.Environments); h != "" {
 		parts = append(parts, "hosts: "+h)
 	}
@@ -238,7 +260,7 @@ func printClusterCounts(w io.Writer, l delivery.ClusterJoinList) {
 		_, _ = fmt.Fprintf(w, "%d clusters you may not approve are hidden\n", l.Hidden)
 	}
 	if l.OtherHubs > 0 {
-		_, _ = fmt.Fprintf(w, "%d join records decide for another hub\n", l.OtherHubs)
+		_, _ = fmt.Fprintf(w, "%d join records name another hub and were not used\n", l.OtherHubs)
 	}
 	for _, lim := range l.Limitations {
 		_, _ = fmt.Fprintf(w, "[%s] %s\n", lim.Code, lim.Message)
@@ -251,6 +273,10 @@ func printClusterListMarkdown(w io.Writer, l delivery.ClusterJoinList) {
 	_, _ = fmt.Fprintln(w, "| Name | UID | State | Hosts | Key | Approver or reason |")
 	_, _ = fmt.Fprintln(w, "|---|---|---|---|---|---|")
 	for _, c := range l.Clusters {
+		state := string(c.State)
+		if sw := snapshotWords(c); sw != "" {
+			state += " (" + sw + ")"
+		}
 		who := c.Reason
 		if c.State != delivery.JoinPending {
 			who = c.Approver + " on " + c.ApprovedAt
@@ -262,7 +288,7 @@ func printClusterListMarkdown(w io.Writer, l delivery.ClusterJoinList) {
 		if c.KeyID != "" {
 			key = "sha256:" + c.KeyID
 		}
-		_, _ = fmt.Fprintf(w, "| %s (%s) | %s | %s | %s | %s | %s |\n", clusterName(c), c.NameSource, c.UID, c.State, hosts(c.Environments), key,
+		_, _ = fmt.Fprintf(w, "| %s (%s) | %s | %s | %s | %s | %s |\n", clusterName(c), c.NameSource, c.UID, state, hosts(c.Environments), key,
 			strings.ReplaceAll(who, "|", `\|`))
 	}
 	_, _ = fmt.Fprintln(w)
@@ -311,6 +337,9 @@ func (c *clusterDecision) approveSteps(uid string) (delivery.ClusterJoin, bool, 
 	if c.dyn, c.opts, err = clusterHub(c.cmd, c.d); err != nil {
 		return delivery.ClusterJoin{}, false, err
 	}
+	if fullUID.MatchString(uid) {
+		c.opts.Include = uid // read past the bounds, and without a tag
+	}
 	if c.member, err = findCluster(c.svc.ClusterJoins(c.cmd.Context(), c.opts), uid); err != nil {
 		return delivery.ClusterJoin{}, false, err
 	}
@@ -324,10 +353,17 @@ func (c *clusterDecision) approveSteps(uid string) (delivery.ClusterJoin, bool, 
 		return delivery.ClusterJoin{}, false, err
 	}
 	m := c.member
-	rec := delivery.ClusterJoin{Cluster: m.UID, Hub: c.opts.Hub, KeyID: m.KeyID, PublicKey: m.PublicKey, Decision: c.dec,
+	keyID, pub := m.KeyID, m.PublicKey
+	if c.dec == delivery.JoinRemove && m.ApprovedKeyID != "" {
+		keyID, pub = m.ApprovedKeyID, m.ApprovedPublicKey // the key a removal revokes
+	}
+	rec := delivery.ClusterJoin{Cluster: m.UID, Hub: c.opts.Hub, KeyID: keyID, PublicKey: pub, Decision: c.dec,
 		Name: name, Approver: c.user, At: time.Now().UTC().Format(time.RFC3339)}
 	return rec, false, rec.Check()
 }
+
+// fullUID is a cluster UID in full, as Kubernetes writes one.
+var fullUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // findCluster is the member of l uid names: its full id, or a prefix of at
 // least 8 characters that names one member.
@@ -353,15 +389,20 @@ func findCluster(l delivery.ClusterJoinList, uid string) (delivery.ClusterJoinSt
 	case len(uid) < minClusterPrefix:
 		return delivery.ClusterJoinState{}, fmt.Errorf("name the cluster by its id or at least %d characters of it", minClusterPrefix)
 	}
-	return delivery.ClusterJoinState{}, fmt.Errorf("no cluster %s publishes to %s (the list is %s)", uid, l.Repository, l.Completeness)
+	if l.Completeness != fleet.CompletenessComplete {
+		return delivery.ClusterJoinState{}, fmt.Errorf("no cluster %s was read from %s, and the list is partial: name its full id, which is read past the bounds", uid, l.Repository)
+	}
+	return delivery.ClusterJoinState{}, fmt.Errorf("no cluster %s publishes to %s", uid, l.Repository)
 }
 
-// standing refuses a member whose snapshot names no key or another key
-// than key, and says done when it already stands as the decision asks.
+// standing refuses an approval of a member whose snapshot names no key it
+// is signed by or another key than key, and a removal of a member with no
+// key at all; it says done when the member already stands as asked.
 func (c *clusterDecision) standing(key, name string) (bool, error) {
 	m := c.member
 	switch {
-	case m.KeyID == "":
+	case c.dec == delivery.JoinRemove && m.KeyID == "" && m.ApprovedKeyID == "",
+		c.dec == delivery.JoinApprove && m.KeyID == "":
 		return false, fmt.Errorf("the snapshot of %s names no key to decide on: %s", m.UID, m.Reason)
 	case c.dec == delivery.JoinApprove && m.KeyID != key:
 		return false, fmt.Errorf("ClusterKeyMismatch: the snapshot of %s is signed by sha256:%s; you checked sha256:%s", m.UID, m.KeyID, key)
