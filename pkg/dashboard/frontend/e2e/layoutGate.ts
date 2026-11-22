@@ -2505,6 +2505,15 @@ export const ROUTES: Route[] = [
   { name: 'target list', list: true, hash: '#/fleet/targets' },
   { name: 'target entity', open: firstLink('#/fleet/targets', '/fleet/targets/') },
   {
+    // A 3-part key the demo published before it was a hub forwards to the canonical href.
+    name: 'target entity, published 3-part key',
+    open: async (page) => {
+      await page.goto('/#/fleet/targets/prod%2FDeployment%2Fpayments-service');
+      await expect(page).toHaveURL(/#\/fleet\/targets\/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fprod%2FDeployment%2Fpayments-service$/, { timeout: 30_000 });
+      await expect(page.locator('[data-testid="target-cluster"]')).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
     // The demo is a hub with members (514-S3), so its canonical target key carries the cluster.
     name: 'target entity with a cluster',
     open: async (page) => {

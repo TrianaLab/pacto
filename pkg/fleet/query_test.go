@@ -1357,6 +1357,21 @@ func TestGetTargetLegacyKeyUnderIncompleteSourcesDoesNotResolve(t *testing.T) {
 	}
 }
 
+// A registry or telemetry source that is down holds no target, so a published
+// 3-part href that matches one target still resolves while it is.
+func TestGetTargetLegacyKeyIgnoresIncompleteNonTargetSources(t *testing.T) {
+	q := twoClusterPayments(t,
+		NewFailingSource("edge", "observation", errors.New("edge down")),
+		NewMemorySource("mirror", "oci", &Collection{State: &SourceState{Status: SourcePartial}}))
+	v, err := q.GetTarget(string(NewTargetKey("orders", "kubernetes", "orders")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := NewClusterTargetKey(clusterA, "orders", "kubernetes", "orders"); v.Target.Key != want {
+		t.Errorf("key = %q, want %q", v.Target.Key, want)
+	}
+}
+
 // A stored 4-part key whose target is still there with no known cluster is not
 // reported as absent: the target is offered, with why it may not be the one.
 func TestGetTargetFourPartKeyClusterUnknownOffersTarget(t *testing.T) {

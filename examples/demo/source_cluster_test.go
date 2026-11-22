@@ -66,7 +66,19 @@ func demoHrefs(t *testing.T) []string {
 	walk("generated", ".md", hash)
 	collect("tour.js", hash)
 	collect("tours.js", hash)
-	return out
+	return append(out, publishedBefore514S3...)
+}
+
+// publishedBefore514S3 are hrefs the demo published before it became a hub
+// with members (the released tours.js and the layout gate's routes): they
+// carry 3-part target keys and keep resolving to their one target.
+var publishedBefore514S3 = []string{
+	"#/fleet/targets/prod%2FDeployment%2Fpayments?correlationID=CHG-2077",
+	"#/fleet/targets/prod%2FDeployment%2Fpayments-service",
+	"#/fleet/targets/prod%2FDeployment%2Fstorefront-web",
+	"#/fleet/targets/prod%2FCronJob%2Faudit-log",
+	"#/fleet/targets/staging%2FDeployment%2Fnotification-worker",
+	"#/fleet/targets/test%2FDeployment%2Fcheckout",
 }
 
 // entityRoutes map an app route that names one entity to its entity kind.
