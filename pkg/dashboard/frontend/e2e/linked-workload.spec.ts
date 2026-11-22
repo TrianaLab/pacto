@@ -22,7 +22,7 @@ test.describe('WASM demo: a workload linked to a published contract with no Pact
     await row.getByRole('button', { name: 'How this workload was linked' }).click();
     const tip = row.getByRole('note');
     await expect(tip).toContainText(`Linked with no Pacto by the running image digest ${DIGEST} · observed`);
-    await expect(tip).toContainText('not verified by the operator');
+    await expect(tip).toContainText('a signature the operator does not verify');
   });
 
   test('an annotation link names the reference in full', async ({ page }) => {
