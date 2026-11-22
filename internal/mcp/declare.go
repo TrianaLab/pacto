@@ -33,7 +33,8 @@ func registerDeclare(server *mcpsdk.Server, d Declarer, remote bool) {
 	dir := "A folder pacto init --cluster wrote, declared instead of a new draft (stdio only)"
 	draft := "Write a draft-<n> a person accepts later, without a person's login: signed only by an ambient OIDC token when one is set"
 	onBehalfOf := "Required with dry_run false: the person you act for (asserted, never verified)"
-	pr := "After the write, open a pull request that commits the bundle's pacto.yaml and pacto.inferred.yaml with the Git token in this server's environment"
+	pr := "After the write, open a pull request that commits the bundle's pacto.yaml and pacto.inferred.yaml with the Git token in this server's environment; " +
+		"an unchanged service exports its baseline's files. A retry writes a new draft: a failed pull request's cli is what a person runs instead"
 	repoMap := "A YAML file mapping service names to {repository, folder}, read only with pr (stdio only)"
 	if remote {
 		pr = "Refused over HTTP with PullRequestNeedsLocalToken: a pull request runs only where your Git token is"
@@ -91,9 +92,10 @@ func declare(ctx context.Context, d Declarer, a DeclareArgs, remote bool) (*mcps
 		out.Plan = raw
 	}
 	if refused == nil && plan.Unchanged != "" {
-		return writeAnswer(out, nil, "") // nothing changed: nothing to write, whatever dry_run says
-	}
-	if refused == nil && !dryRun(a.DryRun) {
+		if !unchangedPR(a, remote) {
+			return writeAnswer(out, nil, "") // nothing changed: nothing to write, whatever dry_run says
+		}
+	} else if refused == nil && !dryRun(a.DryRun) {
 		refused = requireIntent(plan.IntentDigest, a.IntentDigest)
 	}
 	if refused != nil || dryRun(a.DryRun) {
@@ -104,6 +106,10 @@ func declare(ctx context.Context, d Declarer, a DeclareArgs, remote bool) (*mcps
 	}
 	return executed(out, raw, refused, a)
 }
+
+// unchangedPR is whether a run of an unchanged plan still runs: over stdio
+// with pr and dry_run false, its pull request exports the baseline's files.
+func unchangedPR(a DeclareArgs, remote bool) bool { return a.PR && !remote && !dryRun(a.DryRun) }
 
 // executed is pacto_declare's answer to a run: what it wrote, its pull
 // request, or why that failed after the write.
@@ -123,12 +129,30 @@ func executed(out WriteResult, raw json.RawMessage, refused *Refused, a DeclareA
 	if e := run.PullRequestError; e != nil && refused == nil {
 		// The write stays: only the pull request failed.
 		if e.CLI == "" {
-			e.CLI = a.RefusalCLI(e.Code)
+			e.CLI = pullRequestCLI(a, p, out, e.Code)
 		}
 		out.PullRequestError = e
 		return &mcpsdk.CallToolResult{IsError: true}, out, nil
 	}
 	return writeAnswer(out, refused, refusalCLI(a, refused))
+}
+
+// pullRequestCLI is the command a person runs after a's pull request
+// failed with no command of its own: it names the repository the plan found
+// (a public one needs a person to name it), and for a draft it accepts the
+// draft rather than declaring anew.
+func pullRequestCLI(a DeclareArgs, p declaredRun, out WriteResult, code WriteRefusal) string {
+	if p.Repository != nil && a.Repository == "" {
+		a.Repository = p.Repository.URL
+	}
+	if code == RefusalPullRequestFailed && out.Draft != nil && out.AcceptCLI != "" {
+		cli := out.AcceptCLI + " --pr"
+		if a.Repository != "" {
+			cli += " --repository " + a.Repository
+		}
+		return cli + " --yes"
+	}
+	return a.RefusalCLI(code)
 }
 
 // refusalCLI is the command a person runs about refused, a refusal of a.

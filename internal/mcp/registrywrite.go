@@ -259,4 +259,9 @@ type declaredRun struct {
 	// PullRequest and PullRequestError are a stdio run's pull request.
 	PullRequest      *PullRequest `json:"pullRequest"`
 	PullRequestError *Refused     `json:"pullRequestError"`
+	// Repository is the plan's repository, which a failed pull request's
+	// command names.
+	Repository *struct {
+		URL string `json:"url"`
+	} `json:"repository"`
 }

@@ -36,6 +36,10 @@ type stubDeclarer struct {
 	unchanged bool
 	// pr is a run's pullRequest and pullRequestError members, JSON.
 	pr string
+	// repository is the run plan's repository URL; declared runs write a
+	// declared record, not a draft.
+	repository string
+	declared   bool
 }
 
 func (s stubDeclarer) Plan(_ context.Context, a DeclareArgs) (json.RawMessage, *Refused, error) {
@@ -62,9 +66,18 @@ func (s stubDeclarer) Execute(_ context.Context, a DeclareArgs) (json.RawMessage
 	if s.execErr != nil {
 		return nil, nil, s.execErr
 	}
-	return json.RawMessage(`{"plan":{"service":"invoices","intentDigest":"` + planDigest +
-		`","acceptCLI":"pacto declare invoices --registry ghcr.io/acme --from-draft draft-1"},"executed":true,"tag":"draft-1",` +
-		`"published":"ghcr.io/acme/invoices@sha256:dd","draft":true` + s.pr + `}`), s.execRefuse, nil
+	repo, accept, tag := "", `,"acceptCLI":"pacto declare invoices --registry ghcr.io/acme --from-draft draft-1"`, `"draft-1","draft":true`
+	if s.repository != "" {
+		repo = `,"repository":{"url":"` + s.repository + `"}`
+	}
+	if s.declared {
+		accept, tag = "", `"1.0.0"`
+	}
+	if s.unchanged {
+		return json.RawMessage(`{"plan":{"service":"invoices","unchanged":"1.4.0"` + repo + `},"executed":false,"tag":"1.4.0"` + s.pr + `}`), s.execRefuse, nil
+	}
+	return json.RawMessage(`{"plan":{"service":"invoices","intentDigest":"` + planDigest + `"` + accept + repo + `},"executed":true,"tag":` + tag +
+		`,"published":"ghcr.io/acme/invoices@sha256:dd"` + s.pr + `}`), s.execRefuse, nil
 }
 
 // A stdio run with pr answers the pull request it opened, or, keeping the
@@ -77,9 +90,10 @@ func TestDeclarePullRequestAnswer(t *testing.T) {
 	}
 	out, res = callDeclare(t, stubDeclarer{pr: `,"pullRequestError":{"code":"PullRequestFailed","message":"the repository is public"}`}, args)
 	if !res.IsError || out.Refusal != nil || out.Draft == nil || out.PullRequestError == nil || out.PullRequestError.Code != RefusalPullRequestFailed ||
-		out.PullRequestError.CLI != "pacto declare invoices --registry ghcr.io/acme --pr --yes" {
+		out.PullRequestError.CLI != "pacto declare invoices --registry ghcr.io/acme --from-draft draft-1 --pr --yes" {
 		t.Fatalf("%+v", out)
 	}
+
 	out, _ = callDeclare(t, stubDeclarer{pr: `,"pullRequestError":{"code":"PullRequestFailed","message":"m","cli":"own"}`}, args)
 	if out.PullRequestError == nil || out.PullRequestError.CLI != "own" {
 		t.Fatalf("%+v", out)
@@ -204,6 +218,40 @@ func TestDeclareRefusalCarriesCodeAndCLI(t *testing.T) {
 }
 
 // An unchanged plan writes nothing and refuses nothing, whatever dry_run says.
+// TestPullRequestFailedCLINamesRepository: the command names the
+// repository the plan found, since a public one needs a person to name it;
+// a draft's accepts the draft and a declared run's replays the declare.
+func TestPullRequestFailedCLINamesRepository(t *testing.T) {
+	args := map[string]any{"service": "invoices", "registry": "ghcr.io/acme", "pr": true, "dry_run": false, "on_behalf_of": "ana", "intent_digest": planDigest}
+	repo := `,"pullRequestError":{"code":"PullRequestFailed","message":"the repository is public: confirm with --repository https://codeberg.org/acme/invoices"}`
+	for declared, want := range map[bool]string{
+		false: "pacto declare invoices --registry ghcr.io/acme --from-draft draft-1 --pr --repository https://codeberg.org/acme/invoices --yes",
+		true:  "pacto declare invoices --registry ghcr.io/acme --pr --repository https://codeberg.org/acme/invoices --yes",
+	} {
+		out, _ := callDeclare(t, stubDeclarer{pr: repo, repository: "https://codeberg.org/acme/invoices", declared: declared}, args)
+		if out.PullRequestError == nil || out.PullRequestError.CLI != want {
+			t.Fatalf("declared %v: %+v", declared, out.PullRequestError)
+		}
+	}
+}
+
+// TestDeclareUnchangedOpensPullRequest: over stdio, pr on an unchanged
+// service still runs, so the pull request exports the baseline's files;
+// a dry run or an HTTP server writes nothing.
+func TestDeclareUnchangedOpensPullRequest(t *testing.T) {
+	var execs []DeclareArgs
+	opened := `,"pullRequest":{"url":"https://github.com/acme/invoices/pull/8","login":"ana","branch":"pacto/declare-invoices-1.4.0","tokenSource":"your GITHUB_TOKEN"}`
+	args := map[string]any{"service": "invoices", "registry": "ghcr.io/acme", "pr": true, "dry_run": false, "on_behalf_of": "ana"}
+	out, res := callDeclare(t, stubDeclarer{execs: &execs, unchanged: true, pr: opened}, args)
+	if res.IsError || out.Refusal != nil || len(execs) != 1 || out.PullRequest == nil || out.PullRequest.Branch != "pacto/declare-invoices-1.4.0" {
+		t.Fatalf("%+v", out)
+	}
+	args["dry_run"] = true
+	if out, _ := callDeclare(t, stubDeclarer{execs: &execs, unchanged: true, pr: opened}, args); len(execs) != 1 || out.PullRequest != nil {
+		t.Fatalf("a dry run opened it: %+v", out)
+	}
+}
+
 func TestDeclareUnchangedIsNoRefusal(t *testing.T) {
 	for _, dry := range []bool{true, false} {
 		var execs []DeclareArgs
