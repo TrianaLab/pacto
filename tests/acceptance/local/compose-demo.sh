@@ -1223,6 +1223,22 @@ jq -e '[.items[] | select(.code == "INFERRED_PROVIDER")] | length == 1 and .[0].
 	fail "attention does not list exactly one INFERRED_PROVIDER item with the declare next action: $att_json"
 pass "the inferred service published stripe's inferred contract and a range on it reads unknown with INFERRED_PROVIDER"
 
+# A change of stripe, which nobody here controls, asks for attention from
+# every consumer and never reads clear: the gate stays unverified (exit 2) and
+# the answer says the provider is an inferred contract. card-payments already
+# pins a range on stripe-pinned, so no pin snippet is offered.
+ext_impact() { # a pacto impact --changed external:stripe over the Compose-only consumer
+	docker compose -p "$PROJ1" exec -T inferred pacto impact --changed external:stripe --local /demo/inferred/card-payments \
+		--oci oci://registry:5000/demo/pacto-inferred/stripe --output-format json
+}
+ext_impact_rc=0
+ext_impact_json=$(ext_impact) || ext_impact_rc=$?
+[ "$ext_impact_rc" -eq 2 ] ||
+	fail "pacto impact --changed external:stripe exited $ext_impact_rc, want 2: $ext_impact_json"
+jq -e '.gate == "unverified" and ([.consumers[] | select(.service == "card-payments")] | length == 1 and .[0].effect == "attention") and (.limitations | map(.code) | index("INFERRED_PROVIDER") != null) and (has("pin") | not)' <<<"$ext_impact_json" >/dev/null ||
+	fail "pacto impact --changed external:stripe did not name card-payments for attention, unverified, with INFERRED_PROVIDER and no pin: $ext_impact_json"
+pass "pacto impact --changed external:stripe names card-payments for attention and stays unverified"
+
 # The Metrics page reads the CI run records the seed published to the demo's
 # own registry. Compose runs no delivery, so no record is an operation. The
 # dashboard is shared without sign-in (--allow-anonymous), so it is a restricted
