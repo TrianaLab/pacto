@@ -712,6 +712,13 @@ describe('service page: an inferred service it replaced', () => {
 describe('service page: asked for by the key of an inferred service it replaced', () => {
   beforeEach(() => detailFn.mockReset());
 
+  it('says an observed link was made with no Pacto, never by a Pacto', async () => {
+    const replacedFrom = { from: 'k8s:growth%2FDeployment%2Frecommender', to: KEY, link: 'observed', signal: 'image-digest', target: 'growth/kubernetes/Deployment%2Frecommender' };
+    const { target, done } = await render({ ...detail(), replacedFrom }, { entityKey: replacedFrom.from });
+    expect(text(fact(target, 'entity-replaced-from'))).toBe('k8s:growth/Deployment/recommender was replaced by payments, linked with no Pacto by its image digest');
+    done();
+  });
+
   it('renders the declared page with one notice line under the header', async () => {
     const replacedFrom = { from: 'k8s:prod%2FDeployment%2Fexperiments', to: KEY, link: 'pacto-target', target: 'prod/Deployment/payments', at: '2026-11-04T09:56:00Z' };
     const d = detail();

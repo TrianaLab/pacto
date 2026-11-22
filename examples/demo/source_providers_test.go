@@ -143,16 +143,19 @@ func demoWorkloadCounts(snap *fleet.FleetSnapshot) map[string]int {
 		if slices.Contains(tr.Sources, "k8s-production") {
 			counts[tr.Kind]++
 		}
+		if kind, _, ok := strings.Cut(tr.Name, "/"); ok && tr.Link != nil {
+			counts[kind]++ // a linked target is named <Kind>/<name> after its workload
+		}
 	}
 	for _, s := range snap.Services {
 		if s.Inferred() {
 			counts[s.Workload.Kind]++
 		}
 	}
-	// A workload a declaration replaced still runs; a Pacto target's is
-	// counted as its target above.
+	// A workload a declaration replaced still runs; a Pacto target's or a
+	// linked target's is counted as its target above.
 	for _, r := range snap.Replacements {
-		if r.Link != "pacto-target" && r.Workload != nil {
+		if r.Link != "pacto-target" && r.Link != "observed" && r.Workload != nil {
 			counts[r.Workload.Kind]++
 		}
 	}
