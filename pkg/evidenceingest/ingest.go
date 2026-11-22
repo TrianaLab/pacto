@@ -654,9 +654,11 @@ const (
 // consumer can tell "there is no evidence" from "the evidence could not be read".
 type SourceHealth struct {
 	Status string `json:"status"`
-	// Subjects is how many contract subjects the server is configured to read.
+	// Subjects counts the read units: exact subjects, ledger subjects and one
+	// per subject-prefix ledger listing.
 	Subjects int `json:"subjects"`
-	// FailedSubjects is how many of them could not be enumerated at all.
+	// FailedSubjects is how many of them could not be read at all. An
+	// unreadable ledger is one unit standing for an unknown number of subjects.
 	FailedSubjects int `json:"failedSubjects"`
 	// InvalidArtifacts counts artifacts published as Pacto evidence that could
 	// not be read as a valid record.
@@ -664,14 +666,18 @@ type SourceHealth struct {
 }
 
 // Reason is a sanitized, human-readable summary of why a read is not ready. It
-// names counts only — never a registry host, repository or credential.
+// names counts only — never a registry host, repository or credential — and
+// never the total: under a subject prefix that grows with every revision that
+// received evidence, hidden services included, and a restricted view keeps
+// this text. A failed ledger also hides how many subjects it holds, so a
+// ratio would overstate coverage.
 func (h SourceHealth) Reason() string {
 	switch {
 	case h.FailedSubjects > 0 && h.InvalidArtifacts > 0:
-		return fmt.Sprintf("%d of %d contract subjects unreadable, %d invalid evidence artifact(s)",
-			h.FailedSubjects, h.Subjects, h.InvalidArtifacts)
+		return fmt.Sprintf("%d evidence subject(s) or ledger(s) unreadable, %d invalid evidence artifact(s)",
+			h.FailedSubjects, h.InvalidArtifacts)
 	case h.FailedSubjects > 0:
-		return fmt.Sprintf("%d of %d contract subjects unreadable", h.FailedSubjects, h.Subjects)
+		return fmt.Sprintf("%d evidence subject(s) or ledger(s) unreadable", h.FailedSubjects)
 	case h.InvalidArtifacts > 0:
 		return fmt.Sprintf("%d invalid evidence artifact(s)", h.InvalidArtifacts)
 	default:

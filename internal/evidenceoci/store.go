@@ -357,8 +357,8 @@ func (s *Store) Commit(ctx context.Context, rec evidenceingest.Record) error {
 	sc := s.scan(ctx)
 	switch {
 	case sc.failed > 0:
-		return fmt.Errorf("%w: %d of %d contract subjects could not be read: %w",
-			evidenceingest.ErrRegistryUnavailable, sc.failed, sc.subjects, sc.firstErr)
+		return fmt.Errorf("%w: %d evidence subject(s) or ledger(s) could not be read: %w",
+			evidenceingest.ErrRegistryUnavailable, sc.failed, sc.firstErr)
 	case sc.invalid > 0:
 		return fmt.Errorf("%w: %d published evidence artifact(s) could not be read",
 			evidenceingest.ErrRegistryIncomplete, sc.invalid)

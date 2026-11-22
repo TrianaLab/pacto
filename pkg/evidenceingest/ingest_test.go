@@ -682,9 +682,9 @@ func TestSourceHealth_Reason(t *testing.T) {
 		want string
 	}{
 		{SourceHealth{Status: HealthPartial, Subjects: 3, FailedSubjects: 1, InvalidArtifacts: 2},
-			"1 of 3 contract subjects unreadable, 2 invalid evidence artifact(s)"},
+			"1 evidence subject(s) or ledger(s) unreadable, 2 invalid evidence artifact(s)"},
 		{SourceHealth{Status: HealthUnavailable, Subjects: 2, FailedSubjects: 2},
-			"2 of 2 contract subjects unreadable"},
+			"2 evidence subject(s) or ledger(s) unreadable"},
 		{SourceHealth{Status: HealthPartial, Subjects: 2, InvalidArtifacts: 1},
 			"1 invalid evidence artifact(s)"},
 		{SourceHealth{Status: HealthReady, Subjects: 1}, `evidence store health "ready"`},
@@ -693,6 +693,12 @@ func TestSourceHealth_Reason(t *testing.T) {
 		if got := tc.h.Reason(); got != tc.want {
 			t.Errorf("Reason() = %q, want %q", got, tc.want)
 		}
+	}
+	// The total grows with every revision under a subject prefix, hidden
+	// services included, and restricted views keep this text: it never
+	// carries the denominator.
+	if got := (SourceHealth{Status: HealthPartial, Subjects: 214, FailedSubjects: 1}).Reason(); strings.Contains(got, "214") {
+		t.Errorf("Reason() = %q leaks the read-unit total", got)
 	}
 }
 
