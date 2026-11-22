@@ -462,7 +462,7 @@ func TestDashboardRejectsBadMiraSource(t *testing.T) {
 	_, err := runDashboard(t, app.NewService(nil, nil), viper.New(),
 		t.TempDir(), "--port", "0", "--mira-source", "ftp://x")
 	if err == nil || !strings.Contains(err.Error(), `scheme "ftp" is not http or https`) {
-		t.Fatalf("err = %v, want the CheckMiraURL refusal", err)
+		t.Fatalf("err = %v, want the CheckSourceURL refusal", err)
 	}
 }
 

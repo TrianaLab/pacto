@@ -595,7 +595,7 @@ func httpSources(opts FleetOptions) ([]fleet.Source, error) {
 		sources = append(sources, fleetsrc.NewEvidenceHTTPSource(sourceID("evidence-http", i, len(opts.EvidenceURLs)), url))
 	}
 	for i, u := range opts.MiraURLs {
-		if err := fleetsrc.CheckMiraURL(u); err != nil {
+		if err := fleetsrc.CheckSourceURL("mira", u); err != nil {
 			return nil, err
 		}
 		sources = append(sources, fleetsrc.NewMiraSource(sourceID("mira", i, len(opts.MiraURLs)), u))

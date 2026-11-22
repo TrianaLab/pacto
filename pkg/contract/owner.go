@@ -2,6 +2,7 @@ package contract
 
 import (
 	"errors"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -227,3 +228,15 @@ func (o Owner) MatchesFilter(q string) bool {
 	}
 	return false
 }
+
+// The owner names the contract accepts, as owner.team and owner.dri.
+var (
+	teamNameRE = regexp.MustCompile(`^[a-zA-Z0-9._/-]+$`)
+	driNameRE  = regexp.MustCompile(`^[a-zA-Z0-9._@/-]+$`)
+)
+
+// ValidTeamName reports whether s is a name owner.team accepts.
+func ValidTeamName(s string) bool { return teamNameRE.MatchString(s) }
+
+// ValidDRIName reports whether s is a name owner.dri accepts.
+func ValidDRIName(s string) bool { return driNameRE.MatchString(s) }

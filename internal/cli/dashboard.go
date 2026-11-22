@@ -106,7 +106,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			// The dashboard builds only inside the Manager, where a bad URL would
 			// surface as a failed refresh; refuse it here instead.
 			for _, u := range miraURLs {
-				if err := fleetsrc.CheckMiraURL(u); err != nil {
+				if err := fleetsrc.CheckSourceURL("mira", u); err != nil {
 					return err
 				}
 			}
@@ -398,7 +398,7 @@ type dashboardSources struct {
 	// empty means none is configured.
 	evidenceURL string
 	// miraURLs are the operator-configured Mira nodes (--mira-source,
-	// PACTO_DASHBOARD_MIRA_SOURCES), already checked by fleetsrc.CheckMiraURL.
+	// PACTO_DASHBOARD_MIRA_SOURCES), already checked by fleetsrc.CheckSourceURL.
 	miraURLs []string
 	// externalCatalog is the organization external catalog (--external-catalog,
 	// PACTO_DASHBOARD_EXTERNAL_CATALOG), already checked by

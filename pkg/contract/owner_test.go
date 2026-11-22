@@ -322,3 +322,17 @@ func TestOwner_StringRejected(t *testing.T) {
 		t.Fatal("string owner must no longer unmarshal into Owner")
 	}
 }
+
+func TestValidTeamAndDRIName(t *testing.T) {
+	for name, want := range map[string][2]bool{
+		"team-payments": {true, true},
+		"acme/payments": {true, true},
+		"alice@acme":    {false, true},
+		"bad owner":     {false, false},
+		"":              {false, false},
+	} {
+		if got := [2]bool{ValidTeamName(name), ValidDRIName(name)}; got != want {
+			t.Errorf("%q: team, dri = %v, want %v", name, got, want)
+		}
+	}
+}
