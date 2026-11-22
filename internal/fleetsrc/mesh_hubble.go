@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/net/publicsuffix"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -321,14 +322,29 @@ func worldEdges(flows []flow, namespaces []string) (edges []fleet.ObservedEdge, 
 	return edges, out, unnamed, false
 }
 
-// firstHost is the first of names that is a host outside the cluster.
+// firstHost is the first of names that is a host outside the cluster, ""
+// when those hosts span more than one registrable domain: Cilium lists every
+// name that resolved to the address, so a shared CDN address never names one
+// vendor (the node agent's ambiguous-peers rule).
 func firstHost(names []string) string {
+	first, domain := "", ""
 	for _, n := range names {
-		if h := egressHost(n); h != "" {
-			return h
+		h := egressHost(n)
+		if h == "" {
+			continue
+		}
+		d, err := publicsuffix.EffectiveTLDPlusOne(h)
+		if err != nil {
+			d = h
+		}
+		switch {
+		case first == "":
+			first, domain = h, d
+		case d != domain:
+			return ""
 		}
 	}
-	return ""
+	return first
 }
 
 // countFlow counts one flow at t on the edge from to in per.

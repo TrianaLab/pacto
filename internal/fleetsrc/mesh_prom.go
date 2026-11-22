@@ -21,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/trianalab/pacto/v4/pkg/detect"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -280,16 +281,26 @@ type callEnds struct {
 	cross, passthrough     bool
 }
 
-// egressHost is name as a host outside the cluster: lowercase, port and
-// trailing dot stripped, "" when it is no dotted host or an in-cluster
-// Service name.
+// egressHost is name as a host outside the cluster: lowercase, port,
+// trailing dot and a leading "*." (a wildcard ServiceEntry) stripped. It is
+// "" when the fleet could not fold it into an External: no dotted host, an
+// in-cluster Service name, an address or a name the catalog cannot classify
+// (one under a private suffix). The caller counts such a call as one it
+// could not name.
 func egressHost(name string) string {
 	h := strings.ToLower(name)
 	if host, _, err := net.SplitHostPort(h); err == nil {
 		h = host
 	}
-	h = strings.TrimSuffix(h, ".")
-	if !strings.Contains(h, ".") || strings.Contains(h, ".svc.") || strings.HasSuffix(h, ".svc") {
+	h = strings.TrimPrefix(strings.TrimSuffix(h, "."), "*.")
+	if strings.Contains(h, ".svc.") || strings.HasSuffix(h, ".svc") {
+		return ""
+	}
+	hs := externalcatalog.NormalizeHost(h)
+	if len(hs) == 0 {
+		return ""
+	}
+	if _, ok := externalcatalog.Default().MatchHost(hs[0]); !ok {
 		return ""
 	}
 	return h

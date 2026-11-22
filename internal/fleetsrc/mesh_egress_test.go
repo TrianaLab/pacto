@@ -262,3 +262,30 @@ func worldCall(at time.Time, src []byte, names ...string) []byte {
 func worldCallID(at time.Time, src []byte, name string) []byte {
 	return pb(1, pb(1, stamp(at), 2, uint64(verdictForwarded), 8, src, 9, pb(2, uint64(2)), 22, uint64(directionEgress), 26, pb(1, uint64(0)), 14, name))
 }
+
+// TestEgressHostKeepsOnlyHostsTheFleetFolds: an address, a private-suffix name or an in-cluster name is no
+// External, so it never becomes an edge (the caller counts it as a call it could not name); a wildcard
+// ServiceEntry name loses its "*.".
+func TestEgressHostKeepsOnlyHostsTheFleetFolds(t *testing.T) {
+	for in, want := range map[string]string{
+		"api.stripe.com:443": "api.stripe.com", "API.Stripe.com.": "api.stripe.com", "*.files.stripe.com": "files.stripe.com",
+		"10.1.2.3:8080": "", "203.0.113.7": "", "db.corp.internal": "", "ledger.shop.svc.cluster.local": "", "legacy": "",
+	} {
+		if got := egressHost(in); got != want {
+			t.Errorf("egressHost(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestHubbleWorldFlowNamesAcrossDomainsIsUnnamed: Cilium lists every name that resolved to the address, so
+// names under two registrable domains (a shared CDN address) name no vendor; one domain names its first host.
+func TestHubbleWorldFlowNamesAcrossDomainsIsUnnamed(t *testing.T) {
+	at := meshNow.Add(-10 * time.Minute)
+	row, col, _ := readHubble(t, worldCall(at, cart(), "api.vendor-a.com", "assets.vendor-b.com"),
+		worldCall(at, cart(), "api.stripe.com", "files.stripe.com"))
+	want := []fleet.ObservedEdge{{From: "k8s:shop/Deployment/cart", To: "api.stripe.com", Count: 1, FirstSeen: at, LastSeen: at}}
+	if !sameEdges(col.Observed, want) || row.Status != fleet.SourcePartial ||
+		!hasMessage(row, fleet.LimitationMeshCallsUnattributed, "1 flow left the cluster with no name; enable DNS visibility for egress names") {
+		t.Errorf("row %v observed %+v", messages(row), col.Observed)
+	}
+}
