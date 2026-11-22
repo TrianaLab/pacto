@@ -707,8 +707,14 @@ type OverviewSummary struct {
 	// bounded to overviewScopeLimit. Domains counts the named domains only.
 	ByDomain []DomainTally `json:"byDomain"`
 	Domains  int           `json:"domains"`
-	// lifecycleSeverity grades the lifecycle tile like its worst item.
-	lifecycleSeverity string
+	// Match is how far what the services declare is from what runs.
+	Match MatchTally `json:"match"`
+	// CrossEnvironmentCalls is how many `cross-environment` attention items
+	// there are: observed calls from one environment into another.
+	CrossEnvironmentCalls int `json:"crossEnvironmentCalls"`
+	// lifecycleSeverity grades the lifecycle tile like its worst item, and
+	// crossEnvironmentSeverity the cross-environment tile.
+	lifecycleSeverity, crossEnvironmentSeverity string
 }
 
 // DomainTally counts the services of one business domain, the targets they run
@@ -912,8 +918,9 @@ func (q *Query) Overview() *Overview {
 		}
 		sum.Services++
 		q.addOwnership(&sum.Ownership, s)
-		sum.Knowledge.add(q.serviceKnowledge(s))
+		sum.Knowledge.addService(q, s)
 	}
+	sum.Knowledge.finish()
 	sum.KnowledgeItems = len(q.knowledgeAttention()) + len(q.inferredProviderAttention())
 	sum.Externals, sum.HiddenExternals = len(q.snap.Externals), q.snap.hiddenExternals
 
@@ -960,11 +967,13 @@ func (q *Query) Overview() *Overview {
 	q.tallyDomains(sum)
 
 	sum.LifecycleConsumers, sum.lifecycleSeverity = q.lifecycleTally()
+	sum.Match = q.Match()
 	// The lead tile and the attention preview read ONE collection, so the tile
 	// counts exactly the services of the list it opens. The preview carries the
 	// TRUE matched total (al.Total), not the 10-item page size.
 	items := q.collectAttention()
 	sum.ServicesNeedingAttention = q.servicesNeedingAttention(items)
+	sum.CrossEnvironmentCalls, sum.crossEnvironmentSeverity = crossEnvironmentTally(items)
 	al := q.attentionList(items, AttentionFilter{Limit: overviewAttentionLimit})
 	ov.Attention = attentionPreviewFromList(al)
 	// The recent-evidence preview carries the TRUE recent count (== sum.RecentEvidence),
@@ -1084,6 +1093,7 @@ func entryPoints(sum *OverviewSummary, items int) []EntryPoint {
 		// One tile for both kinds of undeclared item, so it opens a list of exactly
 		// Count rows; graded like its most severe item.
 		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships + sum.UncontractedCallers, View: EntryPointAttention, Category: categoryUndeclared, Severity: undeclaredSeverity(sum)},
+		{Label: "Calls across environments", Count: sum.CrossEnvironmentCalls, View: EntryPointAttention, Category: categoryCrossEnvironment, Severity: sum.crossEnvironmentSeverity},
 		{Label: "Gaps in what the contracts say", Count: sum.KnowledgeItems, View: EntryPointAttention, Category: categoryKnowledge, Severity: severityInfo},
 		{Label: "Services with no declared owner", Count: sum.Ownership.Unowned, View: EntryPointAttention, Category: categoryUnowned, Severity: severityInfo},
 		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, View: EntryPointSources, Category: SourceHealthIncomplete, Severity: severityWarning},
@@ -1117,7 +1127,7 @@ type AttentionItem struct {
 	// finding severity).
 	Severity string `json:"severity" enum:"error,warning,info"`
 	Code     string `json:"code"`
-	Category string `json:"category" enum:"non-compliant,invalid,health,provisioning,unknown,stale,unresolved,out-of-range,lifecycle,undeclared,golden-path,readiness,knowledge,unowned"`
+	Category string `json:"category" enum:"non-compliant,invalid,cross-environment,health,provisioning,unknown,stale,unresolved,out-of-range,lifecycle,undeclared,golden-path,readiness,knowledge,unowned"`
 	Summary  string `json:"summary"`
 	Reason   string `json:"reason"`
 	Source   string `json:"source,omitempty"`
@@ -1296,7 +1306,7 @@ type AttentionCategoryCount struct {
 
 // attentionCategoryOrder is the canonical display order of the triage
 // categories, worst first. It mirrors the AttentionItem.Category enum.
-var attentionCategoryOrder = []string{"non-compliant", "invalid", "health", "provisioning", "unknown", "stale", "unresolved", "out-of-range", "lifecycle", "undeclared", "golden-path", "readiness", "knowledge", "unowned"}
+var attentionCategoryOrder = []string{"non-compliant", "invalid", "cross-environment", "health", "provisioning", "unknown", "stale", "unresolved", "out-of-range", "lifecycle", "undeclared", "golden-path", "readiness", "knowledge", "unowned"}
 
 // AttentionCategoriesList returns the canonical display order of the triage
 // categories, worst first, as a fresh copy the caller may modify.
@@ -1325,13 +1335,35 @@ func attentionCategories(items []AttentionItem) []AttentionCategoryCount {
 
 // collectAttention gathers every attention item from the snapshot, none about a
 // golden path: it runs nowhere, so nothing about it needs attention.
-func (q *Query) collectAttention() []AttentionItem {
+func (q *Query) collectAttention() []AttentionItem { return q.attentionFor(nil) }
+
+// attentionFor is collectAttention narrowed to the items about the services
+// keys names (nil names every service): the same producers run on a copy of
+// q scoped to keys, and each skips an entity outside the scope before it does
+// any work, so a page of the map never pays for the whole fleet.
+//
+// ponytail: each producer still walks its whole input to skip entities; an
+// index by service would make a page O(page) if the scan ever shows up.
+func (q *Query) attentionFor(keys map[ServiceKey]bool) []AttentionItem {
+	scoped := *q
+	scoped.scope = keys
+	return scoped.collectScoped()
+}
+
+// inScope reports whether attention about service k is wanted.
+func (q *Query) inScope(k ServiceKey) bool { return q.scope == nil || q.scope[k] }
+
+func (q *Query) collectScoped() []AttentionItem {
 	var items []AttentionItem
 	for _, t := range q.snap.Targets {
-		items = append(items, q.targetAttention(t)...)
+		if q.inScope(t.ServiceKey) {
+			items = append(items, q.targetAttention(t)...)
+		}
 	}
 	for _, r := range q.snap.Revisions {
-		items = append(items, q.revisionAttention(r)...)
+		if q.inScope(r.ServiceKey) {
+			items = append(items, q.revisionAttention(r)...)
+		}
 	}
 	items = append(items, q.healthAttention()...)
 	items = append(items, q.unresolvedAttention()...)
@@ -1341,8 +1373,11 @@ func (q *Query) collectAttention() []AttentionItem {
 	items = append(items, q.inferredProviderAttention()...)
 	items = append(items, q.unownedAttention()...)
 	items = append(items, q.undeclaredAttention()...)
+	items = append(items, q.crossEnvironmentAttention()...)
 	items = append(items, q.deployedTemplateAttention()...)
-	return slices.DeleteFunc(items, func(it AttentionItem) bool { return q.goldenPath(ServiceKey(it.Service)) })
+	return slices.DeleteFunc(items, func(it AttentionItem) bool {
+		return q.goldenPath(ServiceKey(it.Service)) || !q.inScope(ServiceKey(it.Service))
+	})
 }
 
 // undeclaredAttention reports each observed-only runtime call against the
@@ -1351,6 +1386,9 @@ func (q *Query) collectAttention() []AttentionItem {
 func (q *Query) undeclaredAttention() []AttentionItem {
 	var out []AttentionItem
 	for _, rel := range q.observedOnly("") {
+		if !q.inScope(rel.FromService) {
+			continue
+		}
 		from, to := q.snap.Services[rel.FromService].Name, q.snap.Services[rel.ToService].Name
 		out = append(out, AttentionItem{
 			Entity: q.serviceRef(rel.FromService), Service: string(rel.FromService), Label: from + " calls " + to, NextAction: editContract(),
@@ -1361,6 +1399,9 @@ func (q *Query) undeclaredAttention() []AttentionItem {
 		})
 	}
 	for _, c := range q.snap.UncontractedCallers {
+		if !q.inScope(c.ToService) {
+			continue
+		}
 		to := q.snap.Services[c.ToService].Name
 		it := AttentionItem{
 			Entity: q.serviceRef(c.ToService), Service: string(c.ToService), Label: c.Caller + " calls " + to,
@@ -1391,6 +1432,9 @@ func (q *Query) undeclaredAttention() []AttentionItem {
 func (q *Query) unownedAttention() []AttentionItem {
 	var out []AttentionItem
 	for _, s := range q.snap.Services {
+		if !q.inScope(s.Key) {
+			continue
+		}
 		if b, _ := q.ownershipBucket(s); b != OwnershipUnowned || s.Inferred() {
 			continue
 		}
@@ -1466,7 +1510,7 @@ func (q *Query) unresolvedAttention() []AttentionItem {
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
 		// Dependencies only: the unresolved and out-of-range attention judges dependencies.
-		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared {
+		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || !q.inScope(rel.FromService) {
 			continue
 		}
 		// A declared dependency's FromService always exists: it is the service

@@ -40,6 +40,7 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 | `pacto_fleet_entity` | `kind` and `key` (**both required**): a service, revision, target, owner, source, business domain or offering |
 | `pacto_fleet_attention` | `category`, `severity`, `owner`, `owner_key`, `business_domain`, `service`, `kind`, `key`, `source`, `status`, `stale_only`, `limit`, `offset` |
 | `pacto_fleet_neighborhood` | `service` (**required**): a service name or key, then `direction` (`dependencies`, `dependents` or `both`, the default), `depth`, `views` (comma-separated `expected`, `observed` and `differences`; empty means `expected,observed`), `max_nodes` and `max_edges` |
+| `pacto_fleet_map` | `group_by` (`domain`, the default, `team` or `environment`); or `group` (a group key the map names), then `environment` (outside the `environment` grouping), `offset` and `limit`; or `focus` (a service name or key), then `hops` (`1`, the default, or `2`) |
 | `pacto_fleet_versions` | `offering` (**required**), then `provider` (a key, or a name only one domain uses) and `range` (a semver range; each version then carries `rangeStatus` and each provider its `latestCompatible` version) |
 | `pacto_fleet_revision_document` | `key` and `path` (**both required**): a revision key and a document path its docs list |
 | `pacto_impact` | `old_ref` and `new_ref`, plus `include_observed` and `traces`; or `running` with `new_ref` alone; or `event` (`unavailable`, `removed` or `regressed`) with `service`, plus `revision` for `regressed` |

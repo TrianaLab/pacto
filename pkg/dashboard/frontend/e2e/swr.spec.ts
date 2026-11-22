@@ -133,28 +133,24 @@ test.describe('WASM demo — retained rows answer the question that is on screen
 
   test('an Attention filter committed mid-flight does not leave the previous backlog on screen', async ({ page }) => {
     await page.goto('/#/fleet/attention');
-    await expect(page.getByTestId('attention-list')).toBeVisible({ timeout: T });
-    const before = await page.getByTestId('attention-list').locator('li').count();
-    expect(before).toBeGreaterThan(0);
+    const rail = page.getByTestId('fleet-map-rail');
+    await expect(rail.getByTestId('fleet-map-rail-item').first()).toBeVisible({ timeout: T });
 
     const g = gate(page);
     await g.hold('/api/fleet/attention');
-    await page.getByLabel('Filter by severity').selectOption('error');
+    // A link to the filtered list beside the map, as a tile or an owner page sends.
+    await page.evaluate(() => { location.hash = '#/fleet/attention?severity=error'; });
     await g.awaitHeld();
-
-    await expect(page.getByTestId('attention-list')).toHaveCount(0);
-    await expect(skeleton(page)).toBeVisible();
+    await expect(rail.getByTestId('fleet-map-rail-item')).toHaveCount(0);
 
     await g.release();
     // The honest answer to the new question, whatever it is: rows for that severity, or a
     // filtered-empty state. What it may never be is the unfiltered backlog.
-    await expect(skeleton(page)).toHaveCount(0, { timeout: T });
-    const rows = page.getByTestId('attention-list').locator('li');
-    if (await rows.count()) {
-      for (const t of await rows.allTextContents()) expect(t).toContain('Error');
-    } else {
-      await expect(page.getByText('No matching attention items')).toBeVisible();
-    }
+    await expect(rail.getByTestId('fleet-map-rail-filtered')).toContainText('Severity Error', { timeout: T });
+    await expect.poll(async () => (await rail.getByTestId('fleet-map-rail-item').count()) > 0
+      || (await rail.getByText('Nothing needs attention with these filters.').count()) > 0
+      || (await rail.getByTestId('fleet-map-rail-unknown').count()) > 0, { timeout: T }).toBe(true);
+    for (const label of await rail.locator('section').evaluateAll((ss) => ss.map((x) => x.getAttribute('aria-label')))) expect(label).toBe('Error');
   });
 
   test('an Owners search committed mid-flight does not leave the previous owners on screen', async ({ page }) => {

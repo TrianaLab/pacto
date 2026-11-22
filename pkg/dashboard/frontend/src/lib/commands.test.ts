@@ -79,6 +79,11 @@ describe('buildCommands — capability-aware views (Part 1: one destination per 
     }
   });
 
+  it('opens Needs attention on the Overview, beside the map', () => {
+    const views = buildCommands('attention', [], true).find((g) => g.label === 'Views')?.items || [];
+    expect(views.map((v) => [v.label, v.href])).toEqual([['Needs attention (Overview)', '#/fleet/attention']]);
+  });
+
   it('sends Readiness to the whole revision population, not to the failure backlog', () => {
     const views = buildCommands('readiness', [], true).find((g) => g.label === 'Views')?.items || [];
     expect(views.map((v) => [v.label, v.href])).toEqual([['Readiness', '#/fleet/revisions']]);

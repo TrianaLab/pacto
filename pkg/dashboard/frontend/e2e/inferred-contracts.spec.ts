@@ -61,7 +61,8 @@ test.describe('WASM demo — inferred external contracts', () => {
   test('the knowledge attention item says to declare a contract with pacto_declare', async ({ page }) => {
     await page.addInitScript(inferredAttention);
     await appReady(page, '/#/fleet/attention?category=knowledge');
-    const item = page.getByTestId('attention-item').filter({ hasText: 'Range checked against an inferred contract' });
+    // The list beside the Overview's map, opened and filtered by the attention link.
+    const item = page.getByTestId('fleet-map-rail-item').filter({ hasText: 'Range checked against an inferred contract' });
     await expect(item).toHaveCount(1, { timeout: T });
     await expect(item).toContainText('Fix: declare a contract with pacto_declare');
   });

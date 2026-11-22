@@ -3436,3 +3436,14 @@ func TestCreateDependencyByNameOmitsRef(t *testing.T) {
 		t.Fatalf("check: %v %+v", err, res)
 	}
 }
+
+func TestCheckReportsContractCompleteness(t *testing.T) {
+	result, err := Check(context.Background(), nil, testutil.WriteTestBundle(t), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cc := result.ContractCompleteness
+	if cc == nil || cc.Percent == nil || len(cc.Sections) != 8 || cc.Applicable == 0 {
+		t.Fatalf("contractCompleteness = %+v", cc)
+	}
+}

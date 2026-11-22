@@ -84,6 +84,7 @@ const (
 	whyStatsWindow  = "the Metrics page takes a closed window that ends now (GET /api/stats?window), with the same totals"
 	whyStatsPage    = "the Metrics page answers every service and environment at once and reads the stats repository pacto dashboard --stats-registry names"
 	whyStatsRecords = "the records behind one number of the Metrics page; pacto stats and pacto_stats answer totals"
+	whyMapPage      = "the dashboard asks a group's page on its own route; the CLI and MCP take the same --group-by with --group"
 	whyMigrateLocal = "a repository-wide rewrite of pacto.yaml files is a local CLI step; pacto_edit raises the version of the contract it edits and the dashboard writes no contract files"
 )
 
@@ -109,6 +110,16 @@ func fleetRows() []surfaceRow {
 			{"", "", "GET /api/fleet/neighborhood?perspective", "the dashboard's graph switches perspective; the CLI and MCP walk the service perspective"},
 		},
 		alike("fleet neighborhood", "pacto_fleet_neighborhood", "GET /api/fleet/neighborhood", "", "depth", "direction", "max-edges", "max-nodes", "views"),
+		alike("fleet map", "pacto_fleet_map", "GET /api/fleet/map", "", "group-by"),
+		[]surfaceRow{
+			{"fleet map --group", "pacto_fleet_map.group", "GET /api/fleet/map/nodes?group", ""},
+			{"fleet map --offset", "pacto_fleet_map.offset", "GET /api/fleet/map/nodes?offset", ""},
+			{"fleet map --limit", "pacto_fleet_map.limit", "GET /api/fleet/map/nodes?limit", ""},
+			{"", "", "GET /api/fleet/map/nodes?groupBy", whyMapPage},
+			{"fleet map --environment", "pacto_fleet_map.environment", "GET /api/fleet/map/nodes?environment", ""},
+			{"fleet map --focus", "pacto_fleet_map.focus", "GET /api/fleet/map/focus?service", ""},
+			{"fleet map --hops", "pacto_fleet_map.hops", "GET /api/fleet/map/focus?hops", ""},
+		},
 		alike("fleet search", "pacto_fleet_search", "GET /api/fleet/services", "", "declaration", "limit", "offset", "owner", "scope", "source", "status", "template"),
 		[]surfaceRow{{"fleet search [text]", "pacto_fleet_search.text", "GET /api/fleet/services?text",
 			"the CLI and MCP also list the external systems the text names; the dashboard finds them through GET /api/fleet/entities?kinds=external&text"}},
@@ -793,6 +804,17 @@ var filterSurfaces = []struct {
 	{fleet.EntityFilter{}, []string{"fleet entities", "pacto_fleet_entities.", "/api/fleet/entities?"}},
 	{fleet.AttentionFilter{}, []string{"fleet attention", "pacto_fleet_attention.", "/api/fleet/attention?"}},
 	{fleet.NeighborhoodQuery{}, []string{"fleet neighborhood", "pacto_fleet_neighborhood.", "/api/fleet/neighborhood?"}},
+	{fleet.MapQuery{}, []string{"fleet map", "pacto_fleet_map.", "/api/fleet/map?"}},
+	{fleet.MapNodesQuery{}, []string{"fleet map", "pacto_fleet_map.", "/api/fleet/map/nodes?"}},
+	{fleet.MapFocusQuery{}, []string{"fleet map", "pacto_fleet_map.", "/api/fleet/map/focus?"}},
+}
+
+// unexposedFields are the filter fields no surface takes as a parameter,
+// each with why.
+var unexposedFields = map[string]string{
+	"MapQuery.EnvironmentOrder": "the dashboard orders environments by the Stages the signed-in person may read; the CLI and MCP list them by name and say so",
+	"MapQuery.OrderWhy":         "why the environments read by name, which the dashboard reads from the Stages and the CLI and MCP leave to the default",
+	"MapFocusQuery.PerColumn":   "a focus column shows 9 services at most on every surface (decision D6); only the Go API asks fewer",
 }
 
 // unreachableFields lists every filter field no row of its surfaces names.
@@ -810,7 +832,8 @@ func unreachableFields(rows []surfaceRow) []string {
 		typ := reflect.TypeOf(f.filter)
 		for i := range typ.NumField() {
 			name := strings.ToLower(typ.Field(i).Name)
-			if !reached[name] && !reached[strings.TrimSuffix(name, "s")] {
+			_, why := unexposedFields[typ.Name()+"."+typ.Field(i).Name]
+			if !why && !reached[name] && !reached[strings.TrimSuffix(name, "s")] {
 				out = append(out, typ.Name()+"."+typ.Field(i).Name)
 			}
 		}
@@ -932,6 +955,7 @@ var jsonRuns = map[string][]string{
 	"fleet explain":          {"payments"},
 	"fleet get":              {"payments"},
 	"fleet graph":            {"payments"},
+	"fleet map":              {},
 	"fleet neighborhood":     {"payments"},
 	"fleet overview":         {},
 	"fleet providers":        {},

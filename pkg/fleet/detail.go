@@ -377,6 +377,9 @@ type ServiceDetailData struct {
 	// InferredFields is what Pacto inferred for the current revision and the
 	// revision does not declare, from its pacto.inferred.yaml.
 	InferredFields InferredPreview `json:"inferredFields"`
+	// ContractCompleteness is the service's contract checklist; nil for a golden
+	// path or an inferred service.
+	ContractCompleteness *ServiceCompleteness `json:"contractCompleteness,omitempty"`
 	// Summary aggregates the COMPLETE target/revision/edge populations. The
 	// previews below are bounded, so a consumer that needs a proportion or a total
 	// must read it here and never count preview Items.
@@ -1428,6 +1431,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Policies:               pols,
 		Configurations:         cfgs,
 		InferredFields:         q.inferredPreview(cur),
+		ContractCompleteness:   q.serviceCompleteness(s),
 		Summary:                summary,
 		// Newest first, in revision chronology: a version list ordered by content
 		// digest is unreadable as history.
@@ -1633,6 +1637,7 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 		return nil, &NotFoundError{Kind: "owner", ID: key}
 	}
 	sum.Services, sum.Revisions, sum.Targets = len(services), len(revisions), len(deployments)
+	sum.Knowledge.finish()
 	sortEntityRefs(services)
 	sortEntityRefs(deployments)
 	sortEntityRefs(revisions)
@@ -1700,6 +1705,7 @@ func (q *Query) domainDetail(key string) (*EntityDetail, error) {
 		ownerRefs = append(ownerRefs, ownerEntityRef(k))
 	}
 	sum.Services, sum.Targets = len(services), len(deployments)
+	sum.Knowledge.finish()
 	sortEntityRefs(services)
 	sortEntityRefs(deployments)
 	// A constant, valid filter never errors.

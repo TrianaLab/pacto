@@ -25,7 +25,7 @@ test('the dashboard runs under its Content-Security-Policy with no violation', a
   await expect(page.locator('meta[http-equiv="Content-Security-Policy"]')).toHaveAttribute('content', /script-src 'self' 'wasm-unsafe-eval';/);
 
   await page.goto('/#/fleet/graph');
-  await expect(page.getByTestId('graph-discovery')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('fleet-map-summary')).toBeVisible({ timeout: 20_000 });
   await page.goto('/#/delivery/inbox');
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 20_000 });
 

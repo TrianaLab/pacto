@@ -4,9 +4,12 @@ import (
 	"context"
 	_ "embed"
 	"maps"
+	"slices"
+	"strconv"
 	"time"
 
 	"github.com/trianalab/pacto/v4/examples/story"
+	"github.com/trianalab/pacto/v4/internal/fleetgen"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
@@ -53,6 +56,29 @@ var demoDetected []byte
 
 // demoNow is the clock the fleet snapshot is built against.
 func demoNow() time.Time { return demoClock }
+
+// demoFleetSizes are the generated fleets the demo's large mode offers, opened
+// with ?fleet=N: the sizes the map and the browser scale suite are proved at.
+var demoFleetSizes = []int{40, 400, 3000, 10000}
+
+// demoFleetSize reads the boot parameter (?fleet=N): one of demoFleetSizes, or
+// 0 for the narrative demo, which stays the default.
+func demoFleetSize(param string) int {
+	n, err := strconv.Atoi(param)
+	if err != nil || !slices.Contains(demoFleetSizes, n) {
+		return 0
+	}
+	return n
+}
+
+// buildGeneratedFleet builds a fleet of n generated services, read as one
+// Kubernetes source. Its contracts live in memory and are never published, so
+// it changes no demo bundle; the narrative's sources, delivery and impact
+// revisions are not in it.
+func buildGeneratedFleet(n int) (*fleet.FleetSnapshot, error) {
+	return fleet.Build(context.Background(), fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour},
+		fleet.NewMemorySource("fleetgen", fleet.SourceKindKubernetes, fleetgen.Collection(n, 1, demoNow())))
+}
 
 // buildDemoFleet builds a fleet query over every embedded revision plus the
 // demo's operational targets, and returns a ref→bundle index so the impact

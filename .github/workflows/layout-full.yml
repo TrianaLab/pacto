@@ -15,6 +15,10 @@ name: Layout matrix (full)
 # The audit (docs: test-audit-2026-11) estimates about 1,500 worker-min, so it is
 # sharded 20 ways. If shards near their timeout, add shards: Playwright splits by
 # test count, so more shards is the only knob.
+#
+# The fleet-budgets job runs the fleet map's Go time and byte budgets at 10000
+# services (make test-fleet-budgets with PACTO_SCALE_FULL=1); pull requests run
+# them at 3000 inside ci-engine.
 
 on:
   schedule:
@@ -65,3 +69,15 @@ jobs:
             pkg/dashboard/frontend/playwright-report
           if-no-files-found: ignore
           retention-days: 7
+
+  fleet-budgets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - name: Fleet map budgets at 10000 services
+        timeout-minutes: 15
+        run: CGO_ENABLED=0 PACTO_SCALE_FULL=1 make test-fleet-budgets

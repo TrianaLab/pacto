@@ -201,3 +201,22 @@ func TestNoRecordsNeverBlamesRecordingWhenExplained(t *testing.T) {
 		}
 	}
 }
+
+func TestCoverageOfFillsMatchAndContracts(t *testing.T) {
+	q := statsFleet(t)
+	s := q.Overview().Summary
+	m, cc := s.Match, s.Knowledge.ContractCompleteness
+	c := CoverageOf(q)
+	want := runrecord.CoverageMatch{
+		ServicesMatched: m.Services.Matched, ServicesExpectedOnly: m.Services.ExpectedOnly, ServicesObservedOnly: m.Services.ObservedOnly, ServicesInsufficient: m.Services.Insufficient,
+		DependenciesMatched: m.Dependencies.Matched, DependenciesExpectedOnly: m.Dependencies.ExpectedOnly, DependenciesObservedOnly: m.Dependencies.ObservedOnly, DependenciesInsufficient: m.Dependencies.Insufficient,
+	}
+	if c.Match == nil || *c.Match != want || want.ServicesMatched == 0 {
+		t.Fatalf("match %+v, want %+v", c.Match, want)
+	}
+	k := c.Contracts
+	if k == nil || k.Services != s.Knowledge.Services || k.Judged != cc.Judged || k.Unknown != cc.Unknown || k.FullyDescribed != cc.FullyDescribed ||
+		(k.PercentComplete == nil) != (cc.PercentComplete == nil) || k.Judged == 0 {
+		t.Fatalf("contracts %+v, completeness %v", k, cc)
+	}
+}

@@ -207,29 +207,22 @@
     target: "#sec-delivery-evidence"
   }, {
     title: "Who does a change reach?",
-    text: "The operational graph shows who calls whom, from what contracts declare and from what Pacto observed, so start by typing orders in the search box.",
+    text: "The operational graph is the whole fleet on one map, from what contracts declare and from what Pacto observed, so start by typing orders in the search box and press Enter on orders-service.",
     hash: "#/fleet/graph",
-    target: '[data-testid="graph-discovery"] input[type=search]',
-    wait: "Waiting for a search that finds orders.",
-    gate: function () { return !!q('[data-testid="graph-focus-link"]'); },
-    skip: function () {
-      var i = q('[data-testid="graph-discovery"] input[type=search]');
-      if (i) { setValue(i, "orders"); } else { window.location.hash = "#/fleet/graph/service/orders-service"; }
-    }
+    target: '[data-testid="fleet-map-search"] input[type=search]',
+    wait: "Waiting for the map to focus orders-service.",
+    gate: function () { return !!q('[data-testid="fleet-map-focus"]'); },
+    skip: function () { window.location.hash = "#/fleet/graph/service/orders-service"; }
   }, {
     title: "Who does a change reach?",
-    text: "Open orders-service from the results to see its neighborhood: what it calls, what calls it and what was only observed.",
-    hash: "#/fleet/graph",
-    target: ['[data-testid="graph-focus-link"]', '[data-testid="neighborhood-canvas"]'],
-    wait: "Waiting for a focused neighborhood to render.",
+    text: "Open orders-service on the map to see what calls it on the left, what it calls on the right and what was only observed.",
+    // The search already focused it; a reader who skipped arrives on the same route.
+    hash: "#/fleet/graph/service/orders-service",
+    target: ['[data-testid="fleet-map"] canvas[role="img"]', '[data-testid="fleet-map-focus"]'],
+    wait: "Waiting for the map to focus orders-service.",
     hold: true,
-    gate: function () { return !!q('[data-testid="neighborhood-canvas"]'); },
-    skip: function () {
-      var a = q('[data-testid="graph-focus-link"]');
-      // The results come back from a request, so on a step the reader skipped
-      // immediately there is nothing to click yet: go where the link would have gone.
-      if (a) { a.click(); } else { window.location.hash = "#/fleet/graph/service/orders-service"; }
-    }
+    gate: function () { return !!q('[data-testid="fleet-map-focus"]'); },
+    skip: function () { window.location.hash = "#/fleet/graph/service/orders-service"; }
   }, {
     // Only something to read: the Changes section filtered to owner changes, where
     // the 2.1.0 handover reads as a change rather than a dispute.

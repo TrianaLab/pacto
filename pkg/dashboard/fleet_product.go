@@ -54,6 +54,7 @@ func (s *Server) registerProductOperations(api huma.API) {
 		Summary: "Bounded neighborhood", Tags: []string{"Fleet"},
 		Description: "Returns the focus entity's bounded local neighborhood across the expected, observed and differences knowledge views, with graph-ready nodes and edges.",
 	}, s.fleetNeighborhood)
+	s.registerMapOperations(api)
 
 	huma.Register(api, huma.Operation{
 		OperationID: "fleet-attention", Method: http.MethodGet, Path: "/api/fleet/attention",

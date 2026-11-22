@@ -1439,3 +1439,12 @@ func TestGetTargetOtherFormKeyWithNoMatchNotFound(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusIncludesCrossEnvironment(t *testing.T) {
+	q := envFleet(t, []RawTarget{envTarget("shop", "orders", "prod"), envTarget("shop", "payments", "staging")},
+		seen(wid("", "shop", "orders", "prod"), wid("", "shop", "payments", "staging"), time.Minute))
+	st := q.Status(StatusQuery{Limit: 1000})
+	if !slices.ContainsFunc(st.Items, func(it StatusItem) bool { return it.Code == codeCrossEnvironmentCall }) {
+		t.Fatalf("status misses the cross-environment item: %+v", st.Items)
+	}
+}

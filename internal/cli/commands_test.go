@@ -549,6 +549,7 @@ func TestLoginCommand_MissingUsername(t *testing.T) {
 func TestLoginCommand_WithPassword(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("GOTELEMETRY", "off") // keep Go telemetry out of the temporary HOME
 	t.Setenv("XDG_CONFIG_HOME", "")
 
 	svc := app.NewService(nil, nil)
@@ -699,6 +700,7 @@ func TestValidateRemovedDeliveryHint(t *testing.T) {
 func TestLoginCommand_WriteConfigError(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("GOTELEMETRY", "off") // keep Go telemetry out of the temporary HOME
 	t.Setenv("XDG_CONFIG_HOME", "")
 	// Make home read-only so config dir cannot be created
 	if err := os.Chmod(dir, 0555); err != nil {

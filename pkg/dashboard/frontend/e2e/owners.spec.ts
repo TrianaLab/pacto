@@ -61,7 +61,9 @@ const chipTexts = async (page: Page) =>
  *  places (label, summary, next step) and any of them mentioning the wrong owner's
  *  service is the failure. */
 const attentionText = async (page: Page) =>
-  (await page.locator('[data-testid="attention-list"] li').allInnerTexts());
+  (await page.locator('[data-testid="fleet-map-rail"] li').allInnerTexts());
+/** The rail's filtered line: what an attention link narrowed the list beside the map to. */
+const railFilters = (page: Page) => page.getByTestId('fleet-map-rail-filtered');
 
 /**
  * Rewrites the ownership aggregate the Owners page reads, so the buckets deliberately
@@ -207,11 +209,11 @@ test.describe('WASM demo — an owner name is either an identity or a search', (
     expect(scoped, 'the ranking row counted a different population than it opened').toHaveLength(counted);
     expect(scoped).not.toContain('audit-log');
 
-    // The backlog workspace is a second filter with the same two answers, and it is the
-    // one an owner actually works from. Exact first...
+    // The backlog beside the Overview's map is a second filter with the same two answers,
+    // and it is the one an owner actually works from. Exact first...
     await page.goto(`/#/fleet/attention?ownerKey=${k(`team:${FOUNDATIONS}`)}`);
-    await expect(filterChips(page)).toContainText(`Owner: ${FOUNDATIONS} (Team)`, { timeout: T });
-    await expect(page.getByTestId('attention-list')).toBeVisible({ timeout: T });
+    await expect(railFilters(page)).toContainText(`Owner ${FOUNDATIONS} (Team)`, { timeout: T });
+    await expect(page.getByTestId('fleet-map-rail-item').first()).toBeVisible({ timeout: T });
     const backlog = await attentionText(page);
     expect(backlog.length).toBeGreaterThan(0);
     expect(backlog.join('\n')).not.toContain('audit-log');
@@ -219,7 +221,7 @@ test.describe('WASM demo — an owner name is either an identity or a search', (
     // ...then the SEARCH, which is what the mistake would have looked like: strictly
     // more rows, one of them the other owner's.
     await page.goto(`/#/fleet/attention?owner=${FOUNDATIONS}`);
-    await expect(filterChips(page)).toContainText(`Owner search: ${FOUNDATIONS}`, { timeout: T });
+    await expect(railFilters(page)).toContainText(`Owner search ${FOUNDATIONS}`, { timeout: T });
     await expect.poll(async () => (await attentionText(page)).join('\n'), { timeout: T }).toContain('audit-log');
     const searched = await attentionText(page);
     expect(searched.length).toBeGreaterThan(backlog.length);

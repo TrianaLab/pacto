@@ -212,7 +212,7 @@ describe('Sidebar — items', () => {
     const services = target.querySelector('a[data-nav="services"]') as HTMLElement;
     expect(services.getAttribute('aria-current')).toBe('page');
     expect(services.querySelector('.nav-label')?.textContent).toBe('Services');
-    const att = target.querySelector('a[data-nav="attention"]') as HTMLElement;
+    const att = target.querySelector('a[data-nav="overview"]') as HTMLElement;
     // The count is a description, so the name stays the label.
     expect(att.querySelector('.nav-cnt')?.textContent).toBe('1.2K');
     expect(att.querySelector('.nav-bdg')?.textContent).toBe('99+');
@@ -233,7 +233,7 @@ describe('Sidebar — items', () => {
     render(1600);
     expect(target.querySelector('.nav-cnt')).toBeNull();
     expect(target.querySelector('.nav-dot')).toBeNull();
-    expect(target.querySelector('a[data-nav="attention"]')?.hasAttribute('aria-describedby')).toBe(false);
+    expect(target.querySelector('a[data-nav="overview"]')?.hasAttribute('aria-describedby')).toBe(false);
   });
 
   it('hands each item its tooltip position on hover and focus', () => {

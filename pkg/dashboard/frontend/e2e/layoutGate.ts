@@ -320,7 +320,13 @@ export function installScaleFixture(): void {
       });
       s.operationalHealth = { available: 5200, degraded: 0, unavailable: 1180, unknown: 1820, notObserved: 800 };
       s.knowledge = { services: 5000, described: 1100, withGaps: 3400, unknown: 500,
-        gaps: { noSummary: 2900, noDomain: 1400, noInterfaceDocs: 1200, noReadiness: 3100, notDeployed: 1050, unverifiedCapability: 1010 } };
+        gaps: { noSummary: 2900, noDomain: 1400, noInterfaceDocs: 1200, noReadiness: 3100, notDeployed: 1050, unverifiedCapability: 1010 },
+        contractCompleteness: { percentComplete: 72, judged: 4950, unknown: 50, fullyDescribed: 1204,
+          mostMissing: [{ section: 'configuration', count: 2812 }, { section: 'readiness', count: 2640 }, { section: 'interfaces', count: 1300 }] } };
+      // 509-S12: the match tile at fleet scale, every count four digits.
+      s.match = { completeness: 'partial', percent: 85, coverage: 69,
+        services: { matched: 2930, expectedOnly: 1050, observedOnly: 1240, insufficient: 1780 },
+        dependencies: { matched: 8120, expectedOnly: 1730, observedOnly: 2210, insufficient: 4410 } };
       s.coverage = { evaluated: 81200, required: 96400, reporting: 7900, notReporting: 1100 };
       const row = { targets: 2100, nonCompliant: 1300, failingHealth: 1100, unknown: 1400, stale: 1250, notDeployed: 1020, withGaps: 1900, unowned: 1080, ownerUnknown: 1010 };
       s.byDomain = [...NC_DOMAINS.map(([domain], i) => ({ ...row, domain, services: 1200 - i * 100 })),
@@ -339,6 +345,28 @@ export function installScaleFixture(): void {
           { code: 'K8S_NAMESPACE_UNREADABLE', source: 'k8s-scoped', message: `source k8s-scoped could not read namespace ${longName('unreadable-namespace')}: forbidden` },
           ...((meta.limitations as unknown[] | undefined) ?? [])];
       }
+    }
+    // 509-S12: the fleet map at the overview's scale. Groups hold the 5,000 services and
+    // the 2,400 attention items between them; every group, sub-cluster and node label
+    // is 60 to 200 characters (domain groups through walk, like every domain name).
+    if (route === '/api/fleet/map') {
+      const gs = (doc.groups as Record<string, unknown>[] | undefined) ?? [];
+      const services = split(5000, gs.map((g) => Number(g.services) || 1));
+      const items = split(2400, gs.map((g) => { const a = g.attention as Record<string, number>; return (a.errors + a.warnings + a.info) || 1; }));
+      gs.forEach((g, i) => {
+        const was = Number(g.services) || 1;
+        g.inferred = Math.min(services[i], Math.round((Number(g.inferred) * services[i]) / was));
+        g.services = services[i];
+        scaleTally(g.attention as Record<string, number>, items[i]);
+        if (g.kind !== 'domain') g.label = longName(String(g.label));
+        for (const sub of (g.subs as Record<string, unknown>[] | undefined) ?? []) sub.label = longName(String(sub.label));
+      });
+    }
+    if (route === '/api/fleet/map/nodes' || route === '/api/fleet/map/focus') {
+      const long = (n: Record<string, unknown> | undefined) => { if (n) { n.label = longName(String(n.label || n.name)); if (typeof n.owner === 'string') n.owner = longName(n.owner); } };
+      for (const n of (doc.nodes as Record<string, unknown>[] | undefined) ?? []) long(n);
+      long(doc.focus as Record<string, unknown> | undefined);
+      for (const c of (doc.columns as { nodes?: Record<string, unknown>[] }[] | undefined) ?? []) for (const n of c.nodes ?? []) long(n);
     }
     if (route === '/api/fleet/attention') {
       page(doc, 2400);
@@ -1320,6 +1348,10 @@ export function installScaleFixture(): void {
   };
   const coverageOf = (asOf: Date, partial: boolean) => ({
     services: 2000, uncontracted: 14, knowledge: { services: 2000, described: 1240, withGaps: 560, unknown: 200, notDeployed: 90 },
+    // 509-S12: the match and completeness tiles' sparklines, rising week on week.
+    match: { servicesMatched: 1100 + (asOf.getUTCDate() % 9) * 40, servicesExpectedOnly: 260, servicesObservedOnly: 180, servicesInsufficient: 300,
+      dependenciesMatched: 4200, dependenciesExpectedOnly: 610, dependenciesObservedOnly: 520, dependenciesInsufficient: 1300 },
+    contracts: { services: 2000, judged: 1950, unknown: 50, fullyDescribed: 1204, percentComplete: 60 + (asOf.getUTCDate() % 13) },
     links: { exact: 4100, inferred: 900, ambiguous: 40, unresolved: 12 }, snapshotAsOf: asOf.toISOString(), completeness: partial ? 'partial' : 'complete',
   });
   const statsEnvelope = (mode: string, query: string) => {
@@ -1593,9 +1625,14 @@ export function installScaleFixture(): void {
   });
 }
 
-/** Forces the wide font CI renders (DejaVu stands behind Verdana) and the final frame. */
+/**
+ * Forces the wide font CI renders (DejaVu stands behind Verdana) and the final frame.
+ * The fleet map's canvas reads its fonts from --font-sans and --font-display, which
+ * an element rule never reaches, so those are forced too.
+ */
 export async function gateMode(page: Page): Promise<void> {
-  await page.addStyleTag({ content: '*{font-family: Verdana, "DejaVu Sans", sans-serif !important}' });
+  const wide = 'Verdana, "DejaVu Sans", sans-serif';
+  await page.addStyleTag({ content: `*{font-family: ${wide} !important} :root{--font-sans: ${wide} !important; --font-display: ${wide} !important}` });
   await page.evaluate(() => { document.documentElement.dataset.narrate = 'final'; });
 }
 
@@ -2241,7 +2278,9 @@ const createdService = async (page: Page) => {
 };
 
 // `list` marks list views, where L3 holds the list within 600px or the figure folds.
-export type Route = { name: string; hash?: string; list?: boolean; open?: (page: Page) => Promise<void> };
+// full: the route runs only under PACTO_LAYOUT_FULL, in the desktop group. fleet: the
+// demo serves a generated fleet of that many services (?fleet=N), with no scale fixture.
+export type Route = { name: string; hash?: string; list?: boolean; full?: boolean; fleet?: number; open?: (page: Page) => Promise<void> };
 // 509-S3: the grouped inferred service billing-worker, reached through its real href.
 async function openGroupedInferred(page: Page): Promise<void> {
   await page.goto('/#/fleet/services?declaration=inferred&group=argocd%2Fshop%2Fshop');
@@ -2249,6 +2288,30 @@ async function openGroupedInferred(page: Page): Promise<void> {
   await expect(a).toBeVisible({ timeout: 20_000 });
   await page.goto(`/${await a.getAttribute('href')}`);
   await expect(page.locator('[data-testid="inferred-workload"]')).toBeVisible({ timeout: 30_000 });
+}
+
+// 509-S12: the full-screen map over a generated fleet of n services (?fleet=n). The
+// engine builds it at boot, so the wait covers the build.
+function openGenerated(n: number): (page: Page) => Promise<void> {
+  return async (page) => {
+    await page.goto(`/?fleet=${n}#/fleet/graph`);
+    await page.evaluate(() => (window as unknown as { __pactoReady?: Promise<void> }).__pactoReady);
+    await expect(page.getByTestId('fleet-map-summary')).toBeVisible({ timeout: 300_000 });
+  };
+}
+
+// 509-S12: the full map at a level of detail with what a pointer opens there (a
+// selected service or a group's tooltip), through the map's test hooks.
+type MapStateHooks = { idle: () => Promise<void>; select: () => boolean; pin: () => boolean };
+function openMapState(level: string, hook: 'select' | 'pin'): (page: Page) => Promise<void> {
+  return async (page) => {
+    await page.goto('/#/fleet/graph');
+    await expect(page.getByTestId('fleet-map-summary')).toBeVisible({ timeout: 30_000 });
+    const ladder = page.getByRole('group', { name: 'Level of detail' });
+    if (await ladder.isVisible()) await ladder.getByRole('button', { name: level }).click();
+    await page.evaluate(() => (window as unknown as { __fleetMap: MapStateHooks }).__fleetMap.idle());
+    await expect.poll(() => page.evaluate((h) => (window as unknown as { __fleetMap: MapStateHooks }).__fleetMap[h](), hook), { timeout: 30_000 }).toBe(true);
+  };
 }
 
 // 514-S2: a list under the three-cluster fixture, waiting for what it adds.
@@ -2270,9 +2333,9 @@ export const ROUTES: Route[] = [
   { name: 'offerings failed', list: true, hash: '#/fleet/offerings?failed=1' },
   { name: 'offerings deprecated', list: true, hash: '#/fleet/offerings?lifecycle=deprecated' },
   { name: 'sources', list: true, hash: '#/fleet/sources' },
-  { name: 'attention', list: true, hash: '#/fleet/attention' },
-  { name: 'attention health category', list: true, hash: '#/fleet/attention?category=health' },
-  { name: 'attention knowledge category', list: true, hash: '#/fleet/attention?category=knowledge' },
+  // 509-S12: Needs attention is the rail beside the Overview's map; its links land filtered.
+  { name: 'overview attention filtered', hash: '#/fleet/attention?category=health' },
+  { name: 'overview attention filtered, knowledge', hash: '#/fleet/attention?category=knowledge' },
   { name: 'services with a knowledge gap', list: true, hash: '#/fleet/services?gap=no-summary' },
   { name: 'services whose owner is unknown', list: true, hash: '#/fleet/services?ownership=unknown' },
   { name: 'incomplete sources', list: true, hash: '#/fleet/sources?sourceHealth=incomplete' },
@@ -2295,8 +2358,19 @@ export const ROUTES: Route[] = [
   },
   { name: 'domains by health', list: true, hash: '#/fleet/domains?sort=health' },
   { name: 'owners by gaps', list: true, hash: '#/fleet/owners?sort=gaps' },
-  { name: 'attention lifecycle', list: true, hash: '#/fleet/attention?category=lifecycle' },
-  { name: 'graph discovery', hash: '#/fleet/graph' },
+  { name: 'fleet map full', hash: '#/fleet/graph' },
+  { name: 'fleet map focus', hash: '#/fleet/graph/service/orders-service?hops=2' },
+  { name: 'fleet map environments', hash: '#/fleet/graph?groupBy=environment' },
+  // The map's modes, its environment picker, its selection panel and its group tooltip.
+  { name: 'fleet map only problems', hash: '#/fleet/graph?only=problems' },
+  { name: 'fleet map gaps', hash: '#/fleet/graph?gaps=all' },
+  { name: 'fleet map missing', hash: '#/fleet?missing=configuration' },
+  { name: 'fleet map environment picked', hash: '#/fleet/graph?env=production' },
+  { name: 'overview map focus', hash: '#/fleet?focus=orders-service&rail=open' },
+  { name: 'fleet map selection', open: openMapState('Names', 'select') },
+  { name: 'fleet map group tooltip', open: openMapState('Groups', 'pin') },
+  { name: 'fleet map 3000', full: true, fleet: 3000, open: openGenerated(3000) },
+  { name: 'fleet map 10000', full: true, fleet: 10000, open: openGenerated(10000) },
   { name: 'graph focused', hash: '#/fleet/graph/service/payments-service' },
   { name: 'change analysis idle', hash: '#/fleet/changes/payments-service' },
   {
@@ -2836,11 +2910,10 @@ export const ROUTES: Route[] = [
   {
     name: 'graph inferred edges',
     open: async (page) => {
-      // The text alternative and the drawer of the runtime-inferred edge, whose
-      // uncontracted end carries no break point.
+      // A service focus is the fleet map (509-S12): search-indexer in focus, its
+      // runtime-inferred caller with no contract drawn beside it.
       await page.goto('/#/fleet/graph/service/search-indexer');
-      await page.getByTestId('graph-textalt').locator('summary').click();
-      await expect(page.getByTestId('graph-edge').filter({ hasText: 'nightly-export' }).first()).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('fleet-map-focus')).toContainText('search-indexer', { timeout: 30_000 });
       await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
     },
   },

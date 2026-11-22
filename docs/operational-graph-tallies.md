@@ -41,8 +41,79 @@ declare no owner; a service whose contract Pacto cannot read counts in
 | `knowledge` | `described`, `withGaps`, `unknown` | Partitions `services`. A service with two gaps counts in two kinds and once in `withGaps` |
 | `knowledge.gaps` | `noSummary`, `noDomain`, `noInterfaceDocs`, `noReadiness`, `notDeployed`, `unverifiedCapability` | Services per gap kind. `notDeployed` counts only when every source reporting targets is complete |
 | `knowledgeItems` | | How many `knowledge` attention items the gaps and recent takeovers raise; the count on the overview tile |
+| `match` | `services`, `dependencies`, each `matched` · `expectedOnly` · `observedOnly` · `insufficient`; `percent`, `coverage`, `completeness` | How far what the contracts declare is from what runs. `percent` is matched over what Pacto can observe and `coverage` is what Pacto can observe over everything counted; both are absent when their base is 0. An inferred service and a runtime call no contract declares are `observedOnly`; a stale or quarantined target is never proof a service runs |
+| `crossEnvironmentCalls` | | How many `cross-environment` attention items there are; the count on the overview tile |
 | `coverage` | `evaluated`, `required`, `reporting`, `notReporting` | Assertions summed over the targets that report coverage; `notReporting` counts targets whose source reported none |
 | `staleCompliantTargets` | | Of `compliantTargets`, how many rest on stale evidence |
+
+## Declared and observed match
+
+The overview's `match`, each group of the [fleet map](fleet-map.md) and each
+coverage record count services and dependencies in four states:
+
+| State | A service | A dependency |
+|-------|-----------|--------------|
+| `matched` | Declared, with a visible target that is neither stale nor quarantined | Declared and observed |
+| `expectedOnly` | Declared and running nowhere, counted only when Pacto sees every place it could run | Declared and never observed by a source that could see it |
+| `observedOnly` | Inferred: running with no contract | Observed and declared by no contract, or with an inferred service on one end |
+| `insufficient` | Anything else, such as a service whose only targets are stale | No observation can judge it |
+
+`percent` is `matched` over `matched`, `expectedOnly` and `observedOnly`, and
+`coverage` is that sum over every service and dependency counted. With nothing
+observable neither is given, so the dashboard reads "Pacto observes nothing
+yet". Golden paths, external systems and dependencies on services you cannot
+see are left out, and a configuration reference has no verdict.
+
+Grouped by environment, a node is a service running in that environment. It
+is `matched` when its revision declares the environment or declares none, and
+`observedOnly` when it declares other environments only. A revision that
+declares an environment it runs nowhere in is `expectedOnly` only when Pacto
+sees every place it could run, else `insufficient`. A dependency counts in an
+environment when both ends run there; its observation stays per service.
+
+## Contract completeness
+
+`pacto validate`, `pacto_check`, a service's detail and the fleet answers
+carry `contractCompleteness`: how much of a service its contract declares, in
+eight sections. A section reads `declared`, `inferred` (the contract does not
+fully declare it and the inferred record holds a field for it), `missing`,
+`unknown` or `not-applicable`, and a gap the inferred record can fill carries `declare`,
+the YAML to add.
+
+| Section | Applies when | Declared when |
+|---------|--------------|---------------|
+| `interfaces` | the contract declares an interface or Pacto infers one or a port | every interface names a document (`ref`) |
+| `configuration` | the contract declares a configuration or Pacto infers configuration fields | every configuration has a schema or a reference (`ref`); values alone read `missing` |
+| `dependencies` | the contract declares a dependency or Pacto infers one | every dependency accepts a version range |
+| `owner` | always | the contract names an owner |
+| `summary` | always | the contract declares `service.summary` |
+| `domain` | always | the contract declares a business domain |
+| `runtime` | the contract declares a workload or Pacto infers the workload or a health check (an image alone does not count) | it declares the workload and a health capability |
+| `readiness` | the service is no golden path | the contract carries a readiness assessment with at least one claim |
+
+`percentComplete` is declared sections over sections that apply; `inferred`
+and `unknown` count only in the base, so neither is ever complete. An owner
+that only an attestation or an inference names reads `inferred`. A section
+the contract declares only in part (an interface with no `ref`, a workload
+with no health capability) reads `missing`, even when Pacto infers more of it. The fleet
+figure is the mean over the services Pacto can judge, with `judged`,
+`unknown`, `fullyDescribed` (every section that applies is declared) and the
+three sections most often `missing` as `mostMissing` (an `inferred` or
+`unknown` section never counts there, so each figure matches the services its
+link selects).
+
+The knowledge gaps keep their filters and attention items and land in the
+checklist:
+
+| Gap or cause | Section |
+|--------------|---------|
+| `no-summary`, `SUMMARY_UNKNOWN` | `summary` missing, or unknown |
+| `no-domain`, `DOMAIN_UNKNOWN` | `domain` missing, or unknown |
+| `no-interface-docs`, `INTERFACE_DOCS_UNREAD` | `interfaces` missing, or unknown |
+| `no-readiness` | `readiness` missing |
+| `not-deployed`, `PLACEMENT_UNKNOWN` | a note on `runtime` |
+| `unverified-capability` | a note on `runtime`: declared, not verified |
+| `CONTRACT_UNREADABLE` | every section unknown |
 
 ## Owner and domain summaries
 
@@ -81,6 +152,8 @@ sidebar badge counts only items above `info`.
 |----------|------|----------|
 | `non-compliant` | `NON_COMPLIANT` | error |
 | `invalid` | `INVALID_CONTRACT` | error |
+| `cross-environment` | `CROSS_ENVIRONMENT_CALL`, a workload in one environment calls a workload in another; a warning when last seen outside the recent window | error |
+| `cross-environment` | `CROSS_ENVIRONMENT_PREVIEW_CALL`, the callee's environment is a preview | warning |
 | `health` | `HEALTH_FAILING`, a target whose own health check is failing | warning |
 | `provisioning` | `PROVISIONING_FAILED`, a provider reports a resource Failed | error |
 | `provisioning` | `PROVISIONING_STALE`, the last report about the current revision is stale | warning |

@@ -189,19 +189,14 @@ export function provenanceIsImplied(difference: string | undefined, provenance: 
 
 // ── attention categories ─────────────────────────────────────────────────────
 // The backend enum (pkg/fleet/product.go) is the wire truth; these are the words a
-// first-time user reads. Readiness is one of them ON PURPOSE: readiness is a
-// dimension of triage (declared contract preparedness), not a separate workspace,
-// so this list is also the Overview's set of entry points into the triage view.
-export const ATTENTION_CATEGORIES = [
-  'non-compliant', 'invalid', 'health', 'provisioning', 'unknown', 'stale', 'unresolved', 'out-of-range', 'lifecycle', 'undeclared', 'golden-path', 'readiness', 'knowledge', 'unowned',
-] as const;
-
+// first-time user reads.
 export function attentionCategoryLabel(c: string | undefined): string {
   switch (c) {
     case 'non-compliant': return 'Not compliant';
     case 'unknown': return 'Compliance unknown';
     case 'stale': return 'Stale evidence';
     case 'invalid': return 'Invalid contract';
+    case 'cross-environment': return 'Call across environments';
     case 'health': return 'Health check failing';
     case 'provisioning': return 'Resource provisioning';
     case 'readiness': return 'Readiness gate';
@@ -235,6 +230,8 @@ const ATTENTION_CAUSES: Record<string, string> = {
   NOT_DEPLOYED: 'No source reports an operational target of this service',
   UNVERIFIED_CAPABILITY: 'An extension capability no evaluator checks',
   INFERRED_PROVIDER: 'A dependency range points at an inferred contract, so Pacto never checks it',
+  CROSS_ENVIRONMENT_CALL: 'A workload in one environment calls a workload in another',
+  CROSS_ENVIRONMENT_PREVIEW_CALL: 'A workload calls a workload in a preview environment',
 };
 /** attentionCause words an attention item's code, or returns the code itself. */
 export function attentionCause(code: string | undefined): string {
@@ -487,4 +484,16 @@ export function replacesTip(replaces: ReplacementRef[], total: number): string {
     ? `declared by ${r.by || 'an unknown signer'} in revision ${r.revision || 'unknown'}` : `Pacto target ${r.target || 'of this service'}, ${formatDateTime(r.at)}`})`);
   const unlisted = total - 1 - shown.length;
   return `${head} Also replaces ${shown.join(', ')}${unlisted > 0 ? ` and ${formatCount(unlisted)} more, listed by pacto fleet get` : ''}.`;
+}
+
+// ── contract completeness (509-S12) ──────────────────────────────────────────
+
+/** The word for each state a contract-completeness section takes (not-applicable is never shown). */
+export const COMPLETENESS_STATE: Record<string, string> = {
+  declared: 'Declared', inferred: 'Inferred only', missing: 'Missing', unknown: 'Unknown',
+};
+
+/** completenessText is the tip of one contract-completeness section: its state, why, and what else the fleet knows. */
+export function completenessText(s: { state: string; reason?: string; note?: string }): string {
+  return `${COMPLETENESS_STATE[s.state] ?? s.state}${s.reason ? `: ${s.reason}` : ''}${s.note ? `; ${s.note}` : ''}`;
 }

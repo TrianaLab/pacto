@@ -125,10 +125,32 @@ func printValidateResult(cmd *cobra.Command, result *app.ValidateResult, format 
 				_, _ = fmt.Fprintf(w, "  %s [%s] %s: %s\n", label, wr.Code, wr.Path, wr.Message)
 			}
 		}
+		if cc := result.ContractCompleteness; cc != nil {
+			_, _ = fmt.Fprintln(w, completenessLine(cc))
+		}
 		_, _ = fmt.Fprintln(w, "Next: "+result.Next)
 
 		return nil
 	}, nil)
+}
+
+// completenessLine is the one-line contract completeness of a validate run:
+// "Completeness: 62% (5 of 8): missing configuration, readiness; inferred only: owner".
+func completenessLine(cc *contract.ContractCompleteness) string {
+	by := map[string][]string{}
+	for _, s := range cc.Sections {
+		by[s.State] = append(by[s.State], s.Section)
+	}
+	// ponytail: owner, summary and domain always apply, so a local contract always has a Percent.
+	line := fmt.Sprintf("Completeness: %d%% (%d of %d)", *cc.Percent, cc.Declared, cc.Applicable)
+	sep := ": "
+	for _, part := range []struct{ label, state string }{{"missing ", contract.CompletenessMissing}, {"inferred only: ", contract.CompletenessInferred}, {"unknown: ", contract.CompletenessUnknown}} {
+		if names := by[part.state]; len(names) > 0 {
+			line += sep + part.label + strings.Join(names, ", ")
+			sep = "; "
+		}
+	}
+	return line
 }
 
 func printPackResult(cmd *cobra.Command, result *app.PackResult, format string) error {

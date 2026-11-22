@@ -353,7 +353,12 @@
   // answers never stall the page: the skeletons keep moving and the counter keeps
   // counting. Calls go over postMessage and come back as promises; the worker
   // gets this script's own cache-busting query.
-  var worker = new Worker(new URL("engine.js" + new URL(scriptURL).search, scriptURL));
+  // The page's ?fleet=N (40, 400, 3000 or 10000) rides along: the engine then serves a
+  // generated fleet of N services instead of the narrative one.
+  var engineURL = new URL("engine.js" + new URL(scriptURL).search, scriptURL);
+  var fleetSize = new URLSearchParams(window.location.search).get("fleet");
+  if (fleetSize) { engineURL.searchParams.set("fleet", fleetSize); }
+  var worker = new Worker(engineURL);
   var calls = {};
   var nextCall = 0;
   function call(op, args) {

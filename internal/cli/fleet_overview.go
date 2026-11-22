@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -99,6 +100,31 @@ func printOverviewKnowledge(w io.Writer, k fleet.KnowledgeTally) {
 	_, _ = fmt.Fprintf(w, "Knowledge: %d services · %d fully described · %d with gaps · %d no summary · %d no domain · "+
 		"%d no interface document · %d no readiness assessment · %d run nowhere · %d unverified capability · %d unknown\n",
 		k.Services, k.Described, k.WithGaps, g.NoSummary, g.NoDomain, g.NoInterfaceDocs, g.NoReadiness, g.NotDeployed, g.UnverifiedCapability, k.Unknown)
+	printContractCompleteness(w, k.ContractCompleteness)
+}
+
+// printContractCompleteness prints the fleet's contract completeness line,
+// with its judged base, when it counts any service.
+func printContractCompleteness(w io.Writer, c fleet.FleetCompleteness) {
+	if c.Judged+c.Unknown == 0 {
+		return
+	}
+	pct := "unknown"
+	if c.PercentComplete != nil {
+		pct = fmt.Sprintf("%d%%", *c.PercentComplete)
+	}
+	line := fmt.Sprintf("Contract completeness: %s · %d of %d judged services fully described", pct, c.FullyDescribed, c.Judged)
+	if c.Unknown > 0 {
+		line += fmt.Sprintf(" · %d not judged", c.Unknown)
+	}
+	missing := make([]string, 0, len(c.MostMissing))
+	for _, m := range c.MostMissing {
+		missing = append(missing, fmt.Sprintf("%s %d", m.Section, m.Count))
+	}
+	if len(missing) > 0 {
+		line += " · most missing: " + strings.Join(missing, ", ")
+	}
+	_, _ = fmt.Fprintln(w, line)
 }
 
 func printOverviewDomains(w io.Writer, rows []fleet.DomainTally) {

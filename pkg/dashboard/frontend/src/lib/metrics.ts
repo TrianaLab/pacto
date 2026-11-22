@@ -11,6 +11,7 @@ import { metricsUrl } from './router.ts';
 import { countOf, formatCount } from './format.ts';
 import { formatDateTime } from './dateFormat.ts';
 import { durationText, niceMax } from './chart.ts';
+import { COVERAGE_HIDDEN } from './fleetHeadline.ts';
 
 type Metrics = NonNullable<ProductStats['totals']>;
 type Bucket = NonNullable<ProductStats['buckets']>[number];
@@ -432,7 +433,6 @@ function leadSub(st: ProductStats, lg: LeadGroup | undefined): string {
   return noDepth && lg.key !== 'all' ? `${out}; ${countOf(noDepth, 'environment')} with no known promotion depth ${noDepth === 1 ? 'is' : 'are'} left out` : out;
 }
 
-const COVERAGE_HIDDEN = 'COVERAGE_OUTSIDE_YOUR_VIEW';
 
 /** coverageSeries is coverage over time: Services observed (services the fleet saw, less
  *  those it cannot judge and those not deployed) and Contracts described, null (a gap)

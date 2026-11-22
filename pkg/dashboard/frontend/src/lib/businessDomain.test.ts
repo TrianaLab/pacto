@@ -3,7 +3,7 @@ import {
   parseHash, fleetDomainsUrl, fleetEntityUrl, fleetServicesUrl, fleetEntityListUrl, fleetAttentionUrl,
 } from './router.ts';
 import {
-  kindLabel, ATTENTION_CATEGORIES, attentionCategoryLabel, businessDomainLabel,
+  kindLabel, attentionCategoryLabel, businessDomainLabel,
   targetEnvironmentLabel, targetEnvironmentTone,
 } from './entityLabels.ts';
 import { identityContext } from './identityContext.ts';
@@ -44,14 +44,13 @@ describe('business-domain routes', () => {
   it('round-trips the business domain on attention', () => {
     const url = fleetAttentionUrl({ businessDomain: 'commerce', category: 'unowned' });
     expect(url).toBe('#/fleet/attention?category=unowned&businessDomain=commerce');
-    expect(parseHash(url).params).toEqual({ category: 'unowned', businessDomain: 'commerce' });
+    expect(parseHash(url).params).toEqual({ category: 'unowned', businessDomain: 'commerce', rail: 'open' });
   });
 });
 
 describe('business-domain labels', () => {
   it('names the kind and the unowned category', () => {
     expect(kindLabel('domain')).toBe('Domain');
-    expect(ATTENTION_CATEGORIES).toContain('unowned');
     expect(attentionCategoryLabel('unowned')).toBe('No declared owner');
   });
 

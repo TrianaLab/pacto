@@ -41,6 +41,9 @@ type Query struct {
 	// folded the identities they fold into OtherEgress.
 	externals map[ExternalKey]*ExternalRecord
 	folded    map[ExternalKey]bool
+	// scope narrows attention to these services; nil is every service (see
+	// attentionFor).
+	scope map[ServiceKey]bool
 }
 
 // NewQuery wraps a snapshot in a query view. It projects the external
@@ -679,6 +682,9 @@ type ServiceView struct {
 	// unless it carries a declaration or the service replaced an inferred
 	// service through one (fieldsOf).
 	Fields *FieldsPreview `json:"fields,omitempty" doc:"Where each field of the current revision comes from: declared, accepted, attested or inferred"`
+	// ContractCompleteness is the service's contract checklist; nil for a golden
+	// path or an inferred service.
+	ContractCompleteness *ServiceCompleteness `json:"contractCompleteness,omitempty"`
 }
 
 // GetService returns the logical service, its revisions and targets, its declared
@@ -692,6 +698,7 @@ func (q *Query) GetService(name string) (*ServiceView, error) {
 	view := &ServiceView{Meta: q.meta(), Service: cloneService(s), Dependencies: []Relationship{}, ReplacedFrom: replaced}
 	view.Replaces, view.ReplacesTotal, view.ReplacesHidden = q.replacesOf(s.Key)
 	view.Fields = q.fieldsOf(s)
+	view.ContractCompleteness = q.serviceCompleteness(s)
 	for _, rk := range s.Revisions {
 		rev := cloneRevision(q.snap.Revisions[rk])
 		view.Revisions = append(view.Revisions, rev)
@@ -1269,6 +1276,9 @@ type StatusResult struct {
 	// least healthy first.
 	Providers          []Provider `json:"providers,omitempty" doc:"What Pacto detected in each source, with evidence, what it uses each for and its status"`
 	ProvidersTruncated bool       `json:"providersTruncated,omitempty"`
+	// ContractCompleteness is the contract completeness of every visible
+	// service that is no golden path and no inferred service.
+	ContractCompleteness FleetCompleteness `json:"contractCompleteness"`
 }
 
 // Status reports the entities needing attention in the selected categories. It is
@@ -1297,6 +1307,8 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 		// Nor does any flag select health or knowledge alone, for the same reason.
 		categoryHealth:    false,
 		categoryKnowledge: false,
+		// Nor cross-environment calls.
+		categoryCrossEnvironment: false,
 	}
 	// No category selected means every category: an empty query from the CLI, an
 	// MCP client or the dashboard asks "what needs attention", never "nothing".
@@ -1352,7 +1364,8 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 		items = items[:limit]
 	}
 	providers, providersTruncated := boundProviders(q.snap.Providers)
-	return &StatusResult{Meta: q.meta(), Total: total, Truncated: total > limit, Items: items, Providers: providers, ProvidersTruncated: providersTruncated}
+	return &StatusResult{Meta: q.meta(), Total: total, Truncated: total > limit, Items: items, Providers: providers, ProvidersTruncated: providersTruncated,
+		ContractCompleteness: q.fleetCompleteness()}
 }
 
 // AssertionRef identifies the declared assertion a reason is about.

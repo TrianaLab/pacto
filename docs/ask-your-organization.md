@@ -9,8 +9,8 @@ queries, so an agent and a person asking the same question get the same answer.
 | Question | MCP tool | CLI command | Dashboard view |
 |---|---|---|---|
 | Which services does my team own? | `pacto_fleet_entities` with `kind=owner` for the owner keys, then `pacto_fleet_search` with `owner` or `pacto_fleet_entities` with `owner_key` | `pacto fleet entities --kind owner`, `pacto fleet search --owner` | Owners |
-| Which services depend on payments? | `pacto_fleet_graph` with `direction=dependents`; each node carries `provenance` | `pacto fleet graph payments-service --direction dependents` | Operational graph |
-| What is unhealthy right now? | `pacto_fleet_attention` with `severity=error` | `pacto fleet attention --severity error` | Needs attention |
+| Which services depend on payments? | `pacto_fleet_graph` with `direction=dependents`; each node carries `provenance` | `pacto fleet graph payments-service --direction dependents` | Operational graph, in focus on the service |
+| What is unhealthy right now? | `pacto_fleet_attention` with `severity=error` | `pacto fleet attention --severity error` | Overview, Needs attention list |
 | Which services have undocumented dependencies? | `pacto_fleet_attention` with `category=undeclared` | `pacto fleet attention --category undeclared` | The Overview tile "Undeclared runtime dependencies observed" |
 | What changed in this service, and when? | `pacto_fleet_entity` with `kind=service` (its `changes`; `reached: true` on a stdio server adds when each change reached a Stage), `pacto_delivery_history` with `at` for what each Stage ran at a past time | `pacto fleet entity service <key> --reached`, `pacto delivery history --all --at 24h` | The service page's Changes section, Delivery history's As of |
 | Which infrastructure capabilities are available? | `pacto_fleet_entities` with `kind=offering`, `pacto_fleet_entity` with `kind=offering` | `pacto fleet entities --kind offering` | Offerings |
@@ -20,9 +20,9 @@ queries, so an agent and a person asking the same question get the same answer.
 | Which services does this policy change reach? | `pacto_impact` with the policy provider's old and new refs | `pacto impact <old> <new>` | Change analysis |
 | How healthy is the organization and how much do we know? | `pacto_fleet_overview` | `pacto fleet overview` | Overview |
 | Which services are failing versus unknown? | `pacto_fleet_attention` with `category=health` for failing health checks, `category=unknown` for what Pacto cannot tell | `pacto fleet attention --category health`, `pacto fleet attention --category unknown` | The Overview's Operational health band |
-| Where do our contracts leave knowledge out? | `pacto_fleet_attention` with `category=knowledge`, `pacto_fleet_entities` with `gap` | `pacto fleet attention --category knowledge`, `pacto fleet entities --gap no-summary` | The Overview's Knowledge band |
+| Where do our contracts leave knowledge out? | `pacto_fleet_attention` with `category=knowledge`, `pacto_fleet_entities` with `gap` | `pacto fleet attention --category knowledge`, `pacto fleet entities --gap no-summary` | The Overview's Contract completeness band |
 | Which teams own services nobody can read? | `pacto_fleet_entities` with `gap=unknown` (each row names its owner), and `ownership=unknown` for those with no owner claim | `pacto fleet entities --gap unknown`, `pacto fleet entities --ownership unknown` | Services, filtered by Owner unknown |
-| Where are the biggest operational risks? | `pacto_fleet_attention` (most severe first), `pacto_fleet_entities` with `sort=health` | `pacto fleet attention`, `pacto fleet entities --sort health` | Needs attention |
+| Where are the biggest operational risks? | `pacto_fleet_attention` (most severe first), `pacto_fleet_entities` with `sort=health` | `pacto fleet attention`, `pacto fleet entities --sort health` | Overview, Needs attention list |
 | What waits on me? | `pacto_delivery_inbox` (with `--delivery`) | `pacto delivery inbox` | Delivery, Inbox |
 | Which environments run which version? | `pacto_delivery_environments` (with `--delivery`) | `pacto delivery environments` | Delivery, Stages |
 | Which publishers may ship this service? | `pacto_delivery_trust` with `service` (with `--delivery`) | `pacto delivery trust <service>` | Delivery, Published |

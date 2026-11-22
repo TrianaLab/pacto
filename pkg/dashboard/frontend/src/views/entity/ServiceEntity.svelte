@@ -287,10 +287,10 @@
     </div>
   {/if}
 
-  {#if d.fields || d.replacesHidden || d.replaces?.some((r) => r.link !== 'pacto-target')}
+  {#if d.fields || d.contractCompleteness || d.replacesHidden || d.replaces?.some((r) => r.link !== 'pacto-target')}
     <!-- Where each value comes from: one fold, closed, one mark per row (513-S5). A
          Pacto-target takeover alone stays the one Replaces line above. -->
-    <FieldProvenanceFold fields={d.fields} replaces={d.replaces ?? []} replacesTotal={d.replacesTotal ?? d.replaces?.length ?? 0} replacesHidden={d.replacesHidden ?? 0} asOf={detail.meta?.asOf ?? ''} />
+    <FieldProvenanceFold fields={d.fields} replaces={d.replaces ?? []} replacesTotal={d.replacesTotal ?? d.replaces?.length ?? 0} replacesHidden={d.replacesHidden ?? 0} asOf={detail.meta?.asOf ?? ''} completeness={d.contractCompleteness ?? null} />
   {/if}
 
   {#if gp}

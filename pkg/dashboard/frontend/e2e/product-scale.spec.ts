@@ -223,28 +223,19 @@ test.describe('Product lists stay bounded and honest at scale', () => {
     expect(Math.abs(second - first.nodes)).toBeLessThan(first.nodes * 0.25);
   });
 
-  test('a 25,000-item attention backlog renders one page while its charts cover the backlog', async ({ page }) => {
+  test('a 25,000-item attention backlog lists thirty at a time beside the map', async ({ page }) => {
     await page.addInitScript(() => { (window as unknown as { __pactoScale: string }).__pactoScale = 'large'; });
     await record(page, 'attention backlog, 25k population', async () => {
       await page.goto('/#/fleet/attention');
-      await expect(page.getByTestId('attention-shape')).toBeVisible({ timeout: 30000 });
+      await expect(page.getByTestId('fleet-map-rail-item').first()).toBeVisible({ timeout: 30000 });
     });
-
-    await expect(page.locator('.attn-list li')).toHaveCount(PAGE_SIZE);
-    await expect(page.getByText(/Showing\s+1[–-]25\s+of\s+25,000/)).toBeVisible();
-
-    // Unlike the services list, these two charts are drawn from backend tallies over EVERY
-    // matched item, so they must describe the backlog, not the page -- and must therefore
-    // NOT carry a page-scope note. Proportions that changed as you paged would be worse
-    // than no chart at all.
-    const shape = page.getByTestId('attention-shape');
-    await expect(shape).toContainText('8,333');
-    await expect(shape).not.toContainText(/This page only/);
-
-    await page.getByTestId('attn-next').click();
-    await expect(page.getByText(/Showing\s+26[–-]50\s+of\s+25,000/)).toBeVisible();
-    await expect(page.locator('.attn-list li')).toHaveCount(PAGE_SIZE);
-    await expect(shape).toContainText('8,333');
+    const rail = page.getByTestId('fleet-map-rail');
+    // The count is the backlog's, never the page's; the list is a bounded first part of it.
+    await expect(rail.getByRole('heading', { level: 2 })).toHaveText('Needs attention (25,000)');
+    await expect(page.getByTestId('fleet-map-rail-item')).toHaveCount(30);
+    await rail.getByRole('button', { name: 'Show 30 more' }).click();
+    await expect(page.getByTestId('fleet-map-rail-item')).toHaveCount(60);
+    await expect(rail).toContainText('60 items of 25,000 shown.');
   });
 });
 
@@ -267,9 +258,10 @@ test('render baseline for every product surface, on real demo data', async ({ pa
 
   const surfaces: [string, string, string][] = [
     ['Services list', '#/fleet/services', '[data-testid="service-list"] li'],
-    ['Attention', '#/fleet/attention', '.attn-list li'],
+    ['Attention (beside the Overview map)', '#/fleet/attention', '[data-testid="fleet-map-rail-item"]'],
     ['Service detail', '#/fleet/services/' + encodeURIComponent('payments-service'), '.ev-body'],
-    ['Operational Graph (focused)', '#/fleet/graph/service/payments-service', '[data-testid="neighborhood-canvas"] canvas'],
+    ['Operational Graph (the fleet map)', '#/fleet/graph', '[data-testid="fleet-map-summary"]'],
+    ['Operational Graph (focused)', '#/fleet/graph/service/payments-service', '[data-testid="fleet-map-focus"]'],
     ['Change analysis', '#/fleet/changes', '[data-testid="impact-service-picker"]'],
     ['Overview', '#/fleet', 'main figure.dist'],
   ];

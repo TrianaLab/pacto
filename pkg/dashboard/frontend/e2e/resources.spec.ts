@@ -87,12 +87,15 @@ test.describe('WASM demo — resources a service consumes', () => {
     await expect(usage).toContainText('reported by mail-adapter, signed');
     await expectAxeClean(page);
 
+    // The attention link opens the list beside the Overview's map; the item focuses the
+    // service on the map, whose Open service button opens its page.
     await page.goto('/#/fleet/attention?category=provisioning');
-    await expect(page.getByRole('heading', { level: 1, name: 'Needs attention' })).toBeVisible({ timeout: T });
-    const item = page.getByTestId('attention-list').locator('li.attn-item').filter({ has: page.locator('a.entity-link[href$="/fleet/services/notification-worker"]') });
+    const item = page.getByTestId('fleet-map-rail-item').filter({ hasText: 'notification-worker' });
     await expect(item.first()).toBeVisible({ timeout: T });
     await expect(item.first()).toContainText('Resource provisioning');
-    await item.first().locator('a.entity-link[href$="/fleet/services/notification-worker"]').click();
+    await item.first().click();
+    await expect(page.getByTestId('fleet-map-focus')).toContainText('notification-worker', { timeout: T });
+    await page.getByTestId('fleet-map-focus').getByRole('button', { name: 'Open service' }).click();
     await expect(page).toHaveURL(/#\/fleet\/services\/notification-worker$/, { timeout: T });
   });
 

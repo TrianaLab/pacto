@@ -2819,6 +2819,9 @@ func buildRelationships(snap *FleetSnapshot, cat *externalcatalog.Catalog) {
 type observedInput struct {
 	edge   ObservedEdge
 	source string
+	// pair is the targets both workload ends map to, nil when either end
+	// maps to none or to more than one (see envPairJudge).
+	pair *envPair
 }
 
 // callerKey is one caller with no contract of a service with one.
@@ -2861,6 +2864,7 @@ type observedEdgeAgg struct {
 	bySource map[string]*ObservedSourceStat
 	sources  []string
 	match    string
+	pairs    []envPair
 }
 
 // add counts one raw observed edge from source into the aggregate.
@@ -2874,6 +2878,9 @@ func (a *observedEdgeAgg) add(oi observedInput) {
 	}
 	st.Count += oi.edge.Count
 	mergeWindow(&st.FirstSeen, &st.LastSeen, oi.edge.FirstSeen, oi.edge.LastSeen)
+	if oi.pair != nil {
+		a.pairs = addEnvPair(a.pairs, *oi.pair)
+	}
 }
 
 // edgeFold aggregates observed edges by key, in first-seen order.
@@ -2929,7 +2936,9 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 	seenLim := map[string]bool{}
 	var edges, inferred edgeFold
 	uncontracted := map[callerKey]map[string]bool{}
+	judge := envPairJudge(snap)
 	for _, oi := range observed {
+		oi.pair = judge(oi.edge)
 		fromKey, fromRes := resolve(oi.edge.From)
 		toKey, toRes := resolve(oi.edge.To)
 		if m, ok := snap.observedExternalMatch(oi.edge.To, toRes); ok {
@@ -3014,6 +3023,7 @@ func aggregatedRelationship(k observedEdgeKey, a *observedEdgeAgg, provenance st
 		Provenance: provenance, Resolved: k.ext == "",
 		ObservedCount: a.total, Source: source,
 		ObservedSources: stats, FirstSeen: winFirst, LastSeen: winLast,
+		envPairs: sortedEnvPairs(a.pairs),
 	}
 }
 

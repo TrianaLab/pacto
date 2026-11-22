@@ -17,7 +17,7 @@ function badgeText(attention: { actionable?: number; total?: number }): string |
   document.body.appendChild(target);
   component = mount(NavList, { target, props: { groups: navGroups({ fleet: true }), view: 'fleet-services', attentionTotal: attentionBadge(attention) } });
   flushSync();
-  const att = target.querySelector('a[data-nav="attention"]') as HTMLElement;
+  const att = target.querySelector('a[data-nav="overview"]') as HTMLElement;
   return document.getElementById(att.getAttribute('aria-describedby')!)?.textContent;
 }
 

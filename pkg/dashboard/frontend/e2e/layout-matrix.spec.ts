@@ -77,15 +77,18 @@ async function atViewport(page: Page, [w, h]: VP) {
 // (the dark desktop one carries G1 and costs several times the rest) has to be spread
 // along the file, or one shard gets the heavy group whole. Titles are unchanged: each
 // (theme, group) describe repeats once per route.
-for (const r of ROUTES) {
+// A full route (the map over 3000 and 10000 generated services) runs only in the full
+// matrix, in the desktop group.
+for (const r of ROUTES.filter((x) => FULL || !x.full)) {
 for (const theme of ['dark', 'light'] as const) {
-  for (const g of GROUPS) {
+  for (const g of GROUPS.filter((x) => !r.full || !x.touch)) {
     for (const dpr of g.dprs) {
       for (const font of FONTS) {
         test.describe(`layout matrix (${theme}, ${g.name}${FULL ? `, DPR ${dpr}, ${font}` : ''})`, () => {
           test.use({ colorScheme: theme, hasTouch: g.touch, deviceScaleFactor: dpr, viewport: { width: 1280, height: 900 } }); // the app opens wide, then each size is set
           test.beforeEach(async ({ page }) => {
-            await page.addInitScript(installScaleFixture);
+            // A generated fleet is already at scale: the fixture would amend it twice.
+            if (!r.fleet) await page.addInitScript(installScaleFixture);
             if (theme === 'light') {
               await page.addInitScript(() => { try { localStorage.setItem('pacto-theme', 'light'); } catch { /* private mode */ } });
             }

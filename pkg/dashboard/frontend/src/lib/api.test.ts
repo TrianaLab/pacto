@@ -155,6 +155,24 @@ describe('product endpoint serialization + schema validation', () => {
     expect(q.get('maxEdges')).toBe('80');
   });
 
+  it('fleetMap, fleetMapNodes and fleetMapFocus serialize their queries', async () => {
+    mockFetch.mockResolvedValue(productResponse({ groups: [] }));
+    await api.fleetMap({ groupBy: 'team' });
+    expect(urlFor().pathname).toBe('/api/fleet/map');
+    expect(urlFor().searchParams.get('groupBy')).toBe('team');
+    mockFetch.mockResolvedValue(productResponse({ nodes: [] }));
+    await api.fleetMapNodes({ groupBy: 'domain', group: 'payments', environment: 'prod', offset: 1000, limit: 1000 });
+    expect(urlFor(1).searchParams.get('environment')).toBe('prod');
+    expect(urlFor(1).pathname).toBe('/api/fleet/map/nodes');
+    expect(urlFor(1).searchParams.get('group')).toBe('payments');
+    expect(urlFor(1).searchParams.get('offset')).toBe('1000');
+    mockFetch.mockResolvedValue(productResponse({ columns: [] }));
+    await api.fleetMapFocus({ service: 'pay', hops: 2 });
+    expect(urlFor(2).pathname).toBe('/api/fleet/map/focus');
+    expect(urlFor(2).searchParams.get('service')).toBe('pay');
+    expect(urlFor(2).searchParams.get('hops')).toBe('2');
+  });
+
   it('fleetAttention serializes filters and staleOnly', async () => {
     mockFetch.mockResolvedValue(productResponse({ items: [] }));
     await api.fleetAttention({ category: 'stale', severity: 'warning', staleOnly: true, limit: 3, offset: 6 });

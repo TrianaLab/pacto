@@ -236,8 +236,12 @@ func TestFullLayoutMatrixGatesTheRelease(t *testing.T) {
 	if onPR, _ := pullRequestTrigger(full.On); onPR {
 		t.Error("layout-full.yml runs on pull_request; ordinary PRs keep the subset, only the Version PR runs the full matrix (through ci.yml)")
 	}
-	if !strings.Contains(readFile(t, repoRoot(t), ".github", "workflows", "layout-full.yml"), "make test-browser-layout-full") {
+	fullYML := readFile(t, repoRoot(t), ".github", "workflows", "layout-full.yml")
+	if !strings.Contains(fullYML, "make test-browser-layout-full") {
 		t.Error("layout-full.yml does not run make test-browser-layout-full")
+	}
+	if !strings.Contains(fullYML, "PACTO_SCALE_FULL=1 make test-fleet-budgets") {
+		t.Error("layout-full.yml does not run the fleet map budgets at 10000 services (PACTO_SCALE_FULL=1 make test-fleet-budgets)")
 	}
 	// PRs gate layout geometry in the dark theme only; light geometry for the
 	// matrix and the G1 gate it carries exists only in this target.
@@ -247,6 +251,9 @@ func TestFullLayoutMatrixGatesTheRelease(t *testing.T) {
 		if !strings.Contains(recipe, spec) {
 			t.Errorf("make test-browser-layout-full does not run %s, so the light theme's layout geometry is gated nowhere", spec)
 		}
+	}
+	if !strings.Contains(recipe, "e2e/fleet-map-scale.spec.ts") {
+		t.Error("make test-browser-layout-full does not run e2e/fleet-map-scale.spec.ts, so the fleet map at 10000 services is proved nowhere")
 	}
 
 	jobs := workflowJobs(t, repoRoot(t), "ci.yml")

@@ -75,8 +75,8 @@ func TestStatusCoversEveryAttentionCategory(t *testing.T) {
 	}
 	fleets := []*Query{productFleet(t), rangeFleet(t), undeclaredFleet(t), domainFleet(t), deployedTemplateFleet(t), lifecycleRangeFleet(t)}
 	for _, c := range AttentionCategoriesList() {
-		if c == categoryProvisioning || c == categoryHealth || c == categoryKnowledge {
-			continue // no flag selects them alone: TestStatusIncludesProvisioning, TestStatusIncludesHealth, TestStatusIncludesKnowledge
+		if slices.Contains([]string{categoryProvisioning, categoryHealth, categoryKnowledge, categoryCrossEnvironment}, c) {
+			continue // no flag selects them alone: TestStatusIncludesProvisioning, TestStatusIncludesHealth, TestStatusIncludesKnowledge, TestStatusIncludesCrossEnvironment
 		}
 		set, ok := flag[c]
 		if !ok {

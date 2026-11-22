@@ -12,9 +12,9 @@ engineers](platform-engineers.md).
 ## Dashboard
 
 `pacto dashboard` opens a web dashboard over the same contracts the CLI manages
-and the operator checks. It has four views: what needs attention now, the
-service list, the [Operational Graph](operational-graph.md) and change
-analysis. It finds its sources at startup and merges them per service. Next to
+and the operator checks. It has four views: the Overview, which leads with the
+[fleet map](fleet-map.md) and what needs attention, the service list, the
+Operational graph and change analysis. It finds its sources at startup and merges them per service. Next to
 the Kubernetes operator it needs no OCI arguments: it reads the registry
 addresses from the `resolvedRef` field in each Pacto resource's status, then
 shows version history, interfaces, configuration schemas and diffs. See the [`pacto dashboard`
@@ -152,10 +152,11 @@ demo fixture, abridged:
 
 ```console
 $ pacto fleet overview --local examples/demo/bundles --target-state examples/demo/fleet-targets.yaml
-asOf 2026-11-15T04:41:58+01:00  completeness complete
-Targets 9: compliant 5 (5 stale) · not compliant 1 · unknown 3
-Health: healthy 0 · failing 1 · unknown 2 · not observed 6
-Owners: 34 declared · 3 disputed · 0 none declared · 0 unknown
+asOf 2026-11-21T14:32:54+01:00  completeness complete
+Targets 14: compliant 8 (8 stale) · not compliant 2 · unknown 4
+Health: healthy 0 · failing 1 · unknown 13 · not observed 0
+Contract completeness: 47% · 0 of 40 judged services fully described · most missing: domain 35, readiness 33, summary 32
+Owners: 38 declared · 1 disputed · 1 none declared · 0 unknown
 Next: pacto fleet attention --category health  (Operational targets failing their health check: 1)
 ```
 
@@ -186,6 +187,7 @@ the note says where that answer lives instead.
 | What changed in this service, and when did it reach each Stage? | `pacto fleet entity service <key> --reached` | `pacto_fleet_entity` with `reached` | `GET /api/fleet/entities/{kind}?reached=true` | Times only from delivery records read as you; an HTTP MCP server answers `times: not-read` |
 | What needs attention? | `pacto fleet attention` | `pacto_fleet_attention` | `GET /api/fleet/attention` | |
 | Who depends on this service, and on whom does it depend? | `pacto fleet neighborhood` | `pacto_fleet_neighborhood` | `GET /api/fleet/neighborhood` | |
+| What does the whole fleet look like, and where are its problems? | `pacto fleet map` | `pacto_fleet_map` | `GET /api/fleet/map`, `GET /api/fleet/map/nodes`, `GET /api/fleet/map/focus` | `--group` (`group`) pages one group's services through `/api/fleet/map/nodes`; `--focus` (`focus`) is `/api/fleet/map/focus?service`. The dashboard orders environments by the Stages you may read; the CLI and MCP list them by name and say so |
 | Which services match this text or filter? | `pacto fleet search` | `pacto_fleet_search` | `GET /api/fleet/services` | |
 | How is the fleet doing? | `pacto fleet status` | `pacto_fleet_status` | `GET /api/fleet/status` | |
 | How healthy is the organization and how much do we know? | `pacto fleet overview` | `pacto_fleet_overview` | `GET /api/fleet/overview` | |

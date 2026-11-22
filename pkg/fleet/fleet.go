@@ -1294,6 +1294,11 @@ type Relationship struct {
 	// hiddenTo is the hidden provider's key, kept off the wire so the declared
 	// count collapses a hidden provider exactly like a visible one.
 	hiddenTo ServiceKey
+	// envPairs are the (caller target, callee target) pairs of the raw
+	// observed calls this relationship folds, each end a workload that maps to
+	// exactly one target with an environment; never serialized. A restricted
+	// view skips a pair with a target it may not see.
+	envPairs []envPair
 	// ObservedCount is the TOTAL runtime calls witnessed across all sources for an
 	// observed (Provenance == observed) edge. Zero for declared edges.
 	ObservedCount int `json:"observedCount,omitempty"`

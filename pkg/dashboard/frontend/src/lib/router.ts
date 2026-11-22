@@ -20,7 +20,6 @@ export interface Route {
     | 'fleet-golden-paths' // /fleet/golden-paths  golden path list
     | 'fleet-entity'    // /fleet/<plural>/:key   unified entity detail (externals/:identity too)
     | 'fleet-entity-list'// /fleet/revisions|targets[?service=]  scoped inventory list
-    | 'fleet-attention' // /fleet/attention  attention list
     // Delivery (only where the delivery component is installed).
     | 'delivery-inbox'        // /delivery[/inbox]
     | 'delivery-environments' // /delivery/environments
@@ -143,16 +142,21 @@ export function parseHash(hash: string | null | undefined): Route {
 
 /**
  * parseFleet routes the /fleet/* product IA:
- *   /fleet                          -> operational overview (landing)
- *   /fleet/graph[/:kind/:key][?...] -> operational graph (legacy FleetView)
- *   /fleet/attention[?category=]    -> attention list
+ *   /fleet[?map state]              -> operational overview (landing), led by the fleet map
+ *   /fleet/graph[/:kind/:key][?...] -> operational graph: the fleet map full screen, or a neighbourhood
+ *   /fleet/attention[?category=]    -> the overview with the attention list open and filtered
  *   /fleet/changes[/:serviceKey]    -> change analysis, scoped to a service
  *   /fleet/<plural>/:key            -> unified entity detail
  * The last path segment is a single percent-escaped key (the backend escapes '/'),
  * so decodeURIComponent recovers arbitrary canonical keys.
  */
+// The fleet map's state (FleetMap.svelte), kept in the hash query so a view is
+// shareable and Back restores it, and the attention filters of the rail beside it.
+const MAP_QUERY = ['groupBy', 'lens', 'only', 'gaps', 'missing', 'env', 'focus', 'hops', 'rail'] as const;
+const RAIL_QUERY = ['category', 'owner', 'ownerKey', 'source', 'service', 'businessDomain', 'severity', 'status', 'staleOnly'] as const;
+
 function parseFleet(path: string, query: string): Route {
-  if (path === 'fleet') return { view: 'fleet-overview', params: {} };
+  if (path === 'fleet') return { view: 'fleet-overview', params: pick(query, [...MAP_QUERY, ...RAIL_QUERY]) };
   const rest = path.slice('fleet/'.length);
 
   // Operational graph: the search-first product graph. The projection/perspective,
@@ -168,7 +172,7 @@ function parseFleet(path: string, query: string): Route {
     // were placebo URL state no view or backend consumed, so they are not parsed.
     // maxNodes too: "Show up to 100" writes it, and dropping it here made the button a
     // no-op that left the graph at the default.
-    for (const k of ['perspective', 'views', 'direction', 'depth', 'sel', 'kind', 'maxNodes']) {
+    for (const k of ['perspective', 'views', 'direction', 'depth', 'sel', 'kind', 'maxNodes', ...MAP_QUERY]) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -177,19 +181,10 @@ function parseFleet(path: string, query: string): Route {
     return { view: 'fleet', params };
   }
 
-  if (rest === 'attention') {
-    const params: Record<string, string> = {};
-    const qs = new URLSearchParams(query);
-    // Category and offset (and the section-I triage filters) live in the URL so the
-    // attention list is deep-linkable and back/forward restores the exact page.
-    // `owner` is what the reader typed and `ownerKey` is the canonical owner an
-    // owner-page link carried; they are two different questions, so both travel.
-    for (const k of ['category', 'offset', 'limit', 'owner', 'ownerKey', 'source', 'service', 'businessDomain', 'severity', 'status', 'staleOnly']) {
-      const v = qs.get(k);
-      if (v) params[k] = v;
-    }
-    return { view: 'fleet-attention', params };
-  }
+  // Needs attention is the list beside the Overview's map: an attention link opens
+  // the Overview with that list open and filtered. `owner` is what the reader typed
+  // and `ownerKey` the canonical owner an owner-page link carried; both travel.
+  if (rest === 'attention') return { view: 'fleet-overview', params: { ...pick(query, [...MAP_QUERY, ...RAIL_QUERY]), rail: 'open' } };
 
   // Change analysis: ONE workspace answering "what changed, and what does that change
   // affect". The service is a canonical ServiceKey path segment; `name` is only ever a

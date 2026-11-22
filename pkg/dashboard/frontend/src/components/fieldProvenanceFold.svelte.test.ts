@@ -4,7 +4,7 @@
  * truncation and about what the viewer cannot see, and one facts block for the newest
  * replaced workload only.
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import FieldProvenanceFold from './FieldProvenanceFold.svelte';
@@ -135,5 +135,57 @@ describe('FieldProvenanceFold', () => {
       .toBe('Declared by ana@acme.example from inferred k8s:billing/Deployment/a (revision invoices@0.1.0). Pacto read no workload for it here');
     expect(t.querySelector('[data-testid="workload-facts"]')).toBeNull();
     expect(t.querySelector('[data-testid="field-provenance-show-inferred"]')).toBeNull();
+  });
+});
+
+describe('FieldProvenanceFold — contract completeness (509-S12)', () => {
+  const sec = (section: string, state: string, reason: string, extra: Record<string, string> = {}): { section: string; state: string; reason: string; declare?: string; note?: string } => ({ section, state, reason, ...extra });
+  const completeness = {
+    asOf, completeness: 'complete', percentComplete: 60,
+    sections: [
+      sec('interfaces', 'declared', 'pacto.yaml declares it'),
+      sec('configuration', 'not-applicable', 'pacto.yaml declares none and Pacto inferred none'),
+      sec('dependencies', 'inferred', 'read from runtime calls', { declare: 'dependencies:\n  - ref: ledger\n    compatibility: ^2.3.0\n' }),
+      sec('owner', 'declared', 'pacto.yaml declares it'),
+      sec('summary', 'missing', 'pacto.yaml says nothing'),
+      sec('domain', 'declared', 'pacto.yaml declares it'),
+      sec('runtime', 'unknown', 'Pacto read no workload', { note: 'it runs nowhere' }),
+      sec('readiness', 'declared', 'pacto.yaml declares it'),
+    ],
+  };
+
+  it('puts the percentage and the states in the meta, and renders without field rows', () => {
+    const t = render({ completeness });
+    expect(t.querySelector('.fold-meta')?.textContent).toBe('60% complete · 4 declared, 1 inferred only, 1 missing, 1 unknown');
+    const t2 = render({ completeness: { ...completeness, percentComplete: undefined }, fields: fields([rows[0]]) });
+    expect(t2.querySelector('.fold-meta')?.textContent).toBe('Completeness unknown · 4 declared, 1 inferred only, 1 missing, 1 unknown · 1 declared');
+  });
+
+  it('draws the sections that apply first, one mark each whose tip says the state and why', () => {
+    const t = render({ completeness, fields: fields([rows[0]]) });
+    open(t);
+    const got = [...t.querySelectorAll('[data-testid="contract-completeness"] .fpf-row')];
+    expect(got.map((r) => r.querySelector('dt')?.textContent)).toEqual(['Interface documents', 'Dependency ranges', 'Owner', 'Summary', 'Domain', 'Health and runtime', 'Readiness']);
+    got.forEach((r) => expect(r.querySelectorAll('.prov-mark')).toHaveLength(1));
+    expect(got[1].querySelector('.prov-tip')?.textContent).toBe('Inferred only: read from runtime calls');
+    expect(got[5].querySelector('.prov-tip')?.textContent).toBe('Unknown: Pacto read no workload; it runs nowhere');
+    // The rows come before the field rows.
+    const all = [...t.querySelectorAll('.fpf-row')];
+    expect(all.indexOf(got[0])).toBe(0);
+    expect(got[1].classList.contains('fpf-inferred')).toBe(true);
+  });
+
+  it('offers the YAML to declare a gap, with a copy button', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const t = render({ completeness });
+    open(t);
+    const yaml = [...t.querySelectorAll('[data-testid="completeness-declare"]')];
+    expect(yaml).toHaveLength(1);
+    expect(yaml[0].querySelector('summary')?.textContent).toBe('YAML to declare it');
+    expect(yaml[0].querySelector('code')?.textContent).toContain('compatibility: ^2.3.0');
+    (yaml[0].querySelector('button') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(yaml[0].querySelector('button')?.textContent).toBe('Copied'));
+    expect(writeText).toHaveBeenCalledWith(completeness.sections[2].declare);
   });
 });

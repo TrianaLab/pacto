@@ -9,7 +9,7 @@ describe('navCurrent: the item a page belongs to agrees with its breadcrumb trai
   it.each([
     ['fleet-services', 'services'], ['fleet-owners', 'owners'], ['fleet-domains', 'domains'],
     ['fleet-offerings', 'offerings'], ['fleet-golden-paths', 'golden-paths'], ['fleet-sources', 'sources'],
-    ['fleet-attention', 'attention'], ['fleet-overview', 'overview'], ['fleet', 'graph'], ['changes', 'changes'],
+    ['fleet-overview', 'overview'], ['fleet', 'graph'], ['changes', 'changes'],
     ['delivery-inbox', 'delivery'], ['metrics', 'metrics'],
   ])('%s is the page of %s', (view, key) => {
     const lit = navGroups({ fleet: true, delivery: true }).flatMap((g) => g.items).filter((i) => navCurrent(i, view, ''));
@@ -44,6 +44,12 @@ describe('navCurrent: the item a page belongs to agrees with its breadcrumb trai
 });
 
 describe('navGroups', () => {
+  it('has no Needs attention item: the list sits beside the Overview map, and the Overview carries its count', () => {
+    const items = navGroups({ fleet: true, delivery: true }).flatMap((g) => g.items);
+    expect(items.some((i) => i.key === 'attention' || i.views.includes('fleet-attention'))).toBe(false);
+    expect(navGroups({ fleet: true })[0].items.map((i) => i.key)).toEqual(['overview']);
+  });
+
   it('Services links somewhere real at every probe state', () => {
     expect(find('services', null).href).toBe('#/services');
     expect(find('services', { fleet: true }).href).toBe('#/fleet/services');

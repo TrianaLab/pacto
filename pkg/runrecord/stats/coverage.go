@@ -13,11 +13,21 @@ import (
 // snapshot time is whole seconds, like the recordedAt it must not follow.
 func CoverageOf(q *fleet.Query) runrecord.Coverage {
 	ov := q.Overview()
-	s, k := ov.Summary, ov.Summary.Knowledge
+	s, k, m := ov.Summary, ov.Summary.Knowledge, ov.Summary.Match
+	cc := k.ContractCompleteness
 	c := runrecord.Coverage{
 		Services: s.Services, Uncontracted: s.UncontractedCallers,
 		Knowledge: &runrecord.CoverageKnowledge{
 			Services: k.Services, Described: k.Described, WithGaps: k.WithGaps, Unknown: k.Unknown, NotDeployed: k.Gaps.NotDeployed,
+		},
+		Match: &runrecord.CoverageMatch{
+			ServicesMatched: m.Services.Matched, ServicesExpectedOnly: m.Services.ExpectedOnly,
+			ServicesObservedOnly: m.Services.ObservedOnly, ServicesInsufficient: m.Services.Insufficient,
+			DependenciesMatched: m.Dependencies.Matched, DependenciesExpectedOnly: m.Dependencies.ExpectedOnly,
+			DependenciesObservedOnly: m.Dependencies.ObservedOnly, DependenciesInsufficient: m.Dependencies.Insufficient,
+		},
+		Contracts: &runrecord.CoverageContracts{
+			Services: cc.Judged + cc.Unknown, Judged: cc.Judged, Unknown: cc.Unknown, FullyDescribed: cc.FullyDescribed, PercentComplete: cc.PercentComplete,
 		},
 		Links: runrecord.CoverageLinks{
 			Exact: s.ExactTargetLinks, Inferred: s.InferredTargetLinks, Ambiguous: s.AmbiguousTargetLinks, Unresolved: s.UnresolvedTargetLinks,

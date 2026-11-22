@@ -14,7 +14,7 @@
   const attention = $derived(typeof attentionTotal === 'number' && attentionTotal > 0 ? attentionTotal : 0);
 
   function describe(key) {
-    if (key === 'attention' && attention) return `${countOf(attention, 'item')} to look at`;
+    if (key === 'overview' && attention) return `${countOf(attention, 'item')} to look at`;
     // Every state the ring shows is said: a stale or partial source reports, so the
     // reporting count alone read as all healthy.
     if (key === 'sources' && health) {
@@ -40,7 +40,7 @@
                 {#if item.key === 'sources' && health}<i class="nav-dot" class:nav-part={health.partial} data-testid="nav-source-health"></i>{/if}
               </span>
               <span class="nav-label">{item.label}{#if desc}<span class="nav-tipx" aria-hidden="true">: {desc}</span>{/if}</span>
-              {#if item.key === 'attention' && attention}
+              {#if item.key === 'overview' && attention}
                 <span class="nav-cnt" aria-hidden="true" data-testid="nav-attention-count">{navCount(attention)}</span>
                 <span class="nav-bdg" aria-hidden="true">{railCount(attention)}</span>
               {/if}
