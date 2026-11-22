@@ -52,7 +52,7 @@ func TestDashboardE2EShardsEveryLegOnce(t *testing.T) {
 
 	// The legs must partition the suite: layout selects exactly what rest ignores.
 	cfg := readFile(t, root, "pkg", "dashboard", "frontend", "playwright.config.ts")
-	for _, want := range []string{"testMatch: LAYOUT", "[MOBILE, LAYOUT]"} {
+	for _, want := range []string{"testMatch: LAYOUT", "[MOBILE, LAYOUT, WEBKIT]"} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("playwright.config.ts lost %q, so the layout and rest legs may no longer partition the suite", want)
 		}
