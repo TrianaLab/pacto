@@ -363,7 +363,7 @@ select {
 .source-dot-evidence-http { background: #ec4899; }
 .source-dot-evidence-ingest { background: #ec4899; }
 .source-dot-observation { background: #22c55e; }
-.source-dot-catalog { background: #a16207; }
+.source-dot-catalog, .source-dot-backstage-catalog { background: #a16207; }
 .source-dot-detection { background: #0891b2; }
 .source-dot-index { background: #4338ca; }
 .source-dot-mira { background: #be123c; }

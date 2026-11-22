@@ -201,6 +201,9 @@ describe('sourceTooltip', () => {
   it('names the organization index', () => {
     expect(sourceTooltip('index')).toBe('Organization index — the services listed in <registry>/pacto-index');
   });
+  it('names the Backstage catalog', () => {
+    expect(sourceTooltip('backstage-catalog')).toBe('Backstage catalog — owners, systems and dependencies it holds, read as inferred values');
+  });
   it('names the linked-workload reader', () => {
     expect(sourceTooltip('kubernetes-linked')).toBe('Linked workloads — workloads the operator linked to a published contract with no Pacto');
   });

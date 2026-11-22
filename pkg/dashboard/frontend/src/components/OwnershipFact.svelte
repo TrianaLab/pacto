@@ -22,6 +22,7 @@
   // declared it.
   import EntityLink from './EntityLink.svelte';
   import ProvenanceMark from './ProvenanceMark.svelte';
+  import InferredFact from './InferredFact.svelte';
   import { ownerProvenanceText } from '../lib/entityLabels.ts';
 
   // unownedHref: where the two unowned states lead (the service page's own `unowned`
@@ -31,8 +32,9 @@
   // its tip already says where it was read.
   let { ownership, unownedHref = '', declaredIn = null } = $props();
   // Where the owner comes from, as a discreet mark: a declared owner shows none. An
-  // attested owner's tip also says where it was read, in full (the mark wraps it).
-  const provenanceText = $derived(
+  // attested owner's tip also says where it was read, in full (the mark wraps it). An
+  // owner a source reports (ownership.inferred) carries its own mark, so this one steps aside.
+  const provenanceText = $derived(ownership?.inferred ? '' :
     ownerProvenanceText(ownership?.provenance) + (ownership?.provenance === 'attested' && ownership?.source ? `. Source: ${ownership.source}.` : ''),
   );
   // A revision whose owner the owner rule refused or could not check: its pacto.yaml
@@ -55,6 +57,7 @@
   {:else}
     <span class="of-none" {title}>{label}</span>
   {/if}
+  {#if ownership?.inferred}<InferredFact fact={ownership.inferred} what="owner" />{/if}
 {:else if ownership.ref}
   <EntityLink ref={ownership.ref} showStatus={false} showKind={false} />
 {:else}

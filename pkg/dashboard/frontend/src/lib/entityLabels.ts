@@ -9,6 +9,7 @@
 
 import { formatCount } from './format.ts';
 import { formatDateTime, formatWhen } from './dateFormat.ts';
+import type { components } from './generated/schema.ts';
 
 export type Tone = 'ok' | 'warn' | 'err' | 'info' | 'neutral';
 
@@ -154,6 +155,13 @@ export function ownerProvenanceText(p: string | undefined): string {
     case 'inferred': return 'Inferred; Pacto never routes approvals or clears a gate on it';
     default: return '';
   }
+}
+
+// inferredFactText is the tooltip of a value a source outside every contract reports
+// (fleet InferredFact): the source, the record it read and when, and that it never decides.
+export function inferredFactText(f: components['schemas']['Fleet.InferredFact']): string {
+  const when = formatDateTime(f.asOf);
+  return `Inferred from ${f.source}${f.where ? ` (${f.where})` : ''}${when ? ` as of ${when}` : ''}. Pacto never routes approvals or clears a gate on it.`;
 }
 
 // ── relationship difference: see differenceLabel/differenceTone in lib/graphState.ts ──

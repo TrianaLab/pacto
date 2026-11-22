@@ -8,7 +8,7 @@ import {
   attentionCategoryLabel, GAP_WORDS,
   provenanceLabel, provenanceIsImplied,
   sourceHealthTallyParts, sourceHealthSentence, sourceMessageIsNote,
-  collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED, serviceKeyName, replacesTip, linkTip, ownerProvenanceText,
+  collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED, serviceKeyName, replacesTip, linkTip, ownerProvenanceText, inferredFactText,
   attentionCause, nextActionWords,
   completenessText,
 } from './entityLabels.ts';
@@ -373,5 +373,16 @@ describe('sourceMessageIsNote', () => {
     expect(sourceMessageIsNote('available', undefined)).toBe(true);
     expect(sourceMessageIsNote('unavailable', 'NOT_FOUND')).toBe(false);
     expect(sourceMessageIsNote('stale', undefined)).toBe(false);
+  });
+});
+
+describe('inferredFactText', () => {
+  it('names the source, the entity it read and the time, and says it never decides', () => {
+    const t = inferredFactText({ value: 'team:ledger', source: 'backstage-catalog', where: 'component:default/ledger', asOf: '2026-11-14T12:00:00Z' });
+    expect(t).toMatch(/^Inferred from backstage-catalog \(component:default\/ledger\) as of Nov 14, 2026, \d\d:\d\d\. /);
+    expect(t).toContain('Pacto never routes approvals or clears a gate on it.');
+  });
+  it('leaves out what the source did not report', () => {
+    expect(inferredFactText({ value: 'billing', source: 'idp' })).toBe('Inferred from idp. Pacto never routes approvals or clears a gate on it.');
   });
 });

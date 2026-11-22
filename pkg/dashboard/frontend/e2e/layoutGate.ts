@@ -1091,6 +1091,16 @@ export function installScaleFixture(): void {
       };
       svc.calls = { total: 1200, count: 200, truncated: true,
         items: Array.from({ length: 200 }, (_, i) => ({ kind: 'service', key: `load/call-${i}`, label: `call-${i}`, href: `/fleet/services/load%2Fcall-${i}` })) };
+      // An owner and a domain a catalog reports (516-S4), at 120 characters each, with a
+      // long entity reference: muted text that truncates and one mark each.
+      const where = `component:${'platform-engineering-'.repeat(3)}default/${'legacy-billing-reconciliation-'.repeat(3)}`;
+      const fact = (value: string) => ({ value, source: 'backstage-catalog', where, asOf: '2026-11-14T09:00:00Z' });
+      const ownership = { ...(svc.ownership as object), declared: false, provenance: 'inferred',
+        inferred: fact(`team:${'settlement-reconciliation-platform-'.repeat(4)}`.slice(0, 120)) } as Record<string, unknown>;
+      delete ownership.ref;
+      svc.ownership = ownership;
+      svc.inferredBusinessDomain = fact(`${'finance-operations-billing-and-'.repeat(4)}`.slice(0, 120));
+      (doc.entity as Record<string, unknown>).businessDomain = '';
     }
     // A replacement at its longest (509-S4): a cluster-qualified inferred key with a
     // 63-character namespace and a 253-character name, on the Replaces line and on the
@@ -3170,6 +3180,19 @@ export const ROUTES: Route[] = [
   { name: 'services list, multi-cluster', list: true, open: openMultiCluster('#/fleet/services') },
   { name: 'targets list, multi-cluster filter', list: true, open: openMultiCluster('#/fleet/targets?cluster=5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11') },
   { name: 'sources, multi-cluster scope', list: true, open: openMultiCluster('#/fleet/sources', '[data-testid="source-clusters"]') },
+  // 516-S4: the owner and domain a catalog reports for an inferred service, at 120
+  // characters each (the inferred-service fixture above).
+  {
+    name: 'service entity, inferred owner from a catalog',
+    open: async (page) => {
+      await page.goto('/#/fleet/services?declaration=inferred');
+      const a = page.locator('main a[href*="/fleet/services/"][href*="legacy-billing"]').first();
+      await expect(a).toBeVisible({ timeout: 20_000 });
+      await page.goto(`/${await a.getAttribute('href')}`);
+      await expect(page.locator('[data-testid="owner-inferred"]')).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator('[data-testid="domain-inferred"]')).toBeVisible();
+    },
+  },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

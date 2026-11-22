@@ -151,6 +151,7 @@ const KIND_NOUN: Record<string, [string, string]> = {
   mesh: ['service mesh reader', 'service mesh readers'],
   traces: ['trace backend', 'trace backends'], 'otlp-receiver': ['OTLP receiver', 'OTLP receivers'],
   'kubernetes-linked': ['linked-workload reader', 'linked-workload readers'],
+  'backstage-catalog': ['Backstage catalog', 'Backstage catalogs'],
 };
 
 /** sourceKindNoun names n sources of one kind ("Kubernetes clusters"); '' is the kinds folded together. */

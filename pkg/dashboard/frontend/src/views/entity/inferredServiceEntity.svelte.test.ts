@@ -261,3 +261,19 @@ describe('InferredServiceEntity', () => {
     });
   });
 });
+
+describe('the inferred service page: what a catalog reports', () => {
+  const fact = (value: string) => ({ value, source: 'backstage-catalog', where: 'component:default/cart', asOf: '2026-11-14T12:00:00Z' });
+
+  it('shows an inferred owner and domain as muted text, one mark each', () => {
+    const t = render(inferredDetail({ ownership: { declared: false, provenance: 'inferred', inferred: fact('team:cart') }, inferredBusinessDomain: fact('shop') }));
+    expect(t.querySelector('[data-testid="owner-inferred"]')?.textContent).toBe('inferred: cart');
+    expect(t.querySelector('[data-testid="domain-inferred"]')?.textContent).toBe('inferred: shop');
+    expect(t.querySelectorAll('[data-testid="inferred-catalog"] button[aria-label^="About the inferred"]')).toHaveLength(2);
+  });
+
+  it('adds nothing when no source reports one', () => {
+    const t = render(inferredDetail({ ownership: { declared: false } }));
+    expect(t.querySelector('[data-testid="inferred-catalog"]')).toBeNull();
+  });
+});
