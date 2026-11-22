@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -156,5 +157,38 @@ func TestAdvertisedEnvironments(t *testing.T) {
 	if err := joinSnapshot(&delivery.SnapshotJoin{Name: "eu-prod", NameSource: fleet.ClusterNameFromNodeLabel,
 		KeyID: id, PublicKey: key, Environments: got}).Check(); err != nil {
 		t.Fatalf("advertised environments fail the check: %v", err)
+	}
+}
+
+// TestJoinStatesNewestDecides: the newest counted record decides, a newer
+// removal that verified but did not count keeps the member pending, an
+// approval of another key is pending, and an approved row keeps the
+// reasons of the records that did not count (R2-1, R2-2).
+func TestJoinStatesNewestDecides(t *testing.T) {
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	pub, id := joinKey(t, key.Public())
+	_, old, _ := ed25519.GenerateKey(rand.Reader)
+	oldPub, oldID := joinKey(t, old.Public())
+	at := func(s int) time.Time { return time.Date(2026, 11, 20, 10, 0, s, 0, time.UTC) }
+	rec := func(dec delivery.JoinDecision, kid, kpub string, s int, counted bool, why string) delivery.VerifiedJoin {
+		return delivery.VerifiedJoin{Record: delivery.ClusterJoin{Cluster: "m", Hub: "h", KeyID: kid, PublicKey: kpub, Decision: dec},
+			User: "oidc:alice", SignedAt: at(s), Verified: true, Counted: counted, Why: why}
+	}
+	cand := []delivery.JoinCandidate{{UID: "m", Join: &delivery.SnapshotJoin{Name: "m", KeyID: id, PublicKey: pub}, SelfSigned: true}}
+	for name, c := range map[string]struct {
+		recs  []delivery.VerifiedJoin
+		state delivery.JoinState
+		why   string
+	}{
+		"newer unchecked removal": {[]delivery.VerifiedJoin{rec(delivery.JoinApprove, id, pub, 1, true, ""), rec(delivery.JoinRemove, id, pub, 2, false, "a removal could not be checked")},
+			delivery.JoinPending, "a newer removal by oidc:alice was not counted"},
+		"older unchecked removal": {[]delivery.VerifiedJoin{rec(delivery.JoinRemove, id, pub, 1, false, "a removal could not be checked"), rec(delivery.JoinApprove, id, pub, 2, true, "")},
+			delivery.JoinApproved, "a removal could not be checked"},
+		"another key": {[]delivery.VerifiedJoin{rec(delivery.JoinApprove, oldID, oldPub, 1, true, "")}, delivery.JoinPending, "the key changed from"},
+	} {
+		st, _ := delivery.JoinStates("h", cand, map[string]delivery.JoinRecords{"m": {Verified: c.recs}})
+		if len(st) != 1 || st[0].State != c.state || !strings.Contains(st[0].Reason, c.why) {
+			t.Errorf("%s: %+v", name, st)
+		}
 	}
 }

@@ -1041,3 +1041,9 @@ func TestResolvedJoinOptions(t *testing.T) {
 		t.Fatalf("a resolved member is not in the fleet: %v", err)
 	}
 }
+
+func TestPluralCountsClusters(t *testing.T) {
+	if plural(1, "cluster") != "1 cluster" || plural(2, "cluster") != "2 clusters" {
+		t.Fatal(plural(2, "cluster"))
+	}
+}

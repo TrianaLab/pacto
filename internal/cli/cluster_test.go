@@ -666,3 +666,12 @@ func TestApproveExampleNamesRegistry(t *testing.T) {
 		t.Fatalf("%q", cmd.Example)
 	}
 }
+
+// TestFindClusterInPartialList: a cluster missing from a partial list may
+// exist past the bounds, which its full id reads (R3-2).
+func TestFindClusterInPartialList(t *testing.T) {
+	_, err := findCluster(delivery.ClusterJoinList{Repository: "r", Completeness: fleet.CompletenessPartial}, "9f1c4e2a")
+	if err == nil || !strings.Contains(err.Error(), "the list is partial: name its full id") {
+		t.Fatal(err)
+	}
+}
