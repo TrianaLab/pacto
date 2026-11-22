@@ -160,8 +160,7 @@ func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 	if a.AllowAnonymous && a.IssuerURL == "" && !a.TokenLogin {
 		add("PACTO_DASHBOARD_ALLOW_ANONYMOUS", "true")
 	}
-	// The chart's usable-sign-in rule: the dashboard refuses --mcp without one.
-	if a.MCP && (a.TokenLogin || (a.IssuerURL != "" && a.MCPExchangeAudience != "" && a.MCPURL != "")) {
+	if a.mcpServed() {
 		add("PACTO_DASHBOARD_MCP", "true")
 		add("PACTO_DASHBOARD_MCP_URL", a.MCPURL)
 		add("PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE", a.MCPExchangeAudience)
@@ -172,6 +171,12 @@ func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 				WithKey(keyOr(a.ClientSecretKey, "client-secret")))))
 	}
 	return env
+}
+
+// mcpServed is the chart's usable-sign-in rule: the dashboard refuses --mcp
+// without one.
+func (a AuthConfig) mcpServed() bool {
+	return a.MCP && (a.TokenLogin || (a.IssuerURL != "" && a.MCPExchangeAudience != "" && a.MCPURL != ""))
 }
 
 // deliveryEnv passes what the delivery and Metrics views read: the namespace
