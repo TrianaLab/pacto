@@ -9,6 +9,7 @@ package dashboard
 
 import (
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
@@ -225,7 +226,30 @@ func (c Config) Validate() error {
 	if a := c.Auth; a.CAConfigMap != "" && a.CASecret != "" {
 		return fmt.Errorf("the dashboard's issuer CA bundle comes from a ConfigMap or a Secret, not both")
 	}
+	if err := c.Auth.validateMCP(); err != nil {
+		return err
+	}
 	return c.validateObservation()
+}
+
+// validateMCP refuses, at operator startup, the MCP flags the dashboard would
+// refuse at its own startup (internal/cli checkDashboardMCP), so the operator
+// never renders a dashboard that crashloops on --mcp.
+func (a AuthConfig) validateMCP() error {
+	switch {
+	case !a.MCP:
+		return nil
+	case a.MCPURL != "" && !mcpURLOK(a.MCPURL):
+		return fmt.Errorf("--dashboard-mcp-url must be an absolute http(s) URL whose path is /mcp: %s", a.MCPURL)
+	case a.MCPExchangeAudience != "" && (a.IssuerURL == "" || a.MCPURL == ""):
+		return fmt.Errorf("--dashboard-mcp-exchange-audience needs --dashboard-oidc-issuer-url and --dashboard-mcp-url")
+	}
+	return nil
+}
+
+func mcpURLOK(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Host != "" && (u.Scheme == "https" || u.Scheme == "http") && u.Path == "/mcp"
 }
 
 // needsClusterRole reports whether the dashboard needs a ClusterRole: it watches the whole cluster,

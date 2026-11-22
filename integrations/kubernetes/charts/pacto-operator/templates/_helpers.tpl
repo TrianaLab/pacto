@@ -357,7 +357,8 @@ Controller arguments derived from values
 {{- if include "pacto-operator.dashboardAnonymous" . }}
 - --dashboard-allow-anonymous
 {{- end }}
-{{- with (.Values.dashboard.mcp | default dict).exchangeAudience }}
+{{- $mcpValues := .Values.dashboard.mcp | default dict }}
+{{- if and $mcpValues.exchangeAudience (ne (toString $mcpValues.enabled) "false") }}
 {{- if not (and ((($.Values.dashboard.auth | default dict).oidc | default dict).issuerURL) (include "pacto-operator.dashboardMCPURL" $)) }}
 {{- fail "dashboard.mcp.exchangeAudience needs dashboard.auth.oidc.issuerURL and a URL (dashboard.mcp.url, an Ingress host or an HTTPRoute hostname)" }}
 {{- end }}

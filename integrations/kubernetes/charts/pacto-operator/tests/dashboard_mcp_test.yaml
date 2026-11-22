@@ -136,6 +136,18 @@ tests:
       - failedTemplate:
           errorMessage: dashboard.mcp.exchangeAudience needs dashboard.auth.oidc.issuerURL and a URL (dashboard.mcp.url, an Ingress host or an HTTPRoute hostname)
 
+  - it: ignores a leftover exchange audience with dashboard.mcp.enabled false
+    set:
+      dashboard.mcp.enabled: false
+      dashboard.mcp.exchangeAudience: kubernetes
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mcp
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mcp-exchange-audience=kubernetes
+
   - it: renders no MCP flag under profile hardened
     set:
       profile: hardened
