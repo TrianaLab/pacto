@@ -19,7 +19,7 @@ ci-test: envtest setup-envtest
 	fi
 	@echo "    total coverage: 100.0%"
 
-ci-chart: crd-sync-check helm-deps-check helm-lint helm-template helm-golden helm-unittest helm-schema helm-docs-check docs-generate-check chart-flags-check
+ci-chart: crd-sync-check flux-vendor-check helm-deps-check helm-lint helm-template helm-golden helm-unittest helm-schema helm-docs-check docs-generate-check chart-flags-check
 
 .PHONY: chart-flags-check
 chart-flags-check: ## Every operator flag has a chart value or a written reason, every registry flag is classified, and the loader tests run.
@@ -54,6 +54,60 @@ ci-vet:
 ci-lint: golangci-lint
 	@echo "==> Running linter..."
 	GOLANGCI_LINT_CACHE="$(LOCALBIN)/.golangci-lint-cache" "$(GOLANGCI_LINT)" run
+
+# Upstream Flux, vendored under files/flux/ by hack/vendor-flux.sh at the
+# version files/flux/VERSION names (idp.flux.install). flux-vendor-check is
+# offline: every vendored file matches its sha256 line in VERSION (no hand
+# edit survives) and VERSION lists nothing missing, every image is a
+# ghcr.io/fluxcd release tag, each controller Deployment keeps one container
+# (templates/idp/flux.yaml edits the first), upgradeFrom is an earlier release
+# of the same major, the docs name the version, and the packaged chart plus the
+# idp render fit the release Secret. flux-vendor-verify (network) reruns the
+# script and diffs. Bump: hack/vendor-flux.sh <version> <upgrade from>, then
+# make helm-golden-update.
+FLUX_DIR ?= charts/pacto-operator/files/flux
+FLUX_VERSION_DOCS := charts/pacto-operator/README.md
+.PHONY: flux-vendor-check
+flux-vendor-check: ## Check the vendored upstream Flux against its VERSION pin.
+	@echo "==> Checking the vendored upstream Flux..."
+	@set -euo pipefail; dir="$(FLUX_DIR)"; v="$$dir/VERSION"; scratch="$(LOCALBIN)/flux-vendor-check"; \
+	fail() { echo "Error: $$*" >&2; exit 1; }; \
+	field() { awk -v k="$$1:" '$$1 == k {print $$2}' "$$v"; }; \
+	version=$$(field version); from=$$(field upgradeFrom); \
+	[ -n "$$version" ] && [ -n "$$from" ] || fail "$$v names no version or upgradeFrom"; \
+	sums=$$(grep -E '^[0-9a-f]{64}  ' "$$v" || true); \
+	listed=$$(printf '%s\n' "$$sums" | awk 'NF {print $$2}' | sort); \
+	present=$$(cd "$$dir" && ls -- *.yaml | sort); \
+	[ "$$listed" = "$$present" ] || fail "$$dir and the files VERSION lists differ: rerun hack/vendor-flux.sh"; \
+	if command -v sha256sum >/dev/null 2>&1; then sha="sha256sum"; else sha="shasum -a 256"; fi; \
+	bad=$$(cd "$$dir" && printf '%s\n' "$$sums" | $$sha -c - 2>/dev/null | grep -v ': OK$$' || true); \
+	[ -z "$$bad" ] || fail "a vendored Flux file differs from its sha256 in VERSION (never edit files/flux/, rerun hack/vendor-flux.sh): $$bad"; \
+	images=$$(grep -h '^ *image: ' "$$dir"/*.yaml | awk '{print $$2}'); \
+	[ -n "$$images" ] || fail "no image in $$dir"; \
+	for i in $$images; do printf '%s\n' "$$i" | grep -Eq '^ghcr\.io/fluxcd/[a-z-]+:v[0-9]+\.[0-9]+\.[0-9]+$$' || fail "image $$i is not a ghcr.io/fluxcd release tag"; done; \
+	for f in "$$dir"/deployment-*.yaml; do \
+		[ "$$(grep -c '^        image: ' "$$f")" = 1 ] || fail "$$f has more than one container: templates/idp/flux.yaml edits only the first"; \
+	done; \
+	[ "$${version%%.*}" = "$${from%%.*}" ] || fail "upgradeFrom $$from is another major than $$version"; \
+	[ "$$from" != "$$version" ] && [ "$$(printf '%s\n%s\n' "$$from" "$$version" | sort -V | head -1)" = "$$from" ] || \
+		fail "upgradeFrom $$from is not earlier than $$version"; \
+	for d in $(FLUX_VERSION_DOCS); do grep -q "Flux $$version" "$$d" || fail "$$d does not name Flux $$version"; done; \
+	mkdir -p "$$scratch"; find "$$scratch" -name '*.tgz' -delete; \
+	helm package charts/pacto-operator -d "$$scratch" >/dev/null; \
+	helm template pacto charts/pacto-operator -n pacto --set profile=idp --set idp.flux.install=true \
+		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy | gzip -9c >"$$scratch/render.gz"; \
+	size=$$(cat "$$scratch"/*.tgz "$$scratch/render.gz" | wc -c | tr -d ' '); \
+	echo "    Flux $$version (upgradeFrom $$from); packaged chart plus idp render: $$size bytes"; \
+	[ "$$size" -lt 921600 ] || fail "the packaged chart plus the idp render is $$size bytes, over the 900 KiB release Secret budget"
+	@# ponytail: the size is an approximation of the release Secret (chart files
+	@# and render, 1 MiB cap); read the real Secret in the kind leg if it nears 900 KiB.
+
+.PHONY: flux-vendor-verify
+flux-vendor-verify: ## Rerun hack/vendor-flux.sh at the pinned version and diff it against files/flux/ (network).
+	@echo "==> Checking files/flux/ is the pinned upstream release..."
+	@set -euo pipefail; v="$(FLUX_DIR)/VERSION"; out="$(LOCALBIN)/flux-vendor-verify"; \
+	hack/vendor-flux.sh "$$(awk '$$1 == "version:" {print $$2}' "$$v")" "$$(awk '$$1 == "upgradeFrom:" {print $$2}' "$$v")" "$$out" >/dev/null; \
+	diff -r "$$out" "$(FLUX_DIR)"
 
 # zot and Dex are optional dependencies, vendored in charts/ and pinned by
 # Chart.lock so the chart lints, tests and packages offline. Refresh them with
@@ -112,6 +166,12 @@ helm-template: ## Render chart templates and validate output.
 GOLDEN := charts/pacto-operator/tests/golden/default.yaml
 GOLDEN_RENDER = v=$$(awk '/^version:/{print $$2}' charts/pacto-operator/Chart.yaml); \
 	helm template pacto-operator charts/pacto-operator | sed "s/$$v/VERSION/g"
+# The Flux-only golden: the vendored upstream Flux as templates/idp/flux.yaml
+# renders it. It changes only with a Flux bump or a change to that template.
+FLUX_GOLDEN := charts/pacto-operator/tests/golden/idp-flux.yaml
+FLUX_GOLDEN_RENDER = v=$$(awk '/^version:/{print $$2}' charts/pacto-operator/Chart.yaml); \
+	helm template pacto-operator charts/pacto-operator --set profile=idp --set idp.flux.install=true \
+		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy --show-only templates/idp/flux.yaml | sed "s/$$v/VERSION/g"
 OPERATOR_IDENTITY := -s templates/serviceaccount.yaml -s templates/clusterrole.yaml -s templates/clusterrolebinding.yaml \
 	-s templates/role.yaml -s templates/leader-election-role.yaml
 
@@ -122,14 +182,18 @@ helm-golden: ## Prove the default render is unchanged and delivery leaves the op
 	@# a blank line means nothing in YAML, and every other change still fails.
 	@$(GOLDEN_RENDER) | diff -u -B $(GOLDEN) - || \
 		{ echo "Error: the default render changed. If intended, run 'make helm-golden-update' and commit." >&2; exit 1; }
+	@echo "==> Checking the Flux-only render against its golden..."
+	@$(FLUX_GOLDEN_RENDER) | diff -u -B $(FLUX_GOLDEN) - || \
+		{ echo "Error: the idp.flux.install render changed. If intended (a Flux bump), run 'make helm-golden-update' and commit." >&2; exit 1; }
 	@echo "==> Checking delivery.enabled leaves the operator's ServiceAccount and RBAC unchanged..."
 	@diff -u <(helm template pacto-operator charts/pacto-operator $(OPERATOR_IDENTITY)) \
 		<(helm template pacto-operator charts/pacto-operator $(OPERATOR_IDENTITY) --set delivery.enabled=true \
 			--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy)
 
 .PHONY: helm-golden-update
-helm-golden-update: ## Rewrite the default-render golden.
+helm-golden-update: ## Rewrite the default-render and Flux-only goldens.
 	@$(GOLDEN_RENDER) > $(GOLDEN)
+	@$(FLUX_GOLDEN_RENDER) > $(FLUX_GOLDEN)
 
 .PHONY: helm-unittest
 helm-unittest: $(HELM_UNITTEST) ## Run Helm unit tests.

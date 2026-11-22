@@ -203,6 +203,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `global.securityContext.readOnlyRootFilesystem` | `true` | Read-only root filesystem |
 | `global.securityContext.runAsNonRoot` | `true` | Run as non-root |
 | `global.securityContext.runAsUser` | `65532` | Run as UID 65532 (nonroot in distroless) |
+| `idp.flux.install` | `false` | Install upstream Flux (source, kustomize and helm controllers) with this release, at the version in files/flux/VERSION, so profile idp can deliver workloads that no GitOps engine manages. Needs profile idp; refused when another Flux runs. Uninstalling Pacto or turning this off leaves Flux, its CRDs and every workload it applied in place. See https://pacto.run/latest/integrations/kubernetes/delivery-setup/#idp-mode |
 | `image.digest` | `""` | Pins the image by digest (sha256:...), appended to the tag as tag@digest so the runtime pulls exactly that image whatever the tag resolves to later |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `image.registry` | `""` | Controller image registry (defaults to `global.imageRegistry`) |

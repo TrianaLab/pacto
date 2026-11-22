@@ -125,6 +125,17 @@ delivery's cluster roles.
 No GitOps engine found. To deliver through upstream Flux packaged with Pacto:
 Set idp.flux.install=true on this Pacto release: helm upgrade <release> oci://ghcr.io/trianalab/charts/pacto-operator -n <namespace> --reuse-values --set idp.flux.install=true
 {{- end }}
+{{- /* lookup is empty under helm template and a dry-run, so the refusal of a
+foreign Flux was skipped: say so. */}}
+{{- if include "pacto-operator.idpFlux" . }}
+{{- if include "pacto-operator.liveRender" . }}
+
+Upstream Flux {{ include "pacto-operator.fluxVersion" . }} (source, kustomize and helm controllers) runs in flux-system with this release.
+{{- else }}
+
+Check that no other Flux runs before you set idp.flux.install.
+{{- end }}
+{{- end }}
 {{- end }}
 {{- /* What the operator detected, read back on upgrade only. NOTES is the one
 template that looks the ConfigMap up, so detection changes no manifest. The

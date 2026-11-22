@@ -351,6 +351,20 @@
         }
       ]
     },
+    "idp": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Opt-in upstream installs of profile idp, upgraded with this release.",
+      "properties": {
+        "flux": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "install": { "type": "boolean", "description": "Install upstream Flux with this release (profile idp only)." }
+          }
+        }
+      }
+    },
     "registryPullSecret": {
       "type": "string",
       "description": "namespace/name of an existing Secret that authenticates to registry; the chart grants get on that Secret only.",

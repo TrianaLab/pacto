@@ -247,6 +247,8 @@ type inventory struct {
 // TestRBACInventoryListsEveryRBACTemplate keeps tests/rbac_inventory_test.yaml complete: every template
 // that renders a Role, a ClusterRole or a binding is in its templates, and in each render every binding's
 // roleRef names a role the chart renders in that render (never a built-in role such as edit or admin).
+// The one exception is upstream Flux's own cluster-admin binding, vendored under idp.flux.install
+// (upstreamFluxAdmin): it is upstream's, and the inventory pins its two subjects.
 func TestRBACInventoryListsEveryRBACTemplate(t *testing.T) {
 	data, err := os.ReadFile("../../charts/pacto-operator/tests/rbac_inventory_test.yaml")
 	if err != nil {
@@ -277,11 +279,23 @@ func TestRBACInventoryListsEveryRBACTemplate(t *testing.T) {
 			if !ok {
 				continue
 			}
-			if !roles[fmt.Sprint(ref["kind"], "/", ref["name"])] {
+			if !roles[fmt.Sprint(ref["kind"], "/", ref["name"])] && !upstreamFluxAdmin(render, d) {
 				t.Errorf("%s: %s %v binds %s %v, which the chart does not render", render, d["kind"], d["metadata.name"], ref["kind"], ref["name"])
 			}
 		}
 	}
+}
+
+// upstreamFluxAdmin is upstream Flux's cluster-reconciler binding in the idp flux install render: cluster-admin
+// for the kustomize-controller and helm-controller ServiceAccounts in flux-system, and nobody else.
+func upstreamFluxAdmin(render string, d map[string]any) bool {
+	want := []any{
+		map[string]any{"kind": "ServiceAccount", "name": "kustomize-controller", "namespace": "flux-system"},
+		map[string]any{"kind": "ServiceAccount", "name": "helm-controller", "namespace": "flux-system"},
+	}
+	return render == "idp flux install" && d["kind"] == "ClusterRoleBinding" && d["metadata.name"] == "cluster-reconciler" &&
+		fmt.Sprint(d["roleRef"]) == fmt.Sprint(map[string]any{"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "cluster-admin"}) &&
+		fmt.Sprint(d["subjects"]) == fmt.Sprint(want)
 }
 
 // inventoryDocs groups the pinned documents of the per-render inventory cases ("<render>: every rule ...")

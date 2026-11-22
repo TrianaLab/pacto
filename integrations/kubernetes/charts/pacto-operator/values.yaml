@@ -47,6 +47,15 @@ registry: ""
 # https://pacto.run/latest/integrations/kubernetes/profiles/
 profile: default
 
+# Opt-in upstream installs of profile idp, each upgraded with this release.
+idp:
+  flux:
+    # -- Install upstream Flux (source, kustomize and helm controllers) with this release, at the version in
+    # files/flux/VERSION, so profile idp can deliver workloads that no GitOps engine manages. Needs profile idp;
+    # refused when another Flux runs. Uninstalling Pacto or turning this off leaves Flux, its CRDs and every
+    # workload it applied in place. See https://pacto.run/latest/integrations/kubernetes/delivery-setup/#idp-mode
+    install: false
+
 # -- namespace/name of an existing Secret that authenticates to `registry`, for
 # a registry without workload identity. Pacto proposes one it saw running pods
 # use (helm upgrade notes and Data sources) and never uses it until you name it
