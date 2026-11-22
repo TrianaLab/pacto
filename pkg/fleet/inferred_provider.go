@@ -122,13 +122,11 @@ func externalProvider(revs []*ContractRevision) *ExternalProvider {
 		}
 		return -1 // keys are unique, so never equal
 	})
+	change := newestChange(revs)
 	unsigned := slices.DeleteFunc(slices.Clone(revs), operatorSigned)
 	revs = append(slices.DeleteFunc(revs, func(r *ContractRevision) bool { return !operatorSigned(r) }), unsigned...)
 	repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(revs[0].ResolvedRef))
-	p := &ExternalProvider{Repository: repo, RevisionsTotal: len(revs), RangeStatus: RangeUnknown, RangeReason: RangeReasonInferredProvider}
-	if len(revs) > 1 {
-		p.Change = providerChange(revs[0], revs[1])
-	}
+	p := &ExternalProvider{Repository: repo, RevisionsTotal: len(revs), RangeStatus: RangeUnknown, RangeReason: RangeReasonInferredProvider, Change: change}
 	kept, _, _ := boundSlice(revs, MaxExternalSources)
 	for i, r := range kept {
 		pr := ExternalProviderRevision{Version: r.Version, Digest: r.Digest, Ref: r.ResolvedRef}
@@ -146,6 +144,20 @@ func externalProvider(revs []*ContractRevision) *ExternalProvider {
 
 // operatorSigned reports whether only this installation's operator signed
 // rev (see [SignatureSourceOperator]): a range is never checked against it.
+// newestChange is the change of chrono, newest first: between the two
+// newest operator-signed revisions when there are two, so an unsigned tag
+// never displaces a signed pair, else between the two newest revisions
+// (unchecked). Always older to newer, never in trust order.
+func newestChange(chrono []*ContractRevision) *ExternalProviderChange {
+	if signed := slices.DeleteFunc(slices.Clone(chrono), func(r *ContractRevision) bool { return !operatorSigned(r) }); len(signed) > 1 {
+		return providerChange(signed[0], signed[1])
+	}
+	if len(chrono) > 1 {
+		return providerChange(chrono[0], chrono[1])
+	}
+	return nil
+}
+
 func operatorSigned(rev *ContractRevision) bool {
 	return rev.Provenance != nil && rev.Provenance.Signature.Source == SignatureSourceOperator
 }

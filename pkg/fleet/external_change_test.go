@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -97,6 +98,26 @@ func TestProviderChangeUncheckedWhenOlderUnsigned(t *testing.T) {
 	c := providerChange(changeRev("0.0.2", link("b"), true, fixedNow(), nil, nil), changeRev("0.0.1", link("a"), false, fixedNow(), nil, nil))
 	if c == nil || c.Checked {
 		t.Errorf("change = %+v, want unchecked", c)
+	}
+}
+
+// A newer unsigned revision beside an older signed one changes from the
+// older to the newer, never in trust order.
+func TestNewestChangeChronologicalWhenMixed(t *testing.T) {
+	older := changeRev("0.0.4", "", true, fixedNow(), []string{"stripe-go/76"}, nil)
+	newer := changeRev("0.0.5", "", false, fixedNow(), []string{"stripe-go/77"}, nil)
+	c := newestChange([]*ContractRevision{newer, older})
+	if c == nil || c.From != "0.0.4" || c.To != "0.0.5" || c.Checked ||
+		!slices.Equal(c.Added, []string{"clients stripe-go/77"}) || !slices.Equal(c.Removed, []string{"clients stripe-go/76"}) {
+		t.Errorf("change = %+v, want unchecked 0.0.4 -> 0.0.5 adding stripe-go/77", c)
+	}
+	// Two signed revisions win over a newer unsigned one.
+	oldest := changeRev("0.0.3", "", true, fixedNow(), []string{"stripe-go/75"}, nil)
+	if c := newestChange([]*ContractRevision{newer, older, oldest}); c == nil || c.From != "0.0.3" || c.To != "0.0.4" || !c.Checked {
+		t.Errorf("signed pair change = %+v, want checked 0.0.3 -> 0.0.4", c)
+	}
+	if newestChange([]*ContractRevision{newer}) != nil {
+		t.Error("one revision has no change")
 	}
 }
 
