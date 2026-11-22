@@ -137,7 +137,7 @@ type PublishRefusal struct {
 	Digest    string `json:"digest,omitempty" doc:"The deploy artifact digest a refused promote asked for"`
 	Code      string `json:"code,omitempty" doc:"The stable code of a refused promote, such as RawInfraInArtifact, when it has one"`
 	Record    string `json:"record,omitempty" doc:"The id of the operation record of a refused promote: read it with the namespace, Stage and id"`
-	Reason string `json:"reason" doc:"Why, in one sentence"`
+	Reason    string `json:"reason" doc:"Why, in one sentence"`
 	// Baseline and RequiredBump are set when the version rule refused it.
 	Baseline     string `json:"baseline,omitempty" doc:"The highest published version below it, the one the change was compared with"`
 	RequiredBump string `json:"requiredBump,omitempty" enum:"major,minor,patch" doc:"The smallest bump the change needs"`
