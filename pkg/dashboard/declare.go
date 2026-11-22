@@ -199,6 +199,7 @@ type DeclareAnswer struct {
 	Signing     DeclareSigning  `json:"signing"`
 	Write       DeclareWrite    `json:"write"`
 	Command     string          `json:"command,omitempty" doc:"The exact pacto declare command a person runs in a terminal"`
+	PRCLI       string          `json:"prCli,omitempty" doc:"The pacto declare command that opens the repository pull request with the person's own Git token; the dashboard never opens it"`
 	SignTicket  string          `json:"signTicket,omitempty" doc:"Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page>; present only with signing mode fresh-login"`
 	SignedIn    bool            `json:"signedIn,omitempty" doc:"Back from a signing login: the login for the intentDigest asked about is still live, unused and unexpired"`
 	Refusal     *DeclareRefusal `json:"refusal,omitempty"`

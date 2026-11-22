@@ -38,7 +38,19 @@ function signedBy(d: S['Fleet.DeclarationView']): string {
   return d.claimedSubject ? `Claims ${d.claimedSubject}; signature not checked or not by that signer.` : 'Signature not checked.';
 }
 
-/** The mark's note: signer and issuer, baseline, accepted ranges and hidden counts. */
+/** A repository rung or folder rung in words, as pacto declare prints it. */
+const RUNG: Record<string, string> = {
+  given: 'given', 'signed-provenance': 'signed provenance', gitops: 'GitOps source',
+  'image-label': 'image label', 'repository-map': 'repository map', default: 'no source names it',
+};
+
+/** Where the declared service's source lives and how Pacto found it. */
+function repositoryOf(d: S['Fleet.DeclarationView']): string {
+  const r = d.repository;
+  return r ? `Repository ${r.url} (${RUNG[r.rung] ?? r.rung}), folder ${r.folder} (${RUNG[r.folderRung] ?? r.folderRung}).` : '';
+}
+
+/** The mark's note: signer and issuer, baseline, accepted ranges, repository and hidden counts. */
 export function declarationNote(r: DeclaredRevision): string {
   const d = r.declaration;
   if (!d) return '';
@@ -55,6 +67,7 @@ export function declarationNote(r: DeclaredRevision): string {
     signedBy(d),
     d.inferredFromHidden ? `From ${HIDDEN}${left ? `; ${left}` : ''}.` : left ? `${left}: they name a service you may not read.` : '',
     claims && !d.signer ? `The record claims: ${claims}` : claims,
+    repositoryOf(d),
     seen.length ? `The cluster read could not see ${joinAnd(seen)}.` : '',
     'Cluster facts are inferred and never clear a gate.',
   ];

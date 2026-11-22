@@ -1515,7 +1515,7 @@ export function installScaleFixture(): void {
         requested: deps.slice(0, 3).map((d, j) => `${d} ^${j + 1}.0.0`) });
     const signed = mode === 'signed' || mode === 'expired';
     const write = mode === 'nowrite' ? { available: false, reason: longName('the installation gave the dashboard no push credential: run the command') } : { available: true };
-    return { plan, drafts, draftsTotal: drafts ? 27 : undefined, command: `${command} --intent ${DECLARE_INTENT}`,
+    return { plan, drafts, draftsTotal: drafts ? 27 : undefined, command: `${command} --intent ${DECLARE_INTENT}`, prCli: `${command} --pr`,
       signing: signed ? { mode: 'fresh-login', identity: who } : { mode: 'none', reason: longName('a token sign-in signs nothing') },
       write, signTicket: signed ? 't'.repeat(43) : undefined, signedIn: mode === 'signed' };
   };

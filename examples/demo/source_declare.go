@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -82,11 +83,13 @@ func (d *demoDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, in das
 	ans.Plan = demoPlan(w, accept, d.who(r), from)
 	ans.Drafts, ans.DraftsTotal = d.views(w), len(d.drafts[w.Key])
 	ans.Command = demoCommand(w, accept, ans.Plan.IntentDigest)
+	ans.PRCLI = demoCommand(w, accept, "") + " --pr"
 	if from != nil {
 		ans.Command = "pacto declare " + w.Name + " --namespace " + w.Namespace + " --registry " + demoDeclareRegistry + " --from-draft " + from.tag
 		for _, a := range accept {
 			ans.Command += " --accept " + a
 		}
+		ans.PRCLI = ans.Command + " --pr"
 	}
 	return ans, nil
 }
@@ -215,8 +218,13 @@ func demoPlan(w dashboard.DeclareWorkload, accept []string, who string, from *de
 		Declaration: &contract.InferredDeclaration{State: contract.DeclarationDraft, Asker: unsignedAsker, OnBehalfOf: who,
 			InferredFrom: fleet.K8sCaller("", w.Namespace, w.Kind, w.Name), Cluster: w.Cluster},
 	}
+	// ponytail: the demo's one GitOps repository answers; the real ladder is app.PlanDeclare's.
+	if len(w.Repositories) == 1 {
+		rec.Declaration.Repository = &contract.InferredSourceRepository{URL: w.Repositories[0].URL, Rung: contract.RepositoryRungGitOps,
+			Folder: path.Clean(w.Repositories[0].Path), FolderRung: contract.RepositoryRungGitOps}
+	}
 	plan := &dashboard.DeclarePlan{Service: w.Name, Version: "0.1.0", BundleRepo: demoDeclareRegistry + "/" + w.Name, State: contract.DeclarationDraft,
-		InferredFrom: rec.Declaration.InferredFrom, Cluster: w.Cluster, Deploy: "none",
+		InferredFrom: rec.Declaration.InferredFrom, Cluster: w.Cluster, Deploy: "none", Repository: rec.Declaration.Repository,
 		Signer: dashboard.DeclareSigner{Class: contract.SignerClassAgent, Source: "none", Why: demoNoSignIn}}
 	if len(props) > 0 {
 		b.WriteString("dependencies:\n")

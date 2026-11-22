@@ -101,6 +101,12 @@ describe('declarationNote', () => {
     expect(declarationNote({ declaration: { ...unverified.declaration, accepted: ['dependencies[ledger] ^2.3.0'], draft: 'draft-3' } }))
       .toContain('The record claims: Accepted dependencies[ledger] ^2.3.0. Accepted draft draft-3.');
   });
+  it('names the repository and the folder with where Pacto found each', () => {
+    const repository = { url: 'https://github.com/acme/invoices', rung: 'signed-provenance', signer: 'https://github.com/acme/invoices/.github/workflows/ci.yml@refs/heads/main', folder: '.', folderRung: 'default' };
+    const note = declarationNote({ declaration: { ...checked.declaration, repository } });
+    expect(note).toContain('Repository https://github.com/acme/invoices (signed provenance), folder . (no source names it).');
+    expect(declarationNote(checked)).not.toContain('Repository');
+  });
   it('names a draft the declaration accepted', () => {
     expect(declarationNote({ declaration: { ...checked.declaration, draft: 'draft-3' } })).toContain('Accepted draft draft-3.');
   });

@@ -136,6 +136,20 @@ describe('DeclarePanel', () => {
     expect(text(q('[data-testid="declare-accept-command"]'))).toContain('pacto declare cart --registry ghcr.io/acme --from-draft draft-3');
   });
 
+  it('shows the pull request command from your machine only when the answer carries one', async () => {
+    const PR = 'pacto declare cart --namespace shop --registry ghcr.io/acme --pr';
+    planFn.mockResolvedValue(answer({ prCli: PR }));
+    await render();
+    const line = q('[data-testid="declare-pr-cli"]');
+    expect(text(line)).toContain('Open a pull request with your own Git token from your machine:');
+    expect(text(line)).toContain(PR);
+    expect(line?.querySelector('button[aria-label="Copy pull request command"]')).toBeTruthy();
+    unmount(comp!); comp = null;
+    planFn.mockResolvedValue(answer());
+    await render();
+    expect(q('[data-testid="declare-pr-cli"]')).toBeNull();
+  });
+
   it('with no write shows the reason and no Save draft', async () => {
     planFn.mockResolvedValue(answer({ ...FRESH, write: { available: false, reason: 'the installation gave the dashboard no push credential: run the command' } }));
     await render();

@@ -144,6 +144,31 @@ test.describe('declare an inferred service', () => {
   });
 });
 
+test.describe('declare: the pull request', () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  // 513-S8: the dashboard never opens the pull request; it hands the person the command
+  // that does, with their own Git token, from their machine.
+  test('the declare panel shows the pull request command from your machine (desktop and 390px)', async ({ page }) => {
+    const errors = watchConsole(page);
+    await appReady(page);
+    await declareRoute('')(page);
+    const line = page.getByTestId('declare').getByTestId('declare-pr-cli');
+    await expect(line).toContainText('Open a pull request with your own Git token from your machine:', { timeout: T });
+    await expect(line).toContainText('pacto declare legacy-billing --namespace shop --registry demo.pacto.local --pr');
+    await expect(line).not.toContainText('--intent');
+    await expect(line.getByRole('button', { name: 'Copy pull request command' })).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(line).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+    const box = await line.boundingBox();
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(390);
+    await expect(line.getByRole('button', { name: 'Copy pull request command' })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+});
+
 test.describe('declare on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 

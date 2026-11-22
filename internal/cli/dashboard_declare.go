@@ -201,6 +201,9 @@ func (d *dashboardDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, i
 	ans.Plan, ans.Drafts = planView(p, decl), draftViews(p.Drafts)
 	ans.DraftsTotal = p.DraftsTotal - (listed - len(p.Drafts))
 	ans.Command = declareCommand(req, p.IntentDigest)
+	// The pull request runs only where the person's Git token is (513 D7);
+	// a --pr plan binds its target into a new intent, so none is replayed.
+	ans.PRCLI = declareCommand(req, "") + " --pr"
 	if fresh && p.Unchanged == "" {
 		ans.SignTicket = d.ticket(r, p.IntentDigest, in.Accept)
 	}

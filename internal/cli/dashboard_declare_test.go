@@ -166,6 +166,16 @@ func TestDashboardDeclarePlanShowsFilesAndDrafts(t *testing.T) {
 	expect(t, slices.ContainsFunc(p.Ranges, func(r dashboard.DeclareRange) bool { return r.Dependency == "ledger" && r.Accepted }), "ranges %+v", p.Ranges)
 }
 
+// The dashboard never opens the pull request: it hands the person the
+// command that does, keeping the namespace and registry and replaying no
+// intent (a --pr plan binds its target into a new one).
+func TestDashboardPlanPRCLI(t *testing.T) {
+	h := newDeclareHost(t, true, true)
+	ans := h.plan(t, dashboard.DeclareInput{Accept: []string{"ledger"}})
+	expect(t, ans.PRCLI == "pacto declare invoices --namespace billing --registry "+h.w.host+"/acme --accept ledger --pr", "prCli %q", ans.PRCLI)
+	expect(t, !strings.Contains(ans.PRCLI, "--intent") && !strings.Contains(ans.PRCLI, "--yes"), "prCli %q", ans.PRCLI)
+}
+
 func TestDashboardDeclarePlanRefusal(t *testing.T) {
 	h := newDeclareHost(t, true, true)
 	ans, err := h.d.Plan(h.req(), wl, dashboard.DeclareInput{Accept: []string{"nope"}})

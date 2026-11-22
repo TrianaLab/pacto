@@ -158,6 +158,21 @@ func TestPrintExplainDeclarationLines(t *testing.T) {
 	}
 }
 
+// Explain names where the declared service's source lives and how Pacto
+// found it, for a declaration and a draft alike.
+func TestExplainPrintsRepository(t *testing.T) {
+	repo := &contract.InferredSourceRepository{URL: "https://github.com/acme/invoices", Rung: contract.RepositoryRungGitOps, Folder: "deploy", FolderRung: contract.RepositoryRungGitOps}
+	for _, state := range []string{contract.DeclarationDeclared, contract.DeclarationDraft} {
+		cmd, buf := testCmd()
+		result := &app.ExplainResult{Name: "invoices", Declaration: &contract.InferredDeclaration{State: state, Repository: repo,
+			Asker: contract.InferredSigner{Subject: "ana@acme.com", Issuer: "https://accounts.google.com"}}}
+		if err := printExplainResult(cmd, result, "text"); err != nil ||
+			!strings.Contains(buf.String(), "\nRepository: github.com/acme/invoices (GitOps source), folder: deploy/ (GitOps source)\n") {
+			t.Fatalf("%s: %v\n%s", state, err, buf.String())
+		}
+	}
+}
+
 // A draft reads as a proposal awaiting a person, never as declared, and a
 // declaration with no field still says who declared it.
 func TestPrintExplainDraftAndFieldlessDeclaration(t *testing.T) {

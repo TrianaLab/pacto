@@ -1722,6 +1722,8 @@ export interface components {
             draftsTotal?: number;
             /** @description Absent when the plan was refused before it was built */
             plan?: components["schemas"]["DeclarePlan"];
+            /** @description The pacto declare command that opens the repository pull request with the person's own Git token; the dashboard never opens it */
+            prCli?: string;
             refusal?: components["schemas"]["DeclareRefusal"];
             /** @description Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page>; present only with signing mode fresh-login */
             signTicket?: string;
