@@ -431,6 +431,7 @@ var coverageReasons = map[string]string{
 	"cilium-selector-unevaluated": "a Cilium policy selects pods by a label the operator does not model, such as a namespace label",
 	"services-unreadable":         "the operator could not read the cluster's Services, so it cannot tell a call inside the cluster from one leaving it",
 	"no-running-pods":             "the workload runs no pod the node agent can watch",
+	"pod-unobserved":              "a pod of the workload started after its node agent last scanned, so its calls are not read yet",
 	"dns-unavailable":             "a node agent cannot read DNS answers, so it cannot name the systems the workload calls",
 	"ambiguous-peers":             "an address the workload called answers for more than one domain, so the node agent cannot tell which one it called",
 	"unnamed-public":              "the workload called a public address the node agent saw no DNS answer for",

@@ -88,7 +88,7 @@ func TestEgressNilCoverageNoLimitation(t *testing.T) {
 
 func TestCoverageReasonsCoverEgressReasons(t *testing.T) {
 	for _, slug := range []string{"no-agent-data", "agent-data-unreadable", "pods-unreadable", "pactos-unreadable", "services-unreadable",
-		"node-without-agent", "stale-node", "degraded-node", "collection-failed", "shared-netns", "no-running-pods",
+		"node-without-agent", "stale-node", "degraded-node", "collection-failed", "shared-netns", "no-running-pods", "pod-unobserved",
 		"dns-unavailable", "ambiguous-peers", "unnamed-public", "unnamed-private-peers", "egress-host-unclassified", "truncated",
 		"gateway-log-format", "gateway-access-log-off", "gateway-log-unreadable", "gateway-log-truncated", "not-evaluated", "cilium-unreadable", "fqdn-pattern-unbounded", "cilium-selector-unevaluated"} {
 		if coverageReasons[slug] == "" {

@@ -24,9 +24,11 @@ type Egress struct {
 
 // Unnamed counts the fresh successful connections to peers outside the cluster that carry no name: to a
 // public address, to a private address nothing in the cluster explains, and to an address whose answers
-// named more than one registrable domain.
+// named more than one registrable domain. It also counts the target pods whose own node's snapshot
+// cannot name their calls: not mapped yet (Unobserved), or sharing a network namespace (Shared).
 type Unnamed struct {
 	Public, Private, Ambiguous int
+	Unobserved, Shared         int
 }
 
 // privateRanges are the private address ranges: RFC 1918, carrier-grade NAT and IPv6 unique local.
@@ -58,7 +60,12 @@ func ExternalEgress(byNode map[string]*Snapshot, pods []PodRef, internal, privat
 			continue
 		}
 		i := slices.IndexFunc(s.Workloads, func(w Workload) bool { return w.ID == p.UID })
-		if i < 0 {
+		switch {
+		case i < 0:
+			unnamed.Unobserved++
+			continue
+		case s.Workloads[i].Shared:
+			unnamed.Shared++
 			continue
 		}
 		for _, c := range s.Workloads[i].Connections {

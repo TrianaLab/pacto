@@ -78,8 +78,21 @@ func TestExternalEgressIgnoresOtherNodesClaim(t *testing.T) {
 		"b": egressNode("p1", okConn("54.1.1.1", "api.stripe.com", 443, ago(time.Second))),
 	}
 	named, unnamed := ExternalEgress(byNode, []PodRef{{UID: "p1", Node: "a"}, {UID: "p2", Node: "c"}}, internalSet(), internalSet(), ago(time.Minute))
-	if len(named) != 0 || unnamed != (Unnamed{}) {
+	// p1 is missing from its own node's snapshot: unobserved, never named from node b.
+	if len(named) != 0 || unnamed != (Unnamed{Unobserved: 1}) {
 		t.Fatalf("a foreign claim counted: named = %+v, unnamed = %+v", named, unnamed)
+	}
+}
+
+// TestExternalEgressCountsPodsItCannotRead: a target pod its node's fresh snapshot does not list yet, or
+// one sharing a network namespace, has calls nobody named: each is counted, never read as no egress.
+func TestExternalEgressCountsPodsItCannotRead(t *testing.T) {
+	shared := egressNode("p2", okConn("54.1.1.1", "api.stripe.com", 443, ago(time.Second)))
+	shared.Workloads[0].Shared = true
+	byNode := map[string]*Snapshot{"a": egressNode("other"), "b": shared}
+	named, unnamed := ExternalEgress(byNode, []PodRef{{UID: "p1", Node: "a"}, {UID: "p2", Node: "b"}}, internalSet(), internalSet(), ago(time.Minute))
+	if len(named) != 0 || unnamed != (Unnamed{Unobserved: 1, Shared: 1}) {
+		t.Fatalf("named = %+v, unnamed = %+v", named, unnamed)
 	}
 }
 

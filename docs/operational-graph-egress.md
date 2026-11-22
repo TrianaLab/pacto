@@ -94,6 +94,8 @@ reasons are:
 | `egress-host-unclassified` | a call reached a host whose name gives no identity, such as `legacy-db` |
 | `services-unreadable` | the operator could not tell in-cluster addresses apart |
 | `no-running-pods` | the workload runs no pod to watch |
+| `pod-unobserved` | a target pod is missing from its node agent's last scan |
+| `shared-netns` | a target pod shares its network namespace, such as a host network pod |
 | `truncated` | more than 32 Externals |
 | `gateway-access-log-off` | an egress gateway wrote no access log line in the window |
 | `gateway-log-format` | more than half of the log lines could not be read |

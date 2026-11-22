@@ -104,12 +104,15 @@ func nodeCounts(in callerInputs) (nodes, withAgent int32) {
 	return nodes, withAgent
 }
 
-// unnamedCoverage lowers cov for each kind of call the node agent could not name.
+// unnamedCoverage lowers cov for each kind of call the node agent could not name, and for each target pod
+// whose calls it could not read: not mapped yet on its node, or on a shared network namespace (a host
+// network pod in an ignored namespace too: the caller exemption never applies to the target's own calls).
 func unnamedCoverage(cov *unversioned.CallerCoverage, u runtimefacts.Unnamed) {
 	for _, r := range []struct {
 		n      int
 		reason string
-	}{{u.Ambiguous, "ambiguous-peers"}, {u.Public, "unnamed-public"}, {u.Private, "unnamed-private-peers"}} {
+	}{{u.Ambiguous, "ambiguous-peers"}, {u.Public, "unnamed-public"}, {u.Private, "unnamed-private-peers"},
+		{u.Unobserved, "pod-unobserved"}, {u.Shared, "shared-netns"}} {
 		if r.n > 0 {
 			partialCoverage(cov, r.reason)
 		}

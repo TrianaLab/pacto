@@ -343,3 +343,27 @@ func TestObserveEgressSkipsNodeAndLoadBalancerAddresses(t *testing.T) {
 	}
 	wantEgressCoverage(t, cov, pactoapi.CallerCoverageComplete, "")
 }
+
+// TestObserveEgressPodMissingFromFreshSnapshotPartial: the node's snapshot is fresh and running but its
+// last scan came before the target pod, so the pod's calls are not read: unobserved, never complete.
+func TestObserveEgressPodMissingFromFreshSnapshotPartial(t *testing.T) {
+	f := egressFixture()
+	f.entry().UID = "another-pod"
+	got, cov := f.egressRun(t, nil, nil)
+	if len(got) != 0 {
+		t.Fatalf("egress = %+v", got)
+	}
+	wantEgressCoverage(t, cov, pactoapi.CallerCoveragePartial, "pod-unobserved")
+}
+
+// TestObserveEgressHostNetworkTargetInIgnoredNamespacePartial: the caller exemption of an ignored namespace
+// never covers the target's own calls; a target on a shared network namespace has calls nobody can read.
+func TestObserveEgressHostNetworkTargetInIgnoredNamespacePartial(t *testing.T) {
+	f := egressFixture(named("54.1.1.1", "api.datadoghq.com", 443))
+	f.entry().NetnsShared = true
+	got, cov := f.egressRun(t, nil, func(in *CollectInput) { in.CallerIgnoreNamespaces = []string{kNS} })
+	if len(got) != 0 {
+		t.Fatalf("egress = %+v", got)
+	}
+	wantEgressCoverage(t, cov, pactoapi.CallerCoveragePartial, "shared-netns")
+}
