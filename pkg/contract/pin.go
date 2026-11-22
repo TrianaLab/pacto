@@ -293,3 +293,122 @@ func dependencyItem(top *yaml.Node, name string) *yaml.Node {
 	}
 	return nil
 }
+
+// Declares reports whether raw writes the record key field: service.owner,
+// dependencies[<name>] or dependencies[<name>].compatibility. Only a key in
+// the YAML counts: a default the parser fills (compatibility: unknown on a
+// dependency with no range) is never written, an explicit one is.
+func Declares(raw []byte, field string) bool {
+	_, _, _, top, err := decodeRoot(raw)
+	if err != nil || top == nil || top.Kind != yaml.MappingNode {
+		return false
+	}
+	if field == "service.owner" {
+		svc := valueOf(top, "service")
+		return svc != nil && svc.Kind == yaml.MappingNode && hasKey(svc, "owner")
+	}
+	rest, ok := strings.CutPrefix(field, "dependencies[")
+	name, key, _ := strings.Cut(rest, "]")
+	item := dependencyItem(top, name)
+	switch {
+	case !ok || item == nil:
+		return false
+	case key == "":
+		return true
+	}
+	return key == ".compatibility" && hasKey(item, "compatibility")
+}
+
+// PinServiceOwner returns raw with service.owner declared as o, so a
+// carried owner publishes as declared. A block service mapping gets the
+// owner block inserted above its first key, at its indent; a contract with
+// no service key gets it at the top; anything else is re-encoded. A
+// contract that already declares an owner is an error: the repository wins.
+func PinServiceOwner(raw []byte, o Owner) ([]byte, error) {
+	if Declares(raw, "service.owner") {
+		return nil, errors.New("pin service.owner: pacto.yaml declares service.owner")
+	}
+	bom, body, root, top, err := decodeRoot(raw)
+	if err != nil {
+		return nil, fmt.Errorf("pin service.owner: %w", err)
+	}
+	var block bytes.Buffer
+	enc := yaml.NewEncoder(&block)
+	enc.SetIndent(2)
+	_ = enc.Encode(map[string]Owner{"owner": o}) // ponytail: an Owner always encodes
+	text := strings.TrimSuffix(block.String(), "\n")
+	if top == nil || (top.Tag == "!!null" && top.Value == "") {
+		return insertAtTop(bom, body, "service:\n"+indentLines(text, "  ")), nil
+	}
+	if top.Kind != yaml.MappingNode {
+		return nil, errors.New("pin service.owner: the contract is not a mapping")
+	}
+	svc := valueOf(top, "service")
+	if plainBlock(top) {
+		indent := strings.Repeat(" ", top.Content[0].Column-1)
+		switch {
+		case svc == nil:
+			return insertAtTop(bom, body, indent+"service:\n"+indentLines(text, indent+"  ")), nil
+		case svc.Kind == yaml.MappingNode && plainBlock(svc):
+			return insertBeforeLine(bom, body, svc.Content[0].Line, indentLines(text, strings.Repeat(" ", svc.Content[0].Column-1))), nil
+		}
+	}
+	var owner yaml.Node
+	_ = owner.Encode(o)
+	key := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "owner"}
+	switch {
+	case svc == nil:
+		top.Content = append(top.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "service"},
+			&yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{key, &owner}})
+	case svc.Kind == yaml.MappingNode:
+		svc.Content = append(svc.Content, key, &owner)
+	default:
+		return nil, errors.New("pin service.owner: service is not a mapping")
+	}
+	return reencode(root, bom, body), nil
+}
+
+// AddDependency returns raw with d appended to dependencies as its name,
+// its ref when set and its compatibility, creating the sequence when
+// absent. A plain block contract with no dependencies key gets the lines at
+// its end; anything else is re-encoded. A dependency of that name already
+// declared is an error: the repository wins.
+func AddDependency(raw []byte, d Dependency) ([]byte, error) {
+	if Declares(raw, "dependencies["+d.Name+"]") {
+		return nil, fmt.Errorf("add dependencies[%s]: pacto.yaml declares it", d.Name)
+	}
+	bom, body, root, top, err := decodeRoot(raw)
+	if err != nil {
+		return nil, fmt.Errorf("add dependencies[%s]: %w", d.Name, err)
+	}
+	if top == nil || top.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("add dependencies[%s]: the contract is not a mapping", d.Name)
+	}
+	lines := []string{"- name: " + strconv.Quote(d.Name)}
+	if d.Ref != "" {
+		lines = append(lines, "  ref: "+strconv.Quote(d.Ref))
+	}
+	lines = append(lines, "  compatibility: "+strconv.Quote(d.Compatibility))
+	deps := valueOf(top, "dependencies")
+	if deps == nil && plainBlock(top) && bytes.HasSuffix(body, []byte("\n")) {
+		indent := strings.Repeat(" ", top.Content[0].Column-1)
+		text := indent + "dependencies:\n" + indentLines(strings.Join(lines, "\n"), indent+"  ") + "\n"
+		return slices.Concat(bom, body, []byte(strings.ReplaceAll(text, "\n", newline(body)))), nil
+	}
+	var item yaml.Node
+	_ = yaml.Unmarshal([]byte(strings.Join(lines, "\n")), &item) // ponytail: quoted scalars always decode
+	switch {
+	case deps == nil:
+		top.Content = append(top.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "dependencies"}, item.Content[0])
+	case deps.Kind == yaml.SequenceNode:
+		deps.Content = append(deps.Content, item.Content[0].Content...)
+	default:
+		return nil, fmt.Errorf("add dependencies[%s]: dependencies is not a sequence", d.Name)
+	}
+	return reencode(root, bom, body), nil
+}
+
+// indentLines prefixes every line of text with indent.
+func indentLines(text, indent string) string {
+	return indent + strings.ReplaceAll(text, "\n", "\n"+indent)
+}

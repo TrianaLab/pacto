@@ -107,7 +107,11 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 	pl := &ciPlanner{s: s, p: p, reg: s.env().publishRegistry(), allowed: allowedHost(p.Registry), root: opts.Root, revision: opts.revision, cat: cat,
 		acceptances: sync.OnceValue(func() *acceptanceStore {
 			return s.ownerRuled(newAcceptanceStore(ctx, s.env(), impactTrust(ImpactOptions{Signers: opts.Signers, Fleet: opts.Fleet})), opts.Fleet.Provenance)
-		})}
+		}),
+		decl: sync.OnceValue(func() *declarationTrust {
+			return declarationTrustFrom(ctx, impactTrust(ImpactOptions{Signers: opts.Signers, Fleet: opts.Fleet}))
+		}),
+		ownerPolicy: sync.OnceValues(func() (*delivery.OwnerPolicy, string) { return s.OwnerPolicy(ctx, p.Registry.Value, "") })}
 	pl.planAll(ctx, folders, opts)
 	results, snap, err := s.ciImpacts(ctx, p, folders, opts, pl.allowed)
 	if err != nil {
@@ -360,6 +364,11 @@ type ciPlanner struct {
 	cat            *externalcatalog.Catalog
 	// acceptances reads the acceptances a baseline carries, built once.
 	acceptances func() *acceptanceStore
+	// decl judges registry declarations, built once per run.
+	decl func() *declarationTrust
+	// ownerPolicy is the owner policy carried owners are judged with, read
+	// once per run on first need.
+	ownerPolicy func() (*delivery.OwnerPolicy, string)
 }
 
 // registryName is the plan's registry as messages name it.
@@ -494,7 +503,9 @@ func (pl *ciPlanner) judge(ctx context.Context, f *ciFolder, repo string, declar
 	}
 	f.row.Baseline, f.row.BaselineDigest = tag, base.digest
 	migrated := f.asWritten != f.b
-	if !pl.carry(ctx, f, carryBase{repo: repo, version: tag, digest: base.digest, b: base.b}) {
+	cb := carryBase{repo: repo, version: tag, digest: base.digest, b: base.b}
+	dc, ok := pl.declaration(ctx, f, tags, cb)
+	if !ok || !pl.carry(ctx, f, cb, dc) {
 		return
 	}
 	same, why := Unchanged(base.b, f.b)
@@ -527,8 +538,8 @@ func (pl *ciPlanner) judge(ctx context.Context, f *ciFolder, repo string, declar
 // declared version that is already published pins no range: its contract
 // cannot change. A cited acceptance that cannot be read leaves the row
 // unverified: false.
-func (pl *ciPlanner) carry(ctx context.Context, f *ciFolder, base carryBase) bool {
-	res, err := carryForward(ctx, pl.acceptances(), base, f.b)
+func (pl *ciPlanner) carry(ctx context.Context, f *ciFolder, base carryBase, dc *declarationCarry) bool {
+	res, err := carryForward(ctx, pl.acceptances(), base, f.b, dc)
 	if err != nil {
 		f.decide(impact.GateUnverified, "carried acceptances unreadable: "+err.Error())
 		return false
@@ -536,15 +547,42 @@ func (pl *ciPlanner) carry(ctx context.Context, f *ciFolder, base carryBase) boo
 	f.row.Notes = append(f.row.Notes, res.Notes...)
 	switch {
 	case res.Bundle == f.b:
-	case res.Pinned > 0 && f.b.Contract.Service.Version == base.version:
-		// The declared version is published: pinning a range would change
-		// its contract. The acceptance is still found on that version.
+		f.row.Carried = res.Carried
+	case res.Pinned+res.Declared > 0 && f.b.Contract.Service.Version == base.version:
+		// The declared version is published: pinning a field would change
+		// its contract. The decision is still found on that version.
 		f.row.Notes = append(f.row.Notes, "accepted ranges carry with the next version: bump service.version")
 	default:
-		f.b, f.carried, f.row.Accepted = res.Bundle, true, res.Pinned
+		f.b, f.carried, f.row.Accepted, f.row.Carried = res.Bundle, true, res.Pinned, res.Carried
 		f.recordImages()
 	}
 	return true
+}
+
+// declaration is the registry declaration base carries, with the fields it
+// decides under the owner rule (Decision 3, 5); nil for none. A check that
+// could not complete leaves the row unverified: false.
+func (pl *ciPlanner) declaration(ctx context.Context, f *ciFolder, tags []string, base carryBase) (*declarationCarry, bool) {
+	t := pl.decl()
+	svc := f.b.Contract.Service
+	d, notes, err := t.declarationSource(ctx, pl.reg, wantService{Name: svc.Name, Domain: svc.Domain}, tags, base)
+	f.row.Notes = append(f.row.Notes, notes...)
+	switch {
+	case err != nil:
+		f.decide(impact.GateUnverified, "registry declaration "+base.repo+"@"+base.digest+" could not be checked: "+err.Error())
+		return nil, false
+	case d == nil:
+		return nil, true
+	case t.publicGood:
+		f.row.Notes = append(f.row.Notes, declarationsPublicGoodNote)
+	}
+	now := pl.s.env().now()
+	var v ownerVerdict
+	if !d.Bundle.Contract.Service.Owner.IsEmpty() || len(d.Record.Declaration.Accepted) > 0 {
+		policy, from := pl.ownerPolicy()
+		v = t.ownerHistory(ctx, pl.reg, base.repo, tags, d, policy, from, now)
+	}
+	return &declarationCarry{d: d, cands: declarationCandidates(d, v, now)}, true
 }
 
 // firstPublish fills the row of a service with no published version. It

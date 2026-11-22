@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sigstore/sigstore-go/pkg/root"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/semver"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
@@ -52,7 +55,10 @@ type rootsRead struct {
 // roots, read once on the first declaration, and each judged bundle by tag
 // and digest, so a stack of declarations is walked once.
 type declarationTrust struct {
-	policy     *fleet.DeclarationSignerPolicy
+	policy *fleet.DeclarationSignerPolicy
+	// rules are the installation's publisher rules, which judge the CI
+	// publishes of a carried owner's history.
+	rules      []delivery.PublisherRule
 	roots      func() rootsRead
 	publicGood bool
 	memo       map[string]countedAnswer
@@ -88,6 +94,7 @@ func declarationTrustFrom(ctx context.Context, trust func(context.Context) (Inst
 	default:
 		t.publicGood = true
 	}
+	t.rules = configRules(in.Config)
 	t.roots = sync.OnceValue(func() rootsRead { return signerRoots(in.Signers) })
 	return t
 }
@@ -258,4 +265,141 @@ func notAccepted(asker contract.InferredSigner, signers []fleet.VerifiedSigner, 
 		}
 	}
 	return "declaration signed by " + strings.Join(by, ", ") + ", not the asker " + asker.Subject
+}
+
+// acceptBelow accepts every release below a declaration: plan mode reads
+// its baselines unverified and says so (planModeNote).
+func acceptBelow(context.Context, string, string) error { return nil }
+
+// declarationSource is the registry declaration base carries (Decision 3):
+// base itself when it counts as a declaration of want, else the
+// declaration base's record cites, read by digest only in repo (the CLI
+// keychain never reaches a host a record names) and only while it still
+// counts. A carry re-cites the original declaration, so this is one hop at
+// any depth of history. A bundle with neither reads nothing; notes say why
+// a declaration found is not carried; a check that could not complete is an
+// error.
+func (t *declarationTrust) declarationSource(ctx context.Context, reg publish.Registry, want wantService, tags []string, base carryBase) (*registryDeclaration, []string, error) {
+	rec, _ := contract.ReadInferredRecord(base.b.FS) // an unreadable record names no declaration
+	ref, tag, digest := base.repo+"@"+base.digest, base.version, base.digest
+	switch {
+	case rec == nil || rec.Declaration == nil && rec.Inputs.Declaration == nil:
+		return nil, nil, nil
+	case rec.Declaration == nil:
+		ref = rec.Inputs.Declaration.Record
+		repo, d, _ := strings.Cut(ref, "@")
+		if repo != base.repo {
+			return nil, []string{"registry declaration " + ref + " not read: it is outside " + base.repo}, nil
+		}
+		h, err := reg.Head(ctx, ref)
+		if err != nil {
+			return nil, nil, fmt.Errorf("reading %s: %w", ref, err)
+		}
+		if h == nil {
+			return nil, []string{"registry declaration " + ref + " no longer carried: it is gone"}, nil
+		}
+		b, err := reg.Pull(ctx, ref)
+		if err != nil {
+			return nil, nil, fmt.Errorf("reading %s: %w", ref, err)
+		}
+		tag, digest = b.Contract.Service.Version, d
+	}
+	d, why, err := t.countedDeclaration(ctx, reg, want, base.repo, tags, tag, digest, acceptBelow)
+	switch {
+	case err != nil:
+		return nil, nil, err
+	case d == nil:
+		return nil, []string{"registry declaration " + ref + " not carried: " + why}, nil
+	}
+	return d, nil, nil
+}
+
+// carryOwnerRevisionCap bounds the newest releases pacto ci reads to judge a
+// carried owner.
+const carryOwnerRevisionCap = 32
+
+// ownerVerdict is what the owner rule (OwnerRights) says of a declaration's
+// owner: whether it is effective, why not, and the effective owner after
+// the history under the owner policy, which accepted ranges are matched
+// against.
+type ownerVerdict struct {
+	Allowed bool
+	Reason  string
+	Owner   delivery.AcceptanceOwner
+}
+
+// ownerHistory is the owner verdict on d from repo's newest final releases
+// (at most carryOwnerRevisionCap), each read as a revision and judged by
+// OwnerRights under policy (from says why there is none) with the run's
+// first trusted root and publisher rules. A spent cap, an unread history or
+// no policy is never an allowed owner.
+func (t *declarationTrust) ownerHistory(ctx context.Context, reg publish.Registry, repo string, tags []string, d *registryDeclaration,
+	policy *delivery.OwnerPolicy, from string, now time.Time) ownerVerdict {
+	rr := t.roots()
+	if rr.err != nil || rr.noRoot {
+		return ownerVerdict{Reason: "no trusted root reads the owner history"}
+	}
+	service, key := d.Bundle.Contract.Service.Name, fleet.RevisionKey(strings.TrimPrefix(d.Ref, repo+"@"))
+	versions := semver.Filter(tags)
+	truncated := len(versions) > carryOwnerRevisionCap
+	versions = versions[:min(len(versions), carryOwnerRevisionCap)]
+	revs := make([]fleet.ContractRevision, 0, len(versions))
+	for _, v := range versions {
+		// ponytail: the first root reads the history; a second root's signers are the upgrade path.
+		r, err := registryRevision(ctx, reg, rr.roots[0].tm, rr.roots[0].tlog, repo, service, v, t.rules, nil)
+		if err != nil {
+			return ownerVerdict{Reason: "the owner history could not be read: " + err.Error()}
+		}
+		if r != nil {
+			revs = append(revs, *r)
+		}
+	}
+	if !slices.ContainsFunc(revs, func(r fleet.ContractRevision) bool { return r.Key == key }) || truncated && !slices.ContainsFunc(revs, setsOwnerAsIs) {
+		return ownerVerdict{Reason: fmt.Sprintf("owner history longer than %d releases", carryOwnerRevisionCap)}
+	}
+	current, rights := OwnerRights(ctx, revs, ownerJudge(service, policy, from, now))
+	v := ownerVerdict{Allowed: true, Owner: delivery.AcceptanceOwner{Claim: current, Policy: policy}}
+	if r, judged := rights[key]; judged {
+		v.Allowed, v.Reason = r.Allowed, r.Message
+	}
+	if policy == nil {
+		v.Allowed, v.Reason = false, "no owner policy readable from CI"
+	}
+	return v
+}
+
+// declarationCandidates are the fields d decides (Decision 5): its owner
+// block, dropped unless the owner rule finds it effective, and each range
+// it accepted, dropped unless its signer holds the owner right against the
+// effective owner. unknown and empty ranges are no decision.
+func declarationCandidates(d *registryDeclaration, v ownerVerdict, now time.Time) []carryCandidate {
+	svc := d.Bundle.Contract.Service
+	base := carryCandidate{Kind: carriedKindDeclared, Record: d.Ref, Signer: citedSigner(d.Signer), AtVersion: d.Version}
+	var out []carryCandidate
+	if o := svc.Owner; !o.IsEmpty() {
+		c := base
+		c.Field, c.Value, c.owner = "service.owner", carriedOwner(o), &o
+		if !v.Allowed {
+			c.dropped = v.Reason
+		}
+		out = append(out, c)
+	}
+	signer := delivery.PublisherIdentity{Subject: d.Signer.Subject, Issuer: d.Signer.Issuer, Class: delivery.ActorClass(d.Signer.Class)}
+	owns := delivery.HoldsOwnerRight(svc.Name, signer, v.Owner, now)
+	for _, a := range d.Record.Declaration.Accepted {
+		name, _, ok := dependencyField(a.Field)
+		if !ok || a.Range == "" || a.Range == contract.CompatibilityUnknown {
+			continue
+		}
+		c := base
+		c.Field, c.Value, c.entry = a.Field, a.Range, &contract.Dependency{Name: name, Compatibility: a.Range}
+		if i := slices.IndexFunc(d.Bundle.Contract.Dependencies, func(dep contract.Dependency) bool { return dep.Name == name }); i >= 0 {
+			c.entry.Ref = d.Bundle.Contract.Dependencies[i].Ref
+		}
+		if !owns {
+			c.dropped = "routed: " + d.Signer.Subject + " is not an owner of " + svc.Name
+		}
+		out = append(out, c)
+	}
+	return out
 }

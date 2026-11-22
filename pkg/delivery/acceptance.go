@@ -238,7 +238,7 @@ func JudgeAcceptance(st AcceptanceStatement, signer PublisherIdentity, rules []S
 		return impact.AcceptProposal, fmt.Sprintf("signed by %s, a %s signer (%s): a proposal until a person accepts it", signer.Subject, class, by)
 	}
 	signer.Class = class
-	if !holdsOwnerRight(st.Predicate.Service, signer, owner, asOf) {
+	if !HoldsOwnerRight(st.Predicate.Service, signer, owner, asOf) {
 		_, name := fleet.ParseServiceKey(fleet.ServiceKey(st.Predicate.Service))
 		route, declared := OwnerRoute(name, owner.Claim.Owner)
 		if declared {
@@ -254,12 +254,13 @@ func JudgeAcceptance(st AcceptanceStatement, signer PublisherIdentity, rules []S
 	return impact.AcceptCounted, ""
 }
 
-// holdsOwnerRight reports whether the person signer may accept for service.
+// HoldsOwnerRight reports whether the person signer may accept for service:
+// the one owner match acceptances and carried declaration ranges share.
 // With no owner policy only a declared owner's DRI or email contact may
 // (ownerMatches, the rule before owner policies: an attested owner never
 // counts there). Under one, signer may when DecideOwnerRight would let them
 // change the owner: one owner rule for declarations and acceptances.
-func holdsOwnerRight(service string, signer PublisherIdentity, owner AcceptanceOwner, asOf time.Time) bool {
+func HoldsOwnerRight(service string, signer PublisherIdentity, owner AcceptanceOwner, asOf time.Time) bool {
 	switch {
 	case signer.Subject == "":
 		return false

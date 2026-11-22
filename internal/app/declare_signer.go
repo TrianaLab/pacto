@@ -302,6 +302,12 @@ func publisherRules(raw string) []delivery.PublisherRule {
 	if err != nil || raw == "" {
 		return nil
 	}
+	return configRules(cfg)
+}
+
+// configRules is the publisher rule an installation's publisher config
+// derives, none when it derives none.
+func configRules(cfg delivery.PublisherConfig) []delivery.PublisherRule {
 	rule, why := deriveRule(cfg.Registry, cfg.DefaultBranch)
 	if why != "" {
 		return nil
