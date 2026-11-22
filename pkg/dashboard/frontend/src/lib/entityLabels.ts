@@ -193,7 +193,7 @@ export function provenanceIsImplied(difference: string | undefined, provenance: 
 // dimension of triage (declared contract preparedness), not a separate workspace,
 // so this list is also the Overview's set of entry points into the triage view.
 export const ATTENTION_CATEGORIES = [
-  'non-compliant', 'invalid', 'health', 'provisioning', 'unknown', 'stale', 'unresolved', 'out-of-range', 'lifecycle', 'undeclared', 'golden-path', 'readiness', 'knowledge', 'unowned',
+  'non-compliant', 'invalid', 'health', 'provisioning', 'unknown', 'stale', 'unresolved', 'out-of-range', 'lifecycle', 'undeclared', 'golden-path', 'readiness', 'knowledge', 'unowned', 'cluster',
 ] as const;
 
 export function attentionCategoryLabel(c: string | undefined): string {
@@ -212,6 +212,7 @@ export function attentionCategoryLabel(c: string | undefined): string {
     case 'golden-path': return 'Golden path running';
     case 'knowledge': return 'Knowledge gap';
     case 'unowned': return 'No declared owner';
+    case 'cluster': return 'Member cluster';
     default: return c || 'Other';
   }
 }
@@ -235,6 +236,7 @@ const ATTENTION_CAUSES: Record<string, string> = {
   NOT_DEPLOYED: 'No source reports an operational target of this service',
   UNVERIFIED_CAPABILITY: 'An extension capability no evaluator checks',
   INFERRED_PROVIDER: 'A dependency range points at an inferred contract, so Pacto never checks it',
+  CLUSTER_ISSUER_DIFFERS: "Member clusters refuse this hub's sign-in tokens, so reads there use a group mapping",
 };
 /** attentionCause words an attention item's code, or returns the code itself. */
 export function attentionCause(code: string | undefined): string {

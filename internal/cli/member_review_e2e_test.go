@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -419,4 +420,30 @@ func TestUnauthenticatedDashboardUnfilteredWithMembers(t *testing.T) {
 	v.Set("dashboard.allow-anonymous", true)
 	id, err := newDashboardIdentity(v, "0.0.0.0", nil, entriesOf(), defaultDeps(), e.m)
 	expect(t, err == nil && id.viewer == nil, "no sign-in, no viewer: every member stays visible: %v", err)
+}
+
+func TestMemberHubLinksCarryModelAndMapping(t *testing.T) {
+	expect(t, (*memberHub)(nil).linksFunc() == nil, "no hub, no link source")
+	e := newMemberEnv(t, func(_ context.Context, _, uid string) (string, error) { return memberToken(uid), nil }, nil)
+	e.approve(usUID, delivery.GroupMappingState{Issuer: memberIssuer, Rules: []delivery.GroupRule{{From: "team-pay", To: "viewers"}, {From: "sre", To: "admins"}},
+		ApprovedBy: "oidc:alice@acme.dev", ApprovedAt: "2026-11-20T10:00:00Z", Record: "sha256:aa"})
+	e.link(usUID, func(r memberlink.Review) memberlink.Answer {
+		if r.Token != "" {
+			return memberlink.Answer{Refused: memberlink.RefusedIssuerNotAccepted}
+		}
+		return memberlink.Answer{Allowed: true, Model: memberlink.ModelGroupMapping}
+	})
+	review := e.m.add(nil)[usUID]
+	for _, p := range []string{"a@acme.dev", "b@acme.dev"} {
+		person := authn.Person{User: p, Groups: []string{"team-pay"}}
+		_, _ = review(signedInAs(t, person, memberToken(p)), person, "prod", authn.PactoResource)
+	}
+	l := e.m.linksFunc()()[usUID]
+	at := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	want := fleet.IssuerModel{Issuer: memberIssuer, Model: fleet.IssuerGroupMapping, MappedBy: "oidc:alice@acme.dev", MappedAt: &at, Mapping: "team-pay=viewers, sre=admins"}
+	expect(t, l.Channel == fleet.LinkLive && l.Since != nil && len(l.Issuers) == 1 && reflect.DeepEqual(l.Issuers[0], want), "link = %+v", l)
+	e.unlink(usUID)
+	expect(t, e.m.links(time.Now())[usUID].Channel == fleet.LinkDown, "a dropped link reads down")
+	_, kept := e.m.links(time.Now().Add(16 * time.Minute))[usUID]
+	expect(t, !kept, "a link down past snapshot freshness is left out")
 }

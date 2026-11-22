@@ -49,6 +49,11 @@ const SourceKindMira = "mira"
 // on it (an advisory source is [Collection.Advisory]).
 const SourceKindDetection = "detection"
 
+// SourceKindMemberLinks is the Kind of the hub's carrier of member link
+// facts ([Collection.ClusterLinks]). Build copies its links onto the cluster
+// records and lists it nowhere: it is no source a reader configured.
+const SourceKindMemberLinks = "member-links"
+
 type Source interface {
 	// ID is the stable identifier of this source instance (e.g. "oci", "k8s",
 	// "local", or a named environment like "production-eu"). Used as provenance.
@@ -132,6 +137,9 @@ type Collection struct {
 	// Advisory: an advisory source never makes a snapshot partial: its status
 	// is reported and its rows are hints.
 	Advisory bool
+	// ClusterLinks are member link facts by cluster id, read only from a
+	// [SourceKindMemberLinks] source.
+	ClusterLinks map[string]ClusterLink
 }
 
 // RawInferredService is one workload a source read (Kind is Deployment,

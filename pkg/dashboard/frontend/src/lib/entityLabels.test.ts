@@ -66,6 +66,7 @@ describe('attentionCategoryLabel', () => {
     expect(attentionCategoryLabel('undeclared')).toBe('Undeclared dependency');
     expect(attentionCategoryLabel('lifecycle')).toBe('Deprecated provider');
     expect(attentionCategoryLabel('provisioning')).toBe('Resource provisioning');
+    expect(attentionCategoryLabel('cluster')).toBe('Member cluster');
     expect(ATTENTION_CATEGORIES).toContain('undeclared');
   });
 
@@ -313,5 +314,11 @@ describe('inferred provider attention words', () => {
   it('words the declare next action and the INFERRED_PROVIDER cause', () => {
     expect(nextActionWords({ verb: 'declare', tool: 'pacto_declare' })).toBe('Fix: declare a contract with pacto_declare');
     expect(attentionCause('INFERRED_PROVIDER')).not.toBe('INFERRED_PROVIDER');
+  });
+});
+
+describe('member cluster attention words', () => {
+  it('words the CLUSTER_ISSUER_DIFFERS cause', () => {
+    expect(attentionCause('CLUSTER_ISSUER_DIFFERS')).toMatch(/group mapping/);
   });
 });

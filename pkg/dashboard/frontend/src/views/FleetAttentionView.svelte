@@ -147,7 +147,7 @@
   // the neutral hatch, never warn: an open question is not a warning (SPEC 2.2).
   const CATEGORY_TONE = {
     'non-compliant': 'err', invalid: 'err', health: 'warn', provisioning: 'warn', unknown: 'neutral', stale: 'warn',
-    unresolved: 'warn', 'out-of-range': 'warn', lifecycle: 'warn', undeclared: 'warn', 'golden-path': 'warn', readiness: 'info', knowledge: 'info', unowned: 'info',
+    unresolved: 'warn', 'out-of-range': 'warn', lifecycle: 'warn', undeclared: 'warn', 'golden-path': 'warn', readiness: 'info', knowledge: 'info', unowned: 'info', cluster: 'warn',
   };
   const categoryBars = $derived((list?.categories ?? []).map((b) => ({
     label: attentionCategoryLabel(b.category),

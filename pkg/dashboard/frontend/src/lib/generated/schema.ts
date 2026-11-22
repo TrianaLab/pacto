@@ -2804,6 +2804,20 @@ export interface components {
             /** @description The source that reported the name; empty when this process read it itself. */
             reportedBy?: string;
         };
+        "Fleet.ClusterLink": {
+            /**
+             * @description live while the member's channel is connected; down when it dropped in the last 15 minutes.
+             * @enum {string}
+             */
+            channel?: "live" | "down";
+            /** @description The identity model each token issuer uses in this member, in issuer order. */
+            issuers?: components["schemas"]["Fleet.IssuerModel"][] | null;
+            /**
+             * Format: date-time
+             * @description When the channel last came up or dropped.
+             */
+            since?: string;
+        };
         "Fleet.ClusterRecord": {
             /**
              * @description Why a restricted view shows nothing of this cluster: you may read no namespace there, the review failed or took too long, or nobody can be reviewed there. Empty when the view shows what you may read.
@@ -2812,6 +2826,8 @@ export interface components {
             access?: "no-access" | "review-failed" | "not-reviewable";
             /** @description The kube-system namespace UID: the identity of the cluster. */
             id: string;
+            /** @description The member's outbound channel to this hub and the identity model per token issuer. Absent when the cluster has no channel. */
+            link?: components["schemas"]["Fleet.ClusterLink"];
             /** @description A display name for the cluster; never an identity. */
             name?: string;
             /**
@@ -2832,6 +2848,8 @@ export interface components {
             access?: "no-access" | "review-failed" | "not-reviewable";
             /** @description The kube-system namespace UID; empty for a Kubernetes source whose cluster could not be identified. */
             id: string;
+            /** @description The member's outbound channel to this hub and the identity model per token issuer. Absent when the cluster has no channel. */
+            link?: components["schemas"]["Fleet.ClusterLink"];
             /** @description A display name for the cluster, or the source id when the cluster could not be identified; never an identity. */
             name: string;
             /**
@@ -3944,6 +3962,24 @@ export interface components {
             /** Format: int64 */
             total: number;
             truncated: boolean;
+        };
+        "Fleet.IssuerModel": {
+            /** @description The issuer of the signed-in people's tokens. */
+            issuer?: string;
+            /**
+             * Format: date-time
+             * @description When the group mapping was signed.
+             */
+            mappedAt?: string;
+            /** @description Who approved the group mapping in force. */
+            mappedBy?: string;
+            /** @description The mapping's rules, hub group=cluster group, comma separated. */
+            mapping?: string;
+            /**
+             * @description shared-issuer: the member's apiserver accepts an exchanged token; group-mapping: reads use the approved group mapping; issuer-not-accepted: the member refuses the issuer and no mapping is approved.
+             * @enum {string}
+             */
+            model?: "shared-issuer" | "group-mapping" | "issuer-not-accepted";
         };
         "Fleet.KnowledgeGaps": {
             /**
@@ -6030,7 +6066,7 @@ export interface components {
             /** @description The inferred service of an uncontracted caller, when Pacto sees its workload */
             caller?: components["schemas"]["ProductRef"];
             /** @enum {string} */
-            category: "non-compliant" | "invalid" | "health" | "provisioning" | "unknown" | "stale" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "readiness" | "knowledge" | "unowned";
+            category: "non-compliant" | "invalid" | "health" | "provisioning" | "unknown" | "stale" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "readiness" | "knowledge" | "unowned" | "cluster";
             code: string;
             entity: components["schemas"]["ProductRef"];
             label: string;

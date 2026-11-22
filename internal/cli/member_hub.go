@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"maps"
 	"net/url"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -125,6 +127,50 @@ func (m *memberHub) reviewer(uid string) authn.Review {
 		m.reviewers[uid] = r
 	}
 	return r
+}
+
+// linksFunc is the fleet's member link facts over the hub, nil without one.
+func (m *memberHub) linksFunc() func() map[string]fleet.ClusterLink {
+	if m == nil {
+		return nil
+	}
+	return func() map[string]fleet.ClusterLink { return m.links(time.Now()) }
+}
+
+// links is each member's link at now, with the group mapping in force for
+// each issuer it reviews under a mapping. A link down for longer than a
+// snapshot stays fresh is left out.
+func (m *memberHub) links(now time.Time) map[string]fleet.ClusterLink {
+	out := map[string]fleet.ClusterLink{}
+	for uid, s := range m.hub.Links() {
+		if s.Channel == fleet.LinkDown && now.Sub(s.Since) > delivery.TargetSnapshotFreshness {
+			continue
+		}
+		l := fleet.ClusterLink{Channel: s.Channel, Since: &s.Since}
+		for _, iss := range slices.Sorted(maps.Keys(s.Issuers)) {
+			l.Issuers = append(l.Issuers, issuerModel(iss, s.Issuers[iss], m.approvals.mapping(uid, iss)))
+		}
+		out[uid] = l
+	}
+	return out
+}
+
+// issuerModel is how a member reviews people from issuer under model, with
+// g, the group mapping approved for it, when reads go through a mapping.
+func issuerModel(issuer, model string, g *delivery.GroupMappingState) fleet.IssuerModel {
+	im := fleet.IssuerModel{Issuer: issuer, Model: model}
+	if g == nil || model == fleet.IssuerShared {
+		return im
+	}
+	rules := make([]string, len(g.Rules))
+	for i, r := range g.Rules {
+		rules[i] = r.From + "=" + r.To
+	}
+	im.MappedBy, im.Mapping = g.ApprovedBy, strings.Join(rules, ", ")
+	if at, err := time.Parse(time.RFC3339, g.ApprovedAt); err == nil {
+		im.MappedAt = &at
+	}
+	return im
 }
 
 // hubLink is the hub's link to one member.

@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -76,6 +77,12 @@ func TestMCPTextNeverCallsAClusterAnAgent(t *testing.T) {
 	texts := []string{instructionsFor(Authoring{}, m)}
 	for _, tool := range listTools(t, server) {
 		texts = append(texts, tool.Description)
+	}
+	// meta.clusters[].link reaches every pacto_fleet_* answer with these docs.
+	for _, typ := range []reflect.Type{reflect.TypeFor[fleet.ClusterSummary](), reflect.TypeFor[fleet.ClusterLink](), reflect.TypeFor[fleet.IssuerModel]()} {
+		for f := range typ.Fields() {
+			texts = append(texts, f.Tag.Get("doc"))
+		}
 	}
 	for _, s := range texts {
 		if loc := agentCluster.FindString(s); loc != "" {

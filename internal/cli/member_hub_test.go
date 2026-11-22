@@ -114,3 +114,16 @@ func TestApprovalsRunStopsWithContext(t *testing.T) {
 	<-done
 	expect(t, n == 3, "read once per interval until ctx ends: %d", n)
 }
+
+func TestIssuerModelAddsMappingOnlyWhenReadsUseIt(t *testing.T) {
+	g := &delivery.GroupMappingState{Rules: []delivery.GroupRule{{From: "a", To: "b"}}, ApprovedBy: "oidc:alice", ApprovedAt: "not a time"}
+	if got := issuerModel("iss", fleet.IssuerShared, g); got.MappedBy != "" || got.Mapping != "" {
+		t.Errorf("shared issuer carries a mapping: %+v", got)
+	}
+	if got := issuerModel("iss", fleet.IssuerNotAccepted, nil); got.MappedBy != "" || got.Model != fleet.IssuerNotAccepted {
+		t.Errorf("no mapping = %+v", got)
+	}
+	if got := issuerModel("iss", fleet.IssuerGroupMapping, g); got.MappedBy != "oidc:alice" || got.Mapping != "a=b" || got.MappedAt != nil {
+		t.Errorf("mapping with an unreadable time = %+v", got)
+	}
+}

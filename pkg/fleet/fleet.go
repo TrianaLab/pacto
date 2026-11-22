@@ -661,7 +661,35 @@ type ClusterRecord struct {
 	// Access says why a restricted view shows nothing of this cluster; empty
 	// when it shows what the reader may read.
 	Access string `json:"access,omitempty" enum:"no-access,review-failed,not-reviewable" doc:"Why a restricted view shows nothing of this cluster: you may read no namespace there, the review failed or took too long, or nobody can be reviewed there. Empty when the view shows what you may read."`
+	// Link is the member's live channel to this hub, nil when it has none.
+	Link *ClusterLink `json:"link,omitempty" doc:"The member's outbound channel to this hub and the identity model per token issuer. Absent when the cluster has no channel."`
 }
+
+// ClusterLink is what a hub knows of a member's outbound review channel. It
+// is a fact for readers only: no gate reads it.
+type ClusterLink struct {
+	Channel string        `json:"channel,omitempty" enum:"live,down" doc:"live while the member's channel is connected; down when it dropped in the last 15 minutes."`
+	Since   *time.Time    `json:"since,omitempty" doc:"When the channel last came up or dropped."`
+	Issuers []IssuerModel `json:"issuers,omitempty" doc:"The identity model each token issuer uses in this member, in issuer order."`
+}
+
+// IssuerModel is how a member reviews people signed in with one issuer.
+type IssuerModel struct {
+	Issuer   string     `json:"issuer,omitempty" doc:"The issuer of the signed-in people's tokens."`
+	Model    string     `json:"model,omitempty" enum:"shared-issuer,group-mapping,issuer-not-accepted" doc:"shared-issuer: the member's apiserver accepts an exchanged token; group-mapping: reads use the approved group mapping; issuer-not-accepted: the member refuses the issuer and no mapping is approved."`
+	MappedBy string     `json:"mappedBy,omitempty" doc:"Who approved the group mapping in force."`
+	MappedAt *time.Time `json:"mappedAt,omitempty" doc:"When the group mapping was signed."`
+	Mapping  string     `json:"mapping,omitempty" doc:"The mapping's rules, hub group=cluster group, comma separated."`
+}
+
+// Link channel states and identity models (see [ClusterLink]).
+const (
+	LinkLive           = "live"
+	LinkDown           = "down"
+	IssuerShared       = "shared-issuer"
+	IssuerGroupMapping = "group-mapping"
+	IssuerNotAccepted  = "issuer-not-accepted"
+)
 
 // Cluster access marks of a restricted view (see [ClusterRecord.Access]).
 const (

@@ -152,6 +152,10 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no cached bundles and no Kubernetes configuration", dir)
 			}
 
+			joins := joinLister(svc, fopts.ClusterJoins, time.Now)
+			members := dashboardMembers(cmd.Context(), v, joins, logging.LoggerFromContext(cmd.Context()))
+			fopts.MemberLinks = members.linksFunc()
+
 			// One snapshot Manager serves many requests from one coherent,
 			// atomically-refreshed view of the whole fleet, rather than rebuilding
 			// per request. The dashboard is a CONSUMER of the reusable fleet layer:
@@ -170,8 +174,6 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			// clusterCfg is the sign-in cluster the callers' own clients are
 			// built from: its address and CA, never its credentials. No
 			// cluster, no delivery.
-			joins := joinLister(svc, fopts.ClusterJoins, time.Now)
-			members := dashboardMembers(cmd.Context(), v, joins, logging.LoggerFromContext(cmd.Context()))
 			identity, err := newDashboardIdentity(v, host, clusterCfg, fleetEntries(svc, d, fopts), d, members)
 			if err != nil {
 				return err

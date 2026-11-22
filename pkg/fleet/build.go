@@ -441,6 +441,11 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	if col == nil {
 		col = &Collection{}
 	}
+	if src.Kind() == SourceKindMemberLinks {
+		// A carrier of link facts: no records, no source state, never listed.
+		applyClusterLinks(snap, col.ClusterLinks)
+		return nil
+	}
 	revCount, targetCount := 0, 0
 	// recordProblems collects the limitations that say THIS source failed to deliver
 	// a record: one it dropped outright, or one it delivered invalid. That is what
@@ -535,6 +540,17 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 		out[j] = inferredInput{source: src.ID(), cluster: cluster, raw: raw}
 	}
 	return out
+}
+
+// applyClusterLinks puts each link on the cluster record with its id. A link
+// for a cluster the snapshot does not know is dropped: nothing shows beside
+// it.
+func applyClusterLinks(snap *FleetSnapshot, links map[string]ClusterLink) {
+	for i := range snap.Clusters {
+		if l, ok := links[snap.Clusters[i].ID]; ok {
+			snap.Clusters[i].Link = &l
+		}
+	}
 }
 
 // clusterIndex is what Build knows about the clusters of one snapshot, computed
