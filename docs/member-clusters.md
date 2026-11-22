@@ -102,7 +102,8 @@ checks the hub's TLS certificate and signs a hub nonce with its approved
 installation key. It opens no port and holds no impersonate right. Over that
 [live channel](glossary.md#live-channel) the hub asks one question: may this
 person list this resource in this namespace? The member answers with its own
-SubjectAccessReview, so each member decides what a person reads there.
+SubjectAccessReview, so each member decides what a person reads there. A
+member publishes no inferred contracts; its hub does.
 
 A review that takes longer than 5 seconds, a dropped channel or a refusal
 hides that member with `CLUSTER_HIDDEN` and marks the answer partial; the
@@ -112,9 +113,9 @@ member. Data sources, `pacto cluster list`, `pacto fleet status` and
 its identity model.
 
 The hub's dashboard must know the host members dial: the host of
-`--oidc-redirect-url` (`dashboard.auth.oidc.redirectURL` on an
-operator-managed dashboard), else `--members-host`. A profile `hardened`
-cluster runs no review channel.
+`--oidc-redirect-url`, else `--members-host`. An operator-managed dashboard
+takes it from `dashboard.auth.oidc.redirectURL`, so it needs OIDC sign-in to
+be a hub. A profile `hardened` cluster runs no review channel.
 
 ## Identity models
 
@@ -152,7 +153,8 @@ pacto cluster map-groups 9f1c4e2a --issuer https://login.other.example --map ops
   lasts 10 minutes.
 - A `CLUSTER_ISSUER_DIFFERS` item on Needs attention names the members of each
   issuer and who approved the mapping, or the `map-groups` command when no one
-  did. `--clear` removes a mapping.
+  did. `--clear` removes a mapping. `--signer-issuer` picks your signer when
+  the hub lists several approver signers.
 
 ## Members behind NAT
 
