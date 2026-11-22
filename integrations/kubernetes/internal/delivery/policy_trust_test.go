@@ -259,3 +259,18 @@ func TestPolicyLastGoodUnreadableNeverDecides(t *testing.T) {
 		t.Fatalf("verdict %+v published %v", v, st.Published)
 	}
 }
+
+// TestVerifiedPolicyKeepsNoMark: the owner check's read returns the policy
+// its tag names once it verifies, and nil with why when it does not.
+func TestVerifiedPolicyKeepsNoMark(t *testing.T) {
+	w := newPolicyWorld(t)
+	w.sign(w.key, "2026-11-18T10:00:00Z", contractorRule)
+	if pol, why := w.p.VerifiedPolicy(t.Context()); pol == nil || why != "" || len(pol.Publishers) != 1 || pol.Publishers[0].Name != "contractor" {
+		t.Fatalf("policy %+v why %q", pol, why)
+	}
+	_, stranger, _ := ed25519.GenerateKey(rand.Reader)
+	w.sign(stranger, "2026-11-19T10:00:00Z", contractorRule)
+	if pol, why := w.p.VerifiedPolicy(t.Context()); pol != nil || why == "" {
+		t.Fatalf("an unverified policy was returned: %+v %q", pol, why)
+	}
+}
