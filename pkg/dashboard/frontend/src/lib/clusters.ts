@@ -1,8 +1,12 @@
 // Per-cluster status words for meta.clusters: the Cluster filter caption on the
-// Services and Targets lists and the Clusters block on Data sources.
-import type { ClusterSummary } from './api.ts';
+// Services and Targets lists and the Clusters block on Data sources, plus the
+// member join rows (514-S3) that block shows.
+import type { ClusterSummary, ClusterJoinState } from './api.ts';
 
-export type { ClusterSummary };
+export type { ClusterSummary, ClusterJoinState };
+
+/** Where a cluster's display name came from, in words. */
+export const CLUSTER_NAME_SOURCES: Record<string, string> = { approval: 'approval', 'node-label': 'node label', context: 'context name', file: 'target-state file', uid: 'cluster id' };
 
 const ACCESS_WORDS: Record<string, string> = { 'no-access': 'no access', 'review-failed': 'review failed', 'not-reviewable': 'not reviewable' };
 const STATUS_WORDS: Record<string, string> = { available: 'complete', partial: 'partial', stale: 'stale', unavailable: 'unreachable' };
@@ -45,4 +49,52 @@ export function clusterCaptionParts(clusters: ClusterSummary[], selected: string
     ? `Showing ${shown} of the ${clusters.length} listed clusters; more are not listed`
     : !selected && !hidden.length ? `Showing all ${clusters.length} clusters` : `Showing ${shown} of ${clusters.length} clusters`;
   return { head, hidden: hidden.map((c) => ({ name: c.name || c.id, word: clusterWord(c) })) };
+}
+
+/** isDNSLabel: an RFC 1123 label, the only form a member display name takes. */
+export function isDNSLabel(s: string): boolean {
+  return s.length <= 63 && /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(s);
+}
+
+// shellQuote leaves a plain word alone and single-quotes anything else, so a copied
+// command never runs what a value carries.
+function shellQuote(s: string): string {
+  return /^[A-Za-z0-9._:/-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`;
+}
+
+/** approveCommand is the command that approves a member: it names the key the person
+ *  checked (--key) and, when given, the display name (--name). */
+export function approveCommand(uid: string, name: string, keyID: string): string {
+  const parts = ['pacto cluster approve', shellQuote(uid), '--key', shellQuote(`sha256:${keyID}`)];
+  if (name) parts.push('--name', shellQuote(name));
+  return parts.join(' ');
+}
+
+/** shortKey is a key fingerprint cut to its head and tail (sha256:91ab…3e7f2); the title holds it whole. */
+export function shortKey(keyID: string): string {
+  return keyID.length > 12 ? `sha256:${keyID.slice(0, 4)}…${keyID.slice(-5)}` : `sha256:${keyID}`;
+}
+
+/** joinHostsTip says where each advertised environment came from: they are inferred. */
+export function joinHostsTip(r: ClusterJoinState): string {
+  return `Inferred, used by nothing yet: ${(r.environments ?? []).map((e) => `${e.name} from ${e.source}`).join('; ')}.`;
+}
+
+/** joinNameTip says where a member's display name came from. */
+export function joinNameTip(r: ClusterJoinState): string {
+  return `Name from the ${CLUSTER_NAME_SOURCES[r.nameSource ?? 'uid'] ?? CLUSTER_NAME_SOURCES.uid}.`;
+}
+
+/** approvedWords: "Approved by oidc:alice@acme.com on 2026-11-20." for a member's HelpTip. */
+export function approvedWords(r: ClusterJoinState | undefined): string {
+  if (!r?.approver) return '';
+  return ` Approved by ${r.approver}${r.approvedAt ? ` on ${r.approvedAt.slice(0, 10)}` : ''}.`;
+}
+
+/** joinCounts: the rows a reader cannot see and the records the list did not use. */
+export function joinCounts(hidden: number, otherHubs: number): string[] {
+  const out: string[] = [];
+  if (hidden) out.push(`${hidden} cluster${hidden === 1 ? '' : 's'} you may not approve`);
+  if (otherHubs) out.push(`${otherHubs} record${otherHubs === 1 ? '' : 's'} from another hub not used`);
+  return out;
 }
