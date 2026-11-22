@@ -101,12 +101,26 @@ func TestRestrictNarrowsClusters(t *testing.T) {
 		NewMemorySource("eu", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterA, "eu-prod", ClusterNameFromContext), Targets: []RawTarget{workload("payments", "payments")}}),
 		NewMemorySource("us", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterB, "us-prod", ClusterNameFromContext), Targets: []RawTarget{workload("orders", "orders")}}),
 	)
-	s := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns != "orders" }), anyClusterKind(nil)).SnapshotForSerialization()
+	s := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns == "payments" }), anyClusterKind(nil)).SnapshotForSerialization()
 	if len(s.Clusters) != 1 || s.Clusters[0].ID != clusterA {
 		t.Errorf("only the cluster of a visible target stays: %+v", s.Clusters)
 	}
 	if len(snap.Clusters) != 2 {
 		t.Errorf("Restrict must not edit the original: %+v", snap.Clusters)
+	}
+}
+
+// A cluster-wide reader of a cluster that holds no Pacto yet still sees the
+// cluster, so its Installation row is not hidden from them.
+func TestRestrictKeepsAReadableClusterWithNoTarget(t *testing.T) {
+	snap := buildClusterSnap(t,
+		NewMemorySource("eu", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterA, "eu-prod", ClusterNameFromContext), Targets: []RawTarget{workload("payments", "payments"), workload("orders", "orders")}}),
+		NewMemorySource("us", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterB, "us-prod", ClusterNameFromContext)}),
+	)
+	visible := func(cluster, ns string) bool { return cluster == clusterB || ns == "payments" }
+	s := NewQuery(snap).Restrict(visible, anyClusterKind(nil)).SnapshotForSerialization()
+	if len(s.Clusters) != 2 {
+		t.Errorf("the cluster the caller reads cluster-wide stays with no target: %+v", s.Clusters)
 	}
 }
 

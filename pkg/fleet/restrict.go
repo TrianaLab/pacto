@@ -280,7 +280,7 @@ func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadV
 		}
 		out.Targets[k] = t
 	}
-	out.Clusters = restrictClusters(s.Clusters, out.Targets)
+	out.Clusters = restrictClusters(s.Clusters, out.Targets, readable, visible)
 	out.Revisions = restrictRevisions(s, hiddenSvc, offeringOnly, workloadHidden(hiddenNS, workloadVisible))
 	// The older revisions a golden path visible only as one drops are hidden
 	// like a hidden service's: nothing visible may resolve to or name them.
@@ -812,13 +812,18 @@ func inferredMismatchCounts(limitations []Limitation) []Limitation {
 	return out
 }
 
-// restrictClusters is the clusters some target of targets carries.
-func restrictClusters(clusters []ClusterRecord, targets map[TargetKey]*TargetRecord) []ClusterRecord {
+// restrictClusters is the clusters some target of targets carries, and those
+// the caller may read in (a pair in readable or the cluster scope): a cluster
+// that holds no Pacto yet still names the Installation row a reader of it may
+// see.
+func restrictClusters(clusters []ClusterRecord, targets map[TargetKey]*TargetRecord, readable map[string]bool, visible func(cluster, namespace string) bool) []ClusterRecord {
 	carried := map[string]bool{}
 	for _, t := range targets {
 		carried[t.Cluster] = true
 	}
-	return slices.DeleteFunc(slices.Clone(clusters), func(c ClusterRecord) bool { return !carried[c.ID] })
+	return slices.DeleteFunc(slices.Clone(clusters), func(c ClusterRecord) bool {
+		return !carried[c.ID] && !readable[c.ID] && !visible(c.ID, "")
+	})
 }
 
 // clusterUnknownOf rebuilds CLUSTER_UNKNOWN from the targets out holds, by
