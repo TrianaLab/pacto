@@ -212,7 +212,13 @@ case "$out" in *"$KEPT_NS"*) ;; *) echo "$out" >&2; fail "the upgrade NOTES do n
 kubectl get ns "$DNS" >/dev/null 2>&1 || fail "the upgrade to hardened deleted namespace $DNS"
 kubectl -n "$DNS" get configmap e2e-trust >/dev/null 2>&1 || fail "the upgrade to hardened deleted the trust ConfigMap in $DNS"
 pass "namespace $DNS and its trust ConfigMap survive the upgrade and NOTES say so"
+# The idp operator made the dashboard's ClusterRole; once hardened it may not delete
+# it, so it warns with the command instead, and that command is what clears it.
+stale_warned() { [ -n "$(kubectl -n "$KD" get events --field-selector reason=StaleClusterRBAC -o name)" ]; }
+eventually 20 stale_warned || fail "the hardened operator never warned about the idp install's pacto-dashboard ClusterRole"
+pass "the hardened operator warns that it may not remove the idp install's ClusterRole"
 helm uninstall "$KD" -n "$KD" --wait >/dev/null
+kubectl delete clusterrole,clusterrolebinding pacto-dashboard --ignore-not-found >/dev/null
 assert_release_gone "$KD"
 kubectl delete ns "$DNS" "$KD" --wait --timeout=120s >/dev/null
 
