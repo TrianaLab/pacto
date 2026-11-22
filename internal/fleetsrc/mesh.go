@@ -125,6 +125,12 @@ func (s *MeshSource) WithMemo(m *MeshMemo) *MeshSource {
 	return s
 }
 
+// WithClock makes s read the time from now, and returns s.
+func (s *MeshSource) WithClock(now func() time.Time) *MeshSource {
+	s.now = now
+	return s
+}
+
 // NewMeshSource returns a mesh source over namespaces (empty for all). id is
 // its provenance id; cluster is the cluster it reads, nil when unknown.
 // Prometheus is read directly only when client runs inside the cluster.

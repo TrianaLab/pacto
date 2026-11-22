@@ -176,7 +176,11 @@ func (s *Service) entrySources(e K8sEntry, several bool, opts FleetOptions, prom
 	// The mesh source is rebuilt for every build; its memo outlives them so
 	// the mesh is read at most once per interval per process.
 	memo, _ := s.k8sLast.LoadOrStore(k8sMemo{"mesh", id + "|" + strings.Join(opts.K8sNamespaces, ",")}, &fleetsrc.MeshMemo{})
-	srcs := liveK8sSources(id, e.cluster, e.client, opts.K8sNamespaces, promoters, memo.(*fleetsrc.MeshMemo))
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
+	srcs := liveK8sSources(id, e.cluster, e.client, opts.K8sNamespaces, promoters, memo.(*fleetsrc.MeshMemo), now)
 	if !opts.LongRunning {
 		return srcs
 	}

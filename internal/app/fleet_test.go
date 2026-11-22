@@ -532,7 +532,7 @@ func TestLiveK8sRegistersWorkloadSource(t *testing.T) {
 }
 
 func TestLiveK8sSourcesIncludeMesh(t *testing.T) {
-	srcs := liveK8sSources("uid-1", nil, &fakeFleetK8sClient{}, nil, nil, &fleetsrc.MeshMemo{})
+	srcs := liveK8sSources("uid-1", nil, &fakeFleetK8sClient{}, nil, nil, &fleetsrc.MeshMemo{}, time.Now)
 	var ids []string
 	for _, s := range srcs {
 		ids = append(ids, s.ID())

@@ -466,12 +466,14 @@ const (
 // liveK8sSources are a cluster's three live sources: its Pacto CRs, its
 // workloads and the calls a service mesh records, the Pacto source named id
 // and the others after it. cluster is nil when the cluster identity could not
-// be read. meshMemo keeps the mesh source's last read across builds.
-func liveK8sSources(id string, cluster *fleet.Cluster, client k8sclient.K8sClient, namespaces []string, promoters []workloadmanager.Fingerprint, meshMemo *fleetsrc.MeshMemo) []fleet.Source {
+// be read. meshMemo keeps the mesh source's last read across builds; now is
+// the mesh source's clock.
+func liveK8sSources(id string, cluster *fleet.Cluster, client k8sclient.K8sClient, namespaces []string, promoters []workloadmanager.Fingerprint,
+	meshMemo *fleetsrc.MeshMemo, now func() time.Time) []fleet.Source {
 	return []fleet.Source{
 		fleetsrc.NewK8sSource(id, cluster, client, namespaces),
 		fleetsrc.NewWorkloadSource(id+workloadsSuffix, cluster, client, namespaces).WithPromoters(promoters),
-		fleetsrc.NewMeshSource(id+meshSuffix, cluster, client, namespaces).WithMemo(meshMemo),
+		fleetsrc.NewMeshSource(id+meshSuffix, cluster, client, namespaces).WithMemo(meshMemo).WithClock(now),
 	}
 }
 
