@@ -57,6 +57,7 @@ type recordFleetOpts struct {
 	inferred []contract.Inferred // what the local read implied (508-S1)
 	noOwner  bool                // newsletter declares no owner
 	contract string              // pacto.yaml as the bundle holds it; empty for none
+	extra    []Source            // more sources to build with
 }
 
 // recordFleet: newsletter runs in namespace news, notification-worker in shop.
@@ -91,7 +92,7 @@ func recordFleet(t *testing.T, o recordFleetOpts) *Query {
 	if o.observed {
 		col.Observed = []ObservedEdge{{From: "newsletter", To: "notification-worker", Count: 3}}
 	}
-	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("k8s", "kubernetes", col))
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, append([]Source{NewMemorySource("k8s", "kubernetes", col)}, o.extra...)...)
 	if err != nil {
 		t.Fatal(err)
 	}

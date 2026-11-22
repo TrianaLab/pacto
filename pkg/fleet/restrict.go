@@ -602,7 +602,8 @@ func hiddenCallerKey(c UncontractedCaller) ServiceKey {
 // in the visible caller's dependencies, both by the hidden end's key, so a
 // workload also counted as an uncontracted caller counts once. An external
 // end is never hidden; an edge from a hidden caller to one goes uncounted,
-// as its record drops the caller.
+// as its record drops the caller. An edge only service facts back goes
+// uncounted too: an inferred value never moves a hidden count.
 func restrictInferredEdges(rels []Relationship, hiddenSvc map[ServiceKey]bool, deps, dependents map[ServiceKey]map[ServiceKey]bool) []Relationship {
 	count := func(m map[ServiceKey]map[ServiceKey]bool, at, other ServiceKey) {
 		if m[at] == nil {
@@ -613,7 +614,7 @@ func restrictInferredEdges(rels []Relationship, hiddenSvc map[ServiceKey]bool, d
 	return slices.DeleteFunc(slices.Clone(rels), func(rel Relationship) bool {
 		from, to := hiddenSvc[rel.FromService], hiddenSvc[rel.ToService]
 		switch {
-		case from && to:
+		case from && to, serviceFactOnly(rel):
 		case from && rel.ToService != "":
 			count(dependents, rel.ToService, rel.FromService)
 		case to:
@@ -689,7 +690,9 @@ func rebuiltLimitation(l Limitation) bool {
 		LimitationClusterHidden,
 		// A mismatch names an external identity and a pacto-inferred ref the
 		// view may hide; it becomes a count per source.
-		LimitationInferredIdentityMismatch:
+		LimitationInferredIdentityMismatch,
+		// Sets of services a service fact matched, some maybe hidden.
+		LimitationServiceFactAmbiguous:
 		return true
 	case LimitationSourceRecordInvalid:
 		// Per-source counts of records that may be hidden.
@@ -751,6 +754,7 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	out.Limitations = append(out.Limitations, clusterUnknownOf(out)...)
 	out.Limitations = append(out.Limitations, clusterRecordProblemsOf(out)...)
 	out.Limitations = append(out.Limitations, inferredSnapshotLimitations(out)...)
+	out.Limitations = append(out.Limitations, serviceFactAmbiguity(out)...)
 	out.Limitations = append(out.Limitations, mismatches...)
 	out.Limitations = append(out.Limitations, counted...)
 }

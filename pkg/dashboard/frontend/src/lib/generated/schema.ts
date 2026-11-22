@@ -3706,7 +3706,7 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); serviceFact (a depends-on a source outside every contract reports); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
             kind: string;
             /**
              * Format: date-time
@@ -3987,6 +3987,15 @@ export interface components {
             /** @enum {string} */
             state: "complete" | "partial" | "failed";
         };
+        "Fleet.InferredFact": {
+            /** Format: date-time */
+            asOf?: string;
+            /** @description The id of the source that reported it */
+            source: string;
+            value: string;
+            /** @description The source's own reference for the record it read, such as component:default/ledger */
+            where?: string;
+        };
         "Fleet.InferredField": {
             /** @description When the cluster fact was read (RFC 3339 UTC) */
             asOf?: string;
@@ -4101,7 +4110,7 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); serviceFact (a depends-on a source outside every contract reports); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
             kind: string;
             /**
              * Format: date-time
@@ -5544,6 +5553,10 @@ export interface components {
             hiddenDependents?: number;
             /** Format: int64 */
             hiddenPolicyReferrers?: number;
+            /** @description A business domain a source outside every contract reports. Never fills businessDomain */
+            inferredBusinessDomain?: components["schemas"]["Fleet.InferredFact"];
+            /** @description An owner a source outside every contract reports, as an owner key (team:<name> or dri:<name>). Never an owner claim; ownerProvenance is inferred only when no declared, attested or declared-via-target owner exists */
+            inferredOwner?: components["schemas"]["Fleet.InferredFact"];
             key: string;
             labels?: {
                 [key: string]: string;

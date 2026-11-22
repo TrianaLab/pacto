@@ -149,6 +149,12 @@ type Collection struct {
 	// an inferred service and never a target, so it never counts in
 	// compliance, link or target tallies. Their cluster is [Collection.Cluster].
 	InferredServices []RawInferredService
+	// ServiceFacts are values a source outside every contract reports for a
+	// service it names: an owner, a business domain and the services it depends
+	// on. [Build] keeps them as inferred values beside the declared fields and as
+	// inferred edges: they never fill a declared field, never become an owner
+	// claim and never enter an index a gate reads.
+	ServiceFacts []RawServiceFact
 	// Providers are rows describing what this source detected and read;
 	// Build copies them, fills Source and Cluster and never lets a row claim
 	// better health than the source.
@@ -156,6 +162,44 @@ type Collection struct {
 	// Advisory: an advisory source never makes a snapshot partial: its status
 	// is reported and its rows are hints.
 	Advisory bool
+}
+
+// RawServiceFact is what a source outside every contract (an IDP's catalog)
+// reports for one service it names. [Build] matches it to a service by
+// ServiceKey when set, else by Name, and never guesses: a name that matches
+// more than one service gives no value.
+type RawServiceFact struct {
+	// Name is the source's name for the service, matched case-insensitively
+	// against the name of exactly one fleet service.
+	Name string
+	// ServiceKey, when set, is the only service the fact may match.
+	ServiceKey ServiceKey
+	// Entity is the source's own reference for the record it read, such as
+	// component:default/ledger. It says where a value came from.
+	Entity string
+	// Owner is the owner the source reports; only its canonical key is kept.
+	Owner contract.Owner
+	// BusinessDomain is the business domain the source reports; a value that
+	// is no valid service.domain slug is dropped.
+	BusinessDomain string
+	// DependsOn are the services the source says this one depends on.
+	DependsOn []RawFactRef
+	// ObservedAt is when the source read the record.
+	ObservedAt *time.Time
+	// Exported marks a record Pacto itself wrote to the source: reading it
+	// back would echo Pacto's own values, so [Build] skips it.
+	Exported bool
+}
+
+// RawFactRef names a service a [RawServiceFact] depends on, matched like the
+// fact itself.
+type RawFactRef struct {
+	// Name is the source's name for the service.
+	Name string
+	// ServiceKey, when set, is the only service the reference may match.
+	ServiceKey ServiceKey
+	// Entity is the source's own reference for the service.
+	Entity string
 }
 
 // RawInferredService is one workload a source read (Kind is Deployment,
