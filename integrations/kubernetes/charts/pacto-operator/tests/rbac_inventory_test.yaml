@@ -7,6 +7,9 @@
 # TokenReview grant) before updating it.
 # TestRBACInventoryListsEveryRBACTemplate fails when a template that renders RBAC
 # is missing from templates below.
+# A member cluster (one that joins a hub through the registry) needs no rule
+# beyond its install: the `registry` render is the member install and the
+# `hardened with registry` render the member and hardened install.
 suite: rbac inventory
 templates:
   - templates/clusterrole.yaml

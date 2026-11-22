@@ -221,6 +221,9 @@ Delivery stays off until `delivery.enabled=true`.
   trust entry from the new `snapshotKey`.
 - **Proposals:** Pacto proposes a registry and a pull Secret it saw running
   pods use, in the upgrade notes and on Data sources, and sets neither.
+- **Member:** a hub that reads the same registry lists this cluster as a
+  pending member, and a person approves it there; see
+  [Join a cluster through the registry](../../multi-cluster.md#join-a-cluster-through-the-registry).
 
 The operator reaches the registry with the pod's workload identity:
 
