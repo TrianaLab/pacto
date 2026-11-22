@@ -25,6 +25,7 @@
   import { loadTrustFigure } from '../lib/lazyFigures.ts';
   import HelpTip from '../components/HelpTip.svelte';
   import { clusterWord, clusterReason, showClusters, shortKey, joinNameTip, joinHostsTip, approvedWords, removedWords, snapshotWords, joinCounts } from '../lib/clusters.ts';
+  import { linkWords, linkTip } from '../lib/clusterLink.ts';
   import ProvenanceMark from '../components/ProvenanceMark.svelte';
   import ClusterApprove from '../components/ClusterApprove.svelte';
   import LimitationsList from '../components/LimitationsList.svelte';
@@ -170,11 +171,13 @@
       <h2 id="sc-title" class="t-subsection-title">Clusters</h2>
       <ul class="sc-list">
         {#each clusters as c, i (`${c.id}@@${i}`)}
+          {@const link = linkWords(c, approved.has(c.id))}
           <li class="sc-chip tone-{clusterTone(c)}" data-testid="source-cluster">
             <span class="sc-dot" aria-hidden="true"></span>
             <bdi title={c.name || c.id}>{c.name || c.id}</bdi>
             <span class="sc-word">{clusterWord(c)}</span>
-            <HelpTip label={`cluster ${c.name || c.id}`} text={clusterReason(c) + approvedWords(approved.get(c.id))} />
+            {#if link}<span class="sc-link" title={link}>{link}</span>{/if}
+            <HelpTip label={`cluster ${c.name || c.id}`} text={clusterReason(c) + approvedWords(approved.get(c.id)) + linkTip(c, approved.has(c.id))} />
           </li>
         {/each}
       </ul>
@@ -271,6 +274,8 @@
   /* A 63-character cluster name ends in an ellipsis; its title holds it whole. */
   .sc-chip bdi { min-inline-size: 0; max-inline-size: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
   .sc-word { flex: none; color: var(--c-text-2); }
+  /* The member's channel and identity model (514-S4): discreet, details in the tip. */
+  .sc-link { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-text-3); }
   /* Pending members (514-S3): one row each, wrapping at any width; hosts are inferred,
      so muted. A 63-character name and the key end in an ellipsis with a title. */
   .sc-joins { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); min-inline-size: 0; }

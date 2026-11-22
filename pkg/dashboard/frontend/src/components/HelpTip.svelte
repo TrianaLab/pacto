@@ -44,6 +44,22 @@
     return () => document.removeEventListener('pointerdown', away, true);
   });
 
+  // A tip opened near the right edge (a chip's "?" on a phone) shifts left to stay on
+  // screen, keeping an 8px margin, also after a resize; it starts at its button otherwise.
+  let body = $state(null);
+  $effect(() => {
+    if (!open || !body) return;
+    const place = () => {
+      body.style.left = '0px';
+      const r = body.getBoundingClientRect();
+      const shift = Math.min(r.right - document.documentElement.clientWidth + 8, r.left - 8);
+      if (shift > 0) body.style.left = `${-shift}px`;
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  });
+
   const id = $props.id();
 </script>
 
@@ -68,7 +84,7 @@
   >{glyph}</button>
   <!-- Always in the DOM, hidden until opened: the definition stays part of the page's
        text (search, copy, tests) without being on screen. -->
-  <span class="help-body t-body-2 {textClass}" {id} role="note" hidden={!open}>{text}</span>
+  <span class="help-body t-body-2 {textClass}" {id} role="note" hidden={!open} bind:this={body}>{text}</span>
 </span>
 
 <style>

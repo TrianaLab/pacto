@@ -87,6 +87,32 @@ func demoMemberSources() []fleet.Source {
 	return out
 }
 
+// demoIssuer is the issuer the hub signs people in with; its length makes the
+// opened Data sources HelpTip wrap.
+const demoIssuer = "https://login.northwind.example/realms/production-engineering/protocol/openid-connect"
+
+// demoMemberLinks are the hub's member link facts, carried by an advisory
+// source that is listed nowhere: eu-prod's channel is live and its apiserver
+// accepts the hub's exchanged tokens; us-west's dropped with its snapshot and
+// reads under the group mapping alice approved, which raises
+// CLUSTER_ISSUER_DIFFERS. The pending ap-dev never connected.
+func demoMemberLinks() fleet.Source {
+	at := func(d time.Duration) *time.Time { t := demoNow().Add(-d); return &t }
+	links := map[string]fleet.ClusterLink{}
+	for _, m := range demoMembers() {
+		switch m.name {
+		case "eu-prod":
+			links[m.uid] = fleet.ClusterLink{Channel: fleet.LinkLive, Since: at(3 * time.Hour),
+				Issuers: []fleet.IssuerModel{{Issuer: demoIssuer, Model: fleet.IssuerShared}}}
+		case "us-west":
+			links[m.uid] = fleet.ClusterLink{Channel: fleet.LinkDown, Since: at(m.snapshotAge),
+				Issuers: []fleet.IssuerModel{{Issuer: demoIssuer, Model: fleet.IssuerGroupMapping, MappedBy: demoApprover,
+					MappedAt: at(48 * time.Hour), Mapping: "platform-engineers=pacto-readers"}}}
+		}
+	}
+	return fleet.NewMemorySource("member-links", fleet.SourceKindMemberLinks, &fleet.Collection{Advisory: true, ClusterLinks: links})
+}
+
 // demoClusterJoins is the hub's join list: what pacto cluster list prints and
 // the Data sources page shows on the hub.
 func demoClusterJoins() delivery.ClusterJoinList {

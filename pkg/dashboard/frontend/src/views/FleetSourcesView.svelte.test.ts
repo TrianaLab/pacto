@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
+import { readFileSync } from 'node:fs';
 
 const { entitiesFn, clustersFn } = vi.hoisted(() => ({ entitiesFn: vi.fn(), clustersFn: vi.fn() }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
@@ -104,7 +105,8 @@ describe('FleetSourcesView Clusters block', () => {
     expect(det.querySelector('summary')?.textContent).toBe('1 removed');
     expect(det.textContent).toContain('Removed by oidc:bob@acme.com on 2026-11-21.');
     const tip = target.querySelectorAll('[data-testid="source-cluster"]')[1].querySelector('[role="note"]');
-    expect(tip?.textContent).toBe('Every data source that reads this cluster answered. Approved by oidc:alice@acme.com on 2026-11-20.');
+    expect(tip?.textContent).toBe('Every data source that reads this cluster answered. Approved by oidc:alice@acme.com on 2026-11-20.'
+      + ' This member has no live channel to this hub, so signed-in people are not reviewed there.');
     done();
   });
 
@@ -152,5 +154,31 @@ describe('FleetSourcesView Clusters block', () => {
     expect(err.closest('[data-testid="source-clusters"]')).not.toBeNull();
     expect(target.querySelector('[data-testid="cluster-join-pending"]')).toBeNull();
     done();
+  });
+
+  // 514-S4: the member's channel and identity model, a muted run after the status word.
+  it('shows the link run muted after the word, with the issuer in the tip only', async () => {
+    const iss = 'https://login.example/realms/eng';
+    const { target, done } = await render([
+      { id: 'uid-eu', name: 'eu-prod', status: 'available', targets: 2, link: { channel: 'live', since: '2026-11-20T08:15:00Z', issuers: [{ issuer: iss, model: 'shared-issuer' }] } },
+      { id: 'uid-us', name: 'us-west', status: 'available', targets: 1 },
+      { id: 'uid-hub', name: 'hub', status: 'available', targets: 3 },
+    ], joinList({ clusters: [{ uid: 'uid-us', name: 'us-west', state: 'approved', keyID: KEY, approver: 'oidc:alice@acme.com' }] }));
+    const chips = await vi.waitFor(() => {
+      const cs = Array.from(target.querySelectorAll('[data-testid="source-cluster"]'));
+      expect(cs[1].querySelector('.sc-link')).not.toBeNull();
+      return cs;
+    });
+    const runs = chips.map((c) => c.querySelector<HTMLElement>('.sc-link')?.textContent ?? null);
+    expect(runs).toEqual(['live · shared issuer', 'no live channel', null]);
+    expect(chips[0].querySelector('.sc-word')?.nextElementSibling?.classList.contains('sc-link')).toBe(true);
+    expect(chips[0].querySelector('.sc-link')?.textContent).not.toContain(iss);
+    expect(chips[0].querySelector('[role="note"]')?.textContent).toContain(`${iss}: its tokens are accepted.`);
+    expect(chips[0].querySelector('[role="note"]')?.textContent).toContain('since 2026-11-20 08:15');
+    done();
+  });
+
+  it('draws the run in the muted token', () => {
+    expect(readFileSync('src/views/FleetSourcesView.svelte', 'utf8')).toMatch(/\.sc-link \{[^}]*color: var\(--c-text-3\)/);
   });
 });

@@ -1752,6 +1752,9 @@ export async function layoutProblems(page: Page): Promise<string[]> {
         rows.get(k)!.push(x);
       }
     }
+    // An opened HelpTip is a popover: it covers the text under it and floats out of its
+    // button by design. Its own text is still held on screen and uncut by the checks above.
+    const tip = (el: Element) => !!el.closest('.help-body');
     const seen = new Set<string>();
     const idx = new Map(boxes.map((b, i) => [b, i]));
     // A text box is the nearest box that is not inline: runs inside one inline
@@ -1777,7 +1780,7 @@ export async function layoutProblems(page: Page): Promise<string[]> {
       for (let i = 0; i < list.length; i++) {
         for (let j = i + 1; j < list.length; j++) {
           const a = list[i], b = list[j];
-          if (a.node === b.node) continue;
+          if (a.node === b.node || tip(a.el) || tip(b.el)) continue;
           const key = `${idx.get(a)}:${idx.get(b)}`;
           if (seen.has(key)) continue;
           seen.add(key);
@@ -1805,9 +1808,10 @@ export async function layoutProblems(page: Page): Promise<string[]> {
       const ownText = [...el.childNodes].some((c) => c.nodeType === 3 && (c.textContent ?? '').trim()) || el.querySelector(':scope > bdi');
       if (cs.overflowX === 'visible') {
         // Text spilling out of a box that does not clip it. A touch target widened by
-        // a negative margin overflows too, but carries no text past the edge.
+        // a negative margin overflows too, but carries no text past the edge. An opened
+        // HelpTip floats out of its button on purpose (tip, below).
         const q = el.getBoundingClientRect();
-        const spill = boxes.find((x) => el.contains(x.el) && (x.r > q.right + 1 || x.l < q.left - 1));
+        const spill = boxes.find((x) => el.contains(x.el) && (x.r > q.right + 1 || x.l < q.left - 1) && !tip(x.el));
         if (spill && !spilt.has(spill.node)) {
           spilt.add(spill.node);
           out.push(`${say(el)} lets text spill out of its box: ${say(spill.el)}`);
@@ -2928,6 +2932,19 @@ export const ROUTES: Route[] = [
   // 514-S3: pending members and the [Approve] hand-off inside the Clusters block.
   { name: 'sources, cluster-join', list: true, open: openClusterJoin(false) },
   { name: 'sources, cluster-join approve open', list: true, open: openClusterJoin(true) },
+  // 514-S4: the eu-prod chip's tip opened, so the gate measures the long issuer URL.
+  {
+    name: 'sources, member-links tip open',
+    list: true,
+    open: async (page) => {
+      await page.goto('/#/fleet/sources');
+      const eu = page.getByTestId('source-cluster').filter({ hasText: 'eu-prod' });
+      await expect(eu.locator('.sc-link')).toBeVisible({ timeout: 30_000 });
+      await eu.getByRole('button', { name: 'About cluster eu-prod' }).click();
+      await expect(eu.locator('[role="note"]')).toBeVisible();
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

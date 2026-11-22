@@ -240,9 +240,10 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	if err != nil {
 		return nil, nil, err
 	}
-	// The hub's approved members (source_clusters.go), each one cluster of its own.
+	// The hub's approved members (source_clusters.go), each one cluster of its own,
+	// and their link facts.
 	sources := append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection},
-		demoMemberSources()...)
+		append(demoMemberSources(), demoMemberLinks())...)
 	snap, err := fleet.Build(context.Background(),
 		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat, DeclarationSigners: demoHandoverSigners()},
 		sources...)
