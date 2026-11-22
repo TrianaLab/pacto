@@ -23,6 +23,13 @@ import (
 // GitOps rung answers.
 func argoKube(t *testing.T) {
 	t.Helper()
+	argoKubeAt(t, "reg.io/acme/invoices:1.0.0", "https://github.com/acme/invoices.git")
+}
+
+// argoKubeAt is argoKube whose Deployment runs image and whose Application's
+// source is repoURL at deploy.
+func argoKubeAt(t *testing.T, image, repoURL string) {
+	t.Helper()
 	list := func(items ...string) string {
 		return `{"kind":"List","apiVersion":"v1","metadata":{},"items":[` + strings.Join(items, ",") + `]}`
 	}
@@ -38,10 +45,10 @@ func argoKube(t *testing.T) {
 		case "/apis/apps/v1/namespaces/billing/deployments":
 			_, _ = w.Write([]byte(list(`{"apiVersion":"apps/v1","kind":"Deployment","metadata":{"name":"invoices","namespace":"billing",` +
 				`"annotations":{"argocd.argoproj.io/tracking-id":"invoices:apps/Deployment:billing/invoices"}},` +
-				`"spec":{"template":{"spec":{"containers":[{"name":"invoices","image":"reg.io/acme/invoices:1.0.0"}]}}}}`)))
+				`"spec":{"template":{"spec":{"containers":[{"name":"invoices","image":"` + image + `"}]}}}}`)))
 		case "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications":
 			_, _ = w.Write([]byte(list(`{"apiVersion":"argoproj.io/v1alpha1","kind":"Application","metadata":{"name":"invoices","namespace":"argocd"},` +
-				`"spec":{"source":{"repoURL":"https://github.com/acme/invoices.git","path":"deploy"}},` +
+				`"spec":{"source":{"repoURL":"` + repoURL + `","path":"deploy"}},` +
 				`"status":{"resources":[{"group":"apps","kind":"Deployment","namespace":"billing","name":"invoices"}]}}`)))
 		default:
 			if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "s") && strings.Contains(r.URL.Path, "/namespaces/") {
