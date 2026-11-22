@@ -174,3 +174,12 @@ func TestReleasedReaderReadsLinkedSnapshot(t *testing.T) {
 		t.Fatalf("released reader %+v %v", released, err)
 	}
 }
+
+func TestStripLinkLabelsKeepsTheRest(t *testing.T) {
+	labels := map[string]string{delivery.LinkedByLabel: "annotation", delivery.LinkedSinceLabel: "x", "team": "pay"}
+	delivery.StripLinkLabels(labels)
+	if !reflect.DeepEqual(labels, map[string]string{"team": "pay"}) {
+		t.Fatalf("labels: %v", labels)
+	}
+	delivery.StripLinkLabels(nil) // a view with no labels
+}

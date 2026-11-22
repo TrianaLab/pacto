@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"slices"
 	"testing"
 
@@ -59,7 +60,7 @@ func (f *fakeIndex) publishVersion(t *testing.T, service, repo, version, imageRe
 		t.Fatal(err)
 	}
 	bundle := repo + "@sha256:" + fmt.Sprintf("%064x", len(f.entries)+1)
-	f.entries[tag] = orgindex.Entry{Service: service, Version: version, Bundle: bundle}
+	f.entries[tag] = orgindex.Entry{Service: service, Name: path.Base(service), Version: version, Bundle: bundle}
 	f.images[bundle] = []publish.ImagesRecord{{Records: []publish.ImageRecord{{Repository: imageRepo, Digest: digest}}, Signed: true}}
 	return tag
 }

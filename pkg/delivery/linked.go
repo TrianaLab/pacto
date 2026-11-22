@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -158,6 +159,12 @@ func parseLink(labels map[string]string) (*fleet.ObservedLink, error) {
 		}
 	}
 	return l, nil
+}
+
+// StripLinkLabels deletes every link label from labels: on a view the linker
+// did not write they are free text.
+func StripLinkLabels(labels map[string]string) {
+	maps.DeleteFunc(labels, func(k, _ string) bool { return strings.HasPrefix(k, linkLabelPrefix) })
 }
 
 // hasLinkLabel reports whether labels hold any link label.

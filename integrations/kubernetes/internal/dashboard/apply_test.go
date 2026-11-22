@@ -528,7 +528,7 @@ func TestDeploymentAC_DetectedVolumeOptional(t *testing.T) {
 		}
 		cm := v.ConfigMap
 		vol = cm != nil && *cm.Name == "pacto-operator-detected" && cm.Optional != nil && *cm.Optional &&
-			len(cm.Items) == 1 && *cm.Items[0].Key == "detected.json" && *cm.Items[0].Path == "detected.json"
+			len(cm.Items) == 2 && *cm.Items[0].Key == "detected.json" && *cm.Items[0].Path == "detected.json"
 	}
 	if !vol {
 		t.Error("expected an optional ConfigMap volume detected with the detected.json item")
@@ -602,4 +602,22 @@ func TestApplyMountsOwnerPolicy(t *testing.T) {
 			t.Error("owner policy volume without a ConfigMap")
 		}
 	}
+}
+
+// The linker writes linked.json into the detection ConfigMap; the dashboard
+// reads it from beside detected.json.
+func TestDetectedVolumeMountsLinkedKey(t *testing.T) {
+	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns", DetectedConfigMap: "pacto-operator-detected"}
+	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
+	for _, v := range deploy.Spec.Template.Spec.Volumes {
+		if *v.Name != "detected" {
+			continue
+		}
+		for _, it := range v.ConfigMap.Items {
+			if *it.Key == "linked.json" && *it.Path == "linked.json" {
+				return
+			}
+		}
+	}
+	t.Error("expected the detected volume to mount linked.json")
 }

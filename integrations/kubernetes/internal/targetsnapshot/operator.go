@@ -54,6 +54,8 @@ type Config struct {
 	// OwnerPolicy is the chart's declare block (--owner-policy); nil publishes
 	// none.
 	OwnerPolicy *core.OwnerPolicy
+	// Linked is the linker's last result; nil carries no linked targets.
+	Linked func() core.LinkedTargets
 }
 
 // ForOperator is the operator's snapshot publisher, or nil when no registry is
@@ -80,7 +82,7 @@ func ForOperator(cfg Config) (manager.Runnable, error) {
 		// The publisher claim, inlined: the operator never links the delivery packages.
 		Publisher:  "system:serviceaccount:" + cfg.Namespace + ":" + cfg.ServiceAccount,
 		Namespaces: cfg.Watched, OnPush: cfg.OnPush, Mode: targetsMode(repo, cfg.ClusterID),
-		EvidenceURL: cfg.EvidenceURL, OwnerPolicy: cfg.OwnerPolicy, HTTP: &http.Client{Timeout: 10 * time.Second},
+		EvidenceURL: cfg.EvidenceURL, OwnerPolicy: cfg.OwnerPolicy, Linked: cfg.Linked, HTTP: &http.Client{Timeout: 10 * time.Second},
 		Now: time.Now, Interval: core.TargetSnapshotInterval, Log: ctrl.Log.WithName("targets")}, nil
 }
 

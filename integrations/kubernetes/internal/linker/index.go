@@ -159,3 +159,13 @@ func btoi(b bool) int {
 	}
 	return 0
 }
+
+// claimed is the service name the cached index entry of bundle claims.
+func (x *Index) claimed(bundle string) (string, bool) {
+	for _, e := range x.entries {
+		if e.Bundle == bundle {
+			return e.Name, true
+		}
+	}
+	return "", false
+}

@@ -98,15 +98,15 @@ func (d *Detector) Start(ctx context.Context) error {
 func (d *Detector) Sync(ctx context.Context) error {
 	log := logf.FromContext(ctx).WithName("detection")
 	if d.owner == nil {
-		deploy := &appsv1.Deployment{}
-		if err := d.Reader.Get(ctx, client.ObjectKey{Namespace: d.Namespace, Name: d.DeploymentName}, deploy); err != nil {
+		owner, err := OwnerRef(ctx, d.Reader, d.Namespace, d.DeploymentName)
+		if err != nil {
 			if !d.warnedOwner {
 				d.warnedOwner = true
 				log.Info("Detection waits for the operator Deployment to own its ConfigMap", "deployment", d.DeploymentName, "reason", reason(err))
 			}
 			return nil
 		}
-		d.owner = metav1ac.OwnerReference().WithAPIVersion("apps/v1").WithKind("Deployment").WithName(deploy.Name).WithUID(deploy.UID)
+		d.owner = owner
 	}
 	data, err := detect.Encode(d.detect(ctx))
 	if err == nil {
@@ -124,6 +124,17 @@ func (d *Detector) Sync(ctx context.Context) error {
 		log.Error(err, "Writing the detection ConfigMap failed", "configMap", d.Name, "reason", reason(err))
 	}
 	return nil
+}
+
+// OwnerRef is the owner reference of the operator Deployment namespace/name,
+// which owns the ConfigMap detection and the linker write: uninstall collects
+// it.
+func OwnerRef(ctx context.Context, r client.Reader, namespace, name string) (*metav1ac.OwnerReferenceApplyConfiguration, error) {
+	deploy := &appsv1.Deployment{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, deploy); err != nil {
+		return nil, err
+	}
+	return metav1ac.OwnerReference().WithAPIVersion("apps/v1").WithKind("Deployment").WithName(deploy.Name).WithUID(deploy.UID), nil
 }
 
 // detect reads the cluster and runs every rule.
