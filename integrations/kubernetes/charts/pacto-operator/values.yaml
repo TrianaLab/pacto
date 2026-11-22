@@ -320,7 +320,7 @@ dashboard:
     enabled: true
     # -- The /mcp URL as agents reach it, an absolute http(s) URL whose path is exactly `/mcp` (a path prefix is not supported; empty: derived from the Ingress or HTTPRoute host, else the address the agent used)
     url: ""
-    # -- With `dashboard.auth.oidc`, the audience to exchange an agent's issuer token for, one the API server accepts. The dashboard's OIDC client exchanges it (RFC 8693). Needs a URL. Empty: every token is checked as a Kubernetes token
+    # -- With `dashboard.auth.oidc`, the audience to exchange an agent's issuer token for, one the API server accepts. The dashboard's OIDC client exchanges it (RFC 8693). Needs a URL. Set: every token from that issuer must name the MCP URL as its audience. Empty: every token is checked as a Kubernetes token
     exchangeAudience: ""
   # What the dashboard's delivery views read. They need sign-in
   # (`dashboard.auth`), because every delivery read and action runs with the

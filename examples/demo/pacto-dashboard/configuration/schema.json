@@ -29,7 +29,7 @@
       "type": "boolean"
     },
     "PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE": {
-      "description": "The audience asked for when exchanging an issuer token, one the API server accepts; without it every token is checked as a Kubernetes token",
+      "description": "The audience asked for when exchanging an issuer token, one the API server accepts. With it, every token from the dashboard's issuer must name the MCP URL as its audience; without it every token is checked as a Kubernetes token",
       "type": "string"
     },
     "PACTO_DASHBOARD_MCP_URL": {

@@ -134,6 +134,11 @@ follows its token:
 | A person's own token the cluster accepts, such as an OIDC ID token or an EKS token | Read the fleet and delivery as that person |
 | A token from your issuer, with `dashboard.mcp.exchangeAudience` set | Act as the identity the exchanged token names |
 
+With `dashboard.mcp.exchangeAudience` set, every token from the dashboard's own
+issuer must be minted for the MCP URL: it is exchanged, never checked as a
+Kubernetes token. Tokens from other issuers and ServiceAccount tokens keep the
+rows above.
+
 Nobody gets an approve tool.
 
 **Agents that propose.** Give the agent its own ServiceAccount, bind it to

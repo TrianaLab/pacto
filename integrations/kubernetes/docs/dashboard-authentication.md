@@ -272,14 +272,21 @@ Every request carries a bearer token:
 
 | Token | Checked by | The agent may |
 |---|---|---|
-| A person's own token (OIDC ID, EKS, GKE) | SelfSubjectReview; it never enters a TokenReview | Read the fleet and delivery as the person |
+| A person's own token (OIDC ID, EKS, GKE) | SelfSubjectReview; a token the API server accepts, or one it did not answer about, never enters a TokenReview | Read the fleet and delivery as the person |
 | A ServiceAccount token for `pacto-dashboard` only | TokenReview for `pacto-dashboard` | Read the fleet as that ServiceAccount's RBAC allows |
 | A ServiceAccount token for `pacto-dashboard` and the cluster's audience | TokenReview and SelfSubjectReview | Also propose and cancel, as that ServiceAccount |
 | An issuer token, with `dashboard.mcp.exchangeAudience` | The issuer's keys, then token exchange (RFC 8693); it never reaches the API server | Act as the exchanged identity |
 
+With `dashboard.mcp.exchangeAudience` set, every token from the dashboard's own
+issuer takes the issuer path and must name the MCP URL as its audience. An ID
+token that issuer minted for the Kubernetes client is refused; tokens from
+other issuers and Kubernetes tokens keep the rows above.
+
 Nobody approves over MCP. Writes use the caller's own token, so admission
 records the ServiceAccount; nothing is impersonated. At most 8 reviews run
-at once; a verdict is kept up to 30 seconds and a refusal not at all.
+at once; a verdict is kept up to 30 seconds and a refusal not at all. When
+the API server does not answer a review, the agent gets a 500 to retry, never
+a 401 telling it to sign in again.
 `profile: hardened` has no managed dashboard and so no `/mcp`.
 
 ## Bearer readers

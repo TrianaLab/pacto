@@ -244,7 +244,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 		"--oidc-issuer-url and --mcp-exchange-audience, an issuer token exchanged for the cluster (also PACTO_DASHBOARD_MCP)")
 	cmd.Flags().String("mcp-url", "", "the /mcp URL as agents reach it, the RFC 9728 resource: absolute http(s), path exactly /mcp (no path prefix); empty: the request's own address, token sign-in only (also PACTO_DASHBOARD_MCP_URL)")
 	cmd.Flags().String("mcp-exchange-audience", "", "the audience asked for when exchanging an issuer token, one the API server accepts; "+
-		"without it every token is checked as a Kubernetes token (also PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE)")
+		"with it, every token from the dashboard's issuer must name the MCP URL as its audience; without it every token is checked as a Kubernetes token (also PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE)")
 	cmd.Flags().Bool("allow-anonymous", false, "serve beyond loopback without sign-in: everyone who reaches the address reads the whole fleet (also PACTO_DASHBOARD_ALLOW_ANONYMOUS)")
 	cmd.Flags().String("review", reviewCluster, reviewUsage+" (also PACTO_DASHBOARD_REVIEW)")
 	cmd.Flags().String("mira-url", "", "Mira's address, to link health-check citations and open a service in Mira")
