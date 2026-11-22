@@ -356,6 +356,10 @@ folder shows and signs it; see [Publish from CI](publish-from-ci.md).
   keeps earlier versions verifying.
 - Publishing never turns delivery on: a cluster rolls out a published version
   only once you set up [delivery](integrations/kubernetes/delivery.md).
+- Each published bundle carries a signed record of its image digests, so the
+  operator [links the running workload](integrations/kubernetes/linked-workloads.md)
+  to its contract however you deploy it, and `pacto impact` counts that
+  workload as a consumer.
 
 ## A breaking change you need to ship { #ship-a-breaking-change }
 

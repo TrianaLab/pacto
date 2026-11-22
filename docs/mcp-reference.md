@@ -356,7 +356,11 @@ or schema file already there as it is, listed in `kept`.
   `replacesHidden`, the replacements whose workload the caller may not see.
   `replaces` on `pacto_fleet_get` and `pacto_fleet_entity` lists the inferred
   services the service replaced, with `link: inferred-from`, `revision`, `by`
-  and `workload` when a person's declaration names one.
+  and `workload` when a person's declaration names one, or `link: observed`
+  with `signal` and `value` when the operator
+  [linked the running workload](integrations/kubernetes/linked-workloads.md).
+  A linked target carries `link`: `signal` (`image-digest` or `annotation`),
+  `value`, `since` and `otherVersions`.
   `pacto_fleet_explain` adds one `REPLACES_INFERRED` reason per replacement;
   see
   [When a declaration replaces an inferred service](operational-graph-inferred.md#when-a-declaration-replaces-an-inferred-service).

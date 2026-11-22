@@ -41,6 +41,9 @@ Three more checks need no node agent: the interface protocol, how far an
 interface is exposed and which version a dependency runs. They are listed under
 [complementary checks](#complementary-checks).
 
+A workload with no `Pacto` is checked too when it runs a published contract;
+see [Evaluate a workload with no Pacto](linked-workloads.md).
+
 ## Turn it on
 
 You need, on every node that runs target pods:

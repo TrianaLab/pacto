@@ -55,7 +55,13 @@ compliance evidence that a source carries.
   each with `provenance: inferred`. The source is advisory: a missing,
   unreadable, foreign or future-dated ConfigMap leaves it `unavailable` with
   the reason and one older than 15 minutes leaves it `stale`. Neither makes
-  the answer partial.
+  the answer partial. The same reference also reads the
+  [workloads the operator linked](integrations/kubernetes/linked-workloads.md)
+  to a published contract with no Pacto, from the ConfigMap's `linked.json`
+  key (or a `linked.json` file beside the detection file), as source kind
+  `kubernetes-linked`: each is a target of its contract revision with a
+  `link` (`signal`, `value`, `since` and `otherVersions`), stale after three
+  minutes.
 - **Ingested external evidence** (`--evidence-url <url>`): a running [Evidence
   Server](evidence.md)'s read-only contribution over HTTP, exposing a
   remote environment's signed `EvidenceSet` reports as operational targets.
