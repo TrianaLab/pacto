@@ -172,6 +172,10 @@ describe('sourcesModel kind tallies (S2 r5)', () => {
     expect(sourceKindNoun('otlp-receiver', 1)).toBe('OTLP receiver');
     expect(sourceKindNoun('otlp-receiver', 2)).toBe('OTLP receivers');
   });
+  it('names the organization index', () => {
+    expect(sourceKindNoun('index', 1)).toBe('organization index');
+    expect(sourceKindNoun('index', 2)).toBe('organization indexes');
+  });
 });
 
 describe('provenance', () => {

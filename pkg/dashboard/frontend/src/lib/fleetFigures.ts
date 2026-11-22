@@ -142,7 +142,7 @@ const STATE_ORDER: SourceState[] = ['unavailable', 'stale', 'partial', 'availabl
 export interface SourceCountsLike { total?: number; available?: number; partial?: number; stale?: number; unavailable?: number; availableByKind?: { kind: string; count: number }[] }
 
 const KIND_NOUN: Record<string, [string, string]> = {
-  oci: ['OCI registry', 'OCI registries'], kubernetes: ['Kubernetes cluster', 'Kubernetes clusters'],
+  oci: ['OCI registry', 'OCI registries'], index: ['organization index', 'organization indexes'], kubernetes: ['Kubernetes cluster', 'Kubernetes clusters'],
   'evidence-http': ['evidence server', 'evidence servers'], local: ['local directory', 'local directories'],
   cache: ['bundle cache', 'bundle caches'], observation: ['observation file', 'observation files'],
   'target-state': ['target-state file', 'target-state files'], mira: ['Mira source', 'Mira sources'],

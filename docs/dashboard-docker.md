@@ -45,6 +45,7 @@ To build the image from a checkout instead, `make docker-build` and
 | `PACTO_DASHBOARD_PORT` | HTTP server port | `3000` |
 | `PACTO_DASHBOARD_NAMESPACE` | Kubernetes namespaces to read, comma-separated (empty = all) | `""` |
 | `PACTO_DASHBOARD_REPO` | Comma-separated OCI repositories to scan | `""` |
+| `PACTO_DASHBOARD_INDEX` | Organization index, as `<registry>/pacto-index`, whose every service the dashboard reads ([Export from the registry offline](backstage-registry.md)); the operator sets it from `registry` | `""` (none) |
 | `PACTO_DASHBOARD_CORS_ORIGIN` | Trusted cross-origin allowed to call the API | `""` (same-origin only) |
 | `PACTO_DASHBOARD_TRACES` | Offline OTLP/JSON trace exports to fold observed dependencies from. **Space-separated** list of paths | `""` |
 | `PACTO_DASHBOARD_OIDC_ISSUER_URL` | Identity provider people sign in with before the dashboard shows anything; every view then follows their Kubernetes RBAC (also `_CLIENT_ID`, `_CLIENT_SECRET`, `_REDIRECT_URL`, `_EXTRA_SCOPES`, `_DISPLAY_NAME` for the provider's name on the sign-in button and the claim mapping, see [dashboard authentication](integrations/kubernetes/dashboard-authentication.md)) | `""` (no sign-in) |

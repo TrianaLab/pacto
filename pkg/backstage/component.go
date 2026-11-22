@@ -45,6 +45,7 @@ func (e *exporter) component(s *fleet.ServiceRecord) []Entity {
 	c.Spec.Lifecycle = lifecycle(q, s)
 	c.Spec.Owner = owner(q, s, ann)
 	c.Spec.System = system(s, ann, e.systems)
+	e.inferredSource(s, ann)
 	if s.NameInferred != nil {
 		ann[AnnotationNameProvenance] = provenanceInferred
 		ann[AnnotationNameSource] = s.NameInferred.Source
@@ -65,6 +66,27 @@ func (e *exporter) component(s *fleet.ServiceRecord) []Entity {
 	}
 	slices.Sort(c.Spec.ProvidesAPIs)
 	return append([]Entity{c}, apis...)
+}
+
+// inferredSource records on ann the workload Pacto learned inferred service
+// s from, when it read one, also when a target makes s observed. Only an
+// inferred service carries a workload. Its cluster reads as the snapshot's
+// display name, unique within a snapshot, else as the cluster id.
+func (e *exporter) inferredSource(s *fleet.ServiceRecord, ann map[string]string) {
+	w := s.Workload
+	if w == nil {
+		return
+	}
+	where := w.Namespace + "/" + w.Name
+	if w.Cluster != "" {
+		cluster := w.Cluster
+		if i := slices.IndexFunc(e.snap.Clusters, func(c fleet.ClusterRecord) bool { return c.ID == w.Cluster && c.Name != "" }); i >= 0 {
+			cluster = e.snap.Clusters[i].Name
+		}
+		where = cluster + "/" + where
+	}
+	ann[AnnotationSource] = "workload"
+	ann[AnnotationWorkload] = w.Kind + " " + where
 }
 
 // lifecycle is `deprecated` when the service's current revision declares

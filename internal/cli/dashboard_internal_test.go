@@ -618,3 +618,60 @@ func TestDashboardContextFlagReachesFleetAndViewer(t *testing.T) {
 		t.Errorf("from the environment:\n%s", stderr)
 	}
 }
+
+// envViper is a viper reading PACTO_* as the root command does.
+func envViper() *viper.Viper {
+	v := viper.New()
+	v.SetEnvPrefix("PACTO")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	v.AutomaticEnv()
+	return v
+}
+
+// TestDashboardIndexFlag: --index and PACTO_DASHBOARD_INDEX name the
+// repository the dashboard reads every listed service of; none or unset
+// reads none, and a tag is refused on both.
+func TestDashboardIndexFlag(t *testing.T) {
+	const repo = "r.example/acme/pacto-index"
+	for name, c := range map[string]struct{ flag, env, want string }{
+		"default":  {},
+		"none":     {flag: "none"},
+		"repo":     {flag: repo, want: repo},
+		"oci repo": {flag: "oci://" + repo, want: "oci://" + repo},
+		"env":      {env: repo, want: repo},
+	} {
+		t.Setenv("PACTO_DASHBOARD_INDEX", c.env)
+		v := envViper()
+		cmd := newDashboardCommand(app.NewService(nil, nil), v, "test", defaultDeps())
+		if c.flag != "" {
+			if err := cmd.Flags().Set("index", c.flag); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+		}
+		fopts := dashboardFleetOptions("", nil, nil, nil, dashboardSources{index: v.GetString("dashboard.index")})
+		if fopts.ReadIndex != c.want || fopts.Index != "" {
+			t.Errorf("%s: ReadIndex %q, Index %q", name, fopts.ReadIndex, fopts.Index)
+		}
+	}
+	t.Setenv("PACTO_DASHBOARD_INDEX", "")
+	cmd := newDashboardCommand(app.NewService(nil, nil), viper.New(), "test", defaultDeps())
+	if err := cmd.Flags().Set("index", repo+":1"); err == nil || !strings.Contains(err.Error(), "--index") {
+		t.Errorf("a tag on the flag: %v", err)
+	}
+	isolateHost(t)
+	t.Setenv("PACTO_DASHBOARD_INDEX", repo+":1")
+	if _, err := runDashboard(t, app.NewService(nil, nil), envViper(), t.TempDir(), "--port", "0"); err == nil || !strings.Contains(err.Error(), "--index") {
+		t.Errorf("a tag through PACTO_DASHBOARD_INDEX: %v", err)
+	}
+}
+
+// TestDashboardIndexAloneStarts: an index is a data source of its own.
+func TestDashboardIndexAloneStarts(t *testing.T) {
+	isolateHost(t)
+	if _, err := runDashboard(t, app.NewService(nil, nil), viper.New(), t.TempDir(), "--port", "0", "--index", "r.example/acme/pacto-index"); err != nil {
+		t.Fatal(err)
+	}
+	if got := configuredSources(dashboardFleetOptions("", nil, nil, nil, dashboardSources{index: "r.example/acme/pacto-index"})); !slices.Equal(got, []string{"index"}) {
+		t.Errorf("configuredSources = %v", got)
+	}
+}

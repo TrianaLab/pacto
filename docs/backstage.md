@@ -24,6 +24,8 @@ and Backstage would orphan their entities. Pass `--allow-partial` to write the
 file anyway; each entity then says `partial`. A `--namespace` scope whose
 namespaces were all read is not an outage: the command writes the file and each
 entity says `partial`, since services in other namespaces are unknown.
+To export every service your registry holds, see
+[Export from the registry offline](backstage-registry.md).
 
 ## Who sees the file
 
@@ -182,6 +184,9 @@ adds `pacto.trianalab.io/caller-ambiguous: "true"` and is `partial`.
 | `pacto.trianalab.io/external-key` | The external system's key |
 | `pacto.trianalab.io/caller` | The observed caller's identity |
 | `pacto.trianalab.io/caller-ambiguous` | `"true"` when the caller matched more than one service |
+| `pacto.trianalab.io/source` | How Pacto learned the entity: `workload` on an inferred Component, the sorted source kinds on a Resource, such as `pod-spec,repository` |
+| `pacto.trianalab.io/workload` | The inferred Component's workload, as `<Kind> <namespace>/<name>` or `<Kind> <cluster>/<namespace>/<name>` with the cluster's display name |
+| `pacto.trianalab.io/inferred-contract` | The `pacto-inferred` repository of a Resource's inferred contract |
 
 A Component is `partial` when the snapshot is partial, your view hides some of
 its relations, a declared dependency did not resolve or owners conflict. A

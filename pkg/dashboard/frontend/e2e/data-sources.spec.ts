@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { boot } from './typographyChecks';
-import { settle } from './ready';
+import { appReady, settle } from './ready';
+import { installScaleFixture } from './layoutGate';
 
 /**
  * Data sources as a product surface: findable from the overview, walkable to a source,
@@ -398,4 +399,14 @@ test.describe('a source page answers about itself', () => {
       expect(main.width, `${source} body width`).toBeGreaterThan(400);
     }
   });
+});
+
+// The organization index (516-S3) on the scale fixture: the kind tally names it and the
+// inventory lists its row, so the layout matrix lays both out.
+test('the sources page names one organization index in the tally and lists its row', async ({ page }) => {
+  await page.addInitScript(installScaleFixture);
+  await appReady(page);
+  await page.goto('/#/fleet/sources');
+  await expect(page.locator('main')).toContainText('organization index', { timeout: 30_000 });
+  await expect(page.getByTestId('source-list')).toContainText('registry-index');
 });

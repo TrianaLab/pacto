@@ -937,7 +937,7 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 	if len(todo) == 0 {
 		return nil, nil, nil
 	}
-	fo := opts.Fleet
+	fo := opts.Fleet.withoutListings()
 	if len(fo.LocalRoots) == 0 {
 		fo.LocalRoots = []string{opts.Root}
 	}

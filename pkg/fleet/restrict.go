@@ -632,24 +632,47 @@ func bareCaller(c UncontractedCaller) bool {
 }
 
 // hasBareNames reports whether s holds a name with no namespace: a bare
-// caller or an unresolved observed name. A cluster-scoped provider object is
-// left to providersNarrowed: it hides from a row, never from an answer.
+// caller or a limitation a restricted view counts. A cluster-scoped provider
+// object is left to providersNarrowed: it hides from a row, never from an
+// answer.
 func hasBareNames(s *FleetSnapshot) bool {
 	return slices.ContainsFunc(s.UncontractedCallers, bareCaller) ||
-		slices.ContainsFunc(s.Limitations, func(l Limitation) bool { return l.Code == LimitationObservedIdentityUnresolved })
+		slices.ContainsFunc(s.Limitations, func(l Limitation) bool { return countedLimitations[l.Code] != nil })
 }
 
-// unresolvedCounts drops the unresolved observed names from limitations and
-// returns them with how many each source had.
-func unresolvedCounts(limitations []Limitation) ([]Limitation, map[string]int) {
-	counts := map[string]int{}
-	return slices.DeleteFunc(limitations, func(l Limitation) bool {
-		if l.Code == LimitationObservedIdentityUnresolved {
-			counts[l.Source]++
+// countedLimitations are the limitations a restricted view replaces with one
+// per source, by the message each builds from the source and its count. Each
+// names something no permission check can read: an observed name with no
+// namespace, or an index entry or inferred contract a hidden service may be
+// the one to name.
+var countedLimitations = map[string]func(src string, n int) string{
+	LimitationObservedIdentityUnresolved: func(src string, n int) string {
+		return strconv.Itoa(n) + " names observed by " + src + " are not shown: they carry no namespace to check permissions against"
+	},
+	LimitationInferredContractUnread: func(src string, _ int) string {
+		return "source " + src + " left inferred contracts unread; a restricted view does not name them, since a service you may not see can be the one to name them"
+	},
+	LimitationIndexEntryInvalid: func(src string, _ int) string {
+		return "source " + src + " did not use some index entries; a restricted view does not name them, since they can be services you may not see"
+	},
+}
+
+// limitationCounts drops the countedLimitations from limitations and returns
+// them rebuilt, one per code and source.
+func limitationCounts(limitations []Limitation) ([]Limitation, []Limitation) {
+	counts := map[[2]string]int{}
+	limitations = slices.DeleteFunc(limitations, func(l Limitation) bool {
+		if countedLimitations[l.Code] != nil {
+			counts[[2]string{l.Code, l.Source}]++
 			return true
 		}
 		return false
-	}), counts
+	})
+	var out []Limitation
+	for _, k := range slices.SortedFunc(maps.Keys(counts), func(a, b [2]string) int { return cmp.Or(cmp.Compare(a[0], b[0]), cmp.Compare(a[1], b[1])) }) {
+		out = append(out, Limitation{Code: k[0], Source: k[1], Message: countedLimitations[k[0]](k[1], counts[k])})
+	}
+	return limitations, out
 }
 
 // rebuiltLimitation reports whether restrictLimitations rebuilds l from what
@@ -697,12 +720,12 @@ func sourceLevelCluster(l Limitation, unavailable map[string]bool) bool {
 
 // restrictLimitations keeps the limitations that name nothing hidden and
 // rebuilds the domain, offering and owner conflicts from what out still holds.
-// With hideBare, each source's unresolved observed names become one count.
+// With hideBare, each source's countedLimitations of one code become one.
 func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNames []string, hideBare bool) {
 	limitations = slices.Clone(limitations)
-	var unresolved map[string]int
+	var counted []Limitation
 	if hideBare {
-		limitations, unresolved = unresolvedCounts(limitations)
+		limitations, counted = limitationCounts(limitations)
 	}
 	// ponytail: a limitation's subject is only in its prose, so any that mentions
 	// a hidden name goes, even where the match is a coincidence. It costs
@@ -729,12 +752,7 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	out.Limitations = append(out.Limitations, clusterRecordProblemsOf(out)...)
 	out.Limitations = append(out.Limitations, inferredSnapshotLimitations(out)...)
 	out.Limitations = append(out.Limitations, mismatches...)
-	for _, src := range slices.Sorted(maps.Keys(unresolved)) {
-		out.Limitations = append(out.Limitations, Limitation{
-			Code: LimitationObservedIdentityUnresolved, Source: src,
-			Message: strconv.Itoa(unresolved[src]) + " names observed by " + src + " are not shown: they carry no namespace to check permissions against",
-		})
-	}
+	out.Limitations = append(out.Limitations, counted...)
 }
 
 // clusterHiddenReasons is the CLUSTER_HIDDEN message of each access mark.

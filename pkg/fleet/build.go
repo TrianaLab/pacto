@@ -521,6 +521,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	// values normalized at ingestion) are recorded on the target AND at the snapshot
 	// level, and mark the source partial.
 	snap.Limitations = append(snap.Limitations, col.Limitations...)
+	snap.Limitations = append(snap.Limitations, col.Notes...)
 	snap.Limitations = append(snap.Limitations, recordProblems...)
 	st, stateLims := sourceStateFor(src, col, now, revCount, targetCount, len(recordProblems) > 0)
 	st.Advisory, st.CautionOnly = col.Advisory, col.ObservedCautionOnly

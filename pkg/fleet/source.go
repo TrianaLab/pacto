@@ -112,6 +112,9 @@ type Collection struct {
 	// surfaced, so "an invalid record exists" is never confused with "no record
 	// exists". Messages must already be sanitized.
 	Limitations []Limitation
+	// Notes are limitations that leave the source's state as it is: what a
+	// source did not read that never makes its answer partial.
+	Notes []Limitation
 	// Observed carries runtime-observed dependency edges (e.g. from OpenTelemetry
 	// traces or a service mesh) this source witnessed. Endpoint names are raw
 	// observed identities; [Build] resolves each to a unique domain-qualified

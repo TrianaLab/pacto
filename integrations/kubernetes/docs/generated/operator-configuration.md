@@ -29,6 +29,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-external-catalog` | `string` |  | chart value | Organization external catalog the dashboard merges over Pacto's default, as oci://REPOSITORY@sha256:DIGEST. |
 | `-dashboard-fingerprints-configmap` | `string` |  | chart value | ConfigMap in the operator namespace holding the workload manager and promoter fingerprints (fingerprints.yaml) the dashboard reads as --fingerprints. |
 | `-dashboard-fulcio-url` | `string` |  | chart value | Fulcio the dashboard gets a person's signing certificate from (empty: public-good Sigstore). |
+| `-dashboard-index` | `=mode` |  | chart value | Organization index the dashboard reads every published service from, written =mode: auto reads &lt;registry&gt;/pacto-index when --registry is set, none reads none. auto by default. |
 | `-dashboard-memory-limit` | `string` |  | chart value | Memory limit for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-memory-request` | `string` |  | chart value | Memory request for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-mira-url` | `string` |  | chart value | Mira's address, to link the dashboard's health-check citations. |

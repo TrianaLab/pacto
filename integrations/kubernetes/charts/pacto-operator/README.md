@@ -260,6 +260,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | dashboard.httpRoute.hostnames | list | `[]` | Hostnames for the HTTPRoute |
 | dashboard.httpRoute.parentRefs | list | `[]` | Parent gateway references |
 | dashboard.httpRoute.rules | list | `[]` | HTTPRoute rules. When empty, a single catch-all rule is generated that routes all traffic to the chart-managed dashboard Service on dashboard.service.port. |
+| dashboard.index | string | `"auto"` | The organization index the dashboard reads every published service from: `auto` reads `<registry>/pacto-index` when `registry` is set, `none` reads none. The dashboard reads it with `dashboard.ociSecrets` |
 | dashboard.ingress.annotations | object | `{}` | Ingress annotations |
 | dashboard.ingress.className | string | `""` | Ingress class name |
 | dashboard.ingress.enabled | bool | `false` | Enable Ingress for the dashboard |

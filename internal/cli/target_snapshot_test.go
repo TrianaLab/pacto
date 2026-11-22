@@ -15,9 +15,16 @@ import (
 // signing key scoped to that cluster, named ci-demo.
 func publishedTargets(t *testing.T) (repo, trust string) {
 	t.Helper()
+	return publishedTargetsWith(t, nil)
+}
+
+// publishedTargetsWith is publishedTargets with the snapshot document's
+// extra fields.
+func publishedTargetsWith(t *testing.T, fields map[string]any) (repo, trust string) {
+	t.Helper()
 	t.Setenv(app.TrustEnv, "")
 	host, key, _ := targetsEnv(t)
-	if _, err := runDelivery(t, defaultDeps(), "", "targets", "publish", snapshotDoc(t, nil), "--registry", host+"/acme", "--key", key); err != nil {
+	if _, err := runDelivery(t, defaultDeps(), "", "targets", "publish", snapshotDoc(t, fields), "--registry", host+"/acme", "--key", key); err != nil {
 		t.Fatal(err)
 	}
 	pub, err := os.ReadFile(key + ".pub.pem")

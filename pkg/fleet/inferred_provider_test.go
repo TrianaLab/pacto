@@ -662,3 +662,49 @@ func TestDivertedRevisionKeepsLimitationsAndMergesCopies(t *testing.T) {
 		t.Errorf("merged revision = %+v", r)
 	}
 }
+
+// TestRestrictedViewCountsIndexNames: an index entry or inferred contract a
+// source could not read may be one only a hidden service names, so a
+// restricted view counts them per source and names neither.
+func TestRestrictedViewCountsIndexNames(t *testing.T) {
+	r, tg := infSvc("checkout", "shop")
+	idx := &Collection{
+		Limitations: []Limitation{{Code: LimitationIndexEntryInvalid, Source: "registry-index", Message: "index entry secret-svc.1.0.0 not used: its bundle could not be read: denied"}},
+		Notes:       []Limitation{{Code: LimitationInferredContractUnread, Source: "registry-index", Message: "ref oci://ghcr.io/acme/pacto-inferred/stripe:1.0.0 could not be resolved: not found"}},
+	}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
+		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Revisions: []RawRevision{r}, Targets: []RawTarget{tg}}),
+		NewMemorySource("registry-index", "index", idx))
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns == "shop" }), nil)
+	var codes []string
+	for _, l := range view.snap.Limitations {
+		if strings.Contains(l.Message, "stripe") || strings.Contains(l.Message, "secret-svc") {
+			t.Errorf("restricted view names %+v", l)
+		}
+		if l.Source == "registry-index" {
+			codes = append(codes, l.Code)
+		}
+	}
+	if !slices.Contains(codes, LimitationIndexEntryInvalid) || !slices.Contains(codes, LimitationInferredContractUnread) {
+		t.Errorf("counts lost: %v", codes)
+	}
+}
+
+// TestCollectionNotesNeverDegradeTheSource: a note reaches the snapshot and
+// leaves its source available and the answer complete.
+func TestCollectionNotesNeverDegradeTheSource(t *testing.T) {
+	r, tg := infSvc("checkout", "shop")
+	note := Limitation{Code: LimitationInferredContractUnread, Source: "idx", Message: "unread"}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
+		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Revisions: []RawRevision{r}, Targets: []RawTarget{tg}}),
+		NewMemorySource("idx", "index", &Collection{Notes: []Limitation{note}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Completeness != CompletenessComplete || !slices.Contains(snap.Limitations, note) || snap.Sources[1].Status != SourceAvailable {
+		t.Errorf("%s %+v %+v", snap.Completeness, snap.Sources, snap.Limitations)
+	}
+}
