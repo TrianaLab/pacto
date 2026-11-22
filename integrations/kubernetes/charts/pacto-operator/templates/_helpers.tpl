@@ -175,6 +175,9 @@ Controller arguments derived from values
 {{- if or .Values.controller.watchNamespaces .Values.controller.watchNamespace }}
 - --watch-namespaces={{ include "pacto-operator.watchNamespaces" . | fromYamlArray | join "," }}
 {{- end }}
+{{- with include "pacto-operator.profiles" . | fromYamlArray | join "," }}{{ if ne . "default" }}
+- --profile={{ . }}
+{{- end }}{{ end }}
 {{- with .Values.registry }}
 - --registry={{ . }}
 {{- end }}
@@ -209,14 +212,14 @@ Controller arguments derived from values
 {{- if .Values.controller.stabilizationWindow }}
 - --stabilization-window={{ .Values.controller.stabilizationWindow }}
 {{- end }}
-{{- with include "pacto-operator.observeMode" (list .Values.controller.probing .Values.controller.enableProbing) }}
+{{- with include "pacto-operator.observeMode" (list .Values.controller.probing .Values.controller.enableProbing (include "pacto-operator.idp" .)) }}
 {{- if eq . "legacy-on" }}
 - --enable-probing
 {{- else }}
 - --enable-probing={{ . }}
 {{- end }}
 {{- end }}
-{{- with include "pacto-operator.observeMode" (list .Values.controller.metricsObservation .Values.controller.enableMetricsObservation) }}
+{{- with include "pacto-operator.observeMode" (list .Values.controller.metricsObservation .Values.controller.enableMetricsObservation (include "pacto-operator.idp" .)) }}
 {{- if eq . "legacy-on" }}
 - --enable-metrics-observation
 {{- else }}
@@ -279,7 +282,7 @@ Controller arguments derived from values
 {{- end }}
 {{- end }}
 {{- end }}
-{{- if .Values.dashboard.enabled }}
+{{- if include "pacto-operator.dashboardEnabled" . }}
 - --enable-dashboard
 {{- if .Values.dashboard.ociSecrets }}
 - --dashboard-oci-secrets={{ join "," .Values.dashboard.ociSecrets }}
@@ -519,7 +522,8 @@ anything else (auto, false, absent) follows nodeAgent.enabled. false keeps its
 
 {{/*
 The mode of one observation feature (probing, metrics observation), from
-(list $new $legacy): the auto/on/off key and the deprecated boolean it replaces.
+(list $new $legacy $idp): the auto/on/off key, the deprecated boolean it
+replaces and whether the profile holds idp.
 Returns on, off, auto, legacy-on (the bare flag) or "" (no argument).
 An upgrade that reuses a 6.x release's values keeps that release's chart
 defaults, so the new key is absent and the legacy boolean present: an absent or
@@ -527,19 +531,20 @@ empty new key renders exactly what the legacy key rendered (true -> legacy-on,
 false -> nothing), and with neither key set it is auto. An explicit new key
 always wins. Values files parse as YAML 1.1, so a bare on or off arrives as a
 bool: absence is tested with kindIs and every compare runs on toString.
-510-S7's profile extends this define.
+Profile idp turns a resolved auto into on; off, on and legacy-on stay.
 */}}
 {{- define "pacto-operator.observeMode" -}}
 {{- $new := index . 0 }}
 {{- $legacy := index . 1 }}
+{{- $auto := ternary "on" "auto" (not (empty (index . 2))) }}
 {{- $s := ternary "" (toString $new) (kindIs "invalid" $new) }}
 {{- if eq $s "" }}
-{{- if kindIs "invalid" $legacy }}auto
+{{- if kindIs "invalid" $legacy }}{{ $auto }}
 {{- else if $legacy }}legacy-on
 {{- end }}
 {{- else if or (eq $s "on") (eq $s "true") }}on
 {{- else if or (eq $s "off") (eq $s "false") }}off
-{{- else if eq $s "auto" }}auto
+{{- else if eq $s "auto" }}{{ $auto }}
 {{- end }}
 {{- end }}
 
@@ -716,7 +721,7 @@ set (an explicit delivery value may name any repository).
 {{- $out = append $out (printf "%s/%s" $.Values.registry .) }}
 {{- end }}
 {{- end }}
-{{- if .Values.delivery.enabled }}
+{{- if include "pacto-operator.deliveryEnabled" . }}
 {{- if .Values.delivery.recorder.enabled }}
 {{- with include "pacto-operator.delivery.streamsRepository" . }}
 {{- $out = append $out . }}
@@ -812,7 +817,7 @@ dashboard.delivery.namespace, else delivery.namespace when delivery is on.
 */}}
 {{- define "pacto-operator.dashboardDeliveryNamespace" -}}
 {{- with .Values.dashboard.delivery }}
-{{- .namespace | default (ternary $.Values.delivery.namespace "" $.Values.delivery.enabled) }}
+{{- .namespace | default (ternary $.Values.delivery.namespace "" (not (empty (include "pacto-operator.deliveryEnabled" $)))) }}
 {{- end }}
 {{- end }}
 
@@ -836,11 +841,81 @@ and no issuer. NOTES.txt reads the same rule for its warning.
 {{- end }}
 
 {{/*
+The installation profile as a sorted YAML list of distinct names. profile may
+be nil (a --reuse-values upgrade from a release without the key), "", a name, a
+comma string or a list; empty means [default]. profileChecks refuses an
+unknown name and default beside another name.
+*/}}
+{{- define "pacto-operator.profiles" -}}
+{{- $raw := .Values.profile }}
+{{- $names := ternary $raw (splitList "," (toString (default "" $raw))) (kindIs "slice" $raw) }}
+{{- $out := list }}
+{{- range $names }}
+{{- $n := trim (toString .) }}
+{{- if $n }}
+{{- $out = append $out $n }}
+{{- end }}
+{{- end }}
+{{- toYaml (default (list "default") ($out | uniq | sortAlpha)) }}
+{{- end }}
+
+{{/*
+Whether the profile holds hardened, or idp. hardened wins where they disagree.
+*/}}
+{{- define "pacto-operator.hardened" -}}
+{{- if has "hardened" (include "pacto-operator.profiles" . | fromYamlArray) }}true{{ end }}
+{{- end }}
+{{- define "pacto-operator.idp" -}}
+{{- if has "idp" (include "pacto-operator.profiles" . | fromYamlArray) }}true{{ end }}
+{{- end }}
+
+{{/*
+The managed dashboard: dashboard.enabled, off under hardened. Every template
+reads it here.
+*/}}
+{{- define "pacto-operator.dashboardEnabled" -}}
+{{- if and .Values.dashboard.enabled (not (include "pacto-operator.hardened" .)) }}true{{ end }}
+{{- end }}
+
+{{/*
+Pacto delivery: delivery.enabled or profile idp, off under hardened. Every
+template reads it here.
+*/}}
+{{- define "pacto-operator.deliveryEnabled" -}}
+{{- if and (or .Values.delivery.enabled (include "pacto-operator.idp" .)) (not (include "pacto-operator.hardened" .)) }}true{{ end }}
+{{- end }}
+
+{{/*
+The profile's refusals, included once from deployment.yaml so a render fails
+before anything is applied. hardened turns the managed dashboard off silently
+(Helm cannot tell an explicit dashboard.enabled from the default) and refuses
+every value whose default is off that would add cluster-scoped privilege.
+The schema refuses an unknown name first: that fail backs up
+--skip-schema-validation.
+*/}}
+{{- define "pacto-operator.profileChecks" -}}
+{{- $profiles := include "pacto-operator.profiles" . | fromYamlArray }}
+{{- range $profiles }}
+{{- if not (has . (list "default" "hardened" "idp")) }}{{ fail (printf "profile takes default, hardened or idp: got %s" .) }}{{ end }}
+{{- end }}
+{{- if and (has "default" $profiles) (gt (len $profiles) 1) }}{{ fail "profile default stands alone" }}{{ end }}
+{{- if include "pacto-operator.hardened" . }}
+{{- $dex := .Values.dex | default dict }}
+{{- $dexRBAC := $dex.rbac | default dict }}
+{{- if not (include "pacto-operator.watchNamespaces" . | fromYamlArray) }}{{ fail "profile hardened needs controller.watchNamespaces" }}{{ end }}
+{{- if .Values.nodeAgent.enabled }}{{ fail "profile hardened runs no node agent: it needs a privileged namespace and cluster-wide reads; set nodeAgent.enabled=false" }}{{ end }}
+{{- if eq (toString (.Values.dashboard.auth | default dict).allowAnonymous) "true" }}{{ fail "profile hardened refuses dashboard.auth.allowAnonymous" }}{{ end }}
+{{- if (.Values.delivery | default dict).enabled }}{{ fail "profile hardened renders no ClusterRole and Pacto delivery needs cluster-wide roles: set delivery.enabled=false or leave profile hardened" }}{{ end }}
+{{- if and $dex.enabled (ne (toString $dexRBAC.create) "false") (ne (toString $dexRBAC.createClusterScoped) "false") }}{{ fail "profile hardened renders no ClusterRole: set dex.rbac.createClusterScoped=false or dex.enabled=false" }}{{ end }}
+{{- end }}
+{{- end }}
+
+{{/*
 Whether a cluster-scoped need remains, so the ClusterRole renders: no
 namespace list, the node agent, or the dashboard with delivery on.
 */}}
 {{- define "pacto-operator.clusterScoped" -}}
-{{- if or (not (include "pacto-operator.watchNamespaces" . | fromYamlArray)) .Values.nodeAgent.enabled (and .Values.dashboard.enabled (include "pacto-operator.dashboardDeliveryNamespace" .)) }}true{{ end }}
+{{- if or (not (include "pacto-operator.watchNamespaces" . | fromYamlArray)) .Values.nodeAgent.enabled (and (include "pacto-operator.dashboardEnabled" .) (include "pacto-operator.dashboardDeliveryNamespace" .)) }}true{{ end }}
 {{- end }}
 
 {{/*
@@ -871,8 +946,8 @@ or metrics is auto (the target namespace's pacto.trianalab.io/observe label,
 read by name). Returns a YAML dict.
 */}}
 {{- define "pacto-operator.observeRBAC" -}}
-{{- $probing := include "pacto-operator.observeMode" (list .Values.controller.probing .Values.controller.enableProbing) }}
-{{- $metrics := include "pacto-operator.observeMode" (list .Values.controller.metricsObservation .Values.controller.enableMetricsObservation) }}
+{{- $probing := include "pacto-operator.observeMode" (list .Values.controller.probing .Values.controller.enableProbing (include "pacto-operator.idp" .)) }}
+{{- $metrics := include "pacto-operator.observeMode" (list .Values.controller.metricsObservation .Values.controller.enableMetricsObservation (include "pacto-operator.idp" .)) }}
 metricsMonitors: {{ has $metrics (list "on" "legacy-on") }}
 namespaceGet: {{ or (eq $probing "auto") (eq $metrics "auto") }}
 {{- end }}

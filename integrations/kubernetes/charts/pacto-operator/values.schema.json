@@ -330,6 +330,27 @@
       "description": "The installation registry (host[/path], no scheme); the operator publishes the target snapshot to <registry>/pacto-targets.",
       "pattern": "^([a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)*)?$"
     },
+    "profile": {
+      "description": "Installation profile: default, hardened or idp, or a list of them (hardened wins where they disagree).",
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^$|^(default|hardened|idp)(,(default|hardened|idp))*$"
+        },
+        {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "default",
+              "hardened",
+              "idp"
+            ]
+          }
+        }
+      ]
+    },
     "registryPullSecret": {
       "type": "string",
       "description": "namespace/name of an existing Secret that authenticates to registry; the chart grants get on that Secret only.",
@@ -833,6 +854,10 @@
           "description": "Dedicated agent namespace (a DNS-1123 label); not the release namespace",
           "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
           "maxLength": 63
+        },
+        "createNamespace": {
+          "type": "boolean",
+          "description": "Create nodeAgent.namespace; false means it exists first with the privileged Pod Security labels"
         },
         "publishInterval": {
           "type": "string",

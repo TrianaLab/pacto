@@ -110,11 +110,17 @@ type Options struct {
 	// DeliveryInstalled reports whether the cluster serves the delivery API
 	// group; an error means the cluster could not be asked. Nil means it does.
 	DeliveryInstalled func(context.Context) (bool, error)
+	// DeliveryCheckedAt, when set, is when DeliveryInstalled last asked the
+	// cluster: it caches its answer, so the request time would overclaim.
+	DeliveryCheckedAt func() time.Time
 	// DeliveryNamespace, when set, is the only namespace delivery reads and
 	// acts in, as the fleet views are scoped to it.
 	DeliveryNamespace string
 	// Auth is the identity layer: sign-in, sessions and request guards.
 	Auth *Auth
+	// InstallationConfig reads what the operator was configured with, for
+	// capabilities.installation; nil reads none.
+	InstallationConfig func(context.Context) (*fleet.InstallationDeclared, fleet.SourceState)
 	// MiraURL, when set, turns Mira citations into links and lets a service page open the service in Mira.
 	MiraURL string
 	// Stats reads the run records of the stats repository the Metrics page

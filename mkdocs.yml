@@ -300,6 +300,7 @@ nav:
       - Kubernetes:
           - Install the operator: integrations/kubernetes/installation.md
           - Run with least privilege: integrations/kubernetes/least-privilege.md
+          - Choose an installation profile: integrations/kubernetes/profiles.md
           - Owner policy: integrations/kubernetes/owner-policy.md
           - What Pacto detects: integrations/kubernetes/detection.md
           - Quickstart profile: integrations/kubernetes/quickstart.md

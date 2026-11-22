@@ -564,7 +564,14 @@ func TestDetectorWritesInstallationBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, res := readResult(t, c); res.Installation != nil {
-		t.Errorf("no --registry, still an installation: %+v", res.Installation)
+		t.Errorf("no installation configured, still one: %+v", res.Installation)
+	}
+	// Without --registry the block still carries the profile.
+	d.Installation, d.LastPush = &detect.Installation{Profile: []string{"hardened"}}, func() *detect.PushResult { return nil }
+	_ = d.Sync(context.Background())
+	if _, res := readResult(t, c); res.Installation == nil || res.Installation.Registry != "" ||
+		!slices.Equal(res.Installation.Profile, []string{"hardened"}) {
+		t.Errorf("profile-only installation = %+v", res.Installation)
 	}
 	inst := &detect.Installation{Registry: "ghcr.io/acme", Targets: "ghcr.io/acme/pacto-targets", SnapshotKey: "AAEC", Pushes: []string{"ghcr.io/acme/pacto-targets"}}
 	d.Installation, d.LastPush = inst, func() *detect.PushResult { return nil }

@@ -80,6 +80,22 @@ func buildGeneratedFleet(n int) (*fleet.FleetSnapshot, error) {
 		fleet.NewMemorySource("fleetgen", fleet.SourceKindKubernetes, fleetgen.Collection(n, 1, demoNow())))
 }
 
+// prodClusterID is the kube-system UID of the demo's production cluster.
+const prodClusterID = "5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11"
+
+// demoInstallationConfig is the dashboard's InstallationConfig: the demo
+// operator's Installation block from an available detection.
+func demoInstallationConfig() (func(context.Context) (*fleet.InstallationDeclared, fleet.SourceState), error) {
+	detected, err := demoDetection(prodClusterID)
+	if err != nil {
+		return nil, err
+	}
+	at := detected.AsOf
+	return func(context.Context) (*fleet.InstallationDeclared, fleet.SourceState) {
+		return detected.Declared("cluster-detection"), fleet.SourceState{ID: "cluster-detection", Kind: fleet.SourceKindDetection, Status: fleet.SourceAvailable, ObservedAt: &at}
+	}, nil
+}
+
 // buildDemoFleet builds a fleet query over every embedded revision plus the
 // demo's operational targets, and returns a ref→bundle index so the impact
 // provider can resolve the two revisions to compare from memory.
@@ -116,7 +132,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	attestDemoRevision(col)
 	// invoices is a person's declaration of a running workload: it replaces
 	// the inferred invoices Deployment the cluster below reports.
-	prodCluster := &fleet.Cluster{ID: "5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11", Name: "production", NameSource: fleet.ClusterNameFromContext}
+	prodCluster := &fleet.Cluster{ID: prodClusterID, Name: "production", NameSource: fleet.ClusterNameFromContext}
 	handover, handoverBundle, handedOver := demoHandover(demoNow(), prodCluster.ID)
 	col.Revisions = append(col.Revisions, handover)
 	byRef[handover.ResolvedRef] = handoverBundle

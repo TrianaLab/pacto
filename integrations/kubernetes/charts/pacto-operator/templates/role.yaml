@@ -81,7 +81,7 @@ rules:
     resources: [secrets]
     verbs: [create]
   {{- end }}
-  {{- if .Values.dashboard.enabled }}
+  {{- if include "pacto-operator.dashboardEnabled" . }}
   # Dashboard lifecycle: its ServiceAccount, Service, merged OCI credentials
   # Secret and Deployment.
   - apiGroups: [""]

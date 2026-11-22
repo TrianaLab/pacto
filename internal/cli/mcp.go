@@ -262,8 +262,9 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 		// Under a view the new revision is never added: the rebuild would read
 		// the unrestricted sources.
 		Impact: mcpImpactProvider(cmd, svc, d, view == nil, transport == "stdio"), View: view, DashboardURL: url,
-		Reached: stdioReached(cmd, d, transport),
-		Stats:   mcpStatsProvider(cmd, svc, transport == "stdio", home),
+		Reached:            stdioReached(cmd, d, transport),
+		Stats:              mcpStatsProvider(cmd, svc, transport == "stdio", home),
+		InstallationConfig: svc.InstallationConfig(fopts.Detected),
 	}}, nil
 }
 
@@ -328,6 +329,10 @@ var errStatsRegistryNeedsFleet = errors.New("--stats-read-registry needs --fleet
 // errReviewNeedsFleet: only the fleet tools review a caller's namespaces.
 var errReviewNeedsFleet = errors.New("--review needs --fleet: only the fleet tools review which namespaces a caller may read")
 
+// errDetectedNeedsFleet: only the fleet mode reads the detection, so the
+// installation answer would otherwise blame a missing --detected.
+var errDetectedNeedsFleet = errors.New("--detected needs --fleet: only the fleet mode reads the detection")
+
 // checkFleetOnlyFlags refuses a flag only the fleet tools read when the
 // server has none, so it is never silently ignored, and checks --review
 // before any source is built.
@@ -342,6 +347,8 @@ func checkFleetOnlyFlags(cmd *cobra.Command, fleetMode bool) error {
 		return errDashboardURLNeedsFleet
 	case cmd.Flags().Changed("stats-read-registry"):
 		return errStatsRegistryNeedsFleet
+	case cmd.Flags().Changed("detected"):
+		return errDetectedNeedsFleet
 	}
 	return nil
 }
@@ -385,7 +392,7 @@ func buildDeliveryMode(cmd *cobra.Command, d deps, fm *pactomcp.FleetMode) (*pac
 	id := baseDashboardIdentity(cluster, d, c.Trust, c.PolicyNamespace)
 	reads := mcpDeliveryReads(id, fm, deliveryNarrowing(flagNamespaces(cmd)))
 	return &pactomcp.DeliveryMode{API: mcpDelivery{c}, Writes: caller.Class == delivery.ClassAgent, Caller: caller,
-		Reads: reads(c, ""), CallerAt: time.Now(), Installed: id.installedProbe(), Refs: c}, nil
+		Reads: reads(c, ""), CallerAt: time.Now(), Installed: id.installedProbe(), InstalledAt: id.installedAt(), Refs: c}, nil
 }
 
 // mcpDelivery adapts app.Delivery to the MCP tools' interface.

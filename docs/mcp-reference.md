@@ -74,16 +74,26 @@ pacto mcp --fleet --k8s --delivery
 
 `--root` and `--publish` each start a server of their own. Pacto registers
 its own tools before a bundle's, so a bundle never replaces one, and the
-instructions describe only the modes the server serves.
+instructions describe only the served modes.
 
 `pacto_capabilities` reports `modes`, the contract tools in `authoring`,
-`writes`, `transport`, `asOf` and the keys `fleet`, `impact`, `observed` and
-`delivery` of the dashboard's `GET /api/capabilities`. `caller.callerSource`
-says how Pacto knows `caller.user`: `reviewed` by the API server, a verified
-`token` (`user` is then `unknown`) or `local` (stdio or the loopback launch
-bearer). With delivery, `caller.class` is the actor class as read at
+`writes`, `transport`, `asOf` and the keys `fleet`, `impact`, `observed`,
+`delivery` and `installation` of the dashboard's `GET /api/capabilities`.
+`caller.callerSource` says how Pacto knows `caller.user`: `reviewed` by the
+API server, a verified `token` (`user` is then `unknown`) or `local` (stdio or
+the loopback launch bearer). With delivery, `caller.class` is the actor class as read at
 `caller.classAsOf` (startup over stdio); `caller.policyError` marks policy
 defaults.
+
+| `installation` part | Provenance | Value |
+|---|---|---|
+| Every part | - | Carries `source`, `asOf`, `provenance` and `completeness` |
+| `profile` | declared | The [chart's profile](integrations/kubernetes/profiles.md) names from the operator's detection; `null` with the reason in `source` without `--detected`, from an older operator, for a cluster your view hides or before a snapshot holds the cluster's Installation row |
+| `registry` | declared | The operator's `registry` value, empty when set to nothing |
+| `delivery` | observed | `enabled` says the cluster serves the delivery API, from this server's delivery probe (its `asOf` is when the probe last asked), `null` when it cannot tell; `partial` beside profile hardened, whose kept CRDs still serve it. `appliers` inferred from available Argo CD and Flux rows that count an Application, Kustomization or HelmRelease in the installation's cluster; `partial` when no snapshot or workload source read them |
+| `provisioning` | inferred | `engine` stays `unknown` until a source detects one |
+| `clusters` | observed | `joined` counts the clusters in your view of the snapshot; `pending` is `null` |
+| `mcp` | host | `served` is `true` on the MCP server and `false` on the dashboard |
 
 ## Tool-call log
 

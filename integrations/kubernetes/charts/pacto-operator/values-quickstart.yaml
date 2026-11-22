@@ -15,6 +15,9 @@
 # signing:
 # https://pacto.run/latest/integrations/kubernetes/quickstart/
 
+# IDP mode: probing, metrics observation and Pacto delivery on.
+profile: idp
+
 # The registry host every component reaches zot at. It names the release
 # namespace, so a different namespace changes it in all three places below.
 insecureRegistries:
@@ -104,7 +107,6 @@ dashboard:
       enabled: true
 
 delivery:
-  enabled: true
   insecureRegistries:
     - pacto-zot.pacto-operator-system.svc:5000
   recorder:

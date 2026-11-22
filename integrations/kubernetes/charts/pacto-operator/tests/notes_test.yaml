@@ -165,3 +165,99 @@ tests:
           pattern: "  OTel Collector: OpenTelemetry Collector running in 1 workload \\(from running pods and Services\\)"
       - matchRegexRaw:
           pattern: "  Traces: unknown: reading the cluster failed: Forbidden"
+
+  - it: hardened with registry says delivery is off by profile
+    set:
+      profile: hardened
+      controller.watchNamespaces: [payments]
+      registry: ghcr.io/acme
+    asserts:
+      - matchRegexRaw:
+          pattern: "Delivery is off: profile hardened renders no Pacto delivery"
+      - notMatchRegexRaw:
+          pattern: "delivery.enabled=true"
+      - matchRegexRaw:
+          pattern: "Profile hardened: no ClusterRole, no managed dashboard, no node agent, no Pacto\ndelivery and no namespace created by the chart"
+      - matchRegexRaw:
+          pattern: "Pacto reads the cluster id through Role pacto-operator-pacto-operator-system-cluster-identity in kube-system"
+      - notMatchRegexRaw:
+          pattern: "Open the dashboard"
+
+  - it: names the kept delivery namespace once delivery no longer renders
+    set:
+      profile: hardened
+      controller.watchNamespaces: [payments]
+    kubernetesProvider:
+      scheme:
+        "v1/Namespace":
+          gvr: {version: v1, resource: namespaces}
+          namespaced: false
+      objects:
+        - kind: Namespace
+          apiVersion: v1
+          metadata:
+            name: pacto-delivery
+            annotations:
+              meta.helm.sh/release-name: pacto-operator
+              helm.sh/resource-policy: keep
+    asserts:
+      - matchRegexRaw:
+          pattern: "Pacto delivery is off. Namespace pacto-delivery was kept with its trust config;\ndelete it with kubectl delete namespace pacto-delivery when you no longer need it."
+
+  - it: says nothing about a delivery namespace another release owns
+    kubernetesProvider:
+      scheme:
+        "v1/Namespace":
+          gvr: {version: v1, resource: namespaces}
+          namespaced: false
+      objects:
+        - kind: Namespace
+          apiVersion: v1
+          metadata:
+            name: pacto-delivery
+            annotations:
+              meta.helm.sh/release-name: other
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "was kept with its trust config"
+
+  - it: idp names what it adds
+    set: {profile: idp}
+    asserts:
+      - matchRegexRaw:
+          pattern: "Profile idp: probing and metrics observation are on and Pacto delivery is on.\nIt adds the cluster-wide read of ServiceMonitors and PodMonitors and Pacto\ndelivery's cluster roles."
+  - it: idp with watchNamespaces names the per-namespace monitor read
+    set: {profile: idp, controller.watchNamespaces: [payments]}
+    asserts:
+      - matchRegexRaw:
+          pattern: "It adds the read of ServiceMonitors and PodMonitors in each watched namespace\nand Pacto delivery's cluster roles."
+  - it: hardened and idp says delivery stays off
+    set: {profile: [hardened, idp], controller.watchNamespaces: [payments]}
+    asserts:
+      - matchRegexRaw:
+          pattern: "Profile idp with hardened: probing and metrics observation are on and Pacto\ndelivery stays off."
+      - notMatchRegexRaw:
+          pattern: "Profile idp:"
+  - it: idp names only the observation modes that render on
+    set: {profile: idp, controller.probing: "off", controller.metricsObservation: "off"}
+    asserts:
+      - matchRegexRaw:
+          pattern: "Profile idp: probing and metrics observation are off and Pacto delivery is on.\nIt adds Pacto delivery's cluster roles."
+      - notMatchRegexRaw:
+          pattern: "ServiceMonitors"
+  - it: idp with metrics observation off names probing only
+    set: {profile: idp, controller.metricsObservation: "off"}
+    asserts:
+      - matchRegexRaw:
+          pattern: "Profile idp: probing is on and Pacto delivery is on.\nIt adds Pacto delivery's cluster roles."
+  - it: hardened and idp with metrics observation off names no monitor read
+    set: {profile: [hardened, idp], controller.watchNamespaces: [payments], controller.metricsObservation: "off"}
+    asserts:
+      - matchRegexRaw:
+          pattern: "Profile idp with hardened: probing is on and Pacto\ndelivery stays off."
+      - notMatchRegexRaw:
+          pattern: "ServiceMonitors"
+  - it: the default profile names no profile
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "Profile (idp|hardened)"

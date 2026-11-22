@@ -1,4 +1,4 @@
-{{- if .Values.delivery.enabled }}
+{{- if include "pacto-operator.deliveryEnabled" . }}
 {{- if .Values.delivery.serviceAccount.create }}
 {{- include "pacto-operator.serviceAccount" (dict "name" (include "pacto-operator.delivery.serviceAccountName" .) "namespace" (include "pacto-operator.delivery.namespace" .) "labels" (include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter")) "sa" .Values.delivery.serviceAccount) }}
 ---

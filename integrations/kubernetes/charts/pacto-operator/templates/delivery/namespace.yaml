@@ -1,11 +1,16 @@
-{{- if and .Values.delivery.enabled .Values.delivery.createNamespace }}
+{{- if and (include "pacto-operator.deliveryEnabled" .) .Values.delivery.createNamespace }}
 # Delivery's own namespace. The operator holds no Role here, so it cannot run
 # a pod as the promoter or the recorder, mint their tokens or change their
 # Deployments. With createNamespace false it must exist before the install.
+# Helm keeps it when delivery stops rendering (a profile change or
+# delivery.enabled=false): it holds the publisher trust config and pins, the
+# approvers policy and the recorder key, which no person chose to remove.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ include "pacto-operator.delivery.namespace" . }}
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
     {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 {{- end }}

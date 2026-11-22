@@ -470,6 +470,14 @@ func TestDiscoveryErrorKeepsGroupsWithReason(t *testing.T) {
 	if providerRow(snap, fleet.ProviderArgoCD) != nil || providerRow(snap, fleet.ProviderFlux) != nil || providerRow(snap, fleet.ProviderHelm) == nil {
 		t.Errorf("rows = %+v", snap.Providers)
 	}
+	// The missing Argo CD and Flux rows are unknown, not absent: the
+	// installation answer reads the mark and lists no confident appliers.
+	if w := providerRow(snap, fleet.ProviderKubernetesWorkloads); w == nil || !w.GitOpsUndiscovered ||
+		providerRow(clean, fleet.ProviderKubernetesWorkloads).GitOpsUndiscovered {
+		t.Errorf("workloads row = %+v", w)
+	} else {
+		w.GitOpsUndiscovered = false
+	}
 	if !sameSourceState(snap, clean) {
 		t.Errorf("source state differs:\n%+v\n%+v", snap.Sources, clean.Sources)
 	}

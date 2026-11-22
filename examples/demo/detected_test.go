@@ -56,7 +56,7 @@ func TestDemoFleetHasDetectedRows(t *testing.T) {
 // Installation row whose evidence names the demo registry.
 func checkDeclaredDetectedRow(t *testing.T, p fleet.Provider) {
 	t.Helper()
-	if p.ID != "installation" || p.Status != fleet.SourceAvailable || !strings.Contains(p.Evidence, "ghcr.io/acme") {
+	if p.ID != "installation" || p.Status != fleet.SourceAvailable || !strings.HasPrefix(p.Evidence, "profile default; registry ghcr.io/acme") {
 		t.Errorf("declared row %+v", p)
 	}
 }

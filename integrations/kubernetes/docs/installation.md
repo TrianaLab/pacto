@@ -81,6 +81,8 @@ helm install pacto-operator \
   --set dashboard.enabled=false
 ```
 
+- `profile` selects `default`, `hardened` or `idp`
+  ([Choose an installation profile](profiles.md)).
 - `controller.watchNamespaces` watches only the listed namespaces (empty means
   the whole cluster).
 - `metrics.serviceMonitor.enabled` creates a Prometheus `ServiceMonitor`.
@@ -409,7 +411,7 @@ helm uninstall pacto-operator --namespace pacto-operator-system
 ```
 
 That removes the controller and everything owner-referenced to it, dashboard and
-Evidence Server included. Five things survive, in any order:
+Evidence Server included. Six things survive, in any order:
 
 - **The CRDs and your `Pacto` resources.** The chart marks every CRD
   `helm.sh/resource-policy: keep`, because deleting one takes every `Pacto`,
@@ -424,6 +426,12 @@ Evidence Server included. Five things survive, in any order:
 - **The leader-election Lease** `a4917283.pacto.io`, inert once the controller
   is gone and reused on reinstall.
 - **The namespace**, if `--create-namespace` created it.
+- **The delivery namespace** (`delivery.namespace`, `pacto-delivery` by
+  default), if delivery was on, as with `profile: idp` and the quickstart. The
+  chart marks it `helm.sh/resource-policy: keep`, so it keeps what Helm did not
+  create in it: the trust config, the promoter's pins, the approvers policy and
+  the recorder's signing key Secret. It still names the old release, so a
+  release under another name cannot create it until you delete it.
 
 ```bash
 # Look first: everything that answers is on the list above, plus Kubernetes'
@@ -443,4 +451,5 @@ kubectl delete clusterrole,clusterrolebinding pacto-dashboard
 kubectl delete clusterrole metrics-observation-role               # if granted
 kubectl delete clusterrolebinding metrics-observation-rolebinding # if granted
 kubectl delete namespace pacto-operator-system   # takes the Lease and Secrets
+kubectl delete namespace pacto-delivery          # if delivery was on: takes its trust config and key
 ```

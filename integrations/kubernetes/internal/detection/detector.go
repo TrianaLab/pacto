@@ -79,8 +79,9 @@ type Detector struct {
 	Cluster, ClusterName string
 	Now                  func() time.Time
 	Interval             time.Duration
-	// Installation is what the operator was configured with when --registry
-	// is set, nil otherwise; LastPush reads the snapshot publisher's last
+	// Installation is what the operator was configured with: the operator
+	// sets it on every install with its profile, and only its registry fields
+	// need --registry. LastPush reads the snapshot publisher's last
 	// attempt, nil before the first one.
 	Installation *detect.Installation
 	LastPush     func() *detect.PushResult
@@ -220,7 +221,8 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 }
 
 // installation is a copy of the configured installation with the last push
-// attempt, nil when --registry is not set.
+// attempt, nil when none is configured. The operator configures one on every
+// install; only its registry fields need --registry.
 func (d *Detector) installation() *detect.Installation {
 	if d.Installation == nil {
 		return nil

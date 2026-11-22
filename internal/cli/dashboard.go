@@ -198,6 +198,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				Refresh:    mgr.Refresh,
 				MiraURL:    v.GetString("dashboard.mira-url"),
 
+				InstallationConfig: svc.InstallationConfig(det.detected),
+
 				DeliveryNamespace: deliveryNarrowing(namespaces),
 			}
 			opts.Stats, opts.StatsRegistry = dashboardStats(cmd, svc)

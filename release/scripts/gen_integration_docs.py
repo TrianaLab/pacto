@@ -579,7 +579,8 @@ def chart_arg_flags(helper: str) -> dict[str, str]:
     chart value updates the page. Three outcomes:
 
       "chart value" -- the arg line interpolates a value, or an enclosing
-                       if/with/range guard tests one, so values.yaml decides.
+                       if/with/range guard tests one (directly or through a
+                       chart helper), so values.yaml decides.
       "always on"   -- the chart emits it unconditionally with a literal, so it
                        is fixed at the chart's value and no value changes it.
       (absent)      -- the helper never emits it.
@@ -591,7 +592,8 @@ def chart_arg_flags(helper: str) -> dict[str, str]:
     for line in (body if nxt < 0 else body[:nxt]).splitlines():
         m = re.match(r'^\s*-\s+(?:\{\{\s*printf\s+")?--([a-z0-9-]+)', line)
         if m:
-            controlled = ".Values" in line or any(".Values" in g for g in guards)
+            # A guard through a chart helper (dashboardEnabled) reads values too.
+            controlled = ".Values" in line or any(".Values" in g or 'include "pacto-operator.' in g for g in guards)
             out[m.group(1)] = "chart value" if controlled else "always on"
         opens = len(re.findall(r"\{\{-?\s*(?:if|with|range)\b", line))
         closes = len(re.findall(r"\{\{-?\s*end\b", line))

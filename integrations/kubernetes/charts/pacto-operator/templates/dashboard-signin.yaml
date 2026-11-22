@@ -1,4 +1,4 @@
-{{- if and .Values.dashboard.enabled (include "pacto-operator.dashboardTokenSignIn" .) }}
+{{- if and (include "pacto-operator.dashboardEnabled" .) (include "pacto-operator.dashboardTokenSignIn" .) }}
 {{- $fullname := include "pacto-operator.fullname" . }}
 {{- $labels := include "pacto-operator.labels" . }}
 {{- $namespaces := include "pacto-operator.watchNamespaces" . | fromYamlArray }}

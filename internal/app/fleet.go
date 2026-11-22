@@ -304,6 +304,27 @@ func (s *Service) detectionReader(ref string) *fleetsrc.DetectionSource {
 // the service graph only reads it.
 var liveEdgeIDs = map[string]string{"jaeger": "detected-jaeger", "tempo": serviceGraphID, "otel-collector": receiverID}
 
+// InstallationConfig reads what the operator was configured with from the
+// detection at ref (as [Service.detectionReader] reads it) on each call, for
+// the installation capability: nil when ref is empty.
+// ponytail: one read per call (one ConfigMap GET for k8s:); cache it with
+// the published snapshot if a profile shows it hot.
+func (s *Service) InstallationConfig(ref string) func(context.Context) (*fleet.InstallationDeclared, fleet.SourceState) {
+	src := s.detectionReader(ref)
+	if src == nil {
+		return nil
+	}
+	// A file ref is a path on this host: remote callers read a fixed label.
+	label := "a detection file"
+	if strings.HasPrefix(ref, "k8s:") {
+		label = ref
+	}
+	return func(ctx context.Context) (*fleet.InstallationDeclared, fleet.SourceState) {
+		res, st := src.Read(ctx)
+		return res.Declared(label), st
+	}
+}
+
 // serviceGraphID and receiverID are the ids of the service-graph and OTLP
 // receiver edge sources.
 const (

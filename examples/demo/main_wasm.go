@@ -116,6 +116,9 @@ func main() {
 	// Declare an inferred service from its page (source_declare.go): nobody
 	// signs in the demo, so Save draft keeps a draft-<n> in the tab.
 	opts.Declare = newDemoDeclarer(func(r *http.Request) string { return d.State(r).User })
+	if opts.InstallationConfig, err = demoInstallationConfig(); err != nil {
+		panic(err)
+	}
 	js.Global().Set("__pactoDeliveryKey", d.KeyHint())
 	js.Global().Set("__pactoPactifyPlan", pactifyPlan)
 	// __pactoPersona(name, fresh) switches who the tab acts as: pay-agent,

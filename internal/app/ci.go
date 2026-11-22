@@ -338,7 +338,7 @@ func (s *Service) ciAdvertised(ctx context.Context, ref string) (ci.Value, strin
 	}
 	res, st := src.Read(ctx)
 	status := string(st.Status)
-	if st.Status == fleet.SourceAvailable && res.Installation == nil {
+	if st.Status == fleet.SourceAvailable && (res.Installation == nil || res.Installation.Registry == "") {
 		status = "absent"
 	}
 	if status != string(fleet.SourceAvailable) {

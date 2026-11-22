@@ -121,6 +121,13 @@ func (id *dashboardIdentity) deliveryInstalled(context.Context) (bool, error) {
 	return id.installed && id.probeErr == nil, id.probeErr
 }
 
+// deliveryCheckedAt is when deliveryInstalled last asked discovery.
+func (id *dashboardIdentity) deliveryCheckedAt() time.Time {
+	id.probe.Lock()
+	defer id.probe.Unlock()
+	return id.checked
+}
+
 // delivery is the caller's delivery API: the kubeconfig user in local mode,
 // the signed-in person's own token in shared mode, nothing in open mode. In
 // shared mode, Stages and Operations are read from the shared cache, filtered

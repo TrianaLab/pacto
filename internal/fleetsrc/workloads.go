@@ -123,7 +123,7 @@ func (s *WorkloadSource) providerRows(ctx context.Context, col *fleet.Collection
 	if err == nil {
 		idx, gitops = s.readGitOps(ctx, versions)
 	} else {
-		versions = nil
+		versions, rows[0].GitOpsUndiscovered = nil, true
 	}
 	for i := range col.InferredServices {
 		in := &col.InferredServices[i]

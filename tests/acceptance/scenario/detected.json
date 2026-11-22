@@ -136,6 +136,7 @@
     }
   ],
   "installation": {
+    "profile": ["default"],
     "registry": "ghcr.io/acme",
     "targets": "ghcr.io/acme/pacto-targets",
     "index": "ghcr.io/acme/pacto-index",

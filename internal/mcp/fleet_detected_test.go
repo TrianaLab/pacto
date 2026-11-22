@@ -105,7 +105,7 @@ func TestFleetStatusDescriptionNamesDetected(t *testing.T) {
 // replaced the sentence that said every detected row is inferred.
 func TestFleetStatusToolDescribesInstallation(t *testing.T) {
 	d := fleetStatusTool().Description
-	for _, want := range []string{"an Installation row with provenance declared", "push prefixes", "a Pull Secret proposal",
+	for _, want := range []string{"an Installation row with provenance declared naming the profile", "push prefixes", "a Pull Secret proposal",
 		"a Pull Secret is never used until a person sets registryPullSecret"} {
 		if !strings.Contains(d, want) {
 			t.Errorf("description lacks %q:\n%s", want, d)

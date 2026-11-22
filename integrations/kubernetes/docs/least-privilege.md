@@ -31,6 +31,8 @@ whose delivery views read across the cluster. The dashboard Overview starts with
 namespaces (ledger and payments)." Every fleet answer is `partial`, and a
 service in any other namespace is unknown.
 
+The [hardened profile](profiles.md#hardened) makes this the whole install.
+
 In both install modes the dashboard lists Deployments, StatefulSets,
 DaemonSets and CronJobs, with `list` only, to show them as inferred services.
 Listing them lets its ServiceAccount read the inline environment values in
@@ -44,8 +46,8 @@ dashboard and operator ServiceAccounts read their inline Helm values
 (`spec.source.helm.values`, `spec.values`, `spec.postBuild.substitute`), which
 can hold credentials. Pacto decodes only the source and status fields it names.
 
-A namespace-list install cannot read the `kube-system` namespace, so it
-reports no cluster id. The live source keeps its context name, and a snapshot
+Without `registry`, a namespace-list install cannot read the `kube-system`
+namespace, so it reports no cluster id. The live source keeps its context name, and a snapshot
 with several clusters marks it `CLUSTER_UNKNOWN`.
 
 ## What detection reads and writes
@@ -64,7 +66,9 @@ leader-election Role grants Leases only, so this is the operator's one
 ConfigMap write in the release namespace. Pods,
 HTTPRoutes, Ingresses and Services come from reads the operator already has.
 A namespace-list install renders no `nodes` rule, so cloud and nodes read
-unknown.
+unknown. With `registry` set, it renders one Role in `kube-system` that may
+`get` only the `kube-system` Namespace, because the target snapshot needs the
+cluster id ([Choose an installation profile](profiles.md#controls-under-hardened)).
 
 ## Registry pushes
 

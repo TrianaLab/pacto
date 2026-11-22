@@ -1,4 +1,4 @@
-{{- if .Values.delivery.enabled }}
+{{- if include "pacto-operator.deliveryEnabled" . }}
 {{- $fullname := include "pacto-operator.delivery.fullname" . }}
 {{- $controller := include "pacto-operator.delivery.controllerUser" . }}
 {{- $agents := include "pacto-operator.delivery.celList" .Values.delivery.identities.agentGroups }}
