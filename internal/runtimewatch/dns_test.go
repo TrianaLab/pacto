@@ -285,6 +285,31 @@ func TestAggregatorSharedAddressAcrossDomainsIsUnnamed(t *testing.T) {
 	}
 }
 
+// TestAggregatorEvictionKeepsEveryDomainOfAnAddress: four more names of one domain never push out the only
+// name of another domain inside the retention window, so the address still names no vendor.
+func TestAggregatorEvictionKeepsEveryDomainOfAnAddress(t *testing.T) {
+	a := NewAggregator(DefaultBounds(), nil)
+	a.Resync(oneScan(), t0)
+	a.Apply(dnsEvent(100, answer(t, "api.a.com", stripeAddr)), t0)
+	for i, n := range []string{"b1.b.com", "b2.b.com", "b3.b.com", "b4.b.com"} {
+		a.Apply(dnsEvent(100, answer(t, n, stripeAddr)), at(time.Duration(1+i)*time.Second))
+	}
+	a.Apply(connect(100, stripeAddr, 443, true), at(5*time.Second))
+	_, ws, _ := a.Snapshot(at(6*time.Second), dnsRunning())
+	if c := connectionTo(t, ws, uidA, stripeAddr); c.Host != "" || !c.Ambiguous {
+		t.Fatalf("connection = %+v, want ambiguous", c)
+	}
+	// Every domain distinct: the least recently seen goes and the address stays ambiguous.
+	b := NewAggregator(DefaultBounds(), nil)
+	b.Resync(oneScan(), t0)
+	for i, n := range []string{"a.one.com", "a.two.com", "a.three.com", "a.four.com", "a.five.com"} {
+		b.Apply(dnsEvent(100, answer(t, n, stripeAddr)), at(time.Duration(i)*time.Second))
+	}
+	if l := b.workloads[pod(uidA)].names[stripeAddr]; len(l) != maxNamesPerAddress || slices.ContainsFunc(l, func(n dnsName) bool { return n.name == "a.one.com" }) {
+		t.Fatalf("names = %v", l)
+	}
+}
+
 func TestAggregatorSameDomainNamesKeepHost(t *testing.T) {
 	a := NewAggregator(DefaultBounds(), nil)
 	a.Resync(oneScan(), t0)

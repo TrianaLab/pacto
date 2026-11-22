@@ -330,7 +330,8 @@ func (a *Aggregator) answer(ps *peerSet, ev Event, now time.Time) {
 }
 
 // learn records that n names addr, within the per-address and per-workload
-// bounds: the least recently seen name, then address, is evicted.
+// bounds: a name (see evictName), then the least recently seen address, is
+// evicted.
 func (a *Aggregator) learn(ps *peerSet, addr netip.Addr, n dnsName) {
 	if ps.names == nil {
 		ps.names = map[netip.Addr][]dnsName{}
@@ -345,7 +346,7 @@ func (a *Aggregator) learn(ps *peerSet, addr netip.Addr, n dnsName) {
 	}
 	list = append(list, n)
 	if len(list) > maxNamesPerAddress {
-		i := oldestName(list)
+		i := evictName(list)
 		list = slices.Delete(list, i, i+1)
 	}
 	ps.names[addr] = list
@@ -353,6 +354,25 @@ func (a *Aggregator) learn(ps *peerSet, addr netip.Addr, n dnsName) {
 
 func lastSeen(list []dnsName) time.Time {
 	return list[newestName(list)].seen
+}
+
+// evictName is the name a full list drops: the least recently seen one whose
+// registrable domain another name keeps, so every domain the address answered
+// for stays and hostOf still reads ambiguous; the least recently seen when
+// every domain is distinct.
+func evictName(list []dnsName) int {
+	i := -1
+	for j, n := range list {
+		d := registrableDomain(n.name)
+		shared := slices.ContainsFunc(list, func(o dnsName) bool { return o.name != n.name && registrableDomain(o.name) == d })
+		if shared && (i < 0 || n.seen.Before(list[i].seen)) {
+			i = j
+		}
+	}
+	if i < 0 {
+		return oldestName(list)
+	}
+	return i
 }
 
 func oldestName(list []dnsName) int {
