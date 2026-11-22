@@ -322,11 +322,19 @@ export function installScaleFixture(): void {
       const meta = doc.meta as Record<string, unknown>;
       meta.sources = [...((meta.sources as unknown[] | undefined) ?? []),
         { id: longName('otlp-receiver'), kind: 'otlp-receiver', status: 'partial', advisory: true, revisionCount: 0, targetCount: 0 },
-        { id: longName('detected-jaeger'), kind: 'traces', status: 'partial', advisory: true, revisionCount: 0, targetCount: 0 },
-        // The whole organization index (516-S3): every published service, no targets.
-        { id: 'registry-index', kind: 'index', status: 'available', revisionCount: 1840, targetCount: 0 }];
+        { id: longName('detected-jaeger'), kind: 'traces', status: 'partial', advisory: true, revisionCount: 0, targetCount: 0 }];
+      // The whole organization index (516-S3): one current index in the kind tally, so the
+      // trust figure says "organization index", and its row at the top of the list.
+      meta.sourceCounts = { ...SOURCE_COUNTS, availableByKind: [{ kind: 'kubernetes', count: 43 }, { kind: 'index', count: 1 }] };
+      const ents = doc.entities as Record<string, unknown>[] | undefined;
+      // The list's first page only: the least-healthy figure asks for 8.
+      if (ents?.length && Number(q.get('limit') || 25) > 8 && !q.get('offset')) {
+        ents.pop();
+        ents.unshift({ kind: 'source', key: 'registry-index', label: 'registry-index', status: 'available', href: '/fleet/sources/registry-index' });
+      }
     }
-    // The index's /api/sources row, so the nav sources popover names and colours it.
+    // The index's /api/sources row: the fleet UI lists it in the phone drawer's sources
+    // (the desktop sources popover renders only without the fleet UI).
     if (route === '/api/sources' && Array.isArray(doc.sources)) (doc.sources as unknown[]).push({ type: 'index', enabled: true });
     if (route === '/api/fleet/overview') {
       const s = doc.summary as Record<string, unknown>;

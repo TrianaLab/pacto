@@ -199,7 +199,7 @@ describe('sourceTooltip', () => {
     expect(sourceTooltip('otlp-receiver')).toContain('never corroborate a declared dependency');
   });
   it('names the organization index', () => {
-    expect(sourceTooltip('index')).toBe('Organization index — every service published to the registry');
+    expect(sourceTooltip('index')).toBe('Organization index — the services listed in <registry>/pacto-index');
   });
   it('names the linked-workload reader', () => {
     expect(sourceTooltip('kubernetes-linked')).toBe('Linked workloads — workloads the operator linked to a published contract with no Pacto');
