@@ -314,3 +314,10 @@ func (s *Signer) Accepted(r *http.Request, intent string) []string {
 	}
 	return slices.Clone(e.accept)
 }
+
+// Live reports whether the session of r holds a fresh signing login for
+// intent that is unused and unexpired.
+func (s *Signer) Live(r *http.Request, intent string) bool {
+	e, ok := s.entry(r, intent, false)
+	return ok && e.raw != ""
+}
