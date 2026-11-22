@@ -333,10 +333,8 @@ func firstHost(names []string) string {
 		if h == "" {
 			continue
 		}
-		d, err := publicsuffix.EffectiveTLDPlusOne(h)
-		if err != nil {
-			d = h
-		}
+		// egressHost kept only hosts with a registrable domain or a catalog rule.
+		d, _ := publicsuffix.EffectiveTLDPlusOne(h)
 		switch {
 		case first == "":
 			first, domain = h, d
