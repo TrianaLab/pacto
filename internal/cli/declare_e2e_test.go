@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,8 @@ type declareE2E struct {
 	ss     *testutil.Sigstore
 	root   string
 	logins int
+	// git carries --pr's requests to a Git host fake.
+	git http.RoundTripper
 }
 
 func newDeclareE2E(t *testing.T) *declareE2E {
@@ -86,6 +89,7 @@ func (e *declareE2E) addAudit(t *testing.T) {
 func (e *declareE2E) run(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	d := defaultDeps()
+	d.gitTransport = e.git
 	d.freshLogin = func(_ context.Context, c authn.FreshConfig) (string, error) {
 		e.logins++
 		c.Prompt("https://idp/auth?prompt=login")

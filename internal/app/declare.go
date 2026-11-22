@@ -55,8 +55,8 @@ type DeclareRequest struct {
 	// declared record.
 	Agent bool
 	// OnPlan, when set, is handed the plan before any login starts or
-	// anything is written.
-	OnPlan func(*DeclarePlan)
+	// anything is written; an error refuses the run there.
+	OnPlan func(*DeclarePlan) error
 	// Draft writes a draft-<n> a person accepts later, without starting the
 	// login, even when a person runs it.
 	Draft bool
@@ -149,9 +149,26 @@ type DeclarePlan struct {
 	// nothing.
 	Repository      *contract.InferredSourceRepository `json:"repository,omitempty"`
 	RepositoryTried []RungNote                         `json:"repositoryTried,omitempty"`
+	// PullRequest is the pull request --pr opens, filled by the CLI before
+	// it prints the plan; it stays off the dashboard API.
+	PullRequest *PRPlan `json:"-"`
 	// pr is the pull request target the intent binds, <url>#<folder>; set
 	// only with --pr.
 	pr string
+	// unchangedFiles are the baseline bundle's own pacto.yaml and
+	// pacto.inferred.yaml when the plan is unchanged.
+	unchangedFiles map[string][]byte
+}
+
+// PRPlan is the pull request --pr would open: the Git host kind, the
+// repository, the folder the files go in, the branch and where the token
+// comes from.
+type PRPlan struct {
+	Kind        string `json:"kind"`
+	URL         string `json:"url"`
+	Folder      string `json:"folder"`
+	Branch      string `json:"branch"`
+	TokenSource string `json:"tokenSource"`
 }
 
 // DeclareBaseline is the published version a declaration starts from and
@@ -959,6 +976,7 @@ func (pl *declarePlanner) version(ctx context.Context, raw []byte, rec *contract
 	}
 	if d.Unchanged {
 		pl.plan.Unchanged, pl.plan.Version = d.Version, d.Version
+		pl.plan.unchangedFiles = bundleFiles(pl.baseline.FS)
 	}
 	return d.Version, nil
 }
@@ -1081,6 +1099,34 @@ type DeclareResult struct {
 	Tag       string      `json:"tag,omitempty"`
 	Draft     bool        `json:"draft,omitempty"`
 	Signed    bool        `json:"signed,omitempty"`
+	// Files are the exact pacto.yaml and pacto.inferred.yaml written, or
+	// the baseline bundle's own for an unchanged plan: what --pr commits.
+	Files map[string][]byte `json:"-"`
+	// PullRequest is the pull request --pr opened; PullRequestError is why
+	// it failed after the write.
+	PullRequest      *PullRequestResult `json:"pullRequest,omitempty"`
+	PullRequestError *DeclareError      `json:"pullRequestError,omitempty"`
+}
+
+// PullRequestResult is a pull request --pr opened: its URL, the login of
+// the token that opened it, its branch and where the token came from.
+type PullRequestResult struct {
+	URL         string `json:"url"`
+	Login       string `json:"login"`
+	Branch      string `json:"branch"`
+	TokenSource string `json:"tokenSource"`
+}
+
+// bundleFiles is pacto.yaml and pacto.inferred.yaml as fsys holds them; a
+// missing one is left out.
+func bundleFiles(fsys fs.FS) map[string][]byte {
+	out := map[string][]byte{}
+	for _, name := range []string{DefaultContractPath, contract.InferredRecordFile} {
+		if b, err := fs.ReadFile(fsys, name); err == nil {
+			out[name] = b
+		}
+	}
+	return out
 }
 
 // Declare plans a declaration (or the acceptance of req.FromDraft) and
@@ -1096,13 +1142,16 @@ func (s *Service) Declare(ctx context.Context, req DeclareRequest) (*DeclareResu
 		res.Plan = *plan
 	}
 	if err != nil || plan.Unchanged != "" {
+		res.Files = res.Plan.unchangedFiles
 		return res, err
 	}
 	if err := checkDeclarable(req, plan); err != nil {
 		return res, err
 	}
 	if req.OnPlan != nil {
-		req.OnPlan(plan)
+		if err := req.OnPlan(plan); err != nil {
+			return res, err
+		}
 	}
 	c, err := s.declareSigner(ctx, d.signing, req.Agent)
 	switch {
@@ -1178,6 +1227,7 @@ func (s *Service) publishDeclared(ctx context.Context, res *DeclareResult, d *de
 	}
 	res.Plan.Publish, res.Plan.Signer.Subject, res.Plan.Signer.Issuer = r.Plan, c.Identity.Subject, c.Identity.Issuer
 	res.Executed, res.Signed, res.Tag, res.Published = true, true, r.Plan.Version, d.repo+"@"+r.Digests[publish.BundleItem]
+	res.Files = bundleFiles(d.files)
 	return nil
 }
 
@@ -1199,6 +1249,7 @@ func (s *Service) writeDraft(ctx context.Context, req DeclareRequest, res *Decla
 	res.Plan.Publish = r.Plan
 	res.Executed, res.Draft, res.Signed, res.Tag, res.Published = true, true, signed, tag, d.repo+"@"+r.Digests[publish.BundleItem]
 	res.Plan.State, res.Plan.AcceptCLI = contract.DeclarationDraft, AcceptDraftCLI(res.Plan.Service, req.Registry, tag)
+	res.Files = bundleFiles(d.files)
 	return nil
 }
 

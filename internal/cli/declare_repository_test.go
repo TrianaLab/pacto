@@ -148,7 +148,8 @@ func TestDeclarePlanPrintsTriedRungs(t *testing.T) {
 func TestDeclareFlagsPR(t *testing.T) {
 	noKube(t)
 	var got app.DeclareRequest
-	_, _, err := runRoot(t, declareDeps(t, &got, declarePlanFixture(), nil, nil), nil, "declare", "invoices",
+	prEnv(t, "tok")
+	_, _, err := runRoot(t, declareDeps(t, &got, prPlanFixture(), nil, nil), nil, "declare", "invoices",
 		"--pr", "--repository", "https://github.com/acme/invoices", "--folder", "deploy", "--repo-map", "repos.yaml")
 	if err != nil || !got.PR || got.Repository != "https://github.com/acme/invoices" || got.Folder != "deploy" || got.RepoMap != "repos.yaml" {
 		t.Fatalf("%v %+v", err, got)
