@@ -3,6 +3,7 @@ package detect
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -151,5 +152,20 @@ func TestDetectEntriesFitMaxEntries(t *testing.T) {
 		if _, ok := rowNames[kind]; !ok {
 			t.Errorf("egress kind %s has no row name", kind)
 		}
+	}
+}
+
+// TestReaderOffLowersOnlyACompleteEntryWithNoReader: an entry whose reader does not run never reads
+// complete; a running reader or an entry already short of complete is unchanged.
+func TestReaderOffLowersOnlyACompleteEntryWithNoReader(t *testing.T) {
+	served := IstioEgress(true, nil)
+	if got := ReaderOff(served, false, "why", "hint"); got.Completeness != Partial || got.Reason != "why" || got.Hint != "hint" {
+		t.Errorf("reader off = %+v", got)
+	}
+	if got := ReaderOff(served, true, "why", "hint"); !reflect.DeepEqual(got, served) {
+		t.Errorf("running reader = %+v", got)
+	}
+	if missing := IstioEgress(false, nil); !reflect.DeepEqual(ReaderOff(missing, false, "why", "hint"), missing) {
+		t.Errorf("an unknown entry changed")
 	}
 }

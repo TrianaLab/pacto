@@ -20,11 +20,11 @@ import (
 // namespace, owned by the Deployment deployName, and skips the system, operator
 // and node agent namespaces when counting registries. It is nil when the
 // operator runs outside the chart (no Deployment name), so nothing is written.
-// inst, when set, is advertised with the push attempt lastPush returns. gatewayLogs is the
-// controller.egressGatewayLogs mode the egress gateway entry reports.
+// inst, when set, is advertised with the push attempt lastPush returns. readers are the egress
+// readers the operator started with, which the egress entries report.
 func ForOperator(deployName, namespace string, watched []string, nodeAgentNS string, ident kubecluster.Identity,
 	r client.Reader, w client.Client, served func(string) (bool, error),
-	inst *detect.Installation, lastPush func() *detect.PushResult, gatewayLogs string) *Detector {
+	inst *detect.Installation, lastPush func() *detect.PushResult, readers Readers) *Detector {
 	if deployName == "" {
 		return nil
 	}
@@ -37,6 +37,6 @@ func ForOperator(deployName, namespace string, watched []string, nodeAgentNS str
 		ClusterName:  ident.Name,
 		Now:          time.Now,
 		Installation: inst, LastPush: lastPush,
-		GatewayLogs: gatewayLogs,
+		Readers: readers,
 	}
 }

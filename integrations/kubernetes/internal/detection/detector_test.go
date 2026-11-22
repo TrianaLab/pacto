@@ -95,8 +95,14 @@ func newClient(funcs interceptor.Funcs, objs ...client.Object) client.WithWatch 
 
 func servedAll(string) (bool, error) { return true, nil }
 
+// allReaders are the readers of an operator that started with every egress API served and kernel
+// evidence on, in gateway log mode.
+func allReaders(mode string) Readers {
+	return Readers{GatewayLogs: mode, KernelEvidence: true, ServiceEntries: true, CiliumPolicies: true}
+}
+
 func newDetector(c client.WithWatch, served func(string) (bool, error), watched ...string) *Detector {
-	d := ForOperator(deploy, opNS, watched, "pacto-node-agent", kubecluster.Identity{ID: "cluster-uid", Name: "kind-pacto"}, c, c, served, nil, nil, detect.GatewayLogsAuto)
+	d := ForOperator(deploy, opNS, watched, "pacto-node-agent", kubecluster.Identity{ID: "cluster-uid", Name: "kind-pacto"}, c, c, served, nil, nil, allReaders(detect.GatewayLogsAuto))
 	d.Now = func() time.Time { return now }
 	return d
 }
@@ -574,7 +580,7 @@ func TestDetectorCopiesLastPush(t *testing.T) {
 	c := newClient(interceptor.Funcs{}, clusterObjects()...)
 	last := &detect.PushResult{At: now, Ref: "ghcr.io/acme/pacto-targets:cluster-cluster-uid"}
 	inst := &detect.Installation{Registry: "ghcr.io/acme"}
-	d := ForOperator(deploy, opNS, nil, "", kubecluster.Identity{ID: "cluster-uid"}, c, c, servedAll, inst, func() *detect.PushResult { return last }, detect.GatewayLogsAuto)
+	d := ForOperator(deploy, opNS, nil, "", kubecluster.Identity{ID: "cluster-uid"}, c, c, servedAll, inst, func() *detect.PushResult { return last }, allReaders(detect.GatewayLogsAuto))
 	d.Now = func() time.Time { return now }
 	_ = d.Sync(context.Background())
 	_, res := readResult(t, c)
@@ -679,5 +685,39 @@ func TestDetectorIgnoresForeignEgressGatewayLabel(t *testing.T) {
 	_ = newDetector(c, servedAll).Sync(context.Background())
 	if _, res := readResult(t, c); slices.ContainsFunc(res.Entries, func(e detect.Entry) bool { return e.Kind == "egress-gateway" }) {
 		t.Errorf("entries = %+v", res.Entries)
+	}
+}
+
+// TestDetectorGatewayLogsOnWithoutKernelEvidencePartial: gateway logs are read only with kernel evidence on,
+// so mode on without it never reads complete.
+func TestDetectorGatewayLogsOnWithoutKernelEvidencePartial(t *testing.T) {
+	objs := append(clusterObjects(), egressGatewayPod(detect.GatewayNamespace, "istio-egressgateway-7d9f-a"))
+	for _, c := range []struct {
+		kernel bool
+		want   string
+	}{{true, detect.Complete}, {false, detect.Partial}} {
+		cl := newClient(routesInterceptor(), objs...)
+		d := newDetector(cl, servedAll)
+		d.Readers = Readers{GatewayLogs: detect.GatewayLogsOn, KernelEvidence: c.kernel, ServiceEntries: true, CiliumPolicies: true}
+		_ = d.Sync(context.Background())
+		_, res := readResult(t, cl)
+		if e := entry(t, res, "egress-gateway"); e.Completeness != c.want || (!c.kernel && !strings.Contains(e.Reason, "kernel evidence")) {
+			t.Errorf("kernel evidence %v: egress-gateway = %+v", c.kernel, e)
+		}
+	}
+}
+
+// TestDetectorEgressAPIServedAfterStartPartial: an API served after the operator started has no running
+// reader, so its entry is partial with the restart hint.
+func TestDetectorEgressAPIServedAfterStartPartial(t *testing.T) {
+	c := newClient(routesInterceptor(), clusterObjects()...)
+	d := newDetector(c, servedAll)
+	d.Readers = Readers{GatewayLogs: detect.GatewayLogsAuto, KernelEvidence: true}
+	_ = d.Sync(context.Background())
+	_, res := readResult(t, c)
+	for _, kind := range []string{"istio-egress", "cilium-fqdn"} {
+		if e := entry(t, res, kind); e.Completeness != detect.Partial || !strings.Contains(e.Reason, "since the operator started") || !strings.Contains(e.Hint, "restart the operator") {
+			t.Errorf("%s = %+v", kind, e)
+		}
 	}
 }

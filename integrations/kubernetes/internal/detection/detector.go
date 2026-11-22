@@ -84,11 +84,27 @@ type Detector struct {
 	// attempt, nil before the first one.
 	Installation *detect.Installation
 	LastPush     func() *detect.PushResult
-	// GatewayLogs is the controller.egressGatewayLogs mode: auto, on or off.
-	GatewayLogs string
+	// Readers are the egress readers the operator started with.
+	Readers Readers
 
 	owner       *metav1ac.OwnerReferenceApplyConfiguration
 	warnedOwner bool
+}
+
+// Readers is what the operator reads beside detection, fixed at its start: the
+// controller.egressGatewayLogs mode (auto, on or off), whether kernel evidence
+// is on (gateway logs are read with it) and whether the ServiceEntry and
+// Cilium policy readers run (each needs its API served at startup).
+type Readers struct {
+	GatewayLogs                                    string
+	KernelEvidence, ServiceEntries, CiliumPolicies bool
+}
+
+// readerOff is e partial when its API is served but the operator's reader did
+// not start: the API came after the operator did.
+func readerOff(e detect.Entry, running bool) detect.Entry {
+	return detect.ReaderOff(e, running, "served since the operator started, so it is not read yet",
+		"restart the operator, after a helm upgrade so the chart grants the read")
 }
 
 // Start implements manager.Runnable. Runnables default to leader election,
@@ -163,16 +179,20 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 	res.Entries = append(res.Entries, detect.Metrics(served, classed(servedErr)))
 
 	istioServed, istioErr := d.Served(istioGV)
-	res.Entries = append(res.Entries, detect.IstioEgress(istioServed, classed(istioErr)))
+	res.Entries = append(res.Entries, readerOff(detect.IstioEgress(istioServed, classed(istioErr)), d.Readers.ServiceEntries))
 	if istioErr == nil && istioServed {
 		// No Istio, no egress gateway: nothing is listed and no entry is written.
 		gateways, err := d.egressGateways(ctx)
-		if gw := detect.EgressGateways(gateways, d.GatewayLogs, classed(err)); gw.Kind != "" {
+		if gw := detect.EgressGateways(gateways, d.Readers.GatewayLogs, classed(err)); gw.Kind != "" {
+			if d.Readers.GatewayLogs == detect.GatewayLogsOn {
+				gw = detect.ReaderOff(gw, d.Readers.KernelEvidence, "gateway logs are read only with kernel evidence on",
+					"helm upgrade <release> <chart> --reuse-values --set nodeAgent.enabled=true")
+			}
 			res.Entries = append(res.Entries, gw)
 		}
 	}
 	ciliumServed, ciliumErr := d.Served(ciliumGV)
-	res.Entries = append(res.Entries, detect.CiliumFQDN(ciliumServed, classed(ciliumErr)))
+	res.Entries = append(res.Entries, readerOff(detect.CiliumFQDN(ciliumServed, classed(ciliumErr)), d.Readers.CiliumPolicies))
 
 	dexServed, dexErr := d.Served(dexGV)
 	services, err := d.dexServices(ctx)

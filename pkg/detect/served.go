@@ -64,6 +64,16 @@ func egressAPI(kind, crd, gv string, served bool, err error) Entry {
 	return e
 }
 
+// ReaderOff is e lowered to partial, with why and the hint that fixes it, when
+// e reads complete but the reader it describes is not running. A running
+// reader, or an entry that is not complete, is e unchanged.
+func ReaderOff(e Entry, running bool, why, hint string) Entry {
+	if !running && e.Completeness == Complete {
+		e.Completeness, e.Reason, e.Hint = Partial, why, hint
+	}
+	return e
+}
+
 // GatewayNamespace is the one namespace whose egress gateways are trusted:
 // Istio's install namespace. A tenant can label its own pod anywhere else.
 const GatewayNamespace = "istio-system"
