@@ -64,6 +64,17 @@ describe('DetectedProviders', () => {
     expect(t.querySelector('[data-testid="providers-show-all"]')).toBeNull();
   });
 
+  it('shows a detected egress row\'s sentence without its external-egress selection token', async () => {
+    providersFn.mockResolvedValue(resp([
+      row('istio-egress', { provenance: 'inferred', usedFor: ['reads calls leaving the cluster; nothing is turned on', 'external-egress'] }),
+      row('kernel-egress', { usedFor: ['external-egress'] }),
+    ]));
+    const t = render();
+    await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
+    expect(text(rows(t)[0].querySelector('.dp-used'))).toBe('reads calls leaving the cluster; nothing is turned on');
+    expect(text(rows(t)[1].querySelector('.dp-used'))).toBe('external egress');
+  });
+
   it('collapses the reasons of a partial row under "Why partial" and of a stale one under "Why stale"', async () => {
     providersFn.mockResolvedValue(resp([
       row('a', { status: 'partial', limitations: [{ code: 'X', message: 'Deployments unreadable' }] }),

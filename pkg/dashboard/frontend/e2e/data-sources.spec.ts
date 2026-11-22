@@ -235,6 +235,8 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(kernel.locator('.dp-status')).toHaveText('Partial');
     for (const name of ['Istio egress', 'Cilium FQDN', 'Egress gateway']) await expect(row(name)).toHaveClass(/dp-inferred/);
     await expect(row('Egress gateway').locator('.dp-evidence')).toContainText('1 Istio egress gateway found; logs: auto');
+    // The external-egress token selects the reader; the cell shows the sentence alone.
+    await expect(row('Istio egress').locator('.dp-used')).toHaveText('reads calls leaving the cluster; nothing is turned on');
     // /api/sources lists the readers apart from the data sources the nav counts.
     const sources = await page.evaluate(async () => ((await (await fetch('/api/sources')).json()).sources as Array<{ type: string; egress?: boolean; coverage?: string }>));
     expect(sources.filter((s) => !s.egress)).toHaveLength(NAV_PILLS);

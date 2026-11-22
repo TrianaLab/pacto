@@ -147,7 +147,7 @@ func TestFleetProvidersEgressDetectedRowCell(t *testing.T) {
 	at := time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)
 	row := detect.ProviderRows(detect.Result{AsOf: at, Entries: []detect.Entry{detect.IstioEgress(true, nil)}}, "detected", at)[0]
 	got := providerUsedFor(row)
-	expect(t, strings.HasPrefix(got, "reads calls leaving the cluster; nothing is turned on"), "the istio-egress cell prints the sentence: %s", got)
+	expect(t, got == "reads calls leaving the cluster; nothing is turned on", "the istio-egress cell prints the sentence alone: %s", got)
 }
 
 func TestFleetProvidersListsEgressRows(t *testing.T) {
