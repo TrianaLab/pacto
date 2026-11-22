@@ -41,6 +41,7 @@
 #   pacto_status NS NAME           the CR's contractStatus (empty while unset)
 #   wait_pacto_status NS NAME WANT poll for it, dumping the CR when it never lands
 #   install_registry               an in-cluster OCI registry, ready to push to
+#   node_pulls_from_registry       the kind nodes pull images from that registry
 #   trust_keypair BIN [KEY] [PROD] producer keypair + the Secret evidence mounts
 #   push_bundle BIN PORT DIR REF   publish a bundle -> prints the manifest digest
 #   dump_diag NS                   best-effort diagnostics for a failed run
@@ -439,6 +440,20 @@ spec:
   ports: [ { port: 5000, targetPort: 5000 } ]
 YAML
   wait_ready pacto-registry 120s
+}
+
+# node_pulls_from_registry — the nodes do not resolve cluster names, so the
+# in-cluster registry name ($REG_HOST) is mapped to its ClusterIP for
+# containerd. The cluster must be created with containerd's config_path set to
+# /etc/containerd/certs.d, which is where it reads per-registry hosts.toml.
+node_pulls_from_registry() {
+  local ip node dir="/etc/containerd/certs.d/$REG_HOST"
+  ip="$(kubectl -n "$NS" get svc pacto-registry -o jsonpath='{.spec.clusterIP}')"
+  for node in $(kind get nodes --name "$CLUSTER"); do
+    docker exec "$node" mkdir -p "$dir"
+    printf 'server = "http://%s:5000"\n[host."http://%s:5000"]\n  capabilities = ["pull", "resolve"]\n' "$ip" "$ip" \
+      | docker exec -i "$node" tee "$dir/hosts.toml" >/dev/null
+  done
 }
 
 # PACTO_NOREFERRERS_REGISTRY_IMAGE is CNCF distribution, which serves no

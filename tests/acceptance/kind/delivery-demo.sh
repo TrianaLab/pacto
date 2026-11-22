@@ -184,18 +184,6 @@ YAML
   echo "$cfg"
 }
 
-# node_pulls_from_registry — the nodes do not resolve cluster names, so the
-# in-cluster registry name is mapped to its ClusterIP for containerd.
-node_pulls_from_registry() {
-  local ip node dir="/etc/containerd/certs.d/$REG_HOST"
-  ip="$(kubectl -n "$NS" get svc pacto-registry -o jsonpath='{.spec.clusterIP}')"
-  for node in $(kind get nodes --name "$CLUSTER"); do
-    docker exec "$node" mkdir -p "$dir"
-    printf 'server = "http://%s:5000"\n[host."http://%s:5000"]\n  capabilities = ["pull", "resolve"]\n' "$ip" "$ip" \
-      | docker exec -i "$node" tee "$dir/hosts.toml" >/dev/null
-  done
-}
-
 idp_start() {
   cp "$IDP_FIXTURES/dex.yaml" "$IDP_FIXTURES/pacto-realm.json" "$IDP_DIR/"
   chmod 644 "$IDP_DIR/dex.yaml" "$IDP_DIR/pacto-realm.json"
