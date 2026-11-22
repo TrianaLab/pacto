@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -29,6 +30,9 @@ type MemberLink interface {
 	// IssuerRefused says whether the member's apiserver is marked as
 	// refusing tokens from issuer.
 	IssuerRefused(issuer string) bool
+	// Refuse marks issuer refused at once: the hub itself knows no member
+	// token can be made for it.
+	Refuse(issuer string)
 }
 
 // MemberExchange trades a person's session token for one only the member
@@ -123,7 +127,9 @@ func (m *memberReviewer) withToken(ctx context.Context, p Person, issuer, token 
 	uid := m.link.UID()
 	forward, err := m.exchange(ctx, token, uid)
 	if errors.Is(err, errForeignIssuer) {
-		return m.notAccepted(p, issuer)
+		// A fact the hub decides itself, not a member's ambiguous 401.
+		m.link.Refuse(issuer)
+		return false, true, nil
 	}
 	if err != nil {
 		return false, false, err
@@ -146,10 +152,12 @@ func (m *memberReviewer) withToken(ctx context.Context, p Person, issuer, token 
 }
 
 // notAccepted notes that the member cannot accept p's token from issuer,
-// and reports refused once the hub marks the issuer so.
+// and reports refused once the hub marks the issuer so, or at once when a
+// person approved a group mapping for it: that mapping answers for every
+// person of the issuer, so one refusal is enough to use it.
 func (m *memberReviewer) notAccepted(p Person, issuer string) (allowed, refused bool, err error) {
 	m.link.Note(issuer, memberlink.ModelIssuerNotAccepted, p.User)
-	if m.link.IssuerRefused(issuer) {
+	if m.link.IssuerRefused(issuer) || (m.mapping != nil && m.mapping(issuer) != nil) {
 		return false, true, nil
 	}
 	return false, false, errors.New("the member cluster did not accept your token")
@@ -163,6 +171,9 @@ func (m *memberReviewer) withMapping(ctx context.Context, p Person, issuer strin
 		g = m.mapping(issuer)
 	}
 	if g == nil {
+		// No mapping answers for issuer: the member shows as refusing it, so
+		// the attention item names the map-groups command.
+		m.link.Refuse(issuer)
 		m.once(ctx, "mapping\x00"+issuer, "a member cluster hides from signed-in readers: it does not accept their issuer and no group mapping is approved",
 			"cluster", m.link.UID(), "issuer", issuer)
 		return false, errIssuerNotAccepted
@@ -210,10 +221,11 @@ type MemberExchangeConfig struct {
 
 // NewMemberExchange exchanges a person's token for one member (RFC 8693),
 // as MCP.Exchange does for the apiserver. A token from another issuer is
-// refused with no request, and counts as one the member does not accept,
-// so people of a second identity provider reach the group mapping. The issuer is read at the first
-// exchange, and again while that fails. Answers are cached per token hash
-// and member.
+// refused with no request, and marks that issuer refused at once, so people
+// of a second identity provider reach the group mapping. A token the issuer
+// returns that is not for the member alone is refused. The issuer is read
+// at the first exchange, and again while that fails. Answers are cached per
+// token hash and member.
 func NewMemberExchange(cfg MemberExchangeConfig) MemberExchange {
 	if cfg.Audience == "" {
 		cfg.Audience = DefaultMemberAudience
@@ -240,6 +252,35 @@ func NewMemberExchange(cfg MemberExchangeConfig) MemberExchange {
 		mu.Unlock()
 		sum := sha256.Sum256([]byte(token))
 		key := sha256.Sum256(append(sum[:], uid...))
-		return x.exchange(ctx, token, strings.ReplaceAll(cfg.Audience, "{uid}", uid), key, tokenExpiry(token))
+		aud := strings.ReplaceAll(cfg.Audience, "{uid}", uid)
+		out, err := x.exchange(ctx, token, aud, key, tokenExpiry(token))
+		if err != nil {
+			return "", err
+		}
+		return out, memberTokenFor(out, cfg.IssuerURL, aud, cfg.ClientID)
 	}
+}
+
+// errMemberTokenAudience: the identity provider issued an exchanged token
+// that is not for the member alone, so a member could replay it elsewhere.
+var errMemberTokenAudience = errors.New("the identity provider did not issue the exchanged token for the member cluster alone")
+
+// memberTokenFor refuses an exchanged token a member must not receive: one
+// another issuer made, one not for audience, or one the hub's own client
+// (the dashboard's audience) accepts too. The hub checks rather than trust
+// the identity provider to honour the audience it asked for.
+func memberTokenFor(token, issuer, audience, clientID string) error {
+	raw := jwtClaims(token)
+	var iss string
+	_ = json.Unmarshal(raw["iss"], &iss) // no string, no issuer
+	var aud []string
+	if json.Unmarshal(raw["aud"], &aud) != nil {
+		var one string
+		_ = json.Unmarshal(raw["aud"], &one)
+		aud = []string{one}
+	}
+	if iss != issuer || !slices.Contains(aud, audience) || (clientID != "" && slices.Contains(aud, clientID)) {
+		return errMemberTokenAudience
+	}
+	return nil
 }

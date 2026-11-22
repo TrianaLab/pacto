@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"slices"
 	"sync"
@@ -211,18 +212,37 @@ func (h *Hub) Review(ctx context.Context, uid string, r Review) (Answer, error) 
 	h.mu.Lock()
 	l := h.links[uid]
 	h.mu.Unlock()
-	pub, keyID, ok := h.opts.Approved(ctx, uid)
-	if l != nil && (!ok || keyID != l.keyID || !pub.Equal(l.pub)) {
+	if l != nil && !h.approved(ctx, l) {
 		l.close()
 		return Answer{}, ErrNotApproved
 	}
-	if !ok {
-		return Answer{}, ErrNotApproved
-	}
 	if l == nil {
+		if _, _, ok := h.opts.Approved(ctx, uid); !ok {
+			return Answer{}, ErrNotApproved
+		}
 		return Answer{}, ErrLinkDown
 	}
 	return l.review(ctx, r)
+}
+
+// approved says whether l's cluster is still approved with l's key.
+func (h *Hub) approved(ctx context.Context, l *link) bool {
+	pub, keyID, ok := h.opts.Approved(ctx, l.uid)
+	return ok && keyID == l.keyID && pub.Equal(l.pub)
+}
+
+// Recheck closes every link whose cluster is no longer approved, or is now
+// approved with another key, so its channel reads down at once: call it
+// when the approved list changes.
+func (h *Hub) Recheck(ctx context.Context) {
+	h.mu.Lock()
+	links := slices.Collect(maps.Values(h.links))
+	h.mu.Unlock()
+	for _, l := range links {
+		if !h.approved(ctx, l) {
+			h.remove(l)
+		}
+	}
 }
 
 // Live is the UIDs of the clusters with a live link, sorted.
@@ -273,22 +293,49 @@ func (h *Hub) NoteIdentity(uid, issuer, model, person string) {
 		return
 	}
 	now := h.opts.Now()
-	key := [2]string{uid, issuer}
-	r := h.refusals[key]
-	if r == nil {
-		r = &refusal{persons: map[string]time.Time{}}
-		h.refusals[key] = r
-	}
+	r := h.refusal(uid, issuer)
 	r.persons[person] = now
 	for p, at := range r.persons {
 		if now.Sub(at) > refusalWindow {
 			delete(r.persons, p)
 		}
 	}
-	if len(r.persons) >= refusalPersons {
+	// An issuer marked before, and never accepted since, is confirmed again
+	// by one refusal: its mark expired only to re-probe.
+	if len(r.persons) >= refusalPersons || !r.until.IsZero() {
 		r.until = now.Add(refusalTTL)
 		s.Issuers[issuer] = ModelIssuerNotAccepted
 	}
+}
+
+// RefuseIssuer marks issuer refused for cluster uid at once, with no
+// threshold: the hub itself knows no member token can be made for it (it
+// comes from another identity provider, or the hub exchanges none). A mark
+// still in force keeps its expiry, so the re-probe still happens.
+func (h *Hub) RefuseIssuer(uid, issuer string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	s := h.states[uid]
+	if s == nil || s.Channel != "live" {
+		return
+	}
+	s.Issuers[issuer] = ModelIssuerNotAccepted
+	r, now := h.refusal(uid, issuer), h.opts.Now()
+	if !now.Before(r.until) {
+		r.until = now.Add(refusalTTL)
+	}
+}
+
+// refusal is the refusal record of uid and issuer, made when missing; the
+// caller holds h.mu.
+func (h *Hub) refusal(uid, issuer string) *refusal {
+	key := [2]string{uid, issuer}
+	r := h.refusals[key]
+	if r == nil {
+		r = &refusal{persons: map[string]time.Time{}}
+		h.refusals[key] = r
+	}
+	return r
 }
 
 // IssuerRefused says whether cluster uid's apiserver is marked as refusing

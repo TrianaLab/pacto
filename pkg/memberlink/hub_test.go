@@ -448,3 +448,54 @@ func TestNoteIdentityThreshold(t *testing.T) {
 		t.Fatal("a reconnect did not clear the refusal")
 	}
 }
+
+// Once marked, an issuer whose mark expired is confirmed by the first
+// re-probe refusal: the mapping it was served by keeps answering.
+func TestExpiredRefusalReconfirmedByOnePerson(t *testing.T) {
+	f := newFixture(t)
+	f.link(t)
+	const iss = "https://idp"
+	f.hub.NoteIdentity("c1", iss, ModelIssuerNotAccepted, "alice")
+	f.hub.NoteIdentity("c1", iss, ModelIssuerNotAccepted, "bob")
+	f.advance(refusalTTL + time.Second)
+	f.hub.NoteIdentity("c1", iss, ModelIssuerNotAccepted, "alice")
+	if !f.hub.IssuerRefused("c1", iss) {
+		t.Fatal("the re-probe refusal of an issuer marked before did not mark it again")
+	}
+}
+
+func TestRefuseIssuerMarksAtOnce(t *testing.T) {
+	f := newFixture(t)
+	const iss = "https://idp"
+	f.hub.RefuseIssuer("c1", iss) // no link: ignored
+	f.link(t)
+	f.hub.RefuseIssuer("c1", iss)
+	if !f.hub.IssuerRefused("c1", iss) || f.hub.Links()["c1"].Issuers[iss] != ModelIssuerNotAccepted {
+		t.Fatal("a refusal the hub decides itself did not mark the issuer at once")
+	}
+	f.advance(refusalTTL - time.Second)
+	f.hub.RefuseIssuer("c1", iss)
+	f.advance(2 * time.Second)
+	if f.hub.IssuerRefused("c1", iss) {
+		t.Fatal("a mark in force was extended, so the issuer is never re-probed")
+	}
+}
+
+// A revoked cluster's link closes when the approved list changes, before
+// any review: its channel no longer reads live.
+func TestRecheckClosesRevokedLink(t *testing.T) {
+	f := newFixture(t)
+	ws := f.link(t)
+	f.hub.Recheck(context.Background())
+	if len(f.hub.Live()) != 1 {
+		t.Fatal("an approved link was closed")
+	}
+	f.app.revoke("c1")
+	f.hub.Recheck(context.Background())
+	if len(f.hub.Live()) != 0 || f.hub.Links()["c1"].Channel != "down" {
+		t.Fatalf("a revoked link stayed live: %+v", f.hub.Links())
+	}
+	if !closed(ws) {
+		t.Fatal("a revoked cluster kept its socket")
+	}
+}

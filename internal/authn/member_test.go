@@ -59,6 +59,15 @@ func (l *fakeLink) Note(issuer, model, person string) {
 	l.notes = append(l.notes, issuer+" "+model+" "+person)
 }
 func (l *fakeLink) IssuerRefused(issuer string) bool { return l.refused[issuer] }
+func (l *fakeLink) Refuse(issuer string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.refused == nil {
+		l.refused = map[string]bool{}
+	}
+	l.refused[issuer] = true
+	l.notes = append(l.notes, issuer+" refused")
+}
 
 func allow(model string) func(memberlink.Review) (memberlink.Answer, error) {
 	return func(memberlink.Review) (memberlink.Answer, error) {
@@ -145,7 +154,9 @@ func TestRawSessionTokenNeverForwarded(t *testing.T) {
 func TestForwardedTokenAudienceIsMember(t *testing.T) {
 	f := newIdP(t)
 	exp := time.Now().Add(30 * time.Minute)
-	f.exchangeOut = map[string]any{"access_token": jwtOf(issuerA, exp), "expires_in": 600}
+	f.exchangeFor = func(aud string) map[string]any {
+		return map[string]any{"access_token": jwtAud(f.srv.URL, exp, aud), "expires_in": 600}
+	}
 	x := NewMemberExchange(MemberExchangeConfig{IssuerURL: f.srv.URL, ClientID: "dash", ClientSecret: "s"})
 	session := jwtOf(f.srv.URL, exp, "s")
 	for _, uid := range []string{"uid-a", "uid-b", "uid-a"} {
@@ -165,8 +176,8 @@ func TestForwardedTokenAudienceIsMember(t *testing.T) {
 }
 
 // A token of another identity provider is never sent to the hub's issuer:
-// it counts as one the member does not accept, so once the hub marks that
-// issuer refused the group mapping answers.
+// the hub knows no member token can be made for it, so it marks that issuer
+// refused at once and the group mapping answers its first person.
 func TestForeignIssuerCountsAsNotAccepted(t *testing.T) {
 	f := newIdP(t)
 	x := NewMemberExchange(MemberExchangeConfig{IssuerURL: f.srv.URL, ClientID: "dash", ClientSecret: "s"})
@@ -181,11 +192,73 @@ func TestForeignIssuerCountsAsNotAccepted(t *testing.T) {
 	}
 	r := MemberReview(l, x, mapB)
 	ok, err := r(signedIn(foreign), bob, "ops", pactos)
-	expect(t, !ok && err != nil && len(l.sent) == 0, "one person is not yet a refusal: %v %v", ok, err)
-	expect(t, len(l.notes) == 1 && l.notes[0] == issuerB+" issuer-not-accepted bob", "noted: %v", l.notes)
-	l.refused[issuerB] = true
-	ok, err = r(signedIn(foreign), bob, "ops", pactos)
-	expect(t, ok && err == nil && len(l.sent) == 1 && l.sent[0].Mapped != nil && l.sent[0].Token == "", "the mapping answers: %v %v %+v", ok, err, l.sent)
+	expect(t, ok && err == nil && len(l.sent) == 1 && l.sent[0].Mapped != nil && l.sent[0].Token == "", "the mapping answers the first person: %v %v %+v", ok, err, l.sent)
+	expect(t, l.refused[issuerB] && strings.Join(l.notes, ",") == issuerB+" refused,"+issuerB+" group-mapping bob", "marked at once: %v", l.notes)
+}
+
+// One person's issuer-not-accepted does not mark the issuer, but an
+// approved group mapping answers that person at once.
+func TestSingleRefusalUsesApprovedMapping(t *testing.T) {
+	l := &fakeLink{uid: "u1", refused: map[string]bool{}}
+	l.answer = func(r memberlink.Review) (memberlink.Answer, error) {
+		if r.Token != "" {
+			return memberlink.Answer{Refused: memberlink.RefusedIssuerNotAccepted}, nil
+		}
+		return memberlink.Answer{Allowed: true, Model: memberlink.ModelGroupMapping}, nil
+	}
+	ctx := signedIn(jwtOf(issuerA, time.Now().Add(time.Minute)))
+	ok, err := MemberReview(l, (&exchanges{}).exchange, mappingOf(pdelivery.GroupRule{From: "devs", To: "viewers"}))(ctx, aliceP, "prod", pactos)
+	expect(t, ok && err == nil && len(l.sent) == 2 && l.sent[1].Mapped != nil, "the mapping answers: %v %v %+v", ok, err, l.sent)
+	expect(t, !l.refused[issuerA], "one person does not mark the issuer")
+	ok, err = MemberReview(l, (&exchanges{}).exchange, nil)(ctx, aliceP, "prod", pactos)
+	expect(t, !ok && err != nil && !errors.Is(err, errIssuerNotAccepted) && !l.refused[issuerA], "with no mapping one refusal hides, unmarked: %v %v", ok, err)
+}
+
+// With no exchange and no mapping, the member shows as refusing the issuer,
+// so the attention item can name the map-groups command.
+func TestNoExchangeNoMappingMarksIssuer(t *testing.T) {
+	l := &fakeLink{uid: "u1", answer: allow(memberlink.ModelGroupMapping)}
+	ok, err := MemberReview(l, nil, nil)(signedIn(jwtOf(issuerA, time.Now().Add(time.Minute))), aliceP, "prod", pactos)
+	expect(t, !ok && errors.Is(err, errIssuerNotAccepted) && len(l.sent) == 0, "hidden: %v %v", ok, err)
+	expect(t, l.refused[issuerA] && strings.Join(l.notes, ",") == issuerA+" refused", "marked: %v", l.notes)
+}
+
+// The hub refuses an exchanged token that is not for the member alone,
+// whatever audience it asked the identity provider for.
+func TestExchangedTokenMustBeForMemberAlone(t *testing.T) {
+	f := newIdP(t)
+	exp := time.Now().Add(30 * time.Minute)
+	session := jwtOf(f.srv.URL, exp, "s")
+	for name, c := range map[string]struct {
+		iss string
+		aud any
+		ok  bool
+	}{
+		"member only":       {f.srv.URL, "pacto-member-u1", true},
+		"member and extra":  {f.srv.URL, []string{"pacto-member-u1", "account"}, true},
+		"dashboard":         {f.srv.URL, []string{"dash"}, false},
+		"member and client": {f.srv.URL, []string{"pacto-member-u1", "dash"}, false},
+		"no audience":       {f.srv.URL, nil, false},
+		"other issuer":      {issuerB, "pacto-member-u1", false},
+	} {
+		f.exchangeOut = map[string]any{"access_token": jwtAud(c.iss, exp, c.aud), "expires_in": 600}
+		x := NewMemberExchange(MemberExchangeConfig{IssuerURL: f.srv.URL, ClientID: "dash", ClientSecret: "s"})
+		_, err := x(context.Background(), session, "u1")
+		if c.ok != (err == nil) || (!c.ok && !errors.Is(err, errMemberTokenAudience)) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	f.exchangeOut = map[string]any{"access_token": jwtAud(f.srv.URL, exp, "dash"), "expires_in": 600}
+	l := &fakeLink{uid: "u1", answer: allow(memberlink.ModelSharedIssuer)}
+	x := NewMemberExchange(MemberExchangeConfig{IssuerURL: f.srv.URL, ClientID: "dash", ClientSecret: "s"})
+	ok, err := MemberReview(l, x, mappingOf())(signedIn(session), aliceP, "prod", pactos)
+	expect(t, !ok && errors.Is(err, errMemberTokenAudience) && len(l.sent) == 0, "no frame, cluster hidden: %v %v %d", ok, err, len(l.sent))
+}
+
+// jwtAud is an unsigned JWT naming iss, exp and aud.
+func jwtAud(iss string, exp time.Time, aud any) string {
+	b, _ := json.Marshal(map[string]any{"iss": iss, "exp": exp.Unix(), "aud": aud})
+	return "e30." + base64.RawURLEncoding.EncodeToString(b) + ".sig"
 }
 
 func TestMemberReviewIssuerNotAcceptedUsesMapping(t *testing.T) {
