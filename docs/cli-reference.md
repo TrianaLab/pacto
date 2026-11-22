@@ -1828,6 +1828,8 @@ With --running, impact judges &lt;new&gt; against the revisions of its service t
 
 With --unavailable, --removed or --regressed, impact answers what happens if that service becomes unavailable, is removed or a revision of it regressed. --unavailable and --removed also take offering:&lt;name&gt;, which asks the same of every service that provides the platform offering. Consumers are graded breaks (every edge on their path is required), may degrade (an optional edge) or unknown. The gate is unverified (exit 2) when anything depends on the service and clear (exit 0) only when the complete snapshot shows nothing does. --regressed with an artifact digest reads delivery's recorded failures with your own cluster credentials when a cluster is reachable.
 
+--changed external:&lt;identity&gt; and --unavailable external:&lt;identity&gt; ask what a change or an outage of an external system, such as a vendor API nobody here controls, does to every service that uses it. Each consumer row says where the use was seen (declared, observed, pod-spec or repository), the client major its record names (always possible) and the range it pins. A change puts every consumer in attention; an outage breaks a declared required use, may degrade a declared optional one and is unknown for the rest. The gate is always unverified (exit 2): an external system is never verified. When a consumer pins no range, the answer ends with the dependencies block that pins one.
+
 The answer ends in a release gate, and the exit status follows it:
   0  clear: the change is not BREAKING and every service that references its policy passes the new policy, or the snapshot is complete and no service depends on the changed one.
   1  blocked: a consumer that runs on a known target does not accept the new version of a BREAKING change, or its contract fails the changed service's new policy, whatever the classification.
@@ -1841,7 +1843,7 @@ When you pass no --k8s, --target-state, --evidence-url or --target-snapshot, imp
 From the same ref impact also reads the consumers published to the organization index, &lt;host&gt;/<first path segment>/pacto-index then &lt;host&gt;/pacto-index, checks them against the target snapshot it reads and prints a Consumers line; --index names another &lt;registry&gt;/pacto-index, --index none reads none, a --root list skips it and a pair of --local folders reads no index.
 
 ```
-pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision> [flags]
+pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision> | --changed external:<identity> [flags]
 ```
 
 **Examples:**
@@ -1868,6 +1870,11 @@ pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed
   # What breaks if every provider of the postgresql offering becomes unavailable
   pacto impact --unavailable offering:postgresql --local .
 
+  # Which consumers a change of the Stripe API affects, and what a Stripe
+  # outage does
+  pacto impact --changed external:stripe --local .
+  pacto impact --unavailable external:stripe --local .
+
   # What a regressed artifact affects, with delivery's recorded failures
   pacto impact --regressed payments-service@sha256:<digest> --local .
 ```
@@ -1876,6 +1883,7 @@ pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed
 
 ```
       --cache[=true|false]              include every bundle in the local OCI cache as an offline baseline revision
+      --changed string                  what a change of this external system (external:<identity>) does to every service that uses it; each consumer needs attention
       --context stringArray             kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string           the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string                 add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)
@@ -1906,7 +1914,7 @@ pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed
       --target-snapshot stringArray     signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray        offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces string                   OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
-      --unavailable string              what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable; offering:<name> asks it of every provider of an offering
+      --unavailable string              what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable; offering:<name> asks it of every provider of an offering and external:<identity> of an external system
 ```
 
 ---

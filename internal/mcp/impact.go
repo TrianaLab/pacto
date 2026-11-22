@@ -3,10 +3,12 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/trianalab/pacto/v4/pkg/externalid"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
@@ -70,6 +72,11 @@ func impactTool() *mcpsdk.Tool {
 			"(breaks, may-degrade, unknown) and the gate is never blocked for an event. Pass 'offering' instead of 'service' " +
 			"to ask it of every provider of a platform offering (unavailable or removed only); 'providers' lists them, and the top-level " +
 			"'service' then holds the offering's name, the same as 'event.offering'. " +
+			"Pass 'external' (an external system's identity, such as stripe) instead of 'service' with event changed or unavailable " +
+			"to ask what a change or an outage of a system nobody here controls does to every service that uses it: consumers carry " +
+			"'sources' (declared, observed, pod-spec, repository) and 'client' (the client library major, always possible), a changed " +
+			"answer gives every consumer the effect attention, 'external' names the system and the change of its inferred contract, " +
+			"'pin' is the dependencies YAML that pins a range on it, and the gate is always unverified. " +
 			"Pass 'running' with new_ref and no old_ref to judge new_ref against the revisions of its service that run on known targets " +
 			"('running' in the answer names them, the one judged and the ones Pacto could not read, which never let the gate clear); " +
 			"a running revision whose digest is new_ref's is left out of the baseline and listed in 'running.excluded'; " +
@@ -80,9 +87,10 @@ func impactTool() *mcpsdk.Tool {
 			"new_ref":          {Type: "string", Description: "New contract revision: a local directory or oci:// ref over stdio, an oci:// ref of a revision in your fleet view over HTTP"},
 			"include_observed": {Type: "boolean", Description: "Let observed (runtime) relationships raise consumer confidence; with old_ref and new_ref only, since an event always reads observed callers"},
 			"traces":           {Type: "string", Description: "Path to an OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies include_observed)"},
-			"event":            {Type: "string", Description: "What happens to 'service' instead of a contract change", Enum: []string{impact.EventUnavailable, impact.EventRemoved, impact.EventRegressed}},
+			"event":            {Type: "string", Description: "What happens to 'service' instead of a contract change; changed only with 'external'", Enum: impactEvents},
 			"service":          {Type: "string", Description: "The fleet service key the event is about"},
 			"offering":         {Type: "string", Description: "A platform offering instead of 'service': the event is about every provider of it; unavailable or removed only"},
+			"external":         {Type: "string", Description: "An external system's identity instead of 'service' or 'offering': changed or unavailable only"},
 			"revision":         {Type: "string", Description: "For regressed: the revision that regressed, a version or an artifact digest (sha256:...)"},
 			"policy":           {Type: "array", Items: "string", Description: "Range policy for a BREAKING change, as key=value: unknown-range=warn|fail and uncontracted=warn|fail:<window> (such as fail:7d); default warn"},
 			"running":          {Type: "boolean", Description: "Judge new_ref against the revisions of its service that run on known targets; one whose digest is new_ref's is left out and listed in 'running.excluded'; leave old_ref empty"},
@@ -98,13 +106,17 @@ type impactArgs struct {
 	Event           string   `json:"event"`
 	Service         string   `json:"service"`
 	Offering        string   `json:"offering"`
+	External        string   `json:"external"`
 	Revision        string   `json:"revision"`
 	Policy          []string `json:"policy"`
 	Running         bool     `json:"running"`
 }
 
 // errImpactArgs is the answer to a call that names neither a change nor an event.
-var errImpactArgs = errors.New("pass either old_ref and new_ref, or event and service (or offering)")
+var errImpactArgs = errors.New("pass either old_ref and new_ref, or event and service (or offering, or external)")
+
+// impactEvents are the event kinds pacto_impact takes.
+var impactEvents = []string{impact.EventUnavailable, impact.EventRemoved, impact.EventRegressed, impact.EventChanged}
 
 // request checks the arguments and turns them into an ImpactRequest.
 func (a impactArgs) request() (ImpactRequest, error) {
@@ -114,7 +126,7 @@ func (a impactArgs) request() (ImpactRequest, error) {
 	}
 	req := ImpactRequest{OldRef: a.OldRef, NewRef: a.NewRef, IncludeObserved: a.IncludeObserved, TracesPath: a.Traces, Policy: policy}
 	pair := a.OldRef != "" || a.NewRef != ""
-	event := a.Event != "" || a.Service != "" || a.Offering != "" || a.Revision != ""
+	event := a.Event != "" || a.Service != "" || a.Offering != "" || a.External != "" || a.Revision != ""
 	switch {
 	case a.Running:
 		if err := a.runningErr(event); err != nil {
@@ -127,7 +139,7 @@ func (a impactArgs) request() (ImpactRequest, error) {
 		if err := a.eventErr(); err != nil {
 			return ImpactRequest{}, err
 		}
-		req.Event = &impact.Event{Kind: a.Event, Service: a.Service, Offering: a.Offering, Revision: a.Revision}
+		req.Event = &impact.Event{Kind: a.Event, Service: a.Service, Offering: a.Offering, External: a.External, Revision: a.Revision}
 	}
 	return req, nil
 }
@@ -141,7 +153,7 @@ func (a impactArgs) runningErr(event bool) error {
 	case a.OldRef != "":
 		return errors.New("running judges new_ref against the revisions that run: leave old_ref empty")
 	case event:
-		return errors.New("running asks about a contract change: pass no event, service, offering or revision")
+		return errors.New("running asks about a contract change: pass no event, service, offering, external or revision")
 	}
 	return nil
 }
@@ -152,12 +164,12 @@ func (a impactArgs) eventErr() error {
 	switch {
 	case a.Event == "":
 		return errImpactArgs
-	case (a.Service == "") == (a.Offering == ""):
-		return errors.New("an event names exactly one of 'service' and 'offering'")
+	case nonEmpty(a.Service, a.Offering, a.External) != 1:
+		return errors.New("an event names exactly one of 'service', 'offering' and 'external'")
 	case a.Offering != "" && a.Event == impact.EventRegressed:
 		return errors.New("a regressed event names one 'service': a regression belongs to one revision")
-	case !slices.Contains([]string{impact.EventUnavailable, impact.EventRemoved, impact.EventRegressed}, a.Event):
-		return errors.New("event is one of unavailable, removed or regressed")
+	case !slices.Contains(impactEvents, a.Event):
+		return errors.New("event is one of unavailable, removed, regressed or changed")
 	case a.Event == impact.EventRegressed && a.Revision == "":
 		return errors.New("a regressed event names its 'revision'")
 	case a.Revision != "" && a.Event != impact.EventRegressed:
@@ -165,7 +177,37 @@ func (a impactArgs) eventErr() error {
 	case a.IncludeObserved:
 		return errors.New("include_observed applies to old_ref and new_ref: an event always reads observed callers")
 	}
+	return a.externalErr()
+}
+
+// externalErr checks the external system of an event: changed needs one,
+// removed and regressed refuse one, and its identity is read as written
+// (identities are canonical lower-case, so one Pacto would have to rewrite
+// is refused).
+func (a impactArgs) externalErr() error {
+	switch {
+	case a.Event == impact.EventChanged && a.External == "":
+		return errors.New("a changed event names an 'external' system; a change to a service of your own is old_ref and new_ref")
+	case a.External == "":
+		return nil
+	case a.Event == impact.EventRemoved || a.Event == impact.EventRegressed:
+		return errors.New("an external system is not yours to remove or regress; ask unavailable or changed")
+	}
+	if _, err := externalid.Parse(a.External); err != nil {
+		return fmt.Errorf("%w; find its identity with pacto_fleet_search (pacto fleet search)", err)
+	}
 	return nil
+}
+
+// nonEmpty counts the values that are set.
+func nonEmpty(values ...string) int {
+	n := 0
+	for _, v := range values {
+		if v != "" {
+			n++
+		}
+	}
+	return n
 }
 
 // impactHandler analyses over snap: the current snapshot, or the caller's view

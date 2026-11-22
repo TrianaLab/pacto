@@ -11,6 +11,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
+	"github.com/trianalab/pacto/v4/pkg/externalid"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/graph"
@@ -483,10 +484,16 @@ func (s *Service) ImpactEventOnSnapshot(ctx context.Context, opts ImpactEventOpt
 // ParseEventFlag reads the value of an event flag of `pacto impact`: a fleet
 // service key, and for regressed the revision after the last "@". For
 // unavailable and removed, offering:<name> names every provider of an offering.
+// For changed and unavailable, external:<identity> names an external system.
 func ParseEventFlag(kind, value string) (impact.Event, error) {
+	if id, ok := strings.CutPrefix(value, fleet.ExternalSubjectPrefix); ok {
+		return parseExternalEvent(kind, id)
+	}
 	ev := impact.Event{Kind: kind, Service: value}
 	name, offering := strings.CutPrefix(value, offeringPrefix)
 	switch kind {
+	case impact.EventChanged:
+		return impact.Event{}, errors.New("--changed takes external:<identity>; a change to a service of your own is pacto impact <old> <new>")
 	case impact.EventRegressed:
 		if offering {
 			return impact.Event{}, errors.New("--regressed names one service: a regression belongs to one revision")
@@ -507,9 +514,26 @@ func ParseEventFlag(kind, value string) (impact.Event, error) {
 			return impact.Event{}, fmt.Errorf("--%s takes a service key, got %q", kind, value)
 		}
 	default:
-		return impact.Event{}, fmt.Errorf("unknown event %q: use unavailable, removed or regressed", kind)
+		return impact.Event{}, fmt.Errorf("unknown event %q: use unavailable, removed, regressed or changed", kind)
 	}
 	return ev, nil
+}
+
+// parseExternalEvent reads the identity of an external:<identity> event flag
+// value as written: identities are canonical lower-case, so one Pacto would
+// have to rewrite is refused.
+func parseExternalEvent(kind, id string) (impact.Event, error) {
+	switch kind {
+	case impact.EventChanged, impact.EventUnavailable:
+	case impact.EventRemoved, impact.EventRegressed:
+		return impact.Event{}, errors.New("an external system is not yours to remove or regress; ask --unavailable or --changed")
+	default:
+		return impact.Event{}, fmt.Errorf("unknown event %q: use unavailable or changed for an external system", kind)
+	}
+	if _, err := externalid.Parse(id); err != nil {
+		return impact.Event{}, fmt.Errorf("%w; find its identity with pacto fleet search", err)
+	}
+	return impact.Event{Kind: kind, External: id}, nil
 }
 
 // offeringPrefix marks an event flag value that names an offering.

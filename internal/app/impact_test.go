@@ -703,3 +703,34 @@ func TestImpactEventOnReplacedKeyDisclosesAlias(t *testing.T) {
 		t.Fatalf("limitations %+v %v", res, err)
 	}
 }
+
+// TestParseEventFlagExternal: external:<identity> names an external system
+// for changed and unavailable, as written; removing or regressing one, a
+// changed service and an identity Pacto would rewrite are refused.
+func TestParseEventFlagExternal(t *testing.T) {
+	for _, tc := range []struct {
+		kind, value string
+		want        impact.Event
+		err         string
+	}{
+		{impact.EventChanged, "external:stripe", impact.Event{Kind: "changed", External: "stripe"}, ""},
+		{impact.EventUnavailable, "external:aws/rds/123/eu-west-1/db", impact.Event{Kind: "unavailable", External: "aws/rds/123/eu-west-1/db"}, ""},
+		{impact.EventRemoved, "external:stripe", impact.Event{}, "not yours to remove or regress"},
+		{impact.EventRegressed, "external:stripe@1.0.0", impact.Event{}, "not yours to remove or regress"},
+		{"exploded", "external:stripe", impact.Event{}, "unknown event"},
+		{impact.EventChanged, "payments", impact.Event{}, "--changed takes external:<identity>"},
+		{impact.EventChanged, "external:", impact.Event{}, "pacto fleet search"},
+		{impact.EventChanged, "external:Stripe", impact.Event{}, "pacto fleet search"},
+	} {
+		got, err := ParseEventFlag(tc.kind, tc.value)
+		if tc.err != "" {
+			if err == nil || !strings.Contains(err.Error(), tc.err) {
+				t.Errorf("%s %q: err %v, want %q", tc.kind, tc.value, err, tc.err)
+			}
+			continue
+		}
+		if err != nil || got != tc.want {
+			t.Errorf("%s %q = %+v %v, want %+v", tc.kind, tc.value, got, err, tc.want)
+		}
+	}
+}
