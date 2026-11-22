@@ -1,0 +1,12 @@
+# What ines declared for invoices with pacto declare, before the repository
+# had a pacto.yaml: the owner and the range she accepted on ledger.
+pactoVersion: "2.5"
+service:
+  name: invoices
+  version: 0.1.0
+  owner:
+    team: billing
+    dri: ines@acme.com
+dependencies:
+  - name: ledger
+    compatibility: ">=2.4.0"
