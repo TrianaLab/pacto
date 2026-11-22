@@ -6,6 +6,10 @@
 //	    -approver oidc:alice@acme.test -email alice@acme.test -key sha256:HEX \
 //	    -public-key BASE64 [-issuer URL] [-remove] [-name NAME]
 //
+// With -map-issuer it writes the group mapping `pacto cluster map-groups`
+// writes instead (the member-review scenario): one -map HUB=MEMBER per rule,
+// none to clear, and no -key or -public-key.
+//
 // It starts a private Sigstore (pkg/signing/testutil, as keylesssign does),
 // writes its trusted_root.json to FILE and calls (*app.Service).WriteClusterJoin
 // with a keyless signer for -email from -issuer. The record goes to
@@ -50,6 +54,8 @@ func (tb) Fatalf(f string, args ...any) { log.Fatalf(f, args...) }
 type request struct {
 	root, registry, cluster, hub, approver, email, key, publicKey, issuer, name string
 	remove                                                                      bool
+	mapIssuer                                                                   string
+	rules                                                                       []delivery.GroupRule
 }
 
 func main() {
@@ -65,6 +71,15 @@ func main() {
 	flag.StringVar(&r.issuer, "issuer", "https://idp.acme.test", "the OIDC issuer the certificate attests")
 	flag.StringVar(&r.name, "name", "", "display name override, a DNS label")
 	flag.BoolVar(&r.remove, "remove", false, "sign a removal instead of an approval")
+	flag.StringVar(&r.mapIssuer, "map-issuer", "", "sign a group mapping for the people of this OIDC issuer instead")
+	flag.Func("map", "a group mapping rule, HUB=MEMBER (repeatable)", func(v string) error {
+		from, to, ok := strings.Cut(v, "=")
+		if !ok {
+			return errors.New("want HUB=MEMBER")
+		}
+		r.rules = append(r.rules, delivery.GroupRule{From: from, To: to})
+		return nil
+	})
 	flag.Parse()
 	if err := run(context.Background(), testutil.New(tb{}), r, os.Stdout); err != nil {
 		log.Fatal(err)
@@ -74,7 +89,7 @@ func main() {
 // run writes ss's trusted root to r.root and records r's decision signed as
 // r.email from r.issuer, printing where the record is.
 func run(ctx context.Context, ss *testutil.Sigstore, r request, out io.Writer) error {
-	if r.root == "" || r.registry == "" || r.cluster == "" || r.hub == "" || r.approver == "" || r.email == "" || r.key == "" || r.publicKey == "" {
+	if r.root == "" || r.registry == "" || r.cluster == "" || r.hub == "" || r.approver == "" || r.email == "" || (r.mapIssuer == "" && (r.key == "" || r.publicKey == "")) {
 		return errors.New("usage: joinsign -root FILE -registry HOST:PORT/PATH -cluster UID -hub UID -approver USER -email EMAIL -key sha256:HEX -public-key BASE64 [-issuer URL] [-remove] [-name NAME]")
 	}
 	if err := os.WriteFile(r.root, ss.RootJSON, 0o600); err != nil {
@@ -84,12 +99,23 @@ func run(ctx context.Context, ss *testutil.Sigstore, r request, out io.Writer) e
 	if err != nil {
 		return err
 	}
+	repo := strings.TrimSuffix(r.registry, "/") + "/" + delivery.TargetSnapshotRepository
+	at := time.Now().UTC().Format(time.RFC3339)
+	if r.mapIssuer != "" {
+		m := delivery.ClusterGroupMapping{Cluster: r.cluster, Hub: r.hub, Issuer: r.mapIssuer, Rules: r.rules, Approver: r.approver, At: at}
+		ref, mode, err := app.NewService(nil, nil).WriteClusterGroupMapping(ctx, m, s, repo)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(out, "mapped %d groups of %s for %s as %s; recorded %s (%s)\n", len(r.rules), r.cluster, r.mapIssuer, r.approver, ref, mode)
+		return err
+	}
 	rec := delivery.ClusterJoin{Cluster: r.cluster, Hub: r.hub, KeyID: strings.TrimPrefix(r.key, "sha256:"), PublicKey: r.publicKey,
-		Decision: delivery.JoinApprove, Name: r.name, Approver: r.approver, At: time.Now().UTC().Format(time.RFC3339)}
+		Decision: delivery.JoinApprove, Name: r.name, Approver: r.approver, At: at}
 	if r.remove {
 		rec.Decision = delivery.JoinRemove
 	}
-	ref, mode, err := app.NewService(nil, nil).WriteClusterJoin(ctx, rec, s, strings.TrimSuffix(r.registry, "/")+"/"+delivery.TargetSnapshotRepository)
+	ref, mode, err := app.NewService(nil, nil).WriteClusterJoin(ctx, rec, s, repo)
 	if err != nil {
 		return err
 	}

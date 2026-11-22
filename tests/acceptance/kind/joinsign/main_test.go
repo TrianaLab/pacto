@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"log"
 	"net/http/httptest"
@@ -52,12 +53,20 @@ func publish(t *testing.T, repo string, key ed25519.PrivateKey) {
 	}
 }
 
-// state is the member as a hub that trusts the root at rootFile reads it,
-// where every user may approve.
-func state(t *testing.T, repo, rootFile string) delivery.ClusterJoinState {
+// state is the member as a hub that trusts the root at rootFile for issuer,
+// and each further root for its own issuer (issuer2, ...), reads it, where
+// every user may approve.
+func state(t *testing.T, repo, rootFile string, more ...string) delivery.ClusterJoinState {
 	t.Helper()
-	raw, _ := os.ReadFile(rootFile)
-	policy := delivery.ClassPolicy{Signers: []delivery.PersonSigner{{Issuer: issuer, UsernamePrefix: "oidc:", Subjects: `[^@]+@acme\.test`, TrustedRoot: string(raw)}}}
+	var policy delivery.ClassPolicy
+	for i, f := range append([]string{rootFile}, more...) {
+		raw, _ := os.ReadFile(f)
+		iss := issuer
+		if i > 0 {
+			iss = fmt.Sprintf("%s%d", issuer, i+1)
+		}
+		policy.Signers = append(policy.Signers, delivery.PersonSigner{Issuer: iss, UsernamePrefix: "oidc:", Subjects: `[^@]+@acme\.test`, TrustedRoot: string(raw)})
+	}
 	allow := func(context.Context, authn.Person, string, authn.ResourceAttributes) (bool, error) { return true, nil }
 	l := app.NewService(nil, nil).ClusterJoins(t.Context(), app.JoinOptions{Repository: repo, Hub: hub, Authorize: allow, Delivery: &app.Delivery{Policy: policy}})
 	for _, c := range l.Clusters {
@@ -94,6 +103,25 @@ func TestRunWritesWhatTheHubCounts(t *testing.T) {
 	}
 	if st := state(t, repo, rootFile); st.State != delivery.JoinApproved || st.Approver != "oidc:alice@acme.test" || st.Name != "eu-west" {
 		t.Fatalf("after approve: %+v", st)
+	}
+
+	mapReq := req
+	mapReq.key, mapReq.publicKey = "", ""
+	mapReq.root, mapReq.issuer = filepath.Join(t.TempDir(), "map-root.json"), issuer+"2"
+	mapReq.mapIssuer, mapReq.rules = "https://dex-b.acme.test/dex", []delivery.GroupRule{{From: "ops-b", To: "ops-mapped"}}
+	out.Reset()
+	if err := run(t.Context(), testutil.New(t), mapReq, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "mapped 1 groups of "+member+" for https://dex-b.acme.test/dex") {
+		t.Errorf("output %q", out.String())
+	}
+	if st := state(t, repo, rootFile, mapReq.root); len(st.Mappings) != 1 || st.Mappings[0].Issuer != mapReq.mapIssuer || st.Mappings[0].Rules[0] != mapReq.rules[0] {
+		t.Fatalf("after map-groups: %+v", st.Mappings)
+	}
+	mapReq.mapIssuer = "http://not-https"
+	if err := run(t.Context(), testutil.New(t), mapReq, io.Discard); err == nil {
+		t.Error("an invalid mapping was written")
 	}
 
 	req.remove = true
