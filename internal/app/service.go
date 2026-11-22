@@ -18,6 +18,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/contractview"
+	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/doc"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/lock"
@@ -50,6 +51,12 @@ type Service struct {
 	catalogs catalogLoader
 	// snapshots remembers the target snapshot bundles read across builds.
 	snapshots targetSnapshotCache
+	// joinRecords remembers the cluster join records read across builds, and
+	// those that never verify.
+	joinRecords deliveryrecord.Reader
+	// joinVerdicts remembers, for a minute, whether a user may approve a
+	// member.
+	joinVerdicts joinVerdictCache
 	// indexListings remembers organization index reads and, with no cache
 	// directory, their entries.
 	indexListings indexMemo

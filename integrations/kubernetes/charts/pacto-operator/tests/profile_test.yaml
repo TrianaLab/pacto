@@ -1,0 +1,438 @@
+# The installation profile (510-S7): profile is the only selector key, takes
+# one name or a list, and hardened renders no cluster-scoped object besides the
+# CRDs. Each refusal is pinned with its exact text.
+suite: installation profile
+templates:
+  - templates/deployment.yaml
+  - templates/clusterrole.yaml
+  - templates/clusterrolebinding.yaml
+  - templates/cluster-identity-role.yaml
+  - templates/dashboard-signin.yaml
+  - templates/dashboard-service.yaml
+  - templates/dashboard-ingress.yaml
+  - templates/dashboard-httproute.yaml
+  - templates/watch-namespaces.yaml
+  - templates/nodeagent-namespace.yaml
+  - templates/delivery/namespace.yaml
+  - templates/delivery/rbac.yaml
+  - templates/delivery/recorder.yaml
+  - templates/delivery/deployment.yaml
+  - templates/crds.yaml
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+capabilities:
+  majorVersion: 1
+  minorVersion: 30
+  apiVersions:
+    - gateway.networking.k8s.io/v1/HTTPRoute
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: profile accepts default
+    template: templates/deployment.yaml
+    set: {profile: default}
+    asserts: [{hasDocuments: {count: 1}}]
+  - it: profile accepts hardened
+    template: templates/deployment.yaml
+    set: {profile: hardened, controller.watchNamespaces: [payments]}
+    asserts: [{hasDocuments: {count: 1}}]
+  - it: profile accepts idp
+    template: templates/deployment.yaml
+    set: {profile: idp}
+    asserts: [{hasDocuments: {count: 1}}]
+  - it: profile accepts a list
+    template: templates/deployment.yaml
+    set: {profile: [idp, hardened], controller.watchNamespaces: [payments]}
+    asserts: [{hasDocuments: {count: 1}}]
+  - it: profile accepts a comma string
+    template: templates/deployment.yaml
+    set: {profile: "hardened,idp", controller.watchNamespaces: [payments]}
+    asserts: [{hasDocuments: {count: 1}}]
+
+  - it: an unknown profile fails the schema
+    template: templates/deployment.yaml
+    set: {profile: secure}
+    asserts:
+      - failedTemplate:
+          # Helm 3 and Helm 4 word the schema refusal differently.
+          errorPattern: "(?i)profile"
+  - it: default beside another profile fails (list)
+    template: templates/deployment.yaml
+    set: {profile: [default, idp]}
+    asserts:
+      - failedTemplate:
+          errorMessage: profile default stands alone
+  - it: default beside another profile fails (comma string)
+    template: templates/deployment.yaml
+    set: {profile: "default,idp"}
+    asserts:
+      - failedTemplate:
+          errorMessage: profile default stands alone
+  - it: another selector key fails the schema
+    template: templates/deployment.yaml
+    set: {mode: hardened}
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?i)additional propert(y|ies) '?mode'? (is )?not allowed"
+
+  - it: hardened refuses dex with cluster-scoped RBAC
+    template: templates/deployment.yaml
+    set:
+      profile: hardened
+      controller.watchNamespaces: [payments]
+      dex.enabled: true
+      dashboard.auth.oidc.clientSecretRef.name: dex-client
+    asserts:
+      - failedTemplate:
+          errorMessage: "profile hardened renders no ClusterRole: set dex.rbac.createClusterScoped=false or dex.enabled=false"
+  - it: hardened accepts dex without cluster RBAC
+    template: templates/deployment.yaml
+    set:
+      profile: hardened
+      controller.watchNamespaces: [payments]
+      dex.enabled: true
+      dex.rbac.createClusterScoped: false
+      dashboard.auth.oidc.clientSecretRef.name: dex-client
+    asserts: [{hasDocuments: {count: 1}}]
+
+  - it: hardened without watchNamespaces fails
+    template: templates/deployment.yaml
+    set: {profile: hardened}
+    asserts:
+      - failedTemplate:
+          errorMessage: profile hardened needs controller.watchNamespaces
+  - it: hardened accepts the deprecated controller.watchNamespace
+    template: templates/deployment.yaml
+    set: {profile: hardened, controller.watchNamespace: payments}
+    asserts: [{hasDocuments: {count: 1}}]
+  - it: hardened refuses the node agent
+    template: templates/deployment.yaml
+    set: {profile: hardened, controller.watchNamespaces: [payments], nodeAgent.enabled: true}
+    asserts:
+      - failedTemplate:
+          errorMessage: "profile hardened runs no node agent: it needs a privileged namespace and cluster-wide reads; set nodeAgent.enabled=false"
+  - it: hardened refuses allowAnonymous
+    template: templates/deployment.yaml
+    set: {profile: hardened, controller.watchNamespaces: [payments], dashboard.auth.allowAnonymous: true}
+    asserts:
+      - failedTemplate:
+          errorMessage: profile hardened refuses dashboard.auth.allowAnonymous
+  - it: hardened refuses Pacto delivery
+    template: templates/deployment.yaml
+    set: {profile: hardened, controller.watchNamespaces: [payments], delivery.enabled: true}
+    asserts:
+      - failedTemplate:
+          errorMessage: "profile hardened renders no ClusterRole and Pacto delivery needs cluster-wide roles: set delivery.enabled=false or leave profile hardened"
+
+  - it: hardened renders no ClusterRole or ClusterRoleBinding
+    set: &hardened {profile: hardened, controller.watchNamespaces: [payments, ledger]}
+    asserts:
+      - hasDocuments: {count: 0}
+        template: templates/clusterrole.yaml
+      - hasDocuments: {count: 0}
+        template: templates/clusterrolebinding.yaml
+      - hasDocuments: {count: 0}
+        template: templates/dashboard-signin.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/rbac.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/recorder.yaml
+      - hasDocuments: {count: 0}
+        template: templates/cluster-identity-role.yaml
+  - it: hardened with registry renders no ClusterRole or ClusterRoleBinding
+    set: {profile: hardened, controller.watchNamespaces: [payments, ledger], registry: ghcr.io/acme}
+    asserts:
+      - hasDocuments: {count: 0}
+        template: templates/clusterrole.yaml
+      - hasDocuments: {count: 0}
+        template: templates/clusterrolebinding.yaml
+      - hasDocuments: {count: 0}
+        template: templates/dashboard-signin.yaml
+      - hasDocuments: {count: 2}
+        template: templates/cluster-identity-role.yaml
+      - equal: {path: kind, value: Role}
+        documentIndex: 0
+        template: templates/cluster-identity-role.yaml
+      - equal: {path: kind, value: RoleBinding}
+        documentIndex: 1
+        template: templates/cluster-identity-role.yaml
+  - it: hardened with evidence renders no ClusterRole or ClusterRoleBinding
+    set:
+      profile: hardened
+      controller.watchNamespaces: [payments, ledger]
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects:
+        - oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    asserts:
+      - hasDocuments: {count: 0}
+        template: templates/clusterrole.yaml
+      - hasDocuments: {count: 0}
+        template: templates/clusterrolebinding.yaml
+      - hasDocuments: {count: 0}
+        template: templates/dashboard-signin.yaml
+  - it: hardened renders no Namespace
+    set: *hardened
+    asserts:
+      - hasDocuments: {count: 0}
+        template: templates/delivery/namespace.yaml
+      - hasDocuments: {count: 0}
+        template: templates/nodeagent-namespace.yaml
+  - it: hardened and idp render no delivery
+    set: {profile: [hardened, idp], controller.watchNamespaces: [payments]}
+    asserts:
+      - hasDocuments: {count: 0}
+        template: templates/delivery/namespace.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/rbac.yaml
+      - hasDocuments: {count: 0}
+        template: templates/clusterrole.yaml
+  - it: hardened renders no managed dashboard
+    set:
+      <<: *hardened
+      dashboard.ingress.enabled: true
+      dashboard.httpRoute.enabled: true
+      dashboard.httpRoute.parentRefs: [{name: gw}]
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-dashboard
+        template: templates/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-cpu-request=50m
+        template: templates/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-memory-request=128Mi
+        template: templates/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-memory-limit=512Mi
+        template: templates/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-token-login
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/dashboard-service.yaml
+      - hasDocuments: {count: 0}
+        template: templates/dashboard-ingress.yaml
+      - hasDocuments: {count: 0}
+        template: templates/dashboard-httproute.yaml
+      - hasDocuments: {count: 0}
+        template: templates/dashboard-signin.yaml
+  - it: hardened keeps namespace get in each watch Role under auto
+    template: templates/watch-namespaces.yaml
+    set: *hardened
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            verbs: [get]
+        documentSelector:
+          path: kind
+          value: Role
+          matchMany: true
+
+  - it: registry with watchNamespaces renders the cluster identity Role in kube-system
+    template: templates/cluster-identity-role.yaml
+    set: {controller.watchNamespaces: [payments], registry: ghcr.io/acme}
+    asserts:
+      - hasDocuments: {count: 2}
+      - equal: {path: kind, value: Role}
+        documentIndex: 0
+      - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-cluster-identity}
+        documentIndex: 0
+      - equal: {path: metadata.namespace, value: kube-system}
+        documentIndex: 0
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [namespaces]
+              resourceNames: [kube-system]
+              verbs: [get]
+        documentIndex: 0
+      - equal: {path: kind, value: RoleBinding}
+        documentIndex: 1
+      - equal: {path: metadata.namespace, value: kube-system}
+        documentIndex: 1
+      - equal:
+          path: roleRef
+          value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-operator-pacto-operator-system-cluster-identity}
+        documentIndex: 1
+      - equal:
+          path: subjects
+          value:
+            - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+        documentIndex: 1
+  - it: without registry the cluster identity Role renders nothing
+    template: templates/cluster-identity-role.yaml
+    set: {controller.watchNamespaces: [payments]}
+    asserts: [{hasDocuments: {count: 0}}]
+  - it: cluster-wide installs render no cluster identity Role (the ClusterRole has the rule)
+    set: {registry: ghcr.io/acme}
+    asserts:
+      - hasDocuments: {count: 0}
+        template: templates/cluster-identity-role.yaml
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            resourceNames: [kube-system]
+            verbs: [get]
+        template: templates/clusterrole.yaml
+  - it: a namespace list whose dashboard reads delivery renders no cluster identity Role (the ClusterRole has the rule)
+    set: {controller.watchNamespaces: [payments], registry: ghcr.io/acme, delivery.enabled: true}
+    asserts:
+      - hasDocuments: {count: 0}
+        template: templates/cluster-identity-role.yaml
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            resourceNames: [kube-system]
+            verbs: [get]
+        template: templates/clusterrole.yaml
+
+  - it: nodeAgent.createNamespace false keeps the Role and drops the Namespace
+    template: templates/nodeagent-namespace.yaml
+    set: {nodeAgent.enabled: true, nodeAgent.createNamespace: false}
+    asserts:
+      - hasDocuments: {count: 2}
+      - equal: {path: kind, value: Role}
+        documentIndex: 0
+      - equal: {path: metadata.namespace, value: pacto-node-agent}
+        documentIndex: 0
+      - equal: {path: kind, value: RoleBinding}
+        documentIndex: 1
+  - it: the default profile renders no --profile argument
+    template: templates/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --profile=default
+  - it: a hardened and idp list renders --profile with the sorted names
+    template: templates/deployment.yaml
+    set: {profile: [idp, hardened], controller.watchNamespaces: [payments]}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: "--profile=hardened,idp"}
+  - it: idp renders --profile=idp
+    template: templates/deployment.yaml
+    set: {profile: idp}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --profile=idp}
+
+  # idp (510-S7 P2): probing and metrics observation go from auto to on, OIDC
+  # stays and Pacto delivery turns on. Under hardened only the observation half
+  # holds (D7).
+  - it: idp turns probing and metrics observation on
+    template: templates/deployment.yaml
+    set: {profile: idp}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --enable-probing=on}
+      - contains: {path: "spec.template.spec.containers[0].args", content: --enable-metrics-observation=on}
+  - it: idp keeps an explicit off
+    template: templates/deployment.yaml
+    set: {profile: idp, controller.probing: "off"}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --enable-probing=off}
+      - contains: {path: "spec.template.spec.containers[0].args", content: --enable-metrics-observation=on}
+  - it: idp turns an explicit auto on
+    template: templates/deployment.yaml
+    set: {profile: idp, controller.metricsObservation: auto}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --enable-metrics-observation=on}
+  - it: idp keeps legacy-on
+    template: templates/deployment.yaml
+    set: {profile: idp, controller.probing: null, controller.enableProbing: true}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --enable-probing}
+      - notContains: {path: "spec.template.spec.containers[0].args", content: --enable-probing=on}
+  - it: idp turns Pacto delivery on
+    set: {profile: idp}
+    asserts:
+      - containsDocument: {kind: Deployment, apiVersion: apps/v1, name: pacto-operator-delivery, any: true}
+        template: templates/delivery/deployment.yaml
+      - containsDocument: {kind: Namespace, apiVersion: v1, name: pacto-delivery, any: true}
+        template: templates/delivery/namespace.yaml
+      - containsDocument: {kind: CustomResourceDefinition, apiVersion: apiextensions.k8s.io/v1, name: stages.delivery.pacto.trianalab.io, any: true}
+        template: templates/crds.yaml
+      - hasDocuments: {count: 6}
+        template: templates/crds.yaml
+  - it: the default profile renders no Pacto delivery
+    asserts:
+      - hasDocuments: {count: 0}
+        template: templates/delivery/deployment.yaml
+      - hasDocuments: {count: 3}
+        template: templates/crds.yaml
+  - it: idp keeps OIDC
+    template: templates/deployment.yaml
+    set:
+      profile: idp
+      dashboard.auth.oidc.issuerURL: https://idp.example.com
+      dashboard.auth.oidc.clientID: pacto
+      dashboard.auth.oidc.redirectURL: https://pacto.example.com/auth/callback
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --dashboard-oidc-issuer-url=https://idp.example.com}
+      - contains: {path: "spec.template.spec.containers[0].args", content: --dashboard-oidc-client-id=pacto}
+      - contains: {path: "spec.template.spec.containers[0].args", content: --dashboard-oidc-redirect-url=https://pacto.example.com/auth/callback}
+  - it: "hardened and idp: observation on, no delivery, no ClusterRole"
+    set: {profile: [hardened, idp], controller.watchNamespaces: [payments]}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --enable-probing=on}
+        template: templates/deployment.yaml
+      - contains: {path: "spec.template.spec.containers[0].args", content: --enable-metrics-observation=on}
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/rbac.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/recorder.yaml
+      - hasDocuments: {count: 3}
+        template: templates/crds.yaml
+      - hasDocuments: {count: 0}
+        template: templates/clusterrole.yaml
+      - hasDocuments: {count: 0}
+        template: templates/clusterrolebinding.yaml
+  - it: hardened and idp with delivery.enabled fails
+    template: templates/deployment.yaml
+    set: {profile: [hardened, idp], controller.watchNamespaces: [payments], delivery.enabled: true}
+    asserts:
+      - failedTemplate:
+          errorMessage: "profile hardened renders no ClusterRole and Pacto delivery needs cluster-wide roles: set delivery.enabled=false or leave profile hardened"
+  - it: idp with watchNamespaces grants monitors in each watch Role and no namespace get
+    template: templates/watch-namespaces.yaml
+    set: {profile: idp, controller.watchNamespaces: [payments, ledger]}
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [monitoring.coreos.com]
+            resources: [servicemonitors, podmonitors]
+            verbs: [get, list, watch]
+        documentSelector: {path: "rules[0].resources[0]", value: events, matchMany: true}
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            verbs: [get]
+        documentSelector: {path: "rules[0].resources[0]", value: events, matchMany: true}
+  - it: idp grants the cluster-wide monitor read in the ClusterRole
+    template: templates/clusterrole.yaml
+    set: {profile: idp}
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [monitoring.coreos.com]
+            resources: [servicemonitors, podmonitors]
+            verbs: [get, list, watch]
+        documentSelector: {path: kind, value: ClusterRole}

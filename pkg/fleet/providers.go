@@ -117,6 +117,10 @@ type Provider struct {
 	// producer that read and found nothing passes a non-nil empty Counts.
 	Counts          []ProviderCount `json:"-"`
 	UnreadableKinds []string        `json:"-"`
+	// GitOpsUndiscovered is set on a kubernetes-workloads row whose source
+	// could not discover the Argo CD and Flux APIs, so the missing argocd and
+	// flux rows are unknown, not absent. Never serialised.
+	GitOpsUndiscovered bool `json:"-"`
 	// Services are the services whose revisions a registry row's host served;
 	// Restrict drops the row when every one is hidden. Never serialised.
 	Services []ServiceKey `json:"-"`

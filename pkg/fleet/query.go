@@ -785,8 +785,11 @@ func (q *Query) resolveTargetKey(id string) (*TargetRecord, error) {
 }
 
 // resolveLegacyKey resolves a 3-part key in a snapshot keyed by cluster: one
-// match resolves while every source is available; several matches, or one
-// while a source is incomplete, are a [TargetKeyAmbiguousError].
+// match resolves while every source that reports targets is available;
+// several matches, or one while such a source is incomplete, are a
+// [TargetKeyAmbiguousError]. An incomplete source of another kind (a registry,
+// telemetry) is the same one [targetPlacementKnown] ignores: it never holds a
+// target, so a published 3-part href keeps resolving while it is down.
 func (q *Query) resolveLegacyKey(id, scope, kind, name string) (*TargetRecord, error) {
 	var matches []*TargetRecord
 	for _, t := range q.snap.Targets {
@@ -797,9 +800,9 @@ func (q *Query) resolveLegacyKey(id, scope, kind, name string) (*TargetRecord, e
 	switch {
 	case len(matches) > 1:
 		return nil, targetKeyAmbiguous(id, "", matches)
-	case len(matches) == 1 && q.sourcesIncomplete():
-		// A source that failed or listed only part of its records may hold
-		// this name in another cluster, so one match is not proof of one.
+	case len(matches) == 1 && !targetPlacementKnown(q.snap):
+		// A target source that failed or listed only part of its records may
+		// hold this name in another cluster, so one match is not proof of one.
 		return nil, targetKeyAmbiguous(id, "this target key matches one target, but a source is incomplete and may hold the same target in another cluster; choose one", matches)
 	case len(matches) == 1:
 		return matches[0], nil

@@ -10,6 +10,7 @@ walkthrough, start with [Drive Pacto from an agent](mcp-integration.md).
 | **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files only. `pacto_edit` writes only after validation. Over HTTP only `pacto_schema` is served. |
 | **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call has a 30-second timeout and follows no redirect, so a 3xx comes back to the agent as the result. |
 | **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_versions`, `pacto_fleet_revision_document`, `pacto_fleet_overview`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only queries over the *operational system*: services, revisions, targets, owners, business domains, offerings, [external systems](external-catalog-reference.md), relationships and what needs attention. `pacto_fleet_get`, `pacto_fleet_graph` and `pacto_fleet_explain` take `external:<identity>`, and `pacto_fleet_entities` lists them with `kind: external`. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects, or asks what happens if a service becomes unavailable, is removed or regresses. `pacto_fleet_get` returns each revision's bundle signature check and OCI referrers as `provenance`, and the service's `ownerProvenance`: where its owner comes from, `declared`, `declared-via-target`, `attested` or `inferred`, with `ownerSource`, the file, commit and CI signer an `attested` owner was read from. `pacto_fleet_revision_document` reads one document a revision's bundle carries, as the dashboard's revision page does. `pacto_fleet_overview` answers "how healthy is the organization and how much do we know" in one call, as `pacto fleet overview` does: a target is failing when its own health check reports it is not healthy and unknown when Pacto cannot tell, and a failing check leaves compliance `Unknown`; see [Organizational health and knowledge](operational-graph.md#organizational-health-and-knowledge). The fleet tools mark target evidence older than 24 hours as stale unless `--freshness` says otherwise. `pacto_fleet_entities` takes `consumes` to list the services that use an [offering](platform-offerings.md#consumers), and with `phase` and `environment` only those whose provisioning status in that phase is in that environment. For a service, `pacto_fleet_entity` lists the [resources it consumes](provision-infrastructure.md#resources-a-service-consumes) with `providerOwner`, `providerAvailability`, `requested` (declared) and `consumption`, plus `hiddenProviders`, and its `changes` in version order; `reached: true` on a stdio server adds when each change reached a Stage, from delivery records, and any other server answers `times: not-read`; `pacto_fleet_attention` and `pacto_fleet_status` report `PROVISIONING_FAILED` and `PROVISIONING_STALE` in the `provisioning` category. `pacto_fleet_status` also carries `providers`, the [providers Pacto detected](operational-graph-providers.md) with their evidence, what each is used for and their status, and `providersTruncated` when the list was cut. With `--detected`, `pacto mcp --fleet` adds the [rows the operator detected](operational-graph-providers.md#detected-rows), each `provenance: inferred` with its `asOf` and without its `hint`. | Always read-only: they write nothing. They still make network calls, and the server that hosts them may also register write tools; see [Fleet query safety](#fleet-query-safety). Catalog mode is the only server with no write tool. |
+| **Fleet query**: member clusters | `pacto_cluster_list` | Lists the member clusters that joined this hub through the registry: approved, pending with why and removed. See [Multi-cluster](multi-cluster.md). | Always read-only; no tool approves or removes a member. It appears with `--fleet --k8s --detected k8s:<namespace>/<name>` when the operator advertises a registry. A signed-in caller who may not approve `clusterjoins` sees the approved members only, the rest counted in `hidden`. |
 | **Fleet query**: statistics | `pacto_stats` | Totals the unsigned run records of a stats repository for a window. See [the stats answer](run-record-reference.md#the-stats-answer). | Always read-only. Over HTTP it appears only when the server was started with `--stats-read-registry` and reads only that repository; a signed-in caller sees only records of services in their view. |
 
 Outside these families: `pacto_capabilities` (what this server serves, see [Combine modes](#combine-modes)), `pacto_skill` (a bundle's skill files) and `pacto_catalog_revision` (one revision from the catalog, see [Catalog mode](#catalog-mode)). The publish and delivery tools, including the seven delivery read tools (`pacto_delivery_trust` among them: which publishers each service accepts), are listed in [MCP publish and delivery tools](mcp-delivery-tools.md).
@@ -25,7 +26,7 @@ invocation registers.
 !!! warning "Annotations are hints"
     Every tool carries MCP
     [`annotations`](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations).
-    `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`, `pacto_impact`, `pacto_stats`,
+    `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`, `pacto_impact`, `pacto_stats`, `pacto_cluster_list`,
     `pacto_catalog_revision`, `pacto_publish_plan` and the delivery reads set
     `readOnlyHint`. `pacto_edit` sets `destructiveHint`: it removes entries in
     place. A generated tool takes its hints from its
@@ -74,16 +75,26 @@ pacto mcp --fleet --k8s --delivery
 
 `--root` and `--publish` each start a server of their own. Pacto registers
 its own tools before a bundle's, so a bundle never replaces one, and the
-instructions describe only the modes the server serves.
+instructions describe only the served modes.
 
 `pacto_capabilities` reports `modes`, the contract tools in `authoring`,
-`writes`, `transport`, `asOf` and the keys `fleet`, `impact`, `observed` and
-`delivery` of the dashboard's `GET /api/capabilities`. `caller.callerSource`
-says how Pacto knows `caller.user`: `reviewed` by the API server, a verified
-`token` (`user` is then `unknown`) or `local` (stdio or the loopback launch
-bearer). With delivery, `caller.class` is the actor class as read at
+`writes`, `transport`, `asOf` and the keys `fleet`, `impact`, `observed`,
+`delivery` and `installation` of the dashboard's `GET /api/capabilities`.
+`caller.callerSource` says how Pacto knows `caller.user`: `reviewed` by the
+API server, a verified `token` (`user` is then `unknown`) or `local` (stdio or
+the loopback launch bearer). With delivery, `caller.class` is the actor class as read at
 `caller.classAsOf` (startup over stdio); `caller.policyError` marks policy
 defaults.
+
+| `installation` part | Provenance | Value |
+|---|---|---|
+| Every part | - | Carries `source`, `asOf`, `provenance` and `completeness` |
+| `profile` | declared | The [chart's profile](integrations/kubernetes/profiles.md) names from the operator's detection; `null` with the reason in `source` without `--detected`, from an older operator, for a cluster your view hides or before a snapshot holds the cluster's Installation row |
+| `registry` | declared | The operator's `registry` value, empty when set to nothing |
+| `delivery` | observed | `enabled` says the cluster serves the delivery API, from this server's delivery probe (its `asOf` is when the probe last asked), `null` when it cannot tell; `partial` beside profile hardened, whose kept CRDs still serve it. `appliers` inferred from available Argo CD and Flux rows that count an Application, Kustomization or HelmRelease in the installation's cluster; `partial` when no snapshot or workload source read them |
+| `provisioning` | inferred | `engine` stays `unknown` until a source detects one |
+| `clusters` | observed | `joined` counts the clusters in your view of the snapshot; `pending` is `null` |
+| `mcp` | host | `served` is `true` on the MCP server and `false` on the dashboard |
 
 ## Tool-call log
 

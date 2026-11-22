@@ -14,7 +14,7 @@ REPOWISE_VERSION ?= 0.36.0
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
        test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-demo test-acceptance-kind-least-privilege \
-       test-acceptance-kind-multi-cluster ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
+       test-acceptance-kind-profiles test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
 
@@ -127,7 +127,7 @@ test-acceptance-kind: test-acceptance-kind-dashboard test-acceptance-kind-upgrad
 	test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
 	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
 	test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-least-privilege \
-	test-acceptance-kind-multi-cluster
+	test-acceptance-kind-profiles test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join
 
 test-acceptance-kind-dashboard:
 	bash tests/acceptance/kind/dashboard-modes.sh
@@ -139,6 +139,14 @@ test-acceptance-kind-dashboard:
 test-acceptance-kind-least-privilege:
 	bash tests/acceptance/kind/least-privilege.sh
 
+# Installation profiles on a real API server: profile hardened renders no
+# cluster-scoped privilege, refuses a missing namespace list and delivery, and
+# reads the cluster id through one kube-system Role; hardened with idp turns
+# observation on and stays namespaced; dropping delivery keeps its namespace;
+# idp runs delivery and the dashboard's capability answer says so.
+test-acceptance-kind-profiles:
+	bash tests/acceptance/kind/profiles.sh
+
 # Multi-cluster reads on two real API servers: one dashboard started with
 # --context on the runner reads two kind clusters (an alias context of the
 # first is read once), signs people in against the first context, and a
@@ -146,6 +154,15 @@ test-acceptance-kind-least-privilege:
 # other cluster is hidden as not-reviewable and the answer is partial.
 test-acceptance-kind-multi-cluster:
 	bash tests/acceptance/kind/multi-cluster.sh
+
+# Join a cluster through the registry on two kind clusters and an authenticated
+# zot: the member's operator publishes its snapshot, the hub lists it pending
+# (CLI and dashboard through a pull-only credential), a swapped key gets nothing
+# signed, a keyless approval by a user granted approve on clusterjoins brings
+# the member's targets in, an ungranted record is not counted, a new key reads
+# pending and a removal takes the targets out.
+test-acceptance-kind-cluster-join:
+	bash tests/acceptance/kind/cluster-join.sh
 
 # Operator-managed OFFLINE observation packaging: a declared Helm observation
 # source becomes a read-only mount whose stable Data Source identity and observed

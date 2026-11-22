@@ -6,7 +6,9 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/trianalab/pacto/v4/pkg/dashboard/productview"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 const capabilitiesInstructions = "Call pacto_capabilities to learn which modes this server serves, " +
@@ -26,6 +28,8 @@ type capabilitiesAnswer struct {
 	Writes    bool               `json:"writes"`
 	Transport string             `json:"transport"`
 	AsOf      time.Time          `json:"asOf"`
+	// Installation is the one answer GET /api/capabilities gives too.
+	Installation fleet.Installation `json:"installation"`
 }
 
 // capabilitiesCaller says who calls and how Pacto knows: user is observed
@@ -52,7 +56,9 @@ func registerCapabilitiesTool(server *mcpsdk.Server, a Authoring, m Modes) {
 		Description: "Report what this server serves: its modes (fleet, delivery, bundle or publish), the contract tools it offers, " +
 			"whether fleet, impact, observed edges and delivery are available, who you are to it (caller.user with callerSource " +
 			"reviewed, token or local; with delivery your class, whether the identity policy was read and classAsOf, when the class was read), whether writes are " +
-			"exposed (delivery propose and cancel for you, a bundle's mutating operations, pacto_publish or declaration drafts) and the transport. Read-only.",
+			"exposed (delivery propose and cancel for you, a bundle's mutating operations, pacto_publish or declaration drafts), the transport " +
+			"and how the installation runs (profile, registry, delivery and its appliers, provisioning engine, clusters and MCP, each with source and asOf). " +
+			"A null installation value is unknown, never a no. Read-only.",
 		InputSchema: map[string]any{"type": "object"},
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, _ map[string]any) (*mcpsdk.CallToolResult, any, error) {
 		out, err := capabilities(ctx, req, a, m)
@@ -71,21 +77,29 @@ func capabilities(ctx context.Context, req *mcpsdk.CallToolRequest, a Authoring,
 		// A token subject is not a name the apiserver confirmed.
 		out.Caller.User = "unknown"
 	}
+	in := fleet.InstallationInput{MCPServed: true, MCPSource: "this MCP server, over " + m.Transport, Now: time.Now().UTC()}
+	var q *fleet.Query
 	if f := m.Fleet; f != nil {
-		q, err := viewQuery(ctx, req, f.Src, f.Opts.View)
-		if err != nil {
+		var err error
+		if q, err = viewQuery(ctx, req, f.Src, f.Opts.View); err != nil {
 			return out, err
 		}
 		out.Modes = append(out.Modes, "fleet")
 		out.Fleet, out.Impact, out.Observed = true, f.Opts.Impact != nil, q.HasObserved()
+		fleetInstallation(ctx, f.Opts, &in)
 	}
 	if d := m.Delivery; d != nil {
 		out.Modes = append(out.Modes, "delivery")
 		out.Delivery, out.Caller.Writes = true, d.Writes
+		in.DeliveryWired, in.DeliveryProbed = true, d.Installed != nil
 		if d.Installed != nil {
 			// As the dashboard: a probe that fails is not proof of absence.
-			installed, err := d.Installed(ctx)
-			out.Delivery = installed || err != nil
+			// installation keeps the raw answer.
+			in.DeliveryInstalled, in.DeliveryErr = d.Installed(ctx)
+			if d.InstalledAt != nil {
+				in.DeliveryAsOf = d.InstalledAt().UTC()
+			}
+			out.Delivery = in.DeliveryInstalled || in.DeliveryErr != nil
 		}
 		at := d.CallerAt.UTC()
 		out.Caller.Class, out.Caller.PolicyError, out.Caller.ClassAsOf = &d.Caller.Class, &d.Caller.PolicyErr, &at
@@ -100,7 +114,21 @@ func capabilities(ctx context.Context, req *mcpsdk.CallToolRequest, a Authoring,
 	}
 	// pacto_declare and pacto_accept write drafts over stdio only.
 	out.Writes = out.Writes || out.Caller.Writes || ((a.Declare != nil || a.Accept != nil) && !a.Remote)
+	out.Installation = q.Installation(in)
 	return out, nil
+}
+
+// fleetInstallation is what a fleet server adds to in: what the operator
+// was configured with and the pending member clusters the caller may see.
+func fleetInstallation(ctx context.Context, opts FleetOptions, in *fleet.InstallationInput) {
+	if cfg := opts.InstallationConfig; cfg != nil {
+		d, st := cfg(ctx)
+		in.Declared, in.DeclaredState = d, &st
+	}
+	if c := opts.Clusters; c != nil {
+		l, err := c(ctx)
+		productview.InstallationPending(in, l, err)
+	}
 }
 
 // authoringNames are the contract tools registerTools adds for a.

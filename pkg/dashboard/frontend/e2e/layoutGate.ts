@@ -282,8 +282,8 @@ export function installScaleFixture(): void {
       const secret = `${'n'.repeat(63)}/${'s'.repeat(189)}`;
       (doc.providers as Record<string, unknown>[]).push({
         id: 'installation', source: 'cluster-detection', provenance: 'declared', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Installation',
-        evidence: `registry ${runes('ghcr.io/acme')}; tags only under the listed prefixes, referrers by digest elsewhere`, status: 'available', cluster: clusters[0],
-        usedFor: ['target snapshot, organization index and inferred contracts; set by a person with the registry value'],
+        evidence: `profile hardened, idp; registry ${runes('ghcr.io/acme')}; tags only under the listed prefixes, referrers by digest elsewhere`, status: 'available', cluster: clusters[0],
+        usedFor: ['installation profile, target snapshot, organization index and inferred contracts; set by a person with the profile and registry values'],
         details: [[`target snapshot ${runes('ghcr.io/acme/pacto-targets')}`, `organization index ${runes('ghcr.io/acme/pacto-index')}`,
           `inferred contracts ${runes('ghcr.io/acme/pacto-inferred')}`].join('; '),
           `push prefixes ${Array.from({ length: 8 }, (_, i) => runes(`quay.io/stats-${i}/pacto`)).join(', ')}`, `snapshot key ${'f'.repeat(64)}`,
@@ -1106,7 +1106,7 @@ export function installScaleFixture(): void {
   // multiCluster (514-S2) answers every entities list as a view over three clusters with
   // 63-character names: the demo's own cluster, one the reader may not read and one whose
   // review failed, so the Cluster filter, its caption and the Clusters block render.
-  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden'; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed'; __pactoMultiCluster?: boolean };
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden'; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed'; __pactoMultiCluster?: boolean; __pactoClusterJoin?: boolean | 'viewer' | 'off' };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1512,9 +1512,37 @@ export function installScaleFixture(): void {
         type: 'added', classification: 'BREAKING', reason: `parameter ${longName(`currency-${i}`)} added as required` })),
       consumers: Array.from({ length: 12 }, (_, i) => ({ service: longName(`consumer-${i}`), confidence: 'inferred', compatibility: 'unknown' })) }];
   };
+  // 514-S3: the member join list. The demo serves no /api/fleet/clusters, so the fixture
+  // answers it whole: a pending member with a 63-character name and three environments,
+  // a rebuilt one that may replace an approved member, two approved and one removed.
+  // 'viewer' is a reader who may not approve; 'off' a host with no join reader (404).
+  const clusterJoinAnswer = () => {
+    const n63 = (s: string) => `${s}-${'x'.repeat(63)}`.slice(0, 63);
+    const key = (c: string) => c.repeat(64 / c.length);
+    const pending = [
+      { uid: '3c7e1b9d-7f1a-4c55-9d1e-2b8a4e6f0a21', name: n63('production-eu-north-1'), nameSource: 'node-label', state: 'pending', keyID: key('91ab'),
+        reason: 'nobody approved this key yet',
+        environments: [{ name: 'production', source: `the cluster name ${n63('production-eu-north-1')}` }, { name: 'staging', source: 'label delivery.pacto.trianalab.io/environment on 3 Pactos' }, { name: 'qa', source: 'label delivery.pacto.trianalab.io/environment on 1 Pacto' }] },
+      { uid: '4d8f2c0e-7f1a-4c55-9d1e-2b8a4e6f0a22', name: 'eu-prod', nameSource: 'context', state: 'pending', keyID: key('77c0'),
+        reason: 'nobody approved this key yet', mayReplace: { uid: '5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11', name: 'eu-prod' } },
+    ];
+    const rest = [
+      { uid: '5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11', name: 'eu-prod', nameSource: 'approval', state: 'approved', keyID: key('a1b2'), approver: `oidc:${longName('alice')}@acme.example`, approvedAt: '2026-11-20T09:00:00Z' },
+      { uid: '6e9a3d1f-7f1a-4c55-9d1e-2b8a4e6f0a23', name: 'us-west', nameSource: 'node-label', state: 'approved', keyID: key('c3d4'), approver: 'oidc:bob@acme.example', approvedAt: '2026-11-19T09:00:00Z' },
+      { uid: '7fab4e20-7f1a-4c55-9d1e-2b8a4e6f0a24', name: n63('retired-ap-south-1'), nameSource: 'uid', state: 'removed', keyID: key('e5f6'), approver: `oidc:${longName('alice')}@acme.example`, approvedAt: '2026-11-18T09:00:00Z' },
+    ];
+    const viewer = flags.__pactoClusterJoin === 'viewer';
+    return { hub: { uid: '5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a10', name: 'hub' }, repository: 'ghcr.io/acme/pacto-targets', asOf: '2026-11-22T10:00:00Z',
+      completeness: 'complete', clusters: viewer ? rest.filter((r) => r.state === 'approved') : [...pending, ...rest],
+      hidden: viewer ? 3 : 0, otherHubs: 1, canApprove: !viewer };
+  };
   const wrapped: Serve = async (method, path, body) => {
     body = engineBody(path, body);
     const route = path.split('?')[0];
+    if (flags.__pactoClusterJoin && method === 'GET' && route === '/api/fleet/clusters') {
+      if (flags.__pactoClusterJoin === 'off') return { status: 404, contentType: 'application/problem+json', body: JSON.stringify({ status: 404, title: 'Not Found' }) };
+      return { status: 200, contentType: 'application/json', body: JSON.stringify(clusterJoinAnswer()) };
+    }
     if (method === 'GET' && (route === '/api/stats' || route === '/api/stats/records') && statsMode() !== 'engine') {
       if (statsMode() === 'off') return { status: 404, contentType: 'application/problem+json', body: JSON.stringify({ status: 404, title: 'Not Found' }) };
       return { status: 200, contentType: 'application/json', body: JSON.stringify(statsAnswer(route, path.split('?')[1] ?? '')) };
@@ -2244,7 +2272,7 @@ const createdService = async (page: Page) => {
 export type Route = { name: string; hash?: string; list?: boolean; open?: (page: Page) => Promise<void> };
 // 509-S3: the grouped inferred service billing-worker, reached through its real href.
 async function openGroupedInferred(page: Page): Promise<void> {
-  await page.goto('/#/fleet/services?declaration=inferred&group=argocd%2Fshop%2Fshop');
+  await page.goto('/#/fleet/services?declaration=inferred&group=5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fargocd%2Fshop%2Fshop');
   const a = page.locator('main a[href*="/fleet/services/"][href*="billing-worker"]').first();
   await expect(a).toBeVisible({ timeout: 20_000 });
   await page.goto(`/${await a.getAttribute('href')}`);
@@ -2257,6 +2285,20 @@ function openMultiCluster(hash: string, ready = '[data-testid="cluster-caption"]
     await page.evaluate(() => { (window as unknown as { __pactoMultiCluster?: boolean }).__pactoMultiCluster = true; });
     await page.goto(`/${hash}`);
     await expect(page.locator(ready)).toBeVisible({ timeout: 30_000 });
+  };
+}
+
+// 514-S3: Data sources under the member join fixture, optionally with [Approve] open.
+function openClusterJoin(approve: boolean): (page: Page) => Promise<void> {
+  return async (page) => {
+    await page.evaluate(() => { (window as unknown as { __pactoClusterJoin?: boolean }).__pactoClusterJoin = true; });
+    await page.goto('/#/fleet/sources');
+    await expect(page.getByTestId('cluster-join-row').first()).toBeVisible({ timeout: 30_000 });
+    if (approve) {
+      await page.getByTestId('cluster-join-row').first().getByRole('button', { name: /^Approve/ }).click();
+      await expect(page.getByTestId('cluster-approve-panel')).toBeVisible();
+      await page.evaluate(() => window.scrollTo(0, 0));
+    }
   };
 }
 
@@ -2463,11 +2505,20 @@ export const ROUTES: Route[] = [
   { name: 'target list', list: true, hash: '#/fleet/targets' },
   { name: 'target entity', open: firstLink('#/fleet/targets', '/fleet/targets/') },
   {
-    // A cluster-qualified key in the single-cluster demo lands on the 3-part canonical href.
+    // A 3-part key the demo published before it was a hub forwards to the canonical href.
+    name: 'target entity, published 3-part key',
+    open: async (page) => {
+      await page.goto('/#/fleet/targets/prod%2FDeployment%2Fpayments-service');
+      await expect(page).toHaveURL(/#\/fleet\/targets\/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fprod%2FDeployment%2Fpayments-service$/, { timeout: 30_000 });
+      await expect(page.locator('[data-testid="target-cluster"]')).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    // The demo is a hub with members (514-S3), so its canonical target key carries the cluster.
     name: 'target entity with a cluster',
     open: async (page) => {
       await page.goto('/#/fleet/targets/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fprod%2FDeployment%2Fpayments-service');
-      await expect(page).toHaveURL(/#\/fleet\/targets\/prod%2FDeployment%2Fpayments-service$/, { timeout: 30_000 });
+      await expect(page).toHaveURL(/#\/fleet\/targets\/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fprod%2FDeployment%2Fpayments-service$/, { timeout: 30_000 });
       await expect(page.locator('[data-testid="target-cluster"]')).toBeVisible({ timeout: 30_000 });
     },
   },
@@ -2707,7 +2758,7 @@ export const ROUTES: Route[] = [
   {
     name: 'target entity with environment',
     open: async (page) => {
-      await page.goto('/#/fleet/targets/prod%2FDeployment%2Fstorefront-web');
+      await page.goto('/#/fleet/targets/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fprod%2FDeployment%2Fstorefront-web');
       await expect(page.locator('[data-testid="target-environment"]')).toBeVisible({ timeout: 30_000 });
     },
   },
@@ -2733,7 +2784,7 @@ export const ROUTES: Route[] = [
   {
     name: 'target page with a Delivery link',
     open: async (page) => {
-      await page.goto('/#/fleet/targets/prod%2FCronJob%2Faudit-log');
+      await page.goto('/#/fleet/targets/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fprod%2FCronJob%2Faudit-log');
       await expect(page.locator('[data-testid="target-delivery"] a').first()).toBeVisible({ timeout: 30_000 });
     },
   },
@@ -2747,7 +2798,7 @@ export const ROUTES: Route[] = [
   {
     name: 'target page, no Stage delivers it here',
     open: async (page) => {
-      await page.goto('/#/fleet/targets/staging%2FDeployment%2Fnotification-worker');
+      await page.goto('/#/fleet/targets/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fstaging%2FDeployment%2Fnotification-worker');
       await expect(page.locator('[data-testid="target-delivery"]')).toContainText('No Stage you can see', { timeout: 30_000 });
     },
   },
@@ -2768,14 +2819,14 @@ export const ROUTES: Route[] = [
       await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
     },
   },
-  { name: 'target page with Plan offers', open: async (page) => { await planOffer(page, '#/fleet/targets/test%2FDeployment%2Fcheckout'); } },
+  { name: 'target page with Plan offers', open: async (page) => { await planOffer(page, '#/fleet/targets/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Ftest%2FDeployment%2Fcheckout'); } },
   { name: 'revision page with a promote offer', open: async (page) => { await planOffer(page, `#/fleet/revisions/${STORY_PAYMENTS}@${PAYMENTS_300}`); } },
   { name: 'change analysis answered with Plan promote', open: async (page) => { await planOffer(page, `#/fleet/changes/${STORY_PAYMENTS}`, comparePayments); } },
   { name: 'change analysis regressed with Plan undo', open: async (page) => { await planOffer(page, `#/fleet/changes/${STORY_PAYMENTS}?event=regressed&rev=${PAYMENTS_300_ARTIFACT}`); } },
   {
     name: 'target page, Plan undo panel open',
     open: async (page) => {
-      await (await planOffer(page, '#/fleet/targets/test%2FDeployment%2Fcheckout')).click();
+      await (await planOffer(page, '#/fleet/targets/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Ftest%2FDeployment%2Fcheckout')).click();
       await page.getByRole('button', { name: /^Plan this / }).click({ timeout: 30_000 });
       await planOpened(page);
     },
@@ -2821,7 +2872,7 @@ export const ROUTES: Route[] = [
   },
   // 509-S3: the Services list filtered to one Argo CD Application, a grouped inferred
   // service and its Group and Repository facts at their longest.
-  { name: 'services group filter', list: true, hash: '#/fleet/services?declaration=inferred&group=argocd%2Fshop%2Fshop' },
+  { name: 'services group filter', list: true, hash: '#/fleet/services?declaration=inferred&group=5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fargocd%2Fshop%2Fshop' },
   { name: 'inferred entity grouped', open: openGroupedInferred },
   {
     name: 'inferred entity long values',
@@ -2845,7 +2896,7 @@ export const ROUTES: Route[] = [
     },
   },
   { name: 'service replaced inferred', hash: '#/fleet/services/experiment-service' },
-  { name: 'replaced inferred key', hash: `#/fleet/services/${encodeURIComponent('k8s:prod%2FDeployment%2Fexperiments')}` },
+  { name: 'replaced inferred key', hash: `#/fleet/services/${encodeURIComponent('k8s:5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fprod%2FDeployment%2Fexperiments')}` },
   {
     name: 'service handover fields',
     open: async (page) => {
@@ -2874,6 +2925,9 @@ export const ROUTES: Route[] = [
   { name: 'services list, multi-cluster', list: true, open: openMultiCluster('#/fleet/services') },
   { name: 'targets list, multi-cluster filter', list: true, open: openMultiCluster('#/fleet/targets?cluster=5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11') },
   { name: 'sources, multi-cluster scope', list: true, open: openMultiCluster('#/fleet/sources', '[data-testid="source-clusters"]') },
+  // 514-S3: pending members and the [Approve] hand-off inside the Clusters block.
+  { name: 'sources, cluster-join', list: true, open: openClusterJoin(false) },
+  { name: 'sources, cluster-join approve open', list: true, open: openClusterJoin(true) },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

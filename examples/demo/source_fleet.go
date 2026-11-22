@@ -54,6 +54,37 @@ var demoDetected []byte
 // demoNow is the clock the fleet snapshot is built against.
 func demoNow() time.Time { return demoClock }
 
+// prodClusterID is the kube-system UID of the demo's production cluster.
+const prodClusterID = "5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11"
+
+// demoDetection is what the demo cluster's operator detected, dated now in
+// the prod cluster so it reads current.
+func demoDetection() (detect.Result, error) {
+	detected, err := detect.Decode(demoDetected)
+	if err != nil {
+		return detect.Result{}, err
+	}
+	if inst := detected.Installation; inst != nil && inst.LastPush != nil {
+		// The last push keeps its age against the detection.
+		inst.LastPush.At = demoNow().Add(inst.LastPush.At.Sub(detected.AsOf))
+	}
+	detected.AsOf, detected.Cluster = demoNow(), prodClusterID
+	return detected, nil
+}
+
+// demoInstallationConfig is the dashboard's InstallationConfig: the demo
+// operator's Installation block from an available detection.
+func demoInstallationConfig() (func(context.Context) (*fleet.InstallationDeclared, fleet.SourceState), error) {
+	detected, err := demoDetection()
+	if err != nil {
+		return nil, err
+	}
+	at := detected.AsOf
+	return func(context.Context) (*fleet.InstallationDeclared, fleet.SourceState) {
+		return detected.Declared("cluster-detection"), fleet.SourceState{ID: "cluster-detection", Kind: fleet.SourceKindDetection, Status: fleet.SourceAvailable, ObservedAt: &at}
+	}, nil
+}
+
 // buildDemoFleet builds a fleet query over every embedded revision plus the
 // demo's operational targets, and returns a ref→bundle index so the impact
 // provider can resolve the two revisions to compare from memory.
@@ -90,7 +121,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	attestDemoRevision(col)
 	// invoices is a person's declaration of a running workload: it replaces
 	// the inferred invoices Deployment the cluster below reports.
-	prodCluster := &fleet.Cluster{ID: "5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11", Name: "production", NameSource: fleet.ClusterNameFromContext}
+	prodCluster := &fleet.Cluster{ID: prodClusterID, Name: "production", NameSource: fleet.ClusterNameFromContext}
 	handover, handoverBundle, handedOver := demoHandover(demoNow(), prodCluster.ID)
 	col.Revisions = append(col.Revisions, handover)
 	byRef[handover.ResolvedRef] = handoverBundle
@@ -133,8 +164,8 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 
 	// The cluster collector reports what is running; the registry above reports what
 	// was declared. Keeping them apart is what lets a target say which source saw it.
-	// One cluster, named from its kubeconfig context: every key keeps its 3-part
-	// form and the target page shows where the target runs.
+	// The hub cluster, named from its kubeconfig context; with its members every
+	// key is cluster-qualified, and a published 3-part href still names one target.
 	takeover, takenOver := demoTakeover(demoNow())
 	targets, inferred := append(demoTargets(src), takeover), append(demoInferredServices(), handedOver)
 	// Each cluster source says what it detected: the Data sources page lists
@@ -198,15 +229,10 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	})
 	// What the cluster's operator detected: an advisory source whose rows are
 	// hints, dated now so they read current.
-	detected, err := detect.Decode(demoDetected)
+	detected, err := demoDetection()
 	if err != nil {
 		return nil, nil, err
 	}
-	if inst := detected.Installation; inst != nil && inst.LastPush != nil {
-		// The last push keeps its age against the detection.
-		inst.LastPush.At = demoNow().Add(inst.LastPush.At.Sub(detected.AsOf))
-	}
-	detected.AsOf, detected.Cluster = demoNow(), prodCluster.ID
 	detection := fleet.NewMemorySource("cluster-detection", fleet.SourceKindDetection, &fleet.Collection{
 		Advisory: true, Providers: detect.ProviderRows(detected, "cluster-detection", demoNow()),
 	})
@@ -214,9 +240,12 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	if err != nil {
 		return nil, nil, err
 	}
+	// The hub's approved members (source_clusters.go), each one cluster of its own.
+	sources := append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection},
+		demoMemberSources()...)
 	snap, err := fleet.Build(context.Background(),
 		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat, DeclarationSigners: demoHandoverSigners()},
-		fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection)
+		sources...)
 	if err != nil {
 		return nil, nil, err
 	}

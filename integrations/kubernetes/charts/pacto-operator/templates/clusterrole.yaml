@@ -1,6 +1,6 @@
 {{- if include "pacto-operator.clusterScoped" . }}
 {{- $scoped := not (empty (include "pacto-operator.watchNamespaces" . | fromYamlArray)) }}
-{{- $dashboard := and .Values.dashboard.enabled (or (not $scoped) (include "pacto-operator.dashboardDeliveryNamespace" .)) }}
+{{- $dashboard := and (include "pacto-operator.dashboardEnabled" .) (or (not $scoped) (include "pacto-operator.dashboardDeliveryNamespace" .)) }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

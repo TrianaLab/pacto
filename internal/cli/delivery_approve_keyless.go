@@ -26,10 +26,7 @@ import (
 // recorded in the cluster instead. A keyless identity carries no groups and
 // no login time, so a Stage that needs either keeps the cluster path.
 func approveRoute(p delivery.ClassPolicy, st *delivery.StageObject, issuer string) (delivery.PersonSigner, string) {
-	signer, ok := p.SignerFor(issuer)
-	if issuer == "" && len(p.Signers) == 1 {
-		signer, ok = p.Signers[0], true
-	}
+	signer, ok := pickSigner(p, issuer)
 	switch {
 	case st.Status.Stream.Approvals == "":
 		return signer, "the Stage keeps no approvals repository"
@@ -43,6 +40,15 @@ func approveRoute(p delivery.ClassPolicy, st *delivery.StageObject, issuer strin
 		return signer, "owner teams narrow who may answer, and a signed approval carries no groups"
 	}
 	return signer, ""
+}
+
+// pickSigner is the approver signer of issuer, or the only one configured
+// when issuer is empty.
+func pickSigner(p delivery.ClassPolicy, issuer string) (delivery.PersonSigner, bool) {
+	if issuer == "" && len(p.Signers) == 1 {
+		return p.Signers[0], true
+	}
+	return p.SignerFor(issuer)
 }
 
 // ambientTokens are the variables that hand a process a token it did not

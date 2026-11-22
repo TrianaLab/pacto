@@ -128,8 +128,8 @@ while the promoter is down emits nothing.
 ## Upgrading
 
 [Upgrade the operator](upgrade.md) as usual: `helm upgrade` updates the
-delivery CRDs, and `helm.sh/resource-policy: keep` keeps them and their history
-on uninstall.
+delivery CRDs; `helm.sh/resource-policy: keep` keeps them, their history
+and `delivery.namespace` on [uninstall](installation.md#uninstall).
 
 ## How a change moves
 

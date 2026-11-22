@@ -428,6 +428,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fleet/clusters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the member clusters of this hub
+         * @description The clusters that publish to this hub's registry and where each stands: approved members, pending clusters with why they are pending and removed members, as pacto cluster list and pacto_cluster_list answer. A signed-in reader who may not approve clusterjoins sees the approved members only; the rest are counted in hidden. Approving is a person's signed decision with pacto cluster approve.
+         */
+        get: operations["get-fleet-clusters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/fleet/entities": {
         parameters: {
             query?: never;
@@ -1177,6 +1197,8 @@ export interface components {
             fleet: boolean;
             /** @description The impact endpoint is served */
             impact: boolean;
+            /** @description How this installation runs: its profile, registry, delivery, provisioning engine, clusters and MCP endpoint, each with where Pacto learned it and when */
+            installation: components["schemas"]["Fleet.Installation"];
             /** @description Mira's address, to link health-check citations and open a service in Mira */
             miraURL?: string;
             /** @description An observation source backs impact analysis */
@@ -1550,6 +1572,10 @@ export interface components {
             groups?: string[] | null;
             user: string;
         };
+        "Delivery.AdvertisedEnvironment": {
+            name: string;
+            source: string;
+        };
         "Delivery.ApplierStatus": {
             /** @description The last observation (RFC 3339) */
             asOf?: string;
@@ -1664,6 +1690,43 @@ export interface components {
              */
             result: "Pass" | "Fail" | "Unknown";
             verdicts: components["schemas"]["Delivery.Verdict"][] | null;
+        };
+        "Delivery.ClusterJoinList": {
+            asOf: string;
+            canApprove: boolean;
+            clusters: components["schemas"]["Delivery.ClusterJoinState"][] | null;
+            completeness: string;
+            /** Format: int64 */
+            hidden: number;
+            hub: components["schemas"]["Delivery.ClusterRef"];
+            limitations?: components["schemas"]["Fleet.Limitation"][] | null;
+            /** Format: int64 */
+            otherHubs: number;
+            repository: string;
+        };
+        "Delivery.ClusterJoinState": {
+            approvedAt?: string;
+            approvedKeyID?: string;
+            approvedPublicKey?: string;
+            approver?: string;
+            environments?: components["schemas"]["Delivery.AdvertisedEnvironment"][] | null;
+            keyID?: string;
+            mayReplace?: components["schemas"]["Delivery.ClusterRef"];
+            name?: string;
+            /** @enum {string} */
+            nameSource?: "approval" | "node-label" | "context" | "file" | "uid";
+            publicKey?: string;
+            reason?: string;
+            record?: string;
+            snapshotAsOf?: string;
+            /** @enum {string} */
+            state: "pending" | "approved" | "removed";
+            status?: string;
+            uid: string;
+        };
+        "Delivery.ClusterRef": {
+            name?: string;
+            uid: string;
         };
         "Delivery.Deadlines": {
             approval?: string;
@@ -2722,10 +2785,10 @@ export interface components {
             /** @description A display name for the cluster; never an identity. */
             name?: string;
             /**
-             * @description How the name was found: a node label, the kubeconfig context name, a target state file or the first characters of the UID.
+             * @description How the name was found: a person's approval of the cluster, a node label, the kubeconfig context name, a target state file or the first characters of the UID.
              * @enum {string}
              */
-            nameSource?: "node-label" | "context" | "file" | "uid";
+            nameSource?: "approval" | "node-label" | "context" | "file" | "uid";
             /** @description The source that reported the name; empty when this process read it itself. */
             reportedBy?: string;
         };
@@ -2740,10 +2803,10 @@ export interface components {
             /** @description A display name for the cluster; never an identity. */
             name?: string;
             /**
-             * @description How the name was found: a node label, the kubeconfig context name, a target state file or the first characters of the UID.
+             * @description How the name was found: a person's approval of the cluster, a node label, the kubeconfig context name, a target state file or the first characters of the UID.
              * @enum {string}
              */
-            nameSource?: "node-label" | "context" | "file" | "uid";
+            nameSource?: "approval" | "node-label" | "context" | "file" | "uid";
             /** @description The source that reported the name; empty when this process read it itself. */
             reportedBy?: string;
             /** @description Every source that reported this cluster id. */
@@ -2760,10 +2823,10 @@ export interface components {
             /** @description A display name for the cluster, or the source id when the cluster could not be identified; never an identity. */
             name: string;
             /**
-             * @description How the name was found.
+             * @description How the name was found: a person's approval of the cluster, a node label, the kubeconfig context name, a target state file or the first characters of the UID.
              * @enum {string}
              */
-            nameSource?: "node-label" | "context" | "file" | "uid";
+            nameSource?: "approval" | "node-label" | "context" | "file" | "uid";
             /**
              * @description The worst status of the sources that reported the cluster.
              * @enum {string}
@@ -3713,6 +3776,130 @@ export interface components {
             repositoryUnknown?: string;
             /** @description The source that read the workload */
             source: string;
+        };
+        "Fleet.Installation": {
+            /** @description The clusters this caller's view reads */
+            clusters: components["schemas"]["Fleet.InstallationClusters"];
+            /** @description Whether the cluster serves the Pacto delivery API, observed by this host, and the appliers inferred from detected rows */
+            delivery: components["schemas"]["Fleet.InstallationDelivery"];
+            /** @description Whether this host serves an MCP endpoint */
+            mcp: components["schemas"]["Fleet.InstallationMCP"];
+            /** @description The profile names the chart rendered, declared by a person */
+            profile: components["schemas"]["Fleet.InstallationProfile"];
+            /** @description The provisioning engine, unknown until a source detects one */
+            provisioning: components["schemas"]["Fleet.InstallationProvisioning"];
+            /** @description The registry value the operator was configured with, declared by a person */
+            registry: components["schemas"]["Fleet.InstallationRegistry"];
+        };
+        "Fleet.InstallationApplier": {
+            /** @description The detected row's id: argocd or flux */
+            manager: string;
+            /** @enum {string} */
+            mode: "adopted" | "idp-flux";
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description The row Pacto inferred it from */
+            source: string;
+        };
+        "Fleet.InstallationClusters": {
+            /**
+             * Format: date-time
+             * @description When the snapshot was generated
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /**
+             * Format: int64
+             * @description Clusters this caller's view reads; null with no snapshot
+             */
+            joined: number | null;
+            /**
+             * Format: int64
+             * @description Clusters waiting for a person to approve them as members, as this caller may see them; null when not read, when some are hidden from this caller or when the join list was read partly
+             */
+            pending: number | null;
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description Where Pacto counted them, or why they are null */
+            source: string;
+        };
+        "Fleet.InstallationDelivery": {
+            /** @description What applies the workloads Pacto delivery promotes, inferred from available detected rows; listed only when enabled is true */
+            appliers: components["schemas"]["Fleet.InstallationApplier"][];
+            /**
+             * Format: date-time
+             * @description When it was read
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /** @description The cluster serves the Pacto delivery API; null when this host cannot tell. The CRDs outlive a chart that dropped delivery, so this is partial beside a declared hardened profile */
+            enabled: boolean | null;
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description Where Pacto learned it, or why it is null */
+            source: string;
+        };
+        "Fleet.InstallationMCP": {
+            /**
+             * Format: date-time
+             * @description When it was answered
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description This host serves an MCP endpoint */
+            served: boolean;
+            /** @description Which host says so */
+            source: string;
+        };
+        "Fleet.InstallationProfile": {
+            /**
+             * Format: date-time
+             * @description When it was read
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description Where Pacto read it, or why it is null */
+            source: string;
+            /** @description Sorted profile names; null when unknown */
+            value: string[] | null;
+        };
+        "Fleet.InstallationProvisioning": {
+            /**
+             * Format: date-time
+             * @description When it was read
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /** @enum {string} */
+            engine: "crossplane" | "adapter" | "none" | "unknown";
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description Where Pacto learned it, or why it is unknown */
+            source: string;
+        };
+        "Fleet.InstallationRegistry": {
+            /**
+             * Format: date-time
+             * @description When it was read
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description Where Pacto read it, or why it is null */
+            source: string;
+            /** @description The registry value; empty when set to nothing, null when unknown */
+            value: string | null;
         };
         "Fleet.InterfaceDeprecation": {
             deprecated: string;
@@ -4903,7 +5090,7 @@ export interface components {
              * @description How the cluster name was found.
              * @enum {string}
              */
-            clusterNameSource?: "node-label" | "context" | "file" | "uid";
+            clusterNameSource?: "approval" | "node-label" | "context" | "file" | "uid";
             /**
              * @description runs-in when a Kubernetes source read the target in the cluster; reported-through when the cluster only reported it.
              * @enum {string}
@@ -9764,6 +9951,44 @@ export interface operations {
             };
             /** @description Error */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-fleet-clusters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Delivery.ClusterJoinList"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -146,6 +146,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 
 			fopts := dashboardFleetOptions(dir, repos, namespaces, observation, det)
 			fopts.Provenance.Trust = publisherTrust(cmd, d, det.detected)
+			fopts.ClusterJoins = dashboardJoins(d, clusterCfg, det.detected, v.GetString("dashboard.delivery-namespace"))
 			configured := configuredSources(fopts)
 			if answersNothing(configured) {
 				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no cached bundles and no Kubernetes configuration", dir)
@@ -193,10 +194,13 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				Refresh:    mgr.Refresh,
 				MiraURL:    v.GetString("dashboard.mira-url"),
 
+				InstallationConfig: svc.InstallationConfig(det.detected),
+
 				DeliveryNamespace: deliveryNarrowing(namespaces),
 			}
 			opts.Stats, opts.StatsRegistry = dashboardStats(cmd, svc)
 			identity.options(&opts)
+			opts.ClusterJoins = identity.clusterJoins(joinLister(svc, fopts.ClusterJoins, time.Now))
 			server := dashboard.NewServer(opts)
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)

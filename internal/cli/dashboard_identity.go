@@ -145,7 +145,7 @@ func (id *dashboardIdentity) options(o *dashboard.Options) {
 	}
 	if id.cluster != nil {
 		o.Delivery = id.delivery
-		o.DeliveryInstalled = id.deliveryInstalled
+		o.DeliveryInstalled, o.DeliveryCheckedAt = id.deliveryInstalled, id.deliveryCheckedAt
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 
@@ -33,6 +34,9 @@ func mcpDeliveryReads(id *dashboardIdentity, fm *pactomcp.FleetMode, narrowed st
 		return r.Context().Value(deliveryAPIKey{}).(dashboard.DeliveryAPI), nil
 	}}
 	opts.DeliveryInstalled = id.installedProbe()
+	if opts.DeliveryInstalled != nil {
+		opts.DeliveryCheckedAt = id.deliveryCheckedAt
+	}
 	if fm != nil {
 		opts.Fleet = fm.Src
 		if v := fm.Opts.View; v != nil {
@@ -67,6 +71,14 @@ func (id *dashboardIdentity) installedProbe() func(context.Context) (bool, error
 		return nil
 	}
 	return id.deliveryInstalled
+}
+
+// installedAt is when installedProbe last asked, nil with no probe.
+func (id *dashboardIdentity) installedAt() func() time.Time {
+	if id.cluster == nil {
+		return nil
+	}
+	return id.deliveryCheckedAt
 }
 
 // checkView fails a read whose caller the view cannot narrow for: the

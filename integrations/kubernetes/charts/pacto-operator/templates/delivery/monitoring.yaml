@@ -1,4 +1,4 @@
-{{- if .Values.delivery.enabled }}
+{{- if include "pacto-operator.deliveryEnabled" . }}
 {{- if and .Values.delivery.recorder.enabled .Values.delivery.recorder.monitoring.enabled }}
 {{- $name := include "pacto-operator.delivery.recorderName" . }}
 {{- $ns := include "pacto-operator.delivery.namespace" . }}

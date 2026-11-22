@@ -75,6 +75,7 @@ test.describe('WASM demo: what the cluster provides', () => {
     const installation = block.getByTestId('provider-row').filter({ has: page.locator('.dp-name').getByTitle('Installation', { exact: true }) });
     await expect(installation).toHaveCount(1, { timeout: T });
     await expect(installation.locator('.dp-evidence')).toContainText('ghcr.io/acme');
+    await expect(installation.locator('.dp-evidence')).toContainText('profile default');
     await expect(installation).not.toHaveClass(/dp-inferred/);
     await installation.getByRole('button', { name: DECLARED }).click();
     await expect(installation.getByRole('note')).toContainText("Declared by the operator's configuration");

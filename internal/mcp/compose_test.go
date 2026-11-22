@@ -21,10 +21,15 @@ import (
 func composedModes(t *testing.T, writes bool) Modes {
 	t.Helper()
 	return Modes{
-		Fleet:    &FleetMode{Src: staticFleet(buildFleetQuery(t)), Opts: FleetOptions{Impact: stubImpact(nil, nil, nil), Stats: noStats}},
+		Fleet:    &FleetMode{Src: staticFleet(buildFleetQuery(t)), Opts: FleetOptions{Impact: stubImpact(nil, nil, nil), Stats: noStats, Clusters: noClusters}},
 		Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: writes, Reads: (&stubReads{}).reads},
 		Bundle:   &BundleMode{Bundle: shadowBundle(), Opts: CapabilityOptions{BaseURL: "http://x"}, Stderr: io.Discard},
 	}
+}
+
+// noClusters is a cluster list provider that answers an empty list.
+func noClusters(context.Context) (delivery.ClusterJoinList, error) {
+	return delivery.ClusterJoinList{Clusters: []delivery.ClusterJoinState{}}, nil
 }
 
 // noStats is a stats provider that answers an empty envelope.
@@ -42,7 +47,7 @@ func TestComposedFleetDeliveryBundle(t *testing.T) {
 		seen[tl.Name]++
 	}
 	for _, want := range []string{"pacto_schema", "pacto_fleet_get", "pacto_impact", "pacto_delivery_get",
-		"pacto_delivery_operation_propose", "lookup", "pacto_skill", "pacto_capabilities", "pacto_stats"} {
+		"pacto_delivery_operation_propose", "lookup", "pacto_skill", "pacto_capabilities", "pacto_stats", "pacto_cluster_list"} {
 		if seen[want] != 1 {
 			t.Errorf("%s registered %d times, want once", want, seen[want])
 		}
@@ -169,6 +174,7 @@ func TestCapabilitiesReportsModes(t *testing.T) {
 	if s, _ := got["asOf"].(string); s == "" {
 		t.Error("no asOf")
 	}
+	assertInstallationParts(t, got)
 	caller := got["caller"].(map[string]any)
 	for key, want := range map[string]any{"user": "local", "callerSource": "local", "class": "agent", "policyError": "", "writes": true} {
 		if caller[key] != want {

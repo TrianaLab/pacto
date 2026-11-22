@@ -118,7 +118,7 @@ test.describe('WASM demo: inferred services', () => {
     await page.keyboard.press('Escape');
 
     await group.getByRole('link', { name: 'Services in this group' }).click();
-    await expect(page).toHaveURL(/group=argocd%2Fshop%2Fshop/);
+    await expect(page).toHaveURL(/group=5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fargocd%2Fshop%2Fshop/);
     await expect(page.locator('[data-testid="service-list"] li')).toHaveCount(2, { timeout: T });
     await expect(page.locator('.chip', { hasText: 'Group' })).toContainText('Argo CD Application shop/shop');
     // The group lives in the list and the page: the primary navigation gained no entry.

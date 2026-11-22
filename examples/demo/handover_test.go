@@ -48,7 +48,7 @@ func TestDemoHandover(t *testing.T) {
 // workload, which must no longer be an inferred service.
 func checkHandedOver(t *testing.T, snap *fleet.FleetSnapshot) fleet.Replacement {
 	t.Helper()
-	twin := fleet.NewServiceKey(fleet.K8sCaller("", "billing", "Deployment", "invoices"))
+	twin := fleet.NewServiceKey(fleet.K8sCaller(prodClusterID, "billing", "Deployment", "invoices"))
 	if _, ok := snap.Services[twin]; ok {
 		t.Errorf("the declared workload is still an inferred service")
 	}

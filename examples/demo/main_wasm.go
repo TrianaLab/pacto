@@ -16,6 +16,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
@@ -104,6 +105,11 @@ func main() {
 		panic(err)
 	}
 	d.wire(&opts)
+	// The production cluster is a hub with two members and one pending cluster.
+	opts.ClusterJoins = func(context.Context) (delivery.ClusterJoinList, error) { return demoClusterJoins(), nil }
+	if opts.InstallationConfig, err = demoInstallationConfig(); err != nil {
+		panic(err)
+	}
 	js.Global().Set("__pactoDeliveryKey", d.KeyHint())
 	js.Global().Set("__pactoPactifyPlan", pactifyPlan)
 	// __pactoPersona(name, fresh) switches who the tab acts as: pay-agent,

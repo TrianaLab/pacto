@@ -109,4 +109,9 @@ func TestFleetStatusPrintsInstallation(t *testing.T) {
 	}
 	table, _ := providersText(t, &fleet.ProvidersResult{Providers: rows})
 	expect(t, strings.Contains(table, "Installation (declared)") && strings.Contains(table, "Pull Secret (inferred)"), "providers table:\n%s", table)
+	// An operator that advertises its profile: the line names it first.
+	profiled := detect.ProviderRows(detect.Result{SchemaVersion: "1", AsOf: detectedAsOf,
+		Installation: &detect.Installation{Profile: []string{"hardened"}, Registry: "ghcr.io/acme"}}, "detection", detectedAsOf)
+	out = statusText(t, &fleet.StatusResult{Providers: profiled})
+	expect(t, strings.Contains(out, "Installation: profile hardened; registry ghcr.io/acme;"), "status text:\n%s", out)
 }

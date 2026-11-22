@@ -14,6 +14,9 @@ package targetsnapshot
 import (
 	"cmp"
 	"context"
+	"crypto/ed25519"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,6 +35,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
 // snapshotPage is how many objects one list request of the target snapshot
@@ -59,6 +63,12 @@ type TargetPublisher struct {
 	Repo      *remote.Repository
 	Signer    core.Signer
 	ClusterID string
+	// Key is the installation key Signer signs with; the join block names
+	// its public half, so a hub can approve this cluster as a member.
+	Key ed25519.PrivateKey
+	// ClusterName and ClusterNameSource are the join block's display name,
+	// a DNS label, and where it came from.
+	ClusterName, ClusterNameSource string
 	// Publisher is the operator ServiceAccount, written as a claim.
 	Publisher string
 	// Namespaces, when set, are the only namespaces read (a scoped
@@ -140,6 +150,7 @@ func (p *TargetPublisher) publish(ctx context.Context) error {
 	if err != nil {
 		p.limit(&pactos, "pactos", err)
 	}
+	s.Join = p.join(s.Pactos)
 	workloads := core.SnapshotSource{Kind: fleet.SourceKindKubernetesWorkloads, AsOf: asOf, Completeness: fleet.CompletenessComplete}
 	p.collectWorkloads(ctx, &s, &workloads, now)
 	if len(p.Namespaces) > 0 {
@@ -175,6 +186,15 @@ func (p *TargetPublisher) publish(ctx context.Context) error {
 	p.Log.V(1).Info("target snapshot published", "digest", desc.Digest.String(), "pactos", len(s.Pactos),
 		"workloads", len(s.Workloads), "evidence", len(s.Evidence) > 0, "completeness", s.Completeness)
 	return nil
+}
+
+// join is the snapshot's join block: the display name, the installation
+// public key and its fingerprint, and the environments pactos suggest.
+func (p *TargetPublisher) join(pactos []core.PactoView) *core.SnapshotJoin {
+	pub := p.Key.Public()
+	der, _ := x509.MarshalPKIXPublicKey(pub) // an Ed25519 key always marshals
+	return &core.SnapshotJoin{Name: p.ClusterName, NameSource: p.ClusterNameSource, KeyID: signing.Hint(pub),
+		PublicKey: base64.StdEncoding.EncodeToString(der), Environments: core.AdvertisedEnvironments(pactos, p.ClusterName, p.ClusterNameSource)}
 }
 
 // collectWorkloads adds every workload of the four kinds as an inferred

@@ -673,3 +673,40 @@ tests:
     asserts:
       - notMatchRegexRaw:
           pattern: "proposal, nothing was turned on|Proposed pull Secret"
+
+  - it: notes fill this cluster's uid and key id into the approve line on upgrade
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    set:
+      registry: ghcr.io/acme
+    kubernetesProvider:
+      scheme:
+        "v1/ConfigMap":
+          gvr: {group: "", version: v1, resource: configmaps}
+          namespaced: true
+      objects:
+        - kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-detected
+            namespace: pacto-operator-system
+            labels: {app.kubernetes.io/managed-by: pacto-operator}
+            ownerReferences:
+              - {apiVersion: apps/v1, kind: Deployment, name: pacto-operator, uid: u1}
+          data:
+            detected.json: '{"schemaVersion":"1","cluster":"5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11","installation":{"registry":"ghcr.io/acme","snapshotKeyID":"339e2ff9a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbcc"}}'
+    asserts:
+      - matchRegexRaw:
+          pattern: "pacto cluster approve 5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11 --key sha256:339e2ff9a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbcc --registry ghcr.io/acme\\n"
+
+  - it: notes keep the approve placeholders when the detected key id is not a key id
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    set:
+      registry: ghcr.io/acme
+    kubernetesProvider: *detected
+    asserts:
+      - matchRegexRaw:
+          pattern: "pacto cluster approve 5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11 --key sha256:<snapshotKeyID> --registry ghcr.io/acme\\n"

@@ -13,8 +13,8 @@ const WIDE_FONT = '*{font-family: Verdana, "DejaVu Sans", sans-serif !important}
 const STORY_PAYMENTS = 'registry.example%252Fstory%2Fpayments';
 // payments 3.0.0: prod offers the promote of its artifact (examples/story).
 const PAYMENTS_300 = 'sha256:a16380137bcba704971cd4258237e24fb8822d93f66bd3f280bd829005665323';
-const CHECKOUT_TEST = '#/fleet/targets/test%2FDeployment%2Fcheckout';
-const PAYMENTS_PROD = '#/fleet/targets/prod%2FDeployment%2Fpayments';
+const CHECKOUT_TEST = '#/fleet/targets/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Ftest%2FDeployment%2Fcheckout';
+const PAYMENTS_PROD = '#/fleet/targets/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fprod%2FDeployment%2Fpayments';
 const PLAN = /^Plan /;
 
 test.describe.configure({ mode: 'default' });

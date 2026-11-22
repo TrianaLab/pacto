@@ -228,13 +228,13 @@ test.describe('delivery lifecycle in the demo', () => {
   });
 
   test('a target in an environment no Stage delivers says it is observed', async ({ page }) => {
-    await page.goto('/#/fleet/targets/staging%2FDeployment%2Fnotification-worker');
+    await page.goto('/#/fleet/targets/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fstaging%2FDeployment%2Fnotification-worker');
     await expect(page.getByTestId('target-delivery')).toContainText('No Stage you can see delivers this service here', { timeout: T });
     await audit(page, 'target page, no Stage delivers it here');
   });
 
   test('the audit-log prod target links to its Stage', async ({ page }) => {
-    await page.goto('/#/fleet/targets/prod%2FCronJob%2Faudit-log');
+    await page.goto('/#/fleet/targets/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fprod%2FCronJob%2Faudit-log');
     const link = page.getByTestId('target-delivery').getByRole('link', { name: 'Delivery in prod' });
     await expect(link).toBeVisible({ timeout: T });
     await expect(link).toHaveAttribute('href', /namespace=prod&stage=audit-log/);

@@ -104,15 +104,23 @@ func (c Claims) Person(token string) Person {
 	return Person{User: user, Groups: out}
 }
 
-// Review answers whether p may list res in namespace ("" for every namespace
-// at once).
+// Review answers whether p may list res (or res.Verb it) in namespace (""
+// for every namespace at once).
 type Review func(ctx context.Context, p Person, namespace string, res ResourceAttributes) (bool, error)
 
-// ResourceAttributes is the API group and resource a review asks about.
+// ResourceAttributes is the API group and resource a review asks about, the
+// verb (empty is list) and the one object's name (empty is every object).
 type ResourceAttributes struct {
 	Group    string
 	Resource string
+	Verb     string
+	Name     string
 }
+
+// ClusterJoinResource is the virtual resource a person must be allowed to
+// approve, named by the member's UID, for their approval of a member cluster
+// to count. No CRD serves it: only RBAC names it.
+var ClusterJoinResource = ResourceAttributes{Group: "pacto.trianalab.io", Resource: "clusterjoins", Verb: "approve"}
 
 // PactoResource is the resource every fleet answer is reviewed against.
 var PactoResource = ResourceAttributes{Group: "pacto.trianalab.io", Resource: "pactos"}
@@ -187,7 +195,8 @@ func LocalSubjectAccessReview(dyn dynamic.Interface) Review {
 	}
 }
 
-// reviewObject is a review of kind asking whether p may list res in namespace.
+// reviewObject is a review of kind asking whether p may list res (or
+// res.Verb it) in namespace.
 func reviewObject(kind string, p Person, namespace string, res ResourceAttributes) *unstructured.Unstructured {
 	groups := make([]any, len(p.Groups))
 	for i, g := range p.Groups {
@@ -196,7 +205,7 @@ func reviewObject(kind string, p Person, namespace string, res ResourceAttribute
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "authorization.k8s.io/v1", "kind": kind,
 		"spec": map[string]any{"user": p.User, "groups": groups, "resourceAttributes": map[string]any{
-			"namespace": namespace, "verb": "list", "group": res.Group, "resource": res.Resource}},
+			"namespace": namespace, "verb": cmp.Or(res.Verb, "list"), "group": res.Group, "resource": res.Resource, "name": res.Name}},
 	}}
 }
 
@@ -672,7 +681,7 @@ func (v *Viewer) askAll(ctx context.Context, w *clusterWork, p Person, who, ns s
 
 // ask is one cached review in w's cluster. Failures are not cached.
 func (v *Viewer) ask(ctx context.Context, w *clusterWork, p Person, who, ns string, res ResourceAttributes) (bool, error) {
-	key := w.key + "\x01" + who + "\x01" + res.Resource + "." + res.Group + "\x01" + ns
+	key := w.key + "\x01" + who + "\x01" + res.Verb + " " + res.Resource + "." + res.Group + "/" + res.Name + "\x01" + ns
 	now := v.now()
 	v.mu.Lock()
 	a, ok := v.answers[key]

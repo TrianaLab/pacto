@@ -292,7 +292,7 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	if rc.delivery != nil {
 		policy := rc.delivery(nil) // only its trust and policy namespace are read
 		id := baseDashboardIdentity(cluster, d, policy.Trust, policy.PolicyNamespace)
-		rc.build = perCallerBuild(version, a, m, mcpDeliveryReads(id, m.Fleet, deliveryNarrowing(flagNamespaces(cmd))), id.installedProbe())
+		rc.build = perCallerBuild(version, a, m, mcpDeliveryReads(id, m.Fleet, deliveryNarrowing(flagNamespaces(cmd))), id.installedProbe(), id.installedAt())
 	}
 	s.perRequest = rc.middleware
 	s.remoteAuthoring = true
@@ -303,7 +303,7 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 // tools. The bundle's notices went out once at startup, so the per-request
 // builds discard them.
 func perCallerBuild(version string, a pactomcp.Authoring, m pactomcp.Modes, reads func(*app.Delivery, string) pactomcp.DeliveryReads,
-	installed func(context.Context) (bool, error)) func(context.Context) *mcpsdk.Server {
+	installed func(context.Context) (bool, error), installedAt func() time.Time) func(context.Context) *mcpsdk.Server {
 	if m.Bundle != nil {
 		quiet := *m.Bundle
 		quiet.Stderr = io.Discard
@@ -313,7 +313,7 @@ func perCallerBuild(version string, a pactomcp.Authoring, m pactomcp.Modes, read
 		mm := m
 		if who := reviewedFrom(ctx); who.delivery != nil {
 			mm.Delivery = &pactomcp.DeliveryMode{API: mcpDelivery{who.delivery}, Writes: who.writes, Caller: who.caller,
-				Reads: reads(who.delivery, remoteCallerKey(who.person)), CallerAt: time.Now(), Installed: installed}
+				Reads: reads(who.delivery, remoteCallerKey(who.person)), CallerAt: time.Now(), Installed: installed, InstalledAt: installedAt}
 		}
 		srv, _ := pactomcp.New(version, a, mm) // registered once at startup
 		return srv

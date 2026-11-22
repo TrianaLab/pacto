@@ -113,6 +113,90 @@ lists show a Cluster filter with a line such as
 `Showing 1 of 2 clusters (us-prod: no access)`, and Data sources shows each
 cluster's status, both only when two or more clusters are known.
 
+## Join a cluster through the registry
+
+A cluster can join a hub as a [member](glossary.md#member) through the
+registry alone, with no kubeconfig of it and no network path between the
+clusters. The [hub](glossary.md#hub) is any cluster whose dashboard,
+`pacto mcp` or `pacto cluster` reads that registry and whose operator lists
+approver signers.
+
+### Set up the member and the hub
+
+1. Install the operator in the member with `--set registry=ghcr.io/acme` and
+   nothing else. It publishes its signed snapshot to
+   `ghcr.io/acme/pacto-targets:cluster-<uid>` with its display name, the
+   environments it seems to host and its installation key.
+2. On the hub's operator, set `delivery.enabled=true` and
+   `delivery.identities.signers`. A hub without signers counts no approval and
+   says so on every pending row.
+3. For a private registry, add a pull-only Secret to the hub's
+   `dashboard.ociSecrets`. Never reuse `registryPullSecret`: it can push.
+4. Let the people who approve members `approve` clusterjoins, as users:
+
+```sh
+kubectl create clusterrole pacto-cluster-approver --verb=approve --resource=clusterjoins.pacto.trianalab.io
+kubectl create clusterrolebinding pacto-cluster-approver --clusterrole=pacto-cluster-approver --user=oidc:alice@acme.com
+```
+
+`clusterjoins` is a virtual resource with no CRD. The hub reviews the user an
+approval's certificate names with no groups, since a certificate names none,
+so a grant to a group never counts. A profile `hardened` cluster can be a
+member but never a hub: it renders no delivery and so no approver signers.
+
+### Approve a member
+
+The new cluster shows as pending on Data sources, in
+`pacto cluster list --registry ghcr.io/acme` and in the MCP tool
+`pacto_cluster_list`. Ask the member's admin for its key id, read in the
+member, or copy the approve line `helm upgrade` prints there, which fills in
+the cluster's UID and key id:
+
+```sh
+kubectl get configmap pacto-operator-detected -n pacto-operator-system -o jsonpath='{.data.detected\.json}' | jq -r .installation.snapshotKeyID
+```
+
+If it matches the pending row, approve the key you checked. `--name` sets the
+display name:
+
+```sh
+pacto cluster approve 9f1c4e2a --key sha256:<snapshotKeyID> --name eu-prod --registry ghcr.io/acme
+```
+
+The command checks your grant, signs you in once in the browser and records an
+approval signed as you beside the snapshot. It refuses when the snapshot names
+another key by then. The dashboard's Approve button shows this command.
+
+From the next fleet build on, the member's services, targets and workloads
+appear, verified under the approved key and scoped to its cluster. People
+signed in to the dashboard or an HTTP MCP server see a member hidden and
+counted, since it has no live channel yet that could review them there.
+
+The hub checks every approval each time it reads it, so a person who loses the
+grant turns their approvals pending. A dashboard installed with a namespace
+list cannot review `clusterjoins`, so its approvals stay pending. The CLI
+reviews approvers as you: grant `create subjectaccessreviews`.
+
+### Remove, rebuild and rotate
+
+- `pacto cluster remove 9f1c4e2a --registry ghcr.io/acme` records a signed
+  revocation. The member leaves the next fleet build. Rotate its
+  registry credential too.
+- A rebuilt cluster has a new UID. It shows pending with "may replace eu-prod"
+  when it keeps the name of an approved member.
+- A new installation key on a known UID shows pending again, with the key
+  that changed, until someone approves the new key.
+
+### The registry boundary
+
+Every member pushes to `pacto-targets`. Give members credentials without
+delete, and turn on tag immutability where the registry offers it, such as zot
+or Harbor. A record names the key it approves, so a swapped tag never makes a
+member, but a member that can delete can remove what others pushed. The hub
+reads every `cluster-*` tag within 10 listing pages. It reads approved members
+first and up to 32 pending clusters, plus a cluster a command names by UID. It
+counts the rest unread and marks the list partial.
+
 ## Operation records
 
 Delivery runs in one cluster. The Metrics page leaves out the operation

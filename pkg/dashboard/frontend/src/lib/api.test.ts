@@ -257,6 +257,25 @@ describe('entity-detail runtime narrowing', () => {
   });
 });
 
+describe('fleetClusters', () => {
+  it('GET /api/fleet/clusters resolves the join list', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ hub: { uid: 'h' }, repository: 'r', asOf: '', completeness: 'complete', clusters: [], hidden: 0, otherHubs: 0, canApprove: true }));
+    const res = await api.fleetClusters();
+    expect(urlFor().pathname).toBe('/api/fleet/clusters');
+    expect(res?.canApprove).toBe(true);
+  });
+
+  it('resolves null on a 404: this host reads no joins', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ status: 404, title: 'Not Found' }, 404));
+    await expect(api.fleetClusters()).resolves.toBeNull();
+  });
+
+  it('throws with the problem detail on a 502', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ status: 502, detail: 'cannot read ghcr.io/acme/pacto-targets' }, 502));
+    await expect(api.fleetClusters()).rejects.toThrow('cannot read ghcr.io/acme/pacto-targets');
+  });
+});
+
 describe('error handling', () => {
   it('throws ApiError carrying the status', async () => {
     mockFetch.mockResolvedValue(new Response('not found', { status: 404 }));
