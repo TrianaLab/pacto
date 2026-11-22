@@ -387,6 +387,13 @@ func paymentsDeclaration(host, version string, baseline *contract.InferredBaseli
 // the declaration's digest.
 func declaredFolder(t *testing.T, keyed, signed bool) (*declareEnv, string, *Service, string) {
 	t.Helper()
+	return declaredFolderWith(t, keyed, signed, "")
+}
+
+// declaredFolderWith is declaredFolder whose declaration also declares
+// extra under service.
+func declaredFolderWith(t *testing.T, keyed, signed bool, extra string) (*declareEnv, string, *Service, string) {
+	t.Helper()
 	e := newDeclareEnv(t)
 	dir := t.TempDir()
 	if keyed {
@@ -399,8 +406,36 @@ func declaredFolder(t *testing.T, keyed, signed bool) (*declareEnv, string, *Ser
 		sg := e.signer(t, personToken("ana@acme.com"))
 		s = &sg
 	}
-	d := e.publishBundle(t, e.host+"/pacto/payments", "0.1.0", paymentsDeclaration(e.host, "0.1.0", nil), s)
+	files := paymentsDeclaration(e.host, "0.1.0", nil)
+	files["pacto.yaml"] = strings.Replace(files["pacto.yaml"], "  version: 0.1.0\n", "  version: 0.1.0\n"+extra, 1)
+	d := e.publishBundle(t, e.host+"/pacto/payments", "0.1.0", files, s)
 	return e, dir, publishService(&fakeRun{}, e.reg), d
+}
+
+func TestPublishNotesDeclarationNotCarried(t *testing.T) {
+	noPublicGood(t)
+	e, dir, svc, d := declaredFolderWith(t, true, true, "  owner:\n    team: billing\n")
+	res, err := svc.Publish(t.Context(), PublishOptions{Path: dir, Revision: "r2", Plan: true, declTrust: e.trustingAcme(t)})
+	want := "pacto publish does not carry registry declarations: service.owner declared in " + e.host + "/pacto/payments@" + d +
+		" are not in this version; run pacto ci --publish or write them in pacto.yaml"
+	if err != nil || !slices.Contains(res.Notes, want) {
+		t.Fatalf("%v %q", err, res.Notes)
+	}
+	// A field pacto.yaml writes is in this version.
+	writeDerivedBundle(t, dir, e.host, "", "  owner:\n    team: payments\n")
+	res, err = svc.Publish(t.Context(), PublishOptions{Path: dir, Revision: "r2", Plan: true, declTrust: e.trustingAcme(t)})
+	if err != nil || notCarried(res.Notes) {
+		t.Fatalf("%v %q", err, res.Notes)
+	}
+}
+
+func TestPublishNoNoteWithoutDeclaration(t *testing.T) {
+	noPublicGood(t)
+	e, dir, svc, _ := declaredFolder(t, true, true) // a declaration that declares no carried field
+	res, err := svc.Publish(t.Context(), PublishOptions{Path: dir, Revision: "r2", Plan: true, declTrust: e.trustingAcme(t)})
+	if err != nil || res.Plan.Baseline != "0.1.0" || notCarried(res.Notes) {
+		t.Fatalf("%v %q", err, res.Notes)
+	}
 }
 
 func TestDeriveCountsDeclarationAsBaseline(t *testing.T) {

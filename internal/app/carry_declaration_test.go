@@ -675,3 +675,45 @@ func TestDeclarationCandidatesSkipsNonRange(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+// notCarried reports whether notes hold the note a plain pacto publish adds
+// for registry declarations it does not carry.
+func notCarried(notes []string) bool {
+	return slices.ContainsFunc(notes, func(n string) bool {
+		return strings.HasPrefix(n, "pacto publish does not carry registry declarations: ")
+	})
+}
+
+func TestPublishNotesCitedDeclaration(t *testing.T) {
+	e := newDeclCIEnv(t)
+	d := e.declaration(t, "ana@acme.com", ownerBilling, nil)
+	e.folder(t, "", nil)
+	if r := e.publishCI(t, "r1"); r.State != ci.StatePublished {
+		t.Fatalf("%+v", r)
+	}
+	// The baseline is now the CI version citing the declaration; the folder
+	// changes, so a plain publish derives the next version from it.
+	e.write(t, map[string]string{"invoices/notes.md": "# invoices\n"})
+	res, err := e.svc.Publish(t.Context(), PublishOptions{Path: filepath.Join(e.root, "invoices"), Revision: "r2", Plan: true})
+	want := "pacto publish does not carry registry declarations: service.owner declared in " + e.repo + "@" + d +
+		" are not in this version; run pacto ci --publish or write them in pacto.yaml"
+	if err != nil || !slices.Contains(res.Notes, want) {
+		t.Fatalf("%v %q", err, res.Notes)
+	}
+}
+
+func TestCIPublishDoesNotPrintPublishNote(t *testing.T) {
+	e := newDeclCIEnv(t)
+	e.ownerPolicy(t, "") // the owner is dropped: the carry pins nothing
+	e.declaration(t, "ana@acme.com", ownerBilling, nil)
+	e.folder(t, "", nil)
+	path := filepath.Join(e.root, "invoices")
+	res, err := e.svc.Publish(t.Context(), PublishOptions{Path: path, Revision: "r1", Plan: true, declTrust: e.trust(t)})
+	if err != nil || !notCarried(res.Notes) {
+		t.Fatalf("plain publish: %v %q", err, res.Notes)
+	}
+	r := e.publishCI(t, "r1")
+	if r.State != ci.StatePublished || carriedField(t, r, "service.owner").State != ci.CarriedDropped || notCarried(r.Notes) {
+		t.Fatalf("%+v", r)
+	}
+}

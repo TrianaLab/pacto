@@ -63,6 +63,9 @@ type PublishOptions struct {
 	// declTrust is the run's registry declaration trust pacto ci builds once;
 	// nil builds one for this publish.
 	declTrust *declarationTrust
+	// fromCI is set by pacto ci, which carries registry declarations itself,
+	// so Publish never notes that it does not.
+	fromCI bool
 }
 
 // flagErr refuses flag values that cannot work whatever the contract says.
@@ -158,7 +161,7 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	}
 	reg := env.publishRegistry()
 	tools := newExecTools(path, env.run, reg)
-	tools.decl = opts.declTrust
+	tools.decl, tools.fromCI = opts.declTrust, opts.fromCI
 	vb, done, dv, err := versioned(ctx, env.run, reg, tools, path, b, pub, d, revision, inputs, opts.unchanged)
 	if err != nil || done != nil {
 		return s.alreadyPublished(ctx, tools, b, pub, done, err, opts)
@@ -530,6 +533,8 @@ type execTools struct {
 	built map[string]time.Time
 	// decl judges registry declarations as baselines; nil builds one.
 	decl *declarationTrust
+	// fromCI is PublishOptions.fromCI: no note on uncarried declarations.
+	fromCI bool
 }
 
 type loadedSigner struct {
