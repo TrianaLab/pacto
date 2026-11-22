@@ -197,16 +197,19 @@ flowchart LR
   serve reads `no applier: install Flux or Argo CD` and never promotes.
   `pacto.manifests`, on wherever delivery is enabled
   (`delivery.manifestInspector: false` opts out), reads the version's Flux or
-  Helm artifact before the pointer moves. It refuses a cluster-scoped kind, a
+  Helm artifact before the pointer moves, under the path the Stage's
+  Kustomizations in its own namespace build. It refuses a cluster-scoped kind, a
   chart's `crds/`, an object outside the Stage namespace, a kustomization
   `namespace:` or an applier `targetNamespace` elsewhere, a RoleBinding to a
   ClusterRole and any Pacto delivery, Flux or Argo CD object, each with a
   signed refusal on `pacto delivery refusals`. It asks a person about what it
   cannot read: a templated or unknown kind, a `${` substitution, a
-  kustomization or applier object that transforms the artifact and a
-  RoleBinding that grants a group, a user or another namespace's
-  ServiceAccount. It judges every chart template as if it renders, so a
-  ClusterRole behind an `if` is refused too. Rollbacks skip it.
+  kustomization or applier object that transforms the artifact, a nested
+  kustomization, jsonnet, a YAML alias or merge key and a RoleBinding that
+  grants a group, a user or another namespace's ServiceAccount. That question
+  joins any later gate's, so a breaking change still asks its consumers'
+  owners. It judges every chart template as if it renders, so a ClusterRole
+  behind an `if` is refused too. Rollbacks skip it.
   Under `profile: idp` infrastructure reaches a cluster only as a dependency
   on an offering, so it also refuses raw infrastructure with the code
   `RawInfraInArtifact`: Crossplane claims, composite resources, definitions,
