@@ -46,6 +46,16 @@ const (
 	AnnotationExternalKey          = "pacto.trianalab.io/external-key"
 	AnnotationCaller               = "pacto.trianalab.io/caller"
 	AnnotationCallerAmbiguous      = "pacto.trianalab.io/caller-ambiguous"
+	// AnnotationSource says how Pacto learned an entity it did not read from
+	// a contract: workload on an inferred Component, the evidence kinds on a
+	// Resource.
+	AnnotationSource = "pacto.trianalab.io/source"
+	// AnnotationWorkload is <Kind> [<cluster>/]<namespace>/<name> of an
+	// inferred service's workload.
+	AnnotationWorkload = "pacto.trianalab.io/workload"
+	// AnnotationInferredContract is the pacto-inferred repository of an
+	// external system's inferred contract.
+	AnnotationInferredContract = "pacto.trianalab.io/inferred-contract"
 )
 
 // TagInferred marks an entity Pacto inferred, in a field the Backstage catalog

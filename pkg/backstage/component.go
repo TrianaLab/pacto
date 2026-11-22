@@ -45,6 +45,9 @@ func (e *exporter) component(s *fleet.ServiceRecord) []Entity {
 	c.Spec.Lifecycle = lifecycle(q, s)
 	c.Spec.Owner = owner(q, s, ann)
 	c.Spec.System = system(s, ann, e.systems)
+	if provenance == provenanceInferred {
+		inferredSource(s, ann)
+	}
 	if s.NameInferred != nil {
 		ann[AnnotationNameProvenance] = provenanceInferred
 		ann[AnnotationNameSource] = s.NameInferred.Source
@@ -65,6 +68,21 @@ func (e *exporter) component(s *fleet.ServiceRecord) []Entity {
 	}
 	slices.Sort(c.Spec.ProvidesAPIs)
 	return append([]Entity{c}, apis...)
+}
+
+// inferredSource records on ann the workload Pacto learned inferred service
+// s from, when it read one.
+func inferredSource(s *fleet.ServiceRecord, ann map[string]string) {
+	w := s.Workload
+	if w == nil {
+		return
+	}
+	where := w.Namespace + "/" + w.Name
+	if w.Cluster != "" {
+		where = w.Cluster + "/" + where
+	}
+	ann[AnnotationSource] = "workload"
+	ann[AnnotationWorkload] = w.Kind + " " + where
 }
 
 // lifecycle is `deprecated` when the service's current revision declares
