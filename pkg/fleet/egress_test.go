@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -129,6 +130,22 @@ func TestKernelEgressRowHiddenWhenAllServicesHidden(t *testing.T) {
 	r := q.Restrict(anyCluster(shopView), anyClusterKind(nil)).SnapshotForSerialization()
 	if slices.ContainsFunc(r.Providers, func(p Provider) bool { return p.ID == ProviderKernelEgress }) {
 		t.Fatalf("a reader who sees no contributing service sees the row: %+v", r.Providers)
+	}
+}
+
+// TestKernelEgressRowHidesTheReasonOfAPartlyHiddenRow: the row's reason may come from a service the reader
+// cannot see, so a reader who sees only some of its services gets the degraded reason, never the hidden one.
+func TestKernelEgressRowHidesTheReasonOfAPartlyHiddenRow(t *testing.T) {
+	row := kernelEgressRow("web", "vault")
+	row.Limitations[0].Message = "the node agent cannot rule out an external call: the workload runs no pod the node agent can watch"
+	q := egressFleet(t, map[string]string{"web": "shop", "vault": "secret"}, nil, nil, row)
+	r := q.Restrict(anyCluster(shopView), anyClusterKind(nil)).SnapshotForSerialization()
+	i := slices.IndexFunc(r.Providers, func(p Provider) bool { return p.ID == ProviderKernelEgress })
+	if i < 0 {
+		t.Fatal("the reader sees web, so the row stays")
+	}
+	if l := r.Providers[i].Limitations; len(l) != 1 || l[0].Code != LimitationProviderSourceDegraded || strings.Contains(l[0].Message, "no pod") {
+		t.Fatalf("limitations = %+v, want only the degraded one", l)
 	}
 }
 

@@ -431,8 +431,8 @@ func PluralKind(k string) string {
 // workloadVisible keeps none), and Evidence is rendered again with one hidden
 // total. A cluster that clusters does not name goes from the row: the view
 // hides it everywhere else. A limitation restrictScope would drop, or one that
-// names a hidden name, goes; the degraded limitation names no namespace and
-// stays. A row that is not available and lost every reason gets a degraded
+// names a hidden name, goes, and so does every one of a row naming a hidden
+// service; the degraded limitation names no namespace and stays. A row that is not available and lost every reason gets a degraded
 // one, so it still says why. Evidence a producer wrote that names a hidden
 // name is masked; evidence rendered from counts names none. Every namespace
 // of a row is read in the row's cluster (see providerCluster; srcClusters maps
@@ -476,8 +476,11 @@ func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNam
 		}
 		redactDetected(&p, len(rows[i].Objects), visible)
 		redactEdgeCounts(&p, visible)
+		// A row built over services the reader partly cannot see may owe its
+		// reason to a hidden one: only the degraded limitation stays.
+		someHidden := slices.ContainsFunc(p.Services, func(k ServiceKey) bool { return hiddenSvc[k] })
 		p.Limitations = slices.DeleteFunc(slices.Clone(p.Limitations), func(l Limitation) bool {
-			return l.Code != LimitationProviderSourceDegraded && (hiddenByScope(l, visibleIn, srcClusters) || mentionsHidden(l.Message))
+			return l.Code != LimitationProviderSourceDegraded && (someHidden || hiddenByScope(l, visibleIn, srcClusters) || mentionsHidden(l.Message))
 		})
 		if p.Status != SourceAvailable && len(p.Limitations) == 0 {
 			p.Limitations = []Limitation{{Code: LimitationProviderSourceDegraded, Source: p.Source,
