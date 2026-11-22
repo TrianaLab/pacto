@@ -147,11 +147,12 @@ func TestDetectorTraceReadFailureIsOneUnknownEntry(t *testing.T) {
 func TestDetectorEntriesFitMaxEntries(t *testing.T) {
 	objs := append(traceObjects(), clusterObjects()[1:]...)
 	objs = append(objs, pulling("b", "b9", "ghcr.io/acme/web:1", "ghcr-pull"))
+	objs = append(objs, backstageObjects()...)
 	c := newClient(routesInterceptor(route("a", map[string]any{"name": "public", "namespace": "infra"})), objs...)
 	d := newDetector(c, servedAll)
 	d.Installation, d.LastPush = &detect.Installation{Registry: "ghcr.io/acme"}, func() *detect.PushResult { return nil }
 	res := d.detect(context.Background())
-	want := []string{"registry", "pull-secret", "cloud", "nodes", "metrics", "istio-egress", "cilium-fqdn", "sign-in", "exposure", "otel-collector", "tempo", "jaeger", "datadog"}
+	want := []string{"registry", "pull-secret", "cloud", "nodes", "metrics", "istio-egress", "cilium-fqdn", "sign-in", "exposure", "otel-collector", "tempo", "jaeger", "datadog", "backstage"}
 	got := make([]string, 0, len(res.Entries))
 	for _, e := range res.Entries {
 		got = append(got, e.Kind)
@@ -161,6 +162,26 @@ func TestDetectorEntriesFitMaxEntries(t *testing.T) {
 	}
 	if _, err := detect.Encode(res); err != nil {
 		t.Error(err)
+	}
+}
+
+// backstageObjects are a Backstage Deployment's pod and its Service on 7007.
+func backstageObjects() []client.Object {
+	return []client.Object{
+		owned("idp", "backstage-1", "ReplicaSet", "backstage-7f9c", "ghcr.io/acme/backstage-backend:1.30"),
+		service("idp", "backstage", nil, corev1.ServicePort{Name: "http", Port: 7007}),
+	}
+}
+
+func TestDetectorAddsBackstage(t *testing.T) {
+	c := newClient(routesInterceptor(), append([]client.Object{operatorDeployment()}, backstageObjects()...)...)
+	if err := newDetector(c, servedAll).Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_, res := readResult(t, c)
+	if e := entry(t, res, "backstage"); e.Endpoint != "http://backstage.idp.svc:7007" || e.Completeness != detect.Complete ||
+		!slices.Contains(e.Objects, detect.Object{Kind: "Service", Namespace: "idp", Name: "backstage"}) {
+		t.Errorf("backstage = %+v", e)
 	}
 }
 

@@ -208,3 +208,33 @@ func TestBackstageTokenRefusedOverPlainHTTP(t *testing.T) {
 		t.Error("inCluster false with KUBERNETES_SERVICE_HOST set")
 	}
 }
+
+func TestDetectedBackstageSourceRefusesABadEndpoint(t *testing.T) {
+	if s, err := NewDetectedBackstageSource("backstage-catalog", "ftp://backstage.idp.svc:7007", "detected: backstage.idp", time.Now); err == nil || s != nil {
+		t.Fatalf("source = %+v, err = %v", s, err)
+	}
+}
+
+// TestDetectedBackstageSourceSendsNoToken: a detected source reads without a
+// token, names its origin and says how to give it one when refused.
+func TestDetectedBackstageSourceSendsNoToken(t *testing.T) {
+	var auth []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = append(auth, r.Header.Get("Authorization"))
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+	s, err := NewDetectedBackstageSource("backstage-catalog", srv.URL, "detected: backstage.idp", time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	col, _ := s.Collect(context.Background())
+	st := col.State
+	if st.Status != fleet.SourceUnavailable || st.Ref != "detected: backstage.idp" || st.Error == nil ||
+		st.Error.Message != "the catalog refused the request; set dashboard.backstage.url and tokenSecret to read this catalog" {
+		t.Fatalf("state = %+v", st)
+	}
+	if len(auth) != 1 || auth[0] != "" {
+		t.Errorf("Authorization headers = %q", auth)
+	}
+}

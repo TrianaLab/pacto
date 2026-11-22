@@ -442,10 +442,28 @@ func (s *Service) detectionSources(ctx context.Context, opts FleetOptions, assem
 	}
 	rest, taken := detect.SplitEdgeKinds(res, kinds)
 	out := append([]fleet.Source{fleetsrc.NewDetectionResultSource(src.ID(), rest, s.env().now)}, s.liveEdgeSources(res, taken, free(serviceGraphID), opts)...)
+	out = append(out, s.detectedBackstage(res, free(backstage.SourceKind))...)
 	if !slices.ContainsFunc(taken, func(e detect.Entry) bool { return e.Kind == "otel-collector" }) {
 		out = append(out, bare...)
 	}
 	return out
+}
+
+// detectedBackstage is the tokenless Backstage source over the detected
+// catalog's Endpoint, none when the id is taken (a configured --backstage-url
+// wins) or no catalog was detected with one. The entry stays a detection
+// row: a proposal, with the origin named in the source's state.
+func (s *Service) detectedBackstage(res detect.Result, free bool) []fleet.Source {
+	i := slices.IndexFunc(res.Entries, func(e detect.Entry) bool { return e.Kind == "backstage" && e.Endpoint != "" })
+	if !free || i < 0 {
+		return nil
+	}
+	// Decode kept only an Endpoint detect.CheckEndpoint accepts,
+	// http://<svc>.<ns>.svc[.cluster.local]:<port>, so the source always builds.
+	endpoint := res.Entries[i].Endpoint
+	host := strings.SplitN(strings.TrimPrefix(endpoint, "http://"), ".", 3)
+	src, _ := fleetsrc.NewDetectedBackstageSource(backstage.SourceKind, endpoint, "detected: "+host[0]+"."+host[1], s.env().now)
+	return []fleet.Source{src}
 }
 
 // liveEdgeSources are the live edge sources of the taken entries of res. A

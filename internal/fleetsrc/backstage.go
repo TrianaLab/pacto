@@ -59,8 +59,11 @@ func loopback(host string) bool {
 // never makes an answer partial.
 type BackstageSource struct {
 	id, baseURL, token string
-	client             *http.Client
-	now                func() time.Time
+	// origin names the detected Service a tokenless source reads
+	// ("detected: <svc>.<ns>"); empty for a configured URL.
+	origin string
+	client *http.Client
+	now    func() time.Time
 }
 
 // NewBackstageSource returns a Backstage source over baseURL that sends token,
@@ -76,6 +79,21 @@ func NewBackstageSource(id, baseURL, token string, now func() time.Time) (*Backs
 	}}, nil
 }
 
+// NewDetectedBackstageSource returns a Backstage source over a detected
+// in-cluster endpoint. It takes no token: the reader token goes only to a URL
+// an operator configured, never to a Service anyone could have created. Its
+// state names origin, and its client skips any egress proxy.
+func NewDetectedBackstageSource(id, endpoint, origin string, now func() time.Time) (*BackstageSource, error) {
+	s, err := NewBackstageSource(id, endpoint, "", now)
+	if err != nil {
+		return nil, err
+	}
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.Proxy = nil
+	s.origin, s.client.Transport = origin, t
+	return s, nil
+}
+
 // ID implements [fleet.Source].
 func (s *BackstageSource) ID() string { return s.id }
 
@@ -86,13 +104,20 @@ func (s *BackstageSource) Kind() string { return backstage.SourceKind }
 // [backstage.MaxCatalogEntities] of them. It never returns an error: a failed
 // read is an unavailable state with a sanitized reason, a capped one partial.
 func (s *BackstageSource) Collect(ctx context.Context) (*fleet.Collection, error) {
+	if t, ok := s.client.Transport.(*http.Transport); ok {
+		// Each refresh builds a new detected source: its connections must not outlive it.
+		defer t.CloseIdleConnections()
+	}
 	at := s.now()
-	state := fleet.SourceState{Status: fleet.SourceAvailable, ObservedAt: &at, LastSuccessfulSync: &at}
+	state := fleet.SourceState{Status: fleet.SourceAvailable, ObservedAt: &at, LastSuccessfulSync: &at, Ref: s.origin}
 	col := &fleet.Collection{Advisory: true, State: &state}
 	facts, capped, err := s.read(ctx, at)
 	switch {
 	case err != nil:
-		state = fleet.SourceState{Status: fleet.SourceUnavailable, ObservedAt: &at, Error: err}
+		if err.Code == codeAuthFailed && s.origin != "" {
+			err.Message = "the catalog refused the request; set dashboard.backstage.url and tokenSecret to read this catalog"
+		}
+		state = fleet.SourceState{Status: fleet.SourceUnavailable, ObservedAt: &at, Error: err, Ref: s.origin}
 	case capped:
 		state.Status = fleet.SourcePartial
 		col.Limitations = []fleet.Limitation{{Code: fleet.LimitationSourcePartial, Source: s.id,
@@ -157,6 +182,9 @@ func (s *BackstageSource) page(ctx context.Context, cursor string, at time.Time)
 	return facts, next, nil
 }
 
+// codeAuthFailed is the error code of a catalog that refused the request.
+const codeAuthFailed = "AUTH_FAILED"
+
 // backstageStatus is why a status code is no page, nil for a 2xx. A refused
 // redirect surfaces here as its 3xx.
 func backstageStatus(code int) *fleet.SourceError {
@@ -164,7 +192,7 @@ func backstageStatus(code int) *fleet.SourceError {
 	case code >= 200 && code <= 299:
 		return nil
 	case code == http.StatusUnauthorized || code == http.StatusForbidden:
-		return &fleet.SourceError{Code: "AUTH_FAILED", Message: "the catalog refused the request; set a reader token"}
+		return &fleet.SourceError{Code: codeAuthFailed, Message: "the catalog refused the request; set a reader token"}
 	case code == http.StatusNotFound:
 		return &fleet.SourceError{Code: "NOT_FOUND", Message: "the catalog has no entities/by-query API (Backstage 1.12 or later)"}
 	}
