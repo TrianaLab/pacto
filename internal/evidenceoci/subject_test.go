@@ -37,6 +37,14 @@ func TestParseSubject_Exact(t *testing.T) {
 	}
 }
 
+// An exact subject may name an inferred repository: only a prefix refuses
+// Pacto's own and inferred repositories, as ParseSubject documents.
+func TestParseSubject_ExactInferredRepository(t *testing.T) {
+	if _, err := ParseSubject("oci://registry.example/acme/pacto-inferred/svc@" + digestA); err != nil {
+		t.Fatalf("ParseSubject: %v", err)
+	}
+}
+
 // A single-segment repository still has a domain: the registry itself. This
 // mirrors the domain the accepted record carries, which is everything before the
 // final path segment of the immutable contract ref.

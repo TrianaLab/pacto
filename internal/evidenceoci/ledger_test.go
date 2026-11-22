@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -198,6 +200,52 @@ func TestLedgerAnchorMemoized(t *testing.T) {
 	}
 	if n := fetches.Load(); n != 1 {
 		t.Errorf("anchor manifest fetched %d times, want once", n)
+	}
+}
+
+// reversedTags serves inner but lists ledger tags in reverse order, as CNCF
+// distribution lists an anchor's record tags before the anchor itself.
+type reversedTags struct{ inner http.Handler }
+
+func (h reversedTags) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !ledgerPath(r) || !strings.HasSuffix(r.URL.Path, "/tags/list") {
+		h.inner.ServeHTTP(w, r)
+		return
+	}
+	rec := httptest.NewRecorder()
+	h.inner.ServeHTTP(rec, r)
+	var body struct {
+		Name string   `json:"name"`
+		Tags []string `json:"tags"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	slices.Reverse(body.Tags)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(rec.Code)
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+// A record tag listed before its anchor still groups under it: the ledger read
+// never depends on the registry's tag order.
+func TestLedgerRecordListedBeforeAnchor(t *testing.T) {
+	host := serve(t, reversedTags{inner: testutil.NewReferrersRegistry(testutil.ReferrersOptions{})})
+	subj, _ := seedContractIn(t, host, "acme/invoices", "invoices", RepositoryOptions{})
+	s := prefixStore(t, host)
+	p := prefixFor(t, host)
+	if err := s.writeAnchor(t.Context(), p, subj); err != nil {
+		t.Fatal(err)
+	}
+	art := ocireferrer.Build(ArtifactType, ArtifactType, []byte(`{}`), nil, nil)
+	if err := s.writeRecord(t.Context(), p, subj, art); err != nil {
+		t.Fatal(err)
+	}
+	read, err := s.ledgerSubjects(t.Context(), p)
+	if err != nil || read.invalid != 0 || len(read.subjects) != 1 {
+		t.Fatalf("ledgerSubjects = %v, %d, %v, want one subject", read.subjects, read.invalid, err)
+	}
+	want := recordTag(subj.Ref(), art.ManifestDesc.Digest)
+	if got := read.records[anchorTag(subj.Ref())]; len(got) != 1 || got[0] != want {
+		t.Errorf("records = %v, want [%s]", got, want)
 	}
 }
 

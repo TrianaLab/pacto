@@ -622,9 +622,10 @@ func evidenceStoreOptions(prefixes evidenceoci.PrefixList) evidenceoci.Repositor
 
 // buildEvidenceHost assembles the ingestion HTTP mux over the contract registry:
 // it loads the trust store, parses the configured contract subjects and subject
-// prefixes and opens one repository per subject and one ledger per prefix. Nothing is stored locally, so there is no recovery to
-// wait for — the host is ready as soon as every subject resolves and answers
-// native Referrers discovery, which /ready checks live. Assembly errors (an
+// prefixes and opens one repository per subject and one ledger per prefix.
+// Nothing is stored locally, so there is no recovery to wait for: the host is
+// ready once every exact subject resolves live, every ledger lists and each
+// registry host has been probed once, which /ready checks. Assembly errors (an
 // unreadable trust store, an empty or malformed subject list) surface here so
 // serve validates configuration before it listens; a registry that is merely
 // unreachable surfaces via /ready, not as a startup failure. It takes no context:

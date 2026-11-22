@@ -62,8 +62,9 @@ func anchorTag(ref string) string {
 
 // recordTag is the ledger tag of one record on the subject ref:
 // evidence-<hex sha256(ref)>-<first 12 hex of the record manifest digest>. It
-// starts with the anchor tag, so a listing seeks from a tag the registry
-// holds.
+// starts with the anchor tag, so one listing of the evidence- prefix holds
+// both. Never seek from an anchor tag: CNCF distribution lists an anchor's
+// record tags before the anchor itself.
 func recordTag(ref string, manifest digest.Digest) string {
 	return anchorTag(ref) + "-" + manifest.Encoded()[:recordSuffixLen]
 }

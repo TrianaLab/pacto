@@ -1,8 +1,9 @@
-// Package evidenceoci persists accepted evidence records as OCI 1.1 Referrers of
-// the immutable contract revisions they report on. The configured contract
-// registry IS the durable store: every accepted record is one untagged,
-// digest-addressed artifact whose subject is the exact contract digest carried by
-// the signed envelope, so evidence lives beside the revision it describes and
+// Package evidenceoci persists accepted evidence records in the contract
+// registry, which IS the durable store. Every accepted record is one artifact
+// whose subject is the exact contract digest carried by the signed envelope:
+// an untagged OCI 1.1 Referrer of that revision where the registry serves the
+// Referrers API, or, where the probe finds none, a write-once tag in the
+// covering subject prefix's <prefix>pacto-evidence ledger. Either way evidence
 // survives any Evidence Server restart without local state.
 //
 // The package is deliberately narrow. It owns what is evidence-specific, one
@@ -119,8 +120,8 @@ func ParseSubjects(raw []string) (SubjectList, error) {
 
 // ParseSubject parses one exact subject reference. It accepts only
 // oci://<registry>/<repository>@sha256:<64 lowercase hex>: no local path, no
-// mutable tag, no tag-plus-digest, no non-sha256 algorithm and no inferred
-// repository.
+// mutable tag, no tag-plus-digest and no non-sha256 algorithm. Only a subject
+// prefix refuses Pacto's own and inferred repositories ([Prefix.Covers]).
 func ParseSubject(raw string) (Subject, error) {
 	body, ok := strings.CutPrefix(raw, Scheme)
 	if !ok {
