@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"fmt"
 	"context"
 	"maps"
 	"reflect"
@@ -335,5 +336,49 @@ func TestObservedLinkOtherVersionsLimitation(t *testing.T) {
 	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "shop" }), allWorkloads)
 	if n := limitationsWith(r.snap, LimitationLinkVersionAmbiguous); len(n) != 0 {
 		t.Errorf("a hidden workload's version ambiguity shows: %+v", n)
+	}
+}
+
+// TestRestrictLinkedTargetByWorkloadKind: a linked target is workload data
+// with no Pacto behind it, so a viewer who may list Pactos in shop but not
+// Deployments sees neither it, its service (it runs nowhere else) nor the
+// workload names the linker's limitations carry.
+func TestRestrictLinkedTargetByWorkloadKind(t *testing.T) {
+	cl := clusterOf(clusterA, "eu", ClusterNameFromContext)
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
+		NewMemorySource("linked", SourceKindLinked, &Collection{Cluster: cl, Targets: []RawTarget{linkedPayments("payments", minutesAgo(30))},
+			Limitations: []Limitation{{Code: "LINK_ANNOTATION_INVALID", Source: "linked", Message: "k8s:shop/Deployment/web carries an annotation that links nothing"}}}),
+		workloadsSource("k8s-workloads", cl, paymentsWorkload(hoursAgo(72))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := NewQuery(snap)
+	if len(linkedTargets(q.snap)) != 1 || len(limitationsWith(q.snap, "LINK_ANNOTATION_INVALID")) != 1 {
+		t.Fatalf("linked %+v limitations %+v", linkedTargets(q.snap), q.snap.Limitations)
+	}
+	noDeployments := anyClusterKind(func(ns, kind string) bool { return ns != "shop" || kind != "Deployment" })
+	r := q.Restrict(allVisible, noDeployments)
+	if len(linkedTargets(r.snap)) != 0 || r.snap.Services[NewServiceKey("payments")] != nil || len(r.snap.Replacements) != 0 {
+		t.Errorf("linked %+v services %v replacements %+v", linkedTargets(r.snap), r.snap.Services, r.snap.Replacements)
+	}
+	if n := limitationsWith(r.snap, "LINK_ANNOTATION_INVALID"); len(n) != 0 {
+		t.Errorf("a hidden workload's link note shows: %+v", n)
+	}
+	if r = q.Restrict(allVisible, allWorkloads); len(linkedTargets(r.snap)) != 1 || len(limitationsWith(r.snap, "LINK_ANNOTATION_INVALID")) != 1 {
+		t.Errorf("visible: linked %+v limitations %+v", linkedTargets(r.snap), r.snap.Limitations)
+	}
+}
+
+// TestObservedLinkOtherVersionsMessage: the message says impact reads the
+// linked service as an unverified consumer, and names at most five versions.
+func TestObservedLinkOtherVersionsMessage(t *testing.T) {
+	lt := linkedPayments("payments", minutesAgo(30))
+	for i := range 40 {
+		lt.Link.OtherVersions = append(lt.Link.OtherVersions, fmt.Sprintf("1.%d.0", 40-i))
+	}
+	ls := limitationsWith(linkSnap(t, nil, nil, []RawTarget{lt}, new(paymentsWorkload(hoursAgo(72)))), LimitationLinkVersionAmbiguous)
+	if len(ls) != 1 || !strings.Contains(ls[0].Message, "1.40.0, 1.39.0, 1.38.0, 1.37.0, 1.36.0 and 35 more of") ||
+		!strings.Contains(ls[0].Message, "impact reads payments as an unverified consumer of the services it depends on") {
+		t.Fatalf("limitations %+v", ls)
 	}
 }

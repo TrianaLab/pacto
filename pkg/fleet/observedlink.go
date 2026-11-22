@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -106,15 +107,24 @@ func handOverLinked(snap *FleetSnapshot, t *TargetRecord, wk workloadKey, ins []
 	return true
 }
 
+// maxLinkVersions is how many other versions a LINK_VERSION_AMBIGUOUS message
+// names; the target's link holds them all.
+const maxLinkVersions = 5
+
 // linkVersionAmbiguity records LINK_VERSION_AMBIGUOUS on t and the snapshot
 // when other release versions of its service record the digest it runs.
 func linkVersionAmbiguity(snap *FleetSnapshot, t *TargetRecord, wk workloadKey) {
 	if len(t.Link.OtherVersions) == 0 {
 		return
 	}
+	versions := strings.Join(t.Link.OtherVersions[:min(len(t.Link.OtherVersions), maxLinkVersions)], ", ")
+	if n := len(t.Link.OtherVersions) - maxLinkVersions; n > 0 {
+		versions += fmt.Sprintf(" and %d more", n)
+	}
 	l := Limitation{Code: LimitationLinkVersionAmbiguous, Source: t.Source,
-		Message: "workload " + wk.namespace + "/" + wk.kind + "/" + wk.name + " runs an image that versions " + strings.Join(t.Link.OtherVersions, ", ") +
-			" of " + string(t.ServiceKey) + " also record, so the newest is linked and its consumers stay unverified"}
+		Message: "workload " + wk.namespace + "/" + wk.kind + "/" + wk.name + " runs images that versions " + versions +
+			" of " + string(t.ServiceKey) + " also record, so the newest is linked and impact reads " + string(t.ServiceKey) +
+			" as an unverified consumer of the services it depends on"}
 	t.Limitations = append(t.Limitations, l)
 	linkLimitation(snap, wk, l, t.ServiceKey)
 }

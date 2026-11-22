@@ -1,6 +1,6 @@
 <script>
   import { formatDate } from '../../lib/dateFormat.ts';
-  import { sourceHealthSentence } from '../../lib/entityLabels.ts';
+  import { sourceHealthSentence, sourceMessageIsNote } from '../../lib/entityLabels.ts';
   import { fleetSourcesUrl } from '../../lib/router.ts';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
@@ -37,9 +37,10 @@
   const records = $derived((d.revisionCount ?? 0) + (d.targetCount ?? 0));
   const contributed = $derived(d.contributed ?? {});
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-  // An available source can still carry a message, such as an operator linker with no
-  // registry (LINK_DIGEST_OFF): a note about what it checks, never a failure.
-  const note = $derived(d.health === 'available');
+  // An available source can still carry a message, and an operator linker with no
+  // registry (LINK_DIGEST_OFF) always does: a note about what it checks, never a
+  // failure. A stale or partial linker says why in the lead sentence above.
+  const note = $derived(sourceMessageIsNote(d.health, d.error?.code));
   const errorTitle = $derived(note ? 'Note' : 'Reported failure');
 </script>
 

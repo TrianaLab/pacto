@@ -7,7 +7,7 @@ import {
   knowledgeLabel, knowledgeTone, sourceHealthLabel, sourceHealthTone,
   attentionCategoryLabel, ATTENTION_CATEGORIES, GAP_WORDS,
   provenanceLabel, provenanceIsImplied,
-  sourceHealthTallyParts, sourceHealthSentence,
+  sourceHealthTallyParts, sourceHealthSentence, sourceMessageIsNote,
   collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED, serviceKeyName, replacesTip, linkTip, ownerProvenanceText,
   attentionCause, nextActionWords,
 } from './entityLabels.ts';
@@ -320,7 +320,7 @@ describe('linkTip', () => {
   const DIGEST = `sha256:ab12${'0'.repeat(60)}`;
   it('names the full digest, since when and that the images record is unverified', () => {
     const tip = linkTip({ signal: 'image-digest', value: DIGEST, since: '2026-11-20T11:57:00Z' }, '2026-11-20T12:00:00Z');
-    expect(tip).toBe(`Linked with no Pacto by the running image digest ${DIGEST} · observed · since 3 minutes ago. The images record is signed by its publisher but not verified by the operator.`);
+    expect(tip).toBe(`Linked with no Pacto by the running image digest ${DIGEST} · observed · since 3 minutes ago. The images record carries a signature the operator does not verify.`);
   });
   it('never shortens a long annotation value', () => {
     const ref = `oci://ghcr.io/acme/${'a'.repeat(170)}/payments:2.3.0`;
@@ -329,7 +329,14 @@ describe('linkTip', () => {
   });
   it('says the version may be wrong when other release versions record the digest', () => {
     expect(linkTip({ signal: 'image-digest', value: DIGEST, otherVersions: ['2.2.0', '2.1.0'] }))
-      .toContain('Other release versions record the same digest (2.2.0, 2.1.0), so the linked version is the newest and may be wrong.');
+      .toContain('Other release versions also record its running images (2.2.0, 2.1.0), so the linked version is the newest and may be wrong.');
+  });
+  it('names at most five other versions and counts the rest', () => {
+    const many = Array.from({ length: 149 }, (_, i) => `1.${148 - i}.0`);
+    const tip = linkTip({ signal: 'image-digest', value: DIGEST, otherVersions: many });
+    expect(tip).toContain('(1.148.0, 1.147.0, 1.146.0, 1.145.0, 1.144.0 and 144 more, listed by pacto fleet get)');
+    expect(tip).not.toContain('1.143.0');
+    expect(tip).toContain('the operator does not verify');
   });
 });
 
@@ -341,5 +348,15 @@ describe('replacesTip for an observed link', () => {
     const ann = { from: 'k8s:shop%2FDeployment%2Fcart', link: 'observed', signal: 'annotation', value: 'oci://ghcr.io/acme/cart:1.0.0', at };
     expect(replacesTip([ann], 1)).toContain('carries pacto.trianalab.io/contract naming oci://ghcr.io/acme/cart:1.0.0');
     expect(replacesTip([digest, ann], 2)).toContain('Also replaces k8s:shop/Deployment/cart (observed: annotation, ');
+  });
+});
+
+describe('sourceMessageIsNote', () => {
+  it('keeps an informational code a note on a stale or partial source', () => {
+    expect(sourceMessageIsNote('stale', 'LINK_DIGEST_OFF')).toBe(true);
+    expect(sourceMessageIsNote('partial', 'LINK_DIGEST_OFF')).toBe(true);
+    expect(sourceMessageIsNote('available', undefined)).toBe(true);
+    expect(sourceMessageIsNote('unavailable', 'NOT_FOUND')).toBe(false);
+    expect(sourceMessageIsNote('stale', undefined)).toBe(false);
   });
 });

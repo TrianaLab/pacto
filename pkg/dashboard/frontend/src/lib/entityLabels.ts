@@ -423,6 +423,17 @@ export function sourceHealthSentence(status: string | undefined): string {
   }
 }
 
+/** informationalSourceCodes are source messages that report what a source checks,
+ *  never a failure: an operator linker with no registry links by annotation only. */
+const informationalSourceCodes = new Set(['LINK_DIGEST_OFF']);
+
+/** sourceMessageIsNote says a source's message is a note, not a failure: an available
+ *  source's message, or an informational code whatever the health, so a stale or
+ *  partial linker never reads its digest-off note as the failure. */
+export function sourceMessageIsNote(health: string | undefined, code: string | undefined): boolean {
+  return health === 'available' || informationalSourceCodes.has(code ?? '');
+}
+
 /**
  * collectorLabel says, in plain words, who saw the evidence behind a finding.
  * The operator stamps each evidence ref with the producer of the matched
@@ -475,6 +486,9 @@ function observedHow(signal: string | undefined, value: string | undefined): str
 
 export type ObservedLinkRef = { signal: string; value: string; since?: string; otherVersions?: string[] };
 
+/** maxLinkVersions is how many other versions a link tip names. */
+const maxLinkVersions = 5;
+
 /** linkTip is the tip of a linked target's mark: how the operator linked the workload
  *  with no Pacto, the value in full (the tip is its only disclosure), since when and,
  *  for a digest, that the images record is unverified. */
@@ -482,8 +496,13 @@ export function linkTip(link: ObservedLinkRef, asOf?: string): string {
   const by = link.signal === 'annotation' ? `the pacto.trianalab.io/contract annotation ${link.value}` : `the running image digest ${link.value}`;
   const since = link.since ? ` · since ${formatWhen(link.since, Date.parse(asOf ?? '') || Date.now())}` : '';
   let tip = `Linked with no Pacto by ${by} · observed${since}.`;
-  if (link.otherVersions?.length) tip += ` Other release versions record the same digest (${link.otherVersions.join(', ')}), so the linked version is the newest and may be wrong.`;
-  if (link.signal !== 'annotation') tip += ' The images record is signed by its publisher but not verified by the operator.';
+  const others = link.otherVersions ?? [];
+  if (others.length) {
+    const shown = others.slice(0, maxLinkVersions).join(', ');
+    const more = others.length > maxLinkVersions ? ` and ${formatCount(others.length - maxLinkVersions)} more, listed by pacto fleet get` : '';
+    tip += ` Other release versions also record its running images (${shown}${more}), so the linked version is the newest and may be wrong.`;
+  }
+  if (link.signal !== 'annotation') tip += ' The images record carries a signature the operator does not verify.';
   return tip;
 }
 
