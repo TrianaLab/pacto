@@ -390,6 +390,25 @@ func TestImpactEntryPointsNeverReadWholeIndex(t *testing.T) {
 				TargetSnapshotAuto: true}, e.emptySnap(t), true)
 			return err
 		},
+		// A target snapshot lookup that fails derives a failing source and
+		// rebuilds the snapshot from opts.Fleet.
+		"ImpactOnSnapshot derived": func(e *idxEnv, fo FleetOptions) error {
+			e.ir.mu.Lock()
+			e.ir.hook = func(w http.ResponseWriter, r *http.Request) bool {
+				if !strings.Contains(r.URL.Path, "/pacto-targets/") {
+					return false
+				}
+				w.WriteHeader(http.StatusInternalServerError)
+				return true
+			}
+			e.ir.mu.Unlock()
+			res, err := e.svc.ImpactOnSnapshot(t.Context(), ImpactOptions{OldPath: old + e.ir.host + "/acme/ledger:1.0.0", NewPath: localLedger(t), Fleet: fo,
+				TargetSnapshotAuto: true}, e.emptySnap(t), true)
+			if err == nil && (e.ir.count("GET", "/pacto-targets/") == 0 || len(res.TargetSnapshots) != 1) {
+				t.Errorf("no target snapshot derived: %+v", res.TargetSnapshots)
+			}
+			return err
+		},
 		"ImpactRunning": func(e *idxEnv, fo FleetOptions) error {
 			_, err := e.svc.ImpactRunning(t.Context(), ImpactOptions{NewPath: localLedger(t), Fleet: fo}, nil)
 			return err
