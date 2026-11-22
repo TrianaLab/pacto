@@ -65,7 +65,7 @@ func newClusterListCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Comm
 		Short: "List the clusters that publish to this hub's registry and where each stands",
 		Long: "Lists every cluster in <registry>/pacto-targets: approved members, pending clusters with why they are pending, and removed members. " +
 			"The environments a cluster seems to host are inferred and say where they came from. An approved member's group mappings say who approved them. " +
-			"The list reads the registry, so it knows nothing about live review channels: pacto fleet status against the hub, or the hub's dashboard, shows them.",
+			"The list reads the registry, so it knows nothing about live review channels: the hub's dashboard shows them on Data sources and in meta.clusters[].link of its fleet answers.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			_, opts, err := clusterHub(cmd, d)

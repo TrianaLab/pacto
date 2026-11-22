@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/viper"
 
+	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/signing"
@@ -30,6 +31,8 @@ func TestMemberHubNeedsHost(t *testing.T) {
 	expect(t, memberHost(v) == "pacto.acme.dev", "--members-host")
 	v.Set("dashboard.oidc-redirect-url", "https://hub.acme.dev:8443/auth/callback")
 	expect(t, memberHost(v) == "hub.acme.dev:8443", "the redirect URL's host wins: %s", memberHost(v))
+	help := newDashboardCommand(app.NewService(nil, nil), viper.New(), "test", defaultDeps()).Flags().Lookup("members-host").Usage
+	expect(t, strings.Contains(help, "only when --oidc-redirect-url is not set"), "the flag help says the redirect host wins: %s", help)
 
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))

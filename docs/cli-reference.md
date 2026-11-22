@@ -375,7 +375,7 @@ pacto cluster approve <uid> [flags]
 
 ### `pacto cluster list`
 
-Lists every cluster in &lt;registry&gt;/pacto-targets: approved members, pending clusters with why they are pending, and removed members. The environments a cluster seems to host are inferred and say where they came from. An approved member's group mappings say who approved them. The list reads the registry, so it knows nothing about live review channels: pacto fleet status against the hub, or the hub's dashboard, shows them.
+Lists every cluster in &lt;registry&gt;/pacto-targets: approved members, pending clusters with why they are pending, and removed members. The environments a cluster seems to host are inferred and say where they came from. An approved member's group mappings say who approved them. The list reads the registry, so it knows nothing about live review channels: the hub's dashboard shows them on Data sources and in meta.clusters[].link of its fleet answers.
 
 ```
 pacto cluster list [flags]
@@ -526,7 +526,7 @@ pacto dashboard [sources...] [flags]
       --fingerprints string               a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers (also PACTO_DASHBOARD_FINGERPRINTS)
   -h, --help[=true|false]                 help for dashboard
       --host string                       bind address for the dashboard server (default "127.0.0.1")
-      --members-host string               the dashboard's external host as member clusters dial it (their hub.url host), when it differs from --oidc-redirect-url's or that is not set (also PACTO_DASHBOARD_MEMBERS_HOST)
+      --members-host string               the dashboard's external host as member clusters dial it (their hub.url host), used only when --oidc-redirect-url is not set, whose host wins (also PACTO_DASHBOARD_MEMBERS_HOST)
       --members-token-audience string     audience a signed-in person's token is exchanged for before a member cluster reviews them, {uid} replaced by the member's UID; each member's apiserver accepts it and the hub's does not (also PACTO_DASHBOARD_MEMBERS_TOKEN_AUDIENCE) (default "pacto-member-{uid}")
       --mira-source stringArray           base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)
       --mira-url string                   Mira's address, to link health-check citations and open a service in Mira

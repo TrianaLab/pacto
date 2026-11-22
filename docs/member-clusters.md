@@ -108,9 +108,10 @@ member publishes no inferred contracts; its hub does.
 A review that takes longer than 5 seconds, a dropped channel or a refusal
 hides that member with `CLUSTER_HIDDEN` and marks the answer partial; the
 other clusters stay whole. A dashboard without sign-in keeps reading every
-member. Data sources, `pacto cluster list`, `pacto fleet status` and
-`meta.clusters[].link` show each member as `live` or `no live channel`, with
-its identity model.
+member. The hub's dashboard shows each member as `live` or `no live channel`,
+with its identity model, on Data sources and in `meta.clusters[].link` of its
+fleet answers. `pacto cluster list` reads the registry, so it shows the
+approved group mappings and no channel.
 
 The hub's dashboard must know the host members dial: the host of
 `--oidc-redirect-url`, else `--members-host`. An operator-managed dashboard
