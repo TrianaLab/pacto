@@ -83,6 +83,11 @@ func TestCarriedLinesDerivedVersion(t *testing.T) {
 	if got := carriedLines(r); got[1] != "service.version: 0.3.0, derived from 0.1.0 (rev sha256:7c1d2e3f4a5b)" {
 		t.Fatalf("%q", got)
 	}
+	// Publish measured from another release: no rev is paired with it.
+	r.Baseline, r.BaselineDigest = "0.2.0", ""
+	if got := carriedLines(r); got[1] != "service.version: 0.3.0, derived from 0.2.0" {
+		t.Fatalf("%q", got)
+	}
 	r.Next, r.To = "", ""
 	if got := carriedLines(r); len(got) != 1 {
 		t.Fatalf("%q", got)

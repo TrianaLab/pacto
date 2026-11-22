@@ -53,7 +53,7 @@ func (s *Service) CIPublish(ctx context.Context, opts CIPublishOptions) (*ci.Pla
 	if o.Bundles == nil {
 		o.Bundles = map[string]*contract.Bundle{}
 	}
-	o.revision, o.migrations, o.proposed = opts.Revision, map[string]CIMigration{}, map[string]bool{}
+	o.revision, o.migrations, o.proposed, o.carriedFrom = opts.Revision, map[string]CIMigration{}, map[string]bool{}, map[string]carryBase{}
 	p, _, err := s.CIPlan(ctx, o)
 	if err != nil {
 		return nil, err
@@ -67,7 +67,7 @@ func (s *Service) CIPublish(ctx context.Context, opts CIPublishOptions) (*ci.Pla
 	if note != "" {
 		p.Notes = append(p.Notes, note)
 	}
-	cp := &ciPublisher{s: s, opts: opts, bundles: o.Bundles, migrations: o.migrations, proposed: o.proposed, images: images, refused: refused != "",
+	cp := &ciPublisher{s: s, opts: opts, bundles: o.Bundles, migrations: o.migrations, proposed: o.proposed, carriedFrom: o.carriedFrom, images: images, refused: refused != "",
 		decl: sync.OnceValue(func() *declarationTrust {
 			return declarationTrustFrom(ctx, impactTrust(ImpactOptions{Signers: o.Signers, Fleet: o.Fleet}))
 		})}
@@ -92,9 +92,11 @@ type ciPublisher struct {
 	migrations map[string]CIMigration
 	// proposed are the row Dirs whose plan bundle holds a proposal.
 	proposed map[string]bool
-	images   map[string]string
-	refused  bool     // a pull or merge request pipeline: nothing publishes
-	done     []ci.Row // the rows decided so far, in order
+	// carriedFrom are the plan's carry baselines by row Dir.
+	carriedFrom map[string]carryBase
+	images      map[string]string
+	refused     bool     // a pull or merge request pipeline: nothing publishes
+	done        []ci.Row // the rows decided so far, in order
 	// decl is the run's registry declaration trust, built once.
 	decl func() *declarationTrust
 }
@@ -152,7 +154,7 @@ func (cp *ciPublisher) decide(r *ci.Row, state, reason string) {
 func (cp *ciPublisher) publish(ctx context.Context, r *ci.Row, b *contract.Bundle) {
 	opts := PublishOptions{Path: filepath.Join(cp.opts.CI.Root, filepath.FromSlash(r.Dir)), Revision: cp.opts.Revision,
 		Image: cp.images[r.Service], Getenv: cp.opts.CI.Getenv, Index: cp.opts.CI.Fleet.Index, declTrust: cp.decl(), fromCI: true,
-		planTag: r.Baseline, planDigest: r.BaselineDigest}
+		planTag: cp.carriedFrom[r.Dir].version, planDigest: cp.carriedFrom[r.Dir].digest}
 	if v := b.Contract.Service.Version; r.Changed == "no" && v != "" && r.Baseline == v {
 		opts.unchanged = r.BaselineDigest // the declared tag the plan judged
 	}
@@ -211,6 +213,9 @@ func fillRow(r *ci.Row, b *contract.Bundle, res *publish.Result, err error) {
 			r.Notes = append(r.Notes, res.Plan.Service+" "+res.Plan.Version+" "+res.Index) // warns; never changes the row
 		}
 		r.To = res.Plan.Version
+		if res.Plan.Baseline != "" && res.Plan.Baseline != r.Baseline {
+			r.BaselineDigest = "" // the plan read another release: its digest is not this baseline's
+		}
 		r.Baseline, r.Classification = cmp.Or(res.Plan.Baseline, r.Baseline), res.Plan.Classification
 	}
 	switch {

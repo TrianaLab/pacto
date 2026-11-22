@@ -286,7 +286,8 @@ func TestCarryOwnerUnverifiedDropped(t *testing.T) {
 	e.declaration(t, "ana@acme.com", ownerBilling, nil)
 	e.folder(t, "", nil)
 	r, _, _ := e.plan(t)
-	if c := carriedField(t, r, "service.owner"); c.State != ci.CarriedDropped || c.Reason != "no owner policy readable from CI" {
+	// The reason keeps why no policy was read.
+	if c := carriedField(t, r, "service.owner"); c.State != ci.CarriedDropped || !strings.HasPrefix(c.Reason, "no owner policy readable from CI: trust missing: ") {
 		t.Fatalf("%+v", c)
 	}
 }
@@ -328,18 +329,22 @@ func TestCarryRangeWhenOwnerRefusedDropped(t *testing.T) {
 	}
 }
 
+// TestCarryRangeFromNonOwnerDropped: an unsigned release, pushed with
+// registry write alone, never sets the owner CI carries. A declaration
+// repeating its owner is judged as the first owner, and a range its signer
+// accepted is matched against no owner.
 func TestCarryRangeFromNonOwnerDropped(t *testing.T) {
 	e := newDeclCIEnv(t)
 	e.ownerPolicy(t, `{"defaultApprovers":[{"name":"admins","issuer":"`+personIssuer+`","subject":"^admin@acme\\.com$"}]}`)
-	e.unsignedRelease(t, "1.0.0", "  owner:\n    team: payments\n    dri: carl@acme.com\n")
-	e.declaration(t, "ana@acme.com", "  owner:\n    team: payments\n    dri: carl@acme.com\n"+ledgerDeclared, ledgerAccepted)
+	e.unsignedRelease(t, "1.0.0", "  owner:\n    team: payments\n    dri: ana@acme.com\n")
+	e.declaration(t, "ana@acme.com", "  owner:\n    team: payments\n    dri: ana@acme.com\n"+ledgerDeclared, ledgerAccepted)
 	e.folder(t, "dependencies:\n  - name: ledger\n", nil)
-	r, _, _ := e.plan(t)
+	r, _, b := e.plan(t)
 	if c := carriedField(t, r, "dependencies[ledger].compatibility"); c.State != ci.CarriedDropped || c.Reason != "routed: ana@acme.com is not an owner of invoices" {
 		t.Fatalf("%+v", c)
 	}
-	if c := carriedField(t, r, "service.owner"); c.State != ci.CarriedCarried {
-		t.Fatalf("an unchanged owner needs no right: %+v", c)
+	if c := carriedField(t, r, "service.owner"); c.State != ci.CarriedDropped || contract.Declares(b.RawYAML, "service.owner") {
+		t.Fatalf("an unsigned release's owner set what CI signs: %+v", c)
 	}
 }
 
@@ -546,12 +551,13 @@ func TestCarryOwnerHistoryUnread(t *testing.T) {
 	if err != nil || d == nil {
 		t.Fatal(err)
 	}
-	if v := tr.ownerHistory(t.Context(), pullFails{e.inner}, e.repo, tags, d, nil, "", acceptNow); v.Allowed || !strings.HasPrefix(v.Reason, "the owner history could not be read: ") {
-		t.Fatalf("%+v", v)
+	// An unread history is unknown: an error, never a dropped owner.
+	if v, err := tr.ownerHistory(t.Context(), pullFails{e.inner}, e.repo, tags, d, nil, "", acceptNow); err == nil || v.Allowed || !strings.HasPrefix(err.Error(), "the owner history could not be read: ") {
+		t.Fatalf("%+v %v", v, err)
 	}
 	noRoot := &declarationTrust{roots: func() rootsRead { return rootsRead{noRoot: true} }}
-	if v := noRoot.ownerHistory(t.Context(), e.inner, e.repo, tags, d, nil, "", acceptNow); v.Allowed || v.Reason != "no trusted root reads the owner history" {
-		t.Fatalf("%+v", v)
+	if v, err := noRoot.ownerHistory(t.Context(), e.inner, e.repo, tags, d, nil, "", acceptNow); err != nil || v.Allowed || v.Reason != "no trusted root reads the owner history" {
+		t.Fatalf("%+v %v", v, err)
 	}
 }
 

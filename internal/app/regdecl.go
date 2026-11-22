@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -42,11 +43,14 @@ type signerRoot struct {
 
 // rootsRead is what a run's declaration roots resolved to: the roots, none
 // reachable (noRoot, public-good only), or a configured root that does not
-// parse (err).
+// parse (err). missing are the issuers of signers whose public-good root
+// could not be fetched: their declarations are not checked, never read
+// under another signer's root.
 type rootsRead struct {
-	roots  []signerRoot
-	noRoot bool
-	err    error
+	roots   []signerRoot
+	missing []string
+	noRoot  bool
+	err     error
 }
 
 // declarationTrust is what one run judges registry declarations with: the
@@ -118,6 +122,8 @@ func signerRoots(signers []delivery.PersonSigner) rootsRead {
 		}
 		if tm, err := publicGood(); err == nil {
 			out.roots = append(out.roots, signerRoot{tm, len(tm.RekorLogs()) > 0})
+		} else {
+			out.missing = append(out.missing, sg.Issuer)
 		}
 	}
 	out.noRoot = len(out.roots) == 0
@@ -181,11 +187,11 @@ func (t *declarationTrust) count(ctx context.Context, reg publish.Registry, want
 	if err != nil || !ok {
 		return nil, why, err
 	}
-	signers, why, err := t.signers(ctx, reg, repo, digest)
+	asker := rec.Declaration.Asker
+	signers, why, err := t.signers(ctx, reg, repo, digest, asker.Issuer)
 	if err != nil || why != "" {
 		return nil, why, err
 	}
-	asker := rec.Declaration.Asker
 	signer, lim, ok := fleet.DeclarationAccepted(&fleet.BundleProvenance{Signers: signers}, rec, t.policyFor(asker))
 	if !ok {
 		return nil, notAccepted(asker, signers, lim), nil
@@ -223,9 +229,10 @@ func serviceText(name, domain string) string {
 }
 
 // signers are the signers of repo@digest every run root verified. why says
-// a declaration cannot be checked because no root is reachable; a root that
-// does not parse, or signatures that could not be read, are errors.
-func (t *declarationTrust) signers(ctx context.Context, reg publish.Registry, repo, digest string) ([]fleet.VerifiedSigner, string, error) {
+// a declaration cannot be checked because no root is reachable, or none for
+// the asker's issuer; a root that does not parse, or signatures that could
+// not be read, are errors.
+func (t *declarationTrust) signers(ctx context.Context, reg publish.Registry, repo, digest, issuer string) ([]fleet.VerifiedSigner, string, error) {
 	if t.policy != nil && t.policy.Unread != "" {
 		return nil, "the installation signer policy could not be read (" + t.policy.Unread + ")", nil
 	}
@@ -235,6 +242,8 @@ func (t *declarationTrust) signers(ctx context.Context, reg publish.Registry, re
 		return nil, "", rr.err
 	case rr.noRoot:
 		return nil, "declaration " + repo + "@" + digest + " not checked: no trusted root reachable", nil
+	case slices.Contains(rr.missing, issuer):
+		return nil, "declaration " + repo + "@" + digest + " not checked: no trusted root reachable for " + issuer, nil
 	}
 	var ids []delivery.PublisherIdentity
 	for _, r := range rr.roots {
@@ -276,34 +285,48 @@ func acceptBelow(context.Context, string, string) error { return nil }
 // declaration base's record cites, read by digest only in repo (the CLI
 // keychain never reaches a host a record names) and only while it still
 // counts. A carry re-cites the original declaration, so this is one hop at
-// any depth of history. A bundle with neither reads nothing. A cited
-// declaration that is gone or no longer counts returns each field it
-// carried as a dropped candidate (Decision 10); notes say why any other
-// declaration found is not carried; a check that could not complete is an
-// error.
+// any depth of history. A bundle with neither reads nothing; one whose
+// record does not parse says so in a note. A cited declaration that is
+// gone or no longer counts returns each field it carried as a dropped
+// candidate (Decision 10); notes say why any other declaration found is not
+// carried; a check that could not complete is an error naming the
+// declaration it was checking.
 func (t *declarationTrust) declarationSource(ctx context.Context, reg publish.Registry, want wantService, tags []string, base carryBase) (*registryDeclaration, []carryCandidate, []string, error) {
-	rec, _ := contract.ReadInferredRecord(base.b.FS) // an unreadable record names no declaration
-	ref, tag, digest := base.repo+"@"+base.digest, base.version, base.digest
+	ref := base.repo + "@" + base.digest
+	d, dropped, notes, err := t.source(ctx, reg, want, tags, base, &ref)
+	if err != nil {
+		err = fmt.Errorf("registry declaration %s could not be checked: %w", ref, err)
+	}
+	return d, dropped, notes, err
+}
+
+// source is declarationSource, setting *ref to the declaration it reads.
+func (t *declarationTrust) source(ctx context.Context, reg publish.Registry, want wantService, tags []string, base carryBase, ref *string) (*registryDeclaration, []carryCandidate, []string, error) {
+	rec, err := contract.ReadInferredRecord(base.b.FS)
+	if err != nil {
+		return nil, nil, []string{"baseline " + *ref + " record unreadable: " + err.Error() + "; registry declarations not carried"}, nil
+	}
+	tag, digest := base.version, base.digest
 	var cited *contract.CitedDeclaration
 	switch {
 	case rec == nil || rec.Declaration == nil && rec.Inputs.Declaration == nil:
 		return nil, nil, nil, nil
 	case rec.Declaration == nil:
-		cited, ref = rec.Inputs.Declaration, rec.Inputs.Declaration.Record
-		repo, d, _ := strings.Cut(ref, "@")
+		cited, *ref = rec.Inputs.Declaration, rec.Inputs.Declaration.Record
+		repo, d, _ := strings.Cut(*ref, "@")
 		if repo != base.repo {
-			return nil, nil, []string{"registry declaration " + ref + " not read: it is outside " + base.repo}, nil
+			return nil, nil, []string{"registry declaration " + *ref + " not read: it is outside " + base.repo}, nil
 		}
-		h, err := reg.Head(ctx, ref)
+		h, err := reg.Head(ctx, *ref)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("reading %s: %w", ref, err)
+			return nil, nil, nil, fmt.Errorf("reading %s: %w", *ref, err)
 		}
 		if h == nil {
 			return nil, citedDropped(base.b.Contract, cited, "it is gone"), nil, nil
 		}
-		b, err := reg.Pull(ctx, ref)
+		b, err := reg.Pull(ctx, *ref)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("reading %s: %w", ref, err)
+			return nil, nil, nil, fmt.Errorf("reading %s: %w", *ref, err)
 		}
 		tag, digest = b.Contract.Service.Version, d
 	}
@@ -312,9 +335,10 @@ func (t *declarationTrust) declarationSource(ctx context.Context, reg publish.Re
 	case err != nil:
 		return nil, nil, nil, err
 	case d == nil && cited != nil:
-		return nil, citedDropped(base.b.Contract, cited, why), nil, nil
+		// A cited bundle with no declaration block at all is no declaration.
+		return nil, citedDropped(base.b.Contract, cited, cmp.Or(why, "it is not a registry declaration")), nil, nil
 	case d == nil:
-		return nil, nil, []string{"registry declaration " + ref + " not carried: " + why}, nil
+		return nil, nil, []string{"registry declaration " + *ref + " not carried: " + why}, nil
 	}
 	return d, nil, nil, nil
 }
@@ -359,41 +383,106 @@ type ownerVerdict struct {
 // ownerHistory is the owner verdict on d from repo's newest final releases
 // (at most carryOwnerRevisionCap), each read as a revision and judged by
 // OwnerRights under policy (from says why there is none) with the run's
-// first trusted root and publisher rules. A spent cap, an unread history or
-// no policy is never an allowed owner.
+// trusted roots and publisher rules. Only a CI publish or a judged
+// declaration sets the owner: a release pushed with registry write alone
+// never chooses the owner CI signs. A spent cap or no policy is never an
+// allowed owner, unless a CI publish in the window already set the declared
+// owner; a history that could not be read is an error.
 func (t *declarationTrust) ownerHistory(ctx context.Context, reg publish.Registry, repo string, tags []string, d *registryDeclaration,
-	policy *delivery.OwnerPolicy, from string, now time.Time) ownerVerdict {
+	policy *delivery.OwnerPolicy, from string, now time.Time) (ownerVerdict, error) {
 	rr := t.roots()
 	if rr.err != nil || rr.noRoot {
-		return ownerVerdict{Reason: "no trusted root reads the owner history"}
+		return ownerVerdict{Reason: "no trusted root reads the owner history"}, nil
 	}
 	service, key := d.Bundle.Contract.Service.Name, fleet.RevisionKey(strings.TrimPrefix(d.Ref, repo+"@"))
-	versions := semver.Filter(tags)
+	versions := slices.DeleteFunc(slices.Clone(semver.Filter(tags)), func(v string) bool { return strings.Contains(v, "-") })
 	truncated := len(versions) > carryOwnerRevisionCap
 	versions = versions[:min(len(versions), carryOwnerRevisionCap)]
 	revs := make([]fleet.ContractRevision, 0, len(versions))
 	for _, v := range versions {
-		// ponytail: the first root reads the history; a second root's signers are the upgrade path.
-		r, err := registryRevision(ctx, reg, rr.roots[0].tm, rr.roots[0].tlog, repo, service, v, t.rules, nil)
+		r, err := t.historyRevision(ctx, reg, rr.roots, repo, service, v)
 		if err != nil {
-			return ownerVerdict{Reason: "the owner history could not be read: " + err.Error()}
+			return ownerVerdict{}, fmt.Errorf("the owner history could not be read: %w", err)
 		}
 		if r != nil {
 			revs = append(revs, *r)
 		}
 	}
-	if !slices.ContainsFunc(revs, func(r fleet.ContractRevision) bool { return r.Key == key }) || truncated && !slices.ContainsFunc(revs, setsOwnerAsIs) {
+	return judgeOwnerHistory(ctx, revs, truncated, d, key, repo, ciOwnerJudge(ownerJudge(service, policy, from, now)), policy, from), nil
+}
+
+// judgeOwnerHistory is the owner verdict on d (revision key) from revs,
+// repo's newest releases (truncated when older ones were not read). A
+// declaration outside the window is judged by the window when a CI publish
+// in it already set the declared owner: every carry re-cites the original
+// declaration, which ages out of any window.
+func judgeOwnerHistory(ctx context.Context, revs []fleet.ContractRevision, truncated bool, d *registryDeclaration, key fleet.RevisionKey, repo string,
+	judge OwnerJudge, policy *delivery.OwnerPolicy, from string) ownerVerdict {
+	current, rights := OwnerRights(ctx, revs, judge)
+	v := ownerVerdict{Allowed: true, Owner: delivery.AcceptanceOwner{Claim: current, Policy: policy}}
+	inWindow := slices.ContainsFunc(revs, func(r fleet.ContractRevision) bool { return r.Key == key })
+	ciSet := slices.ContainsFunc(revs, ciSetsOwner)
+	switch {
+	case !inWindow && !truncated:
+		return ownerVerdict{Reason: "declaration " + d.Ref + " is not among the releases of " + repo}
+	case !inWindow && (!ciSet || !current.Owner.Equal(d.Bundle.Contract.Service.Owner)), truncated && !ciSet:
 		return ownerVerdict{Reason: fmt.Sprintf("owner history longer than %d releases", carryOwnerRevisionCap)}
 	}
-	current, rights := OwnerRights(ctx, revs, ownerJudge(service, policy, from, now))
-	v := ownerVerdict{Allowed: true, Owner: delivery.AcceptanceOwner{Claim: current, Policy: policy}}
 	if r, judged := rights[key]; judged {
 		v.Allowed, v.Reason = r.Allowed, r.Message
 	}
 	if policy == nil {
-		v.Allowed, v.Reason = false, "no owner policy readable from CI"
+		v.Allowed, v.Reason = false, strings.TrimSuffix("no owner policy readable from CI: "+from, ": ")
 	}
 	return v
+}
+
+// historyRevision is registryRevision under the first root, with the
+// signers every other root verifies added to a declaration, so a
+// declaration counted under any policy signer's root is judged by who
+// signed it.
+func (t *declarationTrust) historyRevision(ctx context.Context, reg publish.Registry, roots []signerRoot, repo, service, version string) (*fleet.ContractRevision, error) {
+	r, err := registryRevision(ctx, reg, roots[0].tm, roots[0].tlog, repo, service, version, t.rules, nil)
+	if err != nil || r == nil || !isDeclaration(r) {
+		return r, err
+	}
+	for _, extra := range roots[1:] {
+		ids, err := publish.SignersOf(ctx, reg, extra.tm, extra.tlog, repo, r.Digest)
+		if err != nil && !errors.Is(err, publish.ErrNoSignature) && !errors.Is(err, publish.ErrSignatureInvalid) {
+			return nil, fmt.Errorf("reading the signatures of %s@%s: %w", repo, r.Digest, err)
+		}
+		r.Provenance.Signers = verifiedSigners(append(identitiesOf(r.Provenance.Signers), ids...), nil)
+	}
+	return r, nil
+}
+
+// identitiesOf is signers as publisher identities.
+func identitiesOf(signers []fleet.VerifiedSigner) []delivery.PublisherIdentity {
+	out := make([]delivery.PublisherIdentity, 0, len(signers))
+	for _, s := range signers {
+		out = append(out, delivery.PublisherIdentity{Subject: s.Subject, Issuer: s.Issuer, Class: delivery.ActorClass(s.Class)})
+	}
+	return out
+}
+
+// ciOwnerJudge is judge for the owner CI carries: a release outside the
+// owner rule sets the owner only when a CI identity published it. One
+// pushed with registry write alone (unsigned, or signed by nobody a rule
+// accepts) is unverified, so it never becomes the owner a declaration
+// repeats unjudged or the owner an accepted range is matched against.
+func ciOwnerJudge(judge OwnerJudge) OwnerJudge {
+	return func(ctx context.Context, r *fleet.ContractRevision, current delivery.OwnerClaim) *delivery.OwnerRight {
+		if v := judge(ctx, r, current); v != nil || fleet.CIPublished(r.Provenance) {
+			return v
+		}
+		return &delivery.OwnerRight{Code: delivery.OwnerSignerUnverified,
+			Message: "release " + r.Version + " of " + r.Service + " is not a CI publish: its owner is not counted"}
+	}
+}
+
+// ciSetsOwner reports whether r is a CI publish that sets an owner as it is.
+func ciSetsOwner(r fleet.ContractRevision) bool {
+	return setsOwnerAsIs(r) && fleet.CIPublished(r.Provenance)
 }
 
 // declarationCandidates are the fields d decides (Decision 5): its owner
@@ -424,7 +513,12 @@ func declarationCandidates(d *registryDeclaration, v ownerVerdict, now time.Time
 		if i := slices.IndexFunc(d.Bundle.Contract.Dependencies, func(dep contract.Dependency) bool { return dep.Name == name }); i >= 0 {
 			c.entry.Ref = d.Bundle.Contract.Dependencies[i].Ref
 		}
-		if !owns {
+		switch {
+		case owns:
+		case v.Owner.Policy == nil && v.Reason != "":
+			// No owner policy, or no history judged: the owner is unknown, never someone else.
+			c.dropped = "owner unverified: " + v.Reason
+		default:
 			c.dropped = "routed: " + d.Signer.Subject + " is not an owner of " + svc.Name
 		}
 		out = append(out, c)

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -56,8 +57,17 @@ func deriveVersion(ctx context.Context, run runner, reg publish.Registry, tools 
 	if err != nil {
 		return d, err
 	}
-	if n := notCarriedNote(b, bv.counted, d); !tools.fromCI && n != "" {
-		d.Notes = append(d.Notes, n)
+	ref, fields := uncarriedFields(b, bv.counted, d)
+	switch {
+	case len(fields) == 0:
+	case !tools.fromCI:
+		d.Notes = append(d.Notes, "pacto publish does not carry registry declarations: "+strings.Join(fields, ", ")+" declared in "+ref+
+			" are not in this version; run pacto ci --publish or write them in pacto.yaml")
+	case d.BaselineDigest != tools.planDigest:
+		// The plan carried from another release: publishing would drop
+		// what this baseline declares without a word.
+		return d, fmt.Errorf("the plan carried registry decisions from %s, the publish measures the version from %s, whose declaration %s holds %s the plan did not carry; run pacto ci --publish again",
+			cmp.Or(tools.planTag, "no release"), d.Baseline, ref, strings.Join(fields, ", "))
 	}
 	note, err := superseded(ctx, run, dir, b.Contract.Service.Name, d)
 	if note != "" {
@@ -144,11 +154,11 @@ func (bv *baselineVerifier) verify(ctx context.Context, tag, ref string) error {
 	return publish.NotCounted{Reason: why}
 }
 
-// notCarriedNote is what a plain pacto publish says when the baseline of d
-// counts as a registry declaration (counted) or cites one: the declared
-// fields b's pacto.yaml does not write are not in this version, because
-// only pacto ci --publish carries them (Decision 11). "" when none.
-func notCarriedNote(b *contract.Bundle, counted *registryDeclaration, d publish.Derived) string {
+// uncarriedFields is the registry declaration the baseline of d counts as
+// (counted) or cites, and the declared fields b's pacto.yaml does not
+// write: a plain pacto publish notes they are not in this version, because
+// only pacto ci --publish carries them (Decision 11). No fields when none.
+func uncarriedFields(b *contract.Bundle, counted *registryDeclaration, d publish.Derived) (string, []string) {
 	var ref string
 	var fields []string
 	switch {
@@ -161,12 +171,8 @@ func notCarriedNote(b *contract.Bundle, counted *registryDeclaration, d publish.
 		ref, fields = d.BaselineRecord.Inputs.Declaration.Record, strings.Split(d.BaselineRecord.Inputs.Declaration.Fields, ",")
 	}
 	fields = slices.DeleteFunc(fields, func(f string) bool { return contract.Declares(b.RawYAML, f) })
-	if len(fields) == 0 {
-		return ""
-	}
 	slices.Sort(fields)
-	return "pacto publish does not carry registry declarations: " + strings.Join(fields, ", ") + " declared in " + ref +
-		" are not in this version; run pacto ci --publish or write them in pacto.yaml"
+	return ref, fields
 }
 
 // superseded refuses a checkout that does not contain the revision the

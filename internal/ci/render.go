@@ -269,6 +269,8 @@ func carriedLines(r Row) []string {
 	}
 	switch v := cmp.Or(r.To, r.Next); {
 	case v == "":
+	case r.Derived && r.BaselineDigest == "":
+		out = append(out, "service.version: "+v+", derived from "+cell(r.Baseline))
 	case r.Derived:
 		out = append(out, "service.version: "+v+", derived from "+r.Baseline+" (rev "+rev(r.BaselineDigest)+")")
 	default:

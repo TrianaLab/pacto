@@ -222,7 +222,9 @@ still succeeds; publishing the current version again writes a missing entry.
 - **Owner.** The owner is carried only when the
   [owner rule](owner-setting.md) accepts the declaration, which needs an owner
   policy CI can read. Otherwise the plan prints
-  `owner: billing, declared in registry (rev sha256:7c1d2e3f4a5b), not carried: no owner policy readable from CI`.
+  `owner: billing, declared in registry (rev sha256:7c1d2e3f4a5b), not carried: no owner policy readable from CI: <why>`.
+  Only a CI publish or a judged declaration sets the owner the rule starts
+  from: a release pushed with registry write alone never does.
 - **Ranges.** A range is carried only when an owner of the service signed the
   declaration.
 - **Signers.** The installation signer policy says whose declarations count.
@@ -232,8 +234,9 @@ still succeeds; publishing the current version again writes a missing entry.
   [`inputs.declaration`](contract-reference/inferred-record.md).
 - **Dropped.** A declaration that is gone or no longer counts is dropped with
   its reason, and the version publishes with the repository's values.
-- **Unknown stops.** A declaration that cannot be checked under a configured
-  trusted root stops that service's publish.
+- **Unknown stops.** A declaration, or the owner history behind it, that
+  cannot be checked under a configured trusted root stops that service's
+  publish.
 - **Plain publish.** `pacto publish` carries nothing, and says which declared
   fields the new version leaves out.
 

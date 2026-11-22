@@ -198,7 +198,8 @@ func TestCIPlanDeclaredPublishedVersionCarriesNothing(t *testing.T) {
 	}
 	r := pubRow(t, p, "reports")
 	if r.Impact.Gate == impact.GateBlocked || r.Changed != "no" || r.Accepted != 0 ||
-		!slices.Contains(r.Notes, "accepted ranges carry with the next version: bump service.version") {
+		!slices.Contains(r.Notes, "registry decisions carry with the next version: bump service.version") ||
+		len(r.Carried) != 1 || r.Carried[0].State != ci.CarriedDropped || r.Carried[0].Reason != "carries with the next version: bump service.version" {
 		t.Fatalf("%+v", r)
 	}
 }

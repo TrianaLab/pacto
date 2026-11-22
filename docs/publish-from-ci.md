@@ -79,12 +79,14 @@ invoices: service.version: 0.2.0, derived from 0.1.0 (rev sha256:7c1d2e3f4a5b)
 | `service.version: <v>, from pacto.yaml` or `derived from <baseline> (rev ...)` | where the version comes from |
 
 The plan reads its baseline unverified and says `baseline unverified in plan
-mode`, but it carries only from a declaration that counts, so it prints the
-same lines the publish does. The publish then checks that baseline: when it is
-neither signed by the publisher identity nor a counted declaration, the
-service fails instead of publishing what the plan carried from it. A
-declaration that could not be checked reads `unverified` in the plan and fails
-that service in the publish.
+mode`. It carries only from a declaration that counts, and from the newest
+final release, never a candidate. The publish then checks that baseline: when
+it is neither signed by the publisher identity nor a counted declaration, the
+service fails instead of publishing what the plan carried from it. When the
+publish measures the version from another release that declares fields the
+plan did not carry, the service fails too, so a declared field never drops
+without a line. A declaration that could not be checked reads `unverified` in
+the plan and fails that service in the publish.
 
 ## How the image is built
 

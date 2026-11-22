@@ -162,8 +162,9 @@ func pinAccepted(js []delivery.JudgedAcceptance, raw *[]byte, deps []contract.De
 			}
 			rc := ci.Carried{Field: r.Field, Value: r.Value, From: carriedFromRegistry, Kind: carriedKindAccepted, Record: j.Ref, Signer: j.Signer, State: ci.CarriedCarried}
 			if why := pinField(raw, deps, r); why != "" {
-				rc.From, rc.State, rc.Reason = carriedFromPactoYAML, ci.CarriedOverridden, "registry accepts "+r.Value
+				rc.Value, rc.From, rc.State, rc.Reason = declaredValue(deps, r.Field), carriedFromPactoYAML, ci.CarriedOverridden, "registry accepts "+r.Value
 				if why != "pacto.yaml declares "+r.Field {
+					rc.Value = r.Value
 					rc.From, rc.State, rc.Reason = carriedFromRegistry, ci.CarriedDropped, why
 				}
 				res.Carried = append(res.Carried, rc)
@@ -209,6 +210,22 @@ func pinField(raw *[]byte, deps []contract.Dependency, r delivery.AcceptedRange)
 		} else {
 			deps[k].Compatibility = r.Value
 		}
+	}
+	return ""
+}
+
+// declaredValue is the value deps holds for the range field, as pacto.yaml
+// writes it.
+func declaredValue(deps []contract.Dependency, field string) string {
+	name, key, _ := dependencyField(field)
+	for _, d := range deps {
+		if d.Name != name {
+			continue
+		}
+		if key == "ref" {
+			return d.Ref
+		}
+		return d.Compatibility
 	}
 	return ""
 }
@@ -283,8 +300,8 @@ func mergeCarry(raw *[]byte, c *contract.Contract, rec *contract.InferredRecord,
 	for _, cand := range cands {
 		rc := ci.Carried{Field: cand.Field, Value: cand.Value, From: carriedFromRegistry, Kind: cand.Kind, Record: cand.Record, Signer: cand.Signer, State: ci.CarriedCarried}
 		switch {
-		case cand.dropped != "":
-			rc.State, rc.Reason = ci.CarriedDropped, cand.dropped
+		case cand.dropped != "" || cand.owner == nil && cand.entry == nil:
+			rc.State, rc.Reason = ci.CarriedDropped, cmp.Or(cand.dropped, "nothing to carry")
 		case cand.owner != nil:
 			rc = mergeOwner(raw, c, rec, cand, rc, res)
 		default:
