@@ -302,7 +302,8 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.Func("evidence-subject",
 		"Repeatable: an exact contract revision evidence is stored on, as oci://<repo>@sha256:<digest>. "+
 			"The registry holding it is the durable evidence store: accepted records are published as OCI 1.1 "+
-			"referrers of that manifest. A subject or a prefix is required when the Evidence Server is enabled.",
+			"referrers of that manifest where the registry serves them, as write-once tags in <prefix>pacto-evidence "+
+			"under a covering subject prefix otherwise. A subject or a prefix is required when the Evidence Server is enabled.",
 		func(subject string) error {
 			o.evidenceSubjects = append(o.evidenceSubjects, subject)
 			return nil

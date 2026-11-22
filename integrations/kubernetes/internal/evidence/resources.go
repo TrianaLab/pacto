@@ -11,8 +11,9 @@ See LICENSE file in the project root for full license text.
 // internal Service. The Evidence Server is a distinct process (it runs
 // `pacto evidence serve`), never inside the controller, the dashboard or a
 // sidecar. It is STATELESS: accepted evidence is published to the contract
-// registry as OCI 1.1 referrers of the exact contract revision each report is
-// about, so there is no PersistentVolumeClaim, no data volume and nothing to
+// registry, as OCI 1.1 referrers of the exact contract revision each report is
+// about or, on a registry without Referrers, as write-once tags in the
+// subject prefix's <prefix>pacto-evidence ledger, so there is no PersistentVolumeClaim, no data volume and nothing to
 // retain in the cluster. Evidence is retained across disablement, upgrade and
 // cluster loss because the registry holds it.
 package evidence

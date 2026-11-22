@@ -187,15 +187,18 @@ func newEvidenceServeCommand(svc *app.Service, _ *viper.Viper) *cobra.Command {
 		Long: "Starts an HTTP host that accepts signed evidence envelopes at " +
 			"POST /api/evidence/v1/envelopes, verifies them against --trust, evaluates " +
 			"the carried evidence against its resolved contract and publishes accepted " +
-			"records to the contract registry as OCI 1.1 referrers of the exact contract " +
-			"revision each report is about. Every --subject is an immutable " +
+			"records to the contract registry: as OCI 1.1 referrers of the exact contract " +
+			"revision each report is about where the registry serves them, as write-once " +
+			"tags in <prefix>pacto-evidence otherwise. Every --subject is an immutable " +
 			"oci://<repo>@sha256:<digest> reference; every --subject-prefix " +
 			"(oci://<registry>/<path>/) accepts evidence for any immutable revision " +
 			"published under it, with no restart, and records each subject in " +
 			"<prefix>pacto-evidence. Set --subject or --subject-prefix. The registry is the only durable " +
 			"store, so the host keeps no local state and survives restarts. GET " +
-			".../health is an always-200 liveness probe; .../ready reports 503 while a " +
-			"subject cannot be resolved or its referrers enumerated; .../producers " +
+			".../health is an always-200 liveness probe; .../ready reports 503 while an " +
+			"exact subject cannot be resolved, a prefix ledger cannot be listed or a " +
+			"registry cannot be probed (a prefix with an empty ledger is probed at its " +
+			"first commit); .../producers " +
 			"advertises trusted producer ids; .../targets exposes the latest accepted " +
 			"targets. Registry credentials come from the same sources as `pacto pull`. " +
 			"Exactly one server may write to a subject set. Serves until interrupted.",
