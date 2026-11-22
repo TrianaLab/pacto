@@ -40,6 +40,8 @@ const (
 	RefusalExecuteNeedsStdio      WriteRefusal = "ExecuteNeedsStdio"
 	RefusalBaselineNeedsMigration WriteRefusal = "BaselineNeedsMigration"
 	RefusalBundleRepoMismatch     WriteRefusal = "BundleRepoMismatch"
+	RefusalRepositoryUnknown      WriteRefusal = "RepositoryUnknown"
+	RefusalRepositoryUnconfirmed  WriteRefusal = "RepositoryUnconfirmed"
 	// An HTTP server's draft write: the caller may not update the workload,
 	// writes on behalf of someone else or into another workload's
 	// repository (NotAllowed), or the review of the caller failed.
@@ -63,7 +65,7 @@ var writeRefusals = []WriteRefusal{
 	RefusalPlanStale, RefusalIntentRequired, RefusalWorkloadNotFound, RefusalWorkloadAmbiguous, RefusalAlreadyDeclared,
 	RefusalRangeNotProposed, RefusalNoRegistry, RefusalRegistryUnreadable, RefusalVersionConflict,
 	RefusalSignerNotAllowed, RefusalSignerUnverified, RefusalDraftNotFound, RefusalExecuteNeedsStdio,
-	RefusalBaselineNeedsMigration, RefusalBundleRepoMismatch, RefusalNotAllowed, RefusalReviewFailed, RefusalAcceptNothingProposed, RefusalFieldNotAcceptable,
+	RefusalBaselineNeedsMigration, RefusalBundleRepoMismatch, RefusalRepositoryUnknown, RefusalRepositoryUnconfirmed, RefusalNotAllowed, RefusalReviewFailed, RefusalAcceptNothingProposed, RefusalFieldNotAcceptable,
 	RefusalBreakNotAnnounced, RefusalNotPublished, RefusalPersonSigningUnavailable,
 	RefusalOwnerSignerNotPerson, RefusalOwnerSignerNotAllowed, RefusalOwnerPolicyUnverified, RefusalOwnerSignerUnverified,
 }

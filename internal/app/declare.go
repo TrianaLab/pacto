@@ -75,6 +75,12 @@ type DeclareRequest struct {
 	// cluster with the service's own identity for the repository, and reads
 	// the image only inside Registry.
 	Observed *DeclareObserved
+	// PR asks for a pull request after the bundle is written: the plan
+	// then reads RepoMap and refuses a repository a person did not confirm.
+	PR bool
+	// Repository and Folder are the person's own answer (rung given);
+	// RepoMap is a repository map file, read only with PR.
+	Repository, Folder, RepoMap string
 }
 
 // DeclareObserved is a workload as the caller's restricted fleet view shows
@@ -143,6 +149,9 @@ type DeclarePlan struct {
 	// nothing.
 	Repository      *contract.InferredSourceRepository `json:"repository,omitempty"`
 	RepositoryTried []RungNote                         `json:"repositoryTried,omitempty"`
+	// pr is the pull request target the intent binds, <url>#<folder>; set
+	// only with --pr.
+	pr string
 }
 
 // DeclareBaseline is the published version a declaration starts from and
@@ -227,6 +236,9 @@ const (
 	codeSignerNotAllowed       = "SignerNotAllowed"
 	codeSignerUnverified       = "SignerUnverified"
 	codeDraftNotFound          = "DraftNotFound"
+	// The --pr codes.
+	codeRepositoryUnknown     = "RepositoryUnknown"
+	codeRepositoryUnconfirmed = "RepositoryUnconfirmed"
 	// The pacto accept codes.
 	codeAcceptNothingProposed    = "AcceptNothingProposed"
 	codeFieldNotAcceptable       = "FieldNotAcceptable"
@@ -854,7 +866,9 @@ func (pl *declarePlanner) finish(ctx context.Context, raw []byte, rec *contract.
 	p := pl.plan
 	accepted := rec.Declaration.Accepted
 	rec.Declaration = pl.declarationBlock(accepted)
-	pl.repository(ctx, rec.Declaration)
+	if err := pl.repository(ctx, rec.Declaration); err != nil {
+		return nil, err
+	}
 	p.Coverage, p.Hidden = rec.Coverage, rec.Hidden
 	if c := rec.Inputs.Cluster; c != nil {
 		p.ClusterAsOf = c.AsOf
@@ -1032,7 +1046,8 @@ func signerText(v SignerView) string {
 // intentDigest binds what a declaration declares, never what was observed
 // or who signs (Decision 15): the inferred service, the service, version
 // and bundle repository, pacto.yaml, the accepted (or requested) ranges, the
-// baseline bundle and the draft accepted.
+// baseline bundle, the draft accepted and, only with --pr, the pull
+// request's repository and folder.
 func intentDigest(p *DeclarePlan, raw []byte, accepted []contract.InferredAcceptance, draft string) string {
 	sum := sha256.Sum256(raw)
 	acc := slices.Clone(accepted)
@@ -1050,7 +1065,8 @@ func intentDigest(p *DeclarePlan, raw []byte, accepted []contract.InferredAccept
 		Accepted   []contract.InferredAcceptance `json:"accepted"`
 		Baseline   string                        `json:"baseline"`
 		Draft      string                        `json:"draft"`
-	}{p.InferredFrom, p.Service, p.Version, p.BundleRepo, "sha256:" + hex.EncodeToString(sum[:]), acc, baseline, draft})
+		PR         string                        `json:"pr,omitempty"`
+	}{p.InferredFrom, p.Service, p.Version, p.BundleRepo, "sha256:" + hex.EncodeToString(sum[:]), acc, baseline, draft, p.pr})
 	out := sha256.Sum256(intent)
 	return "sha256:" + hex.EncodeToString(out[:])
 }
@@ -1202,6 +1218,12 @@ func (req DeclareRequest) command(intent string) string {
 		add("--accept", n)
 	}
 	add("--from-draft", req.FromDraft)
+	if req.PR {
+		parts = append(parts, "--pr")
+	}
+	add("--repository", req.Repository)
+	add("--folder", req.Folder)
+	add("--repo-map", req.RepoMap)
 	if req.MaxItems != 0 {
 		add("--max-items", strconv.Itoa(req.MaxItems))
 	}

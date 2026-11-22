@@ -68,6 +68,11 @@ type Registry interface {
 	// Layer reads the one layer of the small manifest repo@digest, such as
 	// a signature referrer, and the manifest's annotations.
 	Layer(ctx context.Context, repo, digest string) ([]byte, map[string]string, error)
+	// ImageSource is the source repository the image at ref names: an
+	// index's org.opencontainers.image.source annotation, else its
+	// linux/amd64 image's (or its first image's) config label of that name;
+	// empty when none names one.
+	ImageSource(ctx context.Context, ref string) (string, error)
 }
 
 // Client is the go-containerregistry Registry, with Pacto's credentials and
@@ -382,4 +387,48 @@ func (c *Client) Layer(ctx context.Context, repo, digest string) ([]byte, map[st
 	defer func() { _ = rc.Close() }()
 	b, err := io.ReadAll(io.LimitReader(rc, maxLayer))
 	return b, m.Annotations, err
+}
+
+// ImageSource implements Registry: one manifest (two for an index) and one
+// config are read, never a layer.
+func (c *Client) ImageSource(ctx context.Context, ref string) (string, error) {
+	var src string
+	err := c.oci.Do(ctx, ref, func(r name.Reference, opts []remote.Option) error {
+		d, err := remote.Get(r, opts...)
+		if err != nil {
+			return err
+		}
+		var img v1.Image
+		if d.MediaType.IsIndex() {
+			// ponytail: remote.Get parsed the index already.
+			idx, _ := d.ImageIndex()
+			m, _ := idx.IndexManifest()
+			if src = m.Annotations[AnnotationSource]; src != "" || len(m.Manifests) == 0 {
+				return nil
+			}
+			img, err = idx.Image(platformImage(m.Manifests).Digest)
+		} else {
+			img, err = d.Image()
+		}
+		if err != nil {
+			return err
+		}
+		cfg, err := img.ConfigFile()
+		if err != nil {
+			return err
+		}
+		src = cfg.Config.Labels[AnnotationSource]
+		return nil
+	})
+	return src, err
+}
+
+// platformImage is an index's linux/amd64 manifest, else its first.
+func platformImage(ms []v1.Descriptor) v1.Descriptor {
+	for _, m := range ms {
+		if p := m.Platform; p != nil && p.OS == "linux" && p.Architecture == "amd64" {
+			return m
+		}
+	}
+	return ms[0]
 }

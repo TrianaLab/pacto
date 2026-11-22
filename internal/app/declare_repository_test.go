@@ -147,7 +147,7 @@ func TestSignedProvenanceNeedsNoAllowlist(t *testing.T) {
 func TestAmbiguousSignedProvenanceGivesNothing(t *testing.T) {
 	two := []delivery.PublisherIdentity{ciID("https://github.com/acme/a"), ciID("https://github.com/acme/b"), ciID("https://github.com/acme/a")}
 	a := resolveRepository(repoInputs{ImageSigners: two})
-	if a.Repo != nil || len(a.Tried) != 2 || a.Tried[0].Reason != "2 signed repositories" {
+	if a.Repo != nil || len(a.Tried) != 4 || a.Tried[0].Reason != "2 signed repositories" {
 		t.Fatalf("%+v", a)
 	}
 	base := ciID(invoicesRepo)
@@ -391,7 +391,8 @@ func TestFolderDefaultIsRoot(t *testing.T) {
 func TestNoAnswerNoBlock(t *testing.T) {
 	a := resolveRepository(repoInputs{})
 	want := []RungNote{{contract.RepositoryRungSigned, "baseline: no published baseline; image: no CI signature names a repository"},
-		{contract.RepositoryRungGitOps, "no GitOps source lists this workload"}}
+		{contract.RepositoryRungGitOps, "no GitOps source lists this workload"},
+		{contract.RepositoryRungImageLabel, "no image label names a repository"}, {contract.RepositoryRungMap, "no --repo-map given"}}
 	if a.Repo != nil || !reflect.DeepEqual(a.Tried, want) {
 		t.Fatalf("%+v", a)
 	}
@@ -471,7 +472,7 @@ func TestCollectWithDirReadsNoWorkload(t *testing.T) {
 		t.Fatal("a --dir run read the cluster for the repository")
 		return nil, nil
 	}}}, req: DeclareRequest{Dir: "/some/folder"}}
-	if in := pl.collectRepoInputs(t.Context()); in.GitOpsWhy != dirReadsNoWorkload || in.ImageWhy != dirReadsNoWorkload {
+	if in := pl.collectRepoInputs(t.Context(), givenRepo{}); in.GitOpsWhy != dirReadsNoWorkload || in.ImageWhy != dirReadsNoWorkload {
 		t.Fatalf("%+v", in)
 	}
 }

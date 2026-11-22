@@ -113,6 +113,10 @@ pacto.inferred.yaml as inferred.`,
 	f.StringVar(&req.Signing.TimestampURL, "timestamp-url", "", "timestamp authority to date the signature with")
 	f.StringVar(&req.Signing.RekorURL, "rekor-url", signing.PublicRekor, "Rekor transparency log the signature is recorded in")
 	f.StringVar(&req.Signing.TrustedRoot, "trusted-root", "", "Sigstore trusted root JSON to verify with (default: public-good Sigstore)")
+	f.BoolVar(&req.PR, "pr", false, "open a pull request with your own Git token after the bundle is written; needs --yes to write")
+	f.StringVar(&req.Repository, "repository", "", "the service's source repository URL, used over every source Pacto reads; confirms an image label for --pr")
+	f.StringVar(&req.Folder, "folder", "", "the folder of the repository the contract lives in (default: the folder a source names, else the root)")
+	f.StringVar(&req.RepoMap, "repo-map", "", "a YAML file mapping service names to {repository, folder}; read only with --pr")
 	f.StringVar(&req.DeliveryTrust, "delivery-trust", "", "the trust config the target snapshots that carry the owner policy are verified with: "+
 		"a YAML file with a key scoped to each cluster (default $"+app.TrustEnv+")")
 	return cmd

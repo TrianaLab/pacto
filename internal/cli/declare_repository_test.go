@@ -109,7 +109,7 @@ func TestDashboardPlanNeverCallsNewK8s(t *testing.T) {
 	}
 	// What the view hides never answers; why reaches the panel.
 	ans, _ = h.d.Plan(h.req(), wl, dashboard.DeclareInput{})
-	if ans.Plan.Repository != nil || len(ans.Plan.RepositoryTried) != 2 || ans.Plan.RepositoryTried[1].Reason != "no GitOps source lists this workload" {
+	if ans.Plan.Repository != nil || len(ans.Plan.RepositoryTried) != 4 || ans.Plan.RepositoryTried[1].Reason != "no GitOps source lists this workload" {
 		t.Fatalf("%+v", ans.Plan)
 	}
 }
@@ -142,5 +142,21 @@ func TestDeclarePlanPrintsTriedRungs(t *testing.T) {
 	p.RepositoryTried = nil
 	if out, _, _ = runRoot(t, declareDeps(t, &got, p, nil, nil), nil, "declare", "invoices"); strings.Contains(out, "repository:") {
 		t.Fatalf("%s", out)
+	}
+}
+
+func TestDeclareFlagsPR(t *testing.T) {
+	noKube(t)
+	var got app.DeclareRequest
+	_, _, err := runRoot(t, declareDeps(t, &got, declarePlanFixture(), nil, nil), nil, "declare", "invoices",
+		"--pr", "--repository", "https://github.com/acme/invoices", "--folder", "deploy", "--repo-map", "repos.yaml")
+	if err != nil || !got.PR || got.Repository != "https://github.com/acme/invoices" || got.Folder != "deploy" || got.RepoMap != "repos.yaml" {
+		t.Fatalf("%v %+v", err, got)
+	}
+	cmd := newDeclareCommand(app.NewService(nil, nil), nil, defaultDeps())
+	for _, f := range []string{"pr", "repository", "folder", "repo-map"} {
+		if !strings.Contains(cmd.Flags().FlagUsages(), "--"+f) {
+			t.Errorf("--help lists no --%s", f)
+		}
 	}
 }

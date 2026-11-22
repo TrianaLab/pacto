@@ -513,6 +513,7 @@ pacto declare <service> [flags]
       --device[=true|false]      log in with a device code instead of a browser
       --dir string               a folder pacto init --cluster wrote, declared instead of a new draft
       --draft[=true|false]       write a draft-<n> a person accepts later, without a person's login: signed only by --sign-key or an ambient OIDC token when one is set
+      --folder string            the folder of the repository the contract lives in (default: the folder a source names, else the root)
       --from-draft string        accept this draft-<n> tag: the workload is read again and you sign
       --fulcio-url string        Fulcio to get the signing certificate from (default "https://fulcio.sigstore.dev")
   -h, --help[=true|false]        help for declare
@@ -521,8 +522,11 @@ pacto declare <service> [flags]
   -n, --namespace string         the namespace of the workload (default: every namespace the name is found in)
       --oidc-client-id string    OpenID Connect client of the Sigstore login (default "sigstore")
       --oidc-issuer-url string   OpenID Connect issuer of the Sigstore login (default "https://oauth2.sigstore.dev/auth")
+      --pr[=true|false]          open a pull request with your own Git token after the bundle is written; needs --yes to write
       --registry string          the registry the contract is published to, as host/path
       --rekor-url string         Rekor transparency log the signature is recorded in (default "https://rekor.sigstore.dev")
+      --repo-map string          a YAML file mapping service names to {repository, folder}; read only with --pr
+      --repository string        the service's source repository URL, used over every source Pacto reads; confirms an image label for --pr
       --sign-key string          sign with this key file: a key names no person, so the run writes a draft
       --timestamp-url string     timestamp authority to date the signature with
       --trusted-root string      Sigstore trusted root JSON to verify with (default: public-good Sigstore)

@@ -1,16 +1,21 @@
 package app
 
 import (
+	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
+	"os"
 	"path"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/name"
+	"gopkg.in/yaml.v3"
 
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -33,16 +38,37 @@ type RungNote struct {
 	Reason string `json:"reason"`
 }
 
-// repoInputs are what the repository ladder decides from: the identity the
-// baseline counts by, the running image's verified signers and the GitOps
-// repositories of the workload, each with why it is empty.
+// repoInputs are what the repository ladder decides from: the person's own
+// answer, the identity the baseline counts by, the running image's verified
+// signers, the workload's GitOps repositories, the image's source label and
+// the repository map's entry, each with why it is empty; and whether the run
+// runs on an agent's behalf.
 type repoInputs struct {
+	Given        givenRepo
 	Baseline     *delivery.PublisherIdentity
 	ImageSigners []delivery.PublisherIdentity
 	ImageWhy     string
 	GitOps       []fleet.InferredRepository
 	GitOpsWhy    string
+	Label        string
+	LabelWhy     string
+	Map          *repoMapEntry
+	MapWhy       string
+	Agent        bool
 }
+
+// givenRepo is the person's own answer (--repository, --folder): the URL
+// normalized and the folder cleaned.
+type givenRepo struct{ URL, Folder string }
+
+// repoMapEntry is one service of a repository map file.
+type repoMapEntry struct {
+	Repository string `yaml:"repository"`
+	Folder     string `yaml:"folder"`
+}
+
+// maxRepoMap bounds a repository map file.
+const maxRepoMap = 1 << 20
 
 // repoAnswer is the ladder's answer: the repository (nil when no rung gave
 // one) and why each rung tried gave nothing.
@@ -51,33 +77,188 @@ type repoAnswer struct {
 	Tried []RungNote
 }
 
-// resolveRepository is the first rung that names one repository: signed
-// provenance (the baseline's CI signer alone, else the running image's CI
-// signers when they agree), then the GitOps source. The folder comes from a
-// GitOps source of the same repository, else it is the root. An answer is
-// inferred: it never changes a verdict, a pin or a gate.
+// repoRung is one rung of the ladder: the repository it names, else why
+// it names none.
+type repoRung struct {
+	name string
+	find func(repoInputs) (*contract.InferredSourceRepository, string)
+}
+
+// repoRungs are the ladder after the person's own answer, in order.
+var repoRungs = []repoRung{
+	{contract.RepositoryRungSigned, signedRung}, {contract.RepositoryRungGitOps, gitopsRung},
+	{contract.RepositoryRungImageLabel, labelRung}, {contract.RepositoryRungMap, mapRung},
+}
+
+// resolveRepository is the first rung that names one repository: the
+// person's --repository, signed provenance (the baseline's CI signer alone,
+// else the running image's CI signers when they agree), the GitOps source,
+// the image's source label, then the repository map. The folder is the
+// person's --folder, else that of a GitOps source or the map entry of the
+// same repository, else the root. An answer is inferred: it never changes a
+// verdict, a pin or a gate.
 func resolveRepository(in repoInputs) repoAnswer {
 	var a repoAnswer
-	repo, why := signedRung(in)
-	if repo == nil {
-		a.Tried = append(a.Tried, RungNote{Rung: contract.RepositoryRungSigned, Reason: why})
-		repo, why = gitopsRung(in)
+	var repo *contract.InferredSourceRepository
+	if in.Given.URL != "" {
+		repo = &contract.InferredSourceRepository{URL: in.Given.URL, Rung: contract.RepositoryRungGiven}
+	}
+	for _, r := range repoRungs {
+		if repo != nil {
+			break
+		}
+		var why string
+		if repo, why = r.find(in); repo == nil {
+			a.Tried = append(a.Tried, RungNote{Rung: r.name, Reason: why})
+		}
 	}
 	if repo == nil {
-		a.Tried = append(a.Tried, RungNote{Rung: contract.RepositoryRungGitOps, Reason: why})
 		return a
 	}
-	repo.Folder, repo.FolderRung = ".", contract.FolderRungDefault
+	repo.Folder, repo.FolderRung = folderOf(in, repo.URL)
+	a.Repo = repo
+	return a
+}
+
+// folderOf is the folder of the repository url and how it was found.
+func folderOf(in repoInputs, url string) (string, string) {
+	if in.Given.Folder != "" {
+		return in.Given.Folder, contract.RepositoryRungGiven
+	}
 	for _, r := range in.GitOps {
-		if u, ok := normalizeRepoURL(r.URL); ok && u == repo.URL {
+		if u, ok := normalizeRepoURL(r.URL); ok && u == url {
 			if f := cleanFolder(r.Path); contract.ValidRepositoryFolder(f) {
-				repo.Folder, repo.FolderRung = f, contract.RepositoryRungGitOps
+				return f, contract.RepositoryRungGitOps
 			}
 			break
 		}
 	}
-	a.Repo = repo
-	return a
+	if m := in.Map; m != nil && m.Repository == url && m.Folder != "" {
+		return m.Folder, contract.RepositoryRungMap
+	}
+	return ".", contract.FolderRungDefault
+}
+
+// labelRung is the repository the running image's
+// org.opencontainers.image.source label names. The label is unsigned, so a
+// pull request needs a person to confirm it.
+func labelRung(in repoInputs) (*contract.InferredSourceRepository, string) {
+	if in.Label == "" {
+		return nil, cmp.Or(in.LabelWhy, "no image label names a repository")
+	}
+	u, ok := normalizeRepoURL(in.Label)
+	if !ok {
+		return nil, "the image label is not a repository URL"
+	}
+	return &contract.InferredSourceRepository{URL: u, Rung: contract.RepositoryRungImageLabel}, ""
+}
+
+// mapRung is the repository the repository map names for the service.
+func mapRung(in repoInputs) (*contract.InferredSourceRepository, string) {
+	if in.Map == nil {
+		return nil, cmp.Or(in.MapWhy, "no --repo-map given")
+	}
+	return &contract.InferredSourceRepository{URL: in.Map.Repository, Rung: contract.RepositoryRungMap}, ""
+}
+
+// mapNotRead is why a repository map given without --pr gave nothing.
+const mapNotRead = "repository map not read (only with --pr)"
+
+// readRepoMap is service's entry of the repository map file at path: YAML
+// keyed by service name, decoded strictly, at most maxRepoMap bytes, its
+// URL normalized and its folder cleaned. Nil, and why, when the map does
+// not name the service.
+func readRepoMap(path, service string) (*repoMapEntry, string, error) {
+	f, err := os.Open(path) //nolint:gosec // the person's own file
+	if err != nil {
+		return nil, "", fmt.Errorf("reading the repository map: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(f, maxRepoMap+1))
+	if err == nil && len(raw) > maxRepoMap {
+		err = fmt.Errorf("it is larger than %d bytes", maxRepoMap)
+	}
+	var m map[string]repoMapEntry
+	if err == nil {
+		dec := yaml.NewDecoder(bytes.NewReader(raw))
+		dec.KnownFields(true)
+		if err = dec.Decode(&m); errors.Is(err, io.EOF) {
+			err = nil
+		}
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("the repository map %s: %w", path, err)
+	}
+	e, ok := m[service]
+	if !ok {
+		return nil, "the repository map does not name " + service, nil
+	}
+	u, ok := normalizeRepoURL(e.Repository)
+	if !ok {
+		return nil, "", fmt.Errorf("the repository map %s: %s.repository %q is not a repository URL", path, service, e.Repository)
+	}
+	folder, err := givenFolder(e.Folder)
+	if err != nil {
+		return nil, "", fmt.Errorf("the repository map %s: %s.folder: %w", path, service, err)
+	}
+	return &repoMapEntry{Repository: u, Folder: folder}, "", nil
+}
+
+// givenFolder is a folder a person wrote, cleaned; empty stays empty.
+func givenFolder(f string) (string, error) {
+	if f == "" {
+		return "", nil
+	}
+	c := cleanFolder(f)
+	if !contract.ValidRepositoryFolder(c) {
+		return "", fmt.Errorf("%q is not a folder inside the repository", f)
+	}
+	return c, nil
+}
+
+// givenRepository is req's --repository and --folder, checked.
+func givenRepository(req DeclareRequest) (givenRepo, error) {
+	var g givenRepo
+	if req.Repository != "" {
+		u, ok := normalizeRepoURL(req.Repository)
+		if !ok {
+			return g, fmt.Errorf("--repository %q is not a repository URL", req.Repository)
+		}
+		g.URL = u
+	}
+	f, err := givenFolder(req.Folder)
+	if err != nil {
+		return g, fmt.Errorf("--folder: %w", err)
+	}
+	g.Folder = f
+	return g, nil
+}
+
+// prCheck refuses a pull request to a repository nobody confirmed: no
+// answer at all, an unsigned image label no person confirmed (with the same
+// --repository or a map entry; an agent never confirms its own), or an
+// agent's repository or map entry that no signed provenance or GitOps
+// source names. cli is the command a person runs with --repository url.
+func prCheck(in repoInputs, a repoAnswer, cli func(url string) string) error {
+	r := a.Repo
+	switch {
+	case r == nil:
+		return &DeclareError{Code: codeRepositoryUnknown, CLI: cli("<url>"),
+			Message: "the pull request needs the service's repository and no source named it: pass --repository <url> or add the service to --repo-map"}
+	case in.Agent && (r.Rung == contract.RepositoryRungGiven || r.Rung == contract.RepositoryRungMap) && !corroborated(in, r.URL):
+		return &DeclareError{Code: codeRepositoryUnconfirmed, CLI: cli(r.URL),
+			Message: "no signed provenance or GitOps source names " + r.URL + ": an agent's repository needs a person to confirm it with --repository " + r.URL}
+	case r.Rung == contract.RepositoryRungImageLabel && (in.Agent || in.Map == nil || in.Map.Repository != r.URL):
+		return &DeclareError{Code: codeRepositoryUnconfirmed, CLI: cli(r.URL), Message: "the image label is unsigned: confirm with --repository " + r.URL}
+	}
+	return nil
+}
+
+// corroborated is whether signed provenance or the GitOps source names url.
+func corroborated(in repoInputs, url string) bool {
+	s, _ := signedRung(in)
+	g, _ := gitopsRung(in)
+	return (s != nil && s.URL == url) || (g != nil && g.URL == url)
 }
 
 // cleanFolder is a GitOps path as a record's folder: "" and "." are the root.
@@ -220,12 +401,46 @@ func signerLabel(subject string) string {
 	return subject
 }
 
-// repository plans the declaration's repository: it collects the ladder's
-// inputs, resolves them and writes the answer into the record's
-// declaration, or why each rung gave nothing into the plan.
-func (pl *declarePlanner) repository(ctx context.Context, dec *contract.InferredDeclaration) {
-	a := resolveRepository(pl.collectRepoInputs(ctx))
+// repository plans the declaration's repository: it reads the person's
+// answer and, with --pr, the repository map, collects the ladder's inputs,
+// resolves them and writes the answer into the record's declaration, or why
+// each rung gave nothing into the plan. With --pr it refuses a repository
+// nobody confirmed and binds the target into the intent.
+func (pl *declarePlanner) repository(ctx context.Context, dec *contract.InferredDeclaration) error {
+	given, err := givenRepository(pl.req)
+	if err != nil {
+		return err
+	}
+	var m *repoMapEntry
+	mapWhy := ""
+	switch {
+	case pl.req.RepoMap != "" && pl.req.PR:
+		if m, mapWhy, err = readRepoMap(pl.req.RepoMap, pl.plan.Service); err != nil {
+			return err
+		}
+	case pl.req.RepoMap != "":
+		mapWhy = mapNotRead
+		pl.plan.Notes = append(pl.plan.Notes, mapNotRead)
+	}
+	in := pl.collectRepoInputs(ctx, given)
+	in.Map, in.MapWhy, in.Agent = m, mapWhy, pl.req.Agent
+	a := resolveRepository(in)
 	pl.plan.Repository, pl.plan.RepositoryTried, dec.Repository = a.Repo, a.Tried, a.Repo
+	if !pl.req.PR {
+		return nil
+	}
+	if err := prCheck(in, a, pl.confirmCLI); err != nil {
+		return err
+	}
+	pl.plan.pr = a.Repo.URL + "#" + a.Repo.Folder
+	return nil
+}
+
+// confirmCLI is the command a person runs to open the pull request to url.
+func (pl *declarePlanner) confirmCLI(url string) string {
+	r := pl.req
+	r.PR, r.Repository, r.RepoMap = true, url, ""
+	return r.command("")
 }
 
 // dirReadsNoWorkload is why a --dir run's workload rungs give nothing.
@@ -234,25 +449,28 @@ const dirReadsNoWorkload = "--dir reads no workload"
 // collectRepoInputs reads what the ladder decides from. A --dir run reads
 // no workload. An HTTP surface hands in the caller's restricted view
 // (req.Observed), so the cluster is never read with the service's own
-// identity; the CLI and stdio read it with the person's kubeconfig.
-func (pl *declarePlanner) collectRepoInputs(ctx context.Context) repoInputs {
-	in := repoInputs{Baseline: pl.baseSigner}
+// identity; the CLI and stdio read it with the person's kubeconfig. Every
+// image read shares one imageReadTimeout, and the image's label is read
+// only when no earlier rung answers.
+func (pl *declarePlanner) collectRepoInputs(ctx context.Context, given givenRepo) repoInputs {
+	in := repoInputs{Given: given, Baseline: pl.baseSigner}
 	if pl.req.Dir != "" {
-		in.GitOpsWhy, in.ImageWhy = dirReadsNoWorkload, dirReadsNoWorkload
+		in.GitOpsWhy, in.ImageWhy, in.LabelWhy = dirReadsNoWorkload, dirReadsNoWorkload, dirReadsNoWorkload
 		return in
 	}
 	ns, kind, name := splitObject(pl.object)
 	var image string
 	if o := pl.req.Observed; o != nil {
 		if o.Namespace != ns || o.Kind != kind || o.Name != name {
-			in.GitOpsWhy, in.ImageWhy = "the workload is not in your fleet view", "the workload is not in your fleet view"
+			const hidden = "the workload is not in your fleet view"
+			in.GitOpsWhy, in.ImageWhy, in.LabelWhy = hidden, hidden, hidden
 			return in
 		}
 		in.GitOps, image = o.Repositories, o.Image
 	} else {
 		w, why := pl.readWorkload(ctx, ns, kind, name)
 		if w == nil {
-			in.GitOpsWhy, in.ImageWhy = why, why
+			in.GitOpsWhy, in.ImageWhy, in.LabelWhy = why, why, why
 			return in
 		}
 		in.GitOps, in.GitOpsWhy = w.Repositories, gitopsWhy(w)
@@ -260,7 +478,14 @@ func (pl *declarePlanner) collectRepoInputs(ctx context.Context) repoInputs {
 			image = w.Image.Value
 		}
 	}
+	ctx, cancel := context.WithTimeout(ctx, imageReadTimeout)
+	defer cancel()
 	in.ImageSigners, in.ImageWhy = pl.imageSigners(ctx, image)
+	if s, _ := signedRung(in); s == nil && given.URL == "" {
+		if g, _ := gitopsRung(in); g == nil {
+			in.Label, in.LabelWhy = pl.imageLabel(ctx, image)
+		}
+	}
 	return in
 }
 
@@ -327,45 +552,74 @@ func gitopsNamespaces(ns string, w fleet.RawInferredService) []string {
 	return out
 }
 
-// imageSigners are the verified signers of the running image (signatures
-// and signed SLSA provenance), read under imageReadTimeout; when there are
-// none, why. On an HTTP surface an image outside the installation's
-// registry is never read.
-func (pl *declarePlanner) imageSigners(ctx context.Context, image string) ([]delivery.PublisherIdentity, string) {
+// imageTarget is the running image's repository and the digests its rungs
+// read; when none is read, why. On an HTTP surface an image outside the
+// installation's registry is never read.
+func (pl *declarePlanner) imageTarget(image string) (string, []string, string) {
 	if image == "" {
-		return nil, "the workload names no image"
+		return "", nil, "the workload names no image"
 	}
 	ref, err := name.ParseReference(image)
 	if err != nil {
-		return nil, "the image reference is not readable"
+		return "", nil, "the image reference is not readable"
 	}
 	repo := ref.Context().Name()
 	if pl.req.Observed != nil && repo != pl.req.Registry && !strings.HasPrefix(repo, pl.req.Registry+"/") {
-		return nil, "image not read on the server: run pacto declare locally"
+		return "", nil, "image not read on the server: run pacto declare locally"
 	}
 	digests := pl.imageDigests(ref)
 	if len(digests) == 0 {
-		return nil, "the running image is not pinned by a digest Pacto read"
+		return "", nil, "the running image is not pinned by a digest Pacto read"
+	}
+	return repo, digests, ""
+}
+
+// imageSigners are the verified signers of the running image (signatures
+// and signed SLSA provenance); when there are none, why.
+func (pl *declarePlanner) imageSigners(ctx context.Context, image string) ([]delivery.PublisherIdentity, string) {
+	repo, digests, why := pl.imageTarget(image)
+	if why != "" {
+		return nil, why
 	}
 	tm, err := declareRoot(pl.req.Signing.TrustedRoot)
 	if err != nil {
 		return nil, "the Sigstore trusted root was not read: " + err.Error()
 	}
-	ctx, cancel := context.WithTimeout(ctx, imageReadTimeout)
-	defer cancel()
 	var signers []delivery.PublisherIdentity
-	var why []string
+	var whys []string
 	for _, d := range digests {
 		s, err := publish.ProvenanceSigners(ctx, pl.reg, tm, pl.req.Signing.RekorURL != "", repo, d)
 		signers = append(signers, s...)
 		if len(s) == 0 {
-			why = append(why, pl.signersWhy(ctx, repo, d, err))
+			whys = append(whys, pl.signersWhy(ctx, repo, d, err))
 		}
 	}
 	if len(signers) > 0 {
 		return signers, ""
 	}
-	return nil, strings.Join(why, "; ")
+	return nil, strings.Join(whys, "; ")
+}
+
+// imageLabel is the first org.opencontainers.image.source the running
+// image's digests name (an index annotation, else one platform's config
+// label); when none does, why. A read error is a reason, never an error.
+func (pl *declarePlanner) imageLabel(ctx context.Context, image string) (string, string) {
+	repo, digests, why := pl.imageTarget(image)
+	if why != "" {
+		return "", why
+	}
+	for _, d := range digests {
+		src, err := pl.reg.ImageSource(ctx, repo+"@"+d)
+		switch {
+		case ctx.Err() != nil:
+			return "", "the image read timed out after " + imageReadTimeout.String()
+		case err != nil:
+			return "", "the image was not read: " + err.Error()
+		case src != "":
+			return src, ""
+		}
+	}
+	return "", "the image names no org.opencontainers.image.source label"
 }
 
 // imageDigests are the image's digests: the one its reference pins, else

@@ -222,6 +222,8 @@ the command a person runs:
 | `ExecuteNeedsStdio` | An HTTP server with no registry of its own only plans: run the `cli` command |
 | `BaselineNeedsMigration` | The baseline is below `pactoVersion: "2.5"`: run `pacto migrate` |
 | `BundleRepoMismatch` | The baseline publishes to another repository than `registry` |
+| `RepositoryUnknown` | A pull request was asked for and no source names the service's repository |
+| `RepositoryUnconfirmed` | A pull request was asked for and a person has to confirm the repository: an unsigned image label, or an agent's repository no signed provenance or GitOps source names |
 | `NotAllowed` | Over HTTP: the caller may not update the workload, names someone else in `on_behalf_of`, or the repository belongs to another workload |
 | `ReviewFailed` | Over HTTP: the review of the caller failed or could not be evaluated |
 | `OWNER_SIGNER_NOT_PERSON` | Only a person sets `service.owner`: an agent, CI or workload signer never does, whoever it acts for |
