@@ -420,10 +420,20 @@ PACTO_REGISTRY_IMAGE="ghcr.io/project-zot/zot-minimal:v2.1.20@sha256:73f26433b34
 # overwrite. A scenario that already put the image on the host under its tag
 # (the delivery demo loads it from CI's one-time pull) sets
 # PACTO_REGISTRY_IMAGE_PRESENT and the pull is skipped.
+#
+# zot's own config with docker2s2 compat: zot refuses a Docker schema 2
+# manifest by default, and a docker push from the classic image store (CI's
+# runners) writes one. Every registry Pacto meets in practice takes it.
 install_registry() {
   [ -n "${PACTO_REGISTRY_IMAGE_PRESENT:-}" ] || pull_pinned "$PACTO_REGISTRY_IMAGE"
   load_images "${PACTO_REGISTRY_IMAGE%@*}"
   kubectl -n "$NS" apply -f - >/dev/null <<YAML
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: pacto-registry-config }
+data:
+  config.json: '{"storage":{"rootDirectory":"/var/lib/registry"},"http":{"address":"0.0.0.0","port":"5000","compat":["docker2s2"]},"log":{"level":"debug"}}'
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata: { name: pacto-registry, labels: { app: pacto-registry } }
@@ -434,7 +444,12 @@ spec:
     metadata: { labels: { app: pacto-registry } }
     spec:
       containers:
-      - { name: registry, image: ${PACTO_REGISTRY_IMAGE%@*}, imagePullPolicy: Never, ports: [ { containerPort: 5000 } ] }
+      - name: registry
+        image: ${PACTO_REGISTRY_IMAGE%@*}
+        imagePullPolicy: Never
+        ports: [ { containerPort: 5000 } ]
+        volumeMounts: [ { name: config, mountPath: /etc/zot, readOnly: true } ]
+      volumes: [ { name: config, configMap: { name: pacto-registry-config } } ]
 ---
 apiVersion: v1
 kind: Service
