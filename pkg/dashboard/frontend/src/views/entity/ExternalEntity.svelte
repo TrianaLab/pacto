@@ -8,6 +8,7 @@
   import EntityLink from '../../components/EntityLink.svelte';
   import ExternalProvenance from '../../components/ExternalProvenance.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
+  import ProvenanceMark from '../../components/ProvenanceMark.svelte';
 
   // An external system's page: the services that declare, call or use it first, then how
   // Pacto knows it. The catalog that classified it (or how its consumers join it) is in
@@ -54,6 +55,16 @@
   const SURFACE = [['hosts', 'Hosts'], ['ports', 'Ports'], ['clients', 'Clients']];
   const caps = { hosts: cap(12), ports: cap(12), clients: cap(12) };
   const seenWords = (v) => `seen by ${(v.sources ?? []).join(', ')}${v.lastSeen ? `, last seen ${formatRelative(v.lastSeen)}` : ''}`;
+  // What changed between the two revisions shown first (517-S4). A change no source
+  // checked the signatures of says so: it never raises an attention item.
+  const change = $derived(provider?.change ?? null);
+  const MAX_CHANGE_VALUES = 10;
+  const capped = (verb, xs) => (xs?.length ? `${verb} ${xs.slice(0, MAX_CHANGE_VALUES).join(', ')}${xs.length > MAX_CHANGE_VALUES ? ` and ${formatCount(xs.length - MAX_CHANGE_VALUES)} more` : ''}.` : '');
+  const changeTip = $derived(change ? [
+    change.openapiFrom || change.openapiTo ? `OpenAPI ${change.openapiFrom || 'none'} → ${change.openapiTo || 'none'}.` : '',
+    capped('Surface added', change.added), capped('Surface removed', change.removed),
+    change.checked ? "This installation's operator signed both revisions." : "No source checked these revisions' signatures, so this change raises no attention item.",
+  ].filter(Boolean).join(' ') : '');
   const consumerUse = (c) => (c.provenance === 'observed' ? 'observed only' : c.provenance === 'inferred' ? 'inferred only' : c.required ? 'required' : 'optional');
 </script>
 
@@ -97,6 +108,9 @@
       </summary>
       <div class="xe-inferred-panel">
         <p class="t-body-2 xe-wrap"><bdi>{provider.repository}</bdi>{#if shown}, version <bdi>{shown.version}</bdi>{/if} <IdentityBadge label="inferred" title={markTitle} describe /></p>
+        {#if change}
+          <p class="t-meta xe-wrap" data-testid="external-provider-change"><span class="xe-change-words">Changed <bdi>{change.from}</bdi> → <bdi>{change.to}</bdi>{change.at ? ` (${formatRelative(change.at)})` : ''}{change.checked ? '' : ', unchecked'}</span> <ProvenanceMark label="About this change" text={changeTip} /></p>
+        {/if}
         {#if shown?.surface}
           <details class="disclosure">
             <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>{byOperator ? "What this installation's operator saw" : 'What the record lists'}</summary>

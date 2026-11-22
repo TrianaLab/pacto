@@ -129,6 +129,42 @@ describe('ExternalEntity inferred contract', () => {
     expect(t2.querySelector('[data-testid="inferred-surface-meta"]')?.textContent).toMatch(/; complete$/);
   });
 
+  const change = (o: Record<string, unknown> = {}) => ({
+    from: '0.0.1', to: '0.0.2', at: new Date(Date.now() - 2 * 3600_000).toISOString(), checked: true,
+    openapiFrom: `oci://registry.example/vendor/stripe-openapi@sha256:${'a'.repeat(64)}`, openapiTo: `oci://registry.example/vendor/stripe-openapi@sha256:${'b'.repeat(64)}`,
+    added: ['clients stripe-go/77'], removed: ['clients stripe-go/76'], ...o,
+  });
+  it('caps the change values in the tip', () => {
+    const many = Array.from({ length: 2000 }, (_, i) => `hosts h${i}.example:443`);
+    const t = render({ ...provider({ surface }), change: change({ added: many, removed: null }) });
+    const tip = t.querySelector('[data-testid="external-provider-change"] [role="note"]')?.textContent ?? '';
+    expect(tip).toContain('hosts h9.example:443');
+    expect(tip).not.toContain('hosts h10.example:443');
+    expect(tip).toContain('and 1,990 more');
+  });
+  it('the inferred contract disclosure says what changed', () => {
+    const t = render({ ...provider({ surface }), change: change() });
+    const line = t.querySelector('#sec-inferred-contract [data-testid="external-provider-change"]') as HTMLElement;
+    expect(line.querySelector('.xe-change-words')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Changed 0.0.1 → 0.0.2 (2 hours ago)');
+    expect(line.querySelector('button[aria-label="About this change"]')).toBeTruthy();
+    const tip = line.querySelector('[role="note"]')?.textContent ?? '';
+    expect(tip).toContain(`OpenAPI oci://registry.example/vendor/stripe-openapi@sha256:${'a'.repeat(64)} → oci://registry.example/vendor/stripe-openapi@sha256:${'b'.repeat(64)}`);
+    expect(tip).toContain('added clients stripe-go/77');
+    expect(tip).toContain('removed clients stripe-go/76');
+  });
+
+  it('an unchecked change says unchecked', () => {
+    const t = render({ ...provider({ surface }), change: change({ checked: false, added: null, removed: null }) });
+    const line = t.querySelector('[data-testid="external-provider-change"]') as HTMLElement;
+    expect(line.querySelector('.xe-change-words')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Changed 0.0.1 → 0.0.2 (2 hours ago), unchecked');
+    expect(line.querySelector('[role="note"]')?.textContent).toContain("No source checked these revisions' signatures");
+  });
+
+  it('no change line without a change', () => {
+    const t = render(provider({ surface }));
+    expect(t.querySelector('[data-testid="external-provider-change"]')).toBeNull();
+  });
+
   it('caps each list at 12 with its total and a Show all button', () => {
     const hosts = Array.from({ length: 2000 }, (_, i) => value(`h${String(i).padStart(4, '0')}.s3.amazonaws.com:443`, ['k8s']));
     const t = render(provider({ surface: { ...surface, hosts } }));

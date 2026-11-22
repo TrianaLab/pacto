@@ -250,6 +250,17 @@ describe('eventModel (an event answer)', () => {
     expect(eventModel(event({ breaks: 1 }, { ev: { kind: 'regressed', revision: '1.2.0' } })).lead).toBe('If redis regressed at 1.2.0');
     expect(eventModel(event({ breaks: 1 }, { ev: { kind: 'regressed', revision: `sha256:${'a'.repeat(64)}` } })).lead).toBe('If redis regressed at sha256:aaaaaaaaaaaa');
   });
+  it('draws an Attention lane only when a consumer needs attention', () => {
+    const changed = eventModel(event({ attention: 3 }, { ev: { kind: 'changed', external: 'stripe' } }));
+    expect(changed.lanes.map((l) => [l.key, l.label, l.tone, l.hatch])).toEqual([
+      ['breaks', 'Breaks', 'err', false], ['may-degrade', 'May degrade', 'warn', false], ['attention', 'Attention', 'info', false], ['unknown', 'Unknown', 'neutral', true]]);
+    expect(changed.lanes.find((l) => l.key === 'attention')!.decides).toBe(true);
+    expect(changed.lead).toBe('If redis changes');
+    expect(changed.caption).toBe('3 consumers need attention.');
+    expect(eventModel(event({ attention: 1 }, { ev: { kind: 'changed' } })).caption).toBe('1 consumer needs attention.');
+    expect(eventModel(event({ breaks: 1 })).lanes.map((l) => l.key)).toEqual(['breaks', 'may-degrade', 'unknown']);
+    expect(effectOf({ effect: 'attention' })).toBe('attention');
+  });
   it('effectOf falls back to unknown, never to compatible', () => {
     expect(effectOf({ effect: 'breaks' })).toBe('breaks');
     expect(effectOf({})).toBe('unknown');

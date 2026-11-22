@@ -563,6 +563,13 @@ describe('fleetChangesUrl', () => {
     expect(parseHash(url)).toEqual({ view: 'changes', params: { offering: 'postgresql', event: 'unavailable', outcome: 'breaks' } });
     expect(fleetChangesUrl('redis', { offering: 'postgresql' })).toBe('#/fleet/changes/redis');
   });
+  // An external event names the external system's identity, never a service key, and parses back.
+  it('carries an external event and parses it back', () => {
+    const url = fleetChangesUrl('', { external: 'aws/rds/1/eu/db', event: 'changed', outcome: 'attention' });
+    expect(url).toBe('#/fleet/changes?external=aws%2Frds%2F1%2Feu%2Fdb&event=changed&outcome=attention');
+    expect(parseHash(url)).toEqual({ view: 'changes', params: { external: 'aws/rds/1/eu/db', event: 'changed', outcome: 'attention' } });
+    expect(fleetChangesUrl('redis', { external: 'stripe' })).toBe('#/fleet/changes/redis');
+  });
   it('carries an unresolved legacy name as a query hint, never as the path key', () => {
     expect(fleetChangesUrl('', { name: 'payments' })).toBe('#/fleet/changes?name=payments');
   });

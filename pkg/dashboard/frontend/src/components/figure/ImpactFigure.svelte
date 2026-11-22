@@ -28,7 +28,7 @@
   const isEvent = $derived(!!impact.event);
   /** @type {any} */
   const m = $derived(impact.event ? eventModel(impact) : impactModel(impact));
-  const EVENT_STAMP = { unavailable: 'Unavailable', removed: 'Removed', regressed: 'Regressed' };
+  const EVENT_STAMP = { unavailable: 'Unavailable', removed: 'Removed', regressed: 'Regressed', changed: 'Changed' };
   const provenance = $derived(!isEvent ? 'Contract diff of the two revisions, projected on the fleet snapshot'
     : `Dependents of ${m.service} in the fleet snapshot${impact.event?.kind === 'regressed' ? ', with the delivery evidence you may read' : ''}`);
   const tallies = $derived(impact.consumers);
@@ -57,7 +57,7 @@
   {/if}
 {/snippet}
 
-<Figure id="impact" testid="impact-figure" question={isEvent ? `If ${eventPhrase(impact)}, who breaks?` : 'Which consumers does this change break, and does the gate let it through?'}
+<Figure id="impact" testid="impact-figure" question={isEvent ? `If ${eventPhrase(impact)}, ${impact.event?.kind === 'changed' ? 'who needs attention' : 'who breaks'}?` : 'Which consumers does this change break, and does the gate let it through?'}
   alt={m.alt} wires={m.wires} steps={m.steps} {autoplay} autoKey={m.key}>
   {#snippet stage()}
     <div class="impact">
