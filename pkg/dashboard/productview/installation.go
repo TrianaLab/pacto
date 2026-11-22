@@ -23,6 +23,11 @@ func InstallationPending(in *fleet.InstallationInput, l delivery.ClusterJoinList
 	switch {
 	case l.Hidden > 0:
 		in.JoinSource = fmt.Sprintf("%d clusters you may not approve are not counted", l.Hidden)
+	case l.Repository == "" && l.Completeness == fleet.CompletenessPartial: // the hub's detection could not be read
+		in.JoinSource = "the member clusters were not read, so pending clusters are not counted"
+	case l.Repository == "":
+		n := 0
+		in.JoinPending, in.JoinSource = &n, "the hub's operator sets no registry, so no cluster can join"
 	case l.Completeness == fleet.CompletenessPartial:
 		in.JoinSource = "registry " + l.Repository + " was read partly, so pending clusters are not counted"
 	default:

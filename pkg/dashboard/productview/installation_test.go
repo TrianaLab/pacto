@@ -43,3 +43,19 @@ func TestInstallationPendingNullWhenHidden(t *testing.T) {
 		t.Errorf("unread list = %+v", in)
 	}
 }
+
+// TestInstallationPendingWithoutRegistry: a hub whose operator sets no
+// registry has no pending cluster; one whose detection could not be read
+// counts none (R3-3).
+func TestInstallationPendingWithoutRegistry(t *testing.T) {
+	var in fleet.InstallationInput
+	InstallationPending(&in, delivery.ClusterJoinList{Completeness: fleet.CompletenessComplete}, nil)
+	if in.JoinPending == nil || *in.JoinPending != 0 || !strings.Contains(in.JoinSource, "sets no registry") {
+		t.Errorf("no registry = %+v", in)
+	}
+	in = fleet.InstallationInput{}
+	InstallationPending(&in, delivery.ClusterJoinList{Completeness: fleet.CompletenessPartial}, nil)
+	if in.JoinPending != nil || !strings.Contains(in.JoinSource, "were not read") {
+		t.Errorf("unread = %+v", in)
+	}
+}
