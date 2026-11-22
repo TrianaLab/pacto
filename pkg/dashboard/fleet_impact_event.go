@@ -3,11 +3,13 @@ package dashboard
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/externalid"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
@@ -80,6 +82,13 @@ func eventSubjectErr(b impactRequest) error {
 		return huma.Error422UnprocessableEntity("event", errors.New("event changed is asked of an external system: send externalKey"))
 	case b.ExternalKey != "" && b.Event != impact.EventChanged && b.Event != impact.EventUnavailable:
 		return huma.Error422UnprocessableEntity("externalKey", errors.New("an external system is asked with event changed or unavailable"))
+	}
+	if b.ExternalKey != "" {
+		// Syntax only, before the existence check: a malformed key is in no
+		// snapshot, so refusing it reveals nothing about hidden externals.
+		if _, err := externalid.Parse(b.ExternalKey); err != nil {
+			return huma.Error422UnprocessableEntity("externalKey", fmt.Errorf("%w; find its identity with pacto fleet search", err))
+		}
 	}
 	return nil
 }

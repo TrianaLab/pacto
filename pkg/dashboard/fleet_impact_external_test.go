@@ -136,6 +136,7 @@ func TestFleetImpactExternalRequestErrors(t *testing.T) {
 		{"changed of a service", impactRequest{Event: impact.EventChanged, ServiceKey: "payments"}, "send externalKey"},
 		{"removed", impactRequest{Event: impact.EventRemoved, ExternalKey: "stripe"}, "changed or unavailable"},
 		{"regressed", impactRequest{Event: impact.EventRegressed, ExternalKey: "stripe", Revision: "1.0.0"}, "changed or unavailable"},
+		{"upper-case identity", impactRequest{Event: impact.EventChanged, ExternalKey: "Stripe"}, "pacto fleet search"},
 		{"between revisions", impactRequest{Event: impact.EventChanged, ExternalKey: "stripe", FromRevisionKey: "a", ToRevisionKey: "b"}, "without fromRevisionKey"},
 	} {
 		code, body := call(t, http.MethodPost, base+"/api/fleet/impact", tc.req)
