@@ -36,7 +36,7 @@
     'Dependencies outside their accepted range': 'out-of-range dependencies',
     'Undeclared runtime dependencies observed': 'undeclared runtime calls',
     'Incomplete sources': 'incomplete sources',
-    'Services with no declared owner': 'services with no owner',
+    'Services and external systems with no owner': 'unowned services and systems',
     'Operational targets failing their health check': 'failing health checks',
     'Gaps in what the contracts say': 'knowledge gaps',
   };

@@ -86,7 +86,7 @@ func analyzeExternalEvent(snap *fleet.FleetSnapshot, q *fleet.Query, opts Option
 	})
 	if p := rec.Provider; p != nil {
 		res.External.Provider, res.External.Change = p.Repository, p.Change
-		res.inferredExternal = id
+		res.inferredExternal, res.inferredClaimed = id, rec.ClaimedRepository()
 		if len(p.Revisions) > 0 {
 			res.inferredVersion = p.Revisions[0].Version
 		}
@@ -319,5 +319,5 @@ func (r *Result) externalGateReason() string {
 	return r.inferredExternal + "'s inferred contract " + strings.TrimSpace(r.inferredVersion+" is") +
 		" no contract this organization controls, so no range against it can be verified: " +
 		strconv.Itoa(k) + " of " + strconv.Itoa(n) + " " + plural(n, "consumer pins", "consumers pin") + " a range on it. " +
-		fleet.InferredExternalNextStep(r.inferredExternal) + seen
+		fleet.InferredExternalNextStep(r.inferredExternal, r.inferredClaimed) + seen
 }

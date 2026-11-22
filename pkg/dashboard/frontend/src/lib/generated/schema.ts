@@ -3665,6 +3665,18 @@ export interface components {
             signature: "verified" | "unverified" | "unsigned" | "unknown";
             signer?: string;
         };
+        "Fleet.ExternalClaim": {
+            /** @description The person whose accepted declaration established the claim */
+            by?: string;
+            /** @description You may not read the service that claims it */
+            hidden?: boolean;
+            /** @description The claimed revision, repository@digest */
+            ref?: string;
+            /** @description The service whose declared contract claims it */
+            service?: string;
+            /** @description The version of the claimed revision */
+            version?: string;
+        };
         "Fleet.ExternalClient": {
             /**
              * @description A client library in a manifest proves no call, so a client major is always possible
@@ -3807,6 +3819,8 @@ export interface components {
             aliases?: string[] | null;
             /** @description The catalog entry that classified it; absent when no catalog entry classifies it */
             catalog?: components["schemas"]["Fleet.ExternalCatalogMatch"];
+            /** @description The declared contract that claims this external system; absent while it is unclaimed */
+            claim?: components["schemas"]["Fleet.ExternalClaim"];
             /**
              * @description The catalog class, unclassified when no catalog entry names it
              * @enum {string}
@@ -4957,6 +4971,11 @@ export interface components {
             uncontractedCallers: number;
             /** Format: int64 */
             unknownTargets: number;
+            /**
+             * Format: int64
+             * @description External systems with consumers and no owner
+             */
+            unownedExternals: number;
             /** Format: int64 */
             unresolvedRelationships: number;
             /** Format: int64 */

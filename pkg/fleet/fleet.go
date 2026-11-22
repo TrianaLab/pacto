@@ -1501,6 +1501,8 @@ type ExternalRecord struct {
 	// Provider is its inferred contract, when a source read one under
 	// pacto-inferred/<identity>. It is never a service.
 	Provider *ExternalProvider `json:"provider,omitempty" doc:"The inferred contract published for it under pacto-inferred; never a service, and a range is never checked against it"`
+	// Claim is the declared contract that claims it (see linkExternalClaims).
+	Claim *ExternalClaim `json:"claim,omitempty" doc:"The declared contract that claims this external system; absent while it is unclaimed"`
 	// declarations counts, per consumer, the revisions that declare it plus
 	// each observed or inferred source.
 	declarations map[ServiceKey]int
@@ -1510,6 +1512,20 @@ type ExternalRecord struct {
 	catalogLabel string
 	// hidden is the consumers a restriction hid, so a fold counts each once.
 	hidden map[ServiceKey]bool
+}
+
+// ExternalClaim is the declared contract that claims an external system: the
+// newest revision of the one service an accepted person declaration of
+// inferredFrom external:<identity> established (see linkExternalClaims).
+type ExternalClaim struct {
+	Service ServiceKey `json:"service,omitempty" doc:"The service whose declared contract claims it"`
+	Ref     string     `json:"ref,omitempty" doc:"The claimed revision, repository@digest"`
+	Version string     `json:"version,omitempty" doc:"The version of the claimed revision"`
+	By      string     `json:"by,omitempty" doc:"The person whose accepted declaration established the claim"`
+	Hidden  bool       `json:"hidden,omitempty" doc:"You may not read the service that claims it"`
+	// ownerless says the claiming service has no verified owner, computed on
+	// the full snapshot so a restricted view keeps it for a hidden claimer.
+	ownerless bool
 }
 
 // ExternalProvider is the inferred contract of an external system: the

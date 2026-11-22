@@ -23,6 +23,10 @@ const (
 	// ReasonExternalSourcesTruncated says the reasons list only some
 	// consumers, or that permissions hide some.
 	ReasonExternalSourcesTruncated = "EXTERNAL_SOURCES_TRUNCATED"
+	// ReasonExternalClaimed names the declared contract that claims it, and
+	// ReasonExternalUnclaimed says none does and where it is routed.
+	ReasonExternalClaimed   = "EXTERNAL_CLAIMED"
+	ReasonExternalUnclaimed = "EXTERNAL_UNCLAIMED"
 )
 
 // ExternalView is the answer for one external system. External lists at most
@@ -181,6 +185,9 @@ func (q *Query) explainExternal(key string) (*ExplainResult, error) {
 		res.Reasons = append(res.Reasons, Reason{Code: ReasonExternalUnclassified, Message: "no catalog entry classifies it; its consumers join through its registrable domain"})
 	default:
 		res.Reasons = append(res.Reasons, Reason{Code: ReasonExternalNameOnly, Message: "no catalog alias equals this name; consumers that spell it differently do not join"})
+	}
+	if rec.Class != ClassOtherEgress {
+		res.Reasons = append(res.Reasons, claimReason(rec))
 	}
 	switch {
 	case into != "":

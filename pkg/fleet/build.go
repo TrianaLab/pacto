@@ -186,6 +186,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	foldObservedRelationships(snap, observed)
 	foldExternalUses(snap, append(uses, recordExternalUses(snap)...))
 	attachInferredProviders(snap, cat)
+	linkExternalClaims(snap)
 	finalizeExternals(snap)
 	reconcileDeclared(snap, undeclaredOnly)
 	matchProvisioning(snap)

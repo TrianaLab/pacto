@@ -374,3 +374,20 @@ func TestPublishOnlyUnderInferredPrefix(t *testing.T) {
 		t.Errorf("outside the scope = %+v", rep)
 	}
 }
+
+func TestPublishKeepsClaimedExternal(t *testing.T) {
+	host, _ := testRegistry(t)
+	rec := &seen{base: http.DefaultTransport}
+	d := deps(t, publish.NewScopedClient(anonymous, oci.NewPushScope(host+"/demo"), rec))
+	snap := stripeFleet(t, []string{"api.stripe.com"})
+	snap.Externals["stripe"].Claim = &fleet.ExternalClaim{Service: "stripe", Ref: host + "/demo/stripe@sha256:claimed", Version: "0.1.0", By: "ana@acme.com"}
+	rep := publishOK(t, d, host+"/demo/pacto-inferred", snap)
+	if len(rep.Published) != 1 || rep.Published[0].Repository != host+"/demo/pacto-inferred/stripe" || len(rep.Errors) != 0 {
+		t.Fatalf("a claim keeps the inferred revision publishing: %+v", rep)
+	}
+	for _, r := range rec.reqs {
+		if strings.Contains(r, "/v2/demo/stripe/") {
+			t.Errorf("the publisher touched the claimed repository: %s", r)
+		}
+	}
+}

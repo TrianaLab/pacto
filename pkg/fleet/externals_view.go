@@ -130,8 +130,19 @@ func restrictExternal(out *FleetSnapshot, rec *ExternalRecord) *ExternalRecord {
 		}
 	}
 	r.Provider = withoutSurface(rec.Provider)
+	r.Claim = restrictClaim(out, rec.Claim)
 	finalizeExternal(&r)
 	return &r
+}
+
+// restrictClaim is c as out's viewer sees it: a claimer out does not hold
+// becomes a hidden claim naming no service, ref, version or person, and
+// keeps whether it has an owner.
+func restrictClaim(out *FleetSnapshot, c *ExternalClaim) *ExternalClaim {
+	if c == nil || out.Services[c.Service] != nil {
+		return c
+	}
+	return &ExternalClaim{Hidden: true, ownerless: c.ownerless}
 }
 
 // ExternalSubjectPrefix marks an external system where a service is

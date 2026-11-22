@@ -223,6 +223,11 @@ type inferredProviderGroup struct {
 	service   string
 	name      string
 	consumers []ServiceKey
+	// claimed is the repository of the contract that claims the external
+	// system, and claimHidden says a service the viewer may not read claims
+	// it.
+	claimed     string
+	claimHidden bool
 }
 
 // inferredProviderAttention reports one knowledge item per inferred provider a
@@ -258,7 +263,9 @@ func (q *Query) inferredProviderAttention() []AttentionItem {
 // inferredProviderGroup is the empty group of rel's provider.
 func (q *Query) inferredProviderGroup(rel Relationship) *inferredProviderGroup {
 	if rel.ToExternal != "" {
-		return &inferredProviderGroup{entity: externalEntityRef(q.externalRecord(rel.ToExternal)), name: string(rel.ToExternal)}
+		rec := q.externalRecord(rel.ToExternal)
+		return &inferredProviderGroup{entity: externalEntityRef(rec), name: string(rel.ToExternal),
+			claimed: rec.ClaimedRepository(), claimHidden: rec.Claim != nil && rec.Claim.Hidden}
 	}
 	svc := q.snap.Services[rel.ToService]
 	return &inferredProviderGroup{entity: serviceEntityRef(svc), service: string(svc.Key), name: svc.Name}
@@ -285,30 +292,43 @@ func (g *inferredProviderGroup) item() AttentionItem {
 	}
 }
 
-// nextAction is the action of nextStep: pacto declare for a service, a
-// hand-written contract for an external system (pacto declare reads only
-// workloads) or a service whose name no command may carry.
+// nextAction is the action of nextStep: pacto declare for a service, pacto
+// claim for an unclaimed external system, a contract edit for a claimed one
+// (or a service whose name no command may carry) and none when a service the
+// viewer may not read claims it: a hidden claim never invites a second one.
 func (g *inferredProviderGroup) nextAction() *NextAction {
-	if a := declareAction(g.name, ""); a != nil && g.service != "" {
-		return a
+	switch {
+	case g.service != "":
+		if a := declareAction(g.name, ""); a != nil {
+			return a
+		}
+	case g.claimHidden:
+		return nil
+	case g.claimed == "":
+		return claimAction(g.name)
 	}
 	return editContract()
 }
 
-// nextStep is the step that fixes g today. A service is declared with pacto
-// declare; pacto declare reads only workloads, so an external system's
-// declared contract is written by hand until pacto claim exists (517-S5).
+// nextStep is the step that fixes g today.
 func (g *inferredProviderGroup) nextStep() string {
-	if g.service != "" {
+	switch {
+	case g.service != "":
 		return "Declare a contract for " + g.name + " with pacto declare, then point the ranges at it"
+	case g.claimHidden:
+		return "Claimed by a service you cannot see; ask the installation's default approvers"
 	}
-	return InferredExternalNextStep(g.name)
+	return InferredExternalNextStep(g.name, g.claimed)
 }
 
 // InferredExternalNextStep is how to replace external id's inferred contract
-// with a declared one today.
-func InferredExternalNextStep(id string) string {
-	return "Write a contract with service.external: " + id + ", publish it outside " + contract.InferredRepository + ", then point the ranges at it"
+// with a declared one: claim it, or point the ranges at claimed, the
+// repository of the contract that claims it.
+func InferredExternalNextStep(id, claimed string) string {
+	if claimed != "" {
+		return "Point the ranges at " + claimed + ", the claimed contract of " + id
+	}
+	return "Claim " + id + " with pacto claim " + id + " --owner <team>, then point the ranges at the claimed contract"
 }
 
 // SignatureWords says what sig, the signature check of an inferred

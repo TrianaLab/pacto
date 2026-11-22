@@ -159,7 +159,7 @@ func TestEffectForUse(t *testing.T) {
 func TestExternalGateReasonNamesShownVersion(t *testing.T) {
 	res := externalEvent(providerFleet(t, "^2023.10"), EventChanged, "stripe")
 	want := "stripe's inferred contract 0.0.5 is no contract this organization controls, so no range against it can be verified: 1 of 2 consumers pin a range on it. " +
-		fleet.InferredExternalNextStep("stripe") + ". No observation source was consulted, so an undeclared caller is not listed"
+		fleet.InferredExternalNextStep("stripe", "") + ". No observation source was consulted, so an undeclared caller is not listed"
 	if res.GateReason != want || strings.Contains(res.GateReason, "  ") {
 		t.Errorf("reason %q", res.GateReason)
 	}

@@ -397,10 +397,9 @@ func TestInferredProviderAttentionOnePerProvider(t *testing.T) {
 
 func TestInferredProviderAttentionNextActionDeclare(t *testing.T) {
 	items := inferredItems(t, infFleet(t, []RawRevision{stripeProvider()}, svc("checkout", "shop", pinStripe("^2023.10"))))
-	// pacto declare reads only workloads, so an external's step is the one
-	// that exists today: a hand-written contract naming it.
-	if len(items) != 1 || items[0].NextAction == nil || *items[0].NextAction != *editContract() ||
-		items[0].NextStep != "Write a contract with service.external: stripe, publish it outside pacto-inferred, then point the ranges at it" ||
+	// An unclaimed external system is claimed with pacto claim.
+	if len(items) != 1 || !reflect.DeepEqual(items[0].NextAction, claimAction("stripe")) ||
+		items[0].NextStep != "Claim stripe with pacto claim stripe --owner <team>, then point the ranges at the claimed contract" ||
 		strings.Contains(items[0].Reason, "published") {
 		t.Errorf("items = %+v", items)
 	}
