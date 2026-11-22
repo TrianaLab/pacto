@@ -680,6 +680,24 @@ dash_token_login() {
   rm -f "$body"
 }
 
+# mcp_rpc URL TOKEN METHOD PARAMS — one JSON-RPC call to the MCP endpoint URL
+# (http://host:port/mcp), with TOKEN as the bearer when given; prints the JSON
+# answer once (the servers are stateless: no initialize needed). The `t` ends
+# the cycle after a stripped SSE data line, which now starts with `{` and would
+# otherwise print twice.
+mcp_rpc() {
+  local auth=(); [ -n "$2" ] && auth=(-H "Authorization: Bearer $2")
+  curl -s "${auth[@]}" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+    -H 'Mcp-Protocol-Version: 2025-06-18' \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$3\",\"params\":$4}" "$1" | sed -n -e 's/^data: //p' -e t -e '/^{/p'
+}
+# mcp_tool URL TOKEN NAME ARGS — one tool call's text answer; a refusal prints
+# as "ERROR: <text>".
+mcp_tool() {
+  mcp_rpc "$1" "$2" tools/call "{\"name\":\"$3\",\"arguments\":$4}" |
+    jq -r 'if .error then "ERROR: \(.error.message)" elif .result.isError then "ERROR: \(.result.content[0].text)" else .result.content[0].text end'
+}
+
 # --- RBAC ---------------------------------------------------------------------
 
 can_i() { # VERB RESOURCE AS [kubectl args...] — prints yes or no

@@ -22,6 +22,7 @@
   import { formatDate } from '../lib/dateFormat.ts';
   import LazyView from '../components/LazyView.svelte';
   import DetectedProviders from '../components/DetectedProviders.svelte';
+  import ConnectAgent from '../components/ConnectAgent.svelte';
   import { loadTrustFigure } from '../lib/lazyFigures.ts';
   import HelpTip from '../components/HelpTip.svelte';
   import { clusterWord, clusterReason, showClusters } from '../lib/clusters.ts';
@@ -31,7 +32,7 @@
   // health filter (the backend sourceHealth query param), all kept in the URL. Rows
   // navigate to the rich source page.
   // `sourceKind` narrows to one adapter kind: the list a figure's kind tally opens.
-  let { text = '', sourceHealth = '', sourceKind = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  let { text = '', sourceHealth = '', sourceKind = '', offset = '', limit = '', sort = '', refreshTick = 0, mcp = undefined } = $props();
 
   const PAGE_SIZE = 25;
   const HEALTH_OPTIONS = ['available', 'partial', 'stale', 'unavailable', 'incomplete'];
@@ -168,6 +169,8 @@
   {/if}
 
   <DetectedProviders {refreshTick} />
+  <!-- installation.mcp from App's capabilities: where an agent connects. -->
+  <ConnectAgent {mcp} />
 
   <!-- Ends the Detected providers section in the heading outline without a visible block. -->
   <h2 class="visually-hidden" data-testid="sources-inventory-title">All data sources</h2>

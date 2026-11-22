@@ -778,3 +778,40 @@ func TestDetectedVolumeMountsLinkedKey(t *testing.T) {
 	}
 	t.Error("expected the detected volume to mount linked.json")
 }
+
+// TestAuthEnvMCP: the dashboard serves /mcp only with a usable sign-in (token
+// sign-in, or an issuer with an exchange audience and a URL), the chart's rule,
+// so the operator never starts a dashboard that refuses --mcp.
+func TestAuthEnvMCP(t *testing.T) {
+	issuer := AuthConfig{MCP: true, IssuerURL: "https://idp", MCPExchangeAudience: "kube", MCPURL: "https://dash/mcp"}
+	for _, c := range []struct {
+		name string
+		auth AuthConfig
+		want map[string]string
+	}{
+		{"token login", AuthConfig{MCP: true, TokenLogin: true}, map[string]string{"PACTO_DASHBOARD_MCP": "true"}},
+		{"issuer, exchange audience and URL", issuer, map[string]string{"PACTO_DASHBOARD_MCP": "true",
+			"PACTO_DASHBOARD_MCP_URL": "https://dash/mcp", "PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE": "kube"}},
+		{"issuer without exchange audience", AuthConfig{MCP: true, IssuerURL: "https://idp", MCPURL: "https://dash/mcp"}, nil},
+		{"issuer and audience without URL", AuthConfig{MCP: true, IssuerURL: "https://idp", MCPExchangeAudience: "kube"}, nil},
+		{"anonymous only", AuthConfig{MCP: true, AllowAnonymous: true}, nil},
+		{"off", AuthConfig{TokenLogin: true, MCPURL: "https://dash/mcp"}, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := map[string]string{}
+			for _, e := range authEnv(Config{Auth: c.auth}) {
+				if strings.HasPrefix(*e.Name, "PACTO_DASHBOARD_MCP") {
+					got[*e.Name] = *e.Value
+				}
+			}
+			if len(got) != len(c.want) {
+				t.Fatalf("MCP env = %v, want %v", got, c.want)
+			}
+			for k, v := range c.want {
+				if got[k] != v {
+					t.Errorf("%s = %q, want %q", k, got[k], v)
+				}
+			}
+		})
+	}
+}

@@ -87,7 +87,9 @@ func parityViews(t *testing.T, d deps, home *rest.Config, entries []app.K8sEntry
 	base := baseDashboardIdentity(home, d, nil, delivery.PolicyNamespace)
 	_, err = mcpDeliveryReads(base, fm, "")(actFor(t, d), remoteCallerKey(alice))(aliceCtx, "inbox", nil)
 	expect(t, err == nil && viaReads != nil, "delivery reads: %v", err)
-	return map[string]*fleet.Query{"dashboard": dash, "mcp": viaMCP, "delivery reads": viaReads}
+	viaDashboardMCP, err := viewerFleetView(id.viewer)(aliceCtx, nil, q)
+	expect(t, err == nil, "dashboard mcp: %v", err)
+	return map[string]*fleet.Query{"dashboard": dash, "mcp": viaMCP, "delivery reads": viaReads, "dashboard mcp": viaDashboardMCP}
 }
 
 // TestViewerParityAcrossSurfaces: the dashboard, the HTTP MCP fleet tools and

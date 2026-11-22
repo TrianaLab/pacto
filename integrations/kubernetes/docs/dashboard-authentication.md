@@ -264,6 +264,24 @@ With no issuer either, the dashboard then refuses to start unless you also set
 everything its ServiceAccount reads, and the install notes warn about it
 ([without sign-in](dashboard-access.md#without-sign-in)).
 
+## MCP at /mcp
+
+The managed dashboard serves MCP to AI agents at `/mcp` with the same sign-in
+(`dashboard.mcp.enabled`, on by default; [connect an agent](../../mcp-integration.md#connect-to-an-installed-pacto)).
+Every request carries a bearer token:
+
+| Token | Checked by | The agent may |
+|---|---|---|
+| A person's own token (OIDC ID, EKS, GKE) | SelfSubjectReview; an accepted token never enters a TokenReview | Read the fleet and delivery as the person |
+| A ServiceAccount token for `pacto-dashboard` only | TokenReview for `pacto-dashboard` | Read the fleet as that ServiceAccount's RBAC allows |
+| A ServiceAccount token for `pacto-dashboard` and the cluster's audience | TokenReview and SelfSubjectReview | Also propose and cancel, as that ServiceAccount |
+| A token from the dashboard's issuer naming the MCP URL, with `dashboard.mcp.exchangeAudience` | The issuer's keys, then token exchange (RFC 8693); it never reaches the API server | Act as the exchanged identity |
+
+Nobody approves over MCP. Writes use the caller's own token, so admission
+records the ServiceAccount; nothing is impersonated. At most 8 reviews run
+at once; a verdict is kept up to 30 seconds and a refusal not at all.
+`profile: hardened` has no managed dashboard and so no `/mcp`.
+
 ## Bearer readers
 
 A server-side reader such as a Backstage backend may send

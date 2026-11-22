@@ -419,6 +419,9 @@ pacto dashboard [sources...] [flags]
       --fulcio-url string                 Fulcio to get the signing certificate from (default "https://fulcio.sigstore.dev")
   -h, --help[=true|false]                 help for dashboard
       --host string                       bind address for the dashboard server (default "127.0.0.1")
+      --mcp[=true|false]                  serve MCP to agents at /mcp with the dashboard's sign-in: a Kubernetes token (token sign-in) or, with --oidc-issuer-url and --mcp-exchange-audience, an issuer token exchanged for the cluster (also PACTO_DASHBOARD_MCP)
+      --mcp-exchange-audience string      the audience asked for when exchanging an issuer token, one the API server accepts; with it, every token from the dashboard's issuer must name the MCP URL as its audience; without it every token is checked as a Kubernetes token (also PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE)
+      --mcp-url string                    the /mcp URL as agents reach it, the RFC 9728 resource: absolute http(s), path exactly /mcp (no path prefix); empty: the request's own address, token sign-in only (also PACTO_DASHBOARD_MCP_URL)
       --mira-source stringArray           base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)
       --mira-url string                   Mira's address, to link health-check citations and open a service in Mira
       --namespace string                  Kubernetes namespaces to read, comma-separated (empty = all namespaces); delivery reads narrow to it only when it names one

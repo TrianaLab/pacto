@@ -32,6 +32,19 @@
       "description": "Bind address for the server",
       "type": "string"
     },
+    "PACTO_DASHBOARD_MCP": {
+      "default": false,
+      "description": "Serve MCP to agents at /mcp with the dashboard's sign-in: a Kubernetes token (token sign-in) or, with an issuer and PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE, an issuer token exchanged for the cluster",
+      "type": "boolean"
+    },
+    "PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE": {
+      "description": "The audience asked for when exchanging an issuer token, one the API server accepts. With it, every token from the dashboard's issuer must name the MCP URL as its audience; without it every token is checked as a Kubernetes token",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_MCP_URL": {
+      "description": "The /mcp URL as agents reach it (absolute http(s), path exactly /mcp), the RFC 9728 resource; empty: the request's own address, token sign-in only",
+      "type": "string"
+    },
     "PACTO_DASHBOARD_MIRA_URL": {
       "description": "Mira's address, to link health-check citations and open a service in Mira",
       "type": "string"

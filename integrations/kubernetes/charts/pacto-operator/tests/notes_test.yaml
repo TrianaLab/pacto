@@ -261,3 +261,86 @@ tests:
     asserts:
       - notMatchRegexRaw:
           pattern: "Profile (idp|hardened)"
+
+  - it: prints the MCP client snippet and the viewer token export by default
+    asserts:
+      - matchRegexRaw:
+          pattern: 'The dashboard also serves MCP at http://127\.0\.0\.1:3000/mcp:'
+      - matchRegexRaw:
+          pattern: 'export PACTO_TOKEN=\$\(kubectl -n pacto-operator-system create token pacto-viewer --audience pacto-dashboard --duration 1h\)'
+      - matchRegexRaw:
+          pattern: '\{ "mcpServers": \{ "pacto": \{ "type": "http", "url": "http://127\.0\.0\.1:3000/mcp",\s+"headers": \{ "Authorization": "Bearer \$\{PACTO_TOKEN\}" \} \} \} \}'
+      - matchRegexRaw:
+          pattern: 'An agent that proposes changes uses its own\s+ServiceAccount; see https://pacto\.run/latest/mcp-integration/#connect-to-an-installed-pacto'
+      - notMatchRegexRaw:
+          pattern: now also serves MCP
+
+  - it: prints the derived URL in the snippet
+    set:
+      dashboard.httpRoute.enabled: true
+      dashboard.httpRoute.hostnames: [dash.example]
+    asserts:
+      - matchRegexRaw:
+          pattern: '"url": "https://dash\.example/mcp"'
+
+  - it: prints no MCP item with dashboard.mcp.enabled false
+    set:
+      dashboard.mcp.enabled: false
+    asserts:
+      - notMatchRegexRaw:
+          pattern: 'MCP|PACTO_TOKEN'
+
+  - it: prints the URL and the issuer with an exchange audience and token sign-in off
+    set:
+      dashboard.auth.tokenSignIn.enabled: false
+      dashboard.auth.oidc: {issuerURL: https://idp.example, clientID: c, redirectURL: https://dash.example/auth/callback}
+      dashboard.mcp.url: https://dash.example/mcp
+      dashboard.mcp.exchangeAudience: kubernetes
+    asserts:
+      - matchRegexRaw:
+          pattern: 'serves MCP at https://dash\.example/mcp\.\s+Your MCP client signs in with https://idp\.example'
+      - notMatchRegexRaw:
+          pattern: PACTO_TOKEN
+
+  - it: says the dashboard now serves MCP on an upgrade from a dashboard without it
+    kubernetesProvider:
+      scheme:
+        "apps/v1/Deployment":
+          gvr: {group: apps, version: v1, resource: deployments}
+          namespaced: true
+      objects:
+        - kind: Deployment
+          apiVersion: apps/v1
+          metadata: {name: pacto-dashboard, namespace: pacto-operator-system}
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: dashboard
+                    env:
+                      - {name: PACTO_DASHBOARD_TOKEN_LOGIN, value: "true"}
+    asserts:
+      - matchRegexRaw:
+          pattern: 'The dashboard now also serves MCP to agents at /mcp\. To turn it off, set\s+dashboard\.mcp\.enabled=false\.'
+
+  - it: says nothing new on an upgrade from a dashboard that served MCP
+    kubernetesProvider:
+      scheme:
+        "apps/v1/Deployment":
+          gvr: {group: apps, version: v1, resource: deployments}
+          namespaced: true
+      objects:
+        - kind: Deployment
+          apiVersion: apps/v1
+          metadata: {name: pacto-dashboard, namespace: pacto-operator-system}
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: dashboard
+                    env:
+                      - {name: PACTO_DASHBOARD_TOKEN_LOGIN, value: "true"}
+                      - {name: PACTO_DASHBOARD_MCP, value: "true"}
+    asserts:
+      - notMatchRegexRaw:
+          pattern: now also serves MCP

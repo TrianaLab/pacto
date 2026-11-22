@@ -102,7 +102,8 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, ent
 		if oerr != nil {
 			return nil, oerr
 		}
-		review = authn.DashboardTokenReview(authn.AudienceReview(own, authn.DashboardAudience), bearer)
+		id.audience, id.bearer = authn.AudienceReview(own, authn.DashboardAudience), bearer
+		review = authn.DashboardTokenReview(id.audience, bearer)
 		t = authn.NewTokenLogin(review, life)
 	}
 	switch {

@@ -18,6 +18,8 @@
 #      dashboard resources.
 #   1b. install dashboard.enabled=true -> the dashboard asks people to sign in,
 #      and the link NOTES prints signs in as pacto-viewer, which reads the fleet.
+#   1c. the NOTES MCP snippet and token reach /mcp on the same port: fleet
+#      reads, no delivery tool, no approve tool, fleet-only capabilities.
 #   2. upgrade true -> false -> dashboard resources removed, operator stays Ready.
 #   3. upgrade false -> true -> dashboard resources created + Deployment Ready.
 #   4. uninstall (both modes) -> no operator/dashboard runtime resources.
@@ -151,8 +153,38 @@ out="$(dash_token_login 3000 "$(kubectl -n "$NS" create token pacto-viewer --dur
 if [ "${out%% *}" != 401 ] || ! grep -q -- '--audience pacto-dashboard' <<<"$out"; then
   fail "a pacto-viewer token minted for another audience signed in: $out"
 fi
-kill "$DASH_PF" 2>/dev/null || true
 pass "the dashboard asks people to sign in; the NOTES link signs in as pacto-viewer and reads the fleet; a token for another audience does not"
+
+echo
+echo "== SCENARIO 1c: connect an agent to /mcp with the NOTES token =="
+# Follow NOTES literally again, on 1b's port-forward: its export line and the
+# URL its .mcp.json snippet names.
+MCP="http://127.0.0.1:3000/mcp"
+grep -qF "\"url\": \"$MCP\"" <<<"$notes" || { echo "$notes" >&2; fail "NOTES print no MCP client snippet for $MCP"; }
+mcp_mint="$(grep -oE "export PACTO_TOKEN=\\\$\(kubectl -n $NS create token pacto-viewer --audience pacto-dashboard --duration 1h\)" <<<"$notes" | head -n 1)"
+[ -n "$mcp_mint" ] || { echo "$notes" >&2; fail "NOTES print no export PACTO_TOKEN line for pacto-viewer with the pacto-dashboard audience"; }
+mcp_mint="${mcp_mint#export PACTO_TOKEN=\$(}"
+read -ra mcp_cmd <<<"${mcp_mint%)}"
+PACTO_TOKEN="$("${mcp_cmd[@]}")"
+hdr="$(curl -s -D - -o /dev/null -X POST "$MCP" | tr -d '\r')"
+grep -q '^HTTP/[0-9.]* 401' <<<"$hdr" && grep -qi '^www-authenticate: Bearer .*resource_metadata=' <<<"$hdr" \
+  || fail "an MCP call without a token is not a 401 that names its metadata: $hdr"
+curl -fsS http://127.0.0.1:3000/.well-known/oauth-protected-resource/mcp | jq -e --arg r "$MCP" '.resource == $r' >/dev/null \
+  || fail "the protected-resource metadata does not name $MCP: $(curl -s http://127.0.0.1:3000/.well-known/oauth-protected-resource/mcp)"
+tools="$(mcp_rpc "$MCP" "$PACTO_TOKEN" tools/list '{}')"
+jq -e '[.result.tools[].name] | index("pacto_fleet_status") != null and (map(select(test("approve") or startswith("pacto_delivery_"))) == [])' <<<"$tools" >/dev/null \
+  || fail "the NOTES token's tools are not the fleet reads without delivery or approve: $tools"
+status="$(mcp_tool "$MCP" "$PACTO_TOKEN" pacto_fleet_status '{}')"
+grep -q '"asOf"' <<<"$status" && grep -q '"completeness"' <<<"$status" || fail "pacto_fleet_status has no asOf or completeness: $status"
+caps="$(mcp_tool "$MCP" "$PACTO_TOKEN" pacto_capabilities '{}')"
+jq -e '.caller.fleetOnly == true and (.caller.hint | contains("--audience pacto-dashboard")) and .installation.mcp.served == true' <<<"$caps" >/dev/null \
+  || fail "pacto_capabilities does not say the NOTES token reads the fleet only on a served MCP endpoint: $caps"
+other="$(kubectl -n "$NS" create token pacto-viewer --duration 10m)"
+[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $other" -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' "$MCP")" = 401 ] \
+  || fail "a pacto-viewer token minted for another audience reached /mcp"
+kill "$DASH_PF" 2>/dev/null || true
+pass "/mcp asks for a token and names its metadata; the NOTES token lists the fleet reads, no delivery and no approve, and is fleet-only; a token for another audience is refused"
 
 echo
 echo "== SCENARIO 2: upgrade dashboard true -> false removes the dashboard, operator stays Ready =="
@@ -167,6 +199,7 @@ wait_gone serviceaccount pacto-viewer -n "$NS"
 wait_gone clusterrolebinding "pacto-operator-${NS}-dashboard-tokenreview"
 wait_gone clusterrolebinding pacto-operator-viewer
 assert_no_dashboard
+echo "  /mcp went with the dashboard: it is served by the dashboard process behind the Service just removed"
 
 echo
 echo "== SCENARIO 3: upgrade dashboard false -> true recreates the dashboard =="

@@ -244,6 +244,26 @@ test.describe('the inventory says what Pacto detected', () => {
     expect(Object.fromEntries(sources.filter((s) => s.egress).map((s) => [s.type, s.coverage]))).toEqual(EGRESS_ROWS);
   });
 
+  test('Connect an agent says the demo serves no MCP endpoint and opens with the keyboard', async ({ page }) => {
+    await boot(page, '#/fleet/sources');
+    const line = page.getByTestId('connect-agent');
+    await expect(line).toHaveCount(1);
+    await expect(line).not.toHaveAttribute('open', '');
+    const summary = line.locator('summary');
+    await expect(summary).toHaveText('Connect an agent');
+    await summary.focus();
+    await page.keyboard.press('Enter');
+    await expect(line).toHaveAttribute('open', '');
+    await expect(line.getByTestId('connect-agent-source')).toHaveText('This demo runs in your browser and serves no MCP endpoint. An installed Pacto serves it at /mcp.');
+    await expect(line.getByRole('link', { name: 'Connect an agent over MCP' })).toHaveAttribute('href', 'https://pacto.run/latest/mcp-integration/');
+    // It sits right after Detected providers, and the page gained no other disclosure block.
+    const after = await page.evaluate(() => {
+      const dp = document.querySelector('[data-testid="detected-providers"]'), ca = document.querySelector('[data-testid="connect-agent"]');
+      return !!(dp && ca && dp.compareDocumentPosition(ca) & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    expect(after).toBe(true);
+  });
+
   test('the Argo CD row offers the sync gate in one muted line', async ({ page }) => {
     await boot(page, '#/fleet/sources');
     const block = page.getByTestId('detected-providers');

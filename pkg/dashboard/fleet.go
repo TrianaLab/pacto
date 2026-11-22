@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -100,10 +101,11 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 
 // installationInput is what this dashboard knows for capabilities.installation:
 // the operator's configuration and its raw delivery probe, asked in every auth
-// mode that serves delivery (open identifies nobody, so it serves none). It
-// serves no /mcp endpoint.
+// mode that serves delivery (open identifies nobody, so it serves none), and
+// whether the host serves MCP beside it.
 func (s *Server) installationInput(ctx context.Context, mode string) fleet.InstallationInput {
-	in := fleet.InstallationInput{DeliveryWired: s.opts.Delivery != nil && mode != "open", MCPSource: "this dashboard serves no /mcp endpoint", Now: time.Now().UTC()}
+	in := fleet.InstallationInput{DeliveryWired: s.opts.Delivery != nil && mode != "open", MCPServed: s.opts.MCPServed,
+		MCPSource: cmp.Or(s.opts.MCPSource, "this dashboard serves no /mcp endpoint"), Now: time.Now().UTC()}
 	if cfg := s.opts.InstallationConfig; cfg != nil {
 		d, st := cfg(ctx)
 		in.Declared, in.DeclaredState = d, &st

@@ -524,6 +524,7 @@
       offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''}
+      mcp={capabilities?.installation?.mcp}
       {refreshTick}
     />
   {:else if route.view === 'fleet-entity-list'}

@@ -20,6 +20,7 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/authn"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/capability"
 	"github.com/trianalab/pacto/v4/pkg/catalog"
@@ -703,14 +704,30 @@ func mcpFleetView(cmd *cobra.Command, svc *app.Service, d deps) (pactomcp.FleetV
 	home := newHomeCluster(cluster, d)
 	fopts := mcpFleetOptions(cmd)
 	_, _ = fmt.Fprint(cmd.ErrOrStderr(), mcpSignInLine(fopts))
-	viewer := clusterViewer(fleetEntries(svc, d, fopts), home, d, mode, namespaces)
+	return viewerFleetView(clusterViewer(fleetEntries(svc, d, fopts), home, d, mode, namespaces)), home.UID
+}
+
+// viewerFleetView narrows each request's fleet to what v lets the caller the
+// apiserver (or the token review) named for it read; an unnamed request reads
+// nothing.
+func viewerFleetView(v *authn.Viewer) pactomcp.FleetView {
 	return func(ctx context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
 		p, ok := personFrom(ctx)
 		if !ok {
 			return nil, errNobodyReviewed
 		}
-		return viewer.Query(ctx, p, q)
-	}, home.UID
+		return v.Query(ctx, p, q)
+	}
+}
+
+// remoteAuthoring is the contract tools of an HTTP server whose callers the
+// apiserver names: pacto_schema, and pacto_declare planning only in the
+// registries ociRefs name. Every HTTP authoring tool is set here, so both
+// remote servers (pacto mcp -t http and the dashboard's /mcp) register it.
+func remoteAuthoring(svc *app.Service, ociRefs []string, fleet *pactomcp.FleetMode, registry string, push gcrauthn.Keychain) pactomcp.Authoring {
+	rd := newRemoteDeclarer(svc, ociRefs, fleet)
+	rd.registry, rd.push = registry, push
+	return pactomcp.Authoring{Validate: svc.ValidationReport, Remote: true, Declare: rd}
 }
 
 // mcpSignInLine names the cluster an MCP server signs callers in against:

@@ -28,6 +28,14 @@ type Modes struct {
 	// Transport is how the server answers (stdio or http), as
 	// pacto_capabilities reports it.
 	Transport string
+	// FleetOnlyHint, when set, is a server for callers whose token reads the
+	// fleet only: pacto_capabilities says so and how to get more. Empty for
+	// every server whose callers hold a credential.
+	FleetOnlyHint string
+	// DeliveryHidden: the host serves delivery, but not to this server's
+	// callers (a fleet-only server), so installation does not read it as
+	// absent.
+	DeliveryHidden bool
 	// publish is set by NewPublishServer, the one server that serves it.
 	publish bool
 }

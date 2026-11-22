@@ -116,7 +116,7 @@ OPERATOR_IDENTITY := -s templates/serviceaccount.yaml -s templates/clusterrole.y
 	-s templates/role.yaml -s templates/leader-election-role.yaml
 
 .PHONY: helm-golden
-helm-golden: ## Prove the default render is unchanged and delivery leaves the operator's RBAC alone.
+helm-golden: ## Prove the default render is unchanged and delivery and MCP leave the operator's RBAC alone.
 	@echo "==> Checking the default render against the golden..."
 	@# -B: Helm 4.3 puts a blank line before each document separator and 4.0 does not;
 	@# a blank line means nothing in YAML, and every other change still fails.
@@ -126,6 +126,9 @@ helm-golden: ## Prove the default render is unchanged and delivery leaves the op
 	@diff -u <(helm template pacto-operator charts/pacto-operator $(OPERATOR_IDENTITY)) \
 		<(helm template pacto-operator charts/pacto-operator $(OPERATOR_IDENTITY) --set delivery.enabled=true \
 			--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy)
+	@echo "==> Checking dashboard.mcp.enabled leaves the operator's ServiceAccount, RBAC and sign-in grants unchanged..."
+	@diff -u <(helm template pacto-operator charts/pacto-operator $(OPERATOR_IDENTITY) -s templates/dashboard-signin.yaml) \
+		<(helm template pacto-operator charts/pacto-operator $(OPERATOR_IDENTITY) -s templates/dashboard-signin.yaml --set dashboard.mcp.enabled=false)
 
 .PHONY: helm-golden-update
 helm-golden-update: ## Rewrite the default-render golden.

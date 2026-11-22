@@ -43,6 +43,11 @@ turns on. The `pacto-viewer` link the install notes print reads the fleet
 only. To approve, paste your own token or use `pacto delivery approve`
 ([approve or unblock a change](../../pactify-decide.md)).
 
+## Connect an agent
+
+The install notes also print an MCP client snippet for the dashboard's `/mcp`
+on the same port-forward. See [connect to an installed Pacto](../../mcp-integration.md#connect-to-an-installed-pacto).
+
 ## Health and metrics checks
 
 The profile sets `profile: idp`, which turns probing and metrics observation on

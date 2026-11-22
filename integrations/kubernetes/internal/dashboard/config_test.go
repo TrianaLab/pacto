@@ -55,6 +55,37 @@ func TestConfigValidate(t *testing.T) {
 			errMsg:  "not both",
 		},
 		{
+			name: "an MCP URL whose path is not /mcp fails",
+			cfg: Config{Enabled: true, Image: "ghcr.io/trianalab/pacto/dashboard:0.24.2", Namespace: "ns",
+				Auth: AuthConfig{TokenLogin: true, MCP: true, MCPURL: "https://h/prefix/mcp"}},
+			wantErr: true,
+			errMsg:  "whose path is /mcp",
+		},
+		{
+			name: "an MCP exchange audience without an issuer fails",
+			cfg: Config{Enabled: true, Image: "ghcr.io/trianalab/pacto/dashboard:0.24.2", Namespace: "ns",
+				Auth: AuthConfig{TokenLogin: true, MCP: true, MCPExchangeAudience: "k8s", MCPURL: "https://h/mcp"}},
+			wantErr: true,
+			errMsg:  "needs --dashboard-oidc-issuer-url and --dashboard-mcp-url",
+		},
+		{
+			name: "an MCP exchange audience without a URL fails",
+			cfg: Config{Enabled: true, Image: "ghcr.io/trianalab/pacto/dashboard:0.24.2", Namespace: "ns",
+				Auth: AuthConfig{IssuerURL: "https://idp", ClientID: "c", RedirectURL: "https://d/cb", TokenLogin: true, MCP: true, MCPExchangeAudience: "k8s"}},
+			wantErr: true,
+			errMsg:  "needs --dashboard-oidc-issuer-url and --dashboard-mcp-url",
+		},
+		{
+			name: "MCP with an exchange audience, an issuer and a /mcp URL succeeds",
+			cfg: Config{Enabled: true, Image: "ghcr.io/trianalab/pacto/dashboard:0.24.2", Namespace: "ns",
+				Auth: AuthConfig{IssuerURL: "https://idp", ClientID: "c", RedirectURL: "https://d/cb", TokenLogin: true, MCP: true, MCPExchangeAudience: "k8s", MCPURL: "https://h/mcp"}},
+		},
+		{
+			name: "MCP off ignores its other flags",
+			cfg: Config{Enabled: true, Image: "ghcr.io/trianalab/pacto/dashboard:0.24.2", Namespace: "ns",
+				Auth: AuthConfig{TokenLogin: true, MCPExchangeAudience: "k8s", MCPURL: "https://h/prefix/mcp"}},
+		},
+		{
 			name: "sign-in fully configured succeeds",
 			cfg: Config{Enabled: true, Image: "ghcr.io/trianalab/pacto/dashboard:0.24.2", Namespace: "ns",
 				Auth: AuthConfig{IssuerURL: "https://idp", ClientID: "c", RedirectURL: "https://d/cb"}},

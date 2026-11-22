@@ -288,6 +288,13 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.BoolVar(&o.dashboardAuth.AllowAnonymous, "dashboard-allow-anonymous", false,
 		"Serve the dashboard without sign-in when neither an issuer nor token sign-in is set; "+
 			"everyone who reaches it reads what its ServiceAccount reads.")
+	fs.BoolVar(&o.dashboardAuth.MCP, "dashboard-mcp", false,
+		"Serve MCP to agents at /mcp on the managed dashboard, with its sign-in.")
+	fs.StringVar(&o.dashboardAuth.MCPURL, "dashboard-mcp-url", "",
+		"The dashboard's /mcp URL as agents reach it (empty: the address the agent used).")
+	fs.StringVar(&o.dashboardAuth.MCPExchangeAudience, "dashboard-mcp-exchange-audience", "",
+		"With an issuer, the audience an agent's issuer token is exchanged for, one the API server accepts; "+
+			"needs --dashboard-mcp-url.")
 	fs.StringVar(&o.dashboardDeliveryNS, "dashboard-delivery-namespace", "",
 		"Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; "+
 			"empty means pacto-delivery.")
