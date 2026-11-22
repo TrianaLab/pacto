@@ -32,6 +32,8 @@ func TestImpactExternalExclusive(t *testing.T) {
 		{map[string]any{"event": "removed", "external": "stripe"}, "not yours to remove or regress"},
 		{map[string]any{"event": "regressed", "external": "stripe", "revision": "1.0.0"}, "not yours to remove or regress"},
 		{map[string]any{"event": "changed", "external": "Stripe"}, "pacto fleet search"},
+		{map[string]any{"event": "regressed", "external": "stripe"}, "not yours to remove or regress"},
+		{map[string]any{"event": "changed", "external": "stripe", "traces": "/tmp/t.json"}, "traces are read for service events"},
 		{map[string]any{"external": "stripe"}, "pass either old_ref and new_ref, or event and service (or offering, or external)"},
 	} {
 		res := callHandler(t, impactTool(), impactHandler(stubImpact(&impact.Result{}, nil, nil), nil), tc.args)

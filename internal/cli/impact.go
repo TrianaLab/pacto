@@ -60,10 +60,11 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 			"when a cluster is reachable.\n\n" +
 			"--changed external:<identity> and --unavailable external:<identity> ask what a change or an outage of an external " +
 			"system, such as a vendor API nobody here controls, does to every service that uses it. Each consumer row says where " +
-			"the use was seen (declared, observed, pod-spec or repository), the client major its record names (always possible) and " +
+			"the use was seen (declared, observed, inferred, pod-spec or repository), the client major its record names (always possible) and " +
 			"the range it pins. A change puts every consumer in attention; an outage breaks a declared required use, may degrade " +
 			"a declared optional one and is unknown for the rest. The gate is always unverified (exit 2): an external system is " +
-			"never verified. When a consumer pins no range, the answer ends with the dependencies block that pins one.\n\n" +
+			"never verified. When a consumer pins no range, the answer ends with the dependencies block that pins one on its inferred " +
+			"contract, or declares the external system when it has none.\n\n" +
 			"The answer ends in a release gate, and the exit status follows it:\n" +
 			"  0  clear: the change is not BREAKING and every service that references its policy passes the new policy, " +
 			"or the snapshot is complete and no service depends on the changed one.\n" +
@@ -208,7 +209,7 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 	cmd.Flags().Bool("include-observed", false, "let observed (runtime) relationships raise consumer confidence")
 	// Declared before the shared set so this narrowing wins: impact takes ONE
 	// trace document and reads it itself (see divergentFleetFlagTypes).
-	cmd.Flags().String("traces", "", "OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)")
+	cmd.Flags().String("traces", "", "OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed); refused with external:<identity>")
 	// Every other fleet source flag, from the one declaration `pacto fleet` uses.
 	addFleetSourceFlags(cmd.Flags())
 	addStatsFlags(cmd)

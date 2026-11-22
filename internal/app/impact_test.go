@@ -704,6 +704,16 @@ func TestImpactEventOnReplacedKeyDisclosesAlias(t *testing.T) {
 	}
 }
 
+// TestImpactEventExternalRefusesTraces: the external answer never reads a
+// trace file, so one is refused instead of silently dropped.
+func TestImpactEventExternalRefusesTraces(t *testing.T) {
+	_, err := NewService(nil, nil).ImpactEventOnSnapshot(context.Background(),
+		ImpactEventOptions{Event: impact.Event{Kind: impact.EventChanged, External: "stripe"}, Traces: []byte("{}")}, &fleet.FleetSnapshot{})
+	if !errors.Is(err, ErrTracesWithExternal) {
+		t.Errorf("err = %v", err)
+	}
+}
+
 // TestParseEventFlagExternal: external:<identity> names an external system
 // for changed and unavailable, as written; removing or regressing one, a
 // changed service and an identity Pacto would rewrite are refused.

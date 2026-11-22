@@ -74,9 +74,9 @@ func impactTool() *mcpsdk.Tool {
 			"'service' then holds the offering's name, the same as 'event.offering'. " +
 			"Pass 'external' (an external system's identity, such as stripe) instead of 'service' with event changed or unavailable " +
 			"to ask what a change or an outage of a system nobody here controls does to every service that uses it: consumers carry " +
-			"'sources' (declared, observed, pod-spec, repository) and 'client' (the client library major, always possible), a changed " +
+			"'sources' (declared, observed, inferred, pod-spec, repository) and 'client' (the client library major, always possible), a changed " +
 			"answer gives every consumer the effect attention, 'external' names the system and the change of its inferred contract, " +
-			"'pin' is the dependencies YAML that pins a range on it, and the gate is always unverified. " +
+			"'pin' is the dependencies YAML that pins a range on its inferred contract, or declares it when no inferred contract exists, and the gate is always unverified. " +
 			"Pass 'running' with new_ref and no old_ref to judge new_ref against the revisions of its service that run on known targets " +
 			"('running' in the answer names them, the one judged and the ones Pacto could not read, which never let the gate clear); " +
 			"a running revision whose digest is new_ref's is left out of the baseline and listed in 'running.excluded'; " +
@@ -86,7 +86,7 @@ func impactTool() *mcpsdk.Tool {
 			"old_ref":          {Type: "string", Description: "Old contract revision: a local directory or oci:// ref over stdio, an oci:// ref of a revision in your fleet view over HTTP"},
 			"new_ref":          {Type: "string", Description: "New contract revision: a local directory or oci:// ref over stdio, an oci:// ref of a revision in your fleet view over HTTP"},
 			"include_observed": {Type: "boolean", Description: "Let observed (runtime) relationships raise consumer confidence; with old_ref and new_ref only, since an event always reads observed callers"},
-			"traces":           {Type: "string", Description: "Path to an OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies include_observed)"},
+			"traces":           {Type: "string", Description: "Path to an OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies include_observed); not read with 'external'"},
 			"event":            {Type: "string", Description: "What happens to 'service' instead of a contract change; changed only with 'external'", Enum: impactEvents},
 			"service":          {Type: "string", Description: "The fleet service key the event is about"},
 			"offering":         {Type: "string", Description: "A platform offering instead of 'service': the event is about every provider of it; unavailable or removed only"},
@@ -170,6 +170,8 @@ func (a impactArgs) eventErr() error {
 		return errors.New("a regressed event names one 'service': a regression belongs to one revision")
 	case !slices.Contains(impactEvents, a.Event):
 		return errors.New("event is one of unavailable, removed, regressed or changed")
+	case a.External != "" && (a.Event == impact.EventRemoved || a.Event == impact.EventRegressed):
+		return errExternalNotYours
 	case a.Event == impact.EventRegressed && a.Revision == "":
 		return errors.New("a regressed event names its 'revision'")
 	case a.Revision != "" && a.Event != impact.EventRegressed:
@@ -179,6 +181,8 @@ func (a impactArgs) eventErr() error {
 	}
 	return a.externalErr()
 }
+
+var errExternalNotYours = errors.New("an external system is not yours to remove or regress; ask unavailable or changed")
 
 // externalErr checks the external system of an event: changed needs one,
 // removed and regressed refuse one, and its identity is read as written
@@ -191,7 +195,9 @@ func (a impactArgs) externalErr() error {
 	case a.External == "":
 		return nil
 	case a.Event == impact.EventRemoved || a.Event == impact.EventRegressed:
-		return errors.New("an external system is not yours to remove or regress; ask unavailable or changed")
+		return errExternalNotYours
+	case a.Traces != "":
+		return errors.New("traces are read for service events; an external answer reads the observed egress of the fleet's own sources")
 	}
 	if _, err := externalid.Parse(a.External); err != nil {
 		return fmt.Errorf("%w; find its identity with pacto_fleet_search (pacto fleet search)", err)

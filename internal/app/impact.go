@@ -437,6 +437,10 @@ type ImpactEventOptions struct {
 	ReadRegression func(ctx context.Context, ev impact.Event) *impact.Regression
 }
 
+// ErrTracesWithExternal refuses a trace file with an external subject: the
+// external answer never reads it.
+var ErrTracesWithExternal = errors.New("traces are read for service events; an external answer reads the observed egress of the fleet's own sources")
+
 // ImpactEvent builds a fleet snapshot from the configured sources and
 // answers the event over it (see [Service.ImpactEventOnSnapshot]).
 func (s *Service) ImpactEvent(ctx context.Context, opts ImpactEventOptions) (*impact.Result, error) {
@@ -454,6 +458,9 @@ func (s *Service) ImpactEvent(ctx context.Context, opts ImpactEventOptions) (*im
 // does not hold answers SERVICE_NOT_IN_FLEET, and the key of a replaced
 // inferred service answers for its successor with SUBJECT_REPLACED.
 func (s *Service) ImpactEventOnSnapshot(ctx context.Context, opts ImpactEventOptions, snap *fleet.FleetSnapshot) (*impact.Result, error) {
+	if opts.Event.External != "" && len(opts.Traces) > 0 {
+		return nil, ErrTracesWithExternal
+	}
 	observed, err := observedEdgesFromTraces(opts.Traces)
 	if err != nil {
 		return nil, fmt.Errorf("parse traces: %w", err)
