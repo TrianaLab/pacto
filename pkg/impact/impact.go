@@ -772,10 +772,11 @@ func (r *Result) noteUnchecked(snap *fleet.FleetSnapshot) {
 }
 
 // indexSource is the first source of snap that read an organization index,
-// nil when none did.
+// nil when none did. An advisory index source (what the whole-index read
+// left unread) lists no service of its own.
 func indexSource(snap *fleet.FleetSnapshot) *fleet.SourceState {
 	i := slices.IndexFunc(snap.Sources, func(s fleet.SourceState) bool {
-		return s.Kind == indexSourceKind && s.Status != fleet.SourceUnavailable
+		return s.Kind == indexSourceKind && s.Status != fleet.SourceUnavailable && !s.Advisory
 	})
 	if i < 0 {
 		return nil

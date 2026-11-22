@@ -262,6 +262,8 @@ func TestNoteUncheckedOverIndexKindSource(t *testing.T) {
 		{"index alone", []fleet.Source{fleet.NewMemorySource("registry-index", "index", col)}, true},
 		{"with a target snapshot", []fleet.Source{fleet.NewMemorySource("registry-index", "index", col), live}, false},
 		{"unavailable index", []fleet.Source{fleet.NewMemorySource("oci", "oci", col), fleet.NewFailingSource("registry-index", "index", errors.New("down"))}, false},
+		{"unavailable index, advisory companion", []fleet.Source{fleet.NewMemorySource("oci", "oci", col), fleet.NewFailingSource("registry-index", "index", errors.New("down")),
+			fleet.NewMemorySource("registry-index-inferred", "index", &fleet.Collection{Advisory: true})}, false},
 	} {
 		snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, c.srcs...)
 		if err != nil {
