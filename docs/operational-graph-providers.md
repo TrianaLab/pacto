@@ -186,15 +186,17 @@ view clears the evidence, hint and details of a row that names a namespace
 you cannot read, or of a cluster-wide row when you cannot read the cluster
 scope.
 
-The **Applier** row (`applier`) appears only when the cluster serves neither
-`kustomize.toolkit.fluxcd.io/v1` nor `argoproj.io/v1alpha1`: it reads
+The **Applier** row (`applier`) appears only when the cluster serves none of
+`kustomize.toolkit.fluxcd.io/v1`, `helm.toolkit.fluxcd.io/v2` and
+`argoproj.io/v1alpha1`: it reads
 `none found`, since nothing would apply what Pacto delivery promotes. A failed
 discovery reads `unavailable`, never `none found`. Where Flux or Argo CD is
 served, their own rows speak. Under profile idp without hardened, its hint
-proposes one value of the Pacto release you run, and nothing else:
+proposes one value of the Pacto release you run, at the chart version it
+runs, and nothing else:
 
 ```text
-Set idp.flux.install=true on this Pacto release: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator -n <namespace> --reset-then-reuse-values --set idp.flux.install=true
+Set idp.flux.install=true on this Pacto release, at the chart version it runs: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator --version <version> -n <namespace> --reset-then-reuse-values --set idp.flux.install=true
 ```
 
 Every reader shows this text from Pacto itself, whatever the detected row

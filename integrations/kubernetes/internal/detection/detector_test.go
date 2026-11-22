@@ -733,11 +733,13 @@ func TestDetectorEgressAPIServedAfterStartPartial(t *testing.T) {
 // when neither GitOps engine API is served, proposes the Flux install only
 // under idp, and reads unknown when discovery failed.
 func TestDetectorAppendsApplierOnlyWithoutEngine(t *testing.T) {
-	served := func(flux, argo bool, err error) func(string) (bool, error) {
+	served := func(flux, argo bool, err error, helm ...bool) func(string) (bool, error) {
 		return func(gv string) (bool, error) {
 			switch gv {
 			case "kustomize.toolkit.fluxcd.io/v1":
 				return flux, err
+			case "helm.toolkit.fluxcd.io/v2":
+				return len(helm) > 0 && helm[0], nil
 			case "argoproj.io/v1alpha1":
 				return argo, nil
 			}
@@ -754,7 +756,8 @@ func TestDetectorAppendsApplierOnlyWithoutEngine(t *testing.T) {
 		_, res := readResult(t, c)
 		return res
 	}
-	for name, fn := range map[string]func(string) (bool, error){"flux": served(true, false, nil), "argo": served(false, true, nil)} {
+	for name, fn := range map[string]func(string) (bool, error){"flux": served(true, false, nil), "argo": served(false, true, nil),
+		"flux helm-controller only": served(false, false, nil, true)} {
 		if slices.ContainsFunc(run(fn, "idp").Entries, func(e detect.Entry) bool { return e.Kind == "applier" }) {
 			t.Errorf("%s served, still an applier entry", name)
 		}

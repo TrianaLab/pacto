@@ -50,7 +50,7 @@ func TestApplierDiscoveryFailedIsUnknown(t *testing.T) {
 
 func TestFluxInstallHintIsAPactoValue(t *testing.T) {
 	h := FluxInstallHint
-	for _, want := range []string{"--reset-then-reuse-values", "--set idp.flux.install=true", "oci://ghcr.io/trianalab/pacto/charts/pacto-operator"} {
+	for _, want := range []string{"--reset-then-reuse-values", "--set idp.flux.install=true", "--version <version>", "oci://ghcr.io/trianalab/pacto/charts/pacto-operator"} {
 		if !strings.Contains(h, want) {
 			t.Errorf("hint misses %q: %s", want, h)
 		}

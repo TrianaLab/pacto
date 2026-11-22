@@ -99,7 +99,7 @@ tests:
       profile: idp
     asserts:
       - matchRegexRaw:
-          pattern: 'No GitOps engine found\. To deliver through upstream Flux packaged with Pacto:\nSet idp\.flux\.install=true on this Pacto release: helm upgrade <release> oci://ghcr\.io/trianalab/pacto/charts/pacto-operator -n <namespace> --reset-then-reuse-values --set idp\.flux\.install=true\n'
+          pattern: 'No GitOps engine found\. To deliver through upstream Flux packaged with Pacto:\nSet idp\.flux\.install=true on this Pacto release, at the chart version it runs: helm upgrade <release> oci://ghcr\.io/trianalab/pacto/charts/pacto-operator --version <version> -n <namespace> --reset-then-reuse-values --set idp\.flux\.install=true\n'
 
   - it: NOTES offers no Flux under idp when Flux is served
     set:
@@ -108,6 +108,17 @@ tests:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
         - kustomize.toolkit.fluxcd.io/v1
+    asserts:
+      - notMatchRegexRaw:
+          pattern: No GitOps engine found
+
+  - it: NOTES offers no Flux under idp when only Flux helm-controller is served
+    set:
+      profile: idp
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - helm.toolkit.fluxcd.io/v2
     asserts:
       - notMatchRegexRaw:
           pattern: No GitOps engine found

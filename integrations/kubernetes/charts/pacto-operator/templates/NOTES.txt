@@ -120,10 +120,10 @@ It adds the cluster-wide read of ServiceMonitors and PodMonitors and Pacto
 delivery's cluster roles.
 {{- end }}
 {{- /* The text after the first line is detect.FluxInstallHint, verbatim. */}}
-{{- if not (or (dig "idp" "flux" "install" false .Values.AsMap) (.Capabilities.APIVersions.Has "kustomize.toolkit.fluxcd.io/v1") (.Capabilities.APIVersions.Has "argoproj.io/v1alpha1")) }}
+{{- if not (or (dig "idp" "flux" "install" false .Values.AsMap) (.Capabilities.APIVersions.Has "kustomize.toolkit.fluxcd.io/v1") (.Capabilities.APIVersions.Has "helm.toolkit.fluxcd.io/v2") (.Capabilities.APIVersions.Has "argoproj.io/v1alpha1")) }}
 
 No GitOps engine found. To deliver through upstream Flux packaged with Pacto:
-Set idp.flux.install=true on this Pacto release: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator -n <namespace> --reset-then-reuse-values --set idp.flux.install=true
+Set idp.flux.install=true on this Pacto release, at the chart version it runs: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator --version <version> -n <namespace> --reset-then-reuse-values --set idp.flux.install=true
 {{- end }}
 {{- /* lookup is empty under helm template and a dry-run, so the refusal of a
 foreign Flux was skipped: say so. */}}

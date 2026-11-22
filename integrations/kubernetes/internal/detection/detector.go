@@ -50,6 +50,7 @@ const (
 	istioGV      = "networking.istio.io/v1"
 	ciliumGV     = "cilium.io/v2"
 	fluxGV       = "kustomize.toolkit.fluxcd.io/v1"
+	fluxHelmGV   = "helm.toolkit.fluxcd.io/v2"
 	argoGV       = "argoproj.io/v1alpha1"
 )
 
@@ -220,10 +221,13 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 	ingresses, err := d.ingresses(ctx)
 	res.Entries = append(res.Entries, sampledEntry(detect.Exposure(gwServed, classed(errors.Join(gwErr, err)), routes, ingresses, watched), scoped, scopedReason))
 
+	// A Flux with helm-controller and no kustomize-controller still applies
+	// what Pacto promotes through a HelmRelease.
 	fluxServed, fluxErr := d.Served(fluxGV)
+	helmServed, helmErr := d.Served(fluxHelmGV)
 	argoServed, argoErr := d.Served(argoGV)
 	idp := d.Installation != nil && detect.IDPProfile(d.Installation.Profile)
-	if e, ok := detect.Applier(fluxServed, argoServed, classed(errors.Join(fluxErr, argoErr)), idp); ok {
+	if e, ok := detect.Applier(fluxServed || helmServed, argoServed, classed(errors.Join(fluxErr, helmErr, argoErr)), idp); ok {
 		res.Entries = append(res.Entries, e)
 	}
 

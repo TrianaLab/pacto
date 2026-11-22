@@ -132,7 +132,7 @@ Under `profile: idp` delivery is on. Where no GitOps engine runs, the Applier
 row on Data sources proposes one value of your Pacto release:
 
 ```text
-Set idp.flux.install=true on this Pacto release: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator -n <namespace> --reset-then-reuse-values --set idp.flux.install=true
+Set idp.flux.install=true on this Pacto release, at the chart version it runs: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator --version <version> -n <namespace> --reset-then-reuse-values --set idp.flux.install=true
 ```
 
 The chart then installs upstream Flux 2.10.1 and upgrades it with the release;
