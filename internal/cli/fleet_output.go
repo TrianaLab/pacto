@@ -138,8 +138,16 @@ func printServiceTargets(w io.Writer, targets []*fleet.TargetRecord) {
 	}
 	_, _ = fmt.Fprintf(w, "Targets (%d):\n", len(targets))
 	for _, t := range targets {
-		_, _ = fmt.Fprintf(w, "  %s  compliance=%s stale=%t\n", t.Key, t.Compliance, t.Stale)
+		_, _ = fmt.Fprintf(w, "  %s  compliance=%s stale=%t%s\n", t.Key, t.Compliance, t.Stale, linkedMark(t.Link))
 	}
+}
+
+// linkedMark names how a target was linked with no Pacto, or nothing.
+func linkedMark(l *fleet.ObservedLink) string {
+	if l == nil {
+		return ""
+	}
+	return " (observed: " + strings.ReplaceAll(l.Signal, "-", " ") + ")"
 }
 
 func printServiceEdges(w io.Writer, sv *fleet.ServiceView) {
@@ -291,6 +299,9 @@ func printFleetTarget(cmd *cobra.Command, tv *fleet.TargetView, format string) e
 			rev += " (" + t.RevisionMatch + ")"
 		}
 		_, _ = fmt.Fprintf(w, "Revision: %s\n", rev)
+		if t.Link != nil {
+			_, _ = fmt.Fprintf(w, "Linked: %s\n", t.Link.Line(tv.Meta.AsOf))
+		}
 		_, _ = fmt.Fprintf(w, "Stale: %t\n", t.Stale)
 		if t.Coverage != nil {
 			_, _ = fmt.Fprintf(w, "Coverage: %d/%d evaluated\n", t.Coverage.Evaluated, t.Coverage.Required)

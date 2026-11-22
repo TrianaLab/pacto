@@ -191,6 +191,9 @@ describe('sourceTooltip', () => {
   it('names cluster detection', () => {
     expect(sourceTooltip('detection')).toContain('Cluster detection');
   });
+  it('names the linked-workload reader', () => {
+    expect(sourceTooltip('kubernetes-linked')).toBe('Linked workloads — workloads the operator linked to a published contract with no Pacto');
+  });
   it('returns description for known sources', () => {
     expect(sourceTooltip('kubernetes')).toContain('Kubernetes');
     expect(sourceTooltip('oci')).toContain('OCI');

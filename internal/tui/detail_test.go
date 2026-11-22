@@ -325,7 +325,7 @@ func TestRenderTargetDetailWithAllFields(t *testing.T) {
 			Items: []fleet.ProductFinding{{Severity: "warning", Message: "test warning"}},
 		},
 	}
-	renderTargetDetail(&b, tgt)
+	renderTargetDetail(&b, tgt, time.Time{})
 	out := b.String()
 	if !strings.Contains(out, "svc-1") || !strings.Contains(out, "exact") {
 		t.Fatalf("missing expected content:\n%s", out)
@@ -468,7 +468,7 @@ func TestRenderTargetWithTruncatedRuntime(t *testing.T) {
 			Truncated: true,
 		},
 	}
-	renderTargetDetail(&b, t2)
+	renderTargetDetail(&b, t2, time.Time{})
 	out := b.String()
 	if !strings.Contains(out, "truncated") || !strings.Contains(out, "and 9 more") {
 		t.Fatalf("missing truncation indicators:\n%s", out)
@@ -886,5 +886,24 @@ func TestTUIExternalProvider(t *testing.T) {
 	rec.Provider = nil
 	if out := renderDetail(&fleet.EntityDetail{External: &fleet.ExternalDetailData{External: rec}}); strings.Contains(out, "Inferred contract") {
 		t.Errorf("no provider still shows the block:\n%s", out)
+	}
+}
+
+// A target the operator linked with no Pacto says how, on its detail page.
+func TestRenderTargetDetailLink(t *testing.T) {
+	asOf := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	since := asOf.Add(-3 * time.Minute)
+	var b strings.Builder
+	renderTargetDetail(&b, &fleet.TargetDetailData{
+		Service: fleet.EntityRef{Label: "payments"},
+		Link:    &fleet.ObservedLink{Signal: fleet.LinkSignalAnnotation, Value: "oci://ghcr.io/acme/contracts/payments:2.3.0", Since: &since},
+	}, asOf)
+	if out := b.String(); !strings.Contains(out, "observed: pacto.trianalab.io/contract oci://ghcr.io/acme/contracts/payments:2.3.0 since 3m ago; no Pacto") {
+		t.Fatalf("missing link line:\n%s", out)
+	}
+	b.Reset()
+	renderTargetDetail(&b, &fleet.TargetDetailData{Service: fleet.EntityRef{Label: "payments"}}, asOf)
+	if strings.Contains(b.String(), "linked") {
+		t.Fatalf("an unlinked target shows no link:\n%s", b.String())
 	}
 }

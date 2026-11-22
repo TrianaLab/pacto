@@ -8,7 +8,7 @@ import {
   attentionCategoryLabel, ATTENTION_CATEGORIES, GAP_WORDS,
   provenanceLabel, provenanceIsImplied,
   sourceHealthTallyParts, sourceHealthSentence,
-  collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED, serviceKeyName, replacesTip, ownerProvenanceText,
+  collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED, serviceKeyName, replacesTip, linkTip, ownerProvenanceText,
   attentionCause, nextActionWords,
 } from './entityLabels.ts';
 
@@ -313,5 +313,33 @@ describe('inferred provider attention words', () => {
   it('words the declare next action and the INFERRED_PROVIDER cause', () => {
     expect(nextActionWords({ verb: 'declare', tool: 'pacto_declare' })).toBe('Fix: declare a contract with pacto_declare');
     expect(attentionCause('INFERRED_PROVIDER')).not.toBe('INFERRED_PROVIDER');
+  });
+});
+
+describe('linkTip', () => {
+  const DIGEST = `sha256:ab12${'0'.repeat(60)}`;
+  it('names the full digest, since when and that the images record is unverified', () => {
+    const tip = linkTip({ signal: 'image-digest', value: DIGEST, since: '2026-11-20T11:57:00Z' }, '2026-11-20T12:00:00Z');
+    expect(tip).toBe(`Linked with no Pacto by the running image digest ${DIGEST} · observed · since 3 minutes ago. The images record is signed by its publisher but not verified by the operator.`);
+  });
+  it('never shortens a long annotation value', () => {
+    const ref = `oci://ghcr.io/acme/${'a'.repeat(170)}/payments:2.3.0`;
+    expect(ref.length).toBeGreaterThanOrEqual(200);
+    expect(linkTip({ signal: 'annotation', value: ref })).toBe(`Linked with no Pacto by the pacto.trianalab.io/contract annotation ${ref} · observed.`);
+  });
+  it('says the version may be wrong when other release versions record the digest', () => {
+    expect(linkTip({ signal: 'image-digest', value: DIGEST, otherVersions: ['2.2.0', '2.1.0'] }))
+      .toContain('Other release versions record the same digest (2.2.0, 2.1.0), so the linked version is the newest and may be wrong.');
+  });
+});
+
+describe('replacesTip for an observed link', () => {
+  it('says how the operator linked the workload with no Pacto', () => {
+    const at = '2026-11-17T11:56:00Z';
+    const digest = { from: 'k8s:shop%2FDeployment%2Fpayments', link: 'observed', signal: 'image-digest', value: 'sha256:ab12', at };
+    expect(replacesTip([digest], 1)).toMatch(/^Linked with no Pacto: the workload runs image sha256:ab12, which this service published\. The operator first linked it .+\.$/);
+    const ann = { from: 'k8s:shop%2FDeployment%2Fcart', link: 'observed', signal: 'annotation', value: 'oci://ghcr.io/acme/cart:1.0.0', at };
+    expect(replacesTip([ann], 1)).toContain('carries pacto.trianalab.io/contract naming oci://ghcr.io/acme/cart:1.0.0');
+    expect(replacesTip([digest, ann], 2)).toContain('Also replaces k8s:shop/Deployment/cart (observed: annotation, ');
   });
 });

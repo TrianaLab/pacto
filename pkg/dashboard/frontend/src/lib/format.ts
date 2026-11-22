@@ -237,6 +237,7 @@ const SOURCE_DESCRIPTIONS: Record<string, string> = {
   catalog: 'Catalog — contracts discovered in a registry',
   mira: 'Mira — calls between services seen in its trace store',
   detection: 'Cluster detection — what the operator inferred the cluster provides',
+  'kubernetes-linked': 'Linked workloads — workloads the operator linked to a published contract with no Pacto',
 };
 
 export function sourceTooltip(src: string): string {

@@ -8,6 +8,10 @@ describe('replacementLine', () => {
     expect(replacementLine({ from: 'k8s:prod%2FDeployment%2Fa', link: 'pacto-target', target: 'prod/kubernetes/a', at: '2026-11-17T11:56:00Z' }, '2026-11-17T12:00:00Z'))
       .toBe('Replaces k8s:prod/Deployment/a 4 minutes ago (linked by Pacto target prod/kubernetes/a)');
     expect(replacementLine({ from: 'k8s:prod%2FDeployment%2Fa', link: 'pacto-target' })).toBe('Replaces k8s:prod/Deployment/a (linked by Pacto target of this service)');
+    expect(replacementLine({ from: 'k8s:shop%2FDeployment%2Fpayments', to: 'shop/payments', link: 'observed', signal: 'image-digest', value: `sha256:ab12${'0'.repeat(60)}`, at: '2026-11-17T11:56:00Z' }, '2026-11-17T12:00:00Z'))
+      .toBe('k8s:shop/Deployment/payments is linked to shop/payments by its running image digest sha256:ab1200000000… (observed, 4 minutes ago)');
+    expect(replacementLine({ from: 'k8s:shop%2FDeployment%2Fcart', link: 'observed', signal: 'annotation', value: 'oci://ghcr.io/acme/cart:1.0.0' }))
+      .toBe('k8s:shop/Deployment/cart is linked to this service by its pacto.trianalab.io/contract annotation (observed)');
   });
 });
 

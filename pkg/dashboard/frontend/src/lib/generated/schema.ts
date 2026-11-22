@@ -6929,6 +6929,8 @@ export interface components {
             kind?: string;
             labels: components["schemas"]["Fleet.RuntimePreview"];
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
+            /** @description Set when the target is a workload the operator linked to a published contract with no Pacto. */
+            link?: components["schemas"]["Fleet.ObservedLink"];
             /** @enum {string} */
             linkState: "exact" | "inferred" | "ambiguous" | "unresolved";
             observedRuntime: components["schemas"]["Fleet.RuntimePreview"];

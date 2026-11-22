@@ -802,3 +802,47 @@ func TestPrintServiceReplacedByInferredFrom(t *testing.T) {
 	line := "Declared by ana@acme.com from inferred k8s:billing/Deployment/invoices (revision invoices@sha256:a); Pacto read no workload for it here\n"
 	expect(t, strings.HasPrefix(out, line+"Service: invoices\n") && strings.Count(out, line) == 2, "get lacks the inferred-from lines:\n%s", out)
 }
+
+// A target the operator linked with no Pacto says how, after its revision.
+func TestFleetGetTargetPrintsLink(t *testing.T) {
+	asOf := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	since := asOf.Add(-3 * time.Minute)
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	tv := &fleet.TargetView{Meta: fleet.Meta{AsOf: asOf}, Target: &fleet.TargetRecord{
+		Key: "shop/k8s/Deployment/payments", Service: "payments", Compliance: "Compliant",
+		Link: &fleet.ObservedLink{Signal: fleet.LinkSignalImageDigest, Value: "sha256:ab12" + strings.Repeat("0", 60), Since: &since},
+	}}
+	if err := printFleetTarget(cmd, tv, "text"); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	want := "Revision: -\nLinked: observed: image digest sha256:ab12"
+	if !strings.Contains(out, want) || !strings.Contains(out, "since 3m ago; no Pacto\nStale:") {
+		t.Errorf("missing link line:\n%s", out)
+	}
+	buf.Reset()
+	tv.Target.Link = nil
+	_ = printFleetTarget(cmd, tv, "text")
+	if strings.Contains(buf.String(), "Linked:") {
+		t.Errorf("an unlinked target prints no link:\n%s", buf.String())
+	}
+}
+
+// A service's target rows mark the ones linked with no Pacto by their signal.
+func TestServiceTargetsMarkLinked(t *testing.T) {
+	var buf bytes.Buffer
+	printServiceTargets(&buf, []*fleet.TargetRecord{
+		{Key: "a", Compliance: "Compliant", Link: &fleet.ObservedLink{Signal: fleet.LinkSignalImageDigest}},
+		{Key: "b", Compliance: "Unknown", Link: &fleet.ObservedLink{Signal: fleet.LinkSignalAnnotation}},
+		{Key: "c", Compliance: "Compliant"},
+	})
+	want := "Targets (3):\n" +
+		"  a  compliance=Compliant stale=false (observed: image digest)\n" +
+		"  b  compliance=Unknown stale=false (observed: annotation)\n" +
+		"  c  compliance=Compliant stale=false\n"
+	if buf.String() != want {
+		t.Errorf("got:\n%s\nwant:\n%s", buf.String(), want)
+	}
+}
