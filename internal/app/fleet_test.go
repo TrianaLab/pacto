@@ -648,4 +648,8 @@ func TestConsumerSourcesOrder(t *testing.T) {
 	if got := (FleetOptions{LocalRoots: []string{"."}}).ConsumerSources(); len(got) != 0 {
 		t.Fatalf("local only = %q", got)
 	}
+	// --detected adds the workloads the operator linked, a consumer source.
+	if got := (FleetOptions{Detected: "k8s:pacto-system/pacto-operator-detected"}).ConsumerSources(); !slices.Equal(got, []string{"--detected k8s:pacto-system/pacto-operator-detected (linked workloads only)"}) {
+		t.Fatalf("detected = %q", got)
+	}
 }

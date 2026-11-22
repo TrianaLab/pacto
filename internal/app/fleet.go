@@ -169,6 +169,11 @@ func (o FleetOptions) ConsumerSources() []string {
 	add("--mira-source", o.MiraURLs...)
 	add("--target-state", o.TargetStateFiles...)
 	add("--target-snapshot", o.TargetSnapshot...)
+	if o.Detected != "" {
+		// Only the workloads the operator linked with no Pacto: alone it
+		// never covers the cluster (see consumerEvidence).
+		add("--detected", o.Detected+" (linked workloads only)")
+	}
 	for _, spec := range o.ObservationSources {
 		add("--traces", spec.Path)
 	}

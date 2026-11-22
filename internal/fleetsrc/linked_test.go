@@ -125,10 +125,13 @@ func TestLinkedSourceReadsConfigMap(t *testing.T) {
 	}
 }
 
-// TestLinkedSourceAbsentKeyIsUnavailable: a ConfigMap with no linked key, or
-// no file, is unavailable and says the operator wrote none yet.
+// TestLinkedSourceAbsentKeyIsUnavailable: a ConfigMap whose linker wrote
+// no linked key, or no file, is unavailable and says the operator wrote none
+// yet.
 func TestLinkedSourceAbsentKeyIsUnavailable(t *testing.T) {
-	col := collectLinked(t, k8sLinked(detectionConfigMap(detectionJSON(t, detectionNow, detect.Complete), true, detect.FieldManager)))
+	cm := detectionConfigMap(detectionJSON(t, detectionNow, detect.Complete), true, detect.FieldManager)
+	cm.SetManagedFields(append(cm.GetManagedFields(), metav1.ManagedFieldsEntry{Manager: delivery.LinkerFieldManager, FieldsV1: metav1.NewFieldsV1(`{"f:metadata":{}}`)}))
+	col := collectLinked(t, k8sLinked(cm))
 	assertLinkedUnavailable(t, col, "NOT_FOUND")
 	if !strings.Contains(col.State.Error.Message, "no linked workloads yet") {
 		t.Errorf("message = %q", col.State.Error.Message)
@@ -233,5 +236,20 @@ func TestLinkedSourceSharesClusterWithWorkloads(t *testing.T) {
 	}
 	if len(snap.Replacements) != 1 || snap.Replacements[0].Link != "observed" || !strings.Contains(string(snap.Replacements[0].From), "payments") {
 		t.Fatalf("replacements = %+v", snap.Replacements)
+	}
+}
+
+// TestLinkedSourceNoLinkerIsAdvisory: an older operator's ConfigMap, which
+// only the detection manager wrote, means no linker: an advisory source that
+// changes no answer, as the file form adds none without linked.json.
+func TestLinkedSourceNoLinkerIsAdvisory(t *testing.T) {
+	col, err := k8sLinked(detectionConfigMap(detectionJSON(t, detectionNow, detect.Complete), true, detect.FieldManager)).Collect(context.Background())
+	if err != nil || !col.Advisory || col.State.Status != fleet.SourceUnavailable || col.State.Error == nil || col.State.Error.Code != "NO_LINKER" {
+		t.Fatalf("Collect = %+v %+v, %v; want advisory NO_LINKER", col, col.State, err)
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: clockAt(detectionNow)},
+		k8sLinked(detectionConfigMap(detectionJSON(t, detectionNow, detect.Complete), true, detect.FieldManager)))
+	if err != nil || snap.Completeness == fleet.CompletenessPartial {
+		t.Fatalf("completeness %v, %v", snap.Completeness, err)
 	}
 }

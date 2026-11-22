@@ -318,6 +318,9 @@ func TestConsumerEvidence(t *testing.T) {
 		{[]fleet.SourceState{st("local", "local", fleet.SourceAvailable, 3, false), st(ciChangesSource, "argument", fleet.SourceAvailable, 1, false), st("detection", "detection", fleet.SourceAvailable, 1, true)}, "no consumer source"},
 		{[]fleet.SourceState{st("a", "oci", fleet.SourceStale, 1, false), st("b", "oci", fleet.SourceUnavailable, 0, false)}, "consumer source a stale"},
 		{[]fleet.SourceState{st("a", "oci", fleet.SourceUnavailable, 0, false), st("b", "oci", fleet.SourceAvailable, 1, false)}, ""},
+		// The linked workloads alone hold no workload a Pacto targets.
+		{[]fleet.SourceState{st("detection", "detection", fleet.SourceAvailable, 1, true), st("linked", fleet.SourceKindLinked, fleet.SourceAvailable, 1, false)}, "consumer source linked holds only linked workloads"},
+		{[]fleet.SourceState{st("linked", fleet.SourceKindLinked, fleet.SourceAvailable, 1, false), st("k8s", fleet.SourceKindKubernetes, fleet.SourceAvailable, 1, false)}, ""},
 	} {
 		if got := consumerEvidence(&fleet.FleetSnapshot{Sources: tc.sources}); got != tc.want {
 			t.Errorf("%v: %q, want %q", tc.sources, got, tc.want)
@@ -578,5 +581,21 @@ func TestCIUsesDefaultTargetSnapshot(t *testing.T) {
 	p, _ = e.planWith(t, FleetOptions{TargetSnapshotTrustFile: trust})
 	if r := row(t, p, "payments"); r.Impact.Text == "blocked (webapp)" || len(p.ConsumerSources) != 0 {
 		t.Fatalf("row %+v, sources %q", r, p.ConsumerSources)
+	}
+}
+
+// TestCILinkedWorkloadsAloneNeverClear: --detected alone reads only the
+// workloads no Pacto targets, so an unrelated linked workload never clears a
+// row, and the plan lists --detected among its consumer sources.
+func TestCILinkedWorkloadsAloneNeverClear(t *testing.T) {
+	e := newCIRepo(t)
+	e.additiveReports(t)
+	detected := operatorDir(t, linkedPayload(t, "", time.Now(), linkedWebapp(e.host, "^1.0.0", time.Now())))
+	p, _ := e.planWith(t, FleetOptions{Detected: detected, Index: IndexNone})
+	if r := row(t, p, "reports"); r.Impact.Text != "unverified (consumer source linked holds only linked workloads)" || p.Exit != 2 {
+		t.Fatalf("row = %+v", r)
+	}
+	if want := "--detected " + detected + " (linked workloads only)"; !slices.Contains(p.ConsumerSources, want) {
+		t.Errorf("consumer sources %q, want %q", p.ConsumerSources, want)
 	}
 }

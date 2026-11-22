@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
+	"slices"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,6 +36,9 @@ type DetectionSource struct {
 var (
 	errDetectionInvalid = errors.New("invalid")
 	errDetectionForeign = errors.New("not written by the Pacto operator")
+	// errNoWriter is an absent key on a ConfigMap its writer's field manager
+	// has never touched: an operator that does not run that writer.
+	errNoWriter = fmt.Errorf("no writer: %w", fs.ErrNotExist)
 	// ErrDetectionNoCluster marks a detection read that has no usable
 	// Kubernetes configuration to read the ConfigMap with.
 	ErrDetectionNoCluster = errors.New("no usable Kubernetes configuration")
@@ -55,7 +60,7 @@ func NewDetectionK8sSource(id string, dyn dynamic.Interface, namespace, name str
 // the key only on a ConfigMap labelled as the operator's whose manager owns
 // that key: each operator component writes its own key under its own field
 // manager, so a key another writer patched in is refused. An absent key reads
-// as not found.
+// as not found, and as errNoWriter when manager manages nothing on it.
 func configMapKey(dyn dynamic.Interface, namespace, name, key, manager string) func(context.Context) ([]byte, error) {
 	gvr := schema.GroupVersionResource{Version: "v1", Resource: "configmaps"}
 	return func(ctx context.Context) ([]byte, error) {
@@ -65,6 +70,8 @@ func configMapKey(dyn dynamic.Interface, namespace, name, key, manager string) f
 		}
 		data, ok, _ := unstructured.NestedString(obj.Object, "data", key)
 		switch {
+		case !ok && !slices.ContainsFunc(obj.GetManagedFields(), func(mf metav1.ManagedFieldsEntry) bool { return mf.Manager == manager }):
+			return nil, errNoWriter
 		case !ok:
 			return nil, fs.ErrNotExist
 		case !writtenByOperator(obj, key, manager):

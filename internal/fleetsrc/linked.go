@@ -20,7 +20,8 @@ import (
 // workload is a target of its contract's revision, evaluated by the operator,
 // with its link. Collect never fails: a missing, unreadable, foreign or
 // future-dated payload is an unavailable state that names why, and one older
-// than [delivery.LinkedStaleAfter] is stale.
+// than [delivery.LinkedStaleAfter] is stale. A ConfigMap the linker never
+// wrote to (an operator with no linker) is advisory, so it changes nothing.
 type LinkedSource struct {
 	id   string
 	read func(context.Context) ([]byte, error)
@@ -55,6 +56,13 @@ func (s *LinkedSource) Kind() string { return fleet.SourceKindLinked }
 // Collect reads the linked targets. It never returns an error.
 func (s *LinkedSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	l, err := s.linked(ctx)
+	if errors.Is(err, errNoWriter) {
+		// An operator that runs no linker (one older than the linker) links
+		// nothing: advisory, so it changes no answer's completeness, the way
+		// the file form adds no source when linked.json is absent.
+		return &fleet.Collection{Advisory: true, State: &fleet.SourceState{Status: fleet.SourceUnavailable,
+			Error: &fleet.SourceError{Code: "NO_LINKER", Message: "the operator runs no linker, so no workload is linked with no Pacto"}}}, nil
+	}
 	if err != nil {
 		return &fleet.Collection{State: &fleet.SourceState{Status: fleet.SourceUnavailable, Error: linkedError(err)}}, nil
 	}
