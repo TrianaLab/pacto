@@ -267,3 +267,18 @@ func TestDeclareFleetUnreadable(t *testing.T) {
 		t.Errorf("an unreadable fleet answered %d", code)
 	}
 }
+
+// TestDashboardRefusalEnumExcludesPRCodes: the dashboard never opens a pull
+// request (513 D7), so its refusal enum holds none of the pull request codes.
+func TestDashboardRefusalEnumExcludesPRCodes(t *testing.T) {
+	f, _ := reflect.TypeOf(DeclareRefusal{}).FieldByName("Code")
+	enum := strings.Split(f.Tag.Get("enum"), ",")
+	if len(enum) < 10 {
+		t.Fatalf("enum %v", enum)
+	}
+	for _, code := range []string{"RepositoryUnknown", "RepositoryUnconfirmed", "GitHostUnknown", "GitTokenMissing", "PullRequestFailed", "PullRequestNeedsLocalToken"} {
+		if slices.Contains(enum, code) {
+			t.Errorf("the dashboard refusal enum lists %s", code)
+		}
+	}
+}

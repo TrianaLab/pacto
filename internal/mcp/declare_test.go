@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -33,6 +34,8 @@ type stubDeclarer struct {
 	execErr      error
 	// unchanged plans a service unchanged since 1.4.0: no intent digest.
 	unchanged bool
+	// pr is a run's pullRequest and pullRequestError members, JSON.
+	pr string
 }
 
 func (s stubDeclarer) Plan(_ context.Context, a DeclareArgs) (json.RawMessage, *Refused, error) {
@@ -61,7 +64,26 @@ func (s stubDeclarer) Execute(_ context.Context, a DeclareArgs) (json.RawMessage
 	}
 	return json.RawMessage(`{"plan":{"service":"invoices","intentDigest":"` + planDigest +
 		`","acceptCLI":"pacto declare invoices --registry ghcr.io/acme --from-draft draft-1"},"executed":true,"tag":"draft-1",` +
-		`"published":"ghcr.io/acme/invoices@sha256:dd","draft":true}`), s.execRefuse, nil
+		`"published":"ghcr.io/acme/invoices@sha256:dd","draft":true` + s.pr + `}`), s.execRefuse, nil
+}
+
+// A stdio run with pr answers the pull request it opened, or, keeping the
+// draft it wrote, why the pull request failed and the command to retry.
+func TestDeclarePullRequestAnswer(t *testing.T) {
+	args := map[string]any{"service": "invoices", "registry": "ghcr.io/acme", "pr": true, "dry_run": false, "on_behalf_of": "ana", "intent_digest": planDigest}
+	out, res := callDeclare(t, stubDeclarer{pr: `,"pullRequest":{"url":"https://github.com/acme/invoices/pull/7","login":"ana","branch":"b","tokenSource":"your GITHUB_TOKEN"}`}, args)
+	if res.IsError || out.PullRequest == nil || out.PullRequest.URL != "https://github.com/acme/invoices/pull/7" || out.Draft == nil {
+		t.Fatalf("%+v", out)
+	}
+	out, res = callDeclare(t, stubDeclarer{pr: `,"pullRequestError":{"code":"PullRequestFailed","message":"the repository is public"}`}, args)
+	if !res.IsError || out.Refusal != nil || out.Draft == nil || out.PullRequestError == nil || out.PullRequestError.Code != RefusalPullRequestFailed ||
+		out.PullRequestError.CLI != "pacto declare invoices --registry ghcr.io/acme --pr --yes" {
+		t.Fatalf("%+v", out)
+	}
+	out, _ = callDeclare(t, stubDeclarer{pr: `,"pullRequestError":{"code":"PullRequestFailed","message":"m","cli":"own"}`}, args)
+	if out.PullRequestError == nil || out.PullRequestError.CLI != "own" {
+		t.Fatalf("%+v", out)
+	}
 }
 
 // callDeclare calls pacto_declare on a stdio server with d and decodes its
@@ -151,10 +173,12 @@ func TestDeclareErrors(t *testing.T) {
 
 func TestDeclareRefusalCarriesCodeAndCLI(t *testing.T) {
 	args := map[string]any{"service": "billing/invoices", "namespace": "billing", "dir": "drafts/invoices", "registry": "ghcr.io/acme", "accept": []string{"ledger", "audit"}}
+	const plan = "pacto declare billing/invoices --namespace billing --dir drafts/invoices --registry ghcr.io/acme --accept ledger --accept audit"
+	prCLI := map[WriteRefusal]string{RefusalGitHostUnknown: plan + " --pr --git-host github|gitlab|bitbucket|gitea", RefusalGitTokenMissing: plan + " --pr",
+		RefusalPullRequestFailed: plan + " --pr --yes", RefusalPullRequestNeedsLocalToken: plan + " --pr"}
 	for _, code := range writeRefusals {
 		out, res := callDeclare(t, stubDeclarer{refuse: &Refused{Code: code, Message: "refused"}}, args)
-		if !res.IsError || out.Refusal == nil || out.Refusal.Code != code ||
-			out.Refusal.CLI != "pacto declare billing/invoices --namespace billing --dir drafts/invoices --registry ghcr.io/acme --accept ledger --accept audit" {
+		if !res.IsError || out.Refusal == nil || out.Refusal.Code != code || out.Refusal.CLI != cmp.Or(prCLI[code], plan) {
 			t.Errorf("%s: %+v", code, out)
 		}
 	}
@@ -166,6 +190,11 @@ func TestDeclareRefusalCarriesCodeAndCLI(t *testing.T) {
 		}
 	}
 	if got := (DeclareArgs{Service: "invoices", Registry: "r"}).Command(planDigest); got != "pacto declare invoices --registry r --intent "+planDigest {
+		t.Fatal(got)
+	}
+	// The pull request target is bound by the digest, so the command replays it.
+	if got := (DeclareArgs{Service: "invoices", Registry: "r", PR: true, Repository: "https://github.com/acme/invoices", Folder: "deploy", RepoMap: "m.yaml"}).Command(""); got !=
+		"pacto declare invoices --registry r --pr --repository https://github.com/acme/invoices --folder deploy --repo-map m.yaml" {
 		t.Fatal(got)
 	}
 	// The read bounds change the plan, so the command replays them.
@@ -193,18 +222,28 @@ func TestRefusalEnumMatchesApp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// internal/gitexport's codes come back from a stdio run's pull request.
+	g, err := parser.ParseFile(token.NewFileSet(), "../gitexport/gitexport.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var app []string
-	ast.Inspect(f, func(n ast.Node) bool {
-		if v, ok := n.(*ast.ValueSpec); ok && strings.HasPrefix(v.Names[0].Name, "code") && len(v.Values) == 1 {
-			if lit, ok := v.Values[0].(*ast.BasicLit); ok {
-				s, _ := strconv.Unquote(lit.Value)
-				app = append(app, s)
+	for _, file := range []struct {
+		f      *ast.File
+		prefix string
+	}{{f, "code"}, {g, "Code"}} {
+		ast.Inspect(file.f, func(n ast.Node) bool {
+			if v, ok := n.(*ast.ValueSpec); ok && strings.HasPrefix(v.Names[0].Name, file.prefix) && len(v.Values) == 1 {
+				if lit, ok := v.Values[0].(*ast.BasicLit); ok {
+					s, _ := strconv.Unquote(lit.Value)
+					app = append(app, s)
+				}
 			}
-		}
-		return true
-	})
-	want := append(append(app, string(RefusalIntentRequired), string(RefusalExecuteNeedsStdio), string(RefusalNotAllowed), string(RefusalReviewFailed)),
-		delivery.OwnerRightCodes...)
+			return true
+		})
+	}
+	want := append(append(app, string(RefusalIntentRequired), string(RefusalExecuteNeedsStdio), string(RefusalNotAllowed), string(RefusalReviewFailed),
+		string(RefusalPullRequestNeedsLocalToken)), delivery.OwnerRightCodes...)
 	got := make([]string, len(writeRefusals))
 	for i, c := range writeRefusals {
 		got[i] = string(c)

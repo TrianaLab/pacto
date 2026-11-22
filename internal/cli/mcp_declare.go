@@ -25,10 +25,12 @@ import (
 // process's kubeconfig and writes drafts with its registry credentials.
 // Every MCP caller is an agent, so a run never writes a declared record, and
 // a person's ambient token is never used to sign one. base holds the signing
-// options.
+// options; git carries a pr run's Git host requests and token helper (the
+// zero value reaches the host and runs git credential fill).
 type mcpDeclarer struct {
 	svc  *app.Service
 	base app.DeclareRequest
+	git  deps
 }
 
 // newMCPDeclarer signs drafts against public-good Sigstore and reads the
@@ -48,7 +50,20 @@ func (m mcpDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.Raw
 		return nil, nil, err
 	}
 	p, _, err := m.svc.PlanDeclare(ctx, req)
-	return declareAnswer(p, err)
+	if err == nil && req.PR {
+		err = m.planPR(ctx, req, p)
+	}
+	if p == nil {
+		return declareAnswer[app.DeclarePlan](nil, err)
+	}
+	return declareAnswer(&mcpPlan{p, p.PullRequest}, err)
+}
+
+// mcpPlan is a stdio plan as pacto_declare answers it: with the pull
+// request pr would open, which the dashboard's plan never carries.
+type mcpPlan struct {
+	*app.DeclarePlan
+	PullRequest *app.PRPlan `json:"pullRequest,omitempty"`
 }
 
 func (m mcpDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (json.RawMessage, *pactomcp.Refused, error) {
@@ -59,6 +74,10 @@ func (m mcpDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (json.
 	if req.Dynamic, err = declareDynamic(req); err != nil {
 		return nil, nil, err
 	}
+	if req.PR {
+		res, err := m.declarePR(ctx, req)
+		return declareAnswer(res, err)
+	}
 	res, err := m.svc.Declare(ctx, req)
 	return declareAnswer(res, err)
 }
@@ -68,6 +87,7 @@ func (m mcpDeclarer) request(a pactomcp.DeclareArgs) (app.DeclareRequest, error)
 	req := m.base
 	req.Namespace, req.Dir, req.Registry, req.Accept = a.Namespace, a.Dir, a.Registry, a.Accept
 	req.OnBehalfOf, req.IntentDigest, req.MaxItems, req.Agent, req.Draft = a.OnBehalfOf, a.IntentDigest, a.MaxItems, true, a.Draft
+	req.PR, req.Repository, req.Folder, req.RepoMap = a.PR, a.Repository, a.Folder, a.RepoMap
 	if a.CallWindow != "" {
 		w, err := time.ParseDuration(a.CallWindow)
 		if err != nil {
@@ -179,6 +199,12 @@ func (r remoteDeclarer) hide(ctx context.Context, p *app.DeclarePlan, err error)
 // reads nor writes.
 func (r remoteDeclarer) refused(a pactomcp.DeclareArgs) *pactomcp.Refused {
 	switch {
+	case a.PR:
+		return &pactomcp.Refused{Code: pactomcp.RefusalPullRequestNeedsLocalToken, Message: "--pr runs only where your Git token is: " +
+			"run the command on your machine, or pacto_declare over stdio", CLI: a.RefusalCLI(pactomcp.RefusalPullRequestNeedsLocalToken)}
+	case a.RepoMap != "":
+		return &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "repo_map names a file of this server: pass it with pacto declare --repo-map " +
+			"on your machine, or pacto_declare over stdio", CLI: a.Command("")}
 	case a.Dir != "":
 		return &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "dir names a folder of this server: declare a folder with pacto declare --dir " +
 			"on your machine, or pacto_declare over stdio", CLI: a.Command("")}

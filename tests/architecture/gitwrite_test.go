@@ -32,13 +32,15 @@ var gitHostClientAllowed = map[string]string{}
 
 // isServerPath reports whether a repository-relative Go file belongs to a
 // process that would need standing Git write access: the operator and the
-// dashboard and remote MCP servers.
+// dashboard and remote MCP servers (mcp_declare.go holds the HTTP
+// pacto_declare beside the stdio one, whose pull request lives in
+// mcp_declare_pr.go).
 func isServerPath(rel string) bool {
 	base := filepath.Base(rel)
 	return strings.HasPrefix(rel, "integrations/kubernetes/cmd/") ||
 		strings.HasPrefix(rel, "integrations/kubernetes/internal/") ||
 		strings.HasPrefix(rel, "pkg/dashboard/") ||
-		rel == "internal/cli/mcp_remote.go" ||
+		rel == "internal/cli/mcp_remote.go" || rel == "internal/cli/mcp_declare.go" ||
 		(filepath.Dir(rel) == "internal/cli" && strings.HasPrefix(base, "dashboard"))
 }
 
@@ -285,6 +287,8 @@ func TestGitExportScannerFlags(t *testing.T) {
 			"package cli\nfunc f() { _ = (&exportPR{}).export }\n", true},
 		{"the remote MCP server calls the package", "internal/cli/mcp_remote.go",
 			"package cli\nfunc f() { gitexport.Open(nil, gitexport.Request{}) }\n", true},
+		{"the HTTP pacto_declare's file calls exportPR", "internal/cli/mcp_declare.go",
+			"package cli\nfunc f() { _ = (&exportPR{}).resolve }\n", true},
 		{"an unparsable file", "internal/cli/x.go", "package", true},
 		{"the declare command", "internal/cli/declare.go", "package cli\n" + imp, false},
 		{"the stdio MCP adapter", "internal/cli/mcp_declare_pr.go", "package cli\n" + imp, false},
