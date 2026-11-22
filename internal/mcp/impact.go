@@ -184,8 +184,8 @@ func (a impactArgs) eventErr() error {
 
 var errExternalNotYours = errors.New("an external system is not yours to remove or regress; ask unavailable or changed")
 
-// externalErr checks the external system of an event: changed needs one,
-// removed and regressed refuse one, and its identity is read as written
+// externalErr checks the external system of an event: changed needs one
+// (eventErr already refused removing or regressing one), and its identity is read as written
 // (identities are canonical lower-case, so one Pacto would have to rewrite
 // is refused).
 func (a impactArgs) externalErr() error {
@@ -194,8 +194,6 @@ func (a impactArgs) externalErr() error {
 		return errors.New("a changed event names an 'external' system; a change to a service of your own is old_ref and new_ref")
 	case a.External == "":
 		return nil
-	case a.Event == impact.EventRemoved || a.Event == impact.EventRegressed:
-		return errExternalNotYours
 	case a.Traces != "":
 		return errors.New("traces are read for service events; an external answer reads the observed egress of the fleet's own sources")
 	}
