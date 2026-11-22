@@ -265,18 +265,20 @@ pacto impact --running . \
 Agents get the same analysis as the read-only `pacto_impact` MCP tool. It belongs
 to the **fleet query**
 [family](mcp-reference.md#three-tool-families-and-their-boundaries) and shares
-that family's boundaries: it projects the operational graph. It is read-only and grants no permission.
+that family's boundaries: it projects the operational graph and grants no permission.
 It analyses over the same snapshot as the `pacto_fleet_*` tools, so an impact
 answer and a graph answer from the same interval carry the same `snapshotId`,
-unless the impact answer carries `newRevisionAdded: true`. Its `event`
-argument and the workspace's event mode [ask what happens if](impact-what-if.md).
+unless the impact answer carries `newRevisionAdded: true`. Its `event` and
+`external` arguments and the workspace's event mode
+[ask what happens if](impact-what-if.md), also of
+[an external system](impact-what-if.md#an-external-system-changes-or-goes-down).
 
 In the dashboard the analysis is one half of the **Change analysis** workspace,
 served by `/api/fleet/impact`. It is entered from the service or revision you are
-already looking at, and the analyzed pair is in the URL so the answer is
-shareable. It opens on a one-line answer: what kind of change it is and who it
+looking at, and the pair is in the URL so the answer is
+shareable. It opens on one line: what kind of change it is and who it
 reaches. What changed, the affected consumers, owners and targets and the
-evidence gaps are folded below it, each with its count. It reads the **currently published** snapshot, the same one the
+evidence gaps are folded below it, each with its count. It reads the **published** snapshot, the same one the
 Operational Graph shows, so its `snapshotId` matches the graph. The **include-observed** control is enabled only when the host
 declares an observation source, because observed evidence needs a real source.
 **Plan…** offers what you may do

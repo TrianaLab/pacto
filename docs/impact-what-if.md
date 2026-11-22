@@ -49,6 +49,48 @@ limitation that makes the answer partial. The
 API takes `offeringKey` and the offering page links here with
 **What if it becomes unavailable?**.
 
+## An external system changes or goes down
+
+`--changed` and `--unavailable` take `external:<identity>`, which asks about an
+[external system](external-catalog-reference.md) such as a vendor API nobody in
+your organization controls:
+
+```text
+$ pacto impact --changed external:stripe
+Event: stripe changed (inferred external, vendor-api): 2 consumers, 2 declared, 0 observed only  asOf 2026-11-22T09:15:00Z  completeness complete
+changed: 0.0.4 -> 0.0.5  openapi sha256:3e9a… -> sha256:7c21…  clients +stripe-go/77
+gate: unverified (provider is inferred)
+Affected consumers (2):
+ATTENTION (2):
+  CONSUMER  SOURCE              CLIENT MAJOR                RANGE                                    OUTCOME
+  billing   declared            stripe-go v76 (possible)    unknown                                  attention
+  payments  declared, observed  stripe-go v76 (possible)    ^2023.10 (unknown: INFERRED_PROVIDER)    attention
+pin a range:
+  dependencies:
+    - name: stripe
+      ref: oci://registry.example.com/acme/pacto-inferred/stripe
+      required: true
+      compatibility: "^2023.10"
+```
+
+Consumers are every service that declares, calls or uses the system. Each row
+says where the use was seen, the client major its repository manifest names
+(always `possible`, since a library proves no call) and the range it pins. A
+change puts every consumer in `attention`. An outage breaks a declared required
+use, may degrade a declared optional one and is `unknown` for the rest.
+
+The gate is always `unverified` (exit `2`): Pacto observes no contract of an
+external system, and an [inferred contract](inferred-contracts.md) never clears
+a gate. When a consumer pins no range, the answer ends with a `dependencies`
+block that pins the range the organization pins most, or `unknown`. With no
+inferred contract it is the block that declares the system.
+
+When an inferred contract this installation signed changes its linked OpenAPI
+digest or its clients, the fleet raises
+[`EXTERNAL_CHANGED`](operational-graph-reference.md#external-systems) for 7
+days. MCP takes `external` in place of `service`, and the External page links
+here with **What if it changes?**.
+
 ## The event gate
 
 An event never blocks: only a contract change has a version a consumer can
