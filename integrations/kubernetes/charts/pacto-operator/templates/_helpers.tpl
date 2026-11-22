@@ -184,6 +184,12 @@ Controller arguments derived from values
 - --registry-push-prefix={{ . }}
 {{- end }}
 {{- end }}
+{{- if include "pacto-operator.member" . }}
+- --hub-url={{ .Values.hub.url }}
+{{- if .Values.hub.caConfigMap }}
+- --hub-ca-file=/etc/pacto/hub-ca/ca.crt
+{{- end }}
+{{- end }}
 {{- /* .Values.declare in the guard: the declare block decides (gen_integration_docs reads guards). */}}
 {{- if and .Values.declare (include "pacto-operator.ownerPolicy.json" .) }}
 - --owner-policy=/etc/pacto/owner-policy/policy.json
@@ -841,11 +847,20 @@ The schema refuses an unknown name first: that fail backs up
 {{- end }}
 
 {{/*
+Whether this joined cluster is a member with a live review channel: hub.url,
+off under hardened (a SubjectAccessReview needs a cluster role, and hardened
+renders none).
+*/}}
+{{- define "pacto-operator.member" -}}
+{{- if and .Values.hub.url (not (include "pacto-operator.hardened" .)) }}true{{ end }}
+{{- end }}
+
+{{/*
 Whether a cluster-scoped need remains, so the ClusterRole renders: no
-namespace list, the node agent, or the dashboard with delivery on.
+namespace list, the node agent, the dashboard with delivery on, or a member.
 */}}
 {{- define "pacto-operator.clusterScoped" -}}
-{{- if or (not (include "pacto-operator.watchNamespaces" . | fromYamlArray)) .Values.nodeAgent.enabled (and (include "pacto-operator.dashboardEnabled" .) (include "pacto-operator.dashboardDeliveryNamespace" .)) }}true{{ end }}
+{{- if or (not (include "pacto-operator.watchNamespaces" . | fromYamlArray)) .Values.nodeAgent.enabled (and (include "pacto-operator.dashboardEnabled" .) (include "pacto-operator.dashboardDeliveryNamespace" .)) (include "pacto-operator.member" .) }}true{{ end }}
 {{- end }}
 
 {{/*

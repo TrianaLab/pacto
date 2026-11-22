@@ -54,6 +54,17 @@ profile: default
 # here. The chart grants get on that Secret only.
 registryPullSecret: ""
 
+hub:
+  # -- The hub's https:// or wss:// URL. Setting it makes this joined cluster a
+  # member: the operator dials out to the hub, proves its installation key and
+  # answers the hub's per-person reviews with this cluster's own
+  # SubjectAccessReview. Nothing listens for the hub: no inbound port, Service
+  # or Ingress. Needs `registry`; profile hardened runs no review channel.
+  url: ""
+  # -- ConfigMap in the release namespace holding `ca.crt`, the PEM CAs the
+  # hub's certificate may chain to beside the system pool.
+  caConfigMap: ""
+
 # -- Number of controller replicas
 replicaCount: 1
 

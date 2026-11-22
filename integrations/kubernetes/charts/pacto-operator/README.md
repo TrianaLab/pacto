@@ -392,6 +392,8 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | global.securityContext.readOnlyRootFilesystem | bool | `true` | Read-only root filesystem |
 | global.securityContext.runAsNonRoot | bool | `true` | Run as non-root |
 | global.securityContext.runAsUser | int | `65532` | Run as UID 65532 (nonroot in distroless) |
+| hub.caConfigMap | string | `""` | ConfigMap in the release namespace holding `ca.crt`, the PEM CAs the hub's certificate may chain to beside the system pool. |
+| hub.url | string | `""` | The hub's https:// or wss:// URL. Setting it makes this joined cluster a member: the operator dials out to the hub, proves its installation key and answers the hub's per-person reviews with this cluster's own SubjectAccessReview. Nothing listens for the hub: no inbound port, Service or Ingress. Needs `registry`; profile hardened runs no review channel. |
 | image.digest | string | `""` | Pins the image by digest (sha256:...), appended to the tag as tag@digest so the runtime pulls exactly that image whatever the tag resolves to later |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
 | image.registry | string | `""` | Controller image registry (defaults to `global.imageRegistry`) |

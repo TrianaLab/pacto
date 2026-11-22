@@ -193,6 +193,8 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `global.securityContext.readOnlyRootFilesystem` | `true` | Read-only root filesystem |
 | `global.securityContext.runAsNonRoot` | `true` | Run as non-root |
 | `global.securityContext.runAsUser` | `65532` | Run as UID 65532 (nonroot in distroless) |
+| `hub.caConfigMap` | `""` | ConfigMap in the release namespace holding `ca.crt`, the PEM CAs the hub's certificate may chain to beside the system pool. |
+| `hub.url` | `""` | The hub's https:// or wss:// URL. Setting it makes this joined cluster a member: the operator dials out to the hub, proves its installation key and answers the hub's per-person reviews with this cluster's own SubjectAccessReview. Nothing listens for the hub: no inbound port, Service or Ingress. Needs `registry`; profile hardened runs no review channel. |
 | `image.digest` | `""` | Pins the image by digest (sha256:...), appended to the tag as tag@digest so the runtime pulls exactly that image whatever the tag resolves to later |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `image.registry` | `""` | Controller image registry (defaults to `global.imageRegistry`) |

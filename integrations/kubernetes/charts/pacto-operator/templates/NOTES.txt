@@ -90,6 +90,9 @@ https://pacto.run/latest/integrations/kubernetes/profiles/
 {{- if .Values.registry }}
 Pacto reads the cluster id through Role {{ include "pacto-operator.fullname" . }}-{{ .Release.Namespace }}-cluster-identity in kube-system.
 {{- end }}
+{{- if .Values.hub.url }}
+Profile hardened: this member answers no hub reviews (a SubjectAccessReview needs a cluster role).
+{{- end }}
 {{- if $idp }}
 Profile idp with hardened: {{ $observePhrase }} and Pacto
 delivery stays off.

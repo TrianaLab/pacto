@@ -70,6 +70,7 @@ jobs:
               # filter: a change there alone must still run the operator's unit
               # tests, coverage gate, chart checks and envtest.
               # TestPathFiltersCoverTheOperatorImports keeps both lists whole.
+              - 'pkg/memberlink/**'
               - 'pkg/probe/**'
               - 'pkg/runtimefacts/**'
               - 'pkg/capability/**'
@@ -178,6 +179,7 @@ jobs:
               - 'pkg/catalog/**'
               - 'pkg/contract/**'
               - 'pkg/delivery/**'
+              - 'pkg/memberlink/**'
               - 'pkg/workloadmanager/**'
               - 'pkg/workloadshape/**'
               - 'pkg/deliveryrecord/**'
