@@ -147,6 +147,34 @@ func TestAttentionIssuerDiffersWithMappingNamesApprover(t *testing.T) {
 	}
 }
 
+// Each mapped cluster is credited to its own approver and date, and an
+// unmapped one never makes the mapped ones read as unseen.
+func TestAttentionIssuerDiffersPerApproval(t *testing.T) {
+	const iss = "https://login.acme.dev"
+	nov1, nov20 := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC), time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC)
+	q := linkedFleet(t, map[string]ClusterLink{
+		clusterA: liveLink(IssuerModel{Issuer: iss, Model: IssuerGroupMapping, MappedBy: "bob", MappedAt: &nov1}),
+		clusterB: liveLink(IssuerModel{Issuer: iss, Model: IssuerGroupMapping, MappedBy: "alice", MappedAt: &nov20}),
+	})
+	got := issuerItems(t, q)[0].NextStep
+	for _, want := range []string{"Reads in us-prod use the group mapping approved by alice on 2026-11-20.", "Reads in eu-prod use the group mapping approved by bob on 2026-11-01."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("next step %q lacks %q", got, want)
+		}
+	}
+	q = linkedFleet(t, map[string]ClusterLink{
+		clusterA: liveLink(IssuerModel{Issuer: iss, Model: IssuerNotAccepted}),
+		clusterB: liveLink(IssuerModel{Issuer: iss, Model: IssuerGroupMapping, MappedBy: "alice", MappedAt: &nov20}),
+	})
+	got = issuerItems(t, q)[0].NextStep
+	want := "Reads in us-prod use the group mapping approved by alice on 2026-11-20. Approvals for these clusters stay with each cluster's own sign-in. " +
+		"Signed-in readers do not see eu-prod until a person approves a group mapping: pacto cluster map-groups " + clusterA + " --issuer " + iss +
+		" --map <hub group>=<member group> --registry <registry>"
+	if got != want {
+		t.Errorf("next step\n%q\nwant\n%q", got, want)
+	}
+}
+
 func TestAttentionIssuerDiffersBounded(t *testing.T) {
 	names := make([]string, 8)
 	for i := range names {

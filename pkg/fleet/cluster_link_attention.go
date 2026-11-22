@@ -61,25 +61,52 @@ func (q *Query) issuerDiffersItem(issuer string, clusters []ClusterRecord, model
 		names[i] = cmp.Or(c.Name, c.ID)
 	}
 	list := boundedNames(names)
-	next := "Reads in " + list + " use the group mapping approved by " + models[0].MappedBy
-	if models[0].MappedAt != nil {
-		next += " on " + models[0].MappedAt.UTC().Format("2006-01-02")
-	}
-	next += ". Approvals for these clusters stay with each cluster's own sign-in."
-	for i, m := range models {
-		if m.MappedBy == "" {
-			next = "Signed-in readers do not see " + list + " until a person approves a group mapping: pacto cluster map-groups " +
-				clusters[i].ID + " --issuer " + issuer + " --map <hub group>=<cluster group>"
-			break
-		}
-	}
 	return AttentionItem{
 		Entity: clusterSourceRef(clusters[0]), Label: list, Severity: severityWarning,
 		Code: CodeClusterIssuerDiffers, Category: categoryCluster,
-		Summary:  "Member clusters do not accept this hub's sign-in tokens",
+		Summary:  "Member clusters do not accept this hub's sign-in tokens, or this hub exchanges none for them",
 		Reason:   "the apiservers of " + list + " refuse tokens from " + issuer + ", or this hub exchanges none, so people signed in with it are read there only under an approved group mapping",
-		NextStep: next,
+		NextStep: issuerNextStep(issuer, clusters, models),
 	}
+}
+
+// issuerNextStep says, for each approval, which clusters read under the
+// group mapping that person approved, then which have none and the command
+// that approves one for each.
+func issuerNextStep(issuer string, clusters []ClusterRecord, models []IssuerModel) string {
+	type approval struct{ by, on string }
+	var order []approval
+	mapped := map[approval][]string{}
+	var unmapped, commands []string
+	for i, m := range models {
+		name := cmp.Or(clusters[i].Name, clusters[i].ID)
+		if m.MappedBy == "" {
+			unmapped = append(unmapped, name)
+			if len(commands) < maxIssuerClusters {
+				commands = append(commands, "pacto cluster map-groups "+clusters[i].ID+" --issuer "+issuer+" --map <hub group>=<member group> --registry <registry>")
+			}
+			continue
+		}
+		a := approval{by: m.MappedBy}
+		if m.MappedAt != nil {
+			a.on = " on " + m.MappedAt.UTC().Format("2006-01-02")
+		}
+		if _, ok := mapped[a]; !ok {
+			order = append(order, a)
+		}
+		mapped[a] = append(mapped[a], name)
+	}
+	var parts []string
+	for _, a := range order {
+		parts = append(parts, "Reads in "+boundedNames(mapped[a])+" use the group mapping approved by "+a.by+a.on+".")
+	}
+	if len(order) > 0 {
+		parts = append(parts, "Approvals for these clusters stay with each cluster's own sign-in.")
+	}
+	if len(unmapped) > 0 {
+		parts = append(parts, "Signed-in readers do not see "+boundedNames(unmapped)+" until a person approves a group mapping: "+strings.Join(commands, "; "))
+	}
+	return strings.Join(parts, " ")
 }
 
 // clusterSourceRef is the source entity of the first source that reported c.
