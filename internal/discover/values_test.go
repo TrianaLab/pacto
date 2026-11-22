@@ -286,7 +286,7 @@ func TestExternalFieldNameFallsBack(t *testing.T) {
 		len(fields[0].External.Sources) != 2 || !cited["a.yaml"] {
 		t.Errorf("fields = %+v", fields)
 	}
-	if DependencyName("host/corp.example") != "corp-example" || DependencyName("stripe") != "stripe" {
+	if contract.ExternalDependencyName("host/corp.example") != "corp-example" || contract.ExternalDependencyName("stripe") != "stripe" {
 		t.Error("DependencyName")
 	}
 }
