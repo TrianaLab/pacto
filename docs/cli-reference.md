@@ -417,6 +417,9 @@ pacto dashboard [sources...] [flags]
       --fingerprints string               a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers (also PACTO_DASHBOARD_FINGERPRINTS)
   -h, --help[=true|false]                 help for dashboard
       --host string                       bind address for the dashboard server (default "127.0.0.1")
+      --mcp[=true|false]                  serve MCP to agents at /mcp with the dashboard's sign-in: a Kubernetes token (token sign-in) or, with --oidc-issuer-url and --mcp-exchange-audience, an issuer token exchanged for the cluster (also PACTO_DASHBOARD_MCP)
+      --mcp-exchange-audience string      the audience asked for when exchanging an issuer token, one the API server accepts; without it every token is checked as a Kubernetes token (also PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE)
+      --mcp-url string                    the /mcp URL as agents reach it, the RFC 9728 resource; empty: the request's own address, token sign-in only (also PACTO_DASHBOARD_MCP_URL)
       --mira-source stringArray           base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)
       --mira-url string                   Mira's address, to link health-check citations and open a service in Mira
       --namespace string                  Kubernetes namespaces to read, comma-separated (empty = all namespaces); delivery reads narrow to it only when it names one

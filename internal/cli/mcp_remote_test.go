@@ -654,6 +654,12 @@ func TestNoMCPServerListsApproveTool(t *testing.T) {
 		expect(t, json.Unmarshal([]byte(strings.TrimSpace(body)), &res) == nil, "%s: %s", name, body)
 		servers[name] = res.Result.Tools
 	}
+	_, dash := newDashMCP(t)
+	for name, bearer := range map[string]string{"dashboard agent": "agent", "dashboard person": "person"} {
+		var res struct{ Tools []*mcpsdk.Tool }
+		rpcResult(t, dash, bearer, listTools, &res)
+		servers[name] = res.Tools
+	}
 	for name, tools := range servers {
 		var delivery int
 		for _, tool := range tools {

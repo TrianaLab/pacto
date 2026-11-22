@@ -51,6 +51,11 @@ type dashboardIdentity struct {
 	homeUID func(context.Context) (string, bool)
 	// loginName is the identity provider's name on the sign-in button.
 	loginName string
+	// audience and bearer are the token sign-in's two checks, built once:
+	// the /mcp token path reuses them. audience is nil without token sign-in,
+	// bearer without a cluster.
+	audience authn.AudienceCheck
+	bearer   authn.TokenReview
 	// selfMu guards the kubeconfig user a local dashboard acts as (see
 	// localSelf) and when it was last asked.
 	selfMu       sync.Mutex

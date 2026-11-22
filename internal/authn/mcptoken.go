@@ -184,3 +184,11 @@ func APIAudience(cluster *rest.Config) string {
 	}
 	return ""
 }
+
+// UnverifiedIssuer is the iss claim of a JWT-shaped token, unverified, or ""
+// for any other token. It only routes a token to the verifier that checks it.
+func UnverifiedIssuer(token string) string {
+	var iss string
+	_ = json.Unmarshal(jwtClaims(token)["iss"], &iss) // no iss routes nowhere special
+	return iss
+}

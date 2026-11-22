@@ -173,9 +173,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			if err != nil {
 				return err
 			}
-			if !identity.auth.Local() && !identity.auth.SignsIn() {
-				logging.LoggerFromContext(cmd.Context()).Warn("serving beyond loopback without sign-in: everyone who reaches this address reads the whole fleet")
-			}
+			warnOpen(cmd.Context(), identity)
 			opts := dashboard.Options{
 				UI:   dashboard.EmbeddedUI(),
 				Host: host,
@@ -199,6 +197,10 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			}
 			opts.Stats, opts.StatsRegistry = dashboardStats(cmd, svc)
 			identity.options(&opts)
+			mcpLine, err := mountDashboardMCP(v, svc, version, repos, identity, managerFleetProvider(mgr), fopts.Provenance, d, &opts)
+			if err != nil {
+				return err
+			}
 			server := dashboard.NewServer(opts)
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
@@ -209,7 +211,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				// The per-launch token: delivery actions in this browser need it.
 				addr = identity.auth.LaunchURL(addr)
 			}
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nPacto Dashboard running at %s\nSources: %s\n%sPress Ctrl+C to stop\n", addr, strings.Join(configured, ", "), signInLine(includeCurrent, contexts, clusterCfg != nil))
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nPacto Dashboard running at %s\nSources: %s\n%s%sPress Ctrl+C to stop\n", addr, strings.Join(configured, ", "), signInLine(includeCurrent, contexts, clusterCfg != nil), mcpLine)
 
 			return server.Serve(ctx)
 		},
@@ -238,6 +240,11 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().Duration("session-idle-timeout", 0, "a session without a request for this long ends (default 1h)")
 	cmd.Flags().Duration("session-max-age", 0, "a session ends this long after sign-in, renewed or not (default 12h)")
 	cmd.Flags().Bool("token-login", false, "let people sign in with a Kubernetes token: a ServiceAccount token minted with --audience pacto-dashboard reads the fleet only, and a person's own token acts as them (also PACTO_DASHBOARD_TOKEN_LOGIN)")
+	cmd.Flags().Bool("mcp", false, "serve MCP to agents at /mcp with the dashboard's sign-in: a Kubernetes token (token sign-in) or, with "+
+		"--oidc-issuer-url and --mcp-exchange-audience, an issuer token exchanged for the cluster (also PACTO_DASHBOARD_MCP)")
+	cmd.Flags().String("mcp-url", "", "the /mcp URL as agents reach it, the RFC 9728 resource; empty: the request's own address, token sign-in only (also PACTO_DASHBOARD_MCP_URL)")
+	cmd.Flags().String("mcp-exchange-audience", "", "the audience asked for when exchanging an issuer token, one the API server accepts; "+
+		"without it every token is checked as a Kubernetes token (also PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE)")
 	cmd.Flags().Bool("allow-anonymous", false, "serve beyond loopback without sign-in: everyone who reaches the address reads the whole fleet (also PACTO_DASHBOARD_ALLOW_ANONYMOUS)")
 	cmd.Flags().String("review", reviewCluster, reviewUsage+" (also PACTO_DASHBOARD_REVIEW)")
 	cmd.Flags().String("mira-url", "", "Mira's address, to link health-check citations and open a service in Mira")
@@ -263,7 +270,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.fingerprints", cmd.Flags().Lookup("fingerprints"))
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-display-name", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
 		"oidc-username-claim", "oidc-username-prefix", "oidc-groups-claim", "oidc-groups-prefix",
-		"session-idle-timeout", "session-max-age", "token-login", "allow-anonymous", "review", "mira-url", "delivery-namespace", "delivery-trust"} {
+		"session-idle-timeout", "session-max-age", "token-login", "mcp", "mcp-url", "mcp-exchange-audience", "allow-anonymous", "review", "mira-url", "delivery-namespace", "delivery-trust"} {
 		_ = v.BindPFlag("dashboard."+f, cmd.Flags().Lookup(f))
 	}
 	// A secret never goes on a command line, where any process can read it.
@@ -324,6 +331,14 @@ func parseDashboardArgs(args []string, envRepos string) (dir string, repos []str
 		dir = "."
 	}
 	return dir, repos, nil
+}
+
+// warnOpen warns that a dashboard serving beyond loopback without sign-in
+// shows the whole fleet to everyone who reaches it.
+func warnOpen(ctx context.Context, id *dashboardIdentity) {
+	if !id.auth.Local() && !id.auth.SignsIn() {
+		logging.LoggerFromContext(ctx).Warn("serving beyond loopback without sign-in: everyone who reaches this address reads the whole fleet")
+	}
 }
 
 // displayHost returns a user-friendly address for display (maps 0.0.0.0 to 127.0.0.1).

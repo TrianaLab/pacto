@@ -287,3 +287,16 @@ func TestAPIAudience(t *testing.T) {
 		}
 	}
 }
+
+func TestUnverifiedIssuer(t *testing.T) {
+	for token, want := range map[string]string{
+		fakeJWT(`{"iss":"https://dex.example"}`): "https://dex.example",
+		fakeJWT(`{"sub":"x"}`):                   "",
+		fakeJWT(`{"iss":7}`):                     "",
+		"k8s-aws-v1.opaque":                      "",
+	} {
+		if got := UnverifiedIssuer(token); got != want {
+			t.Errorf("%q: %q, want %q", token, got, want)
+		}
+	}
+}
