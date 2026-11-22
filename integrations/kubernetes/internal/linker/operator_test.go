@@ -8,7 +8,9 @@ See LICENSE file in the project root for full license text.
 package linker
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log"
 	"net/http/httptest"
@@ -16,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/registry"
+	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -82,5 +85,64 @@ func TestForOperatorReadsTheIndex(t *testing.T) {
 	}
 	if recs, _, err := l.Registry.Images(ctx, reg+"/payments", dA); err == nil && len(recs) != 0 {
 		t.Fatalf("a bundle with no images record has records: %+v", recs)
+	}
+}
+
+// TestForOperatorIndexOpenHasScope shows both registry clients the linker opens
+// carry oci.NewPushScope(cfg.Registry): a write inside the installation index
+// passes, a write in a bundle repository outside the scope is refused before it
+// leaves the process.
+func TestForOperatorIndexOpenHasScope(t *testing.T) {
+	srv := httptest.NewServer(registry.New(registry.WithReferrersSupport(true), registry.Logger(log.New(io.Discard, "", 0))))
+	t.Cleanup(srv.Close)
+	host := strings.TrimPrefix(srv.URL, "http://")
+	reg := host + "/acme"
+	tag := pushEntry(t, reg, "")
+	ctx := context.Background()
+
+	// A manifest in a bundle repository, written without a scope.
+	bundles, err := ocireferrer.Open(reg+"/payments", ocireferrer.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	art := ocireferrer.Build(orgindex.ArtifactType, orgindex.MediaType, []byte("{}"), nil, nil)
+	if err := ocireferrer.PushWriteOnce(ctx, bundles, art, "v1"); err != nil {
+		t.Fatal(err)
+	}
+
+	l, err := ForOperator(Config{DeploymentName: opDeploy, Namespace: opNS, Registry: reg, Insecure: []string{host}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := l.Registry.(registryReader)
+
+	// The index repository client.
+	desc, rc, err := r.repo.FetchReference(ctx, tag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(rc)
+	_ = rc.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.repo.PushReference(ctx, desc, bytes.NewReader(raw), "in-scope"); err != nil {
+		t.Fatalf("a tag inside the index repository was refused: %v", err)
+	}
+	outside, err := remote.NewRepository(reg + "/payments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside.Client, outside.PlainHTTP = r.repo.Client, r.repo.PlainHTTP
+	if err := outside.PushReference(ctx, desc, bytes.NewReader(raw), "escape"); !errors.Is(err, oci.ErrOutsidePushScope) {
+		t.Fatalf("the index client tagged outside the push scope: %v", err)
+	}
+
+	// The images client.
+	if err := r.images.Tag(ctx, oci.InstallationRepository(reg, oci.IndexRepository), desc.Digest.String(), "images-in-scope"); err != nil {
+		t.Fatalf("the images client was refused inside the scope: %v", err)
+	}
+	if err := r.images.Tag(ctx, reg+"/payments", art.ManifestDesc.Digest.String(), "escape"); !errors.Is(err, oci.ErrOutsidePushScope) {
+		t.Fatalf("the images client tagged outside the push scope: %v", err)
 	}
 }
