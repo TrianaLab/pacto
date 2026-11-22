@@ -225,6 +225,12 @@ func (e *factEdges) add(from, to ServiceKey, name string, src InferredSource) {
 	e.snap.inferredReverse[to] = appendUnique(e.snap.inferredReverse[to], from)
 }
 
+// HasServiceFact reports whether rel, an inferred edge, carries a depends-on a
+// source outside every contract reported (see [Collection.ServiceFacts]).
+func HasServiceFact(rel Relationship) bool {
+	return slices.ContainsFunc(rel.InferredSources, func(s InferredSource) bool { return s.Kind == serviceFactKind })
+}
+
 // serviceFactOnly reports whether every piece of an inferred edge's evidence
 // is a service fact: no runtime call or configuration backs it.
 func serviceFactOnly(rel Relationship) bool {

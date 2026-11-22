@@ -19,6 +19,14 @@ func (e *exporter) index(services []*fleet.ServiceRecord) {
 		rel := &e.snap.Relationships[i]
 		e.edges[rel.FromService] = append(e.edges[rel.FromService], rel)
 	}
+	// A depends-on a source outside every contract reports is service level,
+	// so it lives in InferredRelationships; runtime inferred calls there stay
+	// out of the export.
+	for i := range e.snap.InferredRelationships {
+		if rel := &e.snap.InferredRelationships[i]; fleet.HasServiceFact(*rel) {
+			e.edges[rel.FromService] = append(e.edges[rel.FromService], rel)
+		}
+	}
 	e.inUse = make(map[fleet.ServiceKey]map[fleet.RevisionKey]bool, len(services))
 	for _, s := range services {
 		e.inUse[s.Key] = e.inUseRevisions(s)

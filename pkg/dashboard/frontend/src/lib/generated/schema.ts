@@ -7513,6 +7513,8 @@ export interface components {
             conflicts: components["schemas"]["Fleet.StringsPreview"];
             contacts?: components["schemas"]["Fleet.ContactsPreview"];
             declared: boolean;
+            /** @description The owner a source outside every contract reports, set on a service whose owner provenance is inferred */
+            inferred?: components["schemas"]["Fleet.InferredFact"];
             owner?: string;
             /** @enum {string} */
             provenance?: "declared" | "declared-via-target" | "attested" | "inferred";
@@ -7826,6 +7828,8 @@ export interface components {
              * @description At least this many resources this service uses come from providers you may not see; counted from your own contract and reports, never named
              */
             hiddenProviders?: number;
+            /** @description A business domain a source outside every contract reports, set only when the service declares none. Never a domain */
+            inferredBusinessDomain?: components["schemas"]["Fleet.InferredFact"];
             inferredFields: components["schemas"]["Fleet.InferredPreview"];
             inferredOfferings: components["schemas"]["ProductInferredOffering"][] | null;
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];

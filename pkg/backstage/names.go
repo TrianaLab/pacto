@@ -130,7 +130,16 @@ func componentNames(services []*fleet.ServiceRecord, callers []callerGroup) (svc
 // or its value is not already a valid Backstage name.
 func ownerRef(o contract.Owner) (string, bool) {
 	k, has := o.Key()
-	if !has || !namePattern.MatchString(k.Value) || len(k.Value) > maxName {
+	if !has {
+		return "", false
+	}
+	return ownerKeyRef(k)
+}
+
+// ownerKeyRef is the Backstage ref of owner key k, false when its value is no
+// valid Backstage name.
+func ownerKeyRef(k contract.OwnerKey) (string, bool) {
+	if !namePattern.MatchString(k.Value) || len(k.Value) > maxName {
 		return "", false
 	}
 	kind := "group"

@@ -3,7 +3,9 @@ package backstage
 import (
 	"slices"
 	"strconv"
+	"strings"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -109,6 +111,7 @@ func owner(q *fleet.Query, s *fleet.ServiceRecord, ann map[string]string) string
 		ann[AnnotationOwnerProvenance] = s.OwnerProvenance
 	}
 	if !slices.Contains(factualOwner, s.OwnerProvenance) {
+		inferredOwner(s, ann)
 		return unknown
 	}
 	switch n := q.OwnerClaimCount(s.Key); {
@@ -134,9 +137,37 @@ func owner(q *fleet.Query, s *fleet.ServiceRecord, ann map[string]string) string
 func system(s *fleet.ServiceRecord, ann map[string]string, systemNames map[string]string) string {
 	if s.BusinessDomainUnknown {
 		ann[AnnotationBusinessDomain] = unknown
+	}
+	if s.BusinessDomain == "" && s.InferredBusinessDomain != nil {
+		ann[AnnotationInferredBusinessDomain] = s.InferredBusinessDomain.Value
+		ann[AnnotationInferredBusinessDomainSource] = factSource(s.InferredBusinessDomain)
+	}
+	if s.BusinessDomainUnknown {
 		return ""
 	}
 	return systemNames[s.BusinessDomain]
+}
+
+// inferredOwner records on ann the owner a source reports for s when its
+// owner is only inferred and the owner is a valid Backstage name.
+func inferredOwner(s *fleet.ServiceRecord, ann map[string]string) {
+	if s.OwnerProvenance != fleet.OwnerProvenanceInferred || s.InferredOwner == nil {
+		return
+	}
+	k, err := contract.ParseOwnerKey(s.InferredOwner.Value)
+	if err != nil {
+		return
+	}
+	if ref, ok := ownerKeyRef(k); ok {
+		ann[AnnotationInferredOwner] = ref
+		ann[AnnotationInferredOwnerSource] = factSource(s.InferredOwner)
+	}
+}
+
+// factSource is "<source id> <where>" of f, the source id alone when it
+// gave no reference.
+func factSource(f *fleet.InferredFact) string {
+	return strings.TrimSpace(f.Source + " " + f.Where)
 }
 
 // systems names one System per business domain a service declares and

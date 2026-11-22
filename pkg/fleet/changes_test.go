@@ -424,7 +424,7 @@ func diffChange(path string) diff.Change { return diff.Change{Path: path, Type: 
 // TestServiceDetailJSONKeys: the service detail's JSON keys are the released
 // ones plus changes, which replaced an unreleased environment-only field.
 func TestServiceDetailJSONKeys(t *testing.T) {
-	want := []string{"domain", "ownership", "ownerRevision", "lifecycle", "capabilities", "sources", "unresolvedDependencies",
+	want := []string{"domain", "ownership", "inferredBusinessDomain", "ownerRevision", "lifecycle", "capabilities", "sources", "unresolvedDependencies",
 		"consumedOfferings", "inferredOfferings", "currentRevision", "policies", "configurations", "inferredFields", "contractCompleteness", "summary", "revisions",
 		"activeRevisions", "signatures", "deployments", "placement", "dependencies", "dependents", "changes",
 		"hiddenDependencies", "hiddenProviders", "hiddenDependents", "dependentsStatus", "referencedBy", "relationships",
