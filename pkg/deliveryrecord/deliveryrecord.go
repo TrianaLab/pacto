@@ -150,21 +150,31 @@ type Fetched struct {
 // says when more matched (cut), so a caller says the bound was reached. A
 // listing or fetch failure is an error, never no record. What each manifest
 // and tag names is remembered, as [Reader.List] does, so a later call
-// fetches only new manifests and the bundles it returns.
+// fetches only new manifests and the bundles it returns. Copies of one
+// bundle under different manifests are one record: only the first listed
+// counts, before the bound.
 func (r *Reader) ListPredicate(ctx context.Context, repo *remote.Repository, stream, predicate, uid string, max int) ([]Fetched, bool, error) {
+	return r.listPredicate(ctx, repo, stream, predicate, uid, max, new([]string))
+}
+
+// listPredicate is [Reader.ListPredicate], adding to unreadable the tags
+// that vanished or do not name the manifest they point at.
+func (r *Reader) listPredicate(ctx context.Context, repo *remote.Repository, stream, predicate, uid string, max int, unreadable *[]string) ([]Fetched, bool, error) {
 	anchor := Anchor(stream).ManifestDesc
 	key, kind := headsKey(stream, predicate)
 	descs, tags, err := ocireferrer.Attached(ctx, repo, anchor, AnchorTag(stream)+"-"+kind+"-")
 	if err != nil {
 		return nil, false, err
 	}
-	heads, order, err := r.readHeads(ctx, repo, key, descs, tags)
+	heads, order, err := r.readHeads(ctx, repo, key, descs, tags, unreadable)
 	if err != nil {
 		return nil, false, err
 	}
 	var matched []string
+	bundles := map[digest.Digest]bool{}
 	for _, k := range order {
-		if h := heads[k]; h.layer != nil && !h.rejected && h.predicate == predicate && h.subject == anchor.Digest.String() && (uid == "" || h.uid == uid) {
+		if h := heads[k]; h.layer != nil && !h.rejected && h.predicate == predicate && h.subject == anchor.Digest.String() && (uid == "" || h.uid == uid) && !bundles[h.layer.Digest] {
+			bundles[h.layer.Digest] = true
 			matched = append(matched, k)
 		}
 	}
@@ -218,12 +228,13 @@ func (r *Reader) Reject(stream, predicate, manifest string) {
 
 // readHeads says what each manifest in descs and each tag in tags names,
 // by manifest digest and in listing order, through what r remembers under
-// key. A vanished or moved tag holds nothing to open.
-func (r *Reader) readHeads(ctx context.Context, repo *remote.Repository, key string, descs []ocispec.Descriptor, tags []string) (map[string]head, []string, error) {
+// key. A vanished or moved tag holds nothing to open and is noted in
+// unreadable.
+func (r *Reader) readHeads(ctx context.Context, repo *remote.Repository, key string, descs []ocispec.Descriptor, tags []string, unreadable *[]string) (map[string]head, []string, error) {
 	r.mu.Lock()
 	knownHeads, knownTags := r.heads[key], r.kindTags[key]
 	r.mu.Unlock()
-	tagged, nowTags, err := resolveTags(ctx, repo, tags, knownTags, new([]string))
+	tagged, nowTags, err := resolveTags(ctx, repo, tags, knownTags, unreadable)
 	if err != nil {
 		return nil, nil, err
 	}

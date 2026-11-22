@@ -620,7 +620,7 @@ func ValidClusterID(id string) bool { return validClusterIDPattern.MatchString(i
 
 // clusterNameRank orders the declared name sources of reported names.
 var clusterNameRank = map[string]int{
-	ClusterNameFromNodeLabel: 4, ClusterNameFromContext: 3, ClusterNameFromFile: 2, ClusterNameFromUID: 1,
+	ClusterNameFromApproval: 5, ClusterNameFromNodeLabel: 4, ClusterNameFromContext: 3, ClusterNameFromFile: 2, ClusterNameFromUID: 1,
 }
 
 // ValidClusterName reports whether [Build] keeps a reported cluster name: at

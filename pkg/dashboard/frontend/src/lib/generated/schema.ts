@@ -2724,10 +2724,10 @@ export interface components {
             /** @description A display name for the cluster; never an identity. */
             name?: string;
             /**
-             * @description How the name was found: a node label, the kubeconfig context name, a target state file or the first characters of the UID.
+             * @description How the name was found: a person's approval of the cluster, a node label, the kubeconfig context name, a target state file or the first characters of the UID.
              * @enum {string}
              */
-            nameSource?: "node-label" | "context" | "file" | "uid";
+            nameSource?: "approval" | "node-label" | "context" | "file" | "uid";
             /** @description The source that reported the name; empty when this process read it itself. */
             reportedBy?: string;
         };
@@ -2742,10 +2742,10 @@ export interface components {
             /** @description A display name for the cluster; never an identity. */
             name?: string;
             /**
-             * @description How the name was found: a node label, the kubeconfig context name, a target state file or the first characters of the UID.
+             * @description How the name was found: a person's approval of the cluster, a node label, the kubeconfig context name, a target state file or the first characters of the UID.
              * @enum {string}
              */
-            nameSource?: "node-label" | "context" | "file" | "uid";
+            nameSource?: "approval" | "node-label" | "context" | "file" | "uid";
             /** @description The source that reported the name; empty when this process read it itself. */
             reportedBy?: string;
             /** @description Every source that reported this cluster id. */
@@ -5029,7 +5029,7 @@ export interface components {
              * @description How the cluster name was found.
              * @enum {string}
              */
-            clusterNameSource?: "node-label" | "context" | "file" | "uid";
+            clusterNameSource?: "approval" | "node-label" | "context" | "file" | "uid";
             /**
              * @description runs-in when a Kubernetes source read the target in the cluster; reported-through when the cluster only reported it.
              * @enum {string}

@@ -621,8 +621,10 @@ const RangeReasonInferredProvider = "INFERRED_PROVIDER"
 
 // Cluster name sources: how a [Cluster] name was found. They mirror the values
 // of pkg/kubecluster, which pkg/fleet cannot import. The live Kubernetes source
-// sets node-label, context or uid; a target state file sets file.
+// sets node-label, context or uid; a target state file sets file; a person's
+// approval of a member cluster sets approval.
 const (
+	ClusterNameFromApproval  = "approval"
 	ClusterNameFromNodeLabel = "node-label"
 	ClusterNameFromContext   = "context"
 	ClusterNameFromFile      = "file"
@@ -645,7 +647,7 @@ type Cluster struct {
 	// Name is a display name only, never an identity.
 	Name string `json:"name,omitempty" doc:"A display name for the cluster; never an identity."`
 	// NameSource says how Name was found.
-	NameSource string `json:"nameSource,omitempty" enum:"node-label,context,file,uid" doc:"How the name was found: a node label, the kubeconfig context name, a target state file or the first characters of the UID."`
+	NameSource string `json:"nameSource,omitempty" enum:"approval,node-label,context,file,uid" doc:"How the name was found: a person's approval of the cluster, a node label, the kubeconfig context name, a target state file or the first characters of the UID."`
 	// ReportedBy is the id of the source that reported Name, empty when this
 	// process read the name itself.
 	ReportedBy string `json:"reportedBy,omitempty" doc:"The source that reported the name; empty when this process read it itself."`
@@ -1150,7 +1152,7 @@ type TargetRecord struct {
 	// whether the target runs in the cluster or was only reported through it.
 	Cluster               string       `json:"cluster,omitempty" doc:"The kube-system UID of the cluster that reported this target."`
 	ClusterName           string       `json:"clusterName,omitempty" doc:"A display name for the cluster; never an identity."`
-	ClusterNameSource     string       `json:"clusterNameSource,omitempty" enum:"node-label,context,file,uid" doc:"How the cluster name was found."`
+	ClusterNameSource     string       `json:"clusterNameSource,omitempty" enum:"approval,node-label,context,file,uid" doc:"How the cluster name was found."`
 	ClusterNameReportedBy string       `json:"clusterNameReportedBy,omitempty" doc:"The source that reported the cluster name; empty when this process read it itself."`
 	ClusterRelation       string       `json:"clusterRelation,omitempty" enum:"runs-in,reported-through" doc:"runs-in when a Kubernetes source read the target in the cluster; reported-through when the cluster only reported it."`
 	Limitations           []Limitation `json:"limitations,omitempty"`

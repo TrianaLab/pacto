@@ -201,3 +201,28 @@ func TestFetch(t *testing.T) {
 		t.Fatal("an unknown digest fetched")
 	}
 }
+
+// TestListPredicateDedupesByBundle: in either form, 25 manifests carrying
+// one bundle are one record and never take the bound from another.
+func TestListPredicateDedupesByBundle(t *testing.T) {
+	for _, mode := range modes {
+		t.Run(string(mode), func(t *testing.T) {
+			_, path := setup(t, testutil.ReferrersOptions{Unsupported: mode == capabilities.ReferrersWriteOnceTags})
+			repo, _ := anchored(t, path)
+			_, key, _ := ed25519.GenerateKey(rand.Reader)
+			copied := approvalAt(t, key, "2026-11-11T00:00:00Z")
+			for i := range 25 {
+				if _, err := Push(t.Context(), repo, stream, mode, delivery.PredicateApproval, copied, map[string]string{"copy": fmt.Sprint(i)}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := Push(t.Context(), repo, stream, mode, delivery.PredicateApproval, approvalAt(t, key, "2026-11-12T00:00:00Z"), nil); err != nil {
+				t.Fatal(err)
+			}
+			got, cut, err := (&Reader{}).ListPredicate(t.Context(), repo, stream, delivery.PredicateApproval, "", 2)
+			if err != nil || cut || len(got) != 2 || claimedTime(got[1].Bundle) != "2026-11-11T00:00:00Z" {
+				t.Fatalf("got %d records, cut %v, %v", len(got), cut, err)
+			}
+		})
+	}
+}

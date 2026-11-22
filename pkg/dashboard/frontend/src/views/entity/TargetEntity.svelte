@@ -71,7 +71,7 @@
   // The cluster that reported this target (514-S1). The UID is the identity; the name
   // is display only, so it always says where it came from, and who reported it when
   // this process did not read it itself.
-  const NAME_SOURCES = { 'node-label': 'node label', context: 'context name', file: 'target-state file', uid: 'cluster id' };
+  const NAME_SOURCES = { approval: 'approval', 'node-label': 'node label', context: 'context name', file: 'target-state file', uid: 'cluster id' };
   const cluster = $derived(d.cluster ?? null);
   const clusterHow = $derived.by(() => {
     if (!cluster) return '';

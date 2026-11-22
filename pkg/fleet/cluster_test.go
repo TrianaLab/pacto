@@ -328,6 +328,22 @@ func TestClusterNameRankedBySource(t *testing.T) {
 	}
 }
 
+// TestBuildKeepsApprovalNameOverNodeLabel: a person's approval name outranks
+// a node label, and the snapshot keeps it on the cluster and its targets.
+func TestBuildKeepsApprovalNameOverNodeLabel(t *testing.T) {
+	snap := buildClusterSnap(t,
+		NewMemorySource("labelled", SourceKindTargetState, &Collection{Cluster: clusterOf(clusterA, "gke-eu-1", ClusterNameFromNodeLabel), Targets: []RawTarget{workload("a", "a")}}),
+		NewMemorySource("member", SourceKindTargetState, &Collection{Cluster: clusterOf(clusterA, "eu-prod", ClusterNameFromApproval)}),
+	)
+	c := snap.Clusters[0]
+	if c.Name != "eu-prod" || c.NameSource != ClusterNameFromApproval || c.ReportedBy != "member" {
+		t.Errorf("approval outranks node-label: %+v", c)
+	}
+	if tr := singleTarget(t, snap); tr.ClusterName != "eu-prod" || tr.ClusterNameSource != ClusterNameFromApproval {
+		t.Errorf("the target keeps the approval name: %+v", tr)
+	}
+}
+
 func TestReportedClusterNameNeverOverridesLiveName(t *testing.T) {
 	snap := buildClusterSnap(t,
 		NewMemorySource("evidence-x", SourceKindEvidenceHTTP, &Collection{Targets: []RawTarget{evidenceTarget(clusterA, fixedNow())}}),
