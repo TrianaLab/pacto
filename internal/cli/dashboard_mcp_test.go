@@ -78,6 +78,7 @@ type dashMCPWorld struct {
 	reviewed []string // every token a TokenReview body carried
 	created  []string // the bearer of every client that created an Operation
 	outside  map[string]http.Handler
+	fleet    *fleet.Query // nil: viewFleet
 }
 
 func (w *dashMCPWorld) userOf(token string) string {
@@ -166,7 +167,10 @@ func newDashMCPWorld(t *testing.T, tune func(v *viper.Viper)) *dashMCPWorld {
 
 func (w *dashMCPWorld) build(t *testing.T) (map[string]http.Handler, error) {
 	t.Helper()
-	q := viewFleet(t)
+	q := w.fleet
+	if q == nil {
+		q = viewFleet(t)
+	}
 	return newDashboardMCP(w.v, app.NewService(nil, nil), "v", nil, w.id, func(context.Context) (*fleet.Query, error) { return q, nil }, nil, w.d)
 }
 
@@ -254,6 +258,22 @@ func TestDashboardMCPFleetAnswerCarriesProvenance(t *testing.T) {
 	expect(t, !strings.Contains(text, `"web"`), "the view narrows to alice: %s", text)
 	text, _ = remoteCall(t, h, "agent", "pacto_fleet_entities", "{}")
 	expect(t, strings.Contains(text, `"web"`), "the agent reads web: %s", text)
+}
+
+// TestDashboardMCPInferredRowsKeepProvenance: an inferred service reaches an
+// agent over the dashboard's /mcp marked inferred, with a partial answer, and
+// a caller the view hides never reads it.
+func TestDashboardMCPInferredRowsKeepProvenance(t *testing.T) {
+	w := newDashMCPWorld(t, nil)
+	w.fleet = inferredQuery(t, true)
+	w.readers["alice"] = false
+	h := w.mcp(t)
+	text, isErr := remoteCall(t, h, "viewer", "pacto_fleet_entities", `{"declaration":"inferred"}`)
+	expect(t, !isErr && strings.Contains(text, billingName) && strings.Contains(text, `"declaration": "inferred"`), "viewer reads the inferred row: %s", text)
+	text, _ = remoteCall(t, h, "viewer", "pacto_fleet_graph", `{"service":"`+billingName+`"}`)
+	expect(t, strings.Contains(text, `"completeness": "partial"`) && strings.Contains(text, string(fleet.LimitationServiceInferred)), "an inferred graph is partial: %s", text)
+	text, _ = remoteCall(t, h, "person", "pacto_fleet_entities", `{"declaration":"inferred"}`)
+	expect(t, !strings.Contains(text, "billing"), "the view hides it from alice: %s", text)
 }
 
 func issuerWorld(t *testing.T, exchange bool) (*dashMCPWorld, http.Handler) {
