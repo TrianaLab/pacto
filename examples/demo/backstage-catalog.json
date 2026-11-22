@@ -1,0 +1,25 @@
+{
+  "items": [
+    {
+      "kind": "Component",
+      "metadata": {"name": "legacy-billing", "namespace": "default"},
+      "spec": {"owner": "group:default/billing-ops", "system": "billing", "dependsOn": ["component:default/invoices", "resource:default/billing-db"]}
+    },
+    {
+      "kind": "Component",
+      "metadata": {"name": "payments-service", "namespace": "default"},
+      "spec": {"owner": "group:default/finance-team", "system": "finance"}
+    },
+    {
+      "kind": "Component",
+      "metadata": {
+        "name": "orders-service",
+        "namespace": "default",
+        "annotations": {"pacto.trianalab.io/provenance": "declared"}
+      },
+      "spec": {"owner": "group:default/someone-else", "system": "echo"}
+    }
+  ],
+  "totalItems": 3,
+  "pageInfo": {}
+}

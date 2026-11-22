@@ -6,7 +6,8 @@ import { mapFocus } from './graphFocus';
 // (examples/demo/source_inferred_edges.go): the kernel observer sees nightly-export, a
 // CronJob no contract describes, call search-indexer, legacy-billing and event-bus; and
 // experiment-service's Pacto target runs as the experiments Deployment, which ran with
-// no contract for days before the Pacto was created.
+// no contract for days before the Pacto was created. The demo's Backstage catalog says
+// legacy-billing depends on invoices (examples/demo/backstage-catalog.json).
 
 const T = 20_000;
 const REPLACED = 'k8s:prod%2FDeployment%2Fexperiments';
@@ -23,6 +24,19 @@ test.describe('WASM demo: inferred edges and replaced services', () => {
     expect(edge[0]).toMatchObject({ inferred: true, expected: false, provenance: 'inferred' });
     // The caller sits in the left column, the service in the centre.
     await expect(page.getByTestId('fleet-map-focus')).toContainText('search-indexer');
+  });
+
+  test('a dependency the Backstage catalog holds draws as inferred, only with the observed edges', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    // examples/demo/backstage-catalog.json: legacy-billing dependsOn invoices.
+    const focus = await mapFocus(page, 'invoices');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const edge = (focus.edges ?? []).filter((e: any) => `${e.from.label} ${e.to.label}`.includes('legacy-billing'));
+    expect(edge).toHaveLength(1);
+    expect(edge[0]).toMatchObject({ inferred: true, expected: false, provenance: 'inferred' });
+    // The declared graph, which carries no observed edge, never draws it.
+    const graph = await page.evaluate(async () => (await (await fetch('/api/fleet/services/invoices/graph?direction=dependents')).json()) as { edges?: Array<{ fromService?: string }> });
+    expect((graph.edges ?? []).filter((e) => (e.fromService ?? '').includes('legacy-billing'))).toHaveLength(0);
   });
 
   test('the service page carries one muted Replaces line with its details in the tooltip', async ({ page }) => {

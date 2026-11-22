@@ -8,8 +8,8 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
-// TestDemoFleetHasDetectedRows: the demo cluster's detection shows as eleven
-// current inferred rows (the Pull Secret proposal, the Datadog Agent and the
+// TestDemoFleetHasDetectedRows: the demo cluster's detection shows as twelve
+// current inferred rows (the Pull Secret proposal, the Datadog Agent, the Backstage catalog and the
 // three egress readers among them) plus the one declared Installation row, from an available advisory
 // source that adds no snapshot limitation, so the demo's completeness is what
 // its other sources make it. The three trace backends a live edge source
@@ -29,8 +29,8 @@ func TestDemoFleetHasDetectedRows(t *testing.T) {
 			rows = append(rows, p)
 		}
 	}
-	if len(rows) != 11 || declared != 1 {
-		t.Fatalf("detected rows = %+v (%d declared), want eleven inferred and one declared", rows, declared)
+	if len(rows) != 12 || declared != 1 {
+		t.Fatalf("detected rows = %+v (%d declared), want twelve inferred and one declared", rows, declared)
 	}
 	if slices.ContainsFunc(rows, func(p fleet.Provider) bool { return slices.Contains(demoTraceKinds, p.ID) }) {
 		t.Errorf("the detection source lists a trace backend an edge source reads: %+v", rows)

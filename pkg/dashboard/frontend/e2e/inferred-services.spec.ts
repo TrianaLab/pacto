@@ -78,6 +78,24 @@ test.describe('WASM demo: inferred services', () => {
     await expect(mark).toHaveAttribute('aria-expanded', 'false');
   });
 
+  test('the inferred service shows the owner and domain the Backstage catalog holds as muted text with one mark', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await appReady(page, '/#/fleet/services?declaration=inferred');
+    await page.locator('[data-testid="service-list"] a', { hasText: 'legacy-billing' }).first().click();
+
+    // examples/demo/backstage-catalog.json: group billing-ops and system billing.
+    const owner = page.getByTestId('owner-inferred');
+    await expect(owner).toHaveText('inferred: billing-ops', { timeout: T });
+    await expect(page.getByTestId('domain-inferred')).toHaveText('inferred: billing');
+    const fact = owner.locator('..');
+    const mark = fact.getByRole('button', { name: 'About the inferred owner' });
+    await expect(mark).toHaveCount(1);
+    await mark.click();
+    const tip = fact.getByRole('note');
+    await expect(tip).toContainText('Inferred from backstage-catalog (component:default/legacy-billing)');
+    await expect(tip).toContainText('Pacto never routes approvals or clears a gate on it.');
+  });
+
   test('the filtered list states nothing positive about workloads with no contract', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await appReady(page, '/#/fleet/services?declaration=inferred');

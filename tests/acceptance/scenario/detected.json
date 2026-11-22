@@ -133,6 +133,15 @@
       "hint": "helm upgrade <release> <chart> --reuse-values --set controller.egressGatewayLogs=on",
       "objects": [{"kind": "Pod", "namespace": "istio-system", "name": "istio-egressgateway-7d4b9c6f8-x2k9p"}],
       "scope": "cluster"
+    },
+    {
+      "kind": "backstage",
+      "value": "Backstage",
+      "evidence": "running in 1 workload",
+      "source": "running pods and Services",
+      "completeness": "complete",
+      "objects": [{"kind": "Service", "namespace": "backstage", "name": "backstage"}],
+      "endpoint": "http://backstage.backstage.svc:7007"
     }
   ],
   "installation": {

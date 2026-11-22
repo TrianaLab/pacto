@@ -258,13 +258,19 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	linked := fleet.NewMemorySource("k8s-production-linked", fleet.SourceKindLinked, &fleet.Collection{
 		Cluster: prodCluster, Targets: linkedTargets,
 	})
+	// The organization's Backstage catalog: owners, systems and dependencies
+	// it holds, read as inferred values beside the declared ones.
+	catalogSource, err := demoBackstageSource(demoNow())
+	if err != nil {
+		return nil, nil, err
+	}
 	cat, err := demoCatalog()
 	if err != nil {
 		return nil, nil, err
 	}
 	snap, err := fleet.Build(context.Background(),
 		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat, DeclarationSigners: demoHandoverSigners()},
-		append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection, linked, demoMeshSource(prodCluster, demoNow())}, traceSources...)...)
+		append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection, linked, demoMeshSource(prodCluster, demoNow()), catalogSource}, traceSources...)...)
 	if err != nil {
 		return nil, nil, err
 	}
