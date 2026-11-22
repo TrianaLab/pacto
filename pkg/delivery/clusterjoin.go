@@ -359,7 +359,7 @@ type ClusterJoinList struct {
 // with no usable join block, or whose own key did not sign it, a cut or
 // failed record listing or no counted record is pending; an approval of
 // another key than the snapshot's is pending. The hub itself is skipped.
-// It also returns how many counted records decide for another hub.
+// It also returns how many verified records name another hub.
 func JoinStates(hub string, cands []JoinCandidate, recs map[string]JoinRecords) ([]ClusterJoinState, int) {
 	var out []ClusterJoinState
 	others := 0
