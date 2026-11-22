@@ -79,6 +79,10 @@ type Cluster struct {
 	// promoter trusts no upstream key: such a Stage is not Ready and offers
 	// nothing.
 	Upstream func(ctx context.Context, r delivery.RemoteStage, seen delivery.RecordMark, acked []string) (*delivery.StageStatus, string)
+	// Infra tells which kinds the manifest inspector reads as infrastructure
+	// Crossplane manages (kubecluster.Infra over cached API discovery). Nil
+	// tells them by group only.
+	Infra delivery.InfraFunc
 }
 
 // remote reads the upstream Stage in another cluster that stage follows, or

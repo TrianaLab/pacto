@@ -87,7 +87,7 @@ func deliveryClient(cmd *cobra.Command, d deps) (*app.Delivery, string, error) {
 	c, ns, err := deliveryClientFor(cmd, d, dyn)
 	if err == nil && d.clusterConfig != nil {
 		cfg, _ := d.clusterConfig()
-		c.Scope = app.DiscoveryScope(cfg)
+		c.Scope, c.Infra = app.DiscoveryScope(cfg)
 	}
 	return c, ns, err
 }
@@ -333,7 +333,8 @@ func printPlanApplier(w io.Writer, p delivery.PlanAnswer) {
 }
 
 // printPlanManifests lists, from the pacto.manifests citation, the objects
-// a promote applies and what the inspector refused or could not read;
+// a promote applies, the refusal code and what the inspector refused or
+// could not read;
 // nothing when the gate did not run.
 func printPlanManifests(w io.Writer, p delivery.PlanAnswer) {
 	i := slices.IndexFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GateManifests })
@@ -344,7 +345,7 @@ func printPlanManifests(w io.Writer, p delivery.PlanAnswer) {
 	if c["objects"] != "" {
 		_, _ = fmt.Fprintf(w, "objects:   %s: %s\n", c["artifact"], c["objects"])
 	}
-	for _, k := range []string{"refused", "unread"} {
+	for _, k := range []string{"code", "refused", "unread"} {
 		if c[k] == "" {
 			continue
 		}

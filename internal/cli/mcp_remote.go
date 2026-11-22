@@ -335,12 +335,13 @@ func remoteDeliveryClients(cmd *cobra.Command, d deps) (func(dyn dynamic.Interfa
 	}
 	// API discovery is the same for every caller: read once, as the server.
 	var scope delivery.ScopeFunc
+	var infra delivery.InfraFunc
 	if d.clusterConfig != nil {
 		cfg, _ := d.clusterConfig()
-		scope = app.DiscoveryScope(cfg)
+		scope, infra = app.DiscoveryScope(cfg)
 	}
 	return func(dyn dynamic.Interface) *app.Delivery {
 		return &app.Delivery{Dynamic: dyn, Registry: d.newDeliveryRegistry, Records: d.newRecordRepo, Trust: trust,
-			Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now, Scope: scope}
+			Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now, Scope: scope, Infra: infra}
 	}, nil
 }

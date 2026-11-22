@@ -196,3 +196,29 @@ func TestTier0ListsManifestsGate(t *testing.T) {
 		t.Fatalf("tier0 promote: %+v", typ)
 	}
 }
+
+// TestRawInfraRefusedOnlyUnderIDP: the published RefuseRawInfra turns raw
+// infrastructure into a Fail with its code, carried by the apply refusal;
+// without it a person is asked.
+func TestRawInfraRefusedOnlyUnderIDP(t *testing.T) {
+	claim := ManifestInspection{Artifact: "manifests", Namespace: "prod", Total: 1, Objects: []ManifestObject{{Kind: "PostgresClaim", Name: "db"}},
+		Infra: []string{"PostgresClaim db is raw infrastructure: declare a dependency on an offering"}}
+	var reads int
+	in := inspectedInput(t, claim, &reads)
+	in.From.Bundle.Contract.Workload = "job" // no breaking change
+	if p := PlanFor(context.Background(), in); p.Predicted != PredictHeld || p.Floor.Decision != AcceptUnknown ||
+		!strings.Contains(p.Question, "PostgresClaim db is raw infrastructure") {
+		t.Fatalf("outside idp a person decides: %+v", p)
+	}
+	in.RefuseRawInfra = true
+	p := PlanFor(context.Background(), in)
+	v := verdict(t, p, GateManifests)
+	if p.Predicted != PredictRejected || v.Result != Fail || v.Citation["code"] != CodeRawInfraInArtifact {
+		t.Fatalf("idp refuses raw infrastructure: %+v", p)
+	}
+	op := OperationObject{Spec: promote(dA, dB), Status: OperationStatus{Outcome: Rejected, Verdicts: p.Verdicts}}
+	if r, ok := ApplyRefusalOf(ServiceRef{Name: "payments"}, op); !ok || r.Code != CodeRawInfraInArtifact ||
+		r.Refused[0] != "PostgresClaim db is raw infrastructure: declare a dependency on an offering" {
+		t.Fatalf("the record carries the code: %+v %v", r, ok)
+	}
+}

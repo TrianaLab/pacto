@@ -207,6 +207,14 @@ flowchart LR
   RoleBinding that grants a group, a user or another namespace's
   ServiceAccount. It judges every chart template as if it renders, so a
   ClusterRole behind an `if` is refused too. Rollbacks skip it.
+  Under `profile: idp` infrastructure reaches a cluster only as a dependency
+  on an offering, so it also refuses raw infrastructure with the code
+  `RawInfraInArtifact`: Crossplane claims, composite resources, definitions,
+  compositions and every managed resource (the `claim`, `composite` and
+  `managed` discovery categories, and the `*.crossplane.io` and
+  `*.upbound.io` groups). The next step it names is to declare a dependency on
+  an offering. Under `default` and `hardened` it asks a person about those
+  objects instead.
 - After: the Pacto contract check counts only when
   `status.evaluatedRevision` names this version's contract digest and the
   current workload generation. `Compliant` and `Warning` pass, `NonCompliant`

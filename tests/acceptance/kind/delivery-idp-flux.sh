@@ -30,7 +30,9 @@
 #      through the upgraded Flux;
 #   7. orders 2.1.0 carries a ClusterRoleBinding: its promote is Rejected by
 #      pacto.manifests before the pointer moves, a signed apply refusal is
-#      listed by pacto delivery refusals and the binding never exists;
+#      listed by pacto delivery refusals and the binding never exists; orders
+#      2.2.0 carries a Crossplane claim and is refused with RawInfraInArtifact,
+#      and no claim exists;
 #   8. idp.flux.install=false keeps Flux and the workloads, and true again
 #      adopts the kept objects unchanged;
 #   9. helm uninstall pacto leaves Flux and the three workloads running.
@@ -122,6 +124,23 @@ done
 no_engine() { ! kubectl get crd -o name | grep -q -e 'fluxcd\.io$' -e 'argoproj\.io$'; }
 no_engine || fail "the empty cluster serves Flux or Argo CD CRDs: $(kubectl get crd -o name | grep -e fluxcd.io -e argoproj.io | tr '\n' ' ')"
 pass "the cluster serves no Flux and no Argo CD CRD"
+# A claim kind as a Crossplane XRD offers it: namespaced, in the claim
+# category. It is served before Pacto starts, since the promoter caches API
+# discovery for its life.
+kubectl apply -f - >/dev/null <<'YAML'
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata: {name: postgresclaims.platform.example.org}
+spec:
+  group: platform.example.org
+  scope: Namespaced
+  names: {kind: PostgresClaim, plural: postgresclaims, singular: postgresclaim, categories: [crossplane, claim]}
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema: {openAPIV3Schema: {type: object, x-kubernetes-preserve-unknown-fields: true}}
+YAML
 
 section "the registry, the contracts and every version the run ships, signed by acme's release workflow"
 install_registry
@@ -179,9 +198,10 @@ push() {
   [ -n "$digest" ] || fail "pushing $at resolved no digest"
   echo "$digest"
 }
-# publish_flux SERVICE VERSION plain|kustomize [crb] — a Flux content artifact
-# at apps/SERVICE: plain manifests, or a kustomization that only lists them and
-# sets the Stage's namespace; crb adds a ClusterRoleBinding.
+# publish_flux SERVICE VERSION plain|kustomize [crb|claim] — a Flux content
+# artifact at apps/SERVICE: plain manifests, or a kustomization that only lists
+# them and sets the Stage's namespace; crb adds a ClusterRoleBinding, claim a
+# Crossplane claim.
 publish_flux() {
   local svc="$1" v="$2" tree tgz ref
   tree="$(mktemp -d)"; tgz="$(mktemp -t "$svc.XXXXXX")"
@@ -197,6 +217,9 @@ metadata: {name: $svc-admin}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-admin}
 subjects: [{kind: ServiceAccount, name: default, namespace: $svc}]
 YAML
+  fi
+  if [ "${4:-}" = claim ]; then
+    printf 'apiVersion: platform.example.org/v1\nkind: PostgresClaim\nmetadata: {name: %s-db}\nspec: {size: small}\n' "$svc" > "$tree/claim.yaml"
   fi
   tar -czf "$tgz" -C "$tree" .
   push "apps/$svc:$v" "$ref" "$tgz:$FLUX_LAYER_TYPE"
@@ -214,14 +237,15 @@ publish_chart() {
 }
 O100="$(publish_flux orders 1.0.0 plain)"
 O210="$(publish_flux orders 2.1.0 plain crb)"
+O220="$(publish_flux orders 2.2.0 plain claim)"
 C100="$(publish_flux checkout 1.0.0 kustomize)"
 P100="$(publish_chart payments 1.0.0)"
 P110="$(publish_chart payments 1.1.0)"
 KEYDIR="$(mktemp -d)"
 "$SIGN_BIN" -root "$KEYDIR/trusted_root.json" -registry "127.0.0.1:${LOCAL_REG_PORT}" -subject "$CI_SUBJECT" -repository "$SOURCE" \
-  "apps/orders@$O100" "apps/orders@$O210" "apps/checkout@$C100" "charts/payments@$P100" "charts/payments@$P110" \
+  "apps/orders@$O100" "apps/orders@$O210" "apps/orders@$O220" "apps/checkout@$C100" "charts/payments@$P100" "charts/payments@$P110" \
   || fail "signing the run's versions failed"
-pass "orders 1.0.0 and 2.1.0, checkout 1.0.0 and payments 1.0.0 and 1.1.0 carry a Sigstore signature by $CI_SUBJECT"
+pass "orders 1.0.0, 2.1.0 and 2.2.0, checkout 1.0.0 and payments 1.0.0 and 1.1.0 carry a Sigstore signature by $CI_SUBJECT"
 
 section "STEP 1: helm install pacto with profile idp and no idp.flux.install"
 RECORDER_KEY="$KEYDIR/recorder.pem"
@@ -461,6 +485,23 @@ eventually 60 refused_listed || fail "pacto delivery refusals does not list one 
 no_binding() { ! kubectl get clusterrolebinding orders-admin >/dev/null 2>&1; }
 always 5 no_binding || fail "clusterrolebinding orders-admin exists"
 pass "pacto.manifests rejected orders 2.1.0, the pointer stayed on 1.0.0, the signed refusal is listed and orders-admin never existed"
+eventually 90 published_in orders orders "$O220" || fail "orders 2.2.0 never reached status.published"
+as_person alice team-orders propose -n orders --stage orders --to "$O220" --name orders-2-2-0 --reason "ship 2.2.0" >/dev/null
+wait_concluded orders orders-2-2-0 Rejected/
+for want in pacto.manifests "PostgresClaim orders-db is raw infrastructure: declare a dependency on an offering"; do
+  why orders orders-2-2-0 | grep -qF "$want" || fail "orders-2-2-0 was rejected without naming $want: $(why orders orders-2-2-0)"
+done
+code="$(kubectl -n orders get operation orders-2-2-0 -o jsonpath='{.status.verdicts[?(@.gate=="pacto.manifests")].citation.code}')"
+[ "$code" = RawInfraInArtifact ] || fail "the pacto.manifests verdict of orders-2-2-0 cites code '$code', not RawInfraInArtifact"
+[ "$(kubectl -n orders get ocirepository orders -o jsonpath='{.spec.ref.digest}')" = "$O100" ] \
+  || fail "the refused claim moved the orders OCIRepository"
+claim_listed() {
+  refusals | jq -e '[.refusals[]? | select(.check == "manifests" and .stage == "orders" and .verified == true)] | length == 2' >/dev/null 2>&1
+}
+eventually 60 claim_listed || fail "pacto delivery refusals does not list the claim refusal beside the binding's: $(refusals)"
+no_claim() { [ -z "$(kubectl get postgresclaims -A -o name 2>/dev/null)" ]; }
+always 5 no_claim || fail "a PostgresClaim exists: $(kubectl get postgresclaims -A -o name)"
+pass "profile idp refused orders 2.2.0 and its Crossplane claim with RawInfraInArtifact; the signed refusal is listed and no claim exists"
 
 section "STEP 8: idp.flux.install=false keeps Flux; true again adopts it unchanged"
 flux_ids() { local c; for c in "${CONTROLLERS[@]}"; do kubectl -n flux-system get deploy "$c" -o jsonpath='{.metadata.uid}:{.metadata.generation} '; done; }

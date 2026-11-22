@@ -308,6 +308,12 @@ type ClassPolicy struct {
 	// turns it on wherever delivery is enabled; every client reads it from
 	// the published policy.
 	ManifestInspector bool `json:"manifestInspector,omitempty"`
+	// RefuseRawInfra refuses a version whose deploy artifact carries raw
+	// infrastructure (Crossplane claims, composites, definitions,
+	// compositions and managed resources): the chart sets it under profile
+	// idp, where infrastructure reaches a cluster only as a dependency on an
+	// offering. Elsewhere such objects ask a person.
+	RefuseRawInfra bool `json:"refuseRawInfra,omitempty"`
 }
 
 // PersonSigner is one issuer whose keyless certificates may sign an

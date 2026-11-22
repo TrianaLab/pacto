@@ -125,6 +125,9 @@ issuer vouches for approve, so it fails the render. */ -}}
 {{- range $i.signers }}{{ if not .subjects }}{{ fail (printf "delivery.identities.signers: the signer for issuer %q needs subjects, the regular expression an approver's whole email must match" .issuer) }}{{ end }}{{ end -}}
 {{- if $i.signers }}{{ $_ := set $p "signers" $i.signers }}{{ end -}}
 {{- if include "pacto-operator.delivery.manifestInspector" . }}{{ $_ := set $p "manifestInspector" true }}{{ end -}}
+{{- /* Under profile idp infrastructure reaches a cluster only as a dependency
+on an offering: the inspector refuses raw infrastructure in a deploy artifact. */ -}}
+{{- if and (include "pacto-operator.delivery.manifestInspector" .) (include "pacto-operator.idp" .) (not (include "pacto-operator.hardened" .)) }}{{ $_ := set $p "refuseRawInfra" true }}{{ end -}}
 {{- $p | toJson -}}
 {{- end }}
 

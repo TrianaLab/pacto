@@ -105,6 +105,26 @@ tests:
           pattern: '"manifestInspector":true'
         documentIndex: 0
 
+  - it: refuseRawInfra is on under idp only
+    set:
+      profile: idp
+    template: templates/delivery/identities.yaml
+    asserts:
+      - matchRegex:
+          path: data["policy.json"]
+          pattern: '"refuseRawInfra":true'
+        documentIndex: 0
+
+  - it: refuseRawInfra is off under delivery.enabled=true
+    set:
+      delivery.enabled: true
+    template: templates/delivery/identities.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["policy.json"]
+          pattern: refuseRawInfra
+        documentIndex: 0
+
   - it: manifestInspector auto is on under delivery.enabled=true
     set:
       delivery.enabled: true
@@ -124,6 +144,10 @@ tests:
       - notMatchRegex:
           path: data["policy.json"]
           pattern: manifestInspector
+        documentIndex: 0
+      - notMatchRegex:
+          path: data["policy.json"]
+          pattern: refuseRawInfra
         documentIndex: 0
 
   - it: manifestInspector false turns it off under delivery.enabled=true

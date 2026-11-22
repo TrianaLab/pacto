@@ -761,9 +761,11 @@ func TestPrintPlanListsManifests(t *testing.T) {
 	var b strings.Builder
 	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: []delivery.Verdict{{Gate: delivery.GateManifests,
 		Result: delivery.Fail, Citation: map[string]string{"artifact": "manifests", "objects": "Deployment orders, ClusterRoleBinding orders-admin",
-			"refused": "ClusterRoleBinding orders-admin is cluster-scoped; Namespace x is cluster-scoped", "unread": "Widget w is an unknown kind"}}}}})
+			"refused": "ClusterRoleBinding orders-admin is cluster-scoped; Namespace x is cluster-scoped", "unread": "Widget w is an unknown kind",
+			"code": delivery.CodeRawInfraInArtifact}}}}})
 	for _, want := range []string{
 		"objects:   manifests: Deployment orders, ClusterRoleBinding orders-admin\n",
+		"code:      RawInfraInArtifact\n",
 		"refused:   ClusterRoleBinding orders-admin is cluster-scoped\n",
 		"refused:   Namespace x is cluster-scoped\n",
 		"unread:    Widget w is an unknown kind\n",

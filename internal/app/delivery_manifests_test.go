@@ -62,6 +62,33 @@ func TestDeliveryPlanInspectsManifests(t *testing.T) {
 	}
 }
 
+// TestDeliveryPlanRefusesRawInfraUnderIDP: a claim the discovery categories
+// call infrastructure is refused under the published refuseRawInfra (profile
+// idp), and asks a person without it.
+func TestDeliveryPlanRefusesRawInfraUnderIDP(t *testing.T) {
+	ctx := context.Background()
+	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, Reason: "ship", OnBehalfOf: "alice"}
+	claim := "apiVersion: platform.example.org/v1\nkind: PostgresClaim\nmetadata:\n  name: db\n"
+	scope := func(string, string) (bool, bool) { return true, true }
+	infra := func(group, kind string) (bool, bool) { return kind == "PostgresClaim", true }
+	for _, c := range []struct {
+		policy string
+		want   delivery.Prediction
+		result delivery.Result
+	}{
+		{`{"agentGroups":["pacto:agents"],"manifestInspector":true}`, delivery.PredictHeld, delivery.Unknown},
+		{`{"agentGroups":["pacto:agents"],"manifestInspector":true,"refuseRawInfra":true}`, delivery.PredictRejected, delivery.Fail},
+	} {
+		d, _, reg := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"pacto:agents"}, nil,
+			obj("v1", "ConfigMap", "pacto-delivery", delivery.PolicyConfigMap, map[string]any{"data": map[string]any{delivery.PolicyKey: c.policy}}))
+		d.PolicyNamespace, d.Scope, d.Infra = "pacto-delivery", scope, infra
+		reg.layerType, reg.layer = delivery.FluxContentMediaType, manifestLayer(t, claim)
+		if plan, _, err := d.Plan(ctx, req); err != nil || plan.Predicted != c.want || !hasVerdict(plan.Verdicts, delivery.GateManifests, c.result) {
+			t.Fatalf("%s: %+v %v", c.policy, plan, err)
+		}
+	}
+}
+
 func hasVerdict(vs []delivery.Verdict, gate string, r delivery.Result) bool {
 	for _, v := range vs {
 		if v.Gate == gate && v.Result == r {
@@ -114,13 +141,19 @@ func TestDiscoveryScopeFallsBackToBuiltin(t *testing.T) {
 		"none":    nil,
 		"bad TLS": {Host: "https://k", TLSClientConfig: rest.TLSClientConfig{CAFile: "/nonexistent/ca.crt"}},
 	} {
-		if got := reflect.ValueOf(DiscoveryScope(cfg)).Pointer(); got != builtin {
-			t.Errorf("%s: want the built-in scope", name)
+		scope, infra := DiscoveryScope(cfg)
+		if got := reflect.ValueOf(scope).Pointer(); got != builtin || infra != nil {
+			t.Errorf("%s: want the built-in scope and no infra", name)
 		}
 	}
-	// A cluster that does not answer knows no kind.
-	if _, known := DiscoveryScope(&rest.Config{Host: "http://127.0.0.1:1"})("example.com", "Widget"); known {
+	// A cluster that does not answer knows no kind, and cannot tell
+	// infrastructure.
+	scope, infra := DiscoveryScope(&rest.Config{Host: "http://127.0.0.1:1"})
+	if _, known := scope("example.com", "Widget"); known {
 		t.Fatal("an unreachable discovery knows nothing")
+	}
+	if _, known := infra("example.com", "Widget"); known {
+		t.Fatal("an unreachable discovery tells no infrastructure")
 	}
 	m := meta.NewDefaultRESTMapper([]schema.GroupVersion{{Group: "example.com", Version: "v1"}})
 	m.Add(schema.GroupVersionKind{Group: "example.com", Version: "v1", Kind: "Widget"}, meta.RESTScopeNamespace)

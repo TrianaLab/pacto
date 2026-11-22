@@ -84,6 +84,9 @@ type Delivery struct {
 	// delivery.BuiltinScope (DiscoveryScope); nil knows only the built-in
 	// kinds.
 	Scope delivery.ScopeFunc
+	// Infra tells which kinds are infrastructure Crossplane manages
+	// (DiscoveryScope); nil tells them by group only.
+	Infra delivery.InfraFunc
 }
 
 // Caller is who the apiserver says is calling, and when they last logged in.
@@ -411,7 +414,7 @@ func (d *Delivery) plan(ctx context.Context, req delivery.Request) (delivery.Pla
 	if err != nil {
 		return delivery.PlanAnswer{}, delivery.OperationSpec{}, nil, Caller{}, err
 	}
-	in.RequireOwnerTeam, in.Gates = caller.Policy.RequireOwnerTeam, caller.Policy.PlanGates()
+	in.RequireOwnerTeam, in.Gates, in.RefuseRawInfra = caller.Policy.RequireOwnerTeam, caller.Policy.PlanGates(), caller.Policy.RefuseRawInfra
 	plan := delivery.PlanFor(ctx, in)
 	if spec.Facet == delivery.FacetPointer && spec.Params.To != "" {
 		plan.Precedent = d.precedent(ctx, stage, spec.Params.To)
@@ -468,6 +471,7 @@ func (p planSources) Manifests(ctx context.Context, stage delivery.StageObject, 
 		if obj, err = d.applierObject(ctx, ns, stage.Spec.ApplyRef); err == nil {
 			ks, ksErr := d.kustomizations(ctx)
 			target := delivery.ManifestTargetOf(stage, obj.Object, ks, ksErr)
+			target.Infra = d.Infra
 			scope := delivery.BuiltinScope
 			if d.Scope != nil {
 				scope = delivery.ChainScope(delivery.BuiltinScope, d.Scope)

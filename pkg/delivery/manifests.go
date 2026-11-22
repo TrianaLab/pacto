@@ -86,6 +86,25 @@ func ChainScope(first, then ScopeFunc) ScopeFunc {
 	}
 }
 
+// CodeRawInfraInArtifact is the stable code of a pacto.manifests refusal of
+// raw infrastructure under profile idp (ClassPolicy.RefuseRawInfra); it
+// travels in the verdict's citation and the apply refusal record.
+const CodeRawInfraInArtifact = "RawInfraInArtifact"
+
+// rawInfraStep is the next step a raw infrastructure sentence names.
+const rawInfraStep = "declare a dependency on an offering"
+
+// InfraFunc says whether kind of group is infrastructure Crossplane manages
+// (a claim, a composite or a managed resource, from the cluster's API
+// discovery categories), and whether it could tell.
+type InfraFunc func(group, kind string) (infra, known bool)
+
+// crossplaneGroup is any Crossplane or Upbound API group: XRDs,
+// Compositions, packages and the providers' managed resources.
+func crossplaneGroup(group string) bool {
+	return strings.HasSuffix(group, ".crossplane.io") || strings.HasSuffix(group, ".upbound.io")
+}
+
 // ManifestObject is one object a version applies.
 type ManifestObject struct{ Kind, Namespace, Name string }
 
@@ -96,6 +115,9 @@ type ManifestTarget struct {
 	Namespace string
 	Refused   []string
 	Unread    []string
+	// Infra tells claims, composites and managed resources of a group
+	// outside crossplaneGroup; nil tells them by group only.
+	Infra InfraFunc
 }
 
 // ManifestInspection is what a version's deploy artifact applies, and what of
@@ -109,6 +131,10 @@ type ManifestInspection struct {
 	Total   int
 	Refused []string
 	Unread  []string
+	// Infra are the raw infrastructure objects, each a why sentence: refused
+	// when RefuseInfra holds, else a question for a person.
+	Infra       []string
+	RefuseInfra bool
 }
 
 // ManifestTargetOf is the target of a Stage: its namespace, unless the applier
@@ -209,8 +235,9 @@ func InspectArtifact(mediaType string, layer []byte, target ManifestTarget, scop
 	} else {
 		in.Artifact, docs = fluxDocs(files, &in)
 	}
+	k := kindInfo{scope, target.Infra}
 	for _, d := range docs {
-		in.judgeDoc(d, scope)
+		in.judgeDoc(d, k)
 		if in.Total > MaxManifestObjects {
 			in.Unread = append(in.Unread, fmt.Sprintf("the artifact holds more than %d objects", MaxManifestObjects))
 			break
@@ -515,8 +542,35 @@ func entries(n *yaml.Node) []entry {
 	return out
 }
 
+// kindInfo is what the cluster says about a kind: its scope and whether it is
+// infrastructure.
+type kindInfo struct {
+	scope ScopeFunc
+	infra InfraFunc
+}
+
+// rawInfra says whether kind of group is raw infrastructure, and why Pacto
+// cannot tell when it cannot. A core kind never is one, and a kind scope does
+// not know is already unread.
+func (k kindInfo) rawInfra(group, kind string) (raw bool, unread string) {
+	if crossplaneGroup(group) {
+		return true, ""
+	}
+	if _, builtin := BuiltinScope(group, kind); builtin || k.infra == nil {
+		return false, ""
+	}
+	if _, known := k.scope(group, kind); !known {
+		return false, ""
+	}
+	raw, known := k.infra(group, kind)
+	if !known {
+		return false, "Pacto cannot tell whether kind " + group + "/" + kind + " is infrastructure"
+	}
+	return raw, ""
+}
+
 // judgeDoc splits d into objects and judges each.
-func (in *ManifestInspection) judgeDoc(d doc, scope ScopeFunc) {
+func (in *ManifestInspection) judgeDoc(d doc, k kindInfo) {
 	var fs []facts
 	var err error
 	if d.chart {
@@ -531,12 +585,12 @@ func (in *ManifestInspection) judgeDoc(d doc, scope ScopeFunc) {
 		if d.override != "" {
 			f.namespaces = []string{d.override}
 		}
-		in.judgeObject(d.file, f, scope)
+		in.judgeObject(d.file, f, k)
 	}
 }
 
 // judgeObject judges one object and lists it.
-func (in *ManifestInspection) judgeObject(file string, f facts, scope ScopeFunc) {
+func (in *ManifestInspection) judgeObject(file string, f facts, k kindInfo) {
 	name := f.name
 	if name == "" || strings.Contains(name, tplValue) || strings.Contains(name, releaseNS) {
 		name = "in " + file
@@ -554,7 +608,16 @@ func (in *ManifestInspection) judgeObject(file string, f facts, scope ScopeFunc)
 		}
 		in.Objects = append(in.Objects, ManifestObject{Kind: f.kind, Namespace: ns, Name: name})
 	}
-	refused, unread := judgeFacts(in.Namespace, what, name, f, scope)
+	if group := groupOf(f.apiVersion); !deliveryGroup(group) {
+		raw, why := k.rawInfra(group, f.kind)
+		if raw {
+			in.Infra = append(in.Infra, what+" is raw infrastructure: "+rawInfraStep)
+		}
+		if why != "" {
+			in.Unread = append(in.Unread, what+": "+why)
+		}
+	}
+	refused, unread := judgeFacts(in.Namespace, what, name, f, k.scope)
 	if refused != "" {
 		in.Refused = append(in.Refused, refused)
 	}
@@ -586,11 +649,8 @@ func unreadable(f facts, what, file string) string {
 // refused, then a RoleBinding is judged, and a kind scope does not know is
 // unread.
 func judgeFacts(ns, what, name string, f facts, scope ScopeFunc) (refused, unread string) {
-	group := ""
-	if g, _, ok := strings.Cut(f.apiVersion, "/"); ok {
-		group = g
-	}
-	if group == "delivery.pacto.trianalab.io" || group == "argoproj.io" || strings.HasSuffix(group, ".toolkit.fluxcd.io") {
+	group := groupOf(f.apiVersion)
+	if deliveryGroup(group) {
 		return what + " is a delivery or applier object, and a version cannot change how it is delivered", ""
 	}
 	namespaced, known := scope(group, f.kind)
@@ -609,6 +669,19 @@ func judgeFacts(ns, what, name string, f facts, scope ScopeFunc) (refused, unrea
 		return "", what + ": Pacto cannot tell whether kind " + strings.TrimPrefix(group+"/"+f.kind, "/") + " is namespaced"
 	}
 	return "", ""
+}
+
+// groupOf is the API group of apiVersion; the core group is "".
+func groupOf(apiVersion string) string {
+	if g, _, ok := strings.Cut(apiVersion, "/"); ok {
+		return g
+	}
+	return ""
+}
+
+// deliveryGroup is a Pacto delivery, Flux or Argo CD API group.
+func deliveryGroup(group string) bool {
+	return group == "delivery.pacto.trianalab.io" || group == "argoproj.io" || strings.HasSuffix(group, ".toolkit.fluxcd.io")
 }
 
 // judgeNamespaces refuses a namespace other than ns; a templated one is
@@ -650,8 +723,9 @@ func judgeBinding(ns, what, name string, f facts) (refused, unread string) {
 }
 
 // Verdict is the pacto.manifests verdict: Fail on any refusal, else Unknown on
-// anything unread, else Pass. The citation lists the objects and the
-// refusals, each bounded to MaxListedObjects.
+// anything unread, else Pass. Raw infrastructure is a refusal with code
+// CodeRawInfraInArtifact when RefuseInfra holds, else unread. The citation
+// lists the objects and the refusals, each bounded to MaxListedObjects.
 func (in ManifestInspection) Verdict() Verdict {
 	v := Verdict{Gate: GateManifests, Phase: "pre", Result: Pass, Citation: map[string]string{"artifact": in.Artifact}}
 	names := make([]string, len(in.Objects))
@@ -663,19 +737,27 @@ func (in ManifestInspection) Verdict() Verdict {
 	} else {
 		v.Citation["objects"] = objects
 	}
+	refused, unread := in.Refused, in.Unread
+	if in.RefuseInfra && len(in.Infra) > 0 {
+		refused, v.Citation["code"] = slices.Concat(refused, in.Infra), CodeRawInfraInArtifact
+	} else {
+		unread = slices.Concat(unread, in.Infra)
+	}
 	switch {
-	case len(in.Refused) > 0:
-		refused := in.Refused[:min(len(in.Refused), MaxListedObjects)]
-		v.Result, v.Citation["refused"] = Fail, strings.Join(refused, "; ")
+	case len(refused) > 0:
+		v.Result, v.Citation["refused"] = Fail, strings.Join(refused[:min(len(refused), MaxListedObjects)], "; ")
 		v.Message = "the version reaches outside " + in.Namespace + ": " + v.Citation["refused"]
-	case len(in.Unread) > 0:
+		if len(in.Refused) == 0 {
+			v.Message = "the version carries raw infrastructure: " + v.Citation["refused"]
+		}
+	case len(unread) > 0:
 		v.Result = Unknown
-		v.Message = "Pacto cannot tell what the version applies: " + strings.Join(in.Unread, "; ")
+		v.Message = "Pacto cannot tell what the version applies: " + strings.Join(unread, "; ")
 	default:
 		v.Message = fmt.Sprintf("every one of the %d objects stays in %s", in.Total, in.Namespace)
 	}
-	if len(in.Unread) > 0 {
-		v.Citation["unread"] = strings.Join(in.Unread, "; ")
+	if len(unread) > 0 {
+		v.Citation["unread"] = strings.Join(unread, "; ")
 	}
 	return v
 }
@@ -707,7 +789,9 @@ func InspectRevision(ctx context.Context, reg Registry, repo, digest string, tar
 // publication into one question, and stops the gate chain so no later gate
 // overwrites the question. It reports whether the promote may go on.
 func manifestsGate(ctx context.Context, in PlanInput, p *Plan, pub Verdict) bool {
-	v := in.Manifests(ctx).Verdict()
+	ins := in.Manifests(ctx)
+	ins.RefuseInfra = in.RefuseRawInfra
+	v := ins.Verdict()
 	p.Verdicts = append(p.Verdicts, v)
 	switch v.Result {
 	case Fail:

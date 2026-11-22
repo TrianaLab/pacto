@@ -88,6 +88,9 @@ type ApplyRefusal struct {
 	Digest string `json:"digest"`
 	// Refused are the inspector's why sentences, at most MaxListedObjects.
 	Refused []string `json:"refused"`
+	// Code is the refusal's stable code (CodeRawInfraInArtifact), when the
+	// verdict cites one.
+	Code string `json:"code,omitempty"`
 	// Message is the verdict's message.
 	Message string `json:"message"`
 	// Record is the id of the operation record of the refused promote.
@@ -127,7 +130,7 @@ func ApplyRefusalOf(svc ServiceRef, op OperationObject) (ApplyRefusal, bool) {
 		}
 		refused := strings.Split(v.Citation["refused"], "; ")
 		r := ApplyRefusal{Service: svc, Stage: op.Spec.Stage, Namespace: op.Metadata.Namespace, Digest: op.Spec.Params.To,
-			Refused: refused[:min(len(refused), MaxListedObjects)], Message: v.Message, Operation: op.Metadata.Name, At: op.Status.Times.Finished}
+			Refused: refused[:min(len(refused), MaxListedObjects)], Code: v.Citation["code"], Message: v.Message, Operation: op.Metadata.Name, At: op.Status.Times.Finished}
 		if op.Status.Plan != nil {
 			r.Version = op.Status.Plan.ToVersion
 		}

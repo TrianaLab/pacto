@@ -9,21 +9,25 @@ import (
 	"k8s.io/client-go/restmapper"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 )
 
 // DiscoveryScope is the scope of every kind the cluster cfg names serves,
-// from API discovery, read lazily and cached for the life of the process:
-// build it once per process, never per request. A config no discovery
-// client can be built from, and no config, knows only the built-in kinds.
-func DiscoveryScope(cfg *rest.Config) delivery.ScopeFunc {
+// and which of them are infrastructure Crossplane manages, from API
+// discovery, read lazily and cached for the life of the process: build it
+// once per process, never per request. A config no discovery client can be
+// built from, and no config, knows only the built-in kinds and tells
+// infrastructure by group only.
+func DiscoveryScope(cfg *rest.Config) (delivery.ScopeFunc, delivery.InfraFunc) {
 	if cfg == nil {
-		return delivery.BuiltinScope
+		return delivery.BuiltinScope, nil
 	}
 	dc, err := discovery.NewDiscoveryClientForConfig(cfg)
 	if err != nil {
-		return delivery.BuiltinScope
+		return delivery.BuiltinScope, nil
 	}
-	return mapperScope(restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(dc)))
+	cached := memory.NewMemCacheClient(dc)
+	return mapperScope(restmapper.NewDeferredDiscoveryRESTMapper(cached)), kubecluster.Infra(cached)
 }
 
 // mapperScope reads a kind's scope from m: a kind m cannot map is unknown.

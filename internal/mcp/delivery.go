@@ -79,7 +79,8 @@ const deliveryInstructions = "Pacto delivery decides which version each environm
 
 // manifestsNote says where an agent reads what a promote applies.
 const manifestsNote = " When the installation turns the manifest inspector on, a promote plan's pacto.manifests verdict " +
-	"citation lists the objects the version applies (objects) and what the inspector refused (refused) or could not read (unread)."
+	"citation lists the objects the version applies (objects), what the inspector refused (refused) or could not read (unread) " +
+	"and the refusal code (code: RawInfraInArtifact when profile idp refuses raw infrastructure; declare a dependency on an offering instead)."
 
 // registerDelivery adds the delivery tools. writes registers propose and
 // cancel; the command layer passes true only when the caller is not a human

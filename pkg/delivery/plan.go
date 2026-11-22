@@ -129,6 +129,10 @@ type PlanInput struct {
 	// InspectManifests is the published ClassPolicy.ManifestInspector: a
 	// promote runs pacto.manifests over Manifests.
 	InspectManifests bool
+	// RefuseRawInfra is the published ClassPolicy.RefuseRawInfra: raw
+	// infrastructure in the artifact fails pacto.manifests instead of asking
+	// a person.
+	RefuseRawInfra bool
 	// Manifests inspects the deploy artifact of To. It reads the registry,
 	// so pacto.manifests calls it only once pacto.published did not fail and
 	// pacto.applier passed (AssemblePlanInput sets it lazily).

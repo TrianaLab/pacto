@@ -43,6 +43,7 @@ type dashboardIdentity struct {
 	// scope is the sign-in cluster's API discovery, built once at start:
 	// discovery is the same for every caller.
 	scope  delivery.ScopeFunc
+	infra  delivery.InfraFunc
 	served func(*rest.Config, string) (bool, error)
 	now    func() time.Time
 	state  func(context.Context) authn.State
@@ -169,7 +170,7 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 		return nil, err
 	}
 	act := &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
-		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams, Scope: id.scope}
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams, Scope: id.scope, Infra: id.infra}
 	out := newDashDelivery(id, act, who)
 	if s := id.sharedReads(); s != nil && token != "" {
 		c, sc := *act, sharedClient{Interface: dyn, s: s, token: token}

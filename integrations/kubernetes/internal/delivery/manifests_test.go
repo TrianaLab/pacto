@@ -57,6 +57,15 @@ func TestOperationRejectedByManifestsNeverMovesPointer(t *testing.T) {
 	if o := e.drive("p1"); !o.Status.Applied || e.ociDigest("payments") != dB {
 		t.Fatalf("a clean version ships: %s %s", o.Status.Phase, o.Status.Message)
 	}
+	// Under the published refuseRawInfra (profile idp), a Crossplane managed
+	// resource is rejected, even of a kind the cluster does not serve.
+	e = baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.op.Policy.ManifestInspector, e.op.Policy.RefuseRawInfra = true, true
+	e.reg.layers = map[string][]byte{dB: manifestLayer(t, "apiVersion: s3.aws.upbound.io/v1beta1\nkind: Bucket\nmetadata:\n  name: db\n")}
+	if o := e.drive("p1"); o.Status.Outcome != delivery.Rejected || e.ociDigest("payments") != dA ||
+		!strings.Contains(o.Status.Reason+o.Status.Message, "Bucket db is raw infrastructure") {
+		t.Fatalf("want a claim Rejected under idp, got %s %s %s", o.Status.Outcome, o.Status.Reason, o.Status.Message)
+	}
 	// An applier the promoter cannot read leaves the artifact unread.
 	s := stageObject(e.getStage())
 	s.Spec.ApplyRef.Name = "gone"

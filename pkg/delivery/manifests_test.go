@@ -383,3 +383,65 @@ func TestInspectRevision(t *testing.T) {
 	in = InspectRevision(ctx, hangingRegistry{}, "r/a", dA, ManifestTarget{Namespace: "prod"}, BuiltinScope)
 	wantVerdict(t, "timeout", in, Unknown, "the registry did not answer within 0s")
 }
+
+// TestInspectRawInfra: every Crossplane kind is raw infrastructure, a
+// refusal with RawInfraInArtifact when the inspection refuses it (profile
+// idp) and a question for a person otherwise.
+func TestInspectRawInfra(t *testing.T) {
+	served := ChainScope(BuiltinScope, func(group, kind string) (bool, bool) { return kind != "Composition", group != "unknown.example.org" })
+	infra := func(group, kind string) (bool, bool) {
+		return kind == "PostgresClaim" || kind == "XPostgres" || kind == "Bucket", group != "hidden.example.org"
+	}
+	for _, c := range []struct{ name, doc, sentence string }{
+		{"claim", obj("platform.example.org/v1", "PostgresClaim", "db", ""), "PostgresClaim db is raw infrastructure: declare a dependency on an offering"},
+		{"composite", obj("platform.example.org/v1", "XPostgres", "db", ""), "XPostgres db is raw infrastructure"},
+		{"managed resource", obj("s3.aws.example.io/v1beta1", "Bucket", "b", ""), "Bucket b is raw infrastructure"},
+		{"XRD", obj("apiextensions.crossplane.io/v1", "CompositeResourceDefinition", "x", ""), "CompositeResourceDefinition x is raw infrastructure"},
+		{"upbound managed resource", obj("rds.aws.upbound.io/v1beta1", "Instance", "i", ""), "Instance i is raw infrastructure"},
+	} {
+		in := InspectArtifact(FluxContentMediaType, tgz(t, map[string]string{"a.yaml": c.doc}), ManifestTarget{Namespace: "prod", Infra: infra}, served)
+		if v := wantVerdict(t, c.name+" default", in, Unknown, c.sentence); v.Citation["code"] != "" {
+			t.Errorf("%s: no code outside idp: %+v", c.name, v.Citation)
+		}
+		in.RefuseInfra = true
+		if v := wantVerdict(t, c.name+" idp", in, Fail, c.sentence); v.Citation["code"] != CodeRawInfraInArtifact || !strings.Contains(v.Citation["refused"], c.sentence) {
+			t.Errorf("%s: idp refuses with the code: %+v", c.name, v.Citation)
+		}
+	}
+	// A group the inspector cannot classify waits for a person, under idp
+	// too; a kind discovery serves but lists outside every infrastructure
+	// category passes.
+	for _, c := range []struct {
+		name, doc string
+		result    Result
+		msg       string
+	}{
+		{"unserved", obj("unknown.example.org/v1", "Thing", "t", ""), Unknown, "cannot tell whether kind unknown.example.org/Thing is namespaced"},
+		{"unclassified", obj("hidden.example.org/v1", "Thing", "t", ""), Unknown, "Thing t: Pacto cannot tell whether kind hidden.example.org/Thing is infrastructure"},
+		{"plain", obj("platform.example.org/v1", "Settings", "s", ""), Pass, ""},
+		{"core", obj("v1", "ConfigMap", "c", ""), Pass, ""},
+	} {
+		in := InspectArtifact(FluxContentMediaType, tgz(t, map[string]string{"a.yaml": c.doc}), ManifestTarget{Namespace: "prod", Infra: infra}, served)
+		in.RefuseInfra = true
+		wantVerdict(t, c.name, in, c.result, c.msg)
+	}
+	// A cluster-scoped Composition stays refused outside idp, and idp
+	// refuses it as raw infrastructure too.
+	comp := InspectArtifact(FluxContentMediaType, tgz(t, map[string]string{"a.yaml": obj("apiextensions.crossplane.io/v1", "Composition", "c", "")}),
+		ManifestTarget{Namespace: "prod", Infra: infra}, served)
+	wantVerdict(t, "composition default", comp, Fail, "the version reaches outside prod: Composition c is cluster-scoped")
+	comp.RefuseInfra = true
+	if v := wantVerdict(t, "composition idp", comp, Fail, "Composition c is cluster-scoped; Composition c is raw infrastructure"); v.Citation["code"] != CodeRawInfraInArtifact {
+		t.Errorf("composition idp: %+v", v.Citation)
+	}
+	// Without discovery, Crossplane groups still count.
+	in := inspectFlux(t, map[string]string{"a.yaml": obj("apiextensions.crossplane.io/v1", "Composition", "c", "")})
+	in.RefuseInfra = true
+	wantVerdict(t, "by group", in, Fail, "the version carries raw infrastructure: Composition c is raw infrastructure")
+	// A delivery object is refused as one, never as infrastructure.
+	in = InspectArtifact(FluxContentMediaType, tgz(t, map[string]string{"a.yaml": obj("kustomize.toolkit.fluxcd.io/v1", "Kustomization", "k", "")}),
+		ManifestTarget{Namespace: "prod", Infra: infra}, served)
+	if len(in.Infra) != 0 {
+		t.Fatalf("delivery object: %+v", in)
+	}
+}

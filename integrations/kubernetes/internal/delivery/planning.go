@@ -82,7 +82,7 @@ func (r *OperationReconciler) planOn(ctx context.Context, op *dv1.Operation, sta
 	if err != nil {
 		return delivery.Plan{}, err
 	}
-	in.RequireOwnerTeam, in.Gates = r.Policy.RequireOwnerTeam, r.Gates
+	in.RequireOwnerTeam, in.Gates, in.RefuseRawInfra = r.Policy.RequireOwnerTeam, r.Gates, r.Policy.RefuseRawInfra
 	if op.Spec.Type == delivery.TypePromote {
 		// The promoter never plans a promote on a stale detection: the
 		// workloads may have changed hands since the Stage last reconciled.
@@ -122,8 +122,9 @@ func (p planSources) Manifests(ctx context.Context, stage delivery.StageObject, 
 	}
 	ks, ksErr := p.c.kustomizations(ctx)
 	s := a.src()
-	return delivery.InspectRevision(ctx, p.c.registryFor(s), s.repo, digest,
-		delivery.ManifestTargetOf(stage, a.object().Object, ks, ksErr), scopeFrom(p.c.Client.RESTMapper()))
+	target := delivery.ManifestTargetOf(stage, a.object().Object, ks, ksErr)
+	target.Infra = p.c.Infra
+	return delivery.InspectRevision(ctx, p.c.registryFor(s), s.repo, digest, target, scopeFrom(p.c.Client.RESTMapper()))
 }
 
 func (p planSources) Pactos(ctx context.Context) ([]delivery.PactoView, error) {
