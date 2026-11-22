@@ -217,6 +217,37 @@ func TestClusterListSurfacesAgree(t *testing.T) {
 	expect(t, len(cli.Clusters) == 1, "one member: %s", out)
 }
 
+// TestCapabilitiesClustersJoinedAndPending: one join list and one snapshot
+// give pacto_capabilities and GET /api/capabilities the same
+// installation.clusters joined, pending and source.
+func TestCapabilitiesClustersJoinedAndPending(t *testing.T) {
+	l := hubList()
+	l.CanApprove = true // an approver sees the pending row, so pending is counted
+	joins := func(context.Context) (delivery.ClusterJoinList, error) { return l, nil }
+	snap := &fleet.FleetSnapshot{Clusters: []fleet.ClusterRecord{{Cluster: fleet.Cluster{ID: euProd, Name: "eu-prod"}}}}
+	src := func(context.Context) (*fleet.Query, error) { return fleet.NewQuery(snap), nil }
+
+	server, err := pactomcp.New("v", pactomcp.Authoring{}, pactomcp.Modes{Fleet: &pactomcp.FleetMode{
+		Src: src, Opts: pactomcp.FleetOptions{Clusters: joins}}})
+	expect(t, err == nil, "mcp: %v", err)
+	m, isErr := callText(t, sessionOn(t, server), "pacto_capabilities", map[string]any{})
+	expect(t, !isErr, "capabilities: %s", m)
+	d := routeBody(t, dashboard.NewServer(dashboard.Options{Fleet: src, ClusterJoins: joins}).APIHandler(), t.Context(), "/api/capabilities")
+
+	clusters := func(host, body string) fleet.InstallationClusters {
+		var c struct {
+			Installation fleet.Installation `json:"installation"`
+		}
+		expect(t, json.Unmarshal([]byte(body), &c) == nil, "%s: %s", host, body)
+		return c.Installation.Clusters
+	}
+	mc, dc := clusters("mcp", m), clusters("dashboard", d)
+	expect(t, mc.Joined != nil && *mc.Joined == 1 && mc.Pending != nil && *mc.Pending == 1, "mcp installation.clusters = %+v", mc)
+	expect(t, dc.Joined != nil && *dc.Joined == 1 && dc.Pending != nil && *dc.Pending == 1, "dashboard installation.clusters = %+v", dc)
+	expect(t, mc.Source == dc.Source && strings.Contains(mc.Source, "registry ghcr.io/acme/pacto-targets"),
+		"source differs:\nmcp:       %s\ndashboard: %s", mc.Source, dc.Source)
+}
+
 // TestVisibleJoins: an approver sees every row; anyone else the approved
 // members, the rest counted; a failed review hides and counts them and
 // makes the list partial.
