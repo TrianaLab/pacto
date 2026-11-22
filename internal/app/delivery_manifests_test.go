@@ -62,6 +62,21 @@ func TestDeliveryPlanInspectsManifests(t *testing.T) {
 	}
 }
 
+// TestDeliveryPlanUnreadablePolicyAsksAboutTheInspector: a policy the client
+// cannot read leaves whether the promoter inspects unknown, so the plan asks
+// a person instead of planning as if the inspector were off.
+func TestDeliveryPlanUnreadablePolicyAsksAboutTheInspector(t *testing.T) {
+	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, Reason: "ship", OnBehalfOf: "alice"}
+	d, _, reg := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"pacto:agents"}, nil)
+	d.PolicyNamespace = "pacto-delivery"
+	reg.layerType, reg.layer = delivery.FluxContentMediaType, manifestLayer(t, crbYAML)
+	plan, _, err := d.Plan(context.Background(), req)
+	if err != nil || plan.Predicted != delivery.PredictHeld || !hasVerdict(plan.Verdicts, delivery.GateManifests, delivery.Unknown) ||
+		!strings.Contains(plan.Question, "whether the manifest inspector runs is unknown") {
+		t.Fatalf("an unreadable policy: %+v %v", plan, err)
+	}
+}
+
 // TestDeliveryPlanRefusesRawInfraUnderIDP: a claim the discovery categories
 // call infrastructure is refused under the published refuseRawInfra (profile
 // idp), and asks a person without it.

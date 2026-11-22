@@ -410,9 +410,17 @@ func (d *Delivery) plan(ctx context.Context, req delivery.Request) (delivery.Pla
 	if err != nil {
 		return delivery.PlanAnswer{}, delivery.OperationSpec{}, nil, Caller{}, err
 	}
-	in, err := delivery.AssemblePlanInput(ctx, planSources{d}, spec, *stage, caller.Class, d.Now(), caller.Policy.ManifestInspector)
+	// An unreadable policy leaves whether the promoter inspects unknown: the
+	// plan says so, and never plans as if the inspector were off.
+	in, err := delivery.AssemblePlanInput(ctx, planSources{d}, spec, *stage, caller.Class, d.Now(), caller.Policy.ManifestInspector || caller.PolicyErr != "")
 	if err != nil {
 		return delivery.PlanAnswer{}, delivery.OperationSpec{}, nil, Caller{}, err
+	}
+	if caller.PolicyErr != "" && in.Manifests != nil {
+		in.Manifests = func(context.Context) delivery.ManifestInspection {
+			return delivery.ManifestInspection{Namespace: stage.Metadata.Namespace,
+				Unread: []string{"the published policy could not be read, so whether the manifest inspector runs is unknown: " + caller.PolicyErr}}
+		}
 	}
 	in.RequireOwnerTeam, in.Gates, in.RefuseRawInfra = caller.Policy.RequireOwnerTeam, caller.Policy.PlanGates(), caller.Policy.RefuseRawInfra
 	plan := delivery.PlanFor(ctx, in)
