@@ -100,6 +100,8 @@ const (
 	KindIntent   = "intent"
 	// KindPin is an identity pin, on its service's pin stream.
 	KindPin = "pin"
+	// KindJoin is a cluster join record, on its cluster's join stream.
+	KindJoin = "join"
 )
 
 // KindTag is the write-once tag of an approval or intent record (kind) of
@@ -205,6 +207,8 @@ func kindOf(predicate string) string {
 		return KindApproval
 	case delivery.PredicateIdentityPin:
 		return KindPin
+	case delivery.PredicateClusterJoin:
+		return KindJoin
 	}
 	return KindIntent
 }

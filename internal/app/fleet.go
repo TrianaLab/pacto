@@ -106,6 +106,10 @@ type FleetOptions struct {
 	// TargetSnapshotTrustFile is the delivery trust config the snapshots are
 	// verified with; empty reads $PACTO_DELIVERY_TRUST.
 	TargetSnapshotTrustFile string
+	// ClusterJoins reads the member clusters a person approved in this hub
+	// from the registry, each verified under its approved key; nil reads
+	// none.
+	ClusterJoins *JoinOptions
 	// Now overrides the build clock (freshness classification); defaults to
 	// time.Now. Injected in tests for deterministic staleness.
 	Now func() time.Time
