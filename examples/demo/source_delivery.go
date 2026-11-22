@@ -1315,10 +1315,10 @@ func (d *demoDelivery) Describe(_ context.Context, st *delivery.StageObject, dig
 // PublishRefusals is the one refused publish of the story (B4) and one
 // refused promote. payments 2.4.3 removes a field, so the version rule asks
 // for a major; the classification is pkg/diff over the two story contracts,
-// and nothing here signed or checked that refusal. pay-agent 1.1.0 carries a
-// ClusterRoleBinding, so the manifest inspector refused its promote to prod;
-// that row stands for a signed record a cluster verifies with its delivery
-// trust config. Both are fixed data.
+// and nothing here signed or checked that refusal. The refused promote shows
+// the row a cluster lists for a version the manifest inspector refused: it is
+// simulated, so it names no record (the tab keeps none for it) and says it is
+// not verified. Both are fixed data.
 func (d *demoDelivery) PublishRefusals(context.Context, string) (*dashboard.PublishRefusals, error) {
 	base, _ := story.Bundle("payments", "2.4.2")
 	tried, _ := story.Bundle("payments", "2.4.3")
@@ -1326,17 +1326,14 @@ func (d *demoDelivery) PublishRefusals(context.Context, string) (*dashboard.Publ
 	bump := diff.RequiredBump(c, "2.4.2")
 	return &dashboard.PublishRefusals{Completeness: "complete",
 		Note: "Simulated: one fixed refused publish and one fixed refused promote from the payments story; a cluster reads refused publishes and promotes from each service's contract bundle repository and delivery record stream. " +
-			"The bump is computed by Pacto's diff; nothing here signed or checked the refused publish, and the refused promote stands for a signed record.",
+			"The bump is computed by Pacto's diff; nothing here signed or checked the refused publish, and the refused promote is simulated with no record kept here.",
 		Refusals: []dashboard.PublishRefusal{{Service: "payments", Version: "2.4.3", Check: "version", Baseline: "2.4.2",
 			RequiredBump: string(bump), Actor: story.PayAgent.User, At: stamp(d.now().Add(-3 * time.Hour)), Verified: false,
 			Reason: fmt.Sprintf("the change is %s, so it needs a %s bump from 2.4.2", c, bump)},
-			{Service: "pay-agent", Version: "1.1.0", Check: "manifests", Stage: "pay-agent", Record: refusedPromoteRecord,
-				At: stamp(d.now().Add(-2 * time.Hour)), Verified: true,
-				Reason: "the version reaches outside " + story.Prod + ": ClusterRoleBinding pay-agent-admin is cluster-scoped"}}}, nil
+			{Service: "pay-agent", Version: "1.1.0", Check: "manifests", Namespace: story.Prod, Stage: "pay-agent",
+				Digest: story.ArtifactDigest("pay-agent", "1.1.0"), At: stamp(d.now().Add(-2 * time.Hour)),
+				Reason: "the manifest inspector refuses what the version applies: ClusterRoleBinding pay-agent-admin is cluster-scoped"}}}, nil
 }
-
-// refusedPromoteRecord is the fixed id of the refused promote's record.
-const refusedPromoteRecord = "sha256:5e1f0a7c3b9d2e4f6a8c0b1d3e5f7a9c2b4d6e8f0a1c3e5b7d9f2a4c6e8b0d1f"
 
 // wire serves d from opts: the delivery views and the simulated signed-in
 // session. Callers carry the story's policy (team-orders is team orders;

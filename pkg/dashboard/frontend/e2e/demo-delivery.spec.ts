@@ -273,9 +273,9 @@ test.describe('Browser demo: the delivery story', () => {
   test('shows a refused promote with its stage', async ({ page }) => {
     await ready(page, '#/delivery/publish');
     const row = page.getByTestId('refused-publishes').locator('li.pv-row').filter({ hasText: 'pay-agent 1.1.0' });
-    await expect(row).toContainText('on pay-agent', { timeout: T });
+    await expect(row).toContainText('on prod/pay-agent', { timeout: T });
     await expect(row).toContainText('Refused promote');
-    await expect(row).toContainText('Signed record');
+    await expect(row).not.toContainText('Signed record');
     await expect(row).toContainText('ClusterRoleBinding pay-agent-admin is cluster-scoped');
   });
 

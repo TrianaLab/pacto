@@ -887,8 +887,7 @@ func TestDemoStagesRecordRegistryMode(t *testing.T) {
 }
 
 // TestDemoRefusalsListAPromote: the refused list holds one refused promote
-// beside the refused publish, a signed record of a version the manifest
-// inspector refused on a Stage of the story.
+// beside the refused publish, on a Stage and version of the story.
 func TestDemoRefusalsListAPromote(t *testing.T) {
 	_, h := demoServer(t)
 	var out struct {
@@ -903,8 +902,10 @@ func TestDemoRefusalsListAPromote(t *testing.T) {
 		t.Fatalf("no refused promote: %+v", out.Refusals)
 	}
 	r := out.Refusals[i]
-	if r.Service != "pay-agent" || r.Stage != "pay-agent" || versionOf(r.Service, digest(r.Service, r.Version)) == "" || !r.Verified ||
-		!strings.HasPrefix(r.Record, "sha256:") || len(r.Record) != len("sha256:")+64 ||
+	// Simulated: it advertises no record the tab cannot open, and is not
+	// verified.
+	if r.Service != "pay-agent" || r.Namespace != story.Prod || r.Stage != "pay-agent" || r.Digest != digest(r.Service, r.Version) ||
+		versionOf(r.Service, r.Digest) == "" || r.Verified || r.Record != "" ||
 		!strings.Contains(r.Reason, "ClusterRoleBinding pay-agent-admin is cluster-scoped") {
 		t.Fatalf("refused promote: %+v", r)
 	}
