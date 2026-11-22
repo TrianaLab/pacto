@@ -6,6 +6,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/trianalab/pacto/v4/pkg/dashboard/productview"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -85,10 +86,7 @@ func capabilities(ctx context.Context, req *mcpsdk.CallToolRequest, a Authoring,
 		}
 		out.Modes = append(out.Modes, "fleet")
 		out.Fleet, out.Impact, out.Observed = true, f.Opts.Impact != nil, q.HasObserved()
-		if cfg := f.Opts.InstallationConfig; cfg != nil {
-			d, st := cfg(ctx)
-			in.Declared, in.DeclaredState = d, &st
-		}
+		fleetInstallation(ctx, f.Opts, &in)
 	}
 	if d := m.Delivery; d != nil {
 		out.Modes = append(out.Modes, "delivery")
@@ -118,6 +116,19 @@ func capabilities(ctx context.Context, req *mcpsdk.CallToolRequest, a Authoring,
 	out.Writes = out.Writes || out.Caller.Writes || ((a.Declare != nil || a.Accept != nil) && !a.Remote)
 	out.Installation = q.Installation(in)
 	return out, nil
+}
+
+// fleetInstallation is what a fleet server adds to in: what the operator
+// was configured with and the pending member clusters the caller may see.
+func fleetInstallation(ctx context.Context, opts FleetOptions, in *fleet.InstallationInput) {
+	if cfg := opts.InstallationConfig; cfg != nil {
+		d, st := cfg(ctx)
+		in.Declared, in.DeclaredState = d, &st
+	}
+	if c := opts.Clusters; c != nil {
+		l, err := c(ctx)
+		productview.InstallationPending(in, l, err)
+	}
 }
 
 // authoringNames are the contract tools registerTools adds for a.

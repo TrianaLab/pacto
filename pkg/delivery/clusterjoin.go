@@ -330,8 +330,10 @@ type ClusterJoinList struct {
 	Clusters     []ClusterJoinState `json:"clusters"`
 	// Hidden counts the rows the reader may not see; OtherHubs the counted
 	// records that decide for another hub.
-	Hidden     int  `json:"hidden"`
-	OtherHubs  int  `json:"otherHubs"`
+	Hidden    int `json:"hidden"`
+	OtherHubs int `json:"otherHubs"`
+	// CanApprove says the reader may approve clusterjoins, so a surface
+	// offers them the approve command.
 	CanApprove bool `json:"canApprove"`
 }
 

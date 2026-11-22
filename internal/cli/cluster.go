@@ -134,18 +134,25 @@ func hubJoins(ctx context.Context, d deps, contextName, registry, detected strin
 	if err != nil {
 		return nil, app.JoinOptions{}, fmt.Errorf("reaching the hub cluster: %w", err)
 	}
+	opts, err := joinsOn(ctx, dyn, registry, detected, delivery.PolicyNamespace)
+	return dyn, opts, err
+}
+
+// joinsOn are how the hub dyn reaches reads its joins, asking with dyn's
+// credentials and reading its approver signers in policyNS.
+func joinsOn(ctx context.Context, dyn dynamic.Interface, registry, detected, policyNS string) (app.JoinOptions, error) {
 	hub, err := kubecluster.ID(ctx, dyn)
 	if err != nil {
-		return nil, app.JoinOptions{}, err
+		return app.JoinOptions{}, err
 	}
 	repo := targetsRepository(registry)
 	if repo == "" && detected != "" {
 		if repo, err = app.AdvertisedTargets(ctx, dyn, detected, time.Now); err != nil {
-			return nil, app.JoinOptions{}, err
+			return app.JoinOptions{}, err
 		}
 	}
-	return dyn, app.JoinOptions{Repository: repo, Hub: hub, Authorize: authn.SubjectAccessReview(dyn),
-		Delivery: &app.Delivery{Dynamic: dyn, PolicyNamespace: delivery.PolicyNamespace, Now: time.Now}}, nil
+	return app.JoinOptions{Repository: repo, Hub: hub, Authorize: authn.SubjectAccessReview(dyn),
+		Delivery: &app.Delivery{Dynamic: dyn, PolicyNamespace: policyNS, Now: time.Now}}, nil
 }
 
 // hubDynamic is a client of the kubeconfig context name, or of the

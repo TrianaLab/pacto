@@ -428,6 +428,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fleet/clusters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the member clusters of this hub
+         * @description The clusters that publish to this hub's registry and where each stands: approved members, pending clusters with why they are pending and removed members, as pacto cluster list and pacto_cluster_list answer. A signed-in reader who may not approve clusterjoins sees the approved members only; the rest are counted in hidden. Approving is a person's signed decision with pacto cluster approve.
+         */
+        get: operations["get-fleet-clusters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/fleet/entities": {
         parameters: {
             query?: never;
@@ -1552,6 +1572,10 @@ export interface components {
             groups?: string[] | null;
             user: string;
         };
+        "Delivery.AdvertisedEnvironment": {
+            name: string;
+            source: string;
+        };
         "Delivery.ApplierStatus": {
             /** @description The last observation (RFC 3339) */
             asOf?: string;
@@ -1666,6 +1690,41 @@ export interface components {
              */
             result: "Pass" | "Fail" | "Unknown";
             verdicts: components["schemas"]["Delivery.Verdict"][] | null;
+        };
+        "Delivery.ClusterJoinList": {
+            asOf: string;
+            canApprove: boolean;
+            clusters: components["schemas"]["Delivery.ClusterJoinState"][] | null;
+            completeness: string;
+            /** Format: int64 */
+            hidden: number;
+            hub: components["schemas"]["Delivery.ClusterRef"];
+            limitations?: components["schemas"]["Fleet.Limitation"][] | null;
+            /** Format: int64 */
+            otherHubs: number;
+            repository: string;
+        };
+        "Delivery.ClusterJoinState": {
+            approvedAt?: string;
+            approver?: string;
+            environments?: components["schemas"]["Delivery.AdvertisedEnvironment"][] | null;
+            keyID?: string;
+            mayReplace?: components["schemas"]["Delivery.ClusterRef"];
+            name?: string;
+            /** @enum {string} */
+            nameSource?: "approval" | "node-label" | "context" | "file" | "uid";
+            publicKey?: string;
+            reason?: string;
+            record?: string;
+            snapshotAsOf?: string;
+            /** @enum {string} */
+            state: "pending" | "approved" | "removed";
+            status?: string;
+            uid: string;
+        };
+        "Delivery.ClusterRef": {
+            name?: string;
+            uid: string;
         };
         "Delivery.Deadlines": {
             approval?: string;
@@ -3755,7 +3814,7 @@ export interface components {
             joined: number | null;
             /**
              * Format: int64
-             * @description Cluster join requests waiting for a person; null when not read
+             * @description Clusters waiting for a person to approve them as members, as this caller may see them; null when not read, when some are hidden from this caller or when the join list was read partly
              */
             pending: number | null;
             /** @enum {string} */
@@ -9890,6 +9949,44 @@ export interface operations {
             };
             /** @description Error */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-fleet-clusters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Delivery.ClusterJoinList"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -18,6 +18,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/app"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -404,8 +405,9 @@ func acceptRows() []surfaceRow {
 // clusterRows map pacto cluster list.
 func clusterRows() []surfaceRow {
 	return slices.Concat(
-		[]surfaceRow{{CLI: "cluster list", Reason: "the member clusters of a hub are listed only by the CLI so far"}},
-		alike("cluster list", "", "", "the hub reader names its own cluster and registry", "context", "registry", "detected"),
+		[]surfaceRow{{CLI: "cluster list", MCP: "pacto_cluster_list", HTTP: "GET /api/fleet/clusters"}},
+		alike("cluster list", "", "", "pacto_cluster_list and the dashboard read the hub they run in, from the registry its operator advertises; "+
+			"the CLI names the hub and its registry", "context", "registry", "detected"),
 	)
 }
 
@@ -557,7 +559,8 @@ func mcpNames(t *testing.T) map[string]bool {
 	svc := app.NewService(nil, nil)
 	server, err := pactomcp.New("v", mcpAuthoring(newMCPCommand(svc, "v", defaultDeps()), svc), pactomcp.Modes{
 		Fleet: &pactomcp.FleetMode{Src: func(context.Context) (*fleet.Query, error) { return q, nil }, Opts: pactomcp.FleetOptions{Impact: signedInImpact(t, defaultDeps()),
-			Stats: mcpStatsProvider(newMCPCommand(svc, "v", defaultDeps()), svc, true, nil)}},
+			Stats:    mcpStatsProvider(newMCPCommand(svc, "v", defaultDeps()), svc, true, nil),
+			Clusters: func(context.Context) (delivery.ClusterJoinList, error) { return delivery.ClusterJoinList{}, nil }}},
 		Delivery: &pactomcp.DeliveryMode{Writes: true, Reads: func(context.Context, string, url.Values) (json.RawMessage, error) { return nil, nil }, Refs: &app.Delivery{}},
 	})
 	expect(t, err == nil, "server: %v", err)

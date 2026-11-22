@@ -25,6 +25,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/logging"
@@ -126,6 +127,10 @@ type Options struct {
 	Stats func(ctx context.Context, services []string) (stats.RecordSet, error)
 	// StatsRegistry is the stats repository Stats reads, shown on the page.
 	StatsRegistry string
+	// ClusterJoins lists the member clusters of this hub as the request's
+	// reader may see them; it also counts the pending ones in
+	// capabilities.installation. Nil serves no /api/fleet/clusters.
+	ClusterJoins func(ctx context.Context) (delivery.ClusterJoinList, error)
 	// OperationAccess reviews a signed-in viewer's access to list operations
 	// in the Stage namespaces the operation records name and says which they
 	// may see, and the clusters they were reviewed in: a record of another
@@ -355,6 +360,7 @@ func (s *Server) RegisterOperations(api huma.API) {
 	s.registerAuthOperations(api)
 	s.registerDeliveryOperations(api)
 	s.registerStatsOperations(api)
+	s.registerClusterOperations(api)
 }
 
 // ExportOpenAPI builds the Huma API with every operation registered — the live

@@ -260,6 +260,7 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 		Reached:            stdioReached(cmd, d, transport),
 		Stats:              mcpStatsProvider(cmd, svc, transport == "stdio", home),
 		InstallationConfig: svc.InstallationConfig(fopts.Detected),
+		Clusters:           mcpClusters(svc, d, fopts.ClusterJoins, view != nil),
 	}}, nil
 }
 

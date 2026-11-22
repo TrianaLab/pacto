@@ -10,6 +10,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/trianalab/pacto/v4/pkg/dashboard/productview"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -97,8 +98,8 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 
 // installationInput is what this dashboard knows for capabilities.installation:
 // the operator's configuration and its raw delivery probe, asked in every auth
-// mode that serves delivery (open identifies nobody, so it serves none). It
-// serves no /mcp endpoint.
+// mode that serves delivery (open identifies nobody, so it serves none), and
+// the pending member clusters the reader may see. It serves no /mcp endpoint.
 func (s *Server) installationInput(ctx context.Context, mode string) fleet.InstallationInput {
 	in := fleet.InstallationInput{DeliveryWired: s.opts.Delivery != nil && mode != "open", MCPSource: "this dashboard serves no /mcp endpoint", Now: time.Now().UTC()}
 	if cfg := s.opts.InstallationConfig; cfg != nil {
@@ -111,6 +112,10 @@ func (s *Server) installationInput(ctx context.Context, mode string) fleet.Insta
 		if at := s.opts.DeliveryCheckedAt; at != nil {
 			in.DeliveryAsOf = at().UTC()
 		}
+	}
+	if s.opts.ClusterJoins != nil {
+		l, err := s.opts.ClusterJoins(ctx)
+		productview.InstallationPending(&in, l, err)
 	}
 	return in
 }

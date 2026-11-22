@@ -248,13 +248,22 @@ func fleetJoins(cmd *cobra.Command, d deps, includeK8s bool, detected string) *a
 	if !includeK8s || !strings.HasPrefix(detected, "k8s:") || !hasClusterConfig(d) {
 		return nil
 	}
-	_, opts, err := hubJoins(cmp.Or(cmd.Context(), context.Background()), d, "", "", detected)
+	return readJoins(cmd, func(ctx context.Context) (app.JoinOptions, error) {
+		_, opts, err := hubJoins(ctx, d, "", "", detected)
+		return opts, err
+	})
+}
+
+// readJoins is what read returns, nil with a warning when it fails, and nil
+// when the hub's operator sets no registry: no member can join.
+func readJoins(cmd *cobra.Command, read func(context.Context) (app.JoinOptions, error)) *app.JoinOptions {
+	opts, err := read(cmp.Or(cmd.Context(), context.Background()))
 	if err != nil {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: member clusters were not read: %v\n", err)
 		return nil
 	}
 	if opts.Repository == "" {
-		return nil // the operator sets no registry: no member can join
+		return nil
 	}
 	return &opts
 }

@@ -73,7 +73,14 @@ type InstallationInput struct {
 	DeliveryAsOf time.Time
 	MCPServed    bool
 	MCPSource    string
-	Now          time.Time
+	// JoinSource, when set, says where the cluster join requests were read
+	// (the registry repository) or why JoinPending is null; JoinPending is
+	// how many of them the caller may see wait for a person, and JoinAsOf
+	// when they were read. Empty: this host reads no join requests.
+	JoinPending *int
+	JoinSource  string
+	JoinAsOf    *time.Time
+	Now         time.Time
 }
 
 // Installation is how this installation runs, each part with where Pacto
@@ -138,7 +145,7 @@ type InstallationProvisioning struct {
 // InstallationClusters counts the clusters of the caller's view.
 type InstallationClusters struct {
 	Joined       *int       `json:"joined" doc:"Clusters this caller's view reads; null with no snapshot"`
-	Pending      *int       `json:"pending" doc:"Cluster join requests waiting for a person; null when not read"`
+	Pending      *int       `json:"pending" doc:"Clusters waiting for a person to approve them as members, as this caller may see them; null when not read, when some are hidden from this caller or when the join list was read partly"`
 	Source       string     `json:"source" doc:"Where Pacto counted them, or why they are null"`
 	AsOf         *time.Time `json:"asOf" doc:"When the snapshot was generated"`
 	Provenance   string     `json:"provenance" enum:"declared,observed,inferred,host"`
@@ -165,7 +172,7 @@ func (q *Query) Installation(in InstallationInput) Installation {
 		Registry:     installationRegistry(d, source, completeness),
 		Delivery:     q.installationDelivery(in, d),
 		Provisioning: InstallationProvisioning{Engine: InstallationEngineUnknown, Source: installationProvisioning, AsOf: &now, Provenance: ProvenanceInferred, Completeness: InstallationUnknown},
-		Clusters:     q.installationClusters(),
+		Clusters:     q.installationClusters(in),
 		MCP:          InstallationMCP{Served: in.MCPServed, Source: in.MCPSource, AsOf: &now, Provenance: InstallationProvenanceHost, Completeness: InstallationComplete},
 	}
 }
@@ -317,15 +324,21 @@ func (out *InstallationDelivery) addApplier(p Provider) {
 	}
 }
 
-// installationClusters counts the clusters of the caller's snapshot.
-func (q *Query) installationClusters() InstallationClusters {
-	out := InstallationClusters{Source: installationNoQuery + installationJoinsNotRead, Provenance: ProvenanceObserved, Completeness: InstallationUnknown}
+// installationClusters counts the clusters of the caller's snapshot and the
+// join requests in.JoinPending counts. A join count that is null beside a
+// joined count makes the part partial.
+func (q *Query) installationClusters(in InstallationInput) InstallationClusters {
+	joins := installationJoinsNotRead
+	if in.JoinSource != "" {
+		joins = "; cluster join requests: " + in.JoinSource
+	}
+	out := InstallationClusters{Pending: in.JoinPending, AsOf: in.JoinAsOf, Source: installationNoQuery + joins, Provenance: ProvenanceObserved, Completeness: InstallationUnknown}
 	if q == nil {
 		return out
 	}
 	n, at := len(q.snap.Clusters), q.snap.GeneratedAt
-	out.Joined, out.AsOf, out.Source, out.Completeness = &n, &at, installationClustersInView+installationJoinsNotRead, InstallationComplete
-	if q.snap.Completeness == CompletenessPartial {
+	out.Joined, out.AsOf, out.Source, out.Completeness = &n, &at, installationClustersInView+joins, InstallationComplete
+	if q.snap.Completeness == CompletenessPartial || in.JoinSource != "" && in.JoinPending == nil {
 		out.Completeness = InstallationPartial
 	}
 	return out
