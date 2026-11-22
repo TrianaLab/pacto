@@ -108,6 +108,31 @@
       "details": ["DD_API_KEY comes from a Secret; Pacto did not read it"],
       "namespaces": ["datadog"],
       "objects": [{"kind": "DaemonSet", "namespace": "datadog", "name": "datadog-agent"}, {"kind": "Secret", "namespace": "datadog", "name": "datadog-secret"}]
+    },
+    {
+      "kind": "istio-egress",
+      "evidence": "ServiceEntry CRD present",
+      "source": "API discovery",
+      "completeness": "complete",
+      "scope": "cluster"
+    },
+    {
+      "kind": "cilium-fqdn",
+      "evidence": "no CiliumNetworkPolicy CRD",
+      "source": "API discovery",
+      "completeness": "unknown",
+      "reason": "the cluster serves no cilium.io/v2 API, so no CiliumNetworkPolicy is read",
+      "scope": "cluster"
+    },
+    {
+      "kind": "egress-gateway",
+      "evidence": "1 Istio egress gateway found; logs: auto",
+      "source": "pods labelled istio=egressgateway",
+      "completeness": "partial",
+      "reason": "needs pods/log",
+      "hint": "helm upgrade <release> <chart> --reuse-values --set controller.egressGatewayLogs=on",
+      "objects": [{"kind": "Pod", "namespace": "istio-system", "name": "istio-egressgateway-7d4b9c6f8-x2k9p"}],
+      "scope": "cluster"
     }
   ],
   "installation": {
