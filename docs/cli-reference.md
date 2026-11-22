@@ -2515,6 +2515,9 @@ pacto push <ref> [flags]
 
   # Force overwrite an existing artifact
   pacto push oci://ghcr.io/acme/my-service-pacto -p my-service --force
+
+  # Contribute an inferred record, signed with the producer's evidence key
+  pacto push oci://ghcr.io/acme/pacto-inferred/my-idp/services -p checkout --sign-key ~/.pacto/keys/my-idp.key
 ```
 
 **Flags:**
@@ -2525,6 +2528,7 @@ pacto push <ref> [flags]
       --index string         organization index repository for this version's entry, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the contract's repository; none writes no entry)
   -p, --path string          path to contract directory (default: current directory)
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
+      --sign-key file        sign the pushed digest with the file key, kept outside the pushed directory: a PEM private key or a seed pacto evidence keygen wrote
       --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
