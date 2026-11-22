@@ -244,3 +244,36 @@ func TestEventAnswerIgnoresIndex(t *testing.T) {
 		t.Fatalf("event answer read the index: %+v %+v", res.ConsumerIndex, res.Limitations)
 	}
 }
+
+// TestNoteUncheckedOverIndexKindSource: a snapshot that holds an index
+// read (a whole-index fleet source) while impact read none is unchecked
+// without a target snapshot, counting that source's revisions, on a pair
+// and on an event; an unavailable one, or a live target snapshot, adds
+// nothing.
+func TestNoteUncheckedOverIndexKindSource(t *testing.T) {
+	ledger := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "ledger", Version: "1.0.0"}}
+	col := &fleet.Collection{Revisions: []fleet.RawRevision{{Bundle: &contract.Bundle{Contract: ledger, FS: fstest.MapFS{}}, Domain: indexDomain, Digest: "sha256:ledger"}}}
+	live := fleet.NewMemorySource("ts", fleet.SourceKindTargetSnapshot, &fleet.Collection{})
+	for _, c := range []struct {
+		name string
+		srcs []fleet.Source
+		want bool
+	}{
+		{"index alone", []fleet.Source{fleet.NewMemorySource("registry-index", "index", col)}, true},
+		{"with a target snapshot", []fleet.Source{fleet.NewMemorySource("registry-index", "index", col), live}, false},
+		{"unavailable index", []fleet.Source{fleet.NewMemorySource("oci", "oci", col), fleet.NewFailingSource("registry-index", "index", errors.New("down"))}, false},
+	} {
+		snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, c.srcs...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pair := Analyze(context.Background(), ledger, ledger, fstest.MapFS{}, fstest.MapFS{}, snap, Options{Domain: indexDomain})
+		event := Analyze(context.Background(), nil, nil, nil, nil, snap, Options{Event: &Event{Kind: EventUnavailable, Service: string(fleet.NewServiceKeyDomain(indexDomain, "ledger"))}})
+		for name, res := range map[string]*Result{"pair": pair, "event": event} {
+			l := limitation(res, LimitationConsumerIndexUnchecked)
+			if (l != nil) != c.want || (c.want && (res.Completeness != fleet.CompletenessPartial || !strings.HasPrefix(l.Message, "the index lists 1 service;"))) {
+				t.Errorf("%s, %s: %+v %s", c.name, name, l, res.Completeness)
+			}
+		}
+	}
+}

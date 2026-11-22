@@ -120,6 +120,13 @@ type FleetOptions struct {
 	// <registry>/pacto-index from the provider reference, IndexNone reads
 	// none, anything else is the repository. Only impact reads it.
 	Index string
+	// ReadIndex is an organization index repository whose every listed
+	// service joins the snapshot: the newest entry of each, pulled by digest
+	// with the same provenance and owner checks as OCIRefs, and the inferred
+	// contracts they name under the installation's own pacto-inferred. Empty
+	// reads none. Impact rebuilds and registry writes clear it
+	// (withoutListings): an index alone never clears a gate.
+	ReadIndex string
 	// extraSources join the configured ones. Impact uses it to add the new
 	// revision when no configured source holds the changed service.
 	extraSources []fleet.Source
@@ -131,6 +138,13 @@ type FleetOptions struct {
 // target-state file, an Evidence Server or a target snapshot.
 func (o FleetOptions) hasTargetInput() bool {
 	return o.IncludeK8s || len(o.K8sContexts) > 0 || len(o.TargetStateFiles) > 0 || len(o.EvidenceURLs) > 0 || len(o.TargetSnapshot) > 0
+}
+
+// withoutListings is o without the sources that list a whole registry
+// repository: what impact rebuilds and registry writes build from.
+func (o FleetOptions) withoutListings() FleetOptions {
+	o.ReadIndex = ""
+	return o
 }
 
 // addedSources are the sources impact adds: extraSources, then the
@@ -219,11 +233,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	if len(opts.OCIRefs) > 0 {
 		if s.BundleStore != nil {
 			src := fleetsrc.NewOCISource("oci", s.BundleStore, opts.OCIRefs)
-			if opts.Provenance != nil {
-				src.Provenance = opts.Provenance.Check
-				src.OwnerRights = opts.Provenance.ownerRights(s.fleetOwnerPolicy(opts.TargetSnapshotTrustFile))
-			}
-			src.RegistryProbe = opts.RegistryProbe
+			s.registryChecks(opts)(src)
 			sources = append(sources, src)
 		} else {
 			sources = append(sources, fleet.NewFailingSource("oci", "oci", errNoBundleStore))
@@ -236,6 +246,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 			sources = append(sources, fleet.NewFailingSource("cache", "cache", errNoBundleStore))
 		}
 	}
+	sources = append(sources, s.indexFleetSources(opts)...)
 	if opts.IncludeK8s || len(opts.K8sContexts) > 0 {
 		sources = append(sources, s.k8sSources(ctx, opts, fp.Promoters)...)
 	}
@@ -260,12 +271,25 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	}, sources...)
 }
 
+// registryChecks sets on a registry source the provenance, owner-right and
+// registry-probe checks opts asks for: every source that pulls published
+// bundles is checked alike.
+func (s *Service) registryChecks(opts FleetOptions) func(*fleetsrc.OCISource) {
+	return func(src *fleetsrc.OCISource) {
+		if opts.Provenance != nil {
+			src.Provenance = opts.Provenance.Check
+			src.OwnerRights = opts.Provenance.ownerRights(s.fleetOwnerPolicy(opts.TargetSnapshotTrustFile))
+		}
+		src.RegistryProbe = opts.RegistryProbe
+	}
+}
+
 // declarationSigners is the installation signer policy a declared
-// revision's signer is judged with. Only the registry source checks
-// provenance, so only it can show a declaration's cluster facts: without it
-// none is read.
+// revision's signer is judged with. Only the registry sources (OCIRefs and
+// ReadIndex) check provenance, so only they can show a declaration's
+// cluster facts: without them none is read.
 func (s *Service) declarationSigners(ctx context.Context, opts FleetOptions) *fleet.DeclarationSignerPolicy {
-	if opts.Provenance == nil || len(opts.OCIRefs) == 0 || s.BundleStore == nil {
+	if opts.Provenance == nil || (len(opts.OCIRefs) == 0 && opts.ReadIndex == "") || s.BundleStore == nil {
 		return nil
 	}
 	return opts.Provenance.DeclarationSigners(ctx)
