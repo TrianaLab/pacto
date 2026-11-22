@@ -39,6 +39,7 @@ var excludedFromTUI = map[string]string{
 	"declare":              "logs a person in to Sigstore, signs and writes to a registry; the TUI never acts",
 	"cluster approve":      "a person's keyless signed decision, run from a terminal with a browser login; the TUI never acts",
 	"cluster remove":       "a person's keyless signed decision, run from a terminal with a browser login; the TUI never acts",
+	"cluster map-groups":   "a person's keyless signed decision, run from a terminal with a browser login; the TUI never acts",
 	"cluster list":         "member clusters are not fleet entities; read from the Data sources Clusters block",
 	"ci init":              "writes a CI file into the local repository, a step a person reviews and commits; the TUI never writes",
 	"run":                  "wraps a process and lives as long as it does",

@@ -102,11 +102,13 @@ const (
 	KindPin = "pin"
 	// KindJoin is a cluster join record, on its cluster's join stream.
 	KindJoin = "join"
+	// KindGroupMapping is a member's group mapping, on its join stream.
+	KindGroupMapping = "group-mapping"
 )
 
 // KindTag is the write-once tag of an approval or intent record (kind) of
 // stream whose manifest is manifest: the anchor tag, the kind and 12 hex of
-// the manifest digest. At most 93 characters.
+// the manifest digest. At most 98 characters.
 func KindTag(stream, kind string, manifest digest.Digest) string {
 	return AnchorTag(stream) + "-" + kind + "-" + manifest.Encoded()[:12]
 }
@@ -216,6 +218,8 @@ func kindOf(predicate string) string {
 		return KindPin
 	case delivery.PredicateClusterJoin:
 		return KindJoin
+	case delivery.PredicateClusterGroupMapping:
+		return KindGroupMapping
 	}
 	return KindIntent
 }

@@ -375,7 +375,7 @@ pacto cluster approve <uid> [flags]
 
 ### `pacto cluster list`
 
-Lists every cluster in &lt;registry&gt;/pacto-targets: approved members, pending clusters with why they are pending, and removed members. The environments a cluster seems to host are inferred and say where they came from.
+Lists every cluster in &lt;registry&gt;/pacto-targets: approved members, pending clusters with why they are pending, and removed members. The environments a cluster seems to host are inferred and say where they came from. An approved member's group mappings say who approved them. The list reads the registry, so it knows nothing about live review channels: pacto fleet status against the hub, or the hub's dashboard, shows them.
 
 ```
 pacto cluster list [flags]
@@ -389,6 +389,35 @@ pacto cluster list [flags]
       --detected string             what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
   -h, --help[=true|false]           help for list
       --registry string             the registry the members publish to, or its pacto-targets repository; this or --detected is required
+```
+
+### `pacto cluster map-groups`
+
+When a member's apiserver does not accept the hub's tokens, because its OIDC issuer differs or the hub exchanges none, the hub reviews a signed-in person in the member as a mapped identity: their user, bound to their issuer, with the member groups this mapping gives their hub groups. A mapping answers observation reads only, never approvals. This command signs the mapping as you, keyless after a fresh login in your browser, and records it beside the member's snapshot; the newest mapping you sign for an issuer replaces the one before. --clear signs a mapping with no rules, which removes it: for --issuer, or for every issuer the member has a mapping for. Member groups that start with system: are refused. You need approve on clusterjoins.pacto.trianalab.io in the hub, granted to your user (kubectl create clusterrole pacto-cluster-approver --verb=approve --resource=clusterjoins.pacto.trianalab.io, bound to your user).
+
+```
+pacto cluster map-groups <uid> [flags]
+```
+
+**Examples:**
+
+```
+  pacto cluster map-groups 9f1c4e2a --issuer https://login.acme.dev --map platform=pacto-readers --registry ghcr.io/acme
+  pacto cluster map-groups 9f1c4e2a --clear --registry ghcr.io/acme
+```
+
+**Flags:**
+
+```
+      --clear[=true|false]          remove the mapping of --issuer, or of every issuer when --issuer is not set
+      --context stringArray         kubeconfig context of the hub cluster (default the current context)
+      --delivery-namespace string   namespace of the hub's delivery identities ConfigMap, which lists the approver signers (default "pacto-delivery")
+      --detected string             what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+  -h, --help[=true|false]           help for map-groups
+      --issuer string               the OIDC issuer whose people the mapping maps, an https URL (required unless --clear)
+      --map stringArray             a rule <hub group>=<member group>; repeat it for each rule
+      --registry string             the registry the members publish to, or its pacto-targets repository; this or --detected is required
+      --signer-issuer string        the approver signer's OIDC issuer, when the hub lists several
 ```
 
 ### `pacto cluster remove`

@@ -228,8 +228,8 @@ func TestClusterListMarkdown(t *testing.T) {
 	m := newJoinMember(euProd, "eu-prod")
 	e.publish(t, m, m.key)
 	out, _, err := e.run(t, "list", "--output-format", "markdown")
-	row := "| eu-prod (node-label) | " + euProd + " | pending | production (from the cluster name eu-prod) | sha256:" + m.keyID() + " | no approval yet |\n"
-	if err != nil || !strings.Contains(out, "| Name | UID | State | Hosts | Key | Approver or reason |\n") || !strings.Contains(out, row) {
+	row := "| eu-prod (node-label) | " + euProd + " | pending | production (from the cluster name eu-prod) | sha256:" + m.keyID() + " | no approval yet | - |\n"
+	if err != nil || !strings.Contains(out, "| Name | UID | State | Hosts | Key | Approver or reason | Mapping |\n") || !strings.Contains(out, row) {
 		t.Fatalf("%q %v", out, err)
 	}
 }

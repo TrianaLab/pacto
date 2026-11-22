@@ -1711,6 +1711,7 @@ export interface components {
             approver?: string;
             environments?: components["schemas"]["Delivery.AdvertisedEnvironment"][] | null;
             keyID?: string;
+            mappings?: components["schemas"]["Delivery.GroupMappingState"][] | null;
             mayReplace?: components["schemas"]["Delivery.ClusterRef"];
             name?: string;
             /** @enum {string} */
@@ -1770,6 +1771,17 @@ export interface components {
         "Delivery.Gates": {
             impact?: components["schemas"]["Delivery.ImpactGate"];
             verify?: components["schemas"]["Delivery.VerifyGates"];
+        };
+        "Delivery.GroupMappingState": {
+            approvedAt: string;
+            approvedBy: string;
+            issuer: string;
+            record: string;
+            rules: components["schemas"]["Delivery.GroupRule"][] | null;
+        };
+        "Delivery.GroupRule": {
+            from: string;
+            to: string;
         };
         "Delivery.HistoryEntry": {
             actor: string;

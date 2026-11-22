@@ -333,6 +333,9 @@ type ClusterJoinState struct {
 	// MayReplace names the approved member this pending cluster shares a
 	// display name with: a rebuilt cluster.
 	MayReplace *ClusterRef `json:"mayReplace,omitempty"`
+	// Mappings are the group mappings an approved member's reads use, one
+	// per issuer, newest approved first.
+	Mappings []GroupMappingState `json:"mappings,omitempty"`
 }
 
 // ClusterJoinList is every cluster a hub read from its registry.

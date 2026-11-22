@@ -52,3 +52,29 @@ func PushClusterJoin(ctx context.Context, repo *remote.Repository, bundle []byte
 	ref, err := Push(ctx, repo, stream, caps.Referrers, delivery.PredicateClusterJoin, bundle, nil)
 	return ref, caps.Referrers, err
 }
+
+// ListGroupMappings reads the group mapping records of cluster uid in repo,
+// its pacto-targets repository, as [Reader.ListPredicate] reads them: at
+// most delivery.MaxJoinRecords distinct bundles, cut when more matched,
+// unverified.
+func (r *Reader) ListGroupMappings(ctx context.Context, repo *remote.Repository, uid string) ([]Fetched, bool, error) {
+	return r.ListPredicate(ctx, repo, delivery.ClusterJoinStream(uid), delivery.PredicateClusterGroupMapping, "", delivery.MaxJoinRecords)
+}
+
+// PushClusterGroupMapping writes bundle, a signed group mapping
+// (delivery.SignClusterGroupMapping), on its member's join stream in repo,
+// the pacto-targets repository, anchoring the stream first, and returns
+// where it is and the form it took.
+func PushClusterGroupMapping(ctx context.Context, repo *remote.Repository, bundle []byte) (string, capabilities.ReferrersMode, error) {
+	st, err := delivery.OpenClusterGroupMapping(bundle, func([]byte) error { return nil }) // its own signer made it
+	if err != nil {
+		return "", "", err
+	}
+	stream := delivery.ClusterJoinStream(st.Predicate.Cluster)
+	caps, err := EnsureAnchor(ctx, repo, stream)
+	if err != nil {
+		return "", "", err
+	}
+	ref, err := Push(ctx, repo, stream, caps.Referrers, delivery.PredicateClusterGroupMapping, bundle, nil)
+	return ref, caps.Referrers, err
+}

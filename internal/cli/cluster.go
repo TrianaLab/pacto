@@ -40,12 +40,13 @@ const (
 func newClusterCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cluster",
-		Short: "List, approve and remove the member clusters of this hub",
+		Short: "List, approve and remove the member clusters of this hub, and map their groups",
 		Long: "Every cluster whose operator sets registry publishes a signed snapshot to <registry>/pacto-targets:cluster-<uid>. " +
 			"This cluster, the hub, reads them: a cluster stays pending until a person approves its key, and only an approved member's " +
 			"services, targets and workloads join the hub's fleet. The hub is the current kubeconfig context or --context.",
 	}
-	cmd.AddCommand(newClusterListCommand(svc, v, d), newClusterDecisionCommand(svc, v, d, delivery.JoinApprove), newClusterDecisionCommand(svc, v, d, delivery.JoinRemove))
+	cmd.AddCommand(newClusterListCommand(svc, v, d), newClusterDecisionCommand(svc, v, d, delivery.JoinApprove), newClusterDecisionCommand(svc, v, d, delivery.JoinRemove),
+		newClusterMapGroupsCommand(svc, v, d))
 	return cmd
 }
 
@@ -63,7 +64,8 @@ func newClusterListCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Comm
 		Use:   "list",
 		Short: "List the clusters that publish to this hub's registry and where each stands",
 		Long: "Lists every cluster in <registry>/pacto-targets: approved members, pending clusters with why they are pending, and removed members. " +
-			"The environments a cluster seems to host are inferred and say where they came from.",
+			"The environments a cluster seems to host are inferred and say where they came from. An approved member's group mappings say who approved them. " +
+			"The list reads the registry, so it knows nothing about live review channels: pacto fleet status against the hub, or the hub's dashboard, shows them.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			_, opts, err := clusterHub(cmd, d)
@@ -221,6 +223,9 @@ func clusterLine(c delivery.ClusterJoinState) string {
 	if c.MayReplace != nil {
 		parts = append(parts, "may replace "+c.MayReplace.Name)
 	}
+	if m := mappingWords(c); m != "" {
+		parts = append(parts, "mapping "+m)
+	}
 	return strings.Join(parts, "  ")
 }
 
@@ -270,8 +275,8 @@ func printClusterCounts(w io.Writer, l delivery.ClusterJoinList) {
 // printClusterListMarkdown prints l as a markdown table.
 func printClusterListMarkdown(w io.Writer, l delivery.ClusterJoinList) {
 	_, _ = fmt.Fprintf(w, "Hub `%s` reads `%s` (%s, as of %s)\n\n", l.Hub.UID, l.Repository, l.Completeness, l.AsOf)
-	_, _ = fmt.Fprintln(w, "| Name | UID | State | Hosts | Key | Approver or reason |")
-	_, _ = fmt.Fprintln(w, "|---|---|---|---|---|---|")
+	_, _ = fmt.Fprintln(w, "| Name | UID | State | Hosts | Key | Approver or reason | Mapping |")
+	_, _ = fmt.Fprintln(w, "|---|---|---|---|---|---|---|")
 	for _, c := range l.Clusters {
 		state := string(c.State)
 		if sw := snapshotWords(c); sw != "" {
@@ -288,8 +293,8 @@ func printClusterListMarkdown(w io.Writer, l delivery.ClusterJoinList) {
 		if c.KeyID != "" {
 			key = "sha256:" + c.KeyID
 		}
-		_, _ = fmt.Fprintf(w, "| %s (%s) | %s | %s | %s | %s | %s |\n", clusterName(c), c.NameSource, c.UID, state, hosts(c.Environments), key,
-			strings.ReplaceAll(who, "|", `\|`))
+		_, _ = fmt.Fprintf(w, "| %s (%s) | %s | %s | %s | %s | %s | %s |\n", clusterName(c), c.NameSource, c.UID, state, hosts(c.Environments), key,
+			strings.ReplaceAll(who, "|", `\|`), cmp.Or(mappingWords(c), "-"))
 	}
 	_, _ = fmt.Fprintln(w)
 	printClusterCounts(w, l)
@@ -471,26 +476,35 @@ func (c *clusterDecision) authority() error {
 	return nil
 }
 
-// sign logs the person in, checks the login signs as the user the hub
-// reviewed, and writes rec signed by them.
+// login logs the person in to sign what on subject and checks the login
+// signs as the user the hub reviewed.
+func (c *clusterDecision) login(what, subject string) (delivery.Signer, error) {
+	s, email, err := keylessLogin(c.cmd, c.v, c.d, c.signer, what, subject)
+	if err != nil {
+		return nil, err
+	}
+	id, source, err := delivery.ApproverIdentity(c.signer.Issuer, email, c.policy)
+	if err != nil {
+		return nil, err
+	}
+	if code, why := delivery.KeylessRefusal(id, source); code != "" {
+		return nil, errors.New(code + ": " + why)
+	}
+	if id.User != c.user {
+		return nil, fmt.Errorf("ApproverMismatch: your Kubernetes user is %s and your login signs as %s; nothing was signed", c.user, id.User)
+	}
+	return s, nil
+}
+
+// sign logs the person in and writes rec signed by them.
 func (c *clusterDecision) sign(rec delivery.ClusterJoin) error {
 	what := "an approval"
 	if c.dec == delivery.JoinRemove {
 		what = "a removal"
 	}
-	s, email, err := keylessLogin(c.cmd, c.v, c.d, c.signer, what, "cluster "+rec.Cluster)
+	s, err := c.login(what, "cluster "+rec.Cluster)
 	if err != nil {
 		return err
-	}
-	id, source, err := delivery.ApproverIdentity(c.signer.Issuer, email, c.policy)
-	if err != nil {
-		return err
-	}
-	if code, why := delivery.KeylessRefusal(id, source); code != "" {
-		return errors.New(code + ": " + why)
-	}
-	if id.User != c.user {
-		return fmt.Errorf("ApproverMismatch: your Kubernetes user is %s and your login signs as %s; nothing was signed", c.user, id.User)
 	}
 	ref, mode, err := c.svc.WriteClusterJoin(c.cmd.Context(), rec, s, c.opts.Repository)
 	if err != nil {
@@ -503,12 +517,17 @@ func (c *clusterDecision) sign(rec delivery.ClusterJoin) error {
 	if rec.Name != "" {
 		name = rec.Name
 	}
-	w := c.cmd.OutOrStdout()
-	_, _ = fmt.Fprintf(w, "%s %s (%s) as %s; recorded %s\n", verb, name, shortUID(rec.Cluster), id.User, ref)
+	_, _ = fmt.Fprintf(c.cmd.OutOrStdout(), "%s %s (%s) as %s; recorded %s\n", verb, name, shortUID(rec.Cluster), c.user, ref)
+	c.printTag(ref, mode, deliveryrecord.KindJoin)
+	return nil
+}
+
+// printTag prints the write-once tag a record of kind at ref sits under,
+// when the registry has no Referrers.
+func (c *clusterDecision) printTag(ref string, mode capabilities.ReferrersMode, kind string) {
 	if mode == capabilities.ReferrersWriteOnceTags {
 		_, dg, _ := strings.Cut(ref, "@")
-		_, _ = fmt.Fprintf(w, "pushed %s:%s (write-once tag; registry has no Referrers)\n", c.opts.Repository,
-			deliveryrecord.KindTag(delivery.ClusterJoinStream(rec.Cluster), deliveryrecord.KindJoin, digest.Digest(dg)))
+		_, _ = fmt.Fprintf(c.cmd.OutOrStdout(), "pushed %s:%s (write-once tag; registry has no Referrers)\n", c.opts.Repository,
+			deliveryrecord.KindTag(delivery.ClusterJoinStream(c.member.UID), kind, digest.Digest(dg)))
 	}
-	return nil
 }

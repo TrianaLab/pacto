@@ -23,8 +23,9 @@ func clusterListTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_cluster_list",
 		Description: "List the member clusters that joined this hub through the registry, the pending ones and those removed, with each " +
-			"member's state, display name and its source, advertised environments and key fingerprint. Approving is a person's signed " +
-			"decision with `pacto cluster approve`; no tool approves. Read-only. The answer carries asOf, completeness, limitations and " +
+			"member's state, display name and its source, advertised environments, key fingerprint and group mappings (issuer, rules, approvedBy, " +
+			"approvedAt). Approving is a person's signed decision with `pacto cluster approve`; no tool approves. Group mappings are approved by a " +
+			"person with `pacto cluster map-groups`; this server never writes them. Read-only. The answer carries asOf, completeness, limitations and " +
 			"hidden, the clusters you may not see because you may not approve clusterjoins.",
 		Annotations: readOnly(true),
 		InputSchema: map[string]any{"type": "object"},

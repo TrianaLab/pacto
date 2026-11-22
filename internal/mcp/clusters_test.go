@@ -86,3 +86,29 @@ func TestMCPTextNeverCallsAClusterAnAgent(t *testing.T) {
 		t.Error("pacto_cluster_list does not say member")
 	}
 }
+
+// TestClusterListToolShowsMappings: an approved member's group mappings
+// reach the answer as issuer, rules, approvedBy and approvedAt.
+func TestClusterListToolShowsMappings(t *testing.T) {
+	list := delivery.ClusterJoinList{Completeness: fleet.CompletenessComplete, Clusters: []delivery.ClusterJoinState{{UID: "aaaa0000", Name: "eu-prod",
+		State: delivery.JoinApproved, Mappings: []delivery.GroupMappingState{{Issuer: "https://login.acme.dev",
+			Rules: []delivery.GroupRule{{From: "platform", To: "readers"}}, ApprovedBy: "oidc:alice@acme.com", ApprovedAt: "2026-11-20T10:00:00Z"}}}}}
+	server := mustNew("test", Authoring{}, clusterModes(t, func(context.Context) (delivery.ClusterJoinList, error) { return list, nil }))
+	var got struct {
+		Clusters []struct {
+			Mappings []map[string]any `json:"mappings"`
+		} `json:"clusters"`
+	}
+	decode(t, callToolOn(t, server, "pacto_cluster_list", map[string]any{}), &got)
+	if len(got.Clusters) != 1 || len(got.Clusters[0].Mappings) != 1 {
+		t.Fatalf("%+v", got)
+	}
+	for _, k := range []string{"issuer", "rules", "approvedBy", "approvedAt"} {
+		if _, ok := got.Clusters[0].Mappings[0][k]; !ok {
+			t.Errorf("no %s in %+v", k, got.Clusters[0].Mappings[0])
+		}
+	}
+	if !strings.Contains(clusterListTool().Description, "pacto cluster map-groups`; this server never writes them") {
+		t.Error("the description does not say who writes group mappings")
+	}
+}

@@ -116,6 +116,9 @@ type joinRead struct {
 	partial bool
 	// perCluster are the clusters each per-cluster limitation counts.
 	perCluster map[clusterNote]map[string]bool
+	// otherMappings counts the verified group mappings that name another
+	// hub or cluster.
+	otherMappings int
 }
 
 // clusterNote is a limitation that counts clusters: its message has one %s,
@@ -160,7 +163,8 @@ func (jr *joinRead) noteCluster(n clusterNote, uid string) {
 
 // flushClusterNotes adds one limitation per per-cluster note, with its count.
 func (jr *joinRead) flushClusterNotes() {
-	for _, n := range []clusterNote{noteRecordsUnread, noteRecordsCut, noteReviewFailed, noteReviewForbidden, noteForks, noteSnapshotUnread} {
+	for _, n := range []clusterNote{noteRecordsUnread, noteRecordsCut, noteReviewFailed, noteReviewForbidden, noteForks, noteSnapshotUnread,
+		noteMappingsUnread, noteMappingsCut, noteMappingsSkipped} {
 		if c := len(jr.perCluster[n]); c > 0 {
 			jr.note(n.code, fmt.Sprintf(n.message, plural(c, "cluster")), n.uncertain)
 		}
@@ -209,8 +213,9 @@ func (jr *joinRead) read(ctx context.Context) {
 			states[i].Reason = jr.policyWhy
 		}
 	}
+	jr.readMappings(ctx, states)
 	jr.flushClusterNotes()
-	jr.list.Clusters, jr.list.OtherHubs = append(jr.list.Clusters, states...), others
+	jr.list.Clusters, jr.list.OtherHubs = append(jr.list.Clusters, states...), others+jr.otherMappings
 }
 
 // readPolicy reads the hub's approver signers.
@@ -353,19 +358,34 @@ func supersededJoins(hub, uid string, vs []delivery.VerifiedJoin) []string {
 	return out
 }
 
-// verifyRecord opens f under the approver signer whose issuer its
-// certificate names, and maps the certificate to the user the record must
-// name. ok is false when it does not verify or names another user than its
-// certificate maps to; then Why says so.
+// verifyRecord opens f, a join record, as verifyPerson does. ok is false
+// when it does not verify or names another user than its certificate maps
+// to; then Why says so.
 func verifyRecord(policy delivery.ClassPolicy, f deliveryrecord.Fetched) (delivery.VerifiedJoin, bool) {
 	v := delivery.VerifiedJoin{Ref: f.Manifest}
+	v.User, v.SignedAt, v.Why = verifyPerson(policy, "join record", func(verify func([]byte) error) (string, error) {
+		st, err := delivery.OpenClusterJoin(f.Bundle, verify)
+		v.Record = st.Predicate
+		return st.Predicate.Approver, err
+	})
+	v.Verified, v.Counted = v.Why == "", v.Why == ""
+	return v, v.Verified
+}
+
+// verifyPerson opens a person's record (a what) through open, under the
+// approver signer whose issuer its certificate names, and maps the
+// certificate to the user the record must name, the approver open returns.
+// It returns that user, the verified signing time and why the record does
+// not verify, "" when it does.
+func verifyPerson(policy delivery.ClassPolicy, what string, open func(verify func([]byte) error) (approver string, err error)) (string, time.Time, string) {
 	var signer delivery.PublisherIdentity
-	st, err := delivery.OpenClusterJoin(f.Bundle, func(b []byte) error {
+	var at time.Time
+	approver, err := open(func(b []byte) error {
 		var errs []error
 		for _, s := range policy.Signers {
-			id, at, err := signing.VerifyPerson(b, s.Issuer, s.TrustedRoot)
+			id, t, err := signing.VerifyPerson(b, s.Issuer, s.TrustedRoot)
 			if err == nil {
-				signer, v.SignedAt = id, at
+				signer, at = id, t
 				return nil
 			}
 			errs = append(errs, err)
@@ -373,27 +393,21 @@ func verifyRecord(policy delivery.ClassPolicy, f deliveryrecord.Fetched) (delive
 		return errors.Join(errs...)
 	})
 	if err != nil {
-		v.Why = "a join record was not counted: " + err.Error()
-		return v, false
+		return "", at, "a " + what + " was not counted: " + err.Error()
 	}
-	v.Record = st.Predicate
 	id, source, err := delivery.ApproverIdentity(signer.Issuer, signer.Subject, policy)
 	if err == nil {
 		if code, why := delivery.KeylessRefusal(id, source); code != "" {
 			err = errors.New(why)
 		}
 	}
-	v.User = id.User
 	switch {
 	case err != nil:
-		v.Why = "a join record signed by " + signer.Subject + " was not counted: " + err.Error()
-		return v, false
-	case id.User != v.Record.Approver:
-		v.Why = "a join record claiming approver " + v.Record.Approver + " is signed as " + id.User + " and was not counted"
-		return v, false
+		return id.User, at, "a " + what + " signed by " + signer.Subject + " was not counted: " + err.Error()
+	case id.User != approver:
+		return id.User, at, "a " + what + " claiming approver " + approver + " is signed as " + id.User + " and was not counted"
 	}
-	v.Verified, v.Counted = true, true
-	return v, true
+	return id.User, at, ""
 }
 
 // joinVerdictCache remembers approve reviews by user and member.
