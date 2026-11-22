@@ -212,7 +212,9 @@ test-browser:
 # stops the two compared revisions from differing incompatibly. Before Playwright,
 # because a broken engine makes the browser failures downstream noise.
 	$(if $(filter layout,$(PW_LEG))$(filter-out 1/%,$(PW_SHARD)),@echo "engine smoke runs in shard 1 of the rest leg only; skipped in $(PW_LEG) shard $(PW_SHARD)",$(MAKE) -C examples/demo smoke)
-	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && PW_LEG=$(PW_LEG) npm run test:e2e$(if $(PW_SHARD), -- --shard=$(PW_SHARD))
+# WebKit too outside the layout leg, for the webkit project's demo smoke (Safari's
+# smaller worker stack); on a CI runner it needs its system libraries as well.
+	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium $(if $(filter layout,$(PW_LEG)),,$(if $(CI),--with-deps )webkit) && PW_LEG=$(PW_LEG) npm run test:e2e$(if $(PW_SHARD), -- --shard=$(PW_SHARD))
 e2e-dashboard-wasm: test-browser
 
 # The full SPEC 23 resolution matrix: every named viewport from a 320px phone to a

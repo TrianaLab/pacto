@@ -610,13 +610,14 @@ func rawClusterID(col *Collection, raw RawTarget) string {
 	return ""
 }
 
-// validClusterIDPattern bounds a cluster id from an untrusted source; a
-// kube-system UID fits.
-var validClusterIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$`)
+// validClusterIDPattern is the shape of a cluster id from an untrusted source.
+// Its 253-byte bound is a length check in [ValidClusterID], not a {0,252}
+// repeat: compiling that recurses deeper than a WebKit worker's call stack.
+var validClusterIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // ValidClusterID reports whether id may name a cluster: what [Build] keeps from
 // an untrusted source. A kube-system UID fits.
-func ValidClusterID(id string) bool { return validClusterIDPattern.MatchString(id) }
+func ValidClusterID(id string) bool { return len(id) <= 253 && validClusterIDPattern.MatchString(id) }
 
 // clusterNameRank orders the declared name sources of reported names.
 var clusterNameRank = map[string]int{

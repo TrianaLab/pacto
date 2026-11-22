@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing/fstest"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Masterminds/semver/v3"
 	"gopkg.in/yaml.v3"
@@ -114,9 +115,26 @@ var surfaceClasses = []string{"vendor-api", "managed-cloud", "legacy", "unclassi
 
 var (
 	surfacePortRE   = regexp.MustCompile(`^[0-9]{1,5}$`)
-	surfaceClientRE = regexp.MustCompile(`^[A-Za-z0-9@._~:/-]{1,500}/[0-9]{1,9}$`)
-	surfaceSourceRE = regexp.MustCompile(`^[^\s\x00-\x1f\x7f]{1,253}$`)
+	surfaceClientRE = regexp.MustCompile(`^[A-Za-z0-9@._~:/-]+/[0-9]{1,9}$`)
+	surfaceSourceRE = regexp.MustCompile(`^[^\s\x00-\x1f\x7f]+$`)
 )
+
+// Long bounds are length checks, not bounded repeats: a repeat like {1,253}
+// compiles to a program hundreds of instructions long, and regexp compiles it
+// recursing once per instruction, which overflows the call stack of a WebKit
+// worker and stopped the WASM demo loading. The surface, cluster and fleet
+// patterns all follow this rule; TestPatternsStayShallow holds it.
+
+// validSurfaceClient reports whether s is <1 to 500 client characters>/<port>.
+// The port has no slash, so the client is everything before the last one.
+func validSurfaceClient(s string) bool {
+	return surfaceClientRE.MatchString(s) && strings.LastIndexByte(s, '/') <= 500
+}
+
+// validSurfaceSource reports whether s is 1 to 253 printable non-space runes.
+func validSurfaceSource(s string) bool {
+	return surfaceSourceRE.MatchString(s) && utf8.RuneCountInString(s) <= 253
+}
 
 // checkSurface is why s cannot be a record's surface, or nil: an identity
 // that is no external identity, another class, a missing or malformed asOf
@@ -138,10 +156,10 @@ func checkSurface(s *InferredSurface) error {
 	}
 	for _, l := range []struct {
 		name string
-		re   *regexp.Regexp
+		ok   func(string) bool
 		vals []SurfaceValue
-	}{{"hosts", inferredHostRE, s.Hosts}, {"ports", surfacePortRE, s.Ports}, {"clients", surfaceClientRE, s.Clients}} {
-		if err := checkSurfaceValues(l.re, l.vals); err != nil {
+	}{{"hosts", inferredHostRE.MatchString, s.Hosts}, {"ports", surfacePortRE.MatchString, s.Ports}, {"clients", validSurfaceClient, s.Clients}} {
+		if err := checkSurfaceValues(l.ok, l.vals); err != nil {
 			return fmt.Errorf("surface.%s%w", l.name, err)
 		}
 	}
@@ -154,17 +172,17 @@ func validCatalogMatch(m *InferredCatalogMatch) bool {
 	return m == nil || (m.Origin == "default" || m.Origin == "organization") && inferredDigestRE.MatchString(m.Digest) && m.Entry != ""
 }
 
-// checkSurfaceValues is why vals cannot be one surface list whose values re
-// matches, as a suffix of "surface.<list>", or nil.
-func checkSurfaceValues(re *regexp.Regexp, vals []SurfaceValue) error {
+// checkSurfaceValues is why vals cannot be one surface list whose values ok
+// accepts, as a suffix of "surface.<list>", or nil.
+func checkSurfaceValues(ok func(string) bool, vals []SurfaceValue) error {
 	seen := make(map[string]bool, len(vals))
 	for i, v := range vals {
 		switch {
-		case !re.MatchString(v.Value):
+		case !ok(v.Value):
 			return fmt.Errorf("[%d].value is malformed", i)
 		case seen[v.Value]:
 			return fmt.Errorf("[%d].value %q is listed twice", i, v.Value)
-		case len(v.Sources) == 0 || slices.ContainsFunc(v.Sources, func(src string) bool { return !surfaceSourceRE.MatchString(src) }):
+		case len(v.Sources) == 0 || slices.ContainsFunc(v.Sources, func(src string) bool { return !validSurfaceSource(src) }):
 			return fmt.Errorf("[%d].sources must name at least one fleet source id", i)
 		case v.Catalog != "" && !inferredDigestRE.MatchString(v.Catalog):
 			return fmt.Errorf("[%d].catalog is not a sha256 digest", i)
@@ -364,14 +382,16 @@ var (
 	inferredHostRE    = regexp.MustCompile(`^[a-z0-9.-]+(:[0-9]{1,5})?$`)
 	inferredKeyRE     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
 	inferredCatalogRE = regexp.MustCompile(`^(default|organization) sha256:[0-9a-f]{64}$`)
-	// inferredIdentityRE is the shape of an external identity: one to five
-	// lower-case segments. pkg/contract imports no other Pacto package, so
-	// this is externalid's segment rule; the fleet parses it in full.
-	inferredIdentityRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?(/[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?){0,4}$`)
+	// identitySegmentRE is one segment of an external identity, which
+	// validIdentity allows one to five of. pkg/contract imports no other Pacto
+	// package, so this is externalid's segment rule; the fleet parses it in full.
+	identitySegmentRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?$`)
 	// clusterObjectRE is a workload inside one cluster read: <ns>/<Kind>/<name>.
-	clusterObjectRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?/[A-Z][A-Za-z]{0,62}/[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$`)
+	// The name's 253-byte bound is checked in validClusterObject.
+	clusterObjectRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?/[A-Z][A-Za-z]{0,62}/[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`)
 	// clusterLabelKeyRE is a Kubernetes label key, with an optional prefix.
-	clusterLabelKeyRE = regexp.MustCompile(`^([a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9._-]{0,61}[A-Za-z0-9])?$`)
+	// The prefix's 253-byte bound is checked in validClusterLabelKey.
+	clusterLabelKeyRE = regexp.MustCompile(`^([a-z0-9]([a-z0-9.-]*[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9._-]{0,61}[A-Za-z0-9])?$`)
 	// clusterVersionsRE is the comma-separated versions a fleet reported.
 	clusterVersionsRE = regexp.MustCompile(`^[0-9A-Za-z.+-]+(, [0-9A-Za-z.+-]+)*$`)
 	// coverageReasonRE is every fixed coverage reason: none names a
@@ -547,7 +567,7 @@ func checkClusterRecord(r *InferredRecord) error {
 		return nil
 	case !validAsOf(c.AsOf):
 		return fmt.Errorf("inputs.cluster.asOf is %q, want an RFC 3339 UTC time in seconds", c.AsOf)
-	case !clusterObjectRE.MatchString(c.Object):
+	case !validClusterObject(c.Object):
 		return errors.New("inputs.cluster.object is not <namespace>/<Kind>/<name>")
 	case !validDuration(c.CallWindow):
 		return fmt.Errorf("inputs.cluster.callWindow is %q, want a duration", c.CallWindow)
@@ -624,6 +644,18 @@ func checkFactExtras(f Inferred, runtime bool) error {
 	return nil
 }
 
+// validClusterObject reports whether s is <namespace>/<Kind>/<name> with a
+// name of at most 253 bytes, the part after the last slash.
+func validClusterObject(s string) bool {
+	return clusterObjectRE.MatchString(s) && len(s)-strings.LastIndexByte(s, '/')-1 <= 253
+}
+
+// validClusterLabelKey reports whether s is a label key whose optional
+// prefix, the part before its one slash, is at most 253 bytes.
+func validClusterLabelKey(s string) bool {
+	return clusterLabelKeyRE.MatchString(s) && strings.IndexByte(s, '/') <= 253
+}
+
 // validClusterSource reports whether src is one of the five cluster source
 // forms, naming obj as the object read: a manifest line, a label key, the
 // pods or calls of obj, or the versions a fleet reported.
@@ -635,7 +667,7 @@ func validClusterSource(src, obj string) bool {
 		return true
 	}
 	if rest, ok := strings.CutPrefix(src, "cluster:label "+obj+" "); ok {
-		return clusterLabelKeyRE.MatchString(rest)
+		return validClusterLabelKey(rest)
 	}
 	if rest, ok := strings.CutPrefix(src, "cluster:manifest "+obj+" "); ok {
 		file := sourceFile(rest) // the line is left out when the reader could not find it
