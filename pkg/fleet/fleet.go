@@ -857,6 +857,20 @@ type InferredWorkload struct {
 	repositoryUnknownFrom []WorkloadScope
 }
 
+// RepositoriesIncomplete is why w's repositories may not be every one its
+// GitOps objects name: its repository reason (hidden by the viewer's
+// permissions or unreadable), or repositories past the bound; "" when the
+// list is complete.
+func (w *InferredWorkload) RepositoriesIncomplete() string {
+	if w.RepositoryUnknown != "" {
+		return w.RepositoryUnknown
+	}
+	if slices.ContainsFunc(w.Dropped, func(f string) bool { return strings.HasPrefix(f, "repositories[") }) {
+		return "more GitOps repositories than Pacto keeps"
+	}
+	return ""
+}
+
 // InferredGroup is how the cluster already groups an inferred service's workload.
 type InferredGroup struct {
 	Rule      string `json:"rule" enum:"argocd,flux-kustomization,flux-helmrelease,helm,part-of,instance,workload" doc:"The rule that matched, in precedence order: Argo CD Application, Flux Kustomization or HelmRelease, Helm release, app.kubernetes.io/part-of, app.kubernetes.io/instance, else the workload itself"`

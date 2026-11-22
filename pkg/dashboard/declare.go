@@ -40,10 +40,11 @@ type DeclareWorkload struct {
 	Cluster   string
 	Namespace string
 	Kind      string
-	// Repositories and Image are the workload as the viewer's restricted
-	// snapshot shows it: the plan names its repository from them alone.
-	Repositories []fleet.InferredRepository
-	Image        string
+	// Repositories and RepositoryUnknown are the workload as the viewer's
+	// restricted snapshot shows it: the plan names its repository from them
+	// alone, and from no list RepositoryUnknown says is incomplete.
+	Repositories      []fleet.InferredRepository
+	RepositoryUnknown string
 }
 
 // DraftRef names one draft by its tag and the digest the person was shown.
@@ -310,9 +311,6 @@ func (s *Server) declareWorkload(ctx context.Context, key string) (DeclareWorklo
 		return DeclareWorkload{}, huma.Error404NotFound("no inferred service with this serviceKey")
 	}
 	wl := rec.Workload
-	out := DeclareWorkload{Key: key, Name: wl.Name, Cluster: wl.Cluster, Namespace: wl.Namespace, Kind: wl.Kind, Repositories: wl.Repositories}
-	if wl.Image != nil {
-		out.Image = wl.Image.Value
-	}
-	return out, nil
+	return DeclareWorkload{Key: key, Name: wl.Name, Cluster: wl.Cluster, Namespace: wl.Namespace, Kind: wl.Kind,
+		Repositories: wl.Repositories, RepositoryUnknown: wl.RepositoriesIncomplete()}, nil
 }

@@ -112,7 +112,8 @@ func (d *dashboardDeclarer) request(r *http.Request, w dashboard.DeclareWorkload
 	req.Service, req.Namespace, req.Registry, req.Accept = w.Name, w.Namespace, d.registry, accept
 	// The repository comes from what the person's own view shows, never
 	// from a cluster read with the dashboard's identity.
-	req.Observed = &app.DeclareObserved{Namespace: w.Namespace, Kind: w.Kind, Name: w.Name, Repositories: w.Repositories, Image: w.Image}
+	req.Observed = &app.DeclareObserved{Cluster: w.Cluster, Namespace: w.Namespace, Kind: w.Kind, Name: w.Name,
+		Repositories: w.Repositories, RepositoryUnknown: w.RepositoryUnknown}
 	if from != nil {
 		req.FromDraft = from.Tag
 	}

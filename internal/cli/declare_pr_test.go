@@ -334,7 +334,9 @@ func TestPRUnchangedExportsBaselineBytes(t *testing.T) {
 		t.Fatalf("%d trees\n%s", len(gh.trees), out)
 	}
 	wantCommitted(t, gh.committed(1), e.pulledFiles(t, "0.1.0"))
-	if body := gh.pulls[1]["body"].(string); !strings.Contains(body, "`0.1.0`") || !strings.Contains(body, "`"+e.host+"/acme/invoices@sha256:") {
+	// The baseline's own state and the identity it counted by.
+	if body := gh.pulls[1]["body"].(string); !strings.Contains(body, "`0.1.0`") || !strings.Contains(body, "`"+e.host+"/acme/invoices@sha256:") ||
+		!strings.Contains(body, "- State: declared\n") || !strings.Contains(body, "- Signed by: `ana@acme.com (") {
 		t.Fatal(body)
 	}
 }
@@ -353,4 +355,28 @@ func TestPRFailureKeepsPublished(t *testing.T) {
 		t.Fatal(out)
 	}
 	e.pulledFiles(t, "0.1.0")
+}
+
+// TestPRUnchangedBaselineWithoutDeclaration: a baseline no declaration
+// published is named published in the pull request, never declared.
+func TestPRUnchangedBaselineWithoutDeclaration(t *testing.T) {
+	noKube(t)
+	prEnv(t, "ghp_secret")
+	run := func(app.DeclareRequest) (*app.DeclareResult, error) {
+		p := prPlanFixture()
+		p.Unchanged = "0.1.0"
+		p.Baseline = &app.DeclareBaseline{InferredBaseline: contract.InferredBaseline{Version: "0.1.0", Bundle: "ghcr.io/acme/invoices@sha256:aa"},
+			Signer: "https://github.com/acme/invoices/.github/workflows/release.yml@refs/heads/main (https://token.actions.githubusercontent.com)"}
+		return &app.DeclareResult{Plan: *p, Files: map[string][]byte{"pacto.yaml": []byte("x")}}, nil
+	}
+	var got app.DeclareRequest
+	d := declareDeps(t, &got, nil, nil, run)
+	gh := &gitHub{t: t}
+	d.gitTransport, d.gitCredentialFill = gh, noHelper
+	if out, _, err := runRoot(t, d, nil, "declare", "invoices", "--pr", "--yes"); err != nil || len(gh.pulls) != 1 {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if body := gh.pulls[0]["body"].(string); !strings.Contains(body, "- State: published\n") || !strings.Contains(body, "release.yml@refs/heads/main") {
+		t.Fatal(body)
+	}
 }

@@ -407,10 +407,8 @@ func (r remoteDeclarer) observed(ctx context.Context, req app.DeclareRequest) *a
 		found = w
 	}
 	if found != nil {
-		out.Namespace, out.Kind, out.Name, out.Repositories = found.Namespace, found.Kind, found.Name, found.Repositories
-		if found.Image != nil {
-			out.Image = found.Image.Value
-		}
+		out.Cluster, out.Namespace, out.Kind, out.Name = found.Cluster, found.Namespace, found.Kind, found.Name
+		out.Repositories, out.RepositoryUnknown = found.Repositories, found.RepositoriesIncomplete()
 	}
 	return out
 }

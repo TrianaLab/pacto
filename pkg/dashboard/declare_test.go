@@ -132,16 +132,16 @@ func TestDeclarePlanHiddenServiceNotFound(t *testing.T) {
 func TestDeclarePlanResolvesWorkload(t *testing.T) {
 	d := &fakeDeclarer{write: true}
 	repos := []fleet.InferredRepository{{URL: "https://github.com/acme/shop", Path: "cart"}}
-	// The plan takes the image and repositories from the viewer's view.
+	// The plan takes the repositories, and why they may be incomplete, from the viewer's view.
 	view := func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
 		w := q.SnapshotForSerialization().Services[fleet.ServiceKey(cartKey)].Workload
-		w.Image, w.Repositories = &fleet.InferredValue{Value: "reg.io/shop/cart:1"}, repos
+		w.Repositories, w.RepositoryUnknown = repos, "hidden by your permissions"
 		return q, nil
 	}
 	base := declareServer(t, viewerAuth(true, AuthState{}), view, d)
 	var out DeclareAnswer
 	postJSON(t, base+"/api/fleet/declare", map[string]any{"serviceKey": cartKey, "accept": []string{"orders"}}, http.StatusOK, &out)
-	want := DeclareWorkload{Key: cartKey, Name: "cart", Namespace: "shop", Kind: "Deployment", Image: "reg.io/shop/cart:1", Repositories: repos}
+	want := DeclareWorkload{Key: cartKey, Name: "cart", Namespace: "shop", Kind: "Deployment", Repositories: repos, RepositoryUnknown: "hidden by your permissions"}
 	if len(d.plans) != 1 || !reflect.DeepEqual(d.plans[0], want) {
 		t.Errorf("planned %+v", d.plans)
 	}

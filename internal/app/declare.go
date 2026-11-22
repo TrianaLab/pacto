@@ -72,8 +72,8 @@ type DeclareRequest struct {
 	Store publish.Registry
 	// Observed is what an HTTP surface's caller sees of the workload in
 	// their restricted fleet view. When set, the plan never reads the
-	// cluster with the service's own identity for the repository, and reads
-	// the image only inside Registry.
+	// cluster or the running image with the service's own identity for the
+	// repository.
 	Observed *DeclareObserved
 	// PR asks for a pull request after the bundle is written: the plan
 	// then reads RepoMap and refuses a repository a person did not confirm.
@@ -81,14 +81,22 @@ type DeclareRequest struct {
 	// Repository and Folder are the person's own answer (rung given);
 	// RepoMap is a repository map file, read only with PR.
 	Repository, Folder, RepoMap string
+	// GitHost is the person's --git-host, replayed by every command the
+	// plan prints; the intent never binds it.
+	GitHost string
+	// draft is the draft tag fromDraft re-plans from its temp folder: the
+	// workload is still read for the repository, and commands name the
+	// draft, not the folder.
+	draft string
 }
 
 // DeclareObserved is a workload as the caller's restricted fleet view shows
-// it: its GitOps repositories and its image.
+// it: its cluster and GitOps repositories, and why that list may be
+// incomplete (hidden by the caller's permissions or past the bound).
 type DeclareObserved struct {
-	Namespace, Kind, Name string
-	Repositories          []fleet.InferredRepository
-	Image                 string
+	Cluster, Namespace, Kind, Name string
+	Repositories                   []fleet.InferredRepository
+	RepositoryUnknown              string
 }
 
 // store is the registry req reads and writes through.
@@ -180,6 +188,9 @@ type DeclareBaseline struct {
 	// from, ns/Kind/name in cluster; empty for a baseline no declaration
 	// published.
 	From Declared `json:"from,omitzero"`
+	// State is the baseline record's declaration state, "" for a baseline
+	// no declaration published.
+	State string `json:"-"`
 }
 
 // Declared is the workload a declaration or a draft was inferred from.
@@ -189,13 +200,13 @@ type Declared struct {
 }
 
 // declaredFrom is the workload b's record says its declaration was inferred
-// from; zero when b carries no declaration.
-func declaredFrom(b *contract.Bundle) Declared {
+// from and the declaration's state; zero when b carries no declaration.
+func declaredFrom(b *contract.Bundle) (Declared, string) {
 	rec, err := contract.ReadInferredRecord(b.FS)
 	if err != nil || rec == nil || rec.Declaration == nil {
-		return Declared{}
+		return Declared{}, ""
 	}
-	return Declared{InferredFrom: rec.Declaration.InferredFrom, Cluster: rec.Declaration.Cluster}
+	return Declared{InferredFrom: rec.Declaration.InferredFrom, Cluster: rec.Declaration.Cluster}, rec.Declaration.State
 }
 
 // DeclaredRange is one dependency of the declaration: its declared
@@ -597,7 +608,7 @@ func (pl *declarePlanner) findBaseline(ctx context.Context) error {
 		return &DeclareError{Code: codeRegistryUnreadable, Message: "reading the deploy artifact of the baseline " + tag + ": " + err.Error()}
 	}
 	pl.plan.Baseline.InferredBaseline = contract.InferredBaseline{Version: tag, Bundle: pl.repo() + "@" + digest, Deploy: deploy}
-	pl.plan.Baseline.From = declaredFrom(base)
+	pl.plan.Baseline.From, pl.plan.Baseline.State = declaredFrom(base)
 	pl.plan.Deploy = cmp.Or(pl.plan.Baseline.Deploy, "none")
 	return pl.redraft(ctx, base)
 }
@@ -644,6 +655,9 @@ func (pl *declarePlanner) countingTag(ctx context.Context, tags []string) (strin
 		"and no person its signer policy allows signed; it is never written over, so no version can be declared above it", pl.repo(), top.Tag, top.Signer)}
 }
 
+// identityText is a signer as a plan names it: subject (issuer).
+func identityText(id delivery.PublisherIdentity) string { return id.Subject + " (" + id.Issuer + ")" }
+
 // judge is whether repo@digest counts as a baseline, who signed it and,
 // when it does not count, why.
 func (pl *declarePlanner) judge(ctx context.Context, tm root.TrustedMaterial, digest string) (bool, string, string) {
@@ -651,14 +665,14 @@ func (pl *declarePlanner) judge(ctx context.Context, tm root.TrustedMaterial, di
 	signer := "nobody"
 	switch {
 	case len(signers) > 0:
-		signer = signers[0].Subject + " (" + signers[0].Issuer + ")"
+		signer = identityText(signers[0])
 	case !errors.Is(err, publish.ErrNoSignature):
 		signer = "unknown (its signatures could not be read)"
 	}
 	v := publish.JudgeRead(digest, signers, err, delivery.ServiceRef{Name: pl.plan.Service}, "", pl.rules, delivery.PublisherSourceRule, nil, nil)
 	if v.Verdict == delivery.VerdictAccepted {
 		pl.baseSigner = v.Identity
-		return true, signer, ""
+		return true, identityText(*v.Identity), ""
 	}
 	// ponytail: a person the signer policy allows counts whatever the
 	// bundle holds; reading its record to see it is a declaration is the
@@ -666,7 +680,7 @@ func (pl *declarePlanner) judge(ctx context.Context, tm root.TrustedMaterial, di
 	for _, sg := range signers {
 		if sg.Class == delivery.ClassHuman && pl.policy != nil && checkInstallationSigner(sg, pl.policy) == nil {
 			pl.baseSigner = &sg
-			return true, signer, ""
+			return true, identityText(sg), ""
 		}
 	}
 	return false, signer, cmp.Or(v.Reason, "signed by no publisher the installation trusts")
@@ -1275,6 +1289,7 @@ func (req DeclareRequest) command(intent string) string {
 	add("--repository", req.Repository)
 	add("--folder", req.Folder)
 	add("--repo-map", req.RepoMap)
+	add("--git-host", req.GitHost)
 	if req.MaxItems != 0 {
 		add("--max-items", strconv.Itoa(req.MaxItems))
 	}
@@ -1362,7 +1377,7 @@ func (s *Service) fromDraft(ctx context.Context, req DeclareRequest) (*DeclarePl
 		return nil, nil, err
 	}
 	sub := req
-	sub.Dir, sub.FromDraft = dir, ""
+	sub.Dir, sub.FromDraft, sub.draft = dir, "", req.FromDraft
 	plan, d, err := s.PlanDeclare(ctx, sub)
 	switch {
 	case err != nil || plan.Unchanged != "":

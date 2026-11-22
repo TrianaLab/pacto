@@ -121,14 +121,14 @@ func wantPRPlan(t *testing.T, server func() *mcpsdk.Server, w *declareWorld) str
 }
 
 // A pull request that fails after the draft was written keeps the draft
-// and says how to retry.
+// and says how to retry: accept the draft, naming the repository.
 func TestMCPDeclarePRFailureKeepsDraft(t *testing.T) {
 	w := newDeclareWorld(t)
 	argoKube(t)
 	prEnv(t, "ghp_secret")
 	out, res := declarePRTwice(t, prServer(&gitHub{t: t, fail: "POST /pulls"}), w.args(map[string]any{"pr": true}))
 	if !res.IsError || out.Draft == nil || out.Draft.Tag != "draft-1" || out.Refusal != nil || out.PullRequestError == nil ||
-		out.PullRequestError.Code != pactomcp.RefusalPullRequestFailed || !strings.HasSuffix(out.PullRequestError.CLI, " --pr --yes") {
+		out.PullRequestError.Code != pactomcp.RefusalPullRequestFailed || !strings.HasSuffix(out.PullRequestError.CLI, " --from-draft draft-1 --pr --repository https://github.com/acme/invoices --yes") {
 		t.Fatalf("%+v", out)
 	}
 	w.pulled(t, "draft-1")

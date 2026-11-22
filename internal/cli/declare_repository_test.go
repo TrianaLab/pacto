@@ -84,15 +84,16 @@ func TestRemoteDeclarerObserved(t *testing.T) {
 		"another namespace": {invoicesView(false, repo), app.DeclareRequest{Service: "invoices", Namespace: "shop"}, ""},
 	} {
 		o := remoteDeclarer{fleet: c.mode}.observed(ctx, c.req)
-		if o == nil || o.Name != c.want || (c.want != "" && (o.Image != "reg.io/acme/invoices:1" || len(o.Repositories) != 1)) {
+		if o == nil || o.Name != c.want || (c.want != "" && len(o.Repositories) != 1) {
 			t.Errorf("%s: %+v", name, o)
 		}
 	}
-	// A workload with no image hands in none.
+	// A view that lost repositories says so.
 	mode := invoicesView(false)
 	q, _ := mode.Src(ctx)
-	q.SnapshotForSerialization().Services["k8s:billing/Deployment/invoices"].Workload.Image = nil
-	if o := (remoteDeclarer{fleet: mode}).observed(ctx, app.DeclareRequest{Service: "invoices"}); o.Name != "invoices" || o.Image != "" {
+	w := q.SnapshotForSerialization().Services["k8s:billing/Deployment/invoices"].Workload
+	w.Cluster, w.Dropped = "c-1", []string{"repositories[5]"}
+	if o := (remoteDeclarer{fleet: mode}).observed(ctx, app.DeclareRequest{Service: "invoices"}); o.Cluster != "c-1" || o.RepositoryUnknown != "more GitOps repositories than Pacto keeps" {
 		t.Errorf("%+v", o)
 	}
 }
@@ -101,7 +102,7 @@ func TestDashboardPlanNeverCallsNewK8s(t *testing.T) {
 	h := newDeclareHost(t, true, true)
 	trapKube(t)
 	w := wl
-	w.Repositories, w.Image = []fleet.InferredRepository{{URL: "git@github.com:acme/invoices.git"}}, "reg.io/acme/invoices:1"
+	w.Repositories = []fleet.InferredRepository{{URL: "git@github.com:acme/invoices.git"}}
 	ans, err := h.d.Plan(h.req(), w, dashboard.DeclareInput{})
 	if err != nil || ans.Plan == nil || ans.Plan.Repository == nil || ans.Plan.Repository.URL != "https://github.com/acme/invoices" ||
 		!strings.Contains(ans.Plan.Record.Text, "rung: gitops") {

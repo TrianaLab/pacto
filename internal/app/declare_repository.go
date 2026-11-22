@@ -125,18 +125,27 @@ func folderOf(in repoInputs, url string) (string, string) {
 	if in.Given.Folder != "" {
 		return in.Given.Folder, contract.RepositoryRungGiven
 	}
-	for _, r := range in.GitOps {
-		if u, ok := normalizeRepoURL(r.URL); ok && u == url {
-			if f := cleanFolder(r.Path); contract.ValidRepositoryFolder(f) {
-				return f, contract.RepositoryRungGitOps
-			}
-			break
-		}
+	if f := gitopsFolders(in.GitOps, url); len(f) == 1 {
+		return f[0], contract.RepositoryRungGitOps
 	}
 	if m := in.Map; m != nil && m.Repository == url && m.Folder != "" {
 		return m.Folder, contract.RepositoryRungMap
 	}
 	return ".", contract.FolderRungDefault
+}
+
+// gitopsFolders are the distinct folders the GitOps repositories of url
+// name; an empty path is the root.
+func gitopsFolders(repos []fleet.InferredRepository, url string) []string {
+	var out []string
+	for _, r := range repos {
+		if u, ok := normalizeRepoURL(r.URL); ok && u == url {
+			if f := cleanFolder(r.Path); contract.ValidRepositoryFolder(f) && !slices.Contains(out, f) {
+				out = append(out, f)
+			}
+		}
+	}
+	return out
 }
 
 // labelRung is the repository the running image's
@@ -426,6 +435,11 @@ func (pl *declarePlanner) repository(ctx context.Context, dec *contract.Inferred
 	in.Map, in.MapWhy, in.Agent = m, mapWhy, pl.req.Agent
 	a := resolveRepository(in)
 	pl.plan.Repository, pl.plan.RepositoryTried, dec.Repository = a.Repo, a.Tried, a.Repo
+	if r := a.Repo; r != nil && r.FolderRung == contract.FolderRungDefault {
+		if f := gitopsFolders(in.GitOps, r.URL); len(f) > 1 {
+			pl.plan.Notes = append(pl.plan.Notes, fmt.Sprintf("%d GitOps folders of %s (%s): pass --folder", len(f), r.URL, strings.Join(f, ", ")))
+		}
+	}
 	if !pl.req.PR {
 		return nil
 	}
@@ -440,6 +454,9 @@ func (pl *declarePlanner) repository(ctx context.Context, dec *contract.Inferred
 func (pl *declarePlanner) confirmCLI(url string) string {
 	r := pl.req
 	r.PR, r.Repository, r.RepoMap = true, url, ""
+	if r.draft != "" {
+		r.Dir, r.FromDraft = "", r.draft
+	}
 	return r.command("")
 }
 
@@ -454,39 +471,74 @@ const dirReadsNoWorkload = "--dir reads no workload"
 // only when no earlier rung answers.
 func (pl *declarePlanner) collectRepoInputs(ctx context.Context, given givenRepo) repoInputs {
 	in := repoInputs{Given: given, Baseline: pl.baseSigner}
-	if pl.req.Dir != "" {
+	if pl.req.Dir != "" && pl.req.draft == "" {
 		in.GitOpsWhy, in.ImageWhy, in.LabelWhy = dirReadsNoWorkload, dirReadsNoWorkload, dirReadsNoWorkload
 		return in
 	}
 	ns, kind, name := splitObject(pl.object)
-	var image string
 	if o := pl.req.Observed; o != nil {
-		if o.Namespace != ns || o.Kind != kind || o.Name != name {
-			const hidden = "the workload is not in your fleet view"
-			in.GitOpsWhy, in.ImageWhy, in.LabelWhy = hidden, hidden, hidden
-			return in
-		}
-		in.GitOps, image = o.Repositories, o.Image
-	} else {
-		w, why := pl.readWorkload(ctx, ns, kind, name)
-		if w == nil {
-			in.GitOpsWhy, in.ImageWhy, in.LabelWhy = why, why, why
-			return in
-		}
-		in.GitOps, in.GitOpsWhy = w.Repositories, gitopsWhy(w)
-		if w.Image != nil {
-			image = w.Image.Value
-		}
+		pl.observedInputs(&in, o, ns, kind, name)
+		return in
+	}
+	w, why := pl.readWorkload(ctx, ns, kind, name)
+	if w == nil {
+		in.GitOpsWhy, in.ImageWhy, in.LabelWhy = why, why, why
+		return in
+	}
+	in.GitOps, in.GitOpsWhy = w.Repositories, cmp.Or(why, gitopsWhy(w))
+	var img runningImage
+	if w.Image != nil {
+		img = runningImage{w.Image.Value, containerOf(w.Image.From)}
 	}
 	ctx, cancel := context.WithTimeout(ctx, imageReadTimeout)
 	defer cancel()
-	in.ImageSigners, in.ImageWhy = pl.imageSigners(ctx, image)
+	in.ImageSigners, in.ImageWhy = pl.imageSigners(ctx, img)
 	if s, _ := signedRung(in); s == nil && given.URL == "" {
 		if g, _ := gitopsRung(in); g == nil {
-			in.Label, in.LabelWhy = pl.imageLabel(ctx, image)
+			in.Label, in.LabelWhy = pl.imageLabel(ctx, img)
 		}
 	}
 	return in
+}
+
+// imageNotReadOnServer is why an HTTP surface's image rungs give nothing:
+// the caller brings no registry credential of its own, and the service's
+// would read images the caller may not pull.
+const imageNotReadOnServer = "image not read on the server: run pacto declare locally"
+
+// observedInputs fills in from what an HTTP surface's caller sees of the
+// workload: its GitOps repositories alone, none when the view lost some
+// (hidden or past the bound) or shows the workload in another cluster than
+// the one the plan read. The image is never read on the server.
+func (pl *declarePlanner) observedInputs(in *repoInputs, o *DeclareObserved, ns, kind, name string) {
+	in.ImageWhy, in.LabelWhy = imageNotReadOnServer, imageNotReadOnServer
+	switch {
+	case o.Namespace != ns || o.Kind != kind || o.Name != name ||
+		o.Cluster != "" && pl.plan.Cluster != "" && o.Cluster != pl.plan.Cluster:
+		in.GitOpsWhy = "the workload is not in your fleet view"
+	case o.RepositoryUnknown != "":
+		in.GitOpsWhy = o.RepositoryUnknown + ": run pacto declare locally"
+	default:
+		in.GitOps = o.Repositories
+	}
+}
+
+// runningImage is the workload's image reference and the container that
+// runs it, "" when Pacto does not know which.
+type runningImage struct{ ref, container string }
+
+// containerOf is the container an image's object path names
+// (...containers[name=<c>].image), "" when it names none.
+func containerOf(from string) string {
+	i := strings.LastIndex(from, "containers[name=")
+	if i < 0 {
+		return ""
+	}
+	c, _, ok := strings.Cut(from[i+len("containers[name="):], "]")
+	if !ok {
+		return ""
+	}
+	return c
 }
 
 // gitopsWhy is why w's GitOps source names no repository, with where it
@@ -498,9 +550,17 @@ func gitopsWhy(w *fleet.RawInferredService) string {
 	return w.RepositoryUnknown + " (namespaces read: " + strings.Join(gitopsNamespaces(w.Namespace, *w), ", ") + "; pass --repository <url>)"
 }
 
+// gitopsUnread is why the GitOps source names no repository when the second
+// read failed: only the workload's namespace was read.
+func gitopsUnread(w *fleet.RawInferredService, nss []string, why string) string {
+	return w.RepositoryUnknown + " (namespaces read: " + w.Namespace + "; " + strings.Join(nss[1:], ", ") + " not read: " + why + "; pass --repository <url>)"
+}
+
 // readWorkload reads the drafted workload with the person's kubeconfig, in
 // its namespace, then once more over the namespaces its GitOps objects live
-// in when the first read could not resolve its repository.
+// in when the first read could not resolve its repository. With the
+// workload read, the reason is the GitOps reason of a second read that
+// failed, else "".
 func (pl *declarePlanner) readWorkload(ctx context.Context, ns, kind, name string) (*fleet.RawInferredService, string) {
 	client, err := pl.s.env().newK8s("")
 	if err != nil {
@@ -521,9 +581,11 @@ func (pl *declarePlanner) readWorkload(ctx context.Context, ns, kind, name strin
 	w, why := read([]string{ns})
 	if w != nil && w.Group != nil && w.RepositoryUnknown != "" {
 		if nss := gitopsNamespaces(ns, *w); len(nss) > 1 {
-			if again, _ := read(nss); again != nil {
-				w = again
+			again, why2 := read(nss)
+			if again == nil {
+				return w, gitopsUnread(w, nss, why2)
 			}
+			w = again
 		}
 	}
 	return w, why
@@ -553,23 +615,20 @@ func gitopsNamespaces(ns string, w fleet.RawInferredService) []string {
 }
 
 // imageTarget is the running image's repository and the digests its rungs
-// read; when none is read, why. On an HTTP surface an image outside the
-// installation's registry is never read, and one inside it is read through
-// the plan's own registry, the one the baseline is read with (513-S3
-// Decision 14): an HTTP caller brings no registry credential of its own.
-func (pl *declarePlanner) imageTarget(image string) (string, []string, string) {
-	if image == "" {
+// read; when none is read, why. An HTTP surface never reads it.
+func (pl *declarePlanner) imageTarget(img runningImage) (string, []string, string) {
+	if pl.req.Observed != nil {
+		return "", nil, imageNotReadOnServer
+	}
+	if img.ref == "" {
 		return "", nil, "the workload names no image"
 	}
-	ref, err := name.ParseReference(image)
+	ref, err := name.ParseReference(img.ref)
 	if err != nil {
 		return "", nil, "the image reference is not readable"
 	}
 	repo := ref.Context().Name()
-	if pl.req.Observed != nil && repo != pl.req.Registry && !strings.HasPrefix(repo, pl.req.Registry+"/") {
-		return "", nil, "image not read on the server: run pacto declare locally"
-	}
-	digests := pl.imageDigests(ref)
+	digests := pl.imageDigests(ref, img.container)
 	if len(digests) == 0 {
 		return "", nil, "the running image is not pinned by a digest Pacto read"
 	}
@@ -577,9 +636,11 @@ func (pl *declarePlanner) imageTarget(image string) (string, []string, string) {
 }
 
 // imageSigners are the verified signers of the running image (signatures
-// and signed SLSA provenance); when there are none, why.
-func (pl *declarePlanner) imageSigners(ctx context.Context, image string) ([]delivery.PublisherIdentity, string) {
-	repo, digests, why := pl.imageTarget(image)
+// and signed SLSA provenance); when there are none, why. They answer only
+// from a complete read of every digest: a signature left unread may name
+// another repository.
+func (pl *declarePlanner) imageSigners(ctx context.Context, img runningImage) ([]delivery.PublisherIdentity, string) {
+	repo, digests, why := pl.imageTarget(img)
 	if why != "" {
 		return nil, why
 	}
@@ -589,14 +650,16 @@ func (pl *declarePlanner) imageSigners(ctx context.Context, image string) ([]del
 	}
 	var signers []delivery.PublisherIdentity
 	var whys []string
+	partial := false
 	for _, d := range digests {
 		s, err := publish.ProvenanceSigners(ctx, pl.reg, tm, pl.req.Signing.RekorURL != "", repo, d)
 		signers = append(signers, s...)
-		if len(s) == 0 {
+		if err != nil || len(s) == 0 {
+			partial = partial || !errors.Is(err, publish.ErrNoSignature) && !errors.Is(err, publish.ErrSignatureInvalid)
 			whys = append(whys, pl.signersWhy(ctx, repo, d, err))
 		}
 	}
-	if len(signers) > 0 {
+	if len(signers) > 0 && !partial {
 		return signers, ""
 	}
 	return nil, strings.Join(whys, "; ")
@@ -605,35 +668,40 @@ func (pl *declarePlanner) imageSigners(ctx context.Context, image string) ([]del
 // imageLabel is the first org.opencontainers.image.source the running
 // image's digests name (an index annotation, else one platform's config
 // label); when none does, why. A read error is a reason, never an error.
-func (pl *declarePlanner) imageLabel(ctx context.Context, image string) (string, string) {
-	repo, digests, why := pl.imageTarget(image)
+func (pl *declarePlanner) imageLabel(ctx context.Context, img runningImage) (string, string) {
+	repo, digests, why := pl.imageTarget(img)
 	if why != "" {
 		return "", why
 	}
+	var errs []string
 	for _, d := range digests {
 		src, err := pl.reg.ImageSource(ctx, repo+"@"+d)
 		switch {
 		case ctx.Err() != nil:
 			return "", "the image read timed out after " + imageReadTimeout.String()
 		case err != nil:
-			return "", "the image was not read: " + err.Error()
+			errs = append(errs, "the image was not read: "+err.Error())
 		case src != "":
 			return src, ""
 		}
+	}
+	if len(errs) > 0 {
+		return "", strings.Join(errs, "; ")
 	}
 	return "", "the image names no org.opencontainers.image.source label"
 }
 
 // imageDigests are the image's digests: the one its reference pins, else
-// those the cluster read recorded (image.digest[<container>]), at most
-// maxImageDigests.
-func (pl *declarePlanner) imageDigests(ref name.Reference) []string {
+// those the cluster read recorded for the container that runs it
+// (image.digest[<container>]), at most maxImageDigests. Another
+// container's digest is never read against this image's repository.
+func (pl *declarePlanner) imageDigests(ref name.Reference, container string) []string {
 	if d, ok := ref.(name.Digest); ok {
 		return []string{d.DigestStr()}
 	}
 	var out []string
 	for _, f := range pl.rec.Fields {
-		if !strings.HasPrefix(f.Field, "image.digest[") {
+		if container == "" || f.Field != "image.digest["+container+"]" {
 			continue
 		}
 		for d := range strings.SplitSeq(f.Value, ", ") {

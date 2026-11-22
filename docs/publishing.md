@@ -321,8 +321,8 @@ running workload, without a repository or a build.
   the Git host.
 - **Where it runs.** `--pr` runs where your Git token is: the CLI and a stdio
   MCP server; the dashboard and the HTTP MCP server show the command.
-  Their plan reads the running image only inside the installation's
-  registry, with the credential the baseline is read with.
+  Their plan never reads the running image, and takes the GitOps
+  repositories only from a list your own view shows in full.
 
 ```console
 repository: github.com/acme/invoices (signed provenance, workflow ci.yml@refs/heads/main), folder: deploy/ (GitOps source)
@@ -352,7 +352,8 @@ pull request: github https://github.com/acme/invoices, branch pacto/declare-invo
 - **Your override.** `--repository` and `--folder` win over every source.
   The folder defaults to the repository root when no source names one.
 - **Unknown stays unknown.** Several signed or GitOps repositories that
-  disagree give no answer. With no answer the record has no `repository`, the
+  disagree give no answer, and neither does a signature left unread. A
+  repository listed with several folders names none. With no answer the record has no `repository`, the
   plan lists why each source gave nothing and `--pr` is refused.
 - **Confirmation.** An image label is unsigned: `--pr` uses it only when you
   pass the same `--repository` or the map names it. A repository an agent
@@ -361,7 +362,7 @@ pull request: github https://github.com/acme/invoices, branch pacto/declare-invo
   needs your own `--repository`, since the record names the workload, its
   namespace, external hosts and config key names.
 - **A failed pull request** keeps what was published: rerun with
-  `--pr --yes`.
+  `--pr --yes`, which reuses the branch the failed run pushed.
 - **Review evidence.** CI recomputes `pacto.inferred.yaml` on its next
   publish, and the declared values travel through the registry
   ([Fields declared in the registry](#fields-declared-in-the-registry)).

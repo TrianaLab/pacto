@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -31,7 +32,6 @@ func planDeclare(svc *app.Service, ctx context.Context, req app.DeclareRequest) 
 func newDeclareCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	var req app.DeclareRequest
 	var yes bool
-	var gitHost string
 	cmd := &cobra.Command{
 		Use:   "declare <service>",
 		Short: "Declare a running service: publish its contract as a version you sign",
@@ -87,7 +87,7 @@ pacto.inferred.yaml as inferred.`,
 			asJSON := v.GetString(outputFormatKey) == "json"
 			req.Signing.Prompt = func(s string) { _, _ = fmt.Fprintln(cmd.ErrOrStderr(), s) }
 			req.Signing.FreshLogin = d.freshLogin
-			pr := &exportPR{d: d, req: req, gitHost: gitHost}
+			pr := &exportPR{d: d, req: req, gitHost: req.GitHost}
 			if !yes {
 				p, err := d.planDeclare(svc, cmd.Context(), req)
 				if err == nil && req.PR {
@@ -138,7 +138,7 @@ pacto.inferred.yaml as inferred.`,
 	f.StringVar(&req.Repository, "repository", "", "the service's source repository URL, used over every source Pacto reads; confirms an image label for --pr")
 	f.StringVar(&req.Folder, "folder", "", "the folder of the repository the contract lives in (default: the folder a source names, else the root)")
 	f.StringVar(&req.RepoMap, "repo-map", "", "a YAML file mapping service names to {repository, folder}; read only with --pr")
-	f.StringVar(&gitHost, "git-host", "", "the Git host API that serves the repository, when its URL does not say: github, gitlab, bitbucket (Cloud) or gitea (Forgejo too)")
+	f.StringVar(&req.GitHost, "git-host", "", "the Git host API that serves the repository, when its URL does not say: github, gitlab, bitbucket (Cloud) or gitea (Forgejo too)")
 	f.StringVar(&req.DeliveryTrust, "delivery-trust", "", "the trust config the target snapshots that carry the owner policy are verified with: "+
 		"a YAML file with a key scoped to each cluster (default $"+app.TrustEnv+")")
 	return cmd
@@ -472,7 +472,9 @@ func (x *exportPR) export(ctx context.Context, res *app.DeclareResult) error {
 	what := "published " + res.Published
 	switch {
 	case !res.Executed:
+		// The baseline's own state, and the identity it counted by.
 		dec.Tag, dec.Bundle, dec.Signer = p.Unchanged, p.Baseline.Bundle, p.Baseline.Signer
+		dec.State = cmp.Or(p.Baseline.State, "published")
 		what = p.Service + " is unchanged since " + p.Unchanged
 	case res.Draft:
 		dec.State, dec.OnBehalfOf = contract.DeclarationDraft, x.req.OnBehalfOf

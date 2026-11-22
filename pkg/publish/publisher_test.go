@@ -358,3 +358,33 @@ func TestSignersOfStillSkipsSLSA(t *testing.T) {
 		t.Fatalf("signers %+v %v", signers, err)
 	}
 }
+
+// layerFailsAfter fails every Layer read after the first n.
+type layerFailsAfter struct {
+	Registry
+	n *int
+}
+
+func (r layerFailsAfter) Layer(ctx context.Context, repo, digest string) ([]byte, map[string]string, error) {
+	if *r.n == 0 {
+		return nil, nil, errors.New("blob unknown")
+	}
+	*r.n--
+	return r.Registry.Layer(ctx, repo, digest)
+}
+
+// A signer read that skipped an unreadable signature says so: the unread
+// one may name another repository.
+func TestProvenanceSignersSaysPartial(t *testing.T) {
+	ss := testutil.New(t)
+	host, reg := testRegistry(t, true)
+	repo, d := signed(t, host, reg, ciSigner(t, ss, acmeSubject, acmeRepo), ciSigner(t, ss, "https://github.com/evil/x/.github/workflows/ci.yml@refs/heads/main", "https://github.com/evil/x"))
+	n := 1
+	signers, err := ProvenanceSigners(t.Context(), layerFailsAfter{reg, &n}, ss.Root, false, repo, d)
+	if len(signers) != 1 || !errors.Is(err, ErrSignersPartial) {
+		t.Fatalf("signers %+v %v", signers, err)
+	}
+	if signers, err := ProvenanceSigners(t.Context(), reg, ss.Root, false, repo, d); len(signers) != 2 || err != nil {
+		t.Fatalf("a complete read: %+v %v", signers, err)
+	}
+}

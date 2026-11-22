@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -246,12 +247,12 @@ func TestImageSignersReasons(t *testing.T) {
 		"Not A Reference":        "the image reference is not readable",
 		e.host + "/acme/app:1.0": "the running image is not pinned by a digest Pacto read",
 	} {
-		if _, why := pl.imageSigners(t.Context(), image); why != want {
+		if _, why := pl.imageSigners(t.Context(), runningImage{image, "app"}); why != want {
 			t.Errorf("%q: %q", image, why)
 		}
 	}
 	pl.req.Signing.TrustedRoot = "/nonexistent/root.json"
-	if _, why := pl.imageSigners(t.Context(), e.host+"/acme/app@sha256:"+strings.Repeat("a", 64)); !strings.HasPrefix(why, "the Sigstore trusted root was not read: ") {
+	if _, why := pl.imageSigners(t.Context(), runningImage{e.host + "/acme/app@sha256:" + strings.Repeat("a", 64), "app"}); !strings.HasPrefix(why, "the Sigstore trusted root was not read: ") {
 		t.Errorf("%q", why)
 	}
 }
@@ -261,14 +262,72 @@ func TestImageDigestsFromRecord(t *testing.T) {
 	pl := &declarePlanner{rec: &contract.InferredRecord{Fields: []contract.Inferred{{Field: "service.owner", Value: "x"},
 		{Field: "image.digest[a]", Value: d1 + ", " + d2}, {Field: "image.digest[b]", Value: d1 + ", " + d3}}}}
 	ref, _ := name.ParseReference("reg.io/acme/app:1")
-	if got := pl.imageDigests(ref); !reflect.DeepEqual(got, []string{d1, d2}) {
+	if got := pl.imageDigests(ref, "a"); !reflect.DeepEqual(got, []string{d1, d2}) {
 		t.Fatalf("%v", got)
 	}
+	// Only the container that runs the image: a sidecar's digest is never
+	// read against this image's repository, nor does it use up the budget.
+	if got := pl.imageDigests(ref, "b"); !reflect.DeepEqual(got, []string{d1, d3}) {
+		t.Fatalf("%v", got)
+	}
+	if got := pl.imageDigests(ref, ""); got != nil {
+		t.Fatalf("an unknown container read %v", got)
+	}
 	pinned, _ := name.ParseReference("reg.io/acme/app:1@" + d3)
-	if got := pl.imageDigests(pinned); !reflect.DeepEqual(got, []string{d3}) {
+	if got := pl.imageDigests(pinned, ""); !reflect.DeepEqual(got, []string{d3}) {
 		t.Fatalf("%v", got)
 	}
 }
+
+func TestContainerOf(t *testing.T) {
+	for from, want := range map[string]string{
+		"Deployment spec.template.spec.containers[name=web].image":               "web",
+		"CronJob spec.jobTemplate.spec.template.spec.containers[name=job].image": "job",
+		"": "", "Deployment spec.template.spec.containers[name=web": "",
+	} {
+		if got := containerOf(from); got != want {
+			t.Errorf("%q: %q", from, got)
+		}
+	}
+}
+
+// imageSourceFails fails ImageSource for one digest.
+type imageSourceFails struct {
+	publish.Registry
+	digest string
+}
+
+func (r imageSourceFails) ImageSource(ctx context.Context, ref string) (string, error) {
+	if strings.HasSuffix(ref, "@"+r.digest) {
+		return "", errors.New("MANIFEST_UNKNOWN")
+	}
+	return r.Registry.ImageSource(ctx, ref)
+}
+
+// A digest the registry fails to read never stops the label rung from
+// reading the next one.
+func TestImageLabelReadsPastAFailedDigest(t *testing.T) {
+	e := newDeclareEnv(t)
+	bad := "sha256:" + strings.Repeat("b", 64)
+	pl := &declarePlanner{reg: imageSourceFails{labelled{e.reg, "https://github.com/acme/invoices"}, bad}, req: e.req(),
+		rec: &contract.InferredRecord{Fields: []contract.Inferred{{Field: "image.digest[web]", Value: bad + ", sha256:" + strings.Repeat("c", 64)}}}}
+	if src, why := pl.imageLabel(t.Context(), runningImage{e.host + "/acme/web:1", "web"}); src != "https://github.com/acme/invoices" {
+		t.Fatalf("%q %q", src, why)
+	}
+	pl.reg = imageSourceFails{e.reg, bad}
+	pl.rec.Fields[0].Value = bad
+	if _, why := pl.imageLabel(t.Context(), runningImage{e.host + "/acme/web:1", "web"}); why != "the image was not read: MANIFEST_UNKNOWN" {
+		t.Fatalf("%q", why)
+	}
+}
+
+// labelled answers every image source with src.
+type labelled struct {
+	publish.Registry
+	src string
+}
+
+func (r labelled) ImageSource(context.Context, string) (string, error) { return r.src, nil }
 
 // planGitOps plans e's invoices against a cluster where c serves
 // billing/invoices as workload and the GitOps objects.
@@ -555,7 +614,19 @@ func TestHTTPPlanUsesViewerRepositories(t *testing.T) {
 	if p, _ := e.plan(t, req); p.Repository != nil || p.RepositoryTried[1].Reason != "no GitOps source lists this workload" {
 		t.Fatalf("%+v %+v", p.Repository, p.RepositoryTried)
 	}
+	// A list the view lost part of never answers, though one repository is left.
 	req.Observed.Repositories = []fleet.InferredRepository{{URL: invoicesRepo, Path: "deploy"}}
+	req.Observed.RepositoryUnknown = "hidden by your permissions"
+	if p, _ := e.plan(t, req); p.Repository != nil || p.RepositoryTried[1].Reason != "hidden by your permissions: run pacto declare locally" {
+		t.Fatalf("%+v %+v", p.Repository, p.RepositoryTried)
+	}
+	req.Observed.RepositoryUnknown = ""
+	// The view's workload in another cluster than the one the plan read is not this one.
+	req.Observed.Cluster = "another-cluster"
+	if p, _ := e.plan(t, req); p.Repository != nil || p.RepositoryTried[1].Reason != "the workload is not in your fleet view" {
+		t.Fatalf("%+v %+v", p.Repository, p.RepositoryTried)
+	}
+	req.Observed.Cluster = ""
 	if p, _ := e.plan(t, req); p.Repository == nil || p.Repository.URL != invoicesRepo || p.Repository.Folder != "deploy" {
 		t.Fatalf("%+v %+v", p.Repository, p.RepositoryTried)
 	}
@@ -579,23 +650,24 @@ func (c imageReadCounter) Referrers(ctx context.Context, repo, digest, at string
 	return c.Registry.Referrers(ctx, repo, digest, at)
 }
 
-func TestHTTPPlanNeverReadsForeignImage(t *testing.T) {
+// TestHTTPPlanNeverReadsImageWithServerIdentity: an HTTP caller brings no
+// registry credential, so the image is never read on the server, inside the
+// installation's registry or outside it.
+func TestHTTPPlanNeverReadsImageWithServerIdentity(t *testing.T) {
 	e := newDeclareEnv(t)
 	img := e.signedImage(t, invoicesRepo)
 	ref, _ := name.ParseReference(img)
 	reads := 0
 	req := e.req()
 	req.Store = imageReadCounter{e.reg, ref.Context().Name(), &reads}
-	req.Registry = e.host + "/elsewhere"
-	req.Observed = &DeclareObserved{Namespace: "billing", Kind: "Deployment", Name: "invoices", Image: img}
-	p, _ := e.plan(t, req)
-	if reads != 0 || !strings.Contains(p.RepositoryTried[0].Reason, "image not read on the server: run pacto declare locally") {
-		t.Fatalf("%d reads: %+v", reads, p.RepositoryTried)
-	}
-	// Inside the installation's registry the image is read.
-	req.Registry = e.host + "/acme"
-	if p, _ := e.plan(t, req); reads == 0 || p.Repository == nil || p.Repository.URL != invoicesRepo {
-		t.Fatalf("%d reads: %+v %+v", reads, p.Repository, p.RepositoryTried)
+	req.Observed = &DeclareObserved{Namespace: "billing", Kind: "Deployment", Name: "invoices"}
+	for _, registry := range []string{e.host + "/elsewhere", e.host + "/acme"} {
+		req.Registry = registry
+		p, _ := e.plan(t, req)
+		if reads != 0 || p.Repository != nil || !strings.Contains(p.RepositoryTried[0].Reason, "image not read on the server: run pacto declare locally") ||
+			p.RepositoryTried[2].Reason != "image not read on the server: run pacto declare locally" {
+			t.Fatalf("%s: %d reads: %+v", registry, reads, p.RepositoryTried)
+		}
 	}
 }
 
@@ -614,5 +686,99 @@ func TestRepositoryAnswerNeverChangesGate(t *testing.T) {
 	if with.State != without.State || with.Signer != without.Signer || with.Version != without.Version || with.IntentDigest != without.IntentDigest ||
 		with.Publish.Classification != without.Publish.Classification || !reflect.DeepEqual(with.Publish.Checks, without.Publish.Checks) {
 		t.Fatalf("the repository answer moved the plan:\n%+v\n%+v", with, without)
+	}
+}
+
+// layerFailsAfter fails every Layer read after the first n.
+type layerFailsAfter struct {
+	publish.Registry
+	n *int
+}
+
+func (r layerFailsAfter) Layer(ctx context.Context, repo, digest string) ([]byte, map[string]string, error) {
+	if *r.n == 0 {
+		return nil, nil, errors.New("blob unknown")
+	}
+	*r.n--
+	return r.Registry.Layer(ctx, repo, digest)
+}
+
+// TestPartialSignerReadGivesNothing: a signature left unread may name
+// another repository, so the image's signers answer only from a complete read.
+func TestPartialSignerReadGivesNothing(t *testing.T) {
+	e := newDeclareEnv(t)
+	img := e.signedImage(t, "https://github.com/acme/a", "https://github.com/acme/b")
+	e.withCluster(&gitopsCluster{pages: map[string]string{"deployments|billing": invoicesWorkload(img, nil, nil)}})
+	req := e.req()
+	n := 1
+	req.Store = layerFailsAfter{e.reg, &n}
+	p, _ := e.plan(t, req)
+	if p.Repository != nil && p.Repository.Rung == contract.RepositoryRungSigned || !strings.Contains(p.RepositoryTried[0].Reason, "signatures read partially") {
+		t.Fatalf("%+v %+v", p.Repository, p.RepositoryTried)
+	}
+}
+
+// TestSeveralGitOpsFoldersFallToDefault: one repository listed with two
+// paths names no folder; the plan says so.
+func TestSeveralGitOpsFoldersFallToDefault(t *testing.T) {
+	in := repoInputs{GitOps: []fleet.InferredRepository{{URL: invoicesRepo, Path: "base"}, {URL: invoicesRepo + ".git", Path: "overlays/prod"}, {URL: invoicesRepo, Path: "base/"}}}
+	if a := resolveRepository(in); a.Repo == nil || a.Repo.Folder != "." || a.Repo.FolderRung != contract.FolderRungDefault {
+		t.Fatalf("%+v", a.Repo)
+	}
+	e := newDeclareEnv(t)
+	req := e.req()
+	req.Observed = &DeclareObserved{Namespace: "billing", Kind: "Deployment", Name: "invoices", Repositories: in.GitOps}
+	if p, _ := e.plan(t, req); !slices.Contains(p.Notes, "2 GitOps folders of "+invoicesRepo+" (base, overlays/prod): pass --folder") {
+		t.Fatalf("%q", p.Notes)
+	}
+	in.GitOps = in.GitOps[:1]
+	if a := resolveRepository(in); a.Repo.Folder != "base" || a.Repo.FolderRung != contract.RepositoryRungGitOps {
+		t.Fatalf("%+v", a.Repo)
+	}
+}
+
+// TestFailedSecondReadNamesOnlyWhatWasRead: a second read over the GitOps
+// namespaces that fails never claims it read them.
+func TestFailedSecondReadNamesOnlyWhatWasRead(t *testing.T) {
+	w := &fleet.RawInferredService{Namespace: "billing", RepositoryUnknown: "Applications outside the namespaces this source reads"}
+	got := gitopsUnread(w, []string{"billing", "argocd", "flux-system"}, "forbidden")
+	if got != "Applications outside the namespaces this source reads (namespaces read: billing; argocd, flux-system not read: forbidden; pass --repository <url>)" {
+		t.Fatalf("%q", got)
+	}
+}
+
+// TestCommandReplaysGitHost: every command the plan prints keeps the
+// person's --git-host.
+func TestCommandReplaysGitHost(t *testing.T) {
+	req := DeclareRequest{Service: "invoices", Registry: "r", PR: true, GitHost: "gitea"}
+	if got := req.command(""); got != "pacto declare invoices --registry r --pr --git-host gitea" {
+		t.Fatalf("%q", got)
+	}
+	pl := &declarePlanner{req: req}
+	if got := pl.confirmCLI("https://git.corp.example/acme/invoices"); !strings.HasSuffix(got, "--repository https://git.corp.example/acme/invoices --git-host gitea") {
+		t.Fatalf("%q", got)
+	}
+}
+
+// TestFromDraftReadsTheWorkloadForTheRepository: accepting a draft finds
+// the repository from the workload it names, and a refusal's command names
+// the draft, not its scratch folder.
+func TestFromDraftReadsTheWorkloadForTheRepository(t *testing.T) {
+	e := newDeclareEnv(t)
+	e.agentDraft(t)
+	e.login(personToken("ana@acme.com"))
+	req := e.fromDraft("draft-1")
+	req.PR = true
+	req.Observed = &DeclareObserved{Namespace: "billing", Kind: "Deployment", Name: "invoices", Repositories: []fleet.InferredRepository{{URL: invoicesRepo, Path: "deploy"}}}
+	p, d, err := e.svc.PlanDeclare(t.Context(), req)
+	if err != nil || p.Repository == nil || p.Repository.URL != invoicesRepo || p.Repository.Rung != contract.RepositoryRungGitOps ||
+		d.record.Declaration.Repository == nil {
+		t.Fatalf("%v %+v %+v", err, p.Repository, p.RepositoryTried)
+	}
+	req.Observed.Repositories = nil
+	_, _, err = e.svc.PlanDeclare(t.Context(), req)
+	var de *DeclareError
+	if !errors.As(err, &de) || de.Code != codeRepositoryUnknown || !strings.Contains(de.CLI, "--from-draft draft-1") || strings.Contains(de.CLI, "--dir") {
+		t.Fatalf("%v %+v", err, de)
 	}
 }
