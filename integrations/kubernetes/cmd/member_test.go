@@ -104,7 +104,8 @@ func TestHubURLNeedsRegistry(t *testing.T) {
 }
 
 func TestAddInstallationRefusesBadProfile(t *testing.T) {
-	if _, err := addPublishers(newFakeManager(), &options{profile: "nope"}, "pacto", testIdent, "", nil, nil, &controller.PactoReconciler{}); err == nil {
+	o, rec := &options{profile: "nope"}, &controller.PactoReconciler{}
+	if _, err := addPublishers(newFakeManager(), o, "pacto", testIdent, "", nil, nil, rec); err == nil {
 		t.Fatal("an unknown profile stops the operator")
 	}
 }

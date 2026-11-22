@@ -857,8 +857,8 @@ func addNodeAgent(mgr ctrl.Manager, o *options, namespace string) error {
 // addPublishers runs the linker, the target snapshot publisher and, with --hub-url, the member link (both
 // signing with the one installation key). It returns the installation block detection advertises on every
 // install; only its registry fields need --registry.
-func addPublishers(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity, evidenceURL string, kc, loaderKC authn.Keychain,
-	rec *controller.PactoReconciler) (*detect.Installation, error) {
+func addPublishers(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity, evidenceURL string,
+	kc, loaderKC authn.Keychain, rec *controller.PactoReconciler) (*detect.Installation, error) {
 	linked, err := addLinker(mgr, o, namespace, ident.ID, kc, loaderKC, rec)
 	if err != nil {
 		return nil, err
