@@ -35,7 +35,8 @@ func (g *gitlab) repo(ctx context.Context) (string, bool, *Error) {
 		Visibility    string `json:"visibility"`
 	}
 	_, e := g.c.do(ctx, http.MethodGet, g.project, nil, &r)
-	return r.DefaultBranch, r.Visibility != "public", e
+	// A visibility Pacto does not know, or none, needs the confirmation.
+	return r.DefaultBranch, r.Visibility == "private" || r.Visibility == "internal", e
 }
 
 // commit makes one commit on a new branch from base, creating each file

@@ -250,13 +250,21 @@ func TestOpenUnknownKind(t *testing.T) {
 	}
 }
 
+// TestBranchExistsEveryHost: a branch a previous run pushed before its
+// pull request failed is reused, so a rerun is the retry; when no pull
+// request opens from it either, the refusal names the branch to delete.
 func TestBranchExistsEveryHost(t *testing.T) {
 	for _, c := range hostCases {
 		for _, a := range []answer{{status: 409, body: `{"message":"exists"}`}, {status: 422, body: `{"message":"exists"}`}} {
 			h := c.fake(true)
 			h.answers[c.commitKey] = a
+			if got, e := Open(t.Context(), hostRequest(c, h)); e != nil || got.URL != c.pr || got.Branch != "pacto/declare-invoices-0.2.0" {
+				t.Fatalf("%s %d: %v %+v", c.kind, a.status, e, got)
+			}
+			h.answers[c.pullKey] = answer{status: 422, body: `{"message":"A pull request already exists"}`}
 			_, e := Open(t.Context(), hostRequest(c, h))
-			if e == nil || e.Message != "branch pacto/declare-invoices-0.2.0 exists: a pull request for this declaration may be open" {
+			if e == nil || !strings.HasPrefix(e.Message, "branch pacto/declare-invoices-0.2.0 exists and no pull request was opened from it (") ||
+				!strings.HasSuffix(e.Message, "): one may already be open; else delete the branch and rerun") {
 				t.Fatalf("%s %d: %v", c.kind, a.status, e)
 			}
 		}
@@ -264,7 +272,7 @@ func TestBranchExistsEveryHost(t *testing.T) {
 	// GitLab says so with a 400.
 	h := gitLabFake(false)
 	h.answers[hostCases[1].commitKey] = answer{status: 400, body: `{"message":"A branch called 'pacto/declare-invoices-0.2.0' already exists."}`}
-	if _, e := Open(t.Context(), hostRequest(hostCases[1], h)); e == nil || !strings.HasPrefix(e.Message, "branch pacto/declare-invoices-0.2.0 exists") {
+	if got, e := Open(t.Context(), hostRequest(hostCases[1], h)); e != nil || got.URL != hostCases[1].pr {
 		t.Fatal(e)
 	}
 	h = gitLabFake(false)
@@ -350,6 +358,23 @@ func TestTokenNeverPrintedEveryHost(t *testing.T) {
 	r := hostRequest(hostCases[2], h)
 	r.Token = "ana:app-pass"
 	if _, e := Open(t.Context(), r); e == nil || strings.Contains(e.Error(), "app-pass") {
+		t.Fatal(e)
+	}
+}
+
+// A GitLab project with no visibility, or one Pacto does not know, is
+// never read as private: it needs the person's confirmation.
+func TestGitLabUnknownVisibilityNeedsConfirmation(t *testing.T) {
+	for _, body := range []string{`{"default_branch":"main"}`, `{"default_branch":"main","visibility":"unlisted"}`} {
+		h := gitLabFake(false)
+		h.answers["GET "+glProject] = answer{status: 200, body: body}
+		if _, e := Open(t.Context(), hostRequest(hostCases[1], h)); e == nil || !strings.HasPrefix(e.Message, "the repository is public: confirm") {
+			t.Fatalf("%s: %v", body, e)
+		}
+	}
+	h := gitLabFake(false)
+	h.answers["GET "+glProject] = answer{status: 200, body: `{"default_branch":"main","visibility":"internal"}`}
+	if _, e := Open(t.Context(), hostRequest(hostCases[1], h)); e != nil {
 		t.Fatal(e)
 	}
 }

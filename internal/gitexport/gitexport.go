@@ -43,7 +43,11 @@ const (
 
 // Error is a refusal: a stable code and what happened. It never holds the
 // token.
-type Error struct{ Code, Message string }
+type Error struct {
+	Code, Message string
+	// exists marks a branch a previous run left.
+	exists bool
+}
 
 func (e *Error) Error() string { return e.Message }
 
@@ -162,11 +166,18 @@ func open(ctx context.Context, h host, r Request, files map[string][]byte) (*Ope
 	}
 	d := r.Declaration
 	branch, title := Branch(d.Service, d.Tag), "chore(pacto): declare "+d.Service+" "+d.Tag
-	if e := h.commit(ctx, branch, def, files, title); e != nil {
-		return nil, e
+	// A branch a previous run pushed before its pull request failed holds
+	// the same tag's files: the pull request is opened from it, so a rerun
+	// is the retry.
+	left := h.commit(ctx, branch, def, files, title)
+	if left != nil && !left.exists {
+		return nil, left
 	}
 	pr, e := h.pull(ctx, branch, def, title, prBody(d))
-	if e != nil {
+	switch {
+	case e != nil && left != nil:
+		return nil, failed("branch %s exists and no pull request was opened from it (%s): one may already be open; else delete the branch and rerun", branch, e.Message)
+	case e != nil:
 		return nil, e
 	}
 	return &Opened{URL: pr, Login: login, Branch: branch}, nil
@@ -187,7 +198,9 @@ func plainHTTP(u *url.URL) *Error {
 
 // branchExists is the refusal for a branch a previous run left.
 func branchExists(branch string) *Error {
-	return failed("branch %s exists: a pull request for this declaration may be open", branch)
+	e := failed("branch %s exists", branch)
+	e.exists = true
+	return e
 }
 
 // prBody is the pull request's description. Every value that does not come

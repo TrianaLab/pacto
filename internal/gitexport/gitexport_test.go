@@ -154,17 +154,6 @@ func TestGitHubInternalIsNotPublic(t *testing.T) {
 	}
 }
 
-func TestGitHubBranchExists(t *testing.T) {
-	for _, status := range []int{http.StatusUnprocessableEntity, http.StatusConflict} {
-		h := gitHubFake("https://api.github.com", true)
-		h.answers["POST https://api.github.com/repos/acme/invoices/git/refs"] = answer{status: status, body: `{"message":"Reference already exists"}`}
-		_, e := Open(t.Context(), request("https://github.com/acme/invoices", h))
-		if e == nil || e.Code != CodePullRequestFailed || e.Message != "branch pacto/declare-invoices-0.2.0 exists: a pull request for this declaration may be open" {
-			t.Fatalf("%d: %v", status, e)
-		}
-	}
-}
-
 func TestGitHubPushDenied(t *testing.T) {
 	h := gitHubFake("https://api.github.com", true)
 	h.answers["POST https://api.github.com/repos/acme/invoices/git/trees"] = answer{status: 403,
