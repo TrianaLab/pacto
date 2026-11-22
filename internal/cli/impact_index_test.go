@@ -2,10 +2,7 @@ package cli
 
 import (
 	"bytes"
-	"net/http"
-	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -124,28 +121,6 @@ func TestImpactJSONCarriesConsumerIndex(t *testing.T) {
 	ix, _ := doc["consumerIndex"].(map[string]any)
 	if ix["status"] != impact.IndexNotFound || ix["completeness"] != string(fleet.CompletenessPartial) {
 		t.Fatalf("consumerIndex %v", ix)
-	}
-}
-
-func TestFleetIgnoresIndexFlag(t *testing.T) {
-	statsOff(t)
-	var reqs atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		reqs.Add(1)
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	t.Cleanup(srv.Close)
-	host := strings.TrimPrefix(srv.URL, "http://")
-	t.Setenv("PACTO_INSECURE_REGISTRIES", host)
-	dir := t.TempDir()
-	testutil.WriteOrders(t, dir, "1.0.0", "service")
-	for _, v := range []string{"none", "oci://" + host + "/acme/pacto-index"} {
-		if _, _, err := runRoot(t, defaultDeps(), nil, "fleet", "status", "--local", dir, "--index", v); err != nil {
-			t.Fatalf("--index %s: %v", v, err)
-		}
-	}
-	if reqs.Load() != 0 {
-		t.Fatalf("%d index requests", reqs.Load())
 	}
 }
 

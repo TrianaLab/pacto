@@ -117,7 +117,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			contexts := splitList(v.GetStringSlice("dashboard.context"))
 			includeCurrent, clusterCfg, signInErr := signInCluster(v, contexts, d)
 			receiver, receiverErr := startReceiver(cmd.Context(), v.GetString("dashboard.otlp-receiver"))
-			if err := errors.Join(app.CheckExternalCatalogRef(externalCatalog), app.CheckDetectedRef(v.GetString("dashboard.detected")), signInErr, receiverErr); err != nil {
+			if err := errors.Join(app.CheckExternalCatalogRef(externalCatalog), app.CheckDetectedRef(v.GetString("dashboard.detected")), dashboardIndexErr(v.GetString("dashboard.index")),
+				signInErr, receiverErr); err != nil {
 				return err
 			}
 
@@ -145,6 +146,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				externalCatalog: externalCatalog,
 				detected:        v.GetString("dashboard.detected"),
 				fingerprints:    v.GetString("dashboard.fingerprints"),
+				index:           v.GetString("dashboard.index"),
 			}
 
 			fopts := dashboardFleetOptions(dir, repos, namespaces, observation, det)
@@ -152,7 +154,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			fopts.LiveEdges.Receiver = receiver
 			configured := configuredSources(fopts)
 			if answersNothing(configured) {
-				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no cached bundles and no Kubernetes configuration", dir)
+				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no --index, no cached bundles and no Kubernetes configuration", dir)
 			}
 
 			// One snapshot Manager serves many requests from one coherent,
@@ -246,6 +248,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().String("registry", "", "the registry declarations made in the dashboard are published to (<host>/<path>); without it the dashboard offers no Declare (also PACTO_DASHBOARD_REGISTRY)")
 	cmd.Flags().String("declare-registry-config", "", "a Docker config.json with push access to --registry: a shared dashboard writes declarations and drafts only with this credential of its own, "+
 		"never with the credentials it reads registries with (also PACTO_DASHBOARD_DECLARE_REGISTRY_CONFIG)")
+	cmd.Flags().Var(new(indexFlag), "index", "organization index whose every service the dashboard reads, as <registry>/pacto-index; none or unset reads none "+
+		"(also PACTO_DASHBOARD_INDEX; the operator sets it from its registry)")
 	cmd.Flags().Duration("session-idle-timeout", 0, "a session without a request for this long ends (default 1h)")
 	cmd.Flags().Duration("session-max-age", 0, "a session ends this long after sign-in, renewed or not (default 12h)")
 	cmd.Flags().Bool("token-login", false, "let people sign in with a Kubernetes token: a ServiceAccount token minted with --audience pacto-dashboard reads the fleet only, and a person's own token acts as them (also PACTO_DASHBOARD_TOKEN_LOGIN)")
@@ -275,6 +279,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.detected", cmd.Flags().Lookup("detected"))
 	_ = v.BindPFlag("dashboard.otlp-receiver", cmd.Flags().Lookup("otlp-receiver"))
 	_ = v.BindPFlag("dashboard.fingerprints", cmd.Flags().Lookup("fingerprints"))
+	_ = v.BindPFlag("dashboard.index", cmd.Flags().Lookup("index"))
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-display-name", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
 		"oidc-username-claim", "oidc-username-prefix", "oidc-groups-claim", "oidc-groups-prefix",
 		"session-idle-timeout", "session-max-age", "token-login", "allow-anonymous", "review", "mira-url", "delivery-namespace", "delivery-trust"} {
@@ -405,6 +410,19 @@ type dashboardSources struct {
 	// fingerprints is the installation's workload manager and promoter
 	// fingerprints file (--fingerprints, PACTO_DASHBOARD_FINGERPRINTS).
 	fingerprints string
+	// index is the organization index whose every service the dashboard
+	// reads (--index, PACTO_DASHBOARD_INDEX, written by the operator from its
+	// own registry); empty or none reads none.
+	index string
+}
+
+// dashboardIndexErr checks a non-empty dashboard index, which
+// PACTO_DASHBOARD_INDEX sets without the flag's own check.
+func dashboardIndexErr(v string) error {
+	if v == "" {
+		return nil
+	}
+	return checkIndexRef(v)
 }
 
 // localRootHasBundle reports whether dir looks like a place contracts live: a
@@ -463,6 +481,7 @@ func configuredSources(fopts app.FleetOptions) []string {
 	}{
 		{"local", len(fopts.LocalRoots) > 0},
 		{"oci", len(fopts.OCIRefs) > 0},
+		{"index", fopts.ReadIndex != ""},
 		{"cache", fopts.IncludeCache},
 		{"k8s", fopts.IncludeK8s},
 		{"context " + strings.Join(fopts.K8sContexts, ", context "), len(fopts.K8sContexts) > 0},
@@ -828,5 +847,6 @@ func dashboardFleetOptions(dir string, repos []string, namespaces []string, obse
 	fopts.ExternalCatalogRef = det.externalCatalog
 	fopts.Detected = det.detected
 	fopts.Fingerprints = det.fingerprints
+	fopts.ReadIndex = readIndex(det.index)
 	return fopts
 }
