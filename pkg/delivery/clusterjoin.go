@@ -229,7 +229,8 @@ func SignClusterJoin(ctx context.Context, s Signer, st ClusterJoinStatement) ([]
 }
 
 // OpenClusterJoin verifies a join record bundle with verify and returns its
-// statement, once Check accepts the record.
+// statement, once Check accepts the record and its subject is the snapshot
+// tag of the cluster and the key it names.
 func OpenClusterJoin(bundle []byte, verify func(bundle []byte) error) (ClusterJoinStatement, error) {
 	var st ClusterJoinStatement
 	if _, err := openStatement(bundle, PredicateClusterJoin, &st); err != nil {
@@ -240,6 +241,10 @@ func OpenClusterJoin(bundle []byte, verify func(bundle []byte) error) (ClusterJo
 	}
 	if err := st.Predicate.Check(); err != nil {
 		return ClusterJoinStatement{}, err
+	}
+	want := NewClusterJoinStatement(st.Predicate).Subject
+	if !slices.EqualFunc(st.Subject, want, func(a, b Subject) bool { return a.Name == b.Name && maps.Equal(a.Digest, b.Digest) }) {
+		return ClusterJoinStatement{}, fmt.Errorf("its subject is not %s keyed sha256:%s", want[0].Name, st.Predicate.KeyID)
 	}
 	return st, nil
 }

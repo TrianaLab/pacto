@@ -149,7 +149,7 @@ func (e *joinEnv) signRecord(t *testing.T, email, issuer string, j delivery.Clus
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(delivery.ClusterJoinStatement{Type: delivery.StatementType, PredicateType: delivery.PredicateClusterJoin, Predicate: j})
+	payload, _ := json.Marshal(delivery.NewClusterJoinStatement(j))
 	b, err := s.Sign(t.Context(), delivery.PayloadType, payload)
 	if err != nil {
 		t.Fatal(err)

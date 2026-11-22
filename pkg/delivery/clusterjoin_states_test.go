@@ -66,9 +66,16 @@ func TestClusterJoinCheck(t *testing.T) {
 // bundle and that key's verifier.
 func signJoin(t *testing.T, j delivery.ClusterJoin) ([]byte, func([]byte) error) {
 	t.Helper()
+	return signStatement(t, delivery.NewClusterJoinStatement(j))
+}
+
+// signStatement signs st with a fresh key and returns the bundle and that
+// key's verifier.
+func signStatement(t *testing.T, st delivery.ClusterJoinStatement) ([]byte, func([]byte) error) {
+	t.Helper()
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
 	kp, _ := signing.FromPrivateKey(priv)
-	payload, _ := json.Marshal(delivery.ClusterJoinStatement{Type: delivery.StatementType, PredicateType: delivery.PredicateClusterJoin, Predicate: j})
+	payload, _ := json.Marshal(st)
 	b, err := signing.Keyed(kp, "").Sign(t.Context(), delivery.PayloadType, payload)
 	if err != nil {
 		t.Fatal(err)
@@ -101,6 +108,12 @@ func TestClusterJoinOpenRoundTrip(t *testing.T) {
 	bad, verify := signJoin(t, j)
 	if _, err := delivery.OpenClusterJoin(bad, verify); err == nil || !strings.Contains(err.Error(), "hub") {
 		t.Fatalf("a record Check refuses opened: %v", err)
+	}
+	j.Hub = hubUID
+	moved := delivery.NewClusterJoinStatement(j)
+	moved.Subject[0].Name += "-other"
+	if _, err := delivery.OpenClusterJoin(signStatement(t, moved)); err == nil || !strings.Contains(err.Error(), "subject") {
+		t.Fatalf("a record about another subject opened: %v", err)
 	}
 	if got := delivery.ClusterJoinStream(memberUID); got != memberUID+"/pacto-targets/join" {
 		t.Fatal(got)
