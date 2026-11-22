@@ -177,8 +177,8 @@ attention item names the cause.
 [Contract completeness](operational-graph-tallies.md#contract-completeness)
 turns these gaps into an eight-section checklist.
 
-Ownership keeps two cases apart. **No declared owner** means Pacto read the
-contracts and none declares an owner. **Owner unknown** means Pacto cannot read
+**No declared owner** means Pacto read the contracts and none declares
+one. **Owner unknown** means Pacto cannot read
 the contract, so it cannot tell whether an owner is declared.
 
 ![The overview's Contract completeness band for the demo: 44% complete on average and 0 of 48 judged services fully described; 40 have no summary, 40 no domain, 41 no readiness assessment and 27 run nowhere](assets/screenshots/dashboard-overview-knowledge-light.png#only-light)

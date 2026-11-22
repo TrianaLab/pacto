@@ -41,8 +41,8 @@ Three more checks need no node agent: the interface protocol, how far an
 interface is exposed and which version a dependency runs. They are listed under
 [complementary checks](#complementary-checks).
 
-A workload with no `Pacto` is checked too when it runs a published contract;
-see [Evaluate a workload with no Pacto](linked-workloads.md).
+A workload with no `Pacto` that runs a published contract is checked too
+([details](linked-workloads.md)).
 
 ## Turn it on
 
@@ -107,11 +107,11 @@ the view changed ([details](limitations.md#node-agent-heartbeat-and-identity)).
 ## Names of the hosts a pod calls
 
 A second program reads the DNS answers pods receive (UDP from port 53, at most
-512 bytes) with no new capability, and names each connection from its own
+512 bytes) and names each connection from its own
 pod's answers. The operator writes named calls that leave the cluster to
 `status.observedEgress`, and `status.observedEgressCoverage` counts `nodes`
-running target pods and `nodesWithAgent`.
-[Calls that leave the cluster](../../operational-graph-egress.md) has the details.
+running target pods and `nodesWithAgent`
+([details](../../operational-graph-egress.md)).
 
 | Egress reason | Meaning |
 | --- | --- |
