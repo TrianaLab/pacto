@@ -6,6 +6,7 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"sync"
 
 	"github.com/trianalab/pacto/v4/pkg/finding"
 )
@@ -240,6 +241,20 @@ func (q *Query) Map(mq MapQuery) (*FleetMap, error) {
 	fm.Limitations = limitationsPreview(b.limits)
 	fm.Meta = q.productMetaWith(b.limits)
 	return fm, nil
+}
+
+// pageMembers is mapMembers for groupBy alone, built once per query: a page
+// of nodes and a focus only read it, and the map asks one page per group in
+// view, so rebuilding the whole fleet's groups for each page made every page
+// O(fleet). Map itself tallies into its build, so it never shares one.
+func (q *Query) pageMembers(groupBy string) (*mapBuild, error) {
+	mq := MapQuery{GroupBy: cmp.Or(groupBy, MapGroupByDomain)}
+	// Only the three groupings are kept: groupBy comes from the request.
+	if q.members == nil || mq.GroupBy != MapGroupByDomain && mq.GroupBy != MapGroupByTeam && mq.GroupBy != MapGroupByEnvironment {
+		return q.mapMembers(mq)
+	}
+	v, _ := q.members.LoadOrStore(mq.GroupBy, sync.OnceValues(func() (*mapBuild, error) { return q.mapMembers(mq) }))
+	return v.(func() (*mapBuild, error))()
 }
 
 // mapMembers puts every visible service, target and external system in its

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -138,6 +139,7 @@ func TestMapFocusEdgeInterfaceAndRange(t *testing.T) {
 	}
 	// Two interfaces and no requirement: no interface label.
 	declareOrdersPayments(q, "", nil)
+	q.members = &sync.Map{} // the snapshot changed under the query: drop its page builds
 	if e := edgeOf(mustFocus(t, q, MapFocusQuery{Service: "orders"}), "orders", "payments"); e.Interface != "" {
 		t.Errorf("no interface %+v", e)
 	}

@@ -372,3 +372,26 @@ func TestMapGroupMissingCountsItsServices(t *testing.T) {
 		}
 	}
 }
+
+// A page and a focus share one members build per grouping, a second page
+// answers the same as the first, and a groupBy outside the three is never kept.
+func TestPageMembersBuiltOncePerGrouping(t *testing.T) {
+	q := defaultMapFleet(t)
+	a, err := q.pageMembers("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := q.pageMembers(MapGroupByDomain); a != b {
+		t.Fatal("the default and domain groupings built twice")
+	}
+	first := mustNodes(t, q, MapNodesQuery{Group: "shop"})
+	if again := mustNodes(t, q, MapNodesQuery{Group: "shop"}); !reflect.DeepEqual(first.Nodes, again.Nodes) || !reflect.DeepEqual(first.Edges, again.Edges) {
+		t.Fatalf("a second page differs: %+v vs %+v", first, again)
+	}
+	if _, err := q.pageMembers("bogus"); err == nil {
+		t.Fatal("bogus groupBy accepted")
+	}
+	if _, kept := q.members.Load("bogus"); kept {
+		t.Fatal("a bogus groupBy was memoized")
+	}
+}

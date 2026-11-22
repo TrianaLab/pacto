@@ -116,7 +116,7 @@ func (q *Query) MapNodes(nq MapNodesQuery) (*MapNodes, error) {
 	if nq.Environment != "" && nq.GroupBy == MapGroupByEnvironment {
 		return nil, &InvalidQueryError{Field: "environment", Value: nq.Environment, Reason: "the environment grouping already places each target in its environment"}
 	}
-	b, err := q.mapMembers(MapQuery{GroupBy: nq.GroupBy})
+	b, err := q.pageMembers(nq.GroupBy)
 	if err != nil {
 		return nil, err
 	}

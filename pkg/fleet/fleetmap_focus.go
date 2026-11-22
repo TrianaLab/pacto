@@ -77,7 +77,7 @@ func (q *Query) MapFocus(fq MapFocusQuery) (*MapFocusAnswer, error) {
 	if s.Template {
 		return nil, &NotFoundError{Kind: "map service", ID: fq.Service}
 	}
-	b, _ := q.mapMembers(MapQuery{})
+	b, _ := q.pageMembers("")
 	fb := &focusBuild{b: b, callers: map[ServiceKey][]ServiceKey{}, callees: map[ServiceKey][]ServiceKey{}, placed: map[ServiceKey]int{s.Key: 0}, perColumn: per}
 	for _, me := range b.edges {
 		fb.callers[me.to] = append(fb.callers[me.to], me.from)

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -44,13 +45,16 @@ type Query struct {
 	// scope narrows attention to these services; nil is every service (see
 	// attentionFor).
 	scope map[ServiceKey]bool
+	// members memoizes mapMembers by grouping for pages of nodes and focuses
+	// (see pageMembers); a pointer, so attentionFor's copies share it.
+	members *sync.Map
 }
 
 // NewQuery wraps a snapshot in a query view. It projects the external
 // systems once, after any restriction, so the fold ranks on what the viewer
 // may see.
 func NewQuery(s *FleetSnapshot) *Query {
-	q := &Query{base: s}
+	q := &Query{base: s, members: &sync.Map{}}
 	q.snap, q.externals, q.folded = foldExternals(s)
 	return q
 }
