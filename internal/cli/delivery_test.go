@@ -189,8 +189,11 @@ func TestDeliveryCommandReadVerbs(t *testing.T) {
 		{"text", []string{"describe", "rollback"}, false, []string{"inverse:        delivery.pacto.trianalab.io/promote"}},
 		{"text", []string{"describe", "delivery.pacto.trianalab.io/unfreeze"}, false, []string{"inverse:        none"}},
 		{"text", []string{"describe", "scale"}, true, []string{"unknown operation type"}},
-		{"text", append(plan, "--to", cliB), false, []string{"predicted: Waits", "pacto.impact", "StageFrozen",
-			"next:      Nobody needs to approve it, but once proposed it waits until the conflict clears."}},
+		// This cluster publishes no policy the caller can read, so whether the
+		// promoter inspects the version is unknown, and a person is asked.
+		{"text", append(plan, "--to", cliB), false, []string{"predicted: Held", "pacto.impact", "StageFrozen",
+			"whether the manifest inspector runs is unknown",
+			"next:      The Stage is frozen: even once approved, the promote waits until a person unfreezes it."}},
 		{"json", append(plan, "--to", cliB), false, []string{`"intentDigest": "sha256:`}},
 		{"text", append(plan, "--to", "v2"), false, []string{"-> " + cliB}},
 		{"text", append(plan, "--to", "1.0.0"), false, []string{"-> " + cliB}},
@@ -210,7 +213,7 @@ func TestDeliveryCommandReadVerbs(t *testing.T) {
 		{"text", []string{"get", "-n", "prod", "missing"}, true, nil},
 		{"text", append(plan, "--to", cliB, "--cause-verdict", "{"), true, []string{"--cause-verdict is not a verdict"}},
 		{"text", []string{"propose", "-n", "prod", "--stage", "payments-prod", "--to", cliB, "--cause-verdict", "{"}, true, []string{"--cause-verdict is not a verdict"}},
-		{"text", append(plan, "--to", cliB, "--cause-verdict", `{"gate":"health","result":"Fail"}`), false, []string{"predicted: Waits"}},
+		{"text", append(plan, "--to", cliB, "--cause-verdict", `{"gate":"health","result":"Fail"}`), false, []string{"predicted: Held"}},
 		{"text", []string{"explain", "-n", "prod", "held"}, false, []string{"prod/held", "waits for a person: Approve?",
 			"pacto.diff", "query: {}", "re-run: pacto delivery plan", "stage payments-prod runs " + cliA, "frozen: a rollback failed",
 			"on auto-hold", "last re-check 2026-10-20T10:00:00Z of " + cliA, "health            Unknown  too few spans",
