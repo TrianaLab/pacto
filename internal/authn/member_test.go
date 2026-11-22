@@ -147,7 +147,7 @@ func TestForwardedTokenAudienceIsMember(t *testing.T) {
 	exp := time.Now().Add(30 * time.Minute)
 	f.exchangeOut = map[string]any{"access_token": jwtOf(issuerA, exp), "expires_in": 600}
 	x := NewMemberExchange(MemberExchangeConfig{IssuerURL: f.srv.URL, ClientID: "dash", ClientSecret: "s"})
-	session := jwtOf(issuerA, exp, "s")
+	session := jwtOf(f.srv.URL, exp, "s")
 	for _, uid := range []string{"uid-a", "uid-b", "uid-a"} {
 		if _, err := x(context.Background(), session, uid); err != nil {
 			t.Fatal(err)
@@ -160,8 +160,32 @@ func TestForwardedTokenAudienceIsMember(t *testing.T) {
 	_, _ = custom(context.Background(), session, "uid-c")
 	expect(t, f.exchanges[2].Get("audience") == "https://uid-c.k8s", "a configured audience: %v", f.exchanges[2])
 	down := NewMemberExchange(MemberExchangeConfig{IssuerURL: "http://127.0.0.1:1"})
-	_, err := down(context.Background(), session, "uid-a")
-	expect(t, err != nil, "an unreachable issuer fails the exchange")
+	_, err := down(context.Background(), jwtOf("http://127.0.0.1:1", exp), "uid-a")
+	expect(t, err != nil && !errors.Is(err, errForeignIssuer), "an unreachable issuer fails the exchange: %v", err)
+}
+
+// A token of another identity provider is never sent to the hub's issuer:
+// it counts as one the member does not accept, so once the hub marks that
+// issuer refused the group mapping answers.
+func TestForeignIssuerCountsAsNotAccepted(t *testing.T) {
+	f := newIdP(t)
+	x := NewMemberExchange(MemberExchangeConfig{IssuerURL: f.srv.URL, ClientID: "dash", ClientSecret: "s"})
+	foreign := jwtOf(issuerB, time.Now().Add(30*time.Minute))
+	_, err := x(context.Background(), foreign, "uid-a")
+	expect(t, errors.Is(err, errForeignIssuer) && len(f.exchanges) == 0, "no exchange for another issuer: %v %d", err, len(f.exchanges))
+
+	l := &fakeLink{uid: "u1", refused: map[string]bool{}, answer: allow(memberlink.ModelGroupMapping)}
+	bob := Person{User: "bob", Groups: []string{"devs"}}
+	mapB := func(issuer string) *pdelivery.GroupMappingState {
+		return &pdelivery.GroupMappingState{Issuer: issuer, Rules: []pdelivery.GroupRule{{From: "devs", To: "ops"}}}
+	}
+	r := MemberReview(l, x, mapB)
+	ok, err := r(signedIn(foreign), bob, "ops", pactos)
+	expect(t, !ok && err != nil && len(l.sent) == 0, "one person is not yet a refusal: %v %v", ok, err)
+	expect(t, len(l.notes) == 1 && l.notes[0] == issuerB+" issuer-not-accepted bob", "noted: %v", l.notes)
+	l.refused[issuerB] = true
+	ok, err = r(signedIn(foreign), bob, "ops", pactos)
+	expect(t, ok && err == nil && len(l.sent) == 1 && l.sent[0].Mapped != nil && l.sent[0].Token == "", "the mapping answers: %v %v %+v", ok, err, l.sent)
 }
 
 func TestMemberReviewIssuerNotAcceptedUsesMapping(t *testing.T) {

@@ -53,6 +53,10 @@ var (
 	errNoForwardableIdentity = errors.New("your sign-in cannot be checked by a member cluster")
 	// errMemberListOnly: a member answers list over every object only.
 	errMemberListOnly = errors.New("a member cluster answers only whether a person may list a resource")
+	// errForeignIssuer: the person's token comes from another identity
+	// provider than the one the hub exchanges tokens at, so no member token
+	// can be made for it.
+	errForeignIssuer = errors.New("the token comes from another identity provider than the one the hub exchanges tokens at")
 )
 
 // MemberReview reviews people in the member cluster behind link. With
@@ -117,6 +121,9 @@ func (m *memberReviewer) forwardable(ctx context.Context) (token, issuer string,
 func (m *memberReviewer) withToken(ctx context.Context, p Person, issuer, token string, q memberlink.Review) (allowed, refused bool, err error) {
 	uid := m.link.UID()
 	forward, err := m.exchange(ctx, token, uid)
+	if errors.Is(err, errForeignIssuer) {
+		return m.notAccepted(p, issuer)
+	}
 	if err != nil {
 		return false, false, err
 	}
@@ -129,16 +136,22 @@ func (m *memberReviewer) withToken(ctx context.Context, p Person, issuer, token 
 	case err != nil:
 		return false, false, err
 	case a.Refused == memberlink.RefusedIssuerNotAccepted:
-		m.link.Note(issuer, memberlink.ModelIssuerNotAccepted, p.User)
-		if m.link.IssuerRefused(issuer) {
-			return false, true, nil
-		}
-		return false, false, errors.New("the member cluster did not accept your token")
+		return m.notAccepted(p, issuer)
 	case a.Refused != "":
 		return false, false, errors.New("the member cluster refused the review: " + a.Refused)
 	}
 	m.link.Note(issuer, memberlink.ModelSharedIssuer, p.User)
 	return a.Allowed, false, nil
+}
+
+// notAccepted notes that the member cannot accept p's token from issuer,
+// and reports refused once the hub marks the issuer so.
+func (m *memberReviewer) notAccepted(p Person, issuer string) (allowed, refused bool, err error) {
+	m.link.Note(issuer, memberlink.ModelIssuerNotAccepted, p.User)
+	if m.link.IssuerRefused(issuer) {
+		return false, true, nil
+	}
+	return false, false, errors.New("the member cluster did not accept your token")
 }
 
 // withMapping asks the member about the person as the group mapping in
@@ -195,7 +208,9 @@ type MemberExchangeConfig struct {
 }
 
 // NewMemberExchange exchanges a person's token for one member (RFC 8693),
-// as MCP.Exchange does for the apiserver. The issuer is read at the first
+// as MCP.Exchange does for the apiserver. A token from another issuer is
+// refused with no request, and counts as one the member does not accept,
+// so people of a second identity provider reach the group mapping. The issuer is read at the first
 // exchange, and again while that fails. Answers are cached per token hash
 // and member.
 func NewMemberExchange(cfg MemberExchangeConfig) MemberExchange {
@@ -209,6 +224,9 @@ func NewMemberExchange(cfg MemberExchangeConfig) MemberExchange {
 	x := &tokenExchange{client: client, clientID: cfg.ClientID, clientSecret: cfg.ClientSecret, now: time.Now, cache: map[[32]byte]exchanged{}}
 	var mu sync.Mutex
 	return func(ctx context.Context, token, uid string) (string, error) {
+		if memberlink.TokenIssuer(token) != cfg.IssuerURL {
+			return "", errForeignIssuer
+		}
 		mu.Lock()
 		if x.tokenURL == "" {
 			p, _, err := discover(client, cfg.IssuerURL)
