@@ -80,6 +80,11 @@ with that cluster's own credentials, so a grant in one cluster shows nothing
 in another. A failed review hides that cluster and marks the answer partial;
 it never fails the request. See [Multi-cluster](../../multi-cluster.md).
 
+A hub dashboard reviews a signed-in person in each member cluster through the
+member's live channel. It forwards a token exchanged for that member, never
+the session token, or the person under an approved group mapping. See
+[Member clusters](../../member-clusters.md#identity-models).
+
 ## Configure the chart
 
 ```yaml

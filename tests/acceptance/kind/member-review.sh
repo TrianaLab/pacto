@@ -396,11 +396,16 @@ reaches() {
     "import socket; socket.create_connection(('pacto-operator-metrics.$NS.svc', 8443), 3)" >/dev/null 2>&1
 }
 eventually 20 reaches || fail "the probe never reached the member operator's metrics Service before the NetworkPolicy"
+# Every pod-to-pod connection is refused; only the node itself (the
+# kubelet's probes) may connect, so the operator keeps running.
 kubectl --context "$CTX_M" apply -f - >/dev/null <<YAML
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata: {name: default-deny-ingress, namespace: $NS}
-spec: {podSelector: {}, policyTypes: [Ingress]}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress: [{from: [{ipBlock: {cidr: $(ip_of "${MEMBER}-control-plane")/32}}]}]
 YAML
 blocked() { ! reaches; }
 eventually 20 blocked || fail "the probe still reaches the member operator after a default-deny ingress NetworkPolicy"
@@ -408,7 +413,7 @@ always 3 blocked || fail "the NetworkPolicy does not hold"
 exposed="$(kubectl --context "$CTX_M" -n "$NS" get svc,pods -o json |
   jq -c '[.items[] | (.spec.ports[]?.nodePort // empty), (.spec.containers[]?.ports[]?.hostPort // empty)]')"
 [ "$exposed" = '[]' ] || fail "the member release exposes node or host ports: $exposed"
-pass "the probe reached the operator before the NetworkPolicy and not after; the release exposes no NodePort or hostPort"
+pass "the probe reached the operator before the NetworkPolicy (deny every pod) and not after; the release exposes no NodePort or hostPort"
 
 # sign STEP ARGS... — joinsign as alice with its own Sigstore, then add its
 # signer (its issuer and root) to the hub's delivery.identities.signers.

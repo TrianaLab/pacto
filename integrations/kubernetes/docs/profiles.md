@@ -81,6 +81,7 @@ watch Role and Pacto delivery stays off.
 | Cluster-wide RBAC (operator ClusterRole and ClusterRoleBinding) | Not rendered; each watched namespace gets a Role | Leave profile hardened and empty `controller.watchNamespaces` |
 | Managed dashboard, its Service, Ingress and HTTPRoute | Off | Leave profile hardened; meanwhile run `pacto dashboard --detected k8s:<ns>/<fullname>-detected` with your own credentials |
 | `pacto-viewer` ServiceAccount and the TokenReview grant | Not rendered | Leave profile hardened; they follow the managed dashboard |
+| Member review channel (`hub.url`) | Off: answering the hub's reviews needs a cluster-wide SubjectAccessReview grant | Leave profile hardened, then set `hub.url` |
 | Anonymous dashboard | Refused | Leave profile hardened, then set `dashboard.auth.allowAnonymous=true` |
 | Node agent | Refused: it needs a privileged namespace and cluster-wide reads | Leave profile hardened, then set `nodeAgent.enabled=true` |
 | Dex subchart's cluster-scoped RBAC | Refused | Set `dex.rbac.createClusterScoped=false` or `dex.enabled=false`; otherwise leave profile hardened |
