@@ -174,17 +174,14 @@ counted, since it has no live channel yet that could review them there.
 
 The hub checks every approval each time it reads it, so a person who loses the
 grant turns their approvals pending. A dashboard installed with a namespace
-list cannot review `clusterjoins`, so its approvals stay pending. `pacto
-cluster`, `pacto fleet` and a stdio MCP server review approvers with your own
-credentials, which need `create subjectaccessreviews` in the hub; without it
-their members read pending and the list says so.
+list cannot review `clusterjoins`, so its approvals stay pending. The CLI
+reviews approvers as you: grant `create subjectaccessreviews`.
 
 ### Remove, rebuild and rotate
 
-- `pacto cluster remove 9f1c4e2a --registry ghcr.io/acme` records a
-  revocation signed as you, even when the member no longer publishes. The
-  member's data leaves the next fleet build. Rotate or delete its registry
-  credential too.
+- `pacto cluster remove 9f1c4e2a --registry ghcr.io/acme` records a signed
+  revocation. The member leaves the next fleet build. Rotate its
+  registry credential too.
 - A rebuilt cluster has a new UID. It shows pending with "may replace eu-prod"
   when it keeps the name of an approved member.
 - A new installation key on a known UID shows pending again, with the key
@@ -197,9 +194,8 @@ delete, and turn on tag immutability where the registry offers it, such as zot
 or Harbor. A record names the key it approves, so a swapped tag never makes a
 member, but a member that can delete can remove what others pushed. The hub
 reads every `cluster-*` tag within 10 listing pages. It reads approved members
-first and up to 32 pending clusters. It counts the rest without reading them
-and marks the list partial. `pacto cluster approve` and `remove` read the
-cluster you name in full past that bound.
+first and up to 32 pending clusters, plus a cluster a command names by UID. It
+counts the rest unread and marks the list partial.
 
 ## Operation records
 
