@@ -454,8 +454,14 @@ Controller arguments derived from values
 {{- with .Values.evidence.trust.configKey }}
 - --evidence-trust-config-key={{ . }}
 {{- end }}
-{{- range (required "evidence.registry.subjects is required when evidence is enabled: the registry holding those contract revisions IS the evidence store" .Values.evidence.registry.subjects) }}
+{{- if not (or .Values.evidence.registry.subjects .Values.evidence.registry.subjectPrefixes) }}
+{{- fail "evidence.registry.subjects or evidence.registry.subjectPrefixes is required when evidence is enabled: the registry is the evidence store" }}
+{{- end }}
+{{- range .Values.evidence.registry.subjects }}
 - --evidence-subject={{ . }}
+{{- end }}
+{{- range .Values.evidence.registry.subjectPrefixes }}
+- --evidence-subject-prefix={{ . }}
 {{- end }}
 {{- if .Values.evidence.registry.credentialsSecret }}
 - --evidence-credentials-secret={{ .Values.evidence.registry.credentialsSecret }}
@@ -733,6 +739,22 @@ set (an explicit delivery value may name any repository).
 {{- end }}
 {{- end }}
 {{- toYaml (uniq $out) }}
+{{- end }}
+
+{{/*
+The Evidence Server's subject ledgers, <prefix>pacto-evidence per subject
+prefix: the only repositories it tags, with evidence.registry.credentialsSecret.
+NOTES names them. They stay out of pushPrefixes, which feeds the operator's own
+keychains and the capped Installation row.
+*/}}
+{{- define "pacto-operator.evidenceLedgers" -}}
+{{- $out := list }}
+{{- if .Values.evidence.enabled }}
+{{- range .Values.evidence.registry.subjectPrefixes }}
+{{- $out = append $out (printf "%spacto-evidence" (trimPrefix "oci://" .)) }}
+{{- end }}
+{{- end }}
+{{- toYaml $out }}
 {{- end }}
 
 {{/*

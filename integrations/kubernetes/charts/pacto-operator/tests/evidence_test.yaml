@@ -103,6 +103,122 @@ tests:
           # that only fires on one of them is a gate that silently stops firing.
           errorPattern: "evidence.registry.subjects"
 
+  # --- subject prefixes (#572) ---
+  - it: subjectPrefixes alone renders --evidence-subject-prefix
+    template: templates/deployment.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjectPrefixes: ["oci://zot.acme.internal/acme/"]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-subject-prefix=oci://zot.acme.internal/acme/
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--evidence-subject=
+
+  - it: subjects alone renders as before
+    template: templates/deployment.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects:
+        - oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-subject=oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--evidence-subject-prefix=
+
+  - it: neither subjects nor subjectPrefixes fails with the message
+    template: templates/deployment.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects: []
+      evidence.registry.subjectPrefixes: []
+    asserts:
+      # The schema's anyOf fires before the template's own fail; both name the
+      # evidence.registry values.
+      - failedTemplate:
+          errorPattern: "evidence.registry"
+
+  - it: schema refuses a prefix without a trailing slash
+    template: templates/deployment.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjectPrefixes: ["oci://zot.acme.internal/acme"]
+    asserts:
+      - failedTemplate: {}
+
+  - it: schema refuses a prefix holding a digest
+    template: templates/deployment.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjectPrefixes: ["oci://zot.acme.internal/acme@sha256:aa/"]
+    asserts:
+      - failedTemplate: {}
+
+  # The ledger is written by the Evidence Server with its own credential: the
+  # operator's push prefixes (its keychains and the capped Installation row)
+  # never gain it.
+  - it: subjectPrefixes adds no --registry-push-prefix
+    template: templates/deployment.yaml
+    set:
+      registry: zot.acme.internal/acme
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjectPrefixes: ["oci://zot.acme.internal/acme/"]
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--registry-push-prefix=.*pacto-evidence
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --registry-push-prefix=zot.acme.internal/acme/pacto-targets
+
+  - it: NOTES names <prefix>pacto-evidence as the Evidence Server's ledger when registry and evidence are set
+    template: templates/NOTES.txt
+    set:
+      registry: zot.acme.internal/acme
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjectPrefixes: ["oci://zot.acme.internal/acme/"]
+    asserts:
+      - matchRegexRaw:
+          pattern: "only\\n?\\s*its subject ledgers:\\n\\s+zot\\.acme\\.internal/acme/pacto-evidence"
+      - matchRegexRaw:
+          pattern: "set allowedContractRepos per key in a trust config"
+
+  - it: NOTES drops the unscoped-keys sentence with a trust config
+    template: templates/NOTES.txt
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.trust.configKey: trust.yaml
+      evidence.registry.subjectPrefixes: ["oci://ghcr.io/acme/"]
+    asserts:
+      - matchRegexRaw:
+          pattern: "ghcr\\.io/acme/pacto-evidence"
+      - notMatchRegexRaw:
+          pattern: "set allowedContractRepos per key"
+
+  - it: NOTES names no ledger with only subjects
+    template: templates/NOTES.txt
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects:
+        - oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "subject ledgers"
+
   # --- RBAC ---
   # A fresh install grants no storage permission at all. Regaining PVC RBAC would
   # mean the operator could once again create a place evidence lives outside the

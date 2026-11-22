@@ -36,10 +36,18 @@ type Config struct {
 	// Subjects are the exact, immutable contract revisions evidence is stored on,
 	// each an oci://<repo>@sha256:<digest> reference. The registry holding them IS
 	// the durable evidence store: accepted records are published as OCI 1.1
-	// referrers of these manifests, so at least one is required. The reference
-	// syntax is enforced by the chart schema at install time and authoritatively by
-	// the Evidence Server at startup, which fails fast on anything else.
+	// referrers of these manifests. A subject or a prefix is required. The
+	// reference syntax is enforced by the chart schema at install time and
+	// authoritatively by the Evidence Server at startup, which fails fast on
+	// anything else.
 	Subjects []string
+
+	// SubjectPrefixes are registry prefixes, each oci://<registry>/<path>/, whose
+	// immutable revisions evidence may be stored on, including revisions published
+	// after install. The server records each subject in <prefix>pacto-evidence
+	// and, where the registry serves no OCI Referrers, stores records there as
+	// write-once tags. The credentials Secret must allow push to that repository.
+	SubjectPrefixes []string
 
 	// TrustSecret is the name of a Secret of trusted producer public keys, mounted
 	// read-only. Signature verification is mandatory, so it is required.
@@ -117,8 +125,8 @@ func (c Config) Validate() error {
 	if c.TrustConfigKey != "" && !validTrustConfigKey(c.TrustConfigKey) {
 		return fmt.Errorf("evidence trust config key %q must be a plain Secret key ending in .yaml or .yml", c.TrustConfigKey)
 	}
-	if len(c.Subjects) == 0 {
-		return fmt.Errorf("evidence enabled but no contract subject set: the registry is the evidence store (set evidence.registry.subjects)")
+	if len(c.Subjects) == 0 && len(c.SubjectPrefixes) == 0 {
+		return fmt.Errorf("evidence enabled but no contract subject or subject prefix set: the registry is the evidence store (set evidence.registry.subjects or evidence.registry.subjectPrefixes)")
 	}
 	return c.Resources.Validate("evidence")
 }

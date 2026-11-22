@@ -9,6 +9,7 @@ package evidence
 
 import (
 	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -336,5 +337,23 @@ func TestDeploymentAC_InsecureRegistries(t *testing.T) {
 				t.Errorf("%s=%q, want %q", loader.InsecureRegistriesEnvVar, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestDeploymentArgsCarrySubjectPrefixes(t *testing.T) {
+	cfg := serverCfg()
+	cfg.SubjectPrefixes = []string{"oci://zot.acme.internal/acme/", "oci://ghcr.io/acme/"}
+	args := deploymentACFor(t, cfg).Spec.Template.Spec.Containers[0].Args
+	var prefixes []string
+	for i, a := range args {
+		if a == "--subject-prefix" && i+1 < len(args) {
+			prefixes = append(prefixes, args[i+1])
+		}
+	}
+	if !slices.Equal(prefixes, cfg.SubjectPrefixes) {
+		t.Errorf("--subject-prefix values = %v, want %v in %v", prefixes, cfg.SubjectPrefixes, args)
+	}
+	if !slices.Contains(args, testSubject) {
+		t.Errorf("the exact subject is kept beside the prefixes: %v", args)
 	}
 }

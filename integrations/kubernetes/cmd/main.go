@@ -126,6 +126,7 @@ type options struct {
 	evidenceTrustConfigKey    string
 	evidenceCredentialsSecret string
 	evidenceSubjects          []string
+	evidenceSubjectPrefixes   []string
 	evidenceResources         component.Resources
 
 	stabilizationWindow               time.Duration
@@ -301,9 +302,17 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.Func("evidence-subject",
 		"Repeatable: an exact contract revision evidence is stored on, as oci://<repo>@sha256:<digest>. "+
 			"The registry holding it is the durable evidence store: accepted records are published as OCI 1.1 "+
-			"referrers of that manifest. At least one is required when the Evidence Server is enabled.",
+			"referrers of that manifest. A subject or a prefix is required when the Evidence Server is enabled.",
 		func(subject string) error {
 			o.evidenceSubjects = append(o.evidenceSubjects, subject)
+			return nil
+		})
+	fs.Func("evidence-subject-prefix",
+		"Repeatable: a registry prefix, oci://<registry>/<path>/, whose immutable revisions evidence may be stored on. "+
+			"The Evidence Server records each subject in <prefix>pacto-evidence and accepts new revisions with no restart. "+
+			"A subject or a prefix is required when the Evidence Server is enabled.",
+		func(prefix string) error {
+			o.evidenceSubjectPrefixes = append(o.evidenceSubjectPrefixes, prefix)
 			return nil
 		})
 	fs.StringVar(&o.evidenceCredentialsSecret, "evidence-credentials-secret", "",
@@ -780,6 +789,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 		Image:              dashboardImage, // the runtime image runs `pacto evidence serve`
 		Namespace:          namespace,
 		Subjects:           o.evidenceSubjects,
+		SubjectPrefixes:    o.evidenceSubjectPrefixes,
 		TrustSecret:        o.evidenceTrustSecret,
 		TrustConfigKey:     o.evidenceTrustConfigKey,
 		CredentialsSecret:  o.evidenceCredentialsSecret,
