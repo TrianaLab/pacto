@@ -60,6 +60,7 @@ const SourceKindTraces = "traces"
 // SourceKindOTLPReceiver is the Kind of the dashboard's OTLP/HTTP receiver,
 // which maps the spans Collectors send it to calls.
 const SourceKindOTLPReceiver = "otlp-receiver"
+
 // SourceKindLinked is the Kind of a source reading the workloads the Pacto
 // operator linked to a published contract with no Pacto: targets, like a
 // Kubernetes source.
