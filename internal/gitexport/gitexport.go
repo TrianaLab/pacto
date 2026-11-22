@@ -8,6 +8,7 @@ package gitexport
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,8 +25,14 @@ import (
 // Kind is a Git host's API.
 type Kind string
 
-// KindGitHub is GitHub, github.com or an Enterprise Server.
-const KindGitHub Kind = "github"
+// The Git host kinds: GitHub (github.com or an Enterprise Server), GitLab,
+// Bitbucket Cloud and Gitea (Forgejo too).
+const (
+	KindGitHub    Kind = "github"
+	KindGitLab    Kind = "gitlab"
+	KindBitbucket Kind = "bitbucket"
+	KindGitea     Kind = "gitea"
+)
 
 // The refusal codes.
 const (
@@ -111,10 +118,32 @@ func Open(ctx context.Context, r Request) (*Opened, *Error) {
 		}
 		files[path.Join(r.Folder, name)] = b
 	}
-	c := &client{token: r.Token, auth: "Bearer " + r.Token,
+	c := &client{token: r.Token, auth: authHeader(r.Kind, r.Token),
 		http: &http.Client{Transport: r.Transport, CheckRedirect: func(*http.Request, []*http.Request) error { return errRedirect }}}
-	h := newGitHub(u, c)
+	var h host
+	switch r.Kind {
+	case KindGitHub:
+		h = newGitHub(u, c)
+	case KindGitLab:
+		h = newGitLab(u, c)
+	case KindBitbucket:
+		h = newBitbucket(u, c)
+	case KindGitea:
+		h = newGitea(u, c)
+	default:
+		return nil, &Error{Code: CodeGitHostUnknown, Message: "unknown Git host kind " + string(r.Kind) + ": " + kindsHint}
+	}
 	return open(ctx, h, r, files)
+}
+
+// authHeader is the Authorization header for token on kind: Bitbucket's
+// username:password from a credential helper is Basic, every other token
+// is Bearer.
+func authHeader(kind Kind, token string) string {
+	if kind == KindBitbucket && strings.Contains(token, ":") {
+		return "Basic " + base64.StdEncoding.EncodeToString([]byte(token))
+	}
+	return "Bearer " + token
 }
 
 // open runs h's sequence: the login first, so a token that reads nothing
@@ -205,12 +234,21 @@ type client struct {
 // 2xx answer into out (when set). It returns the status for the caller to
 // read a conflict from.
 func (c *client) do(ctx context.Context, method, rawURL string, body, out any) (int, *Error) {
+	if body == nil {
+		return c.send(ctx, method, rawURL, "", nil, out)
+	}
+	raw, _ := json.Marshal(body) // ponytail: maps and structs of strings always marshal
+	return c.send(ctx, method, rawURL, "application/json", raw, out)
+}
+
+// send is do with a body of any content type (none when contentType is
+// empty).
+func (c *client) send(ctx context.Context, method, rawURL, contentType string, body []byte, out any) (int, *Error) {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 	var rd io.Reader
-	if body != nil {
-		raw, _ := json.Marshal(body) // ponytail: maps and structs of strings always marshal
-		rd = bytes.NewReader(raw)
+	if contentType != "" {
+		rd = bytes.NewReader(body)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, rd)
 	if err != nil {
@@ -218,8 +256,8 @@ func (c *client) do(ctx context.Context, method, rawURL string, body, out any) (
 	}
 	req.Header.Set("Authorization", c.auth)
 	req.Header.Set("Accept", "application/json")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	resp, err := c.http.Do(req)
 	switch {
@@ -257,9 +295,13 @@ func (c *client) hostMessage(data []byte) string {
 	return capRunes(c.redact(msg), 200)
 }
 
+// redact removes the token, and the password half of a username:password,
+// from s.
 func (c *client) redact(s string) string {
-	if c.token == "" {
-		return s
+	for _, secret := range []string{c.token, c.token[strings.Index(c.token, ":")+1:]} {
+		if secret != "" {
+			s = strings.ReplaceAll(s, secret, "<token>")
+		}
 	}
-	return strings.ReplaceAll(s, c.token, "<token>")
+	return s
 }

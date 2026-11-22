@@ -17,8 +17,8 @@ const testToken = "ghp_secret123"
 
 // call is one request the recording transport answered.
 type call struct {
-	Method, URL, Auth string
-	Body              map[string]any
+	Method, URL, Auth, ContentType, Raw string
+	Body                                map[string]any
 }
 
 // answer is a canned response.
@@ -36,9 +36,10 @@ type hostFake struct {
 }
 
 func (h *hostFake) RoundTrip(r *http.Request) (*http.Response, error) {
-	c := call{Method: r.Method, URL: r.URL.String(), Auth: r.Header.Get("Authorization")}
+	c := call{Method: r.Method, URL: r.URL.String(), Auth: r.Header.Get("Authorization"), ContentType: r.Header.Get("Content-Type")}
 	if r.Body != nil {
 		raw, _ := io.ReadAll(r.Body)
+		c.Raw = string(raw)
 		_ = json.Unmarshal(raw, &c.Body)
 	}
 	h.calls = append(h.calls, c)
@@ -362,7 +363,9 @@ func TestBranch(t *testing.T) {
 }
 
 func TestDetectHostKinds(t *testing.T) {
-	env := func(k string) string { return map[string]string{"GH_HOST": "git.acme.com"}[k] }
+	env := func(k string) string {
+		return map[string]string{"GH_HOST": "git.acme.com", "GITLAB_HOST": "gl.acme.com", "GITEA_HOST": "127.0.0.1:3000"}[k]
+	}
 	for _, c := range []struct {
 		url, override string
 		want          Kind
@@ -371,6 +374,14 @@ func TestDetectHostKinds(t *testing.T) {
 		{"https://github.com/acme/invoices", "", KindGitHub, ""},
 		{"https://git.acme.com/acme/invoices", "", KindGitHub, ""},
 		{"https://git.other.com/acme/invoices", "github", KindGitHub, ""},
+		{"https://gitlab.com/acme/billing/invoices", "", KindGitLab, ""},
+		{"https://gl.acme.com/acme/invoices", "", KindGitLab, ""},
+		{"https://bitbucket.org/acme/invoices", "", KindBitbucket, ""},
+		{"https://codeberg.org/acme/invoices", "", KindGitea, ""},
+		{"http://127.0.0.1:3000/acme/invoices", "", KindGitea, ""},
+		{"https://git.other.com/acme/invoices", "gitlab", KindGitLab, ""},
+		{"https://git.other.com/acme/invoices", "bitbucket", KindBitbucket, ""},
+		{"https://git.other.com/acme/invoices", "gitea", KindGitea, ""},
 		{"https://git.other.com/acme/invoices", "", "", CodeGitHostUnknown},
 		{"https://github.com/acme/invoices", "svn", "", CodeGitHostUnknown},
 		{"%zz", "", "", CodeGitHostUnknown},
@@ -380,8 +391,9 @@ func TestDetectHostKinds(t *testing.T) {
 			t.Fatalf("%+v: %v %v", c, got, e)
 		}
 	}
-	if _, e := Detect("https://git.acme.com/x", "", func(string) string { return "" }); e == nil {
-		t.Fatal("GH_HOST unset still detected")
+	if _, e := Detect("https://git.acme.com/x", "", func(string) string { return "" }); e == nil ||
+		e.Message != "Pacto cannot tell which Git host serves https://git.acme.com/x: pass --git-host github|gitlab|bitbucket|gitea" {
+		t.Fatal("GH_HOST unset still detected", e)
 	}
 }
 
@@ -409,6 +421,57 @@ func TestTokenEnvOnlyForItsHost(t *testing.T) {
 		t.Fatal(tok, src)
 	}
 	if tok, _, _ := Token(t.Context(), "other", "https://github.com/a/b", ghOnly, noHelper); tok != "" {
+		t.Fatal(tok)
+	}
+}
+
+func TestTokenEnvOnlyForItsHostEveryKind(t *testing.T) {
+	noHelper := func(context.Context, string) (string, error) { return "", errors.New("no helper") }
+	env := func(k string) string {
+		return map[string]string{"GITHUB_TOKEN": "gh", "GITLAB_TOKEN": "gl", "BITBUCKET_TOKEN": "bb", "GITEA_TOKEN": "gt", "GITEA_HOST": "127.0.0.1:3000"}[k]
+	}
+	for _, c := range []struct {
+		kind               Kind
+		url, token, source string
+	}{
+		{KindGitLab, "https://gitlab.com/a/b", "gl", "your GITLAB_TOKEN"},
+		{KindBitbucket, "https://bitbucket.org/a/b", "bb", "your BITBUCKET_TOKEN"},
+		{KindGitea, "http://127.0.0.1:3000/a/b", "gt", "your GITEA_TOKEN"},
+		// Each variable goes only to its own host.
+		{KindGitLab, "https://gl.acme.com/a/b", "", ""},
+		{KindBitbucket, "https://evil.example/a/b", "", ""},
+		{KindGitea, "https://codeberg.org/a/b", "", ""},
+		{KindGitHub, "https://gitlab.com/a/b", "", ""},
+	} {
+		tok, src, e := Token(t.Context(), c.kind, c.url, env, noHelper)
+		if tok != c.token || src != c.source || (e == nil) != (c.token != "") {
+			t.Fatalf("%+v: %q %q %v", c, tok, src, e)
+		}
+	}
+	// GITLAB_HOST moves GITLAB_TOKEN to that host; GITEA_TOKEN has no default host.
+	gl := func(k string) string {
+		return map[string]string{"GITLAB_TOKEN": "gl", "GITLAB_HOST": "gl.acme.com", "GITEA_TOKEN": "gt"}[k]
+	}
+	if tok, _, _ := Token(t.Context(), KindGitLab, "https://gl.acme.com/a/b", gl, noHelper); tok != "gl" {
+		t.Fatal(tok)
+	}
+	if tok, _, _ := Token(t.Context(), KindGitLab, "https://gitlab.com/a/b", gl, noHelper); tok != "" {
+		t.Fatal(tok)
+	}
+	if _, _, e := Token(t.Context(), KindGitea, "https://codeberg.org/a/b", gl, noHelper); e == nil ||
+		e.Message != "no Git token for codeberg.org: set GITEA_TOKEN for that host, or store a token in a git credential helper" {
+		t.Fatal(e)
+	}
+}
+
+func TestTokenHelperBitbucketKeepsUsername(t *testing.T) {
+	helper := func(context.Context, string) (string, error) { return "username=ana\npassword=app-pass\n", nil }
+	tok, src, e := Token(t.Context(), KindBitbucket, "https://bitbucket.org/a/b", func(string) string { return "" }, helper)
+	if e != nil || tok != "ana:app-pass" || src != "your git credential helper" {
+		t.Fatal(tok, src, e)
+	}
+	// Every other host keeps the password only.
+	if tok, _, _ := Token(t.Context(), KindGitea, "https://codeberg.org/a/b", func(string) string { return "" }, helper); tok != "app-pass" {
 		t.Fatal(tok)
 	}
 }

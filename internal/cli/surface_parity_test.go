@@ -382,7 +382,7 @@ func declareRows() []surfaceRow {
 		},
 		alike("declare", "pacto_declare", "", "the dashboard reads the workload's namespace from the snapshot, declares into its own --registry and reads the cluster as the person",
 			"namespace", "registry", "max-items", "call-window"),
-		alike("declare", "", "", "D7: --pr runs only where your Git token is", "pr", "repository", "folder", "repo-map"),
+		alike("declare", "", "", "D7: --pr runs only where your Git token is", "pr", "repository", "folder", "repo-map", "git-host"),
 		alike("declare", "", "", whyLocal, "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
 			"rekor-url", "trusted-root"),
 	)

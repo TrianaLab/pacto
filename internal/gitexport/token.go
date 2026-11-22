@@ -18,6 +18,16 @@ func tokenVars(kind Kind, env func(string) string) []tokenVar {
 	switch kind {
 	case KindGitHub:
 		return []tokenVar{{"GITHUB_TOKEN", "github.com"}, {"GH_TOKEN", "github.com"}, {"GH_ENTERPRISE_TOKEN", env("GH_HOST")}}
+	case KindGitLab:
+		gl := env("GITLAB_HOST")
+		if gl == "" {
+			gl = "gitlab.com"
+		}
+		return []tokenVar{{"GITLAB_TOKEN", gl}}
+	case KindBitbucket:
+		return []tokenVar{{"BITBUCKET_TOKEN", "bitbucket.org"}}
+	case KindGitea:
+		return []tokenVar{{"GITEA_TOKEN", env("GITEA_HOST")}}
 	}
 	return nil
 }
@@ -39,7 +49,11 @@ func Token(ctx context.Context, kind Kind, repoURL string, env func(string) stri
 			return t, "your " + v.name, nil
 		}
 	}
-	if t := helperToken(ctx, u, runHelper); t != "" {
+	if user, t := helperToken(ctx, u, runHelper); t != "" {
+		if kind == KindBitbucket && user != "" {
+			// Bitbucket takes an app password or API token with its username as Basic.
+			t = user + ":" + t
+		}
 		return t, "your git credential helper", nil
 	}
 	return "", "", &Error{Code: CodeGitTokenMissing, Message: "no Git token for " + u.Host + ": set " + strings.Join(names, " or ") +
@@ -47,18 +61,22 @@ func Token(ctx context.Context, kind Kind, repoURL string, env func(string) stri
 }
 
 // helperToken asks the credential helper for u's host and path and keeps
-// only the password. Any failure means no helper.
-func helperToken(ctx context.Context, u *url.URL, runHelper func(context.Context, string) (string, error)) string {
+// only the username and the password. Any failure means no helper.
+func helperToken(ctx context.Context, u *url.URL, runHelper func(context.Context, string) (string, error)) (user, password string) {
 	out, err := runHelper(ctx, "protocol="+u.Scheme+"\nhost="+u.Host+"\npath="+strings.TrimPrefix(u.Path, "/")+"\n\n")
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	for line := range strings.Lines(out) {
-		if v, ok := strings.CutPrefix(strings.TrimRight(line, "\r\n"), "password="); ok {
-			return v
+		k, v, _ := strings.Cut(strings.TrimRight(line, "\r\n"), "=")
+		switch k {
+		case "username":
+			user = v
+		case "password":
+			password = v
 		}
 	}
-	return ""
+	return user, password
 }
 
 // credentialFillArgs asks git's credential helper for a credential and

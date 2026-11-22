@@ -516,6 +516,7 @@ pacto declare <service> [flags]
       --folder string            the folder of the repository the contract lives in (default: the folder a source names, else the root)
       --from-draft string        accept this draft-<n> tag: the workload is read again and you sign
       --fulcio-url string        Fulcio to get the signing certificate from (default "https://fulcio.sigstore.dev")
+      --git-host string          the Git host API that serves the repository, when its URL does not say: github, gitlab, bitbucket (Cloud) or gitea (Forgejo too)
   -h, --help[=true|false]        help for declare
       --intent string            the intent digest of the plan you reviewed: a different plan is refused
       --max-items int            the most items read per kind of object; a kind cut short reads as partial (default 10000)

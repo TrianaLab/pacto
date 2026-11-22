@@ -21,11 +21,11 @@ import (
 )
 
 // prEnv sets GITHUB_TOKEN to token (empty for none) and clears every other
-// GitHub token variable.
+// Git host variable.
 func prEnv(t *testing.T, token string) {
 	t.Helper()
 	t.Setenv("GITHUB_TOKEN", token)
-	for _, v := range []string{"GH_TOKEN", "GH_ENTERPRISE_TOKEN", "GH_HOST"} {
+	for _, v := range []string{"GH_TOKEN", "GH_ENTERPRISE_TOKEN", "GH_HOST", "GITLAB_TOKEN", "GITLAB_HOST", "BITBUCKET_TOKEN", "GITEA_TOKEN", "GITEA_HOST"} {
 		t.Setenv(v, "")
 	}
 }
@@ -147,6 +147,28 @@ func TestPRRefusedBeforeWriteWithoutToken(t *testing.T) {
 	d.gitCredentialFill = noHelper
 	out, _, err := runRoot(t, d, nil, "declare", "invoices", "--pr")
 	if err == nil || !strings.Contains(err.Error(), "no Git token for github.com") || !strings.Contains(out, "plan: oci://") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+func TestDeclareGitHostFlag(t *testing.T) {
+	noKube(t)
+	prEnv(t, "ghp_secret")
+	p := prPlanFixture()
+	p.Repository.URL = "https://git.acme.example/acme/invoices"
+	var got app.DeclareRequest
+	d := declareDeps(t, &got, p, nil, nil)
+	d.gitTransport, d.gitCredentialFill = noHost{t}, noHelper
+	// --git-host names the API; the GitHub token never goes to another host.
+	_, _, err := runRoot(t, d, nil, "declare", "invoices", "--pr", "--git-host", "gitea")
+	var de *app.DeclareError
+	if !errors.As(err, &de) || de.Code != "GitTokenMissing" || !strings.Contains(de.Message, "set GITEA_TOKEN for that host") {
+		t.Fatal(err)
+	}
+	t.Setenv("GITEA_TOKEN", "gt")
+	t.Setenv("GITEA_HOST", "git.acme.example")
+	out, _, err := runRoot(t, d, nil, "declare", "invoices", "--pr", "--git-host", "gitea")
+	if err != nil || !strings.Contains(out, "pull request: gitea https://git.acme.example/acme/invoices,") || !strings.Contains(out, "with your GITEA_TOKEN") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 }

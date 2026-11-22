@@ -31,6 +31,7 @@ func planDeclare(svc *app.Service, ctx context.Context, req app.DeclareRequest) 
 func newDeclareCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	var req app.DeclareRequest
 	var yes bool
+	var gitHost string
 	cmd := &cobra.Command{
 		Use:   "declare <service>",
 		Short: "Declare a running service: publish its contract as a version you sign",
@@ -86,7 +87,7 @@ pacto.inferred.yaml as inferred.`,
 			asJSON := v.GetString(outputFormatKey) == "json"
 			req.Signing.Prompt = func(s string) { _, _ = fmt.Fprintln(cmd.ErrOrStderr(), s) }
 			req.Signing.FreshLogin = d.freshLogin
-			pr := &exportPR{d: d, req: req}
+			pr := &exportPR{d: d, req: req, gitHost: gitHost}
 			if !yes {
 				p, err := d.planDeclare(svc, cmd.Context(), req)
 				if err == nil && req.PR {
@@ -137,6 +138,7 @@ pacto.inferred.yaml as inferred.`,
 	f.StringVar(&req.Repository, "repository", "", "the service's source repository URL, used over every source Pacto reads; confirms an image label for --pr")
 	f.StringVar(&req.Folder, "folder", "", "the folder of the repository the contract lives in (default: the folder a source names, else the root)")
 	f.StringVar(&req.RepoMap, "repo-map", "", "a YAML file mapping service names to {repository, folder}; read only with --pr")
+	f.StringVar(&gitHost, "git-host", "", "the Git host API that serves the repository, when its URL does not say: github, gitlab, bitbucket (Cloud) or gitea (Forgejo too)")
 	f.StringVar(&req.DeliveryTrust, "delivery-trust", "", "the trust config the target snapshots that carry the owner policy are verified with: "+
 		"a YAML file with a key scoped to each cluster (default $"+app.TrustEnv+")")
 	return cmd
@@ -422,17 +424,18 @@ func printDeclareResult(w io.Writer, res *app.DeclareResult) {
 // own Git token: the host kind and the token are resolved before anything
 // is written, and the files committed are the exact ones written.
 type exportPR struct {
-	d     deps
-	req   app.DeclareRequest
-	kind  gitexport.Kind
-	token string
+	d       deps
+	req     app.DeclareRequest
+	gitHost string
+	kind    gitexport.Kind
+	token   string
 }
 
 // resolve detects p's Git host and finds the person's token for it,
 // refusing the run when either is unknown. It makes no request to the host.
 func (x *exportPR) resolve(ctx context.Context, p *app.DeclarePlan) error {
 	r := p.Repository // ponytail: a --pr plan without a repository is refused (RepositoryUnknown)
-	kind, e := gitexport.Detect(r.URL, "", os.Getenv)
+	kind, e := gitexport.Detect(r.URL, x.gitHost, os.Getenv)
 	if e != nil {
 		return &app.DeclareError{Code: e.Code, Message: e.Message}
 	}
