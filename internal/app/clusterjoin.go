@@ -138,7 +138,7 @@ func (jr *joinRead) readPolicy(ctx context.Context) {
 // hub's own left out.
 func (jr *joinRead) listClusters(ctx context.Context) ([]string, bool) {
 	path := jr.opts.Repository
-	repo, err := ocireferrer.Open(path, ocireferrer.Options{Keychain: oci.NewKeychain(oci.EnvCredentialOptions()), Insecure: oci.EnvInsecureRegistries()})
+	repo, err := openTargets(path)
 	var tags []string
 	truncated := false
 	if err == nil {
@@ -170,9 +170,17 @@ func denied(err error) bool {
 	return errors.As(err, &resp) && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden)
 }
 
-// readRecords reads and judges the join records of uid.
+// openTargets opens the pacto-targets repository path with the ambient
+// registry credentials.
+func openTargets(path string) (*remote.Repository, error) {
+	return ocireferrer.Open(path, ocireferrer.Options{Keychain: oci.NewKeychain(oci.EnvCredentialOptions()), Insecure: oci.EnvInsecureRegistries()})
+}
+
+// readRecords reads and judges the join records of uid, through its own
+// repository client: a tag listing sets the client's page size.
 func (jr *joinRead) readRecords(ctx context.Context, uid string) {
-	fetched, cut, forks, err := jr.s.joinRecords.ListClusterJoins(ctx, jr.repo, uid)
+	repo, _ := openTargets(jr.opts.Repository) // it opened once
+	fetched, cut, forks, err := jr.s.joinRecords.ListClusterJoins(ctx, repo, uid)
 	rs := delivery.JoinRecords{Cut: cut}
 	for _, f := range forks {
 		jr.note(fleet.LimitationTargetSnapshotInvalid, "cluster "+uid+": "+f, false)
@@ -375,7 +383,7 @@ func (s *Service) clusterJoinSources(ctx context.Context, r *snapshotReader, opt
 			continue
 		}
 		if repo == nil {
-			repo, _ = ocireferrer.Open(opts.Repository, ocireferrer.Options{Keychain: oci.NewKeychain(oci.EnvCredentialOptions()), Insecure: oci.EnvInsecureRegistries()}) // it listed
+			repo, _ = openTargets(opts.Repository) // it listed
 		}
 		r.names[st.UID] = &fleet.Cluster{ID: st.UID, Name: st.Name, NameSource: st.NameSource}
 		out = append(out, m.snapshot(ctx, repo, opts.Repository, delivery.TargetSnapshotTagPrefix+st.UID)...)
