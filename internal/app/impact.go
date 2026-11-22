@@ -217,7 +217,10 @@ func (s *Service) prepareImpact(ctx context.Context, opts ImpactOptions, snap *f
 	}
 	// An inferred contract is never a fleet service, so it is never added as one.
 	_, inferred := contract.InferredRef(opts.NewPath)
-	added := addMissing && !inferred && snap.Services[fleet.NewServiceKeyDomain(domain, name)] == nil
+	// The rebuild reads no whole index (withoutListings), so a service only
+	// it held is missing there too.
+	held := snap.Services[fleet.NewServiceKeyDomain(domain, name)]
+	added := addMissing && !inferred && (held == nil || (created || dropped) && onlyWholeIndex(held))
 	if added || created || dropped {
 		var err error
 		if snap, err = s.Fleet(ctx, withNewRevision(opts, newBundle, added)); err != nil {
@@ -225,6 +228,11 @@ func (s *Service) prepareImpact(ctx context.Context, opts ImpactOptions, snap *f
 		}
 	}
 	return preparedImpact{opts: opts, snap: snap, skipped: skipped, added: added}, nil
+}
+
+// onlyWholeIndex reports whether the whole-index source alone holds svc.
+func onlyWholeIndex(svc *fleet.ServiceRecord) bool {
+	return len(svc.Sources) > 0 && !slices.ContainsFunc(svc.Sources, func(id string) bool { return id != wholeIndexSourceID })
 }
 
 // analyzePrepared analyses the change over p.

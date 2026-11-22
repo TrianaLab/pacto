@@ -27,8 +27,7 @@ func (e *idxEnv) whole(svc *Service, repo string, longRunning bool) *indexFleetS
 	if repo == "" {
 		repo = e.index()
 	}
-	src, _ := newIndexFleetSource(svc, repo, longRunning, svc.registryChecks(FleetOptions{}))
-	return src
+	return &indexFleetSource{svc: svc, repo: repo, longRunning: longRunning, configure: svc.registryChecks(FleetOptions{})}
 }
 
 // collectWhole reads src once.
@@ -179,7 +178,7 @@ func TestIndexFleetSourceSkipsForeignInferredRefs(t *testing.T) {
 	if foreign != 0 || e.ir.count("GET", "/other/")+e.ir.count("HEAD", "/other/") != 0 {
 		t.Fatalf("%d requests to the other host, %d to other/", foreign, e.ir.count("GET", "/other/"))
 	}
-	if x := snap.Externals["stripe"]; x == nil || x.Provider != nil || slices.Contains(limCodes(snap.Limitations), limInferredContractUnread) {
+	if x := snap.Externals["stripe"]; x == nil || x.Provider != nil || slices.Contains(limCodes(snap.Limitations), fleet.LimitationInferredContractUnread) {
 		t.Fatalf("stripe %+v; lims %+v", x, snap.Limitations)
 	}
 }
@@ -190,13 +189,31 @@ func TestIndexFleetSourceUnreadInferredContractNeverPartial(t *testing.T) {
 	snap := e.wholeSnap(t, FleetOptions{})
 	var unread []fleet.Limitation
 	for _, l := range snap.Limitations {
-		if l.Code == limInferredContractUnread {
+		if l.Code == fleet.LimitationInferredContractUnread {
 			unread = append(unread, l)
 		}
 	}
 	if st := sourceOf(t, snap, "registry-index"); st.Status != fleet.SourceAvailable || len(unread) != 1 || unread[0].Source != "registry-index" ||
 		snap.Completeness != fleet.CompletenessComplete {
 		t.Fatalf("source %+v, unread %+v", st, unread)
+	}
+	// One index, one source: the source that lists the unread contract is
+	// the one whose detail names it, and the tally counts one index.
+	if len(snap.Sources) != 1 {
+		t.Fatalf("sources %+v", snap.Sources)
+	}
+	d, err := fleet.NewQuery(snap).EntityDetail(fleet.KindSource, "registry-index")
+	if err != nil || d.Source == nil || !slices.Contains(limCodes(d.Source.Limitations.Items), fleet.LimitationInferredContractUnread) {
+		t.Fatalf("%v detail %+v", err, d)
+	}
+}
+
+func TestIndexFleetSourceCleanReadTalliesOneIndex(t *testing.T) {
+	e := newIdxEnv(t)
+	e.seed(t)
+	snap := e.wholeSnap(t, FleetOptions{})
+	if c := fleet.NewQuery(snap).ProductMeta().SourceCounts; c.Total != 1 || !slices.Equal(c.AvailableByKind, []fleet.SourceKindCount{{Kind: "index", Count: 1}}) {
+		t.Fatalf("%+v", c)
 	}
 }
 
@@ -210,9 +227,9 @@ func TestIndexFleetSourceInferredRefsPastBoundAreNoted(t *testing.T) {
 	t.Cleanup(func() { maxIndexInferredRefs = old })
 	src := e.whole(e.svc, "", false)
 	coll := collectWhole(t, src)
-	if coll.State.Status != fleet.SourceAvailable || len(coll.Limitations) != 0 || !slices.Equal(limCodes(src.unread), []string{limInferredContractUnread}) ||
-		!strings.Contains(src.unread[0].Message, "name 2 inferred contracts; only the first 1 were read") || len(coll.Revisions) != 2 {
-		t.Fatalf("%+v %+v %+v", coll.State, coll.Limitations, src.unread)
+	if coll.State.Status != fleet.SourceAvailable || len(coll.Limitations) != 0 || !slices.Equal(limCodes(coll.Notes), []string{fleet.LimitationInferredContractUnread}) ||
+		!strings.Contains(coll.Notes[0].Message, "name 2 inferred contracts; only the first 1 were read") || len(coll.Revisions) != 2 {
+		t.Fatalf("%+v %+v %+v", coll.State, coll.Limitations, coll.Notes)
 	}
 }
 
@@ -231,9 +248,9 @@ func TestIndexFleetSourceInferredPassCutShortIsUnread(t *testing.T) {
 	}
 	src := e.whole(e.svc, "", false)
 	coll, err := src.Collect(ctx)
-	if err != nil || coll.State.Status != fleet.SourceAvailable || !slices.Equal(limCodes(src.unread), []string{limInferredContractUnread}) ||
-		!strings.Contains(src.unread[0].Message, "were not read") {
-		t.Fatalf("%v %+v %+v", err, coll.State, src.unread)
+	if err != nil || coll.State.Status != fleet.SourceAvailable || !slices.Equal(limCodes(coll.Notes), []string{fleet.LimitationInferredContractUnread}) ||
+		!strings.Contains(coll.Notes[0].Message, "were not read") {
+		t.Fatalf("%v %+v %+v", err, coll.State, coll.Notes)
 	}
 }
 
@@ -278,6 +295,24 @@ func TestIndexFleetSourceLongRunningNotFoundIsEmpty(t *testing.T) {
 	e.push(t, "ledger", "1.0.0", interfaceYAML, IndexNone)
 	coll := collectWhole(t, e.whole(e.svc, "", true))
 	if coll.State.Status != fleet.SourceAvailable || len(coll.Limitations) != 0 || len(coll.Revisions) != 0 {
+		t.Fatalf("%+v %+v", coll.State, coll.Limitations)
+	}
+	// The empty reading is said, never silent.
+	if !slices.Equal(limCodes(coll.Notes), []string{fleet.LimitationIndexNotFoundReadEmpty}) || coll.Notes[0].Source != "registry-index" ||
+		!strings.Contains(coll.Notes[0].Message, "read as empty") {
+		t.Fatalf("notes %+v", coll.Notes)
+	}
+}
+
+func TestIndexFleetSourceUnreadBundleNamesItsEntry(t *testing.T) {
+	e := newIdxEnv(t)
+	e.seed(t)
+	e.ir.hook = refuse("/v2/acme/ledger/blobs/", http.StatusNotFound)
+	coll := collectWhole(t, e.whole(e.svc, "", false))
+	tag, _ := orgindex.Tag(e.key("ledger"), "1.0.0")
+	msg := limMessage(coll.Limitations, orgindex.LimitationEntryInvalid)
+	if coll.State.Status != fleet.SourcePartial || !strings.Contains(msg, "index entry "+tag+" not used: its bundle could not be read") ||
+		strings.Contains(msg, "sha256:0") || strings.Contains(msg, "oci://") || slices.Contains(limCodes(coll.Limitations), fleet.LimitationSourceRecordInvalid) {
 		t.Fatalf("%+v %+v", coll.State, coll.Limitations)
 	}
 }
@@ -540,26 +575,42 @@ func TestIndexFleetSourceOwnerDeclaredWhenAllowed(t *testing.T) {
 	}
 }
 
-// TestInferredUnreadSourceWaitsForItsSource: the companion answers once
-// its source is done, and a context that ends first is its error.
-func TestInferredUnreadSourceWaitsForItsSource(t *testing.T) {
-	src, unread := newIndexFleetSource(&Service{}, "", false, nil)
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	if _, err := unread.Collect(ctx); err == nil {
-		t.Fatal("a cancelled wait answered")
-	}
-	src.unread = []fleet.Limitation{{Code: limInferredContractUnread}}
-	src.once.Do(func() { close(src.done) })
-	if coll, err := unread.Collect(t.Context()); err != nil || !coll.Advisory || len(coll.Limitations) != 1 || unread.ID() != "registry-index-inferred" || unread.Kind() != "index" {
-		t.Fatalf("%v %+v", err, coll)
-	}
-}
-
 func TestMergeRowsKeepsOneRowPerID(t *testing.T) {
 	rows := mergeRows([]fleet.Provider{{ID: "registry:a", Services: []fleet.ServiceKey{"x"}}},
 		[]fleet.Provider{{ID: "registry:a", Services: []fleet.ServiceKey{"x", "y"}}, {ID: "registry:b", Services: []fleet.ServiceKey{"z"}}})
 	if len(rows) != 2 || !slices.Equal(rows[0].Services, []fleet.ServiceKey{"x", "y"}) || rows[1].ID != "registry:b" {
 		t.Fatalf("%+v", rows)
+	}
+}
+
+// TestImpactOnWholeIndexSnapshotAddsTheIndexedService: a long-running
+// snapshot that holds the changed service only through the whole index is
+// rebuilt without it (and with a consumer index), so the new revision is
+// added there, never answered SERVICE_NOT_IN_FLEET.
+func TestImpactOnWholeIndexSnapshotAddsTheIndexedService(t *testing.T) {
+	e := newIdxEnv(t)
+	e.push(t, "ledger", "1.0.0", interfaceYAML, "")
+	snap := e.wholeSnap(t, FleetOptions{LongRunning: true})
+	if snap.Services[e.key("ledger")] == nil {
+		t.Fatalf("the whole index holds no ledger: %+v", snap.Services)
+	}
+	res, err := e.svc.ImpactOnSnapshot(t.Context(), ImpactOptions{OldPath: "oci://" + e.ir.host + "/acme/ledger:1.0.0", NewPath: localLedger(t),
+		Fleet: FleetOptions{ReadIndex: e.index(), LongRunning: true}}, snap, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.NewRevisionAdded || slices.Contains(limCodes(res.Limitations), impact.GateCodeServiceNotInFleet) {
+		t.Fatalf("added %v, %+v", res.NewRevisionAdded, res.Limitations)
+	}
+}
+
+// TestNamePullFailuresKeepsOtherLimitations: only a pull failure of an
+// indexed bundle is re-filed under its entry.
+func TestNamePullFailuresKeepsOtherLimitations(t *testing.T) {
+	other := []fleet.Limitation{{Code: fleet.LimitationSourceRecordInvalid, Message: "ref oci://x/y could not be resolved: gone"}, {Code: "OTHER", Message: "kept"}}
+	coll := &fleet.Collection{Limitations: slices.Clone(other)}
+	(&indexFleetSource{}).namePullFailures(coll, nil)
+	if !slices.Equal(coll.Limitations, other) {
+		t.Fatalf("%+v", coll.Limitations)
 	}
 }

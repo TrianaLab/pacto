@@ -25,9 +25,9 @@ compliance evidence that a source carries.
   resolved cache-first so a pulled ref works offline.
 - **The organization index** (`--index <registry>/pacto-index`): every service
   [the index lists](backstage-registry.md), pulled by digest with the `--oci`
-  checks, as source `registry-index` of kind `index`. The advisory source
-  `registry-index-inferred` lists each inferred contract it could not read as
-  `INFERRED_CONTRACT_UNREAD` and never makes the answer partial.
+  checks, as source `registry-index` of kind `index`. It lists each inferred
+  contract it could not read as `INFERRED_CONTRACT_UNREAD`, which never makes
+  the answer partial.
 - **Local OCI cache** (`--cache`): every bundle already pulled to disk. Opt-in,
   because on a machine that has pulled contracts for months the cache holds
   everything anyone ever fetched. That is a useful offline baseline but a poor

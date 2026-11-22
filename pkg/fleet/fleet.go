@@ -699,6 +699,18 @@ const (
 	// names no external, or another external than its repository path, so it
 	// is attached to no external system and is no service either.
 	LimitationInferredIdentityMismatch = "INFERRED_IDENTITY_MISMATCH"
+	// LimitationInferredContractUnread: an inferred contract a source's
+	// records name was not read, so its external system keeps no contract.
+	// Completeness is unchanged; a restricted view counts them per source.
+	LimitationInferredContractUnread = "INFERRED_CONTRACT_UNREAD"
+	// LimitationIndexEntryInvalid: organization index entries that were
+	// malformed, unbound, unconfirmed or whose bundle could not be read were
+	// never used. A restricted view counts them per source.
+	LimitationIndexEntryInvalid = "CONSUMER_INDEX_ENTRY_INVALID"
+	// LimitationIndexNotFoundReadEmpty: a long-running reader found no
+	// organization index and read it as empty, since it never listed entries
+	// there. Completeness is unchanged.
+	LimitationIndexNotFoundReadEmpty = "INDEX_NOT_FOUND_READ_EMPTY"
 )
 
 // RangeReasonInferredProvider is the [Relationship.RangeReason] of a range
