@@ -19,6 +19,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
@@ -754,8 +755,15 @@ func (f evidenceFixture) serveOptions() ServeOptions {
 // no Referrers API — cannot host it. stop closes it, to simulate an outage.
 func referrersRegistry(t *testing.T) (host string, stop func()) {
 	t.Helper()
+	return referrersRegistryWith(t, testutil.ReferrersOptions{})
+}
+
+// referrersRegistryWith is referrersRegistry with opts, e.g. a registry that
+// serves no Referrers API.
+func referrersRegistryWith(t *testing.T, opts testutil.ReferrersOptions) (host string, stop func()) {
+	t.Helper()
 	freshProbes(t)
-	srv := httptest.NewServer(testutil.NewReferrersRegistry(testutil.ReferrersOptions{}))
+	srv := httptest.NewServer(testutil.NewReferrersRegistry(opts))
 	var once sync.Once
 	stop = func() { once.Do(srv.Close) }
 	t.Cleanup(stop)
@@ -1537,11 +1545,15 @@ type scopedFixture struct {
 	dir         string
 	contractRef string
 	keys        map[string]KeyPair
+	// prefixes are the subject prefixes the host serves beside the contract.
+	prefixes []string
 }
 
-func newScopedFixture(t *testing.T) scopedFixture {
+// newScopedFixture pushes the consumer bundle to a registry served with opts
+// and mints the adapter keys.
+func newScopedFixture(t *testing.T, opts testutil.ReferrersOptions) scopedFixture {
 	t.Helper()
-	host, _ := referrersRegistry(t)
+	host, _ := referrersRegistryWith(t, opts)
 	svc, client := mxService(mxHostKeychain{})
 	digest, err := client.Push(context.Background(), host+"/orders:1.0.0", scopedConsumerBundle(t, host))
 	if err != nil {
@@ -1581,7 +1593,7 @@ func (f scopedFixture) serveKinds(t *testing.T, ctx context.Context, scopes, kin
 	if err := os.WriteFile(cfg, []byte(b.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return serveEvidenceCtx(t, ctx, f.svc, ServeOptions{TrustPath: cfg, Subjects: []string{f.contractRef}, Producers: []string{"db-adapter", "cache-adapter"}})
+	return serveEvidenceCtx(t, ctx, f.svc, ServeOptions{TrustPath: cfg, Subjects: []string{f.contractRef}, SubjectPrefixes: f.prefixes, Producers: []string{"db-adapter", "cache-adapter"}})
 }
 
 // report posts a Ready report about the named configuration, signed by the
@@ -1626,7 +1638,7 @@ func provisioningKeys(t *testing.T, base string) map[string]string {
 }
 
 func TestServeEvidence_WarnsUnscopedProvisioningKey(t *testing.T) {
-	f := newScopedFixture(t)
+	f := newScopedFixture(t, testutil.ReferrersOptions{})
 	var buf bytes.Buffer
 	ctx := logging.WithLogger(context.Background(), logging.New(&buf, false))
 	f.serve(t, ctx, map[string]string{"db-adapter": "ghcr.io/acme/platform/postgresql"})
@@ -1646,7 +1658,7 @@ func TestServeEvidence_WarnsUnscopedProvisioningKey(t *testing.T) {
 // trust store); a change to that behavior changes this test and the docs
 // together.
 func TestServeEvidence_ProviderScopedProvisioning(t *testing.T) {
-	f := newScopedFixture(t)
+	f := newScopedFixture(t, testutil.ReferrersOptions{})
 	host := strings.TrimPrefix(strings.SplitN(f.contractRef, "/orders@", 2)[0], "oci://")
 	pg, redis := host+"/platform/postgresql", host+"/platform/redis"
 	base := f.serve(t, context.Background(), map[string]string{"db-adapter": pg, "cache-adapter": redis})
@@ -1675,6 +1687,26 @@ func TestServeEvidence_ProviderScopedProvisioning(t *testing.T) {
 	}
 	if res := f.report(t, narrowed, "cache-adapter", "cache", 3); res.StatusCode != http.StatusForbidden {
 		t.Errorf("cache-adapter on cache after narrowing = %d %s, want 403", res.StatusCode, res.Body)
+	}
+}
+
+// On a registry that serves no Referrers API, a signed ResourceProvisioned
+// report under a subject prefix is stored as a write-once tag and reads Ready
+// through the fleet source, never Unknown.
+func TestServeEvidenceProvisionedReadsReadyWithoutReferrers(t *testing.T) {
+	f := newScopedFixture(t, testutil.ReferrersOptions{Unsupported: true})
+	host := strings.TrimPrefix(strings.SplitN(f.contractRef, "/orders@", 2)[0], "oci://")
+	f.prefixes = []string{"oci://" + host + "/"}
+	base := f.serve(t, context.Background(), nil)
+	if res := f.report(t, base, "db-adapter", "database", 1); res.StatusCode != http.StatusAccepted {
+		t.Fatalf("report = %d %s, want 202", res.StatusCode, res.Body)
+	}
+	col, err := fleetsrc.NewEvidenceHTTPSource("evidence-http", base).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := col.Provisioning; len(got) != 1 || got[0].Phase != "Ready" || got[0].Outcome != "Observed" || !got[0].Verified {
+		t.Fatalf("provisioning = %+v, want one verified observed Ready record", got)
 	}
 }
 

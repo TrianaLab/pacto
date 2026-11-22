@@ -79,7 +79,8 @@ func TestLedgerAnchorRoundTrip(t *testing.T) {
 			t.Fatalf("writeAnchor: %v", err)
 		}
 	}
-	got, invalid, err := s.ledgerSubjects(t.Context(), p)
+	read, err := s.ledgerSubjects(t.Context(), p)
+	got, invalid := read.subjects, read.invalid
 	if err != nil || invalid != 0 || len(got) != 1 || got[0] != subj {
 		t.Fatalf("ledgerSubjects = %v, %d, %v, want [%s]", got, invalid, err, subj.Ref())
 	}
@@ -128,7 +129,8 @@ func TestLedgerAnchorRejectsWhatTheRegistryServes(t *testing.T) {
 			subj, _ := ParseSubject(Scheme + host + "/acme/invoices@" + digestA)
 			payload, _ := json.Marshal(anchorDoc{Subject: subj.Ref()})
 			plantAnchor(t, host, build(payload), anchorTag(subj.Ref()))
-			got, invalid, err := prefixStore(t, host).ledgerSubjects(t.Context(), prefixFor(t, host))
+			read, err := prefixStore(t, host).ledgerSubjects(t.Context(), prefixFor(t, host))
+			got, invalid := read.subjects, read.invalid
 			if err != nil || invalid != 1 || len(got) != 0 {
 				t.Fatalf("ledgerSubjects = %v, %d, %v, want one invalid anchor", got, invalid, err)
 			}
@@ -148,7 +150,8 @@ func TestLedgerAnchorUnreadable(t *testing.T) {
 	plantAnchor(t, host, buildAnchor(subj), anchorTag(subj.Ref()))
 	plantAnchor(t, host, buildAnchor(subj), anchorTag(subj.Ref())+"-0123456789ab")
 	breakLayer.Store(true)
-	got, invalid, err := prefixStore(t, host).ledgerSubjects(t.Context(), prefixFor(t, host))
+	read, err := prefixStore(t, host).ledgerSubjects(t.Context(), prefixFor(t, host))
+	got, invalid := read.subjects, read.invalid
 	if err != nil || invalid != 1 || len(got) != 0 {
 		t.Fatalf("ledgerSubjects = %v, %d, %v, want one invalid anchor and the record tag skipped", got, invalid, err)
 	}
@@ -159,7 +162,8 @@ func TestLedgerAnchorUnreadable(t *testing.T) {
 
 func TestLedgerMissingRepositoryIsEmpty(t *testing.T) {
 	host := startRegistry(t, testutil.ReferrersOptions{})
-	got, invalid, err := prefixStore(t, host).ledgerSubjects(t.Context(), prefixFor(t, host))
+	read, err := prefixStore(t, host).ledgerSubjects(t.Context(), prefixFor(t, host))
+	got, invalid := read.subjects, read.invalid
 	if err != nil || invalid != 0 || len(got) != 0 {
 		t.Fatalf("ledgerSubjects of a missing ledger = %v, %d, %v, want empty", got, invalid, err)
 	}
@@ -167,7 +171,7 @@ func TestLedgerMissingRepositoryIsEmpty(t *testing.T) {
 
 func TestLedgerUnreadableListingFails(t *testing.T) {
 	host := serve(t, failing{inner: testutil.NewReferrersRegistry(testutil.ReferrersOptions{}), status: http.StatusForbidden, fail: ledgerPath})
-	if _, _, err := prefixStore(t, host).ledgerSubjects(t.Context(), prefixFor(t, host)); err == nil {
+	if _, err := prefixStore(t, host).ledgerSubjects(t.Context(), prefixFor(t, host)); err == nil {
 		t.Fatal("ledgerSubjects over a failing listing succeeded")
 	}
 }
@@ -188,8 +192,8 @@ func TestLedgerAnchorMemoized(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 3 {
-		if got, _, err := s.ledgerSubjects(t.Context(), p); err != nil || len(got) != 1 {
-			t.Fatalf("ledgerSubjects = %v, %v", got, err)
+		if read, err := s.ledgerSubjects(t.Context(), p); err != nil || len(read.subjects) != 1 {
+			t.Fatalf("ledgerSubjects = %v, %v", read.subjects, err)
 		}
 	}
 	if n := fetches.Load(); n != 1 {
@@ -201,6 +205,10 @@ func TestEvidenceTagsNeverUseTheReferrersTagScheme(t *testing.T) {
 	tag := anchorTag("oci://reg/acme/invoices@" + digestA)
 	if !strings.HasPrefix(tag, "evidence-") || strings.HasPrefix(tag, "sha256-") || len(tag) > 128 || len(tag) != anchorTagLen {
 		t.Fatalf("anchorTag = %q (%d characters)", tag, len(tag))
+	}
+	rec := recordTag("oci://reg/acme/invoices@"+digestA, digestA)
+	if !strings.HasPrefix(rec, tag+"-") || strings.HasPrefix(rec, "sha256-") || len(rec) > 128 || len(rec) != recordTagLen {
+		t.Fatalf("recordTag = %q (%d characters)", rec, len(rec))
 	}
 	if anchorTag("oci://reg/acme/invoices@"+digestA) == anchorTag("oci://reg/acme/billing@"+digestA) {
 		t.Error("one digest in two repositories must be two anchors")
@@ -224,7 +232,8 @@ func TestLedgerAnchorRejectsMalformedContent(t *testing.T) {
 	if err := repo.PushReference(t.Context(), ocireferrer.Descriptor(ocispec.MediaTypeImageManifest, raw), bytes.NewReader(raw), anchorTag(other.Ref())); err != nil {
 		t.Fatal(err)
 	}
-	got, invalid, err := prefixStore(t, host).ledgerSubjects(t.Context(), prefixFor(t, host))
+	read, err := prefixStore(t, host).ledgerSubjects(t.Context(), prefixFor(t, host))
+	got, invalid := read.subjects, read.invalid
 	if err != nil || invalid != 2 || len(got) != 0 {
 		t.Fatalf("ledgerSubjects = %v, %d, %v, want two invalid anchors", got, invalid, err)
 	}

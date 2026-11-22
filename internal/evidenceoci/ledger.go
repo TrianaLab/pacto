@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
@@ -20,7 +22,9 @@ import (
 // <prefix>pacto-evidence, holding one write-once anchor tag per subject that
 // ever received evidence. Referrers are listed per digest only, so the ledger
 // is what lets a store with an open subject set find every subject again after
-// a restart, with the registry still the only store.
+// a restart, with the registry still the only store. On a registry without
+// Referrers the ledger also holds each record as a write-once tag under its
+// subject's anchor.
 
 // LedgerArtifactType is the artifact and layer type of a ledger anchor.
 const LedgerArtifactType = "application/vnd.pacto.evidence.subject.v1+json"
@@ -28,8 +32,17 @@ const LedgerArtifactType = "application/vnd.pacto.evidence.subject.v1+json"
 const (
 	// ledgerTagPrefix starts every tag the Evidence Server writes in a ledger.
 	ledgerTagPrefix = "evidence-"
+	// recordSuffixLen is how much of the record manifest digest a record tag
+	// carries.
+	recordSuffixLen = 12
 	// anchorTagLen is the length of an anchor tag: the prefix and 64 hex.
 	anchorTagLen = len(ledgerTagPrefix) + sha256.Size*2
+	// recordTagLen is the length of a record tag: its anchor tag, '-' and 12
+	// hex of the record manifest digest.
+	recordTagLen = anchorTagLen + 1 + recordSuffixLen
+	// maxLedgerTags is the tag listing bound of ocireferrer.Tags (1000 pages
+	// of 100), named in the error a ledger past it returns.
+	maxLedgerTags = 100000
 	// maxAnchorBytes bounds an anchor payload: one subject reference.
 	maxAnchorBytes = 4096
 )
@@ -47,6 +60,14 @@ func anchorTag(ref string) string {
 	return ledgerTagPrefix + hex.EncodeToString(sum[:])
 }
 
+// recordTag is the ledger tag of one record on the subject ref:
+// evidence-<hex sha256(ref)>-<first 12 hex of the record manifest digest>. It
+// starts with the anchor tag, so a listing seeks from a tag the registry
+// holds.
+func recordTag(ref string, manifest digest.Digest) string {
+	return anchorTag(ref) + "-" + manifest.Encoded()[:recordSuffixLen]
+}
+
 // buildAnchor is the deterministic anchor artifact of s.
 func buildAnchor(s Subject) ocireferrer.Artifact {
 	payload, _ := json.Marshal(anchorDoc{Subject: s.Ref()}) // one string; marshalling cannot fail
@@ -59,37 +80,71 @@ func (s *Store) writeAnchor(ctx context.Context, p Prefix, subj Subject) error {
 	return ocireferrer.PushWriteOnce(ctx, s.ledgers[p], buildAnchor(subj), anchorTag(subj.Ref()))
 }
 
+// writeRecord stores art, a record on subj, as a write-once tag in p's
+// ledger, for a registry that serves no Referrers. The tag is confirmed after
+// the push and never moved.
+func (s *Store) writeRecord(ctx context.Context, p Prefix, subj Subject, art ocireferrer.Artifact) error {
+	return ocireferrer.PushWriteOnce(ctx, s.ledgers[p], art, recordTag(subj.Ref(), art.ManifestDesc.Digest))
+}
+
 // ledgerTags lists p's ledger tags. A ledger repository that does not exist
-// yet is an empty ledger.
+// yet is an empty ledger; one past the listing bound is unreadable.
 func (s *Store) ledgerTags(ctx context.Context, p Prefix) ([]string, error) {
 	tags, err := ocireferrer.Tags(ctx, s.ledgers[p], ledgerTagPrefix)
-	if err != nil && !ocireferrer.RepositoryNotFound(err) {
+	switch {
+	case errors.Is(err, ocireferrer.ErrTagPagesExceeded):
+		return nil, fmt.Errorf("evidence oci: ledger %s holds more than %d tags, the most one listing reads: let registry retention delete old record tags: %w", p.Ledger(), maxLedgerTags, err)
+	case err != nil && !ocireferrer.RepositoryNotFound(err):
 		return nil, fmt.Errorf("evidence oci: ledger %s: %w", p.Ledger(), err)
 	}
 	return tags, nil
 }
 
-// ledgerSubjects reads every subject in p's ledger and counts the anchors
-// that could not be read as one. An unreadable listing is an error.
-func (s *Store) ledgerSubjects(ctx context.Context, p Prefix) ([]Subject, int, error) {
+// ledgerRead is one read of a prefix's ledger.
+type ledgerRead struct {
+	subjects []Subject
+	// records maps an anchor tag to the record tags under it.
+	records map[string][]string
+	// invalid counts anchors that could not be read and record tags with no
+	// anchor.
+	invalid int
+}
+
+// ledgerSubjects reads every subject in p's ledger and groups the record
+// tags by anchor. An unreadable listing is an error.
+func (s *Store) ledgerSubjects(ctx context.Context, p Prefix) (ledgerRead, error) {
 	tags, err := s.ledgerTags(ctx, p)
 	if err != nil {
-		return nil, 0, err
+		return ledgerRead{}, err
 	}
-	var out []Subject
-	invalid := 0
+	out := ledgerRead{records: map[string][]string{}}
+	anchors := map[string]bool{}
 	for _, tag := range tags {
 		if len(tag) != anchorTagLen {
 			continue
 		}
+		anchors[tag] = true
 		subj, err := s.anchorSubject(ctx, p, tag)
 		if err != nil {
-			invalid++
+			out.invalid++
 			continue
 		}
-		out = append(out, subj)
+		out.subjects = append(out.subjects, subj)
 	}
-	return out, invalid, nil
+	for _, tag := range tags {
+		if len(tag) != recordTagLen || tag[anchorTagLen] != '-' {
+			continue
+		}
+		// The anchor is written first, so a record without one was planted
+		// or its anchor deleted: a record nobody can attribute is unread
+		// evidence.
+		if anchor := tag[:anchorTagLen]; anchors[anchor] {
+			out.records[anchor] = append(out.records[anchor], tag)
+		} else {
+			out.invalid++
+		}
+	}
+	return out, nil
 }
 
 // anchorSubject reads one anchor. A decoded anchor is memoized: its tag fixes

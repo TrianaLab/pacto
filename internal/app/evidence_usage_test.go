@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
@@ -125,7 +126,7 @@ func (f scopedFixture) usage(t *testing.T, base, producer, configuration string,
 // speaks v3 until usage is stored, and a usage report keeps its own record next
 // to the same resource's provisioning record.
 func TestUsageDoesNotReplaceProvisioning(t *testing.T) {
-	f := newScopedFixture(t)
+	f := newScopedFixture(t, testutil.ReferrersOptions{})
 	host := strings.TrimPrefix(strings.SplitN(f.contractRef, "/orders@", 2)[0], "oci://")
 	both := "ResourceProvisioned, ResourceUsage"
 	base := f.serveKinds(t, context.Background(), map[string]string{"db-adapter": host + "/platform/postgresql"},

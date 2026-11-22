@@ -4,20 +4,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"sync"
 
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 )
 
 // Store persists accepted evidence records as OCI 1.1 Referrers of the contract
-// revisions they report on. It holds no local state: the configured registry is
+// revisions they report on or, on a registry the probe finds without Referrers,
+// as write-once tags in the covering prefix's ledger. It holds no local state: the configured registry is
 // the durable store, so the replay index and the operational projection are both
 // reconstructed from the registry on every operation.
 //
@@ -204,27 +209,81 @@ func (s *Store) lookup(ref string) (Subject, *Prefix, error) {
 }
 
 // Ready implements the registry preflight behind the readiness probe: every
-// prefix's ledger must list (an absent ledger is empty), and every configured
-// subject must resolve to a real manifest and answer native Referrers
-// discovery. A transient registry failure makes the server not-ready; it never
-// makes it unhealthy, so a registry outage cannot restart the process.
+// configured subject must resolve, live, to a real manifest on a registry whose
+// placement the probe can tell, and every prefix's ledger must list (an absent
+// ledger is empty). The probe runs once per registry host, cached, so readiness
+// costs one Referrers request per host however many subjects it holds. A
+// transient registry failure makes the server not-ready; it never makes it
+// unhealthy, so a registry outage cannot restart the process.
 func (s *Store) Ready(ctx context.Context) error {
-	for _, p := range s.prefixes {
-		if _, err := s.ledgerTags(ctx, p); err != nil {
+	for _, subj := range s.subjects {
+		sr := s.parsedRepo(subj)
+		// A live request, never the memoized descriptor: readiness must see
+		// an outage.
+		if _, err := sr.repo.Resolve(ctx, subj.Digest); err != nil {
+			return fmt.Errorf("evidence oci: %s: %w", subj.Ref(), err)
+		}
+		if _, err := s.placement(ctx, sr); err != nil {
 			return err
 		}
 	}
-	for _, subj := range s.subjects {
-		sr := s.parsedRepo(subj)
-		desc, err := sr.resolve(ctx)
-		if err != nil {
-			return err
-		}
-		if err := ocireferrer.Enumerate(ctx, sr.repo, desc); err != nil {
+	for _, p := range s.prefixes {
+		if err := s.readyLedger(ctx, p); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// readyLedger lists p's ledger and probes its host with the first ledger
+// subject the registry still holds. An empty ledger has nothing to probe yet:
+// the first commit probes.
+func (s *Store) readyLedger(ctx context.Context, p Prefix) error {
+	tags, err := s.ledgerTags(ctx, p)
+	if err != nil {
+		return err
+	}
+	for _, tag := range tags {
+		if len(tag) != anchorTagLen {
+			continue
+		}
+		subj, err := s.anchorSubject(ctx, p, tag)
+		if err != nil {
+			continue // List and Commit report it; readiness is reachability
+		}
+		sr := s.parsedRepo(subj)
+		if _, err := sr.resolve(ctx); err != nil {
+			if notFound(err) {
+				continue
+			}
+			return err
+		}
+		_, err = s.placement(ctx, sr)
+		return err
+	}
+	return nil
+}
+
+// placement asks the registry probe, once per host, where a record on sr goes:
+// a native referrer, or a write-once tag in the covering prefix's ledger. A
+// probe that cannot tell is an error, never a mode, and so is a registry
+// without Referrers for a subject no prefix covers, which has no ledger.
+func (s *Store) placement(ctx context.Context, sr *subjectRepo) (capabilities.ReferrersMode, error) {
+	caps, err := ocireferrer.Probes.Probe(ctx, sr.repo, sr.subj.Digest, false)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", evidenceingest.ErrRegistryUnavailable, err)
+	}
+	if _, covered := s.prefixes.Covering(sr.subj); caps.Referrers == capabilities.ReferrersWriteOnceTags && !covered {
+		return "", fmt.Errorf("%w: registry %s serves no OCI Referrers: add a subject prefix covering %s to store its evidence as write-once tags in <prefix>%s",
+			evidenceingest.ErrRegistryUnavailable, sr.subj.Registry, sr.subj.Ref(), oci.EvidenceRepository)
+	}
+	return caps.Referrers, nil
+}
+
+// notFound reports whether the registry definitively answered that a revision
+// or its repository does not exist.
+func notFound(err error) bool {
+	return errors.Is(err, errdef.ErrNotFound) || ocireferrer.RepositoryNotFound(err)
 }
 
 // List implements [evidenceingest.Store]: it rebuilds the latest record per
@@ -274,10 +333,11 @@ func supersedes(a, b evidenceingest.Record) bool {
 
 // Commit implements [evidenceingest.Store] as one serialized logical commit:
 // resolve the revision, reconstruct the accepted history from the registry,
-// refuse a replay, anchor a prefix-covered subject in its ledger, publish the
-// record, and report success only once the same Referrers API a later scan
-// uses can see it. The anchor goes first: a crash before the record leaves a
-// subject with no evidence, never a record no scan can find.
+// refuse a replay, ask the probe where the record goes, anchor a
+// prefix-covered subject in its ledger, publish the record, and report success
+// only once the same API a later scan uses can see it. The anchor goes first: a
+// crash before the record leaves a subject with no evidence, never a record no
+// scan can find.
 func (s *Store) Commit(ctx context.Context, rec evidenceingest.Record) error {
 	subj, prefix, err := s.lookup(rec.Envelope.EvidenceSet.ContractRef)
 	if err != nil {
@@ -297,13 +357,19 @@ func (s *Store) Commit(ctx context.Context, rec evidenceingest.Record) error {
 	sc := s.scan(ctx)
 	switch {
 	case sc.failed > 0:
-		return fmt.Errorf("%w: %d of %d contract subjects could not be read",
-			evidenceingest.ErrRegistryUnavailable, sc.failed, sc.subjects)
+		return fmt.Errorf("%w: %d of %d contract subjects could not be read: %w",
+			evidenceingest.ErrRegistryUnavailable, sc.failed, sc.subjects, sc.firstErr)
 	case sc.invalid > 0:
 		return fmt.Errorf("%w: %d published evidence artifact(s) could not be read",
 			evidenceingest.ErrRegistryIncomplete, sc.invalid)
 	}
 	if err := checkReplay(rec, sc.records); err != nil {
+		return err
+	}
+	// The probe runs before the anchor: a registry it cannot classify leaves
+	// nothing in the ledger.
+	mode, err := s.placement(ctx, sr)
+	if err != nil {
 		return err
 	}
 
@@ -316,6 +382,13 @@ func (s *Store) Commit(ctx context.Context, rec evidenceingest.Record) error {
 		if err := s.writeAnchor(ctx, *prefix, subj); err != nil {
 			return fmt.Errorf("%w: ledger %s: %w", evidenceingest.ErrStoreWrite, prefix.Ledger(), err)
 		}
+	}
+	if mode == capabilities.ReferrersWriteOnceTags {
+		// placement refuses this mode for a subject no prefix covers.
+		if err := s.writeRecord(ctx, *prefix, subj, art); err != nil {
+			return fmt.Errorf("%w: ledger %s: %w", evidenceingest.ErrStoreWrite, prefix.Ledger(), err)
+		}
+		return nil
 	}
 	if err := ocireferrer.Push(ctx, sr.repo, art); err != nil {
 		return fmt.Errorf("%w: %w", evidenceingest.ErrStoreWrite, err)
@@ -342,23 +415,35 @@ type registryScan struct {
 	// no longer holds (retention, or an anchor naming a missing digest): their
 	// referrers went with them, so they are neither failed nor counted.
 	pruned int
+	// firstErr is why the first failed unit failed.
+	firstErr error
+}
+
+// fail counts one failed read unit.
+func (r *registryScan) fail(err error) {
+	r.failed++
+	if r.firstErr == nil {
+		r.firstErr = err
+	}
 }
 
 // scan reads the exact subjects, then every ledger and the subjects it names,
-// each subject once.
+// each subject once, with the record tags each ledger holds for it.
 func (s *Store) scan(ctx context.Context) registryScan {
 	var out registryScan
 	units := slices.Clone(s.subjects)
 	fromLedger := map[Subject]bool{}
+	records := map[string][]string{}
 	for _, p := range s.prefixes {
 		out.subjects++
-		subs, invalid, err := s.ledgerSubjects(ctx, p)
+		read, err := s.ledgerSubjects(ctx, p)
 		if err != nil {
-			out.failed++
+			out.fail(err)
 			continue
 		}
-		out.invalid += invalid
-		for _, subj := range subs {
+		out.invalid += read.invalid
+		maps.Copy(records, read.records)
+		for _, subj := range read.subjects {
 			if !slices.Contains(units, subj) {
 				units = append(units, subj)
 				fromLedger[subj] = true
@@ -366,32 +451,73 @@ func (s *Store) scan(ctx context.Context) registryScan {
 		}
 	}
 	for _, subj := range units {
-		s.scanOne(ctx, subj, fromLedger[subj], &out)
+		s.scanOne(ctx, subj, fromLedger[subj], records[anchorTag(subj.Ref())], &out)
 	}
 	return out
 }
 
-// scanOne reads subj's referrers into out. A ledger subject the registry
-// definitively no longer holds is pruned; an exact subject fails closed.
-func (s *Store) scanOne(ctx context.Context, subj Subject, fromLedger bool, out *registryScan) {
+// scanOne reads subj's records into out: its referrers where the registry
+// serves them, and in every mode its record tags in the ledger, so a registry
+// whose probe answer changed across a restart keeps every earlier record. A
+// ledger subject the registry definitively no longer holds is pruned, its
+// record tags still read; an exact subject fails closed.
+func (s *Store) scanOne(ctx context.Context, subj Subject, fromLedger bool, tags []string, out *registryScan) {
 	sr := s.parsedRepo(subj)
 	desc, err := sr.resolve(ctx)
-	if err != nil && fromLedger && (errors.Is(err, errdef.ErrNotFound) || ocireferrer.RepositoryNotFound(err)) {
+	if err != nil && fromLedger && notFound(err) {
 		out.pruned++
+		s.readTagRecords(ctx, subj, ocispec.Descriptor{}, tags, nil, out)
 		return
 	}
 	out.subjects++
 	if err != nil {
-		out.failed++
+		out.fail(err)
 		return
 	}
-	found, err := scanSubject(ctx, sr.repo, subj, desc)
+	mode, err := s.placement(ctx, sr)
 	if err != nil {
-		out.failed++
+		out.fail(err)
 		return
 	}
-	out.invalid += found.Invalid
-	out.records = append(out.records, found.Found...)
+	var seen map[digest.Digest]bool
+	if mode == capabilities.ReferrersNative {
+		found, err := scanSubject(ctx, sr.repo, subj, desc)
+		if err != nil {
+			out.fail(err)
+			return
+		}
+		out.invalid += found.Invalid
+		out.records = append(out.records, found.Found...)
+		seen = found.seen
+	}
+	s.readTagRecords(ctx, subj, desc, tags, seen, out)
+}
+
+// readTagRecords reads subj's write-once record tags from its ledger, skipping
+// records already read as referrers. A tag that does not resolve, is not named
+// after its manifest or is not a valid record on subj is invalid.
+func (s *Store) readTagRecords(ctx context.Context, subj Subject, subjectDesc ocispec.Descriptor, tags []string, seen map[digest.Digest]bool, out *registryScan) {
+	if len(tags) == 0 {
+		return
+	}
+	p, _ := s.prefixes.Covering(subj) // tags come from the covering ledger
+	repo := s.ledgers[p]
+	for _, tag := range tags {
+		desc, err := repo.Resolve(ctx, tag)
+		switch {
+		case err != nil || recordTag(subj.Ref(), desc.Digest) != tag:
+			out.invalid++
+			continue
+		case seen[desc.Digest]:
+			continue
+		}
+		rec, state := readReferrer(ctx, repo, subj, subjectDesc, desc)
+		if state != referrerRecord {
+			out.invalid++
+			continue
+		}
+		out.records = append(out.records, rec)
+	}
 }
 
 // health states what the read is worth. Absence of evidence is only authoritative

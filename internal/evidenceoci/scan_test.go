@@ -34,6 +34,7 @@ func startRegistry(t *testing.T, opts testutil.ReferrersOptions) string {
 // serve runs h on loopback and returns its host:port.
 func serve(t *testing.T, h http.Handler) string {
 	t.Helper()
+	freshProbes(t)
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return srv.Listener.Addr().String()
