@@ -217,7 +217,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().Int("port", 3000, "port for the dashboard server")
 	cmd.Flags().String("namespace", "", "Kubernetes namespaces to read, comma-separated (empty = all namespaces); delivery reads narrow to it only when it names one")
 	cmd.Flags().StringArray("context", nil, "kubeconfig context to read live Pacto CRs from (repeatable, each cluster read once); outside a pod the named contexts replace the current one and people sign in against the first (also PACTO_DASHBOARD_CONTEXT)")
-	cmd.Flags().String("detected", "", "what the operator detected, shown as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (also PACTO_DASHBOARD_DETECTED)")
+	cmd.Flags().String("detected", "", "what the operator detected, shown as inferred rows, and the workloads it linked to a published contract, shown as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON with linked.json beside it (also PACTO_DASHBOARD_DETECTED)")
 	cmd.Flags().String("fingerprints", "", "a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers (also PACTO_DASHBOARD_FINGERPRINTS)")
 	cmd.Flags().String("cors-origin", "", "explicit cross-origin allowed to call the API (default: same-origin only)")
 	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)")

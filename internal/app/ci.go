@@ -318,7 +318,7 @@ const advertisedSource = "the installation advertised at "
 // PACTO_REGISTRY_* credentials are set: they answer any host, and a detection
 // a ConfigMap writer can forge must not choose where they are sent.
 func (s *Service) ciAdvertised(ctx context.Context, ref string) (ci.Value, string) {
-	srcs := s.detectionSources(ref)
+	srcs := s.operatorSources(ref)
 	if len(srcs) == 0 {
 		return ci.Value{}, ""
 	}

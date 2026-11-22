@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
@@ -227,7 +229,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	if opts.IncludeK8s || len(opts.K8sContexts) > 0 {
 		sources = append(sources, s.k8sSources(ctx, opts, fp.Promoters)...)
 	}
-	sources = append(sources, s.detectionSources(opts.Detected)...)
+	sources = append(sources, s.operatorSources(opts.Detected)...)
 	sources = append(sources, snaps...)
 	sources = append(sources, opts.addedSources()...)
 	if err := checkSourceIDsAreUnique(sources); err != nil {
@@ -272,25 +274,39 @@ func CheckDetectedRef(ref string) error {
 	return nil
 }
 
-// detectionSources is the advisory detection source of ref, checked by
-// [CheckDetectedRef], none when ref is empty: k8s:NS/NAME reads that
-// ConfigMap, anything else is a file. A dynamic client that cannot be built
-// is an unavailable source that says so.
-func (s *Service) detectionSources(ref string) []fleet.Source {
-	const id = "detection"
+// operatorSources are the sources of what the operator wrote at ref,
+// checked by [CheckDetectedRef], none when ref is empty: the advisory
+// detection source first, then the workloads it linked to a published
+// contract. k8s:NS/NAME reads both keys of that ConfigMap; anything else is
+// the detection file, with the linked file beside it when one is there. A
+// dynamic client that cannot be built makes both unavailable sources that
+// say so.
+func (s *Service) operatorSources(ref string) []fleet.Source {
+	const id, linkedID = "detection", "linked"
 	rest, ok := strings.CutPrefix(ref, "k8s:")
 	switch {
 	case ref == "":
 		return nil
 	case !ok:
-		return []fleet.Source{fleetsrc.NewDetectionFileSource(id, ref, s.env().now)}
+		out := []fleet.Source{fleetsrc.NewDetectionFileSource(id, ref, s.env().now)}
+		if linked := filepath.Join(filepath.Dir(ref), delivery.LinkedConfigMapKey); fileThere(linked) {
+			out = append(out, fleetsrc.NewLinkedFileSource(linkedID, linked, s.env().now))
+		}
+		return out
 	}
 	ns, name, _ := strings.Cut(rest, "/")
 	dyn, err := s.env().newDynamic()
 	if err != nil {
-		return []fleet.Source{fleetsrc.NewDetectionFailedSource(id, fmt.Errorf("%w: %w", fleetsrc.ErrDetectionNoCluster, err))}
+		err = fmt.Errorf("%w: %w", fleetsrc.ErrDetectionNoCluster, err)
+		return []fleet.Source{fleetsrc.NewDetectionFailedSource(id, err), fleetsrc.NewLinkedFailedSource(linkedID, err)}
 	}
-	return []fleet.Source{fleetsrc.NewDetectionK8sSource(id, dyn, ns, name, s.env().now)}
+	return []fleet.Source{fleetsrc.NewDetectionK8sSource(id, dyn, ns, name, s.env().now), fleetsrc.NewLinkedK8sSource(linkedID, dyn, ns, name, s.env().now)}
+}
+
+// fileThere reports whether path names something Stat can read.
+func fileThere(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // workloadsSuffix names a cluster's workload source after its Pacto source.

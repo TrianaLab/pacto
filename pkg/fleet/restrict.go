@@ -940,7 +940,7 @@ func hasTargetSource(s *FleetSnapshot) bool {
 }
 
 // targetSourceKinds are the source kinds that report operational targets.
-var targetSourceKinds = []string{SourceKindKubernetes, SourceKindEvidenceHTTP, SourceKindTargetState, SourceKindTargetSnapshot}
+var targetSourceKinds = []string{SourceKindKubernetes, SourceKindEvidenceHTTP, SourceKindTargetState, SourceKindTargetSnapshot, SourceKindLinked}
 
 // firstIncompleteTargetSource is the first source reporting operational
 // targets that is not available, and its status; "" when there is none.

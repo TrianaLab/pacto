@@ -69,7 +69,7 @@ func TestFleetOptionsDetectedK8s(t *testing.T) {
 	cm := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "ConfigMap",
 		"metadata": map[string]any{"name": "pacto-operator-detected", "namespace": "pacto-system", "labels": map[string]any{detect.ManagedByLabel: detect.ManagedBy}},
 		"data":     map[string]any{detect.ConfigMapKey: string(detectedJSON(t))}}}
-	cm.SetManagedFields([]metav1.ManagedFieldsEntry{{Manager: detect.FieldManager, FieldsV1: metav1.NewFieldsV1(`{"f:data":{}}`)}})
+	cm.SetManagedFields([]metav1.ManagedFieldsEntry{{Manager: detect.FieldManager, FieldsV1: metav1.NewFieldsV1(`{"f:data":{"f:detected.json":{}}}`)}})
 	svc := detectedService(t)
 	svc.sys.newDynamic = func() (dynamic.Interface, error) {
 		return dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), cm), nil
@@ -90,8 +90,10 @@ func TestFleetOptionsDetectedK8sClientError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Detection is advisory; the linked workloads it could not read make
+	// the answer partial, since they may be consumers.
 	if st, _ := detectionState(t, snap); st.Status != fleet.SourceUnavailable || !st.Advisory || st.Error == nil || st.Error.Code != "NO_CLUSTER" ||
-		snap.Completeness == fleet.CompletenessPartial {
+		snap.Completeness != fleet.CompletenessPartial {
 		t.Errorf("state %+v completeness %s", st, snap.Completeness)
 	}
 }

@@ -76,7 +76,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.String("namespace", "", "namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)")
 	shared.Duration("freshness", fleet.RecentEvidenceWindow, "mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so)")
 	shared.String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused")
-	shared.String("detected", "", "add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON")
+	shared.String("detected", "", "add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)")
 	shared.String("fingerprints", "", "a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers")
 	shared.StringArray("target-snapshot", nil, "signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests "+
 		"to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off")

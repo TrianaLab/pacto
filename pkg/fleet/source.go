@@ -49,6 +49,11 @@ const SourceKindMira = "mira"
 // on it (an advisory source is [Collection.Advisory]).
 const SourceKindDetection = "detection"
 
+// SourceKindLinked is the Kind of a source reading the workloads the Pacto
+// operator linked to a published contract with no Pacto: targets, like a
+// Kubernetes source.
+const SourceKindLinked = "kubernetes-linked"
+
 type Source interface {
 	// ID is the stable identifier of this source instance (e.g. "oci", "k8s",
 	// "local", or a named environment like "production-eu"). Used as provenance.

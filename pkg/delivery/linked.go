@@ -29,6 +29,11 @@ const (
 	// MaxLinkedBytes bounds one encoded [LinkedTargets], written or read, so
 	// it fits the ConfigMap beside the detection key.
 	MaxLinkedBytes = 640 << 10
+	// LimitationLinkDigestOff is the informational limitation of a linker
+	// with no registry: it links by annotation only. Readers show it in the
+	// source state, never as a collection limitation, since every configured
+	// signal was checked.
+	LimitationLinkDigestOff = "LINK_DIGEST_OFF"
 )
 
 // The labels a linked target's link rides in. A label map is free text on a

@@ -102,14 +102,13 @@ var deadCodeAllowlist = map[string]string{
 	// The shared linked-targets format lands before its readers and writers
 	// (#604): each entry goes stale, and fails this test, the moment its
 	// caller merges, so none can outlive the story.
-	"pkg/delivery.DecodeLinked": linkedFormatPending,
 	"pkg/delivery.EncodeLinked": linkedFormatPending,
 	"pkg/delivery.LinkLabels":   linkedFormatPending,
 	"pkg/publish.ReadImages":    linkedFormatPending,
 }
 
-// linkedFormatPending is the reason for the #604 entries above: DecodeLinked
-// is read by fleetsrc.LinkedSource, the rest by the operator's linker.
+// linkedFormatPending is the reason for the #604 entries above: each is
+// called by the operator's linker.
 const linkedFormatPending = "shared #604 linked-targets format; its caller lands in a later phase of the same story"
 
 // crdVocabulary is the operator's counterpart of schemaVocabulary: the values
