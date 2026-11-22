@@ -565,12 +565,14 @@ func (pl *ciPlanner) carry(ctx context.Context, f *ciFolder, base carryBase, dc 
 func (pl *ciPlanner) declaration(ctx context.Context, f *ciFolder, tags []string, base carryBase) (*declarationCarry, bool) {
 	t := pl.decl()
 	svc := f.b.Contract.Service
-	d, notes, err := t.declarationSource(ctx, pl.reg, wantService{Name: svc.Name, Domain: svc.Domain}, tags, base)
+	d, dropped, notes, err := t.declarationSource(ctx, pl.reg, wantService{Name: svc.Name, Domain: svc.Domain}, tags, base)
 	f.row.Notes = append(f.row.Notes, notes...)
 	switch {
 	case err != nil:
 		f.decide(impact.GateUnverified, "registry declaration "+base.repo+"@"+base.digest+" could not be checked: "+err.Error())
 		return nil, false
+	case d == nil && dropped != nil:
+		return &declarationCarry{cands: dropped}, true
 	case d == nil:
 		return nil, true
 	case t.publicGood:

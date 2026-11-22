@@ -151,7 +151,8 @@ func (cp *ciPublisher) decide(r *ci.Row, state, reason string) {
 // runs too, re-planning a derived version that lost a tag race.
 func (cp *ciPublisher) publish(ctx context.Context, r *ci.Row, b *contract.Bundle) {
 	opts := PublishOptions{Path: filepath.Join(cp.opts.CI.Root, filepath.FromSlash(r.Dir)), Revision: cp.opts.Revision,
-		Image: cp.images[r.Service], Getenv: cp.opts.CI.Getenv, Index: cp.opts.CI.Fleet.Index, declTrust: cp.decl(), fromCI: true}
+		Image: cp.images[r.Service], Getenv: cp.opts.CI.Getenv, Index: cp.opts.CI.Fleet.Index, declTrust: cp.decl(), fromCI: true,
+		planTag: r.Baseline, planDigest: r.BaselineDigest}
 	if v := b.Contract.Service.Version; r.Changed == "no" && v != "" && r.Baseline == v {
 		opts.unchanged = r.BaselineDigest // the declared tag the plan judged
 	}

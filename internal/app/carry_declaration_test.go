@@ -480,8 +480,8 @@ func (pullFails) Pull(context.Context, string) (*contract.Bundle, error) {
 func TestDeclarationSourceForeignCitationIgnored(t *testing.T) {
 	e := newDeclCIEnv(t)
 	base := carryBase{repo: e.repo, version: "0.1.1", digest: "sha256:" + strings.Repeat("1", 64), b: citing(t, "other.io/acme/invoices@sha256:"+strings.Repeat("2", 64))}
-	d, notes, err := declarationTrustFrom(t.Context(), nil).declarationSource(t.Context(), noRequests{e.inner, t}, wantService{Name: "invoices"}, nil, base)
-	if d != nil || err != nil || len(notes) != 1 || !strings.Contains(notes[0], "it is outside "+e.repo) {
+	d, dropped, notes, err := declarationTrustFrom(t.Context(), nil).declarationSource(t.Context(), noRequests{e.inner, t}, wantService{Name: "invoices"}, nil, base)
+	if d != nil || dropped != nil || err != nil || len(notes) != 1 || !strings.Contains(notes[0], "it is outside "+e.repo) {
 		t.Fatalf("%v %q %+v", err, notes, d)
 	}
 }
@@ -491,9 +491,10 @@ func TestDeclarationSourceCitationGoneDropped(t *testing.T) {
 	gone := e.repo + "@sha256:" + strings.Repeat("2", 64)
 	base := carryBase{repo: e.repo, version: "0.1.1", digest: "sha256:" + strings.Repeat("1", 64), b: citing(t, gone)}
 	tr := e.trust(t)
-	d, notes, err := tr.declarationSource(t.Context(), e.inner, wantService{Name: "invoices"}, nil, base)
-	if d != nil || err != nil || len(notes) != 1 || notes[0] != "registry declaration "+gone+" no longer carried: it is gone" {
-		t.Fatalf("%v %q %+v", err, notes, d)
+	d, dropped, notes, err := tr.declarationSource(t.Context(), e.inner, wantService{Name: "invoices"}, nil, base)
+	want := carryCandidate{Field: "service.owner", Value: "billing", Kind: carriedKindDeclared, Record: gone, Signer: "ana@acme.com (" + personIssuer + ")", dropped: "it is gone"}
+	if d != nil || err != nil || notes != nil || len(dropped) != 1 || dropped[0] != want {
+		t.Fatalf("%v %q %+v %+v", err, notes, d, dropped)
 	}
 }
 
@@ -510,16 +511,29 @@ func TestDeclarationSourceCitationFailures(t *testing.T) {
 	base := carryBase{repo: e.repo, version: "0.1.1", digest: "sha256:" + strings.Repeat("1", 64), b: citing(t, ref)}
 	tags, _ := e.inner.Tags(t.Context(), e.repo)
 	for name, reg := range map[string]publish.Registry{"head": anyHeadFails{e.inner}, "pull": pullFails{e.inner}, "signatures": referrersFail{e.inner}} {
-		if got, _, err := e.trust(t).declarationSource(t.Context(), reg, wantService{Name: "invoices"}, tags, base); got != nil || err == nil {
+		if got, _, _, err := e.trust(t).declarationSource(t.Context(), reg, wantService{Name: "invoices"}, tags, base); got != nil || err == nil {
 			t.Errorf("%s: %v %+v", name, err, got)
 		}
 	}
-	got, notes, err := e.trust(t).declarationSource(t.Context(), e.inner, wantService{Name: "payments"}, tags, base)
-	if got != nil || err != nil || len(notes) != 1 || !strings.HasPrefix(notes[0], "registry declaration "+ref+" not carried: declares invoices, not payments") {
-		t.Fatalf("%v %q", err, notes)
+	got, dropped, notes, err := e.trust(t).declarationSource(t.Context(), e.inner, wantService{Name: "payments"}, tags, base)
+	if got != nil || err != nil || notes != nil || len(dropped) != 1 || !strings.HasPrefix(dropped[0].dropped, "declares invoices, not payments") {
+		t.Fatalf("%v %q %+v", err, notes, dropped)
 	}
-	if got, _, err := e.trust(t).declarationSource(t.Context(), e.inner, wantService{Name: "invoices"}, tags, base); got == nil || err != nil || got.Ref != ref {
+	if got, _, _, err := e.trust(t).declarationSource(t.Context(), e.inner, wantService{Name: "invoices"}, tags, base); got == nil || err != nil || got.Ref != ref {
 		t.Fatalf("%v %+v", err, got)
+	}
+}
+
+// TestDeclarationSourceBaselineNotCountedNoted: a baseline that is itself a
+// declaration carried nothing yet, so one that does not count is a note.
+func TestDeclarationSourceBaselineNotCountedNoted(t *testing.T) {
+	e := newDeclCIEnv(t)
+	d := e.declaration(t, "ana@acme.com", ownerBilling, nil)
+	tags, _ := e.inner.Tags(t.Context(), e.repo)
+	got, dropped, notes, err := e.trust(t).declarationSource(t.Context(), e.inner, wantService{Name: "payments"}, tags, carryBase{repo: e.repo, version: firstDeclaration, digest: d,
+		b: bundleOf(t, e.declFiles(firstDeclaration, "ana@acme.com", ownerBilling, nil, nil))})
+	if got != nil || dropped != nil || err != nil || len(notes) != 1 || !strings.HasPrefix(notes[0], "registry declaration "+e.repo+"@"+d+" not carried: declares invoices, not payments") {
+		t.Fatalf("%v %q", err, notes)
 	}
 }
 
@@ -528,7 +542,7 @@ func TestCarryOwnerHistoryUnread(t *testing.T) {
 	digest := e.declaration(t, "ana@acme.com", ownerBilling, nil)
 	tags, _ := e.inner.Tags(t.Context(), e.repo)
 	tr := e.trust(t)
-	d, _, err := tr.declarationSource(t.Context(), e.inner, wantService{Name: "invoices"}, tags, carryBase{repo: e.repo, version: firstDeclaration, digest: digest, b: bundleOf(t, e.declFiles(firstDeclaration, "ana@acme.com", ownerBilling, nil, nil))})
+	d, _, _, err := tr.declarationSource(t.Context(), e.inner, wantService{Name: "invoices"}, tags, carryBase{repo: e.repo, version: firstDeclaration, digest: digest, b: bundleOf(t, e.declFiles(firstDeclaration, "ana@acme.com", ownerBilling, nil, nil))})
 	if err != nil || d == nil {
 		t.Fatal(err)
 	}
@@ -716,4 +730,64 @@ func TestCIPublishDoesNotPrintPublishNote(t *testing.T) {
 	if r.State != ci.StatePublished || carriedField(t, r, "service.owner").State != ci.CarriedDropped || notCarried(r.Notes) {
 		t.Fatalf("%+v", r)
 	}
+}
+
+// TestCIPublishRefusesForgedPlanBaseline: a tag pushed without the
+// publisher's signature that cites an old declaration the genuine history
+// stopped carrying makes plan mode carry it, and the publish refuses those
+// bytes instead of signing them.
+func TestCIPublishRefusesForgedPlanBaseline(t *testing.T) {
+	e := newDeclCIEnv(t)
+	d := e.declaration(t, "ana@acme.com", ownerBilling, nil)
+	e.folder(t, "  owner:\n    team: payments\n", nil)
+	if r := e.publishCI(t, "r1"); r.State != ci.StatePublished {
+		t.Fatalf("%+v", r)
+	}
+	forged := citing(t, e.repo+"@"+d)
+	files := map[string]string{"pacto.yaml": strings.Replace(string(forged.RawYAML), "0.1.1", "0.9.0", 1)}
+	rec, _ := fs.ReadFile(forged.FS, contract.InferredRecordFile)
+	files[contract.InferredRecordFile] = string(rec)
+	e.de.publishBundle(t, e.repo, "0.9.0", files, nil)
+	e.folder(t, "", nil)
+	if r, _, _ := e.plan(t); carriedField(t, r, "service.owner").State != ci.CarriedCarried {
+		t.Fatalf("%+v", r)
+	}
+	before := e.reg.writes.Load()
+	r := e.publishCI(t, "r2")
+	if r.State != ci.StateFailed || !strings.Contains(r.Reason, "the plan carried service.owner from "+e.repo+":0.9.0, which is neither signed") || e.reg.writes.Load() != before {
+		t.Fatalf("%+v", r)
+	}
+}
+
+// TestCarryCitedDeclarationGoneDropsItsFields: once the declaration a CI
+// version cites is gone, the plan returns each field it carried as dropped,
+// valued as that version published it.
+func TestCarryCitedDeclarationGoneDropsItsFields(t *testing.T) {
+	e := newDeclCIEnv(t)
+	d := e.declaration(t, "ana@acme.com", ownerBilling+ledgerDeclared, ledgerAccepted)
+	e.folder(t, "dependencies:\n  - name: ledger\n", nil)
+	if r := e.publishCI(t, "r1"); r.State != ci.StatePublished {
+		t.Fatalf("%+v", r)
+	}
+	e.reg.Registry = headGone{e.inner, d}
+	e.folder(t, "dependencies:\n  - name: ledger\n", map[string]string{"notes.md": "# invoices\n"})
+	r, _, _ := e.plan(t)
+	owner, ledger := carriedField(t, r, "service.owner"), carriedField(t, r, "dependencies[ledger].compatibility")
+	if owner.State != ci.CarriedDropped || owner.Value != "billing" || owner.Reason != "it is gone" || owner.Record != e.repo+"@"+d ||
+		ledger.State != ci.CarriedDropped || ledger.Value != "^2.3.0" || !slices.Contains(r.Notes, "service.owner from the registry declaration "+e.repo+"@"+d+" not carried: it is gone") {
+		t.Fatalf("%+v\n%q", r.Carried, r.Notes)
+	}
+}
+
+// headGone answers every manifest read of digest as not found.
+type headGone struct {
+	publish.Registry
+	digest string
+}
+
+func (h headGone) Head(ctx context.Context, ref string) (*publish.Remote, error) {
+	if strings.HasSuffix(ref, "@"+h.digest) {
+		return nil, nil
+	}
+	return h.Registry.Head(ctx, ref)
 }

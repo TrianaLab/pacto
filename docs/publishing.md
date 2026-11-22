@@ -225,6 +225,9 @@ still succeeds; publishing the current version again writes a missing entry.
   `owner: billing, declared in registry (rev sha256:7c1d2e3f4a5b), not carried: no owner policy readable from CI`.
 - **Ranges.** A range is carried only when an owner of the service signed the
   declaration.
+- **Signers.** The installation signer policy says whose declarations count.
+  With none, a person public-good Sigstore vouches for counts, and the plan
+  notes `no installation signer policy was read; declarations judged with public-good issuers`.
 - **Record.** The published record cites the declaration in
   [`inputs.declaration`](contract-reference/inferred-record.md).
 - **Dropped.** A declaration that is gone or no longer counts is dropped with

@@ -46,11 +46,7 @@ func deriveVersion(ctx context.Context, run runner, reg publish.Registry, tools 
 	if _, _, err := tools.signing(ctx, sign); err != nil {
 		return publish.Derived{}, fmt.Errorf("deriving service.version needs the publisher identity to verify the baseline: %w", err)
 	}
-	bv := baselineVerifier{reg: reg, tools: tools, sign: sign, trust: tools.decl, repo: publish.Repo(pub.Bundle),
-		want: wantService{Name: b.Contract.Service.Name, Domain: b.Contract.Service.Domain}}
-	if bv.trust == nil {
-		bv.trust = declarationTrustFrom(ctx, nil)
-	}
+	bv := newBaselineVerifier(ctx, reg, tools, b, pub)
 	d, err := publish.DeriveVersion(ctx, reg, publish.DeriveInput{
 		Repo: bv.repo, AltRepo: alt, Local: b, Publish: pub, Unchanged: Unchanged, Verify: bv.verify,
 	})
@@ -84,6 +80,37 @@ type baselineVerifier struct {
 	tags     []string
 	counted  *registryDeclaration
 	declared bool
+}
+
+// newBaselineVerifier checks the baselines of b, published with the
+// effective publish section pub, under the run's declaration trust.
+func newBaselineVerifier(ctx context.Context, reg publish.Registry, tools execTools, b *contract.Bundle, pub *contract.Publish) *baselineVerifier {
+	bv := &baselineVerifier{reg: reg, tools: tools, sign: publish.SignOf(pub), trust: tools.decl, repo: publish.Repo(pub.Bundle),
+		want: wantService{Name: b.Contract.Service.Name, Domain: b.Contract.Service.Domain}}
+	if bv.trust == nil {
+		bv.trust = declarationTrustFrom(ctx, nil)
+	}
+	return bv
+}
+
+// planBaselineErr refuses a pacto ci row whose bundle cites a registry
+// declaration when the baseline plan mode carried it from (tools.planTag at
+// tools.planDigest) is neither signed by the publisher identity nor a counted declaration:
+// plan mode reads the newest tag unverified, and a tag pushed without
+// either must never choose what CI signs. A row that cites none, or has no
+// baseline, passes.
+func planBaselineErr(ctx context.Context, reg publish.Registry, tools execTools, b *contract.Bundle, pub *contract.Publish) error {
+	tag, digest := tools.planTag, tools.planDigest
+	rec, _ := contract.ReadInferredRecord(b.FS) // completion wrote and verified it
+	if digest == "" || rec == nil || rec.Inputs.Declaration == nil {
+		return nil
+	}
+	bv := newBaselineVerifier(ctx, reg, tools, b, pub)
+	if err := bv.verify(ctx, tag, bv.repo+"@"+digest); err != nil {
+		return fmt.Errorf("the plan carried %s from %s:%s, which is neither signed by the publisher identity nor a counted registry declaration: %w",
+			rec.Inputs.Declaration.Fields, bv.repo, tag, err)
+	}
+	return nil
 }
 
 // verify accepts repo@digest read under tag when the publisher signed it or

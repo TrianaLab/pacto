@@ -66,6 +66,9 @@ type PublishOptions struct {
 	// fromCI is set by pacto ci, which carries registry declarations itself,
 	// so Publish never notes that it does not.
 	fromCI bool
+	// planTag and planDigest are the baseline pacto ci's plan read and
+	// carried from, checked before a bundle citing a declaration publishes.
+	planTag, planDigest string
 }
 
 // flagErr refuses flag values that cannot work whatever the contract says.
@@ -161,7 +164,7 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	}
 	reg := env.publishRegistry()
 	tools := newExecTools(path, env.run, reg)
-	tools.decl, tools.fromCI = opts.declTrust, opts.fromCI
+	tools.decl, tools.fromCI, tools.planTag, tools.planDigest = opts.declTrust, opts.fromCI, opts.planTag, opts.planDigest
 	vb, done, dv, err := versioned(ctx, env.run, reg, tools, path, b, pub, d, revision, inputs, opts.unchanged)
 	if err != nil || done != nil {
 		return s.alreadyPublished(ctx, tools, b, pub, done, err, opts)
@@ -236,6 +239,9 @@ func publishedBundle(ctx context.Context, path string, opts PublishOptions, stor
 // refuses only once something is to be published: an unchanged service
 // whose image is supplied by --image needs none.
 func versioned(ctx context.Context, run runner, reg publish.Registry, tools execTools, path string, b *contract.Bundle, pub *contract.Publish, d *derived, revision string, in contract.InferredInputs, unchanged string) (*contract.Bundle, *publish.Result, publish.Derived, error) {
+	if err := planBaselineErr(ctx, reg, tools, b, pub); err != nil {
+		return nil, nil, publish.Derived{}, err
+	}
 	if b.Contract.Service.Version != "" {
 		switch {
 		case unchanged != "":
@@ -535,6 +541,8 @@ type execTools struct {
 	decl *declarationTrust
 	// fromCI is PublishOptions.fromCI: no note on uncarried declarations.
 	fromCI bool
+	// planTag and planDigest are PublishOptions' plan baseline.
+	planTag, planDigest string
 }
 
 type loadedSigner struct {

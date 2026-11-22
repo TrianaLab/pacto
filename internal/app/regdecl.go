@@ -276,42 +276,70 @@ func acceptBelow(context.Context, string, string) error { return nil }
 // declaration base's record cites, read by digest only in repo (the CLI
 // keychain never reaches a host a record names) and only while it still
 // counts. A carry re-cites the original declaration, so this is one hop at
-// any depth of history. A bundle with neither reads nothing; notes say why
-// a declaration found is not carried; a check that could not complete is an
+// any depth of history. A bundle with neither reads nothing. A cited
+// declaration that is gone or no longer counts returns each field it
+// carried as a dropped candidate (Decision 10); notes say why any other
+// declaration found is not carried; a check that could not complete is an
 // error.
-func (t *declarationTrust) declarationSource(ctx context.Context, reg publish.Registry, want wantService, tags []string, base carryBase) (*registryDeclaration, []string, error) {
+func (t *declarationTrust) declarationSource(ctx context.Context, reg publish.Registry, want wantService, tags []string, base carryBase) (*registryDeclaration, []carryCandidate, []string, error) {
 	rec, _ := contract.ReadInferredRecord(base.b.FS) // an unreadable record names no declaration
 	ref, tag, digest := base.repo+"@"+base.digest, base.version, base.digest
+	var cited *contract.CitedDeclaration
 	switch {
 	case rec == nil || rec.Declaration == nil && rec.Inputs.Declaration == nil:
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	case rec.Declaration == nil:
-		ref = rec.Inputs.Declaration.Record
+		cited, ref = rec.Inputs.Declaration, rec.Inputs.Declaration.Record
 		repo, d, _ := strings.Cut(ref, "@")
 		if repo != base.repo {
-			return nil, []string{"registry declaration " + ref + " not read: it is outside " + base.repo}, nil
+			return nil, nil, []string{"registry declaration " + ref + " not read: it is outside " + base.repo}, nil
 		}
 		h, err := reg.Head(ctx, ref)
 		if err != nil {
-			return nil, nil, fmt.Errorf("reading %s: %w", ref, err)
+			return nil, nil, nil, fmt.Errorf("reading %s: %w", ref, err)
 		}
 		if h == nil {
-			return nil, []string{"registry declaration " + ref + " no longer carried: it is gone"}, nil
+			return nil, citedDropped(base.b.Contract, cited, "it is gone"), nil, nil
 		}
 		b, err := reg.Pull(ctx, ref)
 		if err != nil {
-			return nil, nil, fmt.Errorf("reading %s: %w", ref, err)
+			return nil, nil, nil, fmt.Errorf("reading %s: %w", ref, err)
 		}
 		tag, digest = b.Contract.Service.Version, d
 	}
 	d, why, err := t.countedDeclaration(ctx, reg, want, base.repo, tags, tag, digest, acceptBelow)
 	switch {
 	case err != nil:
-		return nil, nil, err
+		return nil, nil, nil, err
+	case d == nil && cited != nil:
+		return nil, citedDropped(base.b.Contract, cited, why), nil, nil
 	case d == nil:
-		return nil, []string{"registry declaration " + ref + " not carried: " + why}, nil
+		return nil, nil, []string{"registry declaration " + ref + " not carried: " + why}, nil
 	}
-	return d, nil, nil
+	return d, nil, nil, nil
+}
+
+// citedDropped are the fields cited says the baseline c carried from a
+// registry declaration that no longer carries (why), each valued as c
+// published it, so the plan and its JSON name every field that stops
+// carrying.
+func citedDropped(c *contract.Contract, cited *contract.CitedDeclaration, why string) []carryCandidate {
+	var out []carryCandidate
+	for _, f := range strings.Split(cited.Fields, ",") {
+		cand := carryCandidate{Field: f, Kind: carriedKindDeclared, Record: cited.Record, Signer: cited.Signer, dropped: why}
+		if f == "service.owner" {
+			cand.Value = carriedOwner(c.Service.Owner)
+		}
+		name, _ := wholeEntry(f)
+		if n, _, ok := dependencyField(f); ok {
+			name = n
+		}
+		if i := slices.IndexFunc(c.Dependencies, func(d contract.Dependency) bool { return d.Name == name }); name != "" && i >= 0 {
+			cand.Value = c.Dependencies[i].Compatibility
+		}
+		out = append(out, cand)
+	}
+	return out
 }
 
 // carryOwnerRevisionCap bounds the newest releases pacto ci reads to judge a
