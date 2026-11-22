@@ -467,7 +467,8 @@ describe('FleetSourcesView (G)', () => {
     const { target, component } = mountView(FleetSourcesView, { mcp: { served: true, source: 'this dashboard, at /mcp' } });
     await vi.waitFor(() => expect(target.querySelector('[data-testid="connect-agent"]')).toBeTruthy());
     const line = target.querySelector('[data-testid="connect-agent"]')!;
-    expect(line.querySelector('summary')?.textContent).toContain(`${location.origin}/mcp`);
+    // No token sign-in in this session, so the line carries the host's own text.
+    expect(line.querySelector('[data-testid="connect-agent-source"]')?.textContent).toBe('this dashboard, at /mcp');
     expect(target.querySelector('[data-testid="detected-providers"]')!.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     unmount(component); document.body.removeChild(target);
   });
