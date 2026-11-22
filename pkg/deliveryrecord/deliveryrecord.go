@@ -100,6 +100,8 @@ const (
 	KindIntent   = "intent"
 	// KindPin is an identity pin, on its service's pin stream.
 	KindPin = "pin"
+	// KindApplyRefusal is an apply refusal, on its service's refusal stream.
+	KindApplyRefusal = "refusal"
 )
 
 // KindTag is the write-once tag of an approval or intent record (kind) of
@@ -109,8 +111,8 @@ func KindTag(stream, kind string, manifest digest.Digest) string {
 	return AnchorTag(stream) + "-" + kind + "-" + manifest.Encoded()[:12]
 }
 
-// Push writes bundle, a signed approval/v1, operation-intent/v1 or
-// identity-pin/v1 record of stream, attached to the stream's anchor in repo in mode, and returns where
+// Push writes bundle, a signed approval/v1, operation-intent/v1,
+// identity-pin/v1 or apply-refusal/v1 record of stream, attached to the stream's anchor in repo in mode, and returns where
 // it is: "<repository>@<manifest digest>". ann are added to the record's
 // annotations. Operation records go through [PutRecord].
 func Push(ctx context.Context, repo *remote.Repository, stream string, mode capabilities.ReferrersMode, predicate string, bundle []byte, ann map[string]string) (string, error) {
@@ -195,6 +197,8 @@ func kindOf(predicate string) string {
 		return KindApproval
 	case delivery.PredicateIdentityPin:
 		return KindPin
+	case delivery.PredicateApplyRefusal:
+		return KindApplyRefusal
 	}
 	return KindIntent
 }
