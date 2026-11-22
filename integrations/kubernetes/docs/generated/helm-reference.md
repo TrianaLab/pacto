@@ -62,6 +62,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `dashboard.httpRoute.hostnames` | `[]` | Hostnames for the HTTPRoute |
 | `dashboard.httpRoute.parentRefs` | `[]` | Parent gateway references |
 | `dashboard.httpRoute.rules` | `[]` | HTTPRoute rules. When empty, a single catch-all rule is generated that routes all traffic to the chart-managed dashboard Service on dashboard.service.port. |
+| `dashboard.index` | `auto` | The organization index the dashboard reads every published service from: `auto` reads `<registry>/pacto-index` when `registry` is set, `none` reads none. The dashboard reads it with `dashboard.ociSecrets` |
 | `dashboard.ingress.annotations` | `{}` | Ingress annotations |
 | `dashboard.ingress.className` | `""` | Ingress class name |
 | `dashboard.ingress.enabled` | `false` | Enable Ingress for the dashboard |

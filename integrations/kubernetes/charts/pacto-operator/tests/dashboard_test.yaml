@@ -3,6 +3,7 @@ templates:
   - templates/dashboard-service.yaml
   - templates/dashboard-ingress.yaml
   - templates/dashboard-httproute.yaml
+  - templates/deployment.yaml
 tests:
   # --- Service ---
   - it: should create a dashboard Service by default
@@ -157,3 +158,40 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  # --- Organization index ---
+  - it: points the dashboard at the installation's organization index by default
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-index=auto"
+
+  - it: reads no organization index with dashboard.index none
+    template: templates/deployment.yaml
+    set:
+      dashboard.index: none
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-index=none"
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-index=auto"
+
+  - it: refuses a dashboard.index other than auto or none, so the chart never names another host
+    template: templates/deployment.yaml
+    set:
+      dashboard.index: ghcr.io/other/pacto-index
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?i)index"
+
+  - it: passes no dashboard index when the dashboard is disabled
+    template: templates/deployment.yaml
+    set:
+      dashboard.enabled: false
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: "--dashboard-index"

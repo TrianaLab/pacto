@@ -660,6 +660,11 @@
             }
           }
         },
+        "index": {
+          "type": "string",
+          "enum": ["auto", "none"],
+          "description": "The organization index the dashboard reads: auto reads <registry>/pacto-index when registry is set, none reads none."
+        },
         "stats": {
           "type": "object",
           "additionalProperties": false,

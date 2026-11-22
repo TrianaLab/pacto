@@ -349,6 +349,8 @@ dashboard:
     registryCredentials:
       # -- A `kubernetes.io/dockerconfigjson` Secret in the operator namespace with push access to the bundle repositories under `registry`. Only the dashboard's Declare writer uses it; `dashboard.ociSecrets` stays read-only. Empty: the dashboard plans declarations and shows the CLI command
       secretName: ""
+  # -- The organization index the dashboard reads every published service from: `auto` reads `<registry>/pacto-index` when `registry` is set, `none` reads none. The dashboard reads it with `dashboard.ociSecrets`
+  index: auto
   stats:
     # -- Stats repository the dashboard's Metrics page reads run records from, such as ghcr.io/acme/pacto-stats. Empty: the page explains how to turn recording on. Credentials come from dashboard.ociSecrets
     registry: ""

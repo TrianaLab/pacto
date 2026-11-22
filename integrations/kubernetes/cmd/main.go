@@ -113,6 +113,7 @@ type options struct {
 	dashboardExtraScopes     string
 	dashboardMiraURL         string
 	dashboardStatsRegistry   string
+	dashboardIndex           string
 	dashboardDeliveryNS      string
 	dashboardDeliveryTrust   dashboard.KeyRef
 	dashboardRepositories    []string
@@ -296,6 +297,17 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.StringVar(&o.dashboardStatsRegistry, "dashboard-stats-registry", "",
 		"Stats repository the dashboard's Metrics page reads run records from, with the dashboard's OCI credentials; "+
 			"empty: the page explains how to turn recording on.")
+	o.dashboardIndex = dashboardIndexAuto
+	fs.Func("dashboard-index",
+		"Organization index the dashboard reads every published service from, written `=mode`: auto reads "+
+			"<registry>/pacto-index when --registry is set, none reads none. auto by default.",
+		func(v string) error {
+			if v != dashboardIndexAuto && v != dashboardIndexNone {
+				return fmt.Errorf("want auto or none, got %q", v)
+			}
+			o.dashboardIndex = v
+			return nil
+		})
 	fs.BoolVar(&o.enableEvidence, "enable-evidence-server", false,
 		"Enable the managed Pacto Evidence Server deployment. Disabled by default.")
 	fs.Func("evidence-subject",
@@ -728,6 +740,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 		DeliveryNamespace:     o.dashboardDeliveryNS,
 		MiraURL:               o.dashboardMiraURL,
 		StatsRegistry:         o.dashboardStatsRegistry,
+		Index:                 dashboardIndex(o.dashboardIndex, inst),
 		DeliveryTrust:         o.dashboardDeliveryTrust,
 		Repositories:          o.dashboardRepositories,
 		ExternalCatalog:       o.dashboardExternalCatalog,
@@ -835,6 +848,22 @@ func addNodeAgent(mgr ctrl.Manager, o *options, namespace string) error {
 		return fmt.Errorf("failed to add node agent reconciler: %w", err)
 	}
 	return nil
+}
+
+// The --dashboard-index modes.
+const (
+	dashboardIndexAuto = "auto"
+	dashboardIndexNone = "none"
+)
+
+// dashboardIndex is the organization index the managed dashboard reads: the installation's own, written
+// from --registry, when mode is auto. It never comes from the detection ConfigMap, which a third party
+// could forge to choose the host that receives the dashboard's registry credentials.
+func dashboardIndex(mode string, inst *detect.Installation) string {
+	if mode != dashboardIndexAuto || inst == nil {
+		return ""
+	}
+	return inst.Index
 }
 
 // addPublishers runs the linker and the target snapshot publisher. It returns the installation block
