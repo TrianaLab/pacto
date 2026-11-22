@@ -92,6 +92,10 @@ helm install pacto-operator \
   [golden path](../../golden-paths.md) is never deployed, so list it here to
   show it on the Golden paths tab. A private registry needs
   `dashboard.ociSecrets`.
+- `hub.url` makes an approved member dial its hub and answer the hub's
+  per-person reviews with this cluster's RBAC, with no inbound port;
+  `hub.caConfigMap` trusts a private CA
+  ([Member clusters](../../member-clusters.md#review-people-through-a-live-channel)).
 
 The CRDs are cluster-wide and belong to one release. For a second release, for
 example one per watched namespace, set `crds.install=false`, or its install
@@ -231,6 +235,9 @@ Delivery stays off until `delivery.enabled=true`.
   trust entry from the new `snapshotKey`.
 - **Proposals:** Pacto proposes a registry and a pull Secret it saw running
   pods use, in the upgrade notes and on Data sources, and sets neither.
+- **Member:** a hub that reads the same registry lists this cluster as a
+  pending member, and a person approves it there; see
+  [Member clusters](../../member-clusters.md).
 
 The operator reaches the registry with the pod's workload identity:
 

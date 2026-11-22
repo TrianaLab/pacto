@@ -108,6 +108,9 @@ type FleetOptions struct {
 	Reached ReachedReader
 	// Stats registers pacto_stats; nil omits it.
 	Stats StatsProvider
+	// Clusters registers pacto_cluster_list and counts the pending member
+	// clusters in pacto_capabilities; nil omits both.
+	Clusters ClustersProvider
 	// InstallationConfig reads what the operator was configured with, for
 	// pacto_capabilities' installation; nil reads none.
 	InstallationConfig func(context.Context) (*fleet.InstallationDeclared, fleet.SourceState)
@@ -210,6 +213,9 @@ func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetO
 	}
 	if opts.Stats != nil {
 		addTool(server, statsTool(), statsHandler(src, opts.View, opts.Stats))
+	}
+	if opts.Clusters != nil {
+		addTool(server, clusterListTool(), clusterListHandler(opts.Clusters))
 	}
 }
 

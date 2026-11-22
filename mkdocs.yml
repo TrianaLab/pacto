@@ -238,6 +238,7 @@ nav:
       - Operational graph tallies: operational-graph-tallies.md
       - Clusters and target keys: operational-graph-clusters.md
       - Multi-cluster: multi-cluster.md
+      - Member clusters: member-clusters.md
       - Inferred services: operational-graph-inferred.md
       - Detected providers: operational-graph-providers.md
       - Calls that leave the cluster: operational-graph-egress.md

@@ -170,6 +170,7 @@ sidebar badge counts only items above `info`.
 | `readiness` | `MISSING_READINESS` | info |
 | `knowledge` | the gap: `NO_SUMMARY`, `NO_DOMAIN`, `NO_INTERFACE_DOCS`, `NOT_DEPLOYED` or `UNVERIFIED_CAPABILITY`; or the cause of an unknown service: `CONTRACT_UNREADABLE`, `INTERFACE_DOCS_UNREAD`, `SUMMARY_UNKNOWN`, `DOMAIN_UNKNOWN` or `PLACEMENT_UNKNOWN`; or `INFERRED_REPLACED`, an inferred service a contract took over: a Pacto target's takeover shows for 24 hours, a declaration's hand-over stays while the declaration holds; or `INFERRED_PROVIDER`, services check a range against an [inferred contract](inferred-contracts.md) | info |
 | `unowned` | `UNOWNED_SERVICE` | info |
+| `cluster` | `CLUSTER_ISSUER_DIFFERS`, member clusters read under a group mapping: their apiservers refuse the hub's sign-in issuer, or the hub exchanges no token | warning |
 
 A revision with no readiness assessment raises a `readiness` item, so
 `noReadiness` raises no `knowledge` item. A service whose contract Pacto cannot

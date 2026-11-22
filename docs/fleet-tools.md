@@ -213,6 +213,7 @@ the note says where that answer lives instead.
 | Which consumers does this change affect? | `pacto impact` | `pacto_impact` | `GET /api/fleet/impact`, `POST /api/fleet/impact` | Over HTTP and on a shared dashboard, only revisions in your view |
 | What did Pacto catch and deliver? | `pacto stats` | `pacto_stats` | `GET /api/stats` | Unsigned statistics; the dashboard reads the repository `pacto dashboard --stats-registry` names |
 | Which run records are behind this number? | - | - | `GET /api/stats/records` | The Metrics page lists them; the CLI and MCP answer totals |
+| Which member clusters joined this hub, and which wait for approval? | `pacto cluster list` | `pacto_cluster_list` | `GET /api/fleet/clusters` | Approved members always; pending and removed rows only for people who may approve `clusterjoins` |
 | What does this server serve? | - | `pacto_capabilities` | `GET /api/capabilities` | The CLI runs every command as the local user |
 | Who am I to delivery? | `pacto delivery caller` | `pacto_delivery_caller` | `GET /api/delivery/caller` | |
 | What waits on me? | `pacto delivery inbox` | `pacto_delivery_inbox` | `GET /api/delivery/inbox` | |

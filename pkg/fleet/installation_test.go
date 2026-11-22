@@ -298,6 +298,31 @@ func TestInstallationClustersFromCallerView(t *testing.T) {
 	}
 }
 
+// TestInstallationPendingFromJoins: the join requests the host read are
+// counted beside the joined clusters, with where they were read.
+func TestInstallationPendingFromJoins(t *testing.T) {
+	n, at := 1, fixedNow()
+	in := InstallationInput{JoinPending: &n, JoinSource: "registry ghcr.io/acme/pacto-targets", JoinAsOf: &at}
+	c := installationFleet(t).Installation(in).Clusters
+	if c.Pending == nil || *c.Pending != 1 || c.Joined == nil || c.Completeness != InstallationComplete ||
+		c.Source != installationClustersInView+"; cluster join requests: registry ghcr.io/acme/pacto-targets" {
+		t.Errorf("clusters = %+v", c)
+	}
+	if c := (*Query)(nil).Installation(in).Clusters; c.Pending == nil || c.Joined != nil || c.AsOf == nil || !c.AsOf.Equal(at) {
+		t.Errorf("clusters without a snapshot = %+v", c)
+	}
+}
+
+// TestInstallationPendingNullWhenPartial: a join count the host could not
+// give is null with why, and the part is partial.
+func TestInstallationPendingNullWhenPartial(t *testing.T) {
+	in := InstallationInput{JoinSource: "registry ghcr.io/acme/pacto-targets was read partly, so pending clusters are not counted"}
+	c := installationFleet(t).Installation(in).Clusters
+	if c.Pending != nil || c.Completeness != InstallationPartial || !strings.HasSuffix(c.Source, in.JoinSource) {
+		t.Errorf("clusters = %+v", c)
+	}
+}
+
 func TestInstallationNilQuery(t *testing.T) {
 	got := (*Query)(nil).Installation(InstallationInput{})
 	if got.Clusters.Joined != nil || got.Clusters.Completeness != InstallationUnknown || got.Profile.Value != nil || got.Registry.Value != nil ||

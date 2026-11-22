@@ -15,10 +15,10 @@ import (
 func TestDemoHasInferredServices(t *testing.T) {
 	snap := demoFleet(t)
 	want := map[string]string{
-		"k8s:shop/Deployment/legacy-billing":      "shop",
-		"k8s:shop/Deployment/billing-worker":      "shop",
-		"k8s:shop/CronJob/nightly-export":         "shop",
-		"k8s:observability/DaemonSet/log-shipper": "observability",
+		"k8s:" + prodClusterID + "/shop/Deployment/legacy-billing":      "shop",
+		"k8s:" + prodClusterID + "/shop/Deployment/billing-worker":      "shop",
+		"k8s:" + prodClusterID + "/shop/CronJob/nightly-export":         "shop",
+		"k8s:" + prodClusterID + "/observability/DaemonSet/log-shipper": "observability",
 	}
 	inferred := 0
 	for _, s := range snap.Services {
@@ -34,10 +34,10 @@ func TestDemoHasInferredServices(t *testing.T) {
 	if inferred != len(want) {
 		t.Errorf("inferred services = %d, want %d", inferred, len(want))
 	}
-	billing := fleet.NewServiceKey("k8s:shop/Deployment/legacy-billing")
+	billing := fleet.NewServiceKey("k8s:" + prodClusterID + "/shop/Deployment/legacy-billing")
 	found := false
 	for _, c := range snap.UncontractedCallers {
-		if c.Caller == "k8s:shop/Deployment/legacy-billing" {
+		if c.Caller == "k8s:"+prodClusterID+"/shop/Deployment/legacy-billing" {
 			found = c.ToService == fleet.NewServiceKey("payments-service") && c.Entity == billing
 		}
 	}

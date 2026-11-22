@@ -137,7 +137,7 @@ func parseSnapshotRefs(values []string) ([]snapshotRef, error) {
 // cannot be listed is one failing source. A ref or trust config that does
 // not parse is an error. No ref reads nothing.
 func (s *Service) targetSnapshotSources(ctx context.Context, opts FleetOptions) ([]fleet.Source, error) {
-	if len(opts.TargetSnapshot) == 0 {
+	if len(opts.TargetSnapshot) == 0 && opts.ClusterJoins == nil {
 		return nil, nil
 	}
 	refs, err := parseSnapshotRefs(opts.TargetSnapshot)
@@ -151,15 +151,19 @@ func (s *Service) targetSnapshotSources(ctx context.Context, opts FleetOptions) 
 	if opts.Now != nil {
 		now = opts.Now
 	}
-	r := &snapshotReader{cache: &s.snapshots, trust: trust, now: now(), used: map[string]bool{}}
+	r := &snapshotReader{cache: &s.snapshots, trust: trust, now: now(), used: map[string]bool{}, read: map[string]bool{}, names: map[string]*fleet.Cluster{}}
 	var out []fleet.Source
 	for _, ref := range refs {
 		out = append(out, r.resolveTargetSnapshot(ctx, ref)...)
 	}
+	if opts.ClusterJoins != nil {
+		out = append(out, s.clusterJoinSources(ctx, r, *opts.ClusterJoins)...)
+	}
 	return out, nil
 }
 
-// snapshotReader reads the snapshots of one fleet build.
+// snapshotReader reads the snapshots of one fleet build: the
+// --target-snapshot refs and the approved members share it.
 type snapshotReader struct {
 	cache *targetSnapshotCache
 	trust *delivery.TrustConfig
@@ -168,6 +172,19 @@ type snapshotReader struct {
 	// cluster, or a tag whose cluster ends like a section suffix
 	// (cluster-<uid>-workloads), keep distinct source ids.
 	used map[string]bool
+	// read holds the clusters whose snapshot was read into sources.
+	read map[string]bool
+	// names are the clusters approved members are named by, by UID.
+	names map[string]*fleet.Cluster
+}
+
+// cluster is the cluster of uid: an approved member's, else named by its
+// UID's first characters; nil for no uid.
+func (r *snapshotReader) cluster(uid string) *fleet.Cluster {
+	if cl, ok := r.names[uid]; ok {
+		return cl
+	}
+	return snapshotCluster(uid)
 }
 
 // claim returns id, else id-N for the first N from 2 that leaves id and each
@@ -215,7 +232,7 @@ func (r *snapshotReader) snapshot(ctx context.Context, repo *remote.Repository, 
 	id := targetSnapshotsID + "-" + tagCluster
 	var cl *fleet.Cluster
 	if isTag {
-		cl = snapshotCluster(tagCluster)
+		cl = r.cluster(tagCluster)
 	} else {
 		d := strings.TrimPrefix(reference, "sha256:")
 		tagCluster, id = "", targetSnapshotsID+"-"+d[:min(12, len(d))]
@@ -259,22 +276,23 @@ func (r *snapshotReader) fetch(ctx context.Context, repo *remote.Repository, pat
 func (r *snapshotReader) classify(id, tagCluster, ref string, bundle []byte) []fleet.Source {
 	st, verdict, err := delivery.OpenTargetSnapshot(bundle, r.trust, signing.OpenKey)
 	if err != nil {
-		return []fleet.Source{unusedSnapshot(r.claim(id), snapshotCluster(tagCluster), fleet.SourceUnavailable, fleet.LimitationTargetSnapshotInvalid,
+		return []fleet.Source{unusedSnapshot(r.claim(id), r.cluster(tagCluster), fleet.SourceUnavailable, fleet.LimitationTargetSnapshotInvalid,
 			"the target snapshot "+ref+" was not used: "+err.Error())}
 	}
 	snap := st.Predicate
 	asOf, _ := time.Parse(time.RFC3339, snap.AsOf) // OpenTargetSnapshot checked it
 	switch {
 	case tagCluster != "" && snap.Cluster != tagCluster:
-		return []fleet.Source{unusedSnapshot(r.claim(id), snapshotCluster(tagCluster), fleet.SourceUnavailable, fleet.LimitationTargetSnapshotInvalid,
+		return []fleet.Source{unusedSnapshot(r.claim(id), r.cluster(tagCluster), fleet.SourceUnavailable, fleet.LimitationTargetSnapshotInvalid,
 			"the target snapshot "+ref+" names cluster "+snap.Cluster+" under the tag of cluster "+tagCluster+"; it was not used")}
 	case asOf.After(r.now.Add(targetSnapshotSkew)):
-		return []fleet.Source{unusedSnapshot(r.claim(id), snapshotCluster(snap.Cluster), fleet.SourceUnavailable, fleet.LimitationTargetSnapshotInvalid,
+		return []fleet.Source{unusedSnapshot(r.claim(id), r.cluster(snap.Cluster), fleet.SourceUnavailable, fleet.LimitationTargetSnapshotInvalid,
 			"the target snapshot "+ref+" claims asOf "+snap.AsOf+", in the future; it was not used")}
 	}
 	id = r.claim(targetSnapshotsID+"-"+snap.Cluster, workloadsSuffix, evidenceSuffix)
+	r.read[snap.Cluster] = true
 	rd := snapshotRead{id: id, ref: ref, snap: snap, verdict: verdict, asOf: asOf, now: r.now,
-		cl: snapshotCluster(snap.Cluster), sections: snapshotSections(snap)}
+		cl: r.cluster(snap.Cluster), sections: snapshotSections(snap)}
 	return rd.sources()
 }
 

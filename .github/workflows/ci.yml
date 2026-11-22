@@ -70,6 +70,7 @@ jobs:
               # filter: a change there alone must still run the operator's unit
               # tests, coverage gate, chart checks and envtest.
               # TestPathFiltersCoverTheOperatorImports keeps both lists whole.
+              - 'pkg/memberlink/**'
               - 'pkg/probe/**'
               - 'pkg/runtimefacts/**'
               - 'pkg/capability/**'
@@ -183,6 +184,7 @@ jobs:
               - 'pkg/catalog/**'
               - 'pkg/contract/**'
               - 'pkg/delivery/**'
+              - 'pkg/memberlink/**'
               - 'pkg/workloadmanager/**'
               - 'pkg/workloadshape/**'
               - 'pkg/deliveryrecord/**'
@@ -512,7 +514,7 @@ jobs:
       fail-fast: false
       matrix:
         # delivery runs in its own sharded job below (ci-e2e-kind-delivery).
-        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd, gitops-argocd-sync, gitops-kargo, linked-workloads, runtime-conformance, least-privilege, profiles, delivery-argocd, multi-cluster]
+        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd, gitops-argocd-sync, gitops-kargo, linked-workloads, runtime-conformance, least-privilege, profiles, delivery-argocd, multi-cluster, cluster-join, member-review]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7

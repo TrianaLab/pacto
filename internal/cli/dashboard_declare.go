@@ -84,8 +84,8 @@ func newDashboardDeclarer(v *viper.Viper, svc *app.Service, id *dashboardIdentit
 
 // newDashboardHost is the dashboard's identity and, with --registry, its
 // declarer (a nil Declarer without one).
-func newDashboardHost(v *viper.Viper, host string, cluster *rest.Config, svc *app.Service, entries func(context.Context) []app.K8sEntry, trust func(context.Context) (app.Installation, error), dp deps) (*dashboardIdentity, dashboard.Declarer, error) {
-	id, err := newDashboardIdentity(v, host, cluster, entries, dp)
+func newDashboardHost(v *viper.Viper, host string, cluster *rest.Config, svc *app.Service, entries func(context.Context) []app.K8sEntry, trust func(context.Context) (app.Installation, error), dp deps, members *memberHub) (*dashboardIdentity, dashboard.Declarer, error) {
+	id, err := newDashboardIdentity(v, host, cluster, entries, dp, members)
 	if err != nil {
 		return nil, nil, err
 	}

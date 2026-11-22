@@ -118,6 +118,9 @@ func instructionsFor(a Authoring, m Modes) string {
 		if m.Fleet.Opts.Stats != nil {
 			parts = append(parts, statsInstructions)
 		}
+		if m.Fleet.Opts.Clusters != nil {
+			parts = append(parts, clustersInstructions)
+		}
 	}
 	if m.Delivery != nil {
 		parts = append(parts, deliveryInstructions)

@@ -812,6 +812,10 @@ var clusterHiddenReasons = map[string]string{
 	ClusterNotReviewable: "Pacto cannot review you there, so its services are hidden",
 }
 
+// joinedHidden is the CLUSTER_HIDDEN message of a member read only through
+// the registry: no live channel reviews a person there yet.
+const joinedHidden = " joined through the registry and has no live channel yet, so its services are hidden from signed-in readers"
+
 // clusterLabel names a cluster in a limitation; "" is the one cluster whose
 // id was never read.
 func clusterLabel(name string) string {
@@ -826,7 +830,8 @@ func clusterLabel(name string) string {
 // or ClusterNotReviewable. Each marked cluster a Kubernetes source of full read
 // is listed again with its mark (a cluster only another source reported stays
 // shown only while a visible target carries it), gets one CLUSTER_HIDDEN
-// limitation and makes the view partial. Cluster names are the server's
+// limitation and makes the view partial; a member that joined through the
+// registry and that Pacto cannot review is named so. Cluster names are the server's
 // configuration, so a reader learns which clusters exist, never what is
 // inside. An empty access returns q.
 func (q *Query) WithClusterAccess(full *Query, access map[string]string) *Query {
@@ -838,23 +843,29 @@ func (q *Query) WithClusterAccess(full *Query, access map[string]string) *Query 
 	for _, c := range out.Clusters {
 		shown[c.ID] = true
 	}
-	kube := map[string]bool{}
+	kind, member := map[string]string{}, map[string]bool{}
 	for _, st := range full.base.Sources {
-		kube[st.ID] = st.Kind == SourceKindKubernetes
+		// A member snapshot verifies under the key its approval names.
+		kind[st.ID], member[st.ID] = st.Kind, st.Kind == SourceKindTargetSnapshot && strings.HasPrefix(st.Signer, "member:")
 	}
-	names := map[string]string{}
+	kube := func(s string) bool { return kind[s] == SourceKindKubernetes }
+	names, joined := map[string]string{}, map[string]bool{}
 	out.Clusters = nil
 	for _, c := range full.base.Clusters {
 		names[c.ID] = cmp.Or(c.Name, c.ID)
-		if shown[c.ID] || access[c.ID] != "" && slices.ContainsFunc(c.Sources, func(s string) bool { return kube[s] }) {
+		joined[c.ID] = !slices.ContainsFunc(c.Sources, kube) && slices.ContainsFunc(c.Sources, func(s string) bool { return member[s] })
+		if shown[c.ID] || access[c.ID] != "" && slices.ContainsFunc(c.Sources, kube) {
 			c.Access = access[c.ID]
 			out.Clusters = append(out.Clusters, c)
 		}
 	}
 	out.Limitations = slices.Clone(out.Limitations)
 	for _, id := range slices.Sorted(maps.Keys(access)) {
-		out.Limitations = append(out.Limitations, Limitation{Code: LimitationClusterHidden, Source: id,
-			Message: clusterLabel(cmp.Or(names[id], id)) + ": " + clusterHiddenReasons[access[id]]})
+		msg := clusterLabel(cmp.Or(names[id], id)) + ": " + clusterHiddenReasons[access[id]]
+		if joined[id] && access[id] == ClusterNotReviewable {
+			msg = clusterLabel(cmp.Or(names[id], id)) + joinedHidden
+		}
+		out.Limitations = append(out.Limitations, Limitation{Code: LimitationClusterHidden, Source: id, Message: msg})
 	}
 	sortSnapshotLimitations(&out)
 	out.Completeness = CompletenessPartial

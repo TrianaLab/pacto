@@ -332,6 +332,115 @@ pacto ci init [dir] [flags]
 
 ---
 
+## `pacto cluster`
+
+Every cluster whose operator sets registry publishes a signed snapshot to &lt;registry&gt;/pacto-targets:cluster-&lt;uid&gt;. This cluster, the hub, reads them: a cluster stays pending until a person approves its key, and only an approved member's services, targets and workloads join the hub's fleet. The hub is the current kubeconfig context or --context.
+
+```
+pacto cluster [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for cluster
+```
+
+### `pacto cluster approve`
+
+Signs an approval of the cluster's key as you, keyless after a fresh login in your browser, and records it beside the cluster's snapshot. From the hub's next fleet build on, the member's services, targets and workloads join it, verified under the approved key. --key names the key you checked: compare it out of band with the snapshotKeyID in the member's own &lt;release&gt;-detected ConfigMap. You need approve on clusterjoins.pacto.trianalab.io in the hub, granted to your user (kubectl create clusterrole pacto-cluster-approver --verb=approve --resource=clusterjoins.pacto.trianalab.io, bound to your user); groups are not checked, because a certificate names none. The hub's operator must list approver signers in delivery.identities.signers.
+
+```
+pacto cluster approve <uid> [flags]
+```
+
+**Examples:**
+
+```
+  pacto cluster approve 9f1c4e2a --key sha256:91ab...e7 --name eu-prod --registry ghcr.io/acme
+```
+
+**Flags:**
+
+```
+      --context stringArray         kubeconfig context of the hub cluster (default the current context)
+      --delivery-namespace string   namespace of the hub's delivery identities ConfigMap, which lists the approver signers (default "pacto-delivery")
+      --detected string             what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+  -h, --help[=true|false]           help for approve
+      --issuer string               the approver signer's OIDC issuer, when the hub lists several
+      --key string                  the member key you checked, sha256:<64 hex> (required)
+      --name string                 display name for the member, a DNS label (default the name its snapshot gives)
+      --registry string             the registry the members publish to, or its pacto-targets repository; this or --detected is required
+```
+
+### `pacto cluster list`
+
+Lists every cluster in &lt;registry&gt;/pacto-targets: approved members, pending clusters with why they are pending, and removed members. The environments a cluster seems to host are inferred and say where they came from. An approved member's group mappings say who approved them. The list reads the registry, so it knows nothing about live review channels: the hub's dashboard shows them on Data sources and in meta.clusters[].link of its fleet answers.
+
+```
+pacto cluster list [flags]
+```
+
+**Flags:**
+
+```
+      --context stringArray         kubeconfig context of the hub cluster (default the current context)
+      --delivery-namespace string   namespace of the hub's delivery identities ConfigMap, which lists the approver signers (default "pacto-delivery")
+      --detected string             what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+  -h, --help[=true|false]           help for list
+      --registry string             the registry the members publish to, or its pacto-targets repository; this or --detected is required
+```
+
+### `pacto cluster map-groups`
+
+When a member's apiserver does not accept the hub's tokens, because its OIDC issuer differs or the hub exchanges none, the hub reviews a signed-in person in the member as a mapped identity: their user, bound to their issuer, with the member groups this mapping gives their hub groups. A mapping answers observation reads only, never approvals. This command signs the mapping as you, keyless after a fresh login in your browser, and records it beside the member's snapshot; the newest mapping you sign for an issuer replaces the one before. --clear signs a mapping with no rules, which removes it: for --issuer, or for every issuer the member has a mapping for. Member groups that start with system: are refused. You need approve on clusterjoins.pacto.trianalab.io in the hub, granted to your user (kubectl create clusterrole pacto-cluster-approver --verb=approve --resource=clusterjoins.pacto.trianalab.io, bound to your user).
+
+```
+pacto cluster map-groups <uid> [flags]
+```
+
+**Examples:**
+
+```
+  pacto cluster map-groups 9f1c4e2a --issuer https://login.acme.dev --map platform=pacto-readers --registry ghcr.io/acme
+  pacto cluster map-groups 9f1c4e2a --clear --registry ghcr.io/acme
+```
+
+**Flags:**
+
+```
+      --clear[=true|false]          remove the mapping of --issuer, or of every issuer when --issuer is not set
+      --context stringArray         kubeconfig context of the hub cluster (default the current context)
+      --delivery-namespace string   namespace of the hub's delivery identities ConfigMap, which lists the approver signers (default "pacto-delivery")
+      --detected string             what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+  -h, --help[=true|false]           help for map-groups
+      --issuer string               the OIDC issuer whose people the mapping maps, an https URL (required unless --clear)
+      --map stringArray             a rule <hub group>=<member group>; repeat it for each rule
+      --registry string             the registry the members publish to, or its pacto-targets repository; this or --detected is required
+      --signer-issuer string        the approver signer's OIDC issuer, when the hub lists several
+```
+
+### `pacto cluster remove`
+
+Signs a revocation as you, keyless after a fresh login in your browser, and records it beside the member's snapshot. The member's services leave the hub's fleet from its next build. You need approve on clusterjoins.pacto.trianalab.io in the hub, granted to your user (kubectl create clusterrole pacto-cluster-approver --verb=approve --resource=clusterjoins.pacto.trianalab.io, bound to your user), and the hub's operator must list approver signers in delivery.identities.signers.
+
+```
+pacto cluster remove <uid> [flags]
+```
+
+**Flags:**
+
+```
+      --context stringArray         kubeconfig context of the hub cluster (default the current context)
+      --delivery-namespace string   namespace of the hub's delivery identities ConfigMap, which lists the approver signers (default "pacto-delivery")
+      --detected string             what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+  -h, --help[=true|false]           help for remove
+      --issuer string               the approver signer's OIDC issuer, when the hub lists several
+      --registry string             the registry the members publish to, or its pacto-targets repository; this or --detected is required
+```
+
+---
+
 ## `pacto completion`
 
 Generate the autocompletion script for pacto for the specified shell.
@@ -422,6 +531,8 @@ pacto dashboard [sources...] [flags]
       --mcp[=true|false]                  serve MCP to agents at /mcp with the dashboard's sign-in: a Kubernetes token (token sign-in) or, with --oidc-issuer-url and --mcp-exchange-audience, an issuer token exchanged for the cluster (also PACTO_DASHBOARD_MCP)
       --mcp-exchange-audience string      the audience asked for when exchanging an issuer token, one the API server accepts; with it, every token from the dashboard's issuer must name the MCP URL as its audience; without it every token is checked as a Kubernetes token (also PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE)
       --mcp-url string                    the /mcp URL as agents reach it, the RFC 9728 resource: absolute http(s), path exactly /mcp (no path prefix); empty: the request's own address, token sign-in only (also PACTO_DASHBOARD_MCP_URL)
+      --members-host string               the dashboard's external host as member clusters dial it (their hub.url host), used only when --oidc-redirect-url is not set, whose host wins (also PACTO_DASHBOARD_MEMBERS_HOST)
+      --members-token-audience string     audience a signed-in person's token is exchanged for before a member cluster reviews them, {uid} replaced by the member's UID; each member's apiserver accepts it and the hub's does not (also PACTO_DASHBOARD_MEMBERS_TOKEN_AUDIENCE) (default "pacto-member-{uid}")
       --mira-source stringArray           base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)
       --mira-url string                   Mira's address, to link health-check citations and open a service in Mira
       --namespace string                  Kubernetes namespaces to read, comma-separated (empty = all namespaces); delivery reads narrow to it only when it names one

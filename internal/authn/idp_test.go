@@ -45,6 +45,8 @@ type fakeIdP struct {
 	rotate       bool
 	refreshCalls int
 	exchangeOut  map[string]any
+	// exchangeFor, when set, answers an exchange for each audience.
+	exchangeFor func(audience string) map[string]any
 	// public is the issuer URL the IdP names, when it differs from where the
 	// test reaches it.
 	public string
@@ -180,6 +182,9 @@ func (f *fakeIdP) token(w http.ResponseWriter, r *http.Request) {
 	default:
 		f.exchanges = append(f.exchanges, r.PostForm)
 		out := f.exchangeOut
+		if f.exchangeFor != nil {
+			out = f.exchangeFor(r.PostForm.Get("audience"))
+		}
 		if out == nil {
 			out = map[string]any{"access_token": "exchanged-" + r.PostForm.Get("audience"), "expires_in": 60}
 		}

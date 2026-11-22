@@ -105,6 +105,39 @@ func TestWithClusterAccessKeepsReportedThroughRule(t *testing.T) {
 	}
 }
 
+// TestWithClusterAccessNamesJoinedMember: a member read only through the
+// registry is hidden with the words that name its missing live channel;
+// any other review mark keeps its own words.
+func TestWithClusterAccessNamesJoinedMember(t *testing.T) {
+	eu := clusterOf(clusterA, "eu-prod", ClusterNameFromContext)
+	us := clusterOf(clusterB, "us-west", ClusterNameFromApproval)
+	full := NewQuery(buildClusterSnap(t,
+		NewMemorySource("eu", SourceKindKubernetes, &Collection{Cluster: eu, Targets: []RawTarget{workload("prod", "payments")}}),
+		NewMemorySource("targets-us", SourceKindTargetSnapshot, &Collection{Cluster: us, Targets: []RawTarget{workload("us-ledger", "ledger")},
+			State: &SourceState{Status: SourceAvailable, Signer: "member:us-west"}}),
+	))
+	view := full.Restrict(euOnly, everyWorkloadIn)
+	got := clusterHidden(view.WithClusterAccess(full, map[string]string{clusterB: ClusterNotReviewable}).SnapshotForSerialization())
+	want := "cluster us-west joined through the registry and has no live channel yet, so its services are hidden from signed-in readers"
+	if len(got) != 1 || got[0].Message != want {
+		t.Errorf("CLUSTER_HIDDEN = %+v, want %q", got, want)
+	}
+	// A snapshot read from a --target-snapshot ref never joined (R2-6).
+	explicit := NewQuery(buildClusterSnap(t,
+		NewMemorySource("eu", SourceKindKubernetes, &Collection{Cluster: eu, Targets: []RawTarget{workload("prod", "payments")}}),
+		NewMemorySource("targets-us", SourceKindTargetSnapshot, &Collection{Cluster: us, Targets: []RawTarget{workload("us-ledger", "ledger")},
+			State: &SourceState{Status: SourceAvailable, Signer: "ops"}}),
+	))
+	got = clusterHidden(explicit.Restrict(euOnly, everyWorkloadIn).WithClusterAccess(explicit, map[string]string{clusterB: ClusterNotReviewable}).SnapshotForSerialization())
+	if len(got) != 1 || !strings.HasSuffix(got[0].Message, clusterHiddenReasons[ClusterNotReviewable]) {
+		t.Errorf("a --target-snapshot cluster = %+v", got)
+	}
+	got = clusterHidden(view.WithClusterAccess(full, map[string]string{clusterB: ClusterReviewFailed}).SnapshotForSerialization())
+	if len(got) != 1 || !strings.HasSuffix(got[0].Message, clusterHiddenReasons[ClusterReviewFailed]) {
+		t.Errorf("a failed review of a member = %+v", got)
+	}
+}
+
 func TestMetaClustersMatchProductMeta(t *testing.T) {
 	q := twoClusterFleet(t)
 	meta := q.Status(StatusQuery{}).Meta

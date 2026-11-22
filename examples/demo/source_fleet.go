@@ -175,8 +175,8 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 
 	// The cluster collector reports what is running; the registry above reports what
 	// was declared. Keeping them apart is what lets a target say which source saw it.
-	// One cluster, named from its kubeconfig context: every key keeps its 3-part
-	// form and the target page shows where the target runs.
+	// The hub cluster, named from its kubeconfig context; with its members every
+	// key is cluster-qualified, and a published 3-part href still names one target.
 	takeover, takenOver := demoTakeover(demoNow())
 	targets, inferred := append(demoTargets(src), takeover), append(demoInferredServices(), handedOver)
 	// The operator's linker linked two growth workloads to published
@@ -262,9 +262,13 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	if err != nil {
 		return nil, nil, err
 	}
+	// The hub's approved members (source_clusters.go), each one cluster of its own,
+	// and their link facts.
+	sources := append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection, linked, demoMeshSource(prodCluster, demoNow())},
+		append(traceSources, append(demoMemberSources(), demoMemberLinks())...)...)
 	snap, err := fleet.Build(context.Background(),
 		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat, DeclarationSigners: demoHandoverSigners()},
-		append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection, linked, demoMeshSource(prodCluster, demoNow())}, traceSources...)...)
+		sources...)
 	if err != nil {
 		return nil, nil, err
 	}

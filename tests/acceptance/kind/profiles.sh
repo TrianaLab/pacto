@@ -10,7 +10,7 @@
 #
 # Every release is named pacto-operator by fullnameOverride so the diagnostics
 # find their logs. The core CRDs are kept on uninstall, so each new release
-# first adopts them (adopt_crds). The member+hardened leg belongs to 514-S3.
+# first adopts them (adopt_crds).
 #   1. hardened_refuses: profile=hardened with no controller.watchNamespaces
 #      fails with the UX text and leaves nothing of the release.
 #   2. hardened: release pacto-hd in a namespace created first, watching hd-a,
@@ -19,6 +19,11 @@
 #      cluster-wide Secret read; the operator reads namespaces/kube-system only,
 #      reconciles a Pacto in hd-a and advertises profile [hardened] with the
 #      cluster id and a target snapshot push.
+#   2b. member_hardened: the snapshot pushed to cluster-<uid> carries a join
+#      block naming the cluster and the key the detection advertises
+#      (snapshotKeyID), so a hub can list this hardened cluster as a pending
+#      member (cluster-join.sh proves the hub side). A hardened cluster cannot
+#      be a hub: it renders no delivery, so no approver signers.
 #   3. hardened_refuses_delivery: delivery.enabled=true fails and the release
 #      revision stays.
 #   4. hardened_idp: profile {hardened,idp} turns probing and metrics
@@ -180,6 +185,24 @@ pushed() { curl -fsS --max-time 5 "http://127.0.0.1:${LOCAL_REG_PORT}/v2/acme/pa
 eventually 60 pushed || { kill "$REG_PF" 2>/dev/null || true; fail "the operator never pushed $REG_HOST/acme/pacto-targets:cluster-$CLUSTER_ID"; }
 kill "$REG_PF" 2>/dev/null || true
 pass "the operator advertises profile [hardened], cluster $CLUSTER_ID and pushed $REG_HOST/acme/pacto-targets:cluster-$CLUSTER_ID"
+
+section "SCENARIO 2b (member_hardened): the hardened cluster publishes what a hub approves it by"
+REG_PF="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
+member_join() { # the join block of the snapshot tagged cluster-<uid> in the in-cluster registry
+  local uid layer
+  uid="$(detected_json | jq -r .cluster)"
+  layer="$(curl -fsS -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+    "http://127.0.0.1:${LOCAL_REG_PORT}/v2/acme/pacto-targets/manifests/cluster-$uid" | jq -r '.layers[0].digest')"
+  curl -fsS "http://127.0.0.1:${LOCAL_REG_PORT}/v2/acme/pacto-targets/blobs/$layer" |
+    jq -r '.dsseEnvelope.payload' | base64 -d | jq -c '.predicate.join // {}'
+}
+join="$(member_join)" || { kill "$REG_PF" 2>/dev/null || true; fail "the snapshot of $(detected_json | jq -r .cluster) could not be read"; }
+kill "$REG_PF" 2>/dev/null || true
+jq -e --arg k "$(detected_json | jq -r '.installation.snapshotKeyID // ""')" \
+  '.keyID == $k and $k != "" and .publicKey != "" and .name != "" and .nameSource != ""' <<<"$join" >/dev/null \
+  || fail "the hardened snapshot carries no join block naming the advertised snapshotKeyID: $join"
+no_cluster_rbac "$HD"
+pass "the hardened member's snapshot names $(jq -r '"\(.name) (\(.nameSource))"' <<<"$join") and key sha256:$(jq -r .keyID <<<"$join"); still no ClusterRole"
 
 section "SCENARIO 3 (hardened_refuses_delivery): delivery under hardened fails"
 before="$(revision "$HD")"

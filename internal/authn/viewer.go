@@ -21,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/memberlink"
 )
 
 // Person is who the apiserver authenticates a caller as: the username and
@@ -105,8 +106,8 @@ func (c Claims) Person(token string) Person {
 	return Person{User: user, Groups: out}
 }
 
-// Review answers whether p may list res in namespace ("" for every namespace
-// at once).
+// Review answers whether p may list res (or res.Verb it) in namespace (""
+// for every namespace at once).
 type Review func(ctx context.Context, p Person, namespace string, res ResourceAttributes) (bool, error)
 
 // ResourceAttributes is the API group and resource a review asks about, the
@@ -119,26 +120,37 @@ type ResourceAttributes struct {
 	Name     string
 }
 
+// ClusterJoinResource is the virtual resource a person must be allowed to
+// approve, named by the member's UID, for their approval of a member cluster
+// to count. No CRD serves it: only RBAC names it.
+var ClusterJoinResource = ResourceAttributes{Group: "pacto.trianalab.io", Resource: "clusterjoins", Verb: "approve"}
+
 // PactoResource is the resource every fleet answer is reviewed against.
-var PactoResource = ResourceAttributes{Group: "pacto.trianalab.io", Resource: "pactos"}
+var PactoResource = reviewable("Pacto")
 
 // workloadResources maps the workload kind of an inferred service to the
 // resource a person must be allowed to list to see it.
-var workloadResources = map[string]ResourceAttributes{
-	"Deployment":  {Group: "apps", Resource: "deployments"},
-	"StatefulSet": {Group: "apps", Resource: "statefulsets"},
-	"DaemonSet":   {Group: "apps", Resource: "daemonsets"},
-	"CronJob":     {Group: "batch", Resource: "cronjobs"},
-}
+var workloadResources = reviewables("Deployment", "StatefulSet", "DaemonSet", "CronJob")
 
 // gitopsResources maps the GitOps kind a repository was read from, or a
 // provider row counts, to the resource a person must be allowed to list to
 // see it.
-var gitopsResources = map[string]ResourceAttributes{
-	"Application":   {Group: "argoproj.io", Resource: "applications"},
-	"GitRepository": {Group: "source.toolkit.fluxcd.io", Resource: "gitrepositories"},
-	"Kustomization": {Group: "kustomize.toolkit.fluxcd.io", Resource: "kustomizations"},
-	"HelmRelease":   {Group: "helm.toolkit.fluxcd.io", Resource: "helmreleases"},
+var gitopsResources = reviewables("Application", "GitRepository", "Kustomization", "HelmRelease")
+
+// reviewable is the resource kind decides, from the one list a member
+// cluster may be asked about.
+func reviewable(kind string) ResourceAttributes {
+	r := memberlink.ReviewableResources[kind]
+	return ResourceAttributes{Group: r.Group, Resource: r.Resource}
+}
+
+// reviewables maps each kind to the resource it decides.
+func reviewables(kinds ...string) map[string]ResourceAttributes {
+	out := make(map[string]ResourceAttributes, len(kinds))
+	for _, k := range kinds {
+		out[k] = reviewable(k)
+	}
+	return out
 }
 
 // reviewedAs is every resource a person must be allowed to list in a

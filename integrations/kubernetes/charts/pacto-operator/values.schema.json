@@ -330,6 +330,21 @@
       "description": "The installation registry (host[/path], no scheme); the operator publishes the target snapshot to <registry>/pacto-targets.",
       "pattern": "^([a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)*)?$"
     },
+    "hub": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "The hub's https:// or wss:// URL; setting it makes this joined cluster a member that dials out to the hub.",
+          "pattern": "^((https|wss)://.+)?$"
+        },
+        "caConfigMap": {
+          "type": "string",
+          "description": "ConfigMap holding ca.crt, the CAs the hub's certificate may chain to."
+        }
+      }
+    },
     "profile": {
       "description": "Installation profile: default, hardened or idp, or a list of them (hardened wins where they disagree).",
       "oneOf": [

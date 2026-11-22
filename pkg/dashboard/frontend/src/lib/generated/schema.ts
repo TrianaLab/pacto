@@ -448,6 +448,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fleet/clusters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the member clusters of this hub
+         * @description The clusters that publish to this hub's registry and where each stands: approved members, pending clusters with why they are pending and removed members, as pacto cluster list and pacto_cluster_list answer. A signed-in reader who may not approve clusterjoins sees the approved members only; the rest are counted in hidden. Approving is a person's signed decision with pacto cluster approve.
+         */
+        get: operations["get-fleet-clusters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/fleet/declare": {
         parameters: {
             query?: never;
@@ -1937,6 +1957,10 @@ export interface components {
             groups?: string[] | null;
             user: string;
         };
+        "Delivery.AdvertisedEnvironment": {
+            name: string;
+            source: string;
+        };
         "Delivery.ApplierStatus": {
             /** @description The last observation (RFC 3339) */
             asOf?: string;
@@ -2052,6 +2076,44 @@ export interface components {
             result: "Pass" | "Fail" | "Unknown";
             verdicts: components["schemas"]["Delivery.Verdict"][] | null;
         };
+        "Delivery.ClusterJoinList": {
+            asOf: string;
+            canApprove: boolean;
+            clusters: components["schemas"]["Delivery.ClusterJoinState"][] | null;
+            completeness: string;
+            /** Format: int64 */
+            hidden: number;
+            hub: components["schemas"]["Delivery.ClusterRef"];
+            limitations?: components["schemas"]["Fleet.Limitation"][] | null;
+            /** Format: int64 */
+            otherHubs: number;
+            repository: string;
+        };
+        "Delivery.ClusterJoinState": {
+            approvedAt?: string;
+            approvedKeyID?: string;
+            approvedPublicKey?: string;
+            approver?: string;
+            environments?: components["schemas"]["Delivery.AdvertisedEnvironment"][] | null;
+            keyID?: string;
+            mappings?: components["schemas"]["Delivery.GroupMappingState"][] | null;
+            mayReplace?: components["schemas"]["Delivery.ClusterRef"];
+            name?: string;
+            /** @enum {string} */
+            nameSource?: "approval" | "node-label" | "context" | "file" | "uid";
+            publicKey?: string;
+            reason?: string;
+            record?: string;
+            snapshotAsOf?: string;
+            /** @enum {string} */
+            state: "pending" | "approved" | "removed";
+            status?: string;
+            uid: string;
+        };
+        "Delivery.ClusterRef": {
+            name?: string;
+            uid: string;
+        };
         "Delivery.Deadlines": {
             approval?: string;
             execution?: string;
@@ -2094,6 +2156,17 @@ export interface components {
         "Delivery.Gates": {
             impact?: components["schemas"]["Delivery.ImpactGate"];
             verify?: components["schemas"]["Delivery.VerifyGates"];
+        };
+        "Delivery.GroupMappingState": {
+            approvedAt: string;
+            approvedBy: string;
+            issuer: string;
+            record: string;
+            rules: components["schemas"]["Delivery.GroupRule"][] | null;
+        };
+        "Delivery.GroupRule": {
+            from: string;
+            to: string;
         };
         "Delivery.HistoryEntry": {
             actor: string;
@@ -3115,12 +3188,26 @@ export interface components {
             /** @description A display name for the cluster; never an identity. */
             name?: string;
             /**
-             * @description How the name was found: a node label, the kubeconfig context name, a target state file or the first characters of the UID.
+             * @description How the name was found: a person's approval of the cluster, a node label, the kubeconfig context name, a target state file or the first characters of the UID.
              * @enum {string}
              */
-            nameSource?: "node-label" | "context" | "file" | "uid";
+            nameSource?: "approval" | "node-label" | "context" | "file" | "uid";
             /** @description The source that reported the name; empty when this process read it itself. */
             reportedBy?: string;
+        };
+        "Fleet.ClusterLink": {
+            /**
+             * @description live while the member's channel is connected; down when it dropped in the last 15 minutes.
+             * @enum {string}
+             */
+            channel?: "live" | "down";
+            /** @description The identity model each token issuer uses in this member, in issuer order. */
+            issuers?: components["schemas"]["Fleet.IssuerModel"][] | null;
+            /**
+             * Format: date-time
+             * @description When the channel last came up or dropped.
+             */
+            since?: string;
         };
         "Fleet.ClusterRecord": {
             /**
@@ -3130,13 +3217,15 @@ export interface components {
             access?: "no-access" | "review-failed" | "not-reviewable";
             /** @description The kube-system namespace UID: the identity of the cluster. */
             id: string;
+            /** @description The member's outbound channel to this hub and the identity model per token issuer. Absent when the cluster has no channel. */
+            link?: components["schemas"]["Fleet.ClusterLink"];
             /** @description A display name for the cluster; never an identity. */
             name?: string;
             /**
-             * @description How the name was found: a node label, the kubeconfig context name, a target state file or the first characters of the UID.
+             * @description How the name was found: a person's approval of the cluster, a node label, the kubeconfig context name, a target state file or the first characters of the UID.
              * @enum {string}
              */
-            nameSource?: "node-label" | "context" | "file" | "uid";
+            nameSource?: "approval" | "node-label" | "context" | "file" | "uid";
             /** @description The source that reported the name; empty when this process read it itself. */
             reportedBy?: string;
             /** @description Every source that reported this cluster id. */
@@ -3150,13 +3239,15 @@ export interface components {
             access?: "no-access" | "review-failed" | "not-reviewable";
             /** @description The kube-system namespace UID; empty for a Kubernetes source whose cluster could not be identified. */
             id: string;
+            /** @description The member's outbound channel to this hub and the identity model per token issuer. Absent when the cluster has no channel. */
+            link?: components["schemas"]["Fleet.ClusterLink"];
             /** @description A display name for the cluster, or the source id when the cluster could not be identified; never an identity. */
             name: string;
             /**
-             * @description How the name was found.
+             * @description How the name was found: a person's approval of the cluster, a node label, the kubeconfig context name, a target state file or the first characters of the UID.
              * @enum {string}
              */
-            nameSource?: "node-label" | "context" | "file" | "uid";
+            nameSource?: "approval" | "node-label" | "context" | "file" | "uid";
             /**
              * @description The worst status of the sources that reported the cluster.
              * @enum {string}
@@ -4204,7 +4295,7 @@ export interface components {
             joined: number | null;
             /**
              * Format: int64
-             * @description Cluster join requests waiting for a person; null when not read
+             * @description Clusters waiting for a person to approve them as members, as this caller may see them; null when not read, when some are hidden from this caller or when the join list was read partly
              */
             pending: number | null;
             /** @enum {string} */
@@ -4320,6 +4411,24 @@ export interface components {
             /** Format: int64 */
             total: number;
             truncated: boolean;
+        };
+        "Fleet.IssuerModel": {
+            /** @description The issuer of the signed-in people's tokens. */
+            issuer?: string;
+            /**
+             * Format: date-time
+             * @description When the group mapping was signed.
+             */
+            mappedAt?: string;
+            /** @description Who approved the group mapping in force. */
+            mappedBy?: string;
+            /** @description The mapping's rules, hub group=cluster group, comma separated. */
+            mapping?: string;
+            /**
+             * @description shared-issuer: the member's apiserver accepts an exchanged token; group-mapping: reads use the approved group mapping; issuer-not-accepted: the member refuses the issuer and no mapping is approved.
+             * @enum {string}
+             */
+            model?: "shared-issuer" | "group-mapping" | "issuer-not-accepted";
         };
         "Fleet.KnowledgeGaps": {
             /**
@@ -5788,7 +5897,7 @@ export interface components {
              * @description How the cluster name was found.
              * @enum {string}
              */
-            clusterNameSource?: "node-label" | "context" | "file" | "uid";
+            clusterNameSource?: "approval" | "node-label" | "context" | "file" | "uid";
             /**
              * @description runs-in when a Kubernetes source read the target in the cluster; reported-through when the cluster only reported it.
              * @enum {string}
@@ -6720,7 +6829,7 @@ export interface components {
             /** @description The inferred service of an uncontracted caller, when Pacto sees its workload */
             caller?: components["schemas"]["ProductRef"];
             /** @enum {string} */
-            category: "non-compliant" | "invalid" | "cross-environment" | "health" | "provisioning" | "unknown" | "stale" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "readiness" | "knowledge" | "unowned";
+            category: "non-compliant" | "invalid" | "cross-environment" | "health" | "provisioning" | "unknown" | "stale" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "readiness" | "knowledge" | "unowned" | "cluster";
             code: string;
             entity: components["schemas"]["ProductRef"];
             label: string;
@@ -10847,6 +10956,44 @@ export interface operations {
             };
             /** @description Error */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-fleet-clusters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Delivery.ClusterJoinList"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

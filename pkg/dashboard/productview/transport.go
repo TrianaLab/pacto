@@ -1,6 +1,8 @@
 // Package productview is the dashboard product transport: fleet product answers
-// wrapped with canonical hash-router hrefs. It imports only net/url and pkg/fleet,
-// so the MCP server builds the same hrefs without linking the dashboard server.
+// wrapped with canonical hash-router hrefs, and the parts of an answer the
+// dashboard and the MCP server build alike. It imports only net/url, pkg/fleet
+// and pkg/delivery, so the MCP server builds the same answers without linking
+// the dashboard server.
 package productview
 
 import "github.com/trianalab/pacto/v4/pkg/fleet"

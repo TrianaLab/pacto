@@ -9,6 +9,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/trianalab/pacto/v4/pkg/dashboard/productview"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
@@ -473,6 +474,9 @@ func (s *Server) stubProvidersForSchemaExport() {
 	}
 	s.opts.Stats = func(context.Context, []string) (stats.RecordSet, error) {
 		return stats.RecordSet{}, errors.New("schema export only")
+	}
+	s.opts.ClusterJoins = func(context.Context) (delivery.ClusterJoinList, error) {
+		return delivery.ClusterJoinList{}, errors.New("schema export only")
 	}
 	s.opts.Declare = schemaDeclarer{}
 }

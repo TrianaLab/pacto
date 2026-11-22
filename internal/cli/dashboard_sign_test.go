@@ -62,12 +62,12 @@ func TestDashboardSigningNeedsOIDC(t *testing.T) {
 	v := viper.New()
 	v.Set("dashboard.sign-client-id", "pacto-sign")
 	v.Set("dashboard.allow-anonymous", true)
-	_, err = newDashboardIdentity(v, "0.0.0.0", nil, homeEntries(nil), defaultDeps())
+	_, err = newDashboardIdentity(v, "0.0.0.0", nil, homeEntries(nil), defaultDeps(), nil)
 	expect(t, err == errSignNeedsOIDC, "a sign client without OIDC sign-in is refused at start: %v", err)
 
 	v = signViper("https://fulcio.example")
 	v.Set("dashboard.sign-client-id", "pacto-dashboard")
-	_, err = newDashboardIdentity(v, "0.0.0.0", nil, homeEntries(nil), defaultDeps())
+	_, err = newDashboardIdentity(v, "0.0.0.0", nil, homeEntries(nil), defaultDeps(), nil)
 	expect(t, err != nil && strings.Contains(err.Error(), "must differ"), "the sign client is never the sign-in client: %v", err)
 }
 

@@ -64,6 +64,7 @@ describe('attentionCategoryLabel', () => {
     expect(attentionCategoryLabel('undeclared')).toBe('Undeclared dependency');
     expect(attentionCategoryLabel('lifecycle')).toBe('Deprecated provider');
     expect(attentionCategoryLabel('provisioning')).toBe('Resource provisioning');
+    expect(attentionCategoryLabel('cluster')).toBe('Member cluster');
     expect(backend).toContain('undeclared');
     expect(backend).toContain('readiness');
   });
@@ -373,5 +374,11 @@ describe('sourceMessageIsNote', () => {
     expect(sourceMessageIsNote('available', undefined)).toBe(true);
     expect(sourceMessageIsNote('unavailable', 'NOT_FOUND')).toBe(false);
     expect(sourceMessageIsNote('stale', undefined)).toBe(false);
+  });
+});
+
+describe('member cluster attention words', () => {
+  it('words the CLUSTER_ISSUER_DIFFERS cause', () => {
+    expect(attentionCause('CLUSTER_ISSUER_DIFFERS')).toMatch(/group mapping/);
   });
 });

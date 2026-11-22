@@ -404,6 +404,8 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | global.securityContext.readOnlyRootFilesystem | bool | `true` | Read-only root filesystem |
 | global.securityContext.runAsNonRoot | bool | `true` | Run as non-root |
 | global.securityContext.runAsUser | int | `65532` | Run as UID 65532 (nonroot in distroless) |
+| hub.caConfigMap | string | `""` | ConfigMap in the release namespace holding `ca.crt`, the PEM CAs the hub's certificate may chain to beside the system pool. |
+| hub.url | string | `""` | The hub's https:// or wss:// URL. Setting it makes this joined cluster a member: the operator dials out to the hub, proves its installation key and answers the hub's per-person reviews with this cluster's own SubjectAccessReview. Nothing listens for the hub: no inbound port, Service or Ingress. Needs `registry`; profile hardened runs no review channel. |
 | image.digest | string | `""` | Pins the image by digest (sha256:...), appended to the tag as tag@digest so the runtime pulls exactly that image whatever the tag resolves to later |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
 | image.registry | string | `""` | Controller image registry (defaults to `global.imageRegistry`) |
@@ -433,7 +435,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | podLabels | object | `{}` | Labels to add to the controller pod |
 | podSecurityContext | object | `{}` | Pod securityContext of the controller (defaults to `global.podSecurityContext`) |
 | profile | string | `"default"` | Installation profile: default, hardened or idp, or a list such as `{hardened,idp}` (hardened wins where they disagree). hardened needs controller.watchNamespaces and renders no ClusterRole, no managed dashboard, no node agent, no Pacto delivery and no namespace; idp turns probing, metrics observation and Pacto delivery on. See https://pacto.run/latest/integrations/kubernetes/profiles/ |
-| registry | string | `""` | The installation registry (host[/path], no scheme), such as `ghcr.io/acme`. The operator publishes the cluster's target snapshot, signed with the installation key it creates once, to `<registry>/pacto-targets`, which `pacto impact` reads in CI; empty publishes none. Delivery stays off until delivery.enabled=true. |
+| registry | string | `""` | The installation registry (host[/path], no scheme), such as `ghcr.io/acme`. The operator publishes the cluster's target snapshot, signed with the installation key it creates once, to `<registry>/pacto-targets`, which `pacto impact` reads in CI and a hub reads to approve this cluster as a member (`pacto cluster approve`); empty publishes none. Delivery stays off until delivery.enabled=true. |
 | registryPullSecret | string | `""` | namespace/name of an existing Secret that authenticates to `registry`, for a registry without workload identity. Pacto proposes one it saw running pods use (helm upgrade notes and Data sources) and never uses it until you name it here. The chart grants get on that Secret only. |
 | replicaCount | int | `1` | Number of controller replicas |
 | resources.limits.memory | string | `"256Mi"` | Memory limit of the controller. It caches every Deployment, StatefulSet, ReplicaSet, Job, CronJob and Service it targets. |

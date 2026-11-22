@@ -10,6 +10,7 @@ package main
 import (
 	"cmp"
 	"context"
+	"crypto/ed25519"
 	"crypto/tls"
 	"errors"
 	"flag"
@@ -55,6 +56,7 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/installkey"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/linker"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/member"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/scope"
@@ -147,6 +149,8 @@ type options struct {
 
 	registry             string
 	profile              string
+	hubURL               string
+	hubCAFile            string
 	registryPullSecret   string
 	registryPushPrefixes []string
 
@@ -394,6 +398,12 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.StringVar(&o.registry, "registry", "",
 		"The installation registry (host/path): Pacto publishes the target snapshot and inferred contracts under it "+
 			"and pushes nowhere else; empty turns those features off.")
+	fs.StringVar(&o.hubURL, "hub-url", "",
+		"The hub's https:// or wss:// URL. Setting it makes this joined cluster a member: the elected leader dials "+
+			"the hub, proves the installation key and answers the hub's per-person reviews with this cluster's own "+
+			"SubjectAccessReview. Nothing listens for the hub; needs --registry.")
+	fs.StringVar(&o.hubCAFile, "hub-ca-file", "",
+		"File holding the PEM CAs the hub's certificate may chain to, beside the system pool.")
 	fs.StringVar(&o.registryPullSecret, "registry-pull-secret", "",
 		"namespace/name of the Secret that authenticates to the installation registry; used only under the push prefixes.")
 	fs.Func("registry-push-prefix",
@@ -715,7 +725,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 	// The cluster id names the cluster in Evidence Server reports and in what
 	// detection writes; read once.
 	ident := readClusterIdentity(mgr)
-	inst, err := addPublishers(mgr, o, namespace, ident.ID, evidenceSourceURL, kc, loaderKC, rec)
+	inst, err := addPublishers(mgr, o, namespace, ident, evidenceSourceURL, kc, loaderKC, rec)
 	if err != nil {
 		return err
 	}
@@ -844,11 +854,12 @@ func addNodeAgent(mgr ctrl.Manager, o *options, namespace string) error {
 	return nil
 }
 
-// addPublishers runs the linker and the target snapshot publisher. It returns the installation block
-// detection advertises on every install; only its registry fields need --registry.
-func addPublishers(mgr ctrl.Manager, o *options, namespace, clusterID, evidenceURL string, kc, loaderKC authn.Keychain,
+// addPublishers runs the linker, the target snapshot publisher and, with --hub-url, the member link (both
+// signing with the one installation key). It returns the installation block detection advertises on every
+// install; only its registry fields need --registry.
+func addPublishers(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity, evidenceURL string, kc, loaderKC authn.Keychain,
 	rec *controller.PactoReconciler) (*detect.Installation, error) {
-	linked, err := addLinker(mgr, o, namespace, clusterID, kc, loaderKC, rec)
+	linked, err := addLinker(mgr, o, namespace, ident.ID, kc, loaderKC, rec)
 	if err != nil {
 		return nil, err
 	}
@@ -857,7 +868,33 @@ func addPublishers(mgr ctrl.Manager, o *options, namespace, clusterID, evidenceU
 		return nil, err
 	}
 	inst := &detect.Installation{Profile: profiles}
-	return inst, addTargetSnapshot(mgr, o, namespace, clusterID, evidenceURL, kc, inst, linked)
+	key, err := addTargetSnapshot(mgr, o, namespace, ident, evidenceURL, kc, inst, linked)
+	if err != nil {
+		return nil, err
+	}
+	return inst, addMember(mgr, o, ident, key)
+}
+
+// addMember makes this cluster a member when --hub-url is set: the elected leader dials the hub and answers
+// its reviews with this cluster's SelfSubjectReview and SubjectAccessReview. It needs --registry (the
+// installation key the hub approved) and the cluster id, and stops the operator at start without them.
+func addMember(mgr ctrl.Manager, o *options, ident kubecluster.Identity, key ed25519.PrivateKey) error {
+	if o.hubURL == "" {
+		return nil
+	}
+	if o.registry == "" {
+		return errors.New("--hub-url needs --registry: a member is a cluster that joined the hub through the registry")
+	}
+	rv := &member.Reviewer{Own: mgr.GetConfig(), Client: mgr.GetClient(), Now: time.Now,
+		NewClient: func(c *rest.Config) (client.Client, error) {
+			return client.New(c, client.Options{Scheme: mgr.GetScheme()})
+		}}
+	link, err := member.New(o.hubURL, o.hubCAFile, ident, key, rv)
+	if err != nil {
+		return err
+	}
+	setupLog.Info("This cluster is a member: dialling the hub", "hub", o.hubURL, "cluster", ident.ID)
+	return mgr.Add(link)
 }
 
 // addLinker runs the linker when the operator runs inside the chart: it links every workload no Pacto
@@ -886,41 +923,36 @@ var lastPush atomic.Pointer[detect.PushResult]
 // addTargetSnapshot runs the target snapshot publisher when --registry is set: it ensures the installation
 // key, then publishes <registry>/pacto-targets:cluster-<uid> and the inferred contracts under
 // <registry>/pacto-inferred on the elected leader. It fills the registry fields of inst, the installation
-// detection advertises, and leaves them empty without --registry. Any missing piece stops the operator at
-// start with its reason.
-func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace, clusterID, evidenceURL string,
-	kc authn.Keychain, inst *detect.Installation, linked func() core.LinkedTargets) error {
+// detection advertises, and leaves them empty without --registry. It returns the installation key, nil
+// without --registry. A member (--hub-url) publishes no inferred contracts: its hub does, from the merged
+// snapshot. Any missing piece stops the operator at start with its reason.
+func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity, evidenceURL string,
+	kc authn.Keychain, inst *detect.Installation, linked func() core.LinkedTargets) (ed25519.PrivateKey, error) {
 	if o.registry == "" {
 		setupLog.Info("Target snapshot and inferred contracts are off: set the registry value")
-		return nil
+		return nil, nil
 	}
 	deploy := os.Getenv("OPERATOR_DEPLOYMENT_NAME")
 	if deploy == "" {
-		return fmt.Errorf("--registry needs OPERATOR_DEPLOYMENT_NAME: " +
+		return nil, fmt.Errorf("--registry needs OPERATOR_DEPLOYMENT_NAME: " +
 			"the installation key Secret is named after the operator Deployment")
 	}
 	key, err := installkey.Ensure(context.Background(), mgr.GetAPIReader(), mgr.GetClient(), namespace,
 		installkey.SecretName(deploy))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	pub, err := targetsnapshot.ForOperator(targetsnapshot.Config{Registry: o.registry, ClusterID: clusterID,
+	pub, err := targetsnapshot.ForOperator(targetsnapshot.Config{Registry: o.registry, ClusterID: ident.ID,
+		ClusterName: ident.Name, ClusterNameSource: ident.NameSource,
 		Namespace: namespace, ServiceAccount: os.Getenv("OPERATOR_SERVICE_ACCOUNT"), EvidenceURL: evidenceURL,
 		Watched: o.namespaces, Key: key, Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(),
 		OnPush: func(r detect.PushResult) { lastPush.Store(&r) }, OwnerPolicy: readOwnerPolicy(o.ownerPolicy),
 		Linked: linked})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	// The inferred contracts of the externals the Pactos name, signed with the same key, under
-	// <registry>/pacto-inferred: the same push scope, on the elected leader.
-	inferred, err := inferredpublish.ForOperator(inferredpublish.Config{Registry: o.registry, Key: key, Keychain: kc,
-		Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(), Watched: o.namespaces, Pacto: version})
-	if err != nil {
-		return err
-	}
-	if err := mgr.Add(inferred); err != nil {
-		return err
+	if err := addInferred(mgr, o, key, kc); err != nil {
+		return nil, err
 	}
 	inst.Registry = o.registry
 	inst.Targets = oci.InstallationRepository(o.registry, oci.TargetsRepository)
@@ -930,7 +962,22 @@ func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace, clusterID, evide
 	inst.SnapshotKey, inst.SnapshotKeyID = installkey.PublicKeyBase64(key), signing.Hint(key.Public())
 	setupLog.Info("Target snapshot is on", "repository", inst.Targets,
 		"snapshotKeyID", inst.SnapshotKeyID, "snapshotKey", inst.SnapshotKey)
-	return mgr.Add(pub)
+	return key, mgr.Add(pub)
+}
+
+// addInferred publishes the inferred contracts of the externals the Pactos name, signed with the installation
+// key, under <registry>/pacto-inferred: the same push scope, on the elected leader. A member publishes none.
+func addInferred(mgr ctrl.Manager, o *options, key ed25519.PrivateKey, kc authn.Keychain) error {
+	if o.hubURL != "" {
+		setupLog.Info("Inferred contracts are off on a member: its hub publishes them")
+		return nil
+	}
+	inferred, err := inferredpublish.ForOperator(inferredpublish.Config{Registry: o.registry, Key: key, Keychain: kc,
+		Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(), Watched: o.namespaces, Pacto: version})
+	if err != nil {
+		return err
+	}
+	return mgr.Add(inferred)
 }
 
 // readOwnerPolicy reads the mounted owner policy once at start: the ConfigMap

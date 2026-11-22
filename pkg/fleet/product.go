@@ -344,10 +344,11 @@ type ProductMeta struct {
 type ClusterSummary struct {
 	ID         string       `json:"id" doc:"The kube-system namespace UID; empty for a Kubernetes source whose cluster could not be identified."`
 	Name       string       `json:"name" doc:"A display name for the cluster, or the source id when the cluster could not be identified; never an identity."`
-	NameSource string       `json:"nameSource,omitempty" enum:"node-label,context,file,uid" doc:"How the name was found."`
+	NameSource string       `json:"nameSource,omitempty" enum:"approval,node-label,context,file,uid" doc:"How the name was found: a person's approval of the cluster, a node label, the kubeconfig context name, a target state file or the first characters of the UID."`
 	Status     SourceStatus `json:"status" enum:"available,partial,stale,unavailable" doc:"The worst status of the sources that reported the cluster."`
 	Access     string       `json:"access,omitempty" enum:"no-access,review-failed,not-reviewable" doc:"Why a restricted view shows nothing of this cluster; empty when it shows what you may read."`
 	Targets    int          `json:"targets" doc:"The targets of this cluster the answer shows."`
+	Link       *ClusterLink `json:"link,omitempty" doc:"The member's outbound channel to this hub and the identity model per token issuer. Absent when the cluster has no channel."`
 }
 
 // clusterSummaries is the per-cluster status of s, nil when s knows no
@@ -367,7 +368,7 @@ func clusterSummaries(s *FleetSnapshot) ([]ClusterSummary, bool) {
 	named, at := map[string]bool{}, map[string]int{}
 	out := make([]ClusterSummary, 0, len(s.Clusters))
 	for _, c := range s.Clusters {
-		sum := ClusterSummary{ID: c.ID, Name: cmp.Or(c.Name, c.ID), NameSource: c.NameSource, Status: SourceAvailable, Access: c.Access, Targets: targets[c.ID]}
+		sum := ClusterSummary{ID: c.ID, Name: cmp.Or(c.Name, c.ID), NameSource: c.NameSource, Status: SourceAvailable, Access: c.Access, Targets: targets[c.ID], Link: c.Link}
 		for _, src := range c.Sources {
 			named[src] = true
 			sum.Status = worseStatus(sum.Status, status[src])
@@ -1128,7 +1129,7 @@ type AttentionItem struct {
 	// finding severity).
 	Severity string `json:"severity" enum:"error,warning,info"`
 	Code     string `json:"code"`
-	Category string `json:"category" enum:"non-compliant,invalid,cross-environment,health,provisioning,unknown,stale,unresolved,out-of-range,lifecycle,undeclared,golden-path,readiness,knowledge,unowned"`
+	Category string `json:"category" enum:"non-compliant,invalid,cross-environment,health,provisioning,unknown,stale,unresolved,out-of-range,lifecycle,undeclared,golden-path,readiness,knowledge,unowned,cluster"`
 	Summary  string `json:"summary"`
 	Reason   string `json:"reason"`
 	Source   string `json:"source,omitempty"`
@@ -1252,6 +1253,7 @@ const (
 	categoryUndeclared   = "undeclared"
 	categoryUnowned      = "unowned"
 	categoryGoldenPath   = "golden-path"
+	categoryCluster      = "cluster"
 )
 
 // severity levels.
@@ -1389,7 +1391,7 @@ type AttentionCategoryCount struct {
 
 // attentionCategoryOrder is the canonical display order of the triage
 // categories, worst first. It mirrors the AttentionItem.Category enum.
-var attentionCategoryOrder = []string{"non-compliant", "invalid", "cross-environment", "health", "provisioning", "unknown", "stale", "unresolved", "out-of-range", "lifecycle", "undeclared", "golden-path", "readiness", "knowledge", "unowned"}
+var attentionCategoryOrder = []string{"non-compliant", "invalid", "cross-environment", "health", "provisioning", "unknown", "stale", "unresolved", "out-of-range", "lifecycle", "undeclared", "golden-path", "readiness", "knowledge", "unowned", "cluster"}
 
 // AttentionCategoriesList returns the canonical display order of the triage
 // categories, worst first, as a fresh copy the caller may modify.
@@ -1456,6 +1458,7 @@ func (q *Query) gatherAttention() []AttentionItem {
 	items = append(items, q.undeclaredAttention()...)
 	items = append(items, q.crossEnvironmentAttention()...)
 	items = append(items, q.deployedTemplateAttention()...)
+	items = append(items, q.clusterLinkAttention()...)
 	return slices.DeleteFunc(items, func(it AttentionItem) bool { return q.goldenPath(ServiceKey(it.Service)) })
 }
 

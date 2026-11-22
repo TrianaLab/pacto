@@ -344,3 +344,19 @@ tests:
     asserts:
       - notMatchRegexRaw:
           pattern: now also serves MCP
+
+  - it: with registry says how a hub approves this cluster as a member
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - matchRegexRaw:
+          pattern: "A hub that reads ghcr.io/acme/pacto-targets lists this cluster as a\n  pending member; approve it there with\n    pacto cluster approve <uid> --key sha256:<snapshotKeyID> --registry ghcr.io/acme"
+      - matchRegexRaw:
+          pattern: "kubectl get configmap pacto-operator-detected -n pacto-operator-system -o jsonpath='\\{\\.data\\.detected\\\\\\.json\\}' \\| jq -r \\.installation\\.snapshotKeyID"
+      - matchRegexRaw:
+          pattern: "pull-only credential for ghcr.io/acme to dashboard.ociSecrets"
+
+  - it: without registry says nothing about members
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "pending member|snapshotKeyID|dashboard.ociSecrets"

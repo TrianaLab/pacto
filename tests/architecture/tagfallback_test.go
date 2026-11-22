@@ -73,8 +73,9 @@ var writeOnceCallers = []string{
 	// organization index, <registry>/pacto-index (CLI only, #452 decision 11).
 	"internal/app/index_write.go",
 	// PutRecord and Push: the delivery record streams repository (records,
-	// approvals, intents and identity pins) and the approvals repository; the
-	// operator's recordstore.go and recorder.go and the CLI write through it.
+	// approvals, intents and identity pins) and the approvals repository, and
+	// cluster join records in <registry>/pacto-targets; the operator's
+	// recordstore.go and recorder.go and the CLI write through it.
 	"pkg/deliveryrecord/deliveryrecord.go",
 	// The publisher's own artifact and bundle repositories (pacto-sig tags,
 	// CLI only); sign.go and apply.go (SBOMs) write through writeReferrer.

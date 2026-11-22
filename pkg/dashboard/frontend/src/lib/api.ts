@@ -76,6 +76,9 @@ export type ProductStats = JSON200<'get-stats'>;
 export type ProductStatsRecords = JSON200<'get-stats-records'>;
 export type ProvidersResult = JSON200<'fleet-providers'>;
 export type ProductMeta = ProductOverview['meta'];
+/** The member clusters of a hub: approved, pending and removed, with the counts a reader may not see. */
+export type ClusterJoinList = components['schemas']['Delivery.ClusterJoinList'];
+export type ClusterJoinState = components['schemas']['Delivery.ClusterJoinState'];
 
 // JSONBody / GetResponse / PostResponse derive an operation's 200 application/json
 // body straight from the generated `paths`, keyed by the exact path a facade method
@@ -497,6 +500,15 @@ export const api = {
     productGet(client.GET('/api/fleet/overview')),
   fleetProviders: (): Promise<ProvidersResult> =>
     productGet(client.GET('/api/fleet/providers')),
+  /** The member clusters of this hub; null when this host reads no joins (404). */
+  fleetClusters: async (): Promise<ClusterJoinList | null> => {
+    try {
+      return await unwrap(client.GET('/api/fleet/clusters'));
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
+    }
+  },
   fleetEntities: (params: FleetEntitiesInput = {}): Promise<ProductEntityList> => {
     const { kinds, ...rest } = params;
     return productGet(client.GET('/api/fleet/entities', {

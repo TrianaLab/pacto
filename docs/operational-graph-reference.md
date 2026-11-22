@@ -167,8 +167,16 @@ limitation per source.
 
 | Limitation | Raised when |
 |------------|-------------|
-| `CLUSTER_HIDDEN` | The view hides one cluster: you may read no namespace there, its review failed or Pacto cannot review you there ([Multi-cluster](multi-cluster.md)). Its `source` is the cluster id; the answer is partial |
+| `CLUSTER_HIDDEN` | The view hides one cluster: you may read no namespace there, its review failed or Pacto cannot review you there ([Multi-cluster](multi-cluster.md)). A [member](member-clusters.md) reads "cluster eu-prod joined through the registry and has no live channel yet, so its services are hidden from signed-in readers". Its `source` is the cluster id; the answer is partial |
 | `CLUSTER_FILTER_UNKNOWN` | A list filtered by a cluster id that no cluster of the answer has, such as a display name or a retired cluster, so its empty list says nothing about it. Completeness is unchanged |
+
+| `meta.clusters[]` field | Meaning |
+|------------|-------------|
+| `id`, `name`, `nameSource` | The `kube-system` UID and a display name with how it was found |
+| `status`, `access`, `targets` | The worst source status, why a restricted view shows nothing of the cluster and how many targets it shows |
+| `link.channel` | A [member](member-clusters.md)'s outbound channel: `live`, or `down` when it dropped in the last 15 minutes; absent when it has none |
+| `link.since` | When the channel last came up or dropped |
+| `link.issuers[]` | Per token issuer, `model`: `shared-issuer`, `group-mapping` (with `mappedBy`, `mappedAt` and `mapping`) or `issuer-not-accepted`. Such issuers raise `CLUSTER_ISSUER_DIFFERS` on Needs attention ([tallies](operational-graph-tallies.md)) |
 
 ### What a target-state fixture looks like
 

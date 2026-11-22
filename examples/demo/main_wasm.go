@@ -16,6 +16,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
@@ -116,6 +117,8 @@ func main() {
 	// Declare an inferred service from its page (source_declare.go): nobody
 	// signs in the demo, so Save draft keeps a draft-<n> in the tab.
 	opts.Declare = newDemoDeclarer(func(r *http.Request) string { return d.State(r).User })
+	// The production cluster is a hub with two members and one pending cluster.
+	opts.ClusterJoins = func(context.Context) (delivery.ClusterJoinList, error) { return demoClusterJoins(), nil }
 	if opts.InstallationConfig, err = demoInstallationConfig(); err != nil {
 		panic(err)
 	}

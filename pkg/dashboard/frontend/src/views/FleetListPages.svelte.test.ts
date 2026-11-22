@@ -13,6 +13,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
   return { ...actual, api: {
     fleetEntities: (...a: unknown[]) => entitiesFn(...a),
     fleetProviders: (...a: unknown[]) => providersFn(...a),
+    fleetClusters: () => Promise.resolve(null),
   } };
 });
 

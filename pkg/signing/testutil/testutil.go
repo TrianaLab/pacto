@@ -23,6 +23,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,7 +41,13 @@ type Sigstore struct {
 	// Root is the trusted root naming both; RootJSON is its trusted_root.json.
 	Root     *root.TrustedRoot
 	RootJSON []byte
+	// skew is added to the time the timestamp authority signs.
+	skew atomic.Int64
 }
+
+// Advance moves the timestamp authority's clock on by d, so records signed
+// one after the other get distinct signing times (it counts seconds).
+func (s *Sigstore) Advance(d time.Duration) { s.skew.Add(int64(d)) }
 
 // Token is an OIDC token the fake Fulcio issues a certificate for: identity
 // (a URI SAN for a URL such as a GitHub workflow, else an email SAN) from
@@ -138,6 +145,7 @@ func ciLeaf(subject, issuer, repository, ref, commit string, pub crypto.PublicKe
 // New starts a private Sigstore that lives as long as t.
 func New(t testing.TB) *Sigstore {
 	t.Helper()
+	s := &Sigstore{}
 	rootCert, rootKey, err := ca.GenerateRootCa()
 	must(t, err)
 	inter, interKey, err := ca.GenerateFulcioIntermediate(rootCert, rootKey)
@@ -184,7 +192,7 @@ func New(t testing.TB) *Sigstore {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		ts := timestamp.Timestamp{HashAlgorithm: req.HashAlgorithm, HashedMessage: req.HashedMessage, Time: time.Now(),
+		ts := timestamp.Timestamp{HashAlgorithm: req.HashAlgorithm, HashedMessage: req.HashedMessage, Time: time.Now().Add(time.Duration(s.skew.Load())),
 			Policy: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 2}, ExtraExtensions: req.Extensions}
 		resp, err := ts.CreateResponseWithOpts(tsaLeaf, tsaKey, crypto.SHA256)
 		if err != nil {
@@ -207,7 +215,8 @@ func New(t testing.TB) *Sigstore {
 	must(t, err)
 	js, err := tr.MarshalJSON()
 	must(t, err)
-	return &Sigstore{Fulcio: fulcio.URL, TSA: tsa.URL + "/api/v1/timestamp", Root: tr, RootJSON: js}
+	s.Fulcio, s.TSA, s.Root, s.RootJSON = fulcio.URL, tsa.URL+"/api/v1/timestamp", tr, js
+	return s
 }
 
 // leafCert is the certificate Fulcio issues for sub from iss: a CI leaf (a

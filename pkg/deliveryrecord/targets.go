@@ -62,6 +62,16 @@ var errTagPages = errors.New("tag pages bound")
 // delivery.MaxTargetSnapshots of them over at most 10 pages. truncated says
 // it stopped at either bound, so some clusters were not listed.
 func ListTargetSnapshotTags(ctx context.Context, repo *remote.Repository) (tags []string, truncated bool, err error) {
+	tags, truncated, err = ListClusterTags(ctx, repo)
+	if len(tags) > delivery.MaxTargetSnapshots {
+		tags, truncated = tags[:delivery.MaxTargetSnapshots], true
+	}
+	return tags, truncated, err
+}
+
+// ListClusterTags lists every cluster-* tag of repo over at most 10 pages,
+// sorted. truncated says it stopped at the page bound.
+func ListClusterTags(ctx context.Context, repo *remote.Repository) (tags []string, truncated bool, err error) {
 	pages := 0
 	err = repo.Tags(ctx, "", func(page []string) error {
 		if pages++; pages > maxTargetSnapshotTagPages {
@@ -81,9 +91,6 @@ func ListTargetSnapshotTags(ctx context.Context, repo *remote.Repository) (tags 
 		return nil, false, err
 	}
 	slices.Sort(tags)
-	if len(tags) > delivery.MaxTargetSnapshots {
-		tags, truncated = tags[:delivery.MaxTargetSnapshots], true
-	}
 	return tags, truncated, nil
 }
 

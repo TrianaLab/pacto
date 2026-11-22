@@ -28,7 +28,8 @@ const (
 // adds examples/story and the acceptance harnesses that import it (the kind
 // demo's history seeder also publishes, because pacto stats publish refuses
 // operation records); nothing that decides a gate, a compliance state or an
-// admission is ever added.
+// admission is ever added. 514-S3's kind join harness (joinsign) reaches them
+// through internal/app, whose WriteClusterJoin it calls, and decides nothing.
 var (
 	// runRecordImporters may import pkg/runrecord directly.
 	runRecordImporters = []string{modRoot + "pkg/runrecord/registry", modRoot + "pkg/runrecord/stats", modRoot + "internal/cli", modRoot + "internal/app", modRoot + "pkg/dashboard", modRoot + "examples/story", modRoot + "examples/demo",
@@ -39,7 +40,8 @@ var (
 	runRecordReachers = []string{runRecordPkg, runRecordRegistry, modRoot + "pkg/runrecord/stats", modRoot + "internal/cli", modRoot + "internal/app", modRoot + "internal/mcp", modRoot + "internal/tui", modRoot + "cmd/pacto", modRoot + "cmd/gendocs",
 		modRoot + "pkg/dashboard", modRoot + "cmd/genbundle", modRoot + "pkg/doc",
 		modRoot + "examples/story", modRoot + "examples/demo", modRoot + "tests/acceptance/kind/storybeats",
-		modRoot + "tests/acceptance/scenario", modRoot + "tests/acceptance/scenario/project", modRoot + "tests/acceptance/kind/productready", modRoot + "tests/acceptance/kind/storystats"}
+		modRoot + "tests/acceptance/scenario", modRoot + "tests/acceptance/scenario/project", modRoot + "tests/acceptance/kind/productready", modRoot + "tests/acceptance/kind/storystats",
+		modRoot + "tests/acceptance/kind/joinsign"}
 )
 
 // operatorRunRecordEmitters may import pkg/runrecord/... from the operator

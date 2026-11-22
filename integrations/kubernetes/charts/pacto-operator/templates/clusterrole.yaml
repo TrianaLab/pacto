@@ -176,6 +176,14 @@ rules:
     resources: [namespaces]
     verbs: [list]
   {{- end }}
+  {{- if and (include "pacto-operator.member" .) (not $dashboard) }}
+  # A member answers the hub's per-person reviews with this cluster's
+  # SubjectAccessReview. It reveals nothing but yes or no about the
+  # permissions of the person asked about.
+  - apiGroups: [authorization.k8s.io]
+    resources: [subjectaccessreviews]
+    verbs: [create]
+  {{- end }}
   {{- if .Values.nodeAgent.enabled }}
   # Node agent, cluster-scoped half. Nodes get is the orphan prune: the objects
   # of a node that is gone are deleted. The agent namespace is read and

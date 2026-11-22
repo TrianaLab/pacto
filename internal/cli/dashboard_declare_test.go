@@ -540,16 +540,16 @@ func TestSigningModes(t *testing.T) {
 
 func TestNewDashboardHost(t *testing.T) {
 	v := viper.New()
-	id, d, err := newDashboardHost(v, "127.0.0.1", nil, nil, nil, nil, defaultDeps())
+	id, d, err := newDashboardHost(v, "127.0.0.1", nil, nil, nil, nil, defaultDeps(), nil)
 	expect(t, err == nil && id != nil && d == nil, "no registry: %v %v", d, err)
 	v.Set("dashboard.registry", "reg.io/acme")
-	_, d, err = newDashboardHost(v, "127.0.0.1", nil, nil, nil, nil, defaultDeps())
+	_, d, err = newDashboardHost(v, "127.0.0.1", nil, nil, nil, nil, defaultDeps(), nil)
 	expect(t, err == nil && d != nil && d.CanWrite(), "a local declarer: %v", err)
-	_, _, err = newDashboardHost(v, "0.0.0.0", nil, nil, nil, nil, defaultDeps())
+	_, _, err = newDashboardHost(v, "0.0.0.0", nil, nil, nil, nil, defaultDeps(), nil)
 	expect(t, err != nil, "an open host without allow-anonymous is refused")
 	v.Set("dashboard.allow-anonymous", true)
 	v.Set("dashboard.declare-registry-config", filepath.Join(t.TempDir(), "missing.json"))
-	_, _, err = newDashboardHost(v, "0.0.0.0", nil, nil, nil, nil, defaultDeps())
+	_, _, err = newDashboardHost(v, "0.0.0.0", nil, nil, nil, nil, defaultDeps(), nil)
 	expect(t, err != nil, "a missing push credential stops the dashboard")
 }
 

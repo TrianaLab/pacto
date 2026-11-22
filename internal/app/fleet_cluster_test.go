@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
@@ -207,5 +208,33 @@ func TestFleetFingerprintsAddPromoterRows(t *testing.T) {
 		if _, err := svc.Fleet(context.Background(), FleetOptions{IncludeK8s: true, Fingerprints: p}); err == nil || !strings.Contains(err.Error(), "--fingerprints") {
 			t.Errorf("%s: err = %v", p, err)
 		}
+	}
+}
+
+func TestFleetWithoutMemberLinksUnchanged(t *testing.T) {
+	build := func(links func() map[string]fleet.ClusterLink) *fleet.FleetSnapshot {
+		t.Helper()
+		svc := k8sService("eu-prod-ctx")
+		fake := &fakeFleetK8sClient{
+			disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
+			listData: []byte(`{"items":[{"metadata":{"name":"svc-a","namespace":"prod"},"status":{"contractStatus":"Compliant","contract":{"serviceName":"svc-a"}}}]}`),
+			identity: kubecluster.Identity{ID: clusterA, Name: "eu-prod-ctx", NameSource: kubecluster.NameFromContext},
+		}
+		svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) { return fake, nil }
+		snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeK8s: true, MemberLinks: links, Now: func() time.Time { return acceptNow }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snap
+	}
+	base := build(nil)
+	if empty := build(func() map[string]fleet.ClusterLink { return nil }); empty.SnapshotID != base.SnapshotID {
+		t.Errorf("snapshot id %s with no links, %s without the source", empty.SnapshotID, base.SnapshotID)
+	}
+	linked := build(func() map[string]fleet.ClusterLink {
+		return map[string]fleet.ClusterLink{clusterA: {Channel: fleet.LinkLive}}
+	})
+	if l := linked.Clusters[0].Link; l == nil || l.Channel != fleet.LinkLive || len(linked.Sources) != len(base.Sources) {
+		t.Errorf("clusters = %+v, sources = %+v", linked.Clusters, linked.Sources)
 	}
 }

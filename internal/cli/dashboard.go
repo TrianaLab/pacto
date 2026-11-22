@@ -150,10 +150,15 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			fopts := dashboardFleetOptions(dir, repos, namespaces, observation, det)
 			fopts.Provenance.Trust = publisherTrust(cmd, d, det.detected)
 			fopts.LiveEdges.Receiver = receiver
+			fopts.ClusterJoins = dashboardJoins(d, clusterCfg, det.detected, v.GetString("dashboard.delivery-namespace"))
 			configured := configuredSources(fopts)
 			if answersNothing(configured) {
 				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no cached bundles and no Kubernetes configuration", dir)
 			}
+
+			joins := joinLister(svc, fopts.ClusterJoins, time.Now)
+			members := dashboardMembers(cmd.Context(), v, joins, logging.LoggerFromContext(cmd.Context()))
+			fopts.MemberLinks = members.linksFunc()
 
 			// One snapshot Manager serves many requests from one coherent,
 			// atomically-refreshed view of the whole fleet, rather than rebuilding
@@ -173,7 +178,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			// clusterCfg is the sign-in cluster the callers' own clients are
 			// built from: its address and CA, never its credentials. No
 			// cluster, no delivery.
-			identity, declarer, err := newDashboardHost(v, host, clusterCfg, svc, fleetEntries(svc, d, fopts), fopts.Provenance.Trust, d)
+			identity, declarer, err := newDashboardHost(v, host, clusterCfg, svc, fleetEntries(svc, d, fopts), fopts.Provenance.Trust, d, members)
 			if err != nil {
 				return err
 			}
@@ -203,6 +208,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			opts.Stats, opts.StatsRegistry = dashboardStats(cmd, svc)
 			identity.options(&opts)
 			opts.Declare = declarer
+			opts.Outside = members.outside()
+			opts.ClusterJoins = identity.clusterJoins(joins)
 			mcpLine, err := mountDashboardMCP(v, svc, version, repos, identity, managerFleetProvider(mgr), fopts.Provenance, d, &opts)
 			if err != nil {
 				return err
@@ -262,6 +269,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	// Not bound to viper, which also reads ./pacto.yaml, the contract.
 	cmd.Flags().String("stats-registry", "", "stats repository the Metrics page reads run records from (unsigned statistics; also PACTO_STATS_REGISTRY); "+
 		"a public repository is read anonymously, otherwise with the dashboard's registry credentials")
+	cmd.Flags().String("members-host", "", "the dashboard's external host as member clusters dial it (their hub.url host), used only when --oidc-redirect-url is not set, whose host wins (also PACTO_DASHBOARD_MEMBERS_HOST)")
+	cmd.Flags().String("members-token-audience", authn.DefaultMemberAudience, "audience a signed-in person's token is exchanged for before a member cluster reviews them, {uid} replaced by the member's UID; each member's apiserver accepts it and the hub's does not (also PACTO_DASHBOARD_MEMBERS_TOKEN_AUDIENCE)")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.Flags().String("delivery-trust", "", "the trust config delivery records are verified with, so History reads signed records "+
 		"(the recorder's PEM public key or a YAML trust config; default $"+app.TrustEnv+")")
@@ -284,7 +293,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.fingerprints", cmd.Flags().Lookup("fingerprints"))
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-display-name", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
 		"oidc-username-claim", "oidc-username-prefix", "oidc-groups-claim", "oidc-groups-prefix",
-		"session-idle-timeout", "session-max-age", "token-login", "mcp", "mcp-url", "mcp-exchange-audience", "allow-anonymous", "review", "mira-url", "delivery-namespace", "delivery-trust"} {
+		"session-idle-timeout", "session-max-age", "token-login", "mcp", "mcp-url", "mcp-exchange-audience", "allow-anonymous", "review", "mira-url", "delivery-namespace", "delivery-trust", "members-host", "members-token-audience"} {
 		_ = v.BindPFlag("dashboard."+f, cmd.Flags().Lookup(f))
 	}
 	// A secret never goes on a command line, where any process can read it.

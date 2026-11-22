@@ -57,6 +57,7 @@ var corePackages = []string{
 	"github.com/trianalab/pacto/v4/pkg/fleet/...",
 	"github.com/trianalab/pacto/v4/pkg/graph/...",
 	"github.com/trianalab/pacto/v4/pkg/impact/...",
+	"github.com/trianalab/pacto/v4/pkg/memberlink/...",
 	"github.com/trianalab/pacto/v4/pkg/oci/...",
 	"github.com/trianalab/pacto/v4/pkg/orgindex/...",
 	"github.com/trianalab/pacto/v4/pkg/otelobserver/...",

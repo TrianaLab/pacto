@@ -207,6 +207,7 @@ export function attentionCategoryLabel(c: string | undefined): string {
     case 'golden-path': return 'Golden path running';
     case 'knowledge': return 'Knowledge gap';
     case 'unowned': return 'No declared owner';
+    case 'cluster': return 'Member cluster';
     default: return c || 'Other';
   }
 }
@@ -232,6 +233,7 @@ const ATTENTION_CAUSES: Record<string, string> = {
   INFERRED_PROVIDER: 'A dependency range points at an inferred contract, so Pacto never checks it',
   CROSS_ENVIRONMENT_CALL: 'A workload in one environment calls a workload in another',
   CROSS_ENVIRONMENT_PREVIEW_CALL: 'A workload calls a workload in a preview environment',
+  CLUSTER_ISSUER_DIFFERS: "Member clusters refuse this hub's sign-in tokens, so reads there use a group mapping",
 };
 /** attentionCause words an attention item's code, or returns the code itself. */
 export function attentionCause(code: string | undefined): string {

@@ -1,5 +1,5 @@
 # The RBAC inventory: every Role, ClusterRole and binding the chart renders, in
-# eleven full renders and five single-template renders, with its exact rules,
+# eleven full renders and seven single-template renders, with its exact rules,
 # roleRef and subjects. A new rule, verb,
 # subject or retargeted binding fails here; review it against the least-privilege
 # rules (no cluster-wide Secret read, a namespace list renders no ClusterRole
@@ -7,6 +7,12 @@
 # TokenReview grant) before updating it.
 # TestRBACInventoryListsEveryRBACTemplate fails when a template that renders RBAC
 # is missing from templates below.
+# A member cluster (one that joins a hub through the registry) needs no rule
+# beyond its install: the `registry` render is the member install and the
+# `hardened with registry` render the member and hardened install. hub.url
+# (a member with a live review channel, 514-S4) adds one rule, create
+# subjectaccessreviews: the two `hub.url` renders turn the dashboard off,
+# because the default dashboard already holds that rule.
 suite: rbac inventory
 templates:
   - templates/clusterrole.yaml
@@ -5871,3 +5877,110 @@ tests:
         value:
         - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
       documentIndex: 1
+  - it: 'hub.url without the dashboard: every rule, roleRef and subject of clusterrole.yaml is pinned'
+    template: templates/clusterrole.yaml
+    set: {registry: ghcr.io/acme, hub.url: 'https://pacto.acme.dev', dashboard.enabled: false}
+    asserts:
+    - hasDocuments: {count: 1}
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-manager}
+      documentIndex: 0
+    - notExists: {path: metadata.namespace}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [events]
+          verbs: [create, patch]
+        - apiGroups: ['']
+          resources: [services]
+          verbs: [get, list, watch]
+        - apiGroups: ['']
+          resources: [configmaps]
+          verbs: [get, list, watch]
+        - apiGroups: ['']
+          resources: [pods]
+          verbs: [get, list, watch]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [noderuntimeobservations]
+          verbs: [delete, get, list, watch]
+        - apiGroups: [networking.k8s.io]
+          resources: [ingresses]
+          verbs: [get, list, watch]
+        - apiGroups: [gateway.networking.k8s.io]
+          resources: [httproutes]
+          verbs: [get, list, watch]
+        - apiGroups: [discovery.k8s.io]
+          resources: [endpointslices]
+          verbs: [get, list, watch]
+        - apiGroups: [apps]
+          resources: [deployments, replicasets, statefulsets, daemonsets]
+          verbs: [get, list, watch]
+        - apiGroups: [batch]
+          resources: [cronjobs, jobs]
+          verbs: [get, list, watch]
+        - apiGroups: [argoproj.io]
+          resources: [applications]
+          verbs: [list]
+        - apiGroups: [kustomize.toolkit.fluxcd.io]
+          resources: [kustomizations]
+          verbs: [list]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
+          verbs: [list]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [gitrepositories]
+          verbs: [list]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos]
+          verbs: [create, delete, get, list, patch, update, watch]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos/status]
+          verbs: [get, patch, update]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos/finalizers]
+          verbs: [update]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactorevisions]
+          verbs: [create, get, list, watch]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactorevisions/status]
+          verbs: [get, patch, update]
+        - apiGroups: [rbac.authorization.k8s.io]
+          resources: [clusterroles, clusterrolebindings]
+          verbs: [get, delete]
+          resourceNames: [pacto-dashboard]
+        - apiGroups: ['']
+          resources: [namespaces]
+          resourceNames: [kube-system]
+          verbs: [get]
+        - apiGroups: ['']
+          resources: [nodes]
+          verbs: [list]
+        - apiGroups: ['']
+          resources: [namespaces]
+          verbs: [get]
+        - apiGroups: [authorization.k8s.io]
+          resources: [subjectaccessreviews]
+          verbs: [create]
+      documentIndex: 0
+  - it: 'watchNamespaces with hub.url without the dashboard: every rule, roleRef and subject of clusterrole.yaml is pinned'
+    template: templates/clusterrole.yaml
+    set: {registry: ghcr.io/acme, hub.url: 'https://pacto.acme.dev', dashboard.enabled: false, controller.watchNamespaces: [payments, ledger]}
+    asserts:
+    - hasDocuments: {count: 1}
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-manager}
+      documentIndex: 0
+    - notExists: {path: metadata.namespace}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [authorization.k8s.io]
+          resources: [subjectaccessreviews]
+          verbs: [create]
+      documentIndex: 0

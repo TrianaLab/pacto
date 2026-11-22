@@ -7,7 +7,9 @@ import { appReady } from './ready';
 // invoices whose page says where each value comes from.
 
 const T = 20_000;
-const TWIN = 'k8s:billing%2FDeployment%2Finvoices';
+// The demo is a hub with members (514-S3), so an inferred key names its cluster.
+const HUB = '5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11';
+const TWIN = `k8s:${HUB}%2Fbilling%2FDeployment%2Finvoices`;
 
 test.describe('WASM demo: a declaration replaces its inferred service', () => {
   test('the service page folds where each value comes from, one mark per row', async ({ page }) => {
@@ -45,7 +47,7 @@ test.describe('WASM demo: a declaration replaces its inferred service', () => {
     await expect(row('owner')).toBeVisible();
 
     // The replaced twin: one line and the workload it showed.
-    await expect(fold.getByTestId('field-provenance-replacement')).toContainText('Declared by ana@acme.example from inferred k8s:billing/Deployment/invoices');
+    await expect(fold.getByTestId('field-provenance-replacement')).toContainText(`Declared by ana@acme.example from inferred k8s:${HUB}/billing/Deployment/invoices`);
     await expect(fold).toContainText('registry.example.com/billing/invoices:0.9.0');
   });
 
@@ -54,7 +56,7 @@ test.describe('WASM demo: a declaration replaces its inferred service', () => {
     await appReady(page, '/#/fleet/services/invoices');
 
     const line = page.getByTestId('service-replaces');
-    await expect(line).toContainText('Replaces k8s:billing/Deployment/invoices', { timeout: T });
+    await expect(line).toContainText(`Replaces k8s:${HUB}/billing/Deployment/invoices`, { timeout: T });
     await line.getByRole('button', { name: 'About Replaces' }).click();
     await expect(line.getByRole('note')).toContainText(/^Declared by ana@acme\.example from this inferred service in revision invoices@sha256:/);
   });
@@ -65,7 +67,7 @@ test.describe('WASM demo: a declaration replaces its inferred service', () => {
 
     const notice = page.getByTestId('entity-replaced-from');
     await expect(notice).toHaveCount(1, { timeout: T });
-    await expect(notice).toHaveText('k8s:billing/Deployment/invoices was replaced by invoices');
+    await expect(notice).toHaveText(`k8s:${HUB}/billing/Deployment/invoices was replaced by invoices`);
     await expect(page.getByTestId('inferred-workload')).toHaveCount(0);
     await expect(page.getByTestId('field-provenance-fold')).toBeVisible();
   });

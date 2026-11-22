@@ -113,6 +113,13 @@ type FleetOptions struct {
 	// TargetSnapshotTrustFile is the delivery trust config the snapshots are
 	// verified with; empty reads $PACTO_DELIVERY_TRUST.
 	TargetSnapshotTrustFile string
+	// ClusterJoins reads the member clusters a person approved in this hub
+	// from the registry, each verified under its approved key; nil reads
+	// none.
+	ClusterJoins *JoinOptions
+	// MemberLinks returns the hub's member link facts by cluster id at each
+	// build; nil adds no source.
+	MemberLinks func() map[string]fleet.ClusterLink
 	// Now overrides the build clock (freshness classification); defaults to
 	// time.Now. Injected in tests for deterministic staleness.
 	Now func() time.Time
@@ -140,6 +147,15 @@ func (o FleetOptions) addedSources() []fleet.Source {
 		return o.extraSources
 	}
 	return append(slices.Clone(o.extraSources), o.indexSrc)
+}
+
+// memberLinkSources is the carrier of the hub's member link facts when o
+// has them.
+func (o FleetOptions) memberLinkSources() []fleet.Source {
+	if o.MemberLinks == nil {
+		return nil
+	}
+	return []fleet.Source{fleetsrc.NewMemberLinkSource(o.MemberLinks)}
 }
 
 // ConsumerSources names, one printable entry each, the sources set in o that
@@ -242,6 +258,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	sources = append(sources, s.detectionSources(ctx, opts, slices.Concat(sources, snaps, opts.addedSources()))...)
 	sources = append(sources, s.linkedSources(opts.Detected)...)
 	sources = append(sources, snaps...)
+	sources = append(sources, opts.memberLinkSources()...)
 	sources = append(sources, opts.addedSources()...)
 	if err := checkSourceIDsAreUnique(sources); err != nil {
 		return nil, err

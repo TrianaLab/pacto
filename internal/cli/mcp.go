@@ -266,6 +266,7 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 		Reached:            stdioReached(cmd, d, transport),
 		Stats:              mcpStatsProvider(cmd, svc, transport == "stdio", home),
 		InstallationConfig: svc.InstallationConfig(fopts.Detected),
+		Clusters:           mcpClusters(svc, d, fopts.ClusterJoins, view != nil),
 	}}, nil
 }
 
@@ -704,7 +705,8 @@ func mcpFleetView(cmd *cobra.Command, svc *app.Service, d deps) (pactomcp.FleetV
 	home := newHomeCluster(cluster, d)
 	fopts := mcpFleetOptions(cmd)
 	_, _ = fmt.Fprint(cmd.ErrOrStderr(), mcpSignInLine(fopts))
-	return viewerFleetView(clusterViewer(fleetEntries(svc, d, fopts), home, d, mode, namespaces)), home.UID
+	// A separate MCP server is no hub: its member clusters stay unreviewable.
+	return viewerFleetView(clusterViewer(fleetEntries(svc, d, fopts), home, d, mode, namespaces, nil)), home.UID
 }
 
 // viewerFleetView narrows each request's fleet to what v lets the caller the

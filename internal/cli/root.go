@@ -292,6 +292,7 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 	root.AddCommand(newAgentCommand(svc, v, info.Version, d))
 	root.AddCommand(newRunCommand(svc, v, info.Version, d))
 	root.AddCommand(newImpactCommand(svc, v, d, rec))
+	root.AddCommand(newClusterCommand(svc, v, d))
 	root.AddCommand(newCICommand(svc, v, d, rec))
 	root.AddCommand(newOTelCommand(svc, v))
 	root.AddCommand(newExplainCommand(svc, v))

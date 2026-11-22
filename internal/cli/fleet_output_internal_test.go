@@ -720,6 +720,40 @@ func TestFleetStatusPrintsClusters(t *testing.T) {
 	}
 }
 
+// pacto fleet status prints a member's channel and identity models after
+// its status word.
+func TestFleetStatusPrintsLinkWord(t *testing.T) {
+	live := func(models ...string) *fleet.ClusterLink {
+		l := &fleet.ClusterLink{Channel: fleet.LinkLive}
+		for _, m := range models {
+			l.Issuers = append(l.Issuers, fleet.IssuerModel{Issuer: "https://" + m, Model: m})
+		}
+		return l
+	}
+	res := &fleet.StatusResult{Meta: fleet.Meta{Clusters: []fleet.ClusterSummary{
+		{ID: "uid-eu", Name: "eu-prod", Status: fleet.SourceAvailable, Link: live(fleet.IssuerShared)},
+		{ID: "uid-us", Name: "us-prod", Status: fleet.SourceAvailable, Link: live(fleet.IssuerGroupMapping, fleet.IssuerShared, fleet.IssuerShared)},
+		{ID: "uid-ap", Name: "ap-prod", Status: fleet.SourceAvailable, NameSource: fleet.ClusterNameFromApproval},
+		{ID: "uid-ca", Name: "ca-prod", Status: fleet.SourceAvailable, Link: &fleet.ClusterLink{Channel: fleet.LinkDown}},
+		{ID: "uid-la", Name: "la-prod", Status: fleet.SourceAvailable, Link: live()},
+		{ID: "uid-ctx", Name: "ctx", Status: fleet.SourceAvailable},
+	}}}
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := printFleetStatus(cmd, res, "text"); err != nil {
+		t.Fatal(err)
+	}
+	// ap-prod was named at approval, but no link fact says its channel is
+	// down: outside the hub the channel is unknown, so no word.
+	want := "Clusters: eu-prod (uid-eu) complete live shared issuer, us-prod (uid-us) complete live group mapping and shared issuer, " +
+		"ap-prod (uid-ap) complete, ca-prod (uid-ca) complete no live channel, la-prod (uid-la) complete live, ctx (uid-ctx) complete\n"
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("status lacks %q:\n%s", want, out.String())
+	}
+}
+
 // One cluster with nothing hidden prints no Clusters line; one hidden
 // cluster does.
 func TestFleetStatusOmitsClustersForOne(t *testing.T) {

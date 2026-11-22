@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -45,7 +46,13 @@ func mountDashboardMCP(v *viper.Viper, svc *app.Service, version string, repos [
 	if err != nil {
 		return "", err
 	}
-	opts.Outside, opts.MCPServed, opts.MCPSource = outside, true, dashboardMCPSourceFor(v, id)
+	// Added to, never replacing, the routes already outside sign-in (the
+	// member review channel).
+	if opts.Outside == nil {
+		opts.Outside = map[string]http.Handler{}
+	}
+	maps.Copy(opts.Outside, outside)
+	opts.MCPServed, opts.MCPSource = true, dashboardMCPSourceFor(v, id)
 	return "MCP: " + cmp.Or(v.GetString("dashboard.mcp-url"), "/mcp") + "\n", nil
 }
 

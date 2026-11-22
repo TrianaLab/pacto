@@ -19,6 +19,7 @@
   import { inService } from '../../lib/identityContext.ts';
   import TargetFigure from '../../components/figure/TargetFigure.svelte';
   import StageOffers from '../../components/StageOffers.svelte';
+  import { CLUSTER_NAME_SOURCES } from '../../lib/clusters.ts';
 
   // The deployment/target page. It makes the TWO identity dimensions
   // immediately understandable and independent:
@@ -72,11 +73,10 @@
   // The cluster that reported this target (514-S1). The UID is the identity; the name
   // is display only, so it always says where it came from, and who reported it when
   // this process did not read it itself.
-  const NAME_SOURCES = { 'node-label': 'node label', context: 'context name', file: 'target-state file', uid: 'cluster id' };
   const cluster = $derived(d.cluster ?? null);
   const clusterHow = $derived.by(() => {
     if (!cluster) return '';
-    const how = NAME_SOURCES[cluster.nameSource] ?? NAME_SOURCES.uid;
+    const how = CLUSTER_NAME_SOURCES[cluster.nameSource] ?? CLUSTER_NAME_SOURCES.uid;
     return cluster.reportedBy ? `(reported by ${cluster.reportedBy} as ${how})` : `(from ${how})`;
   });
   // A workload the operator linked to a published contract with no Pacto: one fact row,

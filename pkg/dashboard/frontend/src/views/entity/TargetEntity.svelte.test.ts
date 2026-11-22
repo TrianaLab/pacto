@@ -25,6 +25,7 @@ const text = (el: HTMLElement | null) => (el?.textContent ?? '').replace(/\s+/g,
 
 describe('TargetEntity cluster fact', () => {
   it.each([
+    ['approval', 'approval'],
     ['node-label', 'node label'],
     ['context', 'context name'],
     ['file', 'target-state file'],

@@ -388,7 +388,7 @@ func printClusters(w io.Writer, clusters []fleet.ClusterSummary, lims []fleet.Li
 	hidden := false
 	for _, c := range clusters {
 		hidden = hidden || c.Access != ""
-		words = append(words, clusterLabelOf(c)+" "+clusterWordOf(c, lims))
+		words = append(words, clusterLabelOf(c)+" "+clusterWordOf(c, lims)+linkWordOf(c))
 	}
 	if len(clusters) >= 2 || hidden {
 		_, _ = fmt.Fprintln(w, "Clusters: "+strings.Join(words, ", "))
@@ -414,6 +414,30 @@ func clusterWordOf(c fleet.ClusterSummary, lims []fleet.Limitation) string {
 		}
 	}
 	return clusterWords[cmp.Or(c.Access, string(c.Status))]
+}
+
+// modelWords word how a member reviews the people of one issuer.
+var modelWords = map[string]string{fleet.IssuerShared: "shared issuer", fleet.IssuerGroupMapping: "group mapping", fleet.IssuerNotAccepted: "issuer not accepted"}
+
+// linkWordOf is a member's channel word and, while it is live, the model of
+// each issuer it reviewed: " live shared issuer", " no live channel" for a
+// channel that dropped. Only the hub knows its members' channels, so a
+// cluster with no link fact, as every cluster read outside the hub is,
+// prints no word: an unknown channel is never "no live channel".
+func linkWordOf(c fleet.ClusterSummary) string {
+	switch {
+	case c.Link != nil && c.Link.Channel == fleet.LinkLive:
+		var models []string
+		for _, m := range c.Link.Issuers {
+			if w := modelWords[m.Model]; !slices.Contains(models, w) {
+				models = append(models, w)
+			}
+		}
+		return strings.TrimRight(" live "+strings.Join(models, " and "), " ")
+	case c.Link != nil:
+		return " no live channel"
+	}
+	return ""
 }
 
 // printPinnedSources prints one line per source that read a pinned ref (each

@@ -33,6 +33,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/memberlink"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
@@ -157,7 +158,7 @@ func newDashMCPWorld(t *testing.T, tune func(v *viper.Viper)) *dashMCPWorld {
 	w.d.served = func(*rest.Config, string) (bool, error) { return true, nil }
 	w.d.newMCPAuth = func(c authn.MCPConfig) (mcpAuth, error) { w.mcpCfg = c; return w.issuer, nil }
 	cluster := &rest.Config{Host: "https://k", BearerToken: "dashboard"}
-	id, err := newDashboardIdentity(w.v, "0.0.0.0", cluster, homeEntries(cluster), w.d)
+	id, err := newDashboardIdentity(w.v, "0.0.0.0", cluster, homeEntries(cluster), w.d, nil)
 	expect(t, err == nil, "identity: %v", err)
 	id.viewer = authn.NewViewer(oneReview(func(_ context.Context, p authn.Person, _ string, _ authn.ResourceAttributes) (bool, error) {
 		w.mu.Lock()
@@ -414,11 +415,11 @@ func TestDashboardMCPNoUsablePath(t *testing.T) {
 func TestMCPOffInLocalAndOpenMode(t *testing.T) {
 	d := deliveryDeps("alice", nil)
 	cluster := &rest.Config{Host: "https://k"}
-	local, err := newDashboardIdentity(viper.New(), "127.0.0.1", cluster, homeEntries(cluster), d)
+	local, err := newDashboardIdentity(viper.New(), "127.0.0.1", cluster, homeEntries(cluster), d, nil)
 	expect(t, err == nil, "local: %v", err)
 	open := viper.New()
 	open.Set("dashboard.allow-anonymous", true)
-	anon, err := newDashboardIdentity(open, "0.0.0.0", cluster, homeEntries(cluster), d)
+	anon, err := newDashboardIdentity(open, "0.0.0.0", cluster, homeEntries(cluster), d, nil)
 	expect(t, err == nil, "open: %v", err)
 	for name, id := range map[string]*dashboardIdentity{"local": local, "open": anon} {
 		_, err := newDashboardMCP(viper.New(), app.NewService(nil, nil), "v", nil, id, nil, nil, d)
@@ -428,7 +429,7 @@ func TestMCPOffInLocalAndOpenMode(t *testing.T) {
 	signin.Set("dashboard.oidc-issuer-url", dashIssuer)
 	signin.Set("dashboard.oidc-client-id", "pacto-dashboard")
 	signin.Set("dashboard.oidc-redirect-url", "https://pacto.example/auth/callback")
-	nocluster, err := newDashboardIdentity(signin, "0.0.0.0", nil, homeEntries(nil), d)
+	nocluster, err := newDashboardIdentity(signin, "0.0.0.0", nil, homeEntries(nil), d, nil)
 	expect(t, err == nil, "no cluster: %v", err)
 	_, err = newDashboardMCP(signin, app.NewService(nil, nil), "v", nil, nocluster, nil, nil, d)
 	expect(t, errors.Is(err, errMCPNeedsCluster), "no cluster: %v", err)
@@ -585,4 +586,16 @@ func TestDashboardCommandServesMCP(t *testing.T) {
 	_, err = runDashboard(t, app.NewService(nil, nil), viper.New(), svcDir, "--port", "0", "--mcp")
 	expect(t, errors.Is(err, errMCPNeedsSignIn), "local: %v", err)
 	expect(t, dualAuth{}.CanExchange(), "each verifier decides per caller")
+}
+
+// TestDashboardMCPKeepsMemberRoute: --mcp adds /mcp to the routes outside
+// sign-in and keeps the member review channel a hub mounted there first.
+func TestDashboardMCPKeepsMemberRoute(t *testing.T) {
+	w := newDashMCPWorld(t, nil)
+	member := http.NotFoundHandler()
+	opts := dashboard.Options{Outside: map[string]http.Handler{memberlink.Path: member}}
+	_, err := mountDashboardMCP(w.v, app.NewService(nil, nil), "v", nil, w.id, func(context.Context) (*fleet.Query, error) { return viewFleet(t), nil }, nil, w.d, &opts)
+	expect(t, err == nil, "mount: %v", err)
+	_, hasMCP := opts.Outside["/mcp"]
+	expect(t, hasMCP && opts.Outside[memberlink.Path] != nil && opts.MCPServed, "outside routes: %v", opts.Outside)
 }

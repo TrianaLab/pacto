@@ -12,8 +12,8 @@ import (
 // relationships, and none of them is a declared or observed relationship.
 func TestDemoInferredEdges(t *testing.T) {
 	snap := demoFleet(t)
-	export := fleet.NewServiceKey(fleet.K8sCaller("", "shop", "CronJob", "nightly-export"))
-	billing := fleet.NewServiceKey(fleet.K8sCaller("", "shop", "Deployment", "legacy-billing"))
+	export := fleet.NewServiceKey(fleet.K8sCaller(prodClusterID, "shop", "CronJob", "nightly-export"))
+	billing := fleet.NewServiceKey(fleet.K8sCaller(prodClusterID, "shop", "Deployment", "legacy-billing"))
 	want := map[[2]fleet.ServiceKey]bool{
 		{export, billing}: true,
 		{export, fleet.NewServiceKey("search-indexer")}:    true,
@@ -46,7 +46,7 @@ func TestDemoInferredEdges(t *testing.T) {
 // it at the demo clock.
 func TestDemoReplacement(t *testing.T) {
 	snap := demoFleet(t)
-	from := fleet.NewServiceKey(fleet.K8sCaller("", "prod", "Deployment", "experiments"))
+	from := fleet.NewServiceKey(fleet.K8sCaller(prodClusterID, "prod", "Deployment", "experiments"))
 	to := fleet.NewServiceKey("experiment-service")
 	i := slices.IndexFunc(snap.Replacements, func(r fleet.Replacement) bool { return r.Link == "pacto-target" })
 	if i < 0 {

@@ -18,6 +18,11 @@ func TestReviewObjectCarriesVerbAndName(t *testing.T) {
 	if a["verb"] != "update" || a["name"] != "invoices" || a["namespace"] != "billing" || a["resource"] != "deployments" {
 		t.Errorf("an update review = %v", a)
 	}
+	join := ClusterJoinResource
+	join.Name = "9f1c4e2a"
+	if a := attrs(join); a["verb"] != "approve" || a["name"] != "9f1c4e2a" || a["resource"] != "clusterjoins" || a["group"] != "pacto.trianalab.io" {
+		t.Errorf("an approve review = %v", a)
+	}
 }
 
 func TestAskCacheKeyHoldsVerbAndName(t *testing.T) {
