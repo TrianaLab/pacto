@@ -33,11 +33,11 @@ func demoObservedEdges(now time.Time) []fleet.ObservedEdge {
 
 // demoKernelEgressEdges are the calls outside the cluster that the node agent
 // saw through the operator's kernel egress (status.observedEgress): no
-// contract, trace or catalog entry names carrier-gateway's SFTP partner, so
+// contract, trace or catalog entry names fulfillment-service's SFTP partner, so
 // the fleet groups the host by its registrable domain as the unclassified
 // external host/northwind-partners.com, known from the kernel alone.
 func demoKernelEgressEdges() []fleet.ObservedEdge {
-	return []fleet.ObservedEdge{{From: "carrier-gateway", To: "sftp.northwind-partners.com", Count: 1}}
+	return []fleet.ObservedEdge{{From: "fulfillment-service", To: "sftp.northwind-partners.com", Count: 1}}
 }
 
 // demoExternalUses is what the cluster collector inferred from

@@ -155,7 +155,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 		// The kernel observer names a caller with no contract by its workload,
 		// so this edge joins the inferred legacy-billing below: attention shows
 		// an uncontracted caller of payments-service that links to it. Its
-		// kernel egress names carrier-gateway's SFTP partner.
+		// kernel egress names fulfillment-service's SFTP partner.
 		Observed: append(append([]fleet.ObservedEdge{{From: "k8s:shop/Deployment/legacy-billing", To: "payments-service", Count: 9}},
 			demoInferredEdges(demoNow())...), demoKernelEgressEdges()...),
 	})
@@ -369,7 +369,9 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 			ObservedRuntime: map[string]any{"replicas": 3, "image": demoRegistry + "inventory-service:2.1.0"}},
 		{Scope: "prod", Kind: "Deployment", Name: "fulfillment-service", Service: "fulfillment-service", Compliance: fleet.StatusCompliant,
 			ResolvedRef: demoRegistry + "fulfillment-service:1.1.0", Coverage: cov(4, 4), EvidenceAt: at(older), ReconciledAt: at(older),
-			Labels: prod(map[string]string{"app.kubernetes.io/name": "fulfillment-service"})},
+			Labels: prod(map[string]string{"app.kubernetes.io/name": "fulfillment-service"}),
+			// One of its nodes has no node agent, so its external calls cannot be ruled out.
+			Limitations: []fleet.Limitation{demoKernelEgressLimitation()}},
 		{Scope: "prod", Kind: "Deployment", Name: "catalog-service", Service: "catalog-service", Compliance: fleet.StatusCompliant,
 			ResolvedRef: demoRegistry + "catalog-service:1.1.0", Coverage: cov(3, 3), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
 			Labels: prod(map[string]string{"app.kubernetes.io/name": "catalog-service"})},

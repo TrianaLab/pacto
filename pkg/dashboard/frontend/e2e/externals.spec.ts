@@ -82,7 +82,7 @@ test.describe('WASM demo — external systems', () => {
   });
 
   test('an external only the node agent saw lists the cluster source as its one observed source', async ({ page }) => {
-    // examples/demo/source_externals.go demoKernelEgressEdges: carrier-gateway's SFTP
+    // examples/demo/source_externals.go demoKernelEgressEdges: fulfillment-service's SFTP
     // partner, named by no contract, trace or catalog entry, grouped by its domain.
     await page.goto('/#/fleet/externals/host/northwind-partners.com');
     await page.addStyleTag({ content: WIDE_FONT });
@@ -91,8 +91,12 @@ test.describe('WASM demo — external systems', () => {
     await expect(observed).toHaveCount(1, { timeout: T });
     await expect(observed.locator('[data-cell="where"]')).toContainText('k8s-production');
     await expect(observed.locator('[data-cell="where"]')).not.toContainText('otel-traces');
-    await expect(observed.locator('[data-cell="service"]')).toContainText('carrier-gateway');
+    await expect(observed.locator('[data-cell="service"]')).toContainText('fulfillment-service');
     await expect(page.locator('[data-testid="external-source"][data-provenance="declared"]')).toHaveCount(0);
+    // One of fulfillment-service's nodes has no node agent, so the answer says its consumers may be incomplete.
+    const detail = await page.evaluate(async () => (await (await fetch('/api/fleet/entities/external?key=' + encodeURIComponent('host/northwind-partners.com'))).json()));
+    expect(detail.meta.completeness).toBe('partial');
+    expect(detail.meta.limitations.map((l: { code: string }) => l.code)).toContain('EXTERNALS_UNREPORTED');
     expect(await noSideScroll(page)).toBe(true);
   });
 

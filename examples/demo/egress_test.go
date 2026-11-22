@@ -17,7 +17,7 @@ import (
 
 // TestDemoEgressRows: the demo shows the four egress readers. The cluster
 // source reports the kernel-egress row, partial with the node agent on 3 of 4
-// nodes and naming carrier-gateway; the operator detected the Istio egress
+// nodes and naming fulfillment-service; the operator detected the Istio egress
 // API, no Cilium policy API and one egress gateway whose logs it may not read.
 // Every row reads calls leaving the cluster and is cluster-scoped.
 func TestDemoEgressRows(t *testing.T) {
@@ -56,7 +56,7 @@ func checkEgressRowDetails(t *testing.T, kernel, gw fleet.Provider) {
 	t.Helper()
 	if kernel.Evidence != "node agent on 3/4 nodes" || len(kernel.Limitations) != 1 ||
 		!strings.Contains(kernel.Limitations[0].Message, "node agent") ||
-		!slices.Equal(kernel.Services, []fleet.ServiceKey{fleet.NewServiceKey("carrier-gateway")}) {
+		!slices.Equal(kernel.Services, []fleet.ServiceKey{fleet.NewServiceKey("fulfillment-service")}) {
 		t.Errorf("kernel-egress row = %+v", kernel)
 	}
 	if !strings.Contains(gw.Evidence, "1 Istio egress gateway found; logs: auto") || !strings.Contains(gw.Hint, "controller.egressGatewayLogs=on") ||
@@ -65,7 +65,7 @@ func checkEgressRowDetails(t *testing.T, kernel, gw fleet.Provider) {
 	}
 }
 
-// TestDemoKernelEgressExternal: carrier-gateway calls an SFTP host of a
+// TestDemoKernelEgressExternal: fulfillment-service calls an SFTP host of a
 // partner that no contract, trace or catalog names. Only the node agent saw
 // it, so the External groups the host by its registrable domain, stays
 // unclassified (the edge carries the host, never the operator's class), reads
@@ -87,8 +87,13 @@ func TestDemoKernelEgressExternal(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(view.ObservedSources) != 1 || view.ObservedSources[0].Source != "k8s-production" ||
-		view.ObservedSources[0].Service != fleet.NewServiceKey("carrier-gateway") {
+		view.ObservedSources[0].Service != fleet.NewServiceKey("fulfillment-service") {
 		t.Errorf("observed sources = %+v, want one from k8s-production", view.ObservedSources)
+	}
+	// The partial kernel egress reaches the answer: its consumers may be incomplete.
+	if view.Meta.Completeness != fleet.CompletenessPartial ||
+		!slices.ContainsFunc(view.Meta.Limitations, func(l fleet.Limitation) bool { return l.Code == fleet.LimitationExternalsUnreported }) {
+		t.Errorf("external meta = %+v, want partial with %s", view.Meta, fleet.LimitationExternalsUnreported)
 	}
 }
 
@@ -99,7 +104,7 @@ func TestDemoKernelEgressExternal(t *testing.T) {
 func TestDemoKernelEgressRowMatchesFleetsrc(t *testing.T) {
 	var view delivery.PactoView
 	status := `{"status": {"statusFormat": 4, "lastReconciledAt": "` + demoNow().Format(time.RFC3339) + `",
-		"contract": {"serviceName": "carrier-gateway"},
+		"contract": {"serviceName": "fulfillment-service"},
 		"observedEgressCoverage": {"state": "partial", "reason": "node-without-agent", "refreshSeconds": 300, "nodes": 4, "nodesWithAgent": 3}}}`
 	if err := json.Unmarshal([]byte(status), &view); err != nil {
 		t.Fatal(err)
@@ -107,5 +112,10 @@ func TestDemoKernelEgressRowMatchesFleetsrc(t *testing.T) {
 	want, ok := fleetsrc.KernelEgressRow("k8s-production", []delivery.PactoView{view}, demoNow())
 	if got := demoKernelEgressRow(); !ok || !reflect.DeepEqual(got, want) {
 		t.Errorf("demo row = %+v\nfleetsrc row = %+v", got, want)
+	}
+	// The target carries what delivery.EgressLimitations builds for the same coverage.
+	at := demoNow()
+	if lim := delivery.EgressLimitations(view, &at, demoNow()); len(lim) != 1 || !reflect.DeepEqual(lim[0], demoKernelEgressLimitation()) {
+		t.Errorf("demo target limitation = %+v\ndelivery limitation = %+v", demoKernelEgressLimitation(), lim)
 	}
 }
