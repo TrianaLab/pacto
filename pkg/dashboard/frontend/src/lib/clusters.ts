@@ -3,7 +3,7 @@
 // member join rows (514-S3) that block shows.
 import type { ClusterSummary, ClusterJoinState } from './api.ts';
 
-export type { ClusterSummary, ClusterJoinState };
+export type { ClusterSummary };
 
 /** Where a cluster's display name came from, in words. */
 export const CLUSTER_NAME_SOURCES: Record<string, string> = { approval: 'approval', 'node-label': 'node label', context: 'context name', file: 'target-state file', uid: 'cluster id' };
