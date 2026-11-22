@@ -295,10 +295,11 @@ pass "payments Compliant: name-match discovery observes api and ledger is reacha
 
 section "6 the CLI fleet shows the link and hands the inferred workload over"
 # fleet NAME — pacto fleet get NAME as JSON over this cluster and the
-# operator's detected ConfigMap; "{}" when it prints nothing.
+# operator's detected ConfigMap; "{}" when it prints nothing. --local "" keeps
+# the repository's own contracts out: its payments would win the bare name.
 fleet() {
   local out
-  out="$(reg "$PACTO_BIN" fleet get "$1" --k8s --detected "k8s:$NS/pacto-operator-detected" --output-format json 2> /dev/null || true)"
+  out="$(reg "$PACTO_BIN" fleet get "$1" --local "" --k8s --detected "k8s:$NS/pacto-operator-detected" --output-format json 2> /dev/null || true)"
   [ -n "$out" ] || out='{}'
   echo "$out"
 }
