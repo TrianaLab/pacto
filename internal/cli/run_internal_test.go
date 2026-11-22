@@ -148,14 +148,21 @@ func runRun(t *testing.T, d deps, args ...string) runResult {
 	r := runResult{err: cmd.Execute()}
 	r.stdout, r.stderr = out.String(), errOut.String()
 	// The rounds are on stderr, among the notices: stdout is the command's alone.
-	sc := bufio.NewScanner(strings.NewReader(r.stderr))
+	r.rounds = parseRounds(r.stderr)
+	return r
+}
+
+// parseRounds picks the rounds out of lines that may also hold notices.
+func parseRounds(s string) []agentRound {
+	var rounds []agentRound
+	sc := bufio.NewScanner(strings.NewReader(s))
 	for sc.Scan() {
 		var round agentRound
 		if json.Unmarshal(sc.Bytes(), &round) == nil && !round.EvaluatedAt.IsZero() {
-			r.rounds = append(r.rounds, round)
+			rounds = append(rounds, round)
 		}
 	}
-	return r
+	return rounds
 }
 
 func exitOf(err error) int {
@@ -287,22 +294,7 @@ func TestRunCommand_Unprivileged(t *testing.T) {
 			t.Fatalf("final = %+v", res)
 		}
 	})
-	t.Run("deaf", func(t *testing.T) {
-		d := stubRun(t, &runStubs{})
-		r := runRun(t, d, "--contract=c", "--bind=api=8080", "--dep=db=127.0.0.1:5432", "--stabilization-window=0s",
-			"--fail-on=noncompliant", "--proc-root="+fakeProc(t), "--", "sleep", "1.2")
-		res := r.final(t)
-		got := codes(res)
-		// The interface's absence is confirmed from the complete listener view; the dependency's silence is
-		// not a failure, and this mode never sees one.
-		if exitOf(r.err) != 1 || got[finding.CodeInterfaceAbsent] != runCollector || res.Status != finding.StatusNonCompliant ||
-			!strings.Contains(r.stderr, "fails --fail-on noncompliant") {
-			t.Fatalf("err %v, final %+v", r.err, res)
-		}
-		if _, ok := got[finding.CodeDependencyUnreachable]; ok {
-			t.Fatalf("unprivileged mode confirmed a dependency failure: %+v", res.Findings)
-		}
-	})
+	t.Run("deaf", testRunDeaf)
 	t.Run("silent dependency fails --fail-on unknown", func(t *testing.T) {
 		d := stubRun(t, &runStubs{})
 		r := runRun(t, d, "--contract=c", "--bind=api=8080", "--dep=db=127.0.0.1:5432", "--fail-on=unknown",
@@ -311,6 +303,39 @@ func TestRunCommand_Unprivileged(t *testing.T) {
 			t.Fatalf("err %v, final %+v", r.err, res)
 		}
 	})
+}
+
+// testRunDeaf runs a command that never listens: the absence of its interface is confirmed.
+func testRunDeaf(t *testing.T) {
+	d := stubRun(t, &runStubs{})
+	// The listener view is complete only once a poll falls in a later second than the run's start, and
+	// the first negative only opens the stabilization window. The round of the start snapshot may be
+	// partial, but the one after it is of a publish at least one interval later, which polls as it
+	// publishes: the command runs until two rounds are in the report (bounded, so a run that never emits
+	// them fails below instead of hanging).
+	report := filepath.Join(t.TempDir(), "rounds.jsonl")
+	r := runRun(t, d, "--contract=c", "--bind=api=8080", "--dep=db=127.0.0.1:5432", "--stabilization-window=0s",
+		"--fail-on=noncompliant", "--report="+report, "--proc-root="+fakeProc(t), "--",
+		"sh", "-c", `for i in $(seq 600); do n=0; while read -r _; do n=$((n+1)); done <"$0"; [ $n -ge 2 ] && exit; sleep 0.05; done`, report)
+	b, err := os.ReadFile(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.rounds = parseRounds(string(b))
+	if len(r.rounds) < 3 {
+		t.Fatalf("want two rounds before the final one, got %s", b)
+	}
+	res := r.final(t)
+	got := codes(res)
+	// The interface's absence is confirmed from the complete listener view; the dependency's silence is
+	// not a failure, and this mode never sees one.
+	if exitOf(r.err) != 1 || got[finding.CodeInterfaceAbsent] != runCollector || res.Status != finding.StatusNonCompliant ||
+		!strings.Contains(r.stderr, "fails --fail-on noncompliant") {
+		t.Fatalf("err %v, final %+v\nreport %s", r.err, res, b)
+	}
+	if _, ok := got[finding.CodeDependencyUnreachable]; ok {
+		t.Fatalf("unprivileged mode confirmed a dependency failure: %+v", res.Findings)
+	}
 }
 
 func TestRunCommand_EBPF(t *testing.T) {

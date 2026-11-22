@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -232,6 +233,8 @@ func TestTreeWatcher_Run(t *testing.T) {
 	sink := recordSink{got: make(chan runtimefacts.Snapshot, 4), err: errors.New("logged")}
 	w := newTree(treeProc())
 	w.Sink = sink
+	var reads atomic.Int64
+	w.Now = func() time.Time { return treeNow.Add(time.Duration(reads.Add(1)) * time.Second) }
 	poll, publish := make(chan time.Time), make(chan time.Time)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -243,8 +246,12 @@ func TestTreeWatcher_Run(t *testing.T) {
 		t.Fatalf("first = %+v", s)
 	}
 	poll <- treeNow
+	// A publish polls first, so its baseline is the poll it takes (the fourth reading of the clock) and
+	// not the poll tick's (the third).
 	publish <- treeNow
-	<-sink.got
+	if s, want := <-sink.got, treeNow.Add(4*time.Second); !s.Workloads[0].BaselineAt.Equal(want) {
+		t.Fatalf("published baseline = %s, want %s", s.Workloads[0].BaselineAt, want)
+	}
 	cancel()
 	<-done
 }
