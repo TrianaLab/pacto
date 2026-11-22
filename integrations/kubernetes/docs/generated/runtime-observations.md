@@ -111,6 +111,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `CONFIG_REF_VERSION_OUTSIDE_RANGE` | `InvalidReference` |
 | `CONFIG_VALUES_VALIDATION_FAILED` | `ConfigurationViolation` |
 | `DECLARATION_ACCEPTED_MISMATCH` | `InvalidFile` |
+| `DECLARATION_EXTERNAL_MISMATCH` | `InvalidFile` |
 | `DECLARATION_RANGE_NOT_ACCEPTED` | `InvalidFile` |
 | `DEPENDENCY_NAME_REQUIRED` | `InvalidDependency` |
 | `DEPENDENCY_UNREACHABLE` | `RuntimeDrift` |

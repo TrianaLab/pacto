@@ -1139,3 +1139,30 @@ func TestInferredUnchangedIgnoresDeclarationInput(t *testing.T) {
 		t.Fatalf("got %v %q, want unchanged", unchanged, what)
 	}
 }
+
+func TestParseRecordExternalInferredFrom(t *testing.T) {
+	for _, id := range []string{"stripe", "aws/rds/123456789012/eu-west-1/orders-db", "host/corp-legacy.example"} {
+		rec, err := ParseInferredRecord([]byte(declDoc(t, declarationYAML, "inferredFrom: k8s:shop/Deployment/invoices", "inferredFrom: "+ExternalInferredFrom(id))))
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		if got, ok := InferredFromExternal(rec.Declaration.InferredFrom); !ok || got != id {
+			t.Fatalf("InferredFromExternal(%q) = %q %v", rec.Declaration.InferredFrom, got, ok)
+		}
+	}
+	for _, bad := range []string{"external:", "external:Stripe", "external:stripe x", "external:a/b/c/d/e/f"} {
+		refuses(t, declDoc(t, declarationYAML, "inferredFrom: k8s:shop/Deployment/invoices", "inferredFrom: \""+bad+"\""), "or external:<identity>")
+	}
+	if _, ok := InferredFromExternal("k8s:shop/Deployment/invoices"); ok {
+		t.Fatal("a workload inferredFrom read as external")
+	}
+}
+
+// TestOldPatternRefusesExternalInferredFrom documents the older reader: its
+// k8s:-only check refuses the external form, so it reads the record as
+// unreadable, never as a declaration.
+func TestOldPatternRefusesExternalInferredFrom(t *testing.T) {
+	if inferredFromRE.MatchString(ExternalInferredFrom("stripe")) {
+		t.Fatal("the k8s: pattern accepts external:stripe")
+	}
+}

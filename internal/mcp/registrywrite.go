@@ -40,6 +40,13 @@ const (
 	RefusalExecuteNeedsStdio      WriteRefusal = "ExecuteNeedsStdio"
 	RefusalBaselineNeedsMigration WriteRefusal = "BaselineNeedsMigration"
 	RefusalBundleRepoMismatch     WriteRefusal = "BundleRepoMismatch"
+	// The claim codes: a claim names no owner, its repository holds another
+	// external system, it names no external system, or it would publish
+	// under pacto-inferred.
+	RefusalOwnerRequired           WriteRefusal = "OwnerRequired"
+	RefusalExternalMismatch        WriteRefusal = "ExternalMismatch"
+	RefusalExternalUnknown         WriteRefusal = "ExternalUnknown"
+	RefusalClaimRepositoryInferred WriteRefusal = "ClaimRepositoryInferred"
 	// An HTTP server's draft write: the caller may not update the workload,
 	// writes on behalf of someone else or into another workload's
 	// repository (NotAllowed), or the review of the caller failed.
@@ -65,6 +72,7 @@ var writeRefusals = []WriteRefusal{
 	RefusalSignerNotAllowed, RefusalSignerUnverified, RefusalDraftNotFound, RefusalExecuteNeedsStdio,
 	RefusalBaselineNeedsMigration, RefusalBundleRepoMismatch, RefusalNotAllowed, RefusalReviewFailed, RefusalAcceptNothingProposed, RefusalFieldNotAcceptable,
 	RefusalBreakNotAnnounced, RefusalNotPublished, RefusalPersonSigningUnavailable,
+	RefusalOwnerRequired, RefusalExternalMismatch, RefusalExternalUnknown, RefusalClaimRepositoryInferred,
 	RefusalOwnerSignerNotPerson, RefusalOwnerSignerNotAllowed, RefusalOwnerPolicyUnverified, RefusalOwnerSignerUnverified,
 }
 
