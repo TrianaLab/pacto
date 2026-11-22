@@ -642,7 +642,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc authn.Keyc
 	// Detection advertises the block on every install; only its registry
 	// fields need --registry.
 	inst := &detect.Installation{Profile: profiles}
-	if err := addTargetSnapshot(mgr, o, namespace, ident.ID, evidenceSourceURL, kc, inst); err != nil {
+	if err := addTargetSnapshot(mgr, o, namespace, ident, evidenceSourceURL, kc, inst); err != nil {
 		return err
 	}
 
@@ -771,7 +771,7 @@ var lastPush atomic.Pointer[detect.PushResult]
 // <registry>/pacto-inferred on the elected leader. It fills the registry fields of inst, the installation
 // detection advertises, and leaves them empty without --registry. Any missing piece stops the operator at
 // start with its reason.
-func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace, clusterID, evidenceURL string,
+func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity, evidenceURL string,
 	kc authn.Keychain, inst *detect.Installation) error {
 	if o.registry == "" {
 		setupLog.Info("Target snapshot and inferred contracts are off: set the registry value")
@@ -787,7 +787,8 @@ func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace, clusterID, evide
 	if err != nil {
 		return err
 	}
-	pub, err := targetsnapshot.ForOperator(targetsnapshot.Config{Registry: o.registry, ClusterID: clusterID,
+	pub, err := targetsnapshot.ForOperator(targetsnapshot.Config{Registry: o.registry, ClusterID: ident.ID,
+		ClusterName: ident.Name, ClusterNameSource: ident.NameSource,
 		Namespace: namespace, ServiceAccount: os.Getenv("OPERATOR_SERVICE_ACCOUNT"), EvidenceURL: evidenceURL,
 		Watched: o.namespaces, Key: key, Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(),
 		OnPush: func(r detect.PushResult) { lastPush.Store(&r) }, OwnerPolicy: readOwnerPolicy(o.ownerPolicy)})

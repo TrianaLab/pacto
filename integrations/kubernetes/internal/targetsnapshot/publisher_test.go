@@ -85,7 +85,8 @@ func newTargetsEnv(t *testing.T, c client.Reader) *targetsEnv {
 	}
 	_, key, _ := ed25519.GenerateKey(rand.Reader)
 	e := &targetsEnv{reg: reg, key: key}
-	e.p = &TargetPublisher{Client: c, Repo: repo, Signer: edSigner(key), ClusterID: snapCluster,
+	e.p = &TargetPublisher{Client: c, Repo: repo, Signer: edSigner(key), ClusterID: snapCluster, Key: key,
+		ClusterName: "eu-prod", ClusterNameSource: fleet.ClusterNameFromNodeLabel,
 		Publisher: "system:serviceaccount:pacto-system:pacto-operator",
 		Mode:      func(context.Context) string { return "referrers=native listing=catalog" },
 		Now:       func() time.Time { return time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC) }, Interval: time.Minute,

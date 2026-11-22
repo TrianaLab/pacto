@@ -118,3 +118,43 @@ func TestSnapshotWithoutJoinReadsAsBefore(t *testing.T) {
 		t.Fatalf("verdict %+v, join %+v, %v", v, st.Predicate.Join, err)
 	}
 }
+
+func labelled(env string) delivery.PactoView {
+	var p delivery.PactoView
+	p.Metadata.Labels = map[string]string{delivery.EnvironmentLabel: env}
+	return p
+}
+
+func TestAdvertisedEnvironments(t *testing.T) {
+	pactos := []delivery.PactoView{labelled("staging"), labelled("production"), labelled("production"),
+		labelled("production"), labelled("Not_A_Label"), {}}
+	got := delivery.AdvertisedEnvironments(pactos, "eu-prod-staging", fleet.ClusterNameFromNodeLabel)
+	want := []delivery.AdvertisedEnvironment{
+		{Name: "production", Source: "label delivery.pacto.trianalab.io/environment on 3 Pactos"},
+		{Name: "staging", Source: "label delivery.pacto.trianalab.io/environment on 1 Pacto"},
+		{Name: "prod", Source: "the cluster name eu-prod-staging"},
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got := delivery.AdvertisedEnvironments(nil, "useast1", fleet.ClusterNameFromNodeLabel); len(got) != 0 {
+		t.Fatalf("no token in useast1: %v", got)
+	}
+	if got := delivery.AdvertisedEnvironments(nil, "prod-1234", fleet.ClusterNameFromUID); len(got) != 0 {
+		t.Fatalf("a uid name names no environment: %v", got)
+	}
+	many := make([]delivery.PactoView, 0, 20)
+	for i := range 20 {
+		many = append(many, labelled(fmt.Sprintf("env-%02d", i)))
+	}
+	got = delivery.AdvertisedEnvironments(many, "dev", fleet.ClusterNameFromContext)
+	if len(got) != 16 || got[15].Name != "env-15" {
+		t.Fatalf("bound 16, labels first: %v", got)
+	}
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	key, id := joinKey(t, pub)
+	if err := joinSnapshot(&delivery.SnapshotJoin{Name: "eu-prod", NameSource: fleet.ClusterNameFromNodeLabel,
+		KeyID: id, PublicKey: key, Environments: got}).Check(); err != nil {
+		t.Fatalf("advertised environments fail the check: %v", err)
+	}
+}

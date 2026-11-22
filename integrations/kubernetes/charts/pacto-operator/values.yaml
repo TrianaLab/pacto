@@ -35,7 +35,8 @@ global:
 # -- The installation registry (host[/path], no scheme), such as
 # `ghcr.io/acme`. The operator publishes the cluster's target snapshot, signed
 # with the installation key it creates once, to `<registry>/pacto-targets`,
-# which `pacto impact` reads in CI; empty publishes none. Delivery stays off
+# which `pacto impact` reads in CI and a hub reads to approve this cluster as a
+# member (`pacto cluster approve`); empty publishes none. Delivery stays off
 # until delivery.enabled=true.
 registry: ""
 

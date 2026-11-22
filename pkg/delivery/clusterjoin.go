@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -106,3 +107,37 @@ var dnsLabelPattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 // letters, digits or dashes, starting and ending alphanumeric. No homoglyph,
 // bidi control or shell metacharacter fits.
 func dnsLabel(s string) bool { return len(s) <= 63 && dnsLabelPattern.MatchString(s) }
+
+// environmentTokens are the cluster-name tokens that name an environment.
+var environmentTokens = []string{"prod", "production", "staging", "stage", "dev", "development", "test", "qa"}
+
+// AdvertisedEnvironments are the environments a cluster seems to host,
+// inferred: each distinct EnvironmentLabel value on its Pactos (by name), then
+// each environment token of its name unless the name is the uid's. Values
+// that are not DNS labels are dropped; at most 16 are kept, labels first.
+func AdvertisedEnvironments(pactos []PactoView, name, nameSource string) []AdvertisedEnvironment {
+	counts := map[string]int{}
+	for _, p := range pactos {
+		if env := p.Metadata.Labels[EnvironmentLabel]; dnsLabel(env) {
+			counts[env]++
+		}
+	}
+	var out []AdvertisedEnvironment
+	for _, env := range slices.Sorted(maps.Keys(counts)) {
+		noun := "Pactos"
+		if counts[env] == 1 {
+			noun = "Pacto"
+		}
+		out = append(out, AdvertisedEnvironment{Name: env,
+			Source: fmt.Sprintf("label %s on %d %s", EnvironmentLabel, counts[env], noun)})
+	}
+	if nameSource != fleet.ClusterNameFromUID {
+		for _, tok := range strings.Split(name, "-") {
+			if slices.Contains(environmentTokens, tok) && counts[tok] == 0 {
+				counts[tok] = -1 // named once
+				out = append(out, AdvertisedEnvironment{Name: tok, Source: "the cluster name " + name})
+			}
+		}
+	}
+	return out[:min(len(out), maxAdvertisedEnvironments)]
+}
