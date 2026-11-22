@@ -11,6 +11,8 @@ import FieldProvenanceFold from './FieldProvenanceFold.svelte';
 import { fieldProvenanceText } from '../lib/fieldProvenance.ts';
 // @ts-expect-error — Vite raw import has no declaration file
 import rowSource from './FieldProvenanceRow.svelte?raw';
+// @ts-expect-error — Vite raw import has no declaration file
+import markSource from './ProvenanceMark.svelte?raw';
 
 let cleanup: (() => void) | null = null;
 afterEach(() => { cleanup?.(); cleanup = null; });
@@ -155,5 +157,7 @@ describe('FieldProvenanceFold', () => {
     expect(value.getAttribute('title')).toBe(owner);
     // jsdom applies no component style, so the rule is read from the source.
     expect(rowSource).toMatch(/\.fpf-value \{[^}]*overflow-wrap: anywhere;/);
+    // The long repository is in the tip: it wraps by the tip's own rule.
+    expect(markSource).toMatch(/\.prov-tip\)?\s*\{[^}]*overflow-wrap: anywhere;/);
   });
 });
