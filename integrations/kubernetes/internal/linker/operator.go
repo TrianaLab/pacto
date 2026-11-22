@@ -9,13 +9,17 @@ package linker
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"slices"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry/remote"
+	"oras.land/oras-go/v2/registry/remote/errcode"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -62,10 +66,23 @@ func ForOperator(cfg Config) (*Linker, error) {
 	if err != nil {
 		return nil, fmt.Errorf("the organization index repository: %w", err)
 	}
-	l.Tags = func(ctx context.Context) ([]string, error) { return ocireferrer.Tags(ctx, repo, "") }
+	l.Tags = func(ctx context.Context) ([]string, error) { return indexTags(ctx, repo) }
 	l.Registry = registryReader{repo: repo, indexRepo: indexRepo,
 		images: publish.NewScopedClient(cfg.LoaderKeychain, scope, nil, cfg.Insecure...)}
 	return l, nil
+}
+
+// indexTags lists the organization index. A registry answering that the
+// repository does not exist holds an empty index, since no CI has published
+// to it yet: that is no partial read.
+func indexTags(ctx context.Context, repo *remote.Repository) ([]string, error) {
+	tags, err := ocireferrer.Tags(ctx, repo, "")
+	var resp *errcode.ErrorResponse
+	if errors.As(err, &resp) && (resp.StatusCode == http.StatusNotFound ||
+		slices.ContainsFunc(resp.Errors, func(e errcode.Error) bool { return e.Code == errcode.ErrorCodeNameUnknown })) {
+		return nil, nil
+	}
+	return tags, err
 }
 
 // registryReader is the [Reader] over the organization index repository and

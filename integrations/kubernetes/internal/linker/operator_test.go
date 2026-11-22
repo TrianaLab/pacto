@@ -13,6 +13,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -85,6 +86,31 @@ func TestForOperatorReadsTheIndex(t *testing.T) {
 	}
 	if recs, _, err := l.Registry.Images(ctx, reg+"/payments", dA); err == nil && len(recs) != 0 {
 		t.Fatalf("a bundle with no images record has records: %+v", recs)
+	}
+}
+
+// An index repository no CI has published to yet is an empty index, not a
+// read that failed; a registry that fails the listing still fails it.
+func TestForOperatorAbsentIndexIsEmpty(t *testing.T) {
+	srv := httptest.NewServer(registry.New(registry.Logger(log.New(io.Discard, "", 0))))
+	t.Cleanup(srv.Close)
+	host := strings.TrimPrefix(srv.URL, "http://")
+	l, err := ForOperator(Config{DeploymentName: opDeploy, Namespace: opNS, Registry: host + "/acme", Insecure: []string{host}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tags, err := l.Tags(context.Background()); err != nil || len(tags) != 0 {
+		t.Fatalf("an absent index: %v %v", tags, err)
+	}
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) }))
+	t.Cleanup(broken.Close)
+	bhost := strings.TrimPrefix(broken.URL, "http://")
+	l, err = ForOperator(Config{DeploymentName: opDeploy, Namespace: opNS, Registry: bhost + "/acme", Insecure: []string{bhost}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Tags(context.Background()); err == nil {
+		t.Fatal("a failed listing read as an empty index")
 	}
 }
 
