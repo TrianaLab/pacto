@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -69,6 +70,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)")
 	shared.StringArray("evidence-url", nil, "base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)")
 	shared.StringArray("mira-source", nil, "base URL of a Mira node whose service map supplies observed calls between services (repeatable)")
+	shared.String("backstage-url", "", "base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from "+backstageTokenEnv)
 	shared.StringArray("traces", nil, "OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)")
 	shared.StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")
 	shared.Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
@@ -88,12 +90,16 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	f.AddFlagSet(shared)
 }
 
+// backstageTokenEnv holds the Backstage catalog reader token: never a flag,
+// so it stays out of argv.
+const backstageTokenEnv = "PACTO_BACKSTAGE_TOKEN"
+
 // fleetFlagNames lists the shared fleet source flags declared by
 // newFleetCommand, in declaration order. It is the single list any other
 // command copies from when it wants the same source surface.
 func fleetFlagNames() []string {
 	return []string{
-		"local", "root", "target-state", "evidence-url", "mira-source", "traces", "oci",
+		"local", "root", "target-state", "evidence-url", "mira-source", "backstage-url", "traces", "oci",
 		"cache", "k8s", "context", "namespace", "freshness", "external-catalog", "detected", "fingerprints",
 		"target-snapshot", "delivery-trust", "index",
 	}
@@ -196,6 +202,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	targetState, _ := cmd.Flags().GetStringArray("target-state")
 	evidenceURLs, _ := cmd.Flags().GetStringArray("evidence-url")
 	miraURLs, _ := cmd.Flags().GetStringArray("mira-source")
+	backstageURL, _ := cmd.Flags().GetString("backstage-url")
 	traceFiles, _ := cmd.Flags().GetStringArray("traces")
 	ociRefs, _ := cmd.Flags().GetStringArray("oci")
 	includeCache, _ := cmd.Flags().GetBool("cache")
@@ -221,6 +228,8 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		TargetStateFiles:   targetState,
 		EvidenceURLs:       evidenceURLs,
 		MiraURLs:           miraURLs,
+		BackstageURL:       backstageURL,
+		BackstageToken:     os.Getenv(backstageTokenEnv),
 		ObservationSources: app.TraceFileSources(traceFiles),
 		OCIRefs:            ociRefs,
 		IncludeCache:       includeCache && !noCache,

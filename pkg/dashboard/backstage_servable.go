@@ -25,7 +25,7 @@ var notMissing = map[string]bool{
 // the organization catalog is unread, a source is unavailable, a source is
 // partial for any reason but reading the namespace list it was given, or the
 // fleet is empty. A stale source keeps its records and is served. An advisory
-// source (detection, a mesh, a trace backend) is optional evidence whose
+// source (detection, a mesh, a trace backend, an IDP catalog) is optional evidence whose
 // observed calls come and go with traffic, so its state never holds
 // Backstage back: an optional provider never blocks the catalog. It is the
 // one rule `pacto export backstage` and the dashboard route share. Judge it

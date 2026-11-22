@@ -13,6 +13,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
+	"github.com/trianalab/pacto/v4/pkg/backstage"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -49,6 +50,13 @@ type FleetOptions struct {
 	// MiraURLs are base URLs of Mira nodes whose /api/v1/map supplies observed
 	// edges; operator configuration only, never taken from a request.
 	MiraURLs []string
+	// BackstageURL is the base URL of a Backstage catalog whose owners,
+	// systems and dependencies join the snapshot as inferred values; operator
+	// configuration, never taken from a request.
+	BackstageURL string
+	// BackstageToken is the catalog reader token, from PACTO_BACKSTAGE_TOKEN;
+	// never echoed, sent only to BackstageURL and never to a detected endpoint.
+	BackstageToken string
 	// ObservationSources are offline OTLP/JSON trace files supplying
 	// runtime-observed dependency edges; each becomes an observation source whose
 	// edges Build folds into the snapshot as domain-qualified observed
@@ -220,7 +228,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		sources = append(sources, fleetsrc.NewTargetStateFileSource(sourceID("target-state", i, len(opts.TargetStateFiles)), path))
 	}
 	// A malformed --detected ref is a usage error, refused before any read.
-	remote, err := httpSources(opts)
+	remote, err := httpSources(opts, s.env().now)
 	fp, fpErr := loadFingerprints(opts.Fingerprints)
 	snaps, snapErr := s.targetSnapshotSources(ctx, opts)
 	if err := errors.Join(err, CheckDetectedRef(opts.Detected), fpErr, snapErr); err != nil {
@@ -586,10 +594,10 @@ func TraceFileSources(paths []string) []ObservationSourceSpec {
 	return specs
 }
 
-// httpSources returns the Evidence Server sources, then the Mira sources. Every
-// Mira URL is checked first: a bad one fails the whole build, like a duplicate
-// source id.
-func httpSources(opts FleetOptions) ([]fleet.Source, error) {
+// httpSources returns the Evidence Server sources, then the Mira sources, then
+// the Backstage catalog source. Every Mira and Backstage URL is checked first:
+// a bad one fails the whole build, like a duplicate source id.
+func httpSources(opts FleetOptions, now func() time.Time) ([]fleet.Source, error) {
 	var sources []fleet.Source
 	for i, url := range opts.EvidenceURLs {
 		sources = append(sources, fleetsrc.NewEvidenceHTTPSource(sourceID("evidence-http", i, len(opts.EvidenceURLs)), url))
@@ -599,6 +607,13 @@ func httpSources(opts FleetOptions) ([]fleet.Source, error) {
 			return nil, err
 		}
 		sources = append(sources, fleetsrc.NewMiraSource(sourceID("mira", i, len(opts.MiraURLs)), u))
+	}
+	if opts.BackstageURL != "" {
+		src, err := fleetsrc.NewBackstageSource(backstage.SourceKind, opts.BackstageURL, opts.BackstageToken, now)
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, src)
 	}
 	return sources, nil
 }
