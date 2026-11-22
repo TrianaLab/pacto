@@ -1,0 +1,1 @@
+import{Z as e,lt as t,ut as n}from"./disclose-version-Ct_biwe-.js";function r(r=25){let i=n(!1);return{get all(){return e(i)},max:r,toggle(){t(i,!e(i))},slice(t){let n=t??[];return e(i)?n:n.slice(0,r)}}}export{r as t};
