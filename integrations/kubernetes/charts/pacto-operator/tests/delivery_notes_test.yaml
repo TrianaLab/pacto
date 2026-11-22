@@ -99,7 +99,7 @@ tests:
       profile: idp
     asserts:
       - matchRegexRaw:
-          pattern: 'No GitOps engine found\. To deliver through upstream Flux packaged with Pacto:\nSet idp\.flux\.install=true on this Pacto release: helm upgrade <release> oci://ghcr\.io/trianalab/charts/pacto-operator -n <namespace> --reuse-values --set idp\.flux\.install=true\n'
+          pattern: 'No GitOps engine found\. To deliver through upstream Flux packaged with Pacto:\nSet idp\.flux\.install=true on this Pacto release: helm upgrade <release> oci://ghcr\.io/trianalab/pacto/charts/pacto-operator -n <namespace> --reuse-values --set idp\.flux\.install=true\n'
 
   - it: NOTES offers no Flux under idp when Flux is served
     set:

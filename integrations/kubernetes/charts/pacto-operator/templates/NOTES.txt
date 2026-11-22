@@ -123,7 +123,7 @@ delivery's cluster roles.
 {{- if not (or (dig "idp" "flux" "install" false .Values.AsMap) (.Capabilities.APIVersions.Has "kustomize.toolkit.fluxcd.io/v1") (.Capabilities.APIVersions.Has "argoproj.io/v1alpha1")) }}
 
 No GitOps engine found. To deliver through upstream Flux packaged with Pacto:
-Set idp.flux.install=true on this Pacto release: helm upgrade <release> oci://ghcr.io/trianalab/charts/pacto-operator -n <namespace> --reuse-values --set idp.flux.install=true
+Set idp.flux.install=true on this Pacto release: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator -n <namespace> --reuse-values --set idp.flux.install=true
 {{- end }}
 {{- /* lookup is empty under helm template and a dry-run, so the refusal of a
 foreign Flux was skipped: say so. */}}

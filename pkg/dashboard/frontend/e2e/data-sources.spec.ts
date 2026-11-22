@@ -5,7 +5,7 @@ import { settle } from './ready';
 import { installScaleFixture } from './layoutGate';
 
 /** detect.FluxInstallHint, the compiled-in proposal every Applier row shows. */
-const FLUX_INSTALL_HINT = 'Set idp.flux.install=true on this Pacto release: helm upgrade <release> oci://ghcr.io/trianalab/charts/pacto-operator -n <namespace> --reuse-values --set idp.flux.install=true';
+const FLUX_INSTALL_HINT = 'Set idp.flux.install=true on this Pacto release: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator -n <namespace> --reuse-values --set idp.flux.install=true';
 
 /**
  * Data sources as a product surface: findable from the overview, walkable to a source,

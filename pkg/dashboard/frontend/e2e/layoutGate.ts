@@ -304,7 +304,7 @@ export function installScaleFixture(): void {
         id: 'applier', source: 'cluster-detection', provenance: 'inferred', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Applier',
         evidence: `none found neither kustomize.toolkit.fluxcd.io/v1 nor argoproj.io/v1alpha1 is served; no applier: install Flux or Argo CD (from API discovery, cluster ${clusters[0]})`,
         status: 'available', cluster: clusters[0], usedFor: ['proposal for delivery in profile idp; set it on the Pacto release yourself'],
-        hint: 'Set idp.flux.install=true on this Pacto release: helm upgrade <release> oci://ghcr.io/trianalab/charts/pacto-operator -n <namespace> --reuse-values --set idp.flux.install=true',
+        hint: 'Set idp.flux.install=true on this Pacto release: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator -n <namespace> --reuse-values --set idp.flux.install=true',
       });
       // A live edge-source row (509-S9): the OTLP receiver's Collector row, partial
       // with a long reason, the full receiver snippet for a 63-character namespace as its
