@@ -164,7 +164,7 @@ func TestCarriedFieldNotDeclaredRefused(t *testing.T) {
 	}
 }
 
-func TestCarriedRangeUnknownRefused(t *testing.T) {
+func TestCarriedFieldRangeUnknownRefused(t *testing.T) {
 	for _, compat := range []string{"unknown", ""} {
 		yaml := strings.Replace(carriedYAML, "    compatibility: \"^2.3.0\"\n", "", 1)
 		if compat != "" {

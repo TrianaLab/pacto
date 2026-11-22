@@ -48,6 +48,11 @@ func main() {
 
 	outputPath := filepath.Join("docs", "cli-reference.md")
 	if len(os.Args) > 1 {
+		if strings.HasPrefix(os.Args[1], "-") {
+			// A flag such as --help is never an output path to overwrite.
+			fmt.Fprintln(os.Stderr, "usage: gendocs [registry | <output.md>]")
+			os.Exit(2)
+		}
 		outputPath = os.Args[1]
 	}
 
