@@ -785,25 +785,26 @@ func InspectRevision(ctx context.Context, reg Registry, repo, digest string, tar
 
 // manifestsGate judges pacto.manifests with in.Manifests, which it calls only
 // here, after pacto.published did not fail and pacto.applier passed. A Fail
-// rejects; an Unknown asks a person to accept it, joined with an unknown
-// publication into one question, and stops the gate chain so no later gate
-// overwrites the question. It reports whether the promote may go on.
-func manifestsGate(ctx context.Context, in PlanInput, p *Plan, pub Verdict) bool {
+// rejects. An Unknown with an unknown publication asks one question naming
+// both and stops the chain, as the publication's own question does;
+// otherwise it returns what Pacto cannot tell, for the caller to ask after
+// the later gates. It reports whether the promote may go on.
+func manifestsGate(ctx context.Context, in PlanInput, p *Plan, pub Verdict) (bool, string) {
 	ins := in.Manifests(ctx)
 	ins.RefuseInfra = in.RefuseRawInfra
 	v := ins.Verdict()
 	p.Verdicts = append(p.Verdicts, v)
 	switch v.Result {
 	case Fail:
-		return false
+		return false, ""
 	case Unknown:
 		what := "what " + short(p.To) + " applies: " + v.Citation["unread"]
-		p.Floor = Floor{Human: true, Decision: AcceptUnknown}
-		p.Question = "Pacto cannot tell " + what + ". Accept the unknown?"
 		if pub.Result == Unknown {
+			p.Floor = Floor{Human: true, Decision: AcceptUnknown}
 			p.Question = "Pacto cannot tell whether pacto publish published " + short(p.To) + ": " + pub.Message + "; and " + what + ". Accept the unknown?"
+			return false, ""
 		}
-		return false
+		return true, what
 	}
-	return true
+	return true, ""
 }

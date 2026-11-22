@@ -391,7 +391,7 @@ func predict(in PlanInput, p *Plan) Prediction {
 // promoteGates runs pacto.published, pacto.applier, pacto.manifests (with the
 // inspector on), pacto.diff and pacto.impact and derives the approval floor. A
 // version pacto publish did not publish goes no further, and neither does one
-// whose deploy artifact the inspector refuses or cannot read.
+// whose deploy artifact the inspector refuses.
 func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 	pub := publishedGate(in)
 	p.Verdicts = append(p.Verdicts, pub)
@@ -404,8 +404,17 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 	if !applierGate(in, p) {
 		return
 	}
-	if in.InspectManifests && in.Manifests != nil && !manifestsGate(ctx, in, p, pub) {
-		return
+	if in.InspectManifests && in.Manifests != nil {
+		ok, unread := manifestsGate(ctx, in, p, pub)
+		if !ok {
+			return
+		}
+		// An unknown inspection is asked after every later gate, joined with
+		// their questions: a breaking change still asks its consumers'
+		// owners, and accepting the unknown never skips them.
+		if unread != "" {
+			defer holdFor(p, AcceptUnknown, "Pacto cannot tell "+unread, "Pacto cannot tell "+unread+". Accept the unknown?")
+		}
 	}
 	if pub.Result == Unknown {
 		p.Floor = Floor{Human: true, Decision: AcceptUnknown}

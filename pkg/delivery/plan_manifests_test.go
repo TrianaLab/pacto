@@ -29,6 +29,18 @@ func inspectedInput(t *testing.T, insp ManifestInspection, reads *int) PlanInput
 		}}
 }
 
+// acceptedByCheckout makes the promote one checkout accepts, so no consumer
+// owner is asked.
+func acceptedByCheckout(t *testing.T, in *PlanInput) {
+	t.Helper()
+	in.From.Bundle.Contract.Workload = "job"
+	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto(">=1.0.0")}, nil, []Revision{in.From, in.To}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Snapshot = snap
+}
+
 var (
 	refusedInspection = ManifestInspection{Artifact: "manifests", Namespace: "prod", Total: 1,
 		Objects: []ManifestObject{{Kind: "ClusterRoleBinding", Name: "orders-admin"}}, Refused: []string{"ClusterRoleBinding orders-admin is cluster-scoped"}}
@@ -52,7 +64,7 @@ func TestManifestsGateRejectsBeforeDiff(t *testing.T) {
 func TestManifestsGateUnknownAsksAPerson(t *testing.T) {
 	var reads int
 	in := inspectedInput(t, unreadInspection, &reads)
-	in.From.Bundle.Contract.Workload = "job" // no breaking change
+	acceptedByCheckout(t, &in)
 	p := PlanFor(context.Background(), in)
 	if p.Predicted != PredictHeld || p.Floor.Decision != AcceptUnknown ||
 		!strings.HasPrefix(p.Question, "Pacto cannot tell what sha256:bbbbbbbbbbbb applies: the chart carries a subchart: charts/x.tgz. Accept the unknown?") {
@@ -64,13 +76,19 @@ func TestManifestsUnknownSurvivesBreakingImpact(t *testing.T) {
 	var reads int
 	base := inspectedInput(t, unreadInspection, &reads)
 	base.InspectManifests = false
-	if p := PlanFor(context.Background(), base); p.Floor.Decision != Approve {
-		t.Fatalf("control: the breaking change asks the consumer's owners to approve: %+v", p)
+	control := PlanFor(context.Background(), base)
+	if control.Floor.Decision != Approve {
+		t.Fatalf("control: the breaking change asks the consumer's owners to approve: %+v", control)
 	}
+	// The unknown inspection is asked beside the breaking change: the
+	// consumer's owners still approve, so accepting the unknown alone never
+	// ships it.
 	p := PlanFor(context.Background(), inspectedInput(t, unreadInspection, &reads))
-	if p.Floor.Decision != AcceptUnknown || !strings.Contains(p.Question, "what sha256:bbbbbbbbbbbb applies") ||
-		slices.ContainsFunc(p.Verdicts, func(v Verdict) bool { return v.Gate == GateImpact }) {
-		t.Fatalf("the unknown inspection keeps its question over the breaking impact: %+v", p)
+	if p.Floor.Decision != Approve || !reflect.DeepEqual(p.Floor.Owners, control.Floor.Owners) ||
+		!strings.HasPrefix(p.Question, "Pacto cannot tell what sha256:bbbbbbbbbbbb applies: the chart carries a subchart: charts/x.tgz. ") ||
+		!strings.Contains(p.Question, control.Question) ||
+		!slices.ContainsFunc(p.Verdicts, func(v Verdict) bool { return v.Gate == GateImpact }) {
+		t.Fatalf("the unknown inspection and the breaking impact are both asked: %+v", p)
 	}
 }
 
@@ -205,7 +223,7 @@ func TestRawInfraRefusedOnlyUnderIDP(t *testing.T) {
 		Infra: []string{"PostgresClaim db is raw infrastructure: declare a dependency on an offering"}}
 	var reads int
 	in := inspectedInput(t, claim, &reads)
-	in.From.Bundle.Contract.Workload = "job" // no breaking change
+	acceptedByCheckout(t, &in)
 	if p := PlanFor(context.Background(), in); p.Predicted != PredictHeld || p.Floor.Decision != AcceptUnknown ||
 		!strings.Contains(p.Question, "PostgresClaim db is raw infrastructure") {
 		t.Fatalf("outside idp a person decides: %+v", p)
