@@ -212,7 +212,7 @@ func isAddrOrDash(s string) bool {
 
 // isLDHHost reports whether s is a hostname of letters, digits and hyphens.
 func isLDHHost(s string) bool {
-	if s == "" || len(s) > 253 {
+	if len(s) > 253 {
 		return false
 	}
 	for label := range strings.SplitSeq(s, ".") {

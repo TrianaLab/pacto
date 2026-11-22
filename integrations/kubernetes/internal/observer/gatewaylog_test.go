@@ -311,6 +311,7 @@ func TestGatewayLogSpacedServerNameCannotForgeTheCaller(t *testing.T) {
 		strings.Replace(textLine, " api.stripe.com -", " api.stripe.com/x -", 1),
 		strings.Replace(textLine, "10.1.0.9:40000", "pad", 1),
 		strings.Replace(jsonLine, `"requested_server_name":null`, `"requested_server_name":"a b.example"`, 1),
+		strings.Replace(jsonLine, `"requested_server_name":null`, `"requested_server_name":"`+strings.Repeat("a.", 127)+`com"`, 1),
 		strings.Replace(jsonLine, `"upstream_host":"54.1.1.1:443"`, `"upstream_host":"nowhere"`, 1),
 	} {
 		if got, ok := parseAccessLine(line); ok {
