@@ -7535,6 +7535,8 @@ export interface components {
             name: string;
         };
         SourceInfo: {
+            /** @description The cluster an egress row describes, when its source names one; set on egress rows only */
+            cluster?: string;
             /**
              * @description How much of the calls leaving the cluster an egress row read; set on egress rows only
              * @enum {string}
@@ -7544,6 +7546,8 @@ export interface components {
             egress?: boolean;
             enabled: boolean;
             reason?: string;
+            /** @description The fleet source that reported an egress row; set on egress rows only */
+            source?: string;
             type: string;
         };
         StageCounts: {

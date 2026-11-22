@@ -436,10 +436,13 @@ type SourceInfo struct {
 	Reason   string `json:"reason,omitempty"` // why enabled/disabled
 	Egress   bool   `json:"egress,omitempty" doc:"Set on a row projected from a detected provider that reads calls leaving the cluster; such a row is not a data source"`
 	Coverage string `json:"coverage,omitempty" enum:"complete,partial,unavailable" doc:"How much of the calls leaving the cluster an egress row read; set on egress rows only"`
+	Source   string `json:"source,omitempty" doc:"The fleet source that reported an egress row; set on egress rows only"`
+	Cluster  string `json:"cluster,omitempty" doc:"The cluster an egress row describes, when its source names one; set on egress rows only"`
 }
 
 // egressSources projects every provider row of q that reads calls leaving the
-// cluster (UsedFor names fleet.UseExternalEgress) onto one SourceInfo. q is
+// cluster (UsedFor names fleet.UseExternalEgress) onto one SourceInfo, with
+// the source and cluster that tell two rows of one id apart. q is
 // the caller's view, so the rows are already restricted. A stale or
 // unavailable row is disabled with coverage unavailable: unknown never reads
 // as positive.
@@ -452,7 +455,7 @@ func egressSources(q *fleet.Query) []SourceInfo {
 		if !slices.Contains(p.UsedFor, fleet.UseExternalEgress) {
 			continue
 		}
-		info := SourceInfo{Type: p.ID, Reason: p.Evidence, Egress: true, Coverage: "unavailable"}
+		info := SourceInfo{Type: p.ID, Reason: p.Evidence, Egress: true, Coverage: "unavailable", Source: p.Source, Cluster: p.Cluster}
 		switch p.Status {
 		case fleet.SourceAvailable:
 			info.Enabled, info.Coverage = true, "complete"

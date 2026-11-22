@@ -64,9 +64,9 @@ func TestSourcesIncludeEgressRows(t *testing.T) {
 	}
 	getJSON(t, base+"/api/sources", http.StatusOK, &body)
 	want := []SourceInfo{
-		{Type: "kernel-egress", Enabled: true, Reason: "node agent on 3/4 nodes", Egress: true, Coverage: "partial"},
-		{Type: "istio-egress", Enabled: true, Reason: "ServiceEntry CRD present (from API discovery)", Egress: true, Coverage: "complete"},
-		{Type: "cilium-fqdn", Enabled: false, Reason: "no CiliumNetworkPolicy CRD (from API discovery)", Egress: true, Coverage: "unavailable"},
+		{Type: "kernel-egress", Enabled: true, Reason: "node agent on 3/4 nodes", Egress: true, Coverage: "partial", Source: "k8s"},
+		{Type: "istio-egress", Enabled: true, Reason: "ServiceEntry CRD present (from API discovery)", Egress: true, Coverage: "complete", Source: "k8s"},
+		{Type: "cilium-fqdn", Enabled: false, Reason: "no CiliumNetworkPolicy CRD (from API discovery)", Egress: true, Coverage: "unavailable", Source: "k8s"},
 	}
 	got := egressRows(body.Sources)
 	slices.SortFunc(got, func(a, b SourceInfo) int {
@@ -140,5 +140,27 @@ func TestSourceInfoJSONKeepsFields(t *testing.T) {
 	b, _ = json.Marshal(SourceInfo{Type: "kernel-egress", Egress: true, Coverage: "unavailable"})
 	if string(b) != `{"type":"kernel-egress","enabled":false,"egress":true,"coverage":"unavailable"}` {
 		t.Errorf("egress JSON = %s", b)
+	}
+}
+
+// Two clusters each report a kernel-egress row: the rows name their source
+// and cluster, so the partial one never hides behind the complete one.
+func TestSourcesEgressRowsNameTheirCluster(t *testing.T) {
+	k := fleet.SourceKindKubernetes
+	src := func(id, cluster string, status fleet.SourceStatus) fleet.Source {
+		return fleet.NewMemorySource(id, k, &fleet.Collection{Cluster: &fleet.Cluster{ID: "uid-" + cluster, Name: cluster}, Providers: []fleet.Provider{kernelEgress(status)}})
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return egressAsOf }},
+		src("k8s-prod", "prod", fleet.SourceAvailable), src("k8s-edge", "edge", fleet.SourcePartial))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, s := range egressSources(fleet.NewQuery(snap)) {
+		got[s.Source+"/"+s.Cluster] = s.Coverage
+	}
+	want := map[string]string{"k8s-prod/prod": "complete", "k8s-edge/edge": "partial"}
+	if len(got) != 2 || got["k8s-prod/prod"] != want["k8s-prod/prod"] || got["k8s-edge/edge"] != want["k8s-edge/edge"] {
+		t.Fatalf("egress rows by source/cluster = %v, want %v", got, want)
 	}
 }
