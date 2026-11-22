@@ -204,14 +204,15 @@ func hideClusterDependencies(s *FleetSnapshot, rev *ContractRevision, hiddenSvc 
 }
 
 // hideDeclarationSource is a clone of rev for a viewer who may not read the
-// workload its declaration came from: no inferredFrom, no cluster field,
+// workload its declaration came from: no inferredFrom or source repository
+// (read from that workload's image and GitOps objects), no cluster field,
 // coverage or hidden count, only how many cluster fields were hidden. The
 // snapshot's revision and record are never changed.
 func hideDeclarationSource(rev *ContractRevision) *ContractRevision {
 	c := *rev
 	c.Record, c.hiddenClusterFields = withoutClusterFacts(rev.Record)
 	d := *rev.Record.Declaration
-	d.InferredFrom = ""
+	d.InferredFrom, d.Repository = "", nil
 	c.Record.Declaration = &d
 	c.declarationHidden = true
 	return &c
@@ -249,11 +250,12 @@ type DeclarationView struct {
 	InferredFrom     string          `json:"inferredFrom,omitempty" doc:"The inferred service the declaration came from, k8s:<namespace>/<kind>/<name>"`
 	// InferredFromHidden says the viewer may not read the workload the
 	// declaration came from, so InferredFrom and every cluster fact are left out.
-	InferredFromHidden bool     `json:"inferredFromHidden,omitempty" doc:"You may not read the workload the declaration came from, so its cluster facts are left out"`
-	Cluster            string   `json:"cluster,omitempty" doc:"The uid of the kube-system namespace of the cluster read"`
-	Baseline           string   `json:"baseline,omitempty" doc:"The published version the declaration started from"`
-	Accepted           []string `json:"accepted,omitempty" doc:"The proposed ranges the declarer accepted, as <field> <range>"`
-	Draft              string   `json:"draft,omitempty" doc:"The draft tag the declaration accepted"`
+	InferredFromHidden bool                               `json:"inferredFromHidden,omitempty" doc:"You may not read the workload the declaration came from, so its cluster facts are left out"`
+	Cluster            string                             `json:"cluster,omitempty" doc:"The uid of the kube-system namespace of the cluster read"`
+	Baseline           string                             `json:"baseline,omitempty" doc:"The published version the declaration started from"`
+	Accepted           []string                           `json:"accepted,omitempty" doc:"The proposed ranges the declarer accepted, as <field> <range>"`
+	Draft              string                             `json:"draft,omitempty" doc:"The draft tag the declaration accepted"`
+	Repository         *contract.InferredSourceRepository `json:"repository,omitempty" doc:"Where the service's source lives and how it was found; left out when no source named it or you may not read the workload the declaration came from"`
 }
 
 // declarationDetail is the coverage, hidden counts and declaration view of
@@ -277,7 +279,7 @@ func declarationDetail(rev *ContractRevision) ([]InferredCoverageRow, *InferredH
 	}
 	d := rec.Declaration
 	v := &DeclarationView{State: d.State, SignatureChecked: rev.declarationChecked, InferredFrom: d.InferredFrom,
-		InferredFromHidden: rev.declarationHidden, Cluster: d.Cluster, NotAccepted: rev.declarationRefused}
+		InferredFromHidden: rev.declarationHidden, Cluster: d.Cluster, NotAccepted: rev.declarationRefused, Repository: d.Repository}
 	if v.SignatureChecked && v.NotAccepted == "" {
 		v.Signer = &VerifiedSigner{Subject: d.Asker.Subject, Issuer: d.Asker.Issuer, Class: d.Asker.Class}
 	} else {

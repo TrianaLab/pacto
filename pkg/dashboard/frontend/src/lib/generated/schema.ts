@@ -1485,6 +1485,13 @@ export interface components {
             issuer: string;
             subject: string;
         };
+        "Contract.InferredSourceRepository": {
+            folder: string;
+            folderRung: string;
+            rung: string;
+            signer?: string;
+            url: string;
+        };
         "Contract.InferredSurface": {
             asOf: string;
             catalog?: components["schemas"]["Contract.InferredCatalogMatch"];
@@ -3206,6 +3213,8 @@ export interface components {
             inferredFromHidden?: boolean;
             /** @description Why this reader does not accept the declarer, so its cluster facts are not shown; empty when it is accepted */
             notAccepted?: string;
+            /** @description Where the service's source lives and how it was found; left out when no source named it or you may not read the workload the declaration came from */
+            repository?: components["schemas"]["Contract.InferredSourceRepository"];
             /** @description A signature this reader verified names the declarer as a person */
             signatureChecked: boolean;
             signer?: components["schemas"]["Fleet.VerifiedSigner"];

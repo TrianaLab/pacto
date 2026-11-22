@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -1200,8 +1201,9 @@ const (
 // (OnBehalfOf, asserted, drafts only), the inferred service it came from as
 // fleet.K8sCaller("", ns, kind, name), the kube-system namespace uid of the
 // cluster read ("" when unread), the baseline it reuses, the proposed ranges
-// the signer accepted (declared only) or requested (drafts only) and, for an
-// accepted draft, the draft it came from.
+// the signer accepted (declared only) or requested (drafts only), for an
+// accepted draft the draft it came from and, when a source named it, the
+// service's source repository and folder with how each was found.
 type InferredDeclaration struct {
 	State        string               `json:"state" yaml:"state"`
 	Asker        InferredSigner       `json:"asker" yaml:"asker"`
@@ -1212,7 +1214,47 @@ type InferredDeclaration struct {
 	Accepted     []InferredAcceptance `json:"accepted,omitempty" yaml:"accepted,omitempty"`
 	Requested    []InferredAcceptance `json:"requested,omitempty" yaml:"requested,omitempty"`
 	Draft        *InferredDraft       `json:"draft,omitempty" yaml:"draft,omitempty"`
+	// Repository is absent when no source named one: unknown is never
+	// written as a value.
+	Repository *InferredSourceRepository `json:"repository,omitempty" yaml:"repository,omitempty"`
 }
+
+// InferredSourceRepository is where a declared service's source lives and
+// how it was found: the repository URL as https://<host>/<path>, the rung of
+// the ladder that named it (RepositoryRungs), the CI signer whose
+// certificate attested it (signed-provenance only), the folder inside the
+// repository ("." for its root) and the rung that named the folder
+// (FolderRungs). No object or namespace name is ever written.
+type InferredSourceRepository struct {
+	URL        string `json:"url" yaml:"url"`
+	Rung       string `json:"rung" yaml:"rung"`
+	Signer     string `json:"signer,omitempty" yaml:"signer,omitempty"`
+	Folder     string `json:"folder" yaml:"folder"`
+	FolderRung string `json:"folderRung" yaml:"folderRung"`
+}
+
+// The rung that named a repository: the person's own flag, a verified CI
+// signature or provenance attestation, a GitOps source, the image's
+// org.opencontainers.image.source label or a repository map entry.
+const (
+	RepositoryRungGiven      = "given"
+	RepositoryRungSigned     = "signed-provenance"
+	RepositoryRungGitOps     = "gitops"
+	RepositoryRungImageLabel = "image-label"
+	RepositoryRungMap        = "repository-map"
+	FolderRungDefault        = "default"
+	maxRepositoryURLBytes    = 512
+	maxRepositoryFolderBytes = 256
+	maxRepositorySignerBytes = 512
+)
+
+// RepositoryRungs and FolderRungs are the vocabularies of a repository's
+// rung and folderRung.
+var (
+	RepositoryRungs = []string{RepositoryRungGiven, RepositoryRungSigned, RepositoryRungGitOps, RepositoryRungImageLabel, RepositoryRungMap}
+	FolderRungs     = []string{RepositoryRungGiven, RepositoryRungGitOps, RepositoryRungMap, FolderRungDefault}
+	repositoryURLRE = regexp.MustCompile(`^https?://[a-z0-9.-]+(:[0-9]+)?/[^?#@\s]+$`)
+)
 
 // InferredSigner is the identity that signed a declaration or a draft and
 // its class; an unsigned draft's is {"", none, agent}.
@@ -1287,7 +1329,50 @@ func checkDeclaration(d *InferredDeclaration) error {
 	if err := checkBaseline(d.Baseline); err != nil {
 		return err
 	}
-	return checkDraftRef(d.Draft)
+	if err := checkDraftRef(d.Draft); err != nil {
+		return err
+	}
+	return checkRepository(d.Repository)
+}
+
+// checkRepository is why r cannot be a declaration's repository, or nil: a
+// URL other than https?://<lowercase host>[:port]/<path> with no
+// credentials, query, fragment, control character, trailing ".git" or "/"
+// (at most 512 bytes); a rung or folderRung off its vocabulary; a signer off
+// signed-provenance, or missing on it (at most 512 bytes); a folder that is
+// not a clean relative slash path ("." for the root, no "..", at most 256
+// bytes).
+func checkRepository(r *InferredSourceRepository) error {
+	switch {
+	case r == nil:
+		return nil
+	case len(r.URL) > maxRepositoryURLBytes || !repositoryURLRE.MatchString(r.URL) || hasControl(r.URL) ||
+		strings.HasSuffix(r.URL, ".git") || strings.HasSuffix(r.URL, "/"):
+		return errors.New(".repository.url is not https://<host>/<path> (no credentials, query, fragment or .git, at most 512 bytes)")
+	case !slices.Contains(RepositoryRungs, r.Rung):
+		return fmt.Errorf(".repository.rung is %q, want one of %s", r.Rung, strings.Join(RepositoryRungs, ", "))
+	case !slices.Contains(FolderRungs, r.FolderRung):
+		return fmt.Errorf(".repository.folderRung is %q, want one of %s", r.FolderRung, strings.Join(FolderRungs, ", "))
+	case (r.Signer != "") != (r.Rung == RepositoryRungSigned):
+		return errors.New(".repository.signer is set exactly when rung is signed-provenance")
+	case len(r.Signer) > maxRepositorySignerBytes || hasControl(r.Signer):
+		return errors.New(".repository.signer is longer than 512 bytes or holds a control character")
+	case !validFolder(r.Folder):
+		return errors.New(`.repository.folder is not a clean relative slash path ("." for the root, no "..", at most 256 bytes)`)
+	}
+	return nil
+}
+
+// validFolder: "." or a clean relative slash path with no ".." segment, no
+// backslash or control character, at most 256 bytes.
+func validFolder(f string) bool {
+	return len(f) <= maxRepositoryFolderBytes && path.Clean(f) == f && !strings.HasPrefix(f, "/") &&
+		!slices.Contains(strings.Split(f, "/"), "..") && !strings.ContainsRune(f, '\\') && !hasControl(f)
+}
+
+// hasControl reports whether s holds an ASCII control character.
+func hasControl(s string) bool {
+	return strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f })
 }
 
 // checkDeclarationState is why d's state, asker and the members its state

@@ -464,3 +464,47 @@ func TestDeclarationAcceptedPolicyRefuses(t *testing.T) {
 		}
 	}
 }
+
+// repoOpts is signedOpts whose declaration names newsletter's repository.
+func repoOpts(t *testing.T) declFleetOpts {
+	t.Helper()
+	o := signedOpts(t)
+	rec, err := contract.ParseInferredRecord(o.record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.Declaration.Repository = &contract.InferredSourceRepository{URL: "https://github.com/acme/newsletter", Rung: contract.RepositoryRungGitOps,
+		Folder: "deploy", FolderRung: contract.RepositoryRungGitOps}
+	o.record = rec.Marshal()
+	return o
+}
+
+func TestRevisionDetailCarriesRepository(t *testing.T) {
+	d := newsRevision(t, declFleet(t, repoOpts(t)))
+	if r := d.Declaration.Repository; r == nil || r.URL != "https://github.com/acme/newsletter" || r.Rung != contract.RepositoryRungGitOps || r.Folder != "deploy" {
+		t.Fatalf("repository = %+v", d.Declaration.Repository)
+	}
+	if d := newsRevision(t, declFleet(t, signedOpts(t))); d.Declaration.Repository != nil {
+		t.Errorf("a declaration with no repository shows one: %+v", d.Declaration.Repository)
+	}
+}
+
+func TestRestrictHidesDeclarationRepository(t *testing.T) {
+	r := restrictNews(declFleet(t, repoOpts(t)))
+	wantInferredFromHidden(t, r)
+	d := newsRevision(t, r)
+	if b, _ := json.Marshal(d); d.Declaration.Repository != nil || strings.Contains(string(b), "github.com/acme/newsletter") {
+		t.Fatalf("a viewer who may not read news sees its repository: %s", b)
+	}
+}
+
+func TestRestrictKeepsRepositoryForAllowedViewer(t *testing.T) {
+	q := declFleet(t, repoOpts(t))
+	_ = newsRevision(t, restrictNews(q))
+	everyone := q.Restrict(anyCluster(func(string) bool { return true }), anyClusterKind(func(string, string) bool { return true }))
+	for _, v := range []*Query{q, everyone} {
+		if d := newsRevision(t, v); d.Declaration.Repository == nil {
+			t.Fatal("a viewer who may read news lost its repository")
+		}
+	}
+}

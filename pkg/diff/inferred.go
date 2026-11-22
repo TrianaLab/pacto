@@ -20,7 +20,7 @@ const inferredChangeReason = "inferred by Pacto, not part of the declared contra
 // missing FS, a missing record or an unreadable one compares as empty. A
 // proposed range and a range the declarer accepted are compared too; when a
 // cluster fact was read, how completely, the coverage, hidden counts, who
-// asked and the draft are not. A surface's values are compared (diffSurface).
+// asked, the draft and the source repository are not. A surface's values are compared (diffSurface).
 func diffInferred(oldFS, newFS fs.FS) []Change {
 	oldRec, newRec := inferredRecord(oldFS), inferredRecord(newFS)
 	oldF, newF := inferredFields(oldRec), inferredFields(newRec)
