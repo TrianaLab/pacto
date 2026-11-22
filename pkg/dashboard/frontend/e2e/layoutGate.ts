@@ -133,6 +133,10 @@ export function installScaleFixture(): void {
     const meta = doc.meta as Record<string, unknown> | undefined;
     if (meta && meta.sourceCounts) meta.sourceCounts = { ...SOURCE_COUNTS };
     if (route === '/api/capabilities' && statsMode() !== 'engine') doc.stats = statsMode() !== 'off';
+    // 510-S9: `sessionStorage['fixture.mcp'] = 'served'` answers as a dashboard that serves /mcp,
+    // so the Connect an agent line shows its URL and snippet instead of the demo's text.
+    const inst = doc.installation as Record<string, unknown> | undefined;
+    if (route === '/api/capabilities' && inst && mcpMode() === 'served') inst.mcp = { ...(inst.mcp as object), served: true, source: 'this dashboard, at /mcp' };
     // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
     // keeps the engine's total: the fixture leaves the tallies that link to it (an
     // offering's phases, the non-compliant rankings) alone.
@@ -1121,6 +1125,7 @@ export function installScaleFixture(): void {
   // /api/stats, /api/stats/records and the stats capability to the engine (the browser
   // demo's own run records, #493 S5).
   const statsMode = () => { try { return sessionStorage.getItem('fixture.stats') ?? ''; } catch { return ''; } };
+  const mcpMode = () => { try { return sessionStorage.getItem('fixture.mcp') ?? ''; } catch { return ''; } };
   // `restricted` serves what a signed-in reader with a narrow view gets: the hidden line,
   // no coverage history. Unset serves a recorded window at the size
   // `sessionStorage['fixture.stats.envs']` picks, read on every call (#597): `5` a small
@@ -2874,6 +2879,20 @@ export const ROUTES: Route[] = [
   { name: 'services list, multi-cluster', list: true, open: openMultiCluster('#/fleet/services') },
   { name: 'targets list, multi-cluster filter', list: true, open: openMultiCluster('#/fleet/targets?cluster=5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11') },
   { name: 'sources, multi-cluster scope', list: true, open: openMultiCluster('#/fleet/sources', '[data-testid="source-clusters"]') },
+  // 510-S9: the Connect an agent line open, as a dashboard that serves /mcp answers it.
+  {
+    name: 'sources, connect-agent open',
+    list: true,
+    open: async (page) => {
+      await page.goto('/#/fleet/sources');
+      await page.evaluate(() => sessionStorage.setItem('fixture.mcp', 'served'));
+      await page.reload();
+      const d = page.getByTestId('connect-agent');
+      await expect(d.locator('summary bdi')).toBeAttached({ timeout: 30_000 });
+      await d.evaluate((el) => { (el as HTMLDetailsElement).open = true; });
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

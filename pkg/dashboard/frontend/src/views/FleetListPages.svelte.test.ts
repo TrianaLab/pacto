@@ -462,6 +462,24 @@ describe('FleetSourcesView (G)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('renders the Connect an agent line from installation.mcp, right after Detected providers', async () => {
+    entitiesFn.mockResolvedValue(listResp([], { total: 0 }));
+    const { target, component } = mountView(FleetSourcesView, { mcp: { served: true, source: 'this dashboard, at /mcp' } });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="connect-agent"]')).toBeTruthy());
+    const line = target.querySelector('[data-testid="connect-agent"]')!;
+    expect(line.querySelector('summary')?.textContent).toContain(`${location.origin}/mcp`);
+    expect(target.querySelector('[data-testid="detected-providers"]')!.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('renders no Connect an agent line without installation.mcp', async () => {
+    entitiesFn.mockResolvedValue(listResp([], { total: 0 }));
+    const { target, component } = mountView(FleetSourcesView);
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="detected-providers"]')).toBeTruthy());
+    expect(target.querySelector('[data-testid="connect-agent"]')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('consumes entities?kinds=source and lists sources with status', async () => {
     entitiesFn.mockResolvedValue(listResp([
       { kind: 'source', key: 'kubernetes', label: 'kubernetes', status: 'available', href: '/fleet/sources/kubernetes' },
