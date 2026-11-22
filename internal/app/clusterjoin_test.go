@@ -799,7 +799,7 @@ func detectedTargets(t *testing.T, targets string, at time.Time) *unstructured.U
 	cm := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "ConfigMap",
 		"metadata": map[string]any{"name": "det", "namespace": "pacto", "labels": map[string]any{detect.ManagedByLabel: detect.ManagedBy}},
 		"data":     map[string]any{detect.ConfigMapKey: string(b)}}}
-	cm.SetManagedFields([]metav1.ManagedFieldsEntry{{Manager: detect.FieldManager, FieldsV1: metav1.NewFieldsV1(`{"f:data":{}}`)}})
+	cm.SetManagedFields([]metav1.ManagedFieldsEntry{{Manager: detect.FieldManager, FieldsV1: metav1.NewFieldsV1(`{"f:data":{"f:` + detect.ConfigMapKey + `":{}}}`)}})
 	return cm
 }
 
