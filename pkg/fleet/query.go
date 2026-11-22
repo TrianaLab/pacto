@@ -42,8 +42,7 @@ type Query struct {
 	// folded the identities they fold into OtherEgress.
 	externals map[ExternalKey]*ExternalRecord
 	folded    map[ExternalKey]bool
-	// attention memoizes gatherAttention (see collectAttention); nil, as in
-	// a Query literal, gathers on every call.
+	// attention memoizes gatherAttention (see collectAttention).
 	attention func() []AttentionItem
 	// members memoizes mapMembers by grouping for pages of nodes and focuses
 	// (see pageMembers).

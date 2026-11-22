@@ -321,10 +321,8 @@ func bundleIdentity(rev RawRevision) string {
 	if dir == "" {
 		return ""
 	}
-	if abs, err := filepath.Abs(dir); err == nil {
-		return abs
-	}
-	return dir
+	abs, _ := filepath.Abs(dir) // "" only when the working directory is unreadable
+	return cmp.Or(abs, dir)
 }
 
 // nameClaims is one claim per revision of col, plus one declared claim per

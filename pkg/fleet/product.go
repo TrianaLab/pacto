@@ -1423,21 +1423,14 @@ func attentionCategories(items []AttentionItem) []AttentionCategoryCount {
 // snapshot never changes under a query, so the items are gathered once per
 // query (see NewQuery) and each caller gets its own copy to sort or filter.
 func (q *Query) collectAttention() []AttentionItem {
-	if q.attention == nil {
-		return q.gatherAttention()
-	}
 	return slices.Clone(q.attention())
 }
 
 // attentionFor is collectAttention narrowed to the items about the services
-// keys names (nil names every service): a page of the map or a focus filters
-// the gathered items, so it never re-walks the whole fleet.
+// keys names: a page of the map or a focus filters the gathered items, so it
+// never re-walks the whole fleet.
 func (q *Query) attentionFor(keys map[ServiceKey]bool) []AttentionItem {
-	items := q.collectAttention()
-	if keys == nil {
-		return items
-	}
-	return slices.DeleteFunc(items, func(it AttentionItem) bool { return !keys[ServiceKey(it.Service)] })
+	return slices.DeleteFunc(q.collectAttention(), func(it AttentionItem) bool { return !keys[ServiceKey(it.Service)] })
 }
 
 func (q *Query) gatherAttention() []AttentionItem {

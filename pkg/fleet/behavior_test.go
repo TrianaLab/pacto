@@ -108,6 +108,11 @@ func TestDependencyBehaviorGuaranteesUnseen(t *testing.T) {
 	if r := behaviorOf(t, NewQuery(snap), "late"); r.GuaranteeStatus != GuaranteeUnknown || r.GuaranteeReason != "an older operator wrote it" || len(r.Unmet) != 0 {
 		t.Errorf("unseen guarantees: %+v", r)
 	}
+	for _, r := range snap.Revisions {
+		if want := map[string]string{"events": "an older operator wrote it"}[r.Service]; r.GuaranteesUnseen() != want {
+			t.Errorf("%s GuaranteesUnseen = %q, want %q", r.Service, r.GuaranteesUnseen(), want)
+		}
+	}
 }
 
 func TestProviderDeprecations(t *testing.T) {
