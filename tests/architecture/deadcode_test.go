@@ -51,8 +51,6 @@ var deadCodeAllowlist = map[string]string{
 
 	"internal/authn.MCPTokenReview": "510-S9 P3 wires it",
 	"internal/authn.NewTokenMCP":    "510-S9 P3 wires it",
-	"internal/authn.APIAudience":    "510-S9 P3 wires it",
-	"internal/authn.PersonOf":       "510-S9 P2 wires it",
 
 	"internal/tui.VerbCommands": "the TUI's verb-to-command table, read by " +
 		"internal/cli/tui_coverage_test.go to prove that every registered CLI command is " +

@@ -239,7 +239,8 @@ func TestStatsCLIAndMCPAgree(t *testing.T) {
 // operation records of both namespaces. Her own SelfSubjectAccessReviews
 // allow listing operations in prod-a only; reviews records which token each
 // review came from.
-func signedInRemoteStats(t *testing.T) (h http.Handler, reviews map[string][]string) {
+// The server's auth is a, else a fakeMCPAuth that exchanges.
+func signedInRemoteStats(t *testing.T, a ...mcpAuth) (h http.Handler, reviews map[string][]string) {
 	t.Helper()
 	opA, opB := recordAs(t, "operation.golden.json", "orders"), recordAs(t, "operation.golden.json", "orders")
 	opA.ID, opA.Environment, opA.Stage = "0f6c2a1e-5b7d-4c3a-9e2f-00000000000a", "prod-a", &runrecord.StageRef{Namespace: "prod-a", Name: "prod-a", Cluster: opA.Stage.Cluster}
@@ -286,7 +287,7 @@ func signedInRemoteStats(t *testing.T) (h http.Handler, reviews map[string][]str
 	cmd.SetContext(context.Background())
 	expect(t, cmd.ParseFlags([]string{"--fleet", "--local", root, "--target-state", targets, "-t", "http", "--auth-issuer", "https://idp",
 		"--stats-read-registry", path}) == nil, "flags")
-	s := mcpServe{auth: &fakeMCPAuth{exchange: true}, issuer: "https://idp", resource: "https://mcp.example/mcp"}
+	s := mcpServe{auth: authOr(&fakeMCPAuth{exchange: true}, a), issuer: "https://idp", resource: "https://mcp.example/mcp"}
 	expect(t, remoteCallerFor(cmd, svc, "v", nil, d, &s) == nil, "remote fleet")
 	return mcpHandler(s), reviews
 }
@@ -332,4 +333,19 @@ func TestMCPStatsUnknownFleetKeyIsAnError(t *testing.T) {
 	s := statsMCPSession(t, map[string]string{"transport": "stdio", "stats-read-registry": path})
 	text, isErr := callText(t, s, "pacto_stats", map[string]any{"service": "nowhere/orders"})
 	expect(t, isErr && strings.Contains(text, "nowhere/orders"), "answer = %s", text)
+}
+
+// TestStatsFleetOnlyCallerHidesOperations: a caller whose token reads the
+// fleet only has no client to review operation records with, so pacto_stats
+// counts none and says delivery is unavailable, never reviewing them with the
+// server's own credentials.
+func TestStatsFleetOnlyCallerHidesOperations(t *testing.T) {
+	h, reviews := signedInRemoteStats(t, newCredentiallessAuth())
+	text, isErr := remoteCall(t, h, "viewer", "pacto_stats", "{}")
+	expect(t, !isErr, "pacto_stats: %s", text)
+	var st stats.Stats
+	expect(t, json.Unmarshal([]byte(text), &st) == nil, "decode: %s", text)
+	expect(t, (st.Totals == nil || len(st.Totals.Environments) == 0) && st.Completeness == fleet.CompletenessPartial, "operations counted: %s", text)
+	expect(t, strings.Contains(text, stats.LimitationDeliveryUnavailable) && strings.Contains(text, mcpNoDelivery), "no delivery limitation: %s", text)
+	expect(t, len(reviews) == 0, "operation records were reviewed: %v", reviews)
 }

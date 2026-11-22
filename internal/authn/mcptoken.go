@@ -153,8 +153,8 @@ func (m *TokenMCP) Exchange(_ context.Context, info *auth.TokenInfo) (string, er
 	return "", ErrNoCredential
 }
 
-// PersonOf is who TokenMCP.Verify named; no caller is Anonymous.
-func PersonOf(info *auth.TokenInfo) Person {
+// PersonOf is who Verify named; no caller is Anonymous.
+func (m *TokenMCP) PersonOf(info *auth.TokenInfo) Person {
 	if info == nil {
 		return Anonymous
 	}

@@ -81,7 +81,7 @@ func TestMCPTokenReviewMatrix(t *testing.T) {
 				expect(t, err != nil && strings.Contains(err.Error(), c.wantErr) && errors.Is(err, auth.ErrInvalidToken), "refusal %v", err)
 				return
 			}
-			expect(t, err == nil && info.UserID == c.user && PersonOf(info).User == c.user, "verified %+v %v", info, err)
+			expect(t, err == nil && info.UserID == c.user && (&TokenMCP{}).PersonOf(info).User == c.user, "verified %+v %v", info, err)
 			got, err := m.Exchange(ctx, info)
 			if c.credential {
 				expect(t, err == nil && got == token, "a credential exchanges to itself: %v", err)
@@ -245,7 +245,7 @@ func TestTokenMCPExchangeOnlyForCredentials(t *testing.T) {
 	expect(t, err == nil && got == "tok", "a credential: %q %v", got, err)
 	got, err = m.Exchange(context.Background(), &auth.TokenInfo{Extra: map[string]any{rawTokenKey: "tok"}})
 	expect(t, errors.Is(err, ErrNoCredential) && got == "", "no credential: %q %v", got, err)
-	expect(t, PersonOf(nil).User == Anonymous.User, "no caller is Anonymous")
+	expect(t, (&TokenMCP{}).PersonOf(nil).User == Anonymous.User, "no caller is Anonymous")
 }
 
 func TestTokenMCPNeverLogsToken(t *testing.T) {

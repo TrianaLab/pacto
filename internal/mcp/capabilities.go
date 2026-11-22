@@ -44,6 +44,10 @@ type capabilitiesCaller struct {
 	PolicyError  *string              `json:"policyError,omitempty"`
 	ClassAsOf    *time.Time           `json:"classAsOf,omitempty"`
 	Writes       bool                 `json:"writes"`
+	// FleetOnly is a caller whose token reads the fleet only; Hint says how
+	// to get a token that also reaches the cluster.
+	FleetOnly bool   `json:"fleetOnly,omitempty"`
+	Hint      string `json:"hint,omitempty"`
 }
 
 // registerCapabilitiesTool adds pacto_capabilities, which reports what this
@@ -54,7 +58,8 @@ func registerCapabilitiesTool(server *mcpsdk.Server, a Authoring, m Modes) {
 		Annotations: readOnly(false),
 		Description: "Report what this server serves: its modes (fleet, delivery, bundle or publish), the contract tools it offers, " +
 			"whether fleet, impact, observed edges and delivery are available, who you are to it (caller.user with callerSource " +
-			"reviewed, token or local; with delivery your class, whether the identity policy was read and classAsOf, when the class was read), whether writes are " +
+			"reviewed, token or local; with delivery your class, whether the identity policy was read and classAsOf, when the class was read; " +
+			"fleetOnly, with a hint, when your token reads the fleet only), whether writes are " +
 			"exposed (delivery propose and cancel for you, a bundle's mutating operations, pacto_publish or declaration drafts), the transport " +
 			"and how the installation runs (profile, registry, delivery and its appliers, provisioning engine, clusters and MCP, each with source and asOf). " +
 			"A null installation value is unknown, never a no. Read-only.",
@@ -72,6 +77,7 @@ func registerCapabilitiesTool(server *mcpsdk.Server, a Authoring, m Modes) {
 func capabilities(ctx context.Context, req *mcpsdk.CallToolRequest, a Authoring, m Modes) (capabilitiesAnswer, error) {
 	out := capabilitiesAnswer{Modes: []string{}, Authoring: authoringNames(a), Transport: m.Transport, AsOf: time.Now().UTC()}
 	out.Caller.User, out.Caller.CallerSource = callerOf(ctx, req)
+	out.Caller.FleetOnly, out.Caller.Hint = m.FleetOnlyHint != "", m.FleetOnlyHint
 	if out.Caller.CallerSource == "token" {
 		// A token subject is not a name the apiserver confirmed.
 		out.Caller.User = "unknown"

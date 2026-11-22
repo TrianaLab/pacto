@@ -674,3 +674,19 @@ func TestGeneratedCallCarriesPactoUserAgent(t *testing.T) {
 		t.Fatalf("User-Agent = %q", got)
 	}
 }
+
+// TestCapabilitiesFleetOnlyHint: a fleet-only server says so and how to get
+// more; every other server leaves both keys out.
+func TestCapabilitiesFleetOnlyHint(t *testing.T) {
+	caller := capabilitiesOf(t, Authoring{Remote: true}, Modes{Transport: "http", FleetOnlyHint: "mint another token"})["caller"].(map[string]any)
+	if caller["fleetOnly"] != true || caller["hint"] != "mint another token" {
+		t.Errorf("fleet-only caller = %#v", caller)
+	}
+	caller = capabilitiesOf(t, Authoring{Remote: true}, Modes{Transport: "http"})["caller"].(map[string]any)
+	if _, ok := caller["fleetOnly"]; ok {
+		t.Errorf("a credentialed caller carries fleetOnly: %#v", caller)
+	}
+	if _, ok := caller["hint"]; ok {
+		t.Errorf("a credentialed caller carries a hint: %#v", caller)
+	}
+}
