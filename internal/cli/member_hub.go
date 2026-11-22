@@ -48,7 +48,10 @@ func newMemberHub(host string, exchange authn.MemberExchange, logger *slog.Logge
 	}
 	a := &approvals{now: time.Now, interval: fleetRefreshInterval}
 	hub, _ := memberlink.NewHub(memberlink.HubOptions{Host: host, Approved: a.lookup, Logger: logger}) // both set: no error
-	return &memberHub{hub: hub, approvals: a, exchange: exchange, logger: logger, reviewers: map[string]authn.Review{}}, nil
+	m := &memberHub{hub: hub, approvals: a, exchange: exchange, logger: logger, reviewers: map[string]authn.Review{}}
+	// A member the new list no longer approves loses its link at once.
+	a.changed = func() { m.hub.Recheck(context.Background()) }
+	return m, nil
 }
 
 // memberHost is the host members dial: that of the dashboard's sign-in
@@ -146,7 +149,8 @@ func (m *memberHub) links(now time.Time) map[string]fleet.ClusterLink {
 		if s.Channel == fleet.LinkDown && now.Sub(s.Since) > delivery.TargetSnapshotFreshness {
 			continue
 		}
-		l := fleet.ClusterLink{Channel: s.Channel, Since: &s.Since}
+		since := s.Since.UTC() // every fleet time is UTC
+		l := fleet.ClusterLink{Channel: s.Channel, Since: &since}
 		for _, iss := range slices.Sorted(maps.Keys(s.Issuers)) {
 			l.Issuers = append(l.Issuers, issuerModel(iss, s.Issuers[iss], m.approvals.mapping(uid, iss)))
 		}
@@ -155,13 +159,20 @@ func (m *memberHub) links(now time.Time) map[string]fleet.ClusterLink {
 	return out
 }
 
-// issuerModel is how a member reviews people from issuer under model, with
-// g, the group mapping approved for it, when reads go through a mapping.
+// issuerModel is how a member reviews people from issuer under model, the
+// last one a review used, with g, the group mapping approved for it now.
+// The mapping decides: an issuer the member refuses reads under g when one
+// is approved, and refuses again once it is cleared.
 func issuerModel(issuer, model string, g *delivery.GroupMappingState) fleet.IssuerModel {
 	im := fleet.IssuerModel{Issuer: issuer, Model: model}
-	if g == nil || model == fleet.IssuerShared {
+	if model == fleet.IssuerShared {
 		return im
 	}
+	if g == nil {
+		im.Model = fleet.IssuerNotAccepted
+		return im
+	}
+	im.Model = fleet.IssuerGroupMapping
 	rules := make([]string, len(g.Rules))
 	for i, r := range g.Rules {
 		rules[i] = r.From + "=" + r.To
@@ -185,6 +196,7 @@ func (l hubLink) Review(ctx context.Context, r memberlink.Review) (memberlink.An
 }
 func (l hubLink) Note(issuer, model, person string) { l.hub.NoteIdentity(l.uid, issuer, model, person) }
 func (l hubLink) IssuerRefused(issuer string) bool  { return l.hub.IssuerRefused(l.uid, issuer) }
+func (l hubLink) Refuse(issuer string)              { l.hub.RefuseIssuer(l.uid, issuer) }
 
 // approvals is the newest verified list of approved members, read only from
 // memory: an anonymous member handshake never drives a registry read.
@@ -194,6 +206,8 @@ type approvals struct {
 	cur      atomic.Pointer[map[string]approvedMember]
 	// complete is when the last complete list was read; run's alone.
 	complete time.Time
+	// changed, when set, runs after each new list is taken.
+	changed func()
 }
 
 // approvedMember is one approved member's key and group mappings.
@@ -217,9 +231,10 @@ func (a *approvals) run(ctx context.Context, list func(context.Context) delivery
 	}
 }
 
-// update takes l as the approved members. A list read only partly keeps the
-// previous one for at most two intervals, then counts only what it
-// verified, which for a registry that cannot be read at all is nobody.
+// update takes l as the approved members, closing the links of members it
+// no longer approves. A list read only partly keeps the previous one for at
+// most two intervals, then counts only what it verified, which for a
+// registry that cannot be read at all is nobody.
 // ponytail: a revoked member keeps its link up to two intervals while the
 // registry fails; shorten the interval if that matters.
 func (a *approvals) update(l delivery.ClusterJoinList) {
@@ -238,6 +253,9 @@ func (a *approvals) update(l delivery.ClusterJoinList) {
 		}
 	}
 	a.cur.Store(&set)
+	if a.changed != nil {
+		a.changed()
+	}
 }
 
 // lookup is memberlink.HubOptions.Approved over the list in memory.

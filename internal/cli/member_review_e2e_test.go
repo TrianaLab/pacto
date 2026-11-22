@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -335,9 +336,9 @@ func TestServiceAccountNeverReviewedInMember(t *testing.T) {
 	expect(t, len(e.sentTo(usUID)) == 0, "the member is never asked about it")
 }
 
-// TestSingle401DoesNotMarkIssuerRefused: one person's refused token hides
-// the member for that person only and marks nothing; a second distinct
-// person within a minute marks the issuer, and the mapping answers.
+// TestSingle401DoesNotMarkIssuerRefused: one person's refused token marks
+// nothing, and the approved mapping answers that person in the same call; a
+// second distinct person within a minute marks the issuer.
 func TestSingle401DoesNotMarkIssuerRefused(t *testing.T) {
 	e := newMemberEnv(t, func(_ context.Context, _, uid string) (string, error) { return memberToken(uid), nil }, nil)
 	e.approve(usUID, delivery.GroupMappingState{Issuer: memberIssuer, Rules: []delivery.GroupRule{{From: "team-pay", To: "viewers"}}, Record: "sha256:aa"})
@@ -349,13 +350,12 @@ func TestSingle401DoesNotMarkIssuerRefused(t *testing.T) {
 	})
 	review := e.m.add(nil)[usUID]
 	bob := authn.Person{User: "bob@acme.dev", Groups: []string{"team-pay"}}
-	_, err := review(signedInAs(t, alicePerson, memberToken("a")), alicePerson, "prod", authn.PactoResource)
-	expect(t, err != nil && !e.m.hub.IssuerRefused(usUID, memberIssuer), "one refusal hides for alice and marks nothing: %v", err)
-	expect(t, e.m.hub.Links()[usUID].Issuers[memberIssuer] == "", "no model is shown yet: %+v", e.m.hub.Links())
-	ok, err := review(signedInAs(t, bob, memberToken("b")), bob, "prod", authn.PactoResource)
+	ok, err := review(signedInAs(t, alicePerson, memberToken("a")), alicePerson, "prod", authn.PactoResource)
+	expect(t, ok && err == nil && !e.m.hub.IssuerRefused(usUID, memberIssuer), "the mapping answers alice and nothing is marked: %v %v", ok, err)
+	ok, err = review(signedInAs(t, bob, memberToken("b")), bob, "prod", authn.PactoResource)
 	expect(t, ok && err == nil && e.m.hub.IssuerRefused(usUID, memberIssuer), "a second person marks it and the mapping answers: %v %v", ok, err)
 	sent := e.sentTo(usUID)
-	expect(t, len(sent) == 3 && sent[2].Mapped != nil && sent[2].Mapped.Record == "sha256:aa", "token, token, mapped: %+v", sent)
+	expect(t, len(sent) == 4 && sent[1].Mapped != nil && sent[3].Mapped != nil && sent[3].Mapped.Record == "sha256:aa", "token, mapped, token, mapped: %+v", sent)
 }
 
 func TestIssuerRefusalExpiresAndReprobes(t *testing.T) {
@@ -380,9 +380,29 @@ func TestIssuerRefusalExpiresAndReprobes(t *testing.T) {
 	sent := e.sentTo(usUID)
 	expect(t, len(sent) == n+1 && sent[n].Token == "", "marked: straight to the mapping")
 	clock.Add(int64((10*time.Minute + time.Second) / time.Second))
-	_, _ = review(signedInAs(t, alicePerson, memberToken("c")), alicePerson, "prod", authn.PactoResource)
+	ok, err := review(signedInAs(t, alicePerson, memberToken("c")), alicePerson, "prod", authn.PactoResource)
 	sent = e.sentTo(usUID)
 	expect(t, len(sent) >= n+2 && sent[n+1].Token != "", "after 10 minutes a token is sent again: %+v", sent[n+1:])
+	expect(t, ok && err == nil && e.m.hub.IssuerRefused(usUID, memberIssuer), "the re-probe refusal marks it again and the mapping still answers: %v %v", ok, err)
+}
+
+// A non-UTC hub clock still reports each link's time in UTC, as every other
+// fleet time is.
+func TestMemberHubLinkSinceIsUTC(t *testing.T) {
+	madrid := time.FixedZone("CET", 3600)
+	e := newMemberEnv(t, nil, func() time.Time { return time.Date(2026, 11, 20, 9, 15, 0, 0, madrid) })
+	e.link(usUID, allowAll)
+	b, _ := json.Marshal(e.m.links(time.Now())[usUID])
+	expect(t, json.Valid(b) && bytes.Contains(b, []byte(`"since":"2026-11-20T08:15:00Z"`)), "since in UTC: %s", b)
+}
+
+// A member the approved list no longer names reads down at the next
+// refresh, before anyone reviews it.
+func TestRevokedMemberLinkReadsDown(t *testing.T) {
+	e := newMemberEnv(t, nil, nil)
+	e.link(usUID, allowAll)
+	e.m.approvals.update(delivery.ClusterJoinList{Completeness: fleet.CompletenessComplete})
+	expect(t, e.m.links(time.Now())[usUID].Channel == fleet.LinkDown && len(e.m.hub.Live()) == 0, "revoked link: %+v", e.m.links(time.Now()))
 }
 
 func TestApprovedNeverFetchesPerHello(t *testing.T) {

@@ -126,4 +126,12 @@ func TestIssuerModelAddsMappingOnlyWhenReadsUseIt(t *testing.T) {
 	if got := issuerModel("iss", fleet.IssuerGroupMapping, g); got.MappedBy != "oidc:alice" || got.Mapping != "a=b" || got.MappedAt != nil {
 		t.Errorf("mapping with an unreadable time = %+v", got)
 	}
+	// The mapping in force decides between the two: a cleared mapping no
+	// longer reads as one, an approved one serves a refused issuer.
+	if got := issuerModel("iss", fleet.IssuerGroupMapping, nil); got.Model != fleet.IssuerNotAccepted || got.MappedBy != "" {
+		t.Errorf("cleared mapping = %+v", got)
+	}
+	if got := issuerModel("iss", fleet.IssuerNotAccepted, g); got.Model != fleet.IssuerGroupMapping || got.MappedBy != "oidc:alice" {
+		t.Errorf("refused issuer with an approved mapping = %+v", got)
+	}
 }
