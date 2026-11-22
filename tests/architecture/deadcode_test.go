@@ -107,6 +107,8 @@ var deadCodeAllowlist = map[string]string{
 	"pkg/publish.ReadImages":    linkedFormatPending,
 	// The linker judges each linked workload through it.
 	"integrations/kubernetes/internal/controller.EvaluateDetached": linkedFormatPending,
+	// The linker picks the Service each linked workload is judged through.
+	"integrations/kubernetes/internal/linker.ServiceFor": linkedFormatPending,
 }
 
 // linkedFormatPending is the reason for the #604 entries above: each is
