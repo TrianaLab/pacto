@@ -439,10 +439,11 @@ bpf-generate: ## Regenerate the agent's eBPF object and Go bindings (needs Docke
 
 # The kernel test loads and attaches the real program, so it needs root and a
 # Linux kernel with BTF; on macOS that is Docker Desktop's VM. It also creates a
-# child cgroup, which --privileged makes writable.
+# child cgroup, which --privileged makes writable. The image pins an older Go
+# with GOTOOLCHAIN=local, so auto fetches the version go.work asks for.
 test-ebpf: ## Run the agent kernel test in a privileged container (needs Docker).
 	docker run --rm --privileged -v "$(CURDIR):/src" -w /src \
-		-e GOFLAGS=-buildvcs=false $(BPF_BUILDER_IMAGE) \
+		-e GOFLAGS=-buildvcs=false -e GOTOOLCHAIN=auto $(BPF_BUILDER_IMAGE) \
 		go test -tags ebpf -count=1 -v ./$(RUNTIMEWATCH_EBPF_DIR)/
 
 clean:

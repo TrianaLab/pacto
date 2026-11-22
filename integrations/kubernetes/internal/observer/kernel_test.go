@@ -1031,11 +1031,12 @@ func TestSnapshotParity(t *testing.T) {
 		LastPublished: kTime(time.Second), ObservingSince: kTime(time.Hour),
 		Collection: pactoapi.RuntimeCollection{State: pactoapi.CollectionDegraded, Reason: "EventsDropped", Message: "m",
 			DroppedEvents: 3, LastDropAt: kTime(time.Minute), LastResyncAt: kTime(2 * time.Minute)},
+		DNS: pactoapi.RuntimeDNS{State: pactoapi.CollectionDegraded, Reason: "HostLimit", DroppedAnswers: 4},
 		Pods: []pactoapi.PodRuntimeObservation{{
 			UID: kPodUID, NetnsShared: true, ObservedSince: kTime(time.Hour), BaselineAt: kTime(time.Minute), Truncated: true,
 			Listeners: []pactoapi.RuntimeListener{{Port: 8080, Family: "IPv6", Address: "::", Process: "app"}},
-			Connections: []pactoapi.RuntimeConnection{{Address: "10.0.1.7", Port: 8080, Successes: 2, Failures: 1,
-				LastSuccessAt: kTime(time.Second), LastFailureAt: kTime(2 * time.Second)}},
+			Connections: []pactoapi.RuntimeConnection{{Address: "10.0.1.7", Host: "api.stripe.com", Ambiguous: true, Port: 8080,
+				Successes: 2, Failures: 1, LastSuccessAt: kTime(time.Second), LastFailureAt: kTime(2 * time.Second)}},
 		}},
 	}
 	crdJSON, err := json.Marshal(status)
@@ -1063,6 +1064,25 @@ func TestSnapshotParity(t *testing.T) {
 	}
 	if got := snapshotOf(&status); !reflect.DeepEqual(*got, snap) {
 		t.Fatalf("snapshotOf:\n got  %+v\n want %+v", *got, snap)
+	}
+}
+
+// TestSnapshotOfMapsHostAndDNS: the connection name, the ambiguity flag and the DNS health reach the
+// neutral snapshot; an older agent's object (no dns block) reads as an empty DNS state, never Running.
+func TestSnapshotOfMapsHostAndDNS(t *testing.T) {
+	st := pactoapi.NodeRuntimeObservationStatus{
+		DNS: pactoapi.RuntimeDNS{State: pactoapi.CollectionRunning, DroppedAnswers: 1},
+		Pods: []pactoapi.PodRuntimeObservation{{UID: kPodUID, Connections: []pactoapi.RuntimeConnection{
+			{Address: "203.0.113.7", Host: "api.stripe.com", Port: 443}, {Address: "203.0.113.8", Ambiguous: true, Port: 443}}}},
+	}
+	s := snapshotOf(&st)
+	cs := s.Workloads[0].Connections
+	if s.DNS != (runtimefacts.DNSCollection{State: runtimefacts.StateRunning, DroppedAnswers: 1}) ||
+		cs[0].Host != "api.stripe.com" || cs[0].Ambiguous || cs[1].Host != "" || !cs[1].Ambiguous {
+		t.Fatalf("snapshot = %+v", s)
+	}
+	if old := snapshotOf(&pactoapi.NodeRuntimeObservationStatus{}); old.DNS.State != "" {
+		t.Fatalf("older agent dns = %+v", old.DNS)
 	}
 }
 

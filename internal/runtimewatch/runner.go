@@ -101,7 +101,7 @@ func (r *Runner) resync(ctx context.Context) {
 
 func (r *Runner) publish(ctx context.Context) {
 	now := r.Now()
-	col, workloads := r.Aggregator.Snapshot(now, r.Collector.Status())
+	col, workloads, dns := r.Aggregator.Snapshot(now, r.Collector.Status())
 	snap := runtimefacts.Snapshot{
 		NodeName:               r.Info.NodeName,
 		AgentVersion:           r.Info.AgentVersion,
@@ -110,6 +110,7 @@ func (r *Runner) publish(ctx context.Context) {
 		LastPublished:          seconds(now),
 		ObservingSince:         seconds(r.Info.StartedAt),
 		Collection:             col,
+		DNS:                    dns,
 		Workloads:              workloads,
 	}
 	if jsonSize(snap) > MaxStatusBytes {
@@ -128,10 +129,13 @@ func (r *Runner) publish(ctx context.Context) {
 	}
 }
 
-// fitSnapshot trims s until its JSON fits in limit, taking from the workload
-// with the most entries each time: its oldest connection, or its last listener
-// once it has no connections left. Trimmed workloads are marked truncated.
+// fitSnapshot trims s until its JSON fits in limit. Names go first, in
+// workload order, which reports DNS as HostLimit; then it takes from the
+// workload with the most entries each time: its oldest connection, or its last
+// listener once it has no connections left. Trimmed workloads are marked
+// truncated.
 func fitSnapshot(s *runtimefacts.Snapshot, limit int) {
+	trimHosts(s, limit)
 	for {
 		excess := jsonSize(s) - limit
 		if excess <= 0 {
@@ -154,6 +158,34 @@ func fitSnapshot(s *runtimefacts.Snapshot, limit int) {
 				w.Listeners = w.Listeners[:i]
 			}
 			w.Truncated = true
+		}
+	}
+}
+
+// trimHosts clears connection names, in workload order, until s fits in
+// limit or none is left. The DNS state is degraded first, so the trim makes
+// room for its reason too.
+func trimHosts(s *runtimefacts.Snapshot, limit int) {
+	named := func(c runtimefacts.Connection) bool { return c.Host != "" }
+	if jsonSize(s) <= limit || !slices.ContainsFunc(s.Workloads, func(w runtimefacts.Workload) bool {
+		return slices.ContainsFunc(w.Connections, named)
+	}) {
+		return
+	}
+	if s.DNS.State == runtimefacts.StateRunning {
+		s.DNS.State, s.DNS.Reason = runtimefacts.StateDegraded, ReasonHostLimit
+	}
+	excess := jsonSize(s) - limit
+	for i := range s.Workloads {
+		for j := range s.Workloads[i].Connections {
+			c := &s.Workloads[i].Connections[j]
+			if excess <= 0 {
+				return
+			}
+			if c.Host != "" {
+				excess -= len(c.Host) + len(`,"host":""`)
+				c.Host = ""
+			}
 		}
 	}
 }

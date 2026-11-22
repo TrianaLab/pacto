@@ -5,7 +5,7 @@
   import { sourceHealthLabel, sourceHealthTallyParts, sourceHealthTone } from '../lib/entityLabels.ts';
   import { SOURCE_STATES, bucketLabel, sourceSegments } from '../lib/distributions.ts';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
-  import { fleetOverviewUrl, fleetSourcesUrl } from '../lib/router.ts';
+  import { fleetEntityUrl, fleetOverviewUrl, fleetSourcesUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityLink from '../components/EntityLink.svelte';
@@ -80,13 +80,17 @@
   // states the authoritative total, and a second total here would be a second claim
   // to reconcile.
   const tallyParts = $derived(sourceHealthTallyParts(list?.meta?.sourceCounts));
+  // The advisory sources the state bar leaves out (sourceCounts skips one that is not
+  // available), named under it so the header's total and the bar's sum reconcile.
+  const untallied = $derived((list?.meta?.sources ?? []).filter((s) => s?.advisory && s?.status !== 'available'));
 
   // The figure names the least healthy sources of the WHOLE population, whatever the
   // list is filtered or paged to: a second question, so a second request (S7).
   const worstLoader = createProductLoader(() => api.fleetEntities({ kinds: ['source'], sort: 'health', limit: 8 }));
   $effect(() => { worstLoader.sync(`worst@@${refreshTick}`, 'worst'); });
   onDestroy(() => worstLoader.destroy());
-  const worst = $derived(worstLoader.data?.entities ?? []);
+  // The figure counts what sourceCounts counts, so it names no untallied advisory source.
+  const worst = $derived((worstLoader.data?.entities ?? []).filter((e) => !untallied.some((s) => s.id === e.key)));
 
   function urlWith(patch, off = 0, lim = pageLimit) {
     return fleetSourcesUrl({
@@ -131,9 +135,16 @@
         <!-- The state bar (SPEC 7 r5): one carrier for the counts, over every source,
              whatever the list is filtered to; each legend item is its filter. -->
         <div class="lv-tally" data-testid="source-tally" data-nofilter>
-          <DistributionBar title="Every data source by state" level={2} total={list?.meta?.sourceCounts?.total ?? 0}
+          <DistributionBar title="Data sources by state" level={2} total={list?.meta?.sourceCounts?.total ?? 0}
             segments={sourceSegments(list?.meta?.sourceCounts, (st) => urlWith({ sourceHealth: st }))}
             selected={bucketLabel(SOURCE_STATES, sourceHealth)} emptyLabel="No data sources reported." />
+          {#if untallied.length}
+            <p class="t-meta" data-testid="source-untallied">
+              {formatCount(untallied.length)} advisory source{untallied.length === 1 ? '' : 's'} not counted:
+              {#each untallied as s, i (s.id)}{i ? ', ' : ''}<a href={fleetEntityUrl('source', s.id)}><bdi>{s.id}</bdi></a>{/each}
+              <HelpTip label="advisory sources" text="An advisory source only adds hints, such as the calls a service mesh records. While it is not available it stays out of these counts, since it never makes an answer incomplete." />
+            </p>
+          {/if}
         </div>
       {/snippet}
     </LazyView>

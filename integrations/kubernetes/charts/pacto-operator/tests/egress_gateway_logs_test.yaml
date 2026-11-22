@@ -1,0 +1,123 @@
+# controller.egressGatewayLogs (517-S6): only on reads the Istio egress
+# gateways' access logs, so only on renders pods/log get, in a Role in
+# istio-system and never in a ClusterRole, in either install mode. Every value
+# renders its mode in the controller args.
+suite: egress gateway logs
+templates:
+  - templates/egress-gateway-logs-rbac.yaml
+  - templates/clusterrole.yaml
+  - templates/watch-namespaces.yaml
+  - templates/deployment.yaml
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+tests:
+  - it: default renders no gateway log Role
+    template: templates/egress-gateway-logs-rbac.yaml
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: off renders no gateway log Role
+    template: templates/egress-gateway-logs-rbac.yaml
+    set:
+      controller.egressGatewayLogs: "off"
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: false keeps meaning auto
+    template: templates/egress-gateway-logs-rbac.yaml
+    set:
+      controller.egressGatewayLogs: false
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: on renders exactly one pods/log get rule in a Role in istio-system
+    template: templates/egress-gateway-logs-rbac.yaml
+    set:
+      controller.egressGatewayLogs: "on"
+    asserts:
+      - hasDocuments: {count: 2}
+      - equal: {path: kind, value: Role}
+        documentIndex: 0
+      - equal: {path: metadata.namespace, value: istio-system}
+        documentIndex: 0
+      - equal:
+          path: rules
+          value:
+            - {apiGroups: [""], resources: [pods], verbs: [list]}
+            - {apiGroups: [""], resources: [pods/log], verbs: [get]}
+        documentIndex: 0
+      - equal: {path: kind, value: RoleBinding}
+        documentIndex: 1
+      - equal: {path: metadata.namespace, value: istio-system}
+        documentIndex: 1
+      - equal:
+          path: roleRef
+          value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-operator-egress-gateway-logs}
+        documentIndex: 1
+
+  - it: a bare on (YAML true) is on
+    template: templates/egress-gateway-logs-rbac.yaml
+    set:
+      controller.egressGatewayLogs: true
+    asserts:
+      - hasDocuments: {count: 2}
+
+  - it: on with watchNamespaces still renders the Role in istio-system
+    template: templates/egress-gateway-logs-rbac.yaml
+    set:
+      controller.egressGatewayLogs: "on"
+      controller.watchNamespaces: [payments]
+    asserts:
+      - hasDocuments: {count: 2}
+      - equal: {path: metadata.namespace, value: istio-system}
+        documentIndex: 0
+
+  - it: on adds no pods/log rule to the ClusterRole
+    template: templates/clusterrole.yaml
+    set:
+      controller.egressGatewayLogs: "on"
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [pods/log]}
+          any: true
+
+  - it: on with watchNamespaces adds no pods/log rule to a watch Role
+    template: templates/watch-namespaces.yaml
+    set:
+      controller.egressGatewayLogs: "on"
+      controller.watchNamespaces: [payments]
+    documentIndex: 0
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [pods/log]}
+          any: true
+
+  - it: default passes auto
+    template: templates/deployment.yaml
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --egress-gateway-logs=auto}
+
+  - it: on passes on
+    template: templates/deployment.yaml
+    set:
+      controller.egressGatewayLogs: "on"
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --egress-gateway-logs=on}
+
+  - it: off passes off
+    template: templates/deployment.yaml
+    set:
+      controller.egressGatewayLogs: "off"
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --egress-gateway-logs=off}
+
+  - it: the schema refuses maybe
+    template: templates/deployment.yaml
+    set:
+      controller.egressGatewayLogs: maybe
+    asserts:
+      - failedTemplate:
+          errorPattern: egressGatewayLogs

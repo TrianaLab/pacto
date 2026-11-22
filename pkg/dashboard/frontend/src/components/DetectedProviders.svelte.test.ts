@@ -64,6 +64,17 @@ describe('DetectedProviders', () => {
     expect(t.querySelector('[data-testid="providers-show-all"]')).toBeNull();
   });
 
+  it('shows a detected egress row\'s sentence without its external-egress selection token', async () => {
+    providersFn.mockResolvedValue(resp([
+      row('istio-egress', { provenance: 'inferred', usedFor: ['reads calls leaving the cluster; nothing is turned on', 'external-egress'] }),
+      row('kernel-egress', { usedFor: ['external-egress'] }),
+    ]));
+    const t = render();
+    await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
+    expect(text(rows(t)[0].querySelector('.dp-used'))).toBe('reads calls leaving the cluster; nothing is turned on');
+    expect(text(rows(t)[1].querySelector('.dp-used'))).toBe('external egress');
+  });
+
   it('collapses the reasons of a partial row under "Why partial" and of a stale one under "Why stale"', async () => {
     providersFn.mockResolvedValue(resp([
       row('a', { status: 'partial', limitations: [{ code: 'X', message: 'Deployments unreadable' }] }),
@@ -412,7 +423,10 @@ describe('DetectedProviders', () => {
       providersFn.mockResolvedValue(resp([inferred('registry')]));
       const t = render();
       await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
-      (rows(t)[0].querySelector('.copyable-btn') as HTMLButtonElement).click();
+      const btn = rows(t)[0].querySelector('.copyable-btn') as HTMLButtonElement;
+      // A hint may be a value or a Collector snippet, never only a command.
+      expect(btn.getAttribute('aria-label')).toBe('Copy proposal');
+      btn.click();
       expect(writeText).toHaveBeenCalledWith('oci://ghcr.io/acme/<service>:<version>');
     });
 

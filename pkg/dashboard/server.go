@@ -387,7 +387,7 @@ type metricsOutput struct {
 
 type getSourcesOutput struct {
 	Body struct {
-		Sources     []SourceInfo `json:"sources" doc:"Data sources backing the published snapshot"`
+		Sources     []SourceInfo `json:"sources" doc:"Data sources backing the published snapshot, then one row per provider that reads calls leaving the cluster (egress set)"`
 		Discovering bool         `json:"discovering" doc:"True while the first snapshot is still being built"`
 	}
 }
@@ -456,13 +456,16 @@ func (s *Server) metrics(ctx context.Context, _ *struct{}) (*metricsOutput, erro
 	return out, nil
 }
 
-// getSources reports the per-kind source pills the nav renders. They are derived
-// from the published snapshot's own source states, so the pills describe what the
-// data the user is looking at actually came from.
+// getSources reports the per-kind source pills the nav renders, then one row
+// per provider that reads egress (flagged egress; the nav skips those). The
+// pills are derived from the published snapshot's own source states, so they
+// describe what the data the user is looking at actually came from.
 func (s *Server) getSources(ctx context.Context, _ *struct{}) (*getSourcesOutput, error) {
 	out := &getSourcesOutput{}
 	q := s.publishedQuery(ctx)
-	out.Body.Sources = sourcesFromFleet(q)
+	// Egress rows follow the data sources, read from the same viewed q: the
+	// endpoint is polled while discovering, so it never views twice.
+	out.Body.Sources = append(sourcesFromFleet(q), egressSources(q)...)
 	// A wired provider with nothing published yet is the honest "still discovering"
 	// state; no provider at all is simply a host with no sources.
 	out.Body.Discovering = s.opts.Fleet != nil && q == nil

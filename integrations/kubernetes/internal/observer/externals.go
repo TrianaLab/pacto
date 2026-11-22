@@ -10,7 +10,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -18,6 +21,7 @@ import (
 
 	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
+	"github.com/trianalab/pacto/v4/pkg/externalid"
 	"github.com/trianalab/pacto/v4/pkg/schemax"
 )
 
@@ -34,6 +38,13 @@ func ExternalCatalog() string { return externalcatalog.DefaultDigest() + " (embe
 // operator needs no Istio types.
 var serviceEntryList = schema.GroupVersionKind{Group: "networking.istio.io", Version: "v1", Kind: "ServiceEntryList"}
 
+// ciliumPolicyList and ciliumClusterwidePolicyList are Cilium's network
+// policies read as unstructured, so the operator needs no Cilium types.
+var (
+	ciliumPolicyList            = schema.GroupVersionKind{Group: "cilium.io", Version: "v2", Kind: "CiliumNetworkPolicyList"}
+	ciliumClusterwidePolicyList = schema.GroupVersionKind{Group: "cilium.io", Version: "v2", Kind: "CiliumClusterwideNetworkPolicyList"}
+)
+
 // externalScan collects the externals one pod spec names.
 type externalScan struct {
 	o     *Observer
@@ -43,6 +54,9 @@ type externalScan struct {
 	out   []unversioned.ExternalStatus
 	cov   unversioned.CallerCoverage
 	cms   map[string]*corev1.ConfigMap
+	// labels are the target pod template's labels and its namespace, as a
+	// Cilium endpointSelector sees them.
+	labels labels.Set
 	// hosts are the host matches a value gave, checked against ServiceEntries.
 	hosts []externalcatalog.HostPort
 }
@@ -53,6 +67,8 @@ type externalScan struct {
 // the pod spec references; a Secret contributes its name and key names and is
 // never read. Services, EndpointSlices and ServiceEntries are read only in the
 // Pacto's own namespace, plus ServiceEntries exported to every namespace.
+// Cilium network policies of the Pacto's namespace and cluster-wide ones add
+// the toFQDNs rules that select the target's pods.
 func (o *Observer) observeExternals(ctx context.Context, input CollectInput) ([]unversioned.ExternalStatus, unversioned.CallerCoverage) {
 	spec := o.getPodSpec(ctx, input)
 	if spec == nil {
@@ -63,6 +79,9 @@ func (o *Observer) observeExternals(ctx context.Context, input CollectInput) ([]
 		owner: strings.ToLower(input.WorkloadKind) + "/" + input.WorkloadName,
 		cov:   unversioned.CallerCoverage{State: unversioned.CallerCoverageComplete},
 		cms:   map[string]*corev1.ConfigMap{},
+		labels: labels.Merge(o.workload(ctx, input).snap.podLabels, labels.Set{
+			ciliumNamespaceLabel: input.Namespace, ciliumServiceAccountLabel: cmp.Or(spec.ServiceAccountName, "default"),
+		}),
 	}
 	for _, c := range spec.Containers {
 		for _, e := range c.Env {
@@ -74,6 +93,7 @@ func (o *Observer) observeExternals(ctx context.Context, input CollectInput) ([]
 	}
 	x.declared(ctx)
 	x.serviceEntries(ctx)
+	x.ciliumPolicies(ctx)
 	return x.result()
 }
 
@@ -152,11 +172,11 @@ func localService(value, key, namespace string) (string, bool) {
 	if err != nil || (!scheme && u.Port() == "") {
 		return "", false
 	}
-	labels := strings.Split(strings.ToLower(u.Hostname()), ".")
-	if len(labels) > 1 && (labels[1] != namespace || (len(labels) > 2 && labels[2] != "svc")) {
+	parts := strings.Split(strings.ToLower(u.Hostname()), ".")
+	if len(parts) > 1 && (parts[1] != namespace || (len(parts) > 2 && parts[2] != "svc")) {
 		return "", false
 	}
-	return labels[0], len(validation.IsDNS1035Label(labels[0])) == 0
+	return parts[0], len(validation.IsDNS1035Label(parts[0])) == 0
 }
 
 // declared follows the declared dependencies that resolve to a Service of the
@@ -286,6 +306,147 @@ func (x *externalScan) serviceEntry(se unstructured.Unstructured) {
 			}
 		}
 	}
+}
+
+// ciliumNamespaceLabel is the label Cilium gives every endpoint for its pod's
+// namespace; a cluster-wide policy selects a namespace through it.
+// ciliumServiceAccountLabel is the one for its pod's service account. Every
+// other label Cilium derives starts with ciliumDerivedPrefix (the namespace's
+// labels, the cluster) and is not modelled.
+const (
+	ciliumNamespaceLabel      = "io.kubernetes.pod.namespace"
+	ciliumServiceAccountLabel = "io.cilium.k8s.policy.serviceaccount"
+	ciliumDerivedPrefix       = "io.cilium.k8s."
+)
+
+// ciliumPolicies reports the hosts the Cilium toFQDNs egress rules that select
+// the target's pods allow, from the policies of the Pacto's namespace and the
+// cluster-wide ones. A rule allows a call and never witnesses one, so each use
+// is inferred. Without the Cilium API no such rule can exist: nothing is read
+// and coverage is not lowered. A cluster-wide policy is not named: where
+// names only objects of the Pacto's namespace.
+func (x *externalScan) ciliumPolicies(ctx context.Context) {
+	if !x.input.CiliumPolicies {
+		return
+	}
+	for _, r := range []struct {
+		gvk  schema.GroupVersionKind
+		obj  func(unstructured.Unstructured) string
+		opts []client.ListOption
+	}{
+		{ciliumPolicyList, func(p unstructured.Unstructured) string {
+			return "ciliumnetworkpolicy/" + p.GetNamespace() + "/" + p.GetName()
+		}, []client.ListOption{client.InNamespace(x.input.Namespace)}},
+		{ciliumClusterwidePolicyList, func(unstructured.Unstructured) string { return "ciliumclusterwidenetworkpolicy (cluster-wide)" }, nil},
+	} {
+		l := &unstructured.UnstructuredList{}
+		l.SetGroupVersionKind(r.gvk)
+		if err := x.o.client.List(ctx, l, r.opts...); err != nil {
+			partialCoverage(&x.cov, "cilium-unreadable")
+			continue
+		}
+		for _, p := range l.Items {
+			x.ciliumPolicy(r.obj(p), p)
+		}
+	}
+}
+
+// ciliumPolicy reports the toFQDNs rules of one policy's spec and specs that
+// select the target's pods.
+func (x *externalScan) ciliumPolicy(obj string, p unstructured.Unstructured) {
+	var specs []any
+	if s, ok := p.Object["spec"]; ok {
+		specs = append(specs, s)
+	}
+	more, _, _ := unstructured.NestedSlice(p.Object, "specs")
+	for _, s := range append(specs, more...) {
+		spec, _ := s.(map[string]any)
+		if !x.selects(spec) {
+			continue
+		}
+		egress, _, _ := unstructured.NestedSlice(spec, "egress")
+		for _, e := range egress {
+			rule, _ := e.(map[string]any)
+			fqdns, _, _ := unstructured.NestedSlice(rule, "toFQDNs")
+			for _, f := range fqdns {
+				fqdn, _ := f.(map[string]any)
+				if name, _, _ := unstructured.NestedString(fqdn, "matchName"); name != "" {
+					x.objectHost(unversioned.ExternalKindCiliumFQDN, obj+" toFQDNs "+name, name)
+				}
+				if pattern, _, _ := unstructured.NestedString(fqdn, "matchPattern"); pattern != "" {
+					x.fqdnPattern(obj+" toFQDNs "+pattern, pattern)
+				}
+			}
+		}
+	}
+}
+
+// selects reports whether a policy spec's endpointSelector selects the
+// target's pods. Cilium prefixes label keys with their source (k8s:, any:);
+// the prefix is dropped. A spec without one (a host policy) or with a selector
+// that does not parse selects nothing. A selector on a label Cilium derives
+// that the scan does not model is not evaluated: it selects nothing and the
+// list is partial.
+func (x *externalScan) selects(spec map[string]any) bool {
+	raw, ok := spec["endpointSelector"].(map[string]any)
+	if !ok {
+		return false
+	}
+	var ls metav1.LabelSelector
+	if runtime.DefaultUnstructuredConverter.FromUnstructured(raw, &ls) != nil {
+		return false
+	}
+	matchLabels, keys := map[string]string{}, []string{}
+	for k, v := range ls.MatchLabels {
+		matchLabels[ciliumLabelKey(k)] = v
+		keys = append(keys, ciliumLabelKey(k))
+	}
+	ls.MatchLabels = matchLabels
+	for i := range ls.MatchExpressions {
+		ls.MatchExpressions[i].Key = ciliumLabelKey(ls.MatchExpressions[i].Key)
+		keys = append(keys, ls.MatchExpressions[i].Key)
+	}
+	if slices.ContainsFunc(keys, func(k string) bool { return strings.HasPrefix(k, ciliumDerivedPrefix) && !x.labels.Has(k) }) {
+		partialCoverage(&x.cov, "cilium-selector-unevaluated")
+		return false
+	}
+	sel, err := metav1.LabelSelectorAsSelector(&ls)
+	return err == nil && sel.Matches(x.labels)
+}
+
+// ciliumLabelKey is a Cilium selector key without its source prefix.
+func ciliumLabelKey(k string) string {
+	for _, p := range []string{"k8s:", "any:"} {
+		k = strings.TrimPrefix(k, p)
+	}
+	return k
+}
+
+// fqdnPattern reports the system a toFQDNs matchPattern allows. A leading
+// "*." or "**." is dropped; what remains names a host when it has a
+// registrable domain, by a catalog rule first. A bare "*", an inner wildcard
+// or a remainder without a registrable domain allows hosts nothing bounds, so
+// the list is partial.
+func (x *externalScan) fqdnPattern(where, pattern string) {
+	rest := strings.TrimPrefix(strings.TrimPrefix(strings.ToLower(pattern), "**."), "*.")
+	host := externalcatalog.HostPort{Host: strings.TrimSuffix(rest, ".")}
+	if strings.Contains(rest, "*") {
+		partialCoverage(&x.cov, "fqdn-pattern-unbounded")
+		return
+	}
+	m, ok := x.cat.MatchHost(host)
+	if !ok {
+		id, bounded := externalid.Host(host.Host)
+		if !bounded {
+			partialCoverage(&x.cov, "fqdn-pattern-unbounded")
+			return
+		}
+		m = externalcatalog.Match{Identity: id, Confidence: externalcatalog.ConfidenceLikely, Kind: externalcatalog.KindHost, Host: host.String()}
+	}
+	if m.Class == externalcatalog.ClassUnclassified || m.Class == "" {
+		m.Class = externalcatalog.ClassLegacy
+	}
+	x.add(unversioned.ExternalKindCiliumFQDN, where, []externalcatalog.Match{m})
 }
 
 // configMap reads a ConfigMap the pod spec references, once. A missing one

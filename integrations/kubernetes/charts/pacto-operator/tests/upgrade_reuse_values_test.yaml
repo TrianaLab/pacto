@@ -20,6 +20,7 @@ tests:
       controller.probing: null
       controller.metricsObservation: null
       controller.interfaceNameMatchDiscovery: null
+      controller.egressGatewayLogs: null
       nodeAgent.image: null
       controller.enableProbing: false
       controller.enableMetricsObservation: false

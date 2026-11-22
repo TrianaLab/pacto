@@ -1190,6 +1190,9 @@ type resolvedObservedEdge struct {
 	count              int
 	lastSeen           *time.Time
 	stale              bool
+	// cautionOnly: only caution-only sources saw it, so it makes a consumer
+	// and never corroborates ([fleet.FleetSnapshot.CautionOnly]).
+	cautionOnly bool
 }
 
 // ObservedIdentityUnresolved is the limitation code for an observed endpoint whose
@@ -1268,7 +1271,8 @@ func snapshotObservedEdges(snap *fleet.FleetSnapshot) []resolvedObservedEdge {
 		// Observed runtime calls are dependency edges; a reference never makes one.
 		if r.Type == fleet.RelationshipDependency && r.Provenance == fleet.ProvenanceObserved && r.Resolved && r.ToExternal == "" {
 			out = append(out, resolvedObservedEdge{consumer: r.FromService, provider: r.ToService, source: observedSource(r),
-				count: r.ObservedCount, lastSeen: copyTime(r.LastSeen), stale: r.LastSeen != nil && staleAt(snap, r.LastSeen)})
+				count: r.ObservedCount, lastSeen: copyTime(r.LastSeen), stale: r.LastSeen != nil && staleAt(snap, r.LastSeen),
+				cautionOnly: snap.CautionOnly(r)})
 		}
 	}
 	return out
@@ -1465,7 +1469,7 @@ func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey,
 	for _, e := range observedEdges {
 		if e.consumer == consumer && e.provider == changed {
 			seen = true
-			observed = observed || !e.stale
+			observed = observed || !e.stale && !e.cautionOnly
 		}
 	}
 	return rel, declared, observed, seen, refs

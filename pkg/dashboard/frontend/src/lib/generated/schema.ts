@@ -3391,7 +3391,7 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
             kind: string;
             /**
              * Format: date-time
@@ -3786,7 +3786,7 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
             kind: string;
             /**
              * Format: date-time
@@ -5215,6 +5215,8 @@ export interface components {
         "Fleet.SourceState": {
             /** @description An advisory source never makes the answer partial; its rows are hints. */
             advisory?: boolean;
+            /** @description Observed edges from this source come from unauthenticated senders: they add callers and undeclared edges and never corroborate a declared one */
+            cautionOnly?: boolean;
             /** @description The cluster the source describes */
             cluster?: components["schemas"]["Fleet.Cluster"];
             error?: components["schemas"]["Fleet.SourceError"];
@@ -5442,7 +5444,7 @@ export interface components {
         GetSourcesOutputBody: {
             /** @description True while the first snapshot is still being built */
             discovering: boolean;
-            /** @description Data sources backing the published snapshot */
+            /** @description Data sources backing the published snapshot, then one row per provider that reads calls leaving the cluster (egress set) */
             sources: components["schemas"]["SourceInfo"][] | null;
         };
         GlobalGraph: {
@@ -8076,8 +8078,19 @@ export interface components {
             name: string;
         };
         SourceInfo: {
+            /** @description The cluster an egress row describes, when its source names one; set on egress rows only */
+            cluster?: string;
+            /**
+             * @description How much of the calls leaving the cluster an egress row read; set on egress rows only
+             * @enum {string}
+             */
+            coverage?: "complete" | "partial" | "unavailable";
+            /** @description Set on a row projected from a detected provider that reads calls leaving the cluster; such a row is not a data source */
+            egress?: boolean;
             enabled: boolean;
             reason?: string;
+            /** @description The fleet source that reported an egress row; set on egress rows only */
+            source?: string;
             type: string;
         };
         StageCounts: {

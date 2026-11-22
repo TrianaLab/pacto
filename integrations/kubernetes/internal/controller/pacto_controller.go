@@ -93,6 +93,13 @@ type PactoReconciler struct {
 	// ServiceEntries turns on the Istio ServiceEntry reader of status.externals; main sets it when the
 	// cluster serves networking.istio.io/v1 ServiceEntry at startup.
 	ServiceEntries bool
+	// CiliumPolicies turns on the Cilium toFQDNs reader of status.externals; main sets it when the
+	// cluster serves cilium.io/v2 CiliumNetworkPolicy at startup.
+	CiliumPolicies bool
+	// GatewayLogs names calls through an Istio egress gateway from its access log; main builds it once, only
+	// when a person set controller.egressGatewayLogs=on, because every reconcile builds a new Observer and
+	// the reader's cache must outlive it. Nil reads no gateway.
+	GatewayLogs *observer.GatewayLogs
 	// Owners judges a running bundle's owner change (OwnerVerified); nil sets no such condition.
 	Owners *OwnerCheck
 }
@@ -107,6 +114,7 @@ type PactoReconciler struct {
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get,namespace=system
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.istio.io,resources=serviceentries,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cilium.io,resources=ciliumnetworkpolicies;ciliumclusterwidenetworkpolicies,verbs=list
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;replicasets;daemonsets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs;cronjobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
@@ -327,7 +335,7 @@ func invalidAt(path string, err error) *pactov1alpha1.ValidationResult {
 // (steps 9 to 15), filling the runtime half of the status.
 func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alpha1.Pacto, ec *effectiveContract) {
 	effectiveContract := ec.effective.Contract
-	obs := observer.New(r.Client).WithReader(r.APIReader)
+	obs := observer.New(r.Client).WithReader(r.APIReader).WithGatewayLogs(r.GatewayLogs)
 
 	// 10. Collect runtime evidence (spec section 9.1).
 	probing, metricsObs, readErr := r.observeSettings(ctx, pacto.Namespace)
@@ -338,7 +346,12 @@ func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alp
 	pacto.Status.ObservedCallers, pacto.Status.ObservedCallersCoverage = obs.ObservedCallers(pacto.Status.ObservedCallers)
 	pacto.Status.Externals, pacto.Status.ExternalsCoverage = obs.Externals()
 	pacto.Status.ExternalCatalog = observer.ExternalCatalog()
-	for _, c := range []*pactov1alpha1.CallerCoverage{pacto.Status.ObservedCallersCoverage, pacto.Status.ExternalsCoverage} {
+	pacto.Status.ObservedEgress, pacto.Status.ObservedEgressCoverage = obs.ObservedEgress(pacto.Status.ObservedEgress)
+	coverages := []*pactov1alpha1.CallerCoverage{pacto.Status.ObservedCallersCoverage, pacto.Status.ExternalsCoverage}
+	if e := pacto.Status.ObservedEgressCoverage; e != nil {
+		coverages = append(coverages, &e.CallerCoverage)
+	}
+	for _, c := range coverages {
 		if c != nil {
 			c.RefreshSeconds = int32(r.requeueInterval(pacto) / time.Second)
 		}
@@ -418,6 +431,7 @@ func (r *PactoReconciler) buildCollectInput(pacto *pactov1alpha1.Pacto, ec *effe
 		CallerIgnoreNamespaces:            r.CallerIgnoreNamespaces,
 		Scoped:                            r.Scoped,
 		ServiceEntries:                    r.ServiceEntries,
+		CiliumPolicies:                    r.CiliumPolicies,
 	}
 }
 
@@ -521,6 +535,13 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 	// interval, so delivery reads it as not evaluated rather than as a status the operator stopped writing.
 	if c := pacto.Status.ObservedCallersCoverage; c != nil {
 		pacto.Status.ObservedCallersCoverage = &pactov1alpha1.CallerCoverage{State: pactov1alpha1.CallerCoverageUnavailable, Reason: "not-evaluated", RefreshSeconds: c.RefreshSeconds}
+	}
+	// Egress is kept for its FirstSeen the same way, its coverage reading not evaluated with its node counts.
+	if c := pacto.Status.ObservedEgressCoverage; c != nil {
+		pacto.Status.ObservedEgressCoverage = &pactov1alpha1.EgressCoverage{
+			CallerCoverage: pactov1alpha1.CallerCoverage{State: pactov1alpha1.CallerCoverageUnavailable, Reason: "not-evaluated", RefreshSeconds: c.RefreshSeconds},
+			Nodes:          c.Nodes, NodesWithAgent: c.NodesWithAgent,
+		}
 	}
 	// Preserve: CurrentRevision (set in step 7), ObservationWindows (temporal state, spec 9.5), LastReconciledAt/ObservedGeneration (set in finish)
 }

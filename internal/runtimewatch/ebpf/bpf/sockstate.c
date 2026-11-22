@@ -1,15 +1,19 @@
 //go:build ignore
 
-// sockstate: one BTF raw tracepoint on inet_sock_set_state that reports TCP
-// listener lifecycle and outbound connect outcomes, keyed by the cgroup v2 id
-// of the socket's owner and by its network namespace inode. Arch-neutral (no PT_REGS), so one bpfel object
-// serves amd64 and arm64. Needs CONFIG_DEBUG_INFO_BTF=y and Linux >= 5.11
-// (BPF memory charged to the cgroup), or >= 5.8 when the agent may lift
-// RLIMIT_MEMLOCK (CAP_SYS_RESOURCE). The netns cookie needs >= 5.12 and reads
-// as 0 before that.
+// sockstate: two BTF tracing programs keyed by the cgroup v2 id of the
+// socket's owner and by its network namespace inode. inet_sock_set_state
+// reports TCP listener lifecycle and outbound connect outcomes; dns_answer, an
+// fentry on skb_consume_udp, reports the DNS responses a socket receives.
+// Arch-neutral (no PT_REGS), so one bpfel object serves amd64 and arm64. Needs
+// CONFIG_DEBUG_INFO_BTF=y and Linux >= 5.11 (BPF memory charged to the
+// cgroup), or >= 5.8 when the agent may lift RLIMIT_MEMLOCK
+// (CAP_SYS_RESOURCE). The netns cookie needs >= 5.12 and reads as 0 before
+// that. Userspace loads the two programs separately: a kernel that refuses
+// dns_answer loses names, never socket events.
 //
-// Never reads payloads: only addresses, ports, the cgroup id, the netns inode
-// and cookie and, for process-context events, the pid and comm.
+// Reads only DNS responses (UDP source port 53), at most 512 bytes; never any
+// other payload. Otherwise only addresses, ports, the cgroup id, the netns
+// inode and cookie and, for process-context events, the pid and comm.
 //
 // The cgroup comes from the socket (sk_cgrp_data, set when the socket is
 // allocated), never from the current task: connect outcomes complete in
@@ -95,6 +99,13 @@ struct sock {
 struct inet_sock {
 	struct sock sk;
 	__be16 inet_sport;
+} __attribute__((preserve_access_index));
+
+// The UDP header and payload of a received datagram start at
+// head + transport_header.
+struct sk_buff {
+	unsigned char *head;
+	__u16 transport_header;
 } __attribute__((preserve_access_index));
 
 #define AF_INET 2
@@ -242,6 +253,82 @@ int BPF_PROG(inet_sock_set_state, struct sock *sk, int oldstate, int newstate)
 	e->pid = bpf_get_current_pid_tgid() >> 32;
 	bpf_get_current_comm(e->comm, sizeof(e->comm));
 
+	bpf_ringbuf_submit(e, 0);
+	return 0;
+}
+
+#define DNS_PORT 53
+#define DNS_MAX 512
+#define UDP_HLEN 8
+
+// Must match runtimewatch's rawDNSEvent layout (little endian, 536 bytes).
+struct dns_event {
+	__u64 cgroup;
+	__u64 netns_cookie;
+	__u32 netns;
+	__u16 len; // payload bytes in data, 1 to DNS_MAX
+	__u16 pad;
+	__u8 data[DNS_MAX];
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_RINGBUF);
+	__uint(max_entries, 256 * 1024);
+} dns_events SEC(".maps");
+
+// DNS answers lost because dns_events was full. Userspace sums the CPUs.
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u64);
+} dns_drops SEC(".maps");
+
+// skb_consume_udp runs in the receiving task's recvmsg after the payload was
+// copied to it; len is the number of bytes copied (negative while peeking).
+// Only a datagram from source port 53 is copied, and only its first DNS_MAX
+// payload bytes: the rest of a larger answer is dropped and the parser
+// rejects the cut message.
+SEC("fentry/skb_consume_udp")
+int BPF_PROG(dns_answer, struct sock *sk, struct sk_buff *skb, int len)
+{
+	if (len <= 0)
+		return 0;
+	unsigned char *udp = BPF_CORE_READ(skb, head) + BPF_CORE_READ(skb, transport_header);
+	__be16 hdr[4] = {}; // source, dest, len, check
+	if (bpf_probe_read_kernel(hdr, sizeof(hdr), udp))
+		return 0;
+	if (__builtin_bswap16(hdr[0]) != DNS_PORT)
+		return 0;
+	__u32 n = len;
+	__u32 ulen = __builtin_bswap16(hdr[2]);
+	if (ulen <= UDP_HLEN)
+		return 0;
+	if (n > ulen - UDP_HLEN)
+		n = ulen - UDP_HLEN;
+	if (n > DNS_MAX)
+		n = DNS_MAX;
+
+	struct dns_event *e = bpf_ringbuf_reserve(&dns_events, sizeof(*e), 0);
+	if (!e) {
+		__u32 zero = 0;
+		__u64 *d = bpf_map_lookup_elem(&dns_drops, &zero);
+		if (d)
+			*d += 1;
+		return 0;
+	}
+	if (bpf_probe_read_kernel(e->data, n, udp + UDP_HLEN)) {
+		bpf_ringbuf_discard(e, 0);
+		return 0;
+	}
+	e->len = n;
+	e->pad = 0;
+	struct net *net = BPF_CORE_READ(sk, __sk_common.skc_net.net);
+	e->netns = BPF_CORE_READ(net, ns.inum);
+	e->netns_cookie = 0;
+	if (bpf_core_field_exists(net->net_cookie))
+		bpf_core_read(&e->netns_cookie, sizeof(e->netns_cookie), &net->net_cookie);
+	e->cgroup = sk_cgroup_id(sk);
 	bpf_ringbuf_submit(e, 0);
 	return 0;
 }

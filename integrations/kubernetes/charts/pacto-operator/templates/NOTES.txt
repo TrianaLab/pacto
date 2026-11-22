@@ -90,7 +90,7 @@ owner reference to the operator Deployment. */}}
 {{- end }}
 {{- /* Control characters and bidi controls never reach the terminal. */}}
 {{- $unsafe := `[\x00-\x1f\x7f-\x9f\x{200e}\x{200f}\x{202a}-\x{202e}\x{2066}-\x{2069}]` }}
-{{- $labels := dict "registry" "Registry" "cloud" "Cloud" "sign-in" "Sign-in" "exposure" "Exposure" "metrics" "Metrics" "nodes" "Nodes" "pull-secret" "Pull Secret" }}
+{{- $labels := dict "registry" "Registry" "cloud" "Cloud" "sign-in" "Sign-in" "exposure" "Exposure" "metrics" "Metrics" "nodes" "Nodes" "pull-secret" "Pull Secret" "otel-collector" "OTel Collector" "tempo" "Tempo" "jaeger" "Jaeger" "datadog" "Datadog" "traces" "Traces" }}
 {{- $entries := get $detected "entries" | default list }}
 {{- if kindIs "slice" $entries }}{{ else }}{{ $entries = list }}{{ end }}
 {{- if $entries }}

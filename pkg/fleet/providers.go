@@ -69,11 +69,41 @@ const (
 	UseIndexListedByCatalog = "index-listed-by-catalog"
 	// UseIndexListedByTag: the registry refuses _catalog, so Pacto lists by tag.
 	UseIndexListedByTag = "index-listed-by-tag"
+	// ProviderKernelEgress is the row of the calls leaving the cluster that
+	// the node agent saw, built from the Pacto statuses a source read.
+	ProviderKernelEgress = "kernel-egress"
+	// UseExternalEgress: Pacto reads calls leaving the cluster, to Externals,
+	// from what the row read.
+	UseExternalEgress = "external-egress"
 )
 
 // LimitationRegistryProbeFailed: Pacto could not probe a registry host, so it
 // does not know which mode it would use there.
 const LimitationRegistryProbeFailed = "REGISTRY_PROBE_FAILED"
+
+// Row ids, UsedFor value and limitation codes of the service mesh rows.
+const (
+	// ProviderIstio is the row of the Istio mesh a mesh source found.
+	ProviderIstio = "istio"
+	// ProviderLinkerd is the row of the Linkerd mesh a mesh source found.
+	ProviderLinkerd = "linkerd"
+	// ProviderHubble is the row of the Cilium Hubble a mesh source found.
+	ProviderHubble = "hubble"
+	// UseObservedEdges: Pacto reads observed calls from what the row read.
+	UseObservedEdges = "observed-edges"
+	// LimitationMeshTelemetryUnread: a mesh was found but the calls it
+	// records could not be read.
+	LimitationMeshTelemetryUnread = "MESH_TELEMETRY_UNREAD"
+	// LimitationMeshCoveragePartial: part of the cluster sends no calls
+	// through the mesh, or Pacto cannot tell which part does.
+	LimitationMeshCoveragePartial = "MESH_COVERAGE_PARTIAL"
+	// LimitationMeshCallsUnattributed: calls the mesh recorded that Pacto
+	// could not attribute to a workload of this cluster were left out.
+	LimitationMeshCallsUnattributed = "MESH_CALLS_UNATTRIBUTED"
+	// LimitationEgressSeriesCap: a mesh recorded more calls to external
+	// hosts than Pacto reads in one window; only the busiest were kept.
+	LimitationEgressSeriesCap = "EGRESS_SERIES_CAP"
+)
 
 // PromotionOwnedBy starts the evidence of every promotion row whose product
 // was found, followed by the product: the phrase a delivery back-off reads. A
@@ -401,8 +431,8 @@ func PluralKind(k string) string {
 // workloadVisible keeps none), and Evidence is rendered again with one hidden
 // total. A cluster that clusters does not name goes from the row: the view
 // hides it everywhere else. A limitation restrictScope would drop, or one that
-// names a hidden name, goes; the degraded limitation names no namespace and
-// stays. A row that is not available and lost every reason gets a degraded
+// names a hidden name, goes, and so does every one of a row naming a hidden
+// service; the degraded limitation names no namespace and stays. A row that is not available and lost every reason gets a degraded
 // one, so it still says why. Evidence a producer wrote that names a hidden
 // name is masked; evidence rendered from counts names none. Every namespace
 // of a row is read in the row's cluster (see providerCluster; srcClusters maps
@@ -445,14 +475,28 @@ func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNam
 			p.Evidence = p.Name + " found in a namespace you cannot read"
 		}
 		redactDetected(&p, len(rows[i].Objects), visible)
-		p.Limitations = slices.DeleteFunc(slices.Clone(p.Limitations), func(l Limitation) bool {
-			return l.Code != LimitationProviderSourceDegraded && (hiddenByScope(l, visibleIn, srcClusters) || mentionsHidden(l.Message))
+		redactEdgeCounts(&p, visible)
+		// A row built over services the reader partly cannot see may owe its
+		// reason to a hidden one: only the degraded limitation stays.
+		someHidden := slices.ContainsFunc(p.Services, func(k ServiceKey) bool { return hiddenSvc[k] })
+		p.Limitations = restrictRowLimitations(p, func(l Limitation) bool {
+			return someHidden || hiddenByScope(l, visibleIn, srcClusters) || mentionsHidden(l.Message)
 		})
-		if p.Status != SourceAvailable && len(p.Limitations) == 0 {
-			p.Limitations = []Limitation{{Code: LimitationProviderSourceDegraded, Source: p.Source,
-				Message: "source " + p.Source + " reported this row as " + string(p.Status) + "; the reason is hidden by your permissions"}}
-		}
 		out = append(out, p)
+	}
+	return out
+}
+
+// restrictRowLimitations are p's limitations without those hidden reports
+// hidden; the degraded limitation names no namespace and stays. A row that is
+// not available and lost every reason gets a degraded one.
+func restrictRowLimitations(p Provider, hidden func(Limitation) bool) []Limitation {
+	out := slices.DeleteFunc(slices.Clone(p.Limitations), func(l Limitation) bool {
+		return l.Code != LimitationProviderSourceDegraded && hidden(l)
+	})
+	if p.Status != SourceAvailable && len(out) == 0 {
+		out = []Limitation{{Code: LimitationProviderSourceDegraded, Source: p.Source,
+			Message: "source " + p.Source + " reported this row as " + string(p.Status) + "; the reason is hidden by your permissions"}}
 	}
 	return out
 }
@@ -489,28 +533,79 @@ func hideDetectedCluster(p Provider) (string, []Limitation) {
 		slices.DeleteFunc(slices.Clone(p.Limitations), func(l Limitation) bool { return l.Code == LimitationDetectionClusterMismatch })
 }
 
-// redactDetected redacts a detected row p a reader visible says yes to may
-// not read whole, its objects already narrowed from had: a cluster-wide row
-// for a reader who may not read the cluster scope, and a row that lost an
-// object to the view or to the cap. Its evidence then says only that it
+// redactDetected redacts a row p a reader visible says yes to may not read
+// whole, its objects already narrowed from had: a cluster-wide row of any
+// provenance for a reader who may not read the cluster scope, and a detected
+// row that lost an object to the view or to the cap. Its evidence then says only that it
 // exists, and its hint and details go, so the view never repeats what the
 // operator read with grants the reader lacks.
 func redactDetected(p *Provider, had int, visible func(string) bool) {
 	switch {
-	case p.Provenance != ProvenanceInferred:
 	case p.Scope == ScopeCluster && !visible(""):
+		// Whatever its provenance: a source-reported cluster-wide row (kernel
+		// egress) counts nodes the reader may not see either.
 		p.Evidence = p.Name + " detected cluster-wide; you may read only some namespaces"
 		p.Hint, p.Details = "", nil
+	case p.Provenance != ProvenanceInferred:
 	case len(p.Objects) < max(p.ObjectsTotal, had):
 		p.Evidence = p.Name + " found in a namespace you cannot read"
 		p.Hint, p.Details = "", nil
 	}
 }
 
+// EdgeCountText is how a live edge source's row says how many edges it read
+// (see redactEdgeCounts).
+func EdgeCountText(n int) string {
+	if n == 1 {
+		return "1 edge in the last 15 minutes"
+	}
+	return strconv.Itoa(n) + " edges in the last 15 minutes"
+}
+
+// edgeCountHidden replaces [EdgeCountText] for a reader who may read only
+// some namespaces.
+const edgeCountHidden = "edge count hidden by your permissions"
+
+// redactEdgeCounts takes from a live edge source's row p the figures it
+// counted over the whole fleet, for a reader visible says may read only some
+// namespaces (see edgeCountsHidden): the edge count in its evidence, its details (calls, senders
+// and what the winner misses) and each reason that starts with a count. The
+// figures would say how busy the services the reader cannot see are.
+func redactEdgeCounts(p *Provider, visible func(string) bool) {
+	if !edgeCountsHidden(*p, visible) {
+		return
+	}
+	parts := strings.Split(p.Evidence, "; ")
+	for i, part := range parts {
+		figure, _, _ := strings.Cut(part, " ")
+		if n, err := strconv.Atoi(figure); err == nil && part == EdgeCountText(n) {
+			parts[i] = edgeCountHidden
+		}
+	}
+	p.Evidence, p.Details = strings.Join(parts, "; "), nil
+	p.Limitations = slices.Clone(p.Limitations)
+	for i := range p.Limitations {
+		if l := &p.Limitations[i]; l.Code == LimitationEdgeSourcePartial {
+			l.Message = strings.Join(slices.DeleteFunc(strings.Split(l.Message, "; "), startsWithCount), "; ")
+		}
+	}
+	p.Limitations = slices.DeleteFunc(p.Limitations, func(l Limitation) bool { return l.Message == "" })
+}
+
+// edgeCountsHidden reports whether a reader visible says yes to sees p, a
+// live edge source's row, without its figures: a reader who may read only
+// some namespaces.
+func edgeCountsHidden(p Provider, visible func(string) bool) bool {
+	return !visible("") && slices.Contains(p.UsedFor, UseObservedEdges)
+}
+
+// startsWithCount reports whether s starts with a digit.
+func startsWithCount(s string) bool { return s != "" && s[0] >= '0' && s[0] <= '9' }
+
 // detectedNarrowed reports whether a reader visible says yes to would see p
 // redacted by redactDetected while losing none of its objects.
 func detectedNarrowed(p Provider, visible func(string) bool) bool {
-	return p.Provenance == ProvenanceInferred && !visible("") && (p.Scope == ScopeCluster || p.ObjectsTotal > len(p.Objects))
+	return !visible("") && (p.Scope == ScopeCluster || p.Provenance == ProvenanceInferred && p.ObjectsTotal > len(p.Objects))
 }
 
 // restrictedEvidence is the evidence of p, already narrowed, with the counts
@@ -626,7 +721,7 @@ func inCluster(cluster string, visible func(cluster, namespace string) bool, wor
 func providersNarrowed(s *FleetSnapshot, visibleIn func(cluster, namespace string) bool, workloadVisibleIn func(cluster, namespace, kind string) bool, srcClusters map[string]string) bool {
 	return slices.ContainsFunc(s.Providers, func(p Provider) bool {
 		visible, workloadVisible := inCluster(providerCluster(p, srcClusters), visibleIn, workloadVisibleIn)
-		return detectedNarrowed(p, visible) || slices.ContainsFunc(p.Objects, func(o ProviderObject) bool { return !objectVisible(o, visible, workloadVisible) }) ||
+		return detectedNarrowed(p, visible) || edgeCountsHidden(p, visible) || slices.ContainsFunc(p.Objects, func(o ProviderObject) bool { return !objectVisible(o, visible, workloadVisible) }) ||
 			slices.ContainsFunc(p.Counts, func(c ProviderCount) bool { return !countVisible(c, visible, workloadVisible) })
 	})
 }

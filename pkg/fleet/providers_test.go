@@ -666,3 +666,44 @@ func TestRestrictProvidersDropsRowWithAllServicesHidden(t *testing.T) {
 		t.Fatalf("rows = %+v, want registry:b and the row with no services", got)
 	}
 }
+
+// A live edge source's row counts over the whole fleet: a reader who may read
+// only some namespaces never sees its edge count, the receiver's call and
+// sender totals, what the winner misses or a reason that starts with a count;
+// a cluster-wide reader sees them all.
+func TestRestrictProvidersHidesEdgeCounts(t *testing.T) {
+	receiver := Provider{ID: "otlp-receiver", Name: "OTLP receiver", Source: "otlp-receiver", Status: SourcePartial, UsedFor: []string{UseObservedEdges},
+		Evidence: "OTLP/HTTP JSON at pacto-dashboard:4318; " + EdgeCountText(40),
+		Details:  []string{"received 9000 calls from 14 in-cluster senders in the last 15 minutes", "Jaeger misses 7 calls the receiver saw"},
+		Limitations: []Limitation{
+			{Code: LimitationEdgeSourcePartial, Source: "otlp-receiver", Message: "not exporting to pacto-dashboard:4318; 3 requests used protobuf; set encoding: json"},
+			{Code: LimitationEdgeSourcePartial, Source: "otlp-receiver", Message: "5 calls are not attributable to a named service"},
+		}}
+	one := receiver
+	one.ID, one.Evidence = "one", EdgeCountText(1)
+	snap := buildProviders(t, NewMemorySource("k8s", SourceKindKubernetes, &Collection{
+		Targets:   []RawTarget{workload("shop", "web"), workload("team-b", "api")},
+		Providers: []Provider{receiver, one},
+	}))
+	q := NewQuery(snap)
+	r := q.Restrict(anyCluster(func(ns string) bool { return ns == "shop" }), anyClusterKind(anyKind)).SnapshotForSerialization()
+	got := providerByID(t, r.Providers, "otlp-receiver")
+	if got.Evidence != "OTLP/HTTP JSON at pacto-dashboard:4318; edge count hidden by your permissions" || got.Details != nil {
+		t.Errorf("restricted row = %q %v", got.Evidence, got.Details)
+	}
+	if len(got.Limitations) != 1 || got.Limitations[0].Message != "not exporting to pacto-dashboard:4318; set encoding: json" {
+		t.Errorf("restricted limitations = %+v", got.Limitations)
+	}
+	if got := providerByID(t, r.Providers, "one"); got.Evidence != edgeCountHidden {
+		t.Errorf("one edge row = %q", got.Evidence)
+	}
+	// Only the rows narrow: the same view over a fleet with nothing to hide.
+	alone := NewQuery(buildProviders(t, NewMemorySource("k8s", SourceKindKubernetes, &Collection{Targets: []RawTarget{workload("shop", "web")}, Providers: []Provider{receiver}})))
+	if got := providerByID(t, alone.Restrict(anyCluster(func(ns string) bool { return ns == "shop" }), anyClusterKind(anyKind)).SnapshotForSerialization().Providers, "otlp-receiver"); got.Details != nil {
+		t.Errorf("namespace reader sees %v", got.Details)
+	}
+	full := providerByID(t, q.SnapshotForSerialization().Providers, "otlp-receiver")
+	if full.Evidence != receiver.Evidence || len(full.Details) != 2 || len(full.Limitations) != 2 {
+		t.Errorf("cluster-wide row = %+v", full)
+	}
+}

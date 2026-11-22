@@ -71,7 +71,7 @@ yourself. Turning the agent off removes its namespace and everything in it. The
 
 ## What the node agent observes
 
-The agent is a DaemonSet (one pod per node) that the operator creates in the
+The agent is a DaemonSet that the operator creates in the
 agent namespace. Each pod runs `pacto agent --sink kubernetes` from the Pacto runtime
 image (`ghcr.io/trianalab/pacto/dashboard`, the image the Evidence Server runs;
 `--node-agent-image` overrides it). It uses eBPF: a small program the kernel
@@ -101,6 +101,23 @@ Every publish interval (30 seconds by default) it renews a Lease named after
 its node, the heartbeat the operator reads, and rewrites the object only when
 the view changed ([details](limitations.md#node-agent-heartbeat-and-identity)).
 
+## Names of the hosts a pod calls
+
+A second program reads the DNS answers pods receive (UDP from port 53, at most
+512 bytes) with no new capability, and names each connection from its own
+pod's answers. The operator writes named calls that leave the cluster to
+`status.observedEgress`, and `status.observedEgressCoverage` counts `nodes`
+running target pods and `nodesWithAgent`.
+[Calls that leave the cluster](../../operational-graph-egress.md) has the details.
+
+| Egress reason | Meaning |
+| --- | --- |
+| `dns-unavailable` | a node's DNS collection is not `Running`, or its agent predates DNS names |
+| `ambiguous-peers` | an address the pod called answers for more than one registrable domain |
+| `unnamed-public` | the pod called a public address with no DNS answer |
+| `unnamed-private-peers` | the pod called a private address outside every node's pod CIDR |
+| `egress-host-unclassified` | the pod called a host whose name gives no identity, such as `legacy-db` |
+
 ## What it collects
 
 The node agent collects what every `pacto agent` collects (see
@@ -115,7 +132,7 @@ An admission policy keeps each agent to the objects named after its own node
 
 ```mermaid
 flowchart LR
-    K["Kernel: TCP socket events"] --> A["Node agent<br/>one pod per node"]
+    K["Kernel: TCP socket events<br/>and DNS answers"] --> A["Node agent<br/>one pod per node"]
     P["/proc baseline and resync"] --> A
     A --> N["NodeRuntimeObservation<br/>one per node"]
     API["Kubernetes API"] --> O["Operator observer"]
@@ -238,11 +255,14 @@ reference has the rule for every contract field.
 | Bound | Value |
 | --- | --- |
 | CPU request and limit | 50m and 200m (`nodeAgent.resources`) |
-| Memory request and limit | 64Mi and 256Mi, which also pays for the ring buffer |
-| Ring buffer | 256 KiB; a full buffer drops events and counts them |
+| Memory request and limit | 64Mi and 256Mi, which also pays for the ring buffers |
+| Ring buffers | 256 KiB for socket events and 256 KiB for DNS answers; a full buffer drops events and counts them |
 | Pods per node | 256 |
 | Listeners per pod | 64 |
-| Connection peers per pod and per node | 128 and 4096 |
+| Connection peers per pod and per node | 128 and 3072 |
+| Named connections per node | 512 |
+| DNS names per pod | 64 addresses, 4 names each |
+| DNS answer copied | 512 bytes, UDP source port 53 only |
 | Peer retention | ten minutes after the last attempt |
 
 A pod past a bound is marked truncated, which makes its coverage partial.
@@ -255,8 +275,8 @@ real kernel, including the "ready but nothing listening" case above.
 `make e2e-runtime-conformance-kind-up` does the same and keeps the cluster, so
 you can run `kubectl get pactos -A` yourself. The other tests:
 
-- `make -C integrations/kubernetes test-ebpf` loads and attaches the real
-  program in a privileged container (needs Docker).
+- `make test-ebpf`, from the repository root, loads and attaches the real
+  socket and DNS programs in a privileged container (needs Docker).
 - `go test ./pkg/validation/ -run TestFieldCoverage` checks the field coverage
   inventory against the schema and the tests it names.
 

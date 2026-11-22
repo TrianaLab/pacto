@@ -47,10 +47,13 @@ Pacto answers three questions about each service:
 - **Did it work?** Whether each of those connections succeeded or failed.
 
 The kernel watcher never reads message contents, request bodies, files,
-environment variables or secrets. The optional probes call the health, metrics
+environment variables or secrets. The one exception is the DNS answers a
+service receives (UDP from port 53, at most 512 bytes), which name the hosts it
+dials. The optional probes call the health, metrics
 and interface ports and read only the response they need to decide. A listener
 is recorded as an address, a port and a process name; a connection as a peer
-address and port, with counts and timestamps.
+address and port, with the host name its DNS answers gave, counts and
+timestamps.
 
 The watching is done with *eBPF*: a small program the Linux kernel runs safely
 each time a TCP connection changes state. It sees connections open, close and

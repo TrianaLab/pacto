@@ -127,6 +127,9 @@ type CollectInput struct {
 	// ServiceEntries turns on the Istio ServiceEntry reader of the externals list: the operator found the
 	// networking.istio.io/v1 ServiceEntry API at startup.
 	ServiceEntries bool
+	// CiliumPolicies turns on the Cilium toFQDNs reader of the externals list: the operator found the
+	// cilium.io/v2 CiliumNetworkPolicy API at startup.
+	CiliumPolicies bool
 
 	// kernel is the per-reconcile kernel view Collect loads; nil when kernel evidence is off.
 	kernel *kernelView
@@ -162,6 +165,8 @@ type RuntimeSnapshot struct {
 	// has no selector of its own: its pods are found through the Jobs it controls.
 	podSpec     *corev1.PodSpec
 	podSelector *metav1.LabelSelector
+	// podLabels are the pod template's labels, which a Cilium endpointSelector matches.
+	podLabels map[string]string
 }
 
 // endpointProber defines the interface for HTTP endpoint probing.
@@ -194,6 +199,8 @@ type Observer struct {
 	// run is the memo of the Collect in progress (or the last one), nil before the first. Dimensions
 	// called on their own work without it: every read then goes to the client.
 	run *collectRun
+	// gatewayLogs names calls through an Istio egress gateway (WithGatewayLogs); nil reads none.
+	gatewayLogs *GatewayLogs
 }
 
 // KernelCoverage is how far the node agent's view of the target's pods could be trusted in the last
@@ -219,10 +226,13 @@ type collectRun struct {
 	// externals and externalsCoverage are what observeExternals found.
 	externals         []unversioned.ExternalStatus
 	externalsCoverage unversioned.CallerCoverage
-	now               time.Time
-	monitors          map[string]*monitorList
-	failures          []error
-	seen              map[string]bool
+	// egress and egressCoverage are what observeEgress found, as of now.
+	egress         []unversioned.EgressStatus
+	egressCoverage *unversioned.EgressCoverage
+	now            time.Time
+	monitors       map[string]*monitorList
+	failures       []error
+	seen           map[string]bool
 }
 
 func newCollectRun() *collectRun {
@@ -338,6 +348,7 @@ func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.Ev
 	o.run.now = now
 	o.run.callers, o.run.callerCoverage = o.observeCallers(ctx, input, now)
 	o.run.externals, o.run.externalsCoverage = o.observeExternals(ctx, input)
+	o.run.egress, o.run.egressCoverage = o.observeEgress(ctx, input, now)
 
 	log := logf.FromContext(ctx)
 	for _, err := range o.run.failures {

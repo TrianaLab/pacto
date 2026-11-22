@@ -173,15 +173,17 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	}
 	cluster := fleet.NewMemorySource("k8s-production", fleet.SourceKindKubernetes, &fleet.Collection{
 		Cluster:      prodCluster,
-		Providers:    []fleet.Provider{crdRow},
+		Providers:    []fleet.Provider{crdRow, demoKernelEgressRow()},
 		Targets:      targets,
 		Provisioning: demoProvisioning(src),
 		Usage:        demoUsage(src),
 		ExternalUses: demoExternalUses(demoNow()),
 		// The kernel observer names a caller with no contract by its workload,
 		// so this edge joins the inferred legacy-billing below: attention shows
-		// an uncontracted caller of payments-service that links to it.
-		Observed: append([]fleet.ObservedEdge{{From: "k8s:shop/Deployment/legacy-billing", To: "payments-service", Count: 9}}, demoInferredEdges(demoNow())...),
+		// an uncontracted caller of payments-service that links to it. Its
+		// kernel egress names fulfillment-service's SFTP partner.
+		Observed: append(append([]fleet.ObservedEdge{{From: "k8s:shop/Deployment/legacy-billing", To: "payments-service", Count: 9}},
+			demoInferredEdges(demoNow())...), demoKernelEgressEdges()...),
 	})
 	// The cluster's workload reader: workloads no contract describes show as
 	// inferred services, each value with the object path Pacto read it from.
@@ -223,18 +225,15 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 		},
 	})
 	// What the cluster's operator detected: an advisory source whose rows are
-	// hints, dated now so they read current.
-	detected, err := detect.Decode(demoDetected)
+	// hints, dated now so they read current. The trace backends it found are
+	// read by their own edge sources, one row each.
+	detected, err := demoDetection(prodCluster.ID)
 	if err != nil {
 		return nil, nil, err
 	}
-	if inst := detected.Installation; inst != nil && inst.LastPush != nil {
-		// The last push keeps its age against the detection.
-		inst.LastPush.At = demoNow().Add(inst.LastPush.At.Sub(detected.AsOf))
-	}
-	detected.AsOf, detected.Cluster = demoNow(), prodCluster.ID
+	rest, traceSources := demoTraceSources(detected, demoNow())
 	detection := fleet.NewMemorySource("cluster-detection", fleet.SourceKindDetection, &fleet.Collection{
-		Advisory: true, Providers: detect.ProviderRows(detected, "cluster-detection", demoNow()),
+		Advisory: true, Providers: detect.ProviderRows(rest, "cluster-detection", demoNow()),
 	})
 	cat, err := demoCatalog()
 	if err != nil {
@@ -242,11 +241,26 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	}
 	snap, err := fleet.Build(context.Background(),
 		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat, DeclarationSigners: demoHandoverSigners()},
-		fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection)
+		append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection, demoMeshSource(prodCluster, demoNow())}, traceSources...)...)
 	if err != nil {
 		return nil, nil, err
 	}
 	return snap, byRef, nil
+}
+
+// demoDetection is what the demo cluster's operator detected, dated now on
+// cluster so its rows read current.
+func demoDetection(cluster string) (detect.Result, error) {
+	detected, err := detect.Decode(demoDetected)
+	if err != nil {
+		return detect.Result{}, err
+	}
+	if inst := detected.Installation; inst != nil && inst.LastPush != nil {
+		// The last push keeps its age against the detection.
+		inst.LastPush.At = demoNow().Add(inst.LastPush.At.Sub(detected.AsOf))
+	}
+	detected.AsOf, detected.Cluster = demoNow(), cluster
+	return detected, nil
 }
 
 // demoTargets are deterministic operational targets covering the range of states
@@ -381,7 +395,9 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 			ObservedRuntime: map[string]any{"replicas": 3, "image": demoRegistry + "inventory-service:2.1.0"}},
 		{Scope: "prod", Kind: "Deployment", Name: "fulfillment-service", Service: "fulfillment-service", Compliance: fleet.StatusCompliant,
 			ResolvedRef: demoRegistry + "fulfillment-service:1.1.0", Coverage: cov(4, 4), EvidenceAt: at(older), ReconciledAt: at(older),
-			Labels: prod(map[string]string{"app.kubernetes.io/name": "fulfillment-service"})},
+			Labels: prod(map[string]string{"app.kubernetes.io/name": "fulfillment-service"}),
+			// One of its nodes has no node agent, so its external calls cannot be ruled out.
+			Limitations: []fleet.Limitation{demoKernelEgressLimitation()}},
 		{Scope: "prod", Kind: "Deployment", Name: "catalog-service", Service: "catalog-service", Compliance: fleet.StatusCompliant,
 			ResolvedRef: demoRegistry + "catalog-service:1.1.0", Coverage: cov(3, 3), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
 			Labels: prod(map[string]string{"app.kubernetes.io/name": "catalog-service"})},

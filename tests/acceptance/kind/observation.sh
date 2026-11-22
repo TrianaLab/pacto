@@ -23,7 +23,10 @@
 #      symlink chain a projected volume is built from still resolves,
 #   8. changing sources rolls the dashboard and leaves no orphaned wiring, and a
 #      source that goes unreadable leaves the dashboard alive with its other
-#      sources still answering.
+#      sources still answering,
+#   9. an in-cluster sender's OTLP/HTTP JSON reaches the snapshot as an edge of
+#      the caution-only otlp-receiver source, behind the dashboard NetworkPolicy,
+#      and the chart Service keeps 4318 off every route.
 #
 # Subcommands (driven by the Makefile aliases):
 #   (default) / up   build + provision + assert, then keep or tear down
@@ -292,6 +295,56 @@ obscheck snapshot -base "$BASE" \
   && pass "the failed source is explicit unavailable knowledge; healthy sources still answer" \
   || fail "a missing trace file did not surface as an unavailable Data Source with the rest of the fleet intact"
 kill "$DASH_PF" 2>/dev/null || true
+
+echo "== a Collector in the cluster exports OTLP/HTTP JSON to the dashboard =="
+# The sender is a Job in a fresh namespace: the NetworkPolicy admits 4318 from
+# any pod in the cluster, and the receiver lives on the operator-applied Service
+# only. The dashboard image is alpine, so busybox wget posts the payload.
+OTLP_NS=otlp-sender
+kubectl create namespace "$OTLP_NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl -n "$OTLP_NS" create configmap otlp-payload --from-literal=t.json='{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"orders"}}]},"scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"checkout"}}]}]}]}]}' \
+  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl -n "$OTLP_NS" apply -f - >/dev/null <<YAML
+apiVersion: batch/v1
+kind: Job
+metadata: { name: otlp-sender }
+spec:
+  backoffLimit: 4
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: sender
+        image: ${DASH_IMG}
+        imagePullPolicy: Never
+        command: ["wget", "-q", "-O-", "--header", "Content-Type: application/json",
+                  "--post-file=/payload/t.json", "http://pacto-dashboard.${NS}:4318/v1/traces"]
+        volumeMounts:
+        - { name: payload, mountPath: /payload }
+      volumes:
+      - name: payload
+        configMap: { name: otlp-payload }
+YAML
+kubectl -n "$OTLP_NS" wait --for=condition=complete job/otlp-sender --timeout=180s >/dev/null \
+  && pass "an in-cluster sender posted OTLP/HTTP JSON to pacto-dashboard:4318" || fail "the OTLP sender did not complete"
+
+DASH_PF="$(pf "$LOCAL_DASH_PORT" svc/pacto-dashboard 3000)"
+receiver_edge() {
+  curl -fsS "$BASE/api/fleet/snapshot" | jq -e '
+    any(.sources[]; .id == "otlp-receiver" and .kind == "otlp-receiver" and .cautionOnly == true)
+    and any(.relationships[]; any(.observedSources[]?; .source == "otlp-receiver"))' >/dev/null
+}
+eventually 30 receiver_edge \
+  && pass "the otlp-receiver source is caution-only and names the edge it received" \
+  || fail "the received edge never reached the snapshot from a caution-only otlp-receiver source"
+kill "$DASH_PF" 2>/dev/null || true
+
+kubectl -n "$NS" get networkpolicy pacto-operator-dashboard >/dev/null \
+  && pass "the chart guards the dashboard pod with a NetworkPolicy" || fail "the dashboard NetworkPolicy is missing"
+CHART_PORTS="$(kubectl -n "$NS" get service pacto-operator-dashboard -o jsonpath='{.spec.ports[*].port}')"
+[ "$CHART_PORTS" = "3000" ] \
+  && pass "the chart Service behind Ingress and HTTPRoute exposes 3000 only" \
+  || fail "the chart Service exposes ports $CHART_PORTS; 4318 must stay on the operator-applied Service"
 
 echo
 echo "== operator-managed observation packaging verified =="

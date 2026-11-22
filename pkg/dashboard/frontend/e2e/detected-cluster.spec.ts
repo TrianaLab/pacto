@@ -4,14 +4,16 @@ import { appReady, settle } from './ready';
 
 // What the demo cluster's operator detected (examples/demo/detected.json, the advisory
 // source cluster-detection in examples/demo/source_fleet.go) against the built WASM
-// demo: seven inferred rows inside the Detected providers block of Data sources, each
+// demo: eleven inferred rows (three egress readers among them) inside the Detected providers block of Data sources, each
 // with one provenance mark, the registry's proposal behind More details, and one toggle
 // that hides them and says so in the URL, plus the operator's declared Installation row
 // (510-S6), which the toggle keeps. No total row count is asserted: other stories add
-// rows of their own.
+// rows of their own. The trace backends the dashboard reads live are rows of their
+// own edge sources (examples/demo/source_traces.go); Datadog has no reader, so it
+// stays a detected row.
 
 const T = 20_000;
-const DETECTED = ['Registry', 'Cloud', 'Sign-in', 'Exposure', 'Metrics', 'Nodes', 'Pull Secret'];
+const DETECTED = ['Registry', 'Cloud', 'Sign-in', 'Exposure', 'Metrics', 'Nodes', 'Pull Secret', 'Datadog', 'Istio egress', 'Cilium FQDN', 'Egress gateway'];
 const DECLARED = "Declared: by the operator's configuration";
 
 test.describe('WASM demo: what the cluster provides', () => {
@@ -53,6 +55,12 @@ test.describe('WASM demo: what the cluster provides', () => {
     await expect(more).toContainText('oci://ghcr.io/acme/<service>:<version>');
     await expect(more).toContainText('docker.io/library: 3 of 11 namespaces');
 
+    // The egress gateway's logs need a person's switch: the command waits behind More details.
+    const gateway = detected.filter({ has: page.locator('.dp-name').getByTitle('Egress gateway', { exact: true }) });
+    await expect(gateway.locator('.dp-status')).toHaveText('Partial');
+    await gateway.locator('details summary').click();
+    await expect(gateway.locator('details')).toContainText('--set controller.egressGatewayLogs=on');
+
     await settle(page);
     const axe = await new AxeBuilder({ page }).include('[data-testid="detected-providers"]')
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
@@ -92,6 +100,53 @@ test.describe('WASM demo: what the cluster provides', () => {
     await expect(page).toHaveURL(/inferred=0/);
     await expect(pull).toHaveCount(0);
     await expect(installation).toHaveCount(1);
+  });
+
+  test('trace backends say what they read and who won', async ({ page }) => {
+    // examples/demo/source_traces.go: the service graph read the demo's calls and won,
+    // so the OTLP receiver (the Collector's row) is off, Jaeger answered with no
+    // dependency and Datadog stays a detection row with the Collector exporter.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await appReady(page, '/#/fleet/sources');
+    const block = page.getByTestId('detected-providers');
+    await expect(block.getByTestId('provider-row').first()).toBeVisible({ timeout: T });
+    const showAll = block.getByRole('button', { name: /^Show all/ });
+    if (await showAll.isVisible()) await showAll.click();
+    const row = (name: string) => block.getByTestId('provider-row').filter({ has: page.locator('.dp-name').getByTitle(name, { exact: true }) });
+
+    const graph = row('Service graph in Prometheus');
+    await expect(graph).toHaveCount(1, { timeout: T });
+    await expect(graph.locator('.dp-evidence')).toContainText('won: the OTLP receiver is off');
+    await expect(graph.locator('.dp-status')).toHaveClass(/visually-hidden/);
+
+    const collector = row('OTel Collector');
+    await expect(collector.locator('.dp-status')).toHaveText('Partial');
+    await collector.locator('details summary').click();
+    await expect(collector.locator('details')).toContainText('off: Service graph in Prometheus reports complete coverage');
+
+    const jaeger = row('Jaeger');
+    await expect(jaeger.locator('.dp-status')).toHaveText('Partial');
+    await jaeger.locator('details summary').click();
+    await expect(jaeger.locator('details')).toContainText('Jaeger returned no dependencies');
+
+    const datadog = row('Datadog');
+    await expect(datadog.locator('.dp-status')).toHaveText('Partial');
+    await expect(datadog.locator('details')).not.toHaveAttribute('open');
+    await datadog.locator('details summary').click();
+    await expect(datadog.locator('details')).toContainText('otlphttp/pacto');
+    await expect(datadog.locator('details')).toContainText('Pacto did not read it');
+
+    const sources = { 'Service graph in Prometheus': 'detected-service-graph', 'OTel Collector': 'otlp-receiver', Jaeger: 'detected-jaeger', Datadog: 'cluster-detection' };
+    for (const [name, source] of Object.entries(sources)) {
+      await expect(row(name)).toHaveClass(/dp-inferred/);
+      await expect(row(name).getByRole('button', { name: /^(Inferred|Declared):/ })).toHaveCount(1);
+      await expect(row(name).getByRole('button', { name: `Inferred: from ${source}` })).toHaveCount(1);
+    }
+
+    await settle(page);
+    const axe = await new AxeBuilder({ page }).include('[data-testid="detected-providers"]')
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+    expect(axe.violations).toEqual([]);
   });
 
   test('the provenance tip stays inside the viewport at every width', async ({ page }) => {

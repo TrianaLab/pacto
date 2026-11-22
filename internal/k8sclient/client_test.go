@@ -32,7 +32,7 @@ func TestBuildK8sConfigSuppressesAPIWarnings(t *testing.T) {
 		b := defaultBuilders()
 		b.inCluster = func() (*rest.Config, error) { return &rest.Config{Host: "https://example.test"}, nil }
 
-		cfg, err := b.config("")
+		cfg, _, err := b.config("")
 		if err != nil {
 			t.Fatalf("config: %v", err)
 		}
@@ -66,7 +66,7 @@ users:
 `), 0o644)
 		t.Setenv("KUBECONFIG", kubeconfig)
 
-		cfg, err := b.config("")
+		cfg, _, err := b.config("")
 		if err != nil {
 			t.Fatalf("config: %v", err)
 		}
@@ -82,9 +82,9 @@ func TestBuildK8sConfig_InCluster(t *testing.T) {
 		return &rest.Config{Host: "https://in-cluster:443"}, nil
 	}
 
-	config, err := b.config("")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	config, inCluster, err := b.config("")
+	if err != nil || !inCluster {
+		t.Fatalf("unexpected error: %v (in cluster %v)", err, inCluster)
 	}
 	if config.Host != "https://in-cluster:443" {
 		t.Errorf("expected in-cluster host, got %q", config.Host)
@@ -118,9 +118,9 @@ users:
 `), 0o644)
 	t.Setenv("KUBECONFIG", kubeconfig)
 
-	config, err := b.config("")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	config, inCluster, err := b.config("")
+	if err != nil || inCluster {
+		t.Fatalf("unexpected error: %v (in cluster %v)", err, inCluster)
 	}
 	if config.Host != "https://test-cluster:6443" {
 		t.Errorf("expected test-cluster host, got %q", config.Host)
@@ -137,7 +137,7 @@ func TestBuildK8sConfig_NoConfig(t *testing.T) {
 	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
 	t.Setenv("HOME", dir)
 
-	_, err := b.config("")
+	_, _, err := b.config("")
 	if err == nil {
 		t.Fatal("expected error when no kubeconfig exists")
 	}
@@ -178,8 +178,8 @@ users:
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if client == nil {
-		t.Fatal("expected non-nil client")
+	if client == nil || client.(interface{ InCluster() bool }).InCluster() {
+		t.Fatal("expected a non-nil client built outside the cluster")
 	}
 }
 
@@ -752,7 +752,7 @@ func TestNamedContextSkipsInClusterConfig(t *testing.T) {
 		t.Fatal("in-cluster config read for a named context")
 		return nil, nil
 	}
-	cfg, err := b.config("us-prod")
+	cfg, _, err := b.config("us-prod")
 	if err != nil || cfg.Host != "https://us.example:6443" {
 		t.Fatalf("config = %v, %v", cfg, err)
 	}

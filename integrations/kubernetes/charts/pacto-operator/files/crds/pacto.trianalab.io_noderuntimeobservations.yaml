@@ -95,6 +95,33 @@ spec:
                 required:
                 - state
                 type: object
+              dns:
+                description: |-
+                  DNS is the health of DNS answer capture, the source of connection hosts.
+                  Absent from an agent that does not capture DNS answers.
+                properties:
+                  droppedAnswers:
+                    description: |-
+                      DroppedAnswers is the cumulative number of DNS answers lost because the
+                      ring buffer was full, since the agent started.
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  reason:
+                    description: Reason is a CamelCase machine-readable cause for
+                      a non-Running state.
+                    maxLength: 128
+                    type: string
+                  state:
+                    description: State is Running, Degraded or Failed.
+                    enum:
+                    - Running
+                    - Degraded
+                    - Failed
+                    type: string
+                required:
+                - state
+                type: object
               kernelRelease:
                 description: KernelRelease is the node's kernel release (uname -r).
                 type: string
@@ -134,6 +161,11 @@ spec:
                             maxLength: 45
                             minLength: 1
                             type: string
+                          ambiguous:
+                            description: |-
+                              Ambiguous is true when the pod's DNS answers named the address under more
+                              than one registrable domain (a CDN or shared ingress), so Host is empty.
+                            type: boolean
                           failures:
                             description: |-
                               Failures counts handshakes that went from SYN_SENT straight to CLOSE
@@ -141,6 +173,12 @@ spec:
                             format: int64
                             minimum: 0
                             type: integer
+                          host:
+                            description: |-
+                              Host is the name the pod's own DNS answers gave the address, empty when
+                              none did. Only lowercase letters, digits, hyphens and dots.
+                            maxLength: 253
+                            type: string
                           lastFailureAt:
                             description: LastFailureAt is the time of the most recent
                               failure.

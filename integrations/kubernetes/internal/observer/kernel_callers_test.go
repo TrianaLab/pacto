@@ -221,6 +221,10 @@ func TestObservedCallers_Coverage(t *testing.T) {
 			setup: func(f *kernelFixture) { f.funcs = interceptor.Funcs{List: failList[*corev1.PodList]()} }},
 		{name: "pactos unreadable", state: pactoapi.CallerCoverageUnavailable, reason: "pactos-unreadable",
 			setup: func(f *kernelFixture) { f.funcs = interceptor.Funcs{List: failList[*pactoapi.PactoList]()} }},
+		// The shared runtime reads run before the Service read, so their reason wins when both fail.
+		{name: "pods and Service unreadable", state: pactoapi.CallerCoverageUnavailable, reason: "pods-unreadable",
+			setup: func(f *kernelFixture) { f.funcs = interceptor.Funcs{List: failList[*corev1.PodList]()} },
+			input: func(in *CollectInput) { in.ServiceName = "gone" }},
 		{name: "stale node", state: pactoapi.CallerCoveragePartial, reason: "stale-node", callersAfter: 5,
 			setup: func(f *kernelFixture) { f.node.Status.LastPublished = kTime(time.Hour) }},
 		{name: "collection failed", state: pactoapi.CallerCoveragePartial, reason: "collection-failed", callersAfter: 5,

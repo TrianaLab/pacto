@@ -10,6 +10,7 @@ package detect
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -81,7 +82,8 @@ type Entry struct {
 	Source       string `json:"source,omitempty"`
 	Completeness string `json:"completeness"`
 	Reason       string `json:"reason,omitempty"`
-	// Hint is a command for a person to review; nothing runs it.
+	// Hint is a command, value or configuration snippet for a person to
+	// review; nothing runs it.
 	Hint    string   `json:"hint,omitempty"`
 	Details []string `json:"details,omitempty"`
 	// Namespaces are the namespaces the entry's facts come from.
@@ -91,6 +93,9 @@ type Entry struct {
 	// Scope is fleet.ScopeCluster for an entry built from a cluster-wide read;
 	// an entry with no scope keeps its facts in its namespaces and objects.
 	Scope string `json:"scope,omitempty"`
+	// Endpoint is the in-cluster Service URL a live reader asks (see
+	// [CheckEndpoint]); empty when the entry has none.
+	Endpoint string `json:"endpoint,omitempty"`
 }
 
 // Object is one object an entry names.
@@ -163,8 +168,15 @@ func sanitize(res *Result) {
 	sanitizeInstallation(res.Installation)
 	for i := range res.Entries {
 		e := &res.Entries[i]
-		for _, s := range []*string{&e.Kind, &e.Value, &e.Evidence, &e.Source, &e.Completeness, &e.Reason, &e.Hint, &e.Scope} {
+		for _, s := range []*string{&e.Kind, &e.Value, &e.Evidence, &e.Source, &e.Completeness, &e.Reason, &e.Hint, &e.Scope, &e.Endpoint} {
 			*s = clean(*s)
+		}
+		if e.Endpoint != "" && CheckEndpoint(e.Endpoint) != nil {
+			e.Endpoint = ""
+			if e.Completeness != Unknown {
+				e.Completeness = Partial
+			}
+			e.Reason = strings.TrimPrefix(e.Reason+"; "+notInCluster, "; ")
 		}
 		e.Details = cleanAll(e.Details, MaxDetails)
 		e.Namespaces = cleanAll(e.Namespaces, MaxNamed)
@@ -174,6 +186,26 @@ func sanitize(res *Result) {
 			o.Kind, o.Namespace, o.Name = clean(o.Kind), clean(o.Namespace), clean(o.Name)
 		}
 	}
+}
+
+// notInCluster is why an entry lost an endpoint [CheckEndpoint] refused.
+const notInCluster = "the endpoint is not an in-cluster Service URL"
+
+// inCluster matches http://<service>.<namespace>.svc[.cluster.local]:<port>.
+var inCluster = regexp.MustCompile(`^http://[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.svc(\.cluster\.local)?:[0-9]{1,5}$`)
+
+// CheckEndpoint accepts only an in-cluster Service URL,
+// http://<service>.<namespace>.svc[.cluster.local]:<port>, with no userinfo,
+// path, query or fragment, so a detected endpoint never sends a read outside
+// the cluster.
+func CheckEndpoint(endpoint string) error {
+	if !inCluster.MatchString(endpoint) {
+		return fmt.Errorf("%q is not an in-cluster Service URL", endpoint)
+	}
+	if _, port, _ := strings.Cut(strings.TrimPrefix(endpoint, "http://"), ":"); port[0] == '0' || len(port) == 5 && port > "65535" {
+		return fmt.Errorf("%q has no valid port", endpoint)
+	}
+	return nil
 }
 
 // capped is s with at most n elements.

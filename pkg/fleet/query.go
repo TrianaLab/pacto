@@ -1076,9 +1076,16 @@ func (q *Query) graphNeighbours(key, rootSvc ServiceKey, scopeRev RevisionKey, d
 	}
 	if observed {
 		for _, k := range q.adjacent(key, dir, false, true, false) {
-			if prov[k] == ProvenanceDeclared {
+			pair := [2]ServiceKey{key, k}
+			if dir == DirectionDependents {
+				pair = [2]ServiceKey{k, key}
+			}
+			switch {
+			case prov[k] == ProvenanceDeclared && q.snap.cautionPairs[pair]:
+				// Only caution-only sources saw it: no corroboration.
+			case prov[k] == ProvenanceDeclared:
 				prov[k] = ProvenanceDeclaredObserved
-			} else {
+			default:
 				prov[k] = ProvenanceObserved
 			}
 		}

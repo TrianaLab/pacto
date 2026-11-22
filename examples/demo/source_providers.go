@@ -115,3 +115,26 @@ func demoPromoterRows() ([]fleet.Provider, error) {
 	}
 	return rows, nil
 }
+
+// demoKernelEgressRow is the kernel-egress row the cluster source reports,
+// shaped as internal/fleetsrc's KernelEgressRow shapes it (that package links
+// client-go, which the WASM bundle must not): one of the cluster's four
+// nodes runs pods without the node agent, so the calls fulfillment-service
+// makes outside the cluster cannot be ruled out there.
+func demoKernelEgressRow() fleet.Provider {
+	return fleet.Provider{
+		ID: fleet.ProviderKernelEgress, Name: "Kernel egress", Evidence: "node agent on 3/4 nodes",
+		UsedFor: []string{fleet.UseExternalEgress}, Status: fleet.SourcePartial, Scope: fleet.ScopeCluster,
+		Services: []fleet.ServiceKey{fleet.NewServiceKey("fulfillment-service")},
+		Limitations: []fleet.Limitation{{Code: fleet.LimitationExternalsUnreported, Source: "k8s-production",
+			Message: "the node agent cannot rule out an external call: a node runs pods but has no node agent (coverage: partial, node-without-agent)"}},
+	}
+}
+
+// demoKernelEgressLimitation is the limitation delivery.EgressLimitations puts
+// on fulfillment-service's target for the same partial coverage, so every
+// external answer says its consumers may be incomplete, as on a real cluster.
+func demoKernelEgressLimitation() fleet.Limitation {
+	return fleet.Limitation{Code: fleet.LimitationExternalsUnreported, Source: "delivery",
+		Message: "the external calls fulfillment-service makes cannot be ruled out: a node runs pods but has no node agent (coverage: partial, node-without-agent)"}
+}

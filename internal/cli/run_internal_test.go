@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -580,3 +581,19 @@ func TestRunCommand_OwnProcessGroup(t *testing.T) {
 		t.Fatalf("the command is not its own group leader: %v\nstderr %s", r.err, r.stderr)
 	}
 }
+
+// TestRunOutputCarriesHost: the session gate passes a named connection on, and keeps it for the final
+// round, unchanged.
+func TestRunOutputCarriesHost(t *testing.T) {
+	var got runtimefacts.Snapshot
+	g := &gateSink{next: sinkFunc(func(s runtimefacts.Snapshot) { got = s })}
+	g.open()
+	_ = g.Publish(context.Background(), namedSnapshot())
+	if last := g.freeze(); !reflect.DeepEqual(last, namedSnapshot()) || !reflect.DeepEqual(got, namedSnapshot()) {
+		t.Fatalf("last %+v, passed on %+v", last, got)
+	}
+}
+
+type sinkFunc func(runtimefacts.Snapshot)
+
+func (f sinkFunc) Publish(_ context.Context, s runtimefacts.Snapshot) error { f(s); return nil }

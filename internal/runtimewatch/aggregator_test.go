@@ -78,13 +78,13 @@ func TestAggregator_BaselineEventsAndSnapshot(t *testing.T) {
 	// UNLISTEN: one of two sockets on 8080 leaves it listening; the second
 	// removes it; an UNLISTEN for an unknown socket is a no-op.
 	a.Apply(listen(100, EventUnlisten, false, any4, 8080, ""), at(6*time.Second))
-	_, pods := a.Snapshot(at(6*time.Second), CollectorStatus{})
+	_, pods, _ := a.Snapshot(at(6*time.Second), CollectorStatus{})
 	if len(pods[0].Listeners) != 2 {
 		t.Fatalf("after one unlisten: %+v", pods[0].Listeners)
 	}
 	a.Apply(listen(100, EventUnlisten, false, any4, 8080, ""), at(6*time.Second))
 	a.Apply(listen(100, EventUnlisten, false, any4, 1, ""), at(6*time.Second))
-	_, pods = a.Snapshot(at(6*time.Second), CollectorStatus{})
+	_, pods, _ = a.Snapshot(at(6*time.Second), CollectorStatus{})
 	if len(pods[0].Listeners) != 1 || pods[0].Listeners[0].Port != 9090 {
 		t.Fatalf("after both unlistens: %+v", pods[0].Listeners)
 	}
@@ -94,7 +94,7 @@ func TestAggregator_BaselineEventsAndSnapshot(t *testing.T) {
 // before any UNLISTEN.
 func checkFirstSnapshot(t *testing.T, a *Aggregator) {
 	t.Helper()
-	col, pods := a.Snapshot(at(5*time.Second), CollectorStatus{})
+	col, pods, _ := a.Snapshot(at(5*time.Second), CollectorStatus{})
 	if col.State != runtimefacts.StateRunning || col.Reason != "" || col.LastResyncAt.IsZero() || !col.LastDropAt.IsZero() {
 		t.Fatalf("collection = %+v", col)
 	}
@@ -142,7 +142,7 @@ func TestAggregator_ResyncHealsListenersAndKeepsProcess(t *testing.T) {
 	a.Apply(listen(100, EventListen, false, any4, 7000, "lost"), at(time.Second)) // gone by the next scan
 
 	a.Resync(oneScan(), at(time.Minute))
-	_, pods := a.Snapshot(at(time.Minute), CollectorStatus{})
+	_, pods, _ := a.Snapshot(at(time.Minute), CollectorStatus{})
 	p := podByUID(t, pods, uidA)
 	if len(p.Listeners) != 1 || p.Listeners[0].Process != "web" || !p.BaselineAt.Equal(at(time.Minute)) ||
 		!p.ObservedSince.Equal(t0) {
@@ -163,14 +163,14 @@ func TestAggregator_PodLifecycle(t *testing.T) {
 		t.Fatalf("totalPeers = %d after the pod left", a.totalPeers)
 	}
 	a.Apply(connect(200, dbAddr, 5432, true), at(61*time.Second))
-	_, pods := a.Snapshot(at(61*time.Second), CollectorStatus{})
+	_, pods, _ := a.Snapshot(at(61*time.Second), CollectorStatus{})
 	if len(pods) != 1 || pods[0].ID != uidB || pods[0].Shared || len(pods[0].Connections) != 1 {
 		t.Fatalf("pods = %+v", pods)
 	}
 
 	// B moves back to the host namespace: its history is no longer attributable.
 	a.Resync(Scan{HostNetns: 1, Netns: map[uint32]*NetnsScan{1: {Workloads: podIDs(uidB), Shared: true}}}, at(2*time.Minute))
-	_, pods = a.Snapshot(at(2*time.Minute), CollectorStatus{})
+	_, pods, _ = a.Snapshot(at(2*time.Minute), CollectorStatus{})
 	if !pods[0].Shared || len(pods[0].Connections) != 0 || a.totalPeers != 0 {
 		t.Fatalf("pods = %+v, totalPeers = %d", pods, a.totalPeers)
 	}
@@ -201,7 +201,7 @@ func TestAggregator_PendingAdoptedOnResync(t *testing.T) {
 	if _, ok := a.pending[400]; !ok {
 		t.Fatal("unmapped pending set dropped early")
 	}
-	_, pods := a.Snapshot(at(10*time.Second), CollectorStatus{})
+	_, pods, _ := a.Snapshot(at(10*time.Second), CollectorStatus{})
 	c := podByUID(t, pods, uidC)
 	if !c.Truncated || len(c.Connections) != 2 || c.Connections[0].Successes != 1 || c.Connections[0].Failures != 1 {
 		t.Fatalf("pod C = %+v", c)
@@ -246,7 +246,7 @@ func TestAggregator_Bounds(t *testing.T) {
 		300: {Workloads: podIDs(uidC), Listeners: map[ListenerKey]int{}}, // third pod: over MaxWorkloads
 	}}
 	a.Resync(scan, t0)
-	col, pods := a.Snapshot(t0, CollectorStatus{})
+	col, pods, _ := a.Snapshot(t0, CollectorStatus{})
 	if col.State != runtimefacts.StateDegraded || col.Reason != ReasonPodLimitExceeded || len(pods) != 2 {
 		t.Fatalf("collection = %+v, %d pods", col, len(pods))
 	}
@@ -266,7 +266,7 @@ func TestAggregator_Bounds(t *testing.T) {
 	a.Apply(connect(100, dbAddr, 1, true), at(time.Second))
 	a.Apply(connect(100, dbAddr, 2, true), at(time.Second)) // per-pod
 	a.Apply(connect(200, dbAddr, 3, true), at(time.Second)) // node-wide
-	_, pods = a.Snapshot(at(time.Second), CollectorStatus{})
+	_, pods, _ = a.Snapshot(at(time.Second), CollectorStatus{})
 	if !pods[1].Truncated || len(pods[1].Listeners) != 1 || len(pods[1].Connections) != 0 {
 		t.Fatalf("pod B = %+v", pods[1])
 	}
@@ -299,14 +299,14 @@ func TestAggregator_RetentionExpiry(t *testing.T) {
 	a.Apply(connect(600, dbAddr, 5432, true), t0)
 	a.Apply(connect(600, apiAddr, 443, true), t0) // pending over its bound
 
-	_, pods := a.Snapshot(at(30*time.Second), CollectorStatus{})
+	_, pods, _ := a.Snapshot(at(30*time.Second), CollectorStatus{})
 	if !podByUID(t, pods, uidA).Truncated {
 		t.Fatal("truncation should hold within the retention window")
 	}
 	a.Apply(connect(600, apiAddr, 443, true), at(50*time.Second)) // keeps 600's set alive
 	a.Apply(connect(600, dbAddr, 5432, true), at(50*time.Second))
 
-	_, pods = a.Snapshot(at(61*time.Second), CollectorStatus{})
+	_, pods, _ = a.Snapshot(at(61*time.Second), CollectorStatus{})
 	p := podByUID(t, pods, uidA)
 	if p.Truncated || len(p.Connections) != 0 || a.totalPeers != 0 {
 		t.Fatalf("pod A after retention = %+v (totalPeers %d)", p, a.totalPeers)
@@ -324,27 +324,27 @@ func TestAggregator_CollectionStates(t *testing.T) {
 	a.Resync(oneScan(), t0)
 
 	// Drops after the last resync degrade; the counter is cumulative.
-	col, _ := a.Snapshot(at(time.Second), CollectorStatus{Dropped: 3})
+	col, _, _ := a.Snapshot(at(time.Second), CollectorStatus{Dropped: 3})
 	if col.State != runtimefacts.StateDegraded || col.Reason != ReasonEventsDropped ||
 		col.DroppedEvents != 3 || !col.LastDropAt.Equal(at(time.Second)) {
 		t.Fatalf("drops = %+v", col)
 	}
 	// A count that does not grow keeps the old drop time; a resync clears the state.
 	a.Resync(oneScan(), at(time.Minute))
-	col, _ = a.Snapshot(at(61*time.Second), CollectorStatus{Dropped: 3})
+	col, _, _ = a.Snapshot(at(61*time.Second), CollectorStatus{Dropped: 3})
 	if col.State != runtimefacts.StateRunning || !col.LastDropAt.Equal(at(time.Second)) {
 		t.Fatalf("after resync = %+v", col)
 	}
 
 	a.ResyncFailed(errors.New("open /proc: permission denied"))
-	col, _ = a.Snapshot(at(62*time.Second), CollectorStatus{})
+	col, _, _ = a.Snapshot(at(62*time.Second), CollectorStatus{})
 	if col.State != runtimefacts.StateDegraded || col.Reason != ReasonResyncFailed ||
 		!strings.Contains(col.Message, "permission denied") {
 		t.Fatalf("resync failed = %+v", col)
 	}
 
 	// Failed wins, and its free-text fields are bounded to the schema.
-	col, _ = a.Snapshot(at(63*time.Second), CollectorStatus{
+	col, _, _ = a.Snapshot(at(63*time.Second), CollectorStatus{
 		Failed: true, Reason: strings.Repeat("R", 200), Message: strings.Repeat("m", 2000),
 	})
 	if col.State != runtimefacts.StateFailed || len(col.Reason) != 128 || len(col.Message) != 1024 {
@@ -473,7 +473,7 @@ func TestAggregator_PortZeroNeverRendered(t *testing.T) {
 	a.Apply(listen(100, EventUnlisten, false, any4, 0, "x"), at(time.Second))
 	a.Apply(connect(100, dbAddr, 0, false), at(time.Second))
 	a.Apply(connect(300, dbAddr, 0, false), at(time.Second))
-	_, pods := a.Snapshot(at(time.Second), CollectorStatus{})
+	_, pods, _ := a.Snapshot(at(time.Second), CollectorStatus{})
 	p := podByUID(t, pods, uidA)
 	if len(p.Listeners) != 1 || p.Listeners[0].Port != 8080 || len(p.Connections) != 0 || len(a.pending) != 0 {
 		t.Fatalf("pod A = %+v, pending = %v", p, a.pending)
@@ -516,7 +516,7 @@ func TestAggregator_PodInSeveralNetnsIsShared(t *testing.T) {
 		}}, t0)
 		a.Apply(connect(100, dbAddr, 1, true), at(time.Second))
 		a.Apply(connect(101, dbAddr, 1, true), at(time.Second))
-		_, pods := a.Snapshot(at(time.Second), CollectorStatus{})
+		_, pods, _ := a.Snapshot(at(time.Second), CollectorStatus{})
 		p := podByUID(t, pods, uidA)
 		if !p.Shared || len(p.Listeners) != 0 || len(p.Connections) != 0 || len(a.pending) != 0 ||
 			a.owners[100] != (runtimefacts.Identity{}) || a.owners[101] != (runtimefacts.Identity{}) || a.owners[200] != pod(uidB) {
@@ -542,12 +542,12 @@ func TestAggregator_PodInSeveralNetnsIsShared(t *testing.T) {
 func TestAggregator_AwaitingBaselineAfterAttach(t *testing.T) {
 	a := NewAggregator(DefaultBounds(), nil)
 	a.Resync(oneScan(), t0)
-	col, _ := a.Snapshot(at(2*time.Second), CollectorStatus{AttachedAt: at(time.Second)})
+	col, _, _ := a.Snapshot(at(2*time.Second), CollectorStatus{AttachedAt: at(time.Second)})
 	if col.State != runtimefacts.StateDegraded || col.Reason != ReasonAwaitingBaseline {
 		t.Fatalf("before the post-attach scan = %+v", col)
 	}
 	a.Resync(oneScan(), at(3*time.Second))
-	col, _ = a.Snapshot(at(4*time.Second), CollectorStatus{AttachedAt: at(time.Second)})
+	col, _, _ = a.Snapshot(at(4*time.Second), CollectorStatus{AttachedAt: at(time.Second)})
 	if col.State != runtimefacts.StateRunning {
 		t.Fatalf("after the post-attach scan = %+v", col)
 	}
@@ -594,7 +594,7 @@ func TestAggregator_CgroupAttribution(t *testing.T) {
 	if len(a.pending) != 0 || a.pendingIDs[pod(uidC)] == nil {
 		t.Fatalf("pending = %v, pendingIDs = %v", a.pending, a.pendingIDs)
 	}
-	_, ws := a.Snapshot(at(time.Second), CollectorStatus{})
+	_, ws, _ := a.Snapshot(at(time.Second), CollectorStatus{})
 	pa, pb := podByUID(t, ws, uidA), podByUID(t, ws, uidB)
 	if len(pa.Connections) != 2 || len(pa.Listeners) != 2 || len(pb.Connections)+len(pb.Listeners) != 0 {
 		t.Fatalf("pod A = %+v, pod B = %+v", pa, pb)
@@ -624,7 +624,7 @@ func TestAggregator_CgroupAttribution(t *testing.T) {
 	if len(c.pendingIDs) != 1 {
 		t.Fatalf("pendingIDs = %v", c.pendingIDs)
 	}
-	c.Snapshot(at(2*time.Minute), CollectorStatus{})
+	_, _, _ = c.Snapshot(at(2*time.Minute), CollectorStatus{})
 	if len(c.pendingIDs) != 0 {
 		t.Fatal("expired identity pending set kept")
 	}
@@ -681,7 +681,7 @@ func TestAggregator_HostNetworkByProcess(t *testing.T) {
 	a.Apply(inCgroup(connect(1, apiAddr, 443, false), 7), at(2*time.Second))
 	a.Apply(inCgroup(listen(1, EventListen, false, any4, 9000, "a"), 7), at(2*time.Second))
 	a.Apply(connect(1, apiAddr, 80, true), at(2*time.Second)) // by namespace: the host's, unattributable
-	_, ws := a.Snapshot(at(3*time.Second), CollectorStatus{})
+	_, ws, _ := a.Snapshot(at(3*time.Second), CollectorStatus{})
 	if len(ws) != 1 || ws[0].Shared || len(ws[0].Listeners) != 2 || len(ws[0].Connections) != 2 {
 		t.Fatalf("unit = %+v", ws)
 	}
@@ -698,7 +698,7 @@ func TestAggregator_HostNetworkByProcess(t *testing.T) {
 			s.Netns = map[uint32]*NetnsScan{1: scan.Netns[1], 2: {Workloads: []runtimefacts.Identity{svc}}}
 		}
 		agg.Resync(s, t0)
-		if _, ws := agg.Snapshot(t0, CollectorStatus{}); !ws[0].Shared || len(ws[0].Listeners) != 0 {
+		if _, ws, _ := agg.Snapshot(t0, CollectorStatus{}); !ws[0].Shared || len(ws[0].Listeners) != 0 {
 			t.Errorf("%s: unit = %+v", name, ws)
 		}
 	}

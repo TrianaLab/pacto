@@ -28,8 +28,12 @@
   }
 
   const RANK = { unavailable: 0, stale: 1, partial: 2, available: 3 };
+  // An advisory source that is not available never counts against the fleet, as in
+  // sourceCounts and the trust figure beside these chips, so it gets no warning chip;
+  // the inventory still lists it with its state.
   const ordered = $derived(
-    [...(sources ?? [])].sort((a, b) => (RANK[a?.status] ?? 9) - (RANK[b?.status] ?? 9)),
+    (sources ?? []).filter((s) => !(s?.advisory && s?.status !== 'available'))
+      .sort((a, b) => (RANK[a?.status] ?? 9) - (RANK[b?.status] ?? 9)),
   );
   // Every source that needs a look gets its own chip; forty healthy ones are one chip
   // that says how many and links to them, instead of a wall that buries the broken one.

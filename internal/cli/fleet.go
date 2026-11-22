@@ -72,7 +72,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.StringArray("traces", nil, "OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)")
 	shared.StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")
 	shared.Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
-	shared.Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
+	shared.Bool("k8s", false, "include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster")
 	shared.StringArray("context", nil, "kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once")
 	shared.String("namespace", "", "namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)")
 	shared.Duration("freshness", fleet.RecentEvidenceWindow, "mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so)")

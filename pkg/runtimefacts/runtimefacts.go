@@ -66,14 +66,23 @@ type Collection struct {
 // implied), the NodeRuntimeObservation status shape, and the rest under "workloads" with kind, id and
 // name. A snapshot of pods alone is therefore exactly that status.
 type Snapshot struct {
-	NodeName               string     `json:"nodeName,omitempty"`
-	AgentVersion           string     `json:"agentVersion,omitempty"`
-	KernelRelease          string     `json:"kernelRelease,omitempty"`
-	PublishIntervalSeconds int32      `json:"publishIntervalSeconds,omitempty"`
-	LastPublished          time.Time  `json:"lastPublished,omitzero"`
-	ObservingSince         time.Time  `json:"observingSince,omitzero"`
-	Collection             Collection `json:"collection,omitzero"`
-	Workloads              []Workload `json:"-"`
+	NodeName               string        `json:"nodeName,omitempty"`
+	AgentVersion           string        `json:"agentVersion,omitempty"`
+	KernelRelease          string        `json:"kernelRelease,omitempty"`
+	PublishIntervalSeconds int32         `json:"publishIntervalSeconds,omitempty"`
+	LastPublished          time.Time     `json:"lastPublished,omitzero"`
+	ObservingSince         time.Time     `json:"observingSince,omitzero"`
+	Collection             Collection    `json:"collection,omitzero"`
+	DNS                    DNSCollection `json:"dns,omitzero"`
+	Workloads              []Workload    `json:"-"`
+}
+
+// DNSCollection is the health of DNS answer capture on one host: the source of Connection.Host. An empty
+// state (an older agent) means no names were captured.
+type DNSCollection struct {
+	State          CollectorState `json:"state"`
+	Reason         string         `json:"reason,omitempty"`
+	DroppedAnswers int64          `json:"droppedAnswers,omitempty"`
 }
 
 // snapshotFields is Snapshot without its JSON methods.
@@ -166,7 +175,12 @@ type Listener struct {
 
 // Connection aggregates outbound TCP connection attempts to one peer.
 type Connection struct {
-	Address       string    `json:"address"`
+	Address string `json:"address"`
+	// Host is the name the workload's own DNS answers gave the address, empty when none did.
+	Host string `json:"host,omitempty"`
+	// Ambiguous is set when the workload's answers named the address under more than one registrable
+	// domain (a CDN or shared ingress), so Host stays empty.
+	Ambiguous     bool      `json:"ambiguous,omitempty"`
 	Port          int32     `json:"port"`
 	Successes     int64     `json:"successes,omitempty"`
 	Failures      int64     `json:"failures,omitempty"`

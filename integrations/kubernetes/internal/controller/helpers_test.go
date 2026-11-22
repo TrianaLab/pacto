@@ -516,3 +516,26 @@ func TestResetDerivedStatus_NotEvaluatedKeepsRefresh(t *testing.T) {
 		t.Errorf("coverage after reset = %+v, want unavailable/not-evaluated with RefreshSeconds 300", *got)
 	}
 }
+
+// TestResetDerivedStatusEgressNotEvaluated keeps the egress for its FirstSeen
+// and turns an earlier coverage into not evaluated, keeping its refresh
+// interval and node counts.
+func TestResetDerivedStatusEgressNotEvaluated(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{}
+	pacto.Status.ObservedEgress = []pactov1alpha1.EgressStatus{{Identity: "stripe"}}
+	pacto.Status.ObservedEgressCoverage = &pactov1alpha1.EgressCoverage{
+		CallerCoverage: pactov1alpha1.CallerCoverage{State: pactov1alpha1.CallerCoverageComplete, RefreshSeconds: 300}, Nodes: 4, NodesWithAgent: 3,
+	}
+	(&PactoReconciler{}).resetDerivedStatus(pacto)
+	want := pactov1alpha1.EgressCoverage{
+		CallerCoverage: pactov1alpha1.CallerCoverage{State: pactov1alpha1.CallerCoverageUnavailable, Reason: "not-evaluated", RefreshSeconds: 300}, Nodes: 4, NodesWithAgent: 3,
+	}
+	if got := pacto.Status.ObservedEgressCoverage; *got != want || len(pacto.Status.ObservedEgress) != 1 {
+		t.Errorf("after reset: coverage %+v, egress %+v", *got, pacto.Status.ObservedEgress)
+	}
+	pacto = &pactov1alpha1.Pacto{}
+	(&PactoReconciler{}).resetDerivedStatus(pacto)
+	if pacto.Status.ObservedEgressCoverage != nil {
+		t.Errorf("no coverage before, none after: %+v", pacto.Status.ObservedEgressCoverage)
+	}
+}

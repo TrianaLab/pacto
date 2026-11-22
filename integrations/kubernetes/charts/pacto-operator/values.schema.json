@@ -434,6 +434,10 @@
           "deprecated": true,
           "description": "Deprecated: use controller.metricsObservation. Applies only while controller.metricsObservation is empty."
         },
+        "egressGatewayLogs": {
+          "enum": ["auto", "on", "off", true, false],
+          "description": "Istio egress gateway access logs: auto (find gateways and propose on), on (read their access log tail; adds pods/log get in istio-system) or \"off\" (quoted: a bare off is YAML false); true means on and false keeps meaning auto."
+        },
         "kernelEvidence": {
           "type": "object",
           "additionalProperties": false,
@@ -624,7 +628,7 @@
         "observation": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Offline OTLP/JSON trace exports mounted read-only into the dashboard. Not an OTLP receiver and not a trace collector.",
+          "description": "Offline OTLP/JSON trace exports mounted read-only into the dashboard. The dashboard also receives OTLP/HTTP JSON in the cluster; Pacto deploys no trace collector.",
           "properties": {
             "sources": {
               "type": "array",

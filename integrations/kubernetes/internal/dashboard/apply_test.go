@@ -8,13 +8,16 @@ See LICENSE file in the project root for full license text.
 package dashboard
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
@@ -601,5 +604,45 @@ func TestApplyMountsOwnerPolicy(t *testing.T) {
 		if *v.Name == "owner-policy" {
 			t.Error("owner policy volume without a ConfigMap")
 		}
+	}
+}
+
+// The dashboard receives OTLP/HTTP JSON in the cluster on its own port; the
+// address it advertises names the operator-applied Service.
+func TestDeploymentRunsTheReceiver(t *testing.T) {
+	deploy := deploymentAC(Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}).(*appsv1ac.DeploymentApplyConfiguration)
+	c := deploy.Spec.Template.Spec.Containers[0]
+	want := fmt.Sprintf("http://pacto-dashboard.test-ns:%d", OTLPPort)
+	var got string
+	for _, env := range c.Env {
+		if *env.Name == "PACTO_DASHBOARD_OTLP_RECEIVER" {
+			got = *env.Value
+		}
+	}
+	if got != want {
+		t.Errorf("PACTO_DASHBOARD_OTLP_RECEIVER=%q, want %q", got, want)
+	}
+	var port bool
+	for _, p := range c.Ports {
+		if *p.Name == "otlp-http" && *p.ContainerPort == OTLPPort && *p.Protocol == corev1.ProtocolTCP {
+			port = true
+		}
+	}
+	if !port {
+		t.Errorf("container ports %v lack otlp-http on %d", c.Ports, OTLPPort)
+	}
+}
+
+func TestServiceExposesOTLPOnlyOnOperatorService(t *testing.T) {
+	svc := serviceAC(Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}).(*corev1ac.ServiceApplyConfiguration)
+	got := map[string]int32{}
+	for _, p := range svc.Spec.Ports {
+		got[*p.Name] = *p.Port
+		if *p.TargetPort != intstr.FromInt32(*p.Port) {
+			t.Errorf("port %s targets %v", *p.Name, *p.TargetPort)
+		}
+	}
+	if len(got) != 2 || got["http"] != DashboardPort || got["otlp-http"] != OTLPPort {
+		t.Errorf("service ports = %v, want http:%d and otlp-http:%d", got, DashboardPort, OTLPPort)
 	}
 }

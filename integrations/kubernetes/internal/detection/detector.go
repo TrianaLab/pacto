@@ -6,7 +6,7 @@ See LICENSE file in the project root for full license text.
 */
 
 // Package detection is the operator side of what a cluster provides: it reads
-// pods, nodes, HTTPRoutes, Ingresses, Dex Services and API discovery, infers
+// pods, nodes, HTTPRoutes, Ingresses, Services and API discovery, infers
 // with pkg/detect and writes the result into one ConfigMap. Detection is
 // inert: nothing in the operator reads that ConfigMap back, and nothing it
 // finds sets a value, an argument or a grant.
@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -46,6 +47,8 @@ const (
 	gatewayGV    = "gateway.networking.k8s.io/v1"
 	monitoringGV = "monitoring.coreos.com/v1"
 	dexGV        = "dex.coreos.com/v1"
+	istioGV      = "networking.istio.io/v1"
+	ciliumGV     = "cilium.io/v2"
 )
 
 // pageSize is the List page of the paginated reads.
@@ -81,9 +84,27 @@ type Detector struct {
 	// attempt, nil before the first one.
 	Installation *detect.Installation
 	LastPush     func() *detect.PushResult
+	// Readers are the egress readers the operator started with.
+	Readers Readers
 
 	owner       *metav1ac.OwnerReferenceApplyConfiguration
 	warnedOwner bool
+}
+
+// Readers is what the operator reads beside detection, fixed at its start: the
+// controller.egressGatewayLogs mode (auto, on or off), whether kernel evidence
+// is on (gateway logs are read with it) and whether the ServiceEntry and
+// Cilium policy readers run (each needs its API served at startup).
+type Readers struct {
+	GatewayLogs                                    string
+	KernelEvidence, ServiceEntries, CiliumPolicies bool
+}
+
+// readerOff is e partial when its API is served but the operator's reader did
+// not start: the API came after the operator did.
+func readerOff(e detect.Entry, running bool) detect.Entry {
+	return detect.ReaderOff(e, running, "served since the operator started, so it is not read yet",
+		"restart the operator, after a helm upgrade so the chart grants the read")
 }
 
 // Start implements manager.Runnable. Runnables default to leader election,
@@ -137,8 +158,8 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 
 	res.Installation = d.installation()
 
-	ws, sampled, err := d.workloads(ctx)
-	reg := or(err, "registry", func() detect.Entry { return detect.Registries(ws, sampled, !scoped) })
+	ws, sampled, wsErr := d.workloads(ctx)
+	reg := or(wsErr, "registry", func() detect.Entry { return detect.Registries(ws, sampled, !scoped) })
 	res.Entries = append(res.Entries, reg)
 	if ps := detect.PullSecret(ws, reg, sampled, !scoped); ps.Kind != "" {
 		res.Entries = append(res.Entries, ps)
@@ -157,6 +178,22 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 	served, servedErr := d.Served(monitoringGV)
 	res.Entries = append(res.Entries, detect.Metrics(served, classed(servedErr)))
 
+	istioServed, istioErr := d.Served(istioGV)
+	res.Entries = append(res.Entries, readerOff(detect.IstioEgress(istioServed, classed(istioErr)), d.Readers.ServiceEntries))
+	if istioErr == nil && istioServed {
+		// No Istio, no egress gateway: nothing is listed and no entry is written.
+		gateways, err := d.egressGateways(ctx)
+		if gw := detect.EgressGateways(gateways, d.Readers.GatewayLogs, classed(err)); gw.Kind != "" {
+			if d.Readers.GatewayLogs == detect.GatewayLogsOn {
+				gw = detect.ReaderOff(gw, d.Readers.KernelEvidence, "gateway logs are read only with kernel evidence on",
+					"helm upgrade <release> <chart> --reuse-values --set nodeAgent.enabled=true")
+			}
+			res.Entries = append(res.Entries, gw)
+		}
+	}
+	ciliumServed, ciliumErr := d.Served(ciliumGV)
+	res.Entries = append(res.Entries, readerOff(detect.CiliumFQDN(ciliumServed, classed(ciliumErr)), d.Readers.CiliumPolicies))
+
 	dexServed, dexErr := d.Served(dexGV)
 	services, err := d.dexServices(ctx)
 	res.Entries = append(res.Entries, sampledEntry(detect.SignIn(dexServed, services, classed(errors.Join(dexErr, err)), watched), scoped, scopedReason))
@@ -168,6 +205,17 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 	}
 	ingresses, err := d.ingresses(ctx)
 	res.Entries = append(res.Entries, sampledEntry(detect.Exposure(gwServed, classed(errors.Join(gwErr, err)), routes, ingresses, watched), scoped, scopedReason))
+
+	svcs, svcErr := d.services(ctx)
+	if err := errors.Join(wsErr, svcErr); err != nil {
+		res.Entries = append(res.Entries, detect.TracesUnknown("reading the cluster failed: "+reason(err)))
+	} else {
+		// A rule judged on part of the cluster proves no single backend.
+		for _, e := range detect.Traces(ws, svcs, d.Namespace) {
+			e = sampledEntry(e, sampled, fmt.Sprintf("sampled the first %d running pods", detect.MaxPods))
+			res.Entries = append(res.Entries, sampledEntry(e, scoped, scopedReason))
+		}
+	}
 	return res
 }
 
@@ -256,17 +304,19 @@ func (d *Detector) workloads(ctx context.Context) ([]detect.Workload, bool, erro
 					continue
 				}
 				id := string(p.UID)
+				var owner detect.Object
 				if o := metav1.GetControllerOf(p); o != nil {
-					id = string(o.UID)
+					id, owner = string(o.UID), ownerObject(p, o)
 				}
 				w, ok := byID[id]
 				if !ok {
-					w = &detect.Workload{ID: id, Namespace: p.Namespace}
+					w = &detect.Workload{ID: id, Namespace: p.Namespace, Owner: owner}
 					byID[id] = w
 					order = append(order, id)
 				}
 				for _, c := range p.Spec.Containers {
 					w.Images = append(w.Images, c.Image)
+					w.Env = append(w.Env, envFacts(c.Env)...)
 				}
 				for _, s := range p.Spec.ImagePullSecrets {
 					w.PullSecrets = append(w.PullSecrets, s.Name)
@@ -278,6 +328,34 @@ func (d *Detector) workloads(ctx context.Context) ([]detect.Workload, bool, erro
 		}
 	}
 	return collect(byID, order), false, nil
+}
+
+// ownerObject is the controller o of p as a detect object: a ReplicaSet
+// named <deployment>-<pod-template-hash> reads as that Deployment.
+func ownerObject(p *corev1.Pod, o *metav1.OwnerReference) detect.Object {
+	if hash := p.Labels[appsv1.DefaultDeploymentUniqueLabelKey]; o.Kind == "ReplicaSet" && hash != "" {
+		if deploy, ok := strings.CutSuffix(o.Name, "-"+hash); ok {
+			return detect.Object{Kind: "Deployment", Namespace: p.Namespace, Name: deploy}
+		}
+	}
+	return detect.Object{Kind: o.Kind, Namespace: p.Namespace, Name: o.Name}
+}
+
+// envFacts are the variables of env that detect.EnvAllowlist lists: the
+// literal value of DD_SITE, and for DD_API_KEY only the name of the Secret
+// its value comes from. Nothing is read from EnvFrom or any Secret.
+func envFacts(env []corev1.EnvVar) []detect.EnvFact {
+	var out []detect.EnvFact
+	for _, e := range env {
+		switch {
+		case !detect.EnvAllowlist[e.Name]:
+		case e.Name == "DD_SITE":
+			out = append(out, detect.EnvFact{Key: e.Name, Value: e.Value})
+		case e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil:
+			out = append(out, detect.EnvFact{Key: e.Name, SecretName: e.ValueFrom.SecretKeyRef.Name})
+		}
+	}
+	return out
 }
 
 func collect(byID map[string]*detect.Workload, order []string) []detect.Workload {
@@ -311,7 +389,7 @@ func (d *Detector) nodes(ctx context.Context) ([]detect.Node, bool, error) {
 
 // routes reads every HTTPRoute's Gateway parents, unstructured: the operator
 // carries no Gateway API dependency.
-// ponytail: routes, Ingresses and Dex Services are one List per scope, unpaged; page them if a cluster outgrows that.
+// ponytail: routes, Ingresses, Dex Services and Services are one List per scope, unpaged; page them if a cluster outgrows that.
 func (d *Detector) routes(ctx context.Context) ([]detect.Route, error) {
 	var out []detect.Route
 	for _, ns := range d.scopes() {
@@ -355,6 +433,54 @@ func (d *Detector) ingresses(ctx context.Context) ([]detect.Ingress, error) {
 				class = *i.Spec.IngressClassName
 			}
 			out = append(out, detect.Ingress{Namespace: i.Namespace, Class: class})
+		}
+	}
+	return out, nil
+}
+
+// services reads every Service in scope with its type, whether it selects
+// pods, its TCP ports and only the labels detect.PrometheusLabels lists.
+func (d *Detector) services(ctx context.Context) ([]detect.Service, error) {
+	var out []detect.Service
+	for _, ns := range d.scopes() {
+		l := &corev1.ServiceList{}
+		if err := d.Reader.List(ctx, l, client.InNamespace(ns)); err != nil {
+			return nil, err
+		}
+		for _, s := range l.Items {
+			svc := detect.Service{Namespace: s.Namespace, Name: s.Name, Type: string(s.Spec.Type), HasSelector: len(s.Spec.Selector) > 0}
+			for _, k := range detect.PrometheusLabels {
+				if v, ok := s.Labels[k]; ok {
+					if svc.Labels == nil {
+						svc.Labels = map[string]string{}
+					}
+					svc.Labels[k] = v
+				}
+			}
+			for _, p := range s.Spec.Ports {
+				if p.Protocol == "" || p.Protocol == corev1.ProtocolTCP {
+					svc.Ports = append(svc.Ports, detect.ServicePort{Name: p.Name, Port: p.Port})
+				}
+			}
+			out = append(out, svc)
+		}
+	}
+	return out, nil
+}
+
+// egressGateways are the Istio egress gateway pods: labelled istio=egressgateway in istio-system and owned
+// by a Deployment there, the pods the controller trusts with gateway logs on. A labelled pod anywhere else is
+// never listed. One unpaged List: a cluster runs a handful of gateway replicas.
+func (d *Detector) egressGateways(ctx context.Context) ([]detect.Object, error) {
+	l := &corev1.PodList{}
+	if err := d.Reader.List(ctx, l, client.InNamespace(detect.GatewayNamespace), client.MatchingLabels{"istio": "egressgateway"}); err != nil {
+		return nil, err
+	}
+	var out []detect.Object
+	for i := range l.Items {
+		p := &l.Items[i]
+		if o := metav1.GetControllerOf(p); o != nil && ownerObject(p, o).Kind == "Deployment" {
+			out = append(out, detect.Object{Kind: "Pod", Namespace: p.Namespace, Name: p.Name})
 		}
 	}
 	return out, nil

@@ -23,10 +23,15 @@ import (
 // what the demo itself holds: the targets the cluster reports plus the
 // inferred workloads. The detected rows are TestDemoFleetHasDetectedRows's,
 // the registry rows TestDemoRegistryRows's; the grouping rows' evidence is
-// TestDemoGroups's.
+// TestDemoGroups's. The mesh source's Istio row is reported too, partial,
+// and left out of the count here: it is TestDemoMeshEdgeAndRow's, as the
+// kernel-egress row is TestDemoEgressRows's.
 func TestDemoProviderRows(t *testing.T) {
 	snap := demoFleet(t)
 	reported, reporting := splitReporting(snap.Providers)
+	reported = slices.DeleteFunc(reported, func(p fleet.Provider) bool {
+		return p.Source == demoMeshID || p.ID == fleet.ProviderKernelEgress
+	})
 	if len(reported) != 6 || len(reporting) != 5 {
 		t.Fatalf("providers = %+v, reporting = %+v, want 6 and 5 rows", reported, reporting)
 	}
@@ -118,14 +123,15 @@ func TestDemoFingerprintsMatchChartDefaults(t *testing.T) {
 	}
 }
 
-// splitReporting drops the detected and registry rows and splits the rest into the
+// splitReporting drops the detected, trace-backend and registry rows and splits the rest into the
 // reported rows and the reporting adapter rows: the provisioning reports the
 // demo holds add one reporting adapter row each, named by the source that
 // delivered them.
 func splitReporting(providers []fleet.Provider) (reported, reporting []fleet.Provider) {
 	for _, p := range providers {
 		switch {
-		case p.Source == "cluster-detection", strings.HasPrefix(p.ID, fleet.ProviderRegistryPrefix):
+		case p.Source == "cluster-detection", strings.HasPrefix(p.ID, fleet.ProviderRegistryPrefix),
+			p.Source == demoServiceGraphID, p.Source == demoJaegerID, p.Source == demoReceiverID:
 		case slices.Equal(p.UsedFor, []string{fleet.UseReporting}):
 			reporting = append(reporting, p)
 		default:

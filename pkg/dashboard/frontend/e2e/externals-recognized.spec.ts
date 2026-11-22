@@ -9,14 +9,18 @@ import { appReady } from './ready';
 const T = 20_000;
 
 test.describe('WASM demo — externals recognized from traces and configuration', () => {
-  test('twilio lists only its trace source and notification-worker shows the inferred edge', async ({ page }) => {
+  test('twilio lists only its trace sources and notification-worker shows the inferred edge', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await appReady(page, '/#/fleet/externals/twilio');
 
     const rows = page.getByTestId('external-source');
-    const observed = rows.and(page.locator('[data-provenance="observed"]'));
-    await expect(observed).toHaveCount(1, { timeout: T });
-    await expect(observed.locator('[data-cell="where"]')).toContainText('otel-traces');
+    // One observed row per trace source: the trace file and the service graph the
+    // dashboard reads from Prometheus both saw the call.
+    const allObserved = rows.and(page.locator('[data-provenance="observed"]'));
+    await expect(allObserved).toHaveCount(2, { timeout: T });
+    await expect(allObserved.filter({ has: page.locator('[data-cell="where"]', { hasText: 'detected-service-graph' }) })).toHaveCount(1);
+    const observed = allObserved.filter({ has: page.locator('[data-cell="where"]', { hasText: 'otel-traces' }) });
+    await expect(observed).toHaveCount(1);
     await expect(observed.locator('[data-cell="service"]')).toContainText('notification-worker');
     await expect(page.locator('[data-testid="external-source"][data-provenance="declared"]')).toHaveCount(0);
     // No contract declares it, so the consumer reads as observed, never optional,

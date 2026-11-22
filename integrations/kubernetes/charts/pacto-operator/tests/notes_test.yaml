@@ -142,3 +142,26 @@ tests:
           pattern: dashboard\.auth\.tokenSignIn\.enabled=true
       - notMatchRegexRaw:
           pattern: tokenLogin
+
+  - it: names the trace backends detection found and an unreadable trace read
+    kubernetesProvider:
+      scheme:
+        "v1/ConfigMap":
+          gvr: {group: "", version: v1, resource: configmaps}
+          namespaced: true
+      objects:
+        - kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-detected
+            namespace: pacto-operator-system
+            labels: {app.kubernetes.io/managed-by: pacto-operator}
+            ownerReferences:
+              - {apiVersion: apps/v1, kind: Deployment, name: pacto-operator, uid: u1}
+          data:
+            detected.json: '{"schemaVersion":"1","asOf":"2026-11-20T10:00:00Z","entries":[{"kind":"otel-collector","value":"OpenTelemetry Collector","evidence":"running in 1 workload","source":"running pods and Services","completeness":"complete","namespaces":["obs"]},{"kind":"traces","completeness":"unknown","reason":"reading the cluster failed: Forbidden"}]}'
+    asserts:
+      - matchRegexRaw:
+          pattern: "  OTel Collector: OpenTelemetry Collector running in 1 workload \\(from running pods and Services\\)"
+      - matchRegexRaw:
+          pattern: "  Traces: unknown: reading the cluster failed: Forbidden"

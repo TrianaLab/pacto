@@ -22,6 +22,16 @@ tests:
             app.kubernetes.io/component: dashboard
             app.kubernetes.io/name: pacto-dashboard
 
+  - it: keeps one http port on the chart Service, so no route reaches OTLP
+    template: templates/dashboard-service.yaml
+    asserts:
+      - lengthEqual:
+          path: spec.ports
+          count: 1
+      - equal:
+          path: spec.ports[0].name
+          value: http
+
   - it: should not create a dashboard Service when dashboard is disabled
     template: templates/dashboard-service.yaml
     set:

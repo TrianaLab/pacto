@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package dashboard
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
@@ -251,6 +252,8 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	env := []*corev1ac.EnvVarApplyConfiguration{
 		corev1ac.EnvVar().WithName("PACTO_DASHBOARD_PORT").WithValue("3000"),
 		corev1ac.EnvVar().WithName("PACTO_NO_UPDATE_CHECK").WithValue("1"),
+		corev1ac.EnvVar().WithName("PACTO_DASHBOARD_OTLP_RECEIVER").
+			WithValue(fmt.Sprintf("http://%s.%s:%d", Name, cfg.Namespace, OTLPPort)),
 	}
 	if len(cfg.WatchNamespaces) > 0 {
 		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_NAMESPACE").WithValue(strings.Join(cfg.WatchNamespaces, ",")))
@@ -338,6 +341,7 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		WithImage(cfg.Image).
 		WithPorts(
 			corev1ac.ContainerPort().WithName("http").WithContainerPort(DashboardPort).WithProtocol(corev1.ProtocolTCP),
+			corev1ac.ContainerPort().WithName("otlp-http").WithContainerPort(OTLPPort).WithProtocol(corev1.ProtocolTCP),
 		).
 		WithEnv(env...).
 		WithVolumeMounts(volumeMounts...).
@@ -394,6 +398,11 @@ func serviceAC(cfg Config) runtime.ApplyConfiguration {
 					WithName("http").
 					WithPort(DashboardPort).
 					WithTargetPort(intstr.FromInt32(DashboardPort)).
+					WithProtocol(corev1.ProtocolTCP),
+				corev1ac.ServicePort().
+					WithName("otlp-http").
+					WithPort(OTLPPort).
+					WithTargetPort(intstr.FromInt32(OTLPPort)).
 					WithProtocol(corev1.ProtocolTCP),
 			),
 		)
