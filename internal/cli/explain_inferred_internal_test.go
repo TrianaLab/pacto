@@ -167,7 +167,7 @@ func TestExplainPrintsRepository(t *testing.T) {
 		result := &app.ExplainResult{Name: "invoices", Declaration: &contract.InferredDeclaration{State: state, Repository: repo,
 			Asker: contract.InferredSigner{Subject: "ana@acme.com", Issuer: "https://accounts.google.com"}}}
 		if err := printExplainResult(cmd, result, "text"); err != nil ||
-			!strings.Contains(buf.String(), "\nRepository: github.com/acme/invoices (GitOps source), folder: deploy/ (GitOps source)\n") {
+			!strings.Contains(buf.String(), "\nRepository (the record claims): github.com/acme/invoices (GitOps source), folder: deploy/ (GitOps source)\n") {
 			t.Fatalf("%s: %v\n%s", state, err, buf.String())
 		}
 	}
