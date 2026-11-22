@@ -101,6 +101,7 @@ reasons are:
 | `gateway-log-truncated` | a gateway read hit its 2000-line or 1 MiB bound before it covered the window |
 | `cilium-unreadable` | the Cilium policies could not be read |
 | `fqdn-pattern-unbounded` | a `toFQDNs` pattern such as `*` names no registrable domain |
+| `cilium-selector-unevaluated` | a Cilium policy selects pods by a label the operator does not model, such as a namespace label |
 
 Legacy systems are often reached by private IP with no lookup, so an unnamed
 private address outside every node's pod CIDR lowers coverage.

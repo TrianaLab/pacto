@@ -125,10 +125,41 @@ func TestCiliumClusterwidePolicyRead(t *testing.T) {
 	}
 	delete(multi.Object, "spec")
 	got, cov := ciliumObserve(t, interceptor.Funcs{}, ciliumInput(), multi)
-	if want := "stripe|vendor-api|likely|ciliumFQDN|api.stripe.com|ciliumclusterwidenetworkpolicy/vendors toFQDNs api.stripe.com"; summary(got) != want {
+	// A cluster-wide policy is never named on a namespaced service: its name is not the namespace's.
+	if want := "stripe|vendor-api|likely|ciliumFQDN|api.stripe.com|ciliumclusterwidenetworkpolicy (cluster-wide) toFQDNs api.stripe.com"; summary(got) != want {
 		t.Fatalf("got\n%s", summary(got))
 	}
 	wantCoverage(t, cov, unversioned.CallerCoverageComplete, "")
+}
+
+// TestCiliumServiceAccountSelectorMatches: Cilium labels every endpoint with its pod's service account,
+// so a cluster-wide policy that selects it selects the target's pods (default when the pod spec names none).
+func TestCiliumServiceAccountSelectorMatches(t *testing.T) {
+	bySA := func(sa string) map[string]any {
+		return map[string]any{"matchLabels": map[string]any{"k8s:io.cilium.k8s.policy.serviceaccount": sa}}
+	}
+	got, cov := ciliumObserve(t, interceptor.Funcs{}, ciliumInput(),
+		ciliumPolicy("", "pci", bySA("default"), map[string]any{"matchName": "api.stripe.com"}),
+		ciliumPolicy("", "other", bySA("orders"), map[string]any{"matchName": "api.twilio.com"}))
+	if want := "stripe|vendor-api|likely|ciliumFQDN|api.stripe.com|ciliumclusterwidenetworkpolicy (cluster-wide) toFQDNs api.stripe.com"; summary(got) != want {
+		t.Fatalf("got\n%s", summary(got))
+	}
+	wantCoverage(t, cov, unversioned.CallerCoverageComplete, "")
+}
+
+// TestCiliumUnmodelledDerivedLabelPartial: a selector on a label Cilium derives that the scan does not
+// model (a namespace label, the cluster) is never read as "does not select": the list is partial.
+func TestCiliumUnmodelledDerivedLabelPartial(t *testing.T) {
+	for _, sel := range []map[string]any{
+		{"matchLabels": map[string]any{"k8s:io.cilium.k8s.namespace.labels.team": "payments"}},
+		{"matchExpressions": []any{map[string]any{"key": "io.cilium.k8s.policy.cluster", "operator": "Exists"}}},
+	} {
+		got, cov := ciliumObserve(t, interceptor.Funcs{}, ciliumInput(), ciliumPolicy("", "team", sel, map[string]any{"matchName": "api.stripe.com"}))
+		if len(got) != 0 {
+			t.Fatalf("got %s", summary(got))
+		}
+		wantCoverage(t, cov, unversioned.CallerCoveragePartial, "cilium-selector-unevaluated")
+	}
 }
 
 // TestCiliumNotServedLeavesCoverageComplete: without the Cilium API no

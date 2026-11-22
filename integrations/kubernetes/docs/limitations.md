@@ -43,7 +43,8 @@ never `NonCompliant`. That happens for:
   hold. It never reads a Secret. A Cilium `toFQDNs` rule that selects the
   target's pods adds its hosts as `ciliumFQDN` entries, inferred like a
   `ServiceEntry`, read from the Pacto's namespace and from every
-  `CiliumClusterwideNetworkPolicy`.
+  `CiliumClusterwideNetworkPolicy`. A cluster-wide policy shows as
+  `ciliumclusterwidenetworkpolicy (cluster-wide)`, never by its name.
 - **Non-HTTP capability bindings** -- health and metrics probing supports HTTP
   bindings only; gRPC capability probing is not implemented and returns
   `Unsupported`.
