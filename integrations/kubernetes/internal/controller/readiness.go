@@ -33,16 +33,10 @@ var readinessClock = time.Now
 // status was reset) so the warning/recovery events fire only on a gate transition
 // rather than on every reconciliation.
 func (r *PactoReconciler) reconcileReadiness(pacto *pactov1alpha1.Pacto, c *contract.Contract, wasUnmet bool) {
-	eval := readiness.Evaluate(c.Readiness, readinessClock())
-	if eval == nil {
-		// No readiness declared: omit the status and the condition entirely.
+	status, reason, msg, declared := r.setReadiness(pacto, c)
+	if !declared {
 		return
 	}
-
-	pacto.Status.Readiness = buildReadinessStatus(eval, c.Readiness)
-
-	status, reason, msg := readinessCondition(eval)
-	r.setCondition(pacto, pactov1alpha1.ConditionReadinessSatisfied, status, reason, msg)
 	metrics.RecordReadiness(pacto.Namespace, pacto.Name, pacto.Status.Readiness, reason)
 
 	switch {
@@ -51,6 +45,21 @@ func (r *PactoReconciler) reconcileReadiness(pacto *pactov1alpha1.Pacto, c *cont
 	case status == metav1.ConditionTrue && wasUnmet:
 		r.Recorder.Event(pacto, corev1.EventTypeNormal, pactov1alpha1.EventReadinessRecovered, msg)
 	}
+}
+
+// setReadiness records the readiness assessment and the ReadinessSatisfied condition on the status
+// and returns that condition; declared is false, and nothing is recorded, when the contract declares
+// no readiness.
+func (r *PactoReconciler) setReadiness(pacto *pactov1alpha1.Pacto, c *contract.Contract) (status metav1.ConditionStatus, reason, msg string, declared bool) {
+	eval := readiness.Evaluate(c.Readiness, readinessClock())
+	if eval == nil {
+		// No readiness declared: omit the status and the condition entirely.
+		return "", "", "", false
+	}
+	pacto.Status.Readiness = buildReadinessStatus(eval, c.Readiness)
+	status, reason, msg = readinessCondition(eval)
+	r.setCondition(pacto, pactov1alpha1.ConditionReadinessSatisfied, status, reason, msg)
+	return status, reason, msg, true
 }
 
 // readinessCondition maps an evaluation to the aggregate ReadinessSatisfied

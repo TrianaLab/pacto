@@ -194,6 +194,9 @@ type Observer struct {
 	// run is the memo of the Collect in progress (or the last one), nil before the first. Dimensions
 	// called on their own work without it: every read then goes to the client.
 	run *collectRun
+	// linked lists the workloads the linker matched to a published contract with no Pacto CR; nil lists
+	// none. A dependency falls back to them only when no CR matches it.
+	linked func() []LinkedSibling
 }
 
 // KernelCoverage is how far the node agent's view of the target's pods could be trusted in the last
@@ -255,6 +258,12 @@ func New(c client.Client) *Observer {
 // WithReader sets the uncached reader Secret metadata is read through.
 func (o *Observer) WithReader(r client.Reader) *Observer {
 	o.reader = r
+	return o
+}
+
+// WithLinked sets where the linked workloads come from; nil keeps dependency resolution to Pacto CRs.
+func (o *Observer) WithLinked(linked func() []LinkedSibling) *Observer {
+	o.linked = linked
 	return o
 }
 

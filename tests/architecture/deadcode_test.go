@@ -105,6 +105,8 @@ var deadCodeAllowlist = map[string]string{
 	"pkg/delivery.EncodeLinked": linkedFormatPending,
 	"pkg/delivery.LinkLabels":   linkedFormatPending,
 	"pkg/publish.ReadImages":    linkedFormatPending,
+	// The linker judges each linked workload through it.
+	"integrations/kubernetes/internal/controller.EvaluateDetached": linkedFormatPending,
 }
 
 // linkedFormatPending is the reason for the #604 entries above: each is
