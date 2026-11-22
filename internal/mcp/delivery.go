@@ -75,7 +75,11 @@ const deliveryInstructions = "Pacto delivery decides which version each environm
 	"promoter: the name is asserted, that person may not approve " +
 	"the change, and planning needs no person. Pass correlation_id on plan and propose to tie a change to a ticket or " +
 	"incident; the rollback, freeze or step-down the promoter raises after it inherits the id, and it never changes the " +
-	"intent digest." + checkedPass + noApprove
+	"intent digest." + checkedPass + manifestsNote + noApprove
+
+// manifestsNote says where an agent reads what a promote applies.
+const manifestsNote = " When the installation turns the manifest inspector on, a promote plan's pacto.manifests verdict " +
+	"citation lists the objects the version applies (objects) and what the inspector refused (refused) or could not read (unread)."
 
 // registerDelivery adds the delivery tools. writes registers propose and
 // cancel; the command layer passes true only when the caller is not a human
@@ -114,7 +118,7 @@ func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool, refs 
 			"running there does not accept the new version, the order: which consumer must move first and the verified " +
 			"version of it to promote. next says in plain words what proposing it leads to: which teams must sign, that an " +
 			"agent cannot answer and the operation is then Held, and what happens at the approval deadline. A Rejected plan " +
-			"asks nobody anything; its failing verdict says what to do first. Read-only." + checkedPass + noApprove,
+			"asks nobody anything; its failing verdict says what to do first. Read-only." + checkedPass + manifestsNote + noApprove,
 		InputSchema: requestSchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a requestArgs) (*mcpsdk.CallToolResult, any, error) {
 		req, err := a.request()

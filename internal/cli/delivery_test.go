@@ -754,3 +754,41 @@ func TestPrintPlanApplierLine(t *testing.T) {
 		t.Fatalf("a rollback has no applier gate:\n%s", b.String())
 	}
 }
+
+// TestPrintPlanListsManifests: a promote the inspector judged lists the
+// objects it will apply, then each refused and unread item on its own line.
+func TestPrintPlanListsManifests(t *testing.T) {
+	var b strings.Builder
+	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: []delivery.Verdict{{Gate: delivery.GateManifests,
+		Result: delivery.Fail, Citation: map[string]string{"artifact": "manifests", "objects": "Deployment orders, ClusterRoleBinding orders-admin",
+			"refused": "ClusterRoleBinding orders-admin is cluster-scoped; Namespace x is cluster-scoped", "unread": "Widget w is an unknown kind"}}}}})
+	for _, want := range []string{
+		"objects:   manifests: Deployment orders, ClusterRoleBinding orders-admin\n",
+		"refused:   ClusterRoleBinding orders-admin is cluster-scoped\n",
+		"refused:   Namespace x is cluster-scoped\n",
+		"unread:    Widget w is an unknown kind\n",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Fatalf("want %q in\n%s", want, b.String())
+		}
+	}
+	// An artifact Pacto could not read lists no objects, only why.
+	b.Reset()
+	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: []delivery.Verdict{{Gate: delivery.GateManifests,
+		Result: delivery.Unknown, Citation: map[string]string{"artifact": "manifests", "unread": "the registry did not answer"}}}}})
+	if strings.Contains(b.String(), "objects:") || !strings.Contains(b.String(), "unread:    the registry did not answer\n") {
+		t.Fatalf("unexpected:\n%s", b.String())
+	}
+}
+
+// TestPrintPlanManifestsAbsentWithoutGate: a plan the inspector never ran
+// on prints no objects, refused or unread line.
+func TestPrintPlanManifestsAbsentWithoutGate(t *testing.T) {
+	var b strings.Builder
+	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: []delivery.Verdict{{Gate: delivery.GatePublished, Result: delivery.Pass}}}})
+	for _, no := range []string{"objects:", "refused:", "unread:"} {
+		if strings.Contains(b.String(), no) {
+			t.Fatalf("no %q expected in\n%s", no, b.String())
+		}
+	}
+}

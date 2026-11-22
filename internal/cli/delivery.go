@@ -293,6 +293,7 @@ func printPlan(w io.Writer, p delivery.PlanAnswer) {
 	for _, v := range p.Verdicts {
 		printVerdict(w, "  ", v)
 	}
+	printPlanManifests(w, p)
 	if p.Question != "" {
 		_, _ = fmt.Fprintf(w, "question:  %s\n", p.Question)
 	}
@@ -329,6 +330,28 @@ func printPlanApplier(w io.Writer, p delivery.PlanAnswer) {
 		observed += ", " + c["state"]
 	}
 	_, _ = fmt.Fprintf(w, "applier:   %s; declared %s\n", observed, c["declared"])
+}
+
+// printPlanManifests lists, from the pacto.manifests citation, the objects
+// a promote applies and what the inspector refused or could not read;
+// nothing when the gate did not run.
+func printPlanManifests(w io.Writer, p delivery.PlanAnswer) {
+	i := slices.IndexFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GateManifests })
+	if i < 0 {
+		return
+	}
+	c := p.Verdicts[i].Citation
+	if c["objects"] != "" {
+		_, _ = fmt.Fprintf(w, "objects:   %s: %s\n", c["artifact"], c["objects"])
+	}
+	for _, k := range []string{"refused", "unread"} {
+		if c[k] == "" {
+			continue
+		}
+		for _, item := range strings.Split(c[k], "; ") {
+			_, _ = fmt.Fprintf(w, "%-11s%s\n", k+":", item)
+		}
+	}
 }
 
 // printPrecedent says what the records attached to the version say happened

@@ -442,6 +442,16 @@ describe('classSourceLabel and accessSourceLabel', () => {
 });
 
 describe('applier', () => {
+  it('labels the pacto.manifests gate', () => {
+    expect(gateLabel('pacto.manifests')).toBe('Objects stay in the Stage namespace');
+  });
+
+  it('explains an Unknown pacto.manifests verdict', () => {
+    const h = unknownHelp({ gate: 'pacto.manifests' });
+    expect(h).toContain('could not tell what this version applies');
+    expect(h).not.toContain('configured and reachable');
+  });
+
   it('labels the pacto.applier gate', () => {
     expect(gateLabel('pacto.applier')).toBe('Applier owns the workloads');
   });
