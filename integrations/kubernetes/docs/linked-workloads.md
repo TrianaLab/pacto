@@ -38,10 +38,12 @@ The rules, in order:
   no user info and at most 255 characters. Anything else links nothing and
   reports `LINK_ANNOTATION_INVALID`, which names the workload and never repeats
   the value.
-- **Credentials.** The operator pulls an annotated contract with its own
-  registry credentials only when the organization index names its repository.
-  It pulls every other annotated contract anonymously, so writing a
-  Deployment never borrows the operator's registry access.
+- **Credentials.** The operator pulls an annotated contract with the
+  credentials it loads `Pacto` contracts with only when the organization index
+  names its repository. It pulls every other annotated contract anonymously,
+  so writing a Deployment never borrows the operator's registry access. It
+  reads the organization index with the installation credentials, and the
+  images records with the contract loader's.
 - **Recent versions.** By digest, a workload links when it runs one of the
   five newest release versions of its service, or the version its image tag
   names. A workload that runs an older version with a changed image stays an
@@ -99,7 +101,7 @@ whenever the operator runs from the chart.
 |---|---|
 | `LINK_INDEX_PARTIAL` | Some index entries or images records were not read this cycle (at most 200 reads per cycle), so a workload may stay unlinked until they are; partial |
 | `LINK_DIGEST_OFF` | The operator has no registry, so it links by annotation only. Informational: it never makes the source partial |
-| `LINKED_TARGETS_CAPPED` | More linked workloads than `linked.json` holds (640 KiB); the rest are left out and the source is partial |
+| `LINKED_TARGETS_CAPPED` | More linked workloads than `linked.json` holds: 640 KiB, or less when the detection key leaves less room in the 1 MiB ConfigMap. The rest are left out and the source is partial |
 | `LINK_VERSION_AMBIGUOUS` | Several release versions of the service record the running digest; the newest is evaluated and impact reads the consumer as unverified |
 | `LINK_ANNOTATION_INVALID` | The workload's `pacto.trianalab.io/contract` value is not a strict OCI reference; the workload stays inferred |
 | `LINK_ANNOTATION_UNREADABLE` | The contract the annotation names could not be pulled, so the workload is unknown; partial |

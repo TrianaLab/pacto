@@ -61,7 +61,9 @@ compliance evidence that a source carries.
   key (or a `linked.json` file beside the detection file), as source kind
   `kubernetes-linked`: each is a target of its contract revision with a
   `link` (`signal`, `value`, `since` and `otherVersions`), stale after three
-  minutes.
+  minutes. This source counts toward completeness: an operator that has
+  written no `linked.json` key yet, such as one older than the linker, leaves
+  it `unavailable` with `NOT_FOUND` and the answer partial.
 - **Ingested external evidence** (`--evidence-url <url>`): a running [Evidence
   Server](evidence.md)'s read-only contribution over HTTP, exposing a
   remote environment's signed `EvidenceSet` reports as operational targets.

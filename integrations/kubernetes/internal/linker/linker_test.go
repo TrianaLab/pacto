@@ -357,6 +357,38 @@ func TestLinkerCappedIsPartial(t *testing.T) {
 	}
 }
 
+// The linker yields to detection: linked.json takes only what the ConfigMap
+// bound leaves beside detected.json and its headroom, down to no target.
+func TestLinkerLeavesRoomForDetection(t *testing.T) {
+	objs := make([]client.Object, 0, 12)
+	for _, n := range []string{"a", "b", "c"} {
+		objs = append(objs, deployment(n, annRef, "ghcr.io/acme/payments:2.3.0", dA)...)
+	}
+	c := newClient(interceptor.Funcs{}, cluster(objs...)...)
+	l := newLinker(c, &evaluator{service: "payments"})
+	sync(t, l)
+	_, full := written(t, c)
+	b, _ := core.EncodeLinked(full)
+	for _, tc := range []struct {
+		short   int
+		targets int
+	}{{10, 2}, {len(b), 0}} {
+		detected := strings.Repeat("x", room(&corev1.ConfigMap{})-len(b)+tc.short)
+		if err := c.Apply(context.Background(), corev1ac.ConfigMap(cmName, opNS).WithData(map[string]string{detect.ConfigMapKey: detected}),
+			client.FieldOwner(detect.FieldManager), client.ForceOwnership); err != nil {
+			t.Fatal(err)
+		}
+		sync(t, l)
+		cm, got := written(t, c)
+		if len(got.Targets) != tc.targets || got.Completeness != fleet.CompletenessPartial || !hasLimitation(got, LimitationTargetsCapped) {
+			t.Fatalf("short by %d: %d targets %+v", tc.short, len(got.Targets), got.Limitations)
+		}
+		if tc.targets > 0 && len(cm.Data[detect.ConfigMapKey])+len(cm.Data[core.LinkedConfigMapKey]) > maxConfigMapBytes-detectionHeadroom {
+			t.Fatalf("the two keys pass the bound: %d", len(cm.Data[detect.ConfigMapKey])+len(cm.Data[core.LinkedConfigMapKey]))
+		}
+	}
+}
+
 // A forbidden list and a failed write never stop the operator: Sync returns
 // nil and what it wrote is partial.
 func TestLinkerFirstSyncListErrorDoesNotStopManager(t *testing.T) {

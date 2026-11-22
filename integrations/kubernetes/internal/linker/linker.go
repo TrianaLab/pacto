@@ -143,12 +143,14 @@ func (l *Linker) Sync(ctx context.Context) error {
 		}
 		l.owner = owner
 	}
+	cm := &corev1.ConfigMap{}
+	_ = l.Reader.Get(ctx, client.ObjectKey{Namespace: l.Namespace, Name: l.ConfigMap}, cm) // absent: nothing to seed or share
 	if !l.seeded {
 		l.seeded = true
-		l.seed(ctx)
+		l.seed(cm)
 	}
 	c := l.link(ctx)
-	data := l.encode(&c.linked)
+	data := l.encode(&c.linked, room(cm))
 	l.last.Store(c)
 	err := l.Writer.Apply(ctx, corev1ac.ConfigMap(l.ConfigMap, l.Namespace).
 		WithLabels(map[string]string{
@@ -167,11 +169,7 @@ func (l *Linker) Sync(ctx context.Context) error {
 
 // seed takes Since from the linked.json a previous linker wrote, so a
 // restart records no new link; only the observation windows start over.
-func (l *Linker) seed(ctx context.Context) {
-	cm := &corev1.ConfigMap{}
-	if err := l.Reader.Get(ctx, client.ObjectKey{Namespace: l.Namespace, Name: l.ConfigMap}, cm); err != nil {
-		return
-	}
+func (l *Linker) seed(cm *corev1.ConfigMap) {
 	prev, err := core.DecodeLinked([]byte(cm.Data[core.LinkedConfigMapKey]))
 	if err != nil {
 		return
@@ -290,15 +288,30 @@ func view(p *pactov1alpha1.Pacto, wk Workload, link fleet.ObservedLink) core.Pac
 	return v
 }
 
-// encode encodes out within the bound, dropping the last targets (sorted by
-// namespace, kind and name) until it fits.
+// maxConfigMapBytes is the API server's bound on a ConfigMap's data, keys
+// included; detectionHeadroom is what the linker leaves detection to grow
+// into between two cycles.
+const (
+	maxConfigMapBytes = 1 << 20
+	detectionHeadroom = 64 << 10
+)
+
+// room is the most linked.json may take in cm beside the detection payload
+// and its headroom, so the two keys together stay under the ConfigMap bound.
+func room(cm *corev1.ConfigMap) int {
+	return maxConfigMapBytes - detectionHeadroom - len(detect.ConfigMapKey) - len(cm.Data[detect.ConfigMapKey]) - len(core.LinkedConfigMapKey)
+}
+
+// encode encodes out within the smaller of the bound and room, dropping the
+// last targets (sorted by namespace, kind and name) until it fits; with no
+// target left it returns what it has, and the write reports the failure.
 // ponytail: one ConfigMap per cluster; one per namespace when a cluster links more than about 200 workloads.
-func (l *Linker) encode(out *core.LinkedTargets) []byte {
-	limit := cmp.Or(l.maxBytes, core.MaxLinkedBytes)
+func (l *Linker) encode(out *core.LinkedTargets, room int) []byte {
+	limit := min(cmp.Or(l.maxBytes, core.MaxLinkedBytes), room)
 	total := len(out.Targets)
 	for {
 		b, err := core.EncodeLinked(*out)
-		if err == nil && len(b) <= limit {
+		if err == nil && len(b) <= limit || len(out.Targets) == 0 {
 			return b
 		}
 		if len(out.Targets) == total {
