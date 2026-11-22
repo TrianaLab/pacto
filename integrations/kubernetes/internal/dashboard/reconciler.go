@@ -233,14 +233,17 @@ func (r *Reconciler) reconcileService(ctx context.Context) error {
 // order of creation.
 func (r *Reconciler) cleanup(ctx context.Context) error {
 	ns := r.Config.Namespace
-	return component.Prune(ctx, "dashboard", r.APIReader, r.Client,
+	if err := component.Prune(ctx, "dashboard", r.APIReader, r.Client,
 		component.Owned(ComponentValue),
 		[]component.Resource{
 			{Kind: "Service", Obj: &corev1.Service{}, Key: client.ObjectKey{Namespace: ns, Name: Name}},
 			{Kind: "Deployment", Obj: &appsv1.Deployment{}, Key: client.ObjectKey{Namespace: ns, Name: Name}},
 			{Kind: "Secret", Obj: &corev1.Secret{}, Key: client.ObjectKey{Namespace: ns, Name: ManagedSecretName}},
-			{Kind: "ClusterRoleBinding", Obj: &rbacv1.ClusterRoleBinding{}, Key: client.ObjectKey{Name: Name}},
-			{Kind: "ClusterRole", Obj: &rbacv1.ClusterRole{}, Key: client.ObjectKey{Name: Name}},
 			{Kind: "ServiceAccount", Obj: &corev1.ServiceAccount{}, Key: client.ObjectKey{Namespace: ns, Name: Name}},
-		})
+		}); err != nil {
+		return err
+	}
+	// A scoped operator (hardened) may not remove what a cluster-wide one left:
+	// it warns with the command instead of leaving the ClusterRole silently.
+	return r.pruneStaleClusterRBAC(ctx)
 }

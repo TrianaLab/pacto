@@ -314,8 +314,9 @@ also when an upgrade reuses earlier values.
 Moving from a cluster-wide install to a namespace list leaves the
 `pacto-dashboard` ClusterRole and ClusterRoleBinding behind: the
 operator may no longer delete them. The `helm upgrade` notes and a
-`StaleClusterRBAC` Warning event on the dashboard Deployment report them.
-Delete them:
+`StaleClusterRBAC` Warning event on the dashboard Deployment report them,
+also when the namespace-list install runs no dashboard (the `hardened`
+profile). Delete them:
 
 ```bash
 kubectl delete clusterrole,clusterrolebinding pacto-dashboard
