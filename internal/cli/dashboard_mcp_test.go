@@ -18,6 +18,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/spf13/viper"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/dynamic"
@@ -28,6 +29,8 @@ import (
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/authn"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
+	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
@@ -102,7 +105,7 @@ func (w *dashMCPWorld) dynamicFor(c *rest.Config) (dynamic.Interface, error) {
 	f := dyn.(*dynamicfake.FakeDynamicClient)
 	if user == "" {
 		f.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
-			return true, nil, errors.New("Unauthorized")
+			return true, nil, apierrors.NewUnauthorized("Unauthorized")
 		})
 	}
 	f.PrependReactor("create", "tokenreviews", w.tokenReview)
@@ -539,6 +542,16 @@ func TestDashboardMCPImpact(t *testing.T) {
 	expect(t, err == nil && strings.Contains(string(b), "reads no delivery for its callers"), "event: %v %s", err, b)
 	_, _ = f(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://reg.example/orders:1", NewRef: "oci://reg.example/orders:2"})
 	expect(t, slices.ContainsFunc(*pulled, func(r string) bool { return strings.Contains(r, "@sha256:") }), "visible refs are pulled pinned: %v", *pulled)
+}
+
+// TestDashboardMCPImpactHonoursPolicy: the caller's policy reaches the
+// analysis, as it does on `pacto mcp -t http`.
+func TestDashboardMCPImpactHonoursPolicy(t *testing.T) {
+	store := &testutil.MockBundleStore{PullFn: func(context.Context, string) (*contract.Bundle, error) { return testutil.TestBundle(), nil }}
+	policy := impact.Policy{UnknownRange: impact.PolicyFail, Uncontracted: impact.PolicyWarn}
+	res, err := dashboardMCPImpact(app.NewService(store, nil), nil)(context.Background(), viewSnapshot(),
+		pactomcp.ImpactRequest{OldRef: "oci://reg.example/orders:1", NewRef: "oci://reg.example/orders:2", Policy: policy})
+	expect(t, err == nil && res.Policy != nil && *res.Policy == policy, "policy: %v %+v", err, res)
 }
 
 // TestDashboardCommandServesMCP: --mcp names the endpoint on the banner, and a

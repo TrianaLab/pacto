@@ -202,6 +202,6 @@ func dashboardMCPImpact(svc *app.Service, prov *app.ProvenanceChecker) func(cont
 				}}, snap)
 		}
 		return svc.ImpactWithSnapshot(ctx, app.ImpactOptions{OldPath: req.OldRef, NewPath: req.NewRef, IncludeObserved: req.IncludeObserved,
-			Fleet: app.FleetOptions{Provenance: prov}}, snap)
+			Domain: req.Domain, Policy: req.Policy, Fleet: app.FleetOptions{Provenance: prov}}, snap)
 	}
 }
