@@ -678,6 +678,9 @@ func (w *writer) applyRefusal(ctx context.Context, op *dv1.Operation, rec *store
 	if err != nil {
 		return err
 	}
+	// ponytail: the list holds the newest MaxApplyRefusals, so after a
+	// restart a version refused before 20 newer refusals gets one more
+	// record; the once-map covers the running process.
 	l, err := w.refusals.ListApplyRefusals(ctx, at.repo, svc, func(b []byte) error { return w.Store.Verify(stream, 0, b) })
 	if err != nil {
 		return err
