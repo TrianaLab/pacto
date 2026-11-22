@@ -14,7 +14,8 @@ const WIDE_FONT = '*{font-family: Verdana, "DejaVu Sans", sans-serif !important}
 const api = (page: Page, path: string): Promise<any> => page.evaluate(async (p) => (await fetch(p)).json(), path);
 const num = (s: string | null) => Number((s ?? '').replace(/[^\d]/g, ''));
 
-// The total of the list the page landed on, from the `data-view-total` its pager carries.
+// The total of the list the page landed on, from the `data-view-total` its pager (or the
+// Needs attention list beside the Overview map) carries.
 const listTotal = (page: Page) => page.evaluate(() => {
   const v = document.querySelector('[data-view-total]')?.getAttribute('data-view-total');
   return v == null ? null : Number(v);
@@ -40,17 +41,18 @@ test.describe('WASM demo — organizational health', () => {
     // Failing and Unknown are two buckets, never one word for both.
     expect(num(await legend(page, '#sec-health', 'Unknown').locator('.dist-value').textContent())).toBeGreaterThan(0);
     // The linked legend item sits on the same line as the plain ones beside it.
-    const middle = async (label: string) => {
-      const b = await legend(page, '#sec-health', label).locator('.dist-label').boundingBox();
-      return b ? b.y + b.height / 2 : NaN;
-    };
-    expect(Math.abs((await middle('Failing')) - (await middle('Unknown')))).toBeLessThanOrEqual(1);
+    // Both read in one frame: the lazy map above can still grow between two reads.
+    const middle = await page.locator('#sec-health .dist-item .dist-label').evaluateAll((els) => Object.fromEntries(
+      els.map((e) => { const r = e.getBoundingClientRect(); return [(e.textContent ?? '').trim(), r.y + r.height / 2]; })));
+    expect(Math.abs(middle.Failing - middle.Unknown)).toBeLessThanOrEqual(1);
     await failing.locator('a').click();
     await expect(page).toHaveURL(/#\/fleet\/attention\?category=health$/);
     await expect.poll(() => listTotal(page), { timeout: T }).toBe(n);
-    const item = page.getByTestId('attention-item').first();
-    await expect(item).toContainText('HEALTH_FAILING');
-    await item.locator('a.entity-link').click();
+    // The list opens beside the Overview map (509-S12); its item names the target.
+    const [first] = (await api(page, '/api/fleet/attention?category=health')).items;
+    expect(first.code).toBe('HEALTH_FAILING');
+    await expect(page.getByTestId('fleet-map-rail-item').first()).toContainText(first.entity.label);
+    await page.goto(`/${first.entity.href.startsWith('#') ? '' : '#'}${first.entity.href}`);
     await expect(page).toHaveURL(/#\/fleet\/targets\//);
     await expect(page.locator('.finding .f-code').filter({ hasText: 'HEALTH_FAILING' })).toBeVisible({ timeout: T });
   });

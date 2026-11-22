@@ -103,7 +103,8 @@
 {:else}
   <aside class="rail" data-testid="fleet-map-rail" aria-label="Needs attention">
     <header class="rail-head">
-      <h2>Needs attention{list ? ` (${formatCount(total)})` : ''}</h2>
+      <!-- data-view-total states the list's total, as a Pager does, for the figure links that open it. -->
+      <h2 data-view-total={list ? total : undefined}>Needs attention{list ? ` (${formatCount(total)})` : ''}</h2>
       <button type="button" class="rail-close" aria-expanded="true" aria-label="Hide what needs attention" onclick={() => ontoggle(false)}>Hide</button>
     </header>
     {#if active.length}
