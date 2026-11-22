@@ -22,11 +22,11 @@ func build(t *testing.T, sources ...fleet.Source) *fleet.FleetSnapshot {
 }
 
 // workloads is a workload source in cluster (none when empty) reading the
-// shop/cart Deployment.
+// shop/cart Deployment; the cluster's display name is "prod-" + cluster.
 func workloads(id, cluster string) fleet.Source {
 	col := &fleet.Collection{InferredServices: []fleet.RawInferredService{{Namespace: "shop", Kind: "Deployment", Name: "cart"}}}
 	if cluster != "" {
-		col.Cluster = &fleet.Cluster{ID: cluster, Name: cluster}
+		col.Cluster = &fleet.Cluster{ID: cluster, Name: "prod-" + cluster, NameSource: fleet.ClusterNameFromContext}
 	}
 	return fleet.NewMemorySource(id, fleet.SourceKindKubernetesWorkloads, col)
 }
@@ -49,7 +49,7 @@ func TestInferredServiceAnnotatesWorkload(t *testing.T) {
 		want    []string
 	}{
 		{"no cluster", []fleet.Source{workloads("w", "")}, []string{"Deployment shop/cart"}},
-		{"two clusters", []fleet.Source{workloads("wa", "a"), workloads("wb", "b")}, []string{"Deployment a/shop/cart", "Deployment b/shop/cart"}},
+		{"two clusters", []fleet.Source{workloads("wa", "a"), workloads("wb", "b")}, []string{"Deployment prod-a/shop/cart", "Deployment prod-b/shop/cart"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			comps := inferredComponents(mapSnap(build(t, tc.sources...)))
@@ -66,6 +66,24 @@ func TestInferredServiceAnnotatesWorkload(t *testing.T) {
 				t.Errorf("workloads = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestObservedInferredServiceKeepsWorkload: an inferred service a target
+// makes observed still says which workload Pacto learned it from.
+func TestObservedInferredServiceKeepsWorkload(t *testing.T) {
+	snap := build(t, workloads("w", ""))
+	for _, s := range snap.Services {
+		s.Targets = []fleet.TargetKey{"t"}
+	}
+	snap.Targets["t"] = &fleet.TargetRecord{Key: "t"}
+	comps := ofKind(mapSnap(snap), kindComp)
+	if len(comps) != 1 {
+		t.Fatalf("components = %d, want 1", len(comps))
+	}
+	ann := comps[0].Metadata.Annotations
+	if ann[AnnotationProvenance] != fleet.ProvenanceObserved || ann[AnnotationSource] != "workload" || ann[AnnotationWorkload] != "Deployment shop/cart" {
+		t.Errorf("observed inferred component = %v", ann)
 	}
 }
 
