@@ -176,9 +176,9 @@ func runPromoter(args []string) error {
 	if err != nil {
 		return err
 	}
-	// ponytail: discovery is cached for the life of the process, so a
-	// Crossplane kind served after start reads Unknown, never Pass, until the
-	// promoter restarts; invalidate the cache on a miss if that bites.
+	// Discovery is cached for the life of the process; Infra invalidates it
+	// once on a kind it does not list, so a Crossplane kind served after
+	// start is read, and one still missing reads Unknown, never Pass.
 	dc, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
 	if err != nil {
 		return err
