@@ -2,7 +2,9 @@ package cli
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -208,5 +210,30 @@ func TestMapGroupsClearAllRefusedOnPartialList(t *testing.T) {
 	}
 	if clearReadable(delivery.ClusterJoinList{Completeness: fleet.CompletenessComplete}, member, "", nil) != nil {
 		t.Error("a complete list refuses clear all")
+	}
+}
+
+// End to end: a mapping record the registry will not serve leaves the list
+// partial, so a --clear of every issuer is refused and nothing is signed.
+func TestMapGroupsClearAllRefusedWhenAMappingIsUnread(t *testing.T) {
+	e, m := approvedEnv(t, capabilities.ReferrersNative)
+	if _, _, err := e.run(t, "map-groups", euProd, "--issuer", mapIssuer, "--map", "platform=readers"); err != nil {
+		t.Fatal(err)
+	}
+	blob := fmt.Sprintf("sha256:%x", sha256.Sum256(e.mappings(t, m.uid)[0].Bundle))
+	host, path, _ := strings.Cut(e.repo, "/")
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/blobs/"+blob) {
+			http.Error(w, "unavailable", http.StatusInternalServerError)
+			return
+		}
+		httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: host}).ServeHTTP(w, r)
+	}))
+	t.Cleanup(proxy.Close)
+	e.repo = strings.TrimPrefix(proxy.URL, "http://") + "/" + path
+	logins := e.logins
+	_, _, err := e.run(t, "map-groups", euProd, "--clear")
+	if err == nil || !strings.Contains(err.Error(), "the group mappings of eu-prod (aaaa0000) could not all be read") || e.logins != logins {
+		t.Fatalf("%v, %d logins", err, e.logins-logins)
 	}
 }

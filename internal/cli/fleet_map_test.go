@@ -170,6 +170,9 @@ func TestFleetMapFlags(t *testing.T) {
 	if _, _, err := runRoot(t, defaultDeps(), nil, "fleet", "map", "--source", "bogus://x"); err == nil {
 		t.Error("an unreadable source is no error")
 	}
+	if _, _, err := runRoot(t, defaultDeps(), nil, "fleet", "map", "--local", dir, "--detected", "k8s:nons"); err == nil || !strings.Contains(err.Error(), "is not k8s:<namespace>/<name>") {
+		t.Errorf("a malformed --detected ref: %v", err)
+	}
 }
 
 // TestFleetMapSameAnswerEverywhere: pacto fleet map, pacto_fleet_map and

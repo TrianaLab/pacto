@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -518,5 +519,26 @@ func TestMembersRouteIsTheOnlyUnauthenticatedAPIPath(t *testing.T) {
 		}
 		_ = resp.Body.Close()
 		expect(t, resp.StatusCode == http.StatusUnauthorized, "%s without a session: %d", path, resp.StatusCode)
+	}
+}
+
+// TestRefusedIssuerWithoutMappingHides: once the hub marks an issuer the
+// member refuses and no group mapping answers for it, the hub link records
+// the refusal and the member hides from that person, never sending a mapped
+// review.
+func TestRefusedIssuerWithoutMappingHides(t *testing.T) {
+	e := newMemberEnv(t, func(_ context.Context, _, uid string) (string, error) { return memberToken(uid), nil }, nil)
+	e.approve(usUID)
+	e.link(usUID, func(memberlink.Review) memberlink.Answer {
+		return memberlink.Answer{Refused: memberlink.RefusedIssuerNotAccepted}
+	})
+	review := e.m.add(nil)[usUID]
+	bob := authn.Person{User: "bob@acme.dev", Groups: []string{"team-pay"}}
+	_, _ = review(signedInAs(t, alicePerson, memberToken("a")), alicePerson, "prod", authn.PactoResource)
+	ok, err := review(signedInAs(t, bob, memberToken("b")), bob, "prod", authn.PactoResource)
+	expect(t, !ok && err != nil && strings.Contains(err.Error(), "no person approved a group mapping") && e.m.hub.IssuerRefused(usUID, memberIssuer) && e.m.hub.Links()[usUID].Issuers[memberIssuer] == memberlink.ModelIssuerNotAccepted,
+		"the refused issuer hides the member: %v %v %+v", ok, err, e.m.hub.Links()[usUID])
+	for _, r := range e.sentTo(usUID) {
+		expect(t, r.Mapped == nil, "no mapped review without a mapping: %+v", r)
 	}
 }
