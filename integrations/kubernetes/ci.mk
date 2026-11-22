@@ -66,7 +66,7 @@ ci-lint: golangci-lint
 # script and diffs. Bump: hack/vendor-flux.sh <version> <upgrade from>, then
 # make helm-golden-update.
 FLUX_DIR ?= charts/pacto-operator/files/flux
-FLUX_VERSION_DOCS := charts/pacto-operator/README.md
+FLUX_VERSION_DOCS := charts/pacto-operator/README.md docs/profiles.md docs/delivery-setup.md
 .PHONY: flux-vendor-check
 flux-vendor-check: ## Check the vendored upstream Flux against its VERSION pin.
 	@echo "==> Checking the vendored upstream Flux..."

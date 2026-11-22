@@ -129,7 +129,12 @@ Event (`EnvironmentCreated`, `EnvironmentDeleted`) and the recorder posts a
 CDEvent (`environment.created`, `environment.deleted`); see
 [delivery setup](../integrations/kubernetes/delivery-setup.md) and
 [delivery records](../integrations/kubernetes/delivery-records.md). Each names
-one Stage; other Stages for the same environment are unaffected.
+one Stage, such as "Stage test/payments-pr-482 for payments in pr-482 was
+deleted"; other Stages for the same environment are unaffected. The Event
+`EnvironmentCreated` carries the Stage's creation time. A promoter restart
+emits neither Event again, a Stage whose status was reset emits
+`EnvironmentCreated` again with its original creation time, and a Stage deleted
+while the promoter is down emits no Event.
 
 ### How values are checked
 
