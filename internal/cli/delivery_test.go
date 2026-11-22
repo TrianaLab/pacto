@@ -40,6 +40,10 @@ func (cliRegistry) Annotations(context.Context, string) (map[string]string, erro
 	return map[string]string{delivery.ContractAnnotation: "oci://reg/pactos/payments@" + cliC}, nil
 }
 
+func (cliRegistry) Layer(context.Context, string, int64) (string, []byte, error) {
+	return "", nil, errors.New("no layer")
+}
+
 func (cliRegistry) Pull(context.Context, string) (*contract.Bundle, error) {
 	return &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "payments", Version: "1.0.0"}}}, nil
 }

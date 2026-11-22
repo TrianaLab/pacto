@@ -589,6 +589,11 @@ type KustomizationView struct {
 			Name      string `json:"name"`
 			Namespace string `json:"namespace"`
 		} `json:"sourceRef"`
+		// Patches, PostBuild and Components are read for presence only:
+		// each transforms the artifact (ManifestTargetOf).
+		Patches    json.RawMessage `json:"patches,omitempty"`
+		PostBuild  json.RawMessage `json:"postBuild,omitempty"`
+		Components json.RawMessage `json:"components,omitempty"`
 	} `json:"spec"`
 }
 

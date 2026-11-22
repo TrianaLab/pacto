@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -142,6 +143,19 @@ func (a argoApplier) src() *source                       { return a.source }
 // the pointer of a labelled object only, and lets the promoter write nothing
 // else.
 const ApplyRefLabel = "delivery.pacto.trianalab.io/apply-ref"
+
+// scopeFrom is the scope of each kind: the built-in kinds first, so a mapper
+// that calls a core cluster-scoped kind namespaced never turns it into one,
+// then what m maps. A kind m cannot map is unknown.
+func scopeFrom(m meta.RESTMapper) delivery.ScopeFunc {
+	return delivery.ChainScope(delivery.BuiltinScope, func(group, kind string) (bool, bool) {
+		mapping, err := m.RESTMapping(schema.GroupKind{Group: group, Kind: kind})
+		if err != nil {
+			return false, false
+		}
+		return mapping.Scope.Name() == meta.RESTScopeNameNamespace, true
+	})
+}
 
 // cached is the reader of the watched kinds: Cache, or Client without one.
 func (c Cluster) cached(kind string) client.Reader {

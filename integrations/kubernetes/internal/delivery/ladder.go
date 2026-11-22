@@ -218,7 +218,7 @@ func (r *StageReconciler) wouldHave(ctx context.Context, stage *dv1.Stage, spec 
 	from, to := spec.Params.From, spec.Params.To
 	synth := stageObject(stage)
 	synth.Status.Level, synth.Status.Pointer = delivery.LevelAutonomous, from
-	in, err := delivery.AssemblePlanInput(ctx, planSources{r.Cluster}, spec, synth, delivery.ClassController, now)
+	in, err := delivery.AssemblePlanInput(ctx, planSources{r.Cluster}, spec, synth, delivery.ClassController, now, r.Policy.ManifestInspector)
 	if err != nil {
 		return delivery.Shadow{}, err
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -305,6 +306,47 @@ func (c *Client) ListTags(ctx context.Context, repo string) ([]string, error) {
 
 	logging.LoggerFromContext(ctx).Debug("tags listed", "repo", repo, "count", len(tags))
 	return tags, nil
+}
+
+// Layer returns the media type and the compressed bytes of the single layer
+// of ref. A manifest with more than one layer, and a layer over limit bytes, is
+// refused before its bytes are read.
+func (c *Client) Layer(ctx context.Context, ref string, limit int64) (string, []byte, error) {
+	var mediaType string
+	var data []byte
+	err := c.Do(ctx, ref, func(r name.Reference, opts []remote.Option) error {
+		desc, err := remote.Get(r, opts...)
+		if err != nil {
+			return err
+		}
+		var m struct {
+			Layers []v1.Descriptor `json:"layers"`
+		}
+		if err := json.Unmarshal(desc.Manifest, &m); err != nil {
+			return &InvalidBundleError{Ref: ref, Err: err}
+		}
+		switch l := m.Layers; {
+		case len(l) != 1:
+			return fmt.Errorf("%s holds %d layers; a deploy artifact holds one", ref, len(l))
+		case l[0].Size > limit:
+			return fmt.Errorf("the layer of %s is %d bytes, over the %d Pacto reads", ref, l[0].Size, limit)
+		}
+		layer, err := remote.Layer(r.Context().Digest(m.Layers[0].Digest.String()), opts...)
+		var rc io.ReadCloser
+		if err == nil {
+			rc, err = layer.Compressed()
+		}
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rc.Close() }()
+		if data, err = io.ReadAll(io.LimitReader(rc, limit+1)); err == nil && int64(len(data)) > limit {
+			err = fmt.Errorf("the layer of %s is over the %d bytes Pacto reads", ref, limit)
+		}
+		mediaType = string(m.Layers[0].MediaType)
+		return err
+	})
+	return mediaType, data, err
 }
 
 // Annotations returns the manifest annotations of ref (a tag or digest

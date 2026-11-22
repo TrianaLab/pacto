@@ -23,6 +23,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/strictjson"
@@ -31,9 +32,9 @@ import (
 // Media types of the artifacts Pacto packages itself.
 const (
 	FluxConfigType types.MediaType = "application/vnd.cncf.flux.config.v1+json"
-	FluxLayerType  types.MediaType = "application/vnd.cncf.flux.content.v1.tar+gzip"
+	FluxLayerType                  = types.MediaType(delivery.FluxContentMediaType)
 	HelmConfigType types.MediaType = "application/vnd.cncf.helm.config.v1+json"
-	HelmLayerType  types.MediaType = "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
+	HelmLayerType                  = types.MediaType(delivery.HelmChartMediaType)
 	// SPDXType and CycloneDXType are the artifactTypes of the SBOM referrers
 	// publish attaches: an SPDX JSON (.spdx.json) or CycloneDX JSON (.cdx.json)
 	// file the build wrote.

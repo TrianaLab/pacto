@@ -77,13 +77,19 @@ func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 	return cmd
 }
 
-// deliveryClient builds the delivery client over the ambient cluster.
+// deliveryClient builds the delivery client over the ambient cluster, once
+// per command, with the cluster's API discovery as its scope.
 func deliveryClient(cmd *cobra.Command, d deps) (*app.Delivery, string, error) {
 	dyn, err := d.newDynamic()
 	if err != nil {
 		return nil, "", err
 	}
-	return deliveryClientFor(cmd, d, dyn)
+	c, ns, err := deliveryClientFor(cmd, d, dyn)
+	if err == nil && d.clusterConfig != nil {
+		cfg, _ := d.clusterConfig()
+		c.Scope = app.DiscoveryScope(cfg)
+	}
+	return c, ns, err
 }
 
 // trustPath is the trust config --trust, else --delivery-trust, names.

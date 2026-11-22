@@ -126,6 +126,13 @@ type PlanInput struct {
 	// only for a blocked change, and it must be bounded (ResolveRevision is).
 	// Nil reads nothing: every candidate is unknown.
 	Candidates func(ctx context.Context, stage StageObject, digest string) Revision
+	// InspectManifests is the published ClassPolicy.ManifestInspector: a
+	// promote runs pacto.manifests over Manifests.
+	InspectManifests bool
+	// Manifests inspects the deploy artifact of To. It reads the registry,
+	// so pacto.manifests calls it only once pacto.published did not fail and
+	// pacto.applier passed (AssemblePlanInput sets it lazily).
+	Manifests func(ctx context.Context) ManifestInspection
 	// Gates are the promoter's gate providers, like RequireOwnerTeam
 	// promoter configuration: the suites pre-gate reads which checks run on
 	// an eval provider. A client plans with ClassPolicy.PlanGates, the types
@@ -377,8 +384,10 @@ func predict(in PlanInput, p *Plan) Prediction {
 	return PredictProceeds
 }
 
-// promoteGates runs pacto.published, pacto.applier, pacto.diff and pacto.impact and derives
-// the approval floor. A version pacto publish did not publish goes no further.
+// promoteGates runs pacto.published, pacto.applier, pacto.manifests (with the
+// inspector on), pacto.diff and pacto.impact and derives the approval floor. A
+// version pacto publish did not publish goes no further, and neither does one
+// whose deploy artifact the inspector refuses or cannot read.
 func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 	pub := publishedGate(in)
 	p.Verdicts = append(p.Verdicts, pub)
@@ -389,6 +398,9 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 	// publication: an applier that is not Pass rejects, and nobody can accept
 	// it by answering another question.
 	if !applierGate(in, p) {
+		return
+	}
+	if in.InspectManifests && in.Manifests != nil && !manifestsGate(ctx, in, p, pub) {
 		return
 	}
 	if pub.Result == Unknown {

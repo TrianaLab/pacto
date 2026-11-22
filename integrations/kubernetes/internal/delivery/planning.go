@@ -78,7 +78,7 @@ func (r *OperationReconciler) plan(ctx context.Context, op *dv1.Operation, stage
 }
 
 func (r *OperationReconciler) planOn(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (delivery.Plan, error) {
-	in, err := delivery.AssemblePlanInput(ctx, planSources{r.Cluster}, op.Spec, stageObject(stage), op.Status.ActorClass, r.now())
+	in, err := delivery.AssemblePlanInput(ctx, planSources{r.Cluster}, op.Spec, stageObject(stage), op.Status.ActorClass, r.now(), r.Policy.ManifestInspector)
 	if err != nil {
 		return delivery.Plan{}, err
 	}
@@ -109,6 +109,21 @@ func (p planSources) Revisions(ctx context.Context, stage delivery.StageObject, 
 	s := a.src()
 	reg := p.c.registryFor(s)
 	return delivery.ResolveRevision(ctx, reg, s.repo, from), delivery.ResolveRevision(ctx, reg, s.repo, to)
+}
+
+// Manifests inspects the deploy artifact digest from the Stage's apply
+// repository, into the target the applier object and the Kustomizations
+// give, judging scope with the built-in kinds first and the manager's
+// RESTMapper behind them.
+func (p planSources) Manifests(ctx context.Context, stage delivery.StageObject, digest string) delivery.ManifestInspection {
+	a, err := p.c.applier(ctx, stage.Metadata.Namespace, stage.Spec.ApplyRef)
+	if err != nil {
+		return delivery.ManifestInspection{Namespace: stage.Metadata.Namespace, Unread: []string{"the applier: " + err.Error()}}
+	}
+	ks, ksErr := p.c.kustomizations(ctx)
+	s := a.src()
+	return delivery.InspectRevision(ctx, p.c.registryFor(s), s.repo, digest,
+		delivery.ManifestTargetOf(stage, a.object().Object, ks, ksErr), scopeFrom(p.c.Client.RESTMapper()))
 }
 
 func (p planSources) Pactos(ctx context.Context) ([]delivery.PactoView, error) {

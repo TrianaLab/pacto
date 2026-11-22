@@ -125,7 +125,7 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, ent
 // as it is.
 func baseDashboardIdentity(cluster *rest.Config, d deps, trust *delivery.TrustConfig, policyNS string) *dashboardIdentity {
 	return &dashboardIdentity{cluster: cluster, registry: d.newDeliveryRegistry, now: time.Now, served: d.served, state: authn.StateFrom,
-		newClient: d.dynamicFor, records: d.newRecordRepo, trust: trust,
+		newClient: d.dynamicFor, records: d.newRecordRepo, trust: trust, scope: app.DiscoveryScope(cluster),
 		revisions: map[string]delivery.Revision{}, stageNS: map[string]stageNamespaces{}, policyNS: policyNS, reads: newReadCache()}
 }
 

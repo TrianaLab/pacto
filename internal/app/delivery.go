@@ -80,6 +80,10 @@ type Delivery struct {
 	// Streams caches verified record streams across calls; nil reads them
 	// afresh every time. A long-lived host (the dashboard) keeps one.
 	Streams *StreamCache
+	// Scope says which kinds the cluster serves namespaced, behind
+	// delivery.BuiltinScope (DiscoveryScope); nil knows only the built-in
+	// kinds.
+	Scope delivery.ScopeFunc
 }
 
 // Caller is who the apiserver says is calling, and when they last logged in.
@@ -403,7 +407,7 @@ func (d *Delivery) plan(ctx context.Context, req delivery.Request) (delivery.Pla
 	if err != nil {
 		return delivery.PlanAnswer{}, delivery.OperationSpec{}, nil, Caller{}, err
 	}
-	in, err := delivery.AssemblePlanInput(ctx, planSources{d}, spec, *stage, caller.Class, d.Now())
+	in, err := delivery.AssemblePlanInput(ctx, planSources{d}, spec, *stage, caller.Class, d.Now(), caller.Policy.ManifestInspector)
 	if err != nil {
 		return delivery.PlanAnswer{}, delivery.OperationSpec{}, nil, Caller{}, err
 	}
@@ -451,6 +455,39 @@ func (p planSources) Revisions(ctx context.Context, stage delivery.StageObject, 
 
 func (p planSources) Pactos(ctx context.Context) ([]delivery.PactoView, error) {
 	return p.d.pactos(ctx)
+}
+
+// Manifests inspects the deploy artifact digest as the promoter does: from
+// the Stage's apply repository, into the target the applier object and the
+// Kustomizations give.
+func (p planSources) Manifests(ctx context.Context, stage delivery.StageObject, digest string) delivery.ManifestInspection {
+	d, ns := p.d, stage.Metadata.Namespace
+	repo, reg, err := d.applyRegistry(ctx, &stage)
+	if err == nil {
+		var obj *unstructured.Unstructured
+		if obj, err = d.applierObject(ctx, ns, stage.Spec.ApplyRef); err == nil {
+			ks, ksErr := d.kustomizations(ctx)
+			target := delivery.ManifestTargetOf(stage, obj.Object, ks, ksErr)
+			scope := delivery.BuiltinScope
+			if d.Scope != nil {
+				scope = delivery.ChainScope(delivery.BuiltinScope, d.Scope)
+			}
+			return delivery.InspectRevision(ctx, reg, repo, digest, target, scope)
+		}
+	}
+	return delivery.ManifestInspection{Namespace: ns, Unread: []string{"the applier: " + err.Error()}}
+}
+
+// applierObject reads the object the Stage's applyRef names.
+func (d *Delivery) applierObject(ctx context.Context, ns string, ref delivery.ApplyRef) (*unstructured.Unstructured, error) {
+	gvr := gvrOCIRepository
+	switch ref.Kind {
+	case delivery.ApplierArgoCD:
+		gvr = gvrApplication
+	case delivery.ApplierHelmRelease:
+		gvr = gvrHelmRelease
+	}
+	return d.Dynamic.Resource(gvr).Namespace(ns).Get(ctx, ref.Name, metav1.GetOptions{})
 }
 
 func (p planSources) Stages(ctx context.Context) ([]delivery.StageObject, error) {

@@ -25,15 +25,20 @@ type PlanSources interface {
 	// Describe reads what a digest on a consumer's Stage carries, bounded
 	// (PlanInput.Candidates).
 	Describe(ctx context.Context, stage StageObject, digest string) Revision
+	// Manifests inspects the deploy artifact digest through the Stage's
+	// apply repository, bounded (PlanInput.Manifests).
+	Manifests(ctx context.Context, stage StageObject, digest string) ManifestInspection
 }
 
 // AssemblePlanInput gathers everything PlanFor reads for spec on stage, raised
 // by an actor of class. Only a promote reads beyond the operation itself,
 // apart from the To revision of any other pointer move: its contract version
-// is what a version-matching verify gate checks (Plan.ToVersion).
-func AssemblePlanInput(ctx context.Context, src PlanSources, spec OperationSpec, stage StageObject, class ActorClass, now time.Time) (PlanInput, error) {
+// is what a version-matching verify gate checks (Plan.ToVersion). With inspect
+// (ClassPolicy.ManifestInspector), a promote's deploy artifact is inspected,
+// but only when pacto.manifests asks: never here.
+func AssemblePlanInput(ctx context.Context, src PlanSources, spec OperationSpec, stage StageObject, class ActorClass, now time.Time, inspect bool) (PlanInput, error) {
 	in := PlanInput{Spec: spec, Stage: stage.Spec, Status: stage.Status, Class: class,
-		From: Revision{Digest: spec.Params.From}, To: Revision{Digest: spec.Params.To}}
+		From: Revision{Digest: spec.Params.From}, To: Revision{Digest: spec.Params.To}, InspectManifests: inspect}
 	if spec.Type == TypeAutonomy {
 		// A raise asks the team of the contract running now: the pointer,
 		// or what GitOps' source reports while the Stage observes. Level
@@ -62,6 +67,9 @@ func AssemblePlanInput(ctx context.Context, src PlanSources, spec OperationSpec,
 	if spec.Type == TypePromote {
 		if in.Upstream, in.UpstreamErr, err = src.Upstream(ctx, stage); err != nil {
 			return in, err
+		}
+		if inspect && spec.Params.To != "" {
+			in.Manifests = func(ctx context.Context) ManifestInspection { return src.Manifests(ctx, stage, spec.Params.To) }
 		}
 	}
 	in.From, in.To = src.Revisions(ctx, stage, spec.Params.From, spec.Params.To)
