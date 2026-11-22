@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -78,8 +77,8 @@ func ForOperator(cfg Config) (*Linker, error) {
 func indexTags(ctx context.Context, repo *remote.Repository) ([]string, error) {
 	tags, err := ocireferrer.Tags(ctx, repo, "")
 	var resp *errcode.ErrorResponse
-	if errors.As(err, &resp) && (resp.StatusCode == http.StatusNotFound ||
-		slices.ContainsFunc(resp.Errors, func(e errcode.Error) bool { return e.Code == errcode.ErrorCodeNameUnknown })) {
+	// The distribution spec answers NAME_UNKNOWN with 404, so the status covers it.
+	if errors.As(err, &resp) && resp.StatusCode == http.StatusNotFound {
 		return nil, nil
 	}
 	return tags, err

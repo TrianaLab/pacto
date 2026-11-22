@@ -102,6 +102,21 @@ func TestForOperatorAbsentIndexIsEmpty(t *testing.T) {
 	if tags, err := l.Tags(context.Background()); err != nil || len(tags) != 0 {
 		t.Fatalf("an absent index: %v %v", tags, err)
 	}
+	// zot answers a repository it never stored with 404 NAME_UNKNOWN.
+	zot := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"errors":[{"code":"NAME_UNKNOWN","message":"repository name not known to registry"}]}`))
+	}))
+	t.Cleanup(zot.Close)
+	zhost := strings.TrimPrefix(zot.URL, "http://")
+	l, err = ForOperator(Config{DeploymentName: opDeploy, Namespace: opNS, Registry: zhost + "/acme", Insecure: []string{zhost}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tags, err := l.Tags(context.Background()); err != nil || len(tags) != 0 {
+		t.Fatalf("a NAME_UNKNOWN index: %v %v", tags, err)
+	}
 	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) }))
 	t.Cleanup(broken.Close)
 	bhost := strings.TrimPrefix(broken.URL, "http://")

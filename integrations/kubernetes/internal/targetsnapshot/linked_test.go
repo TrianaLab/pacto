@@ -116,3 +116,16 @@ func TestTargetPublisherWaitsForTheLinkersFirstCycle(t *testing.T) {
 		}
 	}
 }
+
+// A cancel while it waits for the linker stops Start without publishing.
+func TestTargetPublisherStopsWhileWaitingForTheLinker(t *testing.T) {
+	e := newTargetsEnv(t, fakeReader())
+	e.p.Linked = func() core.LinkedTargets { return core.LinkedTargets{} }
+	published := 0
+	e.p.Mode = func(context.Context) string { published++; return "" }
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := e.p.Start(ctx); err != nil || published != 0 {
+		t.Fatalf("Start: %v, %d publishes", err, published)
+	}
+}
