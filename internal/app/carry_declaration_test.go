@@ -797,3 +797,49 @@ func (h headGone) Head(ctx context.Context, ref string) (*publish.Remote, error)
 	}
 	return h.Registry.Head(ctx, ref)
 }
+
+// tagHeadFails answers 503 to the manifest read of one tag.
+type tagHeadFails struct {
+	publish.Registry
+	tag string
+}
+
+func (h tagHeadFails) Head(ctx context.Context, ref string) (*publish.Remote, error) {
+	if strings.HasSuffix(ref, ":"+h.tag) {
+		return nil, errors.New("503")
+	}
+	return h.Registry.Head(ctx, ref)
+}
+
+// A release in the owner history that cannot be read leaves the owner
+// history unknown: the row is unverified and nothing is carried.
+func TestCarryOwnerHistoryReleaseUnreadable(t *testing.T) {
+	e := newDeclCIEnv(t)
+	e.declaration(t, "ana@acme.com", ownerBilling, nil)
+	e.unsignedRelease(t, "0.2.0", "")
+	e.write(t, map[string]string{e.name + "/pacto.yaml": e.contract(e.name, firstDeclaration, "", "")})
+	e.reg.Registry = tagHeadFails{e.inner, "0.2.0"}
+	r, _, b := e.plan(t)
+	if r.Impact.Gate != "unverified" || !strings.Contains(r.Impact.Text, "could not be checked: the owner history could not be read: 503") ||
+		len(r.Carried) != 0 || contract.Declares(b.RawYAML, "service.owner") {
+		t.Fatalf("%+v", r)
+	}
+}
+
+// TestHistoryRevisionEveryRoot: a declaration in the owner history keeps the
+// signers its first root verified, adds those every other root verifies
+// once, and a second root's signatures that cannot be read fail the read.
+func TestHistoryRevisionEveryRoot(t *testing.T) {
+	e := newDeclCIEnv(t)
+	d := e.declaration(t, "ana@acme.com", ownerBilling, nil)
+	root := delivery.PersonSigner{Issuer: personIssuer, Subjects: ".*", TrustedRoot: string(e.ss.RootJSON)}
+	rr := signerRoots([]delivery.PersonSigner{root, root})
+	r, err := e.trust(t).historyRevision(t.Context(), e.inner, rr.roots, e.repo, "invoices", firstDeclaration)
+	if err != nil || r == nil || r.Digest != d || len(r.Provenance.Signers) != 1 || r.Provenance.Signers[0].Subject != "ana@acme.com" {
+		t.Fatalf("%v %+v", err, r)
+	}
+	if _, err := e.trust(t).historyRevision(t.Context(), referrersFail{e.inner}, rr.roots, e.repo, "invoices", firstDeclaration); err == nil ||
+		!strings.HasPrefix(err.Error(), "reading the signatures of "+e.repo+"@"+d+": ") {
+		t.Fatalf("unread signatures under a second root: %v", err)
+	}
+}

@@ -92,6 +92,15 @@ func TestPinAcceptedOverriddenValueIsPactoYAML(t *testing.T) {
 	if c := res.Carried[0]; c.State != ci.CarriedOverridden || c.Value != "^1.0.0" || c.From != carriedFromPactoYAML || c.Reason != "registry accepts ^2.3.0" {
 		t.Fatalf("%+v", c)
 	}
+	// A ref pacto.yaml declares is the value it publishes, not the compatibility.
+	js[0].Record.Ranges = []delivery.AcceptedRange{{Field: "dependencies[ledger].ref", Value: "oci://r.io/acme/ledger-v2"}}
+	raw = []byte("dependencies:\n  - name: ledger\n    ref: oci://r.io/acme/ledger\n    compatibility: \"^1.0.0\"\n")
+	deps = []contract.Dependency{{Name: "ledger", Ref: "oci://r.io/acme/ledger", Compatibility: "^1.0.0"}}
+	res = carryResult{}
+	pinAccepted(js, &raw, deps, &res, nil)
+	if c := res.Carried[0]; c.State != ci.CarriedOverridden || c.Value != "oci://r.io/acme/ledger" || c.From != carriedFromPactoYAML {
+		t.Fatalf("ref: %+v", c)
+	}
 }
 
 // TestFillRowBaselineMovedDropsPlanDigest: once publish measured the

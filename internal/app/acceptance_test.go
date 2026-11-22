@@ -14,6 +14,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing/testutil"
 )
 
@@ -299,5 +300,21 @@ func TestAcceptanceTagGoneIgnored(t *testing.T) {
 	got, notes := e.read(t, st, e.query())
 	if len(got) != 0 || !hasNote(notes, "listed and is gone") {
 		t.Fatalf("read %v %v", states(got), notes)
+	}
+}
+
+// headDown cannot say what any tag holds.
+type headDown struct{ publish.Registry }
+
+func (headDown) Head(context.Context, string) (*publish.Remote, error) {
+	return nil, errors.New("down")
+}
+
+// A provider repository that cannot be read fails the break read, never
+// reads as the version not being published.
+func TestBreakSourceRegistryDown(t *testing.T) {
+	b, ref, err := breakSource(t.Context(), headDown{}, "r.io/acme/ledger", "ledger", "3.0.0", "")
+	if b != nil || ref != "" || err == nil || err.Error() != "reading ledger 3.0.0: down" {
+		t.Fatalf("%v %q %v", b, ref, err)
 	}
 }
