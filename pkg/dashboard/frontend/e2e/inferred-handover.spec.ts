@@ -20,7 +20,9 @@ test.describe('WASM demo: a declaration replaces its inferred service', () => {
     await expect(fold.locator('summary')).toContainText('1 accepted');
     await fold.locator('summary').click();
 
-    const row = (field: string) => fold.locator('.fpf-row', { has: page.locator('dt', { hasText: field }) });
+    // The fold also lists contract completeness (its own "Owner" row); field rows live in field-provenance.
+    const fields = fold.getByTestId('field-provenance');
+    const row = (field: string) => fields.locator('.fpf-row', { has: page.locator('dt', { hasText: field }) });
     await expect(row('owner')).toContainText('billing');
     await expect(row('owner')).toHaveAttribute('data-provenance', 'declared');
 
@@ -36,7 +38,7 @@ test.describe('WASM demo: a declaration replaces its inferred service', () => {
     await expect(unknown.getByRole('note')).toContainText('never declared');
 
     // One checkbox hides the inferred rows, never a second list.
-    const inferred = fold.locator('.fpf-row[data-provenance="inferred"]');
+    const inferred = fields.locator('.fpf-row[data-provenance="inferred"]');
     await expect(inferred).toHaveCount(1);
     await fold.getByTestId('field-provenance-show-inferred').uncheck();
     await expect(inferred).toHaveCount(0);
