@@ -207,6 +207,33 @@ still succeeds; publishing the current version again writes a missing entry.
   `--index none` writes none.
 - `pacto push` under a tag other than the version writes none.
 
+## Fields declared in the registry
+
+- **Kept.** `pacto ci --publish` keeps what a person
+  [declared](#declare-a-running-service) in each later version.
+- **Baseline.** The declaration counts as the baseline the next version is
+  derived from. The plan lines are in
+  [Publish from CI](publish-from-ci.md#fields-carried-from-the-registry).
+- **What is carried.** The declared `service.owner` and each range the
+  declaration accepted. A whole dependency entry is carried only while
+  discovery still finds that dependency.
+- **The repository wins.** A key the repository's `pacto.yaml` writes is never
+  carried, an explicit `compatibility: unknown` included.
+- **Owner.** The owner is carried only when the
+  [owner rule](owner-setting.md) accepts the declaration, which needs an owner
+  policy CI can read. Otherwise the plan prints
+  `owner: billing, declared in registry (rev sha256:7c1d2e3f4a5b), not carried: no owner policy readable from CI`.
+- **Ranges.** A range is carried only when an owner of the service signed the
+  declaration.
+- **Record.** The published record cites the declaration in
+  [`inputs.declaration`](contract-reference/inferred-record.md).
+- **Dropped.** A declaration that is gone or no longer counts is dropped with
+  its reason, and the version publishes with the repository's values.
+- **Unknown stops.** A declaration that cannot be checked under a configured
+  trusted root stops that service's publish.
+- **Plain publish.** `pacto publish` carries nothing, and says which declared
+  fields the new version leaves out.
+
 ## In CI and from agents
 
 CI calls [`pacto ci --publish`](publish-from-ci.md) as one step after the
@@ -221,6 +248,8 @@ through MCP: `pacto mcp --publish` adds `pacto_publish_plan` and
   declares that field, and cites every carried record in
   [`inputs.acceptances`](contract-reference/inferred-record.md). A record that
   no longer verifies stops carrying. A plain `pacto publish` carries none.
+  Fields a person declared are carried the same way: see
+  [Fields declared in the registry](#fields-declared-in-the-registry).
 
 ## Declare a running service
 
