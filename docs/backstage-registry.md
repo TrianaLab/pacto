@@ -59,7 +59,8 @@ published service. Pass `--allow-partial` to write the file anyway.
 
 An inferred contract the export cannot read never holds the sync. Its external
 system stays in the file without the `pacto.trianalab.io/inferred-contract`
-annotation, and the snapshot lists `INFERRED_CONTRACT_UNREAD`.
+annotation, and the advisory source `registry-index-inferred` lists
+`INFERRED_CONTRACT_UNREAD`.
 
 ## The managed dashboard
 
