@@ -14,6 +14,7 @@ import (
 	"time"
 
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -83,5 +84,35 @@ func TestSnapshotStripsLinkLabelsFromCRs(t *testing.T) {
 	s, _ := e.pushed(t)
 	if l := s.Pactos[0].Metadata.Labels; l[core.LinkedByLabel] != "" || l["team"] != "pay" {
 		t.Fatalf("labels: %v", l)
+	}
+}
+
+// The first snapshot waits for the linker's first cycle, so it carries the
+// linked targets instead of going out partial; a linker that never runs holds
+// it back at most linkWaits polls.
+func TestTargetPublisherWaitsForTheLinkersFirstCycle(t *testing.T) {
+	for name, ran := range map[string]bool{"linker ran": true, "linker never runs": false} {
+		e := newTargetsEnv(t, fakeReader(snapshotObjects()...))
+		e.p.Tick = func(time.Duration) <-chan time.Time { return nil } // the interval never elapses
+		e.p.linkPoll = time.Millisecond
+		calls := 0
+		e.p.Linked = func() core.LinkedTargets {
+			if calls++; ran && calls > 3 {
+				return core.LinkedTargets{AsOf: "2026-11-17T09:59:00Z", Completeness: fleet.CompletenessComplete}
+			}
+			return core.LinkedTargets{}
+		}
+		e.p.OnPush = func(detect.PushResult) {
+			s, _ := e.pushed(t)
+			if complete := s.Sources[0].Completeness == fleet.CompletenessComplete; complete != ran {
+				t.Errorf("%s: the first snapshot's Pacto section is %s", name, s.Sources[0].Completeness)
+			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		_ = e.p.Start(ctx)
+		cancel()
+		if ran && calls != 5 || !ran && calls != linkWaits+2 { // the waits, then the publish
+			t.Errorf("%s: the linker was read %d times", name, calls)
+		}
 	}
 }

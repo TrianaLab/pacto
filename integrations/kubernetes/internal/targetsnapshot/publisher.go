@@ -88,7 +88,18 @@ type TargetPublisher struct {
 	Log  logr.Logger
 	// maxBytes overrides core.MaxTargetSnapshotBytes (tests).
 	maxBytes int
+	// linkPoll overrides linkPoll (tests).
+	linkPoll time.Duration
 }
+
+// The operator starts the linker and the publisher together: a first snapshot
+// published before the linker finished a cycle would go out partial and stay
+// up for a whole Interval. Start waits for that cycle, polling every
+// linkPoll, at most linkWaits times.
+const (
+	linkPoll  = time.Second
+	linkWaits = 120
+)
 
 // Start publishes at once, then on every tick until ctx ends. A failed publish
 // is logged and retried on the next tick; CI sees the previous snapshot turn
@@ -102,6 +113,13 @@ func (p *TargetPublisher) Start(ctx context.Context) error {
 		tick = func(time.Duration) <-chan time.Time { return t.C }
 	}
 	c := tick(p.Interval)
+	for i := 0; p.Linked != nil && p.Linked().AsOf == "" && i < linkWaits; i++ {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(cmp.Or(p.linkPoll, linkPoll)):
+		}
+	}
 	for {
 		p.attempt(ctx)
 		select {
