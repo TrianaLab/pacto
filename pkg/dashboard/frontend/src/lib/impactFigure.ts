@@ -180,6 +180,15 @@ function eventVerb(im: ProductImpact): string {
 export function eventPhrase(im: ProductImpact): string {
   return `${im.service?.label || im.service?.key || ''} ${eventVerb(im)}`;
 }
+/** The event figure's question. A changed external system cannot be compared, so it asks who needs attention. */
+export function eventQuestion(im: ProductImpact): string {
+  return `If ${eventPhrase(im)}, ${im.event?.kind === 'changed' ? 'who needs attention' : 'who breaks'}?`;
+}
+const EVENT_STAMP: Record<string, string> = { unavailable: 'Unavailable', removed: 'Removed', regressed: 'Regressed', changed: 'Changed' };
+/** The answer card's stamp for an event: its kind, or "What if". */
+export function eventStamp(im: ProductImpact): string {
+  return EVENT_STAMP[im.event?.kind ?? ''] ?? 'What if';
+}
 
 /** "a, b and c": no Oxford comma. */
 const joinWords = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}` : xs[0] ?? '');

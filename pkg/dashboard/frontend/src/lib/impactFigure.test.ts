@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { impactModel, eventModel, effectOf, outcomeOf, classificationLabel, answerText, OUTCOMES, EFFECTS } from './impactFigure.ts';
+import { impactModel, eventModel, effectOf, outcomeOf, classificationLabel, answerText, eventQuestion, eventStamp, OUTCOMES, EFFECTS } from './impactFigure.ts';
 import { timeline, sessionKey } from './narrate.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
@@ -288,5 +288,17 @@ describe('eventModel (an event answer)', () => {
   it('says "at least" in the reach step of a partial answer', () => {
     expect(eventModel(event({ breaks: 4 }, { completeness: 'partial' })).steps[1].cap).toBe('It reaches at least 4 consumers that depend on redis.');
     expect(eventModel(event({ breaks: 4 })).steps[1].cap).toBe('It reaches the 4 consumers that depend on redis.');
+  });
+});
+
+describe('event question and stamp', () => {
+  const ev = (kind: string) => ({ service: { key: 'svc:x', label: 'x' }, event: { kind } }) as any;
+  it('asks who needs attention for a changed external system, who breaks otherwise', () => {
+    expect(eventQuestion(ev('changed'))).toBe('If x changes, who needs attention?');
+    expect(eventQuestion(ev('removed'))).toBe('If x is removed, who breaks?');
+  });
+  it('stamps the kind, or What if', () => {
+    expect(eventStamp(ev('changed'))).toBe('Changed');
+    expect(eventStamp(ev('other'))).toBe('What if');
   });
 });
