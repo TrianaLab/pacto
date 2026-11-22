@@ -21,6 +21,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -49,7 +50,7 @@ const pageSize = 500
 // The linker's limitation codes.
 const (
 	// LimitationIndexPartial: some index entries or images records were not
-	// read this cycle, so a workload may stay unlinked until they are.
+	// read this cycle, so no new workload is linked by digest until they are.
 	LimitationIndexPartial = "LINK_INDEX_PARTIAL"
 	// LimitationTargetsCapped: more linked workloads than linked.json holds.
 	LimitationTargetsCapped = "LINKED_TARGETS_CAPPED"
@@ -88,8 +89,9 @@ type Linker struct {
 	since   map[sinceKey]time.Time
 	windows map[Key][]pactov1alpha1.ObservationWindow
 	last    atomic.Pointer[cycle]
-	// maxBytes overrides core.MaxLinkedBytes (tests).
-	maxBytes int
+	// maxBytes overrides core.MaxLinkedBytes and maxPods detect.MaxPods
+	// (tests).
+	maxBytes, maxPods int
 }
 
 // sinceKey is a workload linked to a service.
@@ -144,15 +146,20 @@ func (l *Linker) Sync(ctx context.Context) error {
 		l.owner = owner
 	}
 	cm := &corev1.ConfigMap{}
-	_ = l.Reader.Get(ctx, client.ObjectKey{Namespace: l.Namespace, Name: l.ConfigMap}, cm) // absent: nothing to seed or share
+	err := l.Reader.Get(ctx, client.ObjectKey{Namespace: l.Namespace, Name: l.ConfigMap}, cm) // absent: nothing to seed or share
 	if !l.seeded {
+		if err != nil && !apierrors.IsNotFound(err) {
+			// Writing now would replace every Since a previous linker wrote.
+			log.Info("The linker waits to read the linked workloads it wrote before", "configMap", l.ConfigMap)
+			return nil
+		}
 		l.seeded = true
 		l.seed(cm)
 	}
 	c := l.link(ctx)
 	data := l.encode(&c.linked, room(cm))
 	l.last.Store(c)
-	err := l.Writer.Apply(ctx, corev1ac.ConfigMap(l.ConfigMap, l.Namespace).
+	err = l.Writer.Apply(ctx, corev1ac.ConfigMap(l.ConfigMap, l.Namespace).
 		WithLabels(map[string]string{
 			"app.kubernetes.io/part-of":   "pacto",
 			"app.kubernetes.io/component": "detection",
@@ -200,6 +207,7 @@ func (l *Linker) link(ctx context.Context) *cycle {
 		Completeness: fleet.CompletenessComplete, Limitations: w.lims, Targets: []core.PactoView{}}
 	byDigest, lims := l.candidates(ctx, w.workloads)
 	out.Limitations = append(out.Limitations, lims...)
+	poolPartial := slices.ContainsFunc(lims, func(lim fleet.Limitation) bool { return lim.Code == LimitationIndexPartial })
 	c := &cycle{}
 	since, windows := map[sinceKey]time.Time{}, map[Key][]pactov1alpha1.ObservationWindow{}
 	for _, wk := range w.workloads {
@@ -207,10 +215,16 @@ func (l *Linker) link(ctx context.Context) *cycle {
 		if lim.Code != "" {
 			out.Limitations = append(out.Limitations, lim)
 		}
+		key := Key{wk.Namespace, wk.Kind, wk.Name}
+		if link.Signal == fleet.LinkSignalImageDigest && poolPartial && !l.linkedBefore(key) {
+			// An unread entry may hold another service or version recording
+			// the digest: a partial pool makes no new digest link, so an
+			// ambiguity never becomes a merge.
+			continue
+		}
 		if link.Signal == "" {
 			continue
 		}
-		key := Key{wk.Namespace, wk.Kind, wk.Name}
 		p := l.judge(ctx, wk, link, ServiceFor(w.services[wk.Namespace], wk.Labels))
 		windows[key] = p.Status.ObservationWindows
 		if lim := l.refuse(wk, link, p); lim.Code != "" {
@@ -221,10 +235,13 @@ func (l *Linker) link(ctx context.Context) *cycle {
 		since[sk] = cmp.Or(l.since[sk], now)
 		at := since[sk]
 		out.Targets = append(out.Targets, view(p, wk, fleet.ObservedLink{Signal: link.Signal, Value: link.Value, Since: &at, OtherVersions: link.OtherVersions}))
+		version := p.Status.Contract.Version
+		if len(link.OtherVersions) > 0 {
+			version = "" // a guess: a dependency on it reads no version
+		}
 		c.siblings = append(c.siblings, observer.LinkedSibling{Namespace: wk.Namespace, ServiceName: p.Spec.Target.ServiceName,
-			ResolvedRef: p.Status.Contract.ResolvedRef, Version: p.Status.Contract.Version})
+			ResolvedRef: p.Status.Contract.ResolvedRef, Version: version})
 	}
-	l.since, l.windows = since, windows
 	slices.SortFunc(out.Targets, func(a, b core.PactoView) int {
 		return cmp.Or(cmp.Compare(a.Metadata.Namespace, b.Metadata.Namespace), cmp.Compare(a.Metadata.Name, b.Metadata.Name))
 	})
@@ -233,8 +250,45 @@ func (l *Linker) link(ctx context.Context) *cycle {
 			out.Completeness = fleet.CompletenessPartial
 		}
 	}
+	if out.Completeness == fleet.CompletenessPartial {
+		l.carry(since, windows)
+	}
+	l.since, l.windows = since, windows
 	c.linked = out
 	return c
+}
+
+// linkedBefore says the previous cycle (or the linked.json a restart seeded)
+// linked key to some service.
+func (l *Linker) linkedBefore(key Key) bool {
+	for sk := range l.since {
+		if sk.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// carry keeps, after a partial cycle, the Since and windows of every workload
+// this cycle did not link: a failed listing, a cut index read or a contract
+// that did not load is no evidence the link ended, so the next good cycle
+// records no new link for it. A complete cycle drops them.
+// ponytail: kept while cycles stay partial; a TTL if a scope fails for good.
+func (l *Linker) carry(since map[sinceKey]time.Time, windows map[Key][]pactov1alpha1.ObservationWindow) {
+	linked := map[Key]bool{}
+	for sk := range since {
+		linked[sk.Key] = true
+	}
+	for sk, at := range l.since {
+		if !linked[sk.Key] {
+			since[sk] = at
+		}
+	}
+	for k, w := range l.windows {
+		if _, ok := windows[k]; !ok {
+			windows[k] = w
+		}
+	}
 }
 
 // judge evaluates wk against link's contract on a Pacto that is never
@@ -348,7 +402,7 @@ func (l *Linker) candidates(ctx context.Context, ws []Workload) (map[string][]Ca
 		return byDigest, nil
 	}
 	return byDigest, []fleet.Limitation{{Code: LimitationIndexPartial, Message: fmt.Sprintf(
-		"%d index reads are left for the next cycle and some may have failed, so a workload may be linked later", unread)}}
+		"%d index reads are left for the next cycle and some may have failed, so no new workload is linked by image digest until they are read", unread)}}
 }
 
 // read lists, in each scope, the Pactos, the workloads the observer can
@@ -386,9 +440,13 @@ func (l *Linker) readScope(ctx context.Context, ns string, w *world) error {
 			return err
 		}
 	}
-	pods, err := l.pods(ctx, ns)
+	pods, sampled, err := l.pods(ctx, ns)
 	if err != nil {
 		return err
+	}
+	if sampled {
+		w.lims = append(w.lims, fleet.Limitation{Code: fleet.LimitationSourcePartial, Message: fmt.Sprintf(
+			"the operator sampled the first %d running pods of %s, so a workload whose pods it did not read may be unlinked or linked by part of its images", cmp.Or(l.maxPods, detect.MaxPods), cmp.Or(ns, "the cluster"))})
 	}
 	targeted := map[Key]bool{}
 	for i := range pactos.Items {
@@ -433,37 +491,46 @@ func owners(rss []appsv1.ReplicaSet, jobs []batchv1.Job) map[types.UID]Owner {
 	return out
 }
 
-// pods reads the running pods of ns, at most detect.MaxPods.
-func (l *Linker) pods(ctx context.Context, ns string) ([]corev1.Pod, error) {
-	var out []corev1.Pod
+// pods reads the running pods of ns, at most maxPods; sampled says it
+// stopped there with pods left unread.
+func (l *Linker) pods(ctx context.Context, ns string) (out []corev1.Pod, sampled bool, err error) {
+	limit := cmp.Or(l.maxPods, detect.MaxPods)
 	next := ""
 	for {
 		page := &corev1.PodList{}
 		if err := l.Reader.List(ctx, page, client.InNamespace(ns), client.Limit(pageSize), client.Continue(next)); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		for _, p := range page.Items {
-			if p.Status.Phase == corev1.PodRunning && len(out) < detect.MaxPods {
-				out = append(out, p)
+			if p.Status.Phase != corev1.PodRunning {
+				continue
 			}
+			if len(out) == limit {
+				return out, true, nil
+			}
+			out = append(out, p)
 		}
-		if next = page.Continue; next == "" || len(out) == detect.MaxPods {
-			return out, nil
+		if next = page.Continue; next == "" {
+			return out, false, nil
 		}
 	}
 }
 
 // listAll fills list with every object of its kind in ns, page by page.
+// Each page decodes into a fresh list: the decoder reuses the items of the
+// list it fills, so a reused one would overwrite the previous page's objects.
 func (l *Linker) listAll(ctx context.Context, list client.ObjectList, ns string) error {
+	empty := list.DeepCopyObject().(client.ObjectList) // list is empty here
 	var items []runtime.Object
 	next := ""
 	for {
-		if err := l.Reader.List(ctx, list, client.InNamespace(ns), client.Limit(pageSize), client.Continue(next)); err != nil {
+		page := empty.DeepCopyObject().(client.ObjectList)
+		if err := l.Reader.List(ctx, page, client.InNamespace(ns), client.Limit(pageSize), client.Continue(next)); err != nil {
 			return err
 		}
-		page, _ := apimeta.ExtractList(list) // every list here is a typed list
-		items = append(items, page...)
-		if next = list.GetContinue(); next == "" {
+		objs, _ := apimeta.ExtractList(page) // every list here is a typed list
+		items = append(items, objs...)
+		if next = page.GetContinue(); next == "" {
 			return apimeta.SetList(list, items)
 		}
 	}

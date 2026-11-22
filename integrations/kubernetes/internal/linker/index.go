@@ -26,6 +26,10 @@ const (
 	maxIndexReadsPerCycle = 200
 	// maxCached bounds each cache. ponytail: cleared on overflow.
 	maxCached = 20000
+	// recheckCycles is how many cycles a listing with no signed images
+	// record is reused before it is read again: a record or its signature
+	// can be attached to a bundle after the linker first listed it.
+	recheckCycles = 10
 )
 
 // Reader reads the organization index: the validated entry under a tag and
@@ -35,11 +39,15 @@ type Reader interface {
 	Images(ctx context.Context, repo, digest string) ([]publish.ImagesRecord, bool, error)
 }
 
-// Index caches index entries (write-once tags) and images records (immutable
-// by digest) forever, within maxCached each.
+// Index caches index entries (write-once tags) and signed images records
+// forever, within maxCached each. A listing with no signed record is read
+// again after recheckCycles, within the read budget.
 type Index struct {
 	entries map[string]orgindex.Entry
 	images  map[string][]publish.ImagesRecord
+	// recheck is the cycle a listing with no signed record is read again.
+	recheck map[string]int
+	cycle   int
 }
 
 // Candidates maps each digest an images record names to its candidates,
@@ -48,8 +56,9 @@ type Index struct {
 // maxIndexReadsPerCycle; partial says something was left unread or failed.
 func (x *Index) Candidates(ctx context.Context, tags, imageTags []string, read Reader) (byDigest map[string][]Candidate, unread int, partial bool) {
 	if x.entries == nil {
-		x.entries, x.images = map[string]orgindex.Entry{}, map[string][]publish.ImagesRecord{}
+		x.entries, x.images, x.recheck = map[string]orgindex.Entry{}, map[string][]publish.ImagesRecord{}, map[string]int{}
 	}
+	x.cycle++
 	byDigest, reads := map[string][]Candidate{}, 0
 	budget := func() bool {
 		if reads == maxIndexReadsPerCycle {
@@ -72,7 +81,7 @@ func (x *Index) Candidates(ctx context.Context, tags, imageTags []string, read R
 			}
 			keep(x.entries, tag, e)
 		}
-		recs, ok := x.images[e.Bundle]
+		recs, ok := x.cached(e.Bundle, reads < maxIndexReadsPerCycle)
 		if !ok {
 			if !budget() {
 				continue
@@ -84,12 +93,34 @@ func (x *Index) Candidates(ctx context.Context, tags, imageTags []string, read R
 				continue
 			}
 			if recs = got; !cut {
-				keep(x.images, e.Bundle, recs)
+				x.keepImages(e.Bundle, recs)
 			}
 		}
 		addCandidates(byDigest, e, recs)
 	}
 	return byDigest, unread, partial || unread > 0
+}
+
+// cached is the cached listing of bundle, not ok when there is none or, with
+// room left in the read budget, a listing with no signed record is due to be
+// read again; past the budget the cached listing stands.
+func (x *Index) cached(bundle string, room bool) ([]publish.ImagesRecord, bool) {
+	recs, ok := x.images[bundle]
+	if at, due := x.recheck[bundle]; ok && due && at <= x.cycle && room {
+		return nil, false
+	}
+	return recs, ok
+}
+
+// keepImages caches the complete listing recs of bundle, to be read again
+// after recheckCycles when no record in it is signed.
+func (x *Index) keepImages(bundle string, recs []publish.ImagesRecord) {
+	keep(x.images, bundle, recs)
+	if slices.ContainsFunc(recs, func(r publish.ImagesRecord) bool { return r.Signed }) {
+		delete(x.recheck, bundle)
+	} else {
+		keep(x.recheck, bundle, x.cycle+recheckCycles)
+	}
 }
 
 // Indexed says a cached entry's bundle lives in repo: the repository was

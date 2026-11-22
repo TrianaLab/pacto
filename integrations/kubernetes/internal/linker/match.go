@@ -79,7 +79,8 @@ type Link struct {
 	Value string
 	// Ref is the OCI reference the transient Pacto loads.
 	Ref string
-	// OtherVersions are the other release versions recording the digest.
+	// OtherVersions are the other release versions whose images records hold
+	// every running digest, or, mid-rollout, the other versions running.
 	OtherVersions []string
 }
 
@@ -133,19 +134,35 @@ func digestLink(w Workload, byDigest map[string][]Candidate) (Link, fleet.Limita
 	return newest(cands), fleet.Limitation{}
 }
 
-// newest links the highest version among cands, prereleases dropped when a
-// release is among them; the other versions of that pool are OtherVersions.
+// newest links the newest version (releases before prereleases) whose
+// images record holds every running digest that matched; OtherVersions are
+// the other versions that hold them all too. When no version holds every
+// digest (pods of two versions mid-rollout), the newest present is linked and
+// every other version present is OtherVersions: the running version is a
+// guess either way.
 func newest(cands []matched) Link {
-	if slices.ContainsFunc(cands, func(c matched) bool { return !prerelease(c.Version) }) {
-		cands = slices.DeleteFunc(cands, func(c matched) bool { return prerelease(c.Version) })
-	}
-	slices.SortStableFunc(cands, func(a, b matched) int { return semver.Compare(b.Version, a.Version) })
-	best := cands[0]
-	var others []string
-	for _, c := range cands[1:] {
-		if c.Version != best.Version && !slices.Contains(others, c.Version) {
-			others = append(others, c.Version)
+	digests := map[string]bool{}
+	covers := map[string]map[string]bool{}
+	first := map[string]matched{}
+	for _, c := range cands {
+		digests[c.digest] = true
+		if covers[c.Version] == nil {
+			covers[c.Version], first[c.Version] = map[string]bool{}, c
 		}
+		covers[c.Version][c.digest] = true
+	}
+	pool := slices.Collect(maps.Keys(covers))
+	if full := slices.DeleteFunc(slices.Clone(pool), func(v string) bool { return len(covers[v]) < len(digests) }); len(full) > 0 {
+		pool = full
+	}
+	if slices.ContainsFunc(pool, func(v string) bool { return !prerelease(v) }) {
+		pool = slices.DeleteFunc(pool, prerelease)
+	}
+	slices.SortFunc(pool, func(a, b string) int { return semver.Compare(b, a) })
+	best := first[pool[0]]
+	var others []string
+	if len(pool) > 1 {
+		others = pool[1:]
 	}
 	return Link{Signal: fleet.LinkSignalImageDigest, Value: best.digest, Ref: best.Bundle, OtherVersions: others}
 }

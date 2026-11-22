@@ -200,3 +200,32 @@ func TestEntryServiceIsNeverTrusted(t *testing.T) {
 		t.Fatalf("two bundles claiming one service merged: %+v %+v", l, lim)
 	}
 }
+
+// TestIndexRechecksUnsignedListing: a listing with no signed record is read
+// again after recheckCycles, so a record signed later links with no restart;
+// a signed one is cached for good.
+func TestIndexRechecksUnsignedListing(t *testing.T) {
+	f := newFake()
+	tag := f.publishVersion(t, "acme/payments", "reg.io/c/payments", "1.0.0", "reg.io/payments", dA)
+	bundle := f.entries[tag].Bundle
+	f.images[bundle][0].Signed = false
+	var x Index
+	for range recheckCycles {
+		if byDigest, _, _ := x.Candidates(context.Background(), []string{tag}, nil, f); byDigest[dA][0].Signed {
+			t.Fatal("unsigned read as signed")
+		}
+	}
+	f.images[bundle][0].Signed = true
+	f.reads = nil
+	byDigest, _, _ := x.Candidates(context.Background(), []string{tag}, nil, f)
+	if !slices.Equal(f.reads, []string{bundle}) || !byDigest[dA][0].Signed {
+		t.Fatalf("not read again: reads %v candidates %+v", f.reads, byDigest)
+	}
+	f.reads = nil
+	for range 2 * recheckCycles {
+		x.Candidates(context.Background(), []string{tag}, nil, f)
+	}
+	if len(f.reads) != 0 {
+		t.Fatalf("a signed listing was read again: %v", f.reads)
+	}
+}

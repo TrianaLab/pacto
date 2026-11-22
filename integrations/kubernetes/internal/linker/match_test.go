@@ -175,3 +175,30 @@ func TestMatchNoDigestNoLink(t *testing.T) {
 func linkEqual(a, b Link) bool {
 	return a.Signal == b.Signal && a.Value == b.Value && a.Ref == b.Ref && slices.Equal(a.OtherVersions, b.OtherVersions)
 }
+
+// TestMatchSidecarDigestDoesNotWidenVersions: the app digest only 2.3.0
+// records pins the version, whatever older versions record the sidecar's.
+func TestMatchSidecarDigestDoesNotWidenVersions(t *testing.T) {
+	byDigest := map[string][]Candidate{
+		dA: {cand("c/payments", "2.3.0", "ghcr.io/acme/payments")},
+		dB: {cand("c/payments", "2.3.0", "ghcr.io/acme/sidecar"), cand("c/payments", "2.2.0", "ghcr.io/acme/sidecar"), cand("c/payments", "2.1.0", "ghcr.io/acme/sidecar")},
+	}
+	l, lim := Match(payments(img("ghcr.io/acme/payments", dA), img("ghcr.io/acme/sidecar", dB)), byDigest)
+	if l.Signal != fleet.LinkSignalImageDigest || len(l.OtherVersions) != 0 || lim.Code != "" {
+		t.Fatalf("got %+v %+v, want 2.3.0 alone", l, lim)
+	}
+}
+
+// TestMatchRolloutMixIsAGuess: old pods on 2.2.0's image and new pods on
+// 2.3.0's: no version holds both, so the newest links and the other running
+// version keeps it a guess.
+func TestMatchRolloutMixIsAGuess(t *testing.T) {
+	byDigest := map[string][]Candidate{
+		dA: {cand("c/payments", "2.2.0", "ghcr.io/acme/payments")},
+		dB: {cand("c/payments", "2.3.0", "ghcr.io/acme/payments")},
+	}
+	l, _ := Match(payments(img("ghcr.io/acme/payments", dA), img("ghcr.io/acme/payments", dB)), byDigest)
+	if l.Value != dB || !slices.Equal(l.OtherVersions, []string{"2.2.0"}) {
+		t.Fatalf("got %+v, want 2.3.0 with 2.2.0 other", l)
+	}
+}

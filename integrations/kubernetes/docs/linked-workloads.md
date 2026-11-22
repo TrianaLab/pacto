@@ -50,14 +50,16 @@ The rules, in order:
   inferred service.
 - **Ambiguity never merges.** A digest the images records of two services
   hold, or containers whose digests point to two services, link nothing and
-  report `INFERRED_REPLACEMENT_AMBIGUOUS`. A digest several release versions
-  of one service record links to the newest with `LINK_VERSION_AMBIGUOUS`,
-  and `pacto impact` reads that consumer as unverified.
+  report `INFERRED_REPLACEMENT_AMBIGUOUS`. When several release versions
+  of one service record every digest a workload runs, or its pods run the
+  images of different versions mid-rollout, it links to the newest with
+  `LINK_VERSION_AMBIGUOUS`. Its version is then unknown: `pacto impact` reads
+  it as an unverified consumer, and a dependency on it reads no version.
 - **No registry, no digest.** With no `registry` value the operator links by
   annotation only, and the source state says `LINK_DIGEST_OFF`.
 
-Images records are signed by their publisher, and the operator does not verify
-those signatures yet. Until it does, any publisher with write access to a
+An images record carries a signature, and the operator does not verify it
+yet. Until it does, any publisher with write access to a
 contract repository can claim another team's digest from the same image
 repository. The link tip in the dashboard says the record is unverified. A link only judges a workload by observation; it never
 wins over a `Pacto` or a declaration.
@@ -95,14 +97,19 @@ whenever the operator runs from the chart.
 - The signed [target snapshot](delivery-records.md#target-snapshot) carries
   the linked targets, so `pacto impact` and `pacto ci` count them as
   consumers.
+- The linked workloads hold no workload a `Pacto` targets, so `pacto ci`
+  never clears a row when `--detected` is its only consumer source: add
+  `--k8s` or a target snapshot. An operator that runs no linker leaves the
+  linked source advisory, so it changes no answer.
 - Linked targets older than three minutes read stale.
 
 | Limitation | Meaning |
 |---|---|
-| `LINK_INDEX_PARTIAL` | Some index entries or images records were not read this cycle (at most 200 reads per cycle), so a workload may stay unlinked until they are; partial |
+| `LINK_INDEX_PARTIAL` | Some index entries or images records were not read this cycle (at most 200 reads per cycle). An unread entry may hold another version or service that records the same digest, so no new workload is linked by digest until they are read; a workload linked before keeps its link; partial |
 | `LINK_DIGEST_OFF` | The operator has no registry, so it links by annotation only. Informational: it never makes the source partial |
+| `SOURCE_PARTIAL` | A namespace could not be read, a linked contract could not be loaded, or the operator sampled the first 20000 running pods of a scope; partial |
 | `LINKED_TARGETS_CAPPED` | More linked workloads than `linked.json` holds: 640 KiB, or less when the detection key leaves less room in the 1 MiB ConfigMap. The rest are left out and the source is partial |
-| `LINK_VERSION_AMBIGUOUS` | Several release versions of the service record the running digest; the newest is evaluated and impact reads the consumer as unverified |
+| `LINK_VERSION_AMBIGUOUS` | Several release versions of the service record every running digest, or its pods run the images of different versions; the newest is evaluated, impact reads the workload as an unverified consumer and a dependency on it reads no version |
 | `LINK_ANNOTATION_INVALID` | The workload's `pacto.trianalab.io/contract` value is not a strict OCI reference; the workload stays inferred |
 | `LINK_ANNOTATION_UNREADABLE` | The contract the annotation names could not be pulled, so the workload is unknown; partial |
 
