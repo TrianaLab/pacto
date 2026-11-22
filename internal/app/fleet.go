@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/detect"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
@@ -172,6 +174,11 @@ func (o FleetOptions) ConsumerSources() []string {
 	add("--mira-source", o.MiraURLs...)
 	add("--target-state", o.TargetStateFiles...)
 	add("--target-snapshot", o.TargetSnapshot...)
+	if o.Detected != "" {
+		// Only the workloads the operator linked with no Pacto: alone it
+		// never covers the cluster (see consumerEvidence).
+		add("--detected", o.Detected+" (linked workloads only)")
+	}
 	for _, spec := range o.ObservationSources {
 		add("--traces", spec.Path)
 	}
@@ -233,6 +240,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		sources = append(sources, s.k8sSources(ctx, opts, fp.Promoters)...)
 	}
 	sources = append(sources, s.detectionSources(ctx, opts, slices.Concat(sources, snaps, opts.addedSources()))...)
+	sources = append(sources, s.linkedSources(opts.Detected)...)
 	sources = append(sources, snaps...)
 	sources = append(sources, opts.addedSources()...)
 	if err := checkSourceIDsAreUnique(sources); err != nil {
@@ -297,6 +305,38 @@ func (s *Service) detectionReader(ref string) *fleetsrc.DetectionSource {
 		return fleetsrc.NewDetectionFailedSource(id, fmt.Errorf("%w: %w", fleetsrc.ErrDetectionNoCluster, err))
 	}
 	return fleetsrc.NewDetectionK8sSource(id, dyn, ns, name, s.env().now)
+}
+
+// linkedSources are the sources of the workloads the operator linked to a
+// published contract with no Pacto, read from the detection at ref (checked
+// by [CheckDetectedRef]), none when ref is empty: k8s:NS/NAME reads the
+// linked key of that ConfigMap; a detection file has the linked file beside
+// it when one is there. A dynamic client that cannot be built is an
+// unavailable source that says so.
+func (s *Service) linkedSources(ref string) []fleet.Source {
+	const linkedID = "linked"
+	rest, ok := strings.CutPrefix(ref, "k8s:")
+	switch {
+	case ref == "":
+		return nil
+	case !ok:
+		if linked := filepath.Join(filepath.Dir(ref), delivery.LinkedConfigMapKey); fileThere(linked) {
+			return []fleet.Source{fleetsrc.NewLinkedFileSource(linkedID, linked, s.env().now)}
+		}
+		return nil
+	}
+	ns, name, _ := strings.Cut(rest, "/")
+	dyn, err := s.env().newDynamic()
+	if err != nil {
+		return []fleet.Source{fleetsrc.NewLinkedFailedSource(linkedID, fmt.Errorf("%w: %w", fleetsrc.ErrDetectionNoCluster, err))}
+	}
+	return []fleet.Source{fleetsrc.NewLinkedK8sSource(linkedID, dyn, ns, name, s.env().now)}
+}
+
+// fileThere reports whether path names something Stat can read.
+func fileThere(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // liveEdgeIDs are, per detected kind a live edge source takes, the id of that

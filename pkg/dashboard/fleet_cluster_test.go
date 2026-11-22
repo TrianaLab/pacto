@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -168,5 +169,27 @@ func TestEntitiesClusterQuery(t *testing.T) {
 		if !keys[k] {
 			t.Errorf("entities lack %s: %v", k, keys)
 		}
+	}
+}
+
+// A workload the operator linked with no Pacto carries its link on the target
+// detail.
+func TestTargetDetailCarriesLink(t *testing.T) {
+	digest := "sha256:ab12" + strings.Repeat("0", 60)
+	base := twoClusterBase(t, fleet.NewMemorySource("linked", "kubernetes-linked", &fleet.Collection{
+		Cluster: &fleet.Cluster{ID: clusterEU, Name: "eu-prod", NameSource: fleet.ClusterNameFromContext},
+		Targets: []fleet.RawTarget{{Scope: "shop", Kind: "kubernetes", Name: "Deployment/payments", Service: "payments", Compliance: fleet.StatusUnknown,
+			Link: &fleet.ObservedLink{Signal: fleet.LinkSignalImageDigest, Value: digest}}},
+	}))
+	key := string(fleet.NewClusterTargetKey(clusterEU, "shop", "kubernetes", "Deployment/payments"))
+	var det fleet.EntityDetail
+	getJSON(t, base+"/api/fleet/entities/target?key="+url.QueryEscape(key), http.StatusOK, &det)
+	if l := det.Target.Link; l == nil || l.Signal != fleet.LinkSignalImageDigest || l.Value != digest {
+		t.Errorf("link = %+v", det.Target.Link)
+	}
+	var plain fleet.EntityDetail
+	getJSON(t, base+"/api/fleet/entities/target?key="+url.QueryEscape(string(fleet.NewClusterTargetKey(clusterEU, "orders", "kubernetes", "orders"))), http.StatusOK, &plain)
+	if plain.Target.Link != nil {
+		t.Errorf("an unlinked target carries link %+v", plain.Target.Link)
 	}
 }

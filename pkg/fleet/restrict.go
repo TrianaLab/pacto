@@ -256,8 +256,9 @@ func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadV
 	hideUnreadable(s, visible, clusters, hiddenNS)
 	restricted := !visible("", "")
 	hiddenTargets := unreadableClusterTargets(s, readable, visible)
-	hiddenSvc, offeringOnly := hiddenServices(s, hiddenNS, restricted, workloadVisible)
-	if len(hiddenNS) == 0 && len(hiddenSvc) == 0 && len(offeringOnly) == 0 && len(hiddenTargets) == 0 && keepsEveryName(s, restricted, workloadHidden(hiddenNS, workloadVisible)) {
+	linkedNames := linkedKindHidden(s, workloadHidden(hiddenNS, workloadVisible), clusters, hiddenTargets)
+	hiddenSvc, offeringOnly := hiddenServices(s, hiddenNS, hiddenTargets, restricted, workloadVisible)
+	if len(hiddenNS)+len(hiddenSvc)+len(offeringOnly)+len(hiddenTargets)+len(linkedNames) == 0 && keepsEveryName(s, restricted, workloadHidden(hiddenNS, workloadVisible)) {
 		if !providersNarrowed(s, visible, workloadVisible, clusters) {
 			return q
 		}
@@ -270,7 +271,7 @@ func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadV
 	}
 
 	out := *s
-	var hiddenNames []string
+	hiddenNames := linkedNames
 	out.Targets = make(map[TargetKey]*TargetRecord, len(s.Targets))
 	for k, t := range s.Targets {
 		if (kubeTarget(t) && hiddenNS[ClusterNamespace{t.Cluster, t.Scope}]) || hiddenTargets[k] || hiddenSvc[t.ServiceKey] || offeringOnly[t.ServiceKey] {
@@ -359,6 +360,37 @@ func unreadableClusterTargets(s *FleetSnapshot, readable map[string]bool, visibl
 		}
 	}
 	return out
+}
+
+// linkedKindHidden adds to hiddenTargets the linked targets whose workload
+// kind hidden says no to: a linked target has no Pacto behind it, so its
+// link, workload and runtime are workload data, gated like an inferred
+// service. It returns the k8s: names of such workloads that the limitations
+// of a linked or target-snapshot source carry (an invalid or unreadable
+// annotation, a refused link).
+func linkedKindHidden(s *FleetSnapshot, hidden func(cluster, namespace, kind string) bool, clusters map[string]string, hiddenTargets map[TargetKey]bool) []string {
+	for k, t := range s.Targets {
+		if t.Link != nil && t.workload != nil && hidden(t.Cluster, t.Scope, t.workload.Kind) {
+			hiddenTargets[k] = true
+		}
+	}
+	linked := map[string]bool{}
+	for _, src := range s.Sources {
+		linked[src.ID] = src.Kind == SourceKindLinked || src.Kind == SourceKindTargetSnapshot
+	}
+	var names []string
+	for _, l := range s.Limitations {
+		if !linked[l.Source] {
+			continue
+		}
+		for _, f := range strings.Fields(l.Message) {
+			f = strings.TrimRight(f, ",.;:)")
+			if c, ns, kind, _, ok := ParseK8sCaller(f); ok && hidden(cmp.Or(c, clusters[l.Source]), ns, kind) {
+				names = append(names, f)
+			}
+		}
+	}
+	return names
 }
 
 // appendNamespaces appends the namespace of each pair of pairs to names.
@@ -899,7 +931,7 @@ func kubeTarget(t *TargetRecord) bool { return t.Kind == SourceKindKubernetes &&
 // when the snapshot knows they have no Kubernetes placement; they are returned
 // in offeringOnly. An inferred service has no target: its namespace and
 // workloadVisible (nil hides it) decide it alone.
-func hiddenServices(s *FleetSnapshot, hiddenNS map[ClusterNamespace]bool, hideUnscoped bool, workloadVisible func(cluster, namespace, kind string) bool) (hiddenSvc, offeringOnly map[ServiceKey]bool) {
+func hiddenServices(s *FleetSnapshot, hiddenNS map[ClusterNamespace]bool, hiddenTargets map[TargetKey]bool, hideUnscoped bool, workloadVisible func(cluster, namespace, kind string) bool) (hiddenSvc, offeringOnly map[ServiceKey]bool) {
 	hiddenSvc, offeringOnly = map[ServiceKey]bool{}, map[ServiceKey]bool{}
 	placed := kubePlacementKnown(s)
 	for k, svc := range s.Services {
@@ -909,7 +941,7 @@ func hiddenServices(s *FleetSnapshot, hiddenNS map[ClusterNamespace]bool, hideUn
 			}
 			continue
 		}
-		hidden, shown, scoped := kubeScope(s, svc, hiddenNS)
+		hidden, shown, scoped := kubeScope(s, svc, hiddenNS, hiddenTargets)
 		switch {
 		case hidden && !shown:
 			hiddenSvc[k] = true
@@ -923,11 +955,12 @@ func hiddenServices(s *FleetSnapshot, hiddenNS map[ClusterNamespace]bool, hideUn
 }
 
 // kubeScope reports whether some Kubernetes target of svc runs in a hidden
-// namespace, whether some runs in a visible one, and whether it has any.
-func kubeScope(s *FleetSnapshot, svc *ServiceRecord, hiddenNS map[ClusterNamespace]bool) (hidden, shown, scoped bool) {
+// namespace (or is one of hiddenTargets), whether some runs in a visible one,
+// and whether it has any.
+func kubeScope(s *FleetSnapshot, svc *ServiceRecord, hiddenNS map[ClusterNamespace]bool, hiddenTargets map[TargetKey]bool) (hidden, shown, scoped bool) {
 	for _, tk := range svc.Targets {
 		if t := s.Targets[tk]; kubeTarget(t) {
-			h := hiddenNS[ClusterNamespace{t.Cluster, t.Scope}]
+			h := hiddenNS[ClusterNamespace{t.Cluster, t.Scope}] || hiddenTargets[tk]
 			scoped = true
 			hidden = hidden || h
 			shown = shown || !h
@@ -963,7 +996,7 @@ func hasTargetSource(s *FleetSnapshot) bool {
 }
 
 // targetSourceKinds are the source kinds that report operational targets.
-var targetSourceKinds = []string{SourceKindKubernetes, SourceKindEvidenceHTTP, SourceKindTargetState, SourceKindTargetSnapshot}
+var targetSourceKinds = []string{SourceKindKubernetes, SourceKindEvidenceHTTP, SourceKindTargetState, SourceKindTargetSnapshot, SourceKindLinked}
 
 // firstIncompleteTargetSource is the first source reporting operational
 // targets that is not available, and its status; "" when there is none.

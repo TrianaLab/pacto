@@ -198,6 +198,9 @@ describe('sourceTooltip', () => {
     expect(sourceTooltip('traces')).toBe('Trace backend — calls Jaeger or a Prometheus service graph saw, read by the dashboard');
     expect(sourceTooltip('otlp-receiver')).toContain('never corroborate a declared dependency');
   });
+  it('names the linked-workload reader', () => {
+    expect(sourceTooltip('kubernetes-linked')).toBe('Linked workloads — workloads the operator linked to a published contract with no Pacto');
+  });
   it('returns description for known sources', () => {
     expect(sourceTooltip('kubernetes')).toContain('Kubernetes');
     expect(sourceTooltip('oci')).toContain('OCI');

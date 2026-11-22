@@ -793,6 +793,9 @@ type TargetDetailData struct {
 	// (see [TargetRecord.ClusterRelation]); both absent when no source named one.
 	Cluster         *Cluster `json:"cluster,omitempty" doc:"The cluster that reported this target, with how its name was found and who reported the name; absent when no source reported one"`
 	ClusterRelation string   `json:"clusterRelation,omitempty" enum:"runs-in,reported-through" doc:"runs-in when a Kubernetes source read the target in this cluster; reported-through when the cluster only reported or accepted it (evidence, target-state files)"`
+	// Link is set when the operator linked this workload to a published
+	// contract with no Pacto (see [TargetRecord.Link]).
+	Link *ObservedLink `json:"link,omitempty" doc:"Set when the target is a workload the operator linked to a published contract with no Pacto."`
 }
 
 // TargetEnvironment is the environment a target runs in, read from the
@@ -1564,6 +1567,7 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 		// projection in O(bound), never re-flattening an arbitrarily wide raw map.
 		ObservedRuntime: t.ObservedRuntime,
 		ClusterRelation: t.ClusterRelation,
+		Link:            t.Link,
 	}
 	if t.Cluster != "" {
 		data.Cluster = &Cluster{ID: t.Cluster, Name: t.ClusterName, NameSource: t.ClusterNameSource, ReportedBy: t.ClusterNameReportedBy}

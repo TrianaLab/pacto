@@ -1092,12 +1092,19 @@ func answeringSources(snap *fleet.FleetSnapshot) []string {
 	return out
 }
 
-// consumerEvidence is why no consumer source answered, "" when one did.
+// consumerEvidence is why no consumer source answered, "" when one did. The
+// linked workloads alone never answer: by design they hold only workloads no
+// Pacto targets, so every consumer a Pacto targets is unread without --k8s or
+// a target snapshot.
 func consumerEvidence(snap *fleet.FleetSnapshot) string {
 	why := "no consumer source"
 	for _, st := range snap.Sources {
 		switch {
 		case !consumerSource(st):
+		case st.Kind == fleet.SourceKindLinked:
+			if why == "no consumer source" {
+				why = "consumer source " + ci.Redact(st.ID) + " holds only linked workloads"
+			}
 		case sourceStatus(st) == string(fleet.SourceAvailable):
 			return ""
 		case why == "no consumer source":

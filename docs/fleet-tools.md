@@ -127,6 +127,12 @@ marked `(inferred)`, here and in `pacto fleet status`.
   own row with its own status.
 - A source marked `cautionOnly`, such as the OTLP receiver, never corroborates
   a declared dependency.
+- The same flag adds the
+  [workloads the operator linked](integrations/kubernetes/linked-workloads.md)
+  to a published contract with no Pacto. `pacto fleet get` and the TUI print
+  each one's link, such as
+  `observed: image digest sha256:ab12… since 3m ago; no Pacto`; JSON carries
+  it as `link` on the target and as `signal` and `value` on the replacement.
 
 ### Namespace scope
 

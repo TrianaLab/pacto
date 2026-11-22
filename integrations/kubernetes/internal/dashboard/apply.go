@@ -20,6 +20,8 @@ import (
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	rbacv1ac "k8s.io/client-go/applyconfigurations/rbac/v1"
+
+	core "github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
 // serviceAccountAC returns a server-side apply configuration for the dashboard ServiceAccount.
@@ -484,7 +486,9 @@ func configMapFiles(cfg Config) ([]*corev1ac.EnvVarApplyConfiguration, []*corev1
 		// dashboard names the detection source unavailable.
 		vols = append(vols, corev1ac.Volume().WithName("detected").WithConfigMap(
 			corev1ac.ConfigMapVolumeSource().WithName(cfg.DetectedConfigMap).
-				WithItems(corev1ac.KeyToPath().WithKey(detectedKey).WithPath(detectedKey)).
+				WithItems(corev1ac.KeyToPath().WithKey(detectedKey).WithPath(detectedKey),
+					// The linker's key, read from beside the detection file.
+					corev1ac.KeyToPath().WithKey(core.LinkedConfigMapKey).WithPath(core.LinkedConfigMapKey)).
 				WithOptional(true)))
 	}
 

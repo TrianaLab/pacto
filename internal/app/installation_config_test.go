@@ -62,7 +62,7 @@ func TestInstallationConfigNamesK8sRef(t *testing.T) {
 	cm := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "ConfigMap",
 		"metadata": map[string]any{"name": "pacto-operator-detected", "namespace": "pacto-system", "labels": map[string]any{detect.ManagedByLabel: detect.ManagedBy}},
 		"data":     map[string]any{detect.ConfigMapKey: string(b)}}}
-	cm.SetManagedFields([]metav1.ManagedFieldsEntry{{Manager: detect.FieldManager, FieldsV1: metav1.NewFieldsV1(`{"f:data":{}}`)}})
+	cm.SetManagedFields([]metav1.ManagedFieldsEntry{{Manager: detect.FieldManager, FieldsV1: metav1.NewFieldsV1(`{"f:data":{"f:` + detect.ConfigMapKey + `":{}}}`)}})
 	svc := detectedService(t)
 	svc.sys.newDynamic = func() (dynamic.Interface, error) {
 		return dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), cm), nil

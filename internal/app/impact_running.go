@@ -219,8 +219,8 @@ func runningDomain(snap *fleet.FleetSnapshot, name string) (domain string, found
 // left out (runsNew); and the
 // running revisions Pacto cannot judge, in words: a target with no linked
 // revision, a revision with no registry ref, a ref linked by tag (judged,
-// but never proof), a ref on a host allowed rejects, and an inferred
-// workload of the service in any domain.
+// but never proof), a ref on a host allowed rejects, a linked workload whose
+// version is a guess, and an inferred workload of the service in any domain.
 func runningRefs(snap *fleet.FleetSnapshot, key fleet.ServiceKey, name, newDigest string, allowed func(ref string) bool) (refs, excluded, unread []string) {
 	refs = []string{}
 	seen := map[string]bool{}
@@ -239,6 +239,7 @@ func runningRefs(snap *fleet.FleetSnapshot, key fleet.ServiceKey, name, newDiges
 		if why != "" {
 			note(why)
 		}
+		guessed := guessedRevision(t, note)
 		if ref == "" {
 			continue
 		}
@@ -248,7 +249,7 @@ func runningRefs(snap *fleet.FleetSnapshot, key fleet.ServiceKey, name, newDiges
 		}
 		switch {
 		case runsNew(t, ref, newDigest):
-			if !slices.Contains(excluded, ref) {
+			if !guessed && !slices.Contains(excluded, ref) {
 				excluded = append(excluded, ref)
 			}
 		case !slices.Contains(refs, ref):
@@ -268,6 +269,17 @@ func runningRefs(snap *fleet.FleetSnapshot, key fleet.ServiceKey, name, newDiges
 		refs = refs[:MaxRunningRevisions]
 	}
 	return refs, excluded, unread
+}
+
+// guessedRevision reports whether t is a linked workload whose images other
+// versions of its service also record, and notes why: its revision is a
+// guess, judged as a baseline but never proof the new revision runs.
+func guessedRevision(t *fleet.TargetRecord, note func(string)) bool {
+	if t.Link == nil || len(t.Link.OtherVersions) == 0 {
+		return false
+	}
+	note(string(t.Key) + " runs images that other versions of the service also record, so its running revision is a guess")
+	return true
 }
 
 // targetRef is the registry ref of the revision t runs, "" when Pacto cannot

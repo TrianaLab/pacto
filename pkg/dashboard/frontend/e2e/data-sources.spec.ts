@@ -8,14 +8,14 @@ import { settle } from './ready';
  * and honest about the two different things a source page counts.
  *
  * The demo fleet is the fixture and it is adversarial on purpose (examples/demo/
- * source_fleet.go): thirteen sources in three health states, of which `local` is Available
+ * source_fleet.go): fourteen sources in three health states, of which `local` is Available
  * and `edge-cluster` is Unavailable. That combination is the whole point -- it means
  * the snapshot is partial WHILE the source you are looking at is fine, which is the
  * state that used to print "Source unavailable" above a page badged Available.
  *
  * None of these can be proven off the components. The unit tests prove each piece draws
  * what it is handed; only the built browser proves the overview, the inventory and the
- * source page are describing the same thirteen sources, that the links between them land,
+ * source page are describing the same fourteen sources, that the links between them land,
  * and that a number computed over the complete population did not quietly become a
  * number computed over the page.
  */
@@ -23,13 +23,14 @@ import { settle } from './ready';
 const flat = (s: string | null) => (s ?? '').replace(/\s+/g, ' ').trim();
 
 /**
- * The demo fleet: 8 available (the service-graph trace backend among them), 1 partial
+ * The demo fleet: 9 available (the service-graph trace backend and the linked
+ * workloads among them), 1 partial
  * (registry-mirror), 1 unavailable (edge-cluster), all tallied, plus three advisory
  * partial sources: the mesh (k8s-production-mesh), Jaeger (detected-jaeger) and the
  * OTLP receiver (otlp-receiver). The inventory lists them, and the tallies leave them
  * out: an advisory source that is not available never counts against the fleet.
  */
-const DEMO_SOURCES_TALLIED = 10;
+const DEMO_SOURCES_TALLIED = 11;
 const DEMO_UNTALLIED = ['detected-jaeger', 'k8s-production-mesh', 'otlp-receiver'];
 const DEMO_SOURCES_LISTED = DEMO_SOURCES_TALLIED + DEMO_UNTALLIED.length;
 
@@ -38,7 +39,7 @@ const DEMO_SOURCES_LISTED = DEMO_SOURCES_TALLIED + DEMO_UNTALLIED.length;
  * data sources, one per source kind. The demo's four egress readers come back as rows
  * of their own with `egress` set, so they never add a pill.
  */
-const NAV_PILLS = 9;
+const NAV_PILLS = 10;
 const EGRESS_ROWS = { 'kernel-egress': 'partial', 'istio-egress': 'complete', 'cilium-fqdn': 'unavailable', 'egress-gateway': 'partial' };
 
 async function overviewSources(page: Page) {
@@ -77,7 +78,7 @@ test.describe('the overview leads to the data sources', () => {
     // The trust figure counts the sources by state (one carrier per fact, L3), so the
     // section states no second tally; its chips name the sources and agree with the
     // inventory. Each source that needs a look keeps its own chip; more than three
-    // healthy ones fold into one "8 available" chip. The advisory mesh, Jaeger and OTLP
+    // healthy ones fold into one "9 available" chip. The advisory mesh, Jaeger and OTLP
     // receiver sources are partial and not tallied, so they get no warning chip beside
     // the figure that leaves them out; the inventory lists them.
     await expect(band.locator('.ov-tally')).toHaveCount(0);
@@ -86,7 +87,7 @@ test.describe('the overview leads to the data sources', () => {
     const chips = band.locator('a.sh-chip');
     await expect(chips).toHaveCount(3);
     for (const id of DEMO_UNTALLIED) await expect(band.locator('a.sh-chip', { hasText: id })).toHaveCount(0);
-    await expect(band.getByTestId('sources-healthy')).toHaveText(/8 available/);
+    await expect(band.getByTestId('sources-healthy')).toHaveText(/9 available/);
     await expect(band.getByTestId('sources-healthy')).toHaveAttribute('href', /#\/fleet\/sources\?.*sourceHealth=available/);
     // Least healthy first, so the source that costs you data is the first one read.
     expect(flat(await chips.first().textContent())).toContain('Unavailable');

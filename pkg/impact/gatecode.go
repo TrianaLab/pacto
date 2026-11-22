@@ -47,6 +47,9 @@ func (r *Result) GateCode() string {
 	if code != "" {
 		return code
 	}
+	if len(r.guessedConsumers()) > 0 {
+		return GateCodeConsumersUnchecked
+	}
 	if code := r.runningCode(); code != "" {
 		return code
 	}

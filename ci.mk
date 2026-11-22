@@ -12,7 +12,7 @@ REPOWISE_VERSION ?= 0.36.0
        test-acceptance-local-runtime-docker test-acceptance-local-runtime-run \
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
-       test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
+       test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-linked-workloads test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
        test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-demo test-acceptance-kind-least-privilege \
        test-acceptance-kind-profiles test-acceptance-kind-multi-cluster ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
@@ -126,7 +126,7 @@ ci-perf-envtest:
 # say which boundary broke, and cannot be sharded.
 test-acceptance-kind: test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
 	test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
-	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
+	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-linked-workloads test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
 	test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-least-privilege \
 	test-acceptance-kind-profiles test-acceptance-kind-multi-cluster
 
@@ -197,6 +197,14 @@ test-acceptance-kind-gitops-flux:
 # because a customization Argo does not recognise leaves the Application green.
 test-acceptance-kind-gitops-argocd:
 	bash tests/acceptance/kind/gitops-argocd.sh
+
+# Runtime conformance with no Pacto CR: Argo CD deploys two workloads whose
+# contracts were published with `pacto publish --image`; the operator links one
+# by its running image digest and one by its pacto.trianalab.io/contract
+# annotation and evaluates both with the finding codes a Pacto CR gets. A
+# hand-written Pacto CR still wins, and a digest two services record links none.
+test-acceptance-kind-linked-workloads:
+	bash tests/acceptance/kind/linked-workloads.sh
 
 # The Argo CD sync gate: the documented Pacto plugin sidecar on argocd-repo-server
 # judges each render with `pacto impact --running` against the operator's signed

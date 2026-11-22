@@ -179,6 +179,10 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	// form and the target page shows where the target runs.
 	takeover, takenOver := demoTakeover(demoNow())
 	targets, inferred := append(demoTargets(src), takeover), append(demoInferredServices(), handedOver)
+	// The operator's linker linked two growth workloads to published
+	// contracts with no Pacto: they count as workloads the cluster runs.
+	linkedTargets, linkedWorkloads := demoLinked(src, demoNow())
+	inferred = append(inferred, linkedWorkloads...)
 	// Each cluster source says what it detected: the Data sources page lists
 	// the Pacto CRD and the workloads the cluster runs. The taken-over
 	// workload is the takeover target, so it counts once.
@@ -251,13 +255,16 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	detection := fleet.NewMemorySource("cluster-detection", fleet.SourceKindDetection, &fleet.Collection{
 		Advisory: true, Providers: detect.ProviderRows(rest, "cluster-detection", demoNow()),
 	})
+	linked := fleet.NewMemorySource("k8s-production-linked", fleet.SourceKindLinked, &fleet.Collection{
+		Cluster: prodCluster, Targets: linkedTargets,
+	})
 	cat, err := demoCatalog()
 	if err != nil {
 		return nil, nil, err
 	}
 	snap, err := fleet.Build(context.Background(),
 		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat, DeclarationSigners: demoHandoverSigners()},
-		append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection, demoMeshSource(prodCluster, demoNow())}, traceSources...)...)
+		append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection, linked, demoMeshSource(prodCluster, demoNow())}, traceSources...)...)
 	if err != nil {
 		return nil, nil, err
 	}

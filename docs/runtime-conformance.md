@@ -85,10 +85,10 @@ they watch and where the answer goes.
 | | `pacto run` | `pacto agent` | Kubernetes node agent |
 | --- | --- | --- | --- |
 | What it watches | one command and its child processes | every workload on one host: containers, systemd units, processes | every pod on every node |
-| How you name the workload | `--bind` and `--dep` flags | Docker labels or a bindings file | the `Pacto` resource and its Service |
+| How you name the workload | `--bind` and `--dep` flags | Docker labels or a bindings file | the `Pacto` resource and its Service, or nothing: the running image digest or the `pacto.trianalab.io/contract` annotation [links a published contract](integrations/kubernetes/linked-workloads.md) |
 | Privileges | none required; root or eBPF capabilities for full results | root or eBPF capabilities | a root DaemonSet with eBPF capabilities, in a namespace labelled privileged for Pod Security |
 | What it can prove broken | listeners in both modes; failed connections with eBPF only | listeners and failed connections | listeners and failed connections |
-| Where the answer goes | your terminal and exit code; optionally an Evidence Server | your terminal or log; optionally an Evidence Server | the `Pacto` resource status |
+| Where the answer goes | your terminal and exit code; optionally an Evidence Server | your terminal or log; optionally an Evidence Server | the `Pacto` resource status, or `linked.json` in the `<release>-detected` ConfigMap for a linked workload |
 | Platform | Linux; elsewhere the command runs unobserved | Linux, or a Docker Desktop container on macOS and Windows | any Linux node |
 | Guide | [Run a command](runtime-run.md) | [Watch a host](runtime-agent.md) | [The Kubernetes way](integrations/kubernetes/runtime-conformance.md) |
 

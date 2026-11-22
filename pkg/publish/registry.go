@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync/atomic"
 
@@ -18,6 +19,7 @@ import (
 	orasremote "oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
@@ -356,6 +358,47 @@ func (c *Client) ReferrerDescriptors(ctx context.Context, repo, digest string) (
 		return out, ErrReferrersPartial
 	}
 	return out, nil
+}
+
+// ImagesRecord is one images record attached to a bundle. Signed says a
+// Sigstore signature referrer is attached to the record: present, not
+// verified.
+type ImagesRecord struct {
+	Records []ImageRecord
+	Signed  bool
+}
+
+// ReadImages reads the images records attached to the bundle repo@digest
+// through the mode-aware referrer listing. A record that does not decode is
+// skipped (it names no image). A paginated listing returns what was read
+// with partial set, never "no record"; a bundle with none is nil, false, nil.
+func (c *Client) ReadImages(ctx context.Context, repo, digest string) (recs []ImagesRecord, partial bool, err error) {
+	descs, err := c.ReferrerDescriptors(ctx, repo, digest)
+	if partial = errors.Is(err, ErrReferrersPartial); err != nil && !partial {
+		return nil, false, err
+	}
+	for _, d := range descs {
+		if d.ArtifactType != ImagesType {
+			continue
+		}
+		body, _, err := c.Layer(ctx, repo, d.Digest.String())
+		if err != nil {
+			return recs, partial, err
+		}
+		images, err := DecodeImages(body)
+		if err != nil {
+			continue // ponytail: a malformed record links nothing; reported by nobody
+		}
+		sigs, err := c.ReferrerDescriptors(ctx, repo, d.Digest.String())
+		sigPartial := errors.Is(err, ErrReferrersPartial)
+		if err != nil && !sigPartial {
+			return recs, partial, err
+		}
+		signed := slices.ContainsFunc(sigs, func(s v1.Descriptor) bool { return s.ArtifactType == delivery.BundleMediaType })
+		partial = partial || (sigPartial && !signed)
+		recs = append(recs, ImagesRecord{Records: images, Signed: signed})
+	}
+	return recs, partial, nil
 }
 
 // maxLayer bounds what Layer reads: a signature bundle is a few kilobytes.

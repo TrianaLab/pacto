@@ -102,6 +102,9 @@ type PactoReconciler struct {
 	GatewayLogs *observer.GatewayLogs
 	// Owners judges a running bundle's owner change (OwnerVerified); nil sets no such condition.
 	Owners *OwnerCheck
+	// Linked lists the workloads the linker matched to a published contract with no Pacto CR, for the
+	// dependency resolution of every observer the reconciler builds; nil lists none.
+	Linked func() []observer.LinkedSibling
 }
 
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactos,verbs=get;list;watch;create;update;patch;delete
@@ -129,8 +132,6 @@ type PactoReconciler struct {
 // +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=gitrepositories,verbs=list
 
 func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := logf.FromContext(ctx)
-
 	// 1. Fetch the Pacto CR
 	pacto := &pactov1alpha1.Pacto{}
 	if err := r.Get(ctx, req.NamespacedName, pacto); err != nil {
@@ -145,11 +146,36 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	prevReadiness := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
 	readinessWasUnmet := prevReadiness != nil && prevReadiness.Status == metav1.ConditionFalse
 
-	// Same for the whole status, which resetDerivedStatus clears below: the value
+	// Same for the whole status, which judge resets: the value
 	// read from the API server is the one the previous reconciliation persisted.
 	// Every terminal path threads it back, so the contract status event fires and
 	// the status is written only on a change. An empty contract status means
 	// never reconciled.
+	prev := pacto.Status.DeepCopy()
+
+	// 2-15. Judge the Pacto, then persist what was judged.
+	if failure := r.judge(ctx, pacto, readinessWasUnmet, true); failure != nil {
+		return r.failReconciliation(ctx, pacto, failure.msg, failure.validation, prev, failure.status, failure.reason)
+	}
+	return r.finishReconciliation(ctx, pacto, prev)
+}
+
+// EvaluateDetached judges p, a Pacto that is never stored, exactly as Reconcile judges a stored one,
+// and writes nothing: no status update, no PactoRevision, no event and no metric. The verdict is left
+// in p.Status. p.Status.ObservationWindows carries the caller's windows in and the updated ones out.
+func (r *PactoReconciler) EvaluateDetached(ctx context.Context, p *pactov1alpha1.Pacto) {
+	if failure := r.judge(ctx, p, false, false); failure != nil {
+		r.markFailure(p, failure)
+	}
+	now := metav1.Now()
+	p.Status.LastReconciledAt = &now
+}
+
+// judge is the reconcile body without its writes (steps 2 to 15): it fills pacto's status, or returns
+// why no contract could be judged. persisted is true for a stored Pacto: only then are readiness events
+// and metrics emitted and the PactoRevision ensured. readinessWasUnmet is the ReadinessSatisfied
+// condition before this reconciliation.
+func (r *PactoReconciler) judge(ctx context.Context, pacto *pactov1alpha1.Pacto, readinessWasUnmet, persisted bool) *loadFailure {
 	prev := pacto.Status.DeepCopy()
 
 	// 2. Reset all derived status fields so no stale data survives.
@@ -159,7 +185,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// 3-5. Load the contract, apply overrides and validate the effective contract.
 	ec, failure := r.loadEffectiveContract(ctx, pacto)
 	if failure != nil {
-		return r.failReconciliation(ctx, pacto, failure.msg, failure.validation, prev, failure.status, failure.reason)
+		return failure
 	}
 	effectiveContract := ec.effective.Contract
 
@@ -182,14 +208,12 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// 6b. Evaluate declared readiness (separate dimension from compliance).
 	//     Runs for both reference-only and target contracts.
-	r.reconcileReadiness(pacto, effectiveContract, readinessWasUnmet)
-
-	// 7. Ensure PactoRevision for current version
-	revisionName, revErr := r.ensureRevision(ctx, pacto, ec.loaded)
-	if revErr != nil {
-		log.Error(revErr, "Failed to ensure PactoRevision")
+	if persisted {
+		r.reconcileReadiness(pacto, effectiveContract, readinessWasUnmet)
+		// 7. Ensure PactoRevision for current version
+		r.recordRevision(ctx, pacto, ec)
 	} else {
-		pacto.Status.CurrentRevision = revisionName
+		r.setReadiness(pacto, effectiveContract)
 	}
 
 	// Mirroring every registry tag into a PactoRevision is NOT a step of this
@@ -204,12 +228,23 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			fmt.Sprintf("Reference contract %s v%s is valid", effectiveContract.Service.Name, effectiveContract.Service.Version))
 		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusReference
 		pacto.Status.Summary = &pactov1alpha1.Summary{}
-		return r.finishReconciliation(ctx, pacto, prev)
+		return nil
 	}
 
 	// 9-15. Observe the target and judge the contract against what was observed.
 	r.evaluateRuntime(ctx, pacto, ec)
-	return r.finishReconciliation(ctx, pacto, prev)
+	return nil
+}
+
+// recordRevision ensures the PactoRevision of the loaded contract and points status.currentRevision
+// at it; a failure is logged and leaves the previous revision standing.
+func (r *PactoReconciler) recordRevision(ctx context.Context, pacto *pactov1alpha1.Pacto, ec *effectiveContract) {
+	revisionName, revErr := r.ensureRevision(ctx, pacto, ec.loaded)
+	if revErr != nil {
+		logf.FromContext(ctx).Error(revErr, "Failed to ensure PactoRevision")
+		return
+	}
+	pacto.Status.CurrentRevision = revisionName
 }
 
 // effectiveContract is the loaded contract with the CR's overrides applied and validated.
@@ -335,7 +370,7 @@ func invalidAt(path string, err error) *pactov1alpha1.ValidationResult {
 // (steps 9 to 15), filling the runtime half of the status.
 func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alpha1.Pacto, ec *effectiveContract) {
 	effectiveContract := ec.effective.Contract
-	obs := observer.New(r.Client).WithReader(r.APIReader).WithGatewayLogs(r.GatewayLogs)
+	obs := observer.New(r.Client).WithReader(r.APIReader).WithGatewayLogs(r.GatewayLogs).WithLinked(r.Linked)
 
 	// 10. Collect runtime evidence (spec section 9.1).
 	probing, metricsObs, readErr := r.observeSettings(ctx, pacto.Namespace)
@@ -554,29 +589,8 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, prev *pactov1alpha1.PactoStatus, status, reason string) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	switch status {
-	case pactov1alpha1.ContractStatusInvalid:
-		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionFalse,
-			cmp.Or(reason, pactov1alpha1.ReasonContractInvalid), msg)
-		pacto.Status.Summary = &pactov1alpha1.Summary{ErrorCount: 1}
-		// The contract was loaded and judged invalid -> record the validation result.
-		pacto.Status.Validation = valResult
-	case pactov1alpha1.ContractStatusUnknown:
-		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionUnknown,
-			cmp.Or(reason, pactov1alpha1.ReasonContractUnavailable), msg)
-		pacto.Status.Summary = &pactov1alpha1.Summary{UnknownCount: 1}
-		// Transient obtain-failure (spec section 9.8): the contract was never loaded, so leave
-		// status.validation nil rather than asserting the contract IS invalid.
-	default:
-		// Fallback for unexpected status
-		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionFalse,
-			pactov1alpha1.ReasonContractInvalid, msg)
-		pacto.Status.Summary = &pactov1alpha1.Summary{ErrorCount: 1}
-		pacto.Status.Validation = valResult
-		status = pactov1alpha1.ContractStatusInvalid
-	}
-
-	pacto.Status.ContractStatus = status
+	r.markFailure(pacto, &loadFailure{msg: msg, validation: valResult, status: status, reason: reason})
+	status = pacto.Status.ContractStatus
 
 	if statusErr := r.writeStatus(ctx, pacto, prev); statusErr != nil {
 		log.Error(statusErr, "Failed to update status")
@@ -593,6 +607,34 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 	metrics.RecordContractStatus(pacto.Namespace, pacto.Name, pacto.Status.ContractStatus)
 
 	return ctrl.Result{RequeueAfter: r.requeueInterval(pacto)}, nil
+}
+
+// markFailure is the status half of failReconciliation: the ContractValid condition, the summary,
+// the validation result and the contract status of a contract that could not be judged.
+func (r *PactoReconciler) markFailure(pacto *pactov1alpha1.Pacto, f *loadFailure) {
+	status := f.status
+	switch status {
+	case pactov1alpha1.ContractStatusInvalid:
+		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionFalse,
+			cmp.Or(f.reason, pactov1alpha1.ReasonContractInvalid), f.msg)
+		pacto.Status.Summary = &pactov1alpha1.Summary{ErrorCount: 1}
+		// The contract was loaded and judged invalid -> record the validation result.
+		pacto.Status.Validation = f.validation
+	case pactov1alpha1.ContractStatusUnknown:
+		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionUnknown,
+			cmp.Or(f.reason, pactov1alpha1.ReasonContractUnavailable), f.msg)
+		pacto.Status.Summary = &pactov1alpha1.Summary{UnknownCount: 1}
+		// Transient obtain-failure (spec section 9.8): the contract was never loaded, so leave
+		// status.validation nil rather than asserting the contract IS invalid.
+	default:
+		// Fallback for unexpected status
+		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionFalse,
+			pactov1alpha1.ReasonContractInvalid, f.msg)
+		pacto.Status.Summary = &pactov1alpha1.Summary{ErrorCount: 1}
+		pacto.Status.Validation = f.validation
+		status = pactov1alpha1.ContractStatusInvalid
+	}
+	pacto.Status.ContractStatus = status
 }
 
 // loadErrorReason names a load failure the ContractValid condition reports with

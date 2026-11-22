@@ -289,14 +289,16 @@ type snapshotRead struct {
 	sections  map[string]delivery.SnapshotSource
 }
 
-// sources are the snapshot's sources: its Pactos (the target-snapshot
-// source), its workloads and, when it carries one, its evidence section. The
-// verdict's limitations mark every section, so an unverified snapshot keeps
-// each one partial (Decision 19) and an unscoped key shows on each line.
+// sources are the snapshot's sources: its Pactos and linked targets (the
+// target-snapshot source; LinkedCollection reads the <Kind>/<name> views as
+// linked and the rest as Pactos), its workloads and, when it carries one,
+// its evidence section. The verdict's limitations mark every section, so an
+// unverified snapshot keeps each one partial (Decision 19) and an unscoped
+// key shows on each line.
 func (rd snapshotRead) sources() []fleet.Source {
 	vlims := verdictLimitations(rd.id, rd.snap.Cluster, rd.verdict)
 	wid := rd.id + workloadsSuffix
-	pactos := delivery.PactoCollection(rd.id, rd.snap.Pactos, nil, rd.now)
+	pactos := delivery.LinkedCollection(rd.id, rd.snap.Pactos, rd.now)
 	if row, ok := fleetsrc.KernelEgressRow(rd.id, rd.snap.Pactos, rd.now); ok {
 		pactos.Providers = append(pactos.Providers, row)
 	}

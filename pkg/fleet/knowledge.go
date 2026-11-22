@@ -506,9 +506,9 @@ func (q *Query) knowledgeAttention() []AttentionItem {
 }
 
 // replacedAttention reports each inferred service a declared service replaced
-// through a Pacto target within RecentEvidenceWindow (an older one shows on
-// the service page only, so a settled fact never stays an item), and every
-// replacement through another link, which carries no time.
+// through a Pacto target or an observed link within RecentEvidenceWindow (an
+// older one shows on the service page only, so a settled fact never stays an
+// item), and every inferred-from replacement, which carries no time.
 //
 // ponytail: an inferred-from item is untimed, so it stays while the
 // declaration is the newest; a signature integrated time on BundleSignature
@@ -526,7 +526,7 @@ func (q *Query) replacedAttention() []AttentionItem {
 			Severity: severityInfo, Code: attentionInferredReplaced, Category: categoryKnowledge,
 			Summary: "Inferred service taken over by a contract", NextAction: editContract(),
 		}
-		if r.Link != linkPactoTarget {
+		if r.Link != linkPactoTarget && r.Link != linkObserved {
 			it.Reason = r.Line(q.snap.GeneratedAt)
 			it.NextStep = "Confirm that " + from + " is " + s.Name + ": its contract now speaks for that workload; if it is not, publish a new declaration of " + s.Name + " from its own workload"
 			out = append(out, it)
@@ -541,9 +541,26 @@ func (q *Query) replacedAttention() []AttentionItem {
 		}
 		it.Reason = "Pacto target " + string(r.Target) + " runs as " + from + ", which ran with no contract before the Pacto was created " + Age(age) + " ago"
 		it.NextStep = "Check that " + s.Name + "'s contract describes what " + from + " was seen doing"
+		if r.Link == linkObserved {
+			it.Reason, it.NextStep = q.observedReason(r, from, s.Name)
+		}
 		out = append(out, it)
 	}
 	return out
+}
+
+// observedReason is the reason and next step of an observed replacement.
+func (q *Query) observedReason(r Replacement, from, service string) (reason, next string) {
+	how := "runs image " + shortDigestOf(r.Value) + ", which " + service
+	if rev := q.snap.Revisions[r.Revision]; rev != nil {
+		how += " " + rev.Version
+	}
+	how += " published"
+	if r.Signal == LinkSignalAnnotation {
+		how = "carries " + contractAnnotation + " naming " + r.Value
+	}
+	return from + " " + how + ", so its contract now speaks for that workload",
+		"Check that " + service + "'s contract describes what " + from + " was seen doing; if it names the wrong contract, set " + contractAnnotation + " on the workload"
 }
 
 // gapCode is the attention code of a gap kind (no-summary is NO_SUMMARY) or an

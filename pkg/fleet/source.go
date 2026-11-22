@@ -60,6 +60,10 @@ const SourceKindTraces = "traces"
 // SourceKindOTLPReceiver is the Kind of the dashboard's OTLP/HTTP receiver,
 // which maps the spans Collectors send it to calls.
 const SourceKindOTLPReceiver = "otlp-receiver"
+// SourceKindLinked is the Kind of a source reading the workloads the Pacto
+// operator linked to a published contract with no Pacto: targets, like a
+// Kubernetes source.
+const SourceKindLinked = "kubernetes-linked"
 
 type Source interface {
 	// ID is the stable identifier of this source instance (e.g. "oci", "k8s",
@@ -338,6 +342,9 @@ type RawTarget struct {
 	// CreatedAt is when the declaration that produced this target was
 	// created (a Pacto's metadata.creationTimestamp), nil when unknown.
 	CreatedAt *time.Time
+	// Link is set when the target is a workload the operator linked to a
+	// published contract with no Pacto.
+	Link *ObservedLink
 }
 
 // MemorySource is an in-memory [Source]. It is the substrate for tests, the

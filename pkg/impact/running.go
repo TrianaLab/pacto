@@ -38,7 +38,17 @@ func (r *Result) heldGate() (string, string) {
 	if gate != "" {
 		return gate, why
 	}
+	if guessed := r.guessedConsumers(); len(guessed) > 0 {
+		return GateUnverified, guessedReason(guessed)
+	}
 	return r.runningGate()
+}
+
+// guessedReason is the unverified reason of consumers whose running version
+// Pacto guessed.
+func guessedReason(names []string) string {
+	return "Pacto cannot tell which version of " + strings.Join(names, ", ") + " runs: its image digest is recorded by several release versions " +
+		"(see " + fleet.LimitationLinkVersionAmbiguous + "), so the change cannot clear. Set pacto.trianalab.io/contract on the workload to name its contract"
 }
 
 // runningGate is the gate of a --running answer when no consumer is shown to

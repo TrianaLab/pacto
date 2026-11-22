@@ -141,7 +141,10 @@ manifests build can pin the image it deploys by digest. Pacto then:
    written, so Pacto never publishes a version no Stage would take;
 5. pushes the bundle, attaches to it a signed record of every image the
    deploy pins (`application/vnd.pacto.images.v1+json`: each image's
-   repository, digest and whether Pacto built it), and writes the tags.
+   repository, digest and whether Pacto built it), and writes the tags. The
+   operator reads that record to
+   [link a running workload](integrations/kubernetes/linked-workloads.md) to
+   the published contract with no `Pacto` resource.
 
 The bundled `pacto.yaml` always declares `pactoVersion`. When the contract
 leaves it out, `pacto pack`, `pacto push` and `pacto publish` write the newest

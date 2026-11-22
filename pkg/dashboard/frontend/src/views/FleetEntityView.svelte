@@ -192,7 +192,7 @@
         <p class="page-answer t-body ev-answer tone-{entityAnswer.tone}" data-testid="entity-answer"><strong>{entityAnswer.lead}</strong> {entityAnswer.rest}</p>
       {/if}
       {#if replacedFrom}
-        <p class="ev-replaced t-body-2" data-testid="entity-replaced-from"><bdi title={serviceKeyName(replacedFrom.from)}>{serviceKeyName(replacedFrom.from)}</bdi> was replaced by {detail.entity?.label || replacedFrom.to}{replacedAge}{replacedFrom.target ? `, linked by Pacto ${replacedFrom.target}` : ''}</p>
+        <p class="ev-replaced t-body-2" data-testid="entity-replaced-from"><bdi title={serviceKeyName(replacedFrom.from)}>{serviceKeyName(replacedFrom.from)}</bdi> was replaced by {detail.entity?.label || replacedFrom.to}{replacedAge}{replacedFrom.link === 'observed' ? `, linked with no Pacto by its ${replacedFrom.signal === 'annotation' ? 'annotation' : 'image digest'}` : replacedFrom.target ? `, linked by Pacto ${replacedFrom.target}` : ''}</p>
       {/if}
       <!-- Uncertainty and failed refreshes come FIRST and are never collapsible: they
            qualify everything below them, so a reader who stops after the first screen

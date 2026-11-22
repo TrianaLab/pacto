@@ -1,8 +1,12 @@
 package orgindex
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -98,4 +102,22 @@ func Decode(b []byte) (Entry, error) {
 		return Entry{}, refused("the entry's schemaVersion is not "+SchemaVersion, "the index entry's schemaVersion is "+e.SchemaVersion+", not "+SchemaVersion)
 	}
 	return e, nil
+}
+
+// EntryLayer is the one layer of the entry manifest rawManifest, refused
+// unless the manifest is an index entry whose layer fits [MaxEntryBytes]. It
+// only checks: the caller fetches the manifest (bounded by
+// [MaxManifestBytes]) and then the layer it returns.
+func EntryLayer(rawManifest []byte) (ocispec.Descriptor, error) {
+	var m ocispec.Manifest
+	_ = json.Unmarshal(rawManifest, &m) // a manifest that does not decode has no artifactType
+	switch {
+	case m.ArtifactType != ArtifactType:
+		return ocispec.Descriptor{}, errors.New("the manifest's artifactType is not " + ArtifactType)
+	case len(m.Layers) != 1 || m.Layers[0].MediaType != MediaType:
+		return ocispec.Descriptor{}, fmt.Errorf("the manifest is not one %s layer", MediaType)
+	case m.Layers[0].Size > MaxEntryBytes:
+		return ocispec.Descriptor{}, fmt.Errorf("the entry layer is %d bytes, over the %d-byte bound", m.Layers[0].Size, MaxEntryBytes)
+	}
+	return m.Layers[0], nil
 }

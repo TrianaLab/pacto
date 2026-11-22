@@ -53,6 +53,7 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/evidence"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/inferredpublish"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/installkey"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/linker"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
@@ -545,7 +546,7 @@ func main() {
 	}
 	// +kubebuilder:scaffold:builder
 
-	if err := addComponents(mgr, &o, operatorNamespace, publishKeychain); err != nil {
+	if err := addComponents(mgr, &o, operatorNamespace, publishKeychain, keychain, pactoReconciler); err != nil {
 		setupLog.Error(err, "Failed to set up the managed components")
 		os.Exit(1)
 	}
@@ -674,8 +675,9 @@ func newManager(o *options) (ctrl.Manager, error) {
 
 // addComponents validates the dashboard, Evidence Server and node agent configurations and registers each
 // sub-component with the manager. A disabled component is still registered: its first sync is its cleanup.
-// kc is the target snapshot publisher's keychain.
-func addComponents(mgr ctrl.Manager, o *options, namespace string, kc authn.Keychain) error {
+// kc is the target snapshot publisher's keychain, loaderKC the contract loader's; rec judges linked workloads.
+func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC authn.Keychain,
+	rec *controller.PactoReconciler) error {
 	if o.enableDashboard && dashboardImage == "" {
 		return fmt.Errorf("dashboard enabled but no dashboard image was set at build time: " +
 			"this binary was not built with the required -ldflags for dashboard support")
@@ -706,14 +708,8 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc authn.Keyc
 	// The cluster id names the cluster in Evidence Server reports and in what
 	// detection writes; read once.
 	ident := readClusterIdentity(mgr)
-	profiles, err := detection.ParseProfile(o.profile)
+	inst, err := addPublishers(mgr, o, namespace, ident.ID, evidenceSourceURL, kc, loaderKC, rec)
 	if err != nil {
-		return err
-	}
-	// Detection advertises the block on every install; only its registry
-	// fields need --registry.
-	inst := &detect.Installation{Profile: profiles}
-	if err := addTargetSnapshot(mgr, o, namespace, ident.ID, evidenceSourceURL, kc, inst); err != nil {
 		return err
 	}
 
@@ -841,6 +837,42 @@ func addNodeAgent(mgr ctrl.Manager, o *options, namespace string) error {
 	return nil
 }
 
+// addPublishers runs the linker and the target snapshot publisher. It returns the installation block
+// detection advertises on every install; only its registry fields need --registry.
+func addPublishers(mgr ctrl.Manager, o *options, namespace, clusterID, evidenceURL string, kc, loaderKC authn.Keychain,
+	rec *controller.PactoReconciler) (*detect.Installation, error) {
+	linked, err := addLinker(mgr, o, namespace, clusterID, kc, loaderKC, rec)
+	if err != nil {
+		return nil, err
+	}
+	profiles, err := detection.ParseProfile(o.profile)
+	if err != nil {
+		return nil, err
+	}
+	inst := &detect.Installation{Profile: profiles}
+	return inst, addTargetSnapshot(mgr, o, namespace, clusterID, evidenceURL, kc, inst, linked)
+}
+
+// addLinker runs the linker when the operator runs inside the chart: it links every workload no Pacto
+// targets to the published contract it runs and judges it through rec on a Pacto that is never stored.
+// It returns the linker's last result for the target snapshot, nil when it is off.
+func addLinker(mgr ctrl.Manager, o *options, namespace, clusterID string, kc, loaderKC authn.Keychain,
+	rec *controller.PactoReconciler) (func() core.LinkedTargets, error) {
+	l, err := linker.ForOperator(linker.Config{DeploymentName: os.Getenv("OPERATOR_DEPLOYMENT_NAME"), Namespace: namespace,
+		Cluster: clusterID, Registry: o.registry, Watched: o.namespaces, Keychain: kc, LoaderKeychain: loaderKC,
+		Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(), Writer: mgr.GetClient()})
+	if err != nil || l == nil {
+		return nil, err
+	}
+	// An annotation naming a repository outside the organization index is loaded with no credentials,
+	// so writing a Deployment never borrows the operator's registry access.
+	rec.Linked = l.Siblings
+	anonymous := *rec
+	anonymous.Loader = loader.New(loader.WithKeychain(authn.NewMultiKeychain()))
+	l.Evaluate, l.EvaluateAnonymous = rec.EvaluateDetached, anonymous.EvaluateDetached
+	return l.Current, mgr.Add(l)
+}
+
 // lastPush is the target snapshot publisher's last attempt, which detection advertises.
 var lastPush atomic.Pointer[detect.PushResult]
 
@@ -850,7 +882,7 @@ var lastPush atomic.Pointer[detect.PushResult]
 // detection advertises, and leaves them empty without --registry. Any missing piece stops the operator at
 // start with its reason.
 func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace, clusterID, evidenceURL string,
-	kc authn.Keychain, inst *detect.Installation) error {
+	kc authn.Keychain, inst *detect.Installation, linked func() core.LinkedTargets) error {
 	if o.registry == "" {
 		setupLog.Info("Target snapshot and inferred contracts are off: set the registry value")
 		return nil
@@ -868,7 +900,8 @@ func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace, clusterID, evide
 	pub, err := targetsnapshot.ForOperator(targetsnapshot.Config{Registry: o.registry, ClusterID: clusterID,
 		Namespace: namespace, ServiceAccount: os.Getenv("OPERATOR_SERVICE_ACCOUNT"), EvidenceURL: evidenceURL,
 		Watched: o.namespaces, Key: key, Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(),
-		OnPush: func(r detect.PushResult) { lastPush.Store(&r) }, OwnerPolicy: readOwnerPolicy(o.ownerPolicy)})
+		OnPush: func(r detect.PushResult) { lastPush.Store(&r) }, OwnerPolicy: readOwnerPolicy(o.ownerPolicy),
+		Linked: linked})
 	if err != nil {
 		return err
 	}

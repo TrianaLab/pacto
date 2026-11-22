@@ -61,7 +61,9 @@ type TargetSnapshot struct {
 	// Publisher is who published, as the publisher claims it. A reader names
 	// the signer from its own trust config, never from this field.
 	Publisher string `json:"publisher"`
-	// Pactos are the Pacto objects, as the stable read contract.
+	// Pactos are the Pacto objects, and the workloads the operator linked to
+	// a published contract with no Pacto, marked by the
+	// pacto.trianalab.io/linked-by label, as the stable read contract.
 	Pactos []PactoView `json:"pactos"`
 	// Workloads are the workloads no Pacto targets, as inferred services.
 	Workloads []fleet.RawInferredService `json:"workloads"`

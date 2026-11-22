@@ -620,3 +620,20 @@ func TestRunningOnlyNewRunsSaysSo(t *testing.T) {
 		t.Fatalf("gate %s %q", res.Gate, res.GateReason)
 	}
 }
+
+// TestImpactRunningGuessedLinkIsUnread: a linked target whose digest other
+// versions record runs a guessed revision: the answer never clears, and its
+// ref is never taken as proof the new revision runs.
+func TestImpactRunningGuessedLinkIsUnread(t *testing.T) {
+	e := onePayments()
+	e.col.Targets[0].Link = &fleet.ObservedLink{Signal: fleet.LinkSignalImageDigest, Value: "sha256:img", OtherVersions: []string{"0.9.0"}}
+	unread(t, e, "its running revision is a guess")
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("mem", "memory", &e.col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs, excluded, lines := runningRefs(snap, fleet.NewServiceKeyDomain(runReg, "payments"), "payments", "sha256:p1", func(string) bool { return true })
+	if len(excluded) != 0 || len(refs) != 0 || len(lines) != 1 {
+		t.Fatalf("refs %v excluded %v unread %v", refs, excluded, lines)
+	}
+}

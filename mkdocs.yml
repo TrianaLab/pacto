@@ -308,6 +308,7 @@ nav:
           - Limitations and opt-in features: integrations/kubernetes/limitations.md
           - Troubleshooting: integrations/kubernetes/troubleshooting.md
           - Runtime conformance: integrations/kubernetes/runtime-conformance.md
+          - Evaluate a workload with no Pacto: integrations/kubernetes/linked-workloads.md
           - Evidence Server: integrations/kubernetes/evidence-server.md
           - Upgrade the operator: integrations/kubernetes/upgrade.md
           - GitOps promotion gates: integrations/kubernetes/gitops.md

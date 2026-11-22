@@ -77,8 +77,12 @@ type TargetPublisher struct {
 	// OwnerPolicy, when set, is published as the snapshot's ownerPolicy: who
 	// may set a service owner, signed with the installation key.
 	OwnerPolicy *core.OwnerPolicy
-	Now         func() time.Time
-	Interval    time.Duration
+	// Linked, when set, is the linker's last result: its targets ride in
+	// Pactos (a released reader reads them as Pacto targets) and its
+	// completeness marks the Pacto section.
+	Linked   func() core.LinkedTargets
+	Now      func() time.Time
+	Interval time.Duration
 	// Tick, when set, replaces the ticker (tests).
 	Tick func(time.Duration) <-chan time.Time
 	Log  logr.Logger
@@ -140,6 +144,11 @@ func (p *TargetPublisher) publish(ctx context.Context) error {
 	if err != nil {
 		p.limit(&pactos, "pactos", err)
 	}
+	for i := range s.Pactos {
+		// Only the linker writes link labels; on a Pacto they are free text.
+		core.StripLinkLabels(s.Pactos[i].Metadata.Labels)
+	}
+	p.addLinked(&s, &pactos, now)
 	workloads := core.SnapshotSource{Kind: fleet.SourceKindKubernetesWorkloads, AsOf: asOf, Completeness: fleet.CompletenessComplete}
 	p.collectWorkloads(ctx, &s, &workloads, now)
 	if len(p.Namespaces) > 0 {
@@ -175,6 +184,27 @@ func (p *TargetPublisher) publish(ctx context.Context) error {
 	p.Log.V(1).Info("target snapshot published", "digest", desc.Digest.String(), "pactos", len(s.Pactos),
 		"workloads", len(s.Workloads), "evidence", len(s.Evidence) > 0, "completeness", s.Completeness)
 	return nil
+}
+
+// addLinked appends the linker's targets to s.Pactos and merges its
+// limitations, except the informational LINK_DIGEST_OFF, into sec, which
+// turns partial when the linker's result is partial or older than
+// core.LinkedStaleAfter.
+func (p *TargetPublisher) addLinked(s *core.TargetSnapshot, sec *core.SnapshotSource, now time.Time) {
+	if p.Linked == nil {
+		return
+	}
+	l := p.Linked()
+	s.Pactos = append(s.Pactos, l.Targets...)
+	for _, lim := range l.Limitations {
+		if lim.Code != core.LimitationLinkDigestOff {
+			sec.Limitations = append(sec.Limitations, lim)
+		}
+	}
+	asOf, err := time.Parse(time.RFC3339, l.AsOf)
+	if l.Completeness != fleet.CompletenessComplete || err != nil || now.Sub(asOf) > core.LinkedStaleAfter {
+		sec.Completeness = fleet.CompletenessPartial
+	}
 }
 
 // collectWorkloads adds every workload of the four kinds as an inferred

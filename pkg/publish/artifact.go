@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -24,6 +25,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/strictjson"
 )
 
 // Media types of the artifacts Pacto packages itself.
@@ -69,6 +71,29 @@ func ImageRefs(images []ImageRecord) []string {
 // imagesRecord is the body of the images record.
 type imagesRecord struct {
 	Images []ImageRecord `json:"images"`
+}
+
+// maxImagesRecordBytes bounds one images record read back.
+const maxImagesRecordBytes = 64 << 10
+
+var imageDigestRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+// DecodeImages decodes an images record strictly: within its bound, no
+// unknown field and every digest sha256:<64 hex>.
+func DecodeImages(b []byte) ([]ImageRecord, error) {
+	if len(b) > maxImagesRecordBytes {
+		return nil, fmt.Errorf("the images record is %d bytes, over the %d-byte bound", len(b), maxImagesRecordBytes)
+	}
+	var r imagesRecord
+	if err := strictjson.Unmarshal(b, &r); err != nil {
+		return nil, fmt.Errorf("the images record: %w", err)
+	}
+	for _, i := range r.Images {
+		if !imageDigestRE.MatchString(i.Digest) {
+			return nil, fmt.Errorf("the images record names image %q with digest %q: want sha256:<64 hex>", i.Name, i.Digest)
+		}
+	}
+	return r.Images, nil
 }
 
 // sbomType is the referrer type of the SBOM file at path. The schema allows

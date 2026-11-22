@@ -8,7 +8,7 @@
  */
 
 import { formatCount } from './format.ts';
-import { formatDateTime } from './dateFormat.ts';
+import { formatDateTime, formatWhen } from './dateFormat.ts';
 
 export type Tone = 'ok' | 'warn' | 'err' | 'info' | 'neutral';
 
@@ -429,6 +429,17 @@ export function sourceHealthSentence(status: string | undefined): string {
   }
 }
 
+/** informationalSourceCodes are source messages that report what a source checks,
+ *  never a failure: an operator linker with no registry links by annotation only. */
+const informationalSourceCodes = new Set(['LINK_DIGEST_OFF']);
+
+/** sourceMessageIsNote says a source's message is a note, not a failure: an available
+ *  source's message, or an informational code whatever the health, so a stale or
+ *  partial linker never reads its digest-off note as the failure. */
+export function sourceMessageIsNote(health: string | undefined, code: string | undefined): boolean {
+  return health === 'available' || informationalSourceCodes.has(code ?? '');
+}
+
 /**
  * collectorLabel says, in plain words, who saw the evidence behind a finding.
  * The operator stamps each evidence ref with the producer of the matched
@@ -471,14 +482,52 @@ export function serviceKeyName(key: string): string {
   return name.replaceAll('%2F', '/').replaceAll('%25', '%');
 }
 
-export type ReplacementRef = { from: string; link?: string; target?: string; at?: string; by?: string; revision?: string; workload?: unknown };
+export type ReplacementRef = { from: string; to?: string; link?: string; signal?: string; value?: string; target?: string; at?: string; by?: string; revision?: string; workload?: unknown };
+
+/** observedHow says how the operator linked a workload with no Pacto: "runs image
+ *  <digest>" or "carries pacto.trianalab.io/contract naming <ref>", the value in full. */
+function observedHow(signal: string | undefined, value: string | undefined): string {
+  return signal === 'annotation' ? `carries pacto.trianalab.io/contract naming ${value || 'a contract'}` : `runs image ${value || 'with an unknown digest'}`;
+}
+
+export type ObservedLinkRef = { signal: string; value: string; since?: string; otherVersions?: string[] };
+
+/** maxLinkVersions is how many other versions a link tip names. */
+const maxLinkVersions = 5;
+
+/** linkTip is the tip of a linked target's mark: how the operator linked the workload
+ *  with no Pacto, the value in full (the tip is its only disclosure), since when and,
+ *  for a digest, that the images record is unverified. */
+export function linkTip(link: ObservedLinkRef, asOf?: string): string {
+  const by = link.signal === 'annotation' ? `the pacto.trianalab.io/contract annotation ${link.value}` : `the running image digest ${link.value}`;
+  const since = link.since ? ` · since ${formatWhen(link.since, Date.parse(asOf ?? '') || Date.now())}` : '';
+  let tip = `Linked with no Pacto by ${by} · observed${since}.`;
+  const others = link.otherVersions ?? [];
+  if (others.length) {
+    const shown = others.slice(0, maxLinkVersions).join(', ');
+    const more = others.length > maxLinkVersions ? ` and ${formatCount(others.length - maxLinkVersions)} more, listed by pacto fleet get` : '';
+    tip += ` Other release versions also record its running images (${shown}${more}), so the linked version is the newest and may be wrong.`;
+  }
+  if (link.signal !== 'annotation') tip += ' The images record carries a signature the operator does not verify.';
+  return tip;
+}
 
 /** How a declaration or a Pacto target links one replacement, in the words of the tip. */
 function linkedBy(r: ReplacementRef): string {
+  if (r.link === 'observed') {
+    return `Linked with no Pacto: the workload ${observedHow(r.signal, r.value)}, which this service published. The operator first linked it ${formatDateTime(r.at) || 'at an unknown time'}.`;
+  }
   if (r.link === 'inferred-from') {
     return `Declared by ${r.by || 'an unknown signer'} from this inferred service in revision ${r.revision || 'unknown'}.${r.workload ? '' : ' Pacto read no workload for it here.'}`;
   }
   return `Linked by the Pacto target ${r.target || 'of this service'}, which runs as the workload. The Pacto was created ${formatDateTime(r.at)}.`;
+}
+
+/** alsoBy is how one more replacement was linked, in the short words of the tip's list. */
+function alsoBy(r: ReplacementRef): string {
+  if (r.link === 'inferred-from') return `declared by ${r.by || 'an unknown signer'} in revision ${r.revision || 'unknown'}`;
+  if (r.link === 'observed') return `observed: ${r.signal === 'annotation' ? 'annotation' : 'image digest'}, ${formatDateTime(r.at)}`;
+  return `Pacto target ${r.target || 'of this service'}, ${formatDateTime(r.at)}`;
 }
 
 /** replacesTip is the tooltip of a service's Replaces line: how the newest replacement
@@ -489,8 +538,7 @@ export function replacesTip(replaces: ReplacementRef[], total: number): string {
   if (!first) return '';
   const head = linkedBy(first);
   if (!rest.length) return head;
-  const shown = rest.slice(0, 10).map((r) => `${serviceKeyName(r.from)} (${r.link === 'inferred-from'
-    ? `declared by ${r.by || 'an unknown signer'} in revision ${r.revision || 'unknown'}` : `Pacto target ${r.target || 'of this service'}, ${formatDateTime(r.at)}`})`);
+  const shown = rest.slice(0, 10).map((r) => `${serviceKeyName(r.from)} (${alsoBy(r)})`);
   const unlisted = total - 1 - shown.length;
   return `${head} Also replaces ${shown.join(', ')}${unlisted > 0 ? ` and ${formatCount(unlisted)} more, listed by pacto fleet get` : ''}.`;
 }

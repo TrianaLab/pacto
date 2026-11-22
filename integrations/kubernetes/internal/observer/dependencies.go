@@ -154,7 +154,8 @@ type dependencyTarget struct {
 	version     string
 }
 
-// resolveDependencyToSibling resolves a contract dependency to an in-cluster Pacto CR (spec section 7.6).
+// resolveDependencyToSibling resolves a contract dependency to an in-cluster Pacto CR (spec section 7.6),
+// or, when no CR matches, to a linked workload under the same rules.
 // Returns (nil, false, nil) when no reliable match exists (external / not pacto-managed); (target, false,
 // nil) for a single match; (nil, true, nil) when the dependency resolves to more than one DISTINCT
 // {namespace, serviceName} target (blue-green with equal resolvedRef) and not exactly one of them
@@ -174,33 +175,64 @@ func (o *Observer) resolveDependencyToSibling(ctx context.Context, namespace str
 	// several targets; a single target is reported whatever its version (DependencyObservation.Version) and
 	// the engine judges it. Distinct matches are counted so an ambiguous resolution is never silently
 	// collapsed to a first-match-wins pick.
+	var siblings []LinkedSibling
+	for _, sibling := range pactoList.Items {
+		if sibling.Status.Contract != nil {
+			siblings = append(siblings, LinkedSibling{Namespace: sibling.Namespace, ServiceName: sibling.Spec.Target.ServiceName,
+				ResolvedRef: sibling.Status.Contract.ResolvedRef, Version: sibling.Status.Contract.Version})
+		}
+	}
+	matches := distinctTargets(siblings, dep)
+	// A linked workload is consulted only when no CR matches: a CR match always wins, so a workload
+	// running the provider's image elsewhere never shadows the provider's CR or makes it ambiguous.
+	if len(matches) == 0 && o.linked != nil {
+		matches = distinctTargets(o.linked(), dep)
+	}
+	target, ambiguous := pickDependencyTarget(namespace, dep, matches)
+	return target, ambiguous, nil
+}
+
+// LinkedSibling is a workload the linker matched to a published contract with no Pacto CR: the
+// namespace and Service a dependency on that contract reaches, and the contract it runs.
+type LinkedSibling struct {
+	Namespace   string
+	ServiceName string
+	ResolvedRef string
+	Version     string
+}
+
+// distinctTargets is the distinct {namespace, serviceName} targets among siblings whose resolved ref
+// matches dep.Ref, each with the version of its first sibling.
+func distinctTargets(siblings []LinkedSibling, dep contract.Dependency) []dependencyTarget {
 	var matches []dependencyTarget
 	seen := make(map[dependencyTarget]bool)
-	for _, sibling := range pactoList.Items {
-		if sibling.Status.Contract == nil {
+	for _, s := range siblings {
+		if !matchesRef(dep.Ref, s.ResolvedRef) {
 			continue
 		}
-		if !matchesRef(dep.Ref, sibling.Status.Contract.ResolvedRef) {
-			continue
-		}
-		t := dependencyTarget{namespace: sibling.Namespace, serviceName: sibling.Spec.Target.ServiceName}
+		t := dependencyTarget{namespace: s.Namespace, serviceName: s.ServiceName}
 		if !seen[t] {
 			seen[t] = true
-			t.version = sibling.Status.Contract.Version
+			t.version = s.Version
 			matches = append(matches, t)
 		}
 	}
+	return matches
+}
 
+// pickDependencyTarget applies the namespace-first and compatibility rules to the matches of one
+// sibling family (see resolveDependencyToSibling).
+func pickDependencyTarget(namespace string, dep contract.Dependency, matches []dependencyTarget) (*dependencyTarget, bool) {
 	if local := slices.DeleteFunc(slices.Clone(matches), func(m dependencyTarget) bool { return m.namespace != namespace }); len(local) > 0 {
 		matches = local
 	}
 	switch len(matches) {
 	case 0:
-		// No matching sibling CR -> external / not pacto-managed.
-		return nil, false, nil
+		// No matching sibling -> external / not pacto-managed.
+		return nil, false
 	case 1:
 		// The only target, compatible or not: Evaluate judges the reported version against the range.
-		return &matches[0], false, nil
+		return &matches[0], false
 	}
 	// Several targets (a version rollout side by side): the ones inside the declared range are the ones
 	// this dependency can mean. Exactly one of them is unambiguous; none or several is not.
@@ -213,10 +245,10 @@ func (o *Observer) resolveDependencyToSibling(ctx context.Context, namespace str
 		}
 	}
 	if len(compatible) == 1 {
-		return &compatible[0], false, nil
+		return &compatible[0], false
 	}
 	// Ambiguous multi-match -> caller emits EVIDENCE_INSUFFICIENT (spec section 7.6).
-	return nil, true, nil
+	return nil, true
 }
 
 // matchesRef reports whether a dependency ref matches a sibling's resolvedRef.

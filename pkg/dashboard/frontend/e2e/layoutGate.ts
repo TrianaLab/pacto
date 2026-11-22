@@ -780,6 +780,13 @@ export function installScaleFixture(): void {
       // A cluster name at its longest (63 characters); the UID and the keys stay the engine's.
       const cluster = (doc.target as Record<string, unknown> | undefined)?.cluster as Record<string, unknown> | undefined;
       if (cluster) cluster.name = `${cluster.name ?? 'cluster'}-${WORDS.join('-')}`.slice(0, 63);
+      // An annotation link at its longest: a valid reference near the 255-character
+      // bound, which the tip shows in full.
+      const link = (doc.target as Record<string, unknown> | undefined)?.link as Record<string, unknown> | undefined;
+      if (link?.signal === 'annotation') {
+        const tail = '/campaign-service:1.1.0';
+        link.value = `oci://registry.example.com/${WORDS.join('/')}/${WORDS.join('-')}`.slice(0, 254 - tail.length) + tail;
+      }
     }
     if (route === '/api/delivery/history') {
       const tl = doc.timeline as { buckets: Record<string, number>[]; totals: Record<string, number> } | undefined;
@@ -3121,6 +3128,7 @@ export const ROUTES: Route[] = [
     },
   },
   { name: 'service replaced inferred', hash: '#/fleet/services/experiment-service' },
+  { name: 'target linked', hash: `#/fleet/targets/${encodeURIComponent('growth/kubernetes/Deployment%2Fcampaigns')}` },
   { name: 'replaced inferred key', hash: `#/fleet/services/${encodeURIComponent('k8s:prod%2FDeployment%2Fexperiments')}` },
   {
     name: 'service handover fields',
