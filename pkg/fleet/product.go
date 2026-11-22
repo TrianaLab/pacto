@@ -454,7 +454,7 @@ func serviceEntityRef(s *ServiceRecord) EntityRef {
 		Offering: s.Offering, Summary: s.Summary, OfferingProvenance: s.OfferingProvenance, Template: s.Template,
 		NameInferred: clonePtr(s.NameInferred), Declaration: cmp.Or(s.Declaration, DeclarationDeclared),
 	}
-	if s.Inferred() {
+	if s.inferredWorkload() {
 		ref.Scope, ref.Secondary, ref.DeclarationUnverified = s.Workload.Namespace, s.Workload.Kind, s.Workload.DeclarationUnverified
 	}
 	return ref
@@ -909,7 +909,7 @@ func (q *Query) Overview() *Overview {
 	for _, s := range q.snap.Services {
 		if s.Inferred() {
 			sum.InferredServices++
-			sum.InferredUnverified += b2i(s.Workload.DeclarationUnverified)
+			sum.InferredUnverified += b2i(s.inferredWorkload() && s.Workload.DeclarationUnverified)
 			continue
 		}
 		if s.Template {

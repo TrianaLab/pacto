@@ -172,6 +172,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	inferred = replaceByInferredFrom(snap, inferred)
 	inferred = replaceByObservedLink(snap, inferred)
 	revalidateConfigRefs(snap)
+	supersedeContributions(snap)
 	aggregateServices(snap)
 	addInferredServices(snap, inferred)
 	resolveOrigins(snap)
@@ -457,12 +458,14 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	// limitations are still reported at snapshot level, where they belong to the
 	// disagreement rather than to a source.
 	recordProblems := slices.Clone(clusters.problems[i])
+	refused := contributionRefusals{}
 	for _, raw := range col.Revisions {
 		rev, lims := revisionFrom(raw, src.ID(), now)
-		if rev != nil && divertInferredProvider(snap, rev, src.ID()) {
+		if rev != nil && divertRevision(snap, rev, raw, src.ID(), refused) {
 			// An inferred contract is never a service: it becomes its
-			// external system's provider. What reading it could not
-			// establish (its record, say) is still said.
+			// external system's provider. A refused contribution is none
+			// either. What reading it could not establish (its record, say)
+			// is still said.
 			snap.Limitations = append(snap.Limitations, lims...)
 			revCount++
 			continue
@@ -500,9 +503,11 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 		}
 		revCount++
 	}
+	snap.Limitations = append(snap.Limitations, refused.limitations(src.ID())...)
 	for _, raw := range col.Targets {
 		tgt, invalid := targetFrom(raw, src.ID(), now, window, clusters.forTarget(src, col, raw))
 		recordProblems = append(recordProblems, invalid...)
+		tgt.ReportedBy = reportedBy(src, tgt.Scope)
 		if existing := snap.Targets[tgt.Key]; existing != nil {
 			// Same target contributed by another source (e.g. platform inventory
 			// + operator evaluation): merge by field ownership and freshness.
@@ -2096,6 +2101,9 @@ func aggregateServices(snap *FleetSnapshot) {
 	placed := targetPlacementKnown(snap)
 	for _, s := range snap.Services {
 		s.Declaration = DeclarationDeclared
+		if s.Contribution = serviceContribution(snap, s); s.Contribution != nil {
+			s.Declaration = DeclarationInferred
+		}
 		s.Status = serviceStatus(snap, s)
 		s.NameInferred = nameInferred(snap, s)
 		snap.Limitations = append(snap.Limitations, deriveOwner(snap, s)...)
@@ -3227,7 +3235,7 @@ func revisionInferredEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRev
 		if !ok || !closed || name == "" || strings.ContainsAny(name, "[]") || declared[name] || f.External != nil { // an external projects through recordExternalUses
 			continue
 		}
-		to, resolved := resolveDepService(snap, rev.Domain, contract.Dependency{Name: name})
+		to, resolved := resolveDepService(snap, resolveDomain(rev), contract.Dependency{Name: name})
 		if !resolved || to == rev.ServiceKey {
 			continue
 		}

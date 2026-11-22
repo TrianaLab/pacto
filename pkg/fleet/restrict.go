@@ -133,7 +133,7 @@ type WorkloadScope struct {
 func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 	seen := map[WorkloadScope]bool{}
 	for _, s := range q.snap.Services {
-		if !s.Inferred() {
+		if !s.inferredWorkload() {
 			continue
 		}
 		seen[WorkloadScope{s.Workload.Namespace, s.Workload.Kind, s.Workload.Cluster}] = true
@@ -406,7 +406,7 @@ func appendNamespaces(names []string, pairs map[ClusterNamespace]bool) []string 
 // its kind is missing, so the namespace sentence alone would be wrong.
 func kindHiddenNote(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS map[ClusterNamespace]bool) string {
 	for k := range hiddenSvc {
-		if svc := s.Services[k]; svc.Inferred() && !hiddenNS[ClusterNamespace{svc.Workload.Cluster, svc.Workload.Namespace}] {
+		if svc := s.Services[k]; svc.inferredWorkload() && !hiddenNS[ClusterNamespace{svc.Workload.Cluster, svc.Workload.Namespace}] {
 			return "; some inferred services are hidden because you may not list their workload kind"
 		}
 	}
@@ -734,7 +734,9 @@ func rebuiltLimitation(l Limitation) bool {
 		LimitationClusterHidden,
 		// A mismatch names an external identity and a pacto-inferred ref the
 		// view may hide; it becomes a count per source.
-		LimitationInferredIdentityMismatch:
+		LimitationInferredIdentityMismatch,
+		// A count of contracts that won over contributions, some maybe hidden.
+		LimitationContributionSuperseded:
 		return true
 	case LimitationSourceRecordInvalid:
 		// Per-source counts of records that may be hidden.
@@ -797,6 +799,7 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	out.Limitations = append(out.Limitations, clusterRecordProblemsOf(out)...)
 	out.Limitations = append(out.Limitations, inferredSnapshotLimitations(out)...)
 	out.Limitations = append(out.Limitations, mismatches...)
+	out.Limitations = append(out.Limitations, supersededLimitations(out.supersededBy, func(k ServiceKey) bool { return out.Services[k] != nil })...)
 	for _, src := range slices.Sorted(maps.Keys(unresolved)) {
 		out.Limitations = append(out.Limitations, Limitation{
 			Code: LimitationObservedIdentityUnresolved, Source: src,
@@ -1003,7 +1006,7 @@ func hiddenServices(s *FleetSnapshot, hiddenNS map[ClusterNamespace]bool, hidden
 	hiddenSvc, offeringOnly = map[ServiceKey]bool{}, map[ServiceKey]bool{}
 	placed := kubePlacementKnown(s)
 	for k, svc := range s.Services {
-		if svc.Inferred() {
+		if svc.inferredWorkload() {
 			if workloadHidden(hiddenNS, workloadVisible)(svc.Workload.Cluster, svc.Workload.Namespace, svc.Workload.Kind) {
 				hiddenSvc[k] = true
 			}
@@ -1280,7 +1283,7 @@ func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord
 			hiddenNames = append(hiddenNames, svc.Name, string(k))
 			continue
 		}
-		if svc.Inferred() {
+		if svc.inferredWorkload() {
 			out.Services[k] = restrictInferred(svc, hidden, workloadVisible)
 			continue
 		}

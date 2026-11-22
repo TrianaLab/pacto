@@ -149,7 +149,7 @@ func (in inferredInput) key(multi bool) workloadKey {
 // keeping the newest ObservedAt. A declared service with that name is never
 // changed: the input is dropped with a limitation naming its source.
 func mergeInferred(snap *FleetSnapshot, existing, rec *ServiceRecord, source string) {
-	if !existing.Inferred() {
+	if !existing.inferredWorkload() {
 		snap.Limitations = append(snap.Limitations, Limitation{
 			Code: LimitationSourceRecordInvalid, Source: source,
 			Message: "source " + source + " reported a workload named like a declared service; it was left out",
