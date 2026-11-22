@@ -57,6 +57,12 @@ const (
 	// UseReporting: the row's product reports provisioning or usage to Pacto,
 	// the reporting adapters row family.
 	UseReporting = "reporting"
+	// UseReportedTargets: the row's producer reports targets through an
+	// Evidence Server.
+	UseReportedTargets = "reported-targets"
+	// UseContributedRecords: the row's producer contributes inferred
+	// services through its signed records.
+	UseContributedRecords = "contributed-records"
 	// ProviderRegistryPrefix prefixes the id of the row of a registry host an
 	// OCI source read: registry:ghcr.io.
 	ProviderRegistryPrefix = "registry:"

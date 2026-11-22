@@ -3,6 +3,7 @@ package fleetsrc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -399,8 +401,12 @@ func TestEvidenceHTTPDropsValuelessUsageMetric(t *testing.T) {
 	}
 }
 
-// TestEvidenceSourceReadsAdapters: GET /producers adapters become reporting
-// rows; an older server, a failed or unreadable read gives none.
+// evidenceNow is one hour after targetsJSON's evidence.
+func evidenceNow() time.Time { return time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC) }
+
+// TestEvidenceSourceReadsAdapters: GET /producers adapters become producer
+// rows beside the rows of the producers that reported targets; an older
+// server, a failed or unreadable read leaves the target producers alone.
 func TestEvidenceSourceReadsAdapters(t *testing.T) {
 	collect := func(producers http.HandlerFunc) []fleet.Provider {
 		t.Helper()
@@ -409,7 +415,9 @@ func TestEvidenceSourceReadsAdapters(t *testing.T) {
 		mux.HandleFunc("GET "+evidenceingest.ProducersPath, producers)
 		srv := httptest.NewServer(mux)
 		defer srv.Close()
-		col, err := NewEvidenceHTTPSource("ev", srv.URL).Collect(t.Context())
+		src := NewEvidenceHTTPSource("ev", srv.URL)
+		src.Now = evidenceNow
+		col, err := src.Collect(t.Context())
 		if err != nil || len(col.Targets) != 1 {
 			t.Fatalf("collect: %v %+v", err, col)
 		}
@@ -418,9 +426,12 @@ func TestEvidenceSourceReadsAdapters(t *testing.T) {
 	write := func(body string) http.HandlerFunc {
 		return func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }
 	}
+	reported := evidenceNow().Add(-time.Hour)
+	prodEU := fleet.Provider{ID: "producer/prod-eu", Name: "prod-eu", UsedFor: []string{fleet.UseReportedTargets}, Status: fleet.SourceAvailable,
+		Evidence: "reports targets through the Evidence Server; newest report 1h ago", AsOf: &reported}
 	got := collect(write(`{"producers":["crossplane"],"adapters":[{"producer":"crossplane","kinds":["ResourceProvisioned","ResourceUsage"]}]}`))
-	want := []fleet.Provider{{ID: "reporting-producer/crossplane", Name: "crossplane", UsedFor: []string{fleet.UseReporting},
-		Evidence: "the trust config allows it to report ResourceProvisioned and ResourceUsage"}}
+	want := []fleet.Provider{{ID: "producer/crossplane", Name: "crossplane", UsedFor: []string{fleet.UseReporting}, Status: fleet.SourceAvailable,
+		Evidence: "the trust config allows it to report ResourceProvisioned and ResourceUsage"}, prodEU}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("rows = %+v", got)
 	}
@@ -430,7 +441,7 @@ func TestEvidenceSourceReadsAdapters(t *testing.T) {
 		"forbidden":    func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) },
 		"dropped":      func(http.ResponseWriter, *http.Request) { panic(http.ErrAbortHandler) },
 	} {
-		if rows := collect(h); rows != nil {
+		if rows := collect(h); !reflect.DeepEqual(rows, []fleet.Provider{prodEU}) {
 			t.Errorf("%s: rows = %+v", name, rows)
 		}
 	}
@@ -451,7 +462,103 @@ func TestReportingRowsFromEvidenceProducers(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := fleet.NewQuery(snap).Providers()
-	if len(q.Providers) != 1 || q.Providers[0].Source != "ev" || q.Providers[0].Name != "billing" || !slices.Equal(q.Providers[0].UsedFor, []string{fleet.UseReporting}) {
+	if len(q.Providers) != 2 || q.Providers[0].Source != "ev" || q.Providers[0].Name != "billing" || !slices.Equal(q.Providers[0].UsedFor, []string{fleet.UseReporting}) {
 		t.Errorf("providers = %+v", q.Providers)
+	}
+}
+
+// evidenceServer serves targets and producers.
+func evidenceServer(t *testing.T, targets string, producers evidenceingest.ProducersResponse) *httptest.Server {
+	t.Helper()
+	body, _ := json.Marshal(producers)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET "+evidenceingest.TargetsPath, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(targets)) })
+	mux.HandleFunc("GET "+evidenceingest.ProducersPath, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) })
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// fakeReader reads one contributed record per contributor, made an hour
+// before evidenceNow, and counts the contributors it read.
+type fakeReader struct{ read int }
+
+func (r *fakeReader) Read(_ context.Context, _ string, c evidenceingest.ProducerContributor, f *fleet.ProducerFacts) ([]fleet.RawRevision, []fleet.Limitation) {
+	r.read++
+	made := evidenceNow().Add(-time.Hour)
+	f.Repository, f.Read, f.NewestContribution = c.Repository, 1, &made
+	return []fleet.RawRevision{{Contributor: &fleet.Contributor{Producer: c.Producer, AsOf: made}}}, nil
+}
+
+// TestEvidenceHTTPOneRowPerProducer: a producer that is an adapter, reports
+// targets and contributes has one row with every use.
+func TestEvidenceHTTPOneRowPerProducer(t *testing.T) {
+	c := evidenceingest.ProducerContributor{Producer: "prod-eu", Repository: contract.ContributionRepository("ghcr.io/acme", "prod-eu")}
+	srv := evidenceServer(t, targetsJSON, evidenceingest.ProducersResponse{Producers: []string{"prod-eu"},
+		Adapters: []evidenceingest.ProducerAdapter{{Producer: "prod-eu", Kinds: []string{"ResourceUsage"}}}, Contributors: []evidenceingest.ProducerContributor{c}})
+	src := NewEvidenceHTTPSource("ev", srv.URL)
+	src.Contributions, src.Now = &fakeReader{}, evidenceNow
+	col, err := src.Collect(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(col.Providers) != 1 || col.Providers[0].ID != "producer/prod-eu" || col.Providers[0].Status != fleet.SourceAvailable ||
+		!slices.Equal(col.Providers[0].UsedFor, []string{fleet.UseReportedTargets, fleet.UseReporting, fleet.UseContributedRecords}) {
+		t.Errorf("rows = %+v", col.Providers)
+	}
+	if len(col.Revisions) != 1 || col.Revisions[0].Contributor.Producer != "prod-eu" || len(col.Limitations) != 0 {
+		t.Errorf("revisions = %+v limitations = %+v", col.Revisions, col.Limitations)
+	}
+}
+
+// TestEvidenceHTTPReadsAtMostMaxContributors: past MaxContributors, the
+// rest are not read and one CONTRIBUTION_UNREAD says how many.
+func TestEvidenceHTTPReadsAtMostMaxContributors(t *testing.T) {
+	cs := make([]evidenceingest.ProducerContributor, 0, MaxContributors+1)
+	for i := range MaxContributors + 1 {
+		p := fmt.Sprintf("p%02d", MaxContributors-i)
+		cs = append(cs, evidenceingest.ProducerContributor{Producer: p, Repository: contract.ContributionRepository("ghcr.io/acme", p)})
+	}
+	srv := evidenceServer(t, targetsJSON, evidenceingest.ProducersResponse{Producers: []string{}, Contributors: cs})
+	src, r := NewEvidenceHTTPSource("ev", srv.URL), &fakeReader{}
+	src.Contributions, src.Now = r, evidenceNow
+	col, err := src.Collect(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.read != MaxContributors || len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationContributionUnread ||
+		!strings.Contains(col.Limitations[0].Message, "the 1 past the first 32 were not read") || slices.ContainsFunc(col.Providers, func(p fleet.Provider) bool { return p.Name == "p32" }) {
+		t.Errorf("read = %d limitations = %+v", r.read, col.Limitations)
+	}
+}
+
+// TestEvidenceHTTPSilentProducerRowStale: a producer whose newest target is
+// older than the window has a stale row.
+func TestEvidenceHTTPSilentProducerRowStale(t *testing.T) {
+	srv := evidenceServer(t, targetsJSON, evidenceingest.ProducersResponse{Producers: []string{"prod-eu"}})
+	src := NewEvidenceHTTPSource("ev", srv.URL)
+	src.Now, src.Freshness = func() time.Time { return evidenceNow().Add(25 * time.Hour) }, 24*time.Hour
+	col, err := src.Collect(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(col.Providers) != 1 || col.Providers[0].Status != fleet.SourceStale || col.Providers[0].Limitations[0].Message != "last reported 26h ago" {
+		t.Errorf("rows = %+v", col.Providers)
+	}
+}
+
+// TestEvidenceHTTPNoBundleStoreRow: with no reader, an advertised
+// contributor's row says nothing reads its records.
+func TestEvidenceHTTPNoBundleStoreRow(t *testing.T) {
+	repo := contract.ContributionRepository("ghcr.io/acme", "my-idp")
+	srv := evidenceServer(t, targetsJSON, evidenceingest.ProducersResponse{Producers: []string{},
+		Contributors: []evidenceingest.ProducerContributor{{Producer: "my-idp", Repository: repo}}})
+	col, err := NewEvidenceHTTPSource("ev", srv.URL).Collect(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(col.Providers) != 2 || col.Providers[0].ID != "producer/my-idp" || col.Providers[0].Status != fleet.SourcePartial ||
+		col.Providers[0].Limitations[0].Message != "no registry is configured to read contributions" || len(col.Limitations) != 0 {
+		t.Errorf("rows = %+v limitations = %+v", col.Providers, col.Limitations)
 	}
 }

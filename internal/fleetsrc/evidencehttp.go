@@ -1,11 +1,13 @@
 package fleetsrc
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
-	"strings"
+	"slices"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
@@ -24,6 +26,26 @@ type EvidenceHTTPSource struct {
 	id      string
 	baseURL string
 	client  *http.Client
+	// Contributions reads the records of the producers the server
+	// advertises as contributors; nil reads none and says so on their rows.
+	Contributions ContributionReader
+	// Freshness is the window past which a producer's newest report or
+	// record reads stale; 0 checks no age.
+	Freshness time.Duration
+	// Now is the source's clock; nil is time.Now.
+	Now func() time.Time
+}
+
+// MaxContributors is how many of the producers an Evidence Server
+// advertises as contributors one read reads, sorted.
+const MaxContributors = 32
+
+// ContributionReader reads the records one producer an Evidence Server
+// advertises contributes, filling f, and returns the limitations that make
+// the source partial. The registry client lives behind it: an evidence
+// consumer never reaches the registry itself (internal/app reads it).
+type ContributionReader interface {
+	Read(ctx context.Context, source string, c evidenceingest.ProducerContributor, f *fleet.ProducerFacts) ([]fleet.RawRevision, []fleet.Limitation)
 }
 
 // NewEvidenceHTTPSource returns a read-only HTTP evidence source over baseURL.
@@ -69,31 +91,99 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 	if err != nil {
 		return nil, fmt.Errorf("evidence source %s: %w", url, err)
 	}
-	col.Providers = s.adapterRows(ctx)
+	revs, lims, rows := s.producers(ctx, col.Targets)
+	col.Revisions, col.Providers = append(col.Revisions, revs...), rows
+	col.Limitations = append(col.Limitations, lims...)
 	return col, nil
 }
 
-// adapterRows are the reporting adapter rows of the server's GET /producers:
-// one per producer its trust config allows to report provisioning or usage.
-// ponytail: a server that lists no adapters (an older one) or a read that
-// fails gives no row and no limitation; a missing row claims nothing, and the
-// targets the source exists for were read.
-func (s *EvidenceHTTPSource) adapterRows(ctx context.Context) []fleet.Provider {
+// producers reads the server's GET /producers once and returns the records
+// its contributors hold, the limitations of what could not be read and one
+// row per producer: what it reports, what its trust config allows and what
+// it contributes. ponytail: a server that lists nothing (an older one) or a
+// /producers read that fails reads no contributor and adds no limitation; a
+// missing row claims nothing, and the targets the source exists for were read.
+func (s *EvidenceHTTPSource) producers(ctx context.Context, targets []fleet.RawTarget) ([]fleet.RawRevision, []fleet.Limitation, []fleet.Provider) {
+	now := time.Now
+	if s.Now != nil {
+		now = s.Now
+	}
+	facts := map[string]*fleet.ProducerFacts{}
+	fact := func(p string) *fleet.ProducerFacts {
+		if facts[p] == nil {
+			facts[p] = &fleet.ProducerFacts{Producer: p}
+		}
+		return facts[p]
+	}
+	for _, t := range targets {
+		if t.Scope != "" && t.EvidenceAt != nil {
+			f := fact(t.Scope)
+			f.NewestReport = laterOf(f.NewestReport, *t.EvidenceAt)
+		}
+	}
+	body := s.readProducers(ctx)
+	for _, a := range body.Adapters {
+		fact(a.Producer).AdapterKinds = a.Kinds
+	}
+	revs, lims := s.readContributions(ctx, body.Contributors, fact)
+	var rows []fleet.Provider
+	for _, p := range slices.Sorted(maps.Keys(facts)) {
+		if row, ok := fleet.ProducerRow(*facts[p], now(), s.Freshness); ok {
+			rows = append(rows, row)
+		}
+	}
+	return revs, lims, rows
+}
+
+// readContributions reads the records of the first MaxContributors
+// contributors, sorted, through s.Contributions.
+func (s *EvidenceHTTPSource) readContributions(ctx context.Context, contributors []evidenceingest.ProducerContributor, fact func(string) *fleet.ProducerFacts) ([]fleet.RawRevision, []fleet.Limitation) {
+	contributors = slices.SortedFunc(slices.Values(contributors), func(a, b evidenceingest.ProducerContributor) int {
+		return cmp.Or(cmp.Compare(a.Producer, b.Producer), cmp.Compare(a.Repository, b.Repository))
+	})
+	var (
+		revs []fleet.RawRevision
+		lims []fleet.Limitation
+	)
+	if n := len(contributors); n > MaxContributors {
+		lims = append(lims, fleet.Limitation{Code: fleet.LimitationContributionUnread, Source: s.id,
+			Message: fmt.Sprintf("%d producers contribute; the contributions of the %d past the first %d were not read", n, n-MaxContributors, MaxContributors)})
+		contributors = contributors[:MaxContributors]
+	}
+	for _, c := range contributors {
+		f := fact(c.Producer)
+		if s.Contributions == nil {
+			f.Repository = c.Repository
+			f.Problems = append(f.Problems, "no registry is configured to read contributions")
+			continue
+		}
+		r, l := s.Contributions.Read(ctx, s.id, c, f)
+		revs, lims = append(revs, r...), append(lims, l...)
+	}
+	return revs, lims
+}
+
+// readProducers is the server's GET /producers body, empty when it could
+// not be read.
+func (s *EvidenceHTTPSource) readProducers(ctx context.Context) evidenceingest.ProducersResponse {
+	var body evidenceingest.ProducersResponse
 	// The targets request on the same base URL was already built.
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+evidenceingest.ProducersPath, nil)
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil
+		return body
 	}
 	defer func() { _ = resp.Body.Close() }()
-	var body evidenceingest.ProducersResponse
 	if resp.StatusCode != http.StatusOK || strictjson.Decode(io.LimitReader(resp.Body, evidenceingest.MaxTargetsBodyBytes), &body) != nil {
-		return nil
+		return evidenceingest.ProducersResponse{}
 	}
-	var rows []fleet.Provider
-	for _, a := range body.Adapters {
-		rows = append(rows, fleet.Provider{ID: "reporting-producer/" + a.Producer, Name: a.Producer, UsedFor: []string{fleet.UseReporting},
-			Evidence: "the trust config allows it to report " + strings.Join(a.Kinds, " and ")})
+	return body
+}
+
+// laterOf is the later of cur and t.
+func laterOf(cur *time.Time, t time.Time) *time.Time {
+	if cur != nil && !t.After(*cur) {
+		return cur
 	}
-	return rows
+	return &t
 }
