@@ -104,6 +104,9 @@ func main() {
 		panic(err)
 	}
 	d.wire(&opts)
+	if opts.InstallationConfig, err = demoInstallationConfig(); err != nil {
+		panic(err)
+	}
 	js.Global().Set("__pactoDeliveryKey", d.KeyHint())
 	js.Global().Set("__pactoPactifyPlan", pactifyPlan)
 	// __pactoPersona(name, fresh) switches who the tab acts as: pay-agent,

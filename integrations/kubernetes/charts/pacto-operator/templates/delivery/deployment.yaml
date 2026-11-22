@@ -1,4 +1,4 @@
-{{- if .Values.delivery.enabled }}
+{{- if include "pacto-operator.deliveryEnabled" . }}
 {{- include "pacto-operator.delivery.gate" . }}
 {{- $stats := .Values.delivery.stats }}
 {{- if and $stats.registryCredentials.secretName (not $stats.repository) }}

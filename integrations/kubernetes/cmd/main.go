@@ -141,6 +141,7 @@ type options struct {
 	nodeAgentResources       component.Resources
 
 	registry             string
+	profile              string
 	registryPullSecret   string
 	registryPushPrefixes []string
 
@@ -332,6 +333,9 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.DurationVar(&o.nodeAgentPublishInterval, "node-agent-publish-interval", 30*time.Second,
 		"How often each node agent publishes its node's NodeRuntimeObservation.")
 	bindResourceFlags(fs, &o.nodeAgentResources, "node-agent", "node agent")
+	fs.StringVar(&o.profile, "profile", "default",
+		"Installation profile the chart rendered (default, hardened, idp or hardened,idp); "+
+			"advertised in the detected ConfigMap, never acted on.")
 	fs.StringVar(&o.registry, "registry", "",
 		"The installation registry (host/path): Pacto publishes the target snapshot and inferred contracts under it "+
 			"and pushes nowhere else; empty turns those features off.")
@@ -631,8 +635,14 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc authn.Keyc
 	// The cluster id names the cluster in Evidence Server reports and in what
 	// detection writes; read once.
 	ident := readClusterIdentity(mgr)
-	inst, err := addTargetSnapshot(mgr, o, namespace, ident.ID, evidenceSourceURL, kc)
+	profiles, err := detection.ParseProfile(o.profile)
 	if err != nil {
+		return err
+	}
+	// Detection advertises the block on every install; only its registry
+	// fields need --registry.
+	inst := &detect.Installation{Profile: profiles}
+	if err := addTargetSnapshot(mgr, o, namespace, ident.ID, evidenceSourceURL, kc, inst); err != nil {
 		return err
 	}
 
@@ -758,51 +768,51 @@ var lastPush atomic.Pointer[detect.PushResult]
 
 // addTargetSnapshot runs the target snapshot publisher when --registry is set: it ensures the installation
 // key, then publishes <registry>/pacto-targets:cluster-<uid> and the inferred contracts under
-// <registry>/pacto-inferred on the elected leader. It returns the
-// installation detection advertises, nil without --registry. Any missing piece stops the operator at start
-// with its reason.
+// <registry>/pacto-inferred on the elected leader. It fills the registry fields of inst, the installation
+// detection advertises, and leaves them empty without --registry. Any missing piece stops the operator at
+// start with its reason.
 func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace, clusterID, evidenceURL string,
-	kc authn.Keychain) (*detect.Installation, error) {
+	kc authn.Keychain, inst *detect.Installation) error {
 	if o.registry == "" {
 		setupLog.Info("Target snapshot and inferred contracts are off: set the registry value")
-		return nil, nil
+		return nil
 	}
 	deploy := os.Getenv("OPERATOR_DEPLOYMENT_NAME")
 	if deploy == "" {
-		return nil, fmt.Errorf("--registry needs OPERATOR_DEPLOYMENT_NAME: " +
+		return fmt.Errorf("--registry needs OPERATOR_DEPLOYMENT_NAME: " +
 			"the installation key Secret is named after the operator Deployment")
 	}
 	key, err := installkey.Ensure(context.Background(), mgr.GetAPIReader(), mgr.GetClient(), namespace,
 		installkey.SecretName(deploy))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	pub, err := targetsnapshot.ForOperator(targetsnapshot.Config{Registry: o.registry, ClusterID: clusterID,
 		Namespace: namespace, ServiceAccount: os.Getenv("OPERATOR_SERVICE_ACCOUNT"), EvidenceURL: evidenceURL,
 		Watched: o.namespaces, Key: key, Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(),
 		OnPush: func(r detect.PushResult) { lastPush.Store(&r) }, OwnerPolicy: readOwnerPolicy(o.ownerPolicy)})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	// The inferred contracts of the externals the Pactos name, signed with the same key, under
 	// <registry>/pacto-inferred: the same push scope, on the elected leader.
 	inferred, err := inferredpublish.ForOperator(inferredpublish.Config{Registry: o.registry, Key: key, Keychain: kc,
 		Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(), Watched: o.namespaces, Pacto: version})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if err := mgr.Add(inferred); err != nil {
-		return nil, err
+		return err
 	}
-	inst := &detect.Installation{Registry: o.registry,
-		Targets:     oci.InstallationRepository(o.registry, oci.TargetsRepository),
-		Index:       oci.InstallationRepository(o.registry, oci.IndexRepository),
-		Inferred:    oci.InstallationRepository(o.registry, oci.InferredRepository),
-		Pushes:      credentials.InstallationPrefixes(o.registry, o.registryPushPrefixes),
-		SnapshotKey: installkey.PublicKeyBase64(key), SnapshotKeyID: signing.Hint(key.Public())}
+	inst.Registry = o.registry
+	inst.Targets = oci.InstallationRepository(o.registry, oci.TargetsRepository)
+	inst.Index = oci.InstallationRepository(o.registry, oci.IndexRepository)
+	inst.Inferred = oci.InstallationRepository(o.registry, oci.InferredRepository)
+	inst.Pushes = credentials.InstallationPrefixes(o.registry, o.registryPushPrefixes)
+	inst.SnapshotKey, inst.SnapshotKeyID = installkey.PublicKeyBase64(key), signing.Hint(key.Public())
 	setupLog.Info("Target snapshot is on", "repository", inst.Targets,
 		"snapshotKeyID", inst.SnapshotKeyID, "snapshotKey", inst.SnapshotKey)
-	return inst, mgr.Add(pub)
+	return mgr.Add(pub)
 }
 
 // readOwnerPolicy reads the mounted owner policy once at start: the ConfigMap

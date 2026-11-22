@@ -10,6 +10,7 @@ templates:
   - templates/deployment.yaml
   - templates/clusterrole.yaml
   - templates/owner-policy.yaml
+  - templates/nodeagent-namespace.yaml
 set:
   # 6.x values carry no fingerprints key: --reuse-values keeps it absent.
   fingerprints: null
@@ -102,6 +103,44 @@ tests:
           - --dashboard-memory-request=128Mi
           - --dashboard-memory-limit=512Mi
           - --dashboard-token-login
+
+  - it: should render the 6.x arguments and the agent namespace for 6.x values without profile or nodeAgent.createNamespace
+    set:
+      <<: *reuse6x
+      profile: null
+      nodeAgent.createNamespace: null
+      nodeAgent.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+          - --leader-elect=true
+          - --health-probe-bind-address=:8081
+          - --metrics-bind-address=:8443
+          - --metrics-secure=true
+          - --enable-kernel-evidence
+          - --caller-coverage-ignore-namespace=kube-flannel
+          - --caller-coverage-ignore-namespace=calico-system
+          - --caller-coverage-ignore-namespace=tigera-operator
+          - --node-agent-namespace=pacto-node-agent
+          - --enable-node-agent
+          - --node-agent-publish-interval=30s
+          - --node-agent-cpu-request=50m
+          - --node-agent-memory-request=64Mi
+          - --node-agent-cpu-limit=200m
+          - --node-agent-memory-limit=256Mi
+          - --enable-dashboard
+          - --dashboard-cpu-request=50m
+          - --dashboard-memory-request=128Mi
+          - --dashboard-memory-limit=512Mi
+          - --dashboard-token-login
+        template: templates/deployment.yaml
+      - equal: {path: kind, value: Namespace}
+        documentIndex: 0
+        template: templates/nodeagent-namespace.yaml
+      - equal: {path: metadata.name, value: pacto-node-agent}
+        documentIndex: 0
+        template: templates/nodeagent-namespace.yaml
 
   - it: should render the 6.x arguments for 6.x values with enableProbing and enableMetricsObservation true
     template: templates/deployment.yaml

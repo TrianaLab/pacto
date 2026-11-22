@@ -7,7 +7,7 @@ and every resource they hold, in place on helm uninstall. The delivery CRDs
 */}}
 {{- if .Values.crds.install }}
 {{- range $path, $_ := .Files.Glob "files/crds/*.yaml" }}
-{{- if or $.Values.delivery.enabled (not (hasPrefix "delivery." (base $path))) }}
+{{- if or (include "pacto-operator.deliveryEnabled" $) (not (hasPrefix "delivery." (base $path))) }}
 {{- $crd := $.Files.Get $path | fromYaml }}
 {{- $_ := set $crd.metadata "labels" (merge (include "pacto-operator.labels" $ | fromYaml) ($crd.metadata.labels | default dict)) }}
 {{- $_ := set $crd.metadata "annotations" (merge (dict "helm.sh/resource-policy" "keep") ($crd.metadata.annotations | default dict)) }}

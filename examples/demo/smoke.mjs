@@ -58,6 +58,11 @@ check("GET /api/sources keeps its shape",
 // every new endpoint the redesigned dashboard calls must answer for real.
 const caps = json(call("GET", "/api/capabilities"));
 check("capabilities: fleet+impact+observed enabled", caps.fleet === true && caps.impact === true && caps.observed === true, JSON.stringify(caps));
+const inst = caps.installation || {};
+check("capabilities: installation names the default profile and every part its source",
+  JSON.stringify((inst.profile || {}).value) === JSON.stringify(["default"])
+    && ["profile", "registry", "delivery", "provisioning", "clusters", "mcp"].every((p) => typeof (inst[p] || {}).source === "string" && inst[p].source !== ""),
+  JSON.stringify(inst));
 
 const snap = json(call("GET", "/api/fleet/snapshot"));
 const svcCount = Object.keys(snap.services || {}).length;

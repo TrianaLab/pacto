@@ -46,6 +46,9 @@
 #   dump_diag NS                   best-effort diagnostics for a failed run
 #   pf LOCAL_PORT TARGET REMOTE    a port-forward that is already answering
 #   dash_token_login PORT TOKEN [link]  sign in to a forwarded dashboard with a token
+#   can_i VERB RESOURCE AS [args]  kubectl auth can-i as AS -> prints yes or no
+#   pacto_clusterroles / count_pacto_clusterroles  ClusterRoles and bindings named pacto*
+#   assert_release_gone RELEASE    the release left no Role, binding or pacto* ClusterRole
 #   keep_or_teardown NS CLUSTER FN tear down unless KEEP_E2E_CLUSTER is set
 #   helm_teardown NS               uninstall the release, drop the namespace
 
@@ -210,6 +213,7 @@ pull_pinned() {
 # whatever cluster the developer happens to be pointed at.
 _kubeconfig_for_cluster() {
   KUBECONFIG="$(mktemp)"; export KUBECONFIG
+  # shellcheck disable=SC2153  # CLUSTER is the caller's global (header)
   kind get kubeconfig --name "$CLUSTER" > "$KUBECONFIG"
 }
 
@@ -644,6 +648,31 @@ dash_token_login() {
     echo "$(sed -n 's/^HTTP\/[0-9.]* \([0-9]*\).*/\1/p' <<<"$hdr" | tail -n 1) $(cat "$body")"
   fi
   rm -f "$body"
+}
+
+# --- RBAC ---------------------------------------------------------------------
+
+can_i() { # VERB RESOURCE AS [kubectl args...] — prints yes or no
+  local verb="$1" res="$2" as="$3"; shift 3
+  kubectl auth can-i "$verb" "$res" --as="$as" "$@" 2>/dev/null || true
+}
+
+# The dashboard's TokenReview grant is excluded by name: least-privilege.sh
+# checks it exactly, and assert_release_gone's instance-label check still
+# catches a leak.
+pacto_clusterroles() { kubectl get clusterrole,clusterrolebinding -o name | grep '/pacto' | grep -v -- '-dashboard-tokenreview$' || true; }
+count_pacto_clusterroles() { pacto_clusterroles | grep -c . || true; }
+
+assert_release_gone() { # RELEASE
+  local left
+  left="$(kubectl get role,rolebinding,clusterrole,clusterrolebinding -A -l "app.kubernetes.io/instance=$1" -o name)"
+  [ -z "$left" ] || fail "release $1 left RBAC behind: $left"
+  for kind in role rolebinding clusterrole clusterrolebinding; do
+    left="$(kubectl get "$kind" -A --field-selector metadata.name=pacto-dashboard -o name)"
+    [ -z "$left" ] || fail "a $kind named pacto-dashboard is left: $left"
+  done
+  [ "$(count_pacto_clusterroles)" = "0" ] || fail "ClusterRoles or bindings named pacto* are left: $(pacto_clusterroles)"
+  pass "release $1 left no Role, RoleBinding, ClusterRole or ClusterRoleBinding"
 }
 
 # keep_or_teardown NS CLUSTER [TEARDOWN_FN] — tear the run down UNLESS

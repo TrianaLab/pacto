@@ -938,6 +938,18 @@ func TestMCPStatsRegistryNeedsFleet(t *testing.T) {
 	}
 }
 
+// TestMCPDetectedNeedsFleet: only the fleet mode reads --detected, so it is
+// refused without --fleet instead of answering "no --detected".
+func TestMCPDetectedNeedsFleet(t *testing.T) {
+	root := NewRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"})
+	root.SetArgs([]string{"mcp", "--delivery", "--detected", "k8s:pacto/pacto-detected"})
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	if err := root.Execute(); !errors.Is(err, errDetectedNeedsFleet) {
+		t.Errorf("--detected without --fleet: %v", err)
+	}
+}
+
 // TestDashboardFleetOptions_Mira proves --mira-source / PACTO_DASHBOARD_MIRA_SOURCES
 // adds Mira sources and names them in the startup banner.
 func TestDashboardFleetOptions_Mira(t *testing.T) {

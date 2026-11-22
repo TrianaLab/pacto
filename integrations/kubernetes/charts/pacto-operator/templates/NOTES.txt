@@ -22,7 +22,7 @@ Pacto Operator has been installed.
 
    kubectl get pactos
 
-{{- if .Values.dashboard.enabled }}
+{{- if include "pacto-operator.dashboardEnabled" . }}
 {{- if include "pacto-operator.dashboardTokenSignIn" . }}
 
 4. Open the dashboard. It asks you to sign in:
@@ -69,6 +69,45 @@ Pacto Operator has been installed.
    every service its ServiceAccount reads. Configure dashboard.auth.oidc or set
    dashboard.auth.tokenSignIn.enabled=true, or set
    dashboard.auth.allowAnonymous=false to keep it from starting without sign-in.
+{{- end }}
+{{- end }}
+{{- /* The idp lines name only the observation modes that render on (idp
+upgrades only a resolved auto) and the monitor read only when it renders. */}}
+{{- $idp := include "pacto-operator.idp" . }}
+{{- $observeOn := list }}
+{{- if has (include "pacto-operator.observeMode" (list .Values.controller.probing .Values.controller.enableProbing $idp)) (list "on" "legacy-on") }}{{ $observeOn = append $observeOn "probing" }}{{ end }}
+{{- if has (include "pacto-operator.observeMode" (list .Values.controller.metricsObservation .Values.controller.enableMetricsObservation $idp)) (list "on" "legacy-on") }}{{ $observeOn = append $observeOn "metrics observation" }}{{ end }}
+{{- $observePhrase := "probing and metrics observation are off" }}
+{{- if eq (len $observeOn) 2 }}{{ $observePhrase = "probing and metrics observation are on" }}
+{{- else if eq (len $observeOn) 1 }}{{ $observePhrase = printf "%s is on" (first $observeOn) }}
+{{- end }}
+{{- $monitors := (include "pacto-operator.observeRBAC" . | fromYaml).metricsMonitors }}
+{{- if include "pacto-operator.hardened" . }}
+
+Profile hardened: no ClusterRole, no managed dashboard, no node agent, no Pacto
+delivery and no namespace created by the chart. See
+https://pacto.run/latest/integrations/kubernetes/profiles/
+{{- if .Values.registry }}
+Pacto reads the cluster id through Role {{ include "pacto-operator.fullname" . }}-{{ .Release.Namespace }}-cluster-identity in kube-system.
+{{- end }}
+{{- if $idp }}
+Profile idp with hardened: {{ $observePhrase }} and Pacto
+delivery stays off.
+{{- if $monitors }}
+It adds the read of ServiceMonitors and PodMonitors in each watched namespace.
+{{- end }}
+{{- end }}
+{{- else if $idp }}
+
+Profile idp: {{ $observePhrase }} and Pacto delivery is on.
+{{- if not $monitors }}
+It adds Pacto delivery's cluster roles.
+{{- else if include "pacto-operator.watchNamespaces" . | fromYamlArray }}
+It adds the read of ServiceMonitors and PodMonitors in each watched namespace
+and Pacto delivery's cluster roles.
+{{- else }}
+It adds the cluster-wide read of ServiceMonitors and PodMonitors and Pacto
+delivery's cluster roles.
 {{- end }}
 {{- end }}
 {{- /* What the operator detected, read back on upgrade only. NOTES is the one
@@ -134,8 +173,12 @@ Read the same rows from the CLI:
 
   pacto fleet status --k8s --detected k8s:{{ .Release.Namespace }}/{{ $detectedName }}
 {{- else }}
-
+{{ if include "pacto-operator.dashboardEnabled" . }}
 Pacto lists what it detects under Data sources in the dashboard, or run:
+{{- else }}
+No managed dashboard runs here. Pacto lists what it detects under Data sources
+in a local pacto dashboard --detected k8s:{{ .Release.Namespace }}/{{ $detectedName }}, or run:
+{{- end }}
 
   kubectl get configmap {{ $detectedName }} -n {{ .Release.Namespace }} -o jsonpath='{.data.detected\.json}'
 {{- end }}
@@ -156,8 +199,8 @@ registry value: a push to another registry says nothing about this one. */}}
 {{- if not (hasPrefix (printf "%s/pacto-targets:" $registry) $lastRef) }}{{ $lastRef = "" }}{{ end }}
 {{- $lastAt := regexReplaceAll $unsafe (toString (get $last "at")) "" | trunc 64 }}
 {{- with .Values.registry }}
-{{- $recorder := and $.Values.delivery.enabled $.Values.delivery.recorder.enabled (include "pacto-operator.delivery.streamsRepository" $) }}
-{{- $stats := and $.Values.delivery.enabled $.Values.delivery.stats.repository }}
+{{- $recorder := and (include "pacto-operator.deliveryEnabled" $) $.Values.delivery.recorder.enabled (include "pacto-operator.delivery.streamsRepository" $) }}
+{{- $stats := and (include "pacto-operator.deliveryEnabled" $) $.Values.delivery.stats.repository }}
 
 Registry: {{ . }}
   {{ include "pacto-operator.registryCredential" (dict "root" $ "detected" $detected "pushed" (or $lastError $lastRef)) }}
@@ -187,7 +230,7 @@ Registry: {{ . }}
   workload shape regardless of Kubernetes RBAC and, with evidence.enabled, every
   target, provisioning and usage record (cost included) the Evidence Server
   accepted, so give it its own read ACL.
-  Delivery is {{ if $.Values.delivery.enabled }}on{{ else }}off: turn it on with delivery.enabled=true{{ end }}.
+  Delivery is {{ if (include "pacto-operator.deliveryEnabled" $) }}on{{ else if (include "pacto-operator.hardened" $) }}off: profile hardened renders no Pacto delivery{{ else }}off: turn it on with delivery.enabled=true{{ end }}.
 {{- /* The key comes from the installation key Secret, which only the
 operator writes; the ConfigMap's snapshotKey is forgeable by any ConfigMap
 writer. */}}
@@ -235,7 +278,7 @@ Proposed pull Secret (inferred from pod specs; it needs push on
 {{- end }}
 {{- end }}
 {{- end }}
-{{- if and .Release.IsUpgrade (include "pacto-operator.watchNamespaces" . | fromYamlArray) (not (and .Values.dashboard.enabled (include "pacto-operator.dashboardDeliveryNamespace" .))) }}
+{{- if and .Release.IsUpgrade (include "pacto-operator.watchNamespaces" . | fromYamlArray) (not (and (include "pacto-operator.dashboardEnabled" .) (include "pacto-operator.dashboardDeliveryNamespace" .))) }}
 {{- if or (lookup "rbac.authorization.k8s.io/v1" "ClusterRole" "" "pacto-dashboard") (lookup "rbac.authorization.k8s.io/v1" "ClusterRoleBinding" "" "pacto-dashboard") }}
 
 A pacto-dashboard ClusterRole from the cluster-wide install still grants
@@ -244,7 +287,17 @@ cluster-wide reads. Delete it:
   kubectl delete clusterrole,clusterrolebinding pacto-dashboard
 {{- end }}
 {{- end }}
-{{- if .Values.delivery.enabled }}
+{{- /* delivery/namespace.yaml carries helm.sh/resource-policy: keep, so a
+release that stops rendering delivery leaves this release's namespace and its
+trust config in place: say so. */}}
+{{- with and (not (include "pacto-operator.deliveryEnabled" .)) .Values.delivery.namespace }}
+{{- if eq (dig "metadata" "annotations" "meta.helm.sh/release-name" "" (lookup "v1" "Namespace" "" .)) $.Release.Name }}
+
+Pacto delivery is off. Namespace {{ . }} was kept with its trust config;
+delete it with kubectl delete namespace {{ . }} when you no longer need it.
+{{- end }}
+{{- end }}
+{{- if include "pacto-operator.deliveryEnabled" . }}
 
 The Pacto delivery promoter is installed in {{ include "pacto-operator.delivery.namespace" . }}.
 Keep that namespace writable by cluster admins only: anyone who can create a pod

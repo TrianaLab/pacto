@@ -23,6 +23,24 @@ tests:
       - hasDocuments: {count: 0}
         template: templates/dex-credentials.yaml
 
+  - it: the quickstart builds on profile idp
+    values: [../values-quickstart.yaml]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-probing=on
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-metrics-observation=on
+        template: templates/deployment.yaml
+      - containsDocument:
+          kind: Deployment
+          apiVersion: apps/v1
+          name: pacto-operator-delivery-recorder
+          any: true
+        template: templates/delivery/recorder.yaml
+
   - it: runs zot with persistence behind a ClusterIP Service
     values: [../values-quickstart.yaml]
     asserts:

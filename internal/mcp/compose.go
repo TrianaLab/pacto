@@ -55,6 +55,9 @@ type DeliveryMode struct {
 	// Installed, when set, asks whether the cluster serves the delivery API,
 	// as the dashboard's /api/capabilities does; nil counts as served.
 	Installed func(context.Context) (bool, error)
+	// InstalledAt, when set, is when Installed last asked the cluster (it
+	// caches its answer).
+	InstalledAt func() time.Time
 	// Refs, when set, lets the record tools read a record by its registry
 	// reference. Only the local (stdio) server sets it: it reads with this
 	// machine's registry credentials, which a remote caller must never

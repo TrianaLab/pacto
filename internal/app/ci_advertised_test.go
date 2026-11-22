@@ -90,6 +90,25 @@ func TestCIIgnoresUnavailableAdvertisement(t *testing.T) {
 	}
 }
 
+// TestCIAdvertisementWithoutRegistryIsAbsent: the operator writes the block on
+// every install; one with only its profile advertises no registry.
+func TestCIAdvertisementWithoutRegistryIsAbsent(t *testing.T) {
+	b, err := json.Marshal(detect.Result{SchemaVersion: detect.SchemaVersion, AsOf: time.Now(),
+		Installation: &detect.Installation{Profile: []string{"default"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "detected.json")
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reg := &fakeCIRegistry{tags: noTags}
+	p := advertisedPlan(t, reg, path)
+	if p.Registry.Value != "" || len(reg.calls) != 0 || !slices.Contains(p.Notes, "installation advertisement absent: not used") {
+		t.Fatalf("registry %+v, calls %v, notes %q", p.Registry, reg.calls, p.Notes)
+	}
+}
+
 // TestCIRegistryFlagSkipsAdvertisement: --registry wins, so the advertisement
 // is not read and adds no note, even an unreadable one.
 func TestCIRegistryFlagSkipsAdvertisement(t *testing.T) {
