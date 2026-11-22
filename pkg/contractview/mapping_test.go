@@ -1113,3 +1113,12 @@ func TestMappingPortUnknownBreaks(t *testing.T) {
 		t.Error("breaks alias the contract")
 	}
 }
+
+// A name the contract leaves out and Pacto inferred names where it came from.
+func TestServiceDetailsNameInferredFrom(t *testing.T) {
+	b := &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: "payments"}},
+		Inferred: []contract.Inferred{{Field: "service.name", Value: "payments", Source: "chart/Chart.yaml:2"}}}
+	if d := ServiceDetailsFromBundle(b, "local"); d.NameInferredFrom != "chart/Chart.yaml:2" {
+		t.Fatalf("NameInferredFrom = %q", d.NameInferredFrom)
+	}
+}
