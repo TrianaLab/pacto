@@ -376,7 +376,12 @@ func (q *Query) externalDetail(key string) (*EntityDetail, error) {
 		data.Consumers = append(data.Consumers, ec)
 	}
 	ref := externalEntityRef(rec)
-	return &EntityDetail{Meta: q.externalProductMeta(nil), Entity: ref, Status: ref.Status, External: data}, nil
+	d := &EntityDetail{Meta: q.externalProductMeta(nil), Entity: ref, Status: ref.Status, External: data}
+	// Other egress groups unrelated hosts: no one question fits them all.
+	if rec.Key != OtherEgress {
+		d.Actions = []string{"impact"}
+	}
+	return d, nil
 }
 
 // externalProductMeta is productMetaWith(derived) for an answer that lists

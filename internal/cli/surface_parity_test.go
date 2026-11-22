@@ -179,7 +179,7 @@ func impactRows() []surfaceRow {
 			{"", "pacto_impact.revision", "POST /api/fleet/impact body.revision", "the CLI takes the revision after @ in --regressed"},
 			{"", "pacto_impact.offering", "POST /api/fleet/impact body.offeringKey", "the CLI takes the offering as offering:<name> in --unavailable or --removed"},
 			{"impact --changed", "", "", "pacto_impact.event and the dashboard's body.event take changed as a value"},
-			{"", "pacto_impact.external", "", "the CLI takes the external system as external:<identity> in --changed or --unavailable"},
+			{"", "pacto_impact.external", "POST /api/fleet/impact body.externalKey", "the CLI takes the external system as external:<identity> in --changed or --unavailable"},
 			{"impact --policy", "pacto_impact.policy", "", "the dashboard answers with the default policy, warn"},
 		},
 		alike("impact", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs",

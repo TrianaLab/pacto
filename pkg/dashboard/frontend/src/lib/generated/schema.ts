@@ -6413,10 +6413,12 @@ export interface components {
         };
         ImpactRequest: {
             /**
-             * @description Ask what happens if serviceKey becomes unavailable, is removed or regressed, instead of comparing two revisions
+             * @description Ask what happens if serviceKey becomes unavailable, is removed or regressed, or externalKey changes or becomes unavailable, instead of comparing two revisions
              * @enum {string}
              */
-            event?: "unavailable" | "removed" | "regressed";
+            event?: "unavailable" | "removed" | "regressed" | "changed";
+            /** @description With event changed or unavailable: an external system's identity instead of serviceKey */
+            externalKey?: string;
             /** @description Canonical revision key of the old revision. Required unless event is set */
             fromRevisionKey?: string;
             includeObserved?: boolean;
@@ -6433,10 +6435,10 @@ export interface components {
              */
             offset?: number;
             /**
-             * @description List only the consumers of this outcome; the tallies still cover every consumer. An event answer's outcomes are breaks, may-degrade and unknown
+             * @description List only the consumers of this outcome; the tallies still cover every consumer. An event answer's outcomes are breaks, may-degrade and unknown, and every consumer of an external change is attention
              * @enum {string}
              */
-            outcome?: "incompatible" | "unknown" | "compatible" | "unclassified" | "breaks" | "may-degrade";
+            outcome?: "incompatible" | "unknown" | "compatible" | "unclassified" | "breaks" | "may-degrade" | "attention";
             /** @description With event regressed: the artifact digest (sha256:...) or version that regressed; a digest lets the answer cite delivery's recorded failures */
             revision?: string;
             serviceKey?: string;
