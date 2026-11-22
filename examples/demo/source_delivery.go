@@ -717,7 +717,23 @@ func (d *demoDelivery) plan(req delivery.Request, actor story.Persona) (delivery
 	if up := st.Spec.Candidates.UpstreamStage; up != nil {
 		in.Upstream = &d.stage(up.Namespace, up.Name).Status
 	}
+	if stageKey(req.Namespace, req.Stage) == inspectedStage {
+		in.InspectManifests, in.Manifests = true, func(context.Context) delivery.ManifestInspection { return inspectedWorkload(req.Namespace, req.Stage) }
+	}
 	return delivery.PlanFor(context.Background(), in), spec, nil
+}
+
+// inspectedStage is the one Stage whose promotes the manifest inspector
+// judges in this demo.
+var inspectedStage = stageKey(story.Prod, "checkout")
+
+// inspectedWorkload stands in for the inspection of a version's deploy
+// artifact: the demo has no registry, so the objects are the service's
+// workload, its Deployment and Service. PlanFor judges it as it judges a real
+// inspection.
+func inspectedWorkload(ns, svc string) delivery.ManifestInspection {
+	return delivery.ManifestInspection{Artifact: "manifests (simulated: the demo has no registry, the objects come from the contract's workload)",
+		Namespace: ns, Total: 2, Objects: []delivery.ManifestObject{{Kind: "Deployment", Namespace: ns, Name: svc}, {Kind: "Service", Namespace: ns, Name: svc}}}
 }
 
 // surroundings fills b with what else runs in the Stage's environment and,
@@ -1296,22 +1312,31 @@ func (d *demoDelivery) Describe(_ context.Context, st *delivery.StageObject, dig
 	return r
 }
 
-// PublishRefusals is the one refused publish of the story (B4): payments
-// 2.4.3 removes a field, so the version rule asks for a major. The
-// classification is pkg/diff over the two story contracts; the refusal
-// itself is fixed data, and nothing here signed or checked it.
+// PublishRefusals is the one refused publish of the story (B4) and one
+// refused promote. payments 2.4.3 removes a field, so the version rule asks
+// for a major; the classification is pkg/diff over the two story contracts,
+// and nothing here signed or checked that refusal. pay-agent 1.1.0 carries a
+// ClusterRoleBinding, so the manifest inspector refused its promote to prod;
+// that row stands for a signed record a cluster verifies with its delivery
+// trust config. Both are fixed data.
 func (d *demoDelivery) PublishRefusals(context.Context, string) (*dashboard.PublishRefusals, error) {
 	base, _ := story.Bundle("payments", "2.4.2")
 	tried, _ := story.Bundle("payments", "2.4.3")
 	c := diff.Compare(context.Background(), base.Contract, tried.Contract, base.FS, tried.FS).Classification
 	bump := diff.RequiredBump(c, "2.4.2")
 	return &dashboard.PublishRefusals{Completeness: "complete",
-		Note: "Simulated: one fixed refused publish from the payments story; a cluster reads refused publishes and promotes from each service's contract bundle repository and delivery record stream. " +
-			"The bump is computed by Pacto's diff; nothing here signed or checked the refusal.",
+		Note: "Simulated: one fixed refused publish and one fixed refused promote from the payments story; a cluster reads refused publishes and promotes from each service's contract bundle repository and delivery record stream. " +
+			"The bump is computed by Pacto's diff; nothing here signed or checked the refused publish, and the refused promote stands for a signed record.",
 		Refusals: []dashboard.PublishRefusal{{Service: "payments", Version: "2.4.3", Check: "version", Baseline: "2.4.2",
 			RequiredBump: string(bump), Actor: story.PayAgent.User, At: stamp(d.now().Add(-3 * time.Hour)), Verified: false,
-			Reason: fmt.Sprintf("the change is %s, so it needs a %s bump from 2.4.2", c, bump)}}}, nil
+			Reason: fmt.Sprintf("the change is %s, so it needs a %s bump from 2.4.2", c, bump)},
+			{Service: "pay-agent", Version: "1.1.0", Check: "manifests", Stage: "pay-agent", Record: refusedPromoteRecord,
+				At: stamp(d.now().Add(-2 * time.Hour)), Verified: true,
+				Reason: "the version reaches outside " + story.Prod + ": ClusterRoleBinding pay-agent-admin is cluster-scoped"}}}, nil
 }
+
+// refusedPromoteRecord is the fixed id of the refused promote's record.
+const refusedPromoteRecord = "sha256:5e1f0a7c3b9d2e4f6a8c0b1d3e5f7a9c2b4d6e8f0a1c3e5b7d9f2a4c6e8b0d1f"
 
 // wire serves d from opts: the delivery views and the simulated signed-in
 // session. Callers carry the story's policy (team-orders is team orders;

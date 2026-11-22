@@ -270,6 +270,25 @@ test.describe('Browser demo: the delivery story', () => {
     await expect(refused).toContainText('major');
   });
 
+  test('shows a refused promote with its stage', async ({ page }) => {
+    await ready(page, '#/delivery/publish');
+    const row = page.getByTestId('refused-publishes').locator('li.pv-row').filter({ hasText: 'pay-agent 1.1.0' });
+    await expect(row).toContainText('on pay-agent', { timeout: T });
+    await expect(row).toContainText('Refused promote');
+    await expect(row).toContainText('Signed record');
+    await expect(row).toContainText('ClusterRoleBinding pay-agent-admin is cluster-scoped');
+  });
+
+  test('the propose panel lists what an inspected promote applies', async ({ page }) => {
+    await ready(page, '#/delivery/environments');
+    await page.getByRole('button', { name: 'Promote checkout in prod to 1.9.0' }).click({ timeout: T });
+    const verdict = page.getByTestId('propose-panel').getByTestId('plan-verdicts').locator('li.vl-item').filter({ hasText: 'pacto.manifests' });
+    await expect(verdict).toContainText('every one of the 2 objects stays in prod', { timeout: T });
+    await verdict.locator('summary').click();
+    await expect(verdict.locator('.vl-cite')).toContainText('Deployment checkout, Service checkout');
+    await expect(verdict.locator('.vl-cite')).toContainText('simulated');
+  });
+
   test('the tour plays both acts as five moments and hands over the rest', async ({ page }) => {
     test.setTimeout(180_000);
     await ready(page, '#/fleet');
