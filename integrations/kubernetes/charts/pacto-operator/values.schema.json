@@ -773,7 +773,7 @@
               "description": "Registry prefixes, each oci://<registry>/<path>/ ending in /, whose immutable revisions evidence may be stored on.",
               "items": {
                 "type": "string",
-                "pattern": "^oci://[^@/]+/([^@]*/)?$"
+                "pattern": "^oci://[^@/]+/([^@/]+/)*$"
               }
             },
             "credentialsSecret": {

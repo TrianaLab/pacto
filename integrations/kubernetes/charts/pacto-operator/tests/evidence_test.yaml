@@ -164,6 +164,15 @@ tests:
     asserts:
       - failedTemplate: {}
 
+  - it: schema refuses a prefix with an empty segment
+    template: templates/deployment.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjectPrefixes: ["oci://ghcr.io//"]
+    asserts:
+      - failedTemplate: {}
+
   # The ledger is written by the Evidence Server with its own credential: the
   # operator's push prefixes (its keychains and the capped Installation row)
   # never gain it.

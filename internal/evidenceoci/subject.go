@@ -268,7 +268,9 @@ func ParsePrefixes(raw []string) (PrefixList, error) {
 // tag, path components in the repository grammar, and no reserved segment.
 func parsePrefix(raw string) (Prefix, error) {
 	body, ok := strings.CutPrefix(raw, Scheme)
-	if !ok || !strings.HasSuffix(body, "/") {
+	// An empty segment ("oci://ghcr.io//") would otherwise trim to a
+	// registry-wide prefix and silently widen the scope.
+	if !ok || !strings.HasSuffix(body, "/") || strings.Contains(body, "//") {
 		return Prefix{}, fmt.Errorf("%w: %q: want oci://<registry>/[<path>/]", ErrInvalidPrefix, raw)
 	}
 	reg, path, _ := strings.Cut(strings.TrimSuffix(body, "/"), "/")

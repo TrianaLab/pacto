@@ -190,6 +190,8 @@ func TestParsePrefixes(t *testing.T) {
 		"tag":              {"oci://zot.acme.internal/acme:1.0/"},
 		"uppercase":        {"oci://zot.acme.internal/Acme/"},
 		"empty segment":    {"oci://zot.acme.internal/acme//"},
+		"empty root":       {"oci://ghcr.io//"},
+		"empty inner":      {"oci://ghcr.io//acme/"},
 		"no registry":      {"oci:///"},
 		"bad registry":     {"oci://bad host/"},
 		"reserved segment": {"oci://zot.acme.internal/acme/pacto-inferred/"},
