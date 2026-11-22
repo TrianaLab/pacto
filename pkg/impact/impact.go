@@ -761,13 +761,20 @@ func (r *Result) noteUnchecked(snap *fleet.FleetSnapshot) {
 	if checked {
 		return
 	}
-	n := 0
+	n, read := 0, "the index lists "
 	if r.ConsumerIndex != nil {
 		n = r.ConsumerIndex.Services
 	} else if src := indexSource(snap); src != nil {
-		n = src.RevisionCount
+		// The services the source holds: its revision count also counts
+		// inferred contracts, which are externals, never services.
+		read = "Pacto read from the index "
+		for _, svc := range snap.Services {
+			if slices.Contains(svc.Sources, src.ID) {
+				n++
+			}
+		}
 	}
-	r.markIndexPartial(LimitationConsumerIndexUnchecked, "the index lists "+strconv.Itoa(n)+" "+plural(n, "service", "services")+
+	r.markIndexPartial(LimitationConsumerIndexUnchecked, read+strconv.Itoa(n)+" "+plural(n, "service", "services")+
 		"; without a target snapshot Pacto cannot tell whether a consumer is missing from it")
 }
 
