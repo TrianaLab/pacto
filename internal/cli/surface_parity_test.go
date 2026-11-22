@@ -90,7 +90,7 @@ const (
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
 // the fleet, delivery, impact and contract surfaces to its concept. A story
 // that adds one adds its row here in the same commit.
-var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), acceptRows())
+var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), acceptRows(), clusterRows())
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
@@ -401,12 +401,22 @@ func acceptRows() []surfaceRow {
 	)
 }
 
+// clusterRows map pacto cluster list.
+func clusterRows() []surfaceRow {
+	return slices.Concat(
+		[]surfaceRow{{CLI: "cluster list", Reason: "the member clusters of a hub are listed only by the CLI so far"}},
+		alike("cluster list", "", "", "the hub reader names its own cluster and registry", "context", "registry", "detected"),
+	)
+}
+
 // excludedFromSurfaces are the commands no other surface mirrors, each with
 // the reason. Every other command has rows in surfaceRows, so a new command
 // forces a choice: map it, or add it here with a reason.
 var excludedFromSurfaces = map[string]string{
 	"agent":                    "a long-running host daemon that reports what runs on its node; the other surfaces read what it reports",
 	"delivery targets publish": "signs with a local key and pushes a target snapshot, a pipeline step the other surfaces never take",
+	"cluster approve":          "a person's signed decision; agents never approve (#452)",
+	"cluster remove":           "a person's signed decision; agents never approve (#452)",
 	"ci init":                  "writes a CI file into the local repository; an agent runs pacto ci init --dry-run and commits the result itself",
 	"dashboard":                "starts the dashboard server, which is itself the surface the routes belong to",
 	"diff":                     "compares two contracts in a pipeline without the fleet; MCP and the dashboard compare revisions with their consumers (pacto_impact, GET /api/fleet/impact)",
@@ -900,6 +910,7 @@ func TestUsageErrorsEmitOneJSONDocument(t *testing.T) {
 var jsonRuns = map[string][]string{
 	"accept":                 {"--dry-run", "does-not-exist"},
 	"ci":                     {"."},
+	"cluster list":           {"--registry", "127.0.0.1:1/acme/pacto-targets"},
 	"declare":                {"invoices", "--dir", "/nonexistent"},
 	"delivery approve":       {"-n", "prod", "held"},
 	"delivery autonomy":      {},

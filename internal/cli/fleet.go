@@ -236,7 +236,27 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		RegistryProbe:           app.NewRegistryProbe(),
 		Now:                     fleetNow,
 		Index:                   index,
+		ClusterJoins:            fleetJoins(cmd, fleetDeps(), includeK8s, detected),
 	}
+}
+
+// fleetJoins reads the members this cluster approved as a hub when the
+// command reads the current cluster (--k8s) and what its operator detected
+// (--detected k8s:), from the registry the operator advertises; nil
+// otherwise, or with a warning when that cannot be read.
+func fleetJoins(cmd *cobra.Command, d deps, includeK8s bool, detected string) *app.JoinOptions {
+	if !includeK8s || !strings.HasPrefix(detected, "k8s:") || !hasClusterConfig(d) {
+		return nil
+	}
+	_, opts, err := hubJoins(cmp.Or(cmd.Context(), context.Background()), d, "", "", detected)
+	if err != nil {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: member clusters were not read: %v\n", err)
+		return nil
+	}
+	if opts.Repository == "" {
+		return nil // the operator sets no registry: no member can join
+	}
+	return &opts
 }
 
 // targetSnapshotRefs drops auto and off from the --target-snapshot values:

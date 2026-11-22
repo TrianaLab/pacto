@@ -24,6 +24,8 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
@@ -31,6 +33,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
@@ -686,5 +689,137 @@ func TestMovedJoinTagIsALimitation(t *testing.T) {
 	l := e.svc.ClusterJoins(t.Context(), e.opts())
 	if st := stateOfUID(t, l, m.uid); st.State != delivery.JoinApproved || !strings.Contains(fmt.Sprint(l.Limitations), "does not name the manifest") {
 		t.Fatalf("%+v %+v", st, l.Limitations)
+	}
+}
+
+// personSigner is alice's keyless signer under e's private Sigstore.
+func (e *joinEnv) personSigner(t *testing.T) delivery.Signer {
+	t.Helper()
+	s, err := signing.Keyless(e.ss.Fulcio, e.ss.TSA, "", func(context.Context) (string, error) { return sigtest.Token("alice@acme.com", joinIssuer), nil }, e.ss.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// TestWriteClusterJoinApprovesAndRemoves: in either form a written approval
+// makes the member approved, and a written removal removes it.
+func TestWriteClusterJoinApprovesAndRemoves(t *testing.T) {
+	for _, mode := range bothModes {
+		t.Run(string(mode), func(t *testing.T) {
+			e := newJoinEnv(t, mode)
+			m := newMember(memberA, "eu-prod")
+			e.publish(t, m, m.key, snapNow)
+			ref, got, err := e.svc.WriteClusterJoin(t.Context(), m.record(delivery.JoinApprove), e.personSigner(t), e.repo)
+			if err != nil || got != mode || !strings.HasPrefix(ref, e.repo+"@sha256:") {
+				t.Fatalf("%q %q %v", ref, got, err)
+			}
+			if st := stateOfUID(t, e.svc.ClusterJoins(t.Context(), e.opts()), m.uid); st.State != delivery.JoinApproved || !strings.HasSuffix(ref, "@"+st.Record) {
+				t.Fatalf("%+v", st)
+			}
+			e.clock = e.clock.Add(time.Second)
+			if _, _, err := e.svc.WriteClusterJoin(t.Context(), m.record(delivery.JoinRemove), e.personSigner(t), e.repo); err != nil {
+				t.Fatal(err)
+			}
+			if st := stateOfUID(t, e.svc.ClusterJoins(t.Context(), e.opts()), m.uid); st.State != delivery.JoinRemoved {
+				t.Fatalf("%+v", st)
+			}
+		})
+	}
+}
+
+// TestWriteClusterJoinRefuses: a record Check refuses, a repository that
+// cannot be opened or read, a snapshot that does not open, names another
+// cluster, carries no join block or names another key, and a signer that
+// fails get nothing written.
+func TestWriteClusterJoinRefuses(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	m, b := newMember(memberA, "eu-prod"), newMember(memberB, "us-west")
+	e.publish(t, m, m.key, snapNow)
+	signed := 0
+	ok := signerFunc(func(context.Context, string, []byte) ([]byte, error) { signed++; return nil, errors.New("signer down") })
+	rotated := m.record(delivery.JoinApprove)
+	rotated.KeyID, rotated.PublicKey = b.join().KeyID, b.join().PublicKey
+	noHub := m.record(delivery.JoinApprove)
+	noHub.Hub = ""
+	other := ledgerSnapshot(memberA, snapNow)
+	other.Join = m.join()
+	pushAt(t, e.repo, m.key, memberB, other) // tagged for B, names A
+	bare := ledgerSnapshot("cccc0000-0000-4000-8000-00000000000c", snapNow)
+	pushAt(t, e.repo, m.key, bare.Cluster, bare)
+	bareRec := m.record(delivery.JoinApprove)
+	bareRec.Cluster = bare.Cluster
+	for _, c := range []struct {
+		rec  delivery.ClusterJoin
+		repo string
+		want string
+	}{
+		{noHub, e.repo, "no hub"},
+		{m.record(delivery.JoinApprove), "Not A Repo", "invalid"},
+		{newMember("dddd0000-0000-4000-8000-00000000000d", "x").record(delivery.JoinApprove), e.repo, "reading the snapshot of dddd0000-0000-4000-8000-00000000000d again"},
+		{rotated, e.repo, "ClusterKeyMismatch: the snapshot of " + memberA + " is now signed by sha256:" + m.join().KeyID[:12] + "...; you checked sha256:" + b.join().KeyID[:12]},
+		{bareRec, e.repo, "ClusterKeyMismatch: the snapshot of " + bare.Cluster + " now carries no join block"},
+		{m.record(delivery.JoinApprove), e.repo, "signer down"},
+	} {
+		if _, _, err := e.svc.WriteClusterJoin(t.Context(), c.rec, ok, c.repo); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("want %q, got %v", c.want, err)
+		}
+	}
+	if _, _, err := e.svc.WriteClusterJoin(t.Context(), b.record(delivery.JoinApprove), ok, e.repo); err == nil || !strings.Contains(err.Error(), "names cluster "+memberA) {
+		t.Fatalf("a snapshot naming another cluster: %v", err)
+	}
+	pushAt(t, e.repo, m.key, memberA, delivery.TargetSnapshot{Cluster: memberA})
+	if _, _, err := e.svc.WriteClusterJoin(t.Context(), m.record(delivery.JoinApprove), ok, e.repo); err == nil || !strings.Contains(err.Error(), "the snapshot of "+memberA+":") {
+		t.Fatalf("a snapshot that does not open: %v", err)
+	}
+	forged := newMember("eeee0000-0000-4000-8000-00000000000e", "forged")
+	e.publish(t, forged, m.key, snapNow) // names forged's key, signed by m's
+	if _, _, err := e.svc.WriteClusterJoin(t.Context(), forged.record(delivery.JoinApprove), ok, e.repo); err == nil || !strings.Contains(err.Error(), "not signed by the key it names") {
+		t.Fatalf("a snapshot its own key did not sign: %v", err)
+	}
+	if signed != 1 {
+		t.Fatalf("signed %d times", signed)
+	}
+}
+
+// detectedTargets is an operator-written detection ConfigMap in pacto/det
+// advertising targets (none when empty), dated at.
+func detectedTargets(t *testing.T, targets string, at time.Time) *unstructured.Unstructured {
+	t.Helper()
+	b, _ := json.Marshal(detect.Result{SchemaVersion: detect.SchemaVersion, AsOf: at, Cluster: joinHub, Installation: &detect.Installation{Registry: "r", Targets: targets}})
+	cm := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "ConfigMap",
+		"metadata": map[string]any{"name": "det", "namespace": "pacto", "labels": map[string]any{detect.ManagedByLabel: detect.ManagedBy}},
+		"data":     map[string]any{detect.ConfigMapKey: string(b)}}}
+	cm.SetManagedFields([]metav1.ManagedFieldsEntry{{Manager: detect.FieldManager, FieldsV1: metav1.NewFieldsV1(`{"f:data":{}}`)}})
+	return cm
+}
+
+func TestAdvertisedTargets(t *testing.T) {
+	now := func() time.Time { return detectedNow }
+	read := func(cm *unstructured.Unstructured) (string, error) {
+		return AdvertisedTargets(t.Context(), dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), cm), "k8s:pacto/det", now)
+	}
+	if got, err := read(detectedTargets(t, "ghcr.io/acme/pacto-targets", detectedNow)); err != nil || got != "ghcr.io/acme/pacto-targets" {
+		t.Fatalf("%q %v", got, err)
+	}
+	if got, err := read(detectedTargets(t, "", detectedNow)); err != nil || got != "" {
+		t.Fatalf("no registry: %q %v", got, err)
+	}
+	if _, err := read(detectedTargets(t, "x", detectedNow.Add(-48*time.Hour))); err == nil || !strings.Contains(err.Error(), "names no registry: stale") {
+		t.Fatalf("stale: %v", err)
+	}
+	if _, err := AdvertisedTargets(t.Context(), nil, filepath.Join(t.TempDir(), "none.json"), now); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("missing file: %v", err)
+	}
+	t.Setenv("PACTO_REGISTRY_TOKEN", "t")
+	if _, err := read(detectedTargets(t, "evil.example/pacto-targets", detectedNow)); err == nil || !strings.Contains(err.Error(), "pass --registry evil.example/pacto-targets") {
+		t.Fatalf("env credentials: %v", err)
+	}
+}
+
+func TestDeliveryClassPolicy(t *testing.T) {
+	want := delivery.ClassPolicy{Signers: []delivery.PersonSigner{{Issuer: joinIssuer}}}
+	if got, err := (&Delivery{Policy: want}).ClassPolicy(t.Context()); err != nil || len(got.Signers) != 1 {
+		t.Fatalf("%+v %v", got, err)
 	}
 }

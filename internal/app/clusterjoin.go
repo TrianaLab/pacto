@@ -12,15 +12,18 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
+	"k8s.io/client-go/dynamic"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/errcode"
 
 	"github.com/trianalab/pacto/v4/internal/authn"
+	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
@@ -355,12 +358,16 @@ func (jr *joinRead) candidate(ctx context.Context, r *snapshotReader, uid string
 	if jr.now.Sub(asOf) > delivery.TargetSnapshotFreshness {
 		c.Status = fleet.SourceStale
 	}
-	if snap.Join != nil {
-		self := delivery.JoinTrust([]delivery.ClusterJoinState{{UID: uid, Name: snap.Join.Name, PublicKey: snap.Join.PublicKey, State: delivery.JoinApproved}})
-		_, v, err := delivery.OpenTargetSnapshot(bundle, self, signing.OpenKey)
-		c.SelfSigned = err == nil && v.Scoped
-	}
+	c.SelfSigned = snap.Join != nil && selfSigned(bundle, uid, *snap.Join)
 	return c
+}
+
+// selfSigned reports whether the key j names signed bundle, the snapshot
+// of uid, scoped to uid.
+func selfSigned(bundle []byte, uid string, j delivery.SnapshotJoin) bool {
+	self := delivery.JoinTrust([]delivery.ClusterJoinState{{UID: uid, Name: j.Name, PublicKey: j.PublicKey, State: delivery.JoinApproved}})
+	_, v, err := delivery.OpenTargetSnapshot(bundle, self, signing.OpenKey)
+	return err == nil && v.Scoped
 }
 
 // clusterJoinSources are the sources of the members this hub approved, read
@@ -389,4 +396,84 @@ func (s *Service) clusterJoinSources(ctx context.Context, r *snapshotReader, opt
 		out = append(out, m.snapshot(ctx, repo, opts.Repository, delivery.TargetSnapshotTagPrefix+st.UID)...)
 	}
 	return out
+}
+
+// WriteClusterJoin signs rec, a person's decision on a member, with signer
+// and pushes it on the member's join stream in repo, its pacto-targets
+// repository, through the ambient registry credentials. It first reads the
+// member's snapshot again and refuses when its join block now names another
+// key than the one the person checked (rec.KeyID), so a swapped tag gets
+// nothing signed. It returns where the record is and the form it took.
+func (s *Service) WriteClusterJoin(ctx context.Context, rec delivery.ClusterJoin, signer delivery.Signer, repo string) (string, capabilities.ReferrersMode, error) {
+	if err := rec.Check(); err != nil {
+		return "", "", err
+	}
+	ctx, cancel := delivery.WithRegistryTimeout(ctx)
+	defer cancel()
+	r, err := openTargets(repo)
+	if err != nil {
+		return "", "", err
+	}
+	bundle, _, err := deliveryrecord.FetchTargetSnapshot(ctx, r, delivery.TargetSnapshotTagPrefix+rec.Cluster)
+	if err != nil {
+		return "", "", fmt.Errorf("reading the snapshot of %s again: %w", rec.Cluster, err)
+	}
+	st, _, err := delivery.OpenTargetSnapshot(bundle, nil, signing.OpenKey)
+	switch {
+	case err != nil:
+		return "", "", fmt.Errorf("the snapshot of %s: %w", rec.Cluster, err)
+	case st.Predicate.Cluster != rec.Cluster:
+		return "", "", fmt.Errorf("the snapshot tagged for %s names cluster %s", rec.Cluster, st.Predicate.Cluster)
+	case st.Predicate.Join == nil:
+		return "", "", fmt.Errorf("ClusterKeyMismatch: the snapshot of %s now carries no join block; you checked %s", rec.Cluster, shortKey(rec.KeyID))
+	case st.Predicate.Join.KeyID != rec.KeyID:
+		return "", "", fmt.Errorf("ClusterKeyMismatch: the snapshot of %s is now signed by %s; you checked %s", rec.Cluster, shortKey(st.Predicate.Join.KeyID), shortKey(rec.KeyID))
+	case rec.Decision == delivery.JoinApprove && !selfSigned(bundle, rec.Cluster, *st.Predicate.Join):
+		return "", "", fmt.Errorf("the snapshot of %s is not signed by the key it names, so it cannot be approved", rec.Cluster)
+	}
+	signed, err := delivery.SignClusterJoin(ctx, signer, delivery.NewClusterJoinStatement(rec))
+	if err != nil {
+		return "", "", err
+	}
+	return deliveryrecord.PushClusterJoin(ctx, r, signed)
+}
+
+// shortKey is a key id as messages show it: sha256: and its first 12 hex.
+func shortKey(id string) string { return "sha256:" + id[:min(12, len(id))] + "..." }
+
+// ClassPolicy is the hub's published identity policy, its approver signers
+// (delivery.identities.signers) among it, read as a join read reads it.
+func (d *Delivery) ClassPolicy(ctx context.Context) (delivery.ClassPolicy, error) {
+	return d.classPolicy(ctx)
+}
+
+// AdvertisedTargets is the pacto-targets repository the operator's detection
+// at ref advertises (installation.targets): k8s:<namespace>/<name> of its
+// ConfigMap, read with dyn, or a file. It is "" when an available detection
+// names no registry. A detection that is stale, unreadable or not the
+// operator's is an error, and so is any advertisement while PACTO_REGISTRY_*
+// credentials are set: they answer any host, and a detection a ConfigMap
+// writer can forge must not choose where they are sent.
+func AdvertisedTargets(ctx context.Context, dyn dynamic.Interface, ref string, now func() time.Time) (string, error) {
+	src := fleetsrc.NewDetectionFileSource("detection", ref, now)
+	if rest, ok := strings.CutPrefix(ref, "k8s:"); ok {
+		ns, name, _ := strings.Cut(rest, "/")
+		src = fleetsrc.NewDetectionK8sSource("detection", dyn, ns, name, now)
+	}
+	res, st := src.Read(ctx)
+	switch {
+	case st.Status != fleet.SourceAvailable:
+		why := string(st.Status)
+		if st.Error != nil {
+			why = st.Error.Message
+		}
+		return "", fmt.Errorf("the detection %s names no registry: %s", ref, why)
+	case res.Installation == nil || res.Installation.Targets == "":
+		return "", nil
+	}
+	if env := oci.EnvCredentialOptions(); env.Token != "" || (env.Username != "" && env.Password != "") {
+		return "", fmt.Errorf("the detection %s advertises %s, not contacted: PACTO_REGISTRY_* credentials answer any host; pass --registry %s",
+			ref, res.Installation.Targets, res.Installation.Targets)
+	}
+	return res.Installation.Targets, nil
 }

@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/x509"
@@ -211,6 +212,20 @@ type ClusterJoinStatement struct {
 	Subject       []Subject   `json:"subject"`
 	PredicateType string      `json:"predicateType"`
 	Predicate     ClusterJoin `json:"predicate"`
+}
+
+// NewClusterJoinStatement builds the statement of j: its subject is the
+// member's snapshot tag, by the sha256 of the member key's DER (its key id).
+func NewClusterJoinStatement(j ClusterJoin) ClusterJoinStatement {
+	return ClusterJoinStatement{Type: StatementType,
+		Subject:       []Subject{{Name: TargetSnapshotRepository + ":" + TargetSnapshotTagPrefix + j.Cluster, Digest: map[string]string{"sha256": j.KeyID}}},
+		PredicateType: PredicateClusterJoin, Predicate: j}
+}
+
+// SignClusterJoin signs st and returns the bundle.
+func SignClusterJoin(ctx context.Context, s Signer, st ClusterJoinStatement) ([]byte, error) {
+	bundle, _, err := signStatement(ctx, s, st)
+	return bundle, err
 }
 
 // OpenClusterJoin verifies a join record bundle with verify and returns its

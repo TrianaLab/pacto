@@ -3,6 +3,9 @@ package delivery_test
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -306,5 +309,30 @@ func TestJoinTrustScopedPerMember(t *testing.T) {
 	forged, _ := memberSnapshot(t, "bb-2", ka)
 	if _, _, err := delivery.OpenTargetSnapshot(forged, delivery.JoinTrust([]delivery.ClusterJoinState{sb}), signing.OpenKey); err == nil {
 		t.Fatal("a snapshot signed by another key verified")
+	}
+}
+
+// TestClusterJoinSignOpenRoundTrip: a statement NewClusterJoinStatement
+// builds and SignClusterJoin signs opens under the signer's key, its subject
+// the member's snapshot tag by the sha256 of the member key's DER.
+func TestClusterJoinSignOpenRoundTrip(t *testing.T) {
+	j := goodJoin(t)
+	st := delivery.NewClusterJoinStatement(j)
+	der, _ := base64.StdEncoding.DecodeString(j.PublicKey)
+	sum := sha256.Sum256(der)
+	if len(st.Subject) != 1 || st.Subject[0].Name != "pacto-targets:cluster-"+memberUID || st.Subject[0].Digest["sha256"] != hex.EncodeToString(sum[:]) ||
+		st.PredicateType != delivery.PredicateClusterJoin || st.Type != delivery.StatementType {
+		t.Fatalf("%+v", st)
+	}
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	kp, _ := signing.FromPrivateKey(priv)
+	b, err := delivery.SignClusterJoin(t.Context(), signing.Keyed(kp, ""), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, _ := delivery.PublicKeyPEM(kp.GetPublicKey())
+	verify, _ := signing.OpenKey(delivery.TrustedKey{PublicKey: pub})
+	if got, err := delivery.OpenClusterJoin(b, verify); err != nil || got.Predicate != j || got.Subject[0].Digest["sha256"] != st.Subject[0].Digest["sha256"] {
+		t.Fatalf("%+v %v", got, err)
 	}
 }

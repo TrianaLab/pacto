@@ -332,6 +332,83 @@ pacto ci init [dir] [flags]
 
 ---
 
+## `pacto cluster`
+
+Every cluster whose operator sets registry publishes a signed snapshot to &lt;registry&gt;/pacto-targets:cluster-&lt;uid&gt;. This cluster, the hub, reads them: a cluster stays pending until a person approves its key, and only an approved member's services, targets and workloads join the hub's fleet. The hub is the current kubeconfig context or --context.
+
+```
+pacto cluster [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for cluster
+```
+
+### `pacto cluster approve`
+
+Signs an approval of the cluster's key as you, keyless after a fresh login in your browser, and records it beside the cluster's snapshot. From the hub's next fleet build on, the member's services, targets and workloads join it, verified under the approved key. --key names the key you checked: compare it out of band with the snapshotKeyID in the member's own &lt;release&gt;-detected ConfigMap. You need approve on clusterjoins.pacto.trianalab.io in the hub, granted to your user (kubectl create clusterrole pacto-cluster-approver --verb=approve --resource=clusterjoins.pacto.trianalab.io, bound to your user); groups are not checked, because a certificate names none. The hub's operator must list approver signers in delivery.identities.signers.
+
+```
+pacto cluster approve <uid> [flags]
+```
+
+**Examples:**
+
+```
+  pacto cluster approve 9f1c4e2a --key sha256:91ab...e7 --name eu-prod
+```
+
+**Flags:**
+
+```
+      --context stringArray   kubeconfig context of the hub cluster (default the current context)
+      --detected string       what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+  -h, --help[=true|false]     help for approve
+      --issuer string         the approver signer's OIDC issuer, when the hub lists several
+      --key string            the member key you checked, sha256:<64 hex> (required)
+      --name string           display name for the member, a DNS label (default the name its snapshot gives)
+      --registry string       the registry the members publish to, or its pacto-targets repository (default the one the hub's operator advertises, read with --detected)
+```
+
+### `pacto cluster list`
+
+Lists every cluster in &lt;registry&gt;/pacto-targets: approved members, pending clusters with why they are pending, and removed members. The environments a cluster seems to host are inferred and say where they came from.
+
+```
+pacto cluster list [flags]
+```
+
+**Flags:**
+
+```
+      --context stringArray   kubeconfig context of the hub cluster (default the current context)
+      --detected string       what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+  -h, --help[=true|false]     help for list
+      --registry string       the registry the members publish to, or its pacto-targets repository (default the one the hub's operator advertises, read with --detected)
+```
+
+### `pacto cluster remove`
+
+Signs a revocation as you, keyless after a fresh login in your browser, and records it beside the member's snapshot. The member's services leave the hub's fleet from its next build. You need approve on clusterjoins.pacto.trianalab.io in the hub, granted to your user (kubectl create clusterrole pacto-cluster-approver --verb=approve --resource=clusterjoins.pacto.trianalab.io, bound to your user), and the hub's operator must list approver signers in delivery.identities.signers.
+
+```
+pacto cluster remove <uid> [flags]
+```
+
+**Flags:**
+
+```
+      --context stringArray   kubeconfig context of the hub cluster (default the current context)
+      --detected string       what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+  -h, --help[=true|false]     help for remove
+      --issuer string         the approver signer's OIDC issuer, when the hub lists several
+      --registry string       the registry the members publish to, or its pacto-targets repository (default the one the hub's operator advertises, read with --detected)
+```
+
+---
+
 ## `pacto completion`
 
 Generate the autocompletion script for pacto for the specified shell.

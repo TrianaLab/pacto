@@ -287,3 +287,20 @@ func TestApproveRoute(t *testing.T) {
 		t.Fatalf("the only signer: %+v %q", s, why)
 	}
 }
+
+func TestPickSigner(t *testing.T) {
+	a := delivery.PersonSigner{Issuer: "https://a", Subjects: "x"}
+	b := delivery.PersonSigner{Issuer: "https://b", Subjects: "x"}
+	if s, ok := pickSigner(delivery.ClassPolicy{Signers: []delivery.PersonSigner{a}}, ""); !ok || s != a {
+		t.Fatalf("the only signer: %+v %v", s, ok)
+	}
+	if s, ok := pickSigner(delivery.ClassPolicy{Signers: []delivery.PersonSigner{a, b}}, "https://b"); !ok || s != b {
+		t.Fatalf("by issuer: %+v %v", s, ok)
+	}
+	if _, ok := pickSigner(delivery.ClassPolicy{Signers: []delivery.PersonSigner{a, b}}, ""); ok {
+		t.Fatal("two signers and no issuer picked one")
+	}
+	if _, ok := pickSigner(delivery.ClassPolicy{}, "https://a"); ok {
+		t.Fatal("no signer picked one")
+	}
+}

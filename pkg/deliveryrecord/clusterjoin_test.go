@@ -1,7 +1,13 @@
 package deliveryrecord
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/base64"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -14,6 +20,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
 const joinUID = "9f1c4e2a"
@@ -101,5 +108,123 @@ func TestListClusterTagsUncapped(t *testing.T) {
 	capped, truncated, err := ListTargetSnapshotTags(t.Context(), repo)
 	if err != nil || !truncated || len(capped) != delivery.MaxTargetSnapshots {
 		t.Fatalf("capped %d, %v, %v", len(capped), truncated, err)
+	}
+}
+
+// joinBundle is a join record of joinUID signed with a fresh keyed signer.
+func joinBundle(t *testing.T) []byte {
+	t.Helper()
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	der, _ := x509.MarshalPKIXPublicKey(pub)
+	j := delivery.ClusterJoin{Cluster: joinUID, Hub: "hub", KeyID: signing.Hint(pub), PublicKey: base64.StdEncoding.EncodeToString(der),
+		Decision: delivery.JoinApprove, Approver: "oidc:alice@acme.com", At: "2026-11-20T10:00:00Z"}
+	b, err := delivery.SignClusterJoin(t.Context(), edSigner(priv), delivery.NewClusterJoinStatement(j))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// joinServer is an empty pacto-targets repository in mode that refuses the
+// requests fails picks, with a fresh prober for its host.
+func joinServer(t *testing.T, mode capabilities.ReferrersMode, fails func(*http.Request) bool) *remote.Repository {
+	t.Helper()
+	old := ocireferrer.Probes
+	ocireferrer.Probes = &ocireferrer.Prober{}
+	t.Cleanup(func() { ocireferrer.Probes = old })
+	inner := testutil.NewReferrersRegistry(testutil.ReferrersOptions{Unsupported: mode == capabilities.ReferrersWriteOnceTags})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fails != nil && fails(r) {
+			http.Error(w, `{"errors":[{"code":"DENIED"}]}`, http.StatusForbidden)
+			return
+		}
+		inner.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	repo, _ := ocireferrer.Open(strings.TrimPrefix(srv.URL, "http://")+"/acme/"+delivery.TargetSnapshotRepository, ocireferrer.Options{})
+	return repo
+}
+
+// TestJoinRecordRoundTripsNativeAndWriteOnce: in either form a pushed join
+// record anchors its stream, takes the form the registry probes to and reads
+// back through ListClusterJoins.
+func TestJoinRecordRoundTripsNativeAndWriteOnce(t *testing.T) {
+	for _, mode := range modes {
+		t.Run(string(mode), func(t *testing.T) {
+			repo := joinServer(t, mode, nil)
+			b := joinBundle(t)
+			ref, got, err := PushClusterJoin(t.Context(), repo, b)
+			if err != nil || got != mode || !strings.HasPrefix(ref, repo.Reference.Registry+"/acme/pacto-targets@sha256:") {
+				t.Fatalf("%q %q %v", ref, got, err)
+			}
+			recs, cut, forks, err := (&Reader{}).ListClusterJoins(t.Context(), repo, joinUID)
+			if err != nil || cut || len(forks) != 0 || len(recs) != 1 || string(recs[0].Bundle) != string(b) {
+				t.Fatalf("%d records, %v %v %v", len(recs), cut, forks, err)
+			}
+		})
+	}
+}
+
+// TestJoinAnchorTagIsNotAClusterTag: a repository holding a snapshot and
+// join records in either form lists only the snapshot's cluster tag.
+func TestJoinAnchorTagIsNotAClusterTag(t *testing.T) {
+	for _, mode := range modes {
+		t.Run(string(mode), func(t *testing.T) {
+			repo := joinServer(t, mode, nil)
+			if _, _, err := PushClusterJoin(t.Context(), repo, joinBundle(t)); err != nil {
+				t.Fatal(err)
+			}
+			tagManifest(t, repo, []byte(`{"schemaVersion":2,"mediaType":"`+ocispec.MediaTypeImageManifest+`"}`), "cluster-"+joinUID)
+			for _, list := range []func() ([]string, bool, error){
+				func() ([]string, bool, error) { return ListTargetSnapshotTags(t.Context(), repo) },
+				func() ([]string, bool, error) { return ListClusterTags(t.Context(), repo) },
+			} {
+				if tags, _, err := list(); err != nil || !slices.Equal(tags, []string{"cluster-" + joinUID}) {
+					t.Fatalf("%v %v", tags, err)
+				}
+			}
+			if strings.HasPrefix(AnchorTag(delivery.ClusterJoinStream(joinUID)), delivery.TargetSnapshotTagPrefix) {
+				t.Fatal("the join anchor tag is a cluster tag")
+			}
+		})
+	}
+}
+
+// TestEnsureAnchorIdempotent: the second call pushes nothing and probes to
+// the same form.
+func TestEnsureAnchorIdempotent(t *testing.T) {
+	pushes := 0
+	repo := joinServer(t, capabilities.ReferrersNative, func(r *http.Request) bool {
+		if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/manifests/") {
+			pushes++
+		}
+		return false
+	})
+	stream := delivery.ClusterJoinStream(joinUID)
+	first, err := EnsureAnchor(t.Context(), repo, stream)
+	if err != nil || first.Referrers != capabilities.ReferrersNative {
+		t.Fatalf("%+v %v", first, err)
+	}
+	n := pushes
+	if second, err := EnsureAnchor(t.Context(), repo, stream); err != nil || second.Referrers != first.Referrers || pushes != n || n == 0 {
+		t.Fatalf("%+v %v, %d then %d pushes", second, err, n, pushes)
+	}
+}
+
+// TestPushClusterJoinFailures: a bundle that is no join record, an anchor
+// that cannot be pushed or tagged and a probe that fails write nothing.
+func TestPushClusterJoinFailures(t *testing.T) {
+	if _, _, err := PushClusterJoin(t.Context(), joinServer(t, capabilities.ReferrersNative, nil), []byte("{}")); err == nil {
+		t.Fatal("pushed a bundle that is no join record")
+	}
+	put := func(r *http.Request) bool { return r.Method == http.MethodPut }
+	tag := func(r *http.Request) bool {
+		return r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/manifests/stream-")
+	}
+	probe := func(r *http.Request) bool { return strings.Contains(r.URL.Path, "/referrers/") }
+	for name, fails := range map[string]func(*http.Request) bool{"push": put, "tag": tag, "probe": probe} {
+		if _, _, err := PushClusterJoin(t.Context(), joinServer(t, capabilities.ReferrersNative, fails), joinBundle(t)); err == nil {
+			t.Fatalf("%s: no error", name)
+		}
 	}
 }
