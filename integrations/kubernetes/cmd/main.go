@@ -112,6 +112,8 @@ type options struct {
 	dashboardAuth            dashboard.AuthConfig
 	dashboardExtraScopes     string
 	dashboardMiraURL         string
+	dashboardBackstageURL    string
+	dashboardBackstageToken  dashboard.KeyRef
 	dashboardStatsRegistry   string
 	dashboardIndex           string
 	dashboardDeliveryNS      string
@@ -294,6 +296,13 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			"empty means pacto-delivery.")
 	fs.StringVar(&o.dashboardMiraURL, "dashboard-mira-url", "",
 		"Mira's address, to link the dashboard's health-check citations.")
+	fs.StringVar(&o.dashboardBackstageURL, "dashboard-backstage-url", "",
+		"Base URL of a Backstage catalog whose owners, systems and dependencies the dashboard shows as inferred values.")
+	fs.StringVar(&o.dashboardBackstageToken.Name, "dashboard-backstage-token-secret", "",
+		"Secret in the operator namespace holding the catalog reader token, "+
+			"which the dashboard sends only to --dashboard-backstage-url; the operator never reads it.")
+	fs.StringVar(&o.dashboardBackstageToken.Key, "dashboard-backstage-token-key", "token",
+		"Key of the reader token in that Secret.")
 	fs.StringVar(&o.dashboardStatsRegistry, "dashboard-stats-registry", "",
 		"Stats repository the dashboard's Metrics page reads run records from, with the dashboard's OCI credentials; "+
 			"empty: the page explains how to turn recording on.")
@@ -739,6 +748,8 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 		Auth:                  o.dashboardAuth,
 		DeliveryNamespace:     o.dashboardDeliveryNS,
 		MiraURL:               o.dashboardMiraURL,
+		BackstageURL:          o.dashboardBackstageURL,
+		BackstageToken:        o.dashboardBackstageToken,
 		StatsRegistry:         o.dashboardStatsRegistry,
 		Index:                 dashboardIndex(o.dashboardIndex, inst),
 		DeliveryTrust:         o.dashboardDeliveryTrust,

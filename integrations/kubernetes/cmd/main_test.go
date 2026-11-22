@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 )
 
@@ -211,5 +212,22 @@ func TestDashboardIndexFlag(t *testing.T) {
 		if _, err := parse("--dashboard-index=" + bad); err == nil || !strings.Contains(err.Error(), "want auto or none") {
 			t.Errorf("%q: err = %v", bad, err)
 		}
+	}
+}
+
+func TestDashboardBackstageFlags(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	o := &options{}
+	bindFlags(fs, o)
+	if o.dashboardBackstageToken.Key != "token" {
+		t.Errorf("default token key = %q, want token", o.dashboardBackstageToken.Key)
+	}
+	if err := fs.Parse([]string{"--dashboard-backstage-url=https://b.example.com",
+		"--dashboard-backstage-token-secret=reader", "--dashboard-backstage-token-key=t"}); err != nil {
+		t.Fatal(err)
+	}
+	want := dashboard.KeyRef{Name: "reader", Key: "t"}
+	if o.dashboardBackstageURL != "https://b.example.com" || o.dashboardBackstageToken != want {
+		t.Errorf("backstage options = %q %+v", o.dashboardBackstageURL, o.dashboardBackstageToken)
 	}
 }

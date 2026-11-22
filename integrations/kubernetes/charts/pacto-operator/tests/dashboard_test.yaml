@@ -159,6 +159,46 @@ tests:
       - hasDocuments:
           count: 0
 
+  # --- Backstage catalog ---
+  - it: dashboard backstage url and token secret render flags
+    template: templates/deployment.yaml
+    set:
+      dashboard.backstage.url: https://backstage.acme.internal
+      dashboard.backstage.tokenSecret.name: backstage-reader
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-backstage-url=https://backstage.acme.internal"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-backstage-token-secret=backstage-reader"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-backstage-token-key=token"
+
+  - it: nothing renders when unset
+    template: templates/deployment.yaml
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: "^--dashboard-backstage"
+
+  - it: token secret without url fails
+    template: templates/deployment.yaml
+    set:
+      dashboard.backstage.tokenSecret.name: backstage-reader
+    asserts:
+      - failedTemplate:
+          errorPattern: "backstage"
+
+  - it: the schema refuses a backstage url that is not http or https
+    template: templates/deployment.yaml
+    set:
+      dashboard.backstage.url: ftp://x
+    asserts:
+      - failedTemplate:
+          errorPattern: "backstage"
+
   # --- Organization index ---
   - it: points the dashboard at the installation's organization index by default
     template: templates/deployment.yaml

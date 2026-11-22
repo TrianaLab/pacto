@@ -345,6 +345,16 @@ dashboard:
       key: trust.yaml
     # -- Mira's address, to link the health-check citations in delivery views
     miraURL: ""
+  # A Backstage catalog the dashboard (and its /mcp) reads owners, systems and
+  # dependencies from, shown as inferred values that never clear a gate.
+  backstage:
+    # -- Base URL of the Backstage catalog, such as https://backstage.acme.internal. Empty: the dashboard reads the catalog the operator detected in the cluster, if any, without a token
+    url: ""
+    tokenSecret:
+      # -- A Secret in the operator namespace holding the catalog reader token, sent only to `url`. Every dashboard user sees the owners, systems and dependencies this token can read; give it catalog read on entities every dashboard user may see. A named Secret that is missing keeps the dashboard pod pending. Needs `url`
+      name: ""
+      # -- The key of the token in that Secret
+      key: token
   declare:
     registryCredentials:
       # -- A `kubernetes.io/dockerconfigjson` Secret in the operator namespace with push access to the bundle repositories under `registry`. Only the dashboard's Declare writer uses it; `dashboard.ociSecrets` stays read-only. Empty: the dashboard plans declarations and shows the CLI command

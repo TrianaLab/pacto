@@ -103,12 +103,9 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			if err != nil {
 				return err
 			}
-			// The dashboard builds only inside the Manager, where a bad URL would
-			// surface as a failed refresh; refuse it here instead.
-			for _, u := range miraURLs {
-				if err := fleetsrc.CheckSourceURL("mira", u); err != nil {
-					return err
-				}
+			backstageURL, backstageToken := v.GetString("dashboard.backstage-url"), os.Getenv(backstageTokenEnv)
+			if err := checkSourceURLs(miraURLs, backstageURL, backstageToken); err != nil {
+				return err
 			}
 			externalCatalog := v.GetString("dashboard.external-catalog")
 			svc.OwnerPolicyPath = v.GetString("dashboard.owner-policy")
@@ -143,6 +140,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				contexts:        contexts,
 				evidenceURL:     v.GetString("evidence-source-url"),
 				miraURLs:        miraURLs,
+				backstageURL:    backstageURL,
+				backstageToken:  backstageToken,
 				externalCatalog: externalCatalog,
 				detected:        v.GetString("dashboard.detected"),
 				fingerprints:    v.GetString("dashboard.fingerprints"),
@@ -234,6 +233,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)")
 	cmd.Flags().StringArray("trace-source", nil, "named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)")
 	cmd.Flags().StringArray("mira-source", nil, "base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)")
+	cmd.Flags().String("backstage-url", "", "base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from "+
+		backstageTokenEnv+" (also PACTO_DASHBOARD_BACKSTAGE_URL)")
 	cmd.Flags().String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_DASHBOARD_EXTERNAL_CATALOG)")
 	cmd.Flags().String("owner-policy", "", "the mounted owner policy (the chart's declare block as policy.json) that decides who may set a service owner (also PACTO_DASHBOARD_OWNER_POLICY)")
 	cmd.Flags().String("oidc-issuer-url", "", "OpenID Connect issuer people sign in with before the dashboard shows anything; every view then shows what the signed-in person's Kubernetes RBAC lets them read, and every action runs as them (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)")
@@ -272,6 +273,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.traces", cmd.Flags().Lookup("traces"))
 	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
 	_ = v.BindPFlag("dashboard.mira-sources", cmd.Flags().Lookup("mira-source"))
+	_ = v.BindPFlag("dashboard.backstage-url", cmd.Flags().Lookup("backstage-url"))
 	_ = v.BindPFlag("dashboard.external-catalog", cmd.Flags().Lookup("external-catalog"))
 	_ = v.BindPFlag("dashboard.owner-policy", cmd.Flags().Lookup("owner-policy"))
 	_ = v.BindPFlag("dashboard.registry", cmd.Flags().Lookup("registry"))
@@ -292,6 +294,21 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindEnv("evidence-source-url", "PACTO_EVIDENCE_SOURCE_URL")
 
 	return cmd
+}
+
+// checkSourceURLs refuses a Mira or Backstage source the fleet would refuse.
+// The dashboard builds only inside the Manager, where a bad URL would surface
+// as a failed refresh; refusing it at startup says so once.
+func checkSourceURLs(miraURLs []string, backstageURL, backstageToken string) error {
+	for _, u := range miraURLs {
+		if err := fleetsrc.CheckSourceURL("mira", u); err != nil {
+			return err
+		}
+	}
+	if backstageURL == "" {
+		return nil
+	}
+	return fleetsrc.CheckBackstageConfig(backstageURL, backstageToken)
 }
 
 // startReceiver starts the OTLP receiver at advertised (--otlp-receiver)
@@ -400,6 +417,10 @@ type dashboardSources struct {
 	// miraURLs are the operator-configured Mira nodes (--mira-source,
 	// PACTO_DASHBOARD_MIRA_SOURCES), already checked by fleetsrc.CheckSourceURL.
 	miraURLs []string
+	// backstageURL is the Backstage catalog (--backstage-url,
+	// PACTO_DASHBOARD_BACKSTAGE_URL) and backstageToken its reader token
+	// (PACTO_BACKSTAGE_TOKEN), already checked by fleetsrc.CheckBackstageConfig.
+	backstageURL, backstageToken string
 	// externalCatalog is the organization external catalog (--external-catalog,
 	// PACTO_DASHBOARD_EXTERNAL_CATALOG), already checked by
 	// app.CheckExternalCatalogRef.
@@ -488,6 +509,7 @@ func configuredSources(fopts app.FleetOptions) []string {
 		{"observation", len(fopts.ObservationSources) > 0},
 		{"evidence", len(fopts.EvidenceURLs) > 0},
 		{"mira", len(fopts.MiraURLs) > 0},
+		{"backstage", fopts.BackstageURL != ""},
 		{"detection", fopts.Detected != ""},
 	} {
 		if s.on {
@@ -498,9 +520,10 @@ func configuredSources(fopts app.FleetOptions) []string {
 }
 
 // answersNothing reports whether configured names no source that answers a
-// question. Detection alone answers none: it only adds hints to a fleet.
+// question. Detection and a Backstage catalog answer none: they only add hints
+// and inferred values to a fleet.
 func answersNothing(configured []string) bool {
-	return len(configured) == 0 || slices.Equal(configured, []string{"detection"})
+	return !slices.ContainsFunc(configured, func(n string) bool { return n != "detection" && n != "backstage" })
 }
 
 // fleetRefreshInterval is how often the dashboard's snapshot Manager rebuilds
@@ -844,6 +867,7 @@ func dashboardFleetOptions(dir string, repos []string, namespaces []string, obse
 		fopts.EvidenceURLs = append(fopts.EvidenceURLs, det.evidenceURL)
 	}
 	fopts.MiraURLs = det.miraURLs
+	fopts.BackstageURL, fopts.BackstageToken = det.backstageURL, det.backstageToken
 	fopts.ExternalCatalogRef = det.externalCatalog
 	fopts.Detected = det.detected
 	fopts.Fingerprints = det.fingerprints

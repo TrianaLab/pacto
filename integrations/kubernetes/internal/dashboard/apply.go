@@ -213,6 +213,23 @@ func deliveryEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 			env = append(env, corev1ac.EnvVar().WithName(kv[0]).WithValue(kv[1]))
 		}
 	}
+	return append(env, backstageEnv(cfg)...)
+}
+
+// backstageEnv passes the Backstage catalog URL and, by a required
+// secretKeyRef the kubelet resolves, its reader token: a named Secret that is
+// missing keeps the pod pending. The token goes only with a configured URL,
+// never to a detected catalog.
+func backstageEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
+	if cfg.BackstageURL == "" {
+		return nil
+	}
+	env := []*corev1ac.EnvVarApplyConfiguration{corev1ac.EnvVar().WithName("PACTO_DASHBOARD_BACKSTAGE_URL").WithValue(cfg.BackstageURL)}
+	if cfg.BackstageToken.Name != "" {
+		env = append(env, corev1ac.EnvVar().WithName("PACTO_BACKSTAGE_TOKEN").WithValueFrom(corev1ac.EnvVarSource().
+			WithSecretKeyRef(corev1ac.SecretKeySelector().WithName(cfg.BackstageToken.Name).
+				WithKey(keyOr(cfg.BackstageToken.Key, "token")).WithOptional(false))))
+	}
 	return env
 }
 

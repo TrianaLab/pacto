@@ -646,6 +646,30 @@
             "miraURL": { "type": "string" }
           }
         },
+        "backstage": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The Backstage catalog the dashboard reads inferred owners, systems and dependencies from. The token is only for a configured url.",
+          "properties": {
+            "url": { "type": "string", "pattern": "^$|^https?://" },
+            "tokenSecret": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string" },
+                "key": { "type": "string", "minLength": 1 }
+              }
+            }
+          },
+          "if": {
+            "properties": { "tokenSecret": { "properties": { "name": { "minLength": 1 } }, "required": ["name"] } },
+            "required": ["tokenSecret"]
+          },
+          "then": {
+            "properties": { "url": { "minLength": 1 } },
+            "required": ["url"]
+          }
+        },
         "declare": {
           "type": ["object", "null"],
           "additionalProperties": false,
