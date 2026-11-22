@@ -42,11 +42,11 @@ type Query struct {
 	// folded the identities they fold into OtherEgress.
 	externals map[ExternalKey]*ExternalRecord
 	folded    map[ExternalKey]bool
-	// scope narrows attention to these services; nil is every service (see
-	// attentionFor).
-	scope map[ServiceKey]bool
+	// attention memoizes gatherAttention (see collectAttention); nil, as in
+	// a Query literal, gathers on every call.
+	attention func() []AttentionItem
 	// members memoizes mapMembers by grouping for pages of nodes and focuses
-	// (see pageMembers); a pointer, so attentionFor's copies share it.
+	// (see pageMembers).
 	members *sync.Map
 }
 
@@ -56,6 +56,7 @@ type Query struct {
 func NewQuery(s *FleetSnapshot) *Query {
 	q := &Query{base: s, members: &sync.Map{}}
 	q.snap, q.externals, q.folded = foldExternals(s)
+	q.attention = sync.OnceValue(q.gatherAttention)
 	return q
 }
 

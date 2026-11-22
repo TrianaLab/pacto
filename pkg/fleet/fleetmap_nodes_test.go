@@ -324,8 +324,11 @@ func TestAttentionForNarrowsEveryProducer(t *testing.T) {
 			t.Errorf("%v: %d items, want %d", keys, len(got), len(want))
 		}
 	}
-	if q.scope != nil {
-		t.Error("attentionFor scoped the query itself")
+	// The items are gathered once: a caller's copy is its own to change.
+	mine := q.collectAttention()
+	mine[0].Service = "changed"
+	if reflect.DeepEqual(q.collectAttention(), mine) {
+		t.Error("collectAttention shared its memoized items")
 	}
 }
 

@@ -1417,36 +1417,34 @@ func attentionCategories(items []AttentionItem) []AttentionCategoryCount {
 }
 
 // collectAttention gathers every attention item from the snapshot, none about a
-// golden path: it runs nowhere, so nothing about it needs attention.
-func (q *Query) collectAttention() []AttentionItem { return q.attentionFor(nil) }
-
-// attentionFor is collectAttention narrowed to the items about the services
-// keys names (nil names every service): the same producers run on a copy of
-// q scoped to keys, and each skips an entity outside the scope before it does
-// any work, so a page of the map never pays for the whole fleet.
-//
-// ponytail: each producer still walks its whole input to skip entities; an
-// index by service would make a page O(page) if the scan ever shows up.
-func (q *Query) attentionFor(keys map[ServiceKey]bool) []AttentionItem {
-	scoped := *q
-	scoped.scope = keys
-	return scoped.collectScoped()
+// golden path: it runs nowhere, so nothing about it needs attention. The
+// snapshot never changes under a query, so the items are gathered once per
+// query (see NewQuery) and each caller gets its own copy to sort or filter.
+func (q *Query) collectAttention() []AttentionItem {
+	if q.attention == nil {
+		return q.gatherAttention()
+	}
+	return slices.Clone(q.attention())
 }
 
-// inScope reports whether attention about service k is wanted.
-func (q *Query) inScope(k ServiceKey) bool { return q.scope == nil || q.scope[k] }
+// attentionFor is collectAttention narrowed to the items about the services
+// keys names (nil names every service): a page of the map or a focus filters
+// the gathered items, so it never re-walks the whole fleet.
+func (q *Query) attentionFor(keys map[ServiceKey]bool) []AttentionItem {
+	items := q.collectAttention()
+	if keys == nil {
+		return items
+	}
+	return slices.DeleteFunc(items, func(it AttentionItem) bool { return !keys[ServiceKey(it.Service)] })
+}
 
-func (q *Query) collectScoped() []AttentionItem {
+func (q *Query) gatherAttention() []AttentionItem {
 	var items []AttentionItem
 	for _, t := range q.snap.Targets {
-		if q.inScope(t.ServiceKey) {
-			items = append(items, q.targetAttention(t)...)
-		}
+		items = append(items, q.targetAttention(t)...)
 	}
 	for _, r := range q.snap.Revisions {
-		if q.inScope(r.ServiceKey) {
-			items = append(items, q.revisionAttention(r)...)
-		}
+		items = append(items, q.revisionAttention(r)...)
 	}
 	items = append(items, q.healthAttention()...)
 	items = append(items, q.unresolvedAttention()...)
@@ -1458,9 +1456,7 @@ func (q *Query) collectScoped() []AttentionItem {
 	items = append(items, q.undeclaredAttention()...)
 	items = append(items, q.crossEnvironmentAttention()...)
 	items = append(items, q.deployedTemplateAttention()...)
-	return slices.DeleteFunc(items, func(it AttentionItem) bool {
-		return q.goldenPath(ServiceKey(it.Service)) || !q.inScope(ServiceKey(it.Service))
-	})
+	return slices.DeleteFunc(items, func(it AttentionItem) bool { return q.goldenPath(ServiceKey(it.Service)) })
 }
 
 // undeclaredAttention reports each observed-only runtime call against the
@@ -1469,9 +1465,6 @@ func (q *Query) collectScoped() []AttentionItem {
 func (q *Query) undeclaredAttention() []AttentionItem {
 	var out []AttentionItem
 	for _, rel := range q.observedOnly("") {
-		if !q.inScope(rel.FromService) {
-			continue
-		}
 		from, to := q.snap.Services[rel.FromService].Name, q.snap.Services[rel.ToService].Name
 		out = append(out, AttentionItem{
 			Entity: q.serviceRef(rel.FromService), Service: string(rel.FromService), Label: from + " calls " + to, NextAction: editContract(),
@@ -1482,9 +1475,6 @@ func (q *Query) undeclaredAttention() []AttentionItem {
 		})
 	}
 	for _, c := range q.snap.UncontractedCallers {
-		if !q.inScope(c.ToService) {
-			continue
-		}
 		to := q.snap.Services[c.ToService].Name
 		it := AttentionItem{
 			Entity: q.serviceRef(c.ToService), Service: string(c.ToService), Label: c.Caller + " calls " + to,
@@ -1516,9 +1506,6 @@ func (q *Query) undeclaredAttention() []AttentionItem {
 func (q *Query) unownedAttention() []AttentionItem {
 	var out []AttentionItem
 	for _, s := range q.snap.Services {
-		if !q.inScope(s.Key) {
-			continue
-		}
 		if b, _ := q.ownershipBucket(s); b != OwnershipUnowned || s.Inferred() {
 			continue
 		}
@@ -1594,7 +1581,7 @@ func (q *Query) unresolvedAttention() []AttentionItem {
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
 		// Dependencies only: the unresolved and out-of-range attention judges dependencies.
-		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || !q.inScope(rel.FromService) {
+		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared {
 			continue
 		}
 		// A declared dependency's FromService always exists: it is the service

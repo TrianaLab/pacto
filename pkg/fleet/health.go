@@ -108,9 +108,6 @@ func (q *Query) targetHealth(t *TargetRecord) (AvailabilityState, bool) {
 func (q *Query) healthAttention() []AttentionItem {
 	var out []AttentionItem
 	for _, t := range q.snap.Targets {
-		if !q.inScope(t.ServiceKey) {
-			continue
-		}
 		f, _ := healthFindings(t)
 		if f == nil {
 			continue

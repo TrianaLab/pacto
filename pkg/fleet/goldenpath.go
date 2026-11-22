@@ -129,7 +129,7 @@ func (q *Query) populationService(k ServiceKey) bool {
 func (q *Query) deployedTemplateAttention() []AttentionItem {
 	var out []AttentionItem
 	for _, s := range q.snap.Services {
-		if len(s.Targets) == 0 || s.Inferred() || !q.inScope(s.Key) || !declaresTemplate(newestReadable(serviceRevisions(q.snap, s))) {
+		if len(s.Targets) == 0 || s.Inferred() || !declaresTemplate(newestReadable(serviceRevisions(q.snap, s))) {
 			continue
 		}
 		targets := strconv.Itoa(len(s.Targets)) + " operational targets"

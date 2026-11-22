@@ -100,9 +100,6 @@ func (q *Query) crossEnvironmentAttention() []AttentionItem {
 	var out []AttentionItem
 	var previews map[string]bool // read once, on the first call across environments
 	for _, rel := range q.snap.Relationships {
-		if !q.inScope(rel.FromService) {
-			continue
-		}
 		for _, p := range rel.envPairs {
 			from, to := q.snap.Targets[p.from], q.snap.Targets[p.to]
 			if from == nil || to == nil || from.Environment == to.Environment {

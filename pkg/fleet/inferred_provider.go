@@ -210,7 +210,7 @@ type inferredProviderGroup struct {
 func (q *Query) inferredProviderAttention() []AttentionItem {
 	groups := map[string]*inferredProviderGroup{}
 	for _, rel := range q.snap.Relationships {
-		if rel.Provenance != ProvenanceDeclared || rel.RangeReason != RangeReasonInferredProvider || !q.inScope(rel.ToService) {
+		if rel.Provenance != ProvenanceDeclared || rel.RangeReason != RangeReasonInferredProvider {
 			continue
 		}
 		k := ExternalSubjectPrefix + string(rel.ToExternal)

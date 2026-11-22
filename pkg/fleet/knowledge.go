@@ -479,7 +479,7 @@ var contractUnreadAlone = knowledgeItem{"Current contract unread", "Pacto could 
 func (q *Query) knowledgeAttention() []AttentionItem {
 	var out []AttentionItem
 	for _, s := range q.snap.Services {
-		if s.Template || s.Inferred() || !q.inScope(s.Key) {
+		if s.Template || s.Inferred() {
 			continue
 		}
 		gaps, cause := q.serviceKnowledge(s)
@@ -516,9 +516,6 @@ func (q *Query) knowledgeAttention() []AttentionItem {
 func (q *Query) replacedAttention() []AttentionItem {
 	var out []AttentionItem
 	for _, r := range q.snap.Replacements {
-		if !q.inScope(r.To) {
-			continue
-		}
 		s := q.snap.Services[r.To] // Restrict keeps only replacements of visible services
 		_, from := ParseServiceKey(r.From)
 		it := AttentionItem{

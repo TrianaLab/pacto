@@ -22,7 +22,7 @@ func (q *Query) lifecycleAttention() []AttentionItem {
 	}
 	newest := map[useKey]Relationship{}
 	for _, rel := range q.snap.Relationships {
-		if !q.inScope(rel.FromService) || !offeringRelationship(&rel, "") || (rel.Type != RelationshipDependency && rel.Type != RelationshipConfigRef) {
+		if !offeringRelationship(&rel, "") || (rel.Type != RelationshipDependency && rel.Type != RelationshipConfigRef) {
 			continue
 		}
 		k := useKey{rel.FromService, rel.ToService, rel.Type}
