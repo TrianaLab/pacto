@@ -429,3 +429,53 @@ func TestExternalStaleConsumerUnknownConfidence(t *testing.T) {
 		t.Errorf("billing %+v, limitations %+v", c, res.Limitations)
 	}
 }
+
+// signedStripe is stripe's operator-signed inferred revision at version,
+// seen an hour before evidenceNow and linking the OpenAPI digest fill.
+func signedStripe(version, fill string) fleet.RawRevision {
+	r := inferredStripe(version)
+	c := stripeContract(version)
+	c.Metadata = map[string]any{fleet.ExternalOpenAPIMetadataKey: "https://docs.stripe.com/openapi.json@sha256:" + strings.Repeat(fill, 64)}
+	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: contract.InferredInputs{Pacto: "4.6.0", Discovery: "1"}, Fields: []contract.Inferred{},
+		Surface: &contract.InferredSurface{Identity: "stripe", Class: "vendor-api", AsOf: evidenceNow.Add(-time.Hour).Format(time.RFC3339),
+			Completeness: &contract.SurfaceCompleteness{State: "complete"}}}
+	r.Bundle = &contract.Bundle{Contract: c, FS: fstest.MapFS{contract.InferredRecordFile: {Data: rec.Marshal()}}}
+	return r
+}
+
+// The EXTERNAL_CHANGED item counts the consumers the external answer lists,
+// hidden ones included, in the full and in a restricted view.
+func TestExternalChangedCountMatchesImpact(t *testing.T) {
+	col := &fleet.Collection{
+		Revisions: []fleet.RawRevision{signedStripe("0.0.1", "a"), signedStripe("0.0.2", "b"), rev("payments", stripeUse(true)), rev("billing", stripeUse(false)), rev("checkout", pinned(""))},
+	}
+	for name, ns := range map[string]string{"payments": "prod", "checkout": "prod", "billing": "secret"} {
+		col.Targets = append(col.Targets, fleet.RawTarget{Scope: ns, Kind: fleet.SourceKindKubernetes, Name: name, Service: name, Compliance: fleet.StatusCompliant, EvidenceAt: ago(0)})
+	}
+	// A Kubernetes source names the namespaces a restriction hides.
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return evidenceNow }}, fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := fleet.NewQuery(snap)
+	for name, q := range map[string]*fleet.Query{"full": full, "restricted": full.Restrict(func(_, ns string) bool { return ns != "secret" }, nil)} {
+		view := q.SnapshotForSerialization()
+		res := externalEvent(view, EventChanged, "stripe")
+		al, err := q.Attention(fleet.AttentionFilter{Limit: 1000})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var label string
+		for _, it := range al.Items {
+			if it.Code == fleet.AttentionExternalChanged {
+				label = it.Label
+			}
+		}
+		if want := fmt.Sprintf(": %d consumers to review", len(res.Consumers)+res.Hidden); label == "" || !strings.HasSuffix(label, want) {
+			t.Errorf("%s: label %q, want suffix %q (consumers %d, hidden %d)", name, label, want, len(res.Consumers), res.Hidden)
+		}
+		if name == "restricted" && res.Hidden == 0 {
+			t.Errorf("restricted: billing is hidden, hidden = %d", res.Hidden)
+		}
+	}
+}
