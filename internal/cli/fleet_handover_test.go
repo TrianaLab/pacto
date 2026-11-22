@@ -126,3 +126,16 @@ func TestHandoverSameProvenanceOnEverySurface(t *testing.T) {
 	expect(t, reflect.DeepEqual(cliOut, getOut), "pacto_fleet_get differs:\n%+v\n%+v", cliOut, getOut)
 	expect(t, reflect.DeepEqual(cliOut, entityOut.Service), "pacto_fleet_entity differs:\n%+v\n%+v", cliOut, entityOut.Service)
 }
+
+// pacto fleet get --output-format json keeps the source that says a declared
+// field was carried from the registry; the text line stays as it was.
+func TestFleetGetJSONCarriedSource(t *testing.T) {
+	src := "pacto.yaml of invoices@sha256:b1, carried from ghcr.io/acme/invoices@sha256:7c1d2e3f4a5b"
+	row := fleet.FieldProvenance{Field: "service.owner", Value: "billing", Provenance: fleet.FieldDeclared, Source: src}
+	view := &fleet.ServiceView{Service: &fleet.ServiceRecord{Name: "invoices"}, Fields: &fleet.FieldsPreview{Items: []fleet.FieldProvenance{row}, Count: 1, Total: 1}}
+	var got struct{ Fields *fleet.FieldsPreview }
+	out := printed(t, func(c *cobra.Command) error { return printFleetService(c, view, "json") })
+	expect(t, json.Unmarshal([]byte(out), &got) == nil && got.Fields != nil && got.Fields.Items[0] == row, "json:\n%s", out)
+	text := printed(t, func(c *cobra.Command) error { return printFleetService(c, view, "text") })
+	inOrder(t, text, "Fields:", "  owner         billing    declared")
+}

@@ -9,6 +9,8 @@ import { mount, unmount, flushSync } from 'svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import FieldProvenanceFold from './FieldProvenanceFold.svelte';
 import { fieldProvenanceText } from '../lib/fieldProvenance.ts';
+// @ts-expect-error — Vite raw import has no declaration file
+import rowSource from './FieldProvenanceRow.svelte?raw';
 
 let cleanup: (() => void) | null = null;
 afterEach(() => { cleanup?.(); cleanup = null; });
@@ -135,5 +137,23 @@ describe('FieldProvenanceFold', () => {
       .toBe('Declared by ana@acme.example from inferred k8s:billing/Deployment/a (revision invoices@0.1.0). Pacto read no workload for it here');
     expect(t.querySelector('[data-testid="workload-facts"]')).toBeNull();
     expect(t.querySelector('[data-testid="field-provenance-show-inferred"]')).toBeNull();
+  });
+
+  it('carried source over a long repository stays in the tip and wraps', () => {
+    const repo = `ghcr.io/acme/${'r'.repeat(120 - 'ghcr.io/acme/'.length)}`;
+    expect(repo).toHaveLength(120);
+    const source = `pacto.yaml of invoices@sha256:b1, carried from ${repo}@sha256:7c1d2e3f4a5b`;
+    const owner = `billing-${'o'.repeat(80)}`;
+    const t = render({ fields: fields([{ ...rows[0], value: owner, source }]) });
+    open(t);
+    const row = t.querySelector('.fpf-row') as HTMLElement;
+    const tip = row.querySelector('.prov-tip')?.textContent ?? '';
+    expect(tip).toBe(fieldProvenanceText({ ...rows[0], source }));
+    expect(tip).toContain(source);
+    const value = row.querySelector('bdi.fpf-value') as HTMLElement;
+    expect(value.textContent).toBe(owner);
+    expect(value.getAttribute('title')).toBe(owner);
+    // jsdom applies no component style, so the rule is read from the source.
+    expect(rowSource).toMatch(/\.fpf-value \{[^}]*overflow-wrap: anywhere;/);
   });
 });
