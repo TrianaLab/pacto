@@ -881,6 +881,7 @@ func TestRemoteMCPMetadataFromRequestOrigin(t *testing.T) {
 // hint names the API server's audience when the dashboard could read it.
 func TestFleetOnlyModesHint(t *testing.T) {
 	m := fleetOnlyModes(pactomcp.Modes{Delivery: &pactomcp.DeliveryMode{Writes: true}}, "https://kubernetes.default.svc")
-	expect(t, m.Delivery == nil && m.Bundle == nil, "fleet-only modes serve delivery: %+v", m)
+	expect(t, m.Delivery == nil && m.Bundle == nil && m.DeliveryHidden, "fleet-only modes serve delivery: %+v", m)
+	expect(t, !fleetOnlyModes(pactomcp.Modes{}, "").DeliveryHidden, "a host with no delivery hides none")
 	expect(t, strings.HasSuffix(m.FleetOnlyHint, "--audience pacto-dashboard --audience https://kubernetes.default.svc"), "hint: %s", m.FleetOnlyHint)
 }

@@ -82,7 +82,7 @@ func capabilities(ctx context.Context, req *mcpsdk.CallToolRequest, a Authoring,
 		// A token subject is not a name the apiserver confirmed.
 		out.Caller.User = "unknown"
 	}
-	in := fleet.InstallationInput{MCPServed: true, MCPSource: "this MCP server, over " + m.Transport, Now: time.Now().UTC()}
+	in := fleet.InstallationInput{MCPServed: true, MCPSource: "this MCP server, over " + m.Transport, DeliveryHidden: m.DeliveryHidden, Now: time.Now().UTC()}
 	var q *fleet.Query
 	if f := m.Fleet; f != nil {
 		var err error

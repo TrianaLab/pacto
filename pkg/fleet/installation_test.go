@@ -113,6 +113,7 @@ func TestInstallationDeliveryProbeFailedIsNull(t *testing.T) {
 
 func TestInstallationNoDeliveryWiringIsNull(t *testing.T) {
 	assertDeliveryNull(t, installationFleet(t).Installation(InstallationInput{}).Delivery, installationNoDelivery)
+	assertDeliveryNull(t, installationFleet(t).Installation(InstallationInput{DeliveryHidden: true}).Delivery, installationDeliveryHidden)
 }
 
 func TestInstallationDeliveryNotProbedIsNull(t *testing.T) {

@@ -22,6 +22,7 @@ const (
 	installationNoBlock          = "the detection carries no installation block"
 	installationNoProfile        = "the operator does not advertise its profile"
 	installationNoDelivery       = "this server reads no delivery"
+	installationDeliveryHidden   = "this server serves delivery, but your token reads the fleet only: delivery is not read for you"
 	installationNotProbed        = "delivery is served but whether the cluster serves its API is not read here"
 	installationInProcess        = "this server serves delivery itself"
 	installationProbed           = "the delivery probe of this server"
@@ -63,7 +64,9 @@ type InstallationInput struct {
 	// whether the cluster serves the delivery API, with DeliveryInstalled
 	// and DeliveryErr the raw answer. DeliveryInProcess: the host serves
 	// delivery itself, so the answer is its own.
-	DeliveryWired     bool
+	DeliveryWired bool
+	// DeliveryHidden: the host serves delivery, but not to this caller.
+	DeliveryHidden    bool
 	DeliveryProbed    bool
 	DeliveryInProcess bool
 	DeliveryInstalled bool
@@ -235,6 +238,9 @@ func (q *Query) installationDelivery(in InstallationInput, d *InstallationDeclar
 	}
 	out := InstallationDelivery{Appliers: []InstallationApplier{}, AsOf: &asOf, Provenance: ProvenanceObserved, Completeness: InstallationUnknown}
 	switch {
+	case !in.DeliveryWired && in.DeliveryHidden:
+		out.Source = installationDeliveryHidden
+		return out
 	case !in.DeliveryWired:
 		out.Source = installationNoDelivery
 		return out

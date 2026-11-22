@@ -434,6 +434,7 @@ func fleetOnlyModes(m pactomcp.Modes, aud string) pactomcp.Modes {
 	if aud == "" {
 		aud = "<your cluster's API audience>"
 	}
+	m.DeliveryHidden = m.Delivery != nil
 	m.Delivery, m.Bundle = nil, quietBundle(m.Bundle)
 	m.FleetOnlyHint = "this token reads the fleet only; to propose changes, mint your ServiceAccount's token with " +
 		"--audience " + authn.DashboardAudience + " --audience " + aud
