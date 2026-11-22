@@ -14,11 +14,11 @@ import (
 )
 
 // TestOnlyRunRecordsFallBackToTags keeps oras-go's referrers-tag fallback
-// away from evidence: delivery, refusal and evidence records require the
-// native Referrers API, and only run records (unsigned statistics) may share a
-// mutable index. Write-once tags (ocireferrer.PushWriteOnce) are a different
-// thing: one write-once, content-addressed tag per record in the streams
-// repository, never the shared sha256- index.
+// away from evidence: delivery, refusal and evidence records never use the
+// shared referrers-tag index, and only run records (unsigned statistics) may
+// share a mutable index. Where a registry serves no Referrers API they use
+// write-once tags (ocireferrer.PushWriteOnce), a different thing: one
+// write-once, content-addressed tag per record, never the shared sha256- index.
 func TestOnlyRunRecordsFallBackToTags(t *testing.T) {
 	root := repoRoot(t)
 	allowed := []string{"pkg/ocireferrer/repository.go", "pkg/runrecord/registry/registry.go"}
@@ -72,6 +72,10 @@ var writeOnceCallers = []string{
 	// keepIndexEntry: one write-once entry per published version in the
 	// organization index, <registry>/pacto-index (CLI only, #452 decision 11).
 	"internal/app/index_write.go",
+	// writeAnchor and writeRecord: the subject ledger and write-once evidence
+	// records in <prefix>pacto-evidence, the Evidence Server's only tagged
+	// repository (#572).
+	"internal/evidenceoci/ledger.go",
 	// PutRecord and Push: the delivery record streams repository (records,
 	// approvals, intents and identity pins) and the approvals repository; the
 	// operator's recordstore.go and recorder.go and the CLI write through it.

@@ -2,11 +2,14 @@ package evidenceoci
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
@@ -25,7 +28,23 @@ import (
 // write throughput ever matters.
 type Store struct {
 	subjects SubjectList
-	repos    map[Subject]*subjectRepo
+	prefixes PrefixList
+	opts     RepositoryOptions
+	ledgers  map[Prefix]*remote.Repository
+
+	// mu guards repos, conns and anchors, which grow per request under a
+	// prefix.
+	//
+	// ponytail: repos, conns and anchors grow with the subjects that ever
+	// received evidence and are never evicted; the ledger bounds them.
+	mu sync.Mutex
+	// repos is keyed by subject: each entry memoizes its own resolved
+	// descriptor, so two digests of one repository never share one.
+	repos map[Subject]*subjectRepo
+	// conns shares one connection between the digests of one repository.
+	conns map[string]*remote.Repository
+	// anchors memoizes decoded ledger anchors by ledger and tag.
+	anchors map[string]Subject
 
 	// commit serializes the whole logical commit — enumerate, replay-check,
 	// publish, confirm — so two concurrent requests cannot both pass the replay
@@ -50,22 +69,63 @@ func (s *Store) WithCluster(id string) *Store {
 	return s
 }
 
-// NewStore opens one repository per configured subject. Construction performs no
-// network I/O: a registry that is briefly unreachable must make the server
-// not-ready, not unstartable.
-func NewStore(subjects SubjectList, opts RepositoryOptions) (*Store, error) {
-	if len(subjects) == 0 {
+// NewStore opens one repository per configured subject and one ledger
+// repository per prefix; a subject a prefix covers is opened at its first
+// request. Construction performs no network I/O: a registry that is briefly
+// unreachable must make the server not-ready, not unstartable.
+func NewStore(subjects SubjectList, prefixes PrefixList, opts RepositoryOptions) (*Store, error) {
+	if len(subjects) == 0 && len(prefixes) == 0 {
 		return nil, ErrNoSubjects
 	}
-	s := &Store{subjects: subjects, repos: make(map[Subject]*subjectRepo, len(subjects))}
+	s := &Store{
+		subjects: subjects, prefixes: prefixes, opts: opts,
+		ledgers: make(map[Prefix]*remote.Repository, len(prefixes)),
+		repos:   make(map[Subject]*subjectRepo, len(subjects)),
+		conns:   make(map[string]*remote.Repository, len(subjects)),
+		anchors: make(map[string]Subject),
+	}
 	for _, subj := range subjects {
-		repo, err := newRepository(subj, opts)
+		if _, err := s.repoFor(subj); err != nil {
+			return nil, err
+		}
+	}
+	for _, p := range prefixes {
+		repo, err := ocireferrer.Open(p.Ledger(), opts)
+		if err != nil {
+			return nil, fmt.Errorf("evidence oci: %q: %w", p.Ledger(), err)
+		}
+		s.ledgers[p] = repo
+	}
+	return s, nil
+}
+
+// repoFor returns subj's entry, opening it on first use. It fails only for a
+// subject [ParseSubject] did not produce: a parsed subject always opens.
+func (s *Store) repoFor(subj Subject) (*subjectRepo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sr := s.repos[subj]; sr != nil {
+		return sr, nil
+	}
+	conn := s.conns[subj.Path()]
+	if conn == nil {
+		repo, err := newRepository(subj, s.opts)
 		if err != nil {
 			return nil, err
 		}
-		s.repos[subj] = &subjectRepo{subj: subj, repo: repo}
+		conn = repo
+		s.conns[subj.Path()] = conn
 	}
-	return s, nil
+	sr := &subjectRepo{subj: subj, repo: conn}
+	s.repos[subj] = sr
+	return sr, nil
+}
+
+// parsedRepo is repoFor for a subject [ParseSubject] produced, which always
+// opens.
+func (s *Store) parsedRepo(subj Subject) *subjectRepo {
+	sr, _ := s.repoFor(subj) // ParseSubject validated the reference ORAS opens
+	return sr
 }
 
 // subjectRepo is one configured subject and the connection to the repository
@@ -112,25 +172,50 @@ func (r *subjectRepo) descriptor() ocispec.Descriptor {
 }
 
 // AuthorizeSubject implements [evidenceingest.Store]. A signed contract reference
-// is accepted only when it is EXACTLY one of the configured subjects. Trust rules
-// already authorize the producer, its operational subjects and its contract
-// repositories; configuration membership narrows those permissions and never
+// is accepted only when it is EXACTLY one of the configured subjects, or an
+// exact revision under a configured prefix outside Pacto's own repositories.
+// Trust rules already authorize the producer, its operational subjects and its
+// contract repositories; configuration narrows those permissions and never
 // widens them, so an approved producer still cannot make the server write into a
-// revision the operator did not configure.
+// revision the operator did not configure. It performs no I/O.
 func (s *Store) AuthorizeSubject(ref string) error {
-	if _, ok := s.subjects.Lookup(ref); !ok {
-		return fmt.Errorf("%w: %q is not a configured evidence subject", evidenceingest.ErrContractRefPolicy, ref)
+	_, _, err := s.lookup(ref)
+	return err
+}
+
+// lookup resolves ref to the subject it names and the prefix covering it, if
+// any (an exact subject a prefix covers is anchored too).
+func (s *Store) lookup(ref string) (Subject, *Prefix, error) {
+	subj, ok := s.subjects.Lookup(ref)
+	if !ok {
+		parsed, err := ParseSubject(ref)
+		if err != nil {
+			return Subject{}, nil, fmt.Errorf("%w: %q is not a configured evidence subject", evidenceingest.ErrContractRefPolicy, ref)
+		}
+		subj = parsed
 	}
-	return nil
+	if p, covered := s.prefixes.Covering(subj); covered {
+		return subj, &p, nil
+	}
+	if !ok {
+		return Subject{}, nil, fmt.Errorf("%w: %q is not a configured evidence subject or a revision under a subject prefix", evidenceingest.ErrContractRefPolicy, ref)
+	}
+	return subj, nil, nil
 }
 
 // Ready implements the registry preflight behind the readiness probe: every
-// configured subject must resolve to a real manifest and answer native Referrers
+// prefix's ledger must list (an absent ledger is empty), and every configured
+// subject must resolve to a real manifest and answer native Referrers
 // discovery. A transient registry failure makes the server not-ready; it never
 // makes it unhealthy, so a registry outage cannot restart the process.
 func (s *Store) Ready(ctx context.Context) error {
+	for _, p := range s.prefixes {
+		if _, err := s.ledgerTags(ctx, p); err != nil {
+			return err
+		}
+	}
 	for _, subj := range s.subjects {
-		sr := s.repos[subj]
+		sr := s.parsedRepo(subj)
 		desc, err := sr.resolve(ctx)
 		if err != nil {
 			return err
@@ -188,20 +273,24 @@ func supersedes(a, b evidenceingest.Record) bool {
 }
 
 // Commit implements [evidenceingest.Store] as one serialized logical commit:
-// reconstruct the accepted history from the registry, refuse a replay, publish
-// the record, and report success only once the same Referrers API a later scan
-// uses can see it.
+// resolve the revision, reconstruct the accepted history from the registry,
+// refuse a replay, anchor a prefix-covered subject in its ledger, publish the
+// record, and report success only once the same Referrers API a later scan
+// uses can see it. The anchor goes first: a crash before the record leaves a
+// subject with no evidence, never a record no scan can find.
 func (s *Store) Commit(ctx context.Context, rec evidenceingest.Record) error {
-	subj, ok := s.subjects.Lookup(rec.Envelope.EvidenceSet.ContractRef)
-	if !ok {
-		return fmt.Errorf("%w: %q is not a configured evidence subject",
-			evidenceingest.ErrContractRefPolicy, rec.Envelope.EvidenceSet.ContractRef)
+	subj, prefix, err := s.lookup(rec.Envelope.EvidenceSet.ContractRef)
+	if err != nil {
+		return err
 	}
-	sr := s.repos[subj]
+	sr := s.parsedRepo(subj)
 
 	s.commit.Lock()
 	defer s.commit.Unlock()
 
+	if _, err := sr.resolve(ctx); err != nil {
+		return fmt.Errorf("%w: %w", evidenceingest.ErrRegistryUnavailable, err)
+	}
 	// The replay index must cover EVERY subject: a producer's sequence is global
 	// to the producer, so a history missing one revision would let a replayed
 	// report through by aiming it at another one.
@@ -223,6 +312,11 @@ func (s *Store) Commit(ctx context.Context, rec evidenceingest.Record) error {
 	if err != nil {
 		return fmt.Errorf("%w: %w", evidenceingest.ErrStoreWrite, err)
 	}
+	if prefix != nil {
+		if err := s.writeAnchor(ctx, *prefix, subj); err != nil {
+			return fmt.Errorf("%w: ledger %s: %w", evidenceingest.ErrStoreWrite, prefix.Ledger(), err)
+		}
+	}
 	if err := ocireferrer.Push(ctx, sr.repo, art); err != nil {
 		return fmt.Errorf("%w: %w", evidenceingest.ErrStoreWrite, err)
 	}
@@ -235,32 +329,69 @@ func (s *Store) Commit(ctx context.Context, rec evidenceingest.Record) error {
 	return nil
 }
 
-// registryScan is one read of every configured subject.
+// registryScan is one read of every configured subject, every ledger and
+// every ledger subject.
 type registryScan struct {
-	records  []evidenceingest.Record
+	records []evidenceingest.Record
+	// subjects counts the read units: exact subjects, ledger subjects and one
+	// per ledger listing.
 	subjects int
 	failed   int
 	invalid  int
+	// pruned counts ledger subjects whose revision the registry definitively
+	// no longer holds (retention, or an anchor naming a missing digest): their
+	// referrers went with them, so they are neither failed nor counted.
+	pruned int
 }
 
+// scan reads the exact subjects, then every ledger and the subjects it names,
+// each subject once.
 func (s *Store) scan(ctx context.Context) registryScan {
-	out := registryScan{subjects: len(s.subjects)}
-	for _, subj := range s.subjects {
-		sr := s.repos[subj]
-		desc, err := sr.resolve(ctx)
+	var out registryScan
+	units := slices.Clone(s.subjects)
+	fromLedger := map[Subject]bool{}
+	for _, p := range s.prefixes {
+		out.subjects++
+		subs, invalid, err := s.ledgerSubjects(ctx, p)
 		if err != nil {
 			out.failed++
 			continue
 		}
-		found, err := scanSubject(ctx, sr.repo, subj, desc)
-		if err != nil {
-			out.failed++
-			continue
+		out.invalid += invalid
+		for _, subj := range subs {
+			if !slices.Contains(units, subj) {
+				units = append(units, subj)
+				fromLedger[subj] = true
+			}
 		}
-		out.invalid += found.Invalid
-		out.records = append(out.records, found.Found...)
+	}
+	for _, subj := range units {
+		s.scanOne(ctx, subj, fromLedger[subj], &out)
 	}
 	return out
+}
+
+// scanOne reads subj's referrers into out. A ledger subject the registry
+// definitively no longer holds is pruned; an exact subject fails closed.
+func (s *Store) scanOne(ctx context.Context, subj Subject, fromLedger bool, out *registryScan) {
+	sr := s.parsedRepo(subj)
+	desc, err := sr.resolve(ctx)
+	if err != nil && fromLedger && (errors.Is(err, errdef.ErrNotFound) || ocireferrer.RepositoryNotFound(err)) {
+		out.pruned++
+		return
+	}
+	out.subjects++
+	if err != nil {
+		out.failed++
+		return
+	}
+	found, err := scanSubject(ctx, sr.repo, subj, desc)
+	if err != nil {
+		out.failed++
+		return
+	}
+	out.invalid += found.Invalid
+	out.records = append(out.records, found.Found...)
 }
 
 // health states what the read is worth. Absence of evidence is only authoritative
@@ -274,7 +405,7 @@ func (r registryScan) health() evidenceingest.SourceHealth {
 		InvalidArtifacts: r.invalid,
 	}
 	switch {
-	case r.failed == r.subjects:
+	case r.failed > 0 && r.failed == r.subjects:
 		h.Status = evidenceingest.HealthUnavailable
 	case r.failed > 0 || r.invalid > 0:
 		h.Status = evidenceingest.HealthPartial

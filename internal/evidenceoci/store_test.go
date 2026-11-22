@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -37,7 +38,7 @@ func storeRecord(subj Subject, producer, id string, seq uint64, target string, a
 
 func newTestStore(t *testing.T, opts RepositoryOptions, subjects ...Subject) *Store {
 	t.Helper()
-	s, err := NewStore(SubjectList(subjects), opts)
+	s, err := NewStore(SubjectList(subjects), nil, opts)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -61,16 +62,24 @@ func oneSubjectStore(t *testing.T) (*Store, Subject) {
 	return newTestStore(t, RepositoryOptions{}, subj), subj
 }
 
-func TestNewStore_RequiresAtLeastOneSubject(t *testing.T) {
-	if _, err := NewStore(nil, RepositoryOptions{}); !errors.Is(err, ErrNoSubjects) {
-		t.Fatalf("NewStore(nil) = %v, want ErrNoSubjects", err)
+// A server with neither a subject nor a prefix has no durable store at all:
+// there is no implicit catalog-wide discovery to fall back to.
+func TestNewStoreNeedsSubjectOrPrefix(t *testing.T) {
+	if _, err := NewStore(nil, nil, RepositoryOptions{}); !errors.Is(err, ErrNoSubjects) {
+		t.Fatalf("NewStore(nil, nil) = %v, want ErrNoSubjects", err)
+	}
+	if _, err := NewStore(SubjectList{}, PrefixList{}, RepositoryOptions{}); !errors.Is(err, ErrNoSubjects) {
+		t.Fatalf("NewStore({}, {}) = %v, want ErrNoSubjects", err)
+	}
+	if _, err := NewStore(nil, PrefixList{{Registry: "registry.example", Path: "acme"}}, RepositoryOptions{}); err != nil {
+		t.Fatalf("NewStore with only a prefix: %v", err)
 	}
 }
 
 // A subject whose repository ORAS cannot address is a configuration error at
 // construction, not a mystery at the first write.
 func TestNewStore_RejectsUnaddressableSubject(t *testing.T) {
-	if _, err := NewStore(SubjectList{{Registry: "", Repository: ""}}, RepositoryOptions{}); err == nil {
+	if _, err := NewStore(SubjectList{{Registry: "", Repository: ""}}, nil, RepositoryOptions{}); err == nil {
 		t.Fatal("NewStore accepted an unaddressable subject")
 	}
 }
@@ -557,4 +566,229 @@ func TestStore_ReplayProtectionSpansEveryPage(t *testing.T) {
 		t.Errorf("sequence equal to the last page's maximum = %v, want ErrReplay", err)
 	}
 	mustCommit(t, s, storeRecord(subj, "remote-eu", "env-new", history+1, "orders-new", acceptedAt))
+}
+
+// recorder serves inner and remembers every manifest PUT path in order.
+type recorder struct {
+	inner http.Handler
+	mu    sync.Mutex
+	puts  []string
+}
+
+func (r *recorder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if req.Method == http.MethodPut && strings.Contains(req.URL.Path, "/manifests/") {
+		r.mu.Lock()
+		r.puts = append(r.puts, req.URL.Path)
+		r.mu.Unlock()
+	}
+	r.inner.ServeHTTP(w, req)
+}
+
+func TestStorePrefixCommitWritesAnchorThenRecord(t *testing.T) {
+	rec := &recorder{inner: testutil.NewReferrersRegistry(testutil.ReferrersOptions{})}
+	host := serve(t, rec)
+	subj, _ := seedContractIn(t, host, "acme/invoices", "invoices", RepositoryOptions{})
+	rec.puts = nil
+	s := prefixStore(t, host)
+	mustCommit(t, s, storeRecord(subj, "crossplane", "env-1", 1, "invoices-db", acceptedAt))
+
+	if len(rec.puts) != 2 || !strings.Contains(rec.puts[0], "/acme/pacto-evidence/manifests/"+anchorTag(subj.Ref())) ||
+		!strings.Contains(rec.puts[1], "/acme/invoices/manifests/sha256:") {
+		t.Fatalf("manifest writes = %v, want the anchor tag then the record referrer", rec.puts)
+	}
+	// A store with no state reads it back from the ledger.
+	res := prefixStore(t, host).List(t.Context())
+	if res.Health.Status != evidenceingest.HealthReady || res.Health.Subjects != 2 || len(res.Records) != 1 {
+		t.Fatalf("restarted List = %+v (%d records), want the record over 1 ledger and 1 subject", res.Health, len(res.Records))
+	}
+}
+
+func TestStoreTwoDigestsOneRepositoryUnderPrefix(t *testing.T) {
+	host := startRegistry(t, testutil.ReferrersOptions{})
+	v1, d1 := seedContractIn(t, host, "acme/invoices", "invoices-0.1.0", RepositoryOptions{})
+	v2, d2 := seedContractIn(t, host, "acme/invoices", "invoices-0.2.0", RepositoryOptions{})
+	s := prefixStore(t, host)
+	mustCommit(t, s, storeRecord(v1, "crossplane", "env-1", 1, "db-1", acceptedAt))
+	mustCommit(t, s, storeRecord(v2, "crossplane", "env-2", 2, "db-2", acceptedAt))
+	if s.repos[v1].repo != s.repos[v2].repo {
+		t.Error("two digests of one repository must share one connection")
+	}
+	if s.repos[v1].descriptor().Digest != d1.Digest || s.repos[v2].descriptor().Digest != d2.Digest {
+		t.Error("each digest must keep its own resolved descriptor")
+	}
+	res := prefixStore(t, host).List(t.Context())
+	if len(res.Records) != 2 || res.Health.Subjects != 3 {
+		t.Fatalf("List = %+v (%d records), want both revisions", res.Health, len(res.Records))
+	}
+	for _, r := range res.Records {
+		want := map[string]string{"db-1": v1.Digest, "db-2": v2.Digest}[r.Envelope.EvidenceSet.Subject.Name]
+		if r.Digest != want {
+			t.Errorf("%s read with digest %s, want %s", r.Envelope.EvidenceSet.Subject.Name, r.Digest, want)
+		}
+	}
+}
+
+func TestStoreEmptyLedgerIsReadyAndEmpty(t *testing.T) {
+	host := startRegistry(t, testutil.ReferrersOptions{})
+	s := prefixStore(t, host)
+	if err := s.Ready(t.Context()); err != nil {
+		t.Fatalf("Ready over an absent ledger: %v", err)
+	}
+	res := s.List(t.Context())
+	if res.Health.Status != evidenceingest.HealthReady || res.Health.Subjects != 1 || res.Health.FailedSubjects != 0 || len(res.Records) != 0 {
+		t.Fatalf("List = %+v, want an authoritative empty store", res.Health)
+	}
+}
+
+func TestStoreUnreadableLedgerIsPartial(t *testing.T) {
+	host := serve(t, failing{inner: testutil.NewReferrersRegistry(testutil.ReferrersOptions{}), status: http.StatusForbidden, fail: ledgerPath})
+	exact, _ := seedContractIn(t, host, "team/orders", "orders", RepositoryOptions{})
+
+	withExact := prefixStore(t, host, exact)
+	if h := withExact.List(t.Context()).Health; h.Status != evidenceingest.HealthPartial || h.Subjects != 2 || h.FailedSubjects != 1 {
+		t.Errorf("with an exact subject: health = %+v, want partial, 1 of 2 failed", h)
+	}
+	if err := withExact.Ready(t.Context()); err == nil {
+		t.Error("Ready over an unreadable ledger succeeded")
+	}
+	if err := withExact.Commit(t.Context(), storeRecord(exact, "p", "env-1", 1, "orders", acceptedAt)); !errors.Is(err, evidenceingest.ErrRegistryUnavailable) {
+		t.Errorf("commit over an unreadable ledger = %v, want ErrRegistryUnavailable", err)
+	}
+	if h := prefixStore(t, host).List(t.Context()).Health; h.Status != evidenceingest.HealthUnavailable || h.Subjects != 1 || h.FailedSubjects != 1 {
+		t.Errorf("prefix only: health = %+v, want unavailable, 1 of 1 failed", h)
+	}
+}
+
+func TestStoreReplayAcrossExactAndLedgerSubjects(t *testing.T) {
+	host := startRegistry(t, testutil.ReferrersOptions{})
+	exact, _ := seedContractIn(t, host, "team/orders", "orders", RepositoryOptions{})
+	covered, _ := seedContractIn(t, host, "acme/invoices", "invoices", RepositoryOptions{})
+	mustCommit(t, prefixStore(t, host, exact), storeRecord(covered, "p", "env-1", 5, "db", acceptedAt))
+
+	restarted := prefixStore(t, host, exact)
+	if err := restarted.Commit(t.Context(), storeRecord(exact, "p", "env-2", 5, "orders", acceptedAt)); !errors.Is(err, evidenceingest.ErrReplay) {
+		t.Errorf("sequence reuse aimed at the exact subject = %v, want ErrReplay", err)
+	}
+	if err := restarted.Commit(t.Context(), storeRecord(exact, "p", "env-1", 9, "orders", acceptedAt)); !errors.Is(err, evidenceingest.ErrReplay) {
+		t.Errorf("envelope id reuse aimed at the exact subject = %v, want ErrReplay", err)
+	}
+	mustCommit(t, restarted, storeRecord(exact, "p", "env-3", 6, "orders", acceptedAt))
+}
+
+func TestStoreReplayAfterPrefixAdded(t *testing.T) {
+	host := startRegistry(t, testutil.ReferrersOptions{})
+	subj, _ := seedContractIn(t, host, "acme/invoices", "invoices", RepositoryOptions{})
+	mustCommit(t, newTestStore(t, RepositoryOptions{}, subj), storeRecord(subj, "p", "env-1", 1, "db", acceptedAt))
+
+	both := prefixStore(t, host, subj)
+	if err := both.Commit(t.Context(), storeRecord(subj, "p", "env-1", 2, "db", acceptedAt)); !errors.Is(err, evidenceingest.ErrReplay) {
+		t.Fatalf("replay after the prefix was added = %v, want ErrReplay", err)
+	}
+	mustCommit(t, both, storeRecord(subj, "p", "env-2", 2, "db", acceptedAt.Add(time.Hour)))
+	// The subject is now both exact and in the ledger: read once.
+	mustCommit(t, both, storeRecord(subj, "p", "env-3", 3, "db-2", acceptedAt))
+	if h := both.List(t.Context()).Health; h.Subjects != 2 {
+		t.Errorf("health = %+v, want the subject counted once beside the ledger", h)
+	}
+	res := prefixStore(t, host).List(t.Context())
+	if len(res.Records) != 2 {
+		t.Fatalf("prefix-only store read %d targets, want 2 (the anchor written after the prefix makes the subject's history visible)", len(res.Records))
+	}
+}
+
+// deleteManifest removes repoPath@dgst as a retention policy would.
+func deleteManifest(t *testing.T, host, repoPath, dgst string) {
+	t.Helper()
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodDelete, "http://"+host+"/v2/"+repoPath+"/manifests/"+dgst, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		t.Fatalf("DELETE %s@%s: %d", repoPath, dgst, resp.StatusCode)
+	}
+}
+
+func TestStoreDeletedLedgerSubjectIsPruned(t *testing.T) {
+	host := startRegistry(t, testutil.ReferrersOptions{})
+	gone, _ := seedContractIn(t, host, "acme/invoices", "invoices", RepositoryOptions{})
+	kept, _ := seedContractIn(t, host, "acme/billing", "billing", RepositoryOptions{})
+	s := prefixStore(t, host)
+	mustCommit(t, s, storeRecord(gone, "p", "env-1", 1, "db-1", acceptedAt))
+	mustCommit(t, s, storeRecord(kept, "p", "env-2", 2, "db-2", acceptedAt))
+	deleteManifest(t, host, "acme/invoices", gone.Digest)
+
+	restarted := prefixStore(t, host)
+	res := restarted.List(t.Context())
+	if res.Health.Status != evidenceingest.HealthReady || res.Health.Subjects != 2 || len(res.Records) != 1 {
+		t.Fatalf("List = %+v (%d records), want ready over the ledger and the surviving subject", res.Health, len(res.Records))
+	}
+	if err := restarted.Commit(t.Context(), storeRecord(kept, "p", "env-2", 9, "db-2", acceptedAt)); !errors.Is(err, evidenceingest.ErrReplay) {
+		t.Errorf("replay of a surviving envelope = %v, want ErrReplay", err)
+	}
+	mustCommit(t, restarted, storeRecord(kept, "p", "env-3", 3, "db-2", acceptedAt))
+}
+
+func TestStorePlantedAnchorToMissingDigestDoesNotBlockWrites(t *testing.T) {
+	host := startRegistry(t, testutil.ReferrersOptions{})
+	real, _ := seedContractIn(t, host, "acme/invoices", "invoices", RepositoryOptions{})
+	missing, _ := ParseSubject(Scheme + host + "/acme/ghost@" + testDigest("c"))
+	plantAnchor(t, host, buildAnchor(missing), anchorTag(missing.Ref()))
+	s := prefixStore(t, host)
+	mustCommit(t, s, storeRecord(real, "p", "env-1", 1, "db", acceptedAt))
+	if h := s.List(t.Context()).Health; h.Status != evidenceingest.HealthReady {
+		t.Errorf("health = %+v, want ready with the planted anchor pruned", h)
+	}
+}
+
+// A ledger subject the registry cannot answer for (as opposed to one it no
+// longer holds) is a failed read: writes stay refused.
+func TestStoreLedgerSubjectTransportErrorFails(t *testing.T) {
+	var broken atomic.Bool
+	host := serve(t, failing{inner: testutil.NewReferrersRegistry(testutil.ReferrersOptions{}), status: http.StatusForbidden, fail: func(r *http.Request) bool {
+		return broken.Load() && r.Method == http.MethodHead && strings.Contains(r.URL.Path, "/acme/invoices/manifests/")
+	}})
+	subj, _ := seedContractIn(t, host, "acme/invoices", "invoices", RepositoryOptions{})
+	mustCommit(t, prefixStore(t, host), storeRecord(subj, "p", "env-1", 1, "db", acceptedAt))
+	broken.Store(true)
+	if h := prefixStore(t, host).List(t.Context()).Health; h.Status != evidenceingest.HealthPartial || h.FailedSubjects != 1 {
+		t.Errorf("health = %+v, want partial with the ledger subject failed", h)
+	}
+}
+
+func TestStoreCommitUnresolvableCoveredSubject(t *testing.T) {
+	host := startRegistry(t, testutil.ReferrersOptions{})
+	missing, _ := ParseSubject(Scheme + host + "/acme/ghost@" + testDigest("c"))
+	err := prefixStore(t, host).Commit(t.Context(), storeRecord(missing, "p", "env-1", 1, "db", acceptedAt))
+	if !errors.Is(err, evidenceingest.ErrRegistryUnavailable) {
+		t.Fatalf("commit on a missing revision = %v, want ErrRegistryUnavailable", err)
+	}
+}
+
+func TestStoreCommitAnchorWriteRefused(t *testing.T) {
+	host := serve(t, failing{inner: testutil.NewReferrersRegistry(testutil.ReferrersOptions{}), status: http.StatusForbidden, fail: func(r *http.Request) bool {
+		return r.Method == http.MethodPut && ledgerPath(r)
+	}})
+	subj, _ := seedContractIn(t, host, "acme/invoices", "invoices", RepositoryOptions{})
+	s := prefixStore(t, host)
+	if err := s.Commit(t.Context(), storeRecord(subj, "p", "env-1", 1, "db", acceptedAt)); !errors.Is(err, evidenceingest.ErrStoreWrite) {
+		t.Fatalf("commit with a refused anchor = %v, want ErrStoreWrite", err)
+	}
+	if n := len(s.List(t.Context()).Records); n != 0 {
+		t.Errorf("read %d records, want none: the record is never written without its anchor", n)
+	}
+}
+
+func TestStoreRepoForRejectsAnUnparsedSubject(t *testing.T) {
+	s := prefixStore(t, "registry.example")
+	if _, err := s.repoFor(Subject{Registry: "bad host", Repository: "x", Digest: digestA}); err == nil {
+		t.Fatal("repoFor opened an unaddressable subject")
+	}
+}
+
+func TestNewStoreRejectsUnaddressableLedger(t *testing.T) {
+	if _, err := NewStore(nil, PrefixList{{Registry: "bad host"}}, RepositoryOptions{}); err == nil {
+		t.Fatal("NewStore opened an unaddressable ledger")
+	}
 }

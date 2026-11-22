@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 )
 
 const (
@@ -101,13 +103,13 @@ func TestParseSubjects_DeduplicatesPreservingOrder(t *testing.T) {
 	}
 }
 
-// A server with no configured subject has no durable store at all: there is no
-// implicit catalog-wide discovery to fall back to.
-func TestParseSubjects_RequiresNonEmpty(t *testing.T) {
+// No subject is an empty list: a server may run on prefixes alone, and the
+// store refuses a configuration with neither (TestNewStoreNeedsSubjectOrPrefix).
+func TestParseSubjects_EmptyIsEmpty(t *testing.T) {
 	for name, in := range map[string][]string{"nil": nil, "empty": {}} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := ParseSubjects(in); !errors.Is(err, ErrNoSubjects) {
-				t.Fatalf("error = %v, want ErrNoSubjects", err)
+			if got, err := ParseSubjects(in); err != nil || len(got) != 0 {
+				t.Fatalf("ParseSubjects(%v) = %v, %v, want an empty list", in, got, err)
 			}
 		})
 	}
@@ -140,5 +142,136 @@ func TestSubjects_MatchIsExact(t *testing.T) {
 	}
 	if _, ok := set.Lookup("oci://registry.example/team/contracts/orders:1.0.0"); ok {
 		t.Error("a mutable tag must never match a configured subject")
+	}
+}
+
+func TestParsePrefixes(t *testing.T) {
+	got, err := ParsePrefixes([]string{"oci://zot.acme.internal/acme/", "oci://ghcr.io/", "oci://zot.acme.internal/acme/", "oci://reg:5000/a/b/"})
+	if err != nil {
+		t.Fatalf("ParsePrefixes: %v", err)
+	}
+	want := PrefixList{{Registry: "zot.acme.internal", Path: "acme"}, {Registry: "ghcr.io"}, {Registry: "reg:5000", Path: "a/b"}}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v, want %+v (deduplicated, in order)", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("prefix %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	if s := got[0].String(); s != "oci://zot.acme.internal/acme/" {
+		t.Errorf("String() = %q", s)
+	}
+	if s := got[1].String(); s != "oci://ghcr.io/" {
+		t.Errorf("String() = %q", s)
+	}
+	if l := got[0].Ledger(); l != "zot.acme.internal/acme/pacto-evidence" {
+		t.Errorf("Ledger() = %q", l)
+	}
+	if l := got[1].Ledger(); l != "ghcr.io/pacto-evidence" {
+		t.Errorf("Ledger() = %q", l)
+	}
+	if empty, err := ParsePrefixes(nil); err != nil || len(empty) != 0 {
+		t.Errorf("ParsePrefixes(nil) = %v, %v, want empty", empty, err)
+	}
+
+	for name, raw := range map[string][]string{
+		"no scheme":        {"zot.acme.internal/acme/"},
+		"no trailing":      {"oci://zot.acme.internal/acme"},
+		"digest":           {"oci://zot.acme.internal/acme@" + digestA + "/"},
+		"tag":              {"oci://zot.acme.internal/acme:1.0/"},
+		"uppercase":        {"oci://zot.acme.internal/Acme/"},
+		"empty segment":    {"oci://zot.acme.internal/acme//"},
+		"no registry":      {"oci:///"},
+		"bad registry":     {"oci://bad host/"},
+		"reserved segment": {"oci://zot.acme.internal/acme/pacto-inferred/"},
+		"overlap":          {"oci://zot.acme.internal/acme/", "oci://zot.acme.internal/acme/team/"},
+		"overlap reversed": {"oci://zot.acme.internal/acme/team/", "oci://zot.acme.internal/"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParsePrefixes(raw); !errors.Is(err, ErrInvalidPrefix) {
+				t.Fatalf("ParsePrefixes(%q) = %v, want ErrInvalidPrefix", raw, err)
+			}
+		})
+	}
+	// Siblings that share a string prefix but not a path segment do not overlap.
+	if _, err := ParsePrefixes([]string{"oci://reg/acme/", "oci://reg/acme-two/"}); err != nil {
+		t.Errorf("sibling prefixes: %v", err)
+	}
+}
+
+func TestParseSubject_RejectsWhatORASCannotOpen(t *testing.T) {
+	if _, err := ParseSubject("oci://registry.example/team/a._b@" + digestA); !errors.Is(err, ErrInvalidSubject) {
+		t.Fatalf("err = %v, want ErrInvalidSubject", err)
+	}
+}
+
+func TestPrefixCovers(t *testing.T) {
+	p := Prefix{Registry: "reg", Path: "acme"}
+	sub := func(repo string) Subject { return Subject{Registry: "reg", Repository: repo, Digest: digestA} }
+	for repo, want := range map[string]bool{
+		"acme/invoices":                true,
+		"acme/team/deep/invoices":      true,
+		"acme":                         false,
+		"acme-two/invoices":            false,
+		"other/invoices":               false,
+		"acme/pacto-inferred/x":        false,
+		"acme/pacto-targets":           false,
+		"acme/pacto-index":             false,
+		"acme/pacto-evidence":          false,
+		"acme/pacto-evidence/sub":      false,
+		"acme/team/pacto-inferred/svc": false,
+	} {
+		if got := p.Covers(sub(repo)); got != want {
+			t.Errorf("Covers(%s) = %v, want %v", repo, got, want)
+		}
+	}
+	root := Prefix{Registry: "reg"}
+	if !root.Covers(sub("invoices")) || root.Covers(Subject{Registry: "reg2", Repository: "invoices", Digest: digestA}) {
+		t.Error("a registry-wide prefix covers its own registry only")
+	}
+	if _, ok := (PrefixList{p}).Covering(sub("other/x")); ok {
+		t.Error("Covering found a prefix for an uncovered subject")
+	}
+}
+
+func TestAuthorizeSubjectTable(t *testing.T) {
+	const reg = "zot.acme.internal"
+	exact := "oci://" + reg + "/other/exact@" + digestA
+	covered := "oci://" + reg + "/acme/exact@" + digestB
+	subjects, _ := ParseSubjects([]string{exact, covered})
+	prefixes, _ := ParsePrefixes([]string{"oci://" + reg + "/acme/"})
+	s, err := NewStore(subjects, prefixes, RepositoryOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		ref string
+		ok  bool
+	}{
+		"prefix":           {"oci://" + reg + "/acme/invoices@" + digestA, true},
+		"exact":            {exact, true},
+		"exact-and-prefix": {covered, true},
+		"nested-depth":     {"oci://" + reg + "/acme/team/billing/invoices@" + digestA, true},
+		"tag":              {"oci://" + reg + "/acme/invoices:0.2.0", false},
+		"tag+digest":       {"oci://" + reg + "/acme/invoices:0.2.0@" + digestA, false},
+		"sha512":           {"oci://" + reg + "/acme/invoices@sha512:" + strings.Repeat("a", 128), false},
+		"outside-prefix":   {"oci://" + reg + "/other/x@" + digestA, false},
+		"sibling-registry": {"oci://zot.other.internal/acme/invoices@" + digestA, false},
+		"ledger-repo":      {"oci://" + reg + "/acme/pacto-evidence@" + digestA, false},
+		"ledger-subrepo":   {"oci://" + reg + "/acme/pacto-evidence/x@" + digestA, false},
+		"inferred-repo":    {"oci://" + reg + "/acme/pacto-inferred/svc@" + digestA, false},
+		"targets-repo":     {"oci://" + reg + "/acme/pacto-targets@" + digestA, false},
+		"index-repo":       {"oci://" + reg + "/acme/pacto-index@" + digestA, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := s.AuthorizeSubject(tc.ref)
+			if tc.ok && err != nil {
+				t.Fatalf("AuthorizeSubject(%q) = %v, want accepted", tc.ref, err)
+			}
+			if !tc.ok && !errors.Is(err, evidenceingest.ErrContractRefPolicy) {
+				t.Fatalf("AuthorizeSubject(%q) = %v, want ErrContractRefPolicy", tc.ref, err)
+			}
+		})
 	}
 }

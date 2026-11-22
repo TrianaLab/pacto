@@ -19,6 +19,10 @@ const (
 	IndexRepository = "pacto-index"
 	// InferredRepository holds the inferred provider contracts. The operator writes it.
 	InferredRepository = "pacto-inferred"
+	// EvidenceRepository holds the Evidence Server's subject ledger and
+	// write-once evidence records under each subject prefix. Only the Evidence
+	// Server writes it, so it is never part of the default scope below.
+	EvidenceRepository = "pacto-evidence"
 )
 
 // maxManifestBytes bounds how much of a manifest body the push scope reads to

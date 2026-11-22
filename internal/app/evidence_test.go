@@ -25,6 +25,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 // sampleEvidenceSet returns a minimal, structurally valid EvidenceSet.
@@ -1150,7 +1151,7 @@ func TestBuildEvidenceHost_Errors(t *testing.T) {
 
 	cases := map[string]ServeOptions{
 		"unreadable trust store": {TrustPath: t.TempDir(), Subjects: []string{f.subject}},
-		// No subject at all: there is nowhere to write and nothing to read, and
+		// No subject or prefix at all: there is nowhere to write and nothing to read, and
 		// there is deliberately no catalog-wide discovery to fall back on.
 		"no configured subject": {TrustPath: f.trustDir},
 		// A mutable tag is not a revision: evidence attached to it would silently
@@ -1159,6 +1160,7 @@ func TestBuildEvidenceHost_Errors(t *testing.T) {
 		"local path subject":  {TrustPath: f.trustDir, Subjects: []string{"./bundle"}},
 		// Parses as a subject, but no registry client can address it.
 		"unaddressable registry": {TrustPath: f.trustDir, Subjects: []string{"oci://bad host/orders@" + digest}},
+		"malformed prefix":       {TrustPath: f.trustDir, SubjectPrefixes: []string{"oci://reg.example/acme"}},
 	}
 	for name, opts := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1688,5 +1690,150 @@ func TestTrustConfigRefusesInferredProviderRepo(t *testing.T) {
 	// A host named pacto-inferred is no inferred repository.
 	if err := validateProviderScope(trustConfigKey{AllowedProviderRepos: []string{"pacto-inferred.example/acme/db"}, AllowedObservationKinds: []string{string(evidence.ResourceProvisioned)}}); err != nil {
 		t.Error(err)
+	}
+}
+
+// prefixFixture is an Evidence Server configured with only the acme/ subject
+// prefix over an in-process OCI 1.1 registry, and one key for prod-eu.
+type prefixFixture struct {
+	svc    *Service
+	client *oci.Client
+	host   string
+	dir    string
+	kp     KeyPair
+}
+
+func newPrefixFixture(t *testing.T) prefixFixture {
+	t.Helper()
+	host, _ := referrersRegistry(t)
+	svc, client := mxService(mxHostKeychain{})
+	dir := t.TempDir()
+	kp, err := (&Service{}).GenerateKey(dir, "prod-eu", "k1", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return prefixFixture{svc: svc, client: client, host: host, dir: dir, kp: kp}
+}
+
+// opts serves trust (default: the key directory) with the acme/ prefix only.
+func (f prefixFixture) opts(trust string) ServeOptions {
+	return ServeOptions{TrustPath: cmp.Or(trust, f.dir), SubjectPrefixes: []string{"oci://" + f.host + "/acme/"}, Producers: []string{"prod-eu"}}
+}
+
+// push publishes svc-a version at repo and returns its immutable contract ref.
+func (f prefixFixture) push(t *testing.T, repo, version string) string {
+	t.Helper()
+	digest, err := f.client.Push(context.Background(), f.host+"/"+repo+":"+version, mxBundle(t, "svc-a", version))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "oci://" + f.host + "/" + repo + "@" + digest
+}
+
+// post signs a report on contractRef with seq and posts it to base.
+func (f prefixFixture) post(t *testing.T, base, contractRef string, seq uint64) SendResult {
+	t.Helper()
+	set := sampleEvidenceSet()
+	set.ContractRef = contractRef
+	set.Subject = evidence.SubjectRef{Kind: "service", Name: "svc-a"}
+	env, err := f.svc.SignEvidenceSet(set, SignOptions{KeyPath: f.kp.PrivateKeyPath, KeyID: f.kp.KeyID, ProducerID: "prod-eu", Sequence: seq, TTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := f.svc.PostEnvelope(context.Background(), base+"/api/evidence/v1/envelopes", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func TestServeEvidencePrefixAcceptsNewDigestWithoutRestart(t *testing.T) {
+	f := newPrefixFixture(t)
+	base := serveEvidence(t, f.svc, f.opts(""))
+	if code := getStatus(t, base+"/api/evidence/v1/ready"); code != http.StatusOK {
+		t.Fatalf("ready over an empty ledger = %d, want 200", code)
+	}
+
+	// Published after the server started: no Helm edit, no restart.
+	first := f.push(t, "acme/svc-a", "1.0.0")
+	if res := f.post(t, base, first, 1); res.StatusCode != http.StatusAccepted {
+		t.Fatalf("post on a new revision = %d %s, want 202", res.StatusCode, res.Body)
+	}
+	if body := getBody(t, base+"/api/evidence/v1/targets"); !strings.Contains(body, "svc-a") {
+		t.Errorf("targets = %q, want svc-a", body)
+	}
+
+	restarted := serveEvidence(t, f.svc, f.opts(""))
+	if body := getBody(t, restarted+"/api/evidence/v1/targets"); !strings.Contains(body, "svc-a") {
+		t.Errorf("targets after restart = %q, want svc-a read from the ledger", body)
+	}
+	if res := f.post(t, restarted, first, 1); res.StatusCode != http.StatusConflict {
+		t.Errorf("replay after restart = %d %s, want 409", res.StatusCode, res.Body)
+	}
+	second := f.push(t, "acme/svc-a", "1.1.0")
+	if res := f.post(t, restarted, second, 1); res.StatusCode != http.StatusConflict {
+		t.Errorf("replay aimed at another revision after restart = %d %s, want 409", res.StatusCode, res.Body)
+	}
+	if res := f.post(t, restarted, second, 2); res.StatusCode != http.StatusAccepted {
+		t.Errorf("new report on another revision = %d %s, want 202", res.StatusCode, res.Body)
+	}
+}
+
+func TestServeEvidencePrefixRefusesTagAndOutside(t *testing.T) {
+	f := newPrefixFixture(t)
+	base := serveEvidence(t, f.svc, f.opts(""))
+	digest := "@sha256:" + strings.Repeat("a", 64)
+	for name, ref := range map[string]string{
+		"mutable tag":    "oci://" + f.host + "/acme/svc-a:1.0.0",
+		"outside":        "oci://" + f.host + "/other/svc-a" + digest,
+		"pacto-inferred": "oci://" + f.host + "/acme/pacto-inferred/svc-a" + digest,
+	} {
+		if res := f.post(t, base, ref, 1); res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(res.Body, "contract_ref_rejected") {
+			t.Errorf("%s: %d %s, want 422 contract_ref_rejected", name, res.StatusCode, res.Body)
+		}
+	}
+}
+
+// trustYAML writes a structured trust config for the fixture's key with the
+// given allowedContractRepos line (empty for none) and returns its path.
+func (f prefixFixture) trustYAML(t *testing.T, contractRepos string) string {
+	t.Helper()
+	y := "apiVersion: pacto.dev/evidence-trust/v1\nkeys:\n  - keyId: k1\n    producerId: prod-eu\n    publicKeyFile: " + filepath.Base(f.kp.PublicKeyPath) + "\n"
+	if contractRepos != "" {
+		y += "    allowedContractRepos: [" + contractRepos + "]\n"
+	}
+	p := filepath.Join(f.dir, "trust.yaml")
+	if err := os.WriteFile(p, []byte(y), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestServeEvidencePrefixStillNarrowedByTrust(t *testing.T) {
+	f := newPrefixFixture(t)
+	base := serveEvidence(t, f.svc, f.opts(f.trustYAML(t, f.host+"/acme/payments")))
+	invoices := "oci://" + f.host + "/acme/invoices@sha256:" + strings.Repeat("a", 64)
+	if res := f.post(t, base, invoices, 1); res.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("covered ref outside the key's contract repos = %d %s, want 422", res.StatusCode, res.Body)
+	}
+}
+
+func TestServeEvidenceWarnsContractUnscopedKeysWithPrefix(t *testing.T) {
+	f := newPrefixFixture(t)
+	const warning = "has no allowedContractRepos: it may report on every revision under the subject prefixes"
+	logged := func(opts ServeOptions) string {
+		var buf bytes.Buffer
+		serveEvidenceCtx(t, logging.WithLogger(context.Background(), logging.New(&buf, false)), f.svc, opts)
+		return buf.String()
+	}
+	if out := logged(f.opts("")); !strings.Contains(out, "evidence key k1 "+warning) {
+		t.Errorf("log = %q, want the unscoped key named", out)
+	}
+	if out := logged(f.opts(f.trustYAML(t, f.host+"/acme"))); strings.Contains(out, warning) {
+		t.Errorf("log = %q, a scoped key must not be warned about", out)
+	}
+	exactOnly := ServeOptions{TrustPath: f.dir, Subjects: []string{f.push(t, "acme/svc-a", "1.0.0")}}
+	if out := logged(exactOnly); strings.Contains(out, warning) {
+		t.Errorf("log = %q, nothing to warn about with no prefix", out)
 	}
 }
