@@ -6087,8 +6087,8 @@ export interface components {
              */
             resourcesTotal?: number;
             service: string;
-            /** @description For an external answer: where each use of the external system was seen */
-            sources?: ("declared" | "observed" | "pod-spec" | "repository")[] | null;
+            /** @description For an external answer: where each use of the external system was seen; inferred is a call seen from an inferred service */
+            sources?: ("declared" | "observed" | "inferred" | "pod-spec" | "repository")[] | null;
             status?: string;
             targets?: string[] | null;
             uncontracted?: boolean;
@@ -6362,7 +6362,7 @@ export interface components {
             oldVersion?: string;
             /** @description The canonical owner keys of the affected consumers */
             owners?: string[] | null;
-            /** @description YAML that pins a range on the external system for a consumer that declares none */
+            /** @description YAML that pins a range on the external system's inferred contract for a consumer that pins none, or declares the external system when no inferred contract exists */
             pin?: string;
             /** @description The range policy the answer was held to; absent on an event answer */
             policy?: components["schemas"]["Impact.Policy"];
@@ -7155,7 +7155,7 @@ export interface components {
             offering?: components["schemas"]["ProductRef"];
             oldRevision?: components["schemas"]["ProductRef"];
             owners: components["schemas"]["ProductRefPreview"];
-            /** @description YAML that pins a range on the external system for a consumer that declares none */
+            /** @description YAML that pins a range on the external system's inferred contract for a consumer that pins none, or declares the external system when no inferred contract exists */
             pin?: string;
             /** @description The services that provide the offering of an offering event, each with its owner */
             providers?: components["schemas"]["ProductRef"][] | null;
@@ -7209,8 +7209,8 @@ export interface components {
              */
             resourcesTotal?: number;
             service: components["schemas"]["ProductRef"];
-            /** @description For an external answer: where each use of the external system was seen */
-            sources?: ("declared" | "observed" | "pod-spec" | "repository")[] | null;
+            /** @description For an external answer: where each use of the external system was seen; inferred is a call seen from an inferred service */
+            sources?: ("declared" | "observed" | "inferred" | "pod-spec" | "repository")[] | null;
             /** @description The keys of the listed targets whose evidence is older than 24h before asOf, has no time, is marked stale by its source or is missing from the snapshot */
             staleTargets?: string[] | null;
             targets?: components["schemas"]["ProductRef"][] | null;

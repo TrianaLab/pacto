@@ -200,7 +200,7 @@ type AffectedConsumer struct {
 	Effect string `json:"effect,omitempty" enum:"breaks,may-degrade,attention,unknown" doc:"What the event does to this consumer: breaks (every hop of a path is a required dependency), may-degrade (every path holds an optional dependency), attention (an external system it uses changed) or unknown"`
 	// Sources and Client are an external answer's facts: where each use of
 	// the external system was seen, and the client library its record names.
-	Sources []string              `json:"sources,omitempty" enum:"declared,observed,pod-spec,repository" doc:"For an external answer: where each use of the external system was seen"`
+	Sources []string              `json:"sources,omitempty" enum:"declared,observed,inferred,pod-spec,repository" doc:"For an external answer: where each use of the external system was seen; inferred is a call seen from an inferred service"`
 	Client  *fleet.ExternalClient `json:"client,omitempty" doc:"For an external answer: the client library and major the consumer's inferred record names; absent when none names a major"`
 	// Resources are the provisioning statuses of what this consumer asked a
 	// removed service for, bounded to MaxConsumerResources.
@@ -297,7 +297,7 @@ type Result struct {
 	// External and Pin are an external event's subject and the range-pin
 	// YAML for a consumer that declares no range.
 	External *ExternalSubject `json:"external,omitempty" doc:"The external system an external event is about"`
-	Pin      string           `json:"pin,omitempty" doc:"YAML that pins a range on the external system for a consumer that declares none"`
+	Pin      string           `json:"pin,omitempty" doc:"YAML that pins a range on the external system's inferred contract for a consumer that pins none, or declares the external system when no inferred contract exists"`
 	// Templates are the golden paths that reference the changed service's
 	// policy. A golden path runs nowhere, so it never holds the gate.
 	Templates []string `json:"templates,omitempty" doc:"The service keys of the golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate, but a service created from one checks against the new policy. Review each"`

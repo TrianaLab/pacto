@@ -82,7 +82,7 @@ func rowOf(t *testing.T, res *Result, name string) AffectedConsumer {
 
 func TestExternalChangedEveryConsumerAttention(t *testing.T) {
 	res := externalEvent(externalFleet(t), EventChanged, "stripe")
-	if len(res.Consumers) != 3 || res.Gate != GateUnverified || res.GateReason != GateReasonExternal || res.Service != "stripe" {
+	if len(res.Consumers) != 3 || res.Gate != GateUnverified || !strings.HasPrefix(res.GateReason, GateReasonExternal) || res.Service != "stripe" {
 		t.Fatalf("answer %s %q %+v", res.Gate, res.GateReason, res.Consumers)
 	}
 	for _, c := range res.Consumers {
@@ -120,7 +120,7 @@ func TestExternalEventGateAlwaysUnverified(t *testing.T) {
 	snap.Externals["stripe"].Sources = nil
 	for _, kind := range []string{EventChanged, EventUnavailable} {
 		res := externalEvent(snap, kind, "stripe")
-		if len(res.Consumers) != 0 || res.Completeness != fleet.CompletenessComplete || res.Gate != GateUnverified || res.GateReason != GateReasonExternal {
+		if len(res.Consumers) != 0 || res.Completeness != fleet.CompletenessComplete || res.Gate != GateUnverified || !strings.HasPrefix(res.GateReason, GateReasonExternal) {
 			t.Errorf("%s: %s %s %q", kind, res.Completeness, res.Gate, res.GateReason)
 		}
 	}
@@ -159,7 +159,7 @@ func TestEffectForUse(t *testing.T) {
 func TestExternalGateReasonNamesShownVersion(t *testing.T) {
 	res := externalEvent(providerFleet(t, "^2023.10"), EventChanged, "stripe")
 	want := "stripe's inferred contract 0.0.5 is no contract this organization controls, so no range against it can be verified: 1 of 2 consumers pin a range on it. " +
-		fleet.InferredExternalNextStep("stripe")
+		fleet.InferredExternalNextStep("stripe") + ". No observation source was consulted, so an undeclared caller is not listed"
 	if res.GateReason != want || strings.Contains(res.GateReason, "  ") {
 		t.Errorf("reason %q", res.GateReason)
 	}
@@ -322,6 +322,65 @@ func TestCommonRangeTiesByString(t *testing.T) {
 	snap.Relationships = snap.Relationships[:2]
 	if got := commonRange(snap, "stripe"); got != "^1" {
 		t.Errorf("tie %q", got)
+	}
+}
+
+// A consumer that pins "unknown" pins no range: it still gets the pin, the
+// gate reason does not count it and "unknown" never outvotes a real range.
+func TestExternalPinnedUnknownIsNoRange(t *testing.T) {
+	res := externalEvent(providerFleet(t, contract.CompatibilityUnknown), EventChanged, "stripe")
+	if !strings.Contains(res.GateReason, "0 of 2 consumers pin a range") {
+		t.Errorf("reason %q", res.GateReason)
+	}
+	only := buildAt(t, &fleet.Collection{Revisions: []fleet.RawRevision{inferredStripe("0.0.5"), rev("checkout", pinned(contract.CompatibilityUnknown))}})
+	if pin := externalEvent(only, EventChanged, "stripe").Pin; pin == "" {
+		t.Error("a consumer pinned to unknown still gets the pin")
+	}
+	snap := &fleet.FleetSnapshot{Relationships: []fleet.Relationship{{ToExternal: "stripe", Compatibility: "unknown"},
+		{ToExternal: "stripe", Compatibility: "unknown"}, {ToExternal: "stripe", Compatibility: "^2024.6"}}}
+	if got := commonRange(snap, "stripe"); got != "^2024.6" {
+		t.Errorf("common range %q, want ^2024.6", got)
+	}
+}
+
+// A call seen from an inferred service is inferred, never observed.
+func TestExternalInferredCallerIsInferred(t *testing.T) {
+	snap := externalFleet(t)
+	rec := snap.Externals["stripe"]
+	for i := range rec.Sources {
+		if rec.Sources[i].Kind == fleet.ExternalSourceObserved && rec.Sources[i].Service == keyOf(t, snap, "shadow") {
+			rec.Sources[i].Provenance = fleet.ProvenanceInferred
+		}
+	}
+	c := rowOf(t, externalEvent(snap, EventChanged, "stripe"), "shadow")
+	if !reflect.DeepEqual(c.Sources, []string{"inferred"}) || c.Provenance != fleet.ProvenanceInferred || c.Confidence != ConfidenceInferred ||
+		!reflect.DeepEqual(c.Via, []string{fleet.ProvenanceInferred}) {
+		t.Errorf("shadow %+v", c)
+	}
+}
+
+// A stale egress call is evidence with its time and lowers confidence to
+// unknown; its source is named in the gate reason.
+func TestExternalStaleEgressLowersConfidence(t *testing.T) {
+	snap := externalFleet(t)
+	seen := snap.GeneratedAt.Add(-21 * 24 * time.Hour)
+	snap.Relationships = append(snap.Relationships, fleet.Relationship{Type: fleet.RelationshipDependency, Provenance: fleet.ProvenanceObserved,
+		FromService: keyOf(t, snap, "shadow"), ToExternal: "stripe", Source: "otel", ObservedCount: 3, LastSeen: &seen})
+	res := externalEvent(snap, EventChanged, "stripe")
+	c := rowOf(t, res, "shadow")
+	if c.Confidence != ConfidenceUnknown || len(c.Evidence) != 1 || c.Evidence[0].Kind != EvidenceObservedCall || !c.Evidence[0].Stale {
+		t.Errorf("shadow %+v", c)
+	}
+	if !strings.HasSuffix(res.GateReason, "Observation sources consulted: otel") || hasCode(res.Limitations, LimitationExternalEgressUnread) {
+		t.Errorf("reason %q, limitations %+v", res.GateReason, res.Limitations)
+	}
+}
+
+// With no observation source the answer says an undeclared caller is unseen.
+func TestExternalNoEgressSourceSaysSo(t *testing.T) {
+	res := externalEvent(externalFleet(t), EventUnavailable, "stripe")
+	if !hasCode(res.Limitations, LimitationExternalEgressUnread) || !strings.Contains(res.GateReason, "No observation source was consulted") {
+		t.Errorf("reason %q, limitations %+v", res.GateReason, res.Limitations)
 	}
 }
 

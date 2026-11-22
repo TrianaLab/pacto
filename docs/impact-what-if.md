@@ -90,7 +90,8 @@ digest or its clients, the fleet raises
 [`EXTERNAL_CHANGED`](operational-graph-reference.md#external-systems) for 7
 days. When no visible service declares, calls or uses the identity, the answer
 raises `EXTERNAL_NOT_IN_FLEET` and is partial; `pacto fleet search` lists the
-identities the fleet holds. A `changed` event asked of a service or an offering
+identities the fleet holds. With no observation source the answer raises
+`EXTERNAL_EGRESS_UNREAD`: undeclared callers are not listed. A `changed` event asked of a service or an offering
 raises `EVENT_NEEDS_EXTERNAL`. MCP takes `external` in place of `service`, and
 the External page links here with **What if it changes?**.
 

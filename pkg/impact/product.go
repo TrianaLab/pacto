@@ -88,7 +88,7 @@ type ProductConsumer struct {
 	Break *BreakState `json:"break,omitempty" doc:"Where the break the new revision announces for this consumer stands: announced, accepted (it never blocks) or expired"`
 	// Sources and Client are an external answer's facts, as
 	// [AffectedConsumer] carries them.
-	Sources []string              `json:"sources,omitempty" enum:"declared,observed,pod-spec,repository" doc:"For an external answer: where each use of the external system was seen"`
+	Sources []string              `json:"sources,omitempty" enum:"declared,observed,inferred,pod-spec,repository" doc:"For an external answer: where each use of the external system was seen; inferred is a call seen from an inferred service"`
 	Client  *fleet.ExternalClient `json:"client,omitempty" doc:"For an external answer: the client library and major the consumer's inferred record names; absent when none names a major"`
 }
 
@@ -198,7 +198,7 @@ type Product struct {
 	// as [Result.External] and [Result.Pin]; Service is then the external's
 	// own reference.
 	External *ExternalSubject `json:"external,omitempty" doc:"The external system an external event is about; service is then the same external reference"`
-	Pin      string           `json:"pin,omitempty" doc:"YAML that pins a range on the external system for a consumer that declares none"`
+	Pin      string           `json:"pin,omitempty" doc:"YAML that pins a range on the external system's inferred contract for a consumer that pins none, or declares the external system when no inferred contract exists"`
 	// ChangedOwner is the changed service's own owner.
 	ChangedOwner *fleet.EntityRef `json:"changedOwner,omitempty" doc:"A reference to the changed service's owner"`
 	// Gate and GateReason are the release gate of the analysis, as

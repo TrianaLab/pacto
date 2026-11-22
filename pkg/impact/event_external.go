@@ -18,6 +18,10 @@ const (
 	// LimitationEventNeedsExternal: a change of something no contract in the
 	// fleet describes belongs to an external system.
 	LimitationEventNeedsExternal = "EVENT_NEEDS_EXTERNAL"
+	// LimitationExternalEgressUnread: no observation source fed the
+	// snapshot, so a service that calls the external system without
+	// declaring it is not listed.
+	LimitationExternalEgressUnread = "EXTERNAL_EGRESS_UNREAD"
 )
 
 // GateReasonExternal is the gate reason of an external answer with no
@@ -29,7 +33,12 @@ const GateReasonExternal = "an external system is never verified: Pacto observes
 const externalPinVersion = "<the API version you call>"
 
 // The consumer sources of an external answer (see [AffectedConsumer.Sources]).
-const sourceDeclared = "declared"
+const (
+	sourceDeclared = "declared"
+	// sourceInferredCall is a call a source saw whose caller is an inferred
+	// service: inferred, never observed.
+	sourceInferredCall = fleet.ProvenanceInferred
+)
 
 // ExternalSubject is the external system an external event is about.
 type ExternalSubject struct {
@@ -61,7 +70,12 @@ func analyzeExternalEvent(snap *fleet.FleetSnapshot, q *fleet.Query, opts Option
 	}
 	res.External.Class, res.Hidden = rec.Class, rec.HiddenConsumers
 	for _, s := range sortedExternalSources(rec.Sources) {
-		res.Consumers = mergeEventConsumer(res.Consumers, externalConsumerRow(snap, key, s))
+		row := externalConsumerRow(snap, key, s)
+		res.Consumers = mergeEventConsumer(res.Consumers, row)
+		if row.Confidence == ConfidenceUnknown { // a stale or caution-only call lowers the merged row too
+			i := slices.IndexFunc(res.Consumers, func(e AffectedConsumer) bool { return e.Service == row.Service && e.Domain == row.Domain })
+			res.Consumers[i].Confidence = ConfidenceUnknown
+		}
 	}
 	required := externalRequired(rec.Sources)
 	for i := range res.Consumers {
@@ -79,6 +93,10 @@ func analyzeExternalEvent(snap *fleet.FleetSnapshot, q *fleet.Query, opts Option
 		res.Limitations = append(res.Limitations, fleet.Limitation{Code: LimitationInferredProvider, Source: limitationSource,
 			Message: id + " has an inferred contract under " + p.Repository + "; Pacto never checks a range against it"})
 		res.forceUnknownVerdicts()
+	}
+	if res.observationSources = observationSources(snap, false); len(res.observationSources) == 0 {
+		res.Limitations = append(res.Limitations, fleet.Limitation{Code: LimitationExternalEgressUnread, Source: limitationSource,
+			Message: "no observation source fed the snapshot, so a service that calls " + id + " without declaring it is not listed"})
 	}
 	if q.ExternalsUnreported() {
 		res.partial(fleet.LimitationExternalsUnreported, "some targets do not report the external systems they use, so the consumers listed may be incomplete")
@@ -122,29 +140,56 @@ func externalRequired(sources []fleet.ExternalSource) map[fleet.ServiceKey]bool 
 // names. Effect, provenance and confidence are set once the rows of the
 // consumer are merged (see [finishExternalConsumer]).
 func externalConsumerRow(snap *fleet.FleetSnapshot, key fleet.ExternalKey, s fleet.ExternalSource) AffectedConsumer {
-	c, stale := consumerBase(snap, s.Service, fleet.ServiceKey(fleet.ExternalSubjectPrefix+string(key)), nil)
+	subject := fleet.ServiceKey(fleet.ExternalSubjectPrefix + string(key))
+	name := externalSourceName(s)
+	var observed []resolvedObservedEdge
+	if name == fleet.ExternalSourceObserved {
+		observed = externalObservedEdges(snap, key, s.Service, subject)
+	}
+	c, stale := consumerBase(snap, s.Service, subject, observed)
 	c.Depth, c.Direct, c.CompatibilityVerdict = 1, true, CompatibilityUnknown
-	c.Sources, c.Via = []string{externalSourceName(s.Kind)}, []string{externalVia(s.Kind)}
+	c.Sources, c.Via = []string{name}, []string{externalVia(name)}
 	c.Client = fleet.ExternalClientOf(snap, s.Revision, key)
-	if stale {
+	caution := len(observed) > 0 && !slices.ContainsFunc(observed, func(e resolvedObservedEdge) bool { return !e.cautionOnly })
+	if stale || caution {
 		c.Confidence = ConfidenceUnknown
 	}
 	return c
 }
 
-// externalSourceName is the consumer source of a source kind: a contract's
-// dependency is declared, every other kind keeps its name.
-func externalSourceName(kind string) string {
-	if kind == fleet.ExternalSourceContract {
-		return sourceDeclared
+// externalObservedEdges are the observed calls from service to the external
+// key, as the edges the consumer's evidence reads: their last time, count,
+// staleness and whether only caution-only sources saw them.
+func externalObservedEdges(snap *fleet.FleetSnapshot, key fleet.ExternalKey, service, subject fleet.ServiceKey) []resolvedObservedEdge {
+	var out []resolvedObservedEdge
+	for _, r := range snap.Relationships {
+		if r.Provenance == fleet.ProvenanceObserved && r.ToExternal == key && r.FromService == service {
+			out = append(out, resolvedObservedEdge{consumer: service, provider: subject, source: observedSource(r),
+				count: r.ObservedCount, lastSeen: copyTime(r.LastSeen), stale: r.LastSeen != nil && staleAt(snap, r.LastSeen),
+				cautionOnly: snap.CautionOnly(r)})
+		}
 	}
-	return kind
+	return out
 }
 
-// externalVia is the edge type a source kind makes its service a consumer by.
-func externalVia(kind string) string {
-	switch kind {
-	case fleet.ExternalSourceContract:
+// externalSourceName is the consumer source of a source: a contract's
+// dependency is declared, a call seen from an inferred service is inferred,
+// every other kind keeps its name.
+func externalSourceName(s fleet.ExternalSource) string {
+	switch {
+	case s.Kind == fleet.ExternalSourceContract:
+		return sourceDeclared
+	case s.Kind == fleet.ExternalSourceObserved && s.Provenance == fleet.ProvenanceInferred:
+		return sourceInferredCall
+	}
+	return s.Kind
+}
+
+// externalVia is the edge type a consumer source makes its service a
+// consumer by.
+func externalVia(name string) string {
+	switch name {
+	case sourceDeclared:
 		return fleet.RelationshipDependency
 	case fleet.ExternalSourceObserved:
 		return fleet.ProvenanceObserved
@@ -221,7 +266,7 @@ func externalNote(effect string) string {
 // (unknown when nobody pins one); without one no range can be pinned, so the
 // block declares the external with the version placeholder.
 func pinFor(snap *fleet.FleetSnapshot, key fleet.ExternalKey, rec *fleet.ExternalRecord, consumers []AffectedConsumer) string {
-	if !slices.ContainsFunc(consumers, func(c AffectedConsumer) bool { return c.Compatibility == "" }) {
+	if !slices.ContainsFunc(consumers, func(c AffectedConsumer) bool { return !contract.IsRange(c.Compatibility) }) {
 		return ""
 	}
 	id := string(key)
@@ -242,7 +287,7 @@ func pinFor(snap *fleet.FleetSnapshot, key fleet.ExternalKey, rec *fleet.Externa
 func commonRange(snap *fleet.FleetSnapshot, key fleet.ExternalKey) string {
 	counts := map[string]int{}
 	for _, rel := range snap.Relationships {
-		if rel.ToExternal == key && rel.Compatibility != "" {
+		if rel.ToExternal == key && contract.IsRange(rel.Compatibility) {
 			counts[rel.Compatibility]++
 		}
 	}
@@ -258,17 +303,21 @@ func commonRange(snap *fleet.FleetSnapshot, key fleet.ExternalKey) string {
 // externalGateReason is the gate reason of an external answer: always
 // unverified, naming the inferred contract shown when one was read.
 func (r *Result) externalGateReason() string {
+	seen := ". No observation source was consulted, so an undeclared caller is not listed"
+	if len(r.observationSources) > 0 {
+		seen = ". Observation sources consulted: " + strings.Join(r.observationSources, ", ")
+	}
 	if r.inferredExternal == "" {
-		return GateReasonExternal
+		return GateReasonExternal + seen
 	}
 	n, k := len(r.Consumers), 0
 	for _, c := range r.Consumers {
-		if c.Compatibility != "" {
+		if contract.IsRange(c.Compatibility) {
 			k++
 		}
 	}
 	return r.inferredExternal + "'s inferred contract " + strings.TrimSpace(r.inferredVersion+" is") +
 		" no contract this organization controls, so no range against it can be verified: " +
 		strconv.Itoa(k) + " of " + strconv.Itoa(n) + " " + plural(n, "consumer pins", "consumers pin") + " a range on it. " +
-		fleet.InferredExternalNextStep(r.inferredExternal)
+		fleet.InferredExternalNextStep(r.inferredExternal) + seen
 }
