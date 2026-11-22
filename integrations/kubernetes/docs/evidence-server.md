@@ -7,18 +7,22 @@ checks each report against the contract and stores it in your registry.
 
 It is off by default (`evidence.enabled: false`). Turning it on needs three
 things the chart cannot guess. Settle the first before you publish anything: it
-decides which registry the contract itself has to live in.
+decides which subjects you list.
 
-## Check the registry serves the native Referrers API
+## Check how your registry stores evidence
 
-Each report is stored next to the contract version it is about, in the same
-registry repository, as an OCI 1.1 *referrer* (an artifact that points at
-another artifact). Pacto has no fallback to the older tag-based scheme, so the registry holding
-the contract must support Referrers lookup. **GHCR does not qualify**, and
-neither does CNCF distribution (`registry:2`, `registry:3`); see
-[Evidence in OCI](../../evidence.md#registry-conformance). This matters because
-every other page on this site publishes to `ghcr.io`. Choose a conformant
-registry for the contract before you run `pacto push`.
+On a registry that serves the OCI 1.1 Referrers API (zot, Docker Hub, Harbor,
+ECR, ACR, Artifactory), each report is stored next to the contract version it
+is about as a *referrer* (an artifact that points at another artifact). GHCR
+and CNCF distribution (`registry:2`, `registry:3`) serve no Referrers API:
+there the server stores each report as a write-once tag in
+`<prefix>pacto-evidence`, which needs a subject prefix that covers the
+revision. Pacto probes each registry once and never writes the shared
+`sha256-<digest>` referrers tag; see
+[How evidence is stored](../../evidence-storage.md#how-evidence-is-stored). The
+`Registry <host>` row in
+[Detected providers](../../operational-graph-providers.md#registry-rows) shows
+the mode it found.
 
 ## Create the trust store
 
@@ -51,7 +55,7 @@ The private `.key` stays with the producer that signs; the cluster needs only
 the public key. [Evidence security](../../evidence.md#trust-store-and-trust-config) covers rotation and
 multi-producer trust.
 
-## Get the subject digest
+## Choose the subjects
 
 A subject is one immutable contract revision, and
 `pacto push` prints the digest of the revision it just published:
@@ -72,20 +76,43 @@ helm install pacto-operator \
   --set evidence.trust.existingSecret=pacto-evidence-trust
 ```
 
-- **At least one subject.** `evidence.registry.subjects` lists the exact,
-  immutable contract revisions evidence may be reported against, each an
-  `oci://<repo>@sha256:<digest>` reference. The chart's schema rejects an empty
-  list, so `helm install` fails before anything reaches the cluster:
-  `at '/evidence/registry/subjects': minItems: got 0, want 1`. It rejects a
-  short or tag-shaped reference the same way: the digest has to be all 64 hex
-  characters.
+To accept evidence for every revision published under a registry path,
+including revisions published after install, set a subject prefix instead of
+or beside the exact subjects. No Helm edit and no restart is needed per new
+revision:
+
+```yaml
+evidence:
+  enabled: true
+  registry:
+    subjectPrefixes: ["oci://registry.example.com/your-org/"]
+    credentialsSecret: pacto-evidence-registry
+  trust:
+    existingSecret: pacto-evidence-trust
+```
+
+The server records each subject in `registry.example.com/your-org/pacto-evidence`,
+so `credentialsSecret` must allow push there. That repository holds the refs
+and evidence of every revision under the prefix: keep it private, or no more
+visible than the most restricted repository under the prefix. Keep the
+existing `subjects` when you add a prefix, so their earlier evidence stays in
+the replay check. See [Subject prefixes](../../evidence-storage.md#subject-prefixes).
+
+- **At least one subject or subject prefix.** `evidence.registry.subjects`
+  lists exact, immutable contract revisions, each an
+  `oci://<repo>@sha256:<digest>` reference, and
+  `evidence.registry.subjectPrefixes` lists registry prefixes ending in `/`.
+  The chart's schema rejects an install with neither, so `helm install` fails
+  before anything reaches the cluster:
+  `at '/evidence/registry': 'anyOf' failed`. It rejects a short or tag-shaped
+  subject the same way: the digest has to be all 64 hex characters.
 - **A trust store.** `evidence.trust.existingSecret` names the Secret you
   created above. The chart does **not** check this one, so an install without
   it succeeds and the operator then exits at startup with `evidence enabled but
   no trust secret set: signature verification is mandatory`. Verification is
   mandatory.
-- **A registry that serves the native Referrers API**, as above. Nothing checks
-  it at install time: the chart installs, the operator starts and the failure
+- **A subject prefix for a registry without Referrers**, as above. Nothing
+  checks it at install time: an exact subject on GHCR that no prefix covers
   surfaces later as an Evidence Server that never becomes ready.
 
 If that registry is private, there is a fourth thing you create yourself: a
@@ -111,14 +138,21 @@ pacto-operator    1/1     1            1           21s
 ```
 
 `1/1` means more than "the process started". Readiness is
-`GET /api/evidence/v1/ready`, which answers `503` until **every** subject
-resolves in the registry *and* answers native Referrers discovery. A
-`pacto-evidence` stuck at `0/1` is nearly always a subject the cluster cannot
-pull or a registry without the Referrers API. Read the server's own log:
+`GET /api/evidence/v1/ready`, which answers `503` until **every** exact
+subject resolves, every subject prefix's ledger can be listed *and* each
+registry has been probed once. A `pacto-evidence` stuck at `0/1` is nearly
+always a subject the cluster cannot pull or a registry the probe cannot
+classify. Read the server's own log:
 
 ```bash
 kubectl -n pacto-operator-system logs deploy/pacto-evidence
 ```
+
+| Log message | Fix |
+|---|---|
+| `registry <host> serves no OCI Referrers: add a subject prefix covering <ref> ...` | Add a `subjectPrefixes` entry that covers that subject. |
+| `ledger <prefix>pacto-evidence holds more than 100000 tags ...` | Let registry retention delete old `evidence-<hash>-<12 hex>` record tags, keeping the newest per producer and per target and every anchor tag. Until then every write is `503`. |
+| `evidence key <id> has no allowedContractRepos: it may report on every revision under the subject prefixes` | Set `allowedContractRepos` for that key in the trust config. |
 
 The Service is `pacto-evidence` on port `8686`. Producers inside the cluster
 POST signed envelopes to it:
@@ -155,7 +189,8 @@ A provider adapter reports the state of a resource a consumer's contract asked
 for as a [`ResourceProvisioned`](../../provider-reports.md#provisioning-reports)
 EvidenceSet, written with `pacto evidence provisioned`. The report is stored on
 the consumer's contract revision, so that revision must be one of the
-`evidence.registry.subjects`. Use one EvidenceSet subject per resource: the
+`evidence.registry.subjects` or sit under one of the
+`evidence.registry.subjectPrefixes`. Use one EvidenceSet subject per resource: the
 default, `<repository>/<environment or default>/<kind>/<name>`, keeps each resource's
 latest report apart.
 

@@ -291,6 +291,7 @@ nav:
       - Lockfile: lockfile.md
       - Packaging ignore: pactoignore.md
       - Evidence: evidence.md
+      - Evidence storage: evidence-storage.md
       - Provider reports: provider-reports.md
       - Plugin development: plugins.md
       # Kubernetes pages are owned by integrations/kubernetes/docs and assembled
