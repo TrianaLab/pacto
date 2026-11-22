@@ -1306,7 +1306,8 @@ func (d *demoDelivery) PublishRefusals(context.Context, string) (*dashboard.Publ
 	c := diff.Compare(context.Background(), base.Contract, tried.Contract, base.FS, tried.FS).Classification
 	bump := diff.RequiredBump(c, "2.4.2")
 	return &dashboard.PublishRefusals{Completeness: "complete",
-		Note: "Simulated: one fixed refusal from the payments story. The bump is computed by Pacto's diff; nothing here signed or checked the refusal.",
+		Note: "Simulated: one fixed refused publish from the payments story; a cluster reads refused publishes and promotes from each service's contract bundle repository and delivery record stream. " +
+			"The bump is computed by Pacto's diff; nothing here signed or checked the refusal.",
 		Refusals: []dashboard.PublishRefusal{{Service: "payments", Version: "2.4.3", Check: "version", Baseline: "2.4.2",
 			RequiredBump: string(bump), Actor: story.PayAgent.User, At: stamp(d.now().Add(-3 * time.Hour)), Verified: false,
 			Reason: fmt.Sprintf("the change is %s, so it needs a %s bump from 2.4.2", c, bump)}}}, nil

@@ -48,6 +48,16 @@ func TestDeliveryReadToolsAnnotated(t *testing.T) {
 	}
 }
 
+// TestRefusalsRouteDescribesPromotes: the refusals tool says it lists the
+// promotes the manifest inspector refused beside the refused publishes.
+func TestRefusalsRouteDescribesPromotes(t *testing.T) {
+	tools := listTools(t, mustNew("test", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Reads: (&stubReads{}).reads}}))
+	d := tools["pacto_delivery_refusals"].Description
+	if !strings.Contains(d, "publishes and promotes Pacto refused") || !strings.Contains(d, "manifest inspector") {
+		t.Errorf("refusals description: %q", d)
+	}
+}
+
 func TestDeliveryReadToolsCallTheRoute(t *testing.T) {
 	r := &stubReads{}
 	server := mustNew("test", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Reads: r.reads}})

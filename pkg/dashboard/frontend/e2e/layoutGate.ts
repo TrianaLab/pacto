@@ -865,6 +865,20 @@ export function installScaleFixture(): void {
         for (const v of svc.versions ?? []) if (typeof v.sourceRevision === 'string') v.sourceRevision = longName(v.sourceRevision);
       }
     }
+    // The refused list at its longest (511-S4): 20 rows of both kinds, with service and
+    // Stage names at the 63-character Kubernetes limit, a record on every refused promote
+    // and more refusals read than the list holds.
+    if (route === '/api/delivery/refusals') {
+      const at63 = (s: string) => (s + '-' + 'x'.repeat(63)).slice(0, 63);
+      Object.assign(doc, { recorded: true, completeness: 'complete', total: 57,
+        refusals: Array.from({ length: 20 }, (_, i) => (i % 2
+          ? { service: at63(`payments-settlement-${i}`), version: `2.5.${i}`, check: 'manifests', stage: at63(`payments-production-eu-west-${i}`),
+            record: `sha256:${String(i).padStart(64, '0')}`, reason: `ClusterRoleBinding ${at63('orders-admin')} is cluster-scoped`,
+            at: `2026-11-21T10:${String(59 - i).padStart(2, '0')}:00Z`, verified: true }
+          : { service: at63(`orders-reconciliation-${i}`), version: `1.9.${i}`, check: 'version', requiredBump: 'major', baseline: `1.8.${i}`,
+            reason: 'the change is BREAKING, so it needs a major bump', actor: `system:serviceaccount:agents:${at63('pay-agent')}`,
+            at: `2026-11-21T10:${String(59 - i).padStart(2, '0')}:00Z`, verified: false })) });
+    }
     // A version's lifecycle at its longest: long environment, Stage and record names, a
     // long note and the newest 50 events on every Stage.
     if (route === '/api/delivery/lifecycle') {

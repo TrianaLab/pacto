@@ -104,8 +104,8 @@ var deliveryReadTools = []deliveryRead{
 				"no: keep only the services with an unsigned version, and only those versions; unknown: keep only the services with no unsigned version " +
 				"and a version whose signature Pacto cannot tell, and only those versions"},
 		})},
-	{route: "refusals", description: "Recent publishes Pacto refused, newest first, with the check that refused each and the version bump the change needs. " +
-		"recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing."},
+	{route: "refusals", description: "Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs " +
+		"and the Stage and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing."},
 	{route: "trust", description: "Per service with a Stage that watches the registry and the caller can see: the installation's publisher rule or signed policy, " +
 		"the identities a person pinned, the CI signers waiting for a person to confirm them and the newest verdicts, each saying which source decided. " +
 		"Pins or a policy that could not be read mark the answer partial.",

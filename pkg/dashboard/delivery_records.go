@@ -119,13 +119,18 @@ func (s *Server) deliveryRecord(ctx context.Context, in *recordInput) (*recordOu
 	return out, nil
 }
 
-// PublishRefusal is one publish Pacto refused.
+// PublishRefusal is one publish or promote Pacto refused.
 type PublishRefusal struct {
 	Service string `json:"service"`
-	Version string `json:"version" doc:"The version the publish asked for"`
+	Version string `json:"version" doc:"The version the publish or promote asked for"`
 	// Check is the check that refused it: version (the version rule), sign,
-	// lock, validation or conflict.
-	Check  string `json:"check" doc:"The check that refused it: version, sign, lock, validation or conflict"`
+	// lock, validation or conflict refuse a publish; manifests (the manifest
+	// inspector) refuses a promote.
+	Check string `json:"check" doc:"The check that refused it: version, sign, lock, validation or conflict for a publish; manifests (the manifest inspector, before the promoter wrote the pointer) for a promote"`
+	// Stage and Record are set on a refused promote: the Stage it was
+	// proposed on and the id of its operation record.
+	Stage  string `json:"stage,omitempty" doc:"The Stage a refused promote was proposed on"`
+	Record string `json:"record,omitempty" doc:"The id of the operation record of a refused promote"`
 	Reason string `json:"reason" doc:"Why, in one sentence"`
 	// Baseline and RequiredBump are set when the version rule refused it.
 	Baseline     string `json:"baseline,omitempty" doc:"The highest published version below it, the one the change was compared with"`
@@ -137,7 +142,7 @@ type PublishRefusal struct {
 	Verified bool `json:"verified" doc:"A signed record of the refusal was verified"`
 }
 
-// PublishRefusals is what a host knows of refused publishes.
+// PublishRefusals is what a host knows of refused publishes and promotes.
 type PublishRefusals struct {
 	Completeness string           `json:"completeness" enum:"complete,partial"`
 	Note         string           `json:"note,omitempty" doc:"Where the refusals were read and what may be missing"`
@@ -171,7 +176,7 @@ func (s *Server) deliveryRefusals(ctx context.Context, _ *struct{}) (*refusalsOu
 	out.Body.AsOf = time.Now().UTC().Format(time.RFC3339)
 	if r == nil {
 		out.Body.Completeness, out.Body.Refusals = "partial", []PublishRefusal{}
-		out.Body.Note = "this cluster keeps no record of refused publishes: a refusal is shown only to whoever ran pacto publish"
+		out.Body.Note = "this cluster keeps no record of refused publishes or promotes: a refused publish is shown only to whoever ran pacto publish"
 		return out, nil
 	}
 	out.Body.Recorded, out.Body.PublishRefusals = true, *r
