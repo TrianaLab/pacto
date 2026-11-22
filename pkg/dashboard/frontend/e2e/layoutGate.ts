@@ -322,8 +322,12 @@ export function installScaleFixture(): void {
       const meta = doc.meta as Record<string, unknown>;
       meta.sources = [...((meta.sources as unknown[] | undefined) ?? []),
         { id: longName('otlp-receiver'), kind: 'otlp-receiver', status: 'partial', advisory: true, revisionCount: 0, targetCount: 0 },
-        { id: longName('detected-jaeger'), kind: 'traces', status: 'partial', advisory: true, revisionCount: 0, targetCount: 0 }];
+        { id: longName('detected-jaeger'), kind: 'traces', status: 'partial', advisory: true, revisionCount: 0, targetCount: 0 },
+        // The whole organization index (516-S3): every published service, no targets.
+        { id: 'registry-index', kind: 'index', status: 'available', revisionCount: 1840, targetCount: 0 }];
     }
+    // The index's /api/sources row, so the nav sources popover names and colours it.
+    if (route === '/api/sources' && Array.isArray(doc.sources)) (doc.sources as unknown[]).push({ type: 'index', enabled: true });
     if (route === '/api/fleet/overview') {
       const s = doc.summary as Record<string, unknown>;
       s.inferredServices = 12400; s.inferredUnverified = 310;

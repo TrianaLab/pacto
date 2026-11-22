@@ -228,6 +228,7 @@ const SOURCE_DESCRIPTIONS: Record<string, string> = {
   kubernetes: 'Kubernetes — live cluster runtime data',
   'kubernetes-workloads': 'Kubernetes workloads — the workloads a cluster runs, read as inferred services',
   oci: 'OCI Registry — versioned contract bundles',
+  index: 'Organization index — every service published to the registry',
   local: 'Local — contracts from local filesystem',
   cache: 'Cache — offline baseline from a previously pulled bundle',
   'target-state': 'Target state — a file describing where each revision runs',
