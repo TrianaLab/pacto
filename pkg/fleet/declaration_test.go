@@ -498,6 +498,27 @@ func TestRestrictHidesDeclarationRepository(t *testing.T) {
 	}
 }
 
+// A viewer who reads the workload but may not list the GitOps objects its
+// repository was read from never sees a GitOps repository in the record.
+func TestRestrictHidesGitOpsRepositoryOfUnlistableObjects(t *testing.T) {
+	q := declFleet(t, repoOpts(t))
+	noArgo := q.Restrict(anyCluster(func(string) bool { return true }), anyClusterKind(func(ns, kind string) bool { return ns != "argocd" }))
+	d := newsRevision(t, noArgo)
+	if b, _ := json.Marshal(d); d.Declaration.Repository != nil || strings.Contains(string(b), "github.com/acme/newsletter") {
+		t.Fatalf("a viewer who may not list Applications in argocd sees the GitOps repository: %s", b)
+	}
+	if d.Declaration.InferredFrom == "" {
+		t.Error("the workload stayed readable, yet inferredFrom went")
+	}
+	o := repoOpts(t)
+	rec, _ := contract.ParseInferredRecord(o.record)
+	rec.Declaration.Repository = &contract.InferredSourceRepository{URL: "https://github.com/acme/newsletter", Rung: contract.RepositoryRungGiven, Folder: "deploy", FolderRung: contract.RepositoryRungGiven}
+	o.record = rec.Marshal()
+	if d := newsRevision(t, declFleet(t, o).Restrict(anyCluster(func(string) bool { return true }), anyClusterKind(func(ns, _ string) bool { return ns != "argocd" }))); d.Declaration.Repository == nil {
+		t.Error("a given repository went with the GitOps objects")
+	}
+}
+
 func TestRestrictKeepsRepositoryForAllowedViewer(t *testing.T) {
 	q := declFleet(t, repoOpts(t))
 	_ = newsRevision(t, restrictNews(q))
@@ -506,5 +527,27 @@ func TestRestrictKeepsRepositoryForAllowedViewer(t *testing.T) {
 		if d := newsRevision(t, v); d.Declaration.Repository == nil {
 			t.Fatal("a viewer who may read news lost its repository")
 		}
+	}
+}
+
+// With the live workload in the snapshot, the GitOps objects its own read
+// names decide whether the record's GitOps repository shows.
+func TestGitOpsRepositoryHiddenFollowsLiveWorkload(t *testing.T) {
+	rev := &ContractRevision{Record: &contract.InferredRecord{Declaration: &contract.InferredDeclaration{InferredFrom: "k8s:news/Deployment/newsletter",
+		Repository: &contract.InferredSourceRepository{URL: "https://github.com/acme/newsletter", Rung: contract.RepositoryRungGitOps, Folder: ".", FolderRung: contract.FolderRungDefault}}}}
+	w := &InferredWorkload{Namespace: "news", Kind: "Deployment", Name: "newsletter",
+		Repositories: []InferredRepository{{URL: "https://github.com/acme/newsletter", Namespace: "shop-gitops", Kind: "Application"}}}
+	s := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{NewServiceKey("newsletter"): {Workload: w}}}
+	noShop := func(_, ns, _ string) bool { return ns == "shop-gitops" }
+	noArgo := func(_, ns, _ string) bool { return ns == "argocd" }
+	if !gitopsRepositoryHidden(s, rev, noShop) {
+		t.Error("an unlistable Application the live read names left the repository showing")
+	}
+	if gitopsRepositoryHidden(s, rev, noArgo) {
+		t.Error("the live read names no argocd object, yet the repository went")
+	}
+	rev.Record.Declaration.InferredFrom = "not-a-caller"
+	if !gitopsRepositoryHidden(s, rev, noArgo) {
+		t.Error("an unparsable inferredFrom kept the repository")
 	}
 }
