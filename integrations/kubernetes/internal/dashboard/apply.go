@@ -160,6 +160,12 @@ func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 	if a.AllowAnonymous && a.IssuerURL == "" && !a.TokenLogin {
 		add("PACTO_DASHBOARD_ALLOW_ANONYMOUS", "true")
 	}
+	// The chart's usable-sign-in rule: the dashboard refuses --mcp without one.
+	if a.MCP && (a.TokenLogin || (a.IssuerURL != "" && a.MCPExchangeAudience != "" && a.MCPURL != "")) {
+		add("PACTO_DASHBOARD_MCP", "true")
+		add("PACTO_DASHBOARD_MCP_URL", a.MCPURL)
+		add("PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE", a.MCPExchangeAudience)
+	}
 	if a.ClientSecretName != "" {
 		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_OIDC_CLIENT_SECRET").WithValueFrom(
 			corev1ac.EnvVarSource().WithSecretKeyRef(corev1ac.SecretKeySelector().WithName(a.ClientSecretName).

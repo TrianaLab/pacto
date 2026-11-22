@@ -2413,6 +2413,7 @@ spec:
             - --dashboard-memory-request=128Mi
             - --dashboard-memory-limit=512Mi
             - --dashboard-token-login
+            - --dashboard-mcp
             - --dashboard-fingerprints-configmap=pacto-operator-fingerprints
           ports:
             - name: metrics

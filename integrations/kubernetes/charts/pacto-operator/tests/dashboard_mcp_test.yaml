@@ -1,0 +1,142 @@
+# The managed dashboard serves MCP at /mcp by default, with its sign-in. Off
+# with dashboard.mcp.enabled=false, with anonymous access, without a usable
+# sign-in and with the managed dashboard under profile hardened.
+suite: dashboard MCP
+templates:
+  - templates/deployment.yaml
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+tests:
+  - it: renders --dashboard-mcp and no URL by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mcp
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--dashboard-mcp-(url|exchange-audience)=
+
+  - it: renders no MCP flag with dashboard.mcp.enabled false
+    set:
+      dashboard.mcp.enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mcp
+
+  - it: renders no MCP flag with anonymous access
+    set:
+      dashboard.auth.tokenSignIn.enabled: false
+      dashboard.auth.allowAnonymous: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-allow-anonymous
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mcp
+
+  - it: renders no MCP flag with an issuer, no exchange audience and token sign-in off
+    set:
+      dashboard.auth.tokenSignIn.enabled: false
+      dashboard.auth.oidc: {issuerURL: https://idp.example, clientID: c, redirectURL: https://dash.example/auth/callback}
+      dashboard.mcp.url: https://dash.example/mcp
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mcp
+
+  - it: renders MCP with an issuer, an exchange audience and a URL
+    set:
+      dashboard.auth.tokenSignIn.enabled: false
+      dashboard.auth.oidc: {issuerURL: https://idp.example, clientID: c, redirectURL: https://dash.example/auth/callback}
+      dashboard.mcp.url: https://dash.example/mcp
+      dashboard.mcp.exchangeAudience: kubernetes
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mcp
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mcp-url=https://dash.example/mcp
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mcp-exchange-audience=kubernetes
+
+  - it: derives an https URL from an Ingress host with TLS
+    set:
+      dashboard.ingress.enabled: true
+      dashboard.ingress.hosts: [{host: dash.example, paths: [{path: /, pathType: Prefix}]}]
+      dashboard.ingress.tls: [{hosts: [dash.example], secretName: dash-tls}]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mcp-url=https://dash.example/mcp
+
+  - it: derives an http URL from an Ingress host without TLS
+    set:
+      dashboard.ingress.enabled: true
+      dashboard.ingress.hosts: [{host: dash.example, paths: [{path: /, pathType: Prefix}]}]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mcp-url=http://dash.example/mcp
+
+  - it: derives an https URL from an HTTPRoute hostname
+    set:
+      dashboard.httpRoute.enabled: true
+      dashboard.httpRoute.parentRefs: [{name: gw}]
+      dashboard.httpRoute.hostnames: [dash.example]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mcp-url=https://dash.example/mcp
+
+  - it: takes an explicit URL over a derived one
+    set:
+      dashboard.ingress.enabled: true
+      dashboard.ingress.hosts: [{host: dash.example, paths: [{path: /, pathType: Prefix}]}]
+      dashboard.mcp.url: https://agents.example/mcp
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mcp-url=https://agents.example/mcp
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mcp-url=http://dash.example/mcp
+
+  - it: fails with an exchange audience and no issuer
+    set:
+      dashboard.mcp.url: https://dash.example/mcp
+      dashboard.mcp.exchangeAudience: kubernetes
+    asserts:
+      - failedTemplate:
+          errorMessage: dashboard.mcp.exchangeAudience needs dashboard.auth.oidc.issuerURL and a URL (dashboard.mcp.url, an Ingress host or an HTTPRoute hostname)
+
+  - it: fails with an exchange audience and no URL
+    set:
+      dashboard.auth.oidc: {issuerURL: https://idp.example, clientID: c, redirectURL: https://dash.example/auth/callback}
+      dashboard.mcp.exchangeAudience: kubernetes
+    asserts:
+      - failedTemplate:
+          errorMessage: dashboard.mcp.exchangeAudience needs dashboard.auth.oidc.issuerURL and a URL (dashboard.mcp.url, an Ingress host or an HTTPRoute hostname)
+
+  - it: renders no MCP flag under profile hardened
+    set:
+      profile: hardened
+      controller.watchNamespaces: [a]
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mcp
+
+  - it: renders no MCP flag under profile hardened with dashboard.mcp.enabled true
+    set:
+      profile: hardened
+      controller.watchNamespaces: [a]
+      dashboard.mcp.enabled: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mcp

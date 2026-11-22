@@ -173,6 +173,16 @@ type AuthConfig struct {
 	// AllowAnonymous serves the dashboard without sign-in; everyone who
 	// reaches it reads what its ServiceAccount reads. Ignored with sign-in.
 	AllowAnonymous bool
+	// MCP serves MCP to agents at /mcp with the dashboard's sign-in. It takes
+	// effect only with a usable sign-in: TokenLogin, or IssuerURL with
+	// MCPExchangeAudience and MCPURL.
+	MCP bool
+	// MCPURL is the /mcp URL as agents reach it; empty: the address the agent
+	// used (token sign-in only).
+	MCPURL string
+	// MCPExchangeAudience is the audience an agent's issuer token is exchanged
+	// for (RFC 8693), one the API server accepts. Needs MCPURL.
+	MCPExchangeAudience string
 }
 
 // ResourcesConfig holds optional resource quantity overrides for the dashboard container.

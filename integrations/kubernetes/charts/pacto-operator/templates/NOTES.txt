@@ -1,3 +1,5 @@
+{{- /* Control characters and bidi controls never reach the terminal. */}}
+{{- $unsafe := `[\x00-\x1f\x7f-\x9f\x{200e}\x{200f}\x{202a}-\x{202e}\x{2066}-\x{2069}]` }}
 Pacto Operator has been installed.
 
 1. Verify the controller is running:
@@ -71,6 +73,42 @@ Pacto Operator has been installed.
    dashboard.auth.allowAnonymous=false to keep it from starting without sign-in.
 {{- end }}
 {{- end }}
+{{- if include "pacto-operator.dashboardMCP" . }}
+{{- $mcpURL := regexReplaceAll $unsafe (include "pacto-operator.dashboardMCPURL" . | default "http://127.0.0.1:3000/mcp") "" }}
+{{- if include "pacto-operator.dashboardTokenSignIn" . }}
+
+5. Connect an AI agent. The dashboard also serves MCP at {{ $mcpURL }}:
+
+   export PACTO_TOKEN=$(kubectl -n {{ .Release.Namespace }} create token pacto-viewer --audience pacto-dashboard --duration 1h)
+
+   Add this server to your MCP client (.mcp.json):
+
+   { "mcpServers": { "pacto": { "type": "http", "url": {{ toJson $mcpURL }},
+       "headers": { "Authorization": "Bearer ${PACTO_TOKEN}" } } } }
+
+   That token reads the fleet. An agent that proposes changes uses its own
+   ServiceAccount; see https://pacto.run/latest/mcp-integration/
+{{- else }}
+
+5. Connect an AI agent. The dashboard also serves MCP at {{ $mcpURL }}.
+   Your MCP client signs in with {{ regexReplaceAll $unsafe (toString .Values.dashboard.auth.oidc.issuerURL) "" }}; see
+   https://pacto.run/latest/mcp-integration/
+{{- end }}
+{{- if .Release.IsUpgrade }}
+{{- $previous := lookup "apps/v1" "Deployment" .Release.Namespace "pacto-dashboard" }}
+{{- $served := false }}
+{{- range (dig "spec" "template" "spec" "containers" (list) $previous) }}
+{{- range (.env | default list) }}
+{{- if eq .name "PACTO_DASHBOARD_MCP" }}{{ $served = true }}{{ end }}
+{{- end }}
+{{- end }}
+{{- if and $previous (not $served) }}
+
+   The dashboard now also serves MCP to agents at /mcp. To turn it off, set
+   dashboard.mcp.enabled=false.
+{{- end }}
+{{- end }}
+{{- end }}
 {{- /* The idp lines name only the observation modes that render on (idp
 upgrades only a resolved auto) and the monitor read only when it renders. */}}
 {{- $idp := include "pacto-operator.idp" . }}
@@ -127,8 +165,6 @@ owner reference to the operator Deployment. */}}
 {{- end }}
 {{- end }}
 {{- end }}
-{{- /* Control characters and bidi controls never reach the terminal. */}}
-{{- $unsafe := `[\x00-\x1f\x7f-\x9f\x{200e}\x{200f}\x{202a}-\x{202e}\x{2066}-\x{2069}]` }}
 {{- $labels := dict "registry" "Registry" "cloud" "Cloud" "sign-in" "Sign-in" "exposure" "Exposure" "metrics" "Metrics" "nodes" "Nodes" "pull-secret" "Pull Secret" }}
 {{- $entries := get $detected "entries" | default list }}
 {{- if kindIs "slice" $entries }}{{ else }}{{ $entries = list }}{{ end }}

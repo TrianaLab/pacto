@@ -357,6 +357,20 @@ Controller arguments derived from values
 {{- if include "pacto-operator.dashboardAnonymous" . }}
 - --dashboard-allow-anonymous
 {{- end }}
+{{- with (.Values.dashboard.mcp | default dict).exchangeAudience }}
+{{- if not (and ((($.Values.dashboard.auth | default dict).oidc | default dict).issuerURL) (include "pacto-operator.dashboardMCPURL" $)) }}
+{{- fail "dashboard.mcp.exchangeAudience needs dashboard.auth.oidc.issuerURL and a URL (dashboard.mcp.url, an Ingress host or an HTTPRoute hostname)" }}
+{{- end }}
+{{- end }}
+{{- if include "pacto-operator.dashboardMCP" . }}
+- --dashboard-mcp
+{{- with include "pacto-operator.dashboardMCPURL" . }}
+- {{ printf "--dashboard-mcp-url=%s" . | quote }}
+{{- end }}
+{{- with (.Values.dashboard.mcp | default dict).exchangeAudience }}
+- {{ printf "--dashboard-mcp-exchange-audience=%s" . | quote }}
+{{- end }}
+{{- end }}
 {{- with .Values.dashboard.repositories }}
 - --dashboard-repositories={{ join "," . }}
 {{- end }}
@@ -768,6 +782,38 @@ and no issuer. NOTES.txt reads the same rule for its warning.
 {{- define "pacto-operator.dashboardAnonymous" -}}
 {{- $auth := .Values.dashboard.auth | default dict }}
 {{- if and (eq (toString $auth.allowAnonymous) "true") (not (include "pacto-operator.dashboardTokenSignIn" .)) (not ($auth.oidc | default dict).issuerURL) }}true{{ end }}
+{{- end }}
+
+{{/*
+The dashboard's /mcp URL as agents reach it, or nothing: dashboard.mcp.url,
+else the first Ingress host (https with Ingress TLS), else the first HTTPRoute
+hostname (https). Without one the dashboard answers from the request's origin.
+*/}}
+{{- define "pacto-operator.dashboardMCPURL" -}}
+{{- $d := .Values.dashboard }}
+{{- $ingress := $d.ingress | default dict }}
+{{- $route := $d.httpRoute | default dict }}
+{{- if ($d.mcp | default dict).url }}
+{{- ($d.mcp | default dict).url }}
+{{- else if and $ingress.enabled $ingress.hosts (first $ingress.hosts).host }}
+{{- printf "%s://%s/mcp" (ternary "https" "http" (not (empty $ingress.tls))) (first $ingress.hosts).host }}
+{{- else if and $route.enabled $route.hostnames }}
+{{- printf "https://%s/mcp" (first $route.hostnames) }}
+{{- end }}
+{{- end }}
+
+{{/*
+MCP at /mcp on the managed dashboard: on unless dashboard.mcp.enabled is
+explicitly false (an upgrade that reuses earlier values turns it on), with a
+usable sign-in (token sign-in, or an issuer with dashboard.mcp.exchangeAudience
+and a URL) and never anonymous. Off with the managed dashboard under hardened.
+The operator applies the same sign-in rule.
+*/}}
+{{- define "pacto-operator.dashboardMCP" -}}
+{{- $mcp := .Values.dashboard.mcp | default dict }}
+{{- $issuer := ((.Values.dashboard.auth | default dict).oidc | default dict).issuerURL }}
+{{- $usable := or (include "pacto-operator.dashboardTokenSignIn" .) (and $issuer $mcp.exchangeAudience (include "pacto-operator.dashboardMCPURL" .)) }}
+{{- if and (include "pacto-operator.dashboardEnabled" .) (ne (toString $mcp.enabled) "false") $usable (not (include "pacto-operator.dashboardAnonymous" .)) }}true{{ end }}
 {{- end }}
 
 {{/*

@@ -27,6 +27,9 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-delivery-trust-key` | `string` | `trust.yaml` | chart value | Key of the trust config in that ConfigMap. |
 | `-dashboard-external-catalog` | `string` |  | chart value | Organization external catalog the dashboard merges over Pacto's default, as oci://REPOSITORY@sha256:DIGEST. |
 | `-dashboard-fingerprints-configmap` | `string` |  | chart value | ConfigMap in the operator namespace holding the workload manager and promoter fingerprints (fingerprints.yaml) the dashboard reads as --fingerprints. |
+| `-dashboard-mcp` | `bool` |  | chart value | Serve MCP to agents at /mcp on the managed dashboard, with its sign-in. |
+| `-dashboard-mcp-exchange-audience` | `string` |  | chart value | With an issuer, the audience an agent's issuer token is exchanged for, one the API server accepts; needs --dashboard-mcp-url. |
+| `-dashboard-mcp-url` | `string` |  | chart value | The dashboard's /mcp URL as agents reach it (empty: the address the agent used). |
 | `-dashboard-memory-limit` | `string` |  | chart value | Memory limit for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-memory-request` | `string` |  | chart value | Memory request for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-mira-url` | `string` |  | chart value | Mira's address, to link the dashboard's health-check citations. |

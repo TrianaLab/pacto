@@ -614,6 +614,16 @@
             "allowAnonymous": { "type": "boolean" }
           }
         },
+        "mcp": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "MCP for AI agents at /mcp on the dashboard, with the dashboard's sign-in.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "url": { "type": "string", "pattern": "^$|^https?://[^/?#]+" },
+            "exchangeAudience": { "type": "string" }
+          }
+        },
         "delivery": {
           "type": "object",
           "additionalProperties": false,
