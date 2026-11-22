@@ -321,6 +321,8 @@ running workload, without a repository or a build.
   the Git host.
 - **Where it runs.** `--pr` runs where your Git token is: the CLI and a stdio
   MCP server; the dashboard and the HTTP MCP server show the command.
+  Their plan reads the running image only inside the installation's
+  registry, with the credential the baseline is read with.
 
 ```console
 repository: github.com/acme/invoices (signed provenance, workflow ci.yml@refs/heads/main), folder: deploy/ (GitOps source)

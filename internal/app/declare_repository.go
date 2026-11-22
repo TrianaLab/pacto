@@ -554,7 +554,9 @@ func gitopsNamespaces(ns string, w fleet.RawInferredService) []string {
 
 // imageTarget is the running image's repository and the digests its rungs
 // read; when none is read, why. On an HTTP surface an image outside the
-// installation's registry is never read.
+// installation's registry is never read, and one inside it is read through
+// the plan's own registry, the one the baseline is read with (513-S3
+// Decision 14): an HTTP caller brings no registry credential of its own.
 func (pl *declarePlanner) imageTarget(image string) (string, []string, string) {
 	if image == "" {
 		return "", nil, "the workload names no image"
