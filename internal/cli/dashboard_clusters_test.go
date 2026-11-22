@@ -261,6 +261,14 @@ func TestVisibleJoins(t *testing.T) {
 	l.Limitations = []fleet.Limitation{{Code: fleet.LimitationSourceUnavailable, Message: "the approvers of 1 cluster could not be checked"}}
 	v = visibleJoins(l, false, nil)
 	expect(t, len(v.Limitations) == 1 && !strings.Contains(v.Limitations[0].Message, "bbbb0000"), "non-approver limitations = %+v", v.Limitations)
+	mapped := hubList()
+	for i := range mapped.Clusters {
+		mapped.Clusters[i].Mappings = []delivery.GroupMappingState{{Issuer: "https://login.acme.dev", ApprovedBy: "oidc:alice@acme.dev"}}
+	}
+	v = visibleJoins(mapped, false, nil)
+	expect(t, len(v.Clusters) == 1 && v.Clusters[0].Mappings == nil, "a non-approver reads no group mapping: %+v", v.Clusters)
+	v = visibleJoins(mapped, true, nil)
+	expect(t, len(v.Clusters[0].Mappings) == 1, "an approver reads the group mappings: %+v", v.Clusters)
 	v = visibleJoins(hubList(), true, errors.New("timeout"))
 	expect(t, len(v.Clusters) == 1 && v.Hidden == 2 && !v.CanApprove && v.Completeness == fleet.CompletenessPartial &&
 		len(v.Limitations) == 1 && strings.HasSuffix(v.Limitations[0].Message, ": timeout"), "failed review = %+v", v)

@@ -114,8 +114,9 @@ func mcpClusters(svc *app.Service, d deps, joins *app.JoinOptions, restricted bo
 // approverReview names the review behind visibleJoins' limitation.
 const approverReview = "cluster-join-approver"
 
-// visibleJoins is l as one reader sees it: approved members always; pending and
-// removed rows only when may says the reader may approve clusterjoins (an
+// visibleJoins is l as one reader sees it: approved members always, without
+// their group mappings unless the reader may approve; pending and removed
+// rows only when may says the reader may approve clusterjoins (an
 // unrestricted reader passes true), otherwise counted in Hidden. A review
 // that failed (err) hides and counts them too and makes the list partial:
 // a reader is never shown an empty list for a forbidden one.
@@ -127,6 +128,10 @@ func visibleJoins(l delivery.ClusterJoinList, may bool, err error) delivery.Clus
 	rows := make([]delivery.ClusterJoinState, 0, len(l.Clusters))
 	for _, c := range l.Clusters {
 		if c.State == delivery.JoinApproved {
+			// The group mappings name a member's RBAC groups and approver:
+			// for those who may approve. Readers see the mapping in force
+			// on the link of a cluster their view shows.
+			c.Mappings = nil
 			rows = append(rows, c)
 		}
 	}
