@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 func newClusterMapGroupsCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
@@ -54,11 +56,15 @@ func mapGroups(c *clusterDecision, uid string) error {
 	if fullUID.MatchString(uid) {
 		c.opts.Include = uid
 	}
-	if c.member, err = findCluster(c.svc.ClusterJoins(c.cmd.Context(), c.opts), uid); err != nil {
+	list := c.svc.ClusterJoins(c.cmd.Context(), c.opts)
+	if c.member, err = findCluster(list, uid); err != nil {
 		return err
 	}
 	if c.member.State != delivery.JoinApproved {
 		return fmt.Errorf("%s (%s) is %s: groups are mapped for an approved member", clusterName(c.member), shortUID(c.member.UID), c.member.State)
+	}
+	if err := clearReadable(list, c.member, issuer, rules); err != nil {
+		return err
 	}
 	if err := c.pickSigner(signerIssuer); err != nil {
 		return err
@@ -75,6 +81,21 @@ func mapGroups(c *clusterDecision, uid string) error {
 		return nil
 	}
 	return c.signMappings(recs)
+}
+
+// clearReadable refuses a --clear of every issuer when the list was not
+// read in full: a mapping it could not read is unknown, not absent, and
+// would stay in force on the hub.
+func clearReadable(list delivery.ClusterJoinList, member delivery.ClusterJoinState, issuer string, rules []delivery.GroupRule) error {
+	if issuer != "" || len(rules) > 0 || list.Completeness == fleet.CompletenessComplete {
+		return nil
+	}
+	why := make([]string, len(list.Limitations))
+	for i, l := range list.Limitations {
+		why[i] = l.Message
+	}
+	return fmt.Errorf("the group mappings of %s (%s) could not all be read (%s), so a mapping may still be in force: clear one issuer with --issuer",
+		clusterName(member), shortUID(member.UID), cmp.Or(strings.Join(why, "; "), string(list.Completeness)))
 }
 
 // mappingFlags are the issuer and rules cmd's flags name; no rules is a

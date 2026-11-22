@@ -13,6 +13,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
@@ -189,5 +190,23 @@ func TestClusterListShowsMapping(t *testing.T) {
 	}
 	if out, _, _ := e.run(t, "list", "--output-format", "json"); !strings.Contains(out, `"mappings"`) || json.Valid([]byte(out)) == false {
 		t.Fatalf("%s", out)
+	}
+}
+
+// A --clear of every issuer is refused when the mappings could not all be
+// read: an unread mapping is unknown, not absent, and stays in force.
+func TestMapGroupsClearAllRefusedOnPartialList(t *testing.T) {
+	member := delivery.ClusterJoinState{UID: euProd, Name: "eu-prod"}
+	partial := delivery.ClusterJoinList{Completeness: fleet.CompletenessPartial,
+		Limitations: []fleet.Limitation{{Code: fleet.LimitationSourceUnavailable, Message: "the group mappings of 1 cluster could not be read, so their reads use none"}}}
+	err := clearReadable(partial, member, "", nil)
+	if err == nil || !strings.Contains(err.Error(), "could not be read") || !strings.Contains(err.Error(), "--issuer") {
+		t.Fatalf("clear all on a partial list: %v", err)
+	}
+	if clearReadable(partial, member, mapIssuer, nil) != nil || clearReadable(partial, member, "", []delivery.GroupRule{{From: "a", To: "b"}}) != nil {
+		t.Error("a clear of one issuer, or a mapping, is refused on a partial list")
+	}
+	if clearReadable(delivery.ClusterJoinList{Completeness: fleet.CompletenessComplete}, member, "", nil) != nil {
+		t.Error("a complete list refuses clear all")
 	}
 }
