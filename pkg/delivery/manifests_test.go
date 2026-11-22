@@ -156,7 +156,7 @@ func TestInspectKustomizationTransformsUnknown(t *testing.T) {
 	for name, k := range cases {
 		files := map[string]string{"Kustomization": k, "base/kustomization.yaml": "resources: []\n"}
 		in := inspectFlux(t, files)
-		wantVerdict(t, name, in, Unknown, "Pacto reads plain manifests; this kustomization transforms them")
+		wantVerdict(t, name, in, Unknown, "Pacto reads plain manifests, and this kustomization transforms them")
 	}
 	wantVerdict(t, "unreadable", inspectFlux(t, map[string]string{"kustomization.yaml": ":\n- [\n"}), Unknown, "kustomization.yaml is not readable YAML")
 }
@@ -193,7 +193,9 @@ func TestInspectTargetNamespaceAndApplierTransforms(t *testing.T) {
 	ks := []KustomizationView{k("elsewhere", "other", ""), k("p", "", "patches"), k("b", "prod", "postBuild"), k("c", "", "components"),
 		kustomizationOf("prod", "foreign", ApplierFlux, "", "another"), kustomizationOf("ops", "remote", ApplierFlux, "prod", "payments")}
 	tg := ManifestTargetOf(stage, nil, ks, errors.New("forbidden"))
-	if strings.Join(tg.Refused, "|") != "Kustomization elsewhere applies into other, outside prod|Kustomization remote applies into ops, outside prod" ||
+	// A Kustomization in another namespace (remote) applies as that
+	// namespace's identity and is never judged for this Stage.
+	if strings.Join(tg.Refused, "|") != "Kustomization elsewhere applies into other, outside prod" ||
 		strings.Join(tg.Unread, "|") != "the Kustomizations: forbidden|Kustomization p transforms the artifact: spec.patches|"+
 			"Kustomization b transforms the artifact: spec.postBuild|Kustomization c transforms the artifact: spec.components" {
 		t.Fatalf("flux target %+v", tg)
@@ -338,7 +340,7 @@ func TestInspectCitationBounded(t *testing.T) {
 	if !strings.HasSuffix(v.Citation["objects"], "ConfigMap n49 and 10 more") && !strings.HasSuffix(v.Citation["objects"], "Namespace n49 and 10 more") {
 		t.Fatalf("objects %q", v.Citation["objects"])
 	}
-	if n := strings.Count(v.Citation["refused"], "; ") + 1; n != MaxListedObjects {
+	if n := strings.Count(v.Citation["refused"], "; ") + 1; n != MaxListedObjects+1 || !strings.HasSuffix(v.Citation["refused"], "; and 10 more") {
 		t.Fatalf("refused lists %d", n)
 	}
 }
@@ -429,7 +431,7 @@ func TestInspectRawInfra(t *testing.T) {
 	// refuses it as raw infrastructure too.
 	comp := InspectArtifact(FluxContentMediaType, tgz(t, map[string]string{"a.yaml": obj("apiextensions.crossplane.io/v1", "Composition", "c", "")}),
 		ManifestTarget{Namespace: "prod", Infra: infra}, served)
-	wantVerdict(t, "composition default", comp, Fail, "the version reaches outside prod: Composition c is cluster-scoped")
+	wantVerdict(t, "composition default", comp, Fail, "the manifest inspector refuses what the version applies: Composition c is cluster-scoped")
 	comp.RefuseInfra = true
 	if v := wantVerdict(t, "composition idp", comp, Fail, "Composition c is cluster-scoped; Composition c is raw infrastructure"); v.Citation["code"] != CodeRawInfraInArtifact {
 		t.Errorf("composition idp: %+v", v.Citation)

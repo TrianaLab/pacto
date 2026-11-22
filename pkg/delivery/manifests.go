@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"path"
 	"regexp"
 	"slices"
@@ -113,8 +114,11 @@ type ManifestObject struct{ Kind, Namespace, Name string }
 // makes unreadable.
 type ManifestTarget struct {
 	Namespace string
-	Refused   []string
-	Unread    []string
+	// Path is the directory of the artifact the applier builds, "" for its
+	// root.
+	Path    string
+	Refused []string
+	Unread  []string
 	// Infra tells claims, composites and managed resources of a group
 	// outside crossplaneGroup; nil tells them by group only.
 	Infra InfraFunc
@@ -128,7 +132,10 @@ type ManifestInspection struct {
 	Namespace string
 	Objects   []ManifestObject
 	// Total counts every object, listed or not.
-	Total   int
+	Total int
+	// docs counts every document read, judged or not, against
+	// MaxManifestObjects.
+	docs    int
 	Refused []string
 	Unread  []string
 	// Infra are the raw infrastructure objects, each a why sentence: refused
@@ -150,16 +157,23 @@ func ManifestTargetOf(stage StageObject, applier map[string]any, ks []Kustomizat
 		t.judgeApplier("HelmRelease "+ref.Name, str(applier, "spec", "targetNamespace"), present(applier, []string{"spec", "postRenderers"}))
 	case ApplierArgoCD:
 		t.judgeApplier("Application "+ref.Name, str(applier, "spec", "destination", "namespace"),
-			present(applier, []string{"spec", "source", "helm"}, []string{"spec", "source", "kustomize"}, []string{"spec", "source", "plugin"}))
+			present(applier, []string{"spec", "source", "helm"}, []string{"spec", "source", "kustomize"}, []string{"spec", "source", "plugin"},
+				[]string{"spec", "source", "directory", "jsonnet"}))
+		t.Path = cleanPath(str(applier, "spec", "source", "path"))
 	default:
 		if ksErr != nil {
 			t.Unread = append(t.Unread, "the Kustomizations: "+ksErr.Error())
 		}
+		paths := map[string]bool{}
 		for _, k := range ks {
+			// A Kustomization in another namespace applies as that
+			// namespace's identity: it is that namespace's concern, and a
+			// tenant there cannot change this Stage's verdict.
 			src := k.Spec.SourceRef
-			if src.Kind != ApplierFlux || cmp.Or(src.Namespace, k.Metadata.Namespace) != ns || src.Name != ref.Name {
+			if src.Kind != ApplierFlux || k.Metadata.Namespace != ns || cmp.Or(src.Namespace, ns) != ns || src.Name != ref.Name {
 				continue
 			}
+			paths[cleanPath(k.Spec.Path)] = true
 			var fields []string
 			for f, raw := range map[string][]byte{"patches": k.Spec.Patches, "postBuild": k.Spec.PostBuild, "components": k.Spec.Components} {
 				if len(raw) > 0 && string(raw) != "null" {
@@ -171,8 +185,19 @@ func ManifestTargetOf(stage StageObject, applier map[string]any, ks []Kustomizat
 			// that names no namespace into its own.
 			t.judgeApplier("Kustomization "+k.Metadata.Name, cmp.Or(k.Spec.TargetNamespace, k.Metadata.Namespace), fields)
 		}
+		switch keys := slices.Sorted(maps.Keys(paths)); {
+		case len(keys) == 1:
+			t.Path = keys[0]
+		case len(keys) > 1:
+			t.Unread = append(t.Unread, "the Kustomizations build different paths of the artifact: "+strings.Join(keys, ", "))
+		}
 	}
 	return t
+}
+
+// cleanPath is a path of the artifact as its tar names it: "" for the root.
+func cleanPath(p string) string {
+	return strings.TrimPrefix(path.Clean("/"+p), "/")
 }
 
 func (t *ManifestTarget) judgeApplier(what, targetNS string, transforms []string) {
@@ -229,6 +254,10 @@ func InspectArtifact(mediaType string, layer []byte, target ManifestTarget, scop
 		in.Unread = append(in.Unread, err.Error())
 		return in
 	}
+	if files = under(files, target.Path); target.Path != "" && len(files) == 0 {
+		in.Unread = append(in.Unread, "the artifact holds nothing under "+target.Path+", the path its applier builds")
+		return in
+	}
 	var docs []doc
 	if mediaType == HelmChartMediaType {
 		in.Artifact, docs = "chart", chartDocs(files, &in)
@@ -237,13 +266,26 @@ func InspectArtifact(mediaType string, layer []byte, target ManifestTarget, scop
 	}
 	k := kindInfo{scope, target.Infra}
 	for _, d := range docs {
-		in.judgeDoc(d, k)
-		if in.Total > MaxManifestObjects {
+		if !in.judgeDoc(d, k) {
 			in.Unread = append(in.Unread, fmt.Sprintf("the artifact holds more than %d objects", MaxManifestObjects))
 			break
 		}
 	}
 	return in
+}
+
+// under is the files under dir, named relative to it; every file for "".
+func under(files []tarFile, dir string) []tarFile {
+	if dir == "" {
+		return files
+	}
+	var out []tarFile
+	for _, f := range files {
+		if rel, ok := strings.CutPrefix(f.name, dir+"/"); ok {
+			out = append(out, tarFile{name: rel, data: f.data})
+		}
+	}
+	return out
 }
 
 // tarFile is one regular file of a layer.
@@ -268,9 +310,15 @@ func readTar(layer []byte) ([]tarFile, error) {
 			return out, nil
 		}
 		if err == nil && h.Typeflag == tar.TypeReg {
+			name := cleanPath(h.Name)
+			// Extracting keeps the last of two entries of one name, and the
+			// inspector would judge the first.
+			if slices.ContainsFunc(out, func(f tarFile) bool { return f.name == name }) {
+				return nil, errors.New("the artifact holds " + name + " twice")
+			}
 			var b []byte
 			if b, err = io.ReadAll(tr); err == nil {
-				out = append(out, tarFile{name: strings.TrimPrefix(path.Clean("/"+h.Name), "/"), data: b})
+				out = append(out, tarFile{name: name, data: b})
 				continue
 			}
 		}
@@ -324,7 +372,15 @@ func fluxDocs(files []tarFile, in *ManifestInspection) (string, []doc) {
 	if k < 0 {
 		var docs []doc
 		for _, f := range files {
-			if ext := path.Ext(f.name); ext == ".yaml" || ext == ".yml" || ext == ".json" {
+			switch ext := path.Ext(f.name); {
+			case slices.Contains(kustomizationFiles, path.Base(f.name)):
+				// kustomize-controller builds a directory holding its own
+				// kustomization as one, with its namespace and patches.
+				in.Unread = append(in.Unread, path.Dir(f.name)+" holds a kustomization, which Pacto does not read")
+			case ext == ".jsonnet" || ext == ".libsonnet":
+				// Argo CD evaluates jsonnet in a directory source.
+				in.Unread = append(in.Unread, f.name+" is jsonnet, which Pacto does not read")
+			case ext == ".yaml" || ext == ".yml" || ext == ".json":
 				docs = append(docs, doc{file: f.name, data: f.data})
 			}
 		}
@@ -351,7 +407,7 @@ func kustomizeDocs(files []tarFile, k tarFile, in *ManifestInspection) []doc {
 	var docs []doc
 	for _, r := range resources {
 		name, _ := r.(string)
-		i := slices.IndexFunc(files, func(f tarFile) bool { return f.name == strings.TrimPrefix(path.Clean("/"+name), "/") })
+		i := slices.IndexFunc(files, func(f tarFile) bool { return f.name == cleanPath(name) })
 		if i < 0 {
 			odd = append(odd, "resources entry "+strconv.Quote(name))
 			continue
@@ -359,7 +415,7 @@ func kustomizeDocs(files []tarFile, k tarFile, in *ManifestInspection) []doc {
 		docs = append(docs, doc{file: files[i].name, data: files[i].data})
 	}
 	if len(odd) > 0 {
-		in.Unread = append(in.Unread, "Pacto reads plain manifests; this kustomization transforms them: "+strings.Join(odd, ", "))
+		in.Unread = append(in.Unread, "Pacto reads plain manifests, and this kustomization transforms them: "+strings.Join(odd, ", "))
 		return nil
 	}
 	ns, _ := kz["namespace"].(string)
@@ -419,8 +475,10 @@ const (
 var (
 	releaseNSAction = regexp.MustCompile(`\{\{-?\s*\.Release\.Namespace\s*(\|\s*quote\s*)?-?\}\}`)
 	anyAction       = regexp.MustCompile(`\{\{.*?\}\}`)
-	injects         = regexp.MustCompile(`\b(include|template|tpl|toYaml)\b`)
-	indentArg       = regexp.MustCompile(`\bn?indent\s+(\d+)`)
+	// control is a line-only action that renders nothing: control flow, a
+	// comment or an assignment. Every other one may inject content.
+	control   = regexp.MustCompile(`^\{\{-?\s*(/\*.*\*/\s*-?\}\}$|(if|else|end|range|with|define|block|break|continue)\b|\$\w*\s*:?=)`)
+	indentArg = regexp.MustCompile(`\bn?indent\s+(\d+)`)
 )
 
 // templateFacts reads the facts of every document of a Helm template.
@@ -433,7 +491,7 @@ func templateFacts(data []byte) ([]facts, error) {
 	for _, l := range strings.Split(string(data), "\n") {
 		t := strings.TrimSpace(l)
 		if strings.HasPrefix(t, "{{") && strings.HasSuffix(t, "}}") && strings.Count(t, "{{") == 1 {
-			if injects.MatchString(t) {
+			if !control.MatchString(t) {
 				// Without an indent function, every line the action
 				// renders after its first starts at column 0.
 				at := 0
@@ -489,6 +547,11 @@ func factsOf(n *yaml.Node) facts {
 	var f facts
 	var kinds []string
 	for _, e := range entries(n) {
+		// An alias or a merge key hides a value Pacto judges, and a scalar
+		// where a mapping or list belongs was a template action.
+		if e.key == "<<" || judged(e.key) && (hides(e.val) || wrongShape(e.key, e.val)) {
+			f.templated = true
+		}
 		switch e.key {
 		case "apiVersion":
 			f.apiVersion = e.val.Value
@@ -509,11 +572,45 @@ func factsOf(n *yaml.Node) facts {
 			}
 		}
 	}
-	f.templated = len(kinds) > 1
+	f.templated = f.templated || len(kinds) > 1
 	if len(kinds) == 1 {
 		f.kind = kinds[0]
 	}
 	return f
+}
+
+// judged are the top-level keys whose values Pacto judges.
+func judged(key string) bool {
+	return slices.Contains([]string{"apiVersion", "kind", "metadata", "roleRef", "subjects"}, key)
+}
+
+// hides reports whether n, or any value under it, is an alias or a merge key.
+func hides(n *yaml.Node) bool {
+	if n.Kind == yaml.AliasNode {
+		return true
+	}
+	for i, c := range n.Content {
+		if n.Kind == yaml.MappingNode && i%2 == 0 && c.Value == "<<" || hides(c) {
+			return true
+		}
+	}
+	return false
+}
+
+// wrongShape reports whether the value of key is not what Kubernetes reads
+// there: metadata and roleRef are mappings, subjects a list of mappings (or
+// null).
+func wrongShape(key string, n *yaml.Node) bool {
+	switch key {
+	case "metadata", "roleRef":
+		return n.Kind != yaml.MappingNode
+	case "subjects":
+		if n.Kind == yaml.ScalarNode && n.Tag == "!!null" {
+			return false
+		}
+		return n.Kind != yaml.SequenceNode || slices.ContainsFunc(n.Content, func(c *yaml.Node) bool { return c.Kind != yaml.MappingNode })
+	}
+	return false
 }
 
 // valuesOf lists the values of key in mapping n.
@@ -569,8 +666,9 @@ func (k kindInfo) rawInfra(group, kind string) (raw bool, unread string) {
 	return raw, ""
 }
 
-// judgeDoc splits d into objects and judges each.
-func (in *ManifestInspection) judgeDoc(d doc, k kindInfo) {
+// judgeDoc splits d into objects and judges each, and reports false once
+// more than MaxManifestObjects documents were read, judged or not.
+func (in *ManifestInspection) judgeDoc(d doc, k kindInfo) bool {
 	var fs []facts
 	var err error
 	if d.chart {
@@ -582,11 +680,15 @@ func (in *ManifestInspection) judgeDoc(d doc, k kindInfo) {
 		in.Unread = append(in.Unread, d.file+" is not readable YAML")
 	}
 	for _, f := range fs {
+		if in.docs++; in.docs > MaxManifestObjects {
+			return false
+		}
 		if d.override != "" {
 			f.namespaces = []string{d.override}
 		}
 		in.judgeObject(d.file, f, k)
 	}
+	return true
 }
 
 // judgeObject judges one object and lists it.
@@ -745,21 +847,34 @@ func (in ManifestInspection) Verdict() Verdict {
 	}
 	switch {
 	case len(refused) > 0:
-		v.Result, v.Citation["refused"] = Fail, strings.Join(refused[:min(len(refused), MaxListedObjects)], "; ")
-		v.Message = "the version reaches outside " + in.Namespace + ": " + v.Citation["refused"]
+		v.Result, v.Citation["refused"] = Fail, listed(refused)
+		v.Message = "the manifest inspector refuses what the version applies: " + v.Citation["refused"]
 		if len(in.Refused) == 0 {
 			v.Message = "the version carries raw infrastructure: " + v.Citation["refused"]
 		}
 	case len(unread) > 0:
 		v.Result = Unknown
-		v.Message = "Pacto cannot tell what the version applies: " + strings.Join(unread, "; ")
+		v.Message = "Pacto cannot tell what the version applies: " + listed(unread)
 	default:
 		v.Message = fmt.Sprintf("every one of the %d objects stays in %s", in.Total, in.Namespace)
 	}
 	if len(unread) > 0 {
-		v.Citation["unread"] = strings.Join(unread, "; ")
+		v.Citation["unread"] = listed(unread)
 	}
 	return v
+}
+
+// listed joins at most MaxListedObjects sentences with "; ", the separator
+// readers split on, so no sentence holds one, and counts the rest.
+func listed(sentences []string) string {
+	out := make([]string, min(len(sentences), MaxListedObjects))
+	for i := range out {
+		out[i] = strings.ReplaceAll(sentences[i], "; ", ", ")
+	}
+	if more := len(sentences) - len(out); more > 0 {
+		out = append(out, fmt.Sprintf("and %d more", more))
+	}
+	return strings.Join(out, "; ")
 }
 
 // maxLayerBytes is the most compressed bytes InspectRevision downloads.
