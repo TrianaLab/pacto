@@ -265,22 +265,26 @@ type JoinCandidate struct {
 }
 
 // JoinRecords are the join records read for one cluster: verified (or
-// refused, with why) and whether the listing was cut or failed.
+// refused, with why), whether the listing was cut or failed, and the tags
+// it could not use (Forks).
 type JoinRecords struct {
 	Verified []VerifiedJoin
 	Cut      bool
 	Err      string
+	Forks    []string
 }
 
 // VerifiedJoin is one join record and whether it counts: its signature
 // verified under an approver signer, its certificate maps to Record.Approver
 // and the hub lets that user approve the cluster. Why says why it does not
-// count.
+// count. Verified says the signature and the identity held, whether or not
+// the review then counted it.
 type VerifiedJoin struct {
 	Record   ClusterJoin
 	User     string
 	Ref      string
 	SignedAt time.Time
+	Verified bool
 	Counted  bool
 	Why      string
 }
@@ -306,20 +310,26 @@ type ClusterJoinState struct {
 	UID string `json:"uid"`
 	// Name is the display name and NameSource where it came from: the
 	// snapshot's, or approval for a person's override.
-	Name       string    `json:"name,omitempty"`
-	NameSource string    `json:"nameSource,omitempty" enum:"approval,node-label,context,file,uid"`
-	KeyID      string    `json:"keyID,omitempty"`
-	PublicKey  string    `json:"publicKey,omitempty"`
-	State      JoinState `json:"state" enum:"pending,approved,removed"`
-	Reason     string    `json:"reason,omitempty"`
+	Name       string `json:"name,omitempty"`
+	NameSource string `json:"nameSource,omitempty" enum:"approval,node-label,context,file,uid"`
+	// KeyID and PublicKey are the key the snapshot names and is signed by:
+	// empty when its own key did not sign it, so it is never approvable.
+	KeyID     string    `json:"keyID,omitempty"`
+	PublicKey string    `json:"publicKey,omitempty"`
+	State     JoinState `json:"state" enum:"pending,approved,removed"`
+	Reason    string    `json:"reason,omitempty"`
 	// Environments are the environments the member seems to host: inferred.
 	Environments []AdvertisedEnvironment `json:"environments,omitempty"`
 	// Approver, ApprovedAt and Record name the record that decided.
-	Approver     string             `json:"approver,omitempty"`
-	ApprovedAt   string             `json:"approvedAt,omitempty"`
-	Record       string             `json:"record,omitempty"`
-	SnapshotAsOf string             `json:"snapshotAsOf,omitempty"`
-	Status       fleet.SourceStatus `json:"status,omitempty"`
+	Approver   string `json:"approver,omitempty"`
+	ApprovedAt string `json:"approvedAt,omitempty"`
+	Record     string `json:"record,omitempty"`
+	// ApprovedKeyID and ApprovedPublicKey are the key the newest counted
+	// approval names, which a removal revokes even when the snapshot is gone.
+	ApprovedKeyID     string             `json:"approvedKeyID,omitempty"`
+	ApprovedPublicKey string             `json:"approvedPublicKey,omitempty"`
+	SnapshotAsOf      string             `json:"snapshotAsOf,omitempty"`
+	Status            fleet.SourceStatus `json:"status,omitempty"`
 	// MayReplace names the approved member this pending cluster shares a
 	// display name with: a rebuilt cluster.
 	MayReplace *ClusterRef `json:"mayReplace,omitempty"`
@@ -333,12 +343,13 @@ type ClusterJoinList struct {
 	Completeness fleet.Completeness `json:"completeness"`
 	Limitations  []fleet.Limitation `json:"limitations,omitempty"`
 	Clusters     []ClusterJoinState `json:"clusters"`
-	// Hidden counts the rows the reader may not see; OtherHubs the counted
-	// records that decide for another hub.
+	// Hidden counts the rows the reader may not see; OtherHubs the verified
+	// records that name another hub and were not used.
 	Hidden    int `json:"hidden"`
 	OtherHubs int `json:"otherHubs"`
-	// CanApprove says the reader may approve clusterjoins, so a surface
-	// offers them the approve command.
+	// CanApprove says the surface offers the reader the approve command:
+	// the hub's review allowed them on a restricted surface, always on an
+	// unrestricted one. pacto cluster approve checks the right itself.
 	CanApprove bool `json:"canApprove"`
 }
 
@@ -363,65 +374,104 @@ func JoinStates(hub string, cands []JoinCandidate, recs map[string]JoinRecords) 
 	return mayReplace(out), others
 }
 
-// decide is the state of c under its records rs, and how many of them decide
-// for another hub.
+// decide is the state of c under its records rs, and how many of them name
+// another hub.
 func decide(hub string, c JoinCandidate, rs JoinRecords) (ClusterJoinState, int) {
 	st := ClusterJoinState{UID: c.UID, State: JoinPending, SnapshotAsOf: c.AsOf, Status: c.Status}
 	if c.Join != nil {
 		j := c.Join
-		st.Name, st.NameSource, st.KeyID, st.PublicKey, st.Environments = j.Name, j.NameSource, j.KeyID, j.PublicKey, j.Environments
+		st.Name, st.NameSource, st.Environments = j.Name, j.NameSource, j.Environments
+		if c.SelfSigned {
+			st.KeyID, st.PublicKey = j.KeyID, j.PublicKey
+		}
 	}
-	newest, whys, others := counted(hub, c.UID, rs.Verified)
+	n := counted(hub, c.UID, rs.Verified)
+	if a := n.newest; a != nil && a.Record.Decision == JoinApprove {
+		st.ApprovedKeyID, st.ApprovedPublicKey = a.Record.KeyID, a.Record.PublicKey
+	}
+	whys := append(n.whys, rs.Forks...)
+	if st.Reason = blocked(c, rs, n.newest); st.Reason == "" {
+		st.Reason = ruled(&st, n)
+	}
+	st.Reason = strings.Join(slices.DeleteFunc(append([]string{st.Reason}, whys...), func(s string) bool { return s == "" }), "; ")
+	return st, n.others
+}
+
+// blocked is why c is pending whatever its records say, or "": its record
+// listing failed or was cut, its snapshot could not be used (a removal
+// needs none) or it has no counted record.
+func blocked(c JoinCandidate, rs JoinRecords, newest *VerifiedJoin) string {
 	switch {
-	case c.Err != "":
-		st.Reason = c.Err
-	case c.Join == nil:
-		st.Reason = "the snapshot carries no join block"
-	case !c.SelfSigned:
-		st.Reason = "the snapshot is not signed by the key it names"
 	case rs.Err != "":
-		st.Reason = "its join records could not be read: " + rs.Err
+		return "its join records could not be read: " + rs.Err
 	case rs.Cut:
-		st.Reason = fmt.Sprintf("more than %d join records; the newest could not be read", MaxJoinRecords)
+		return fmt.Sprintf("more than %d join records; the newest could not be read", MaxJoinRecords)
+	case newest != nil && newest.Record.Decision == JoinRemove:
+		return ""
+	case c.Err != "":
+		return c.Err
+	case c.Join == nil:
+		return "the snapshot carries no join block"
+	case !c.SelfSigned:
+		return "the snapshot is not signed by the key it names"
 	case newest == nil:
-		st.Reason = "no approval yet"
+		return "no approval yet"
+	}
+	return ""
+}
+
+// ruled sets st from the newest counted record and returns why st stays
+// pending, or "": a removal removes; a newer removal that verified but was
+// not counted (its review failed or its signer may no longer approve) keeps
+// it pending; an approval of another key is pending.
+func ruled(st *ClusterJoinState, n joinCount) string {
+	newest := n.newest
+	at := newest.SignedAt.UTC().Format(time.RFC3339)
+	switch {
 	case newest.Record.Decision == JoinRemove:
-		st.State, st.Approver, st.ApprovedAt, st.Record = JoinRemoved, newest.User, newest.SignedAt.UTC().Format(time.RFC3339), newest.Ref
-		return st, others
+		st.State, st.Approver, st.ApprovedAt, st.Record = JoinRemoved, newest.User, at, newest.Ref
+	case n.removal != nil && n.removal.SignedAt.After(newest.SignedAt):
+		return fmt.Sprintf("a newer removal by %s was not counted, so the approval by %s no longer decides: approve again to restore it", n.removal.User, newest.User)
 	case newest.Record.KeyID != st.KeyID:
-		st.Reason = fmt.Sprintf("the key changed from %s since %s approved it on %s", short("sha256:"+newest.Record.KeyID), newest.User, newest.SignedAt.UTC().Format(time.DateOnly))
+		return fmt.Sprintf("the key changed from %s since %s approved it on %s", short("sha256:"+newest.Record.KeyID), newest.User, newest.SignedAt.UTC().Format(time.DateOnly))
 	default:
-		st.State, st.Approver, st.ApprovedAt, st.Record = JoinApproved, newest.User, newest.SignedAt.UTC().Format(time.RFC3339), newest.Ref
+		st.State, st.Approver, st.ApprovedAt, st.Record = JoinApproved, newest.User, at, newest.Ref
 		if newest.Record.Name != "" {
 			st.Name, st.NameSource = newest.Record.Name, fleet.ClusterNameFromApproval
 		}
-		return st, others
 	}
-	st.Reason = strings.Join(append([]string{st.Reason}, whys...), "; ")
-	return st, others
+	return ""
 }
 
-// counted is the newest counted record of uid for hub, the reasons the
-// records that do not count give, and how many counted records decide for
-// another hub.
-func counted(hub, uid string, vs []VerifiedJoin) (*VerifiedJoin, []string, int) {
-	var newest *VerifiedJoin
-	var whys []string
-	others := 0
+// joinCount is what the records of one cluster say for a hub: the newest
+// counted record, the newest removal that verified but was not counted, the
+// reasons the records that do not count give, and how many name another hub.
+type joinCount struct {
+	newest, removal *VerifiedJoin
+	whys            []string
+	others          int
+}
+
+// counted reads the records vs of uid for hub.
+func counted(hub, uid string, vs []VerifiedJoin) joinCount {
+	var n joinCount
 	for i, v := range vs {
 		switch {
 		case !v.Counted:
-			whys = append(whys, v.Why)
+			n.whys = append(n.whys, v.Why)
+			if v.Verified && v.Record.Hub == hub && v.Record.Cluster == uid && v.Record.Decision == JoinRemove && (n.removal == nil || v.SignedAt.After(n.removal.SignedAt)) {
+				n.removal = &vs[i]
+			}
 		case v.Record.Hub != hub:
-			others++
+			n.others++
 		case v.Record.Cluster != uid:
-			whys = append(whys, "a record by "+v.User+" names cluster "+v.Record.Cluster+" and was not counted")
-		case newest == nil || v.SignedAt.After(newest.SignedAt),
-			v.SignedAt.Equal(newest.SignedAt) && v.Record.Decision == JoinRemove: // a tie removes
-			newest = &vs[i]
+			n.whys = append(n.whys, "a record by "+v.User+" names cluster "+v.Record.Cluster+" and was not counted")
+		case n.newest == nil || v.SignedAt.After(n.newest.SignedAt),
+			v.SignedAt.Equal(n.newest.SignedAt) && v.Record.Decision == JoinRemove: // a tie removes
+			n.newest = &vs[i]
 		}
 	}
-	return newest, whys, others
+	return n
 }
 
 // mayReplace marks each pending state whose snapshot name (not the uid's)

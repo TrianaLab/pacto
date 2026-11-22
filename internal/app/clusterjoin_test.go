@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,9 +25,11 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	"github.com/trianalab/pacto/v4/internal/authn"
@@ -64,7 +67,9 @@ type joinEnv struct {
 	mu                           sync.Mutex
 	allow                        map[string]bool
 	reviewErr                    error
-	reviews                      int
+	// errFor fails the reviews of one user.
+	errFor  map[string]error
+	reviews int
 }
 
 func newJoinEnv(t *testing.T, mode capabilities.ReferrersMode) *joinEnv {
@@ -103,6 +108,9 @@ func (e *joinEnv) authorize(_ context.Context, p authn.Person, ns string, res au
 	e.reviews++
 	if ns != "" || len(p.Groups) != 0 || res.Verb != "approve" || res.Resource != "clusterjoins" || res.Name == "" {
 		return false, fmt.Errorf("asked %s %+v in %q for %+v", p.User, res, ns, p.Groups)
+	}
+	if err := e.errFor[p.User]; err != nil {
+		return false, err
 	}
 	return e.allow[p.User], e.reviewErr
 }
@@ -687,7 +695,8 @@ func TestMovedJoinTagIsALimitation(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := e.svc.ClusterJoins(t.Context(), e.opts())
-	if st := stateOfUID(t, l, m.uid); st.State != delivery.JoinApproved || !strings.Contains(fmt.Sprint(l.Limitations), "does not name the manifest") {
+	if st := stateOfUID(t, l, m.uid); st.State != delivery.JoinApproved || !strings.Contains(st.Reason, "does not name the manifest") ||
+		!strings.Contains(fmt.Sprint(l.Limitations), "1 cluster have tags that do not name their record") {
 		t.Fatalf("%+v %+v", st, l.Limitations)
 	}
 }
@@ -821,5 +830,214 @@ func TestDeliveryClassPolicy(t *testing.T) {
 	want := delivery.ClassPolicy{Signers: []delivery.PersonSigner{{Issuer: joinIssuer}}}
 	if got, err := (&Delivery{Policy: want}).ClassPolicy(t.Context()); err != nil || len(got.Signers) != 1 {
 		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+// decideAs writes m's record deciding dec, signed by email (user oidc:email).
+func (e *joinEnv) decideAs(t *testing.T, m member, dec delivery.JoinDecision, email string) {
+	t.Helper()
+	j := m.record(dec)
+	j.Approver = "oidc:" + email
+	e.pushRecord(t, m.uid, e.signRecord(t, email, joinIssuer, j), nil)
+}
+
+// TestNewerUncheckedRemovalKeepsPending: a newer removal whose review fails
+// never lets an older approval decide (R2-1).
+func TestNewerUncheckedRemovalKeepsPending(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	e.allow["oidc:bob@acme.com"] = true
+	m := newMember(memberA, "eu-prod")
+	e.publish(t, m, m.key, snapNow)
+	e.decide(t, m, delivery.JoinApprove)
+	e.ss.Advance(time.Second)
+	e.decideAs(t, m, delivery.JoinRemove, "bob@acme.com")
+	e.errFor = map[string]error{"oidc:bob@acme.com": errors.New("apiserver timeout")}
+	l := e.svc.ClusterJoins(t.Context(), e.opts())
+	st := stateOfUID(t, l, m.uid)
+	if st.State != delivery.JoinPending || !strings.Contains(st.Reason, "a newer removal by oidc:bob@acme.com was not counted") ||
+		!strings.Contains(st.Reason, "a removal by oidc:bob@acme.com could not be checked: apiserver timeout") || l.Completeness != fleet.CompletenessPartial {
+		t.Fatalf("%+v %+v", st, l)
+	}
+	if len(e.build(t).Targets) != 0 {
+		t.Fatal("a member whose removal could not be checked reached the fleet")
+	}
+}
+
+// TestRevokedRemoverKeepsPending: a removal whose signer may no longer
+// approve keeps the older approval from deciding (R2-2).
+func TestRevokedRemoverKeepsPending(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	m := newMember(memberA, "eu-prod")
+	e.publish(t, m, m.key, snapNow)
+	e.decide(t, m, delivery.JoinApprove)
+	e.ss.Advance(time.Second)
+	e.decideAs(t, m, delivery.JoinRemove, "bob@acme.com") // bob's grant is gone
+	st := stateOfUID(t, e.svc.ClusterJoins(t.Context(), e.opts()), m.uid)
+	if st.State != delivery.JoinPending || !strings.Contains(st.Reason, "approve again to restore it") || st.ApprovedKeyID != m.join().KeyID {
+		t.Fatalf("%+v", st)
+	}
+	e.ss.Advance(time.Second)
+	e.decide(t, m, delivery.JoinApprove)
+	if st := stateOfUID(t, e.svc.ClusterJoins(t.Context(), e.opts()), m.uid); st.State != delivery.JoinApproved {
+		t.Fatalf("approving again did not restore it: %+v", st)
+	}
+}
+
+// TestApprovalHistoryNeverLocksOut: approve and remove cycles past the
+// record bound settle on the newest decision, as superseded records stop
+// taking the bound (R4-1).
+func TestApprovalHistoryNeverLocksOut(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	m := newMember(memberA, "eu-prod")
+	e.publish(t, m, m.key, snapNow)
+	for range 11 {
+		e.decide(t, m, delivery.JoinApprove)
+		e.ss.Advance(time.Second)
+		e.decide(t, m, delivery.JoinRemove)
+		e.ss.Advance(time.Second)
+	}
+	e.decide(t, m, delivery.JoinApprove)
+	var st delivery.ClusterJoinState
+	for range 4 {
+		if st = stateOfUID(t, e.svc.ClusterJoins(t.Context(), e.opts()), m.uid); st.State == delivery.JoinApproved {
+			return
+		}
+	}
+	t.Fatalf("23 decisions locked the member out: %+v", st)
+}
+
+// TestApprovedMemberUnreadableSnapshotIsPartial: an approved member whose
+// snapshot cannot be read makes the list and the fleet partial (R2-3).
+func TestApprovedMemberUnreadableSnapshotIsPartial(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	m := newMember(memberA, "eu-prod")
+	e.publish(t, m, m.key, snapNow)
+	e.decide(t, m, delivery.JoinApprove)
+	e.failSnapshot(t, m.uid)
+	l := e.svc.ClusterJoins(t.Context(), e.opts())
+	if st := stateOfUID(t, l, m.uid); st.State != delivery.JoinPending || l.Completeness != fleet.CompletenessPartial ||
+		!strings.Contains(fmt.Sprint(l.Limitations), "the snapshots of 1 cluster an approval names could not be read") {
+		t.Fatalf("%+v %+v", st, l)
+	}
+	snap := e.build(t)
+	if snap.Completeness == fleet.CompletenessComplete || stateOf(t, snap, clusterJoinsID).Status != fleet.SourcePartial {
+		t.Fatalf("the fleet says complete without the member: %s", snap.Completeness)
+	}
+}
+
+// TestJoinLimitationsNameNoCluster: limitations count clusters and never
+// name one or an approver, so a reader who may not approve learns neither
+// (R1-1).
+func TestJoinLimitationsNameNoCluster(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersWriteOnceTags)
+	m := newMember(memberA, "eu-prod")
+	e.publish(t, m, m.key, snapNow)
+	e.decide(t, m, delivery.JoinApprove)
+	e.errFor = map[string]error{"oidc:alice@acme.com": errors.New("apiserver timeout")}
+	l := e.svc.ClusterJoins(t.Context(), e.opts())
+	snap := e.build(t)
+	for _, text := range []string{fmt.Sprint(l.Limitations), fmt.Sprint(stateOf(t, snap, clusterJoinsID)), fmt.Sprint(snap.Limitations)} {
+		if strings.Contains(text, m.uid) || strings.Contains(text, "alice") || !strings.Contains(fmt.Sprint(l.Limitations), "the approvers of 1 cluster could not be checked") {
+			t.Fatalf("a limitation names the cluster or its approver: %s", text)
+		}
+	}
+}
+
+// TestReviewForbiddenNamesTheGrant: a reader whose credentials may not
+// review approvers is told which grant it lacks (R3-4).
+func TestReviewForbiddenNamesTheGrant(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	m := newMember(memberA, "eu-prod")
+	e.publish(t, m, m.key, snapNow)
+	e.decide(t, m, delivery.JoinApprove)
+	e.errFor = map[string]error{"oidc:alice@acme.com": apierrors.NewForbidden(schema.GroupResource{Group: "authorization.k8s.io", Resource: "subjectaccessreviews"}, "", errors.New("no"))}
+	l := e.svc.ClusterJoins(t.Context(), e.opts())
+	if st := stateOfUID(t, l, m.uid); st.State != delivery.JoinPending || !strings.Contains(st.Reason, "may not create subjectaccessreviews") ||
+		!strings.Contains(fmt.Sprint(l.Limitations), "grant create on subjectaccessreviews in the hub") {
+		t.Fatalf("%+v %+v", st, l)
+	}
+}
+
+// TestNoSignersKeepsTheSnapshotReason: with no signers, a forged snapshot
+// still says it is forged (R2-4).
+func TestNoSignersKeepsTheSnapshotReason(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	e.policy = delivery.ClassPolicy{}
+	m := newMember(memberA, "eu-prod")
+	_, other, _ := ed25519.GenerateKey(rand.Reader)
+	e.publish(t, m, other, snapNow)
+	st := stateOfUID(t, e.svc.ClusterJoins(t.Context(), e.opts()), m.uid)
+	if !strings.HasPrefix(st.Reason, noSigners+"; the snapshot is not signed by the key it names") || st.KeyID != "" {
+		t.Fatalf("%+v", st)
+	}
+}
+
+// TestIncludedClusterReadPastTheBound: the cluster a person decides on is
+// read past the pending bound, and without a tag when it has records
+// (R3-2, R4-4, R4-2).
+func TestIncludedClusterReadPastTheBound(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	for i := range delivery.MaxTargetSnapshots {
+		m := newMember(fmt.Sprintf("0000%04d", i), "squat")
+		e.publish(t, m, m.key, snapNow)
+	}
+	m := newMember(memberA, "eu-prod")
+	e.publish(t, m, m.key, snapNow)
+	o := e.opts()
+	if l := e.svc.ClusterJoins(t.Context(), o); slices.ContainsFunc(l.Clusters, func(c delivery.ClusterJoinState) bool { return c.UID == m.uid }) {
+		t.Fatal("the bound did not apply")
+	}
+	o.Include = m.uid
+	if st := stateOfUID(t, e.svc.ClusterJoins(t.Context(), o), m.uid); st.State != delivery.JoinPending || st.KeyID != m.join().KeyID {
+		t.Fatalf("%+v", st)
+	}
+	gone := newMember(memberB, "us-west")
+	e.decide(t, gone, delivery.JoinApprove) // approved, its tag deleted
+	o.Include = gone.uid
+	if st := stateOfUID(t, e.svc.ClusterJoins(t.Context(), o), gone.uid); st.State != delivery.JoinPending || st.ApprovedKeyID != gone.join().KeyID {
+		t.Fatalf("%+v", st)
+	}
+}
+
+// TestRemovalNeedsNoSnapshot: a member that stopped publishing a join block
+// can still be removed (R4-2).
+func TestRemovalNeedsNoSnapshot(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	m := newMember(memberA, "eu-prod")
+	e.publish(t, m, m.key, snapNow)
+	e.decide(t, m, delivery.JoinApprove)
+	pushAt(t, e.repo, m.key, m.uid, ledgerSnapshot(m.uid, snapNow)) // no join block
+	e.ss.Advance(time.Second)
+	if _, _, err := e.svc.WriteClusterJoin(t.Context(), m.record(delivery.JoinRemove), e.personSigner(t), e.repo); err != nil {
+		t.Fatal(err)
+	}
+	if st := stateOfUID(t, e.svc.ClusterJoins(t.Context(), e.opts()), m.uid); st.State != delivery.JoinRemoved {
+		t.Fatalf("%+v", st)
+	}
+}
+
+// TestResolvedJoinOptions: a reader that resolves its options per read says
+// why it could not, and reads nothing from a hub without a registry (R3-3).
+func TestResolvedJoinOptions(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	m := newMember(memberA, "eu-prod")
+	e.publish(t, m, m.key, snapNow)
+	var err error
+	repo := ""
+	o := JoinOptions{Resolve: func(context.Context) (JoinOptions, error) { r := e.opts(); r.Repository = repo; return r, err }}
+	if l := e.svc.ClusterJoins(t.Context(), o); l.Completeness != fleet.CompletenessComplete || len(l.Clusters) != 0 || len(l.Limitations) != 0 {
+		t.Fatalf("no registry: %+v", l)
+	}
+	err = errors.New("the detection names no registry: unavailable")
+	if l := e.svc.ClusterJoins(t.Context(), o); l.Completeness != fleet.CompletenessPartial || !strings.Contains(fmt.Sprint(l.Limitations), "unavailable") {
+		t.Fatalf("unresolved: %+v", l)
+	}
+	err, repo = nil, e.repo
+	if l := e.svc.ClusterJoins(t.Context(), o); len(l.Clusters) != 1 {
+		t.Fatalf("resolved: %+v", l)
+	}
+	e.decide(t, m, delivery.JoinApprove)
+	if snap, err := e.svc.Fleet(t.Context(), FleetOptions{ClusterJoins: &o, Now: func() time.Time { return e.clock }}); err != nil || !clustersOf(snap)[m.uid] {
+		t.Fatalf("a resolved member is not in the fleet: %v", err)
 	}
 }

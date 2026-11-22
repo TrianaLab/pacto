@@ -1706,6 +1706,8 @@ export interface components {
         };
         "Delivery.ClusterJoinState": {
             approvedAt?: string;
+            approvedKeyID?: string;
+            approvedPublicKey?: string;
             approver?: string;
             environments?: components["schemas"]["Delivery.AdvertisedEnvironment"][] | null;
             keyID?: string;

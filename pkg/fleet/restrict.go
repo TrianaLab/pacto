@@ -742,17 +742,17 @@ func (q *Query) WithClusterAccess(full *Query, access map[string]string) *Query 
 	for _, c := range out.Clusters {
 		shown[c.ID] = true
 	}
-	kind := map[string]string{}
+	kind, member := map[string]string{}, map[string]bool{}
 	for _, st := range full.base.Sources {
-		kind[st.ID] = st.Kind
+		// A member snapshot verifies under the key its approval names.
+		kind[st.ID], member[st.ID] = st.Kind, st.Kind == SourceKindTargetSnapshot && strings.HasPrefix(st.Signer, "member:")
 	}
 	kube := func(s string) bool { return kind[s] == SourceKindKubernetes }
 	names, joined := map[string]string{}, map[string]bool{}
 	out.Clusters = nil
 	for _, c := range full.base.Clusters {
 		names[c.ID] = cmp.Or(c.Name, c.ID)
-		joined[c.ID] = !slices.ContainsFunc(c.Sources, kube) &&
-			slices.ContainsFunc(c.Sources, func(s string) bool { return kind[s] == SourceKindTargetSnapshot })
+		joined[c.ID] = !slices.ContainsFunc(c.Sources, kube) && slices.ContainsFunc(c.Sources, func(s string) bool { return member[s] })
 		if shown[c.ID] || access[c.ID] != "" && slices.ContainsFunc(c.Sources, kube) {
 			c.Access = access[c.ID]
 			out.Clusters = append(out.Clusters, c)
