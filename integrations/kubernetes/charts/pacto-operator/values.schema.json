@@ -1519,6 +1519,9 @@
             }
           }
         },
+        "manifestInspector": {
+          "oneOf": [{ "type": "boolean" }, { "const": "auto" }]
+        },
         "admissionPolicies": {
           "type": "object",
           "additionalProperties": false,

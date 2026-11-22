@@ -119,6 +119,12 @@ and Pacto delivery's cluster roles.
 It adds the cluster-wide read of ServiceMonitors and PodMonitors and Pacto
 delivery's cluster roles.
 {{- end }}
+{{- /* The text after the first line is detect.FluxInstallHint, verbatim. */}}
+{{- if not (or (dig "idp" "flux" "install" false .Values.AsMap) (.Capabilities.APIVersions.Has "kustomize.toolkit.fluxcd.io/v1") (.Capabilities.APIVersions.Has "argoproj.io/v1alpha1")) }}
+
+No GitOps engine found. To deliver through upstream Flux packaged with Pacto:
+Set idp.flux.install=true on this Pacto release: helm upgrade <release> oci://ghcr.io/trianalab/charts/pacto-operator -n <namespace> --reuse-values --set idp.flux.install=true
+{{- end }}
 {{- end }}
 {{- /* What the operator detected, read back on upgrade only. NOTES is the one
 template that looks the ConfigMap up, so detection changes no manifest. The

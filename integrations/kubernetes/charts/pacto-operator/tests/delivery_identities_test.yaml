@@ -21,7 +21,7 @@ tests:
     asserts:
       - equal:
           path: data["policy.json"]
-          value: '{"agentGroups":["pacto:agents"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":[],"requireOwnerTeam":false}'
+          value: '{"agentGroups":["pacto:agents"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":[],"manifestInspector":true,"requireOwnerTeam":false}'
 
   - it: turns narrowing on with a prefix
     template: templates/delivery/identities.yaml
@@ -31,7 +31,7 @@ tests:
     asserts:
       - equal:
           path: data["policy.json"]
-          value: '{"agentGroups":["pacto:agents"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":[],"requireOwnerTeam":false,"teamGroupPrefix":"acme:","teamNarrowing":true}'
+          value: '{"agentGroups":["pacto:agents"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":[],"manifestInspector":true,"requireOwnerTeam":false,"teamGroupPrefix":"acme:","teamNarrowing":true}'
 
   - it: keeps narrowing for a reused empty teamGroupPrefix
     template: templates/delivery/identities.yaml
@@ -55,7 +55,7 @@ tests:
     asserts:
       - equal:
           path: data["policy.json"]
-          value: '{"agentGroups":["acme:bots"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":[],"requireOwnerTeam":false}'
+          value: '{"agentGroups":["acme:bots"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":[],"manifestInspector":true,"requireOwnerTeam":false}'
 
   - it: keeps the old behaviour with the two upgrade values
     template: templates/delivery/identities.yaml
@@ -76,7 +76,7 @@ tests:
     asserts:
       - equal:
           path: data["policy.json"]
-          value: '{"agentGroups":["pacto:agents"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":[],"requireOwnerTeam":false}'
+          value: '{"agentGroups":["pacto:agents"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":[],"manifestInspector":true,"requireOwnerTeam":false}'
 
   - it: ignores the deprecated allowEmptyHumanGroups in admission
     template: templates/delivery/admission.yaml

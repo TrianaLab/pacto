@@ -594,7 +594,7 @@ func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*
 		c := notReady(delivery.ReadyReasonApplierUnreadable, what+" the Stage applies through cannot be read: "+err.Error())
 		return &c, nil, nil
 	case meta.IsNoMatchError(err):
-		c := notReady(delivery.ReadyReasonApplierUnreadable, what+" the Stage applies through cannot be read: its CRD is not installed in this cluster ("+err.Error()+")")
+		c := notReady(delivery.ReadyReasonNoApplier, delivery.NoApplierMessage+" ("+what+" cannot be read: its CRD is not installed)")
 		return &c, nil, nil
 	case err != nil:
 		return nil, nil, err

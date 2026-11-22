@@ -305,6 +305,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | delivery.image.tag | string | `""` | Overrides the image tag (default is the chart appVersion) |
 | delivery.imagePullSecrets | list | `[]` | Image pull secrets of the promoter and the recorder, after `global.imagePullSecrets` |
 | delivery.insecureRegistries | list | `[]` | Registry hosts (`host:port`) the promoter and the recorder reach over plain HTTP. An OCIRepository with `spec.insecure: true` is read over HTTP anyway. |
+| delivery.manifestInspector | bool or `auto` | `"auto"` | Refuse a version that carries a cluster-scoped kind, an object outside the Stage namespace or a RoleBinding to a ClusterRole, before the promoter writes its pointer. `auto` is on wherever delivery is enabled; `false` opts out. |
 | delivery.metrics.enabled | bool | `true` | Expose the promoter's metrics (plain HTTP, port 8080) through a Service. The recorder's come with `delivery.recorder.monitoring` |
 | delivery.metrics.serviceMonitor.enabled | bool | `false` | Create a Prometheus Operator ServiceMonitor for that Service |
 | delivery.metrics.serviceMonitor.interval | string | `""` | Scrape interval (empty uses Prometheus' default) |

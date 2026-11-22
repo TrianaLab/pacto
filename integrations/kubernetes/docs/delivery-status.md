@@ -95,6 +95,7 @@ answer share the rule, so they cannot disagree.
 | `ApplierConflict` | Point `spec.applyRef` at the manager `status.applier` names, or move the workloads to the Stage's applier |
 | `ApplierUnknown` | Deliver the workloads through Argo CD or Flux so they carry its labels, or let the promoter read them |
 | `ApplierNotChartRef` | Point the HelmRelease's `spec.chartRef` at an OCIRepository |
+| `NoApplier` | Install Flux or Argo CD; in profile idp, set `idp.flux.install=true` on the Pacto release |
 
 ## What you may do
 

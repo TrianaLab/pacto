@@ -92,3 +92,46 @@ tests:
     asserts:
       - notMatchRegexRaw:
           pattern: No publisher rule
+
+  # The proposal is detect.FluxInstallHint, verbatim.
+  - it: NOTES offers Flux under idp only when no engine API is served and idp.flux.install is false
+    set:
+      profile: idp
+    asserts:
+      - matchRegexRaw:
+          pattern: 'No GitOps engine found\. To deliver through upstream Flux packaged with Pacto:\nSet idp\.flux\.install=true on this Pacto release: helm upgrade <release> oci://ghcr\.io/trianalab/charts/pacto-operator -n <namespace> --reuse-values --set idp\.flux\.install=true\n'
+
+  - it: NOTES offers no Flux under idp when Flux is served
+    set:
+      profile: idp
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - kustomize.toolkit.fluxcd.io/v1
+    asserts:
+      - notMatchRegexRaw:
+          pattern: No GitOps engine found
+
+  - it: NOTES offers no Flux under idp when Argo CD is served
+    set:
+      profile: idp
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - argoproj.io/v1alpha1
+    asserts:
+      - notMatchRegexRaw:
+          pattern: No GitOps engine found
+
+  - it: NOTES offers no Flux outside idp
+    asserts:
+      - notMatchRegexRaw:
+          pattern: No GitOps engine found
+
+  - it: NOTES offers no Flux under idp with hardened
+    set:
+      profile: [idp, hardened]
+      controller.watchNamespaces: [payments]
+    asserts:
+      - notMatchRegexRaw:
+          pattern: No GitOps engine found

@@ -124,7 +124,20 @@ to "" (the exact group T). Unset, whoever may update the Stage's workload answer
 issuer vouches for approve, so it fails the render. */ -}}
 {{- range $i.signers }}{{ if not .subjects }}{{ fail (printf "delivery.identities.signers: the signer for issuer %q needs subjects, the regular expression an approver's whole email must match" .issuer) }}{{ end }}{{ end -}}
 {{- if $i.signers }}{{ $_ := set $p "signers" $i.signers }}{{ end -}}
+{{- if include "pacto-operator.delivery.manifestInspector" . }}{{ $_ := set $p "manifestInspector" true }}{{ end -}}
 {{- $p | toJson -}}
+{{- end }}
+
+{{/*
+The promoter inspects what a version applies before it writes the pointer:
+"true" or nothing. true and false decide; auto, and an absent key, is on
+wherever the delivery templates render.
+*/}}
+{{- define "pacto-operator.delivery.manifestInspector" -}}
+{{- $v := dig "manifestInspector" "auto" .Values.delivery }}
+{{- if eq (toString $v) "auto" }}{{ include "pacto-operator.deliveryEnabled" . }}
+{{- else if $v }}true
+{{- end }}
 {{- end }}
 
 {{/*
@@ -177,7 +190,13 @@ nothing. An absent delivery.flux keeps the Flux access every earlier chart
 rendered.
 */}}
 {{- define "pacto-operator.delivery.flux" -}}
-{{- include "pacto-operator.delivery.applierAPI" (list . (dig "flux" "enabled" nil .Values.delivery) "source.toolkit.fluxcd.io/v1/OCIRepository" true) }}
+{{- $v := dig "flux" "enabled" nil .Values.delivery }}
+{{- /* Under idp, auto is true: Flux may arrive with a later upgrade of this
+release (idp.flux.install), and RBAC on a group not served yet is valid. */}}
+{{- if and (include "pacto-operator.idp" .) (eq (toString $v) "auto") }}true
+{{- else }}
+{{- include "pacto-operator.delivery.applierAPI" (list . $v "source.toolkit.fluxcd.io/v1/OCIRepository" true) }}
+{{- end }}
 {{- end }}
 
 {{/*
@@ -188,7 +207,8 @@ served, so a release reused without that API renders what it rendered.
 {{- define "pacto-operator.delivery.fluxHelm" -}}
 {{- $v := dig "flux" "enabled" nil .Values.delivery }}
 {{- if and (kindIs "bool" $v) $v }}true
-{{- else if and (include "pacto-operator.delivery.flux" .) (include "pacto-operator.apiServed" (list . "helm.toolkit.fluxcd.io/v2/HelmRelease")) }}true
+{{- else if not (include "pacto-operator.delivery.flux" .) }}
+{{- else if or (include "pacto-operator.idp" .) (include "pacto-operator.apiServed" (list . "helm.toolkit.fluxcd.io/v2/HelmRelease")) }}true
 {{- end }}
 {{- end }}
 
