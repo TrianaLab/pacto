@@ -195,6 +195,7 @@ func TestOpenAPI_EnumsOnSpecificFields(t *testing.T) {
 		{"ProductNeighborhood", "views", sortedSet("expected", "observed", "differences")},
 		{"StatsAnswer", "environmentOrder", sortedSet("stages", "name")},
 		{"Fleet.ClusterRecord", "nameSource", sortedSet("approval", "node-label", "context", "file", "uid")},
+		{"Fleet.ClusterSummary", "nameSource", sortedSet("approval", "node-label", "context", "file", "uid")},
 		{"Fleet.TargetRecord", "clusterNameSource", sortedSet("approval", "node-label", "context", "file", "uid")},
 		{"Fleet.TargetRecord", "clusterRelation", sortedSet("runs-in", "reported-through")},
 		{"ProductTargetDetail", "clusterRelation", sortedSet("runs-in", "reported-through")},

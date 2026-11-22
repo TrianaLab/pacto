@@ -343,7 +343,7 @@ type ProductMeta struct {
 type ClusterSummary struct {
 	ID         string       `json:"id" doc:"The kube-system namespace UID; empty for a Kubernetes source whose cluster could not be identified."`
 	Name       string       `json:"name" doc:"A display name for the cluster, or the source id when the cluster could not be identified; never an identity."`
-	NameSource string       `json:"nameSource,omitempty" enum:"node-label,context,file,uid" doc:"How the name was found."`
+	NameSource string       `json:"nameSource,omitempty" enum:"approval,node-label,context,file,uid" doc:"How the name was found: a person's approval of the cluster, a node label, the kubeconfig context name, a target state file or the first characters of the UID."`
 	Status     SourceStatus `json:"status" enum:"available,partial,stale,unavailable" doc:"The worst status of the sources that reported the cluster."`
 	Access     string       `json:"access,omitempty" enum:"no-access,review-failed,not-reviewable" doc:"Why a restricted view shows nothing of this cluster; empty when it shows what you may read."`
 	Targets    int          `json:"targets" doc:"The targets of this cluster the answer shows."`

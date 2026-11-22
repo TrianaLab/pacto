@@ -2762,10 +2762,10 @@ export interface components {
             /** @description A display name for the cluster, or the source id when the cluster could not be identified; never an identity. */
             name: string;
             /**
-             * @description How the name was found.
+             * @description How the name was found: a person's approval of the cluster, a node label, the kubeconfig context name, a target state file or the first characters of the UID.
              * @enum {string}
              */
-            nameSource?: "node-label" | "context" | "file" | "uid";
+            nameSource?: "approval" | "node-label" | "context" | "file" | "uid";
             /**
              * @description The worst status of the sources that reported the cluster.
              * @enum {string}
