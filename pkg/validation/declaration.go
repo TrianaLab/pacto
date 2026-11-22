@@ -11,8 +11,11 @@ import (
 // range the signer accepted (or, on a draft, requested) is the declared
 // compatibility of a dependency pacto.yaml declares, and every proposed range
 // nobody accepted stays compatibility: unknown. A record with no declaration
-// is not checked.
+// is not checked. Every field a record says was carried from a registry
+// declaration is declared in pacto.yaml, so a hand-edited bundle cannot
+// claim a carry its contract does not hold.
 func declarationStage(result *ValidationResult, c *contract.Contract, rec *contract.InferredRecord) {
+	carriedStage(result, c, rec.Inputs.Declaration)
 	d := rec.Declaration
 	if d == nil {
 		return
@@ -42,6 +45,26 @@ func declarationStage(result *ValidationResult, c *contract.Contract, rec *contr
 		result.AddError(contract.InferredRecordFile, string(finding.CodeDeclarationRangeNotAccepted),
 			strings.TrimSuffix(f.Field, ".compatibility")+" declares compatibility "+got+", a proposed range nobody accepted; "+
 				"keep compatibility: unknown or accept the proposal "+f.Proposed)
+	}
+}
+
+// carriedStage adds an error for each key cited carries that pacto.yaml does
+// not declare: service.owner needs an owner, dependencies[<name>] the
+// dependency and its .compatibility a range other than unknown.
+func carriedStage(result *ValidationResult, c *contract.Contract, cited *contract.CitedDeclaration) {
+	if cited == nil {
+		return
+	}
+	declared := map[string]bool{"service.owner": !c.Service.Owner.IsEmpty()}
+	for _, dep := range c.Dependencies {
+		declared["dependencies["+dep.Name+"]"] = true
+		declared["dependencies["+dep.Name+"].compatibility"] = dep.Compatibility != "" && dep.Compatibility != contract.CompatibilityUnknown
+	}
+	for _, field := range strings.Split(cited.Fields, ",") {
+		if !declared[field] {
+			result.AddError(contract.InferredRecordFile, string(finding.CodeCarriedFieldNotDeclared),
+				contract.InferredRecordFile+" says "+field+" was carried from "+cited.Record+", and pacto.yaml does not declare it")
+		}
 	}
 }
 

@@ -1,0 +1,231 @@
+# Declare in the dashboard: the signing client, the registry, the push Secret
+# and the Sigstore reach the operator, which passes them to pacto dashboard.
+suite: dashboard declare signing
+templates:
+  - templates/deployment.yaml
+  - templates/NOTES.txt
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+tests:
+  - it: TestDashboardSignFlagsAbsentByDefault
+    template: templates/deployment.yaml
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--dashboard-(sign-|registry|declare-registry-secret|fulcio-url|rekor-url|timestamp-url)
+
+  - it: TestDashboardSignFlagsRendered
+    template: templates/deployment.yaml
+    set:
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+        signClientID: pacto-dashboard-sign
+        signClientSecretRef: {name: sign-oidc, key: secret}
+        signRedirectURL: https://dash.example/auth/sign/callback
+      declare.signing:
+        fulcioURL: https://fulcio.example
+        rekorURL: https://rekor.example
+        timestampURL: https://tsa.example
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-sign-client-id=pacto-dashboard-sign
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-sign-redirect-url=https://dash.example/auth/sign/callback
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-sign-client-secret-name=sign-oidc
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-sign-client-secret-key=secret
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-fulcio-url=https://fulcio.example
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-rekor-url=https://rekor.example
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-timestamp-url=https://tsa.example
+
+  - it: renders the sign client without a secret ref as a public client
+    template: templates/deployment.yaml
+    set:
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+        signClientID: pacto-dashboard-sign
+        signRedirectURL: https://dash.example/auth/sign/callback
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-sign-client-id=pacto-dashboard-sign
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--dashboard-sign-client-secret
+
+  - it: TestDashboardRegistryFlagFromTopLevel
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-registry=ghcr.io/acme
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--dashboard-declare-registry-secret
+
+  - it: renders no dashboard registry without the dashboard
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      dashboard.enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-registry=ghcr.io/acme
+
+  - it: TestDashboardDeclareRegistrySecretFlag
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      dashboard.ociSecrets: [read-creds]
+      dashboard.declare.registryCredentials.secretName: declare-push
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-declare-registry-secret=declare-push
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oci-secrets=read-creds
+
+  - it: refuses a push Secret without a registry
+    template: templates/deployment.yaml
+    set:
+      dashboard.declare.registryCredentials.secretName: declare-push
+    asserts:
+      - failedTemplate:
+          errorPattern: dashboard.declare.registryCredentials needs registry
+
+  - it: TestSignClientMustDifferRejectedByTemplate
+    template: templates/deployment.yaml
+    set:
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+        signClientID: pacto-dashboard
+        signRedirectURL: https://dash.example/auth/sign/callback
+    asserts:
+      - failedTemplate:
+          errorPattern: signClientID must differ from dashboard.auth.oidc.clientID
+
+  - it: refuses a sign client without an issuer
+    template: templates/deployment.yaml
+    set:
+      dashboard.auth.oidc.signClientID: pacto-dashboard-sign
+      dashboard.auth.oidc.signRedirectURL: https://dash.example/auth/sign/callback
+    asserts:
+      - failedTemplate:
+          errorPattern: signClientID needs dashboard.auth.oidc.issuerURL
+
+  - it: refuses a sign client without a redirect URL
+    template: templates/deployment.yaml
+    set:
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+        signClientID: pacto-dashboard-sign
+    asserts:
+      - failedTemplate:
+          errorPattern: signRedirectURL is required with a signClientID
+
+  - it: renders for a reuse-values upgrade from a chart without the declare keys
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      dashboard.declare: null
+      dashboard.auth.oidc.signClientSecretRef: null
+      declare.signing: null
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-registry=ghcr.io/acme
+
+  - it: TestNotesSaysDraftsWithoutSignClient
+    template: templates/NOTES.txt
+    set:
+      registry: ghcr.io/acme
+      dashboard.declare.registryCredentials.secretName: declare-push
+    asserts:
+      - matchRegexRaw:
+          pattern: "Declare in the dashboard saves drafts; set dashboard.auth.oidc.signClientID to sign there"
+      - notMatchRegexRaw:
+          pattern: "Declare in the dashboard plans only"
+
+  - it: TestNotesSaysPlanOnlyWithoutPushSecret
+    template: templates/NOTES.txt
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - matchRegexRaw:
+          pattern: "Declare in the dashboard plans only; set dashboard.declare.registryCredentials to save drafts"
+      - notMatchRegexRaw:
+          pattern: "saves drafts; set"
+
+  - it: says nothing about Declare when the dashboard signs and saves
+    template: templates/NOTES.txt
+    set:
+      registry: ghcr.io/acme
+      dashboard.declare.registryCredentials.secretName: declare-push
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+        signClientID: pacto-dashboard-sign
+        signRedirectURL: https://dash.example/auth/sign/callback
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "Declare in the dashboard"
+
+  - it: says nothing about Declare without a registry
+    template: templates/NOTES.txt
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "Declare in the dashboard"
+
+  - it: TestDashboardTrustedRootFromDeclare
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      declare.trustedRoot: '{"mediaType":"application/vnd.dev.sigstore.trustedroot+json;version=0.1"}'
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[?(@ =~ /^--dashboard-trusted-root-configmap=/)]
+          pattern: ^--dashboard-trusted-root-configmap=pacto-operator-owner-policy-[0-9a-f]{10}$
+
+  - it: TestDashboardTrustedRootFromPublishers
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      delivery.publishers.trustedRoot: '{"mediaType":"application/vnd.dev.sigstore.trustedroot+json;version=0.1"}'
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[?(@ =~ /^--dashboard-trusted-root-configmap=/)]
+          pattern: ^--dashboard-trusted-root-configmap=pacto-operator-owner-policy-
+
+  - it: TestDashboardTrustedRootAbsentWithoutRoot
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--dashboard-trusted-root-configmap

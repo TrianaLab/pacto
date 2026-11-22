@@ -90,6 +90,23 @@ findings:                      # what Pacto recognized and could not read
   its signer and the fields it pinned into the published `pacto.yaml` (or the
   break it accepts). The next run reads them again and drops one that no longer
   verifies.
+- `inputs.declaration` cites the [registry declaration](../publishing.md#fields-declared-in-the-registry)
+  `pacto ci --publish` carried fields from: `record`, the declaration bundle as
+  `<repository>@sha256:<64 hex>`; `signer`, as `<subject> (<issuer>)`; and
+  `fields`, the keys it pinned into the published `pacto.yaml`, comma-separated
+  and sorted, each `service.owner`, `dependencies[<name>]` or
+  `dependencies[<name>].compatibility`. Each later carry cites the same
+  declaration, and a key it lists that `pacto.yaml` does not declare fails
+  validation (`CARRIED_FIELD_NOT_DECLARED`):
+
+  ```yaml
+  inputs:
+    declaration:
+      record: ghcr.io/acme/invoices@sha256:5a54bebec06a5e0c1f8d2b3a4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f
+      signer: ines@acme.com (https://accounts.google.com)
+      fields: dependencies[ledger],service.owner
+  ```
+
 - `confidence` is `likely` (read from a file in the repository) or `possible`.
 - `declare` is the YAML to add to `pacto.yaml`. For a configuration key it is
   the property to add to the configuration's JSON Schema.

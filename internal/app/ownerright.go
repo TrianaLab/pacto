@@ -359,18 +359,28 @@ func (pl *declarePlanner) ownerPolicy(ctx context.Context) (*delivery.OwnerPolic
 // historyRevision is version as a revision: its owner, record and
 // provenance; nil when the tag went away since the listing.
 func (pl *declarePlanner) historyRevision(ctx context.Context, tm root.TrustedMaterial, version string) (*fleet.ContractRevision, error) {
-	h, err := pl.reg.Head(ctx, pl.repo()+":"+version)
+	return registryRevision(ctx, pl.reg, tm, pl.req.Signing.RekorURL != "", pl.repo(), pl.plan.Service, version, pl.rules, pl.req.Signing.Rules)
+}
+
+// registryRevision is repo:version as a revision of service for
+// OwnerRights: its owner, record and provenance, its signers judged by the
+// publisher rules and classified by the class rules; nil when the tag went
+// away since the listing. Declarations and pacto ci's carried owner read
+// the owner history through it.
+func registryRevision(ctx context.Context, reg publish.Registry, tm root.TrustedMaterial, tlog bool, repo, service, version string,
+	rules []delivery.PublisherRule, classes []delivery.SignerClassRule) (*fleet.ContractRevision, error) {
+	h, err := reg.Head(ctx, repo+":"+version)
 	if err != nil || h == nil {
 		return nil, err
 	}
-	b, err := pl.reg.Pull(ctx, pl.repo()+"@"+h.Digest)
+	b, err := reg.Pull(ctx, repo+"@"+h.Digest)
 	if err != nil {
 		return nil, err
 	}
 	rec, _ := contract.ReadInferredRecord(b.FS) // ponytail: an unreadable record holds no declaration and no attested owner
-	v, signers, commit := publish.CheckPublisher(ctx, pl.reg, tm, pl.req.Signing.RekorURL != "", pl.repo(), h.Digest,
-		delivery.ServiceRef{Name: pl.plan.Service}, "", pl.rules, delivery.PublisherSourceRule, nil, nil)
-	return &fleet.ContractRevision{Key: fleet.RevisionKey(h.Digest), Service: pl.plan.Service, Version: version, Digest: h.Digest,
+	v, signers, commit := publish.CheckPublisher(ctx, reg, tm, tlog, repo, h.Digest,
+		delivery.ServiceRef{Name: service}, "", rules, delivery.PublisherSourceRule, nil, nil)
+	return &fleet.ContractRevision{Key: fleet.RevisionKey(h.Digest), Service: service, Version: version, Digest: h.Digest,
 		Owner: b.Contract.Service.Owner, Record: rec, Provenance: &fleet.BundleProvenance{Signature: signing.BundleSignatureFor(v, commit),
-			Signers: verifiedSigners(signers, pl.req.Signing.Rules)}}, nil
+			Signers: verifiedSigners(signers, classes)}}, nil
 }

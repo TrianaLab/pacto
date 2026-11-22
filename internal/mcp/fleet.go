@@ -64,8 +64,8 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"workload.group says how the cluster groups it and from what. Use " +
 	"pacto_fleet_entities to list owners, business domains and offerings, pacto_fleet_entity " +
 	"for one of them and pacto_fleet_attention for what needs attention, most severe first. " +
-	"An attention item's nextAction names the operation that fixes it and the tool that makes it (edit-contract: " +
-	"edit the contract, from pacto mcp --transport stdio; declare: write a declared contract with pacto_declare); Pacto infers it from the item's code, and it grants nothing. " +
+	"An attention item's nextAction names the operation, the CLI command and, when this server registers it, the tool that fixes it; " +
+	"Pacto infers it from the item's code, and it grants nothing. " +
 	"pacto_fleet_neighborhood lists the services around one service with their owners, for the " +
 	"blast radius of a problem. Observed edges from a source of kind mira come from Mira's sampled " +
 	"service map: an edge Mira did not see may still exist. For when a problem started and which " +
@@ -167,7 +167,9 @@ func hrefPrefix(opts FleetOptions) string {
 
 // registerFleetTools adds the read-only fleet query tools, plus the
 // read-only pacto_impact tool when an impact provider is supplied.
-func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetOptions) {
+// served reports whether this server registers a tool: a next action names
+// only a tool it does.
+func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetOptions, served func(string) bool) {
 	link := opts.DashboardURL != ""
 	addFleetTool(server, fleetSearchTool(), src, opts, fleetSearchHandler)
 	addFleetTool(server, fleetGetTool(), src, opts, fleetGetHandler)
@@ -178,10 +180,10 @@ func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetO
 		return fleetEntitiesHandler(q, link)
 	})
 	addFleetTool(server, fleetEntityTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetEntityArgs, any] {
-		return fleetEntityHandler(q, link, opts.Reached)
+		return fleetEntityHandler(q, link, opts.Reached, served)
 	})
 	addFleetTool(server, fleetAttentionTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetAttentionArgs, any] {
-		return fleetAttentionHandler(q, link)
+		return fleetAttentionHandler(q, link, served)
 	})
 	addFleetTool(server, fleetNeighborhoodTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetNeighborhoodArgs, any] {
 		return fleetNeighborhoodHandler(q, link)
@@ -191,7 +193,7 @@ func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetO
 	})
 	addFleetTool(server, fleetVersionsTool(), src, opts, fleetVersionsHandler)
 	addFleetTool(server, fleetOverviewTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[struct{}, any] {
-		return fleetOverviewHandler(q, link)
+		return fleetOverviewHandler(q, link, served)
 	})
 	addFleetTool(server, fleetRevisionDocumentTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetRevisionDocumentArgs, any] {
 		return fleetRevisionDocumentHandler(q, link)
@@ -703,9 +705,12 @@ type fleetEntityArgs struct {
 	Reached bool   `json:"reached,omitempty"`
 }
 
-func fleetEntityHandler(q *fleet.Query, link bool, reached ReachedReader) mcpsdk.ToolHandlerFor[fleetEntityArgs, any] {
+func fleetEntityHandler(q *fleet.Query, link bool, reached ReachedReader, served func(string) bool) mcpsdk.ToolHandlerFor[fleetEntityArgs, any] {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, a fleetEntityArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := q.EntityDetail(fleet.EntityKind(a.Kind), a.Key)
+		if err == nil {
+			res.KeepServedTools(served)
+		}
 		switch {
 		case err != nil || !a.Reached || res.Service == nil:
 		case reached == nil:
@@ -818,13 +823,17 @@ type fleetAttentionArgs struct {
 	Offset         int    `json:"offset"`
 }
 
-func fleetAttentionHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetAttentionArgs, any] {
+func fleetAttentionHandler(q *fleet.Query, link bool, served func(string) bool) mcpsdk.ToolHandlerFor[fleetAttentionArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetAttentionArgs) (*mcpsdk.CallToolResult, any, error) {
-		return productResult(link, productview.ToAttentionList)(q.Attention(fleet.AttentionFilter{
+		res, err := q.Attention(fleet.AttentionFilter{
 			Category: a.Category, Severity: a.Severity, Owner: a.Owner, OwnerKey: a.OwnerKey,
 			BusinessDomain: a.BusinessDomain, Service: a.Service, Limit: a.Limit, Offset: a.Offset,
 			Kind: a.Kind, Key: a.Key, Source: a.Source, Status: a.Status, StaleOnly: a.StaleOnly,
-		}))
+		})
+		if err == nil {
+			fleet.KeepServedTools(res.Items, served)
+		}
+		return productResult(link, productview.ToAttentionList)(res, err)
 	}
 }
 
@@ -949,9 +958,11 @@ func fleetOverviewTool() *mcpsdk.Tool {
 	}
 }
 
-func fleetOverviewHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[struct{}, any] {
+func fleetOverviewHandler(q *fleet.Query, link bool, served func(string) bool) mcpsdk.ToolHandlerFor[struct{}, any] {
 	return func(context.Context, *mcpsdk.CallToolRequest, struct{}) (*mcpsdk.CallToolResult, any, error) {
-		return productResult(link, productview.ToOverview)(q.Overview(), nil)
+		ov := q.Overview()
+		fleet.KeepServedTools(ov.Attention.Items, served)
+		return productResult(link, productview.ToOverview)(ov, nil)
 	}
 }
 

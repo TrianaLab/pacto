@@ -3,6 +3,7 @@ package fleet
 import (
 	"cmp"
 	"errors"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -1141,19 +1142,101 @@ type AttentionItem struct {
 	Caller *EntityRef `json:"caller,omitempty" doc:"The inferred service of an uncontracted caller, when Pacto sees its workload"`
 }
 
-// NextAction names the operation that fixes an attention item: a verb and the
-// tool that performs it. Only contract edits are named; the caller's own
-// permissions still decide whether the edit happens.
+// NextAction names the operation that fixes an attention item: a verb, the
+// MCP tool that performs it and the CLI command a person runs. The caller's
+// own permissions still decide whether the operation happens.
 type NextAction struct {
-	Verb string `json:"verb" enum:"edit-contract,declare" doc:"The operation: edit-contract changes the contract of the item's service; declare writes a declared contract for what only an inferred one describes"`
-	Tool string `json:"tool" enum:"pacto_edit,pacto_declare" doc:"The MCP tool that performs the operation"`
+	Verb string `json:"verb" enum:"edit-contract,declare,accept,claim,approve-cluster" doc:"The operation. edit-contract changes the contract of the item's service. declare writes a declared contract for a workload only an inferred one describes. accept accepts the proposed ranges of a service. claim declares a contract for an external system. approve-cluster approves a pending cluster"`
+	Tool string `json:"tool,omitempty" enum:"pacto_edit,pacto_declare,pacto_accept" doc:"The MCP tool that performs the operation, set only when the server answering registers it"`
+	CLI  string `json:"cli" doc:"The CLI command a person runs for this step"`
 }
 
-// editContract is the action of every item whose next step is a contract edit.
-func editContract() *NextAction { return &NextAction{Verb: "edit-contract", Tool: "pacto_edit"} }
+// editContract is the action of every item whose next step is a contract
+// edit. There is no pacto edit command: a person edits pacto.yaml in the
+// service's repository and runs pacto ci there.
+func editContract() *NextAction {
+	return &NextAction{Verb: "edit-contract", Tool: "pacto_edit", CLI: "pacto ci"}
+}
 
-// declare is the action of an item whose next step is a declared contract.
-func declare() *NextAction { return &NextAction{Verb: "declare", Tool: "pacto_declare"} }
+// KeepServedTools clears the tool of every item's next action that served
+// does not register, so an answer names only a tool its caller can call; the
+// verb and the CLI command stay. It replaces each changed action with a copy
+// and writes items in place, so the caller passes items it owns.
+func KeepServedTools(items []AttentionItem, served func(string) bool) {
+	for i := range items {
+		items[i].NextAction = items[i].NextAction.keepServed(served)
+	}
+}
+
+// KeepServedTools is [KeepServedTools] over every next action d carries: an
+// inferred service's, an offering's observed consumers' and the attention
+// previews of an owner or a domain.
+func (d *EntityDetail) KeepServedTools(served func(string) bool) {
+	if d.Service != nil {
+		d.Service.NextAction = d.Service.NextAction.keepServed(served)
+	}
+	if d.Offering != nil {
+		for i := range d.Offering.ObservedConsumers.Items {
+			c := &d.Offering.ObservedConsumers.Items[i]
+			c.NextAction = c.NextAction.keepServed(served)
+		}
+	}
+	if d.Owner != nil {
+		KeepServedTools(d.Owner.Attention.Items, served)
+	}
+	if d.Domain != nil {
+		KeepServedTools(d.Domain.Attention.Items, served)
+	}
+}
+
+// NoTools is the served set of a transport that registers no MCP tool: the
+// CLI and the dashboard.
+func NoTools(string) bool { return false }
+
+// keepServed is a with its tool cleared when served does not register it.
+func (a *NextAction) keepServed(served func(string) bool) *NextAction {
+	if a == nil || a.Tool == "" || served(a.Tool) {
+		return a
+	}
+	c := *a
+	c.Tool = ""
+	return &c
+}
+
+// k8sObjectName and k8sNamespace are the RFC 1123 subdomain and label
+// patterns. pkg/fleet stays free of k8s.io, so they are local copies.
+var (
+	k8sObjectName = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
+	k8sNamespace  = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+)
+
+// declareAction is the action of an item whose next step is a declared
+// contract for the workload name in namespace (empty when unknown). Names
+// come from observed data and end up in a command people copy and agents
+// run, so it is nil unless name is an RFC 1123 subdomain and namespace an
+// RFC 1123 label.
+func declareAction(name, namespace string) *NextAction {
+	if len(name) > 253 || !k8sObjectName.MatchString(name) || len(namespace) > 63 || namespace != "" && !k8sNamespace.MatchString(namespace) {
+		return nil
+	}
+	cli := "pacto declare " + name
+	if namespace != "" {
+		cli += " --namespace " + namespace
+	}
+	return &NextAction{Verb: "declare", Tool: "pacto_declare", CLI: cli}
+}
+
+// uncontractedAction is the action of an uncontracted caller: declare the
+// workload its identity names, else edit a contract (an ambiguous caller is
+// renamed, and an identity that is no valid workload never reaches a command).
+func uncontractedAction(c UncontractedCaller) *NextAction {
+	if _, ns, _, name, ok := ParseK8sCaller(c.Caller); ok && !c.Ambiguous {
+		if a := declareAction(name, ns); a != nil {
+			return a
+		}
+	}
+	return editContract()
+}
 
 // Attention categories (stable, used for filtering and for overview entry points).
 const (
@@ -1406,9 +1489,10 @@ func (q *Query) undeclaredAttention() []AttentionItem {
 		it := AttentionItem{
 			Entity: q.serviceRef(c.ToService), Service: string(c.ToService), Label: c.Caller + " calls " + to,
 			Severity: severityInfo, Code: "UNCONTRACTED_CALLER", Category: categoryUndeclared,
-			Summary:  "Caller with no contract",
-			Reason:   c.Caller + " calls " + to + " and no contract describes " + c.Caller,
-			NextStep: "Give " + c.Caller + " a contract, or find out why it calls " + to,
+			Summary:    "Caller with no contract",
+			Reason:     c.Caller + " calls " + to + " and no contract describes " + c.Caller,
+			NextStep:   "Give " + c.Caller + " a contract, or find out why it calls " + to,
+			NextAction: uncontractedAction(c),
 		}
 		if s := q.snap.Services[c.Entity]; s != nil {
 			ref := serviceEntityRef(s)

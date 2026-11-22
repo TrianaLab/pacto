@@ -136,11 +136,19 @@ the verified policy's signer class rules, as the fleet does.
 {{- end }}
 
 {{/*
+The trusted root the dashboard verifies the declarations it signs with: the
+owner check's, only when the dashboard declares (registry is set).
+*/}}
+{{- define "pacto-operator.dashboardTrustedRoot" -}}
+{{- if .Values.registry }}{{ include "pacto-operator.ownerPolicy.trustedRoot" . }}{{ end }}
+{{- end }}
+
+{{/*
 Whether the manager mounts the owner policy ConfigMap: it holds the owner
-policy or the delivery policy's signers.
+policy, the delivery policy's signers or the dashboard's trusted root.
 */}}
 {{- define "pacto-operator.ownerPolicy.mounted" -}}
-{{- if or (include "pacto-operator.ownerPolicy.json" .) (include "pacto-operator.ownerPolicy.signers" .) }}true{{ end }}
+{{- if or (include "pacto-operator.ownerPolicy.json" .) (include "pacto-operator.ownerPolicy.signers" .) (include "pacto-operator.dashboardTrustedRoot" .) }}true{{ end }}
 {{- end }}
 
 {{/*
@@ -342,6 +350,24 @@ Controller arguments derived from values
 - {{ printf "--dashboard-oidc-groups-prefix=%s" . | quote }}
 {{- end }}
 {{- end }}
+{{- /* The signing client: a second client at the same issuer, never the sign-in client. */}}
+{{- $oidc := . }}
+{{- with .signClientID }}
+{{- if not $oidc.issuerURL }}
+{{- fail "dashboard.auth.oidc.signClientID needs dashboard.auth.oidc.issuerURL: the signing login runs at the sign-in issuer" }}
+{{- end }}
+{{- if eq . (toString $oidc.clientID) }}
+{{- fail "dashboard.auth.oidc.signClientID must differ from dashboard.auth.oidc.clientID: the session's token must never reach Fulcio" }}
+{{- end }}
+- --dashboard-sign-client-id={{ . }}
+- --dashboard-sign-redirect-url={{ required "dashboard.auth.oidc.signRedirectURL is required with a signClientID" $oidc.signRedirectURL }}
+{{- with $oidc.signClientSecretRef }}
+{{- if .name }}
+- --dashboard-sign-client-secret-name={{ .name }}
+- --dashboard-sign-client-secret-key={{ .key | default "client-secret" }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- with .session }}
 {{- with .idleTimeout }}
@@ -383,6 +409,31 @@ Controller arguments derived from values
 {{- end }}
 {{- with (($.Values.dashboard.stats | default dict).registry) }}
 - --dashboard-stats-registry={{ . }}
+{{- end }}
+{{- /* Declare in the dashboard: the registry it publishes to, its own push Secret and the Sigstore it signs with. */}}
+{{- with .Values.registry }}
+- --dashboard-registry={{ . }}
+{{- end }}
+{{- with ((($.Values.dashboard.declare | default dict).registryCredentials | default dict).secretName) }}
+{{- if not $.Values.registry }}
+{{- fail "dashboard.declare.registryCredentials needs registry: the dashboard pushes declarations only there" }}
+{{- end }}
+- --dashboard-declare-registry-secret={{ . }}
+{{- end }}
+{{- with (($.Values.declare | default dict).signing | default dict) }}
+{{- with .fulcioURL }}
+- --dashboard-fulcio-url={{ . }}
+{{- end }}
+{{- with .rekorURL }}
+- --dashboard-rekor-url={{ . }}
+{{- end }}
+{{- with .timestampURL }}
+- --dashboard-timestamp-url={{ . }}
+{{- end }}
+{{- end }}
+{{- /* The dashboard verifies what it signs with the root the owner check uses: declare.trustedRoot, else delivery.publishers.trustedRoot. */}}
+{{- if include "pacto-operator.dashboardTrustedRoot" . }}
+- --dashboard-trusted-root-configmap={{ include "pacto-operator.ownerPolicy.name" . }}
 {{- end }}
 {{- with .Values.dashboard.observation }}
 {{- range .sources }}

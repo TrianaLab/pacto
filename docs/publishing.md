@@ -207,6 +207,39 @@ still succeeds; publishing the current version again writes a missing entry.
   `--index none` writes none.
 - `pacto push` under a tag other than the version writes none.
 
+## Fields declared in the registry
+
+- **Kept.** `pacto ci --publish` keeps what a person
+  [declared](#declare-a-running-service) in each later version.
+- **Baseline.** The declaration counts as the baseline the next version is
+  derived from. The plan lines are in
+  [Publish from CI](publish-from-ci.md#fields-carried-from-the-registry).
+- **What is carried.** The declared `service.owner` and each range the
+  declaration accepted. A whole dependency entry is carried only while
+  discovery still finds that dependency.
+- **The repository wins.** A key the repository's `pacto.yaml` writes is never
+  carried, an explicit `compatibility: unknown` included.
+- **Owner.** The owner is carried only when the
+  [owner rule](owner-setting.md) accepts the declaration, which needs an owner
+  policy CI can read. Otherwise the plan prints
+  `owner: billing, declared in registry (rev sha256:7c1d2e3f4a5b), not carried: no owner policy readable from CI: <why>`.
+  Only a CI publish or a judged declaration sets the owner the rule starts
+  from: a release pushed with registry write alone never does.
+- **Ranges.** A range is carried only when an owner of the service signed the
+  declaration.
+- **Signers.** The installation signer policy says whose declarations count.
+  With none, a person public-good Sigstore vouches for counts, and the plan
+  notes `no installation signer policy was read; declarations judged with public-good issuers`.
+- **Record.** The published record cites the declaration in
+  [`inputs.declaration`](contract-reference/inferred-record.md).
+- **Dropped.** A declaration that is gone or no longer counts is dropped with
+  its reason, and the version publishes with the repository's values.
+- **Unknown stops.** A declaration, or the owner history behind it, that
+  cannot be checked under a configured trusted root stops that service's
+  publish.
+- **Plain publish.** `pacto publish` carries nothing, and says which declared
+  fields the new version leaves out.
+
 ## In CI and from agents
 
 CI calls [`pacto ci --publish`](publish-from-ci.md) as one step after the
@@ -221,6 +254,8 @@ through MCP: `pacto mcp --publish` adds `pacto_publish_plan` and
   declares that field, and cites every carried record in
   [`inputs.acceptances`](contract-reference/inferred-record.md). A record that
   no longer verifies stops carrying. A plain `pacto publish` carries none.
+  Fields a person declared are carried the same way: see
+  [Fields declared in the registry](#fields-declared-in-the-registry).
 
 ## Declare a running service
 
@@ -259,7 +294,8 @@ running workload, without a repository or a build.
 - **Drafts.** `pacto declare <workload> --from-draft draft-<n> --yes` accepts a
   draft an agent or CI wrote: the workload is read again under your
   credentials, every declared change the read and the baseline do not back is
-  flagged and you sign.
+  flagged and you sign. `--draft` writes your own draft, unsigned and with no
+  login, for someone to accept later. Every plan lists the drafts waiting.
 - **Verify.** `pacto pull --verify-identity <email> --verify-issuer <issuer>`
   pulls a bundle only when that person signed it; `--verify-key` checks a key
   instead. The record's `declaration` block is in the

@@ -259,8 +259,18 @@ func (g *inferredProviderGroup) item() AttentionItem {
 		Summary:    "Range checked against an inferred contract",
 		Reason:     joinNames(names) + verb + " a compatibility range on " + g.name + "'s inferred contract, which lives under " + contract.InferredRepository + "; Pacto never checks a range against it",
 		NextStep:   g.nextStep(),
-		NextAction: declare(),
+		NextAction: g.nextAction(),
 	}
+}
+
+// nextAction is the action of nextStep: pacto declare for a service, a
+// hand-written contract for an external system (pacto declare reads only
+// workloads) or a service whose name no command may carry.
+func (g *inferredProviderGroup) nextAction() *NextAction {
+	if a := declareAction(g.name, ""); a != nil && g.service != "" {
+		return a
+	}
+	return editContract()
 }
 
 // nextStep is the step that fixes g today. A service is declared with pacto

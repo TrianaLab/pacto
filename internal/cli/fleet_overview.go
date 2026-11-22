@@ -35,6 +35,7 @@ func newFleetOverviewCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 }
 
 func printFleetOverview(cmd *cobra.Command, ov *fleet.Overview, format string) error {
+	fleet.KeepServedTools(ov.Attention.Items, fleet.NoTools) // the CLI serves no MCP tool
 	return formatResult(cmd, format, ov, func() error {
 		w := cmd.OutOrStdout()
 		s := &ov.Summary

@@ -290,7 +290,7 @@ func TestAcceptanceByDefaultApproverCounts(t *testing.T) {
 	if s, _ := JudgeAcceptance(acceptanceStatement(AcceptKindRanges), anaSigner, nil, AcceptanceOwner{Policy: acceptPolicy}, "", asOf); s != impact.AcceptRouted {
 		t.Errorf("a person with no owner right judged %s", s)
 	}
-	if holdsOwnerRight("reports", PublisherIdentity{Issuer: admin.Issuer, Class: ClassHuman}, AcceptanceOwner{Policy: acceptPolicy}, asOf) {
+	if HoldsOwnerRight("reports", PublisherIdentity{Issuer: admin.Issuer, Class: ClassHuman}, AcceptanceOwner{Policy: acceptPolicy}, asOf) {
 		t.Error("an empty subject holds the owner right")
 	}
 }

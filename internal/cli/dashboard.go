@@ -173,10 +173,11 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			// clusterCfg is the sign-in cluster the callers' own clients are
 			// built from: its address and CA, never its credentials. No
 			// cluster, no delivery.
-			identity, err := newDashboardIdentity(v, host, clusterCfg, fleetEntries(svc, d, fopts), d)
+			identity, declarer, err := newDashboardHost(v, host, clusterCfg, svc, fleetEntries(svc, d, fopts), fopts.Provenance.Trust, d)
 			if err != nil {
 				return err
 			}
+			go identity.signing.report(cmd.Context())
 			if !identity.auth.Local() && !identity.auth.SignsIn() {
 				logging.LoggerFromContext(cmd.Context()).Warn("serving beyond loopback without sign-in: everyone who reaches this address reads the whole fleet")
 			}
@@ -201,6 +202,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			}
 			opts.Stats, opts.StatsRegistry = dashboardStats(cmd, svc)
 			identity.options(&opts)
+			opts.Declare = declarer
 			server := dashboard.NewServer(opts)
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
@@ -238,6 +240,10 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().String("oidc-ca-file", "", "PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DASHBOARD_OIDC_CA_FILE)")
 	cmd.Flags().String("oidc-internal-issuer-url", "", "address the dashboard reaches the issuer at when it differs from the public issuer URL browsers use, such as an in-cluster Service; ID tokens must still name the public issuer (also PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL)")
 	addClaimFlags(cmd)
+	addSignFlags(cmd, v)
+	cmd.Flags().String("registry", "", "the registry declarations made in the dashboard are published to (<host>/<path>); without it the dashboard offers no Declare (also PACTO_DASHBOARD_REGISTRY)")
+	cmd.Flags().String("declare-registry-config", "", "a Docker config.json with push access to --registry: a shared dashboard writes declarations and drafts only with this credential of its own, "+
+		"never with the credentials it reads registries with (also PACTO_DASHBOARD_DECLARE_REGISTRY_CONFIG)")
 	cmd.Flags().Duration("session-idle-timeout", 0, "a session without a request for this long ends (default 1h)")
 	cmd.Flags().Duration("session-max-age", 0, "a session ends this long after sign-in, renewed or not (default 12h)")
 	cmd.Flags().Bool("token-login", false, "let people sign in with a Kubernetes token: a ServiceAccount token minted with --audience pacto-dashboard reads the fleet only, and a person's own token acts as them (also PACTO_DASHBOARD_TOKEN_LOGIN)")
@@ -262,6 +268,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.mira-sources", cmd.Flags().Lookup("mira-source"))
 	_ = v.BindPFlag("dashboard.external-catalog", cmd.Flags().Lookup("external-catalog"))
 	_ = v.BindPFlag("dashboard.owner-policy", cmd.Flags().Lookup("owner-policy"))
+	_ = v.BindPFlag("dashboard.registry", cmd.Flags().Lookup("registry"))
+	_ = v.BindPFlag("dashboard.declare-registry-config", cmd.Flags().Lookup("declare-registry-config"))
 	_ = v.BindPFlag("dashboard.detected", cmd.Flags().Lookup("detected"))
 	_ = v.BindPFlag("dashboard.otlp-receiver", cmd.Flags().Lookup("otlp-receiver"))
 	_ = v.BindPFlag("dashboard.fingerprints", cmd.Flags().Lookup("fingerprints"))

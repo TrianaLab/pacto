@@ -1263,6 +1263,10 @@ type TargetRecord struct {
 	createdAt *time.Time
 }
 
+// RunsAs is the workload the target runs as, nil when its source does not
+// know it.
+func (t *TargetRecord) RunsAs() *WorkloadRef { return t.workload }
+
 // DisplayName returns a human-readable "scope/kind/name" for a target, with
 // components unescaped. A target whose key carries a cluster and whose cluster
 // has a name reads "cluster / scope / name". Unlike the canonical Key it is

@@ -10,6 +10,8 @@
 
   var q = window.__pactoTour.q;
   var hashPath = window.__pactoTour.hashPath;
+  // legacy-billing's page: the inferred service key, encoded as the services list links it.
+  var BILLING = "#/fleet/services/k8s:shop%252FDeployment%252Flegacy-billing";
 
   var style = document.createElement("style");
   style.textContent =
@@ -83,7 +85,7 @@
   // for, because a tour that sits there wanting something it has not named is a wall.
   var FLEET_TOUR = [{
     title: "The guided tour",
-    text: NOTICE + " The tour asks fifteen questions about this fleet and opens the screen that answers each one, so press Continue to start.",
+    text: NOTICE + " The tour asks nineteen questions about this fleet and opens the screen that answers each one, so press Continue to start.",
     hash: "#/fleet",
     target: "#ov-answer"
   }, {
@@ -280,8 +282,47 @@
       if (a) { a.click(); } else { window.location.hash = "#/fleet/changes?offering=postgresql&event=unavailable"; }
     }
   }, {
+    // legacy-billing is a Deployment no contract describes: the inferred services list
+    // links it, and its page is where a person declares it.
+    title: "Which workloads have no contract?",
+    text: "Pacto lists the workloads it found running with no contract as inferred services, so open legacy-billing from the list.",
+    hash: "#/fleet/services?declaration=inferred",
+    target: ['main a[href*="legacy-billing"]', '[data-testid="inferred-workload"]'],
+    wait: "Waiting for the legacy-billing page to open.",
+    gate: function () { return hashPath() === BILLING; },
+    skip: function () {
+      var a = q('main a[href*="legacy-billing"]');
+      if (a) { a.click(); } else { window.location.hash = BILLING; }
+    }
+  }, {
+    // The panel asks for the plan only once it opens, read as the person signed in.
+    title: "What would declaring it publish?",
+    text: "Open Declare this service to read the pacto.yaml that pacto declare would publish, with the payments-service range the cluster read proposes.",
+    hash: BILLING,
+    target: ['[data-testid="declare-panel"] > summary', '[data-testid="declare-ranges"]'],
+    wait: "Waiting for the declaration plan to load.",
+    gate: function () { return hashPath() === BILLING && !!q('[data-testid="declare-ranges"]'); },
+    skip: function () {
+      var s = q('[data-testid="declare-panel"] > summary');
+      if (s) { s.click(); }
+    }
+  }, {
+    // Nobody signs in the demo, so the plan is saved as a draft; the result names the
+    // command a person accepts it with, and the draft joins the list below.
+    title: "What would declaring it publish?",
+    text: "Nobody signs in the demo, so press Save draft and read the command a person who may update legacy-billing accepts draft-1 with.",
+    hash: BILLING,
+    target: ['[data-testid="declare-save-draft"]', '[data-testid="declare-result"]'],
+    wait: "Waiting for the draft to be saved.",
+    hold: true,
+    gate: function () { return !!q('[data-testid="declare-result"]'); },
+    skip: function () {
+      var b = q('[data-testid="declare-save-draft"]');
+      if (b) { b.click(); }
+    }
+  }, {
     title: "Recap",
-    text: "You have now seen what runs, what state it is in, whether a change breaks anyone, what happens if a service goes away or regresses, who a change reaches, who owns a service and when its changes reached a Stage, what a provider promises, where new services start and whether a platform offering is available and who can move off it, all from contracts and observations.",
+    text: "You have now seen what runs, what state it is in, whether a change breaks anyone, what happens if a service goes away or regresses, who a change reaches, who owns a service and when its changes reached a Stage, what a provider promises, where new services start, whether a platform offering is available and who can move off it and how a workload with no contract is declared, all from contracts and observations.",
     href: "../examples/demo-tour/",
     linkText: "The same questions from a terminal"
   }];

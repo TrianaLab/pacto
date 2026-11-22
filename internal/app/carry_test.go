@@ -48,7 +48,7 @@ func (e *acceptEnv) base(t *testing.T) carryBase {
 // carry carries reports 1.6.0's acceptances into its next checkout.
 func (e *acceptEnv) carry(t *testing.T, st *acceptanceStore) carryResult {
 	t.Helper()
-	res, err := carryForward(t.Context(), st, e.base(t), bundleOf(t, e.reportsFiles("1.6.1", false)))
+	res, err := carryForward(t.Context(), st, e.base(t), bundleOf(t, e.reportsFiles("1.6.1", false)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestCarryPinsAcceptedRange(t *testing.T) {
 	r.Ranges = append(r.Ranges, delivery.AcceptedRange{Field: "dependencies[ledger].ref", Value: "oci://" + e.host + "/acme/ledger", Source: indexSrc})
 	ref := e.repo + "@" + e.attach(t, attachment{record: r, token: personTok("ana@acme.com"), tag: true})
 	local := bundleOf(t, e.reportsFiles("1.6.1", true))
-	res, err := carryForward(t.Context(), e.store(t), e.base(t), local)
+	res, err := carryForward(t.Context(), e.store(t), e.base(t), local, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestCarryRepositoryWins(t *testing.T) {
 	ref := e.repo + "@" + e.attach(t, attachment{record: r, token: personTok("ana@acme.com"), tag: true})
 	files := e.reportsFiles("1.6.1", false)
 	files["pacto.yaml"] = strings.Replace(files["pacto.yaml"], "compatibility: unknown", `compatibility: "^1.0.0"`, 1)
-	res, err := carryForward(t.Context(), e.store(t), e.base(t), bundleOf(t, files))
+	res, err := carryForward(t.Context(), e.store(t), e.base(t), bundleOf(t, files), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestCarryCitesBreakAcceptance(t *testing.T) {
 	// A local bundle with no record gets one holding the citation.
 	local := bundleOf(t, e.reportsFiles("1.6.1", false))
 	local.FS = contract.WithoutInferredRecord(local.FS)
-	got, err := carryForward(t.Context(), e.store(t), e.base(t), local)
+	got, err := carryForward(t.Context(), e.store(t), e.base(t), local, nil)
 	if err != nil || carriedRecord(t, got.Bundle).Inputs.Acceptances[0].Record != ref {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestCarryDropsRecordThatNoLongerVerifies(t *testing.T) {
 	b, _ := e.reg.Pull(t.Context(), e.repo+"@"+d)
 	base := carryBase{repo: e.repo, version: "1.6.1", digest: d, b: b}
 	local := bundleOf(t, e.reportsFiles("1.6.2", false))
-	res, err := carryForward(t.Context(), e.store(t), base, local)
+	res, err := carryForward(t.Context(), e.store(t), base, local, nil)
 	if err != nil || res.Pinned != 1 || res.Cited[0].Record != ref {
 		t.Fatalf("%v %+v", err, res)
 	}
@@ -177,7 +177,7 @@ func TestCarryDropsRecordThatNoLongerVerifies(t *testing.T) {
 	st := newAcceptanceStore(t.Context(), e.svc.env(), func(context.Context) (Installation, error) {
 		return Installation{Signers: []delivery.PersonSigner{{Issuer: personIssuer, Subjects: ".*", TrustedRoot: string(other.RootJSON)}}}, nil
 	})
-	res, err = carryForward(t.Context(), st, base, local)
+	res, err = carryForward(t.Context(), st, base, local, nil)
 	if err != nil || res.Pinned != 0 || res.Bundle != local || !hasNote(res.Notes, "acceptance "+ref+" no longer carried: it does not verify") {
 		t.Fatalf("%v %+v", err, res)
 	}
@@ -186,7 +186,7 @@ func TestCarryDropsRecordThatNoLongerVerifies(t *testing.T) {
 	e.failWhen(func(r *http.Request) bool {
 		return strings.HasSuffix(r.URL.Path, "/manifests/"+strings.TrimPrefix(ref, e.repo+"@"))
 	})
-	if _, err := carryForward(t.Context(), e.store(t), base, local); err == nil || !strings.Contains(err.Error(), "the acceptance "+ref+" 1.6.1 cites") {
+	if _, err := carryForward(t.Context(), e.store(t), base, local, nil); err == nil || !strings.Contains(err.Error(), "the acceptance "+ref+" 1.6.1 cites") {
 		t.Fatal(err)
 	}
 	e.failWhen(func(r *http.Request) bool { return strings.HasSuffix(r.URL.Path, "/tags/list") })
@@ -200,7 +200,7 @@ func TestCarryUnwritableBundle(t *testing.T) {
 	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
 	local := bundleOf(t, e.reportsFiles("1.6.1", false))
 	local.FS = failFS{}
-	if _, err := carryForward(t.Context(), e.store(t), e.base(t), local); err == nil || !strings.Contains(err.Error(), "carrying acceptances into pacto.yaml") {
+	if _, err := carryForward(t.Context(), e.store(t), e.base(t), local, nil); err == nil || !strings.Contains(err.Error(), "carrying registry decisions into pacto.yaml") {
 		t.Fatal(err)
 	}
 }

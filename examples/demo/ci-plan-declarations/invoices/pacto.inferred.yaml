@@ -1,0 +1,15 @@
+format: pacto.inferred/v1
+inputs:
+    pacto: ""
+    discovery: ""
+    sources: []
+fields: []
+declaration:
+    state: declared
+    asker:
+        subject: ines@acme.com
+        issuer: https://accounts.google.com
+        class: human
+    accepted:
+        - field: dependencies[ledger].compatibility
+          range: '>=2.4.0'

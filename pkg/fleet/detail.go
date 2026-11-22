@@ -433,6 +433,8 @@ type ServiceDetailData struct {
 	Replaces       []Replacement     `json:"replaces,omitempty" doc:"The inferred services this service replaced, at most 200"`
 	ReplacesTotal  int               `json:"replacesTotal,omitempty" doc:"How many inferred services this service replaced"`
 	ReplacesHidden int               `json:"replacesHidden,omitempty" doc:"Replacements of this service whose workload you may not see"`
+	// NextAction is set on an inferred service: declare its workload.
+	NextAction *NextAction `json:"nextAction,omitempty" doc:"The next step for an inferred service: declare a contract for its workload"`
 	// Fields is the service's field provenance, as in [ServiceView].
 	Fields *FieldsPreview `json:"fields,omitempty" doc:"Where each field of the current revision comes from: declared, accepted, attested or inferred"`
 }

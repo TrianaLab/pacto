@@ -129,6 +129,20 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
     },
     element: '[data-testid="inbox-held"]',
   },
+  // legacy-billing's Declare panel: the payments-service range accepted and the plan
+  // saved as draft-1, with the command a person accepts it with.
+  {
+    name: 'declare-panel',
+    open: async (p) => {
+      await go(p, '/#/fleet/services/k8s%3Ashop%252FDeployment%252Flegacy-billing?declare=1', 'legacy-billing');
+      const panel = p.getByTestId('declare');
+      await panel.getByRole('checkbox', { name: 'Accept payments-service range' }).check();
+      await expect(panel.getByTestId('declare-command')).toContainText('--accept payments-service');
+      await panel.getByTestId('declare-save-draft').click();
+      await expect(panel.getByTestId('declare-accept-command')).toBeVisible();
+    },
+    element: '[data-testid="declare-panel"]',
+  },
 ];
 
 async function finish(page: Page) {

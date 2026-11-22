@@ -544,7 +544,8 @@
   {:else if route.view === 'fleet-entity'}
     {#key route.params.kind + '@@' + route.params.key}
       <LazyView load={loadFleetEntityView} kind={route.params.kind} entityKey={route.params.key} correlation={route.params.correlationID || ''}
-        changesQuery={{ kind: route.params.changesKind || '', offset: route.params.changesOffset || '', limit: route.params.changesLimit || '', section: route.params.section || '' }} {refreshTick} {deliveryState} miraURL={entityMiraURL(capabilities)} />
+        changesQuery={{ kind: route.params.changesKind || '', offset: route.params.changesOffset || '', limit: route.params.changesLimit || '', section: route.params.section || '' }} {refreshTick} {deliveryState} miraURL={entityMiraURL(capabilities)}
+        canDeclare={capabilities?.declare === true} declareQuery={{ open: route.params.declare === '1', signed: route.params.signed || '' }} />
     {/key}
   {:else if route.view === 'fleet'}
     <LazyView load={loadGraphView} params={route.params} {refreshTick} />

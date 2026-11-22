@@ -70,6 +70,16 @@ Pacto Operator has been installed.
    dashboard.auth.tokenSignIn.enabled=true, or set
    dashboard.auth.allowAnonymous=false to keep it from starting without sign-in.
 {{- end }}
+{{- /* Declare in the dashboard publishes to registry; without it there is no Declare to describe. */}}
+{{- if .Values.registry }}
+{{- if not ((((.Values.dashboard.declare | default dict).registryCredentials | default dict).secretName)) }}
+
+   Declare in the dashboard plans only; set dashboard.declare.registryCredentials to save drafts.
+{{- else if not (((.Values.dashboard.auth | default dict).oidc | default dict).signClientID) }}
+
+   Declare in the dashboard saves drafts; set dashboard.auth.oidc.signClientID to sign there.
+{{- end }}
+{{- end }}
 {{- end }}
 {{- /* What the operator detected, read back on upgrade only. NOTES is the one
 template that looks the ConfigMap up, so detection changes no manifest. The

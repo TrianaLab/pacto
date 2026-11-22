@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -29,6 +30,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	"github.com/trianalab/pacto/v4/pkg/signing/testutil"
 )
@@ -40,7 +42,10 @@ const (
 	ciPlanCluster = "6f1e0000-cccc-4000-8000-000000000003"
 	// reportsOwner is the declared owner of reports, who accepts the break.
 	reportsOwner = "ana@acme.com"
-	personIssuer = "https://accounts.google.com"
+	// invoicesOwner declared invoices in the registry before its
+	// repository had a pacto.yaml.
+	invoicesOwner = "ines@acme.com"
+	personIssuer  = "https://accounts.google.com"
 )
 
 // ciPlanEnv is a local registry holding the ci-plan baselines, a target
@@ -56,13 +61,15 @@ type ciPlanEnv struct {
 
 // TestCIPlanIsCurrent: the summary docs show for pacto ci is what pacto ci
 // plans today on the ci-plan fixture, against baselines pushed to a local
-// registry, with ledger's announced break accepted by reports' owner.
+// registry, with ledger's announced break accepted by reports' owner and
+// invoices declared in the registry by its owner.
 // PACTO_UPDATE_CI_PLAN=1 rewrites it.
 func TestCIPlanIsCurrent(t *testing.T) {
 	e := newCIPlanEnv(t)
 	root := commitFixture(t)
 	trust := e.pushSnapshot(t)
 	e.acceptBreak(t, root)
+	e.declareInvoices(t)
 	p, res, err := e.svc.CIPlan(t.Context(), app.CIOptions{Root: root, Registry: e.host + "/acme", Getenv: func(string) string { return "" },
 		TargetSnapshotAuto: true, Fleet: app.FleetOptions{TargetSnapshotTrustFile: trust}, Signers: e.policy()})
 	if err != nil {
@@ -248,7 +255,8 @@ func (e *ciPlanEnv) pushSnapshot(t *testing.T) string {
 	return file
 }
 
-// policy lets the private Sigstore's people sign acceptances.
+// policy lets the private Sigstore's people sign acceptances and
+// declarations.
 func (e *ciPlanEnv) policy() *delivery.ClassPolicy {
 	return &delivery.ClassPolicy{Signers: []delivery.PersonSigner{{Issuer: personIssuer, Subjects: ".*", TrustedRoot: string(e.ss.RootJSON)}}}
 }
@@ -284,10 +292,53 @@ func (e *ciPlanEnv) acceptBreak(t *testing.T, root string) {
 	}
 }
 
-// checkLedger: ledger 3.0.0 is BREAKING and reports' owner accepted it, so
-// the row is clear on a complete answer (payments' inferred name is the one
-// its own baseline declares, so it never collides); its undated break
-// expires 30 days after the fixture's commit.
+// declareInvoices pushes invoices 0.1.0 as pacto declare publishes it,
+// signed by invoices' owner, and mounts the owner policy that lets her set
+// its owner, so pacto ci carries her owner and accepted range into invoices'
+// two-line pacto.yaml.
+func (e *ciPlanEnv) declareInvoices(t *testing.T) {
+	t.Helper()
+	ctx := t.Context()
+	// pacto push would rewrite the record, so the bundle is pushed as is.
+	dir := "ci-plan-declarations/invoices"
+	raw, err := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := contract.Parse(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &contract.Bundle{Contract: c, RawYAML: raw, FS: os.DirFS(dir)}
+	digest, err := oci.NewClient(authn.NewMultiKeychain(), oci.WithInsecureRegistries(e.host)).Push(ctx, e.host+"/acme/invoices:0.1.0", b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok := testutil.TokenWith(map[string]string{"sub": invoicesOwner, "email": invoicesOwner, "email_verified": "true", "iss": personIssuer})
+	s, err := signing.Keyless(e.ss.Fulcio, e.ss.TSA, "", func(context.Context) (string, error) { return tok, nil }, e.ss.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := publish.SignDigest(ctx, publish.NewClient(authn.NewMultiKeychain(), e.host), s, e.host+"/acme/invoices", digest); err != nil {
+		t.Fatal(err)
+	}
+	// Pushing the same version again keeps it and writes its missing
+	// organization index entry, as pacto declare does.
+	res, err := e.svc.Push(ctx, app.PushOptions{Ref: "oci://" + e.host + "/acme/invoices:0.1.0", Path: dir})
+	if err != nil || res.Digest != digest || !strings.HasPrefix(res.Index, "indexed") {
+		t.Fatalf("push %+v: %v", res, err)
+	}
+	e.svc.OwnerPolicyPath = "ci-plan-declarations/owner-policy.json"
+}
+
+// checkLedger: ledger 3.0.0 is BREAKING, reports' owner accepted it and
+// invoices' carried range accepts it (payments' inferred name is the one its
+// own baseline declares, so it never collides); its undated break expires 30
+// days after the fixture's commit. The row still reads unverified: the
+// organization index serves invoices' declaration, whose owner pacto ci does
+// not judge as the fleet would (no owner check runs on index consumers), so
+// the answer is partial on that alone. When that check lands, this row reads
+// clear again: expect GateClear on a complete answer.
 func checkLedger(t *testing.T, p *ci.Plan, res *impact.Result, root string) {
 	t.Helper()
 	i := slices.IndexFunc(p.Rows, func(r ci.Row) bool { return r.Service == "ledger" })
@@ -295,7 +346,7 @@ func checkLedger(t *testing.T, p *ci.Plan, res *impact.Result, root string) {
 		t.Fatalf("ledger rows %+v, answer %+v", p.Rows, res)
 	}
 	row := p.Rows[i]
-	if row.Impact.Gate != impact.GateClear || res.Completeness != fleet.CompletenessComplete {
+	if row.Impact.Gate != impact.GateUnverified || res.Completeness != fleet.CompletenessPartial || !onlyInvoicesOwnerUnverified(res.Limitations) {
 		t.Fatalf("ledger row %+v, completeness %s, limitations %+v", row.Impact, res.Completeness, res.Limitations)
 	}
 	out, err := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output()
@@ -308,14 +359,29 @@ func checkLedger(t *testing.T, p *ci.Plan, res *impact.Result, root string) {
 	}
 }
 
-// acceptedByOwner reports whether res is BREAKING with one consumer,
-// reports, whose break its owner accepted.
+// acceptedByOwner reports whether res is BREAKING with two consumers:
+// reports, whose break its owner accepted, and invoices, whose range
+// accepts it.
 func acceptedByOwner(res *impact.Result) bool {
-	if res == nil || res.Classification != "BREAKING" || len(res.Consumers) != 1 {
+	if res == nil || res.Classification != "BREAKING" || len(res.Consumers) != 2 {
 		return false
 	}
-	b := res.Consumers[0].Break
-	return b != nil && b.State == impact.BreakAccepted && b.By == reportsOwner
+	inv, rep := res.Consumers[0], res.Consumers[1]
+	b := rep.Break
+	return inv.Service == "invoices" && inv.CompatibilityVerdict == impact.CompatibilityCompatible && rep.Service == "reports" &&
+		b != nil && b.State == impact.BreakAccepted && b.By == reportsOwner
+}
+
+// onlyInvoicesOwnerUnverified reports whether the one limitation that makes
+// lims partial is invoices' unjudged registry owner.
+func onlyInvoicesOwnerUnverified(lims []fleet.Limitation) bool {
+	var partial []fleet.Limitation
+	for _, l := range lims {
+		if l.Code != fleet.LimitationFreshnessNotEvaluated {
+			partial = append(partial, l)
+		}
+	}
+	return len(partial) == 1 && partial[0].Code == fleet.LimitationOwnerDeclarationUnverified && strings.HasPrefix(partial[0].Message, "invoices: ")
 }
 
 // stable is the summary with the registry host and root as docs show them,

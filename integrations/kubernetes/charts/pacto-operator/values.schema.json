@@ -568,7 +568,17 @@
                 "usernameClaim": { "type": "string" },
                 "usernamePrefix": { "type": "string" },
                 "groupsClaim": { "type": "string" },
-                "groupsPrefix": { "type": "string" }
+                "groupsPrefix": { "type": "string" },
+                "signClientID": { "type": ["string", "null"] },
+                "signClientSecretRef": {
+                  "type": ["object", "null"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": { "type": ["string", "null"] },
+                    "key": { "type": ["string", "null"] }
+                  }
+                },
+                "signRedirectURL": { "type": ["string", "null"] }
               }
             },
             "session": {
@@ -613,6 +623,20 @@
               }
             },
             "miraURL": { "type": "string" }
+          }
+        },
+        "declare": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "Declare in the dashboard: the push Secret its writer alone uses.",
+          "properties": {
+            "registryCredentials": {
+              "type": ["object", "null"],
+              "additionalProperties": false,
+              "properties": {
+                "secretName": { "type": ["string", "null"] }
+              }
+            }
           }
         },
         "stats": {
@@ -1539,7 +1563,17 @@
           "additionalProperties": { "type": ["array", "null"], "items": { "$ref": "#/$defs/ownerSignerRule" } }
         },
         "emailIssuers": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1 } },
-        "trustedRoot": { "type": ["string", "null"], "description": "A Sigstore trusted_root.json owner changes are verified against; empty falls back to delivery.publishers.trustedRoot, else public-good Sigstore." }
+        "trustedRoot": { "type": ["string", "null"], "description": "A Sigstore trusted_root.json owner changes are verified against; empty falls back to delivery.publishers.trustedRoot, else public-good Sigstore." },
+        "signing": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "The Sigstore a person's declaration is signed with in the dashboard; empty uses public-good Sigstore.",
+          "properties": {
+            "fulcioURL": { "type": ["string", "null"] },
+            "rekorURL": { "type": ["string", "null"] },
+            "timestampURL": { "type": ["string", "null"] }
+          }
+        }
       }
     },
     "zot": {

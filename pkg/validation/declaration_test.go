@@ -117,3 +117,62 @@ func TestDeclarationStageSilentWithoutDeclaration(t *testing.T) {
 		t.Fatalf("codes = %v, errors %+v", got, r.Errors)
 	}
 }
+
+// carriedRecord is goodRecord citing a registry declaration that carried fields.
+func carriedRecord(fields string) *contract.InferredRecord {
+	rec := goodRecord()
+	rec.Inputs.Declaration = &contract.CitedDeclaration{Record: "ghcr.io/acme/invoices@sha256:" + strings.Repeat("7", 64),
+		Signer: "ana@acme.com (https://accounts.google.com)", Fields: fields}
+	return rec
+}
+
+// carriedCodes validates carriedRecord(fields) beside pactoYAML.
+func carriedCodes(t *testing.T, pactoYAML, fields string) ([]string, validation.ValidationResult) {
+	t.Helper()
+	data, c := parseString(t, pactoYAML)
+	r := validation.Validate(c, data, recordBundle(carriedRecord(fields)))
+	return codesAt(r, contract.InferredRecordFile), r
+}
+
+const carriedYAML = "pactoVersion: \"2.5\"\nservice:\n  name: invoices\n  owner:\n    team: billing\n" +
+	"dependencies:\n  - name: ledger\n    ref: oci://ghcr.io/acme/ledger\n    required: true\n    compatibility: \"^2.3.0\"\n"
+
+func TestCarriedFieldDeclared(t *testing.T) {
+	if got, r := carriedCodes(t, carriedYAML, "dependencies[ledger],dependencies[ledger].compatibility,service.owner"); len(got) != 0 {
+		t.Fatalf("codes = %v, errors %+v", got, r.Errors)
+	}
+}
+
+func TestCarriedFieldNotDeclaredRefused(t *testing.T) {
+	bare := "pactoVersion: \"2.5\"\nservice:\n  name: invoices\n"
+	for _, field := range []string{"service.owner", "dependencies[ledger]", "dependencies[ledger].compatibility"} {
+		got, r := carriedCodes(t, bare, field)
+		if !reflect.DeepEqual(got, []string{"CARRIED_FIELD_NOT_DECLARED"}) {
+			t.Fatalf("%s: codes = %v, errors %+v", field, got, r.Errors)
+		}
+		want := "pacto.inferred.yaml says " + field + " was carried from ghcr.io/acme/invoices@sha256:"
+		if msg := r.Errors[0].Message; !strings.Contains(msg, want) || !strings.HasSuffix(msg, "and pacto.yaml does not declare it") {
+			t.Fatalf("%s: message = %q", field, msg)
+		}
+		if r.IsValid() {
+			t.Fatalf("%s: a carry pacto.yaml does not hold must be an error", field)
+		}
+	}
+	// Only the missing key is named.
+	if got, _ := carriedCodes(t, carriedYAML, "dependencies[billing],service.owner"); !reflect.DeepEqual(got, []string{"CARRIED_FIELD_NOT_DECLARED"}) {
+		t.Fatalf("codes = %v", got)
+	}
+}
+
+func TestCarriedFieldRangeUnknownRefused(t *testing.T) {
+	for _, compat := range []string{"unknown", ""} {
+		yaml := strings.Replace(carriedYAML, "    compatibility: \"^2.3.0\"\n", "", 1)
+		if compat != "" {
+			yaml = strings.Replace(carriedYAML, "^2.3.0", compat, 1)
+		}
+		got, r := carriedCodes(t, yaml, "dependencies[ledger].compatibility")
+		if !reflect.DeepEqual(got, []string{"CARRIED_FIELD_NOT_DECLARED"}) {
+			t.Fatalf("%q: codes = %v, errors %+v", compat, got, r.Errors)
+		}
+	}
+}

@@ -33,8 +33,11 @@ when the ledger image lives at `ghcr.io/acme/ledger`.
 ## The derived version
 
 The baseline is the highest final release in the bundle repository whose
-signature verifies against the publisher identity. Pacto compares the folder
-with it, using the same classification as [`pacto diff`](contract-reference/diff.md):
+signature verifies against the publisher identity, or that is a counted
+registry declaration: this service's declaration, at its own tag, following
+the history of the versions below it, signed by the person who asked for it
+and allowed by the installation signer policy. Pacto compares the folder with
+it, using the same classification as [`pacto diff`](contract-reference/diff.md):
 
 | The bundle repository holds | Pacto publishes |
 |---|---|
@@ -43,8 +46,8 @@ with it, using the same classification as [`pacto diff`](contract-reference/diff
 | A baseline and a `NON_BREAKING` change | the next patch, such as `1.4.2` to `1.4.3` |
 | A baseline and a `POTENTIAL_BREAKING` change | the next minor, such as `1.4.2` to `1.5.0` |
 | A baseline and a `BREAKING` change | the next major (before 1.0, the next minor) |
-| A higher tag whose signature does not verify | the version above it, with the note `ignored <version>: no signature by the publisher identity` |
-| Tags and none verifies | nothing: the service fails with `no verifiable baseline in <repo>` |
+| A higher tag that is neither | the version above it, with the note `ignored <version>: <reason>`, such as `no signature by the publisher identity` or `declaration signed by bob@acme.dev, not the asker alice@acme.dev` |
+| Tags and none counts | nothing: the service fails with `no verifiable baseline in <repo>: no final release there is signed by the publisher identity or is a counted registry declaration; declare service.version to publish` |
 | No version, while the other bundle repository of the layout holds some | nothing: the service fails with `bundle repository moved: <repo> holds versions` |
 | A release candidate above the baseline that the derived version does not satisfy | nothing: declare `service.version` to publish a candidate line |
 
@@ -52,6 +55,38 @@ A declared `service.version` publishes as written, and one too small for the
 change still fails, as with `pacto publish`. Its row reads `unchanged` only
 when the bundle at that version is signed by the publisher identity and its
 deploy artifact is there.
+
+## Fields carried from the registry
+
+When the baseline is a registry declaration, or cites one in
+`inputs.declaration`, `pacto ci --publish` carries the owner and the ranges it
+declared into the published `pacto.yaml`, as
+[Fields declared in the registry](publishing.md#fields-declared-in-the-registry)
+describes. The plan prints one line per field after the row's notes, and the
+JSON output lists the same records under `carried`:
+
+```text
+invoices: owner: billing, declared in registry (rev sha256:7c1d2e3f4a5b)
+invoices: dependencies.ledger.compatibility: ^2.3.0, accepted in registry (rev sha256:7c1d2e3f4a5b)
+invoices: service.version: 0.2.0, derived from 0.1.0 (rev sha256:7c1d2e3f4a5b)
+```
+
+| Line | Means |
+|---|---|
+| `<field>: <value>, declared in registry (rev ...)` or `accepted in registry (rev ...)` | carried into the published `pacto.yaml` |
+| `<field>: <value>, from pacto.yaml (registry declares <value>, rev ...)` | the repository writes the key, so its value wins |
+| `<field>: <value>, declared in registry (rev ...), not carried: <reason>` | dropped, such as an owner the owner rule refuses |
+| `service.version: <v>, from pacto.yaml` or `derived from <baseline> (rev ...)` | where the version comes from |
+
+The plan reads its baseline unverified and says `baseline unverified in plan
+mode`. It carries only from a declaration that counts, and from the newest
+final release, never a candidate. The publish then checks that baseline: when
+it is neither signed by the publisher identity nor a counted declaration, the
+service fails instead of publishing what the plan carried from it. When the
+publish measures the version from another release that declares fields the
+plan did not carry, the service fails too, so a declared field never drops
+without a line. A declaration that could not be checked reads `unverified` in
+the plan and fails that service in the publish.
 
 ## How the image is built
 

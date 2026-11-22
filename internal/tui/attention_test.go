@@ -137,6 +137,20 @@ func TestAttentionNextStepShowsReasonAndRemedy(t *testing.T) {
 	}
 }
 
+func TestAttentionNextStepShowsCLI(t *testing.T) {
+	c := newLoadedContext(t)
+	s := newAttentionScreen(c).(*attentionScreen)
+	s.items = []fleet.AttentionItem{{Reason: "r", NextStep: "n", NextAction: &fleet.NextAction{Verb: "declare", CLI: "pacto declare cart --namespace shop"}}, {Reason: "plain"}}
+	s.tbl.SetCursor(0)
+	if out := s.nextStep(); !strings.Contains(out, "r  ->  n  (run: pacto declare cart --namespace shop)") {
+		t.Fatalf("nextStep = %q", out)
+	}
+	s.tbl.SetCursor(1)
+	if out := s.nextStep(); strings.Contains(out, "run:") {
+		t.Fatalf("nextStep without an action = %q", out)
+	}
+}
+
 func TestAttentionNextStepWithOnlyReason(t *testing.T) {
 	c := newLoadedContext(t)
 	s := newAttentionScreen(c).(*attentionScreen)

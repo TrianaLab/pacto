@@ -470,6 +470,7 @@ func (q *Query) inferredServiceDetail(s *ServiceRecord) *EntityDetail {
 		Limitations: attributedLimitationsPreview(lims), Workload: jsonClone(s.Workload),
 		Calls: refPreview(calls), CallsObserved: observed,
 		HiddenDependencies: s.HiddenDependencies, HiddenDependents: s.HiddenDependents,
+		NextAction: declareAction(s.Workload.Name, s.Workload.Namespace),
 	}
 	return &EntityDetail{Meta: q.productMeta(), Entity: self, Service: data, Actions: []string{}}
 }
@@ -552,6 +553,9 @@ func (d *ServiceDetailData) InferredLines(asOf time.Time) []string {
 	}
 	for _, l := range d.Limitations.Items {
 		out = append(out, "  - ["+l.Limitation.Code+"] "+l.Limitation.Message)
+	}
+	if d.NextAction != nil {
+		out = append(out, "Next: "+d.NextAction.CLI)
 	}
 	return out
 }

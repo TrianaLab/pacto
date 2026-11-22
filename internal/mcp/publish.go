@@ -33,7 +33,7 @@ const publishInstructions = "pacto_publish_plan shows what publishing a contract
 // tools and pacto_capabilities. It serves stdio only.
 func NewPublishServer(version string, run PublishFunc, a Authoring) *mcpsdk.Server {
 	m := Modes{Transport: "stdio", publish: true}
-	server := newServer(version, baseFor(a)+"\n\n"+publishInstructions+"\n\n"+capabilitiesInstructions, a, editOptions(m))
+	server := newServer(version, baseFor(a)+"\n\n"+publishInstructions+"\n\n"+capabilitiesInstructions, a, editOptions(a, m))
 	registerCapabilitiesTool(server, a, m)
 	schema := inputSchema(map[string]property{
 		"path":                {Type: "string", Description: "Contract directory (default: the server's working directory)"},

@@ -99,7 +99,7 @@ func TestFleetAttention(t *testing.T) {
 		t.Fatalf("attention: %v", err)
 	}
 	if !regexp.MustCompile(`(?m)^\d+ of \d+ attention item\(s\):$`).MatchString(out) ||
-		!regexp.MustCompile(`(?m)^  \[info\] unowned lonely: .+ \(next: .+\) \(action: edit-contract via pacto_edit\)$`).MatchString(out) {
+		!regexp.MustCompile(`(?m)^  \[info\] unowned lonely: .+ \(next: .+\) \(action: edit-contract: pacto ci\)$`).MatchString(out) {
 		t.Errorf("attention --category unowned:\n%s", out)
 	}
 	// Unknown compliance is never a contract edit: its line names no action.

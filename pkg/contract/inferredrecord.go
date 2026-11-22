@@ -316,12 +316,27 @@ type InferredInputs struct {
 	// bundle: a range one pins its fields into pacto.yaml, a break one
 	// keeps the record in the service's lookup set.
 	Acceptances []CitedAcceptance `json:"acceptances,omitempty" yaml:"acceptances,omitempty"`
+	// Declaration is the registry declaration pacto ci carried fields from
+	// into this bundle, absent when it carried none.
+	Declaration *CitedDeclaration `json:"declaration,omitempty" yaml:"declaration,omitempty"`
 }
 
 // CitedAcceptance is one carried acceptance: where the record is
 // (<repository>@sha256:<hex>), who signed it and what it carried (the
 // pinned field keys, or the accepted break as <provider>@<version>).
 type CitedAcceptance struct {
+	Record string `json:"record" yaml:"record"`
+	Signer string `json:"signer" yaml:"signer"`
+	Fields string `json:"fields" yaml:"fields"`
+}
+
+// CitedDeclaration is the carried registry declaration: the declaration
+// bundle (<repository>@sha256:<64 hex>), who signed it ("<subject>
+// (<issuer>)") and the record keys pacto ci carried from it into pacto.yaml,
+// comma-separated and sorted: service.owner, dependencies[<name>] or
+// dependencies[<name>].compatibility. It sits beside inputs.acceptances
+// because a bundle digest is no acceptance record.
+type CitedDeclaration struct {
 	Record string `json:"record" yaml:"record"`
 	Signer string `json:"signer" yaml:"signer"`
 	Fields string `json:"fields" yaml:"fields"`
@@ -495,6 +510,37 @@ func checkInferredInputs(r *InferredRecord) error {
 		}
 		if !validPath(s.Path) {
 			return fmt.Errorf("inputs.sources[%d].path %q is not a relative path", i, s.Path)
+		}
+	}
+	if err := checkCitedDeclaration(r.Inputs.Declaration); err != nil {
+		return fmt.Errorf("inputs.declaration%w", err)
+	}
+	return nil
+}
+
+// carriedKeyRE is the grammar of a key a declaration carries.
+var carriedKeyRE = regexp.MustCompile(`^(service\.owner|dependencies\[[^\[\],\s]+\](\.compatibility)?)$`)
+
+// checkCitedDeclaration is why d cannot be a record's inputs.declaration, as
+// a suffix of "inputs.declaration", or nil: the record is pinned by digest,
+// the signer is named and the fields are carried keys, sorted, each once.
+func checkCitedDeclaration(d *CitedDeclaration) error {
+	if d == nil {
+		return nil
+	}
+	if !strings.Contains(d.Record, "@sha256:") || !sourceForms["registry:"].MatchString("registry:"+d.Record) {
+		return fmt.Errorf(".record is %q, want <repository>@sha256:<64 hex>", d.Record)
+	}
+	if d.Signer == "" {
+		return errors.New(".signer is empty")
+	}
+	keys := strings.Split(d.Fields, ",")
+	for i, k := range keys {
+		if !carriedKeyRE.MatchString(k) {
+			return fmt.Errorf(".fields has %q, want service.owner, dependencies[<name>] or dependencies[<name>].compatibility", k)
+		}
+		if i > 0 && keys[i-1] >= k {
+			return fmt.Errorf(".fields is %q, want the keys sorted, each once", d.Fields)
 		}
 	}
 	return nil

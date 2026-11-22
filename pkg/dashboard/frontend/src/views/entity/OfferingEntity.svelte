@@ -6,7 +6,9 @@
   import { successorBadge } from '../../lib/behavior.ts';
   import { acceptsLabel } from '../../lib/entityLabels.ts';
   import { inService } from '../../lib/identityContext.ts';
+  import { declareTarget } from '../../lib/declare.ts';
   import EntityLink from '../../components/EntityLink.svelte';
+  import NextActionLink from '../../components/NextActionLink.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
   import OwnershipFact from '../../components/OwnershipFact.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
@@ -210,6 +212,8 @@
           <IdentityBadge label="observed" tone="info" />
           {#if o.stale}<IdentityBadge label="stale" tone="warn" title="Last seen more than 24h before asOf" describe />{/if}
           <span class="oe-note">{o.lastSeen ? `last seen ${formatRelative(o.lastSeen)}` : 'last seen unknown'}</span>
+          <!-- An uncontracted caller Pacto infers a service for opens its Declare panel. -->
+          {#if declareTarget(o.nextAction, o.consumer)}<NextActionLink action={o.nextAction} subject={o.consumer} />{/if}
         </li>
       {/each}
     </ul>

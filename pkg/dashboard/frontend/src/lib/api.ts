@@ -61,6 +61,15 @@ export type FleetMapNodesPage = JSON200<'fleet-map-nodes'>;
 export type FleetMapFocusAnswer = JSON200<'fleet-map-focus'>;
 /** What accepting every proposed range of a service would sign, and the command that signs it. */
 export type AcceptPlanAnswer = JSON200<'fleet-accept'>;
+/** What carrying out an accept plan wrote, or why nothing was. */
+export type AcceptExecuteAnswer = JSON200<'fleet-accept-execute'>;
+type AcceptExecuteBody = operations['fleet-accept-execute']['requestBody']['content']['application/json'];
+/** What declaring an inferred service would publish, the drafts waiting and what this person can do here. */
+export type DeclareAnswer = JSON200<'fleet-declare'>;
+/** What accepting a declaration plan wrote, or why nothing was. */
+export type DeclareAcceptAnswer = JSON200<'fleet-declare-accept'>;
+type DeclareBody = operations['fleet-declare']['requestBody']['content']['application/json'];
+type DeclareAcceptBody = operations['fleet-declare-accept']['requestBody']['content']['application/json'];
 export type ProductRevisionDocument = JSON200<'fleet-revision-document'>;
 export type ProductOfferingVersions = JSON200<'fleet-versions'>;
 export type ProductStats = JSON200<'get-stats'>;
@@ -522,10 +531,20 @@ export const api = {
     productGet(client.GET('/api/fleet/versions', { params: { query: params } })),
   fleetImpactByIdentity: (body: FleetImpactInput): Promise<ProductImpact> =>
     productGet(client.POST('/api/fleet/impact', { body })),
-  /** Plans "Accept all proposed ranges" for a service: the plan and the exact
-   *  pacto accept command a person runs. It never signs and never writes. */
-  fleetAccept: (serviceKey: string): Promise<AcceptPlanAnswer> =>
-    unwrap(client.POST('/api/fleet/accept', { body: { serviceKey } })),
+  /** Plans "Accept all proposed ranges" for a service, or accepting one of its
+   *  acceptance drafts: the plan, the exact pacto accept command a person runs and
+   *  what they can do with it here. The plan never signs and never writes. */
+  fleetAccept: (serviceKey: string, fromDraft?: string): Promise<AcceptPlanAnswer> =>
+    unwrap(client.POST('/api/fleet/accept', { body: fromDraft ? { serviceKey, fromDraft } : { serviceKey } })),
+  /** Signs a reviewed accept plan, saves it as an acceptance draft or accepts a draft, by its intent digest. */
+  fleetAcceptExecute: (body: AcceptExecuteBody): Promise<AcceptExecuteAnswer> =>
+    unwrap(client.POST('/api/fleet/accept/execute', { body })),
+  /** Plans declaring an inferred service, or accepting one of its drafts. It writes nothing. */
+  fleetDeclare: (body: DeclareBody): Promise<DeclareAnswer> =>
+    unwrap(client.POST('/api/fleet/declare', { body })),
+  /** Signs a reviewed declaration plan, saves it as a draft or accepts a draft, by its intent digest. */
+  fleetDeclareAccept: (body: DeclareAcceptBody): Promise<DeclareAcceptAnswer> =>
+    unwrap(client.POST('/api/fleet/declare/accept', { body })),
   /** Lazily reads ONE document body belonging to exactly this revision. Kept off
    *  the entity detail so a revision page stays bounded. */
   fleetRevisionDocument: (key: string, path: string): Promise<ProductRevisionDocument> =>

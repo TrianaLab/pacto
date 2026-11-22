@@ -173,16 +173,36 @@ func TestInferredEnvNeverReachesCLIOrMCPOrTUI(t *testing.T) {
 	}
 }
 
-// TestFleetAttentionDeclareWordsFollowTheEntity: only a service's declare
-// action names pacto declare.
-func TestFleetAttentionDeclareWordsFollowTheEntity(t *testing.T) {
-	act := &fleet.NextAction{Verb: "declare", Tool: "pacto_declare"}
+// TestPrintAttentionPrintsCLI: the text names each action's verb and the CLI
+// command, never a tool, and the JSON answer carries no tool: the CLI serves
+// none.
+func TestPrintAttentionPrintsCLI(t *testing.T) {
 	res := &fleet.AttentionList{Count: 2, Total: 2, Items: []fleet.AttentionItem{
-		{Entity: fleet.EntityRef{Kind: fleet.KindService, Key: "ledger"}, Label: "ledger", NextAction: act},
-		{Entity: fleet.EntityRef{Kind: fleet.KindExternal, Key: "stripe"}, Label: "stripe", NextAction: act},
+		{Entity: fleet.EntityRef{Kind: fleet.KindService, Key: "ledger"}, Label: "ledger", NextAction: &fleet.NextAction{Verb: "declare", Tool: "pacto_declare", CLI: "pacto declare ledger --namespace shop"}},
+		{Entity: fleet.EntityRef{Kind: fleet.KindExternal, Key: "stripe"}, Label: "stripe", NextAction: &fleet.NextAction{Verb: "edit-contract", Tool: "pacto_edit", CLI: "pacto ci"}},
 	}}
 	out := printed(t, func(c *cobra.Command) error { return printFleetAttention(c, res, "text") })
-	if strings.Count(out, "(action: declare a contract with pacto declare)") != 1 || strings.Count(out, "(action: declare a contract for it)") != 1 {
+	if strings.Count(out, "(action: declare: pacto declare ledger --namespace shop)") != 1 || strings.Count(out, "(action: edit-contract: pacto ci)") != 1 || strings.Contains(out, "pacto_") {
 		t.Errorf("attention:\n%s", out)
 	}
+}
+
+// TestCLIJSONNextActionHasNoTool: every JSON answer the CLI prints carries
+// each nextAction's verb and CLI command and no tool (the CLI serves no MCP
+// tool), and the text names the command that declares an inferred service.
+func TestCLIJSONNextActionHasNoTool(t *testing.T) {
+	q := inferredQuery(t, true)
+	att, err := q.Attention(fleet.AttentionFilter{})
+	expect(t, err == nil, "attention: %v", err)
+	for name, print := range map[string]func(*cobra.Command) error{
+		"attention": func(c *cobra.Command) error { return printFleetAttention(c, att, "json") },
+		"entity":    func(c *cobra.Command) error { return printFleetEntity(c, inferredDetail(t, q), "json") },
+		"overview":  func(c *cobra.Command) error { return printFleetOverview(c, q.Overview(), "json") },
+	} {
+		out := printed(t, print)
+		expect(t, strings.Contains(out, `"nextAction"`) && strings.Contains(out, `"cli": "pacto declare billing --namespace shop"`), "%s lacks the action:\n%s", name, out)
+		expect(t, !strings.Contains(out, `"tool"`), "%s names a tool:\n%s", name, out)
+	}
+	out := printed(t, func(c *cobra.Command) error { return printFleetEntity(c, inferredDetail(t, q), "text") })
+	expect(t, strings.Contains(out, "\nNext: pacto declare billing --namespace shop\n"), "entity text lacks the command:\n%s", out)
 }

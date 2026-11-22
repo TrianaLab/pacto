@@ -147,13 +147,22 @@ const maxDraft = 1 << 30
 func NextDraft(tags []string, prefix string) int {
 	high := 0
 	for _, t := range tags {
-		rest, ok := strings.CutPrefix(t, prefix)
-		n, err := strconv.ParseUint(rest, 10, 31)
-		if ok && err == nil && !strings.HasPrefix(rest, "0") && n <= maxDraft && int(n) > high {
-			high = int(n)
+		if n, ok := DraftNumber(t, prefix); ok && n > high {
+			high = n
 		}
 	}
 	return high + 1
+}
+
+// DraftNumber is the <n> of a prefix<n> tag a record names a draft by (no
+// leading zero, at most maxDraft); ok is false for any other tag.
+func DraftNumber(tag, prefix string) (int, bool) {
+	rest, ok := strings.CutPrefix(tag, prefix)
+	n, err := strconv.ParseUint(rest, 10, 31)
+	if !ok || err != nil || strings.HasPrefix(rest, "0") || n > maxDraft {
+		return 0, false
+	}
+	return int(n), true
 }
 
 // ApplyDraft writes the bundle under the next free draft-<n> tag of its

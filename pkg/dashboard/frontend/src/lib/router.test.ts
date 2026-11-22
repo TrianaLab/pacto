@@ -4,7 +4,7 @@ import {
   readinessUrl, fleetUrl,
   hashForHref, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl,
   fleetEntityUrl, fleetGraphFocusUrl, fleetAttentionUrl, fleetChangesUrl,
-  legacyRedirectTarget, replaceHash, fleetEntityListUrl, fleetGoldenPathsUrl, fleetOfferingsUrl, fleetExternalsUrl, serviceChangesUrl,
+  legacyRedirectTarget, replaceHash, fleetEntityListUrl, fleetGoldenPathsUrl, fleetOfferingsUrl, fleetExternalsUrl, serviceChangesUrl, serviceDeclareUrl,
   deliveryHistoryUrl, metricsUrl,
 } from './router.ts';
 
@@ -926,5 +926,19 @@ describe('cluster filter on the services and targets lists', () => {
     expect(parseHash(url)).toEqual({ view: 'fleet-entity-list', params: { kind: 'target', environment: 'prod', cluster: 'uid-eu', offset: '25' } });
     expect(fleetEntityListUrl('revision', { cluster: 'uid-eu' })).toBe('#/fleet/revisions');
     expect(parseHash('#/fleet/revisions?cluster=uid-eu').params).toEqual({ kind: 'revision' });
+  });
+});
+
+describe('serviceDeclareUrl', () => {
+  it('opens the Declare panel and round-trips the signed intent through the service route', () => {
+    const key = 'default/k8s:shop/Deployment/cart';
+    expect(serviceDeclareUrl(key)).toBe('#/fleet/services/default%2Fk8s%3Ashop%2FDeployment%2Fcart?declare=1');
+    expect(parseHash(serviceDeclareUrl(key))).toEqual({ view: 'fleet-entity', params: { kind: 'service', key, declare: '1' } });
+    const signed = serviceDeclareUrl(key, { signed: 'sha256:abc' });
+    expect(signed.split('#').length).toBe(2);
+    expect(parseHash(signed).params).toEqual({ kind: 'service', key, declare: '1', signed: 'sha256:abc' });
+    // Never an accept list: the accepted ranges ride on the signing ticket.
+    expect(parseHash(`${signed}&accept=ledger`).params).not.toHaveProperty('accept');
+    expect(parseHash('#/fleet/targets/x?declare=1&signed=s').params).toEqual({ kind: 'target', key: 'x' });
   });
 });

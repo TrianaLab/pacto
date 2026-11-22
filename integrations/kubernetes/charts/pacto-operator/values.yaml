@@ -305,6 +305,15 @@ dashboard:
       groupsClaim: ""
       # -- Prefix the API server puts before every group; must match its `claimMappings.groups.prefix`
       groupsPrefix: ""
+      # -- A second client at the same issuer whose audience the installation's Fulcio trusts and the API server does not: a signed-in person logs in again with it to sign a declaration as themselves. Empty: the dashboard saves drafts and shows the CLI command
+      signClientID: ""
+      signClientSecretRef:
+        # -- Secret in the operator namespace holding the sign client's secret (passed by secretKeyRef)
+        name: ""
+        # -- Key of the sign client's secret in that Secret
+        key: client-secret
+      # -- The dashboard's signing callback URL as browsers reach it; required with `signClientID`
+      signRedirectURL: ""
     session:
       # -- A session without a request for this long ends, as a Go duration such as `30m` (empty: `1h`). The ID token renews with the refresh token in between
       idleTimeout: ""
@@ -328,6 +337,10 @@ dashboard:
       key: trust.yaml
     # -- Mira's address, to link the health-check citations in delivery views
     miraURL: ""
+  declare:
+    registryCredentials:
+      # -- A `kubernetes.io/dockerconfigjson` Secret in the operator namespace with push access to the bundle repositories under `registry`. Only the dashboard's Declare writer uses it; `dashboard.ociSecrets` stays read-only. Empty: the dashboard plans declarations and shows the CLI command
+      secretName: ""
   stats:
     # -- Stats repository the dashboard's Metrics page reads run records from, such as ghcr.io/acme/pacto-stats. Empty: the page explains how to turn recording on. Credentials come from dashboard.ociSecrets
     registry: ""
@@ -898,8 +911,17 @@ declare:
   emailIssuers: []
   # -- A Sigstore trusted root (`trusted_root.json`) the signature of a running bundle that changes its owner must
   # chain to, for an air-gapped install or a private Sigstore. Empty uses `delivery.publishers.trustedRoot`, else
-  # public-good Sigstore. Used only when `defaultApprovers.bootstrap` or `teams` holds a rule
+  # public-good Sigstore. The owner check uses it when `defaultApprovers.bootstrap` or `teams` holds a rule, and the
+  # dashboard (with `registry` set) verifies the declarations it signs with it
   trustedRoot: ""
+  # The Sigstore a person's declaration is signed with in the dashboard.
+  signing:
+    # -- Fulcio the dashboard gets a person's signing certificate from (empty: public-good Sigstore)
+    fulcioURL: ""
+    # -- Rekor the dashboard records the signature in (empty: public-good Sigstore)
+    rekorURL: ""
+    # -- Timestamp authority the dashboard's signatures use (empty: public-good Sigstore)
+    timestampURL: ""
 
 # Optional bundled dependencies for an evaluation install, both off by default.
 # values-quickstart.yaml turns them on and wires them. Every other key under

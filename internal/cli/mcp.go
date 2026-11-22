@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	gcrauthn "github.com/google/go-containerregistry/pkg/authn"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
@@ -69,7 +70,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"a contract's version exactly as `pacto publish` does, with this process's registry credentials.\n\n" +
 			"Over HTTP the contract tools are pacto_schema and pacto_declare: pacto_create, pacto_edit and pacto_check read and write the server's folders and follow refs with its credentials, so they run beside the agent over stdio. " +
 			"pacto_declare plans declaring a running workload; over stdio it writes a draft-<n> tag a person accepts with pacto declare --from-draft, and over HTTP " +
-			"(with --auth-issuer and token exchange) it plans with the caller's own cluster credentials, only in the registries --oci names, and writes nothing.\n\n" +
+			"(with --auth-issuer and token exchange) it plans with the caller's own cluster credentials, only in the registries --oci names; with --registry and " +
+			"--declare-registry-config it also writes an unsigned draft into --registry on behalf of the caller, when the apiserver says the caller may update the workload.\n\n" +
 			"A bundle reference, --fleet and --delivery combine in one server; --root and --publish select servers of their own. " +
 			"Call pacto_capabilities to learn what a server serves.",
 		Example: `  # Start MCP server over stdio (default)
@@ -153,6 +155,9 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().Bool("delivery", false, "expose the Pacto delivery tools over the ambient cluster")
 	cmd.Flags().String("owner-policy", "", "over HTTP: the mounted owner policy (the chart's declare block as policy.json) that names who may set a service owner in pacto_declare plans; "+
 		"refused over stdio, which reads it from the signed target snapshots")
+	cmd.Flags().String("registry", "", "with --fleet or --delivery over HTTP with --auth-issuer: the registry (<host>/<path>) pacto_declare writes a caller's draft to, with --declare-registry-config")
+	cmd.Flags().String("declare-registry-config", "", "with --registry: a Docker config.json with push access to it, the only credential pacto_declare writes drafts with over HTTP; "+
+		"without the two pacto_declare only plans there")
 	cmd.Flags().Bool("publish", false, "expose pacto_publish_plan and pacto_publish beside the authoring tools")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "in --delivery mode: "+"namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.Flags().String("delivery-trust", "", "the trust config delivery records (in --delivery mode), the golden paths pacto_create creates from and the target snapshots (the owner policy pacto_declare reads included) "+
@@ -426,6 +431,8 @@ func checkTransportOnly(cmd *cobra.Command, svc *app.Service, transport string, 
 		return errPublishOverHTTP
 	case path != "" && transport == "stdio":
 		return errOwnerPolicyOverStdio
+	case transport == "stdio" && (cmd.Flags().Changed("registry") || cmd.Flags().Changed("declare-registry-config")):
+		return errDeclareWriterOverStdio
 	}
 	svc.OwnerPolicyPath = cmp.Or(path, svc.OwnerPolicyPath)
 	return nil
@@ -436,6 +443,28 @@ func checkTransportOnly(cmd *cobra.Command, svc *app.Service, transport string, 
 // the policy only from the signed target snapshots.
 var errOwnerPolicyOverStdio = errors.New("--owner-policy serves HTTP only: over stdio the owner policy is read from the signed target snapshots, " +
 	"never from a file the agent's user writes")
+
+// errDeclareWriterOverStdio refuses the HTTP draft writer's flags beside the
+// agent: over stdio pacto_declare writes with the registry and credentials
+// its caller names.
+var errDeclareWriterOverStdio = errors.New("--registry and --declare-registry-config serve HTTP only: over stdio pacto_declare writes into the registry its caller names, " +
+	"with this process's own registry credentials")
+
+// declareWriter is where and with what pacto_declare writes a caller's draft
+// over HTTP: --registry with the push credential --declare-registry-config,
+// or neither.
+func declareWriter(cmd *cobra.Command) (string, gcrauthn.Keychain, error) {
+	registry, _ := cmd.Flags().GetString("registry")
+	path, _ := cmd.Flags().GetString("declare-registry-config")
+	switch {
+	case registry == "" && path == "":
+		return "", nil, nil
+	case registry == "" || path == "":
+		return "", nil, errors.New("--registry and --declare-registry-config go together: pacto_declare writes drafts over HTTP only with both")
+	}
+	kc, err := loadDockerConfig(path)
+	return registry, kc, err
+}
 
 // mcpAuthoring is what every server's authoring tools get. pacto_create,
 // pacto_edit, pacto_check and the drafting pacto_declare serve stdio only:

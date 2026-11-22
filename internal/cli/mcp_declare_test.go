@@ -314,6 +314,23 @@ func TestMCPDeclareHTTPRefusesDir(t *testing.T) {
 	}
 }
 
+// TestMCPDeclareHTTPRefusesDraftArgument: the HTTP server writes no draft,
+// so it refuses draft as it refuses dir, before any read.
+func TestMCPDeclareHTTPRefusesDraftArgument(t *testing.T) {
+	rd := newRemoteDeclarer(app.NewService(nil, nil), []string{"oci://ghcr.io/acme/ledger"}, nil)
+	_, refused, err := rd.Plan(remoteCtx(nil), pactomcp.DeclareArgs{Service: "invoices", Draft: true, Registry: "ghcr.io/acme"})
+	if err != nil || refused == nil || refused.Code != pactomcp.RefusalExecuteNeedsStdio || !strings.Contains(refused.Message, "pacto declare --draft") {
+		t.Fatalf("%+v %v", refused, err)
+	}
+}
+
+func TestMCPDeclareStdioPassesDraft(t *testing.T) {
+	req, err := newMCPDeclarer(nil, "").request(pactomcp.DeclareArgs{Service: "invoices", Draft: true})
+	if err != nil || !req.Draft || !req.Agent {
+		t.Fatalf("%+v %v", req, err)
+	}
+}
+
 func TestMCPDeclareHTTPRefusesForeignRegistry(t *testing.T) {
 	rd := newRemoteDeclarer(app.NewService(nil, nil), []string{"oci://ghcr.io/acme/ledger:1.0.0", "ghcr.io/acme/orders@sha256:aa"}, nil)
 	for reg, ok := range map[string]bool{"ghcr.io/acme": true, "ghcr.io/acme/orders": true, "ghcr.io/acme/ledger/sub": true,
@@ -406,6 +423,22 @@ func TestMCPDeclareHTTPRestrictsBaselineEndToEnd(t *testing.T) {
 	}
 }
 
+// TestMCPDeclareHTTPHidesDraftsEndToEnd: a repository holding only drafts
+// is a baseline too, so a caller the fleet does not show invoices to sees
+// none of its drafts, askers or onBehalfOf names.
+func TestMCPDeclareHTTPHidesDraftsEndToEnd(t *testing.T) {
+	w := newDeclareWorld(t)
+	declareTwice(t, func() *mcpsdk.Server { return stdioDeclareServer(t) }, w.args(nil))
+	rd := newRemoteDeclarer(app.NewService(nil, nil), []string{"oci://" + w.host + "/acme"}, nil)
+	raw, _, err := rd.Plan(remoteCtx(declareCluster()), pactomcp.DeclareArgs{Service: "invoices", Namespace: "billing", Registry: w.host + "/acme"})
+	var p app.DeclarePlan
+	_ = json.Unmarshal(raw, &p)
+	if err != nil || len(p.Drafts) != 0 || p.DraftsTotal != 0 || strings.Contains(string(raw), "ana") ||
+		!strings.Contains(strings.Join(p.Notes, " "), "the published baseline of invoices is hidden") {
+		t.Fatalf("%s %v", raw, err)
+	}
+}
+
 // declareFirst writes draft-1 and tags its bundle 0.1.0, an unsigned version.
 func declareFirst(t *testing.T, w *declareWorld) {
 	t.Helper()
@@ -417,7 +450,7 @@ func declareFirst(t *testing.T, w *declareWorld) {
 	}
 }
 
-func TestMCPDeclareOverHTTPNeverWrites(t *testing.T) {
+func TestMCPDeclareOverHTTPWithoutRegistryNeverWrites(t *testing.T) {
 	w := newDeclareWorld(t)
 	rd := newRemoteDeclarer(app.NewService(nil, nil), []string{"oci://" + w.host + "/acme"}, nil)
 	ctx := remoteCtx(declareCluster())

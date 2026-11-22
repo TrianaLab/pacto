@@ -21,7 +21,7 @@ func viewerAuth(local bool, st AuthState) *Auth {
 
 // acceptServer serves eventFleetQuery (narrowed by view when set) with plan
 // as the accept planner.
-func acceptServer(t *testing.T, auth *Auth, view func(context.Context, *fleet.Query) (*fleet.Query, error), plan func(context.Context, fleet.ServiceKey, *fleet.ContractRevision) (AcceptPlanAnswer, error)) string {
+func acceptServer(t *testing.T, auth *Auth, view func(context.Context, *fleet.Query) (*fleet.Query, error), plan func(context.Context, fleet.ServiceKey, *fleet.ContractRevision, string) (AcceptPlanAnswer, error)) string {
 	t.Helper()
 	q := eventFleetQuery(t)
 	return serveOptions(t, Options{Fleet: func(context.Context) (*fleet.Query, error) { return q, nil }, View: view, Auth: auth, AcceptPlan: plan})
@@ -30,7 +30,7 @@ func acceptServer(t *testing.T, auth *Auth, view func(context.Context, *fleet.Qu
 func TestAcceptPlanForVisibleService(t *testing.T) {
 	var gotKey fleet.ServiceKey
 	var gotRev *fleet.ContractRevision
-	plan := func(_ context.Context, k fleet.ServiceKey, rev *fleet.ContractRevision) (AcceptPlanAnswer, error) {
+	plan := func(_ context.Context, k fleet.ServiceKey, rev *fleet.ContractRevision, _ string) (AcceptPlanAnswer, error) {
 		gotKey, gotRev = k, rev
 		return AcceptPlanAnswer{Plan: &AcceptPlanView{Service: string(k), Ranges: []delivery.AcceptedRange{{Field: "dependencies[lib].compatibility", Value: "^1.0.0"}},
 			IntentDigest: "sha256:i"}, Command: "pacto accept oci://x/app --proposed --intent sha256:i"}, nil
@@ -50,7 +50,7 @@ func TestAcceptPlanForVisibleService(t *testing.T) {
 }
 
 func TestAcceptHiddenServiceNotFound(t *testing.T) {
-	plan := func(context.Context, fleet.ServiceKey, *fleet.ContractRevision) (AcceptPlanAnswer, error) {
+	plan := func(context.Context, fleet.ServiceKey, *fleet.ContractRevision, string) (AcceptPlanAnswer, error) {
 		t.Error("a hidden service must never be planned")
 		return AcceptPlanAnswer{}, nil
 	}
@@ -68,7 +68,7 @@ func TestAcceptHiddenServiceNotFound(t *testing.T) {
 func TestAcceptPlanOfAnotherServiceNotFound(t *testing.T) {
 	// A visible contract whose publish.bundle names a hidden service's
 	// repository plans that service: it answers as a hidden one.
-	plan := func(context.Context, fleet.ServiceKey, *fleet.ContractRevision) (AcceptPlanAnswer, error) {
+	plan := func(context.Context, fleet.ServiceKey, *fleet.ContractRevision, string) (AcceptPlanAnswer, error) {
 		return AcceptPlanAnswer{Plan: &AcceptPlanView{Service: "ghcr.io/acme/ledger", WhoMayAccept: "ana@acme.com"}, Command: "pacto accept x"}, nil
 	}
 	base := acceptServer(t, viewerAuth(true, AuthState{}), nil, plan)
@@ -85,7 +85,7 @@ func TestAcceptRouteAbsentWithoutProvider(t *testing.T) {
 }
 
 func TestAcceptNotPlannedForAnonymousViewer(t *testing.T) {
-	plan := func(context.Context, fleet.ServiceKey, *fleet.ContractRevision) (AcceptPlanAnswer, error) {
+	plan := func(context.Context, fleet.ServiceKey, *fleet.ContractRevision, string) (AcceptPlanAnswer, error) {
 		t.Error("an anonymous viewer must never have acceptances read")
 		return AcceptPlanAnswer{}, nil
 	}
@@ -97,7 +97,7 @@ func TestAcceptNotPlannedForAnonymousViewer(t *testing.T) {
 }
 
 func TestAcceptNothingProposedRefusal(t *testing.T) {
-	plan := func(context.Context, fleet.ServiceKey, *fleet.ContractRevision) (AcceptPlanAnswer, error) {
+	plan := func(context.Context, fleet.ServiceKey, *fleet.ContractRevision, string) (AcceptPlanAnswer, error) {
 		return AcceptPlanAnswer{Refusal: &AcceptRefusal{Code: "AcceptNothingProposed", Message: "nothing proposed", Command: "pacto ci --publish ."}}, nil
 	}
 	base := acceptServer(t, viewerAuth(true, AuthState{}), nil, plan)
@@ -109,7 +109,7 @@ func TestAcceptNothingProposedRefusal(t *testing.T) {
 }
 
 func TestAcceptPlanErrorIsMapped(t *testing.T) {
-	plan := func(context.Context, fleet.ServiceKey, *fleet.ContractRevision) (AcceptPlanAnswer, error) {
+	plan := func(context.Context, fleet.ServiceKey, *fleet.ContractRevision, string) (AcceptPlanAnswer, error) {
 		return AcceptPlanAnswer{}, &oci.ArtifactNotFoundError{Ref: "x"}
 	}
 	base := acceptServer(t, viewerAuth(true, AuthState{}), nil, plan)

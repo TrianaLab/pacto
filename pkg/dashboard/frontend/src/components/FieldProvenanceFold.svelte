@@ -1,5 +1,6 @@
 <script>
   import Fold from './Fold.svelte';
+  import FieldProvenanceRow from './FieldProvenanceRow.svelte';
   import ProvenanceMark from './ProvenanceMark.svelte';
   import WorkloadFacts from './WorkloadFacts.svelte';
   import { fieldLabel, fieldProvenanceText, replacementLine } from '../lib/fieldProvenance.ts';
@@ -84,10 +85,7 @@
     {#if items.length}
       <dl class="fpf-rows" data-testid="field-provenance">
         {#each shown as f, i (`${i}:${f.field}`)}
-          <div class="fpf-row" class:fpf-inferred={f.provenance === 'inferred'} data-provenance={f.provenance}>
-            <dt><bdi title={fieldLabel(f.field)}>{fieldLabel(f.field)}</bdi></dt>
-            <dd><bdi class="fpf-value" title={f.value}>{f.value}</bdi> <ProvenanceMark label={`Where ${fieldLabel(f.field)} comes from`} text={fieldProvenanceText(f)} /></dd>
-          </div>
+          <FieldProvenanceRow label={fieldLabel(f.field)} value={f.value} mark={fieldProvenanceText(f)} provenance={f.provenance} inferred={f.provenance === 'inferred'} />
         {/each}
       </dl>
     {/if}
@@ -108,7 +106,7 @@
   .fpf-p { margin: 0; overflow-wrap: anywhere; }
   .fpf-filter { display: inline-flex; align-items: center; gap: var(--sp-1); min-block-size: 32px; font-size: var(--text-sm); }
   .fpf-rows { margin: 0; display: flex; flex-direction: column; }
-  /* Label above value on a narrow container, two columns once it has room. */
+  /* The completeness rows; field rows draw through FieldProvenanceRow. */
   .fpf-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px var(--sp-3); padding: var(--sp-1) 0; border-block-end: 1px solid var(--c-border); min-inline-size: 0; }
   @container (min-width: 28rem) {
     .fpf-row { grid-template-columns: minmax(14ch, 1fr) minmax(16ch, 2fr); align-items: center; }
@@ -118,7 +116,6 @@
   .fpf-state { color: var(--c-text-2); }
   .fpf-yaml { flex-basis: 100%; min-inline-size: 0; }
   .fpf-yaml pre { margin: var(--sp-1) 0; padding: var(--sp-2); overflow-x: auto; background: var(--c-surface-inset); border-radius: var(--radius-sm); font-size: var(--text-sm); }
-  .fpf-value { font-family: var(--font-mono); font-size: 0.95em; overflow-wrap: anywhere; min-inline-size: 0; }
   /* Inferred values are muted by colour, never by opacity. */
   .fpf-inferred, .fpf-inferred dt { color: var(--c-text-3); }
   @media (pointer: coarse) {

@@ -5,7 +5,8 @@ import FleetMapRail from './FleetMapRail.svelte';
 import { api } from '../lib/api';
 import { reactiveProps } from '../testkit.svelte';
 
-type Item = { entity: { kind: string; key: string; label: string; href: string; parentService?: string }; service?: string; category: string; severity: string; code: string; summary: string; nextStep?: string; nextAction?: { verb: string; tool: string } };
+type Ref = { kind: string; key: string; label: string; href: string; parentService?: string; declaration?: string };
+type Item = { entity: Ref; caller?: Ref; service?: string; category: string; severity: string; code: string; summary: string; nextStep?: string; nextAction?: { verb: string; tool?: string; cli?: string } };
 const item = (kind: string, key: string, severity = 'error', over: Partial<Item> = {}): Item =>
   ({ entity: { kind, key, label: key, href: `#/fleet/${kind}s/${key}` }, category: 'health', severity, code: `C-${key}`, summary: `${key} summary`, ...over });
 const answer = (items: Item[], total = items.length) =>
@@ -86,12 +87,30 @@ describe('FleetMapRail', () => {
     expect(t.querySelector('[data-testid="fleet-map-rail-filtered"]')).toBeNull();
   });
 
+  it('links a declare action to the inferred caller\'s Declare panel, outside the item button, and only that one', async () => {
+    const caller = { kind: 'service', key: 'default/k8s:shop/Deployment/legacy-billing', label: 'legacy-billing', href: '/fleet/services/x', declaration: 'inferred' };
+    const declare = { verb: 'declare', cli: 'pacto declare legacy-billing --namespace shop' };
+    vi.spyOn(api, 'fleetAttention').mockResolvedValue(answer([
+      item('service', 'ledger', 'error', { caller, nextAction: declare }),
+      // No inferred service behind it: the declared provider is no place to declare.
+      item('service', 'acme', 'error', { entity: { kind: 'service', key: 'acme', label: 'acme', href: '#/x', declaration: 'declared' }, nextAction: declare }),
+    ]));
+    const t = renderRail({});
+    await vi.waitFor(() => expect(t.querySelectorAll('[data-testid="fleet-map-rail-item"]')).toHaveLength(2));
+    const links = [...t.querySelectorAll('[data-testid="next-action-link"]')];
+    expect(links).toHaveLength(1);
+    expect(links[0].getAttribute('href')).toBe('#/fleet/services/default%2Fk8s%3Ashop%2FDeployment%2Flegacy-billing?declare=1');
+    expect(links[0].closest('button')).toBeNull();
+    const [, words] = [...t.querySelectorAll('[data-testid="fleet-map-rail-item"]')];
+    expect(words.textContent).toContain(`Fix: declare the workload with ${declare.cli}`);
+  });
+
   it('rail item focuses its service', async () => {
     vi.spyOn(api, 'fleetAttention').mockResolvedValue(answer([
       item('service', 'orders'),
       item('target', 'prod/orders', 'warning', { service: 'orders' }),
       item('revision', 'billing@sha', 'warning', { entity: { kind: 'revision', key: 'billing@sha', label: 'billing 2', href: '#/x', parentService: 'billing' } }),
-      item('owner', 'team-a', 'info', { nextStep: 'Name an owner', nextAction: { verb: 'declare', tool: 'pacto_declare' } }),
+      item('owner', 'team-a', 'info', { nextStep: 'Name an owner', nextAction: { verb: 'declare', cli: 'pacto declare team-a' } }),
     ]));
     const onfocus = vi.fn();
     const t = renderRail({ onfocus });
@@ -103,7 +122,7 @@ describe('FleetMapRail', () => {
     expect(onfocus.mock.calls.map((c) => c[0])).toEqual(['orders', 'orders', 'billing']);
     expect(onfocus.mock.calls[1][1].entity.kind).toBe('target');
     expect(own.textContent).toContain('Next: Name an owner');
-    expect(own.textContent).toContain('Fix: declare a contract with pacto_declare');
+    expect(own.textContent).toContain('Fix: declare the workload with pacto declare team-a');
     own.click();
     expect(onfocus).toHaveBeenCalledTimes(3);
     expect(location.hash).toBe('#/fleet/owners/team-a');

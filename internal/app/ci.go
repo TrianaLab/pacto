@@ -54,6 +54,10 @@ type CIOptions struct {
 	// proposal or a carried acceptance, so publish pushes the bundle the
 	// plan judged.
 	proposed map[string]bool
+	// carriedFrom, when non-nil, gets each row's carry baseline by its Dir:
+	// the release plan mode carried registry decisions from, which publish
+	// checks against the baseline it measures the version from.
+	carriedFrom map[string]carryBase
 	// TargetSnapshotAuto reads the target snapshot beside the registry the
 	// plan reads (D8) when Fleet names no target input, as pacto impact does.
 	TargetSnapshotAuto bool
@@ -106,7 +110,11 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 	pl := &ciPlanner{s: s, p: p, reg: s.env().publishRegistry(), allowed: allowedHost(p.Registry), root: opts.Root, revision: opts.revision, cat: cat,
 		acceptances: sync.OnceValue(func() *acceptanceStore {
 			return s.ownerRuled(newAcceptanceStore(ctx, s.env(), impactTrust(ImpactOptions{Signers: opts.Signers, Fleet: opts.Fleet})), opts.Fleet.Provenance)
-		})}
+		}),
+		decl: sync.OnceValue(func() *declarationTrust {
+			return declarationTrustFrom(ctx, impactTrust(ImpactOptions{Signers: opts.Signers, Fleet: opts.Fleet}))
+		}),
+		ownerPolicy: ownerPolicyOnce(ctx, s)}
 	pl.planAll(ctx, folders, opts)
 	results, snap, err := s.ciImpacts(ctx, p, folders, opts, pl.allowed)
 	if err != nil {
@@ -135,6 +143,9 @@ func (pl *ciPlanner) planAll(ctx context.Context, folders []*ciFolder, opts CIOp
 		}
 		if opts.migrations != nil {
 			opts.migrations[f.row.Dir] = f.migration
+		}
+		if opts.carriedFrom != nil {
+			opts.carriedFrom[f.row.Dir] = f.carriedFrom
 		}
 	}
 }
@@ -173,6 +184,10 @@ type ciFolder struct {
 	judged *contract.Bundle
 	// carried is set when b holds acceptances carried from the baseline.
 	carried bool
+	// carriedFrom is the release registry decisions were carried from
+	// (its b is nil): the baseline, or the newest final release below a
+	// candidate baseline, the one publish measures a version from.
+	carriedFrom carryBase
 }
 
 // decide sets the row's impact unless an earlier rule already did.
@@ -359,6 +374,32 @@ type ciPlanner struct {
 	cat            *externalcatalog.Catalog
 	// acceptances reads the acceptances a baseline carries, built once.
 	acceptances func() *acceptanceStore
+	// decl judges registry declarations, built once per run.
+	decl func() *declarationTrust
+	// ownerPolicy is the owner policy the carried owners of a bundle
+	// repository are judged with (ownerPolicyOnce).
+	ownerPolicy func(repo string) (*delivery.OwnerPolicy, string)
+}
+
+// ownerPolicyOnce reads the owner policy beside a bundle repository on
+// first need, once per run for every repository under the same parent: the
+// target snapshots that carry it are looked up beside the repository, never
+// in it (snapshotRoots).
+func ownerPolicyOnce(ctx context.Context, s *Service) func(repo string) (*delivery.OwnerPolicy, string) {
+	type read struct {
+		policy *delivery.OwnerPolicy
+		from   string
+	}
+	got := map[string]read{}
+	return func(repo string) (*delivery.OwnerPolicy, string) {
+		parent := path.Dir(repo)
+		r, ok := got[parent]
+		if !ok {
+			r.policy, r.from = s.OwnerPolicy(ctx, repo, "")
+			got[parent] = r
+		}
+		return r.policy, r.from
+	}
 }
 
 // registryName is the plan's registry as messages name it.
@@ -493,7 +534,7 @@ func (pl *ciPlanner) judge(ctx context.Context, f *ciFolder, repo string, declar
 	}
 	f.row.Baseline, f.row.BaselineDigest = tag, base.digest
 	migrated := f.asWritten != f.b
-	if !pl.carry(ctx, f, carryBase{repo: repo, version: tag, digest: base.digest, b: base.b}) {
+	if !pl.carryFrom(ctx, f, pulls, tags, carryBase{repo: repo, version: tag, digest: base.digest, b: base.b}, bases) {
 		return
 	}
 	same, why := Unchanged(base.b, f.b)
@@ -521,13 +562,25 @@ func (pl *ciPlanner) judge(ctx context.Context, f *ciFolder, repo string, declar
 	}
 }
 
+// carryFrom carries the registry decisions of the row's carry base
+// (baselines.carryBase) into the folder's bundle; false when the row is
+// decided (unverified).
+func (pl *ciPlanner) carryFrom(ctx context.Context, f *ciFolder, pulls baselines, tags []string, base carryBase, bases []string) bool {
+	cb, ok := pulls.carryBase(ctx, f, base, bases)
+	if !ok {
+		return false
+	}
+	dc, ok := pl.declaration(ctx, f, tags, cb)
+	return ok && pl.carry(ctx, f, cb, dc)
+}
+
 // carry folds the acceptances base carries into the folder's bundle, so
 // the plan judges and publish pushes the accepted fields as declared. A
 // declared version that is already published pins no range: its contract
 // cannot change. A cited acceptance that cannot be read leaves the row
 // unverified: false.
-func (pl *ciPlanner) carry(ctx context.Context, f *ciFolder, base carryBase) bool {
-	res, err := carryForward(ctx, pl.acceptances(), base, f.b)
+func (pl *ciPlanner) carry(ctx context.Context, f *ciFolder, base carryBase, dc *declarationCarry) bool {
+	res, err := carryForward(ctx, pl.acceptances(), base, f.b, dc)
 	if err != nil {
 		f.decide(impact.GateUnverified, "carried acceptances unreadable: "+err.Error())
 		return false
@@ -535,15 +588,67 @@ func (pl *ciPlanner) carry(ctx context.Context, f *ciFolder, base carryBase) boo
 	f.row.Notes = append(f.row.Notes, res.Notes...)
 	switch {
 	case res.Bundle == f.b:
-	case res.Pinned > 0 && f.b.Contract.Service.Version == base.version:
-		// The declared version is published: pinning a range would change
-		// its contract. The acceptance is still found on that version.
-		f.row.Notes = append(f.row.Notes, "accepted ranges carry with the next version: bump service.version")
+		f.row.Carried = res.Carried
+	case res.Pinned+res.Declared > 0 && f.b.Contract.Service.Version == base.version && !unchangedBy(base.b, res.Bundle):
+		// The declared version is published with other content: pinning a
+		// field would change its contract. Each decision waits for the next
+		// version, and says so.
+		f.row.Notes = append(f.row.Notes, "registry decisions carry with the next version: bump service.version")
+		f.row.Carried = waiting(res.Carried)
 	default:
-		f.b, f.carried, f.row.Accepted = res.Bundle, true, res.Pinned
+		f.b, f.carried, f.row.Accepted, f.row.Carried = res.Bundle, true, res.Pinned, res.Carried
 		f.recordImages()
 	}
 	return true
+}
+
+// unchangedBy reports whether b holds what base published.
+func unchangedBy(base, b *contract.Bundle) bool {
+	same, _ := Unchanged(base, b)
+	return same
+}
+
+// waiting is carried with every field that would carry marked dropped
+// until the next version.
+func waiting(carried []ci.Carried) []ci.Carried {
+	out := slices.Clone(carried)
+	for i := range out {
+		if out[i].State == ci.CarriedCarried {
+			out[i].State, out[i].Reason = ci.CarriedDropped, "carries with the next version: bump service.version"
+		}
+	}
+	return out
+}
+
+// declaration is the registry declaration base carries, with the fields it
+// decides under the owner rule (Decision 3, 5); nil for none. A check that
+// could not complete leaves the row unverified: false.
+func (pl *ciPlanner) declaration(ctx context.Context, f *ciFolder, tags []string, base carryBase) (*declarationCarry, bool) {
+	t := pl.decl()
+	svc := f.b.Contract.Service
+	d, dropped, notes, err := t.declarationSource(ctx, pl.reg, wantService{Name: svc.Name, Domain: svc.Domain}, tags, base)
+	f.row.Notes = append(f.row.Notes, notes...)
+	switch {
+	case err != nil:
+		f.decide(impact.GateUnverified, err.Error())
+		return nil, false
+	case d == nil && dropped != nil:
+		return &declarationCarry{cands: dropped}, true
+	case d == nil:
+		return nil, true
+	case t.publicGood:
+		f.row.Notes = append(f.row.Notes, declarationsPublicGoodNote)
+	}
+	now := pl.s.env().now()
+	var v ownerVerdict
+	if !d.Bundle.Contract.Service.Owner.IsEmpty() || len(d.Record.Declaration.Accepted) > 0 {
+		policy, from := pl.ownerPolicy(base.repo)
+		if v, err = t.ownerHistory(ctx, pl.reg, base.repo, tags, d, policy, from, now); err != nil {
+			f.decide(impact.GateUnverified, "registry declaration "+d.Ref+" could not be checked: "+err.Error())
+			return nil, false
+		}
+	}
+	return &declarationCarry{d: d, cands: declarationCandidates(d, v, now)}, true
 }
 
 // firstPublish fills the row of a service with no published version. It
@@ -597,6 +702,23 @@ func (bs baselines) get(ctx context.Context, f *ciFolder, tag string) (pulled, b
 	}
 	bs.got[tag] = pulled{b: b, digest: head.Digest}
 	return bs.got[tag], true
+}
+
+// carryBase is the release a row carries registry decisions from, and
+// records it on f: base, or for a derived version whose base is a
+// candidate the newest final release below it (bases[0]), the one publish
+// measures the version from. false (with the row unverified) when it
+// cannot be read.
+func (bs baselines) carryBase(ctx context.Context, f *ciFolder, base carryBase, bases []string) (carryBase, bool) {
+	if f.b.Contract.Service.Version == "" && len(bases) > 1 {
+		final, ok := bs.get(ctx, f, bases[0])
+		if !ok {
+			return carryBase{}, false
+		}
+		base = carryBase{repo: bs.repo, version: bases[0], digest: final.digest, b: final.b}
+	}
+	f.carriedFrom = carryBase{repo: base.repo, version: base.version, digest: base.digest}
+	return base, true
 }
 
 // version fills VERSION: the declared version checked against every base

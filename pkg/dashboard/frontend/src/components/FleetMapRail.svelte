@@ -16,7 +16,9 @@
    */
   import { untrack } from 'svelte';
   import { api } from '../lib/api';
-  import { attentionCategoryLabel, severityLabel, nextActionWords } from '../lib/entityLabels';
+  import { attentionCategoryLabel, severityLabel } from '../lib/entityLabels';
+  import { declareTarget } from '../lib/declare';
+  import NextActionLink from './NextActionLink.svelte';
   import { countOf, formatCount, statusLabel } from '../lib/format';
   import { SEVERITY_GLYPH } from '../lib/fleetMap/render';
   import { hashForHref } from '../lib/router';
@@ -130,8 +132,10 @@
                   <span class="ritem-t"><bdi>{it.entity.label}</bdi> <span class="ritem-c">{attentionCategoryLabel(it.category)}</span></span>
                   <span class="ritem-s">{it.summary}{#if it.source}{' '}via {it.source}{/if}</span>
                   {#if it.nextStep}<span class="ritem-n">Next: {it.nextStep}</span>{/if}
-                  {#if it.nextAction}<span class="ritem-n">{nextActionWords(it.nextAction)}</span>{/if}
+                  <!-- Words inside the button; a declare link cannot nest in it, so it follows. -->
+                  {#if it.nextAction && !declareTarget(it.nextAction, it.caller ?? it.entity)}<NextActionLink action={it.nextAction} cls="ritem-n" />{/if}
                 </button>
+                {#if it.nextAction && declareTarget(it.nextAction, it.caller ?? it.entity)}<p class="ritem-caller"><NextActionLink action={it.nextAction} subject={it.caller ?? it.entity} /></p>{/if}
                 <!-- The caller with no contract opens its own (inferred) service page. -->
                 {#if it.caller}<p class="ritem-caller" data-testid="attention-caller">from <a href={hashForHref(it.caller.href)}><bdi>{it.caller.label || it.caller.key}</bdi></a></p>{/if}
               </li>
@@ -165,7 +169,7 @@
   .ritem { display: flex; flex-direction: column; gap: 2px; inline-size: 100%; text-align: start; border: 1px solid transparent; border-radius: var(--radius-xs); background: none; padding: var(--sp-1) var(--sp-2); color: var(--c-text); cursor: pointer; font: inherit; font-size: var(--text-sm); overflow-wrap: anywhere; }
   .ritem:hover { background: var(--c-surface-hover); }
   .ritem[aria-current='true'] { border-color: var(--c-accent); background: var(--c-accent-bg); }
-  .ritem-c, .ritem-s, .ritem-n { color: var(--c-text-2); font-size: var(--text-xs); }
+  .ritem-c, .ritem-s, .ritem :global(.ritem-n) { color: var(--c-text-2); font-size: var(--text-xs); }
   .ritem-caller { margin: 0; padding: 0 var(--sp-3) var(--sp-1); font-size: var(--text-xs); color: var(--c-text-2); overflow-wrap: anywhere; }
   .ritem-t bdi { font-weight: 600; }
   .rail-msg { margin: var(--sp-2) 0; font-size: var(--text-sm); color: var(--c-text-3); }

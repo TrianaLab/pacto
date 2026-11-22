@@ -238,17 +238,26 @@ export function attentionCause(code: string | undefined): string {
   return (code && ATTENTION_CAUSES[code]) || code || '';
 }
 
-/** The words of a next action verb (#472's AttentionItem.nextAction). */
+/** The words of a next action verb (#472's AttentionItem.nextAction, #562's verbs). */
 const NEXT_ACTION_VERBS: Record<string, string> = {
   'edit-contract': 'edit the contract',
-  'plan-rollback': 'plan a rollback',
-  declare: 'declare a contract',
+  // Subject-neutral: a row's entity may be the called provider, not the workload.
+  declare: 'declare the workload',
+  accept: 'accept the proposed ranges',
+  claim: 'claim this external system',
+  'approve-cluster': 'approve the cluster',
 };
-/** nextActionWords says a next action as words only: it is advice, never a control. */
-export function nextActionWords(a: { verb?: string; tool?: string; environment?: string } | null | undefined): string {
+/**
+ * nextActionWords says a next action as words only: it is advice, never a
+ * control. It names the CLI command a person runs; the dashboard serves no MCP
+ * tool, so its answers carry none.
+ */
+export function nextActionWords(a: { verb?: string; cli?: string } | null | undefined): string {
   if (!a?.verb) return '';
   const verb = NEXT_ACTION_VERBS[a.verb] ?? a.verb;
-  return `Fix: ${verb}${a.environment ? ` in ${a.environment}` : ''}${a.tool ? ` with ${a.tool}` : ''}`;
+  if (!a.cli) return `Fix: ${verb}`;
+  // An edit happens in the repository first; pacto ci then publishes it.
+  return `Fix: ${verb}${a.verb === 'edit-contract' ? ', then run' : ' with'} ${a.cli}`;
 }
 
 // ── knowledge gaps ───────────────────────────────────────────────────────────

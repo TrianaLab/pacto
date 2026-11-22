@@ -51,6 +51,8 @@ type dashboardIdentity struct {
 	homeUID func(context.Context) (string, bool)
 	// loginName is the identity provider's name on the sign-in button.
 	loginName string
+	// signing is the signing login; nil without --sign-client-id.
+	signing *dashboardSigning
 	// selfMu guards the kubeconfig user a local dashboard acts as (see
 	// localSelf) and when it was last asked.
 	selfMu       sync.Mutex
