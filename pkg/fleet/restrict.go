@@ -258,7 +258,7 @@ func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadV
 	hiddenTargets := unreadableClusterTargets(s, readable, visible)
 	linkedNames := linkedKindHidden(s, workloadHidden(hiddenNS, workloadVisible), clusters, hiddenTargets)
 	hiddenSvc, offeringOnly := hiddenServices(s, hiddenNS, hiddenTargets, restricted, workloadVisible)
-	if len(hiddenNS) == 0 && len(hiddenSvc) == 0 && len(offeringOnly) == 0 && len(hiddenTargets) == 0 && len(linkedNames) == 0 && keepsEveryName(s, restricted, workloadHidden(hiddenNS, workloadVisible)) {
+	if len(hiddenNS)+len(hiddenSvc)+len(offeringOnly)+len(hiddenTargets)+len(linkedNames) == 0 && keepsEveryName(s, restricted, workloadHidden(hiddenNS, workloadVisible)) {
 		if !providersNarrowed(s, visible, workloadVisible, clusters) {
 			return q
 		}
