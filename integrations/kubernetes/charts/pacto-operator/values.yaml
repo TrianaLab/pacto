@@ -318,7 +318,7 @@ dashboard:
   mcp:
     # -- Serve MCP to AI agents at /mcp on the dashboard, in the same process and with the same sign-in. A ServiceAccount token minted with `--audience pacto-dashboard` reads the fleet; one also minted for the cluster's own audience proposes and cancels delivery operations as that ServiceAccount. Nobody approves over MCP. Off with the managed dashboard under `profile: hardened`
     enabled: true
-    # -- The /mcp URL as agents reach it (empty: derived from the Ingress or HTTPRoute host, else the address the agent used)
+    # -- The /mcp URL as agents reach it, an absolute http(s) URL whose path is exactly `/mcp` (a path prefix is not supported; empty: derived from the Ingress or HTTPRoute host, else the address the agent used)
     url: ""
     # -- With `dashboard.auth.oidc`, the audience to exchange an agent's issuer token for, one the API server accepts. The dashboard's OIDC client exchanges it (RFC 8693). Needs a URL. Empty: every token is checked as a Kubernetes token
     exchangeAudience: ""

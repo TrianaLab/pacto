@@ -620,7 +620,7 @@
           "description": "MCP for AI agents at /mcp on the dashboard, with the dashboard's sign-in.",
           "properties": {
             "enabled": { "type": "boolean" },
-            "url": { "type": "string", "pattern": "^$|^https?://[^/?#]+" },
+            "url": { "type": "string", "pattern": "^$|^https?://[^/?#]+/mcp$" },
             "exchangeAudience": { "type": "string" }
           }
         },

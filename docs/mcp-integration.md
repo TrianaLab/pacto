@@ -152,7 +152,7 @@ export PACTO_TOKEN=$(kubectl -n agents create token my-agent \
 makes the dashboard accept tokens your issuer minted for the MCP URL and
 exchange them with its own OIDC client (RFC 8693) for one the API server
 accepts. The URL must be fixed: `dashboard.mcp.url`, an Ingress host or an
-HTTPRoute hostname. The metadata at `/.well-known/oauth-protected-resource/mcp`
+HTTPRoute hostname. Its path is exactly `/mcp`; a path prefix is not supported. The metadata at `/.well-known/oauth-protected-resource/mcp`
 names the issuer, so a client that supports MCP authorization signs in by
 itself.
 

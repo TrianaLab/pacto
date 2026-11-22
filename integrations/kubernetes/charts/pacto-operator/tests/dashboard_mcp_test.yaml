@@ -17,6 +17,20 @@ tests:
           path: spec.template.spec.containers[0].args[*]
           pattern: ^--dashboard-mcp-(url|exchange-audience)=
 
+  - it: refuses a dashboard.mcp.url whose path is not /mcp, which the dashboard would refuse at startup
+    set:
+      dashboard.mcp.url: https://dash.example/pacto/mcp
+    asserts:
+      - failedTemplate:
+          errorPattern: "mcp"
+
+  - it: refuses a dashboard.mcp.url with no path
+    set:
+      dashboard.mcp.url: https://dash.example
+    asserts:
+      - failedTemplate:
+          errorPattern: "mcp"
+
   - it: renders no MCP flag with dashboard.mcp.enabled false
     set:
       dashboard.mcp.enabled: false

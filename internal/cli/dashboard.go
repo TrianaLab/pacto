@@ -242,7 +242,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().Bool("token-login", false, "let people sign in with a Kubernetes token: a ServiceAccount token minted with --audience pacto-dashboard reads the fleet only, and a person's own token acts as them (also PACTO_DASHBOARD_TOKEN_LOGIN)")
 	cmd.Flags().Bool("mcp", false, "serve MCP to agents at /mcp with the dashboard's sign-in: a Kubernetes token (token sign-in) or, with "+
 		"--oidc-issuer-url and --mcp-exchange-audience, an issuer token exchanged for the cluster (also PACTO_DASHBOARD_MCP)")
-	cmd.Flags().String("mcp-url", "", "the /mcp URL as agents reach it, the RFC 9728 resource; empty: the request's own address, token sign-in only (also PACTO_DASHBOARD_MCP_URL)")
+	cmd.Flags().String("mcp-url", "", "the /mcp URL as agents reach it, the RFC 9728 resource: absolute http(s), path exactly /mcp (no path prefix); empty: the request's own address, token sign-in only (also PACTO_DASHBOARD_MCP_URL)")
 	cmd.Flags().String("mcp-exchange-audience", "", "the audience asked for when exchanging an issuer token, one the API server accepts; "+
 		"without it every token is checked as a Kubernetes token (also PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE)")
 	cmd.Flags().Bool("allow-anonymous", false, "serve beyond loopback without sign-in: everyone who reaches the address reads the whole fleet (also PACTO_DASHBOARD_ALLOW_ANONYMOUS)")
