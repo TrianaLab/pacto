@@ -149,7 +149,8 @@ member but never a hub: it renders no delivery and so no approver signers.
 The new cluster shows as pending on Data sources, in
 `pacto cluster list --registry ghcr.io/acme` and in the MCP tool
 `pacto_cluster_list`. Ask the member's admin for its key id, read in the
-member:
+member, or copy the approve line `helm upgrade` prints there, which fills in
+the cluster's UID and key id:
 
 ```sh
 kubectl get configmap pacto-operator-detected -n pacto-operator-system -o jsonpath='{.data.detected\.json}' | jq -r .installation.snapshotKeyID
