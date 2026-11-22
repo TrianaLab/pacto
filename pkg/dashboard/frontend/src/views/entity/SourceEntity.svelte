@@ -37,6 +37,10 @@
   const records = $derived((d.revisionCount ?? 0) + (d.targetCount ?? 0));
   const contributed = $derived(d.contributed ?? {});
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  // An available source can still carry a message, such as an operator linker with no
+  // registry (LINK_DIGEST_OFF): a note about what it checks, never a failure.
+  const note = $derived(d.health === 'available');
+  const errorTitle = $derived(note ? 'Note' : 'Reported failure');
 </script>
 
 <div class="source-entity">
@@ -98,9 +102,9 @@
          top says what that costs; this section is WHY. The human message leads and the
          machine code follows as a small chip, so the first thing read is not a raw enum.
          Never collapsible: a failure a reader has to open is a failure they will miss. -->
-    <section class="se-failure" id="sec-reported-failure" data-toc="Reported failure" aria-labelledby="se-fail-h">
-      <h2 id="se-fail-h" class="t-section-title">Reported failure</h2>
-      <div class="se-error" role="status">
+    <section class="se-failure" id="sec-reported-failure" data-toc={errorTitle} aria-labelledby="se-fail-h">
+      <h2 id="se-fail-h" class="t-section-title">{errorTitle}</h2>
+      <div class="se-error" class:se-note={note} role="status">
         <span class="se-error-msg">{d.error.message || 'This data source reported an error.'}</span>
         {#if d.error.code}<code class="se-error-code">{d.error.code}</code>{/if}
       </div>
@@ -141,6 +145,7 @@
     padding: var(--sp-3); border-radius: var(--radius-md); font-size: var(--text-sm);
     background: var(--c-err-bg); border: 1px solid color-mix(in srgb, var(--c-err) 30%, transparent);
   }
+  .se-error.se-note { background: var(--c-surface-inset); border-color: var(--c-border); }
   .se-error-msg { color: var(--c-text); }
   .se-error-code {
     font-family: var(--font-mono, monospace); font-size: var(--text-xs); color: var(--c-text-3);

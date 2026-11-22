@@ -769,6 +769,25 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('shows an available source message as a note, never a failure', async () => {
+    detailFn.mockResolvedValue({
+      meta, entity: ref('source', 'linked'),
+      source: {
+        kind: 'kubernetes-linked', health: 'available', revisionCount: 0, targetCount: 1,
+        contributed: { services: 0, revisions: 0, targets: 1 },
+        error: { code: 'LINK_DIGEST_OFF', message: 'linking by image digest is off' },
+        entities: { total: 0, count: 0, truncated: false, items: [] },
+        limitations: { total: 0, count: 0, truncated: false, items: [] },
+      },
+    });
+    const { target, component } = await mountView('source', 'linked');
+    await vi.waitFor(() => expect(target.textContent).toContain('linking by image digest is off'));
+    expect(target.querySelector('#sec-reported-failure')?.getAttribute('data-toc')).toBe('Note');
+    expect(target.querySelector('#se-fail-h')?.textContent).toBe('Note');
+    expect(target.querySelector('.se-error')?.classList.contains('se-note')).toBe(true);
+    unmount(component); document.body.removeChild(target);
+  });
+
   // THE SELECTED SOURCE'S HEALTH IS NOT THE FLEET'S KNOWLEDGE COMPLETENESS.
   //
   // `local` is Available. Another source is not. The page used to badge `local`
