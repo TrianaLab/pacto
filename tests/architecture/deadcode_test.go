@@ -49,6 +49,14 @@ const runtimeBoundsV6 = "deprecated public API of the released k8s module v6.0, 
 var deadCodeAllowlist = map[string]string{
 	// Every entry is "<pkg>.<Symbol>": reason.
 
+	"pkg/memberlink.NewMember":     "production caller lands in P2 of 514-S4",
+	"pkg/memberlink.TokenFresh":    "production caller lands in P2 of 514-S4",
+	"pkg/memberlink.NewHub":        "production caller lands in P4 of 514-S4",
+	"pkg/memberlink.Live":          "production caller lands in P4 of 514-S4",
+	"pkg/memberlink.NoteIdentity":  "production caller lands in P4 of 514-S4",
+	"pkg/memberlink.IssuerRefused": "production caller lands in P4 of 514-S4",
+	"pkg/memberlink.TokenIssuer":   "production caller lands in P4 of 514-S4",
+
 	"internal/tui.VerbCommands": "the TUI's verb-to-command table, read by " +
 		"internal/cli/tui_coverage_test.go to prove that every registered CLI command is " +
 		"either reachable from the TUI or deliberately classified as excluded. That is an " +
