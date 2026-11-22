@@ -47,7 +47,7 @@ test.describe('WASM demo — inferred external contracts', () => {
     await expect(block.locator('summary').first()).toContainText('Range checks: unverified');
     await block.locator('summary').first().click();
     await expect(block).toContainText('registry.pacto.demo/demo/pacto-inferred/stripe');
-    await expect(block).toContainText('version 0.0.1');
+    await expect(block).toContainText('version 0.0.2');
     // The mark's words are on the page, not only in a tooltip: no source checked the
     // demo revision's signature, so it says so.
     await expect(block).toContainText('Signature not checked, publisher unknown; a range is never checked against it');

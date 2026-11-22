@@ -390,6 +390,18 @@ export function installScaleFixture(): void {
       for (const c of (doc.columns as { nodes?: Record<string, unknown>[] }[] | undefined) ?? []) for (const n of c.nodes ?? []) long(n);
     }
     if (route === '/api/fleet/attention') {
+      // 517-S4: an EXTERNAL_CHANGED item (the demo raises none: no source checked its
+      // revisions) with a 200-character identity, so its label and reason wrap at scale.
+      if (q.get('category') === 'knowledge') {
+        const id = `aws/rds/123456789012/eu-west-1/${'orders-db-replica-'.repeat(12)}`.slice(0, 200).replace(/-+$/, '');
+        const items = (doc.items as Record<string, unknown>[] | undefined) ?? [];
+        doc.items = [{
+          entity: { kind: 'external', key: id, label: id, secondary: 'managed-cloud', status: 'Unknown', href: `/fleet/externals/${id}` },
+          label: `${id}'s linked OpenAPI document moved: 412 consumers to review`, severity: 'warning', code: 'EXTERNAL_CHANGED', category: 'knowledge',
+          summary: 'External system changed', nextStep: `pacto impact --changed external:${id}`,
+          reason: `the organization catalog's linked OpenAPI digest for ${id} moved from sha256:${'3e9a'.repeat(16)} to sha256:${'7c21'.repeat(16)} between 0.0.1233 and 0.0.1234`,
+        }, ...items];
+      }
       page(doc, 2400);
       scaleTally(doc.severities as Record<string, number>, 2400);
       // Every category holds items, so each bar and its label are drawn at scale.
@@ -459,6 +471,12 @@ export function installScaleFixture(): void {
             hosts: fifty((i) => `${longName(`inferred-host-${i}`).replace(/[^a-z0-9-]/g, '')}.eu-west-1.rds.amazonaws.com:5432`),
             ports: fifty((i) => String(5000 + i)), clients: fifty((i) => `@aws-sdk/${longName(`client-${i}`).replace(/[^a-z0-9-]/g, '')}/3`) },
         }],
+        // 517-S4: the change line at its longest: checked, full links, 2,000 values each way.
+        change: { from: '0.0.1233', to: '0.0.1234', at: seen, checked: true,
+          openapiFrom: `oci://registry.example.com/acme/vendor/${id}-openapi@sha256:${'3e9a'.repeat(16)}`,
+          openapiTo: `oci://registry.example.com/acme/vendor/${id}-openapi@sha256:${'7c21'.repeat(16)}`,
+          added: Array.from({ length: 2000 }, (_, i) => `clients @aws-sdk/${longName(`client-${i}`).replace(/[^a-z0-9-]/g, '')}/4`),
+          removed: Array.from({ length: 2000 }, (_, i) => `clients @aws-sdk/${longName(`client-${i}`).replace(/[^a-z0-9-]/g, '')}/3`) },
       };
     }
     // 509-S3: an inferred service's Group and Repository facts at their longest.
@@ -893,11 +911,14 @@ export function installScaleFixture(): void {
         ...Array.from({ length: 9 }, (_, i) => longName(`consumer-${i}`)),
       ];
       const V = ['incompatible', 'unknown', 'compatible'];
-      const E = ['breaks', 'may-degrade', 'unknown'];
       let req: Record<string, unknown> = {};
       try { req = JSON.parse(body ?? '{}'); } catch { /* no body */ }
       const outcome = String(req.outcome ?? '');
       const event = String(req.event ?? '');
+      // An external change puts every consumer in the Attention lane (517-S4).
+      const attention = !!req.externalKey && event === 'changed';
+      const E = attention ? ['attention'] : ['breaks', 'may-degrade', 'unknown'];
+      const SOURCES = ['declared', 'observed', 'pod-spec', 'repository'];
       // Every fact the table renders, long: via, evidence (one stale), more than 20
       // targets, resources with phases and an owner link, on items and highlights alike.
       const consumer = (name: string, i: number) => {
@@ -922,6 +943,8 @@ export function installScaleFixture(): void {
           ],
           resources: event === 'removed' ? Array.from({ length: 3 }, (_, r) => ({ entry: longName(`database-${r}`), environment: longName(`production-${r}`), phase: ['Ready', 'Failed', 'Provisioning'][r], provenance: 'observed', verified: true })) : undefined,
           resourcesTotal: event === 'removed' ? 24 : undefined,
+          sources: req.externalKey ? SOURCES.slice(0, 1 + (i % 4)) : undefined,
+          client: req.externalKey ? { sdk: longName(`stripe-go-client-${i}`), major: 2026, confidence: 'possible', revision: `${key}@sha256:${'ab12'.repeat(16)}` } : undefined,
         };
       };
       const all = names.map(consumer);
@@ -932,16 +955,30 @@ export function installScaleFixture(): void {
           return { kind: 'service', key, label: longName(`provider-${i}`), href: `/fleet/services/${encodeURIComponent(key)}` };
         });
       }
+      // An external answer at its longest: a 200-character identity, a change with full
+      // links and 2,000 values each way, and a long multi-line pin.
+      if (req.externalKey) {
+        const id = `aws/rds/123456789012/eu-west-1/${'orders-db-replica-'.repeat(12)}`.slice(0, 200).replace(/-+$/, '');
+        const repo = `registry.example.com/acme/pacto-inferred/${id}`;
+        doc.external = { identity: id, class: 'managed-cloud', provider: repo,
+          change: { from: '0.0.1233', to: '0.0.1234', at: '2026-11-16T08:00:00Z', checked: false,
+            openapiFrom: `oci://registry.example.com/acme/vendor/${id}-openapi@sha256:${'3e9a'.repeat(16)}`,
+            openapiTo: `oci://registry.example.com/acme/vendor/${id}-openapi@sha256:${'7c21'.repeat(16)}`,
+            added: Array.from({ length: 2000 }, (_, i) => `clients ${longName(`stripe-go-${i}`)}/77`),
+            removed: Array.from({ length: 2000 }, (_, i) => `clients ${longName(`stripe-go-${i}`)}/76`) } };
+        doc.pin = `dependencies:\n  - name: ${longName('orders-db-replica')}\n    ref: oci://${repo}\n    required: true\n    compatibility: "${'>=2023.10.16 <2026.0.0 || '.repeat(6)}^2026.1"\n`;
+      }
       // A leaf (the real answer lists no consumer) draws the clear answer: every lane
-      // empty and the gate under them, the shape a complete snapshot gives it.
+      // empty and the gate under them, the shape a complete snapshot gives it. An
+      // external is never verified, so its leaf stays unverified.
       const leaf = !!event && !cs.total;
-      if (leaf) {
+      if (leaf && !req.externalKey) {
         doc.gate = 'clear';
         doc.gateReason = longName('no contract in the complete snapshot declares a dependency on it and no observation source saw a caller; a service with no contract can still call it');
       } else if (event) {
         // The event population: lanes by effect sum to the total, and each lane's list
         // (filtered by effect, never by verdict) totals its lane.
-        const byOutcome = [{ key: 'breaks', count: 1900 }, { key: 'may-degrade', count: 1300 }, { key: 'unknown', count: 800 }];
+        const byOutcome = attention ? [{ key: 'attention', count: 4000 }] : [{ key: 'breaks', count: 1900 }, { key: 'may-degrade', count: 1300 }, { key: 'unknown', count: 800 }];
         const listed = outcome ? all.filter((c) => c.effect === outcome) : all;
         Object.assign(cs, {
           items: listed.slice(0, 10), highlights: all.slice(0, 8), total: 4000, direct: 1400, count: Math.min(10, listed.length), offset: 0, limit: 10,
@@ -2767,6 +2804,8 @@ export const ROUTES: Route[] = [
   { name: 'offering entity adapters', hash: '#/fleet/offerings/security-scanning' },
   { name: 'offering entity unresolved uses', hash: '#/fleet/offerings/shared-config' },
   { name: 'change analysis offering event', hash: '#/fleet/changes?offering=postgresql&event=unavailable' },
+  { name: 'change analysis external changed', hash: '#/fleet/changes?external=stripe&event=changed' },
+  { name: 'change analysis external unavailable', hash: '#/fleet/changes?external=stripe&event=unavailable' },
   {
     // The successor range line is component state, never in the URL: type the range.
     name: 'offering entity postgresql range',
@@ -2793,6 +2832,16 @@ export const ROUTES: Route[] = [
       await block.getByText("What this installation's operator saw").click();
       // G1 measures only what is visible: both summaries are open before it does.
       await expect(block.locator('.xe-surface li').last()).toBeVisible({ timeout: 30_000 });
+      // The change line's tooltip at its longest (517-S4): focus opens it on every pointer.
+      // An open tip overlays the page by design, so G1 would count it as overlapping text:
+      // it is checked here to stay inside the viewport, then closed before the matrix measures.
+      const line = block.getByTestId('external-provider-change');
+      await line.getByRole('button').focus();
+      const tip = line.locator('.help-body');
+      await expect(tip).toBeVisible({ timeout: 30_000 });
+      expect(await tip.evaluate((el) => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= document.documentElement.clientWidth; })).toBe(true);
+      await page.keyboard.press('Escape');
+      await expect(tip).toBeHidden();
       await page.evaluate(() => window.scrollTo(0, 0));
     },
   },

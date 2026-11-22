@@ -175,6 +175,55 @@ test.describe('impact events', () => {
     await expect(ev).not.toContainText('recorded no failure');
   });
 
+  test('stripe changed: every consumer needs attention, the gate is unverified and the pin is offered', async ({ page }) => {
+    // examples/demo/source_inferred.go: stripe's inferred contract moved its linked
+    // OpenAPI digest from 0.0.1 to 0.0.2, and no source checked either signature.
+    await appReady(page);
+    await page.goto('/#/fleet/changes?external=stripe&event=changed');
+    await page.addStyleTag({ content: WIDE_FONT });
+    await answered(page);
+    await expect(page.locator('#impact-event')).toHaveValue('changed');
+    // Only changed and unavailable are asked of an external system.
+    expect(await page.locator('#impact-event option').evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value))).toEqual(['changed', 'unavailable']);
+    const ls = await lanes(page);
+    const att = ls.find((l) => l.name === 'Attention')?.n ?? 0;
+    expect(att, JSON.stringify(ls)).toBeGreaterThan(0);
+    expect(ls.filter((l) => l.name !== 'Attention').every((l) => l.n === 0), JSON.stringify(ls)).toBe(true);
+    await openConsumers(page);
+    expect(Number(await page.locator('.consumer-pager').getAttribute('data-view-total'))).toBe(att);
+    // An external is never verified: the gate waits for a person, never clears or blocks.
+    await expect(page.locator(`${FIGURE} .stamp`, { hasText: /Blocked|Clears/ })).toHaveCount(0);
+    await expect(page.getByTestId('impact-gate')).toContainText('Needs a person');
+    const change = page.getByTestId('changes-external-change');
+    await expect(change).toContainText('Inferred contract 0.0.1 → 0.0.2');
+    await expect(change).toContainText(/OpenAPI sha256:\S+ → sha256:\S+/);
+    await expect(change).toContainText('unchecked: no source checked these revisions');
+    // Each demo stripe consumer is named by an inferred source only, so its row is muted;
+    // newsletter-service's manifest names the stripe client major.
+    await expect(page.getByTestId('consumer-row').first()).toHaveClass(/row-muted/);
+    await expect(page.getByTestId('consumer-client')).toContainText(/stripe v\d+/);
+    const pin = page.getByTestId('changes-pin');
+    await expect(pin).not.toHaveAttribute('open', '');
+    await pin.locator('summary').click();
+    await expect(pin.locator('pre')).toContainText('ref: oci://registry.pacto.demo/demo/pacto-inferred/stripe');
+    await expect(pin.locator('pre')).toContainText('compatibility: "unknown"');
+    await settle(page);
+    const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    expect(results.violations, JSON.stringify(results.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) })))).toEqual([]);
+  });
+
+  test('stripe unavailable keeps the event lanes', async ({ page }) => {
+    await appReady(page);
+    await page.goto('/#/fleet/changes?external=stripe&event=unavailable');
+    await answered(page);
+    const ls = await lanes(page);
+    expect(ls.map((l) => l.name)).toEqual(['Breaks', 'May degrade', 'Unknown']);
+    // Neither demo consumer declares stripe, so an outage's effect on them is unknown.
+    expect(ls.find((l) => l.name === 'Unknown')?.n, JSON.stringify(ls)).toBeGreaterThan(0);
+    await expect(page.locator(`${FIGURE} .stamp`, { hasText: /Blocked|Clears/ })).toHaveCount(0);
+    await expect(page.getByTestId('impact-gate')).toContainText('Needs a person');
+  });
+
   test('a restored event link shows the final frame without playing', async ({ page }) => {
     await page.addInitScript(() => sessionStorage.clear());
     await appReady(page);

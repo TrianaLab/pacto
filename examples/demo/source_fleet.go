@@ -227,10 +227,10 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	// A registry mirror that answered, but not with everything it holds: partial is a
 	// third source state, distinct from available and unavailable, and the source
 	// health strip is meant to distinguish all three.
-	// It also holds stripe's inferred contract (source_inferred.go), which the
+	// It also holds stripe's two inferred contracts (source_inferred.go), which the
 	// fleet shows on the stripe external, never as a service.
 	mirror := fleet.NewMemorySource("registry-mirror", "oci", &fleet.Collection{
-		Revisions:   []fleet.RawRevision{demoInferredRevision()},
+		Revisions:   demoInferredRevisions(),
 		State:       &fleet.SourceState{Status: fleet.SourcePartial},
 		Limitations: []fleet.Limitation{{Code: fleet.LimitationSourcePartial, Source: "registry-mirror", Message: "tag listing truncated by the mirror"}},
 	})

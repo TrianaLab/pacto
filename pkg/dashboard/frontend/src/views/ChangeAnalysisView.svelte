@@ -662,7 +662,7 @@
            range pin a consumer that declares none can paste, collapsed. -->
       <div class="ca-ranges t-meta" data-testid="changes-external">
         {#if extChange}
-          <p data-testid="changes-external-change"><span>Inferred contract <bdi>{extChange.from}</bdi> → <bdi>{extChange.to}</bdi></span>
+          <p class="ca-ext-change" data-testid="changes-external-change"><span>Inferred contract <bdi>{extChange.from}</bdi> → <bdi>{extChange.to}</bdi></span>
             {#if extChange.openapiFrom || extChange.openapiTo}<span>OpenAPI <span class="mono" title={extChange.openapiFrom ?? ''}>{extChange.openapiFrom ? linkDigest(extChange.openapiFrom) : 'none'}</span> → <span class="mono" title={extChange.openapiTo ?? ''}>{extChange.openapiTo ? linkDigest(extChange.openapiTo) : 'none'}</span></span>{/if}
             {#if extClients.length}<span>clients <bdi>{extClients.join(' ')}</bdi></span>{/if}
             {#if !extChange.checked}<span>unchecked: no source checked these revisions</span>{/if}
@@ -986,6 +986,8 @@
   .ca-stack { border-top: 1px solid var(--c-border); }
   .ca-ranges { margin-block: var(--sp-2); color: var(--c-text-3); min-inline-size: 0; overflow-wrap: anywhere; }
   .ca-ranges p { margin: 0; display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
+  /* Its parts are separate facts: a word gap apart, never read as one run. */
+  .ca-ranges p.ca-ext-change { column-gap: var(--sp-2); }
   .ca-pin summary { cursor: pointer; }
   .ca-pin-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .ca-pin-snippet { margin: var(--sp-1) 0 0; padding: var(--sp-2) var(--sp-3); overflow-x: auto; max-inline-size: 100%; background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-sm); font-size: var(--text-xs); }
