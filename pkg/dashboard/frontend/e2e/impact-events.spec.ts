@@ -224,6 +224,18 @@ test.describe('impact events', () => {
     await expect(page.getByTestId('impact-gate')).toContainText('Needs a person');
   });
 
+  test('stripe removed is not a question about an external system and is never asked', async ({ page }) => {
+    await appReady(page);
+    await page.goto('/#/fleet/changes?external=stripe&event=removed');
+    await expect(page.getByTestId('changes-event-not-external')).toBeVisible({ timeout: T });
+    await settle(page);
+    // Nothing was asked: no answer is drawn.
+    await expect(page.locator(FIGURE)).toHaveCount(0);
+    await expect(page.getByTestId('changes-answer')).toHaveCount(0);
+    const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    expect(results.violations, JSON.stringify(results.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) })))).toEqual([]);
+  });
+
   test('a restored event link shows the final frame without playing', async ({ page }) => {
     await page.addInitScript(() => sessionStorage.clear());
     await appReady(page);

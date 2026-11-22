@@ -108,9 +108,12 @@
   // A link may name an event this build does not know (a typo, a newer build): it is
   // never answered as another one, the form says so instead.
   const unknownEvent = untrack(() => (params.event && !eventKinds.some((k) => k.value === params.event) ? params.event : ''));
-  // A known event an offering cannot answer (a regression) is told apart from an unknown one.
+  // A known event the subject cannot answer is told apart from an unknown one: an offering
+  // is never regressed, only an external system changes, and an external system is never
+  // removed or regressed.
   const knownEvent = !!unknownEvent && EVENT_KINDS.some((k) => k.value === unknownEvent);
-  const eventNeedsService = untrack(() => knownEvent && !!offeringKey);
+  const eventNeedsService = untrack(() => unknownEvent === 'regressed' && !!offeringKey);
+  const eventNeedsExternal = untrack(() => unknownEvent === 'changed' && !externalKey);
   const eventNotExternal = untrack(() => knownEvent && !!externalKey);
   let eventKind = $state(untrack(() => (params.event && !unknownEvent ? params.event : externalKey ? 'changed' : 'unavailable')));
   let eventRev = $state(untrack(() => params.rev || ''));
@@ -141,7 +144,8 @@
   let limShown = $state(8);
   // The consumers table lists one outcome when a lane's link asked for it (T3): the
   // lane's count is that list's total. The figure always shows every outcome.
-  let outcome = $state(untrack(() => ((params.event ? EFFECTS : OUTCOMES).includes(params.outcome) ? params.outcome : '')));
+  // Read through outcomeKeys, so a link never seeds an effect its question cannot carry.
+  let outcome = $state(untrack(() => (outcomeKeys.includes(params.outcome) ? params.outcome : '')));
   // A restored link to one outcome opens the table on it once the answer is in.
   let showTable = untrack(() => !!outcome);
 
@@ -313,6 +317,7 @@
   async function analyze(offset = 0, paging = false, asked = false) {
     if (noRevisions) { if (!eventKind) return; }
     else if (!serviceKey || (isEvent ? eventKind === 'regressed' && !eventRev.trim() : !fromRevKey || !toRevKey)) return;
+    if (outcome && !outcomeKeys.includes(outcome)) outcome = '';
     const gen = ++analyzeGen;
     if (!paging) readerAsked = asked;
     if (paging && result) pagingConsumers = true;
@@ -465,6 +470,9 @@
   const extChange = $derived(result?.external?.change ?? null);
   const clientValues = (xs, sign) => (xs ?? []).filter((v) => v.startsWith('clients ')).map((v) => `${sign}${v.slice(8)}`);
   const extClients = $derived(extChange ? [...clientValues(extChange.added, '+'), ...clientValues(extChange.removed, '−')] : []);
+  // One line: the first few values, the rest counted; the title holds more, still bounded.
+  const MAX_CLIENTS_SHOWN = 3, MAX_CLIENTS_TITLE = 50;
+  const cappedClients = (n) => extClients.slice(0, n).join(' ') + (extClients.length > n ? ` and ${formatCount(extClients.length - n)} more` : '');
   const linkDigest = (/** @type {string} */ l) => { const i = l.lastIndexOf('@sha256:'); return i < 0 ? l : `sha256:${shortDigest(l.slice(i + 1))}`; };
   // Where an external answer's consumer uses it: a consumer only an inferred source names is muted.
   const SOURCE_WORDS = { declared: 'declared', observed: 'observed', 'pod-spec': 'pod spec', repository: 'repository' };
@@ -586,7 +594,7 @@
     <div class="selectors">
       <div class="field">
         <label for="impact-event">What if this {subjectNoun}</label>
-        <select id="impact-event" value={eventKind} onchange={(e) => { eventKind = e.currentTarget.value; }}>
+        <select id="impact-event" value={eventKind} onchange={(e) => { eventKind = e.currentTarget.value; if (outcome && !outcomeKeys.includes(outcome)) outcome = ''; }}>
           {#each eventKinds as k (k.value)}<option value={k.value}>{k.label}</option>{/each}
         </select>
       </div>
@@ -664,7 +672,7 @@
         {#if extChange}
           <p class="ca-ext-change" data-testid="changes-external-change"><span>Inferred contract <bdi>{extChange.from}</bdi> → <bdi>{extChange.to}</bdi></span>
             {#if extChange.openapiFrom || extChange.openapiTo}<span>OpenAPI <span class="mono" title={extChange.openapiFrom ?? ''}>{extChange.openapiFrom ? linkDigest(extChange.openapiFrom) : 'none'}</span> → <span class="mono" title={extChange.openapiTo ?? ''}>{extChange.openapiTo ? linkDigest(extChange.openapiTo) : 'none'}</span></span>{/if}
-            {#if extClients.length}<span>clients <bdi>{extClients.join(' ')}</bdi></span>{/if}
+            {#if extClients.length}<span data-testid="changes-external-clients" title={cappedClients(MAX_CLIENTS_TITLE)}>clients <bdi>{cappedClients(MAX_CLIENTS_SHOWN)}</bdi></span>{/if}
             {#if !extChange.checked}<span>unchecked: no source checked these revisions</span>{/if}
           </p>
         {/if}
@@ -934,6 +942,8 @@
       {#if eventNeedsService}
         <EmptyState title="A regression needs a service" message="A regression belongs to one revision of one service: open one of the providers and ask there." />
         <p class="disco-more" data-testid="changes-event-needs-service"><a href={fleetServicesUrl({ offering: offeringKey })}>Providers of {offeringKey}</a></p>
+      {:else if eventNeedsExternal}
+        <div data-testid="changes-event-needs-external"><EmptyState title="A change is asked of an external system" message="Only an external system changes outside Pacto's view. For a change of this {subjectNoun}, compare two of its revisions." /></div>
       {:else if eventNotExternal}
         <div data-testid="changes-event-not-external"><EmptyState title="Not a question about an external system" message="Pacto publishes no revision of an external system, so it is never removed or regressed here. Ask what happens if it changes or becomes unavailable." /></div>
       {:else if unknownEvent}

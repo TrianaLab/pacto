@@ -261,6 +261,15 @@ describe('eventModel (an event answer)', () => {
     expect(eventModel(event({ breaks: 1 })).lanes.map((l) => l.key)).toEqual(['breaks', 'may-degrade', 'unknown']);
     expect(effectOf({ effect: 'attention' })).toBe('attention');
   });
+  it('names in the alt only the lanes it draws', () => {
+    expect(eventModel(event({ breaks: 1 })).alt).not.toContain('attention');
+    expect(eventModel(event({ attention: 2 }, { ev: { kind: 'changed', external: 'stripe' } })).alt).toContain('2 attention');
+  });
+  it('words the change step around what Pacto cannot compare, never around signatures', () => {
+    const steps = eventModel(event({ attention: 2 }, { ev: { kind: 'changed', external: 'stripe' } })).steps;
+    expect(steps[2].cap).toBe("Pacto cannot compare an external system's operations, so every consumer of redis needs attention.");
+    expect(steps.map((x) => x.cap).join(' ')).not.toMatch(/checked/);
+  });
   it('effectOf falls back to unknown, never to compatible', () => {
     expect(effectOf({ effect: 'breaks' })).toBe('breaks');
     expect(effectOf({})).toBe('unknown');

@@ -205,7 +205,8 @@ export function eventModel(im: ProductImpact) {
     .map((c) => ({ key: c.service.key, label: c.service.label || c.service.key, href: c.uncontracted ? '' : c.service.href || '', ring: false }));
 
   // The Attention lane belongs to an external change: it is drawn only when a consumer carries it.
-  const lanes: ImpactLane[] = EFFECTS.filter((k) => k !== 'attention' || by[k] > 0).map((k) => ({
+  const drawn = EFFECTS.filter((k) => k !== 'attention' || by[k] > 0);
+  const lanes: ImpactLane[] = drawn.map((k) => ({
     key: k, label: EFFECT_META[k].label, tone: EFFECT_META[k].tone, hatch: EFFECT_META[k].hatch, glyph: EFFECT_META[k].glyph,
     n: by[k], share: total ? by[k] / total : 0, chips: chipsOf(k), decides: unverified && by[k] > 0, ghost: false,
   }));
@@ -247,10 +248,10 @@ export function eventModel(im: ProductImpact) {
   const steps: Step[] = [
     { cap: `Suppose ${phrase}. This is a question: nothing has changed.`, dur: 240, show: ['[data-m="subject"]', 'w:w-stack'], sig: ['w-stack'] },
     { cap: `It reaches ${atLeast || 'the '}${countOf(total, 'consumer')} that depend on ${service}.`, dur: 160, show: ['[data-m="split"]'] },
-    { cap: im.event?.kind === 'changed' ? `Nothing checked the change, so every consumer of ${service} needs attention.` : `Each consumer is sorted by whether every path to ${service} is required.`, dur: 240, show: [...laneIds.map((k) => `[data-m="ln-${k}"]`), ...laneIds.map((k) => `w:w-l${k}`)], sig: laneIds.map((k) => `w-l${k}`) },
+    { cap: im.event?.kind === 'changed' ? `Pacto cannot compare an external system's operations, so every consumer of ${service} needs attention.` : `Each consumer is sorted by whether every path to ${service} is required.`, dur: 240, show: [...laneIds.map((k) => `[data-m="ln-${k}"]`), ...laneIds.map((k) => `w:w-l${k}`)], sig: laneIds.map((k) => `w-l${k}`) },
   ];
   if (gate) steps.push({ cap: `${gate.says}${by.breaks ? `: ${countOf(by.breaks, 'consumer')} would break` : ''}.`, dur: 160, show: ['[data-m="gate"]', 'w:w-gate'], sig: ['w-gate'] });
-  const alt = `If ${phrase}: ${EFFECTS.map((k) => `${by[k]} ${k}`).join(', ')} of ${atLeast}${total} consumers`
+  const alt = `If ${phrase}: ${drawn.map((k) => `${by[k]} ${k}`).join(', ')} of ${atLeast}${total} consumers`
     + `; ${hidden} you may not see; gate ${gate ? gate.label.toLowerCase() : 'none'}; evidence ${partial ? 'partial' : 'complete'}.`;
 
   return {

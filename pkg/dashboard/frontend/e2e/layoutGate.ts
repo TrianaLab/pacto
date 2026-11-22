@@ -2806,6 +2806,17 @@ export const ROUTES: Route[] = [
   { name: 'change analysis offering event', hash: '#/fleet/changes?offering=postgresql&event=unavailable' },
   { name: 'change analysis external changed', hash: '#/fleet/changes?external=stripe&event=changed' },
   { name: 'change analysis external unavailable', hash: '#/fleet/changes?external=stripe&event=unavailable' },
+  { name: 'change analysis external not a question', hash: '#/fleet/changes?external=stripe&event=removed' },
+  {
+    // The pin is collapsed and the gate skips a closed disclosure: open it so its long snippet is measured.
+    name: 'change analysis external pin',
+    open: async (page) => {
+      await page.goto('/#/fleet/changes?external=stripe&event=changed');
+      const pin = page.locator('details[data-testid="changes-pin"]');
+      await expect(pin).toBeVisible({ timeout: 30_000 });
+      await pin.evaluate((d) => { (d as HTMLDetailsElement).open = true; });
+    },
+  },
   {
     // The successor range line is component state, never in the URL: type the range.
     name: 'offering entity postgresql range',

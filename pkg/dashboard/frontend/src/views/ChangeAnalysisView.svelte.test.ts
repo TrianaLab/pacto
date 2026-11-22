@@ -870,6 +870,55 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
     }
   });
 
+  it('says a change is asked of an external system, never that a service or offering needs a regression', async () => {
+    for (const params of [{ offering: 'postgresql', event: 'changed' }, { svc: 'domain-a/payments', event: 'changed' }]) {
+      const { target, component } = mountView(params);
+      await vi.waitFor(() => expect(target.querySelector('#impact-event')).toBeTruthy());
+      await new Promise((r) => setTimeout(r, 20));
+      expect(impactFn).not.toHaveBeenCalled();
+      expect(target.textContent).not.toContain('Unknown event');
+      expect(target.textContent).not.toContain('A regression');
+      expect(target.querySelector('[data-testid="changes-event-needs-external"]')).toBeTruthy();
+      unmount(component); document.body.removeChild(target);
+    }
+  });
+
+  it('never sends attention for a question that cannot carry it', async () => {
+    impactFn.mockResolvedValue(eventResult());
+    const link = mountView({ svc: 'domain-a/payments', event: 'unavailable', outcome: 'attention' });
+    await vi.waitFor(() => expect(impactFn).toHaveBeenCalled());
+    expect(impactFn.mock.calls[0][0].outcome).toBeUndefined();
+    unmount(link.component); document.body.removeChild(link.target);
+
+    impactFn.mockReset();
+    impactFn.mockResolvedValue(externalResult());
+    const { target, component } = mountView({ external: 'stripe', event: 'changed', outcome: 'attention' });
+    await vi.waitFor(() => expect(impactFn).toHaveBeenCalled());
+    expect(impactFn.mock.calls[0][0].outcome).toBe('attention');
+    const ev = target.querySelector('#impact-event') as HTMLSelectElement;
+    ev.value = 'unavailable'; ev.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    (Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Ask') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(impactFn).toHaveBeenCalledTimes(2));
+    expect(impactFn.mock.calls[1][0]).toMatchObject({ event: 'unavailable' });
+    expect(impactFn.mock.calls[1][0].outcome).toBeUndefined();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('caps the clients of the change line and counts the rest', async () => {
+    const many = (n: number, v: number) => Array.from({ length: n }, (_, i) => `clients ${'x'.repeat(120)}-${i}/${v}`);
+    const r = externalResult();
+    r.external.change = { ...r.external.change, added: many(2000, 77), removed: many(2000, 76) };
+    impactFn.mockResolvedValue(r);
+    const { target, component } = mountView({ external: 'stripe', event: 'changed' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-external-clients"]')).toBeTruthy());
+    const clients = target.querySelector('[data-testid="changes-external-clients"]') as HTMLElement;
+    expect(clients.textContent).toContain('and 3,997 more');
+    expect(clients.textContent!.length).toBeLessThan(600);
+    expect(clients.title).toContain('and 3,950 more');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('shows the provider change line and the pin collapsed', async () => {
     impactFn.mockResolvedValue(externalResult());
     const { target, component } = mountView({ external: 'stripe', event: 'changed' });
