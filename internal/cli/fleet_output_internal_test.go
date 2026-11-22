@@ -745,8 +745,10 @@ func TestFleetStatusPrintsLinkWord(t *testing.T) {
 	if err := printFleetStatus(cmd, res, "text"); err != nil {
 		t.Fatal(err)
 	}
+	// ap-prod was named at approval, but no link fact says its channel is
+	// down: outside the hub the channel is unknown, so no word.
 	want := "Clusters: eu-prod (uid-eu) complete live shared issuer, us-prod (uid-us) complete live group mapping and shared issuer, " +
-		"ap-prod (uid-ap) complete no live channel, ca-prod (uid-ca) complete no live channel, la-prod (uid-la) complete live, ctx (uid-ctx) complete\n"
+		"ap-prod (uid-ap) complete, ca-prod (uid-ca) complete no live channel, la-prod (uid-la) complete live, ctx (uid-ctx) complete\n"
 	if !strings.Contains(out.String(), want) {
 		t.Errorf("status lacks %q:\n%s", want, out.String())
 	}

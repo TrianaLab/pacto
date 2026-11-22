@@ -408,8 +408,10 @@ func clusterWordOf(c fleet.ClusterSummary, lims []fleet.Limitation) string {
 var modelWords = map[string]string{fleet.IssuerShared: "shared issuer", fleet.IssuerGroupMapping: "group mapping", fleet.IssuerNotAccepted: "issuer not accepted"}
 
 // linkWordOf is a member's channel word and, while it is live, the model of
-// each issuer it reviewed: " live shared issuer", " no live channel" for an
-// approved member with no channel up, "" for a cluster that is no member.
+// each issuer it reviewed: " live shared issuer", " no live channel" for a
+// channel that dropped. Only the hub knows its members' channels, so a
+// cluster with no link fact, as every cluster read outside the hub is,
+// prints no word: an unknown channel is never "no live channel".
 func linkWordOf(c fleet.ClusterSummary) string {
 	switch {
 	case c.Link != nil && c.Link.Channel == fleet.LinkLive:
@@ -420,7 +422,7 @@ func linkWordOf(c fleet.ClusterSummary) string {
 			}
 		}
 		return strings.TrimRight(" live "+strings.Join(models, " and "), " ")
-	case c.Link != nil || c.NameSource == fleet.ClusterNameFromApproval:
+	case c.Link != nil:
 		return " no live channel"
 	}
 	return ""
