@@ -116,12 +116,7 @@ func trustEntryFromConfigKey(k trustConfigKey, dir string, ts evidenceenvelope.M
 			return evidenceenvelope.TrustEntry{}, fmt.Errorf("key %q: malformed subject pattern %q: %w", k.KeyID, pat, err)
 		}
 	}
-	for _, repo := range k.AllowedContractRepos {
-		if err := validateContractRepoPrefix("contract-repo", repo); err != nil {
-			return evidenceenvelope.TrustEntry{}, fmt.Errorf("key %q: %w", k.KeyID, err)
-		}
-	}
-	if err := cmp.Or(validateObservationKinds(k.AllowedObservationKinds), validateProviderScope(k)); err != nil {
+	if err := cmp.Or(validateContractRepos(k), validateObservationKinds(k.AllowedObservationKinds), validateProviderScope(k)); err != nil {
 		return evidenceenvelope.TrustEntry{}, fmt.Errorf("key %q: %w", k.KeyID, err)
 	}
 	return evidenceenvelope.TrustEntry{
@@ -132,6 +127,21 @@ func trustEntryFromConfigKey(k trustConfigKey, dir string, ts evidenceenvelope.M
 		AllowedObservationKinds: k.AllowedObservationKinds,
 		ProviderRepos:           k.AllowedProviderRepos,
 	}, nil
+}
+
+// validateContractRepos checks a key's allowedContractRepos: each entry is a
+// bare registry/repo prefix, and one under pacto-inferred grants the key's
+// producer its own contribution path and nothing else.
+func validateContractRepos(k trustConfigKey) error {
+	for _, repo := range k.AllowedContractRepos {
+		if err := validateContractRepoPrefix("contract-repo", repo); err != nil {
+			return err
+		}
+		if _, _, err := contract.ContributionGrant(repo, k.ProducerID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // validateObservationKinds rejects a granted kind this build does not know, so a

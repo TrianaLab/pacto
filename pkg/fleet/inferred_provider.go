@@ -16,12 +16,15 @@ import (
 // as written. inferred reports whether ref lies under pacto-inferred at all,
 // the one predicate impact and delivery use too: such a ref is never a
 // service. key is empty when the identity does not parse (the reserved
-// other-egress, or a host identity of the wrong arity), so it names no
-// external system either.
+// other-egress, or a host identity of the wrong arity) and for a producer's
+// contribution repository, so it names no external system either.
 func inferredLocation(ref string) (key ExternalKey, id string, inferred bool) {
 	id, inferred = contract.InferredRef(ref)
 	if !inferred {
 		return "", "", false
+	}
+	if _, contributed := contract.ContributionRef(ref); contributed {
+		return "", id, true
 	}
 	if parsed, err := externalid.Parse(id); err == nil {
 		key = ExternalKey(parsed)
@@ -178,20 +181,24 @@ func inferredRefReason(key ExternalKey) string {
 const matchInferredContract = "its inferred contract"
 
 // joinInferredRef joins dependency idx of rev, whose ref names key's inferred
-// contract, to that external system: the consumer is counted on its record,
-// and a declared range is unknown with reason INFERRED_PROVIDER. A ref whose
-// identity (path, as written) does not parse joins nothing and stays
+// contract, to that external system: the consumer is counted on its record.
+// A declared range on any ref under pacto-inferred is unknown with reason
+// INFERRED_PROVIDER. A ref whose identity (path, as written) does not parse,
+// or that names a producer's contributed records, joins nothing and stays
 // unresolved with its reason.
 func joinInferredRef(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk RevisionKey, rev *ContractRevision, idx int, dep contract.Dependency, key ExternalKey, path string, rel *Relationship) {
+	if dep.Compatibility != "" {
+		rel.RangeStatus, rel.RangeReason = RangeUnknown, RangeReasonInferredProvider
+	}
 	if key == "" {
 		rel.Reason = "the ref names " + contract.InferredRepository + "/" + path + ", which is no external identity, so it joins no external system and is never a service"
+		if producer, ok := contract.ContributionRef(dep.Ref); ok {
+			rel.Reason = "the ref names " + producer + "'s contributed record: a producer's contributed record, never a service"
+		}
 		return
 	}
 	recordExternalDeclaration(snap, cat, rk, rev, idx, dep, key, matchInferredContract)
 	rel.ToExternal, rel.Reason = key, inferredRefReason(key)
-	if dep.Compatibility != "" {
-		rel.RangeStatus, rel.RangeReason = RangeUnknown, RangeReasonInferredProvider
-	}
 }
 
 // inferredProviderGroup is the declared ranges checked against one inferred
@@ -210,7 +217,9 @@ type inferredProviderGroup struct {
 func (q *Query) inferredProviderAttention() []AttentionItem {
 	groups := map[string]*inferredProviderGroup{}
 	for _, rel := range q.snap.Relationships {
-		if rel.Provenance != ProvenanceDeclared || rel.RangeReason != RangeReasonInferredProvider {
+		// A ref that joins no provider (other-egress, a contribution) names
+		// nothing to declare; its edge reason says so.
+		if rel.Provenance != ProvenanceDeclared || rel.RangeReason != RangeReasonInferredProvider || rel.ToExternal == "" && rel.ToService == "" {
 			continue
 		}
 		k := ExternalSubjectPrefix + string(rel.ToExternal)

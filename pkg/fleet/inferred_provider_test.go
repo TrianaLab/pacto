@@ -230,12 +230,42 @@ func TestInferredRefWithoutRangeHasNoReason(t *testing.T) {
 	if rel := depEdge(t, q, "checkout", "stripe-pinned"); rel.RangeStatus != "" || rel.RangeReason != "" {
 		t.Errorf("edge = %+v", rel)
 	}
-	// A ref under pacto-inferred with no identity below it resolves as before.
-	for _, id := range []string{"Not_An_ID", "other-egress"} {
-		q = infFleet(t, nil, svc("checkout", "shop", contract.Dependency{Name: "x", Ref: "oci://ghcr.io/acme/pacto-inferred/" + id, Compatibility: "^1"}))
-		if rel := depEdge(t, q, "checkout", "x"); rel.ToExternal != "" || rel.RangeReason != "" || !rel.missing() {
-			t.Errorf("%s: edge = %+v", id, rel)
-		}
+	// A ref with no identity below pacto-inferred is no inferred ref at all.
+	q = infFleet(t, nil, svc("checkout", "shop", contract.Dependency{Name: "x", Ref: "oci://ghcr.io/acme/pacto-inferred/Not_An_ID", Compatibility: "^1"}))
+	if rel := depEdge(t, q, "checkout", "x"); rel.ToExternal != "" || rel.RangeReason != "" || !rel.missing() {
+		t.Errorf("Not_An_ID: edge = %+v", rel)
+	}
+	// The reserved other-egress joins nothing, and its declared range is unknown.
+	q = infFleet(t, nil, svc("checkout", "shop", contract.Dependency{Name: "x", Ref: "oci://ghcr.io/acme/pacto-inferred/other-egress", Compatibility: "^1"}))
+	if rel := depEdge(t, q, "checkout", "x"); rel.ToExternal != "" || rel.RangeStatus != RangeUnknown || rel.RangeReason != RangeReasonInferredProvider || !rel.missing() {
+		t.Errorf("other-egress: edge = %+v", rel)
+	}
+}
+
+func TestInferredLocationContributionJoinsNoExternal(t *testing.T) {
+	key, id, inferred := inferredLocation("oci://ghcr.io/acme/pacto-inferred/my-idp/services:checkout_1.0.0")
+	if key != "" || id != "my-idp/services" || !inferred {
+		t.Fatalf("inferredLocation = %q %q %v", key, id, inferred)
+	}
+}
+
+// TestDependencyOnContributionRefIsNeverAServiceOrExternal: a dependency
+// pinned at a producer's contribution repository joins no service and no
+// external system, and a declared range on it is unknown, never checked.
+func TestDependencyOnContributionRefIsNeverAServiceOrExternal(t *testing.T) {
+	ref := "oci://ghcr.io/acme/pacto-inferred/my-idp/services:checkout_1.0.0"
+	q := infFleet(t, nil, svc("orders", "shop", contract.Dependency{Name: "checkout", Ref: ref, Compatibility: "^1"}), svc("checkout", "shop"))
+	rel := depEdge(t, q, "orders", "checkout")
+	if rel.ToService != "" || rel.ToExternal != "" || rel.Resolved || rel.RangeStatus != RangeUnknown || rel.RangeReason != RangeReasonInferredProvider ||
+		!strings.Contains(rel.Reason, "a producer's contributed record, never a service") || !strings.Contains(rel.Reason, "my-idp") {
+		t.Errorf("edge = %+v", rel)
+	}
+	if items := q.inferredProviderAttention(); len(items) != 0 {
+		t.Errorf("attention = %+v", items)
+	}
+	q = infFleet(t, nil, svc("orders", "shop", contract.Dependency{Name: "checkout", Ref: ref}))
+	if rel := depEdge(t, q, "orders", "checkout"); rel.RangeStatus != "" || rel.RangeReason != "" {
+		t.Errorf("no range: edge = %+v", rel)
 	}
 }
 

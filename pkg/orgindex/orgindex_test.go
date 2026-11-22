@@ -143,3 +143,17 @@ func TestReasonCarriesNoEntryContent(t *testing.T) {
 		t.Fatal("another error has no reason")
 	}
 }
+
+// TestValidateRefusesInferredBundle: an entry never turns an inferred
+// contract or a producer's contributed record into a declared consumer.
+func TestValidateRefusesInferredBundle(t *testing.T) {
+	for _, repo := range []string{"ghcr.io/acme/pacto-inferred/stripe", "ghcr.io/acme/pacto-inferred/my-idp/services"} {
+		e, _ := entry(t)
+		e.Bundle = repo + "@" + digest
+		e.Service = string(fleet.NewServiceKeyDomain(contract.OCIDomain(repo), e.Name))
+		tag, _ := Tag(fleet.ServiceKey(e.Service), e.Version)
+		if err := e.Validate("ghcr.io/acme/pacto-index", tag); Reason(err) != "the bundle is an inferred contract" {
+			t.Errorf("%s: Validate = %v", repo, err)
+		}
+	}
+}
