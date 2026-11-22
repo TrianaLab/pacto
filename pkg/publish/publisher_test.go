@@ -306,3 +306,55 @@ func TestNewScopedClientTransport(t *testing.T) {
 		t.Errorf("the transport saw write %v, tag %v, referrer %v: %v", write, tag, referrer, rt.reqs)
 	}
 }
+
+// slsaAttested pushes an image signed by nobody and attaches a keyless SLSA
+// provenance attestation by the CI identity of acmeRepo, annotated as GitHub
+// annotates one.
+func slsaAttested(t *testing.T, ss *testutil.Sigstore) (*Client, string, string) {
+	t.Helper()
+	host, reg := testRegistry(t, true)
+	repo, d := signed(t, host, reg)
+	h, _ := v1.NewHash(d)
+	stmt := fmt.Appendf(nil, `{"_type":%q,"subject":[{"digest":{"sha256":%q}}],"predicateType":"https://slsa.dev/provenance/v1","predicate":{}}`, delivery.StatementType, h.Hex)
+	b, err := ciSigner(t, ss, acmeSubject, acmeRepo).Sign(t.Context(), delivery.PayloadType, stmt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeBundle(t, reg, repo, d, "https://slsa.dev/provenance/v1", b)
+	return reg, repo, d
+}
+
+func TestProvenanceSignersAcceptsSLSA(t *testing.T) {
+	ss := testutil.New(t)
+	reg, repo, d := slsaAttested(t, ss)
+	signers, err := ProvenanceSigners(t.Context(), reg, ss.Root, false, repo, d)
+	if err != nil || len(signers) != 1 || signers[0].Repository != acmeRepo || !signers[0].CI {
+		t.Fatalf("signers %+v %v", signers, err)
+	}
+}
+
+func TestProvenanceSignersAcceptsSignature(t *testing.T) {
+	ss := testutil.New(t)
+	host, reg := testRegistry(t, true)
+	repo, d := signed(t, host, reg, ciSigner(t, ss, acmeSubject, acmeRepo))
+	signers, err := ProvenanceSigners(t.Context(), reg, ss.Root, false, repo, d)
+	if err != nil || len(signers) != 1 || signers[0].Repository != acmeRepo {
+		t.Fatalf("signers %+v %v", signers, err)
+	}
+}
+
+func TestVerifyDigestStillSkipsSLSA(t *testing.T) {
+	ss := testutil.New(t)
+	reg, repo, d := slsaAttested(t, ss)
+	if err := VerifyDigest(t.Context(), reg, PolicyVerifier(signing.Policy{AnyIdentity: true, Root: ss.Root}), repo, d); !errors.Is(err, ErrNoSignature) {
+		t.Fatalf("an SLSA attestation counted as a signature: %v", err)
+	}
+}
+
+func TestSignersOfStillSkipsSLSA(t *testing.T) {
+	ss := testutil.New(t)
+	reg, repo, d := slsaAttested(t, ss)
+	if signers, err := SignersOf(t.Context(), reg, ss.Root, false, repo, d); len(signers) != 0 || !errors.Is(err, ErrNoSignature) {
+		t.Fatalf("signers %+v %v", signers, err)
+	}
+}

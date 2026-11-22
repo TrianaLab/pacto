@@ -40,6 +40,10 @@ type DeclareWorkload struct {
 	Cluster   string
 	Namespace string
 	Kind      string
+	// Repositories and Image are the workload as the viewer's restricted
+	// snapshot shows it: the plan names its repository from them alone.
+	Repositories []fleet.InferredRepository
+	Image        string
 }
 
 // DraftRef names one draft by its tag and the digest the person was shown.
@@ -111,30 +115,38 @@ type DeclareBaseline struct {
 // DeclarePlan is what a declaration would publish, signed by whom, as
 // pacto declare plans it.
 type DeclarePlan struct {
-	Service           string                      `json:"service"`
-	Version           string                      `json:"version"`
-	BundleRepo        string                      `json:"bundleRepo"`
-	State             string                      `json:"state" doc:"declared for a person's login, else draft"`
-	InferredFrom      string                      `json:"inferredFrom"`
-	Cluster           string                      `json:"cluster,omitempty"`
-	Baseline          *DeclareBaseline            `json:"baseline,omitempty"`
-	Deploy            string                      `json:"deploy" doc:"The baseline deploy artifact the version reuses, or none"`
-	Ranges            []DeclareRange              `json:"ranges"`
-	Owner             string                      `json:"owner,omitempty"`
-	MayAccept         []string                    `json:"mayAccept,omitempty" doc:"Who may set the owner this plan changes"`
-	Signer            DeclareSigner               `json:"signer"`
-	PolicyNote        string                      `json:"policyNote,omitempty"`
-	Coverage          []contract.InferredCoverage `json:"coverage,omitempty"`
-	Hidden            *contract.InferredHidden    `json:"hidden,omitempty" doc:"The called Services and callers the person's own credentials could not read: left out of the ranges"`
-	ClusterAsOf       string                      `json:"clusterAsOf,omitempty" doc:"When the cluster read the plan comes from was taken"`
-	Skipped           []DeclareSkipped            `json:"skipped,omitempty" doc:"The published versions never taken as the baseline, and why"`
-	IntentDigest      string                      `json:"intentDigest"`
-	Unchanged         string                      `json:"unchanged,omitempty" doc:"The baseline version when nothing changed since it: nothing is written"`
-	Notes             []string                    `json:"notes,omitempty"`
-	Unbacked          []string                    `json:"unbacked,omitempty" doc:"Declared changes of an accepted draft that neither the baseline, the cluster read nor an accepted range backs"`
-	UnbackedUnchecked string                      `json:"unbackedUnchecked,omitempty" doc:"Why what backs the draft's changes could not be checked"`
-	Contract          DeclareText                 `json:"contract" doc:"pacto.yaml as it would be published"`
-	Record            DeclareText                 `json:"record" doc:"pacto.inferred.yaml as it would be published"`
+	Service           string                             `json:"service"`
+	Version           string                             `json:"version"`
+	BundleRepo        string                             `json:"bundleRepo"`
+	State             string                             `json:"state" doc:"declared for a person's login, else draft"`
+	InferredFrom      string                             `json:"inferredFrom"`
+	Cluster           string                             `json:"cluster,omitempty"`
+	Baseline          *DeclareBaseline                   `json:"baseline,omitempty"`
+	Deploy            string                             `json:"deploy" doc:"The baseline deploy artifact the version reuses, or none"`
+	Ranges            []DeclareRange                     `json:"ranges"`
+	Owner             string                             `json:"owner,omitempty"`
+	MayAccept         []string                           `json:"mayAccept,omitempty" doc:"Who may set the owner this plan changes"`
+	Signer            DeclareSigner                      `json:"signer"`
+	PolicyNote        string                             `json:"policyNote,omitempty"`
+	Coverage          []contract.InferredCoverage        `json:"coverage,omitempty"`
+	Hidden            *contract.InferredHidden           `json:"hidden,omitempty" doc:"The called Services and callers the person's own credentials could not read: left out of the ranges"`
+	ClusterAsOf       string                             `json:"clusterAsOf,omitempty" doc:"When the cluster read the plan comes from was taken"`
+	Skipped           []DeclareSkipped                   `json:"skipped,omitempty" doc:"The published versions never taken as the baseline, and why"`
+	IntentDigest      string                             `json:"intentDigest"`
+	Unchanged         string                             `json:"unchanged,omitempty" doc:"The baseline version when nothing changed since it: nothing is written"`
+	Notes             []string                           `json:"notes,omitempty"`
+	Unbacked          []string                           `json:"unbacked,omitempty" doc:"Declared changes of an accepted draft that neither the baseline, the cluster read nor an accepted range backs"`
+	UnbackedUnchecked string                             `json:"unbackedUnchecked,omitempty" doc:"Why what backs the draft's changes could not be checked"`
+	Contract          DeclareText                        `json:"contract" doc:"pacto.yaml as it would be published"`
+	Record            DeclareText                        `json:"record" doc:"pacto.inferred.yaml as it would be published"`
+	Repository        *contract.InferredSourceRepository `json:"repository,omitempty" doc:"Where the service's source lives and how Pacto found it; absent when no source named it"`
+	RepositoryTried   []DeclareRungNote                  `json:"repositoryTried,omitempty" doc:"Why each source Pacto tried for the repository gave nothing"`
+}
+
+// DeclareRungNote is why one source of the repository gave nothing.
+type DeclareRungNote struct {
+	Rung   string `json:"rung" doc:"signed-provenance, gitops, image-label, repository-map or given"`
+	Reason string `json:"reason"`
 }
 
 // DeclareSkipped is a published version the plan did not take as its
@@ -297,5 +309,9 @@ func (s *Server) declareWorkload(ctx context.Context, key string) (DeclareWorklo
 		return DeclareWorkload{}, huma.Error404NotFound("no inferred service with this serviceKey")
 	}
 	wl := rec.Workload
-	return DeclareWorkload{Key: key, Name: wl.Name, Cluster: wl.Cluster, Namespace: wl.Namespace, Kind: wl.Kind}, nil
+	out := DeclareWorkload{Key: key, Name: wl.Name, Cluster: wl.Cluster, Namespace: wl.Namespace, Kind: wl.Kind, Repositories: wl.Repositories}
+	if wl.Image != nil {
+		out.Image = wl.Image.Value
+	}
+	return out, nil
 }

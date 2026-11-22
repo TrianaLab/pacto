@@ -1346,8 +1346,7 @@ func checkRepository(r *InferredSourceRepository) error {
 	switch {
 	case r == nil:
 		return nil
-	case len(r.URL) > maxRepositoryURLBytes || !repositoryURLRE.MatchString(r.URL) || hasControl(r.URL) ||
-		strings.HasSuffix(r.URL, ".git") || strings.HasSuffix(r.URL, "/"):
+	case !ValidRepositoryURL(r.URL):
 		return errors.New(".repository.url is not https://<host>/<path> (no credentials, query, fragment or .git, at most 512 bytes)")
 	case !slices.Contains(RepositoryRungs, r.Rung):
 		return fmt.Errorf(".repository.rung is %q, want one of %s", r.Rung, strings.Join(RepositoryRungs, ", "))
@@ -1357,15 +1356,24 @@ func checkRepository(r *InferredSourceRepository) error {
 		return errors.New(".repository.signer is set exactly when rung is signed-provenance")
 	case len(r.Signer) > maxRepositorySignerBytes || hasControl(r.Signer):
 		return errors.New(".repository.signer is longer than 512 bytes or holds a control character")
-	case !validFolder(r.Folder):
+	case !ValidRepositoryFolder(r.Folder):
 		return errors.New(`.repository.folder is not a clean relative slash path ("." for the root, no "..", at most 256 bytes)`)
 	}
 	return nil
 }
 
-// validFolder: "." or a clean relative slash path with no ".." segment, no
+// ValidRepositoryURL reports whether u is a repository URL a record holds:
+// https?://<lowercase host>[:port]/<path> with no credentials, query,
+// fragment, control character, trailing ".git" or "/", at most 512 bytes.
+func ValidRepositoryURL(u string) bool {
+	return len(u) <= maxRepositoryURLBytes && repositoryURLRE.MatchString(u) && !hasControl(u) &&
+		!strings.HasSuffix(u, ".git") && !strings.HasSuffix(u, "/")
+}
+
+// ValidRepositoryFolder reports whether f is a repository folder a record
+// holds: "." or a clean relative slash path with no ".." segment, no
 // backslash or control character, at most 256 bytes.
-func validFolder(f string) bool {
+func ValidRepositoryFolder(f string) bool {
 	return len(f) <= maxRepositoryFolderBytes && path.Clean(f) == f && !strings.HasPrefix(f, "/") &&
 		!slices.Contains(strings.Split(f, "/"), "..") && !strings.ContainsRune(f, '\\') && !hasControl(f)
 }

@@ -70,6 +70,19 @@ type DeclareRequest struct {
 	// Store is the registry the run reads and writes through; nil is the
 	// one the service's own credentials reach.
 	Store publish.Registry
+	// Observed is what an HTTP surface's caller sees of the workload in
+	// their restricted fleet view. When set, the plan never reads the
+	// cluster with the service's own identity for the repository, and reads
+	// the image only inside Registry.
+	Observed *DeclareObserved
+}
+
+// DeclareObserved is a workload as the caller's restricted fleet view shows
+// it: its GitOps repositories and its image.
+type DeclareObserved struct {
+	Namespace, Kind, Name string
+	Repositories          []fleet.InferredRepository
+	Image                 string
 }
 
 // store is the registry req reads and writes through.
@@ -125,6 +138,11 @@ type DeclarePlan struct {
 	// most MaxListedDrafts; DraftsTotal counts them all.
 	Drafts      []DraftView `json:"drafts,omitempty"`
 	DraftsTotal int         `json:"draftsTotal,omitempty"`
+	// Repository is where the service's source lives and how it was found;
+	// nil when no rung named it, and RepositoryTried says why each gave
+	// nothing.
+	Repository      *contract.InferredSourceRepository `json:"repository,omitempty"`
+	RepositoryTried []RungNote                         `json:"repositoryTried,omitempty"`
 }
 
 // DeclareBaseline is the published version a declaration starts from and
@@ -302,8 +320,11 @@ type declarePlanner struct {
 	policy   *delivery.ClassPolicy
 	rules    []delivery.PublisherRule
 	baseline *contract.Bundle
-	judged   map[string]bool
-	owned    *ownerCheck
+	// baseSigner is the identity the baseline counts by (nil without one):
+	// its CI certificate may name the source repository.
+	baseSigner *delivery.PublisherIdentity
+	judged     map[string]bool
+	owned      *ownerCheck
 	// tags and root are the bundle repository's tags and the trusted root
 	// findBaseline read them with (root only when it holds a version).
 	tags []string
@@ -607,6 +628,7 @@ func (pl *declarePlanner) judge(ctx context.Context, tm root.TrustedMaterial, di
 	}
 	v := publish.JudgeRead(digest, signers, err, delivery.ServiceRef{Name: pl.plan.Service}, "", pl.rules, delivery.PublisherSourceRule, nil, nil)
 	if v.Verdict == delivery.VerdictAccepted {
+		pl.baseSigner = v.Identity
 		return true, signer, ""
 	}
 	// ponytail: a person the signer policy allows counts whatever the
@@ -614,6 +636,7 @@ func (pl *declarePlanner) judge(ctx context.Context, tm root.TrustedMaterial, di
 	// upgrade path.
 	for _, sg := range signers {
 		if sg.Class == delivery.ClassHuman && pl.policy != nil && checkInstallationSigner(sg, pl.policy) == nil {
+			pl.baseSigner = &sg
 			return true, signer, ""
 		}
 	}
@@ -831,6 +854,7 @@ func (pl *declarePlanner) finish(ctx context.Context, raw []byte, rec *contract.
 	p := pl.plan
 	accepted := rec.Declaration.Accepted
 	rec.Declaration = pl.declarationBlock(accepted)
+	pl.repository(ctx, rec.Declaration)
 	p.Coverage, p.Hidden = rec.Coverage, rec.Hidden
 	if c := rec.Inputs.Cluster; c != nil {
 		p.ClusterAsOf = c.AsOf

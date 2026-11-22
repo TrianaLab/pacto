@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -130,10 +131,18 @@ func TestDeclarePlanHiddenServiceNotFound(t *testing.T) {
 
 func TestDeclarePlanResolvesWorkload(t *testing.T) {
 	d := &fakeDeclarer{write: true}
-	base := declareServer(t, viewerAuth(true, AuthState{}), nil, d)
+	repos := []fleet.InferredRepository{{URL: "https://github.com/acme/shop", Path: "cart"}}
+	// The plan takes the image and repositories from the viewer's view.
+	view := func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
+		w := q.SnapshotForSerialization().Services[fleet.ServiceKey(cartKey)].Workload
+		w.Image, w.Repositories = &fleet.InferredValue{Value: "reg.io/shop/cart:1"}, repos
+		return q, nil
+	}
+	base := declareServer(t, viewerAuth(true, AuthState{}), view, d)
 	var out DeclareAnswer
 	postJSON(t, base+"/api/fleet/declare", map[string]any{"serviceKey": cartKey, "accept": []string{"orders"}}, http.StatusOK, &out)
-	if len(d.plans) != 1 || d.plans[0] != (DeclareWorkload{Key: cartKey, Name: "cart", Namespace: "shop", Kind: "Deployment"}) {
+	want := DeclareWorkload{Key: cartKey, Name: "cart", Namespace: "shop", Kind: "Deployment", Image: "reg.io/shop/cart:1", Repositories: repos}
+	if len(d.plans) != 1 || !reflect.DeepEqual(d.plans[0], want) {
 		t.Errorf("planned %+v", d.plans)
 	}
 	if out.Plan == nil || out.Command != "pacto declare cart" || !out.Write.Available {

@@ -38,28 +38,43 @@ func PolicyVerifier(p signing.Policy) BundleVerifier {
 // ErrNoSignature means no signature is attached; any other error with
 // no signer means none could be verified.
 func SignersOf(ctx context.Context, reg Registry, root root.TrustedMaterial, tlog bool, repo, digest string) ([]delivery.PublisherIdentity, error) {
-	signers, _, err := signersOf(ctx, reg, root, tlog, repo, digest)
+	signers, _, err := signersOf(ctx, reg, root, tlog, repo, digest, isSignPredicate)
 	return signers, err
 }
 
-// signersOf is SignersOf with, beside each signer, the commit its
-// certificate was issued for (signing.CommitOf).
-func signersOf(ctx context.Context, reg Registry, root root.TrustedMaterial, tlog bool, repo, digest string) ([]delivery.PublisherIdentity, []string, error) {
+// ProvenancePredicates are the statements whose keyless signer names where
+// an artifact was built: Pacto's signature and a signed SLSA provenance
+// attestation (as GitHub's attest-build-provenance pushes).
+var ProvenancePredicates = []string{SignPredicate, "https://slsa.dev/provenance/v1", "https://slsa.dev/provenance/v0.2"}
+
+// ProvenanceSigners is SignersOf over signatures and signed SLSA provenance
+// attestations alike: every identity whose keyless signature of either kind
+// verifies. The certificate names the source repository in both cases.
+// ponytail: the SLSA predicate body is not parsed; for GitHub and GitLab
+// builders its repository is the certificate's SourceRepositoryURI.
+func ProvenanceSigners(ctx context.Context, reg Registry, root root.TrustedMaterial, tlog bool, repo, digest string) ([]delivery.PublisherIdentity, error) {
+	signers, _, err := signersOf(ctx, reg, root, tlog, repo, digest, func(p string) bool { return slices.Contains(ProvenancePredicates, p) })
+	return signers, err
+}
+
+// signersOf is SignersOf over the statements accept takes, with, beside
+// each signer, the commit its certificate was issued for (signing.CommitOf).
+func signersOf(ctx context.Context, reg Registry, root root.TrustedMaterial, tlog bool, repo, digest string, accept func(string) bool) ([]delivery.PublisherIdentity, []string, error) {
 	p := signing.Policy{AnyIdentity: true, Root: root, Tlog: tlog}
 	var signers []delivery.PublisherIdentity
 	var commits []string
-	err := VerifyDigest(ctx, reg, func(b, d []byte) (string, error) {
+	err := verifyReferrers(ctx, reg, func(b, d []byte) (string, error) {
 		res, err := p.Verify(b, d)
 		if err != nil {
 			return "", err
 		}
-		if pt := res.Statement.GetPredicateType(); pt != SignPredicate {
-			return pt, nil // VerifyDigest refuses an attestation that is not a signature
+		if pt := res.Statement.GetPredicateType(); !accept(pt) {
+			return pt, nil // verifyReferrers refuses a statement accept does not take
 		}
 		signers = append(signers, delivery.Classified(signing.IdentityOf(res), nil))
 		commits = append(commits, signing.CommitOf(res))
 		return "", errSignerRead
-	}, repo, digest)
+	}, repo, digest, accept)
 	if len(signers) > 0 {
 		return signers, commits, nil
 	}
@@ -73,7 +88,7 @@ func signersOf(ctx context.Context, reg Registry, root root.TrustedMaterial, tlo
 // inferred, the installation operator's signer (nil when none is known).
 func CheckPublisher(ctx context.Context, reg Registry, root root.TrustedMaterial, tlog bool, repo, digest string,
 	service delivery.ServiceRef, source string, rules []delivery.PublisherRule, ruleSource string, pins []delivery.IdentityPin, inferred *delivery.TrustedKey) (delivery.PublisherVerdict, []delivery.PublisherIdentity, string) {
-	signers, commits, err := signersOf(ctx, reg, root, tlog, repo, digest)
+	signers, commits, err := signersOf(ctx, reg, root, tlog, repo, digest, isSignPredicate)
 	v := JudgeRead(digest, signers, err, service, source, rules, ruleSource, pins, inferred)
 	commit := ""
 	if v.Identity != nil {

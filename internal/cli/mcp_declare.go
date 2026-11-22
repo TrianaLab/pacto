@@ -144,7 +144,7 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 	if who.own == nil {
 		return nil, nil, errNobodyReviewed
 	}
-	req.Dynamic = who.own.Dynamic
+	req.Dynamic, req.Observed = who.own.Dynamic, r.observed(ctx, req)
 	p, _, err := r.svc.PlanDeclare(ctx, req)
 	if p != nil {
 		if !r.writes() || a.Registry != r.registry {
@@ -262,7 +262,7 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 	if err != nil {
 		return nil, nil, err
 	}
-	req.Draft, req.OnBehalfOf, req.Dynamic = true, who.person.User, who.own.Dynamic
+	req.Draft, req.OnBehalfOf, req.Dynamic, req.Observed = true, who.person.User, who.own.Dynamic, r.observed(ctx, req)
 	p, decl, err := r.svc.PlanDeclare(ctx, req)
 	if err != nil {
 		// Execute may come without a plan, or the baseline may move since it:
@@ -333,18 +333,60 @@ func (r remoteDeclarer) reads(registry string) bool {
 // shows is whether the caller's fleet view shows service. With no fleet, or
 // one that cannot be read, it does not.
 func (r remoteDeclarer) shows(ctx context.Context, service string) bool {
-	if r.fleet == nil {
-		return false
-	}
-	q, err := r.fleet.Src(ctx)
-	if err == nil && r.fleet.Opts.View != nil {
-		q, err = r.fleet.Opts.View(ctx, nil, q)
-	}
+	q, err := r.view(ctx)
 	if err != nil {
 		return false
 	}
 	_, err = q.GetService(service)
 	return err == nil
+}
+
+// view is the caller's restricted fleet view.
+func (r remoteDeclarer) view(ctx context.Context) (*fleet.Query, error) {
+	if r.fleet == nil {
+		return nil, errors.New("no fleet")
+	}
+	q, err := r.fleet.Src(ctx)
+	if err == nil && r.fleet.Opts.View != nil {
+		q, err = r.fleet.Opts.View(ctx, nil, q)
+	}
+	return q, err
+}
+
+// observed is the workload req names as the caller's restricted fleet view
+// shows it, when exactly one inferred workload matches; else empty. The
+// plan never reads the cluster with the server's identity for it.
+func (r remoteDeclarer) observed(ctx context.Context, req app.DeclareRequest) *app.DeclareObserved {
+	out := &app.DeclareObserved{}
+	q, err := r.view(ctx)
+	if err != nil {
+		return out
+	}
+	ns, kind, name := req.Namespace, "", req.Service
+	switch parts := strings.Split(req.Service, "/"); len(parts) {
+	case 2:
+		ns, name = parts[0], parts[1]
+	case 3:
+		ns, kind, name = parts[0], parts[1], parts[2]
+	}
+	var found *fleet.InferredWorkload
+	for _, s := range q.SnapshotForSerialization().Services {
+		w := s.Workload
+		if !s.Inferred() || w == nil || w.Name != name || ns != "" && w.Namespace != ns || kind != "" && w.Kind != kind {
+			continue
+		}
+		if found != nil {
+			return out
+		}
+		found = w
+	}
+	if found != nil {
+		out.Namespace, out.Kind, out.Name, out.Repositories = found.Namespace, found.Kind, found.Name, found.Repositories
+		if found.Image != nil {
+			out.Image = found.Image.Value
+		}
+	}
+	return out
 }
 
 // baselineHidden is p for a caller who may not see its service: the

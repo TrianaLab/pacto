@@ -227,6 +227,7 @@ func printDeclarePlan(w io.Writer, p *app.DeclarePlan) {
 		}
 		_, _ = fmt.Fprintf(w, "inferredFrom %s%s\n", p.InferredFrom, cluster)
 	}
+	printDeclareRepository(w, p)
 	for _, s := range p.Skipped {
 		_, _ = fmt.Fprintf(w, "skipped %s, signed by %s: %s\n", s.Tag, s.Signer, s.Why)
 	}
@@ -247,6 +248,21 @@ func printDeclarePlan(w io.Writer, p *app.DeclarePlan) {
 	}
 	printDeclareDrafts(w, p)
 	_, _ = fmt.Fprintln(w, "intent: "+p.IntentDigest)
+}
+
+// printDeclareRepository prints where the service's source lives and how
+// it was found, or that it is unknown and why each rung gave nothing.
+func printDeclareRepository(w io.Writer, p *app.DeclarePlan) {
+	if p.Repository != nil {
+		_, _ = fmt.Fprintln(w, "repository: "+app.RepositoryText(p.Repository))
+		return
+	}
+	if len(p.RepositoryTried) > 0 {
+		_, _ = fmt.Fprintln(w, "repository: unknown")
+	}
+	for _, n := range p.RepositoryTried {
+		_, _ = fmt.Fprintf(w, "  tried %s: %s\n", n.Rung, n.Reason)
+	}
 }
 
 // printDeclareDrafts prints the drafts waiting in the bundle repository, one

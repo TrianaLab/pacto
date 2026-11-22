@@ -1781,6 +1781,10 @@ export interface components {
             ranges: components["schemas"]["DeclareRange"][] | null;
             /** @description pacto.inferred.yaml as it would be published */
             record: components["schemas"]["DeclareText"];
+            /** @description Where the service's source lives and how Pacto found it; absent when no source named it */
+            repository?: components["schemas"]["Contract.InferredSourceRepository"];
+            /** @description Why each source Pacto tried for the repository gave nothing */
+            repositoryTried?: components["schemas"]["DeclareRungNote"][] | null;
             service: string;
             signer: components["schemas"]["DeclareSigner"];
             /** @description The published versions never taken as the baseline, and why */
@@ -1814,6 +1818,11 @@ export interface components {
             /** @description The command a person runs about it */
             command?: string;
             message: string;
+        };
+        DeclareRungNote: {
+            reason: string;
+            /** @description signed-provenance, gitops, image-label, repository-map or given */
+            rung: string;
         };
         DeclareSigner: {
             class: string;

@@ -409,7 +409,7 @@ func (idx *gitopsIndex) gitRepository(ref objectRef, ns, path string) ([]fleet.I
 	if r == nil {
 		return nil, idx.missing("GitRepository", m.Namespace, m.Name)
 	}
-	u, ok := cleanRepoURL(r.Spec.URL)
+	u, ok := CleanRepoURL(r.Spec.URL)
 	if !ok {
 		return nil, "GitRepository " + m.String() + " names no URL Pacto can show"
 	}
@@ -511,7 +511,7 @@ func (a *application) repositories() ([]fleet.InferredRepository, string) {
 	var repos []fleet.InferredRepository
 	chart := ""
 	for _, f := range fields {
-		u, ok := cleanRepoURL(f.src.RepoURL)
+		u, ok := CleanRepoURL(f.src.RepoURL)
 		switch {
 		case f.src.Chart != "":
 			chart = cmp.Or(chart, f.src.Chart)
@@ -532,10 +532,10 @@ func (a *application) repositories() ([]fleet.InferredRepository, string) {
 	return nil, "Application " + a.Metadata.String() + " names no Git repository Pacto can show"
 }
 
-// cleanRepoURL is raw without credentials, query or fragment: a URL with a
+// CleanRepoURL is raw without credentials, query or fragment: a URL with a
 // scheme keeps scheme, host and path; an scp-like user@host:path keeps
 // host:path. Anything else, a control character included, is refused.
-func cleanRepoURL(raw string) (string, bool) {
+func CleanRepoURL(raw string) (string, bool) {
 	if raw == "" || strings.ContainsFunc(raw, unicode.IsControl) {
 		return "", false
 	}

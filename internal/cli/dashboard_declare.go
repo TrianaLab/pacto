@@ -110,6 +110,9 @@ func refused(code, msg, cmd string) *dashboard.DeclareRefusal {
 func (d *dashboardDeclarer) request(r *http.Request, w dashboard.DeclareWorkload, accept []string, from *dashboard.DraftRef) (app.DeclareRequest, error) {
 	req := d.base
 	req.Service, req.Namespace, req.Registry, req.Accept = w.Name, w.Namespace, d.registry, accept
+	// The repository comes from what the person's own view shows, never
+	// from a cluster read with the dashboard's identity.
+	req.Observed = &app.DeclareObserved{Namespace: w.Namespace, Kind: w.Kind, Name: w.Name, Repositories: w.Repositories, Image: w.Image}
 	if from != nil {
 		req.FromDraft = from.Tag
 	}
@@ -263,7 +266,10 @@ func planView(p *app.DeclarePlan, decl declarationTexts) *dashboard.DeclarePlan 
 		Cluster: p.Cluster, Deploy: p.Deploy, Ranges: []dashboard.DeclareRange{}, Owner: p.Owner, MayAccept: p.MayAccept,
 		Signer:     dashboard.DeclareSigner{Subject: p.Signer.Subject, Issuer: p.Signer.Issuer, Class: p.Signer.Class, Source: p.Signer.Source, Why: p.Signer.Why},
 		PolicyNote: p.PolicyNote, Coverage: p.Coverage, Hidden: p.Hidden, ClusterAsOf: p.ClusterAsOf, IntentDigest: p.IntentDigest, Unchanged: p.Unchanged, Notes: p.Notes,
-		Unbacked: p.Unbacked, UnbackedUnchecked: p.UnbackedUnchecked}
+		Unbacked: p.Unbacked, UnbackedUnchecked: p.UnbackedUnchecked, Repository: p.Repository}
+	for _, n := range p.RepositoryTried {
+		out.RepositoryTried = append(out.RepositoryTried, dashboard.DeclareRungNote(n))
+	}
 	for _, k := range p.Skipped {
 		out.Skipped = append(out.Skipped, dashboard.DeclareSkipped(k))
 	}
