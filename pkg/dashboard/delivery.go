@@ -45,7 +45,7 @@ type DeliveryAPI interface {
 	Record(ctx context.Context, namespace, stage, id string) (*delivery.RecordView, error)
 	// PublishRefusals are the publishes and promotes Pacto refused for
 	// services with Stages in namespace ("" for all). Nil with no error means this host keeps no
-	// record of refused publishes.
+	// record of refused publishes or promotes.
 	PublishRefusals(ctx context.Context, namespace string) (*PublishRefusals, error)
 	// Trust is which publishers the services of stages accept: the
 	// installation's rule or signed policy and, per service, its pins, the
@@ -212,7 +212,7 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-refusals", Method: http.MethodGet, Path: "/api/delivery/refusals",
 		Summary: "Publishes and promotes Pacto refused",
 		Description: "Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs " +
-			"and the Stage and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing."}), s.deliveryRefusals)
+			"and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing."}), s.deliveryRefusals)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-operation", Method: http.MethodGet, Path: "/api/delivery/operations/{namespace}/{name}",
 		Summary:     "One change",
 		Description: "The explained operation (summary, verdicts with how to re-run each), the operation itself (plan, approvals, times) and the actions the caller may take."}), s.deliveryOperation)

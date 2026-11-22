@@ -160,10 +160,10 @@
               <ul class="pl-list">
                 {#each refused.refusals as r, i (r.service + '@' + r.version + '#' + i)}
                   <li class="pl-row pl-row--stack pv-row">
-                    <div class="pv-head">
+                    <div class="pv-rhead" data-testid="refused-head">
                       <strong>{r.service} {r.version}</strong>
-                      {#if r.stage}<span class="t-meta">on <bdi class="pv-stage" title={r.stage}>{r.stage}</bdi></span>{/if}
-                      {#if r.requiredBump}<span class="badge badge-err">Needs {BUMPS[r.requiredBump] ?? r.requiredBump}</span>{:else if r.check === 'manifests'}<span class="badge badge-err">Refused promote</span>{:else}<span class="badge badge-err">Refused: {r.check}</span>{/if}
+                      {#if r.stage}{@const where = r.namespace ? `${r.namespace}/${r.stage}` : r.stage}<span class="t-meta">on <bdi class="pv-stage" title={where}>{where}</bdi></span>{/if}
+                      {#if r.requiredBump}<span class="badge badge-err">Needs {BUMPS[r.requiredBump] ?? r.requiredBump}</span>{:else if r.check === 'manifests'}<span class="badge badge-err" title={[r.code, r.digest].filter(Boolean).join(', ') || undefined}>Refused promote</span>{:else}<span class="badge badge-err">Refused: {r.check}</span>{/if}
                       {#if r.verified}<span class="badge badge-ok">Signed record</span>{/if}
                       {#if r.record}<CopyableIdentifier value={r.record} label="operation record id" iconOnly={true} />{/if}
                     </div>
@@ -262,8 +262,11 @@
   .pv-svc { display: flex; flex-direction: column; gap: var(--sp-2); }
   .pv-svc h2 a { color: var(--c-accent); }
   .pv-row { gap: var(--sp-1); padding: var(--sp-1) var(--sp-3); min-width: 0; overflow-wrap: break-word; }
-  .pv-stage, .pv-head > strong { min-width: 0; overflow-wrap: anywhere; }
-  .pv-head { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
+  .pv-stage, .pv-head > strong, .pv-rhead > strong { min-width: 0; overflow-wrap: anywhere; }
+  /* A refusal's head stays one wrapping line at every width: the versions grid
+     below would stretch its badge across a column and push its record mark
+     onto a second row. */
+  .pv-head, .pv-rhead { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .pv-sigline { margin: 0; }
   /* On a wide screen every version lines up in columns, so a long pre-release
      version is cut short (whole on hover) instead of pushing the rest along. */

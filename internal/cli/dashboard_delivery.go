@@ -381,20 +381,26 @@ func (a dashDelivery) PublishRefusals(ctx context.Context, ns string) (*dashboar
 	if err != nil {
 		return nil, refusal(err)
 	}
-	repos, streams, refs, services := map[string]string{}, map[string]string{}, map[string]delivery.ServiceRef{}, []string{}
+	repos, services := map[string]string{}, []string{}
+	// Apply refusal streams are keyed by the whole ServiceRef: two domains
+	// may name a service alike, and each keeps its own stream.
+	streams, refs := map[delivery.ServiceRef]string{}, []delivery.ServiceRef{}
 	listed := map[[2]string]bool{}
 	for i := range stages {
 		st := &stages[i]
-		svc := st.Spec.Service.Name
+		svc, ref := st.Spec.Service.Name, st.Spec.Service
 		listed[[2]string{st.Metadata.Namespace, st.Metadata.Name}] = true
 		if _, ok := repos[svc]; !ok {
-			services, refs[svc] = append(services, svc), st.Spec.Service
+			services = append(services, svc)
 		}
 		if repos[svc] == "" {
 			repos[svc] = a.contractRepo(ctx, st)
 		}
-		if streams[svc] == "" {
-			streams[svc], _, _ = strings.Cut(st.Status.Stream.Anchor, "@")
+		if _, ok := streams[ref]; !ok {
+			refs = append(refs, ref)
+		}
+		if streams[ref] == "" {
+			streams[ref], _, _ = strings.Cut(st.Status.Stream.Anchor, "@")
 		}
 	}
 	out := &dashboard.PublishRefusals{Completeness: "complete", Refusals: []dashboard.PublishRefusal{},
@@ -404,8 +410,10 @@ func (a dashDelivery) PublishRefusals(ctx context.Context, ns string) (*dashboar
 		if err := a.refusalsOf(ctx, svc, repos[svc], out); err != nil {
 			out.Completeness, out.Unreadable = "partial", append(out.Unreadable, svc+": "+err.Error())
 		}
-		if err := a.applyRefusalsOf(ctx, refs[svc], streams[svc], listed, out); err != nil {
-			out.Completeness, out.Unreadable = "partial", append(out.Unreadable, svc+": "+err.Error())
+	}
+	for _, ref := range refs {
+		if err := a.applyRefusalsOf(ctx, ref, streams[ref], listed, out); err != nil {
+			out.Completeness, out.Unreadable = "partial", append(out.Unreadable, ref.Name+": "+err.Error())
 		}
 	}
 	return out, nil
@@ -432,13 +440,19 @@ func (a dashDelivery) applyRefusalsOf(ctx context.Context, svc delivery.ServiceR
 	for _, u := range l.Unreadable {
 		out.Completeness, out.Unreadable = "partial", append(out.Unreadable, svc.Name+": "+u)
 	}
+	// The stream is shared by every Stage of the service, those the caller
+	// cannot list included: refusals cut from it may be the caller's own.
+	if l.Cut {
+		out.Completeness, out.Unreadable = "partial", append(out.Unreadable,
+			fmt.Sprintf("%s: more than %d refused promotes; older ones were not read", svc.Name, deliveryrecord.MaxApplyRefusals))
+	}
 	for _, r := range l.Refusals {
 		p := r.Refusal
 		if !listed[[2]string{p.Namespace, p.Stage}] {
 			continue
 		}
 		out.Refusals = append(out.Refusals, dashboard.PublishRefusal{Service: p.Service.Name, Version: p.Version, Check: "manifests",
-			Stage: p.Stage, Reason: p.Message, Record: p.Record, At: p.At, Verified: a.d.Trust != nil})
+			Namespace: p.Namespace, Stage: p.Stage, Digest: p.Digest, Code: p.Code, Reason: p.Message, Record: p.Record, At: p.At, Verified: a.d.Trust != nil})
 	}
 	return nil
 }

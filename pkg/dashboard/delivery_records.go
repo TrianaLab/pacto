@@ -122,15 +122,21 @@ func (s *Server) deliveryRecord(ctx context.Context, in *recordInput) (*recordOu
 // PublishRefusal is one publish or promote Pacto refused.
 type PublishRefusal struct {
 	Service string `json:"service"`
-	Version string `json:"version" doc:"The version the publish or promote asked for"`
+	// Version is empty on a refused promote whose plan read no contract
+	// version: Digest names what was refused.
+	Version string `json:"version" doc:"The version the publish or promote asked for; empty on a refused promote whose plan read no contract version (digest names it)"`
 	// Check is the check that refused it: version (the version rule), sign,
 	// lock, validation or conflict refuse a publish; manifests (the manifest
 	// inspector) refuses a promote.
 	Check string `json:"check" doc:"The check that refused it: version, sign, lock, validation or conflict for a publish; manifests (the manifest inspector, before the promoter wrote the pointer) for a promote"`
-	// Stage and Record are set on a refused promote: the Stage it was
-	// proposed on and the id of its operation record.
-	Stage  string `json:"stage,omitempty" doc:"The Stage a refused promote was proposed on"`
-	Record string `json:"record,omitempty" doc:"The id of the operation record of a refused promote"`
+	// Namespace, Stage, Digest, Code and Record are set on a refused promote:
+	// the Stage it was proposed on, the refused deploy artifact, the stable
+	// code of the refusal when it has one and the id of its operation record.
+	Namespace string `json:"namespace,omitempty" doc:"The namespace of the Stage a refused promote was proposed on"`
+	Stage     string `json:"stage,omitempty" doc:"The Stage a refused promote was proposed on"`
+	Digest    string `json:"digest,omitempty" doc:"The deploy artifact digest a refused promote asked for"`
+	Code      string `json:"code,omitempty" doc:"The stable code of a refused promote, such as RawInfraInArtifact, when it has one"`
+	Record    string `json:"record,omitempty" doc:"The id of the operation record of a refused promote: read it with the namespace, Stage and id"`
 	Reason string `json:"reason" doc:"Why, in one sentence"`
 	// Baseline and RequiredBump are set when the version rule refused it.
 	Baseline     string `json:"baseline,omitempty" doc:"The highest published version below it, the one the change was compared with"`
@@ -153,8 +159,8 @@ type PublishRefusals struct {
 type refusalsOutput struct {
 	Body struct {
 		AsOf string `json:"asOf"`
-		// Recorded: this host keeps a record of refused publishes.
-		Recorded bool `json:"recorded" doc:"This cluster keeps a record of refused publishes; false means an empty list proves nothing"`
+		// Recorded: this host keeps a record of refused publishes or promotes.
+		Recorded bool `json:"recorded" doc:"This cluster keeps a record of refused publishes or promotes; false means an empty list proves nothing"`
 		PublishRefusals
 		Total int `json:"total" doc:"How many refusals were read; refusals holds the newest 20"`
 	}

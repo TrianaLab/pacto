@@ -916,7 +916,7 @@ pacto delivery record verify [<ref>] [flags]
 
 ### `pacto delivery refusals`
 
-Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs and the Stage and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing.
+Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing.
 
 It runs the dashboard's own refusals view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 

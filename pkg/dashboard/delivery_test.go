@@ -1328,6 +1328,11 @@ func TestRefusalsJSONKeepsFields(t *testing.T) {
 	_ = json.Unmarshal(b, &m)
 	keys := slices.Sorted(maps.Keys(m))
 	expect(t, slices.Equal(keys, []string{"actor", "at", "baseline", "check", "reason", "requiredBump", "service", "verified", "version"}), "keys: %v", keys)
+	// A refused promote names where it was refused and what.
+	b, _ = json.Marshal(PublishRefusal{Check: "manifests", Namespace: "prod", Stage: "pay", Digest: "sha256:d", Code: "RawInfraInArtifact", Record: "rec"})
+	m = nil
+	_ = json.Unmarshal(b, &m)
+	expect(t, m["namespace"] == "prod" && m["digest"] == "sha256:d" && m["code"] == "RawInfraInArtifact" && m["version"] == "", "promote keys: %v", m)
 }
 
 // TestEnvironmentRowJSONKeepsFields: the shared row keeps every key the

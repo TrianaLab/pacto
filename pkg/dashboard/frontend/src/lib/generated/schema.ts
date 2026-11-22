@@ -317,7 +317,7 @@ export interface paths {
         };
         /**
          * Publishes and promotes Pacto refused
-         * @description Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs and the Stage and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing.
+         * @description Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing.
          */
         get: operations["delivery-refusals"];
         put?: never;
@@ -8033,9 +8033,15 @@ export interface components {
             baseline?: string;
             /** @description The check that refused it: version, sign, lock, validation or conflict for a publish; manifests (the manifest inspector, before the promoter wrote the pointer) for a promote */
             check: string;
+            /** @description The stable code of a refused promote, such as RawInfraInArtifact, when it has one */
+            code?: string;
+            /** @description The deploy artifact digest a refused promote asked for */
+            digest?: string;
+            /** @description The namespace of the Stage a refused promote was proposed on */
+            namespace?: string;
             /** @description Why, in one sentence */
             reason: string;
-            /** @description The id of the operation record of a refused promote */
+            /** @description The id of the operation record of a refused promote: read it with the namespace, Stage and id */
             record?: string;
             /**
              * @description The smallest bump the change needs
@@ -8047,7 +8053,7 @@ export interface components {
             stage?: string;
             /** @description A signed record of the refusal was verified */
             verified: boolean;
-            /** @description The version the publish or promote asked for */
+            /** @description The version the publish or promote asked for; empty on a refused promote whose plan read no contract version (digest names it) */
             version: string;
         };
         PublishedCounts: {
@@ -8261,7 +8267,7 @@ export interface components {
             completeness: "complete" | "partial";
             /** @description Where the refusals were read and what may be missing */
             note?: string;
-            /** @description This cluster keeps a record of refused publishes; false means an empty list proves nothing */
+            /** @description This cluster keeps a record of refused publishes or promotes; false means an empty list proves nothing */
             recorded: boolean;
             refusals: components["schemas"]["PublishRefusal"][] | null;
             /**

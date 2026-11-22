@@ -27,9 +27,9 @@ import (
 // applyRefusalsFixture adds to refusalsFixture a streams repository holding
 // 20 apply refusals of payments on the Stage prod/b-payments, which names its
 // record stream there, and one on a Stage in staging the caller cannot list.
-// It returns the dashboard identity, the recorder's public key and the
-// streams repository path.
-func applyRefusalsFixture(t *testing.T) (*dashboardIdentity, ed25519.PublicKey, string) {
+// It returns the dashboard identity, the recorder's public key, the streams
+// repository path and a function that pushes one more refusal.
+func applyRefusalsFixture(t *testing.T) (*dashboardIdentity, ed25519.PublicKey, string, func(svc delivery.ServiceRef, ns, stage string, i int)) {
 	t.Helper()
 	ctx := context.Background()
 	srv, repo, id, _ := refusalsFixture(t)
@@ -40,7 +40,10 @@ func applyRefusalsFixture(t *testing.T) (*dashboardIdentity, ed25519.PublicKey, 
 		t.Fatal(err)
 	}
 	pub, key, _ := ed25519.GenerateKey(rand.Reader)
-	push := func(ns, stage string, i int) {
+	push := func(svc delivery.ServiceRef, ns, stage string, i int) {
+		if err := ocireferrer.Push(ctx, streamsRepo, deliveryrecord.Anchor(delivery.ApplyRefusalStream(svc))); err != nil {
+			t.Fatal(err)
+		}
 		r := delivery.ApplyRefusal{Service: svc, Namespace: ns, Stage: stage, Version: fmt.Sprintf("2.5.%d", i),
 			Digest: fmt.Sprintf("sha256:%064d", i), Refused: []string{"ClusterRoleBinding orders-admin is cluster-scoped"},
 			Message: "the version reaches outside " + ns, Record: fmt.Sprintf("rec-%d", i), Operation: "p", At: fmt.Sprintf("2026-11-21T10:%02d:00Z", i)}
@@ -52,9 +55,9 @@ func applyRefusalsFixture(t *testing.T) (*dashboardIdentity, ed25519.PublicKey, 
 			t.Fatal(err)
 		}
 	}
-	push("staging", "b-payments", 0)
+	push(svc, "staging", "b-payments", 0)
 	for i := 1; i <= deliveryrecord.MaxApplyRefusals-1; i++ {
-		push("prod", "b-payments", i)
+		push(svc, "prod", "b-payments", i)
 	}
 	next := id.newClient
 	id.newClient = func(cfg *rest.Config) (dynamic.Interface, error) {
@@ -71,7 +74,7 @@ func applyRefusalsFixture(t *testing.T) (*dashboardIdentity, ed25519.PublicKey, 
 		}
 		return repo, nil
 	}
-	return id, pub, streams
+	return id, pub, streams, push
 }
 
 func refusalsOfKind(r *dashboard.PublishRefusals, check string) []dashboard.PublishRefusal {
@@ -89,7 +92,7 @@ func refusalsOfKind(r *dashboard.PublishRefusals, check string) []dashboard.Publ
 // of them (the server caps once), verified with the delivery trust config;
 // a refused promote on a Stage the caller cannot list never does.
 func TestPublishRefusalsListsApplyRefusals(t *testing.T) {
-	id, pub, _ := applyRefusalsFixture(t)
+	id, pub, _, _ := applyRefusalsFixture(t)
 	trust, err := app.DeliveryTrust(writeTrust(t, pub))
 	expect(t, err == nil, "trust: %v", err)
 	id.trust = trust
@@ -101,7 +104,8 @@ func TestPublishRefusalsListsApplyRefusals(t *testing.T) {
 	expect(t, len(refusalsOfKind(r, "version")) == 2 && len(applied) == deliveryrecord.MaxApplyRefusals-1 && len(r.Refusals) > 20,
 		"every row, uncapped: %+v", r.Refusals)
 	for _, a := range applied {
-		expect(t, a.Service == "payments" && a.Stage == "b-payments" && strings.HasPrefix(a.Record, "rec-") && a.Version != "" &&
+		expect(t, a.Service == "payments" && a.Namespace == "prod" && a.Stage == "b-payments" && strings.HasPrefix(a.Record, "rec-") &&
+			a.Version != "" && strings.HasPrefix(a.Digest, "sha256:") &&
 			a.Reason == "the version reaches outside prod" && a.At != "" && a.Verified, "a refused promote: %+v", a)
 	}
 	expect(t, strings.HasPrefix(r.Note, "read from each service's") && strings.Contains(r.Note, "refused promotes, verified with the delivery trust config"),
@@ -111,7 +115,7 @@ func TestPublishRefusalsListsApplyRefusals(t *testing.T) {
 // TestRefusalsUnverifiedWithoutTrust: with no trust config nothing checks the
 // recorder's signature, so no refused promote reads verified.
 func TestRefusalsUnverifiedWithoutTrust(t *testing.T) {
-	id, _, _ := applyRefusalsFixture(t)
+	id, _, _, _ := applyRefusalsFixture(t)
 	api, _ := id.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
 	r, err := api.PublishRefusals(context.Background(), "prod")
 	expect(t, err == nil && r != nil, "refusals: %v %v", r, err)
@@ -127,7 +131,7 @@ func TestRefusalsUnverifiedWithoutTrust(t *testing.T) {
 // never "none".
 func TestPublishRefusalsPartialOnUnreadableStream(t *testing.T) {
 	ctx := context.Background()
-	id, _, streams := applyRefusalsFixture(t)
+	id, _, streams, _ := applyRefusalsFixture(t)
 	refusals := func() *dashboard.PublishRefusals {
 		t.Helper()
 		api, _ := id.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
@@ -162,4 +166,44 @@ func TestPublishRefusalsPartialOnUnreadableStream(t *testing.T) {
 	}
 	r = refusals()
 	expect(t, strings.Contains(strings.Join(r.Unreadable, "|"), "payments: reading the refused promotes in "+streams), "unlisted: %+v", r)
+}
+
+// TestPublishRefusalsReadsEveryDomainOfAService: a service name two domains
+// share keeps one apply refusal stream per domain, and both are read.
+func TestPublishRefusalsReadsEveryDomainOfAService(t *testing.T) {
+	ctx := context.Background()
+	id, _, streams, push := applyRefusalsFixture(t)
+	billing := delivery.ServiceRef{Domain: "billing", Name: "payments"}
+	push(billing, "prod", "c-payments", 40)
+	next := id.newClient
+	id.newClient = func(cfg *rest.Config) (dynamic.Interface, error) {
+		c, err := next(cfg)
+		_, _ = c.Resource(gvrStagesTest).Namespace("prod").Create(ctx, u("delivery.pacto.trianalab.io/v1alpha1", "Stage", "c-payments", map[string]any{
+			"spec":   map[string]any{"service": map[string]any{"name": "payments", "domain": "billing"}, "applyRef": map[string]any{"name": "payments"}},
+			"status": map[string]any{"stream": map[string]any{"id": "payments-billing", "anchor": deliveryrecord.AnchorRef(streams, "payments-billing")}},
+		}), metav1.CreateOptions{})
+		return c, err
+	}
+	api, _ := id.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
+	r, err := api.PublishRefusals(ctx, "prod")
+	expect(t, err == nil && r != nil, "refusals: %v %v", r, err)
+	stages := map[string]int{}
+	for _, a := range refusalsOfKind(r, "manifests") {
+		stages[a.Stage]++
+	}
+	expect(t, stages["c-payments"] == 1 && stages["b-payments"] == deliveryrecord.MaxApplyRefusals-1,
+		"both domains' streams read: %v %+v", stages, r)
+}
+
+// TestPublishRefusalsPartialWhenTheStreamIsCut: refusals on Stages the caller
+// cannot list share the stream, so more than the bound makes the answer
+// partial: the caller's own refusal may be among those cut.
+func TestPublishRefusalsPartialWhenTheStreamIsCut(t *testing.T) {
+	id, _, _, push := applyRefusalsFixture(t)
+	push(delivery.ServiceRef{Name: "payments"}, "staging", "b-payments", 50)
+	api, _ := id.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
+	r, err := api.PublishRefusals(context.Background(), "prod")
+	expect(t, err == nil && r != nil, "refusals: %v %v", r, err)
+	expect(t, r.Completeness == "partial" && strings.Contains(strings.Join(r.Unreadable, "|"), "payments: more than 20 refused promotes; older ones were not read"),
+		"cut: %+v", r)
 }
