@@ -248,7 +248,7 @@ tests:
       - matchRegexRaw:
           pattern: '\{ "mcpServers": \{ "pacto": \{ "type": "http", "url": "http://127\.0\.0\.1:3000/mcp",\s+"headers": \{ "Authorization": "Bearer \$\{PACTO_TOKEN\}" \} \} \} \}'
       - matchRegexRaw:
-          pattern: 'An agent that proposes changes uses its own\s+ServiceAccount; see https://pacto\.run/latest/mcp-integration/'
+          pattern: 'An agent that proposes changes uses its own\s+ServiceAccount; see https://pacto\.run/latest/mcp-integration/#connect-to-an-installed-pacto'
       - notMatchRegexRaw:
           pattern: now also serves MCP
 

@@ -31,7 +31,7 @@ describe('ConnectAgent', () => {
     expect(pre.textContent).toContain('"url": "https://pacto.example.com/mcp"');
     expect(pre.textContent).toContain('Bearer ${PACTO_TOKEN}');
     expect(d!.textContent).toContain('kubectl -n <namespace> create token pacto-viewer --audience pacto-dashboard');
-    expect(d!.querySelector('a')?.getAttribute('href')).toBe('https://pacto.run/latest/mcp-integration/');
+    expect(d!.querySelector('a')?.getAttribute('href')).toBe('https://pacto.run/latest/mcp-integration/#connect-to-an-installed-pacto');
   });
 
   it('names the namespace of a pacto-viewer session in the token line', () => {

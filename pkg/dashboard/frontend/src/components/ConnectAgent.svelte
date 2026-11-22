@@ -9,6 +9,7 @@
   let { mcp = undefined, origin = location.origin } = $props();
 
   const DOCS = 'https://pacto.run/latest/mcp-integration/';
+  const INSTALLED = `${DOCS}#connect-to-an-installed-pacto`;
   const url = $derived(`${origin}/mcp`);
   // The read-only token the chart's NOTES mint: a pacto-viewer session names its namespace.
   const namespace = $derived(/^system:serviceaccount:([^:]+):pacto-viewer$/.exec(session.data?.user ?? '')?.[1] ?? '<namespace>');
@@ -30,7 +31,7 @@
       <pre class="ca-code" role="region" aria-label="MCP client setup" tabindex="0"><code>export PACTO_TOKEN=$(kubectl -n {namespace} create token pacto-viewer --audience pacto-dashboard --duration 1h)
 
 {snippet}</code></pre>
-      <p class="t-meta">That token reads the fleet. An agent that proposes changes uses its own ServiceAccount; see <a href={DOCS} target="_blank" rel="noopener">Connect an agent over MCP</a>.</p>
+      <p class="t-meta">That token reads the fleet. An agent that proposes changes uses its own ServiceAccount; see <a href={INSTALLED} target="_blank" rel="noopener">Connect an agent over MCP</a>.</p>
     {:else}
       <p class="t-meta" data-testid="connect-agent-source">{mcp.source}</p>
       <p class="t-meta"><a href={DOCS} target="_blank" rel="noopener">Connect an agent over MCP</a></p>

@@ -87,12 +87,12 @@ Pacto Operator has been installed.
        "headers": { "Authorization": "Bearer ${PACTO_TOKEN}" } } } }
 
    That token reads the fleet. An agent that proposes changes uses its own
-   ServiceAccount; see https://pacto.run/latest/mcp-integration/
+   ServiceAccount; see https://pacto.run/latest/mcp-integration/#connect-to-an-installed-pacto
 {{- else }}
 
 5. Connect an AI agent. The dashboard also serves MCP at {{ $mcpURL }}.
    Your MCP client signs in with {{ regexReplaceAll $unsafe (toString .Values.dashboard.auth.oidc.issuerURL) "" }}; see
-   https://pacto.run/latest/mcp-integration/
+   https://pacto.run/latest/mcp-integration/#connect-to-an-installed-pacto
 {{- end }}
 {{- if .Release.IsUpgrade }}
 {{- $previous := lookup "apps/v1" "Deployment" .Release.Namespace "pacto-dashboard" }}
