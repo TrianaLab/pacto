@@ -49,6 +49,7 @@ SA=pacto-operator
 DETECTED=pacto-operator-detected
 REG_HOST="pacto-registry.${HD}.svc:5000"
 LOCAL_DASH_PORT=18521
+LOCAL_REG_PORT=18522
 HARDENED_WATCH="profile hardened needs controller.watchNamespaces"
 HARDENED_DELIVERY="profile hardened renders no ClusterRole and Pacto delivery needs cluster-wide roles: set delivery.enabled=false or leave profile hardened"
 KEPT_NS="Pacto delivery is off. Namespace $DNS was kept with its trust config"
@@ -171,9 +172,14 @@ eventually 20 has_status hd-a hd-watched || fail "the Pacto in watched hd-a neve
 pass "the Pacto in hd-a reads $(pacto_status hd-a hd-watched)"
 eventually 30 detected_profile '["hardened"]' || fail "the detected ConfigMap does not advertise profile [hardened]: $(detected_json | jq -c .installation)"
 [ -n "$(detected_json | jq -r '.cluster // empty')" ] || fail "the detected ConfigMap names no cluster id"
-pushed() { detected_json | jq -e '.installation.lastPush.ref // "" | contains("pacto-targets:cluster-")' >/dev/null 2>&1; }
-eventually 60 pushed || fail "the operator never pushed its target snapshot: $(detected_json | jq -c .installation.lastPush)"
-pass "the operator advertises profile [hardened], cluster $(detected_json | jq -r .cluster) and pushed $(detected_json | jq -r .installation.lastPush.ref)"
+# Detection refreshes every five minutes and its first round runs before the
+# first push, so the push is read from the registry, not from lastPush.
+CLUSTER_ID="$(detected_json | jq -r .cluster)"
+REG_PF="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
+pushed() { curl -fsS --max-time 5 "http://127.0.0.1:${LOCAL_REG_PORT}/v2/acme/pacto-targets/tags/list" | jq -e --arg t "cluster-$CLUSTER_ID" '.tags | index($t)' >/dev/null 2>&1; }
+eventually 60 pushed || { kill "$REG_PF" 2>/dev/null || true; fail "the operator never pushed $REG_HOST/acme/pacto-targets:cluster-$CLUSTER_ID"; }
+kill "$REG_PF" 2>/dev/null || true
+pass "the operator advertises profile [hardened], cluster $CLUSTER_ID and pushed $REG_HOST/acme/pacto-targets:cluster-$CLUSTER_ID"
 
 section "SCENARIO 3 (hardened_refuses_delivery): delivery under hardened fails"
 before="$(revision "$HD")"
