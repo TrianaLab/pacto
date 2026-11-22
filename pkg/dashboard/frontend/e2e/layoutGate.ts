@@ -298,6 +298,14 @@ export function installScaleFixture(): void {
         usedFor: ['proposal for registryPullSecret: it needs push on <registry>/pacto-*; a pod pull Secret usually grants pull only'],
         hint: `--set registryPullSecret=${secret}`,
       });
+      // The Applier row (511-S4): no GitOps engine served under profile idp, so it
+      // proposes the one Flux install value, the longest hint a detected row carries.
+      (doc.providers as Record<string, unknown>[]).push({
+        id: 'applier', source: 'cluster-detection', provenance: 'inferred', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Applier',
+        evidence: `none found neither kustomize.toolkit.fluxcd.io/v1 nor argoproj.io/v1alpha1 is served; no applier: install Flux or Argo CD (from API discovery, cluster ${clusters[0]})`,
+        status: 'available', cluster: clusters[0], usedFor: ['proposal for delivery in profile idp; set it on the Pacto release yourself'],
+        hint: 'Set idp.flux.install=true on this Pacto release: helm upgrade <release> oci://ghcr.io/trianalab/charts/pacto-operator -n <namespace> --reuse-values --set idp.flux.install=true',
+      });
       // A live edge-source row (509-S9): the OTLP receiver's Collector row, partial
       // with a long reason, the full receiver snippet for a 63-character namespace as its
       // hint and the evidence suffix every edge source appends.
@@ -309,7 +317,7 @@ export function installScaleFixture(): void {
         hint: `exporters: {otlphttp/pacto: {endpoint: "http://pacto-dashboard.${'n'.repeat(63)}:4318", encoding: json}}`,
         limitations: [{ code: 'EDGE_SOURCE_PARTIAL', source: 'otlp-receiver', message: `not exporting to pacto-dashboard.${'n'.repeat(63)}:4318; ${longName('requests-used-protobuf-set-encoding-json')}` }],
       });
-      doc.total = 33;
+      doc.total = 34;
       const meta = doc.meta as Record<string, unknown>;
       meta.sources = [...((meta.sources as unknown[] | undefined) ?? []), ...Array.from({ length: 6 }, (_, i) => ({
         id: longName(`unreadable-cluster-${i}`), kind: 'kubernetes', status: 'unavailable', revisionCount: 0, targetCount: 0,

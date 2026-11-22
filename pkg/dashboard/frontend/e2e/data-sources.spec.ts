@@ -2,6 +2,10 @@ import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { boot } from './typographyChecks';
 import { settle } from './ready';
+import { installScaleFixture } from './layoutGate';
+
+/** detect.FluxInstallHint, the compiled-in proposal every Applier row shows. */
+const FLUX_INSTALL_HINT = 'Set idp.flux.install=true on this Pacto release: helm upgrade <release> oci://ghcr.io/trianalab/charts/pacto-operator -n <namespace> --reuse-values --set idp.flux.install=true';
 
 /**
  * Data sources as a product surface: findable from the overview, walkable to a source,
@@ -259,6 +263,21 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     // The Argo CD and Kargo rows are the only ones that offer a gate.
     await expect(block.getByTestId('provider-offer')).toHaveCount(2);
+  });
+
+  test('the Applier row offers the Flux install as a proposal to review', async ({ page }) => {
+    // The demo cluster runs Flux, so it shows no Applier row: the scale fixture carries one.
+    await page.addInitScript(installScaleFixture);
+    await boot(page, '#/fleet/sources');
+    const block = page.getByTestId('detected-providers');
+    await block.getByRole('button', { name: /^Show all \d+ providers$/ }).click();
+    const applier = block.getByTestId('provider-row').filter({ has: page.locator('.dp-name bdi[title="Applier"]') });
+    await expect(applier).toHaveCount(1);
+    await expect(applier.locator('.dp-used')).toHaveText('proposal for delivery in profile idp; set it on the Pacto release yourself');
+    await applier.getByText('More details').click();
+    const hint = applier.locator('.dp-hint');
+    await expect(hint).toContainText('Proposal to review');
+    await expect(hint).toContainText(FLUX_INSTALL_HINT);
   });
 
   test('Kargo row offers the shared AnalysisTemplate', async ({ page }) => {

@@ -4162,7 +4162,10 @@ export interface components {
         "Fleet.InstallationApplier": {
             /** @description The detected row's id: argocd or flux */
             manager: string;
-            /** @enum {string} */
+            /**
+             * @description adopted: Pacto adopts the applier that owns the workloads; idp-flux: profile idp delivers unmanaged workloads through Flux
+             * @enum {string}
+             */
             mode: "adopted" | "idp-flux";
             /** @enum {string} */
             provenance: "declared" | "observed" | "inferred" | "host";
@@ -5136,7 +5139,7 @@ export interface components {
              * @description How many objects the row had before the cap or your permissions narrowed it
              */
             objectsTotal?: number;
-            /** @description Pacto integrations that fit this provider, offered because it was detected; Pacto installs nothing */
+            /** @description Pacto integrations that fit this provider, offered because it was detected; Pacto installs nothing; a person turns each one on */
             offers?: components["schemas"]["Fleet.ProviderOffer"][] | null;
             /** @description declared for the operator's Installation row (its configuration); inferred for a row Pacto detected; empty for a row a source reported directly */
             provenance?: string;

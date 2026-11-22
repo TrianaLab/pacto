@@ -728,3 +728,44 @@ func TestDetectorEgressAPIServedAfterStartPartial(t *testing.T) {
 		}
 	}
 }
+
+// TestDetectorAppendsApplierOnlyWithoutEngine: the Applier entry appears only
+// when neither GitOps engine API is served, proposes the Flux install only
+// under idp, and reads unknown when discovery failed.
+func TestDetectorAppendsApplierOnlyWithoutEngine(t *testing.T) {
+	served := func(flux, argo bool, err error) func(string) (bool, error) {
+		return func(gv string) (bool, error) {
+			switch gv {
+			case "kustomize.toolkit.fluxcd.io/v1":
+				return flux, err
+			case "argoproj.io/v1alpha1":
+				return argo, nil
+			}
+			return true, nil
+		}
+	}
+	run := func(fn func(string) (bool, error), profile ...string) detect.Result {
+		c := newClient(routesInterceptor(), clusterObjects()...)
+		d := newDetector(c, fn)
+		d.Installation, d.LastPush = &detect.Installation{Profile: profile}, func() *detect.PushResult { return nil }
+		if err := d.Sync(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		_, res := readResult(t, c)
+		return res
+	}
+	for name, fn := range map[string]func(string) (bool, error){"flux": served(true, false, nil), "argo": served(false, true, nil)} {
+		if slices.ContainsFunc(run(fn, "idp").Entries, func(e detect.Entry) bool { return e.Kind == "applier" }) {
+			t.Errorf("%s served, still an applier entry", name)
+		}
+	}
+	if e := entry(t, run(served(false, false, nil), "idp"), "applier"); e.Value != "none found" || e.Hint != detect.FluxInstallHint {
+		t.Errorf("idp applier = %+v", e)
+	}
+	if e := entry(t, run(served(false, false, nil), "hardened", "idp"), "applier"); e.Hint != "" {
+		t.Errorf("hardened applier = %+v", e)
+	}
+	if e := entry(t, run(served(false, false, errors.New("boom")), "idp"), "applier"); e.Completeness != detect.Unknown || e.Hint != "" {
+		t.Errorf("failed discovery applier = %+v", e)
+	}
+}
