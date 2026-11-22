@@ -13,7 +13,7 @@ REPOWISE_VERSION ?= 0.36.0
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-linked-workloads test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
-       test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-demo test-acceptance-kind-least-privilege \
+       test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-idp-flux test-acceptance-kind-delivery-demo test-acceptance-kind-least-privilege \
        test-acceptance-kind-profiles test-acceptance-kind-multi-cluster ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
@@ -127,7 +127,7 @@ ci-perf-envtest:
 test-acceptance-kind: test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
 	test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
 	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-linked-workloads test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
-	test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-least-privilege \
+	test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-idp-flux test-acceptance-kind-least-privilege \
 	test-acceptance-kind-profiles test-acceptance-kind-multi-cluster
 
 test-acceptance-kind-dashboard:
@@ -229,6 +229,17 @@ test-acceptance-kind-gitops-kargo:
 # Application applies the promote and the rollback.
 test-acceptance-kind-delivery-argocd:
 	bash tests/acceptance/kind/delivery-argocd.sh
+
+# Profile idp from an empty cluster: Flux arrives only through the Pacto
+# release's idp.flux.install value (vendored upstream, first at upgradeFrom),
+# manifests, Kustomize and Helm ship through it, helm upgrade moves Flux to the
+# pinned version with the workloads untouched, the manifest inspector refuses a
+# ClusterRoleBinding with a signed record, and turning the value off or
+# uninstalling Pacto leaves Flux and the workloads running. flux-vendor-verify
+# (network) first proves files/flux/ is the pinned upstream release.
+test-acceptance-kind-delivery-idp-flux:
+	$(MAKE) -C integrations/kubernetes flux-vendor-verify
+	bash tests/acceptance/kind/delivery-idp-flux.sh
 
 # eBPF runtime conformance: the operator-managed node agent attaches to a real
 # kernel, and every runtime contract field's documented verdict is reproduced
