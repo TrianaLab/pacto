@@ -1563,6 +1563,9 @@ type ExternalCatalogMatch struct {
 	Origin string `json:"origin" enum:"default,organization"`
 	Digest string `json:"digest" doc:"The digest of the catalog artifact"`
 	Entry  string `json:"entry" doc:"The identity of the catalog entry"`
+	// OpenAPI is the vendor OpenAPI document the entry links, pinned by
+	// digest (see [externalcatalog.Entry.OpenAPI]).
+	OpenAPI string `json:"openapi,omitempty" doc:"The vendor OpenAPI document the catalog entry links, pinned by digest; Pacto never fetches it"`
 }
 
 // ExternalCatalogRef records one catalog a snapshot classified external

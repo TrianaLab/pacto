@@ -12,10 +12,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/externalid"
 	"github.com/trianalab/pacto/v4/pkg/schemax"
 	"gopkg.in/yaml.v3"
@@ -72,6 +74,10 @@ type Entry struct {
 	// service, "<api group>/<Kind>" ("rds.aws.upbound.io/Instance"). Only a
 	// managed-cloud entry carries them.
 	Crossplane []string `yaml:"crossplane,omitempty"`
+	// OpenAPI links the vendor's published OpenAPI document, pinned by
+	// digest: "<oci:// or https:// reference>@sha256:<64 hex>". Pacto never
+	// fetches it; the digest is the change signal.
+	OpenAPI string `yaml:"openapi,omitempty"`
 }
 
 // OTel lists the OpenTelemetry system attribute values that name the entry.
@@ -138,7 +144,15 @@ var (
 	terraformRE = regexp.MustCompile(`^[a-z][a-z0-9_]*(:[a-z][a-z0-9_]*)?$`)
 	// crossplaneRE is "<api group>/<Kind>"; the group holds a dot.
 	crossplaneRE = regexp.MustCompile(`^[a-z0-9.-]+\.[a-z]+/[A-Z][A-Za-z0-9]*$`)
+	// openAPIRE is an openapi value. No bounded repeat: the package compiles
+	// into the WASM demo, where a large one overflows the WebKit worker stack;
+	// maxOpenAPIBytes bounds the length instead.
+	openAPIRE = regexp.MustCompile(`^(oci|https)://[A-Za-z0-9._~/:@%-]+@sha256:[0-9a-f]{64}$`)
 )
+
+// maxOpenAPIBytes bounds an openapi value: it is copied into every
+// published inferred contract and every viewer's answer.
+const maxOpenAPIBytes = 512
 
 // terraformType is the resource type of a terraform row, without its id
 // attribute.
@@ -252,7 +266,25 @@ func validateRows(i int, e Entry) []error {
 	if e.Class != ClassManagedCloud && len(e.Terraform)+len(e.Crossplane) > 0 {
 		errs = append(errs, fmt.Errorf("entries[%d]: only a managed-cloud entry lists terraform or crossplane rows", i))
 	}
+	if e.OpenAPI != "" && !validOpenAPI(e.OpenAPI) {
+		errs = append(errs, fmt.Errorf("entries[%d].openapi: %q must be an oci:// or https:// reference pinned with @sha256:<64 hex>, with no credentials, query or fragment", i, e.OpenAPI))
+	}
 	return errs
+}
+
+// validOpenAPI parses an openapi value, never only matches it: it is copied
+// into signed published bundles. An https reference carries a host and no
+// credentials, query or fragment; an oci reference is repository@digest.
+func validOpenAPI(v string) bool {
+	if len(v) > maxOpenAPIBytes || !openAPIRE.MatchString(v) {
+		return false
+	}
+	if rest, ok := strings.CutPrefix(v, "oci://"); ok {
+		repo, tag, digest := contract.SplitOCIRef(rest)
+		return repo != "" && tag == "" && digest != ""
+	}
+	u, err := url.Parse(v)
+	return err == nil && u.User == nil && u.RawQuery == "" && u.Fragment == "" && u.Host != ""
 }
 
 // Merge builds the catalog from the default file and an optional organization

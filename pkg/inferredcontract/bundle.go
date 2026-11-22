@@ -34,12 +34,21 @@ func ServiceName(key fleet.ExternalKey) string {
 	return name
 }
 
+// OpenAPIMetadataKey is the metadata key under which an inferred contract
+// records the vendor OpenAPI document its catalog entry links. metadata is
+// free-form in every contract version, so a released reader reads it.
+const OpenAPIMetadataKey = "run.pacto.external.openapi"
+
 // Bundle is key's inferred contract at version: pacto.yaml names the
-// service, its version and the external it describes, and pacto.inferred.yaml
-// holds s and the inputs in. Both are written deterministically, and the
-// bundle is validated before it is returned.
-func Bundle(key fleet.ExternalKey, s contract.InferredSurface, version string, in contract.InferredInputs) (*contract.Bundle, error) {
+// service, its version, the external it describes and, when openapi is set,
+// the vendor OpenAPI document under metadata; pacto.inferred.yaml holds s and
+// the inputs in. Both are written deterministically, and the bundle is
+// validated before it is returned.
+func Bundle(key fleet.ExternalKey, s contract.InferredSurface, version string, in contract.InferredInputs, openapi string) (*contract.Bundle, error) {
 	raw := fmt.Sprintf("pactoVersion: %q\nservice:\n  name: %s\n  version: %s\n  external: %s\n", pactoVersion, ServiceName(key), version, key)
+	if openapi != "" {
+		raw += fmt.Sprintf("metadata:\n  %s: %q\n", OpenAPIMetadataKey, openapi)
+	}
 	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: in, Fields: []contract.Inferred{}, Surface: &s}
 	fsys := fstest.MapFS{"pacto.yaml": {Data: []byte(raw)}, contract.InferredRecordFile: {Data: rec.Marshal()}}
 	c, err := contract.Parse(strings.NewReader(raw))
@@ -54,13 +63,29 @@ func Bundle(key fleet.ExternalKey, s contract.InferredSurface, version string, i
 }
 
 // Changed reports whether cur differs from old by anything diff.Compare
-// sees, at old's version: a version bump alone is no change, and the
-// surface's sources, times, asOf and completeness emit nothing, so only a
-// value added or removed is.
+// sees, at old's version, or by the digest of its linked vendor OpenAPI
+// document: a version bump alone is no change, and the surface's sources,
+// times, asOf and completeness emit nothing, so only a value added or
+// removed is. A document re-hosted under the same digest is no change.
 func Changed(ctx context.Context, old, cur *contract.Bundle) bool {
+	if openAPIDigest(openAPILink(old)) != openAPIDigest(openAPILink(cur)) {
+		return true
+	}
 	c := *cur.Contract
 	c.Service.Version = old.Contract.Service.Version
 	return len(diff.Compare(ctx, old.Contract, &c, old.FS, cur.FS).Changes) > 0
+}
+
+// openAPILink is the vendor OpenAPI document b records, or "".
+func openAPILink(b *contract.Bundle) string {
+	v, _ := b.Contract.Metadata[OpenAPIMetadataKey].(string)
+	return v
+}
+
+// openAPIDigest is the digest a link is pinned with: its text after the
+// last "@", "" for no link.
+func openAPIDigest(link string) string {
+	return link[strings.LastIndexByte(link, '@')+1:]
 }
 
 // Repository is the repository of key's inferred contract under root, the

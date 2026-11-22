@@ -501,3 +501,20 @@ func TestManagedResourceClassifiedByProviderService(t *testing.T) {
 		t.Fatalf("managed resource = %+v", rec)
 	}
 }
+
+func TestExternalCatalogMatchCarriesOpenAPI(t *testing.T) {
+	link := "oci://r.example/vendors/legacy-mq@sha256:" + strings.Repeat("c", 64)
+	defFile, _ := externalcatalog.ParseFile(externalcatalog.DefaultBytes())
+	org, err := externalcatalog.ParseFile([]byte("apiVersion: catalog.pacto.trianalab.io/v1\nentries:\n  - identity: corp/mq\n    class: legacy\n    aliases: [legacy-mq]\n    openapi: " + link + "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cat := externalcatalog.Merge(defFile, externalcatalog.DefaultRef(), org, &externalcatalog.Ref{Origin: externalcatalog.OriginOrganization, Digest: "sha256:org"})
+	snap := externalSnap(t, BuildOptions{ExternalCatalog: cat}, extContract("a", "1.0.0", extDep("legacy-mq"), extDep("Stripe")))
+	if got := snap.Externals["corp/mq"].Catalog.OpenAPI; got != link {
+		t.Errorf("corp/mq openapi = %q", got)
+	}
+	if got := snap.Externals["stripe"].Catalog.OpenAPI; got != "" {
+		t.Errorf("a default entry links %q", got)
+	}
+}

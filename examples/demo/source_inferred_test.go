@@ -76,7 +76,7 @@ func TestDemoInferredStripeProvider(t *testing.T) {
 func TestDemoInferredMatchesPublisher(t *testing.T) {
 	got := demoInferredRevision().Bundle
 	want, err := inferredcontract.Bundle("stripe", demoInferredSurface(), "0.0.1",
-		contract.InferredInputs{Pacto: "demo", Discovery: inferredcontract.Version, Sources: []contract.InferredSourceFile{}})
+		contract.InferredInputs{Pacto: "demo", Discovery: inferredcontract.Version, Sources: []contract.InferredSourceFile{}}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

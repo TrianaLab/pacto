@@ -3643,6 +3643,8 @@ export interface components {
             digest: string;
             /** @description The identity of the catalog entry */
             entry: string;
+            /** @description The vendor OpenAPI document the catalog entry links, pinned by digest; Pacto never fetches it */
+            openapi?: string;
             /** @enum {string} */
             origin: "default" | "organization";
         };

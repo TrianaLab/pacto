@@ -3304,7 +3304,7 @@ func externalRecord(snap *FleetSnapshot, cat *externalcatalog.Catalog, key Exter
 		if e.Identity == externalid.ID(key) {
 			rec.catalogLabel = e.Label
 		}
-		rec.Catalog = &ExternalCatalogMatch{Origin: ref.Origin, Digest: ref.Digest, Entry: string(e.Identity)}
+		rec.Catalog = &ExternalCatalogMatch{Origin: ref.Origin, Digest: ref.Digest, Entry: string(e.Identity), OpenAPI: e.OpenAPI}
 		rec.Aliases = slices.Clone(e.Aliases)
 	}
 	snap.Externals[key] = rec
