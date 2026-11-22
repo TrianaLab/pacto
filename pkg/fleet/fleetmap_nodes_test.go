@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -394,4 +395,19 @@ func TestPageMembersBuiltOncePerGrouping(t *testing.T) {
 	if _, kept := q.members.Load("bogus"); kept {
 		t.Fatal("a bogus groupBy was memoized")
 	}
+}
+
+// Concurrent pages share one members build, so its lazy completeness memo
+// must not race (go test -race; without it, a concurrent map write fatals).
+func TestPageMembersConcurrentPages(t *testing.T) {
+	q := defaultMapFleet(t)
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Go(func() {
+			if _, err := q.MapNodes(MapNodesQuery{Group: "shop"}); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
 }

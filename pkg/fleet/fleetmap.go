@@ -204,10 +204,13 @@ type mapBuild struct {
 	services []*ServiceRecord
 	edges    []*mapEdge
 	degree   map[ServiceKey]int
-	complete map[ServiceKey]*ServiceCompleteness
-	groups   map[string]*mapGroupAcc
-	order    []string
-	rename   map[string]string
+	// complete memoizes completenessOf; pageMembers shares one build across
+	// concurrent requests, so completeMu guards it.
+	completeMu sync.Mutex
+	complete   map[ServiceKey]*ServiceCompleteness
+	groups     map[string]*mapGroupAcc
+	order      []string
+	rename     map[string]string
 	// svcGroup is the group of each service (domain and team groupings);
 	// targetGroup of each target (environment grouping).
 	svcGroup    map[ServiceKey]string
@@ -445,6 +448,8 @@ func (b *mapBuild) resolve(key string) string { return cmp.Or(b.rename[key], key
 
 // completenessOf is s's completeness, computed once.
 func (b *mapBuild) completenessOf(s *ServiceRecord) *ServiceCompleteness {
+	b.completeMu.Lock()
+	defer b.completeMu.Unlock()
 	sc := b.complete[s.Key]
 	if sc == nil {
 		sc = b.q.serviceCompleteness(s)
