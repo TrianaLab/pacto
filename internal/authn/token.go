@@ -132,6 +132,31 @@ func DashboardTokenReview(audience AudienceCheck, bearer TokenReview) TokenRevie
 	}
 }
 
+// MCPTokenReview is DashboardTokenReview for the remote MCP endpoint, with one
+// difference: a ServiceAccount token that the audience review accepts for the
+// dashboard AND the API server accepts as a bearer for the same user stays a
+// credential (Bearer true). MCP's agents are ServiceAccounts, and what they
+// propose must reach admission as themselves, never as the dashboard. The
+// audience review proves the token was minted for Pacto; the API server's
+// audience comes from the token's issuer. The dashboard's browser sign-in keeps
+// DashboardTokenReview, where a ServiceAccount session is always a link. An
+// audience-only ServiceAccount token stays a fleet-only reader here too.
+func MCPTokenReview(audience AudienceCheck, bearer TokenReview) TokenReview {
+	return func(ctx context.Context, token string) (Reviewed, error) {
+		r, berr := bearer(ctx, token)
+		if berr == nil && !isServiceAccount(r.Person.User) {
+			r.Bearer = true
+			return r, nil
+		}
+		link, aerr := audience(ctx, token)
+		if aerr == nil && isServiceAccount(link.Person.User) {
+			link.Bearer, link.AuthTime = berr == nil && r.Person.User == link.Person.User, ""
+			return link, nil
+		}
+		return refusedReview(r, berr, aerr)
+	}
+}
+
 // refusedReview is why a token neither a person's bearer nor a link signs
 // nobody in. When the dashboard may not review tokens, the missing right is
 // the cause reported: an audience-only token always fails the bearer check.
