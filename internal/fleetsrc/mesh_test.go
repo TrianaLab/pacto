@@ -134,8 +134,7 @@ func vector(items ...string) string {
 // meshSource is a source over f whose Prometheus Services are the stubs by
 // "namespace/name"; asked records the Services asked, in order.
 func meshSource(f *meshFake, namespaces []string, stubs map[string]*promStub, asked *[]string) *MeshSource {
-	s := NewMeshSource("c1-mesh", &fleet.Cluster{ID: "c1", Name: "eu"}, f, namespaces)
-	s.now = func() time.Time { return meshNow }
+	s := NewMeshSource("c1-mesh", &fleet.Cluster{ID: "c1", Name: "eu"}, f, namespaces).WithClock(func() time.Time { return meshNow })
 	s.baseURL = func(ns, name string, port int32) string {
 		if asked != nil {
 			*asked = append(*asked, ns+"/"+name)
