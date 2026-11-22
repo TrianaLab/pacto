@@ -131,8 +131,8 @@ func conformEvidence(t *testing.T, host string, native bool) {
 		if len(referrers) != 1 {
 			t.Fatalf("revision has %d referrers, want the one record", len(referrers))
 		}
-		if len(ledgerTags) != 1 || ledgerTags[0] != anchor {
-			t.Fatalf("ledger tags = %v, want only the anchor %s", ledgerTags, anchor)
+		if len(ledgerTags) != 2 || ledgerTags[0] != anchor || ledgerTags[1] != anchor+"-native" {
+			t.Fatalf("ledger tags = %v, want only the anchor %s and its native marker", ledgerTags, anchor)
 		}
 	} else {
 		record := regexp.MustCompile("^" + anchor + "-[0-9a-f]{12}$")

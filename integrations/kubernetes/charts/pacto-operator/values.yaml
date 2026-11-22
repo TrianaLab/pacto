@@ -434,8 +434,8 @@ evidence:
     # stored as write-once tags in <prefix>pacto-evidence outlive their subject.
     # A deleted revision never blocks new writes. Retention may delete old
     # evidence-<hash>-<12 hex> record tags as long as it keeps the newest record
-    # per producer and per target; keep every anchor tag. A ledger past 100,000
-    # tags is unreadable and the Evidence Server refuses writes until pruned.
+    # per producer and per target; keep every anchor tag and every
+    # evidence-<hash>-native marker tag. A ledger past 100,000 tags is unreadable and the Evidence Server refuses writes until pruned.
   trust:
     # -- Name of an existing Secret of trusted producer public keys, mounted
     # read-only. Signature verification is mandatory, so this is required when

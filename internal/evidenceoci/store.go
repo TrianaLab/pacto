@@ -379,16 +379,12 @@ func (s *Store) Commit(ctx context.Context, rec evidenceingest.Record) error {
 		return fmt.Errorf("%w: %w", evidenceingest.ErrStoreWrite, err)
 	}
 	if prefix != nil {
-		if err := s.writeAnchor(ctx, *prefix, subj); err != nil {
+		if err := s.writeLedger(ctx, *prefix, subj, mode, art); err != nil {
 			return fmt.Errorf("%w: ledger %s: %w", evidenceingest.ErrStoreWrite, prefix.Ledger(), err)
 		}
 	}
 	if mode == capabilities.ReferrersWriteOnceTags {
-		// placement refuses this mode for a subject no prefix covers.
-		if err := s.writeRecord(ctx, *prefix, subj, art); err != nil {
-			return fmt.Errorf("%w: ledger %s: %w", evidenceingest.ErrStoreWrite, prefix.Ledger(), err)
-		}
-		return nil
+		return nil // placement refuses this mode for a subject no prefix covers
 	}
 	if err := ocireferrer.Push(ctx, sr.repo, art); err != nil {
 		return fmt.Errorf("%w: %w", evidenceingest.ErrStoreWrite, err)
@@ -434,6 +430,7 @@ func (s *Store) scan(ctx context.Context) registryScan {
 	units := slices.Clone(s.subjects)
 	fromLedger := map[Subject]bool{}
 	records := map[string][]string{}
+	native := map[string]bool{}
 	for _, p := range s.prefixes {
 		out.subjects++
 		read, err := s.ledgerSubjects(ctx, p)
@@ -443,6 +440,7 @@ func (s *Store) scan(ctx context.Context) registryScan {
 		}
 		out.invalid += read.invalid
 		maps.Copy(records, read.records)
+		maps.Copy(native, read.native)
 		for _, subj := range read.subjects {
 			if !slices.Contains(units, subj) {
 				units = append(units, subj)
@@ -451,7 +449,8 @@ func (s *Store) scan(ctx context.Context) registryScan {
 		}
 	}
 	for _, subj := range units {
-		s.scanOne(ctx, subj, fromLedger[subj], records[anchorTag(subj.Ref())], &out)
+		tag := anchorTag(subj.Ref())
+		s.scanOne(ctx, subj, fromLedger[subj], native[tag], records[tag], &out)
 	}
 	return out
 }
@@ -460,8 +459,11 @@ func (s *Store) scan(ctx context.Context) registryScan {
 // serves them, and in every mode its record tags in the ledger, so a registry
 // whose probe answer changed across a restart keeps every earlier record. A
 // ledger subject the registry definitively no longer holds is pruned, its
-// record tags still read; an exact subject fails closed.
-func (s *Store) scanOne(ctx context.Context, subj Subject, fromLedger bool, tags []string, out *registryScan) {
+// record tags still read; an exact subject fails closed. A subject marked as
+// holding native referrers on a registry that no longer serves them fails:
+// those records can no longer be listed, and reading it as empty would reopen
+// the replay check.
+func (s *Store) scanOne(ctx context.Context, subj Subject, fromLedger, native bool, tags []string, out *registryScan) {
 	sr := s.parsedRepo(subj)
 	desc, err := sr.resolve(ctx)
 	if err != nil && fromLedger && notFound(err) {
@@ -477,6 +479,10 @@ func (s *Store) scanOne(ctx context.Context, subj Subject, fromLedger bool, tags
 	mode, err := s.placement(ctx, sr)
 	if err != nil {
 		out.fail(err)
+		return
+	}
+	if native && mode != capabilities.ReferrersNative {
+		out.fail(fmt.Errorf("evidence oci: %s holds OCI referrers and registry %s now serves no Referrers: its records cannot be read", subj.Ref(), subj.Registry))
 		return
 	}
 	var seen map[digest.Digest]bool

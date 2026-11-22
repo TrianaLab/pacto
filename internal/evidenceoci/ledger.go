@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -15,6 +16,7 @@ import (
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 	"github.com/trianalab/pacto/v4/pkg/strictjson"
 )
 
@@ -24,7 +26,9 @@ import (
 // is what lets a store with an open subject set find every subject again after
 // a restart, with the registry still the only store. On a registry without
 // Referrers the ledger also holds each record as a write-once tag under its
-// subject's anchor.
+// subject's anchor. On a registry that serves them, a native marker tag says
+// the subject holds referrers, so a later process whose probe finds no
+// Referrers fails closed on it instead of reading it as empty.
 
 // LedgerArtifactType is the artifact and layer type of a ledger anchor.
 const LedgerArtifactType = "application/vnd.pacto.evidence.subject.v1+json"
@@ -40,6 +44,8 @@ const (
 	// recordTagLen is the length of a record tag: its anchor tag, '-' and 12
 	// hex of the record manifest digest.
 	recordTagLen = anchorTagLen + 1 + recordSuffixLen
+	// nativeSuffix ends the native marker tag of a subject.
+	nativeSuffix = "-native"
 	// maxLedgerTags is the tag listing bound of ocireferrer.Tags (1000 pages
 	// of 100), named in the error a ledger past it returns.
 	maxLedgerTags = 100000
@@ -69,16 +75,42 @@ func recordTag(ref string, manifest digest.Digest) string {
 	return anchorTag(ref) + "-" + manifest.Encoded()[:recordSuffixLen]
 }
 
+// nativeTag is the marker tag of the subject ref, written before its first
+// native referrer: evidence-<hex sha256(ref)>-native.
+func nativeTag(ref string) string {
+	return anchorTag(ref) + nativeSuffix
+}
+
 // buildAnchor is the deterministic anchor artifact of s.
 func buildAnchor(s Subject) ocireferrer.Artifact {
 	payload, _ := json.Marshal(anchorDoc{Subject: s.Ref()}) // one string; marshalling cannot fail
 	return ocireferrer.Build(LedgerArtifactType, LedgerArtifactType, payload, nil, nil)
 }
 
+// writeLedger anchors subj in p's ledger, then stores art as its record tag
+// on a registry without Referrers or, ahead of the native push, marks subj as
+// holding referrers: a later process whose probe finds no Referrers must fail
+// closed on it, never read it as empty.
+func (s *Store) writeLedger(ctx context.Context, p Prefix, subj Subject, mode capabilities.ReferrersMode, art ocireferrer.Artifact) error {
+	if err := s.writeAnchor(ctx, p, subj); err != nil {
+		return err
+	}
+	if mode == capabilities.ReferrersWriteOnceTags {
+		return s.writeRecord(ctx, p, subj, art)
+	}
+	return s.writeNativeMarker(ctx, p, subj)
+}
+
 // writeAnchor records subj in p's ledger, once: rewriting an anchor that
 // exists is a no-op, and the tag is confirmed after the push.
 func (s *Store) writeAnchor(ctx context.Context, p Prefix, subj Subject) error {
 	return ocireferrer.PushWriteOnce(ctx, s.ledgers[p], buildAnchor(subj), anchorTag(subj.Ref()))
+}
+
+// writeNativeMarker records, once, that subj holds native referrers. It
+// carries the anchor artifact under the marker tag.
+func (s *Store) writeNativeMarker(ctx context.Context, p Prefix, subj Subject) error {
+	return ocireferrer.PushWriteOnce(ctx, s.ledgers[p], buildAnchor(subj), nativeTag(subj.Ref()))
 }
 
 // writeRecord stores art, a record on subj, as a write-once tag in p's
@@ -106,6 +138,8 @@ type ledgerRead struct {
 	subjects []Subject
 	// records maps an anchor tag to the record tags under it.
 	records map[string][]string
+	// native holds the anchor tags whose subject has native referrers.
+	native map[string]bool
 	// invalid counts anchors that could not be read and record tags with no
 	// anchor.
 	invalid int
@@ -118,7 +152,7 @@ func (s *Store) ledgerSubjects(ctx context.Context, p Prefix) (ledgerRead, error
 	if err != nil {
 		return ledgerRead{}, err
 	}
-	out := ledgerRead{records: map[string][]string{}}
+	out := ledgerRead{records: map[string][]string{}, native: map[string]bool{}}
 	anchors := map[string]bool{}
 	for _, tag := range tags {
 		if len(tag) != anchorTagLen {
@@ -133,6 +167,10 @@ func (s *Store) ledgerSubjects(ctx context.Context, p Prefix) (ledgerRead, error
 		out.subjects = append(out.subjects, subj)
 	}
 	for _, tag := range tags {
+		if len(tag) == anchorTagLen+len(nativeSuffix) && strings.HasSuffix(tag, nativeSuffix) && anchors[tag[:anchorTagLen]] {
+			out.native[tag[:anchorTagLen]] = true
+			continue
+		}
 		if len(tag) != recordTagLen || tag[anchorTagLen] != '-' {
 			continue
 		}

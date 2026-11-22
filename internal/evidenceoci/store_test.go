@@ -594,9 +594,10 @@ func TestStorePrefixCommitWritesAnchorThenRecord(t *testing.T) {
 	s := prefixStore(t, host)
 	mustCommit(t, s, storeRecord(subj, "crossplane", "env-1", 1, "invoices-db", acceptedAt))
 
-	if len(rec.puts) != 2 || !strings.Contains(rec.puts[0], "/acme/pacto-evidence/manifests/"+anchorTag(subj.Ref())) ||
-		!strings.Contains(rec.puts[1], "/acme/invoices/manifests/sha256:") {
-		t.Fatalf("manifest writes = %v, want the anchor tag then the record referrer", rec.puts)
+	if len(rec.puts) != 3 || !strings.HasSuffix(rec.puts[0], "/acme/pacto-evidence/manifests/"+anchorTag(subj.Ref())) ||
+		!strings.HasSuffix(rec.puts[1], "/acme/pacto-evidence/manifests/"+nativeTag(subj.Ref())) ||
+		!strings.Contains(rec.puts[2], "/acme/invoices/manifests/sha256:") {
+		t.Fatalf("manifest writes = %v, want the anchor tag, the native marker then the record referrer", rec.puts)
 	}
 	// A store with no state reads it back from the ledger.
 	res := prefixStore(t, host).List(t.Context())
@@ -873,8 +874,8 @@ func TestStoreNativePlacement(t *testing.T) {
 		}
 	}
 	mustCommit(t, prefixStore(t, host), storeRecord(covered, "p", "env-2", 2, "db", acceptedAt))
-	if got := repoTags(t, host, "acme/pacto-evidence"); len(got) != 1 || got[0] != anchorTag(covered.Ref()) {
-		t.Errorf("ledger tags = %v, want only the anchor", got)
+	if got := repoTags(t, host, "acme/pacto-evidence"); len(got) != 2 || got[0] != anchorTag(covered.Ref()) || got[1] != nativeTag(covered.Ref()) {
+		t.Errorf("ledger tags = %v, want only the anchor and its native marker", got)
 	}
 	if got := repoTags(t, host, "acme/invoices"); len(got) != 0 {
 		t.Errorf("subject repository tags = %v, want none", got)
@@ -1009,6 +1010,34 @@ func TestStoreReadsBothPlacementsAfterModeFlip(t *testing.T) {
 	}
 }
 
+// TestStoreFailsClosedOnNativeRecordsAfterReferrersStop: records stored as
+// referrers cannot be listed once the registry stops serving Referrers. The
+// subject's native marker makes the read partial and every write a 503, so a
+// replay never passes against a history missing them.
+func TestStoreFailsClosedOnNativeRecordsAfterReferrersStop(t *testing.T) {
+	reg, host := newFlipRegistry(t, false)
+	subj, _ := seedContractIn(t, host, "acme/invoices", "invoices", RepositoryOptions{})
+	other, _ := seedContractIn(t, host, "acme/orders", "orders", RepositoryOptions{})
+	mustCommit(t, prefixStore(t, host), storeRecord(subj, "p", "env-1", 7, "db", acceptedAt))
+
+	// The registry stops serving Referrers, and a restarted process probes again.
+	reg.noReferrers.Store(true)
+	ocireferrer.Probes = &ocireferrer.Prober{}
+	s := prefixStore(t, host)
+	if h := s.List(t.Context()).Health; h.Status != evidenceingest.HealthPartial || h.FailedSubjects != 1 {
+		t.Fatalf("List after the flip = %+v, want partial with the marked subject failed", h)
+	}
+	for name, rec := range map[string]evidenceingest.Record{
+		"replayed id":   storeRecord(other, "p", "env-1", 8, "db-2", acceptedAt),
+		"older seq":     storeRecord(subj, "p", "env-2", 3, "db", acceptedAt),
+		"unrelated new": storeRecord(other, "q", "env-3", 1, "db-3", acceptedAt),
+	} {
+		if err := s.Commit(t.Context(), rec); !errors.Is(err, evidenceingest.ErrRegistryUnavailable) || !strings.Contains(err.Error(), "serves no Referrers") {
+			t.Errorf("%s after the flip = %v, want 503 naming the unreadable referrers", name, err)
+		}
+	}
+}
+
 // endlessTags serves inner, except that the ledger's tag listing always holds
 // one evidence tag and always links a next page.
 type endlessTags struct{ inner http.Handler }
@@ -1033,6 +1062,24 @@ func TestStoreLedgerOverTagCapIsUnavailable(t *testing.T) {
 	err := s.Commit(t.Context(), storeRecord(subj, "p", "env-1", 1, "db", acceptedAt))
 	if !errors.Is(err, evidenceingest.ErrRegistryUnavailable) || !strings.Contains(err.Error(), host+"/acme/pacto-evidence") || !strings.Contains(err.Error(), "100000") {
 		t.Fatalf("commit past the cap = %v, want 503 naming the ledger and the cap", err)
+	}
+}
+
+func TestStoreNativeMarkerWriteRefused(t *testing.T) {
+	rec := &recorder{inner: failing{inner: testutil.NewReferrersRegistry(testutil.ReferrersOptions{}), status: http.StatusForbidden, fail: func(r *http.Request) bool {
+		return r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, nativeSuffix)
+	}}}
+	host := serve(t, rec)
+	subj, _ := seedContractIn(t, host, "acme/invoices", "invoices", RepositoryOptions{})
+	rec.puts = nil
+	err := prefixStore(t, host).Commit(t.Context(), storeRecord(subj, "p", "env-1", 1, "db", acceptedAt))
+	if !errors.Is(err, evidenceingest.ErrStoreWrite) {
+		t.Fatalf("commit with a refused native marker = %v, want ErrStoreWrite", err)
+	}
+	for _, put := range rec.puts {
+		if strings.Contains(put, "/acme/invoices/") {
+			t.Errorf("wrote %s: a referrer is never pushed without its native marker", put)
+		}
 	}
 }
 
