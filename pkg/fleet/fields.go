@@ -46,7 +46,8 @@ type FieldsPreview struct {
 
 // fieldsOf says where each field of s's current revision comes from: the
 // owner, each dependency's compatibility, then every other field of its
-// inferred record. Nil unless that revision carries a declaration or s
+// inferred record. Nil unless that revision carries a declaration, cites a
+// registry decision that carried the owner or a dependency into it, or s
 // replaced an inferred service through a link other than a Pacto target,
 // visible or hidden from the viewer, so every viewer gets the same shape: a
 // plain inferred record (shown as inferredFields) and a Pacto target's
@@ -84,7 +85,7 @@ func (q *Query) fieldsOf(s *ServiceRecord) *FieldsPreview {
 }
 
 func (q *Query) hasFields(s *ServiceRecord, cur *ContractRevision) bool {
-	return (cur.Record != nil && (cur.Record.Declaration != nil || cur.Record.Inputs.Declaration != nil || len(cur.Record.Inputs.Acceptances) > 0)) ||
+	return (cur.Record != nil && (cur.Record.Declaration != nil || citesRowField(cur.Record))) ||
 		q.snap.hiddenHandovers[s.Key] ||
 		slices.ContainsFunc(q.snap.Replacements, func(r Replacement) bool { return r.To == s.Key && r.Link != linkPactoTarget })
 }
@@ -98,7 +99,7 @@ func (q *Query) ownerRow(s *ServiceRecord, byField map[string]contract.Inferred)
 		t, _ := ownerTier(q.snap, s)
 		row.Provenance = FieldDeclared
 		if r := newestOwnerRevision(q.snap, s, t); r != nil {
-			row.Source, row.AsOf = "pacto.yaml of "+string(r.Key)+carriedFrom(r.Record, row.Field), copyTime(r.FetchedAt)
+			row.Source, row.AsOf = "pacto.yaml of "+string(r.Key)+carriedFrom(r, row.Field), copyTime(r.FetchedAt)
 		}
 	case OwnerProvenanceDeclaredViaTarget:
 		row.Provenance, row.Source, row.AsOf = FieldDeclared, "Pacto target", q.ownerTargetAsOf(s)
@@ -138,7 +139,7 @@ func dependencyRows(cur *ContractRevision, byField map[string]contract.Inferred)
 	for _, d := range cur.Contract.Dependencies {
 		field := "dependencies[" + d.Name + "].compatibility"
 		row := FieldProvenance{Field: field, Value: cmp.Or(d.Compatibility, contract.CompatibilityUnknown), Provenance: FieldDeclared,
-			Source: "pacto.yaml of " + string(cur.Key) + carriedFrom(cur.Record, field), AsOf: copyTime(cur.FetchedAt)}
+			Source: "pacto.yaml of " + string(cur.Key) + carriedFrom(cur, field), AsOf: copyTime(cur.FetchedAt)}
 		if f, ok := byField[field]; ok && row.Value == contract.CompatibilityUnknown {
 			row.Proposed, row.Source, row.AsOf, row.Completeness = f.Proposed, f.Source, parseAsOf(f.AsOf), f.Completeness
 		}
@@ -165,29 +166,58 @@ func acceptedRanges(cur *ContractRevision) (map[string]bool, string) {
 	return out, cur.Record.Declaration.Asker.Subject
 }
 
-// carriedFrom is ", carried from <repo>@sha256:<12 hex>" when rec says pacto
-// ci carried field into its pacto.yaml from a registry declaration or a
-// signed acceptance, "" otherwise. It is what the CI-signed revision
-// asserts: the reader does not re-verify the cited record, so the row stays
-// declared. A whole carried dependency entry covers its compatibility.
-func carriedFrom(rec *contract.InferredRecord, field string) string {
-	if rec == nil {
-		return ""
-	}
-	type cite struct{ record, fields string }
-	var cites []cite
+// citation is one registry decision a record cites: the record and the
+// comma-separated keys it carried.
+type citation struct{ record, fields string }
+
+// citations are the registry decisions rec cites, the declaration first.
+func citations(rec *contract.InferredRecord) []citation {
+	var out []citation
 	if d := rec.Inputs.Declaration; d != nil {
-		cites = append(cites, cite{d.Record, d.Fields})
+		out = append(out, citation{d.Record, d.Fields})
 	}
 	for _, a := range rec.Inputs.Acceptances {
-		cites = append(cites, cite{a.Record, a.Fields})
+		out = append(out, citation{a.Record, a.Fields})
 	}
-	for _, c := range cites {
+	return out
+}
+
+// citesRowField reports whether rec cites a decision that carried a field
+// fieldsOf shows as a row: the owner, or a dependency's compatibility or
+// whole entry. A cited break or ref alone draws no rows.
+func citesRowField(rec *contract.InferredRecord) bool {
+	for _, c := range citations(rec) {
 		for k := range strings.SplitSeq(c.fields, ",") {
-			if k = strings.TrimSpace(k); k == field || k+".compatibility" == field {
-				repo, digest, _ := strings.Cut(c.record, "@")
-				return ", carried from " + repo + "@" + shortRecord(digest)
+			k = strings.TrimSpace(k)
+			if k == "service.owner" || strings.HasPrefix(k, "dependencies[") && (strings.HasSuffix(k, "]") || strings.HasSuffix(k, "].compatibility")) {
+				return true
 			}
+		}
+	}
+	return false
+}
+
+// carriedFrom is ", carried from <repo>@sha256:<12 hex>" when r's record
+// says pacto ci carried field into its pacto.yaml from a registry
+// declaration or a signed acceptance and a CI identity published r, ",
+// cites <repo>@sha256:<12 hex>, not a verified CI publish" when anyone else
+// pushed it, "" otherwise. The reader does not re-verify the cited record,
+// so the row stays declared. A whole carried dependency entry covers its
+// compatibility.
+func carriedFrom(r *ContractRevision, field string) string {
+	if r == nil || r.Record == nil {
+		return ""
+	}
+	for _, c := range citations(r.Record) {
+		for k := range strings.SplitSeq(c.fields, ",") {
+			if k = strings.TrimSpace(k); k != field && k+".compatibility" != field {
+				continue
+			}
+			repo, digest, _ := strings.Cut(c.record, "@")
+			if !CIPublished(r.Provenance) {
+				return ", cites " + repo + "@" + shortRecord(digest) + ", not a verified CI publish"
+			}
+			return ", carried from " + repo + "@" + shortRecord(digest)
 		}
 	}
 	return ""

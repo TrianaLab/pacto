@@ -29,7 +29,37 @@ func carriedRev(t *testing.T, cite func(*contract.InferredInputs)) RawRevision {
 		t.Fatalf("citation does not parse: %v", err)
 	}
 	raw.Bundle.FS.(fstest.MapFS)[contract.InferredRecordFile] = &fstest.MapFile{Data: rec.Marshal()}
+	raw.Provenance = ciSigned()
 	return raw
+}
+
+// ciSigned is the provenance of a verified CI publish.
+func ciSigned() *BundleProvenance {
+	ci := VerifiedSigner{Subject: "https://github.com/acme/invoices/.github/workflows/ci.yaml@refs/heads/main", Issuer: "https://token.actions.githubusercontent.com", Class: "ci"}
+	return &BundleProvenance{Signature: BundleSignature{Status: SignatureVerified, Signer: ci.Subject, Issuer: ci.Issuer}, Source: "oci", Signers: []VerifiedSigner{ci}}
+}
+
+// TestFieldsCitedByUnverifiedPush: a revision nobody verified as a CI
+// publish may cite any declaration; its source never says the value was
+// carried from it.
+func TestFieldsCitedByUnverifiedPush(t *testing.T) {
+	raw := carriedRev(t, declarationCite)
+	raw.Provenance = nil
+	r := fieldNamed(t, fieldsOfInvoices(t, NewQuery(handSnap(t, []RawRevision{raw}, nil, false))), "service.owner")
+	if r.Provenance != FieldDeclared || strings.Contains(r.Source, "carried") || !strings.HasSuffix(r.Source, ", cites ghcr.io/acme/invoices@sha256:7c1d2e3f4a5b, not a verified CI publish") {
+		t.Errorf("%+v", r)
+	}
+}
+
+// TestFieldsCitedBreakOnlyDrawsNoRows: a revision citing only a break, no
+// row field, keeps the plain inferred shape.
+func TestFieldsCitedBreakOnlyDrawsNoRows(t *testing.T) {
+	q := NewQuery(handSnap(t, []RawRevision{carriedRev(t, func(in *contract.InferredInputs) {
+		in.Acceptances = []contract.CitedAcceptance{{Record: "ghcr.io/acme/invoices@" + carriedDigest, Signer: "ana@acme.com", Fields: "break ledger@3.0.0"}}
+	})}, nil, false))
+	if f := fieldsOfInvoices(t, q); f != nil {
+		t.Errorf("%+v", f)
+	}
 }
 
 func declarationCite(in *contract.InferredInputs) {
@@ -74,7 +104,7 @@ func TestFieldsNotCarriedUnchanged(t *testing.T) {
 			t.Errorf("source %+v", r)
 		}
 	}
-	if carriedFrom(nil, "service.owner") != "" {
+	if carriedFrom(nil, "service.owner") != "" || carriedFrom(&ContractRevision{}, "service.owner") != "" {
 		t.Error("a nil record carried a field")
 	}
 }
