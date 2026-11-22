@@ -386,6 +386,16 @@ type remoteMCP struct {
 // answer authn.ErrNoCredential, a second server, built once here, answers the
 // callers whose token reads the fleet only.
 func (rm remoteMCP) middleware() (func(http.Handler) http.Handler, error) {
+	cl, credless := rm.auth.(credentialless)
+	var fleetOnly *mcpsdk.Server
+	if credless {
+		var err error
+		// Built first so that a fleet-only server that cannot register fails
+		// at startup too, never as a nil server on a request.
+		if fleetOnly, err = pactomcp.New(rm.version, fleetOnlyAuthoring(rm.authoring), fleetOnlyModes(rm.modes, authn.APIAudience(rm.cluster))); err != nil {
+			return nil, err
+		}
+	}
 	shared, err := pactomcp.New(rm.version, rm.authoring, rm.modes)
 	if err != nil {
 		return nil, err
@@ -398,8 +408,7 @@ func (rm remoteMCP) middleware() (func(http.Handler) http.Handler, error) {
 		build = perCallerBuild(rm.version, rm.authoring, rm.modes, rm.reads, rm.installed, rm.installedAt)
 	}
 	rc.build = build
-	if cl, ok := rm.auth.(credentialless); ok {
-		fleetOnly, _ := pactomcp.New(rm.version, fleetOnlyAuthoring(rm.authoring), fleetOnlyModes(rm.modes, authn.APIAudience(rm.cluster))) // registered once above
+	if credless {
 		rc.person = cl.PersonOf
 		rc.build = func(ctx context.Context) *mcpsdk.Server {
 			if reviewedFrom(ctx).fleetOnly {
