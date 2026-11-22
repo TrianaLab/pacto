@@ -198,6 +198,14 @@ func TestTreeWatcher_Truncation(t *testing.T) {
 	if wl := poll(flakyProc{mapProc: p, gone: map[string]int{"101/stat": 1}}); wl.Truncated || len(wl.Listeners) != 2 {
 		t.Fatalf("a namespace member that exited hid its namespace: %+v", wl)
 	}
+	// Every member of the namespace exits before its tables are read: nothing
+	// is left to hide, so the view stays complete with no sockets.
+	p = treeProc()
+	delete(p.files, "101/net/tcp")
+	delete(p.files, "101/net/tcp6")
+	if wl := poll(flakyProc{mapProc: p, gone: map[string]int{"101/stat": 1, "102/stat": 1}}); wl.Truncated || len(wl.Listeners) != 0 {
+		t.Fatalf("a namespace whose members all exited: %+v", wl)
+	}
 	// Malformed stat lines are not processes.
 	p = treeProc()
 	p.files["101/stat"] = &fstest.MapFile{Data: []byte("101 (x) S 100 1 1 0")}
