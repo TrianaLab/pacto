@@ -363,7 +363,7 @@ section "STEP 4: idp.flux.install=true on the Pacto release installs Flux $FLUX_
 promoter_pods() { kubectl -n "$DNS" get pods -l app.kubernetes.io/component=delivery-promoter -o jsonpath='{range .items[*]}{.metadata.uid}:{.status.containerStatuses[0].restartCount} {end}'; }
 PROMOTER="$(promoter_pods)"
 [ -n "$PROMOTER" ] || fail "no promoter pod runs in $DNS"
-helm upgrade pacto "$OLD_CHART" -n "$NS" --reuse-values --set idp.flux.install=true --wait --timeout 300s >/dev/null \
+helm upgrade pacto "$OLD_CHART" -n "$NS" --reset-then-reuse-values --set idp.flux.install=true --wait --timeout 300s >/dev/null \
   || fail "helm upgrade pacto with idp.flux.install=true did not roll out"
 # controllers_at DIR — the three controllers are Ready on DIR's images.
 controllers_at() {

@@ -12,7 +12,7 @@ import (
 // [ProviderRows]); <release> and <namespace> stay placeholders because the
 // operator does not know who installed it under which name.
 const FluxInstallHint = "Set idp.flux.install=true on this Pacto release: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator" +
-	" -n <namespace> --reuse-values --set idp.flux.install=true"
+	" -n <namespace> --reset-then-reuse-values --set idp.flux.install=true"
 
 // IDPProfile reports whether the profile names idp without hardened: the only
 // profile whose chart can install Flux.
