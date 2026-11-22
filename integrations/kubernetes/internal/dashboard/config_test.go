@@ -76,6 +76,11 @@ func TestConfigValidate(t *testing.T) {
 			errMsg:  "needs --dashboard-oidc-issuer-url and --dashboard-mcp-url",
 		},
 		{
+			name: "MCP with an exchange audience, an issuer and a /mcp URL succeeds",
+			cfg: Config{Enabled: true, Image: "ghcr.io/trianalab/pacto/dashboard:0.24.2", Namespace: "ns",
+				Auth: AuthConfig{IssuerURL: "https://idp", ClientID: "c", RedirectURL: "https://d/cb", TokenLogin: true, MCP: true, MCPExchangeAudience: "k8s", MCPURL: "https://h/mcp"}},
+		},
+		{
 			name: "MCP off ignores its other flags",
 			cfg: Config{Enabled: true, Image: "ghcr.io/trianalab/pacto/dashboard:0.24.2", Namespace: "ns",
 				Auth: AuthConfig{TokenLogin: true, MCPExchangeAudience: "k8s", MCPURL: "https://h/prefix/mcp"}},
