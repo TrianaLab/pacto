@@ -649,18 +649,9 @@ func (d *Delivery) ClassPolicy(ctx context.Context) (delivery.ClassPolicy, error
 // credentials are set: they answer any host, and a detection a ConfigMap
 // writer can forge must not choose where they are sent.
 func AdvertisedTargets(ctx context.Context, dyn dynamic.Interface, ref string, now func() time.Time) (string, error) {
-	src := fleetsrc.NewDetectionFileSource("detection", ref, now)
-	if rest, ok := strings.CutPrefix(ref, "k8s:"); ok {
-		ns, name, _ := strings.Cut(rest, "/")
-		src = fleetsrc.NewDetectionK8sSource("detection", dyn, ns, name, now)
-	}
-	res, st := src.Read(ctx)
+	res, why := readDetection(ctx, dyn, ref, now)
 	switch {
-	case st.Status != fleet.SourceAvailable:
-		why := string(st.Status)
-		if st.Error != nil {
-			why = st.Error.Message
-		}
+	case why != "":
 		return "", fmt.Errorf("the detection %s names no registry: %s", ref, why)
 	case res.Installation == nil || res.Installation.Targets == "":
 		return "", nil
@@ -670,4 +661,36 @@ func AdvertisedTargets(ctx context.Context, dyn dynamic.Interface, ref string, n
 			ref, res.Installation.Targets, res.Installation.Targets)
 	}
 	return res.Installation.Targets, nil
+}
+
+// AdvertisedChartVersion is the chart version the operator's detection at
+// ref advertises (installation.chartVersion), read as AdvertisedTargets
+// reads it; "" when it names none.
+func AdvertisedChartVersion(ctx context.Context, dyn dynamic.Interface, ref string, now func() time.Time) (string, error) {
+	res, why := readDetection(ctx, dyn, ref, now)
+	switch {
+	case why != "":
+		return "", fmt.Errorf("the detection %s names no chart version: %s", ref, why)
+	case res.Installation == nil:
+		return "", nil
+	}
+	return res.Installation.ChartVersion, nil
+}
+
+// readDetection reads the operator's detection at ref (k8s:<namespace>/<name>
+// with dyn, or a file); why says why it is not available.
+func readDetection(ctx context.Context, dyn dynamic.Interface, ref string, now func() time.Time) (detect.Result, string) {
+	src := fleetsrc.NewDetectionFileSource("detection", ref, now)
+	if rest, ok := strings.CutPrefix(ref, "k8s:"); ok {
+		ns, name, _ := strings.Cut(rest, "/")
+		src = fleetsrc.NewDetectionK8sSource("detection", dyn, ns, name, now)
+	}
+	res, st := src.Read(ctx)
+	if st.Status == fleet.SourceAvailable {
+		return res, ""
+	}
+	if st.Error != nil {
+		return res, st.Error.Message
+	}
+	return res, string(st.Status)
 }

@@ -1,0 +1,91 @@
+# Each member publishes its snapshot once it holds a push credential on ghcr.io/acme/pacto-targets: create that Secret in namespace pacto and set registryPullSecret in your own values overlay (https://pacto.run/latest/install-members/).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: pacto-chart
+  namespace: clusters
+spec:
+  interval: 1h
+  url: oci://ghcr.io/trianalab/pacto/charts/pacto-operator
+  ref:
+    tag: 4.6.0
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: pacto-us-east
+  namespace: clusters
+spec:
+  interval: 1h
+  releaseName: pacto
+  targetNamespace: pacto
+  storageNamespace: pacto
+  chartRef:
+    kind: OCIRepository
+    name: pacto-chart
+  kubeConfig:
+    configMapRef:
+      name: us-east
+  install:
+    createNamespace: true
+  values:
+    registry: ghcr.io/acme
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: pacto-chart
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: oci://ghcr.io/trianalab/pacto/charts/pacto-operator
+  ref:
+    tag: 4.6.0
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: pacto-ap-test
+  namespace: flux-system
+spec:
+  interval: 1h
+  releaseName: pacto
+  targetNamespace: pacto
+  storageNamespace: pacto
+  chartRef:
+    kind: OCIRepository
+    name: pacto-chart
+  kubeConfig:
+    secretRef:
+      name: ap-test
+  install:
+    createNamespace: true
+  values:
+    registry: ghcr.io/acme
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: pacto-eu-prod
+  namespace: flux-system
+spec:
+  interval: 1h
+  releaseName: pacto
+  targetNamespace: pacto
+  storageNamespace: pacto
+  chartRef:
+    kind: OCIRepository
+    name: pacto-chart
+  kubeConfig:
+    secretRef:
+      name: eu-prod
+  install:
+    createNamespace: true
+  values:
+    registry: ghcr.io/acme

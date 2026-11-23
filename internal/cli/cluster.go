@@ -43,13 +43,13 @@ const (
 func newClusterCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cluster",
-		Short: "List, approve and remove the member clusters of this hub, and map their groups",
+		Short: "List, approve, remove and install the member clusters of this hub, and map their groups",
 		Long: "Every cluster whose operator sets registry publishes a signed snapshot to <registry>/pacto-targets:cluster-<uid>. " +
 			"This cluster, the hub, reads them: a cluster stays pending until a person approves its key, and only an approved member's " +
 			"services, targets and workloads join the hub's fleet. The hub is the current kubeconfig context or --context.",
 	}
 	cmd.AddCommand(newClusterListCommand(svc, v, d), newClusterDecisionCommand(svc, v, d, delivery.JoinApprove), newClusterDecisionCommand(svc, v, d, delivery.JoinRemove),
-		newClusterMapGroupsCommand(svc, v, d))
+		newClusterMapGroupsCommand(svc, v, d), newClusterInstallCommand(svc, v, d))
 	return cmd
 }
 

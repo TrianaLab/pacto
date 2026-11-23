@@ -475,6 +475,7 @@ var excludedFromSurfaces = map[string]string{
 	"cluster approve":          "a person's signed decision; agents never approve (#452)",
 	"cluster remove":           "a person's signed decision; agents never approve (#452)",
 	"cluster map-groups":       "a person's signed decision; agents never approve (#452)",
+	"cluster install":          "a person installs members from the CLI; an agent reads candidates with pacto_cluster_list",
 	"ci init":                  "writes a CI file into the local repository; an agent runs pacto ci init --dry-run and commits the result itself",
 	"dashboard":                "starts the dashboard server, which is itself the surface the routes belong to",
 	"diff":                     "compares two contracts in a pipeline without the fleet; MCP and the dashboard compare revisions with their consumers (pacto_impact, GET /api/fleet/impact)",

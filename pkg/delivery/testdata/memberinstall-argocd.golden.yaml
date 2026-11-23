@@ -1,0 +1,61 @@
+# Each member publishes its snapshot once it holds a push credential on ghcr.io/acme/pacto-targets: create that Secret in namespace pacto and set registryPullSecret in your own values overlay (https://pacto.run/latest/install-members/).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: pacto-members
+  namespace: gitops
+spec:
+  goTemplate: true
+  goTemplateOptions:
+    - missingkey=error
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            argocd.argoproj.io/secret-type: cluster
+          matchExpressions:
+            - key: pacto.trianalab.io/install
+              operator: NotIn
+              values:
+                - "false"
+      selector:
+        matchExpressions:
+          - key: server
+            operator: NotIn
+            values:
+              - https://kubernetes.default.svc
+  syncPolicy:
+    preserveResourcesOnDeletion: true
+  template:
+    metadata:
+      name: pacto-{{.nameNormalized}}
+    spec:
+      project: default
+      source:
+        repoURL: ghcr.io/trianalab/pacto/charts
+        chart: pacto-operator
+        targetRevision: 4.6.0
+        helm:
+          releaseName: pacto
+          valuesObject:
+            registry: ghcr.io/acme
+      destination:
+        server: '{{.server}}'
+        namespace: pacto
+      syncPolicy:
+        automated: {}
+        syncOptions:
+          - CreateNamespace=true
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pacto-charts
+  namespace: gitops
+  labels:
+    argocd.argoproj.io/secret-type: repository
+stringData:
+  name: pacto-charts
+  url: ghcr.io/trianalab/pacto/charts
+  type: helm
+  enableOCI: "true"

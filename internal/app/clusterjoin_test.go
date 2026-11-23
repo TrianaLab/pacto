@@ -1092,3 +1092,24 @@ func TestFleetReadsNoCandidates(t *testing.T) {
 		}
 	}
 }
+
+func TestAdvertisedChartVersion(t *testing.T) {
+	now := func() time.Time { return detectedNow }
+	read := func(cm *unstructured.Unstructured) (string, error) {
+		return AdvertisedChartVersion(t.Context(), dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), cm), "k8s:pacto/det", now)
+	}
+	cm := detectedTargets(t, "ghcr.io/acme/pacto-targets", detectedNow)
+	b, _ := json.Marshal(detect.Result{SchemaVersion: detect.SchemaVersion, AsOf: detectedNow, Cluster: joinHub, Installation: &detect.Installation{Registry: "r", ChartVersion: "4.6.0"}})
+	_ = unstructured.SetNestedField(cm.Object, string(b), "data", detect.ConfigMapKey)
+	if got, err := read(cm); err != nil || got != "4.6.0" {
+		t.Fatalf("%q %v", got, err)
+	}
+	b, _ = json.Marshal(detect.Result{SchemaVersion: detect.SchemaVersion, AsOf: detectedNow, Cluster: joinHub})
+	_ = unstructured.SetNestedField(cm.Object, string(b), "data", detect.ConfigMapKey)
+	if got, err := read(cm); err != nil || got != "" {
+		t.Fatalf("no installation: %q %v", got, err)
+	}
+	if _, err := read(detectedTargets(t, "x", detectedNow.Add(-48*time.Hour))); err == nil || !strings.Contains(err.Error(), "names no chart version: stale") {
+		t.Fatalf("stale: %v", err)
+	}
+}
