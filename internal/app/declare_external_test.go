@@ -345,10 +345,10 @@ func TestClaimRefusalCLIIsClaim(t *testing.T) {
 	if got := req.command("sha256:x"); got != "pacto claim stripe --owner team-platform --name payments-provider --registry "+reg+" --intent sha256:x" {
 		t.Fatal(got)
 	}
-	if got := req.acceptCLI("payments-provider", "draft-2"); got != "pacto claim stripe --name payments-provider --registry "+reg+" --from-draft draft-2" {
+	if got := req.AcceptCLI("payments-provider", "draft-2"); got != "pacto claim stripe --name payments-provider --registry "+reg+" --from-draft draft-2" {
 		t.Fatal(got)
 	}
-	if got := e.req().acceptCLI("invoices", "draft-2"); got != AcceptDraftCLI("invoices", e.req().Registry, "draft-2") {
+	if got := e.req().AcceptCLI("invoices", "draft-2"); got != AcceptDraftCLI("invoices", e.req().Registry, "draft-2") {
 		t.Fatal(got)
 	}
 	noReg := e.claimReq("")

@@ -432,7 +432,7 @@ func fleetStatusTool() *mcpsdk.Tool {
 		Description: "Report services and targets needing attention: non-compliant, unknown, invalid, " +
 			"stale evidence, missing readiness, unresolved dependencies and dependencies whose provider " +
 			"version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED), services that use a deprecated or past-sunset provider " +
-			"(DEPENDENCY_SERVICE_DEPRECATED, DEPENDENCY_SERVICE_SUNSET, SUCCESSOR_OUT_OF_RANGE), services with no declared owner, " +
+			"(DEPENDENCY_SERVICE_DEPRECATED, DEPENDENCY_SERVICE_SUNSET, SUCCESSOR_OUT_OF_RANGE), services and external systems with no owner (UNOWNED_EXTERNAL, ranked by how many services use it), " +
 			"undeclared runtime dependencies, running services that declare service.template (GOLDEN_PATH_DEPLOYED) and " +
 			"resources that failed to provision or report stale (category provisioning: PROVISIONING_FAILED, PROVISIONING_STALE; " +
 			"needs_attention includes them). 'total' and 'truncated' say whether the limit cut the list. With no category " +
@@ -456,7 +456,7 @@ func fleetStatusTool() *mcpsdk.Tool {
 			"unresolved_deps":      {Type: "boolean", Description: "Unresolved declared dependencies"},
 			"unsatisfied_ranges":   {Type: "boolean", Description: "Dependencies whose provider version is outside the declared range"},
 			"lifecycle":            {Type: "boolean", Description: "Services that use a deprecated or past-sunset provider, or whose range refuses its successor"},
-			"unowned":              {Type: "boolean", Description: "Services with no declared owner"},
+			"unowned":              {Type: "boolean", Description: "Services and external systems with no owner"},
 			"undeclared":           {Type: "boolean", Description: "Runtime calls no contract declares and callers with no contract"},
 			"golden_path_deployed": {Type: "boolean", Description: "Running services that declare service.template (GOLDEN_PATH_DEPLOYED)"},
 			"limit":                {Type: "integer", Description: "Maximum results (bounded)"},

@@ -596,7 +596,7 @@ func (pl *declarePlanner) signer(ctx context.Context) error {
 		p.State = contract.DeclarationDeclared
 	}
 	if c.Source == signerAmbient {
-		p.Notes = append(p.Notes, "an ambient OIDC token is set: this run writes a draft; a person accepts it with "+pl.req.acceptCLI(p.Service, "<tag>"))
+		p.Notes = append(p.Notes, "an ambient OIDC token is set: this run writes a draft; a person accepts it with "+pl.req.AcceptCLI(p.Service, "<tag>"))
 	}
 	if n := rekorNotice(c.Identity, o.RekorURL); n != "" {
 		p.Notes = append(p.Notes, n)
@@ -961,7 +961,7 @@ func (pl *declarePlanner) finish(ctx context.Context, raw []byte, rec *contract.
 		p.ClusterAsOf = c.AsOf
 	}
 	if p.State == contract.DeclarationDraft {
-		p.AcceptCLI = pl.req.acceptCLI(p.Service, "<tag>")
+		p.AcceptCLI = pl.req.AcceptCLI(p.Service, "<tag>")
 	}
 	version, err := pl.version(ctx, raw, rec)
 	if err != nil || p.Unchanged != "" {
@@ -1283,7 +1283,7 @@ func (s *Service) writeDraft(ctx context.Context, req DeclareRequest, res *Decla
 	}
 	res.Plan.Publish = r.Plan
 	res.Executed, res.Draft, res.Signed, res.Tag, res.Published = true, true, signed, tag, d.repo+"@"+r.Digests[publish.BundleItem]
-	res.Plan.State, res.Plan.AcceptCLI = contract.DeclarationDraft, req.acceptCLI(res.Plan.Service, tag)
+	res.Plan.State, res.Plan.AcceptCLI = contract.DeclarationDraft, req.AcceptCLI(res.Plan.Service, tag)
 	return nil
 }
 
@@ -1321,9 +1321,9 @@ func (req DeclareRequest) command(intent string) string {
 	return strings.Join(parts, " ")
 }
 
-// acceptCLI is the command a person accepts the draft tag of service with:
+// AcceptCLI is the command a person accepts the draft tag of service with:
 // pacto claim for a claim.
-func (req DeclareRequest) acceptCLI(service, tag string) string {
+func (req DeclareRequest) AcceptCLI(service, tag string) string {
 	if k, ok := req.claimed(); ok {
 		cli := "pacto claim " + string(k)
 		if req.Name != "" {

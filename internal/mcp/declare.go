@@ -43,9 +43,13 @@ func registerDeclare(server *mcpsdk.Server, d Declarer, remote bool) {
 		Description: "Plan declaring a running workload as a contract-only version. dry_run defaults to true and returns the plan with intent_digest. " +
 			"With dry_run false and that intent_digest it writes a write-once draft-<n> for a person to accept with pacto declare <service> --from-draft <tag>; " +
 			"over HTTP it writes that draft only when the server has a registry, and otherwise refuses with ExecuteNeedsStdio. " +
-			"It never publishes a declared version. A refusal carries a stable code and the pacto declare command a person runs.",
+			"It never publishes a declared version. A refusal carries a stable code and the pacto declare command a person runs. " +
+			"With service external:<identity> and owner it claims an external system the fleet lists for that team instead: no workload is read, " +
+			"and the draft is accepted by a person with pacto claim <identity> --from-draft draft-<n> --yes, the command its refusals name.",
 		InputSchema: inputSchema(map[string]property{
-			"service":       {Type: "string", Description: "The workload: name, namespace/name, namespace/Kind/name or k8s:namespace/Kind/name"},
+			"service":       {Type: "string", Description: "The workload: name, namespace/name, namespace/Kind/name or k8s:namespace/Kind/name; or external:<identity> to claim an external system"},
+			"owner":         {Type: "string", Description: "The team that owns the external system; required when service is external:<identity>"},
+			"name":          {Type: "string", Description: "The claimed contract's service name, lower case; defaults to the last identity segment"},
 			"namespace":     {Type: "string", Description: "The namespace of the workload (default: every namespace the name is found in)"},
 			"dir":           {Type: "string", Description: dir},
 			"registry":      {Type: "string", Description: "The registry the contract is published to, as host/path"},

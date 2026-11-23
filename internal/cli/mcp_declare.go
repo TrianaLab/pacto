@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/inferredcontract"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
@@ -74,6 +76,12 @@ func (m mcpDeclarer) request(a pactomcp.DeclareArgs) (app.DeclareRequest, error)
 			return req, errors.New("call_window is a duration such as 24h: " + err.Error())
 		}
 		req.CallWindow = w
+	}
+	// A claim names an external system, never a workload: declareSubject
+	// would send it to pacto claim, which is this request.
+	if _, ok := a.Claim(); ok {
+		req.Service, req.Owner, req.Name = a.Service, a.Owner, a.Name
+		return req, nil
 	}
 	return req, declareSubject(&req, a.Service)
 }
@@ -136,6 +144,10 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 	if refused := r.refused(a); refused != nil {
 		return nil, refused, nil
 	}
+	a, refused := r.claimArgs(ctx, a)
+	if refused != nil {
+		return nil, refused, nil
+	}
 	req, err := mcpDeclarer{}.request(a)
 	if err != nil {
 		return nil, nil, err
@@ -151,13 +163,65 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 			// This server signs nothing and writes no draft here: who would sign
 			// is the person who runs the plan's command, whose login decides the state.
 			p.Signer = app.SignerView{Class: contract.SignerClassAgent, Source: "none",
-				Why: "this HTTP server writes nothing into " + a.Registry + ": a person runs the plan's pacto declare command"}
+				Why: "this HTTP server writes nothing into " + a.Registry + ": a person runs the plan's " + a.Verb() + " command"}
 			p.State, p.AcceptCLI = "", ""
 		}
-		p, err = r.hide(ctx, p, err)
-		p.Notes = append(p.Notes, "a person carries out this plan on their machine with: "+a.Command(p.IntentDigest))
+		if p, err = r.redact(ctx, a, p, err); p != nil {
+			p.Notes = append(p.Notes, "a person carries out this plan on their machine with: "+a.Command(p.IntentDigest))
+		}
 	}
 	return declareAnswer(p, err)
+}
+
+// claimArgs is a as this server plans it: a claim only of an external
+// system the caller's fleet view shows, under the name its visible claim
+// already has when a names none, so a claim again never adds a second
+// claiming service.
+func (r remoteDeclarer) claimArgs(ctx context.Context, a pactomcp.DeclareArgs) (pactomcp.DeclareArgs, *pactomcp.Refused) {
+	id, ok := a.Claim()
+	if !ok {
+		return a, nil
+	}
+	ev := r.external(ctx, id)
+	if ev == nil {
+		return a, &pactomcp.Refused{Code: pactomcp.RefusalNotAllowed, Message: "your view of the fleet lists no external system " + id +
+			": claim one it lists, or run pacto claim on your machine", CLI: a.Command("")}
+	}
+	if c := ev.External.Claim; a.Name == "" && c != nil && !c.Hidden {
+		a.Name = string(c.Service)
+	}
+	return a, nil
+}
+
+// redact is p and err as the caller reads them (hide). A claim whose
+// repository holds a service, or a draft of an external system, the
+// caller's view does not show is one refusal naming none of it: the name
+// alone may collide with a hidden service.
+func (r remoteDeclarer) redact(ctx context.Context, a pactomcp.DeclareArgs, p *app.DeclarePlan, err error) (*app.DeclarePlan, error) {
+	if id, ok := a.Claim(); ok && r.claimHidden(ctx, id, cmp.Or(a.Name, inferredcontract.ServiceName(fleet.ExternalKey(id))), p, err) {
+		return nil, &app.DeclareError{Code: string(pactomcp.RefusalNotAllowed), CLI: a.Command(""),
+			Message: "the repository for this name holds a service you may not read: claim with the CLI and --name"}
+	}
+	return r.hide(ctx, p, err)
+}
+
+// claimHidden reports whether the repository the claim of id under name
+// writes to holds what the caller may not read: a published version, or a
+// draft not of an external system, of a service their view does not show,
+// or a draft of another external system it does not list. Drafts of an
+// external system the caller sees are theirs to read.
+func (r remoteDeclarer) claimHidden(ctx context.Context, id, name string, p *app.DeclarePlan, err error) bool {
+	var de *app.DeclareError
+	mismatch := errors.As(err, &de) && de.Code == string(pactomcp.RefusalExternalMismatch)
+	held := p.Baseline != nil || len(p.Skipped) > 0 || p.DraftsTotal > len(p.Drafts) || mismatch || baselineRefusal(err)
+	return slices.ContainsFunc(p.Drafts, func(d app.DraftView) bool {
+		other, ok := strings.CutPrefix(d.From.InferredFrom, fleet.ExternalSubjectPrefix)
+		if ok {
+			return other != id && r.external(ctx, other) == nil
+		}
+		held = true
+		return false
+	}) || held && !r.shows(ctx, name)
 }
 
 // hide is p and err as a caller reads them: for a caller the fleet view
@@ -258,27 +322,34 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 		return nil, &pactomcp.Refused{Code: pactomcp.RefusalNotAllowed, Message: "this server writes a draft only on behalf of the caller it reviewed, " +
 			who.person.User + ", never " + a.OnBehalfOf}, nil
 	}
+	a, refused := r.claimArgs(ctx, a)
+	if refused != nil {
+		return nil, refused, nil
+	}
 	req, err := mcpDeclarer{}.request(a)
 	if err != nil {
 		return nil, nil, err
 	}
 	req.Draft, req.OnBehalfOf, req.Dynamic = true, who.person.User, who.own.Dynamic
 	p, decl, err := r.svc.PlanDeclare(ctx, req)
-	if err != nil {
-		// Execute may come without a plan, or the baseline may move since it:
-		// a refusal reaches the caller only as Plan would show it.
-		if p == nil {
-			p = &app.DeclarePlan{Service: req.Service}
-		}
-		_, err = r.hide(ctx, p, err)
+	if p == nil {
+		p = &app.DeclarePlan{Service: req.Service}
+	}
+	// Execute may come without a plan, or the baseline may move since it:
+	// a refusal reaches the caller only as Plan would show it.
+	if _, err = r.redact(ctx, a, p, err); err != nil {
 		return declareAnswer[app.DeclarePlan](nil, err)
 	}
 	if p.IntentDigest != a.IntentDigest {
 		return nil, &pactomcp.Refused{Code: pactomcp.RefusalPlanStale, Message: "the plan changed since intent " + a.IntentDigest + " was reviewed; it is now " +
 			p.IntentDigest + ": review the new plan"}, nil
 	}
-	if refused := mayUpdateSelf(ctx, who.own.Dynamic, p.InferredFrom); refused != nil {
-		return nil, refused, nil
+	// A claim has no workload to review: the owner rule a person's
+	// acceptance runs is its gate.
+	if _, claim := a.Claim(); !claim {
+		if refused := mayUpdateSelf(ctx, who.own.Dynamic, p.InferredFrom); refused != nil {
+			return nil, refused, nil
+		}
 	}
 	req.Store = pushWriter(r.push, p.BundleRepo)
 	return mcpWritten(writeServerDraft(ctx, r.svc, req, p, decl, who.person.User, "mcp"))
@@ -330,21 +401,41 @@ func (r remoteDeclarer) reads(registry string) bool {
 	return false
 }
 
-// shows is whether the caller's fleet view shows service. With no fleet, or
-// one that cannot be read, it does not.
-func (r remoteDeclarer) shows(ctx context.Context, service string) bool {
+// view is the caller's fleet view; nil with no fleet, or one that cannot be
+// read.
+func (r remoteDeclarer) view(ctx context.Context) *fleet.Query {
 	if r.fleet == nil {
-		return false
+		return nil
 	}
 	q, err := r.fleet.Src(ctx)
 	if err == nil && r.fleet.Opts.View != nil {
 		q, err = r.fleet.Opts.View(ctx, nil, q)
 	}
 	if err != nil {
+		return nil
+	}
+	return q
+}
+
+// shows is whether the caller's fleet view shows service.
+func (r remoteDeclarer) shows(ctx context.Context, service string) bool {
+	q := r.view(ctx)
+	if q == nil {
 		return false
 	}
-	_, err = q.GetService(service)
+	_, err := q.GetService(service)
 	return err == nil
+}
+
+// external is the external system id as the caller's fleet view shows it;
+// nil when it shows none.
+func (r remoteDeclarer) external(ctx context.Context, id string) *fleet.ExternalView {
+	q := r.view(ctx)
+	if q == nil {
+		return nil
+	}
+	ev, _ := q.GetExternal(id)
+	return ev
 }
 
 // baselineHidden is p for a caller who may not see its service: the

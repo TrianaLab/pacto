@@ -63,11 +63,7 @@ grants no right.`,
 			req.Service = fleet.ExternalSubjectPrefix + args[0]
 			// The cluster holds only the installation signer policy here: a
 			// client that fails leaves it unread, which the plan says.
-			if req.Registry != "" {
-				if dyn, err := initDynamic(); err == nil {
-					req.Dynamic = dyn
-				}
-			}
+			req.Dynamic, _ = declareDynamic(req)
 			return declareRun(cmd, svc, v, d, req, yes)
 		},
 	}

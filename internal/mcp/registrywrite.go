@@ -1,12 +1,14 @@
 package mcp
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"strconv"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // The agent write contract: every MCP tool that writes to a registry on an
@@ -153,13 +155,37 @@ type DeclareArgs struct {
 	MaxItems     int      `json:"max_items"`
 	CallWindow   string   `json:"call_window"`
 	Draft        bool     `json:"draft"`
+	// Owner and Name are set only on a claim (service external:<identity>):
+	// the owning team and the service name the claim publishes under.
+	Owner string `json:"owner"`
+	Name  string `json:"name,omitempty"`
 }
 
-// Command is the pacto declare a person runs for a: it replays every
-// argument the intent digest binds, and the digest when intent is set.
-// Without --yes it prints the plan and writes nothing.
+// Claim is the external system a claims and whether a is a claim.
+func (a DeclareArgs) Claim() (string, bool) {
+	return strings.CutPrefix(a.Service, fleet.ExternalSubjectPrefix)
+}
+
+// Verb is the command a person runs for a: pacto claim for a claim, else
+// pacto declare.
+func (a DeclareArgs) Verb() string {
+	if _, ok := a.Claim(); ok {
+		return "pacto claim"
+	}
+	return "pacto declare"
+}
+
+// Command is the pacto declare (pacto claim for a claim) a person runs for
+// a: it replays every argument the intent digest binds, and the digest when
+// intent is set. Without --yes it prints the plan and writes nothing.
 func (a DeclareArgs) Command(intent string) string {
 	parts := []string{"pacto declare", a.Service}
+	if id, ok := a.Claim(); ok {
+		parts = []string{"pacto claim", id, "--owner", cmp.Or(a.Owner, "<team>")}
+		if a.Name != "" {
+			parts = append(parts, "--name", a.Name)
+		}
+	}
 	if a.Namespace != "" {
 		parts = append(parts, "--namespace", a.Namespace)
 	}

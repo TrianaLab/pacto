@@ -406,11 +406,12 @@ func declareRows() []surfaceRow {
 func claimRows() []surfaceRow {
 	const why = "pacto_declare and the dashboard Declare routes claim with service external:<identity>; their owner and name rows are their surfaces'"
 	const whyLocal = "a person's local signing: MCP callers are agents and never sign a declared record"
+	const whyDashboard = "the dashboard Declare routes take no owner or name yet; pacto_declare claims as an agent's draft"
 	return slices.Concat(
 		[]surfaceRow{
 			{"claim <identity>", "", "", why},
-			{"claim --owner", "", "", why},
-			{"claim --name", "", "", why},
+			{"claim --owner", "pacto_declare.owner", "", whyDashboard},
+			{"claim --name", "pacto_declare.name", "", whyDashboard},
 		},
 		alike("claim", "", "", why, "registry", "yes", "intent", "draft", "from-draft", "delivery-trust"),
 		alike("claim", "", "", whyLocal, "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",

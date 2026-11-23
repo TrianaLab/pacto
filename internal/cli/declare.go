@@ -155,14 +155,14 @@ func declareSubject(req *app.DeclareRequest, arg string) error {
 
 // declareDynamic is the kubeconfig client the declaration reads the cluster
 // with. A run without a registry is refused before any read, so it builds
-// none; a --dir run whose client fails declares the folder with its cluster
-// facts dropped.
+// none; a --dir run or a claim whose client fails declares with its cluster
+// facts dropped (a claim reads only the installation signer policy there).
 func declareDynamic(req app.DeclareRequest) (dynamic.Interface, error) {
 	if req.Registry == "" {
 		return nil, nil
 	}
 	dyn, err := initDynamic()
-	if err != nil && req.Dir == "" {
+	if err != nil && req.Dir == "" && !strings.HasPrefix(req.Service, fleet.ExternalSubjectPrefix) {
 		return nil, fmt.Errorf("declaring a workload reads the cluster: %w", err)
 	}
 	if err != nil {

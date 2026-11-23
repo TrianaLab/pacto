@@ -310,3 +310,47 @@ func (p planOnlyRun) Execute(ctx context.Context, a DeclareArgs) (json.RawMessag
 	_, _, _ = p.stubDeclarer.Execute(ctx, a)
 	return json.RawMessage(`{"executed":true,"tag":"draft-2","draft":true,"acceptCLI":"pacto declare invoices --registry r --from-draft draft-2"}`), nil, nil
 }
+
+func TestDeclareArgsCommandClaim(t *testing.T) {
+	a := DeclareArgs{Service: "external:aws/rds/eu-west-1/orders-db", Owner: "team-platform", Registry: "ghcr.io/acme"}
+	if got := a.Command(planDigest); got != "pacto claim aws/rds/eu-west-1/orders-db --owner team-platform --registry ghcr.io/acme --intent "+planDigest {
+		t.Fatal(got)
+	}
+	if got := (DeclareArgs{Service: "external:stripe"}).Command(""); got != "pacto claim stripe --owner <team> --registry <registry>" {
+		t.Fatal(got)
+	}
+	if a.Verb() != "pacto claim" || (DeclareArgs{Service: "invoices"}).Verb() != "pacto declare" {
+		t.Fatal("verb")
+	}
+}
+
+func TestDeclareArgsCommandClaimName(t *testing.T) {
+	a := DeclareArgs{Service: "external:stripe", Owner: "team-platform", Name: "payments-stripe", Registry: "ghcr.io/acme"}
+	if got := a.Command(""); got != "pacto claim stripe --owner team-platform --name payments-stripe --registry ghcr.io/acme" {
+		t.Fatal(got)
+	}
+}
+
+// TestDeclareArgsRefusalCLIClaim: a refusal that names no command names the
+// pacto claim a person runs, with every claim argument.
+func TestDeclareArgsRefusalCLIClaim(t *testing.T) {
+	var plans []DeclareArgs
+	out, res := callDeclare(t, stubDeclarer{plans: &plans}, map[string]any{"service": "external:stripe", "owner": "team-platform", "name": "payments-stripe",
+		"registry": "ghcr.io/acme", "dry_run": false, "on_behalf_of": "ana"})
+	if !res.IsError || out.Refusal == nil || out.Refusal.Code != RefusalIntentRequired ||
+		out.Refusal.CLI != "pacto claim stripe --owner team-platform --name payments-stripe --registry ghcr.io/acme" {
+		t.Fatalf("%+v", out)
+	}
+	if a := plans[0]; a.Owner != "team-platform" || a.Name != "payments-stripe" {
+		t.Fatalf("%+v", a)
+	}
+}
+
+func TestDeclareToolNamesClaim(t *testing.T) {
+	tool := listTools(t, mustNew("test", Authoring{Declare: stubDeclarer{}}, Modes{}))["pacto_declare"]
+	schema, _ := json.Marshal(tool.InputSchema)
+	if !strings.Contains(tool.Description, "pacto claim <identity> --from-draft draft-<n> --yes") || !strings.Contains(string(schema), `"owner"`) ||
+		!strings.Contains(string(schema), `"name"`) {
+		t.Fatalf("%s\n%s", tool.Description, schema)
+	}
+}

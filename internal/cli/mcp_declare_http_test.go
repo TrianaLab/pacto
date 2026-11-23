@@ -23,6 +23,7 @@ import (
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 )
@@ -346,4 +347,48 @@ func TestMCPHTTPRepeatedDraftSameAcceptCLI(t *testing.T) {
 	}
 	want := "pacto declare invoices --registry " + w.host + "/acme --from-draft draft-1"
 	expect(t, clis[0] == want && clis[1] == want && slices.Equal(tagsOf(t, w), []string{"draft-1"}), "%q tags %v", clis, tagsOf(t, w))
+}
+
+// withFleet is rd reading the caller's fleet view from mode.
+func (r remoteDeclarer) withFleet(mode *pactomcp.FleetMode) remoteDeclarer {
+	r.fleet = mode
+	return r
+}
+
+// TestMCPHTTPClaimWritesDraft: an HTTP server writes a caller's claim as an
+// unsigned draft on their behalf, with no workload to review, and accepts it
+// with pacto claim.
+func TestMCPHTTPClaimWritesDraft(t *testing.T) {
+	w := newDeclareWorld(t)
+	s := newSelfReviewed(false)
+	rd := httpDeclarer(w).withFleet(claimFleet(t, nil, map[fleet.ExternalKey]*fleet.ExternalClaim{"stripe": nil}))
+	a := pactomcp.DeclareArgs{Service: "external:stripe", Owner: "team-platform", Registry: w.host + "/acme"}
+	var clis []string
+	for range 2 {
+		raw, refused := planThenWrite(t, rd, callerCtx("alice", s, &bytes.Buffer{}), a)
+		var run struct {
+			Tag       string `json:"tag"`
+			AcceptCLI string `json:"acceptCLI"`
+		}
+		_ = json.Unmarshal(raw, &run)
+		expect(t, refused == nil && run.Tag == "draft-1", "%s %+v", raw, refused)
+		clis = append(clis, run.AcceptCLI)
+	}
+	// The repeated write answers the same draft with the same pacto claim.
+	want := "pacto claim stripe --registry " + w.host + "/acme --from-draft draft-1"
+	expect(t, clis[0] == want && clis[1] == want && len(s.asked) == 0, "%q asked %v", clis, s.asked)
+	b := w.pulledClaim(t, "stripe", "draft-1")
+	rec, _ := contract.ReadInferredRecord(b.FS)
+	expect(t, rec.Declaration.OnBehalfOf == "alice" && rec.Declaration.InferredFrom == "external:stripe", "%s", rec.Marshal())
+}
+
+// TestMCPHTTPExecutePlanFails: a plan that fails with no plan at all is the
+// caller's error, never a write.
+func TestMCPHTTPExecutePlanFails(t *testing.T) {
+	w := newDeclareWorld(t)
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
+	a := invoicesArgs(w)
+	a.IntentDigest = "sha256:" + strings.Repeat("0", 64)
+	raw, refused, err := httpDeclarer(w).Execute(callerCtx("alice", newSelfReviewed(true), &bytes.Buffer{}), a)
+	expect(t, err != nil && raw == nil && refused == nil, "%s %+v %v", raw, refused, err)
 }
