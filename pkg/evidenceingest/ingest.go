@@ -312,23 +312,8 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 		Domain: contract.OCIDomain(env.EvidenceSet.ContractRef),
 		Digest: digestOf(env.EvidenceSet.ContractRef),
 	}
-	if isResourceReport(env.EvidenceSet) {
-		// A provisioning or usage report claims nothing about the consumer's compliance:
-		// it is checked against what the consumer declared and stored as is.
-		if err := checkProvisioning(c, env.EvidenceSet, rec.AcceptedAt, entry.ProviderRepos); err != nil {
-			return Record{}, fmt.Errorf("%w: %w", ErrInvalidEvidence, err)
-		}
-	} else {
-		findings, coverage := validation.Evaluate(c, env.EvidenceSet)
-		// The compliance ladder has ONE producer. Ingestion and the operator rank
-		// their verdicts against each other, so a second copy here is a copy that
-		// drifts: this one already ranked an unknown finding under complete coverage
-		// as Compliant where the producer ranks it Unknown. Runtime findings are all
-		// ingestion has to give -- the record it accepted was already validated, so
-		// it holds no structural findings -- which is a difference in what this
-		// caller holds, not in the rule. See [validation.DeriveStatus].
-		rec.Compliance = validation.DeriveStatus(findings, coverage)
-		rec.Findings, rec.Coverage = findings, coverage
+	if err := evaluateRecord(&rec, c, entry); err != nil {
+		return Record{}, fmt.Errorf("%w: %w", ErrInvalidEvidence, err)
 	}
 	if err := a.store.Commit(ctx, rec); err != nil {
 		// Replay is a defined, safe-to-surface outcome; any other commit failure is
@@ -339,6 +324,84 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 		return Record{}, fmt.Errorf("%w: %w", ErrStoreWrite, err)
 	}
 	return rec, nil
+}
+
+// evaluateRecord fills rec's verdict by the class of its evidence set. A
+// provisioning or usage report claims nothing about the consumer's compliance:
+// it is checked against what the consumer declared and stored as is. An
+// extension report is a producer's verdict on the extension capabilities it
+// names, judged with the authenticated producer as the source so a set cannot
+// name another producer in its finding; the stored envelope stays untouched.
+// Anything else is a runtime report. Mixed sets never get here: a key granted
+// extension refs may send nothing else (evidenceenvelope.TrustEntry), so Verify
+// refused them. An error is invalid evidence.
+func evaluateRecord(rec *Record, c contract.Contract, entry evidenceenvelope.TrustEntry) error {
+	set := rec.Envelope.EvidenceSet
+	var findings []finding.Finding
+	var coverage validation.Coverage
+	switch {
+	case isResourceReport(set):
+		return checkProvisioning(c, set, rec.AcceptedAt, entry.ProviderRepos)
+	case isExtensionReport(set):
+		if err := checkExtensionReport(c, set, rec.AcceptedAt); err != nil {
+			return err
+		}
+		findings, coverage = validation.EvaluateExtensions(c, withSource(set, rec.Envelope.Producer.ID))
+	default:
+		findings, coverage = validation.Evaluate(c, set)
+	}
+	// The compliance ladder has ONE producer. Ingestion and the operator rank
+	// their verdicts against each other, so a second copy here is a copy that
+	// drifts: this one already ranked an unknown finding under complete coverage
+	// as Compliant where the producer ranks it Unknown. Runtime findings are all
+	// ingestion has to give -- the record it accepted was already validated, so
+	// it holds no structural findings -- which is a difference in what this
+	// caller holds, not in the rule. See [validation.DeriveStatus].
+	rec.Compliance = validation.DeriveStatus(findings, coverage)
+	rec.Findings, rec.Coverage = findings, coverage
+	return nil
+}
+
+// withSource returns a copy of set whose Source is source.
+func withSource(set evidence.EvidenceSet, source string) evidence.EvidenceSet {
+	set.Source = source
+	return set
+}
+
+// isExtensionReport reports whether set is an extension report: non-empty and
+// every observation is a CapabilityObserved about an extension capability. A
+// record that mixed one with runtime kinds before extension grants existed
+// stays a runtime report.
+func isExtensionReport(set evidence.EvidenceSet) bool {
+	return len(set.Observations) > 0 && !slices.ContainsFunc(set.Observations, func(o evidence.Observation) bool {
+		return o.Kind != evidence.CapabilityObserved || !evidence.ExtensionSubject(o.Subject)
+	})
+}
+
+// checkExtensionReport binds an extension report to the contract it is about:
+// its subject sits under the contract repository and holds an "extension"
+// segment, as in <repository>/<environment>/extension/<name>, so the store's
+// latest record per producer and subject never lets it replace a runtime or
+// usage record; it is not dated beyond the allowed clock skew past acceptedAt;
+// and every observation names an extension capability c declares.
+// ValidateEvidenceSet already refused a ref named twice.
+func checkExtensionReport(c contract.Contract, set evidence.EvidenceSet, acceptedAt time.Time) error {
+	repo, _, _ := strings.Cut(contract.TrimOCIScheme(set.ContractRef), "@")
+	rest, under := strings.CutPrefix(set.Subject.Name, repo+"/")
+	if !under || !hasInnerSegment(rest, "extension") {
+		return fmt.Errorf("extension subject %q must sit under the contract repository with an /extension/ segment, such as %s<environment>/extension/<name>", set.Subject.Name, repo+"/")
+	}
+	if set.ObservedAt.After(acceptedAt.Add(fleet.MaxProvisioningClockSkew)) {
+		return fmt.Errorf("extension report is dated %s, more than %s after it was accepted", set.ObservedAt.Format(time.RFC3339), fleet.MaxProvisioningClockSkew)
+	}
+	for i, o := range set.Observations {
+		if !slices.ContainsFunc(c.Capabilities, func(cap contract.Capability) bool {
+			return cap.Type == contract.CapabilityExtension && cap.Ref == o.Subject.Name
+		}) {
+			return fmt.Errorf("observation[%d]: the contract declares no extension capability %q", i, o.Subject.Name)
+		}
+	}
+	return nil
 }
 
 // isResourceReport reports whether set carries provider-reported observations
@@ -392,7 +455,7 @@ func CheckReportSubject(set evidence.EvidenceSet) error {
 	if !strings.HasPrefix(set.Subject.Name, repo+"/") {
 		return fmt.Errorf("subject %q must start with the contract repository %q", set.Subject.Name, repo+"/")
 	}
-	usage, segment := isUsageReport(set), hasUsageSegment(strings.TrimPrefix(set.Subject.Name, repo+"/"))
+	usage, segment := isUsageReport(set), hasInnerSegment(strings.TrimPrefix(set.Subject.Name, repo+"/"), "usage")
 	if usage && !segment {
 		return fmt.Errorf("usage subject %q must hold a /usage/ segment under the contract repository, such as %s<environment>/usage/<kind>/<name>", set.Subject.Name, repo+"/")
 	}
@@ -402,14 +465,14 @@ func CheckReportSubject(set evidence.EvidenceSet) error {
 	return nil
 }
 
-// hasUsageSegment reports whether rest (a subject below the contract
-// repository) holds "usage" as an inner segment after the first, as in
-// <environment>/usage/<kind>/<name>. A default provisioning subject,
-// <environment>/<kind>/<name>, can never hold it there, so the two never share
-// a subject.
-func hasUsageSegment(rest string) bool {
+// hasInnerSegment reports whether rest (a subject below the contract
+// repository) holds seg as an inner segment after the first, as in
+// <environment>/usage/<kind>/<name> or <environment>/extension/<name>. A
+// default provisioning subject, <environment>/<kind>/<name>, can never hold
+// "usage" there, so the two never share a subject.
+func hasInnerSegment(rest, seg string) bool {
 	segs := strings.Split(rest, "/")
-	return len(segs) > 2 && slices.Contains(segs[1:len(segs)-1], "usage")
+	return len(segs) > 2 && slices.Contains(segs[1:len(segs)-1], seg)
 }
 
 // checkProvisionedObservation checks one provisioning or usage observation

@@ -792,3 +792,28 @@ func TestEvaluateExtensionObservedTable(t *testing.T) {
 		})
 	}
 }
+
+// TestEvaluateExtensionsOnlyNamedRefs: the Evidence Server's evaluator for an extension report judges the
+// extensions the report names and nothing else: no health finding, no unverified sibling extension.
+func TestEvaluateExtensionsOnlyNamedRefs(t *testing.T) {
+	c := contract.Contract{
+		Service: contract.Service{Name: "orders", Version: "1"},
+		Capabilities: []contract.Capability{
+			{Type: contract.CapabilityHealth},
+			{Type: contract.CapabilityExtension, Ref: "x.acme.io/backup"},
+			{Type: contract.CapabilityExtension, Ref: "x.acme.io/restore"},
+		},
+	}
+	ev := es(evidence.NewCapabilityObserved(sr("capability", "x.acme.io/backup"), false, prov()))
+	ev.Source = "acme-backup"
+	fs, cov := EvaluateExtensions(c, ev)
+	if cov.Required != 1 || cov.Evaluated != 1 || len(cov.Unverified) != 0 {
+		t.Errorf("coverage = %+v, want exactly the named extension evaluated", cov)
+	}
+	if len(fs) != 1 || fs[0].Code != finding.CodeCapabilityAbsent || fs[0].Subject.Name != "x.acme.io/backup" {
+		t.Fatalf("findings = %+v, want one CAPABILITY_ABSENT on x.acme.io/backup", fs)
+	}
+	if _, cov := EvaluateExtensions(c, es()); cov.Required != 0 || len(cov.Unverified) != 0 {
+		t.Errorf("a set naming nothing judges nothing, got %+v", cov)
+	}
+}

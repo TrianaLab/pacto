@@ -51,6 +51,20 @@ func Evaluate(c contract.Contract, ev evidence.EvidenceSet) ([]finding.Finding, 
 	return e.findings, e.cov
 }
 
+// EvaluateExtensions is the Evidence Server's evaluator for an extension report: it judges, by the
+// extension rule of [Evaluate], exactly the extension capabilities of c that ev names. It never lists an
+// unnamed extension as unverified: whether another producer checks it is the fleet's business, not this
+// report's.
+func EvaluateExtensions(c contract.Contract, ev evidence.EvidenceSet) ([]finding.Finding, Coverage) {
+	var named []contract.Capability
+	for _, cap := range c.Capabilities {
+		if cap.Type == contract.CapabilityExtension && findObservation(ev.Observations, evidence.CapabilityObserved, cap.Ref) != nil {
+			named = append(named, cap)
+		}
+	}
+	return Evaluate(contract.Contract{Service: c.Service, Capabilities: named}, ev)
+}
+
 // evaluator carries one Evaluate pass: the evidence it reads and the findings and coverage it builds.
 type evaluator struct {
 	ev         evidence.EvidenceSet
