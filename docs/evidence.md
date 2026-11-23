@@ -132,6 +132,73 @@ need a key granted them by name. See [Provider reports](provider-reports.md).
 
 ---
 
+## Extension capabilities
+
+1. Pacto has no built-in evaluator for an `extension` capability, so your own
+   tool checks it. Give that producer its own key that names each ref it
+   checks:
+
+   ```yaml
+   apiVersion: pacto.dev/evidence-trust/v1
+   keys:
+     - keyId: acme-backup-2026
+       producerId: acme-backup
+       publicKeyFile: acme-backup__acme-backup-2026.pub
+       allowedObservationKinds: [CapabilityObserved]
+       allowedExtensionRefs: [x.acme.io/backup]
+       allowedContractRepos: [registry.example.com/acme/payments]
+   ```
+
+2. The producer signs one EvidenceSet about the contract revision with
+   `pacto evidence sign` and sends it with `pacto evidence send`:
+
+   ```json
+   {
+     "subject": {"kind": "service", "name": "registry.example.com/acme/payments/prod/extension/backup"},
+     "contractRef": "oci://registry.example.com/acme/payments@sha256:<digest>",
+     "source": "acme-backup",
+     "observedAt": "2026-11-22T03:00:00Z",
+     "observations": [{
+       "kind": "CapabilityObserved",
+       "subject": {"kind": "capability", "name": "x.acme.io/backup"},
+       "outcome": "Observed",
+       "value": {"present": true, "details": {"lastBackup": "2026-11-22T03:00:00Z"}},
+       "provenance": {"collector": "acme-backup", "detectedAt": "2026-11-22T03:00:00Z"}
+     }]
+   }
+   ```
+
+3. The server accepts the report when:
+   - the contract revision is one of its `--subject` values and declares every
+     ref the set names, each named once;
+   - the subject is `<contract repository>/<segment>/extension/<name>`, such as
+     `<repository>/<environment>/extension/<name>`;
+   - `details`, when present, is a JSON object of at most 2 KiB. Pacto passes
+     it through unread;
+   - it is dated no more than five minutes after the server accepted it.
+   - Otherwise it answers 401 `unauthorized_producer` to a key without the ref
+     and to a granted key that sends any other observation, and 422
+     `invalid_evidence` to an undeclared or repeated ref, a subject outside the
+     repository and a report dated too far ahead.
+   - It keeps the latest report per producer and subject, so send every ref you
+     check on one revision in one set, or give each ref its own subject.
+
+4. The fleet shows each reported extension of a revision as one check that
+   names the producer and its `asOf`:
+   - **covered**: every fresh report says `present: true`.
+   - **failing**: a fresh report says `present: false`. The service is
+     NonCompliant with `CAPABILITY_ABSENT`.
+   - **unknown**: the producer is silent, its last report being older than the
+     24-hour freshness window or about another revision, or it reported
+     another outcome. The service reads Unknown.
+   - **no check**: no producer reports on the extension. It stays in
+     `coverage.unverified` and never counts against compliance.
+
+- The Pacto resource status reports only what the operator observes in its cluster.
+- Extension verdicts from producers appear in the fleet: pacto fleet get, the dashboard and MCP.
+
+---
+
 ## CLI commands
 
 | Command | Side | Purpose |
@@ -156,7 +223,7 @@ The ingestion host mounts five endpoints under `/api/evidence/v1`.
 | `GET /api/evidence/v1/health` | Liveness. Independent of the registry. | `200 OK` with `{ "status": "ok" }` |
 | `GET /api/evidence/v1/ready` | Readiness. `503` until every configured subject resolves and answers native Referrers discovery. | `200 OK` with `{ "status": "ready" }` |
 | `GET /api/evidence/v1/producers` | List the trusted producer ids the host advertises, the reporting adapters and the producers granted a contribution repository, each with its public keys. | `200 OK` with `{ "producers": [ … ], "adapters": [ … ], "contributors": [ { "producer", "repository", "keys": [ { "keyId", "publicKey" } ] } ] }`; `adapters` and `contributors` are left out when empty |
-| `GET /api/evidence/v1/targets` | The latest accepted report per target for a read-only HTTP evidence source, plus the latest provisioning reports. | `200 OK` with the versioned targets DTO: schema `pacto.dev/evidence-source/v5` when it carries a cluster, `pacto.dev/evidence-source/v4` when it carries `usage` records, `pacto.dev/evidence-source/v3` when it carries `provisioning` records, `pacto.dev/evidence-source/v2` otherwise |
+| `GET /api/evidence/v1/targets` | The latest accepted report per target for a read-only HTTP evidence source, plus the latest provisioning reports. | `200 OK` with the versioned targets DTO: schema `pacto.dev/evidence-source/v6` when it carries `extensions` (extension capability reports), `pacto.dev/evidence-source/v5` when it carries a cluster, `pacto.dev/evidence-source/v4` when it carries `usage` records, `pacto.dev/evidence-source/v3` when it carries `provisioning` records, `pacto.dev/evidence-source/v2` otherwise |
 
 The targets endpoint takes no authentication and lists contract references,
 producers and the external references of provisioned resources. Keep it behind
@@ -240,7 +307,12 @@ keys:
     allowedContractRepos: [registry.example.com/acme/contracts]  # prefixes; empty = any
     allowedObservationKinds: [ResourceProvisioned]  # empty = every runtime kind
     allowedProviderRepos: [ghcr.io/acme/platform/postgresql]  # prefixes of provider repositories; empty = any provider
+    # allowedExtensionRefs: [x.acme.io/backup]     # exact extension refs, on an extension-only key; empty = none
 ```
+
+- `allowedExtensionRefs` lists the exact extension refs a key may report on
+  ([Extension capabilities](#extension-capabilities)). A key that lists any is
+  extension-only and lists exactly `allowedObservationKinds: [CapabilityObserved]`.
 
 An empty `allowedObservationKinds` withholds `ResourceProvisioned` and
 `ResourceUsage`, so a team's runtime key cannot mark its own resources Ready.

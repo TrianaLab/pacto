@@ -97,3 +97,12 @@ reported; disagreeing reports read unknown, name the producers under
 `conflict` and give no figures. Pacto never sums or converts a cost, and
 usage never changes a service's compliance. A v2 target-state file carries
 usage reports unsigned, so they always read unknown.
+
+## Extension capability reports
+
+A producer that checks an `extension` capability the contract declares
+reports with `CapabilityObserved` under a key granted that ref by
+`allowedExtensionRefs`. Its verdict feeds compliance: reported absent makes
+the service NonCompliant, and a stale report reads Unknown. A provisioning or
+usage report never changes compliance. See
+[Extension capabilities](evidence.md#extension-capabilities).

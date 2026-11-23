@@ -444,7 +444,7 @@ capabilities:
     ref: example.com/tracing
 ```
 
-You can declare a `health` or `metrics` capability with no binding. Another collector can verify that declaration. The Kubernetes integration reports an unbound capability as Unsupported/Unknown because it has no endpoint to probe. An `extension` capability requires a namespaced `ref` and cannot declare a binding. Pacto has no evaluator for extensions, so it lists each one in `coverage.unverified` as `capabilities[ref=<ref>]` and excludes it from required assertions. A contract that declares one can still reach Compliant, and that verdict covers none of its extensions.
+You can declare a `health` or `metrics` capability with no binding. Another collector can verify that declaration. The Kubernetes integration reports an unbound capability as Unsupported/Unknown because it has no endpoint to probe. An `extension` capability requires a namespaced `ref` and cannot declare a binding. Pacto has no built-in evaluator for extensions. It lists each one in `coverage.unverified` as `capabilities[ref=<ref>]` until a producer the trust config grants that ref [reports on it](../evidence.md#extension-capabilities). A reported extension counts as a required assertion: reported absent is NonCompliant, an old or missing report is Unknown.
 
 ---
 

@@ -151,6 +151,7 @@ sidebar badge counts only items above `info`.
 | Category | Code | Severity |
 |----------|------|----------|
 | `non-compliant` | `NON_COMPLIANT` | error |
+| `non-compliant` | `CAPABILITY_ABSENT`, a trusted producer reports an extension capability absent | error |
 | `invalid` | `INVALID_CONTRACT` | error |
 | `cross-environment` | `CROSS_ENVIRONMENT_CALL`, a workload in one environment calls a workload in another; a warning when last seen outside the recent window | error |
 | `cross-environment` | `CROSS_ENVIRONMENT_PREVIEW_CALL`, the callee's environment is a preview | warning |
@@ -159,6 +160,7 @@ sidebar badge counts only items above `info`.
 | `provisioning` | `PROVISIONING_STALE`, the last report about the current revision is stale | warning |
 | `unknown` | the cause: `COLLECTION_FAILED`, `HEALTH_FAILING`, `EVIDENCE_STALE`, `OBSERVATION_UNSUPPORTED`, `EVIDENCE_INSUFFICIENT` or `EVIDENCE_MISSING`, else `UNKNOWN` | warning |
 | `stale` | `STALE_EVIDENCE` | warning |
+| `unknown`, `stale` | `EXTENSION_UNREPORTED`, no fresh producer report on an extension capability of a revision in use | warning |
 | `unresolved` | `UNRESOLVED_DEPENDENCY` | warning |
 | `out-of-range` | `DEPENDENCY_RANGE_UNSATISFIED` | warning |
 | `lifecycle` | `DEPENDENCY_SERVICE_DEPRECATED`, a provider the consumer's range reaches is deprecated | warning |
