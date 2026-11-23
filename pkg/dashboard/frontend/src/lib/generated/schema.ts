@@ -5360,6 +5360,8 @@ export interface components {
             source?: string;
             sourceKind?: string;
             stale?: boolean;
+            /** @description One step a person may take when nothing reported provisioning: accept Crossplane's inferred offerings, or write an adapter. Empty when nothing is known for certain */
+            suggestion?: string;
             verified: boolean;
         };
         "Fleet.RangeTally": {
@@ -7719,6 +7721,8 @@ export interface components {
             source?: string;
             sourceKind?: string;
             stale?: boolean;
+            /** @description One step a person may take when nothing reported provisioning: accept Crossplane's inferred offerings, or write an adapter. Empty when nothing is known for certain */
+            suggestion?: string;
             verified: boolean;
         };
         ProductRef: {

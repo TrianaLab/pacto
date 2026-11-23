@@ -1868,12 +1868,12 @@ func (q *Query) offeringUsesIn(edges []Relationship, match func(provider *Servic
 		})
 	}
 	var lims []Limitation
-	idx, uidx := q.provisioningIndex(), q.usageIndex()
+	idx, uidx, hint := q.provisioningIndex(), q.usageIndex(), q.provisioningHint()
 	for j, k := range keys {
 		q.fillSuccessorRanges(&uses[j])
 		if provisioning && k.via != RelationshipPolicyRef {
 			var conflicts, usageConflicts []Limitation
-			uses[j].Provisioning, conflicts = q.provisioningFor(uses[j], rels[k], keptRev[k], idx)
+			uses[j].Provisioning, conflicts = q.provisioningFor(uses[j], rels[k], keptRev[k], idx, hint)
 			uses[j].Consumption, usageConflicts = q.usageFor(uses[j], rels[k], keptRev[k], uidx)
 			lims = append(append(lims, conflicts...), usageConflicts...)
 		}

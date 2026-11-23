@@ -44,7 +44,8 @@ func (q *Query) provisioningAttention() []AttentionItem {
 	idx := q.provisioningIndex()
 	var out []AttentionItem
 	for k, rs := range rels {
-		statuses, _ := q.provisioningFor(OfferingUse{Consumer: q.serviceRef(k.from)}, rs, current[k], idx)
+		// The zero hint: attention never reads detected rows.
+		statuses, _ := q.provisioningFor(OfferingUse{Consumer: q.serviceRef(k.from)}, rs, current[k], idx, provisioningHint{})
 		for _, st := range statuses {
 			if it, ok := q.provisioningItem(k, st, current[k]); ok {
 				out = append(out, it)
