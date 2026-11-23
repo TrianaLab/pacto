@@ -990,3 +990,15 @@ func checkRestrictedExternals(t *testing.T, r *Query) {
 		t.Errorf("restricted snapshot names hidden evidence: %s", b)
 	}
 }
+
+func TestRestrictKeepsInferredTemplates(t *testing.T) {
+	q := shopFleet(t, tmplCatalog(tmpl("springboot-service")))
+	r := noSecret(q)
+	if r == q {
+		t.Fatal("the view hides nothing")
+	}
+	want, got := q.InferredTemplates(""), r.InferredTemplates("")
+	if got == nil || !slices.Equal(got.Items, want.Items) || got.Completeness != want.Completeness {
+		t.Fatalf("restricted list %+v, want %+v", got, want)
+	}
+}

@@ -4117,6 +4117,8 @@ export interface components {
             /** Format: date-time */
             generatedAt: string;
             inferredRelationships?: components["schemas"]["Fleet.Relationship"][] | null;
+            /** @description Golden paths catalogs outside every registry hold, inferred: never services, never signed or declared, never offered for creation until a person accepts one */
+            inferredTemplates?: components["schemas"]["Fleet.InferredTemplate"][] | null;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
             providers?: components["schemas"]["Fleet.Provider"][] | null;
             provisioning?: components["schemas"]["Fleet.ProvisioningRecord"][] | null;
@@ -4307,6 +4309,67 @@ export interface components {
             target?: string;
             /** @description The object and key it was found in, never a value */
             where?: string;
+        };
+        "Fleet.InferredTemplate": {
+            /** @description The source is one an operator configured, so a person may accept the template as a golden path */
+            acceptable: boolean;
+            /** @description The key of the declared golden path holding the same name; such an item is never listed or counted as inferred, it only gives that golden path its link */
+            declaredAs?: string;
+            /** @description The catalog's own reference, such as template:default/springboot-service */
+            entity: string;
+            /** @description Where the template was read, as the source writes it */
+            from: string;
+            /** @description The catalog's name for the template, the service.name accepting it gives the golden path */
+            name: string;
+            /** @description A service that is no golden path already holds the name; the template is never offered for acceptance */
+            nameTaken?: boolean;
+            /**
+             * Format: date-time
+             * @description When the source read the template
+             */
+            observedAt?: string;
+            /** @description The owner the catalog names; shown, never declared */
+            owner?: string;
+            /** @description The canonical key of the owner the catalog names */
+            ownerKey?: string;
+            /**
+             * @description Always inferred
+             * @enum {string}
+             */
+            provenance: "inferred";
+            /** @description The id of the source that read the template */
+            source: string;
+            /** @description The catalog's description, cut to 200 characters */
+            summary?: string;
+            /** @description The catalog's display title */
+            title?: string;
+            /** @description The catalog's template type, such as service or website */
+            type?: string;
+            /** @description Where a person opens the template; empty when the source gives no address a browser opens */
+            url?: string;
+        };
+        "Fleet.InferredTemplateList": {
+            /**
+             * Format: date-time
+             * @description When the oldest listed template was read, else when a source last listed templates
+             */
+            asOf?: string;
+            /**
+             * @description Partial when a source that lists templates could not read them all; a missing template is then unknown
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
+            /** @description Catalog templates a declared golden path holds the name of: the link of that golden path, never listed or counted as inferred */
+            declared?: components["schemas"]["Fleet.InferredTemplate"][] | null;
+            /** @description The inferred golden paths, sorted by name; never paged */
+            items: components["schemas"]["Fleet.InferredTemplate"][] | null;
+            /** @description Why the list is partial and which templates were left out */
+            limitations?: components["schemas"]["Fleet.Limitation"][] | null;
+            /**
+             * Format: int64
+             * @description How many inferred golden paths are listed; the ones a declared golden path holds the name of are not counted
+             */
+            total: number;
         };
         "Fleet.InferredValue": {
             /** @description The object path Pacto read the value from */
@@ -7221,6 +7284,8 @@ export interface components {
              * @description When external systems are listed, how many only hidden services declare; never named
              */
             hidden?: number;
+            /** @description With template only: golden paths catalogs hold that no registry publishes, inferred and listed apart from the declared ones; declaration declared leaves them out */
+            inferredTemplates?: components["schemas"]["Fleet.InferredTemplateList"];
             /** Format: int64 */
             limit: number;
             meta: components["schemas"]["Fleet.ProductMeta"];
