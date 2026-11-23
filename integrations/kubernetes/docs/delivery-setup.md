@@ -54,14 +54,14 @@ Delivery is the `pacto-operator` chart's `delivery` section, off by default. Tur
 It needs no identity values: whoever may update a Stage's workload decides
 ([who may decide](delivery-identity.md#who-may-decide)).
 
-If you set `crds.install=false` to manage the CRDs yourself, apply the
+With `crds.install=false`, apply the
 delivery CRDs before you turn delivery on. The promoter and the recorder do not
 start without them:
 
 --8<-- "integrations/kubernetes/docs/generated/_delivery-crd-apply.md"
 
 This needs Helm 3.14 or later. Delivery runs in `delivery.namespace`
-(`pacto-delivery`, never the release or node agent namespace), where the operator holds no
+(`pacto-delivery`), where the operator holds no
 role, so it cannot act as the promoter. It reads its Secrets only when
 [watched or granted](least-privilege.md): prefer KMS or keyless recorder
 signing. Set `delivery.createNamespace=false` to
@@ -137,9 +137,11 @@ Set idp.flux.install=true on this Pacto release, at the chart version it runs: h
 
 The chart then installs upstream Flux 2.10.1 and upgrades it with the release;
 nobody runs a separate install ([what it adds](profiles.md#the-packaged-flux)).
+Pacto then creates each service's Stages and Flux objects from the
+[installation ladder](delivery-environments.md).
 
 Turning the value off or `helm uninstall` keeps Flux and the workloads it
-applied (`helm.sh/resource-policy: keep`). Keep it as your own, or remove it
+applied (`helm.sh/resource-policy: keep`). Keep it, or remove it
 in this order, which stops the controllers so nothing is pruned:
 
 ```bash
@@ -246,8 +248,7 @@ Flux Kustomization applies the apply `OCIRepository`, both carry the
 `suspend` or `decryption`, and the `OCIRepository` sets no `spec.ignore`. Without a
 `serviceAccountName` Flux applies each version as kustomize-controller,
 cluster-admin in a default install, and the levels judge only the contract;
-`pacto init --delivery` writes a namespaced deployer account for each
-environment. On
+in IDP mode Pacto creates a namespaced deployer account for each service. On
 Argo CD it is `True` when the Application carries the label, has one source and sets no
 Kustomize images, patches or components, Helm parameters, values or value
 files, or plugin. Otherwise it is `False` and the reason

@@ -403,25 +403,12 @@ func entryReason(err error) string {
 	return msg
 }
 
-// readEntry reads the entry under tag, checking each bound before the read
-// it guards, then binds it to repo and tag.
+// readEntry reads the entry under tag through the shared reader, with this
+// process's entry cache.
 func (s *Service) readEntry(ctx context.Context, r *remote.Repository, repo, tag string) (orgindex.Entry, error) {
-	desc, err := r.Resolve(ctx, tag)
-	if err != nil {
-		return orgindex.Entry{}, err
-	}
-	if desc.Size > orgindex.MaxManifestBytes {
-		return orgindex.Entry{}, fmt.Errorf("the manifest is %d bytes, over the %d-byte bound", desc.Size, orgindex.MaxManifestBytes)
-	}
-	layer, err := s.entryLayer(ctx, r, repo, desc)
-	if err != nil {
-		return orgindex.Entry{}, err
-	}
-	e, err := orgindex.Decode(layer)
-	if err == nil {
-		err = e.Validate(repo, tag)
-	}
-	return e, err
+	return orgindex.ReadEntry(ctx, r, repo, tag, func(ctx context.Context, desc ocispec.Descriptor) ([]byte, error) {
+		return s.entryLayer(ctx, r, repo, desc)
+	})
 }
 
 // entryLayer is the layer of the entry manifest desc, from the cache when

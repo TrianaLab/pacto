@@ -196,7 +196,7 @@ func TestChangedStaleRecord(t *testing.T) {
 }
 
 func TestCIUndeclaredVersionNoSpuriousChange(t *testing.T) {
-	base := &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "reports", Version: "1.0.0"}}
+	base := &contract.Contract{PactoVersion: contract.Current(), Service: contract.Service{Name: "reports", Version: "1.0.0"}}
 	local := &contract.Contract{Service: contract.Service{Name: "reports"}}
 	for _, c := range diff.Compare(context.Background(), base, normalised(local, "1.0.0"), nil, nil).Changes {
 		if c.Path == "service.version" || c.Path == "pactoVersion" {

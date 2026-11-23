@@ -1,7 +1,7 @@
 # Ledger 3.0.0 removes GET /entries and announces the break to reports, the
 # one service that calls it. reports accepts it with pacto accept before
 # ledger publishes.
-pactoVersion: "2.5"
+pactoVersion: "2.6"
 service:
   name: ledger
   version: 3.0.0

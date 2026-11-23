@@ -734,6 +734,32 @@ tolerations:
 The cluster's identity: the kube-system Namespace, whose UID names the
 cluster in operations and records.
 */}}
+{{/*
+"true" when the promoter publishes the installation ladder: delivery.environments
+is set and enabled. An absent key (an upgrade that reuses 6.x values) is off, so
+it renders no new flag, rule or Role.
+*/}}
+{{- define "pacto-operator.delivery.environments" -}}
+{{- $e := dig "environments" dict .Values.delivery -}}
+{{- if and $e (dig "enabled" false $e) }}true{{ end -}}
+{{- end }}
+
+{{/*
+"true" when the promoter creates the namespaces of the installation ladder:
+the ladder runs and delivery.environments.createNamespaces is set.
+*/}}
+{{- define "pacto-operator.delivery.createNamespaces" -}}
+{{- if and (include "pacto-operator.delivery.environments" .) (dig "environments" "createNamespaces" false .Values.delivery) }}true{{ end -}}
+{{- end }}
+
+{{/*
+"true" when the promoter creates the Flux objects and deployer identity of a
+service no applier runs: the ladder runs under profile idp with Flux on.
+*/}}
+{{- define "pacto-operator.delivery.createAppliers" -}}
+{{- if and (include "pacto-operator.delivery.environments" .) (include "pacto-operator.idp" .) (include "pacto-operator.delivery.flux" .) }}true{{ end -}}
+{{- end }}
+
 {{- define "pacto-operator.rbac.clusterIdentityRule" -}}
 - apiGroups: [""]
   resources: [namespaces]
@@ -1124,6 +1150,7 @@ The schema refuses an unknown name first: that fail backs up
 {{- if .Values.nodeAgent.enabled }}{{ fail "profile hardened runs no node agent: it needs a privileged namespace and cluster-wide reads; set nodeAgent.enabled=false" }}{{ end }}
 {{- if eq (toString (.Values.dashboard.auth | default dict).allowAnonymous) "true" }}{{ fail "profile hardened refuses dashboard.auth.allowAnonymous" }}{{ end }}
 {{- if (.Values.delivery | default dict).enabled }}{{ fail "profile hardened renders no ClusterRole and Pacto delivery needs cluster-wide roles: set delivery.enabled=false or leave profile hardened" }}{{ end }}
+{{- if dig "environments" "createNamespaces" false (.Values.delivery | default dict) }}{{ fail "profile hardened creates no namespace: leave delivery.environments.createNamespaces false" }}{{ end }}
 {{- if and $dex.enabled (ne (toString $dexRBAC.create) "false") (ne (toString $dexRBAC.createClusterScoped) "false") }}{{ fail "profile hardened renders no ClusterRole: set dex.rbac.createClusterScoped=false or dex.enabled=false" }}{{ end }}
 {{- end }}
 {{- if dig "flux" "install" false (.Values.idp | default dict) }}

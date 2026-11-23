@@ -44,8 +44,7 @@ func TemplateOptions(opts Options) error {
 	case len(opts.Inferred) > 0 || opts.Cluster != nil:
 		return errors.New("creating from a golden path reads no running workload: drop --cluster")
 	}
-	_, err := environments(opts) // the delivery options, checked before the path is read
-	return err
+	return checkDeliveryOptions(opts) // the delivery options, checked before the path is read
 }
 
 // signKey is where a service created from a golden path keeps its own
@@ -163,7 +162,6 @@ func (p *planner) applyValues(m map[string]any) (map[string]any, error) {
 	if sign, ok := pathOf(m, "publish.sign").(map[string]any); ok && p.opts.NoTransparencyLog {
 		sign["transparencyLog"] = false
 	}
-	p.addMissingEnvironments(m)
 	return m, nil
 }
 
@@ -184,26 +182,6 @@ func (p *planner) dropEnvironmentExpiryAndOwner(m map[string]any) {
 	}
 	if len(names) > 0 {
 		p.next("the golden path's environment expiry and owner were dropped (%s): set them for this service with pacto_edit", strings.Join(names, ", "))
-	}
-}
-
-// addMissingEnvironments declares, with --delivery, each --env the path does
-// not, with an empty values file.
-func (p *planner) addMissingEnvironments(m map[string]any) {
-	if !p.opts.Delivery {
-		return
-	}
-	envs, _ := m["environments"].([]any)
-	for _, env := range p.envs {
-		if slices.ContainsFunc(envs, func(e any) bool { em, _ := e.(map[string]any); return em["name"] == env }) {
-			continue
-		}
-		path, content := environmentFile(env)
-		envs = append(envs, map[string]any{"name": env, "file": path})
-		p.file(path, content)
-	}
-	if len(envs) > 0 {
-		m["environments"] = envs
 	}
 }
 
@@ -379,40 +357,32 @@ func (p *planner) creationSteps(c *contract.Contract, plugins []fleet.CreationSt
 	}...)
 }
 
-// deliveryStep reports the cluster pieces --delivery planned for a service
+// deliveryStep reports the Pacto resource --delivery planned for a service
 // created from a golden path, before the published step: planned only when
-// the Pacto resource and every environment's Stage were, else unknown with
-// the reason. A delivery file already on disk is kept, never written or
-// checked, so it leaves the step unknown: only files this run adds count.
+// this run adds it, else unknown with the reason. A delivery file already on
+// disk is kept, never written or checked, so it leaves the step unknown.
 func (p *planner) deliveryStep() {
 	if p.opts.Template == nil {
 		return
 	}
-	var files, added, kept []string
+	var added, kept []string
 	for _, f := range p.r.Files {
 		switch {
 		case !strings.HasPrefix(f.Path, "delivery/"):
 			continue
 		case f.Action == Keep:
 			kept = append(kept, f.Path)
-			files = append(files, f.Path+" (kept as it is)")
 		default:
 			added = append(added, f.Path)
-			files = append(files, f.Path)
 		}
 	}
-	step := fleet.CreationStep{Step: fleet.StepDelivery, Status: fleet.StepStatusPlanned, Detail: "the Pacto resource and Stages: " + strings.Join(added, ", ")}
+	const stages = "; Pacto creates each environment's Stage once delivery is on"
+	step := fleet.CreationStep{Step: fleet.StepDelivery, Status: fleet.StepStatusPlanned, Detail: "the Pacto resource: " + strings.Join(added, ", ") + stages}
 	switch {
 	case !p.deliveryPlanned:
-		step.Status, step.Detail = fleet.StepStatusUnknown, "no cluster pieces: the golden path publishes no manifests (publish.deploy)"
-	case len(files) < 1+len(p.envs):
-		step.Status, step.Detail = fleet.StepStatusUnknown, "the Pacto resource only: "+strings.Join(files, ", ")+
-			"; no Stage, since nothing deployed says which version runs: tag the image with the version you deploy and run pacto init --delivery again"
+		step.Status, step.Detail = fleet.StepStatusUnknown, "no Pacto resource: the golden path publishes no manifests (publish.deploy)"
 	case len(kept) > 0:
-		step.Status, step.Detail = fleet.StepStatusUnknown, "delivery files already exist and were kept; Pacto did not write or check them: "+strings.Join(kept, ", ")
-		if len(added) > 0 {
-			step.Detail = "the Pacto resource and Stages: " + strings.Join(added, ", ") + "; " + step.Detail
-		}
+		step.Status, step.Detail = fleet.StepStatusUnknown, "delivery files already exist and were kept; Pacto did not write or check them: "+strings.Join(kept, ", ")+stages
 	}
 	i := slices.IndexFunc(p.r.Steps, func(s fleet.CreationStep) bool { return s.Step == fleet.StepPublished })
 	p.r.Steps = slices.Insert(p.r.Steps, i, step)

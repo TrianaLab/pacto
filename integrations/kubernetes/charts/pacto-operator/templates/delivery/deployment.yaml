@@ -70,6 +70,28 @@ spec:
             {{- if $fluxHelm }}
             - --flux-helm
             {{- end }}
+            {{- with dig "environments" dict .Values.delivery }}
+            - --environments={{ dig "enabled" false . }}
+            {{- end }}
+            {{- if include "pacto-operator.delivery.environments" . }}
+            - --environment-ladder={{ join "," .Values.delivery.environments.ladder }}
+            {{- if or .Values.delivery.recorder.approvalsRepository (include "pacto-operator.delivery.streamsRepository" .) }}
+            - --ladder-repository={{ include "pacto-operator.delivery.approvalsRepository" . }}
+            {{- end }}
+            {{- if include "pacto-operator.delivery.createAppliers" . }}
+            - --environment-create-appliers
+            - --environment-deployer-role={{ include "pacto-operator.delivery.fullname" . }}-deployer
+            {{- end }}
+            {{- if include "pacto-operator.delivery.createNamespaces" . }}
+            - --environment-create-namespaces
+            {{- end }}
+            {{- with dig "environments" "retireAfter" "" .Values.delivery }}
+            - --environment-retire-after={{ . }}
+            {{- end }}
+            {{- with .Values.delivery.recorder.cdeventsSink }}
+            - {{ printf "--cdevents-sink=%s" . | quote }}
+            {{- end }}
+            {{- end }}
             {{- $fullname := include "pacto-operator.delivery.fullname" . }}
             {{- $policies := list "operation" "cancel" "approval" "pointer" "applier" "promoter-writes" "status" }}
             {{- if $argocd }}{{ $policies = concat $policies (list "pointer-argocd" "promoter-writes-argocd") }}{{ end }}

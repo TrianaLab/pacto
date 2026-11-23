@@ -111,7 +111,9 @@ func TestInitCommand(t *testing.T) {
 		assertContains(t, output, "oci: oci://registry.example/story/fraud:@PACTO_VERSION@")
 		assertContains(t, output, "first publish: 1.0.0 is the image tag in k8s/deployment.yaml")
 		assertNotContains(t, output, "publish:\n")
-		assertContains(t, output, "kind: Stage")
+		// The installation ladder creates Stages: init writes none.
+		assertNotContains(t, output, "kind: Stage")
+		assertContains(t, output, "Pacto creates each environment's Stage once delivery is on")
 		if _, err := os.Stat(filepath.Join(dir, "pacto.yaml")); err == nil {
 			t.Fatal("--plan wrote pacto.yaml")
 		}

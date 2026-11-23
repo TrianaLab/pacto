@@ -13,10 +13,6 @@ import (
 	"github.com/opencontainers/go-digest"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
 	"github.com/trianalab/pacto/v4/internal/app"
@@ -441,59 +437,23 @@ func (c *clusterDecision) pickSigner(issuer string) error {
 	return nil
 }
 
-var gvrSelfAccess = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "selfsubjectaccessreviews"}
-
 // authority checks, before any login, that the person may approve the
 // member in the hub, and that the hub would count a record signed as their
 // own user, which carries no groups.
 func (c *clusterDecision) authority() error {
-	ctx, uid := c.cmd.Context(), c.member.UID
 	res := authn.ClusterJoinResource
-	res.Name = uid
-	review := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectAccessReview",
-		"spec": map[string]any{"resourceAttributes": map[string]any{"verb": res.Verb, "group": res.Group, "resource": res.Resource, "name": uid}}}}
-	out, err := c.dyn.Resource(gvrSelfAccess).Create(ctx, review, metav1.CreateOptions{})
-	if err != nil {
-		return fmt.Errorf("asking the hub whether you may approve clusterjoins: %w", err)
-	}
-	if ok, _, _ := unstructured.NestedBool(out.Object, "status", "allowed"); !ok {
-		return fmt.Errorf("ClusterApproveForbidden: you may not approve clusterjoins named %s in the hub; ask for %s", uid, clusterGrant)
-	}
-	me, _, err := authn.ReviewSelf(ctx, c.dyn)
-	if err != nil {
-		return fmt.Errorf("asking the hub who you are: %w", err)
-	}
-	c.user = me.User
-	allowed, err := c.opts.Authorize(ctx, authn.Person{User: me.User}, "", res)
-	switch {
-	case apierrors.IsForbidden(err):
-		_, _ = fmt.Fprintf(c.cmd.ErrOrStderr(), "Pacto could not ask whether %s itself may approve (%v); the record counts only if that user, without your groups, may\n", me.User, err)
-	case err != nil:
-		return fmt.Errorf("asking the hub whether %s may approve: %w", me.User, err)
-	case !allowed:
-		return fmt.Errorf("ClusterApproveNeedsUserGrant: approve must be granted to your user %s; groups are not checked because a certificate names none", me.User)
-	}
-	return nil
+	res.Name = c.member.UID
+	g := approverGrant{res: res, where: "the hub", forbidden: "ClusterApproveForbidden", needsUser: "ClusterApproveNeedsUserGrant", grant: clusterGrant}
+	user, err := g.check(c.cmd, c.dyn, c.opts.Authorize)
+	c.user = user
+	return err
 }
 
 // login logs the person in to sign what on subject and checks the login
 // signs as the user the hub reviewed.
 func (c *clusterDecision) login(what, subject string) (delivery.Signer, error) {
-	s, email, err := keylessLogin(c.cmd, c.v, c.d, c.signer, what, subject)
-	if err != nil {
-		return nil, err
-	}
-	id, source, err := delivery.ApproverIdentity(c.signer.Issuer, email, c.policy)
-	if err != nil {
-		return nil, err
-	}
-	if code, why := delivery.KeylessRefusal(id, source); code != "" {
-		return nil, errors.New(code + ": " + why)
-	}
-	if id.User != c.user {
-		return nil, fmt.Errorf("ApproverMismatch: your Kubernetes user is %s and your login signs as %s; nothing was signed", c.user, id.User)
-	}
-	return s, nil
+	s, _, err := personLogin(c.cmd, c.v, c.d, c.signer, c.policy, c.user, what, subject)
+	return s, err
 }
 
 // sign logs the person in and writes rec signed by them.

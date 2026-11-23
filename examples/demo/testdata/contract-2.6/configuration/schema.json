@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "required": ["replicas", "logLevel"],
+  "properties": {
+    "replicas": {"type": "integer", "minimum": 1},
+    "logLevel": {"type": "string", "enum": ["debug", "info", "warn"]}
+  },
+  "additionalProperties": false
+}

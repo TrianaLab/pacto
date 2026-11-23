@@ -12,6 +12,11 @@ import (
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/authn"
@@ -95,6 +100,76 @@ func keylessLogin(cmd *cobra.Command, v *viper.Viper, d deps, signer delivery.Pe
 	s, err := signing.Keyless(cmp.Or(signer.FulcioURL, fulcio), cmp.Or(signer.TimestampURL, tsa), "",
 		func(context.Context) (string, error) { return token, nil }, tr)
 	return s, email, err
+}
+
+var gvrSelfAccess = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "selfsubjectaccessreviews"}
+
+// approverGrant is the right a person must hold, granted to their own user,
+// for a record they sign keyless to count: res in where (as messages name
+// the cluster), the error codes of a refusal and the grant to ask for.
+type approverGrant struct {
+	res                  authn.ResourceAttributes
+	where                string
+	forbidden, needsUser string
+	grant                string
+}
+
+// check asks, before any login, whether the person may res in the cluster
+// dyn reaches, and whether their own user, with no groups (a certificate
+// names none), may: authorize answers that. It returns the user. A cluster
+// that does not let the person ask about their user is a warning: the record
+// then counts only if that user may.
+func (g approverGrant) check(cmd *cobra.Command, dyn dynamic.Interface, authorize authn.Review) (string, error) {
+	ctx, res := cmd.Context(), g.res
+	attrs := map[string]any{"verb": res.Verb, "group": res.Group, "resource": res.Resource}
+	named := ""
+	if res.Name != "" {
+		attrs["name"], named = res.Name, " named "+res.Name
+	}
+	review := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectAccessReview",
+		"spec": map[string]any{"resourceAttributes": attrs}}}
+	out, err := dyn.Resource(gvrSelfAccess).Create(ctx, review, metav1.CreateOptions{})
+	if err != nil {
+		return "", fmt.Errorf("asking %s whether you may %s %s: %w", g.where, res.Verb, res.Resource, err)
+	}
+	if ok, _, _ := unstructured.NestedBool(out.Object, "status", "allowed"); !ok {
+		return "", fmt.Errorf("%s: you may not %s %s%s in %s; ask for %s", g.forbidden, res.Verb, res.Resource, named, g.where, g.grant)
+	}
+	me, _, err := authn.ReviewSelf(ctx, dyn)
+	if err != nil {
+		return "", fmt.Errorf("asking %s who you are: %w", g.where, err)
+	}
+	allowed, err := authorize(ctx, authn.Person{User: me.User}, "", res)
+	switch {
+	case apierrors.IsForbidden(err):
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Pacto could not ask whether %s itself may %s (%v); the record counts only if that user, without your groups, may\n", me.User, res.Verb, err)
+	case err != nil:
+		return me.User, fmt.Errorf("asking %s whether %s may %s: %w", g.where, me.User, res.Verb, err)
+	case !allowed:
+		return me.User, fmt.Errorf("%s: %s must be granted to your user %s; groups are not checked because a certificate names none", g.needsUser, res.Verb, me.User)
+	}
+	return me.User, nil
+}
+
+// personLogin logs the person in to sign what on subject with signer and
+// checks the login signs as a person, the user the cluster reviewed. It
+// returns the signer and the email the certificate names.
+func personLogin(cmd *cobra.Command, v *viper.Viper, d deps, signer delivery.PersonSigner, policy delivery.ClassPolicy, user, what, subject string) (delivery.Signer, string, error) {
+	s, email, err := keylessLogin(cmd, v, d, signer, what, subject)
+	if err != nil {
+		return nil, "", err
+	}
+	id, source, err := delivery.ApproverIdentity(signer.Issuer, email, policy)
+	if err != nil {
+		return nil, "", err
+	}
+	if code, why := delivery.KeylessRefusal(id, source); code != "" {
+		return nil, "", errors.New(code + ": " + why)
+	}
+	if id.User != user {
+		return nil, "", fmt.Errorf("ApproverMismatch: your Kubernetes user is %s and your login signs as %s; nothing was signed", user, id.User)
+	}
+	return s, email, nil
 }
 
 // approveKeyless signs the person's decision keyless with a fresh login and

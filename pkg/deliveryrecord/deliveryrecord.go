@@ -106,6 +106,9 @@ const (
 	KindGroupMapping = "group-mapping"
 	// KindApplyRefusal is an apply refusal, on its service's refusal stream.
 	KindApplyRefusal = "refusal"
+	// KindLadder is an installation ladder record, on its cluster's ladder
+	// stream.
+	KindLadder = "ladder"
 )
 
 // KindTag is the write-once tag of an approval or intent record (kind) of
@@ -224,6 +227,8 @@ func kindOf(predicate string) string {
 		return KindGroupMapping
 	case delivery.PredicateApplyRefusal:
 		return KindApplyRefusal
+	case delivery.PredicateEnvironmentLadder:
+		return KindLadder
 	}
 	return KindIntent
 }

@@ -1,0 +1,23 @@
+# A pactoVersion 2.6 contract outside the published demo bundles. pr-412 is a
+# temporary environment with no values file: it adds no values of its own, so
+# the app configuration runs on its defaults there.
+pactoVersion: "2.6"
+service:
+  name: storefront-preview
+  version: 0.1.0
+  owner:
+    team: storefront-qa
+configurations:
+  - name: app
+    schema: configuration/schema.json
+    required: true
+    values:
+      replicas: 1
+      logLevel: info
+environments:
+  - name: production
+    file: environments/production.yaml
+    lifetime: persistent
+  - name: pr-412
+    lifetime: temporary
+workload: service

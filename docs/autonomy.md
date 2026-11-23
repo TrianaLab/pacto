@@ -32,15 +32,16 @@ part. A version
 with the same contract and new manifests (a new ClusterRoleBinding, say) is
 non-breaking, so an automatic level ships it with no person. What those
 manifests can do is what the account Flux applies them as may do. Give the
-[Kustomization](glossary.md#kustomization) a namespaced `serviceAccountName`, as `pacto init --delivery`
-does, and keep the key that signs `pacto publish` as safe as the cluster: it
+[Kustomization](glossary.md#kustomization) a namespaced `serviceAccountName`, as the Flux objects
+Pacto creates in IDP mode do, and keep the key that signs `pacto publish` as safe as the cluster: it
 is the root of trust. The Stage's [`Mediated`](glossary.md#mediated) condition is `False` with the
 reason `ApplierUnscoped` while the Kustomization runs as Flux itself.
 
 ## Cold start: begin by watching
 
-A new Stage starts on **observe**. Connecting a service to delivery with
-`pacto init --delivery` (part of [pactifying](glossary.md#pactify) it) always puts it there. Flux or Argo CD keep
+A new Stage starts on **observe**. A Stage Pacto creates from the installation
+ladder for a [pactified](glossary.md#pactify) service starts there unless its
+applier is guarded. Flux or Argo CD keep
 doing what they do today, and Pacto changes nothing.
 
 For each version your GitOps tool runs, Pacto writes down what it would have

@@ -1,11 +1,14 @@
 package orgindex
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
+	godigest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -120,4 +123,74 @@ func EntryLayer(rawManifest []byte) (ocispec.Descriptor, error) {
 		return ocispec.Descriptor{}, fmt.Errorf("the entry layer is %d bytes, over the %d-byte bound", m.Layers[0].Size, MaxEntryBytes)
 	}
 	return m.Layers[0], nil
+}
+
+// Repository is what ReadEntry reads an index repository through; an ORAS
+// remote repository is one. Declared here so this package links no registry
+// client.
+type Repository interface {
+	Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error)
+	Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error)
+}
+
+// LayerFunc fetches the layer of the entry manifest desc: a reader passes
+// its own cache in.
+type LayerFunc func(ctx context.Context, desc ocispec.Descriptor) ([]byte, error)
+
+// ReadEntry reads the entry under tag in the index repository repo, which r
+// reaches, checking each bound before the read it guards, then binds it to
+// repo and tag (Validate). layer fetches the entry layer; nil fetches it from
+// r with no cache. It is the one entry reader: pacto's index source and the
+// promoter's installation ladder both read through it.
+func ReadEntry(ctx context.Context, r Repository, repo, tag string, layer LayerFunc) (Entry, error) {
+	desc, err := r.Resolve(ctx, tag)
+	if err != nil {
+		return Entry{}, err
+	}
+	if desc.Size > MaxManifestBytes {
+		return Entry{}, fmt.Errorf("the manifest is %d bytes, over the %d-byte bound", desc.Size, MaxManifestBytes)
+	}
+	if layer == nil {
+		layer = func(ctx context.Context, desc ocispec.Descriptor) ([]byte, error) { return fetchLayer(ctx, r, desc) }
+	}
+	b, err := layer(ctx, desc)
+	if err != nil {
+		return Entry{}, err
+	}
+	e, err := Decode(b)
+	if err == nil {
+		err = e.Validate(repo, tag)
+	}
+	return e, err
+}
+
+// fetchLayer fetches the entry manifest desc, then the layer EntryLayer
+// names.
+func fetchLayer(ctx context.Context, r Repository, desc ocispec.Descriptor) ([]byte, error) {
+	raw, err := fetchAll(ctx, r, desc)
+	if err != nil {
+		return nil, err
+	}
+	l, err := EntryLayer(raw)
+	if err != nil {
+		return nil, err
+	}
+	return fetchAll(ctx, r, l)
+}
+
+// fetchAll reads desc from r, refusing content of another size or digest.
+func fetchAll(ctx context.Context, r Repository, desc ocispec.Descriptor) ([]byte, error) {
+	rc, err := r.Fetch(ctx, desc)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rc.Close() }()
+	b, err := io.ReadAll(io.LimitReader(rc, desc.Size+1))
+	switch {
+	case err != nil:
+		return nil, err
+	case int64(len(b)) != desc.Size || godigest.FromBytes(b) != desc.Digest:
+		return nil, fmt.Errorf("the content of %s is not the %d bytes its descriptor names", desc.Digest, desc.Size)
+	}
+	return b, nil
 }

@@ -900,3 +900,60 @@ func TestEditToolRemoveEnvironments(t *testing.T) {
 		t.Errorf("pr-1 file kept: %v", err)
 	}
 }
+
+// TestEditAddsFilelessEnvironmentRaisesTo26: noFile declares an environment
+// with no file key and creates no file, raising to 2.6; removing it later
+// deletes nothing.
+func TestEditAddsFilelessEnvironmentRaisesTo26(t *testing.T) {
+	noEnvDir := func(t *testing.T, dir string) {
+		t.Helper()
+		if _, err := os.Stat(filepath.Join(dir, "environments")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("environments written: %v", err)
+		}
+	}
+	runEditCases(t, []editCase{{
+		name:  "noFile raises to 2.6",
+		pacto: orders23,
+		input: EditInput{AddEnvironments: []EnvironmentInput{{Name: "pr-412", NoFile: true, Lifetime: contract.EnvironmentTemporary, Expires: "2026-12-01T00:00:00Z"}}},
+		changes: []string{`set pactoVersion to "2.6" (was "2.3")`,
+			`added environment "pr-412" (no values file), temporary until 2026-12-01T00:00:00Z`},
+		check: func(t *testing.T, dir string) {
+			raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+			if c := readContract(t, dir); c.PactoVersion != "2.6" || len(c.Environments) != 1 || c.Environments[0].File != "" || strings.Contains(string(raw), "file") {
+				t.Errorf("contract:\n%s", raw)
+			}
+			noEnvDir(t, dir)
+		},
+	}, {
+		name:    "removing a file-less environment deletes nothing",
+		pacto:   strings.Replace(orders24, `"2.4"`, `"2.6"`, 1) + "environments:\n  - {name: pr-412}\n",
+		input:   EditInput{RemoveEnvironments: []string{"pr-412"}},
+		changes: []string{`removed environment "pr-412"`},
+		check:   noEnvDir,
+	}})
+}
+
+// TestEditNoFileWithFileRefused: noFile with a file, or with values for the
+// same environment, is refused and writes nothing.
+func TestEditNoFileWithFileRefused(t *testing.T) {
+	for _, tc := range []struct {
+		name, pacto string
+		input       EditInput
+		want        string
+	}{
+		{"noFile and file", orders23, EditInput{AddEnvironments: []EnvironmentInput{{Name: "pr", NoFile: true, File: "e.yaml"}}},
+			`environment "pr": give file or noFile, not both`},
+		{"noFile and values", orders24, EditInput{AddEnvironments: []EnvironmentInput{{Name: "pr", NoFile: true}},
+			SetEnvironmentValues: []EnvironmentValuesInput{{Environment: "pr", Configuration: "db", Values: map[string]any{"size": "large"}}}},
+			`environment "pr" declares no values file, so it takes no values; give it a file to set values`},
+	} {
+		dir := refRoot(t, tc.pacto, nil)
+		tc.input.Path = dir
+		if _, err := Edit(context.Background(), realValidator, EditOptions{}, tc.input); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err %v", tc.name, err)
+		}
+		if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); string(raw) != tc.pacto {
+			t.Errorf("%s: pacto.yaml changed:\n%s", tc.name, raw)
+		}
+	}
+}

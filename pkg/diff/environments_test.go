@@ -85,3 +85,29 @@ func TestDiffEnvironmentFields(t *testing.T) {
 		}
 	}
 }
+
+// TestDiffEnvironmentFileRemoved: dropping an environment's file is a file
+// removal, classified as a removed field is today, and the values it held go
+// away as NonBreaking removals.
+func TestDiffEnvironmentFileRemoved(t *testing.T) {
+	old := []contract.Environment{{Name: "prod", File: "envs/prod.yaml"}}
+	new := []contract.Environment{{Name: "prod"}}
+	oldFS := fstest.MapFS{"envs/prod.yaml": {Data: []byte("app: {LOG_LEVEL: warn}\n")}}
+	var got []string
+	for _, c := range diffEnvironments(old, new, oldFS, fstest.MapFS{}) {
+		got = append(got, c.Path+" "+c.Type.String()+" "+c.Classification.String())
+	}
+	want := "environments[prod].file removed POTENTIAL_BREAKING\n" +
+		"environments[prod].app removed NON_BREAKING"
+	if strings.Join(got, "\n") != want {
+		t.Fatalf("got\n%s\nwant\n%s", strings.Join(got, "\n"), want)
+	}
+}
+
+// TestDiffFilelessEnvironmentsEqual: two file-less environments compare equal.
+func TestDiffFilelessEnvironmentsEqual(t *testing.T) {
+	e := []contract.Environment{{Name: "pr-412", Lifetime: "temporary"}}
+	if c := diffEnvironments(e, e, fstest.MapFS{}, fstest.MapFS{}); len(c) != 0 {
+		t.Fatalf("got %+v", c)
+	}
+}

@@ -1,7 +1,7 @@
 # reports names ledger only: Pacto resolves it by name in the registry and
 # proposes its ref from the organization index and a range from the version
 # reports runs with.
-pactoVersion: "2.5"
+pactoVersion: "2.6"
 service:
   name: reports
   version: 1.0.0
