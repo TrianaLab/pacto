@@ -35,7 +35,7 @@ tests:
       - failedTemplate:
           errorMessage: "profile hardened renders no ClusterRole: leave idp.crossplane.install false"
 
-  - it: a crossplane Deployment owned by another release refuses
+  - it: a crossplane Deployment owned by another release refuses before the release namespace exists (install --create-namespace)
     template: templates/deployment.yaml
     set: {profile: idp, idp.crossplane.install: true}
     kubernetesProvider:
@@ -47,7 +47,7 @@ tests:
           gvr: {group: apps, version: v1, resource: deployments}
           namespaced: true
       objects:
-        - {kind: Namespace, apiVersion: v1, metadata: {name: pacto-operator-system}}
+        - {kind: Namespace, apiVersion: v1, metadata: {name: kube-system}}
         - kind: Deployment
           apiVersion: apps/v1
           metadata:
@@ -76,7 +76,7 @@ tests:
           gvr: {group: apps, version: v1, resource: deployments}
           namespaced: true
       objects:
-        - {kind: Namespace, apiVersion: v1, metadata: {name: pacto-operator-system}}
+        - {kind: Namespace, apiVersion: v1, metadata: {name: kube-system}}
         - kind: Deployment
           apiVersion: apps/v1
           metadata:

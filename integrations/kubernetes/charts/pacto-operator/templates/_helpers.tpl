@@ -1103,12 +1103,14 @@ The schema refuses an unknown name first: that fail backs up
 {{- end }}
 
 {{/*
-Whether this render talks to a cluster: the release namespace is found. Under
-helm template, a client dry-run or Argo CD, lookup returns nothing, so a
-refusal that needs cluster state is skipped there.
+Whether this render talks to a cluster: kube-system, which every cluster has,
+is found. The release namespace is no probe: helm install --create-namespace
+renders before it creates it. Under helm template, a client dry-run or Argo
+CD, lookup returns nothing, so a refusal that needs cluster state is skipped
+there.
 */}}
 {{- define "pacto-operator.liveRender" -}}
-{{- if lookup "v1" "Namespace" "" .Release.Namespace }}true{{ end }}
+{{- if lookup "v1" "Namespace" "" "kube-system" }}true{{ end }}
 {{- end }}
 
 {{/*
