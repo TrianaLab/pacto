@@ -83,7 +83,8 @@ Pacto matches each entity to a service in this order:
 2. An entity with `pacto.trianalab.io/service-key` matches that service key or
    nothing.
 3. Otherwise `metadata.name`, lowercased, matches the one service with that
-   name in every registry.
+   name in every registry, or the one inferred service whose workload has
+   that name (`ledger` matches `k8s:shop/Deployment/ledger`).
 
 An entity whose name matches no service is ignored. A name that matches
 several services, or two entities that give one service different values,

@@ -395,8 +395,8 @@ const (
 // contract it runs. Owner never holds an inferred value, because approvals and
 // every ownership answer read it: inferred means no declared or attested owner
 // exists while an inferred one is held in the separate field
-// [ServiceRecord.InferredOwner], so Owner stays empty. The inferred tier is set only together with the field that holds that
-// value.
+// [ServiceRecord.InferredOwner], so Owner stays empty. The inferred tier is
+// set only together with the field that holds that value.
 const (
 	OwnerProvenanceDeclared          = "declared"
 	OwnerProvenanceDeclaredViaTarget = "declared-via-target"
@@ -1641,8 +1641,9 @@ type FleetSnapshot struct {
 	// contract describes (an inferred service), and the dependencies a source
 	// outside every contract reports between services (see
 	// [Collection.ServiceFacts]; their evidence kind is serviceFact). They are
-	// kept out of Relationships and every index a gate, impact or reconciliation reads:
-	// an inferred edge never satisfies a dependency. Sorted like Relationships.
+	// kept out of Relationships and every index a gate, impact or
+	// reconciliation reads: an inferred edge never satisfies a dependency.
+	// Sorted like Relationships.
 	InferredRelationships []Relationship `json:"inferredRelationships,omitempty"`
 	// Replacements are the inferred services a declared service took over,
 	// sorted by From.

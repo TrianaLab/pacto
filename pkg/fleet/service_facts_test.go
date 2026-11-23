@@ -398,6 +398,13 @@ func TestRestrictServiceFactEdgeNeverCountsHidden(t *testing.T) {
 	if n := shop(runtime, "payments").HiddenDependents; n != shop(base, "payments").HiddenDependents+1 {
 		t.Errorf("a runtime inferred edge from a hidden caller counts %d", n)
 	}
+	// The availability answer reads HiddenDependents: a fact edge never turns it partial.
+	if base.availabilityPartial(shop(base, "payments")) || q.availabilityPartial(shop(q, "payments")) {
+		t.Error("a fact edge from a hidden service made payments' availability partial")
+	}
+	if !runtime.availabilityPartial(shop(runtime, "payments")) {
+		t.Error("a runtime inferred edge from a hidden caller left availability complete")
+	}
 }
 
 func TestRestrictRebuildsServiceFactAmbiguous(t *testing.T) {

@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 func serviceDetail(t *testing.T, q *Query, key ServiceKey) *ServiceDetailData {
@@ -96,5 +98,25 @@ func TestHasServiceFact(t *testing.T) {
 	fact := Relationship{InferredSources: []InferredSource{{Kind: "call"}, {Kind: serviceFactKind}}}
 	if !HasServiceFact(fact) || HasServiceFact(Relationship{InferredSources: []InferredSource{{Kind: "call"}}}) || HasServiceFact(Relationship{}) {
 		t.Error("HasServiceFact")
+	}
+}
+
+// A declared service with no owner reads its owner section as inferred once a
+// source reports an owner, and as missing without one.
+func TestServiceCompletenessOwnerInferredFromFact(t *testing.T) {
+	section := func(q *Query) CompletenessSection {
+		for _, sec := range q.serviceCompleteness(shop(q, "ledger")).Sections {
+			if sec.Section == contract.SectionOwner {
+				return sec
+			}
+		}
+		t.Fatal("no owner section")
+		return CompletenessSection{}
+	}
+	if got := section(shopFleet(t)).State; got != contract.CompletenessMissing {
+		t.Errorf("owner section without a fact = %q, want missing", got)
+	}
+	if got := section(shopFleet(t, factCatalog(fact("ledger", "team-ledger")))); got.State != contract.CompletenessInferred || got.Reason != "the owner is inferred; pacto.yaml does not declare it" {
+		t.Errorf("owner section with a fact = %+v", got)
 	}
 }
