@@ -207,7 +207,7 @@ func TestEvaluate_OptionalDependency(t *testing.T) {
 	}
 }
 
-// TestEvaluate_ExtensionCapability: an extension has no evaluator, so it is listed as unverified coverage
+// TestEvaluate_ExtensionCapability: an extension no producer reports on is listed as unverified coverage
 // rather than a required assertion nothing could satisfy, and a contract declaring one can reach Compliant.
 func TestEvaluate_ExtensionCapability(t *testing.T) {
 	c := contract.Contract{
