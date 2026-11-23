@@ -7,6 +7,7 @@
   import HelpTip from '../../components/HelpTip.svelte';
   import { acceptsLabel, businessDomainLabel, replacesTip, serviceKeyName, UNKNOWN_DOMAIN } from '../../lib/entityLabels.ts';
   import OwnershipFact from '../../components/OwnershipFact.svelte';
+  import InferredFact from '../../components/InferredFact.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import ServiceDelivery from '../../components/ServiceDelivery.svelte';
   import ServiceEnvironments from '../../components/ServiceEnvironments.svelte';
@@ -199,6 +200,7 @@
       {:else}
         <IdentityBadge label={businessDomainLabel('')} tone="neutral" title="Its contract declares no service.domain." describe />
       {/if}
+      {#if !bd && d.inferredBusinessDomain}<InferredFact fact={d.inferredBusinessDomain} what="domain" />{/if}
     </div>
     {#if d.ownership}
       <div class="se-fact" data-testid="service-owner">

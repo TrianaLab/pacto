@@ -129,6 +129,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	seenSourceIDs := map[string]bool{}
 	var observed []observedInput
 	var uses []sourcedUse
+	var facts []sourcedFact
 	var inferred []inferredInput
 	undeclaredOnly := map[string]bool{}
 	// Sources are processed in declared order so composition is deterministic
@@ -161,6 +162,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 			for _, u := range r.col.ExternalUses {
 				uses = append(uses, sourcedUse{use: u, source: src.ID()})
 			}
+			facts = append(facts, sourcedFacts(src.ID(), r.col)...)
 		}
 	}
 
@@ -185,6 +187,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	buildRelationships(snap, cat)
 	foldObservedRelationships(snap, observed)
 	foldExternalUses(snap, append(uses, recordExternalUses(snap)...))
+	foldServiceFacts(snap, facts)
 	attachInferredProviders(snap, cat)
 	finalizeExternals(snap)
 	reconcileDeclared(snap, undeclaredOnly)
@@ -193,7 +196,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	checkDetectedClusters(snap)
 	finalizeProviders(snap)
 	snap.Completeness = classifyCompleteness(snap)
-	snap.workloadOnlyPartial = snap.Completeness == CompletenessPartial && completenessExcept(snap, SourceKindKubernetesWorkloads) != CompletenessPartial
+	snap.workloadOnlyPartial = snap.Completeness == CompletenessPartial && completenessExcept(snap, nonConsumerSourceKinds...) != CompletenessPartial
 	snap.Limitations = append(snap.Limitations, degradedLimitations(snap)...)
 	if opts.DiscloseUncheckedFreshness && opts.FreshnessWindow == 0 && len(snap.Targets) > 0 {
 		snap.Limitations = append(snap.Limitations, Limitation{
@@ -524,6 +527,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	// values normalized at ingestion) are recorded on the target AND at the snapshot
 	// level, and mark the source partial.
 	snap.Limitations = append(snap.Limitations, col.Limitations...)
+	snap.Limitations = append(snap.Limitations, col.Notes...)
 	snap.Limitations = append(snap.Limitations, recordProblems...)
 	st, stateLims := sourceStateFor(src, col, now, revCount, targetCount, len(recordProblems) > 0)
 	st.Advisory, st.CautionOnly = col.Advisory, col.ObservedCautionOnly
@@ -2345,12 +2349,13 @@ func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 			s.OwnerProvenance = OwnerProvenanceDeclaredViaTarget
 		}
 	}
+	markInferredOwner(s)
 	return append(ownerConflict(snap, s), ownerBlockedLimitations(snap, s)...)
 }
 
 // registrySourceKinds are the source kinds whose revisions were published to
 // a registry, so the owner rule's verdict on them applies.
-var registrySourceKinds = []string{"oci", "cache"}
+var registrySourceKinds = []string{"oci", "cache", SourceKindRegistryListing}
 
 // pullingSourceKinds read a revision from a registry when the resolver
 // pinned it to a digest, and from a local folder otherwise (catalog roots,
@@ -3755,25 +3760,27 @@ func lookupServiceInDomain(snap *FleetSnapshot, domain, name string) ServiceKey 
 
 // classifyCompleteness derives snapshot completeness from source health.
 func classifyCompleteness(snap *FleetSnapshot) Completeness {
-	return completenessExcept(snap, "")
+	return completenessExcept(snap)
 }
 
 // ConsumerCompleteness is the completeness of what can name a consumer, for
-// impact and gate answers. A workload source reports only inferred services,
-// which are never consumers, so its health never makes such an answer
-// partial; its SOURCE_* limitations still say what it could not read. A
-// view partial for any other reason stays partial.
+// impact and gate answers. A workload source reports only inferred services
+// and a registry listing only templates and offerings, none of them ever a
+// consumer, so their health never makes such an answer partial; their
+// limitations still say what they could not read. A view partial for any
+// other reason stays partial.
 func (s *FleetSnapshot) ConsumerCompleteness() Completeness {
 	if s.Completeness != CompletenessPartial || !s.workloadOnlyPartial {
 		return s.Completeness
 	}
-	return completenessExcept(s, SourceKindKubernetesWorkloads)
+	return completenessExcept(s, nonConsumerSourceKinds...)
 }
 
-// completenessExcept is classifyCompleteness ignoring the sources of kind skip.
-func completenessExcept(snap *FleetSnapshot, skip string) Completeness {
+// completenessExcept is classifyCompleteness ignoring the sources of the
+// kinds in skip.
+func completenessExcept(snap *FleetSnapshot, skip ...string) Completeness {
 	for _, st := range snap.Sources {
-		if st.degraded() && (skip == "" || st.Kind != skip) {
+		if st.degraded() && !slices.Contains(skip, st.Kind) {
 			return CompletenessPartial
 		}
 	}

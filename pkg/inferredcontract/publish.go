@@ -217,7 +217,7 @@ func (r *run) verified(ctx context.Context, repo, tag string, key fleet.External
 	}
 	s := cur
 	s.AsOf, s.Completeness = rec.Surface.AsOf, rec.Surface.Completeness
-	if rebuilt, err := Bundle(key, s, tag, r.in); err != nil || digestOf(rebuilt) != h.Digest {
+	if rebuilt, err := Bundle(key, s, tag, r.in); err != nil || !digestsOf(rebuilt).Same(h.Digest) {
 		return nil, nil, "", refused
 	}
 	if err := publish.SignDigest(ctx, reg, r.d.Signer, repo, h.Digest); err != nil {
@@ -254,13 +254,28 @@ func (r *run) push(ctx context.Context, repo, version string, b *contract.Bundle
 // annotated is b's image with the manifest annotation that marks it inferred.
 func annotated(b *contract.Bundle) v1.Image {
 	img, _ := oci.BundleImage(b) // Bundle always holds a contract and an FS
+	return annotate(img)
+}
+
+// annotate adds the manifest annotation that marks an image inferred.
+func annotate(img v1.Image) v1.Image {
 	return mutate.Annotations(img, map[string]string{contract.AnnotationProvenance: contract.ProvenanceInferred}).(v1.Image)
 }
 
 // digestOf is the digest b's annotated image is pushed under, computed
-// without pushing: its layer is a stream, so it is read through first.
-func digestOf(b *contract.Bundle) string {
-	img := annotated(b)
+// without pushing.
+func digestOf(b *contract.Bundle) string { return drained(annotated(b)) }
+
+// digestsOf are both digests b's annotated image can be known by: the typed
+// one a push writes now and the legacy one a Pacto before 4.7 wrote, so a
+// repair of an older tag of the same content is never refused.
+func digestsOf(b *contract.Bundle) oci.Digests {
+	legacy, _ := oci.LegacyBundleImage(b) // Bundle always holds a contract and an FS
+	return oci.Digests{Typed: digestOf(b), Legacy: drained(annotate(legacy))}
+}
+
+// drained is img's digest once its layer stream is read through.
+func drained(img v1.Image) string {
 	// The bundle is in memory: reading its one layer cannot fail.
 	layers, _ := img.Layers()
 	rc, _ := layers[0].Compressed()

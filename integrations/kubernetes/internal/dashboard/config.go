@@ -71,6 +71,8 @@ type Config struct {
 	// Repositories are oci:// references the dashboard reads beside the
 	// contracts it discovers from Pacto resources, such as golden paths, which
 	// are never deployed and so have no Pacto resource to discover them from.
+	// Deprecated: with Registry set the dashboard lists every golden path and
+	// offering published under it; Repositories are still read.
 	Repositories []string
 
 	// ExternalCatalog is the organization external catalog the dashboard
@@ -100,6 +102,18 @@ type Config struct {
 	// StatsRegistry, when set, is the stats repository the Metrics page reads
 	// run records from (PACTO_STATS_REGISTRY).
 	StatsRegistry string
+	// Index is the organization index the dashboard reads every published
+	// service from (PACTO_DASHBOARD_INDEX), <registry>/pacto-index; empty
+	// reads none.
+	Index string
+	// BackstageURL is the Backstage catalog whose owners, systems and
+	// dependencies the dashboard reads as inferred values
+	// (PACTO_DASHBOARD_BACKSTAGE_URL); empty reads none.
+	BackstageURL string
+	// BackstageToken names the Secret, in the operator namespace, holding the
+	// catalog reader token (default key token). The kubelet resolves it into
+	// PACTO_BACKSTAGE_TOKEN; the operator never reads it.
+	BackstageToken KeyRef
 
 	// DeliveryTrust names the ConfigMap, in the operator namespace, holding the
 	// trust config the dashboard verifies delivery records with, so History
@@ -135,8 +149,9 @@ type Config struct {
 	FulcioURL    string
 	RekorURL     string
 	TimestampURL string
-	// Registry is where declarations made in the dashboard are published
-	// (<host>/<path>); empty: the dashboard offers no Declare.
+	// Registry is the installation registry (<host>/<path>): the dashboard
+	// lists the golden paths and offerings published under it and publishes
+	// declarations there; empty: the dashboard offers no Declare.
 	Registry string
 	// DeclareRegistrySecret names an existing kubernetes.io/dockerconfigjson
 	// Secret, in the operator namespace, with push access to Registry. Only the

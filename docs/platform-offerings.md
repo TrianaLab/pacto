@@ -33,10 +33,14 @@ An offering's detail lists its providers and its consumers:
   each environment.
 
 Each provider says where its membership comes from in `offeringProvenance`:
-`declared` when a contract revision declares the offering, `observed` when only
-the operators observing its targets report it.
+
+- `declared`: a contract revision declares the offering;
+- `observed`: only the operators observing its targets report it.
 
 The dashboard marks a provider owner that no revision Pacto read declares.
+
+A provider that runs nowhere is found in its registry, like
+[golden paths](golden-paths-reference.md#discovery).
 
 ## The Offerings list
 

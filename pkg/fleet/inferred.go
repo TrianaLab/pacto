@@ -470,7 +470,12 @@ func (q *Query) inferredServiceDetail(s *ServiceRecord) *EntityDetail {
 		Limitations: attributedLimitationsPreview(lims), Workload: jsonClone(s.Workload),
 		Calls: refPreview(calls), CallsObserved: observed,
 		HiddenDependencies: s.HiddenDependencies, HiddenDependents: s.HiddenDependents,
-		NextAction: declareAction(s.Workload.Name, s.Workload.Namespace),
+		NextAction:             declareAction(s.Workload.Name, s.Workload.Namespace),
+		InferredBusinessDomain: inferredBusinessDomain(s),
+	}
+	// An inferred service shows an owner only when a source reports one.
+	if s.OwnerProvenance == OwnerProvenanceInferred {
+		data.Ownership = serviceOwnership(q.snap, s)
 	}
 	return &EntityDetail{Meta: q.productMeta(), Entity: self, Service: data, Actions: []string{}}
 }

@@ -46,6 +46,30 @@ const (
 	AnnotationExternalKey          = "pacto.trianalab.io/external-key"
 	AnnotationCaller               = "pacto.trianalab.io/caller"
 	AnnotationCallerAmbiguous      = "pacto.trianalab.io/caller-ambiguous"
+	// AnnotationSource says how Pacto learned an entity it did not read from
+	// a contract: workload on an inferred Component, the evidence kinds on a
+	// Resource.
+	AnnotationSource = "pacto.trianalab.io/source"
+	// AnnotationWorkload is <Kind> [<cluster>/]<namespace>/<name> of an
+	// inferred service's workload.
+	AnnotationWorkload = "pacto.trianalab.io/workload"
+	// AnnotationInferredContract is the pacto-inferred repository of an
+	// external system's inferred contract.
+	AnnotationInferredContract = "pacto.trianalab.io/inferred-contract"
+	// AnnotationInferredOwner is the owner ref a source outside every
+	// contract reports for a service whose spec.owner is unknown because its
+	// owner is only inferred; it never fills spec.owner.
+	AnnotationInferredOwner = "pacto.trianalab.io/inferred-owner"
+	// AnnotationInferredOwnerSource is <source id> <the source's own
+	// reference> of AnnotationInferredOwner.
+	AnnotationInferredOwnerSource = "pacto.trianalab.io/inferred-owner-source"
+	// AnnotationInferredBusinessDomain is the business domain a source
+	// outside every contract reports for a service that declares none; it
+	// never fills spec.system.
+	AnnotationInferredBusinessDomain = "pacto.trianalab.io/inferred-business-domain"
+	// AnnotationInferredBusinessDomainSource is <source id> <the source's own
+	// reference> of AnnotationInferredBusinessDomain.
+	AnnotationInferredBusinessDomainSource = "pacto.trianalab.io/inferred-business-domain-source"
 )
 
 // TagInferred marks an entity Pacto inferred, in a field the Backstage catalog

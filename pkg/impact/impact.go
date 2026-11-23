@@ -761,13 +761,38 @@ func (r *Result) noteUnchecked(snap *fleet.FleetSnapshot) {
 	if checked {
 		return
 	}
-	n := 0
+	n, read := 0, "the index lists "
 	if r.ConsumerIndex != nil {
 		n = r.ConsumerIndex.Services
+	} else if src := indexSource(snap); src != nil {
+		// The services the source holds: its revision count also counts
+		// inferred contracts, which are externals, never services.
+		read = "Pacto read from the index "
+		for _, svc := range snap.Services {
+			if slices.Contains(svc.Sources, src.ID) {
+				n++
+			}
+		}
 	}
-	r.markIndexPartial(LimitationConsumerIndexUnchecked, "the index lists "+strconv.Itoa(n)+" "+plural(n, "service", "services")+
+	r.markIndexPartial(LimitationConsumerIndexUnchecked, read+strconv.Itoa(n)+" "+plural(n, "service", "services")+
 		"; without a target snapshot Pacto cannot tell whether a consumer is missing from it")
 }
+
+// indexSource is the first source of snap that read an organization index,
+// nil when none did. An advisory index source (what the whole-index read
+// left unread) lists no service of its own.
+func indexSource(snap *fleet.FleetSnapshot) *fleet.SourceState {
+	i := slices.IndexFunc(snap.Sources, func(s fleet.SourceState) bool {
+		return s.Kind == indexSourceKind && s.Status != fleet.SourceUnavailable && !s.Advisory
+	})
+	if i < 0 {
+		return nil
+	}
+	return &snap.Sources[i]
+}
+
+// indexSourceKind is the kind of a source that reads an organization index.
+const indexSourceKind = "index"
 
 // indexCheckKinds are the source kinds the index is checked against: those
 // that add running revisions with their declared dependencies.
@@ -862,6 +887,12 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		}
 		res.rangeCoverage(snap, opts.Acceptances)
 		res.applyPolicy(opts.Policy)
+	}
+	// A snapshot that already holds an organization index read (a whole-index
+	// fleet source) while impact read none is checked like one impact read:
+	// alone it never clears.
+	if res.ConsumerIndex == nil && indexSource(snap) != nil {
+		res.noteUnchecked(snap)
 	}
 	if opts.NameInferredFrom != "" && res.nameInferred() == "" {
 		res.Limitations = append(res.Limitations, fleet.Limitation{

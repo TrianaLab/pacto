@@ -3,12 +3,12 @@ package discover
 import (
 	"io/fs"
 	"path"
-	"regexp"
 	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/trianalab/pacto/v4/pkg/backstage"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/ignore"
 )
@@ -16,13 +16,6 @@ import (
 // codeownersPaths are where GitHub reads CODEOWNERS, in its order: the first
 // found is the only one read.
 var codeownersPaths = []string{".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"}
-
-// The owner names the contract accepts, as owner.team and owner.dri.
-var (
-	teamRE   = regexp.MustCompile(`^[a-zA-Z0-9._/-]+$`)
-	driRE    = regexp.MustCompile(`^[a-zA-Z0-9._@/-]+$`)
-	domainRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
-)
 
 // ownerField adds the service.owner entry the owner file p gives at line: a
 // team, or a person when dri. It is marked as read from an owner file, which
@@ -95,7 +88,7 @@ func (r *reader) codeownersRule(file string, data []byte) {
 	for _, dri := range []bool{false, true} {
 		for _, o := range owners {
 			name, ok := strings.CutPrefix(o, "@")
-			if ok && strings.Contains(name, "/") != dri && teamRE.MatchString(name) {
+			if ok && strings.Contains(name, "/") != dri && contract.ValidTeamName(name) {
 				r.ownerField(file, file, line, rankCodeowners, name, dri)
 				return
 			}
@@ -151,41 +144,26 @@ func (r *reader) catalog(p string, docs []*yaml.Node) {
 		r.catalogSystem(p, n)
 	}
 	for _, n := range items(contract.MapValue(spec, "dependsOn")) {
-		if kind, name := entityRef(scalar(n)); kind == "component" && name != "" {
+		if kind, name := backstage.EntityRef(scalar(n)); kind == "component" && name != "" {
 			r.catalogDependency(p, n.Line, path.Base(name))
 		}
 	}
 }
 
-// entityRef splits the Backstage entity reference ref, [kind:][namespace/]name,
-// into its kind, lowercased, and its name, which keeps a namespace other than
-// default.
-func entityRef(ref string) (kind, name string) {
-	kind, name, ok := strings.Cut(ref, ":")
-	if !ok {
-		kind, name = "", ref
-	}
-	return strings.ToLower(kind), strings.TrimPrefix(name, "default/")
-}
-
 // catalogOwner reads the owner n: a group, the default kind, is a team and a
 // user is a person.
 func (r *reader) catalogOwner(p string, n *yaml.Node) {
-	kind, name := entityRef(n.Value)
-	switch {
-	case (kind == "" || kind == "group") && teamRE.MatchString(name):
-		r.ownerField(p, p, n.Line, rankCatalog, name, false)
-	case kind == "user" && driRE.MatchString(name):
-		r.ownerField(p, p, n.Line, rankCatalog, name, true)
+	if o, ok := backstage.OwnerFromRef(n.Value); ok {
+		k, _ := o.Key() // OwnerFromRef sets exactly one of Team and DRI
+		r.ownerField(p, p, n.Line, rankCatalog, k.Value, k.Kind == contract.OwnerKindDRI)
 	}
 }
 
 // catalogSystem reads the system n as the domain, made a slug; one that is
 // still not a domain is a finding.
 func (r *reader) catalogSystem(p string, n *yaml.Node) {
-	_, name := entityRef(n.Value)
-	domain := contract.SanitizeName(name)
-	if !domainRE.MatchString(domain) || len(domain) > 63 {
+	domain, ok := backstage.DomainFromRef(n.Value)
+	if !ok {
 		r.find(CodeUnresolved, at(p, n.Line), unresolvedSystemMessage(at(p, n.Line)))
 		return
 	}

@@ -434,6 +434,21 @@ Controller arguments derived from values
 {{- with (($.Values.dashboard.stats | default dict).registry) }}
 - --dashboard-stats-registry={{ . }}
 {{- end }}
+{{- /* A release upgraded with reused 6.x values has no index key; the operator's own default is auto. */}}
+{{- with .Values.dashboard.index }}
+- --dashboard-index={{ . }}
+{{- end }}
+{{- with ($.Values.dashboard.backstage | default dict) }}
+{{- with .url }}
+- --dashboard-backstage-url={{ . }}
+{{- end }}
+{{- with .tokenSecret }}
+{{- if .name }}
+- --dashboard-backstage-token-secret={{ .name }}
+- --dashboard-backstage-token-key={{ .key | default "token" }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- /* Declare in the dashboard: the registry it publishes to, its own push Secret and the Sigstore it signs with. */}}
 {{- with .Values.registry }}
 - --dashboard-registry={{ . }}

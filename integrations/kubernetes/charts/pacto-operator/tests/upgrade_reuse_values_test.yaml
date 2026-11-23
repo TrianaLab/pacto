@@ -32,6 +32,8 @@ tests:
       dashboard.auth.allowAnonymous: true
       dashboard.auth.tokenLogin.enabled: false
       dashboard.auth.tokenSignIn: null
+      # 6.x values carry no dashboard.index key (516-S3).
+      dashboard.index: null
     asserts:
       - equal:
           path: spec.template.spec.containers[0].args

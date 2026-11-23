@@ -20,6 +20,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/singleflight"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry/remote"
 
@@ -84,22 +85,29 @@ func (s *indexSource) collect(ctx context.Context) *fleet.Collection {
 	coll := s.closure(ctx, roots)
 	s.confirmNames(coll, pending)
 	s.withoutProviderByName(coll)
-	coll.Limitations = append(slices.Clone(rd.lims), coll.Limitations...)
+	coll.State = indexReadState(rd, slices.Clone(rd.lims), coll)
 	s.summary = impact.ConsumerIndex{Repository: rd.repo, Status: rd.status, Services: rd.services,
 		Consumers: len(roots), Completeness: fleet.CompletenessComplete, Reason: rd.note}
-	// The read's own time, so a memoized read never reads as fresh.
-	at := rd.at
-	coll.State = &fleet.SourceState{Status: fleet.SourceAvailable, ObservedAt: &at, LastSuccessfulSync: &at}
-	switch {
-	case rd.unavailable:
-		coll.State = &fleet.SourceState{Status: fleet.SourceUnavailable, ObservedAt: &at}
-	case len(coll.Limitations) > 0:
-		coll.State.Status = fleet.SourcePartial
-	}
 	if len(coll.Limitations) > 0 {
 		s.summary.Completeness = fleet.CompletenessPartial
 	}
 	return coll
+}
+
+// indexReadState prepends lims to coll's limitations and is the state of
+// a source that read rd: unavailable when the index could not be listed,
+// partial with any limitation, else available. It stamps the read's own
+// time, so a memoized read never reads as fresh.
+func indexReadState(rd *indexRead, lims []fleet.Limitation, coll *fleet.Collection) *fleet.SourceState {
+	coll.Limitations = append(lims, coll.Limitations...)
+	at := rd.at
+	switch {
+	case rd.unavailable:
+		return &fleet.SourceState{Status: fleet.SourceUnavailable, ObservedAt: &at}
+	case len(coll.Limitations) > 0:
+		return &fleet.SourceState{Status: fleet.SourcePartial, ObservedAt: &at, LastSuccessfulSync: &at}
+	}
+	return &fleet.SourceState{Status: fleet.SourceAvailable, ObservedAt: &at, LastSuccessfulSync: &at}
 }
 
 // selectRoots records which services the index lists and returns the
@@ -137,12 +145,18 @@ func (s *indexSource) selectRoots(entries []orgindex.Entry) (roots []string, pen
 // service the entry names.
 func (s *indexSource) confirmNames(coll *fleet.Collection, pending map[string]orgindex.Entry) {
 	for _, r := range coll.Revisions {
-		e, ok := pending[r.RequestedRef]
-		if ok && r.Bundle != nil && r.Bundle.Contract != nil &&
-			string(fleet.NewServiceKeyDomain(r.Domain, r.Bundle.Contract.Service.Name)) == e.Service {
+		if e, ok := pending[r.RequestedRef]; ok && entryNamesRevision(e, r) {
 			s.listed[orgindex.Prefix(fleet.ServiceKey(e.Service))] = true
 		}
 	}
+}
+
+// entryNamesRevision reports whether r, pulled from e's bundle, is the
+// service e names: an entry pointing at another service's bundle never
+// speaks for it.
+func entryNamesRevision(e orgindex.Entry, r fleet.RawRevision) bool {
+	return r.Bundle != nil && r.Bundle.Contract != nil &&
+		string(fleet.NewServiceKeyDomain(r.Domain, r.Bundle.Contract.Service.Name)) == e.Service
 }
 
 // closure is the selected bundles and their dependency closure, bounded by
@@ -229,6 +243,10 @@ type indexMemo struct {
 	mu      sync.Mutex
 	reads   map[string]*indexRead
 	entries map[string]indexCached
+	// seen holds the repositories a read listed entries in.
+	seen map[string]bool
+	// flight joins concurrent reads of one candidate list.
+	flight singleflight.Group
 }
 
 // IndexEntries is the read of the first organization index among
@@ -250,17 +268,30 @@ func (s *Service) IndexEntries(ctx context.Context, candidates []string) *indexR
 	if rd != nil && now.Sub(rd.at) < indexListingTTL {
 		return rd
 	}
-	rd = s.readIndex(ctx, candidates)
-	rd.at = now
-	if rd.status == impact.IndexRead && ctx.Err() == nil {
-		m.mu.Lock()
-		if m.reads == nil {
-			m.reads = map[string]*indexRead{}
+	// Sources of one build read concurrently: they share one read.
+	v, _, _ := m.flight.Do(key, func() (any, error) {
+		rd := s.readIndex(ctx, candidates)
+		rd.at = now
+		if rd.status == impact.IndexRead && ctx.Err() == nil {
+			m.mu.Lock()
+			if m.reads == nil {
+				m.reads, m.seen = map[string]*indexRead{}, map[string]bool{}
+			}
+			m.reads[key] = rd
+			m.seen[rd.repo] = true
+			m.mu.Unlock()
 		}
-		m.reads[key] = rd
-		m.mu.Unlock()
-	}
-	return rd
+		return rd, nil
+	})
+	return v.(*indexRead)
+}
+
+// indexSeen reports whether this Service once listed entries in the index
+// repository repo: after that, not found is an outage, never a fact.
+func (s *Service) indexSeen(repo string) bool {
+	s.indexListings.mu.Lock()
+	defer s.indexListings.mu.Unlock()
+	return s.indexListings.seen[repo]
 }
 
 // readIndex lists the index, then reads and confirms each service's newest

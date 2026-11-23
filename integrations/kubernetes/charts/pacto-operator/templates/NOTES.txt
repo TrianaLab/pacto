@@ -82,6 +82,11 @@ Pacto Operator has been installed.
    Declare in the dashboard saves drafts; set dashboard.auth.oidc.signClientID to sign there.
 {{- end }}
 {{- end }}
+{{- if .Values.dashboard.repositories }}
+
+   dashboard.repositories is deprecated: set registry and the dashboard lists
+   every golden path and offering published under it.
+{{- end }}
 {{- end }}
 {{- if include "pacto-operator.dashboardMCP" . }}
 {{- $mcpURL := regexReplaceAll $unsafe (include "pacto-operator.dashboardMCPURL" . | default "http://127.0.0.1:3000/mcp") "" }}

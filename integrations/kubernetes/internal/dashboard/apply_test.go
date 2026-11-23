@@ -492,6 +492,18 @@ func TestApplySetsStatsRegistryEnv(t *testing.T) {
 	}
 }
 
+// TestDashboardIndexEnv: the dashboard reads the organization index the
+// operator names from its own registry, and none when the operator names none.
+func TestDashboardIndexEnv(t *testing.T) {
+	cfg := Config{Image: "i", Namespace: "n", Index: "ghcr.io/acme/pacto-index"}
+	if v, ok := envValue(cfg, "PACTO_DASHBOARD_INDEX"); !ok || v != "ghcr.io/acme/pacto-index" {
+		t.Fatalf("PACTO_DASHBOARD_INDEX: got %q, %v", v, ok)
+	}
+	if v, ok := envValue(Config{Image: "i", Namespace: "n"}, "PACTO_DASHBOARD_INDEX"); ok {
+		t.Fatalf("no index configured, yet PACTO_DASHBOARD_INDEX=%q", v)
+	}
+}
+
 func TestApplyNoStatsRegistryNoEnv(t *testing.T) {
 	if v, ok := envValue(Config{Image: "i", Namespace: "n"}, "PACTO_STATS_REGISTRY"); ok {
 		t.Fatalf("no stats registry configured, yet PACTO_STATS_REGISTRY=%q", v)

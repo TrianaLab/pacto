@@ -103,12 +103,9 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			if err != nil {
 				return err
 			}
-			// The dashboard builds only inside the Manager, where a bad URL would
-			// surface as a failed refresh; refuse it here instead.
-			for _, u := range miraURLs {
-				if err := fleetsrc.CheckMiraURL(u); err != nil {
-					return err
-				}
+			backstageURL, backstageToken := v.GetString("dashboard.backstage-url"), os.Getenv(backstageTokenEnv)
+			if err := checkSourceURLs(miraURLs, backstageURL, backstageToken); err != nil {
+				return err
 			}
 			externalCatalog := v.GetString("dashboard.external-catalog")
 			svc.OwnerPolicyPath = v.GetString("dashboard.owner-policy")
@@ -117,7 +114,9 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			contexts := splitList(v.GetStringSlice("dashboard.context"))
 			includeCurrent, clusterCfg, signInErr := signInCluster(v, contexts, d)
 			receiver, receiverErr := startReceiver(cmd.Context(), v.GetString("dashboard.otlp-receiver"))
-			if err := errors.Join(app.CheckExternalCatalogRef(externalCatalog), app.CheckDetectedRef(v.GetString("dashboard.detected")), signInErr, receiverErr); err != nil {
+			registry, registryErr := dashboardRegistry(v.GetString("dashboard.registry"))
+			if err := errors.Join(app.CheckExternalCatalogRef(externalCatalog), app.CheckDetectedRef(v.GetString("dashboard.detected")), dashboardIndexErr(v.GetString("dashboard.index")),
+				registryErr, signInErr, receiverErr); err != nil {
 				return err
 			}
 
@@ -142,9 +141,13 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				contexts:        contexts,
 				evidenceURL:     v.GetString("evidence-source-url"),
 				miraURLs:        miraURLs,
+				backstageURL:    backstageURL,
+				backstageToken:  backstageToken,
 				externalCatalog: externalCatalog,
 				detected:        v.GetString("dashboard.detected"),
 				fingerprints:    v.GetString("dashboard.fingerprints"),
+				index:           v.GetString("dashboard.index"),
+				registry:        registry,
 			}
 
 			fopts := dashboardFleetOptions(dir, repos, namespaces, observation, det)
@@ -153,7 +156,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			fopts.ClusterJoins = dashboardJoins(d, clusterCfg, det.detected, v.GetString("dashboard.delivery-namespace"))
 			configured := configuredSources(fopts)
 			if answersNothing(configured) {
-				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no cached bundles and no Kubernetes configuration", dir)
+				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no --index, no --registry, no cached bundles and no Kubernetes configuration", dir)
 			}
 
 			joins := joinLister(svc, fopts.ClusterJoins, time.Now)
@@ -241,6 +244,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)")
 	cmd.Flags().StringArray("trace-source", nil, "named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)")
 	cmd.Flags().StringArray("mira-source", nil, "base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)")
+	cmd.Flags().String("backstage-url", "", "base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from "+
+		backstageTokenEnv+" (also PACTO_DASHBOARD_BACKSTAGE_URL)")
 	cmd.Flags().String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_DASHBOARD_EXTERNAL_CATALOG)")
 	cmd.Flags().String("owner-policy", "", "the mounted owner policy (the chart's declare block as policy.json) that decides who may set a service owner (also PACTO_DASHBOARD_OWNER_POLICY)")
 	cmd.Flags().String("oidc-issuer-url", "", "OpenID Connect issuer people sign in with before the dashboard shows anything; every view then shows what the signed-in person's Kubernetes RBAC lets them read, and every action runs as them (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)")
@@ -252,9 +257,12 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().String("oidc-internal-issuer-url", "", "address the dashboard reaches the issuer at when it differs from the public issuer URL browsers use, such as an in-cluster Service; ID tokens must still name the public issuer (also PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL)")
 	addClaimFlags(cmd)
 	addSignFlags(cmd, v)
-	cmd.Flags().String("registry", "", "the registry declarations made in the dashboard are published to (<host>/<path>); without it the dashboard offers no Declare (also PACTO_DASHBOARD_REGISTRY)")
+	cmd.Flags().String("registry", "", "the installation registry (<host>/<path>): the dashboard lists the golden paths and offerings published under it, "+
+		"and declarations made in the dashboard are published there; without it the dashboard offers no Declare (also PACTO_DASHBOARD_REGISTRY)")
 	cmd.Flags().String("declare-registry-config", "", "a Docker config.json with push access to --registry: a shared dashboard writes declarations and drafts only with this credential of its own, "+
 		"never with the credentials it reads registries with (also PACTO_DASHBOARD_DECLARE_REGISTRY_CONFIG)")
+	cmd.Flags().Var(new(indexFlag), "index", "organization index whose every service the dashboard reads, as <registry>/pacto-index; none or unset reads none "+
+		"(also PACTO_DASHBOARD_INDEX; the operator sets it from its registry)")
 	cmd.Flags().Duration("session-idle-timeout", 0, "a session without a request for this long ends (default 1h)")
 	cmd.Flags().Duration("session-max-age", 0, "a session ends this long after sign-in, renewed or not (default 12h)")
 	cmd.Flags().Bool("token-login", false, "let people sign in with a Kubernetes token: a ServiceAccount token minted with --audience pacto-dashboard reads the fleet only, and a person's own token acts as them (also PACTO_DASHBOARD_TOKEN_LOGIN)")
@@ -284,6 +292,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.traces", cmd.Flags().Lookup("traces"))
 	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
 	_ = v.BindPFlag("dashboard.mira-sources", cmd.Flags().Lookup("mira-source"))
+	_ = v.BindPFlag("dashboard.backstage-url", cmd.Flags().Lookup("backstage-url"))
 	_ = v.BindPFlag("dashboard.external-catalog", cmd.Flags().Lookup("external-catalog"))
 	_ = v.BindPFlag("dashboard.owner-policy", cmd.Flags().Lookup("owner-policy"))
 	_ = v.BindPFlag("dashboard.registry", cmd.Flags().Lookup("registry"))
@@ -291,6 +300,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.detected", cmd.Flags().Lookup("detected"))
 	_ = v.BindPFlag("dashboard.otlp-receiver", cmd.Flags().Lookup("otlp-receiver"))
 	_ = v.BindPFlag("dashboard.fingerprints", cmd.Flags().Lookup("fingerprints"))
+	_ = v.BindPFlag("dashboard.index", cmd.Flags().Lookup("index"))
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-display-name", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
 		"oidc-username-claim", "oidc-username-prefix", "oidc-groups-claim", "oidc-groups-prefix",
 		"session-idle-timeout", "session-max-age", "token-login", "mcp", "mcp-url", "mcp-exchange-audience", "allow-anonymous", "review", "mira-url", "delivery-namespace", "delivery-trust", "members-host", "members-token-audience"} {
@@ -303,6 +313,21 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindEnv("evidence-source-url", "PACTO_EVIDENCE_SOURCE_URL")
 
 	return cmd
+}
+
+// checkSourceURLs refuses a Mira or Backstage source the fleet would refuse.
+// The dashboard builds only inside the Manager, where a bad URL would surface
+// as a failed refresh; refusing it at startup says so once.
+func checkSourceURLs(miraURLs []string, backstageURL, backstageToken string) error {
+	for _, u := range miraURLs {
+		if err := fleetsrc.CheckSourceURL("mira", u); err != nil {
+			return err
+		}
+	}
+	if backstageURL == "" {
+		return nil
+	}
+	return fleetsrc.CheckBackstageConfig(backstageURL, backstageToken)
 }
 
 // startReceiver starts the OTLP receiver at advertised (--otlp-receiver)
@@ -417,8 +442,12 @@ type dashboardSources struct {
 	// empty means none is configured.
 	evidenceURL string
 	// miraURLs are the operator-configured Mira nodes (--mira-source,
-	// PACTO_DASHBOARD_MIRA_SOURCES), already checked by fleetsrc.CheckMiraURL.
+	// PACTO_DASHBOARD_MIRA_SOURCES), already checked by fleetsrc.CheckSourceURL.
 	miraURLs []string
+	// backstageURL is the Backstage catalog (--backstage-url,
+	// PACTO_DASHBOARD_BACKSTAGE_URL) and backstageToken its reader token
+	// (PACTO_BACKSTAGE_TOKEN), already checked by fleetsrc.CheckBackstageConfig.
+	backstageURL, backstageToken string
 	// externalCatalog is the organization external catalog (--external-catalog,
 	// PACTO_DASHBOARD_EXTERNAL_CATALOG), already checked by
 	// app.CheckExternalCatalogRef.
@@ -429,6 +458,38 @@ type dashboardSources struct {
 	// fingerprints is the installation's workload manager and promoter
 	// fingerprints file (--fingerprints, PACTO_DASHBOARD_FINGERPRINTS).
 	fingerprints string
+	// index is the organization index whose every service the dashboard
+	// reads (--index, PACTO_DASHBOARD_INDEX, written by the operator from its
+	// own registry); empty or none reads none.
+	index string
+	// registry is the installation registry (--registry,
+	// PACTO_DASHBOARD_REGISTRY) whose golden paths and offerings the
+	// dashboard discovers; empty discovers none.
+	registry string
+}
+
+// dashboardIndexErr checks a non-empty dashboard index, which
+// PACTO_DASHBOARD_INDEX sets without the flag's own check.
+func dashboardIndexErr(v string) error {
+	if v == "" {
+		return nil
+	}
+	return checkIndexRef(v)
+}
+
+// dashboardRegistry is the dashboard registry normalized as a discovery
+// prefix, "" when unset. A value discovery refuses (a tag, a digest) is a
+// startup error naming the dashboard's own setting: left to the snapshot, it
+// would fail every refresh with a message about --discover.
+func dashboardRegistry(v string) (string, error) {
+	if v == "" {
+		return "", nil
+	}
+	p, err := app.CheckDiscover(v)
+	if err != nil {
+		return "", fmt.Errorf("--registry (PACTO_DASHBOARD_REGISTRY) %q takes <registry>[/<path>] with no tag or digest", v)
+	}
+	return p, nil
 }
 
 // localRootHasBundle reports whether dir looks like a place contracts live: a
@@ -487,12 +548,15 @@ func configuredSources(fopts app.FleetOptions) []string {
 	}{
 		{"local", len(fopts.LocalRoots) > 0},
 		{"oci", len(fopts.OCIRefs) > 0},
+		{"index", fopts.ReadIndex != ""},
+		{"registry", len(fopts.Discover) > 0},
 		{"cache", fopts.IncludeCache},
 		{"k8s", fopts.IncludeK8s},
 		{"context " + strings.Join(fopts.K8sContexts, ", context "), len(fopts.K8sContexts) > 0},
 		{"observation", len(fopts.ObservationSources) > 0},
 		{"evidence", len(fopts.EvidenceURLs) > 0},
 		{"mira", len(fopts.MiraURLs) > 0},
+		{"backstage", fopts.BackstageURL != ""},
 		{"detection", fopts.Detected != ""},
 	} {
 		if s.on {
@@ -503,9 +567,10 @@ func configuredSources(fopts app.FleetOptions) []string {
 }
 
 // answersNothing reports whether configured names no source that answers a
-// question. Detection alone answers none: it only adds hints to a fleet.
+// question. Detection and a Backstage catalog answer none: they only add hints
+// and inferred values to a fleet.
 func answersNothing(configured []string) bool {
-	return len(configured) == 0 || slices.Equal(configured, []string{"detection"})
+	return !slices.ContainsFunc(configured, func(n string) bool { return n != "detection" && n != "backstage" })
 }
 
 // fleetRefreshInterval is how often the dashboard's snapshot Manager rebuilds
@@ -849,8 +914,13 @@ func dashboardFleetOptions(dir string, repos []string, namespaces []string, obse
 		fopts.EvidenceURLs = append(fopts.EvidenceURLs, det.evidenceURL)
 	}
 	fopts.MiraURLs = det.miraURLs
+	fopts.BackstageURL, fopts.BackstageToken = det.backstageURL, det.backstageToken
 	fopts.ExternalCatalogRef = det.externalCatalog
 	fopts.Detected = det.detected
 	fopts.Fingerprints = det.fingerprints
+	fopts.ReadIndex = readIndex(det.index)
+	if det.registry != "" {
+		fopts.Discover = []string{det.registry}
+	}
 	return fopts
 }

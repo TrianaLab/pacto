@@ -26,7 +26,7 @@ const envDir = "environments"
 // environment adds the file value, read at src in the file file, as the
 // environment env's file. A name the contract does not accept is a finding.
 func (r *reader) environment(src, file, env, value string, rank int, confidence string) {
-	if !domainRE.MatchString(env) || len(env) > 63 {
+	if !contract.ValidSlug(env) {
 		r.find(CodeUnresolved, src, envNameMessage(src))
 		return
 	}

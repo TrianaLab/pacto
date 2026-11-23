@@ -115,7 +115,10 @@ type options struct {
 	dashboardAuth            dashboard.AuthConfig
 	dashboardExtraScopes     string
 	dashboardMiraURL         string
+	dashboardBackstageURL    string
+	dashboardBackstageToken  dashboard.KeyRef
 	dashboardStatsRegistry   string
+	dashboardIndex           string
 	dashboardDeliveryNS      string
 	dashboardDeliveryTrust   dashboard.KeyRef
 	dashboardRepositories    []string
@@ -190,7 +193,8 @@ func bindDashboardDeclareFlags(fs *flag.FlagSet, o *options) {
 		"Immutable ConfigMap in the operator namespace whose trusted_root.json the dashboard verifies the declarations "+
 			"it signs with (a private Sigstore or an air-gapped install). Empty: public-good Sigstore.")
 	fs.StringVar(&o.dashboardDeclare.Registry, "dashboard-registry", "",
-		"The registry (<host>/<path>) declarations made in the dashboard are published to; empty: no Declare.")
+		"The installation registry (<host>/<path>): the dashboard lists the golden paths and offerings published "+
+			"under it, and publishes declarations there; empty: the dashboard offers no Declare.")
 	fs.StringVar(&o.dashboardDeclare.DeclareRegistrySecret, "dashboard-declare-registry-secret", "",
 		"An existing kubernetes.io/dockerconfigjson Secret in the operator namespace with push access to "+
 			"--dashboard-registry, mounted for the dashboard's Declare writer only. Empty: the dashboard plans only.")
@@ -256,7 +260,9 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.StringVar(&o.dashboardDeliveryTrust.Key, "dashboard-delivery-trust-key", "trust.yaml",
 		"Key of the trust config in that ConfigMap.")
 	fs.Func("dashboard-repositories",
-		"Comma-separated oci:// references the dashboard reads beside the contracts it discovers from Pacto "+
+		"Deprecated: set --dashboard-registry (the chart's registry value); "+
+			"the dashboard lists every golden path and offering published under it. "+
+			"Comma-separated oci:// references the dashboard reads beside the contracts it discovers from Pacto "+
 			"resources, such as golden paths, which are never deployed.",
 		func(v string) error {
 			o.dashboardRepositories = append(o.dashboardRepositories, strings.Split(v, ",")...)
@@ -308,9 +314,27 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			"empty means pacto-delivery.")
 	fs.StringVar(&o.dashboardMiraURL, "dashboard-mira-url", "",
 		"Mira's address, to link the dashboard's health-check citations.")
+	fs.StringVar(&o.dashboardBackstageURL, "dashboard-backstage-url", "",
+		"Base URL of a Backstage catalog whose owners, systems and dependencies the dashboard shows as inferred values.")
+	fs.StringVar(&o.dashboardBackstageToken.Name, "dashboard-backstage-token-secret", "",
+		"Secret in the operator namespace holding the catalog reader token, "+
+			"which the dashboard sends only to --dashboard-backstage-url; the operator never reads it.")
+	fs.StringVar(&o.dashboardBackstageToken.Key, "dashboard-backstage-token-key", "token",
+		"Key of the reader token in that Secret.")
 	fs.StringVar(&o.dashboardStatsRegistry, "dashboard-stats-registry", "",
 		"Stats repository the dashboard's Metrics page reads run records from, with the dashboard's OCI credentials; "+
 			"empty: the page explains how to turn recording on.")
+	o.dashboardIndex = dashboardIndexAuto
+	fs.Func("dashboard-index",
+		"Organization index the dashboard reads every published service from, written `=mode`: auto reads "+
+			"<registry>/pacto-index when --registry is set, none reads none. auto by default.",
+		func(v string) error {
+			if v != dashboardIndexAuto && v != dashboardIndexNone {
+				return fmt.Errorf("want auto or none, got %q", v)
+			}
+			o.dashboardIndex = v
+			return nil
+		})
 	fs.BoolVar(&o.enableEvidence, "enable-evidence-server", false,
 		"Enable the managed Pacto Evidence Server deployment. Disabled by default.")
 	fs.BoolVar(&o.evidenceAuto, "evidence-server-auto", false,
@@ -768,7 +792,10 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 		Auth:                  o.dashboardAuth,
 		DeliveryNamespace:     o.dashboardDeliveryNS,
 		MiraURL:               o.dashboardMiraURL,
+		BackstageURL:          o.dashboardBackstageURL,
+		BackstageToken:        o.dashboardBackstageToken,
 		StatsRegistry:         o.dashboardStatsRegistry,
+		Index:                 dashboardIndex(o.dashboardIndex, inst),
 		DeliveryTrust:         o.dashboardDeliveryTrust,
 		Repositories:          o.dashboardRepositories,
 		ExternalCatalog:       o.dashboardExternalCatalog,
@@ -918,6 +945,22 @@ func addNodeAgent(mgr ctrl.Manager, o *options, namespace string) error {
 		return fmt.Errorf("failed to add node agent reconciler: %w", err)
 	}
 	return nil
+}
+
+// The --dashboard-index modes.
+const (
+	dashboardIndexAuto = "auto"
+	dashboardIndexNone = "none"
+)
+
+// dashboardIndex is the organization index the managed dashboard reads: the installation's own, written
+// from --registry, when mode is auto. It never comes from the detection ConfigMap, which a third party
+// could forge to choose the host that receives the dashboard's registry credentials.
+func dashboardIndex(mode string, inst *detect.Installation) string {
+	if mode != dashboardIndexAuto || inst == nil {
+		return ""
+	}
+	return inst.Index
 }
 
 // addPublishers runs the linker, the target snapshot publisher and, with --hub-url, the member link (both

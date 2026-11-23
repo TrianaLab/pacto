@@ -9,6 +9,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -27,14 +28,103 @@ import (
 
 const (
 	LayerMediaType = types.MediaType("application/vnd.pacto.bundle.layer.v1.tar+gzip")
+
+	// BundleArtifactType is the manifest artifactType every new bundle push
+	// carries, so a registry listing can tell a bundle from other artifacts.
+	BundleArtifactType = "application/vnd.pacto.bundle.v1"
+	// AnnotationKind is the manifest annotation that names the bundle's kind:
+	// KindService, KindTemplate or KindOffering.
+	AnnotationKind = "io.pacto.kind"
+
+	KindService  = "service"
+	KindTemplate = "template"
+	KindOffering = "offering"
 )
+
+// BundleKind is the kind a contract publishes as: a template when it declares
+// service.template, else an offering when it declares service.offering, else a
+// service. A golden path that declares an offering is a template, because
+// pacto init --from drops the path's offering.
+func BundleKind(c *contract.Contract) string {
+	switch {
+	case c.Service.Template != nil:
+		return KindTemplate
+	case c.Service.Offering != "":
+		return KindOffering
+	default:
+		return KindService
+	}
+}
 
 // tarEpoch is the fixed modification time stamped on every packed tar entry, so a
 // bundle's OCI digest depends only on content — never on filesystem timestamps.
 var tarEpoch = time.Unix(0, 0).UTC()
 
-// bundleToImage converts a contract.Bundle into an OCI v1.Image.
+// bundleToImage converts a contract.Bundle into the OCI v1.Image a push writes:
+// the legacy image plus the io.pacto.kind annotation and the bundle
+// artifactType on its manifest.
 func bundleToImage(b *contract.Bundle) (v1.Image, error) {
+	img, err := legacyBundleImage(b)
+	if err != nil {
+		return nil, err
+	}
+	// mutate.Annotations returns a v1.Image for a v1.Image base.
+	annotated := mutate.Annotations(img, map[string]string{AnnotationKind: BundleKind(b.Contract)}).(v1.Image)
+	return typedImage{Image: annotated}, nil
+}
+
+// typedImage adds BundleArtifactType to its image's manifest. go-containerregistry
+// has the field but no image mutator for it. Every method computes per call and
+// caches nothing: the bundle layer is a stream whose digest is known only once
+// remote.Write or a digest drain has read it, so a cached manifest would be
+// incomplete.
+//
+// ponytail: no untyped retry. A registry that refuses artifactType refuses the
+// organization index too, which already pushes it.
+type typedImage struct{ v1.Image }
+
+func (t typedImage) Manifest() (*v1.Manifest, error) {
+	m, err := t.Image.Manifest()
+	if err != nil {
+		return nil, err
+	}
+	m = m.DeepCopy()
+	m.ArtifactType = BundleArtifactType
+	return m, nil
+}
+
+func (t typedImage) RawManifest() ([]byte, error) {
+	m, err := t.Manifest()
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(m)
+}
+
+func (t typedImage) Digest() (v1.Hash, error) {
+	raw, err := t.RawManifest()
+	if err != nil {
+		return v1.Hash{}, err
+	}
+	h, _, err := v1.SHA256(bytes.NewReader(raw))
+	return h, err
+}
+
+func (t typedImage) Size() (int64, error) {
+	raw, err := t.RawManifest()
+	return int64(len(raw)), err
+}
+
+// LegacyBundleImage is the image a Pacto before 4.7 pushed for b, with no
+// artifactType and no kind annotation. It exists only to recognise a tag such
+// a release pushed; nothing pushes it.
+func LegacyBundleImage(b *contract.Bundle) (v1.Image, error) {
+	return legacyBundleImage(b)
+}
+
+// legacyBundleImage packs b as Pacto did before bundles were typed: config
+// labels and one tar+gzip layer.
+func legacyBundleImage(b *contract.Bundle) (v1.Image, error) {
 	if b == nil || b.Contract == nil || b.FS == nil {
 		return nil, fmt.Errorf("bundle, contract, and filesystem are required")
 	}
@@ -79,7 +169,47 @@ func BundleDigest(b *contract.Bundle) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// bundleToImage builds exactly one layer, and reading it can only fail if
+	return drainedDigest(img)
+}
+
+// Digests are the two digests one bundle can be known by on a registry tag:
+// Typed is what a push writes now, Legacy what a Pacto before 4.7 wrote.
+type Digests struct{ Typed, Legacy string }
+
+// BundleDigests packs b both ways. Call it only where a local bundle is
+// compared with a registry tag; BundleDigest is the one-pack digest of a push.
+func BundleDigests(b *contract.Bundle) (Digests, error) {
+	typed, err := BundleDigest(b)
+	if err != nil {
+		return Digests{}, err
+	}
+	// BundleDigest already proved b packs, so the legacy pack cannot fail.
+	img, _ := legacyBundleImage(b)
+	legacy, err := drainedDigest(img)
+	if err != nil {
+		return Digests{}, err
+	}
+	return Digests{Typed: typed, Legacy: legacy}, nil
+}
+
+// Same reports whether remote is either digest of the bundle.
+func (d Digests) Same(remote string) bool {
+	return remote != "" && (remote == d.Typed || remote == d.Legacy)
+}
+
+// For is the digest the bundle is known by on a tag holding remote: remote
+// when it is either digest, else Typed.
+func (d Digests) For(remote string) string {
+	if d.Same(remote) {
+		return remote
+	}
+	return d.Typed
+}
+
+// drainedDigest reads the single layer stream of a bundle image so its
+// manifest digest is final, then returns that digest.
+func drainedDigest(img v1.Image) (string, error) {
+	// A bundle image has exactly one layer, and reading it can only fail if
 	// the bundle's filesystem does, which the digest call below reports too.
 	layers, _ := img.Layers()
 	rc, _ := layers[0].Compressed()

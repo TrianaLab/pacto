@@ -228,9 +228,15 @@ func MakePlan(ctx context.Context, reg Registry, in Input) Plan {
 		p.Items = artifactItems(ctx, reg, pub, p.Version, in.Revision)
 	}
 	ref := Repo(pub.Bundle) + ":" + p.Version
-	digest, err := oci.BundleDigest(in.Bundle)
+	ds, err := oci.BundleDigests(in.Bundle)
 	r, headErr := reg.Head(ctx, ref)
-	st, why := Decide(r, headErr, digest, p.Version, "")
+	remoteDigest := "" // r is nil on Absent and on a head error
+	if r != nil {
+		remoteDigest = r.Digest
+	}
+	// A tag an older Pacto wrote holds the legacy digest of the same content:
+	// identical, never a conflict.
+	st, why := Decide(r, headErr, ds.For(remoteDigest), p.Version, "")
 	if err != nil {
 		st, why = Unreadable, "the bundle could not be packed: "+err.Error()
 	}
@@ -239,7 +245,7 @@ func MakePlan(ctx context.Context, reg Registry, in Input) Plan {
 	}
 	bundle := item(BundleItem, BundleItem, ref, st, why, r)
 	if st == Absent {
-		bundle.Digest = digest
+		bundle.Digest = ds.Typed
 	}
 	p.Items = append(p.Items, bundle)
 

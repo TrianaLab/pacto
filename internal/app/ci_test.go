@@ -7,8 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-containerregistry/pkg/name"
+	ggcrremote "github.com/google/go-containerregistry/pkg/v1/remote"
+
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 // writeCIFile writes data to root/rel, creating its folders.
@@ -106,5 +110,33 @@ func TestCIPlanRegistryFlagAndContext(t *testing.T) {
 func TestCIPlanRootMissing(t *testing.T) {
 	if _, _, err := NewService(nil, nil).CIPlan(context.Background(), CIOptions{Root: filepath.Join(t.TempDir(), "nope")}); err == nil {
 		t.Fatal("a missing root must fail the run")
+	}
+}
+
+// TestCIUnchangedAcrossTypedPush: pacto ci compares content, so a baseline an
+// older Pacto pushed untyped still reads unchanged against the same folder,
+// even though a push would now write another manifest digest.
+func TestCIUnchangedAcrossTypedPush(t *testing.T) {
+	ir := newIndexReg(t)
+	svc, dir := pushIndexService(ir), writeTestBundle(t)
+	local, err := svc.ResolveBundle(t.Context(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, _ := oci.LegacyBundleImage(local)
+	ref, _ := name.ParseReference(ir.host+"/acme/svc:1.0.0", name.Insecure)
+	if err := ggcrremote.Write(ref, img); err != nil {
+		t.Fatal(err)
+	}
+	base, err := svc.BundleStore.Pull(t.Context(), ir.host+"/acme/svc:1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds, _ := oci.BundleDigests(local)
+	if ds.Typed == ds.Legacy {
+		t.Fatal("the typed and legacy digests are equal")
+	}
+	if same, why := Unchanged(base, local); !same {
+		t.Fatalf("a legacy baseline of the same content reads changed: %s", why)
 	}
 }

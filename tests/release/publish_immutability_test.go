@@ -42,6 +42,25 @@ func TestDemoBundlesImmutabilityGateFailsClosedWithoutCrane(t *testing.T) {
 	}
 }
 
+// The publisher prints "<tag> <typed> <legacy>" per bundle, and the gate reads
+// all three: a tag an older Pacto wrote holds the legacy (untyped) digest of
+// the same content, which must read identical, never a conflict.
+func TestDemoBundlesGateAcceptsLegacyDigest(t *testing.T) {
+	script, err := os.ReadFile(filepath.Join(repoRoot(t), "release", "scripts", "publish-demo-bundles.sh"))
+	if err != nil {
+		t.Fatalf("read publish-demo-bundles.sh: %v", err)
+	}
+	s := string(script)
+	for _, want := range []string{
+		`while read -r tag local_d legacy_d; do`,
+		`if [ "$remote_d" = "$local_d" ] || [ "$remote_d" = "$legacy_d" ]; then`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("publish-demo-bundles.sh lacks %q: a legacy tag would read as a conflict", want)
+		}
+	}
+}
+
 // A resumed finalize must overwrite assets a prior interrupted run already uploaded
 // (--clobber) instead of failing on the ones that already exist.
 func TestFinalizeReleaseResumeUsesClobber(t *testing.T) {

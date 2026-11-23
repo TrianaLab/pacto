@@ -34,7 +34,7 @@ const (
 	LimitationTruncated = "CONSUMER_INDEX_TRUNCATED"
 	// LimitationEntryInvalid: entries that were malformed, unbound or not
 	// confirmed by their service's own repository were never used.
-	LimitationEntryInvalid = "CONSUMER_INDEX_ENTRY_INVALID"
+	LimitationEntryInvalid = fleet.LimitationIndexEntryInvalid
 )
 
 // Provider is the changed service an index read selects consumers of: the

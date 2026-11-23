@@ -30,27 +30,35 @@ Its HTTP API is described at `/openapi.json`; see [Dashboard container](dashboar
 
 ## Fleet queries without a browser
 
-`pacto fleet` answers the same questions from a terminal or a CI job: it builds
-one snapshot from the sources you name, then queries it with `search`, `get`,
+`pacto fleet` answers the same questions from a terminal or CI: it builds
+one snapshot from your sources and queries it with `search`, `get`,
 `graph`, `status` and `explain`. `entities`, `entity` and `attention` list
-owners, business domains and offerings, inspect one of them and list what
+owners, business domains and offerings, inspect one and list what
 needs attention, most severe first. [Ask questions about your
 organization](ask-your-organization.md) maps common questions to these
 commands. `pacto fleet neighborhood <service>` lists who a service depends on
-and who depends on it, with their owners, and `--mira-source <url>` adds the
-calls a Mira node saw as observed edges. `pacto fleet versions <offering>`
+and who depends on it, with their owners. `pacto fleet versions <offering>`
 lists each provider's versions of a platform offering and, with `--range`,
-which satisfy it, and `pacto fleet entities --consumes <offering>` lists the
-services that consume it. `pacto fleet entity offering <slug>` shows each
+which satisfy it, and `pacto fleet entities --consumes <offering>` lists its
+consumers. `pacto fleet entity offering <slug>` shows each
 consumer's [provisioning status](platform-offerings.md#provisioning-status).
 `pacto fleet entities --kind external` lists the
 [external systems](external-catalog-reference.md) contracts name, and `get`,
 `graph` and `explain` take `external:<identity>`, such as `external:stripe`.
+`--index` also reads every service
+[the organization index](backstage-registry.md) lists.
+
+Two source flags add what other tools know:
+
+- `--mira-source <url>` adds the calls a Mira node saw as observed edges;
+- `--backstage-url <url>` adds the owner, system and dependencies a Backstage
+  catalog holds as inferred values; see
+  [Read owners from your Backstage catalog](backstage-catalog.md).
 
 For [inferred services](operational-graph-inferred.md):
 
 - `pacto fleet entities --declaration inferred --k8s` lists them, as below,
-  each with the group the cluster puts it in, and `--group` takes a group key
+  each with its cluster group, and `--group` takes a group key
   (`workload.group.key`) to list one group;
 - `pacto fleet graph` lists the calls with no contract on one end as
   `inferred` edges, with the sources that saw them;

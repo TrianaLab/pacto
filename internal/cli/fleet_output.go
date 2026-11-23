@@ -63,7 +63,8 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 		if more := sv.ReplacesTotal - len(sv.Replaces); more > 0 {
 			_, _ = fmt.Fprintf(w, "  %d more\n", more)
 		}
-		_, _ = fmt.Fprintf(w, "Owner: %s%s\n", orDash(s.Owner.DisplayString()), tui.OwnerProvenanceMark(s.OwnerProvenance, s.OwnerSource))
+		printServiceOwner(w, s)
+		printInferredDomain(w, s)
 		_, _ = fmt.Fprintf(w, "Status: %s\n", orDash(s.Status))
 		_, _ = fmt.Fprintf(w, "Sources: %v\n", s.Sources)
 		if s.Workload != nil {
@@ -76,6 +77,41 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 		warnPartial(cmd, sv.Meta)
 		return nil
 	}, nil)
+}
+
+// printServiceOwner prints a service's owner line. An owner only a source
+// outside every contract reports reads unknown, with the inferred value on
+// its own line, so it never reads as the owner.
+func printServiceOwner(w io.Writer, s *fleet.ServiceRecord) {
+	if s.OwnerProvenance != fleet.OwnerProvenanceInferred || s.InferredOwner == nil {
+		_, _ = fmt.Fprintf(w, "Owner: %s%s\n", orDash(s.Owner.DisplayString()), tui.OwnerProvenanceMark(s.OwnerProvenance, s.OwnerSource, nil))
+		return
+	}
+	_, _ = fmt.Fprintln(w, "Owner: unknown")
+	_, _ = fmt.Fprintln(w, inferredLine(tui.InferredOwnerLabel(s.InferredOwner.Value), s.InferredOwner))
+}
+
+// printInferredDomain prints the business domain a source reports for a
+// service that declares none; nothing otherwise.
+func printInferredDomain(w io.Writer, s *fleet.ServiceRecord) {
+	if s.BusinessDomain != "" || s.InferredBusinessDomain == nil {
+		return
+	}
+	domain := "none"
+	if s.BusinessDomainUnknown {
+		domain = "unknown"
+	}
+	_, _ = fmt.Fprintln(w, "Domain: "+domain)
+	_, _ = fmt.Fprintln(w, inferredLine(s.InferredBusinessDomain.Value, s.InferredBusinessDomain))
+}
+
+// inferredLine is "  inferred: <label> (<source> <where>, asOf <time>)".
+func inferredLine(label string, f *fleet.InferredFact) string {
+	from := strings.TrimSpace(f.Source + " " + f.Where)
+	if f.AsOf != nil {
+		from += ", asOf " + f.AsOf.UTC().Format(time.RFC3339)
+	}
+	return "  inferred: " + label + " (" + from + ")"
 }
 
 // printReplacedFrom says the answer is about the service that replaced the
