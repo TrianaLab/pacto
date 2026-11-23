@@ -147,7 +147,7 @@ func draftAnswer(w dashboard.DeclareWorkload, dr demoDraft) *dashboard.DeclareAc
 	repo := demoDeclareRegistry + "/" + w.Name
 	subject := w.Name
 	if w.Template != nil {
-		subject = w.Key
+		subject = w.Key + " --backstage-url " + demoBackstageBase
 	}
 	return &dashboard.DeclareAcceptAnswer{Published: repo + "@" + dr.digest, Tag: dr.tag, Draft: true,
 		Command: "pacto declare " + subject + " --registry " + demoDeclareRegistry + " --from-draft " + dr.tag}
@@ -217,7 +217,8 @@ func requested(accept []string, props []demoProposal) []string {
 func demoCommand(w dashboard.DeclareWorkload, accept []string, intent string) string {
 	cmd := "pacto declare " + w.Name + " --namespace " + w.Namespace + " --registry " + demoDeclareRegistry
 	if w.Template != nil {
-		cmd = "pacto declare " + w.Key + " --registry " + demoDeclareRegistry
+		// A template is read from the catalog: the real CLI needs its URL.
+		cmd = "pacto declare " + w.Key + " --backstage-url " + demoBackstageBase + " --registry " + demoDeclareRegistry
 	}
 	for _, a := range accept {
 		cmd += " --accept " + a

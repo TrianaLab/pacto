@@ -87,3 +87,14 @@ func TestBackstageNotDetectedIsPartial(t *testing.T) {
 		t.Errorf("entry = %+v", e)
 	}
 }
+
+// TestBackstageNotDetectedRowReadsNothing: the row of a catalog that was not
+// detected never says its owners and golden paths are read.
+func TestBackstageNotDetectedRowReadsNothing(t *testing.T) {
+	missing := Backstage(nil, nil)
+	found := Entry{Kind: "backstage", Value: "http://backstage.idp:7007", Completeness: Complete}
+	rows := ProviderRows(Result{Entries: []Entry{missing, found}}, "detect", time.Now())
+	if len(rows) != 2 || rows[0].UsedFor[0] != backstageNotDetectedUse || rows[1].UsedFor[0] != usedFor["backstage"] {
+		t.Errorf("rows = %+v", rows)
+	}
+}

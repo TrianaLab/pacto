@@ -475,7 +475,7 @@ func TestDemoDeclareTemplatePlan(t *testing.T) {
 	if err != nil || rec.Inputs.Cluster != nil || rec.Declaration.InferredFrom != "" || p.InferredFrom != "" || len(p.Notes) != 3 || a.PRCLI != "" {
 		t.Fatalf("%v %+v %+v", err, rec, p)
 	}
-	if a.Command != "pacto declare template:default/springboot-service --registry demo.pacto.local --intent "+p.IntentDigest {
+	if a.Command != "pacto declare template:default/springboot-service --backstage-url https://backstage.acme.example --registry demo.pacto.local --intent "+p.IntentDigest {
 		t.Fatalf("command %q", a.Command)
 	}
 }
@@ -498,7 +498,7 @@ func TestDemoDeclareTemplateDraft(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/api/fleet/declare", nil)
 	a, _ := d.Plan(r, w, dashboard.DeclareInput{ServiceKey: w.Key})
 	out, err := d.Accept(r, w, dashboard.DeclareAcceptInput{ServiceKey: w.Key, IntentDigest: a.Plan.IntentDigest, Mode: "draft"})
-	const accept = "pacto declare template:default/springboot-service --registry demo.pacto.local --from-draft draft-1"
+	const accept = "pacto declare template:default/springboot-service --backstage-url https://backstage.acme.example --registry demo.pacto.local --from-draft draft-1"
 	if err != nil || out.Tag != "draft-1" || out.Command != accept {
 		t.Fatalf("%v %+v", err, out)
 	}

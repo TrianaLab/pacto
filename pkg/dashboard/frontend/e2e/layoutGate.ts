@@ -134,7 +134,8 @@ export function installScaleFixture(): void {
     if (meta && meta.sourceCounts) meta.sourceCounts = { ...SOURCE_COUNTS };
     if (route === '/api/capabilities' && statsMode() !== 'engine') doc.stats = statsMode() !== 'off';
     // A host that plans no declaration (513-S6): the inferred page says the command.
-    if (route === '/api/capabilities' && (window as unknown as { __pactoNoDeclare?: boolean }).__pactoNoDeclare) doc.declare = false;
+    // A host that declares nothing for this caller accepts no golden path either.
+    if (route === '/api/capabilities' && (window as unknown as { __pactoNoDeclare?: boolean }).__pactoNoDeclare) { doc.declare = false; doc.declareTemplate = false; }
     // 510-S9: `sessionStorage['fixture.mcp'] = 'served'` answers as a token sign-in dashboard that
     // serves /mcp (a signed-in pacto-viewer), so the Connect an agent line shows its URL and
     // snippet instead of the demo's text. `issuer` answers as an issuer-only dashboard: /mcp at
@@ -257,7 +258,8 @@ export function installScaleFixture(): void {
     }
     // Inferred golden paths a catalog holds (515-S7): 30 rows with names near 63
     // characters, long titles, 200-character summaries and long hosts, half with a link,
-    // a few from an unverified catalog and one whose name a service holds; one template
+    // a few from an unverified catalog and one whose name a service holds (shown without
+    // Show more); one template
     // linked by name to the first declared path; partial with three long reasons.
     if (route === '/api/fleet/entities' && q.get('template') === 'only' && q.get('declaration') !== 'declared') {
       const host = (i: number) => `${longName(`catalog-host-${i % 3}`).replace(/[^a-z0-9-]/g, '').slice(0, 60)}.example.com`;
@@ -266,7 +268,7 @@ export function installScaleFixture(): void {
         return { name, entity: `template:${'n'.repeat(40)}/${name}`, from: `Backstage (${host(i)})`, source: 'backstage-catalog', provenance: 'inferred',
           title: longName(`template-title-${i}`), summary: `Scaffold a service ${longName(`summary-${i}`)}`.padEnd(200, 's').slice(0, 200),
           owner: `group:default/${longName(`owner-${i}`)}`, observedAt: new Date(Date.now() - 60_000).toISOString(),
-          acceptable: i % 7 !== 3, nameTaken: i === 5 || undefined, url: i % 2 ? undefined : `https://${host(i)}/create/templates/default/${name}` };
+          acceptable: i % 7 !== 3, nameTaken: i === 2 || undefined, url: i % 2 ? undefined : `https://${host(i)}/create/templates/default/${name}` };
       });
       const first = (doc.entities as Record<string, unknown>[] | undefined)?.[0];
       const declared = first ? [{ ...items[0], name: String(first.label), entity: `template:default/${String(first.label)}`, declaredAs: String(first.key), url: `https://${host(0)}/create/templates/default/${String(first.label)}` }] : [];
@@ -363,7 +365,7 @@ export function installScaleFixture(): void {
       (doc.providers as Record<string, unknown>[]).push({
         id: 'backstage', source: 'cluster-detection', provenance: 'inferred', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Backstage catalog',
         evidence: `not detected no Backstage image runs in a watched namespace (from running pods and Services, cluster ${clusters[0]})`,
-        status: 'partial', cluster: clusters[0], usedFor: ['inferred owners, domains, dependencies and golden paths, read by the dashboard; nothing is turned on'],
+        status: 'partial', cluster: clusters[0], usedFor: ['set dashboard.backstage.url to read its owners and golden paths; nothing is read'],
         limitations: [{ code: 'DETECTION_BACKSTAGE_PARTIAL', source: 'cluster-detection', message: 'an external Backstage is invisible to the cluster: set dashboard.backstage.url to read its owners and templates' }],
       });
       // A producer's row (509-S11): a 200-character producer id and a 300-character
@@ -3579,6 +3581,9 @@ export const ROUTES: Route[] = [
   { name: 'golden paths, inferred from a catalog', list: true, open: async (page) => { await page.goto('/#/fleet/golden-paths?declaration=inferred'); await expect(page.locator('[data-testid=golden-path-list] tbody tr').first()).toHaveClass(/gp-inferred/, { timeout: 30_000 }); } },
   { name: 'golden paths, accept an inferred path', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __pactoDeclare?: string }).__pactoDeclare = 'panel'; }); await page.goto('/#/fleet/golden-paths'); await page.reload(); await page.getByTestId('inferred-accept').first().click(); await expect(page.getByTestId('golden-path-accept').getByTestId('declare-command')).toBeVisible({ timeout: 30_000 }); await page.mouse.move(0, 0); await page.evaluate(() => window.scrollTo(0, 0)); } }, // reload: the init script only runs on a new document
   { name: 'golden paths, back from a signing login', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __pactoDeclare?: string }).__pactoDeclare = 'signed'; }); await page.goto(`/#/fleet/golden-paths?declare=${encodeURIComponent(`template:default/${'springboot-service-'.repeat(4).slice(0, 63).replace(/-+$/, '')}`)}&signed=${encodeURIComponent(DECLARE_INTENT)}`); await page.reload(); await expect(page.getByTestId('golden-path-accept').getByTestId('declare-signed-return')).toBeVisible({ timeout: 30_000 }); await page.mouse.move(0, 0); await page.evaluate(() => window.scrollTo(0, 0)); } },
+  // Every inferred row expanded on a host that declares nothing for this caller: the
+  // longest no-accept line (the CLI command with a long subject) and Show fewer.
+  { name: 'golden paths, inferred expanded, no declare', list: true, open: async (page) => { await page.addInitScript(() => { (window as unknown as { __pactoNoDeclare?: boolean }).__pactoNoDeclare = true; }); await page.goto('/#/fleet/golden-paths?declaration=inferred'); await page.reload(); await page.getByTestId('inferred-more').click(); await expect(page.getByTestId('inferred-more')).toHaveText('Show fewer inferred', { timeout: 30_000 }); await expect(page.getByText('Accept it from a terminal: pacto declare').first()).toBeVisible({ timeout: 30_000 }); await page.mouse.move(0, 0); await page.evaluate(() => window.scrollTo(0, 0)); } },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */
