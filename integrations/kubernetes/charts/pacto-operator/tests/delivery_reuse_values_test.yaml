@@ -19,6 +19,9 @@ capabilities:
 set:
   # 6.x values carry no fingerprints key: --reuse-values keeps it absent.
   fingerprints: null
+  # Nor a delivery.environments key: absent, the installation ladder is off and
+  # renders no flag, rule or Role.
+  delivery.environments: null
 tests:
   - it: should render the 6.x promoter rules and arguments for 6.x values without the HelmRelease API
     set:
@@ -238,3 +241,39 @@ tests:
             - --identities=/etc/pacto/identities/policy.json
             - --admission-policies=t-pacto-operator-delivery-operation,t-pacto-operator-delivery-cancel,t-pacto-operator-delivery-approval,t-pacto-operator-delivery-pointer,t-pacto-operator-delivery-applier,t-pacto-operator-delivery-promoter-writes,t-pacto-operator-delivery-status
         template: templates/delivery/deployment.yaml
+
+  - it: delivery.environments null keeps the 6.x args and rules
+    set:
+      delivery.enabled: true
+      delivery.identities.allowEmptyHumanGroups: true
+      delivery.argocd.enabled: false
+      delivery.flux: null
+      delivery.environments: null
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [namespaces], verbs: [get, list, watch]}
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[8]
+          pattern: ^--environment
+        template: templates/delivery/deployment.yaml
+
+  - it: delivery.environments present adds --environment-ladder
+    set:
+      delivery.enabled: true
+      delivery.identities.allowEmptyHumanGroups: true
+      delivery.argocd.enabled: false
+      delivery.flux: null
+      delivery.environments: {enabled: true, ladder: [staging, production]}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-ladder=staging,production
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [namespaces], verbs: [get, list, watch]}
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1

@@ -1,0 +1,118 @@
+suite: delivery environments
+templates:
+  - templates/delivery/deployment.yaml
+  - templates/delivery/rbac.yaml
+  - templates/delivery/environments.yaml
+release:
+  name: d
+  namespace: pacto-system
+set:
+  delivery.enabled: true
+  delivery.identities.allowEmptyHumanGroups: true
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: delivery on renders --environment-ladder=staging,production
+    template: templates/delivery/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environments=true
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-ladder=staging,production
+
+  - it: renders the ladder in promotion order
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.environments.ladder: [dev, staging, production]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-ladder=dev,staging,production
+
+  - it: environments.enabled=false renders --environments=false
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.environments.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environments=false
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-ladder=staging,production
+
+  - it: environments.enabled=false renders no environments Role or namespace rule
+    set:
+      delivery.environments.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/environments.yaml
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [namespaces], verbs: [get, list, watch]}
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+
+  - it: delivery off renders no environments ConfigMap Role
+    set:
+      delivery.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/environments.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/rbac.yaml
+
+  - it: the reader binding names system:authenticated
+    template: templates/delivery/environments.yaml
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - {apiGroups: [""], resources: [configmaps], resourceNames: [pacto-delivery-environments], verbs: [get]}
+        documentIndex: 2
+      - equal:
+          path: subjects
+          value:
+            - {apiGroup: rbac.authorization.k8s.io, kind: Group, name: "system:authenticated"}
+        documentIndex: 3
+
+  - it: the writer Role grants get, create, patch on pacto-delivery-environments only
+    template: templates/delivery/environments.yaml
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: pacto-delivery
+        documentIndex: 0
+      - equal:
+          path: rules
+          value:
+            - {apiGroups: [""], resources: [configmaps], resourceNames: [pacto-delivery-environments], verbs: [get, patch]}
+            # RBAC cannot narrow create by name.
+            - {apiGroups: [""], resources: [configmaps], verbs: [create]}
+        documentIndex: 0
+      - equal:
+          path: subjects
+          value:
+            - {kind: ServiceAccount, name: d-pacto-operator-delivery, namespace: pacto-delivery}
+        documentIndex: 1
+
+  - it: the promoter reads namespaces to propose rungs
+    template: templates/delivery/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [namespaces], verbs: [get, list, watch]}
+
+  - it: refuses a ladder rung that is not a DNS label
+    set:
+      delivery.environments.ladder: [Staging]
+    asserts:
+      - failedTemplate: {}

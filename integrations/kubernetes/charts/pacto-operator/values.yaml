@@ -663,6 +663,16 @@ delivery:
       # repositories, for a private registry. Without it the promoter reads only public ones.
       secretName: ""
 
+  environments:
+    # -- Create and retire Stages from the installation ladder for the services Pacto delivers. The
+    # promoter publishes the ladder and the environments it proposes from the cluster in the
+    # ConfigMap `pacto-delivery-environments`, which every authenticated user may read
+    enabled: true
+    # -- The installation ladder, in promotion order: each rung takes what the one before verified
+    ladder:
+      - staging
+      - production
+
   # Who may publish a version a Stage with `candidates.registry` accepts. These are the only trust
   # inputs the chart holds: the publisher rule's registry, the Sigstore root and the bootstrap
   # delivery policy. A signer no rule covers is confirmed once per service in the delivery inbox, and

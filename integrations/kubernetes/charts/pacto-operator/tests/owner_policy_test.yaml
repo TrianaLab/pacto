@@ -13,6 +13,7 @@ templates:
   - templates/clusterrole.yaml
   - templates/delivery/rbac.yaml
   - templates/delivery/recorder.yaml
+  - templates/delivery/environments.yaml
 release:
   name: pacto-operator
   namespace: pacto-operator-system
@@ -283,8 +284,10 @@ tests:
   # binds to a release ServiceAccount may update, patch or delete a ConfigMap
   # by any name but detection's own: the operator's only ConfigMap writes are
   # detection's unnamed create (which cannot overwrite an existing ConfigMap)
-  # and its patch of <fullname>-detected. rbac_inventory_test.yaml pins every
-  # rule of role.yaml with the declare block set ('registry with declare').
+  # and its patch of <fullname>-detected. The delivery promoter's are the same
+  # pair in the delivery namespace, for pacto-delivery-environments.
+  # rbac_inventory_test.yaml pins every rule of role.yaml with the declare
+  # block set ('registry with declare').
   - it: TestDeclareNoConfigMapWriteRole
     set: &declareEverything
       registry: ghcr.io/acme
@@ -345,6 +348,17 @@ tests:
           content:
             resources: [configmaps]
           any: true
+
+  - it: TestDeclareNoConfigMapWriteRole delivery environments writer
+    set: *declareEverything
+    template: templates/delivery/environments.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - {apiGroups: [""], resources: [configmaps], resourceNames: [pacto-delivery-environments], verbs: [get, patch]}
+            - {apiGroups: [""], resources: [configmaps], verbs: [create]}
 
   - it: TestDeclareSchemaRefusesOpenSubject
     template: templates/deployment.yaml

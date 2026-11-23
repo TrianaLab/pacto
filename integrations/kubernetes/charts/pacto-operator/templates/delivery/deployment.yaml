@@ -70,6 +70,12 @@ spec:
             {{- if $fluxHelm }}
             - --flux-helm
             {{- end }}
+            {{- with dig "environments" dict .Values.delivery }}
+            - --environments={{ dig "enabled" false . }}
+            {{- end }}
+            {{- if include "pacto-operator.delivery.environments" . }}
+            - --environment-ladder={{ join "," .Values.delivery.environments.ladder }}
+            {{- end }}
             {{- $fullname := include "pacto-operator.delivery.fullname" . }}
             {{- $policies := list "operation" "cancel" "approval" "pointer" "applier" "promoter-writes" "status" }}
             {{- if $argocd }}{{ $policies = concat $policies (list "pointer-argocd" "promoter-writes-argocd") }}{{ end }}

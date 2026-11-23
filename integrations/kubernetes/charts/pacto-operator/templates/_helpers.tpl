@@ -705,6 +705,16 @@ tolerations:
 The cluster's identity: the kube-system Namespace, whose UID names the
 cluster in operations and records.
 */}}
+{{/*
+"true" when the promoter publishes the installation ladder: delivery.environments
+is set and enabled. An absent key (an upgrade that reuses 6.x values) is off, so
+it renders no new flag, rule or Role.
+*/}}
+{{- define "pacto-operator.delivery.environments" -}}
+{{- $e := dig "environments" dict .Values.delivery -}}
+{{- if and $e (dig "enabled" false $e) }}true{{ end -}}
+{{- end }}
+
 {{- define "pacto-operator.rbac.clusterIdentityRule" -}}
 - apiGroups: [""]
   resources: [namespaces]

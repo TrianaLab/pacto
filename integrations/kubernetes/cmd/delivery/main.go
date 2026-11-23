@@ -144,6 +144,11 @@ func runPromoter(args []string) error {
 		"A file (YAML or JSON) of the workload managers and promoters this installation runs, "+
 			"as the chart's fingerprints value. A workload a configured manager applies reads external: <product>, "+
 			"and the promoter writes no pointer for it.")
+	environments := fs.Bool("environments", false,
+		"Publish the installation ladder and the rungs Pacto proposes from the cluster in the ConfigMap "+
+			core.EnvironmentsConfigMap+" of the promoter's namespace.")
+	ladder := fs.String("environment-ladder", "staging,production",
+		"The installation ladder, comma-separated in promotion order: each rung takes what the one before verified.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -158,10 +163,11 @@ func runPromoter(args []string) error {
 		return err
 	}
 
-	clusterID, err := kubeClusterID(mgr)
+	ident, err := kubeIdentity(mgr)
 	if err != nil {
 		return err
 	}
+	clusterID := ident.ID
 	scope, keychain := writerScope(*registry, *statsRepository)
 	insecure := oci.EnvInsecureRegistries()
 	providers, err := core.ParseProviders(*gateProviders)
@@ -224,6 +230,12 @@ func runPromoter(args []string) error {
 		Publishers: pubs,
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
 		Events: mgr.GetEventRecorderFor("pacto-delivery")}).SetupWithManager(mgr); err != nil {
+		return err
+	}
+	if err := (&delivery.EnvironmentReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(),
+		Namespace: os.Getenv("POD_NAMESPACE"), ClusterID: clusterID, ClusterName: ident.Name, NameSource: ident.NameSource,
+		Ladder: delivery.SplitList(*ladder), Off: !*environments, Now: time.Now,
+		Resync: *resync}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	return startPromoter(mgr, user)
@@ -406,6 +418,17 @@ func newManager(metricsAddr, probeAddr string, leaderElect bool, id string,
 		LeaderElection:         leaderElect,
 		LeaderElectionID:       id,
 	})
+}
+
+// kubeIdentity reads the cluster id and display name (kubecluster.Identify).
+// The promoter may not list nodes, so the name is the uid's unless a node
+// label is readable.
+func kubeIdentity(mgr ctrl.Manager) (kubecluster.Identity, error) {
+	dyn, err := dynamic.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		return kubecluster.Identity{}, err
+	}
+	return kubecluster.Identify(context.Background(), dyn, "")
 }
 
 // kubeClusterID reads the cluster half of every stream id: the kube-system
