@@ -28,8 +28,9 @@ const (
 // Every authenticated user may read it: it names no service.
 const EnvironmentsConfigMap = "pacto-delivery-environments"
 
-// maxProposedRungs bounds the rungs one proposal holds.
-const maxProposedRungs = 16
+// MaxLadderRungs bounds the rungs one proposal holds, and the declared and
+// kept rungs one ladder record holds.
+const MaxLadderRungs = 16
 
 // LadderRung is one rung of the installation ladder: an environment, the rung
 // it takes its versions from (empty for a leaf, fed from the registry), where
@@ -99,7 +100,7 @@ func ProposeLadder(known []string, in LadderInput) LadderProposal {
 	for _, name := range slices.Sorted(maps.Keys(found)) {
 		out = append(out, LadderRung{Name: name, Source: found[name], Provenance: RungInferred})
 	}
-	return out[:min(len(out), maxProposedRungs)]
+	return out[:min(len(out), MaxLadderRungs)]
 }
 
 // namespaceSuffixes maps each suffix x of a namespace <service>-<x> to the

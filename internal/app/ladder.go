@@ -93,11 +93,13 @@ func (d *Delivery) Environments(ctx context.Context) (view *delivery.Environment
 // declared chain, then the rungs confirmed before and every proposed rung
 // but those in drop, each a leaf, and the dropped rungs, sorted. The newest
 // record is the whole confirmed ladder, so the rungs confirmed before are
-// signed again. A dropped rung must be proposed: a declared one comes from
-// the chart value.
+// signed again, and so are the rungs dropped before (view.Dropped), which
+// are then never proposed again. A rung in drop must be proposed: a declared
+// one comes from the chart value. More kept rungs than a record holds are
+// refused before anything is signed.
 func LadderRungs(view delivery.EnvironmentsView, drop []string) ([]delivery.LadderRung, []string, error) {
-	dropped := slices.Compact(slices.Sorted(slices.Values(drop)))
-	for _, n := range dropped {
+	drop = slices.Compact(slices.Sorted(slices.Values(drop)))
+	for _, n := range drop {
 		named := func(r delivery.LadderRung) bool { return r.Name == n }
 		switch {
 		case slices.ContainsFunc(view.Declared, named):
@@ -112,11 +114,20 @@ func LadderRungs(view delivery.EnvironmentsView, drop []string) ([]delivery.Ladd
 	}
 	rungs := slices.Clone(view.Declared)
 	for _, r := range slices.Concat([]delivery.LadderRung(view.Confirmed), view.Proposal) {
-		if !slices.Contains(dropped, r.Name) {
+		if !slices.Contains(drop, r.Name) {
 			rungs = append(rungs, delivery.LadderRung{Name: r.Name, Source: r.Source, Provenance: delivery.RungInferred})
 		}
 	}
-	return rungs, dropped, nil
+	if kept := len(rungs) - len(view.Declared); kept > delivery.MaxLadderRungs {
+		return nil, nil, fmt.Errorf("%d rungs would be kept, over the %d a confirmation holds: leave at least %d out with --drop", kept, delivery.MaxLadderRungs, kept-delivery.MaxLadderRungs)
+	}
+	dropped := slices.Clone(drop)
+	for _, n := range view.Dropped {
+		if !slices.ContainsFunc(rungs, func(r delivery.LadderRung) bool { return r.Name == n }) {
+			dropped = append(dropped, n)
+		}
+	}
+	return rungs, slices.Compact(slices.Sorted(slices.Values(dropped))), nil
 }
 
 // ErrNamespacesChanged is why a confirmation of namespace candidates other

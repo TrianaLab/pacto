@@ -55,11 +55,16 @@ The command signs the confirmation keyless after a fresh login and pushes it to
 the approvals repository the promoter reads. It signs nothing when the proposal
 changed since the inbox showed it. The promoter counts the newest record a
 person signed under one of `delivery.identities.signers` who may approve
-`environmentladders`, granted to the user, since a certificate names no group:
+`environmentladders`, granted to the user, since a certificate names no group.
+No API serves `environmentladders`, so the ClusterRole is applied as a manifest:
 
 ```bash
-kubectl create clusterrole pacto-ladder-approver --verb=approve \
-  --resource=environmentladders.delivery.pacto.trianalab.io
+kubectl apply -f - <<'YAML'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: pacto-ladder-approver}
+rules: [{apiGroups: [delivery.pacto.trianalab.io], resources: [environmentladders], verbs: [approve]}]
+YAML
 kubectl create clusterrolebinding pacto-ladder-approver \
   --clusterrole=pacto-ladder-approver --user=<user>
 ```

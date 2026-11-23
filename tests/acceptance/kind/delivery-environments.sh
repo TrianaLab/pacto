@@ -437,8 +437,14 @@ pass "carol's approval confirmed the placement, created payments-deployer, unsus
 section "STEP 6: alice confirms the proposed preview rung; payments-preview takes the registry"
 proposes_preview() { view | jq -e '[.proposal[]? | select(.name == "preview")] | length == 1' >/dev/null 2>&1; }
 eventually 40 proposes_preview || fail "Pacto does not propose preview: $(view | jq -c .proposal)"
-kubectl create clusterrole pacto-ladder-approver --verb=approve --resource=environmentladders.delivery.pacto.trianalab.io \
-  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+# No API serves environmentladders, so `kubectl create clusterrole` refuses it:
+# the ClusterRole is written as YAML, as cluster_approver_role does.
+kubectl apply -f - >/dev/null <<'YAML'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: pacto-ladder-approver}
+rules: [{apiGroups: [delivery.pacto.trianalab.io], resources: [environmentladders], verbs: [approve]}]
+YAML
 kubectl create clusterrolebinding pacto-ladder-approver --clusterrole=pacto-ladder-approver --user=oidc:alice@acme.test \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 view > "$WORK/view.json"

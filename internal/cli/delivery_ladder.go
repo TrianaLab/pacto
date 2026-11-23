@@ -16,13 +16,17 @@ import (
 	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 )
 
 // ladderGrant is the grant a person needs, to their own user, to confirm
-// the installation ladder.
-const ladderGrant = "kubectl create clusterrole pacto-ladder-approver --verb=approve --resource=environmentladders.delivery.pacto.trianalab.io, bound to your user"
+// the installation ladder. No API serves environmentladders, so kubectl
+// create clusterrole refuses it: the ClusterRole is applied as a manifest.
+const ladderGrant = "echo '{apiVersion: rbac.authorization.k8s.io/v1, kind: ClusterRole, metadata: {name: pacto-ladder-approver}, " +
+	"rules: [{apiGroups: [delivery.pacto.trianalab.io], resources: [environmentladders], verbs: [approve]}]}' | kubectl apply -f -, " +
+	"then kubectl create clusterrolebinding pacto-ladder-approver --clusterrole=pacto-ladder-approver --user=<your user>"
 
 func newDeliveryLadderCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
@@ -41,7 +45,7 @@ func newDeliveryLadderCommand(v *viper.Viper, d deps) *cobra.Command {
 			"With --create-namespaces you also let Pacto create the namespaces it waits to place services in, " +
 			"when delivery.environments.createNamespaces is on: you must be allowed to read them in the ConfigMap " + delivery.PlacementsConfigMap + ".",
 		Example: "  pacto delivery ladder confirm --proposal sha256:5be1...\n  pacto delivery ladder confirm --proposal sha256:5be1... --drop qa\n" +
-			"  pacto delivery ladder confirm --create-namespaces",
+			"  pacto delivery ladder confirm --proposal sha256:5be1... --create-namespaces",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return confirmLadder(cmd, v, d)
@@ -100,6 +104,9 @@ func confirmLadder(cmd *cobra.Command, v *viper.Viper, d deps) error {
 	if l.view, err = l.c.LadderView(cmd.Context()); err != nil {
 		return err
 	}
+	if why := l.view.LadderUnread; why != "" {
+		return fmt.Errorf("the promoter read the ladder records in part (%s): the confirmed ladder it shows may be stale, so nothing is signed; try again once it reads them", why)
+	}
 	format := v.GetString(outputFormatKey)
 	if create, _ := cmd.Flags().GetBool("create-namespaces"); create {
 		if l.namespaces, err = l.c.NamespaceCandidates(cmd.Context()); err != nil {
@@ -111,8 +118,11 @@ func confirmLadder(cmd *cobra.Command, v *viper.Viper, d deps) error {
 	}
 	if len(l.view.Proposal) == 0 && len(l.namespaces) == 0 {
 		res := ladderConfirmation{Ladder: slices.Concat(l.view.Declared, l.view.Confirmed), Note: "nothing to confirm"}
+		if l.view.Completeness == fleet.CompletenessPartial {
+			res.Note += " (partial: " + l.view.CompletenessReason + ")"
+		}
 		return formatResult(cmd, format, res, func() error {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "nothing to confirm: the installation ladder is %s\n", ladderLine(res.Ladder))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: the installation ladder is %s\n", res.Note, ladderLine(res.Ladder))
 			return nil
 		}, nil)
 	}
@@ -186,6 +196,9 @@ func (l *ladderConfirm) pickSigner(issuer string) error {
 // sign logs the person in and writes rec signed by them.
 func (l *ladderConfirm) sign(rec delivery.LadderRecord) (ladderConfirmation, error) {
 	_, _ = fmt.Fprintf(l.cmd.ErrOrStderr(), "Confirming the installation ladder %s\n", ladderLine(rec.Rungs))
+	if len(l.namespaces) > 0 {
+		_, _ = fmt.Fprintf(l.cmd.ErrOrStderr(), "and letting Pacto create the namespaces %s\n", strings.Join(l.namespaces, ", "))
+	}
 	s, email, err := personLogin(l.cmd, l.v, l.d, l.signer, l.policy, l.user, "a confirmation", "the installation ladder of cluster "+l.cluster)
 	if err != nil {
 		return ladderConfirmation{}, err

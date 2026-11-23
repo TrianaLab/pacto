@@ -131,7 +131,7 @@ func TestProposalBounded(t *testing.T) {
 	for i := range 20 {
 		adv = append(adv, AdvertisedEnvironment{Name: fmt.Sprintf("env%02d", i), Source: "x"})
 	}
-	if got := ProposeLadder(nil, LadderInput{Advertised: adv}); len(got) != maxProposedRungs {
+	if got := ProposeLadder(nil, LadderInput{Advertised: adv}); len(got) != MaxLadderRungs {
 		t.Fatalf("got %d rungs", len(got))
 	}
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -171,6 +173,38 @@ func TestLadderRungsSignConfirmedAgain(t *testing.T) {
 	rungs, _, err := LadderRungs(v, []string{"qa"})
 	if err != nil || len(rungs) != 4 || rungs[2] != (delivery.LadderRung{Name: "dev", Source: "the cluster name eu-dev", Provenance: delivery.RungInferred}) {
 		t.Fatalf("%+v %v", rungs, err)
+	}
+}
+
+// TestLadderRungsCarryEarlierDrops: a second confirmation signs again the
+// rungs the counted record dropped, so a dropped rung is never proposed
+// again; one the person now keeps (here a confirmed one) is no longer
+// dropped.
+func TestLadderRungsCarryEarlierDrops(t *testing.T) {
+	v := ladderView()
+	v.Confirmed = []delivery.LadderRung{{Name: "dev", Source: "the cluster name eu-dev", Provenance: delivery.RungConfirmed}}
+	v.Dropped = []string{"perf", "dev"}
+	_, dropped, err := LadderRungs(v, nil)
+	if err != nil || !slices.Equal(dropped, []string{"perf"}) {
+		t.Fatalf("%v %v", dropped, err)
+	}
+	if _, dropped, err = LadderRungs(v, []string{"qa"}); err != nil || !slices.Equal(dropped, []string{"perf", "qa"}) {
+		t.Fatalf("%v %v", dropped, err)
+	}
+}
+
+// TestLadderRungsBoundedBeforeSigning: more kept rungs than a record holds
+// are refused before the login, naming --drop.
+func TestLadderRungsBoundedBeforeSigning(t *testing.T) {
+	v := ladderView()
+	for i := range 15 {
+		v.Confirmed = append(v.Confirmed, delivery.LadderRung{Name: fmt.Sprintf("c%d", i), Provenance: delivery.RungConfirmed})
+	}
+	if _, _, err := LadderRungs(v, nil); err == nil || err.Error() != "17 rungs would be kept, over the 16 a confirmation holds: leave at least 1 out with --drop" {
+		t.Fatalf("%v", err)
+	}
+	if _, _, err := LadderRungs(v, []string{"qa"}); err != nil {
+		t.Fatalf("dropping one: %v", err)
 	}
 }
 

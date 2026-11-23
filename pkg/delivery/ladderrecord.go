@@ -117,8 +117,8 @@ func checkRungs(rungs []LadderRung) error {
 			kept++
 		}
 	}
-	if chain > maxProposedRungs || kept > maxProposedRungs {
-		return fmt.Errorf("%d declared and %d kept rungs, over the %d bound", chain, kept, maxProposedRungs)
+	if chain > MaxLadderRungs || kept > MaxLadderRungs {
+		return fmt.Errorf("%d declared and %d kept rungs, over the %d bound", chain, kept, MaxLadderRungs)
 	}
 	return nil
 }
@@ -145,8 +145,8 @@ func checkRung(r LadderRung, before string, afterKept bool) error {
 // checkDropped refuses over 16 dropped rungs, one that is not a DNS label
 // and one that is also kept.
 func checkDropped(dropped []string, rungs []LadderRung) error {
-	if len(dropped) > maxProposedRungs {
-		return fmt.Errorf("%d dropped rungs, over the %d bound", len(dropped), maxProposedRungs)
+	if len(dropped) > MaxLadderRungs {
+		return fmt.Errorf("%d dropped rungs, over the %d bound", len(dropped), MaxLadderRungs)
 	}
 	for _, d := range dropped {
 		if !dnsLabel(d) || slices.ContainsFunc(rungs, func(r LadderRung) bool { return r.Name == d }) {

@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 	"github.com/trianalab/pacto/v4/pkg/signing"
@@ -177,7 +179,29 @@ func TestConfirmDropKeepsTheRest(t *testing.T) {
 
 func TestConfirmRefusesWithoutSelfSAR(t *testing.T) {
 	ladderRefused(t, func(e *ladderEnv) { e.mayApprove = false },
-		"LadderConfirmForbidden: you may not approve environmentladders in the cluster; ask for kubectl create clusterrole pacto-ladder-approver", 0)
+		"LadderConfirmForbidden: you may not approve environmentladders in the cluster; ask for echo '{apiVersion: rbac.authorization.k8s.io/v1, kind: ClusterRole, "+
+			"metadata: {name: pacto-ladder-approver}, rules: [{apiGroups: [delivery.pacto.trianalab.io], resources: [environmentladders], verbs: [approve]}]}' | kubectl apply -f -", 0)
+}
+
+// TestConfirmRefusesPartialLadderRead: while the promoter read the ladder
+// records in part, its confirmed ladder and dropped rungs may be stale, so
+// nothing is signed on top of them.
+func TestConfirmRefusesPartialLadderRead(t *testing.T) {
+	ladderRefused(t, func(e *ladderEnv) { e.view.LadderUnread = "the ladder records: 503" },
+		"the promoter read the ladder records in part (the ladder records: 503): the confirmed ladder it shows may be stale, so nothing is signed", 0)
+}
+
+// TestConfirmCarriesEarlierDrops: a second confirmation signs again the
+// rungs the counted record dropped.
+func TestConfirmCarriesEarlierDrops(t *testing.T) {
+	e := newLadderEnv(t, capabilities.ReferrersNative)
+	e.view.Dropped = []string{"perf"}
+	if _, _, err := e.confirm(t, "--drop", "qa"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := e.signed(t); !slices.Equal(rec.Dropped, []string{"perf", "qa"}) {
+		t.Fatalf("%+v", rec)
+	}
 }
 
 func TestConfirmRefusesGroupOnlyGrant(t *testing.T) {
@@ -202,6 +226,12 @@ func TestConfirmNothingProposed(t *testing.T) {
 	out, _, err = e.confirm(t, "--output-format", "json")
 	var res ladderConfirmation
 	if err != nil || json.Unmarshal([]byte(out), &res) != nil || res.Note != "nothing to confirm" || len(res.Ladder) != 3 {
+		t.Fatalf("%q %v", out, err)
+	}
+	// A partial view says so instead of stating the ladder as fact.
+	e.view.Completeness, e.view.CompletenessReason = fleet.CompletenessPartial, "could not read the Pactos: forbidden"
+	if out, _, err := e.confirm(t); err != nil ||
+		out != "nothing to confirm (partial: could not read the Pactos: forbidden): the installation ladder is staging -> production + preview\n" {
 		t.Fatalf("%q %v", out, err)
 	}
 }
@@ -275,9 +305,14 @@ func (e *ladderEnv) withCandidates(t *testing.T, candidates string, forbidden bo
 func TestConfirmCreateNamespacesSignsTheirDigest(t *testing.T) {
 	e := newLadderEnv(t, capabilities.ReferrersNative)
 	e.withCandidates(t, `["payments-staging","production"]`, false)
-	out, _, err := e.confirm(t, "--create-namespaces")
+	out, errOut, err := e.confirm(t, "--create-namespaces")
 	if err != nil || !strings.Contains(out, "\nallowed Pacto to create the namespaces payments-staging, production\n") {
 		t.Fatalf("%q %v", out, err)
+	}
+	// The person sees the namespaces they sign before the login.
+	shown, login := strings.Index(errOut, "and letting Pacto create the namespaces payments-staging, production\n"), strings.Index(errOut, "To sign a confirmation")
+	if shown < 0 || login < 0 || shown > login {
+		t.Fatalf("namespaces not shown before the login: %q", errOut)
 	}
 	if rec := e.signed(t); rec.NamespacesDigest != delivery.NamespacesDigest([]string{"production", "payments-staging"}) || len(rec.Rungs) != 4 {
 		t.Fatalf("%+v", rec)
