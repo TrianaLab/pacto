@@ -117,9 +117,9 @@ func TestStore_AuthorizeSubject(t *testing.T) {
 	}
 }
 
-// Readiness is a live registry preflight: every subject must resolve AND answer
-// native Referrers discovery, because a store that cannot be enumerated cannot
-// replay-protect a write.
+// Readiness is a live registry preflight: every subject must resolve AND have a
+// placement (native Referrers or a covering prefix's ledger), because a store
+// that cannot be enumerated cannot replay-protect a write.
 func TestStore_Ready(t *testing.T) {
 	s, subj := oneSubjectStore(t)
 	if err := s.Ready(t.Context()); err != nil {
