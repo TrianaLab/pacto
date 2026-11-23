@@ -96,6 +96,22 @@ test.describe('WASM demo: inferred services', () => {
     await expect(tip).toContainText('Pacto never routes approvals or clears a gate on it.');
   });
 
+  test('a contract service with no declared domain shows the domain the catalog holds as muted text with one mark', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await appReady(page, '/#/fleet/services/analytics-pipeline');
+
+    // examples/demo/backstage-catalog.json: system analytics; its contract declares an
+    // owner, so the catalog's owner adds nothing.
+    const domain = page.getByTestId('service-domain');
+    await expect(domain.getByTestId('domain-inferred')).toHaveText('inferred: analytics', { timeout: T });
+    await expect(domain).toContainText('No domain');
+    await expect(page.getByTestId('service-owner').getByTestId('owner-inferred')).toHaveCount(0);
+    const mark = domain.getByRole('button', { name: 'About the inferred domain' });
+    await expect(mark).toHaveCount(1);
+    await mark.click();
+    await expect(domain.getByRole('note')).toContainText('Inferred from backstage-catalog (component:default/analytics-pipeline)');
+  });
+
   test('the filtered list states nothing positive about workloads with no contract', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await appReady(page, '/#/fleet/services?declaration=inferred');

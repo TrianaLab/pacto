@@ -270,6 +270,10 @@ describe('the inferred service page: what a catalog reports', () => {
     expect(t.querySelector('[data-testid="owner-inferred"]')?.textContent).toBe('inferred: cart');
     expect(t.querySelector('[data-testid="domain-inferred"]')?.textContent).toBe('inferred: shop');
     expect(t.querySelectorAll('[data-testid="inferred-catalog"] button[aria-label^="About the inferred"]')).toHaveLength(2);
+    // No contract could declare a domain, so the domain is unknown, like the owner.
+    const line = t.querySelector('[data-testid="inferred-catalog"]')?.textContent ?? '';
+    expect(line).toContain('Domain unknown');
+    expect(line).not.toContain('No domain');
   });
 
   it('adds nothing when no source reports one', () => {

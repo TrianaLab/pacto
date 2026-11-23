@@ -1102,6 +1102,23 @@ export function installScaleFixture(): void {
       svc.inferredBusinessDomain = fact(`${'finance-operations-billing-and-'.repeat(4)}`.slice(0, 120));
       (doc.entity as Record<string, unknown>).businessDomain = '';
     }
+    // 516-S4: a contract service with no owner and no domain whose catalog reports both,
+    // at 120 characters each: the No declared owner link and the No domain badge, each
+    // followed by a muted note and one mark, inside the .se-fact rows. Scoped to the
+    // demo's analytics-pipeline, whose catalog entry already gives it a domain.
+    if (route === '/api/fleet/entities/service' && (doc.entity as { key?: string } | undefined)?.key === 'analytics-pipeline') {
+      const svc = doc.service as Record<string, unknown>;
+      const where = `component:${'platform-engineering-'.repeat(3)}default/${'analytics-pipeline-ingestion-'.repeat(3)}`;
+      const fact = (value: string) => ({ value, source: 'backstage-catalog', where, asOf: '2026-11-14T09:00:00Z' });
+      const ownership = { ...(svc.ownership as object), declared: false, provenance: 'inferred',
+        inferred: fact(`team:${'settlement-reconciliation-platform-'.repeat(4)}`.slice(0, 120)) } as Record<string, unknown>;
+      delete ownership.ref;
+      svc.ownership = ownership;
+      svc.inferredBusinessDomain = fact(`${'finance-operations-billing-and-'.repeat(4)}`.slice(0, 120));
+      const ent = doc.entity as Record<string, unknown>;
+      ent.businessDomain = '';
+      ent.businessDomainUnknown = false;
+    }
     // A replacement at its longest (509-S4): a cluster-qualified inferred key with a
     // 63-character namespace and a 253-character name, on the Replaces line and on the
     // notice a replaced key shows.
@@ -3191,6 +3208,16 @@ export const ROUTES: Route[] = [
       await page.goto(`/${await a.getAttribute('href')}`);
       await expect(page.locator('[data-testid="owner-inferred"]')).toBeVisible({ timeout: 30_000 });
       await expect(page.locator('[data-testid="domain-inferred"]')).toBeVisible();
+    },
+  },
+  // 516-S4: the same notes on a contract service's page, after the No declared owner
+  // link and the No domain badge (the analytics-pipeline fixture above).
+  {
+    name: 'service entity, contract service with an inferred owner from a catalog',
+    open: async (page) => {
+      await page.goto('/#/fleet/services/analytics-pipeline');
+      await expect(page.locator('[data-testid="service-owner"] [data-testid="owner-inferred"]')).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator('[data-testid="service-domain"] [data-testid="domain-inferred"]')).toBeVisible();
     },
   },
 ];

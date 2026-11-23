@@ -7,7 +7,7 @@
   import WorkloadFacts from '../../components/WorkloadFacts.svelte';
   import DeclarePanel from '../../components/DeclarePanel.svelte';
   import InferredFact from '../../components/InferredFact.svelte';
-  import { nextActionWords } from '../../lib/entityLabels.ts';
+  import { nextActionWords, businessDomainLabel, UNKNOWN_DOMAIN } from '../../lib/entityLabels.ts';
 
   // An inferred service: a workload no contract describes. Pacto read its image, ports
   // and probes, so the page shows those first, each with one mark saying where it was
@@ -55,7 +55,7 @@
   {#if inferredOwner || inferredDomain}
     <p class="ie-p ie-facts t-body-2" data-testid="inferred-catalog">
       {#if inferredOwner}<span>Owner unknown<InferredFact fact={inferredOwner} what="owner" /></span>{/if}
-      {#if inferredDomain}<span>No domain<InferredFact fact={inferredDomain} what="domain" /></span>{/if}
+      {#if inferredDomain}<span>{businessDomainLabel(UNKNOWN_DOMAIN)}<InferredFact fact={inferredDomain} what="domain" /></span>{/if}
     </p>
   {/if}
 
