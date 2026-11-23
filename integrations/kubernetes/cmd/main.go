@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -158,6 +159,8 @@ type options struct {
 	profile              string
 	hubURL               string
 	hubCAFile            string
+	inventory            detection.InventoryConfig
+	chartVersion         string
 	registryPullSecret   string
 	registryPushPrefixes []string
 
@@ -446,6 +449,24 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"The hub's https:// or wss:// URL. Setting it makes this joined cluster a member: the elected leader dials "+
 			"the hub, proves the installation key and answers the hub's per-person reviews with this cluster's own "+
 			"SubjectAccessReview. Nothing listens for the hub; needs --registry.")
+	fs.BoolVar(&o.inventory.Enabled, "cluster-inventory", false,
+		"List the candidate clusters Argo CD, Flux, Cluster API, OCM and Rancher know into the detected ConfigMap, "+
+			"as metadata only; nothing joins on its own.")
+	fs.Func("cluster-inventory-namespaces",
+		"Comma-separated namespaces the chart grants Secret list in: the operator reads Argo CD cluster Secrets and "+
+			"Flux kubeconfig Secrets there, metadata only, and nowhere else.",
+		func(v string) error {
+			for ns := range strings.SplitSeq(v, ",") {
+				if errs := validation.IsDNS1123Label(ns); len(errs) > 0 {
+					return fmt.Errorf("%q is not a namespace name: %s", ns, strings.Join(errs, "; "))
+				}
+				o.inventory.SecretNamespaces = append(o.inventory.SecretNamespaces, ns)
+			}
+			return nil
+		})
+	fs.StringVar(&o.chartVersion, "chart-version", "",
+		"The chart version this operator was installed with, advertised in the detected ConfigMap so a generated "+
+			"member install pins the same chart.")
 	fs.StringVar(&o.hubCAFile, "hub-ca-file", "",
 		"File holding the PEM CAs the hub's certificate may chain to, beside the system pool.")
 	fs.StringVar(&o.registryPullSecret, "registry-pull-secret", "",
@@ -817,6 +838,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 			ServiceEntries: servesServiceEntries(mgr), CiliumPolicies: servesCiliumPolicies(mgr)}); d != nil {
 		d.Wake = pushed
 		d.Pieces = idpPieces(inst, gate, o.enableEvidence, recorder)
+		d.Inventory = o.inventory
 		if err := mgr.Add(d); err != nil {
 			return fmt.Errorf("failed to add detection: %w", err)
 		}
@@ -977,7 +999,7 @@ func addPublishers(mgr ctrl.Manager, o *options, namespace string, ident kubeclu
 	if err != nil {
 		return nil, err
 	}
-	inst := &detect.Installation{Profile: profiles}
+	inst := &detect.Installation{Profile: profiles, ChartVersion: o.chartVersion}
 	key, err := addTargetSnapshot(mgr, o, namespace, ident, evidenceURL, kc, inst, linked)
 	if err != nil {
 		return nil, err

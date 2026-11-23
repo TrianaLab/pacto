@@ -103,6 +103,9 @@ type Detector struct {
 	// Pieces are the profile idp rows (the Evidence Server and the recorder),
 	// read on every run; nil outside idp.
 	Pieces func() []detect.Entry
+	// Inventory is the cluster inventory a person turned on; off, the
+	// Detector only proposes the namespaces to grant.
+	Inventory InventoryConfig
 
 	owner       *metav1ac.OwnerReferenceApplyConfiguration
 	warnedOwner bool
@@ -157,8 +160,11 @@ func (d *Detector) Sync(ctx context.Context) error {
 		}
 		d.owner = owner
 	}
-	data, err := detect.Encode(d.detect(ctx))
+	res, clusters := d.detect(ctx)
+	keys, err := encodeKeys(res, clusters)
 	if err == nil {
+		// One apply writes both keys: with the inventory off, clusters.json
+		// is left out, so server-side apply removes the key this manager wrote.
 		err = d.Writer.Apply(ctx, corev1ac.ConfigMap(d.Name, d.Namespace).
 			WithLabels(map[string]string{
 				"app.kubernetes.io/part-of":   "pacto",
@@ -166,13 +172,30 @@ func (d *Detector) Sync(ctx context.Context) error {
 				detect.ManagedByLabel:         detect.ManagedBy,
 			}).
 			WithOwnerReferences(d.owner).
-			WithData(map[string]string{detect.ConfigMapKey: string(data)}),
+			WithData(keys),
 			client.FieldOwner(detect.FieldManager), client.ForceOwnership)
 	}
 	if err != nil {
 		log.Error(err, "Writing the detection ConfigMap failed", "configMap", d.Name, "reason", reason(err))
 	}
 	return nil
+}
+
+// encodeKeys are the ConfigMap keys of res and, when the inventory ran,
+// clusters.
+func encodeKeys(res detect.Result, clusters *detect.Clusters) (map[string]string, error) {
+	data, err := detect.Encode(res)
+	if err != nil {
+		return nil, err
+	}
+	keys := map[string]string{detect.ConfigMapKey: string(data)}
+	if clusters != nil {
+		// EncodeClusters cuts to its bound and fails only where json.Marshal
+		// could, which plain strings, maps and times never do.
+		c, _ := detect.EncodeClusters(*clusters)
+		keys[detect.ClustersConfigMapKey] = string(c)
+	}
+	return keys, nil
 }
 
 // OwnerRef is the owner reference of the operator Deployment namespace/name,
@@ -186,8 +209,9 @@ func OwnerRef(ctx context.Context, r client.Reader, namespace, name string) (*me
 	return metav1ac.OwnerReference().WithAPIVersion("apps/v1").WithKind("Deployment").WithName(deploy.Name).WithUID(deploy.UID), nil
 }
 
-// detect reads the cluster and runs every rule.
-func (d *Detector) detect(ctx context.Context) detect.Result {
+// detect reads the cluster and runs every rule; the candidate clusters are
+// nil unless the inventory is on.
+func (d *Detector) detect(ctx context.Context) (detect.Result, *detect.Clusters) {
 	scoped := len(d.Namespaces) > 0
 	var watched []string // nil: every namespace is read
 	if scoped {
@@ -254,6 +278,8 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 	if e, ok := detect.Applier(fluxServed || helmServed, argoServed, classed(errors.Join(fluxErr, helmErr, argoErr)), idp); ok {
 		res.Entries = append(res.Entries, e)
 	}
+	inv, clusters := d.inventory(ctx, argoServed, fluxServed, helmServed)
+	res.Entries = append(res.Entries, inv...)
 	res.Entries = append(res.Entries, d.crossplane(ctx))
 	if d.Pieces != nil {
 		res.Entries = append(res.Entries, d.Pieces()...)
@@ -280,7 +306,7 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 			res.Entries = append(res.Entries, sampledEntry(e, scoped, scopedReason))
 		}
 	}
-	return res
+	return res, clusters
 }
 
 // installation is a copy of the configured installation with the last push

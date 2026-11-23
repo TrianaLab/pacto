@@ -342,6 +342,8 @@ tests:
   - it: a full detection leaves every manifest unchanged, a detected registry and pull Secret included
     release:
       upgrade: true
+    chart:
+      version: 9.9.9
     kubernetesProvider:
       scheme:
         "v1/ConfigMap":
@@ -365,7 +367,7 @@ tests:
       - template: templates/deployment.yaml
         equal:
           path: spec.template.spec.containers[0].args
-          value: ["--leader-elect=true","--health-probe-bind-address=:8081","--metrics-bind-address=:8443","--metrics-secure=true","--enable-probing=auto","--enable-metrics-observation=auto","--egress-gateway-logs=auto","--node-agent-namespace=pacto-node-agent","--enable-dashboard","--dashboard-cpu-request=50m","--dashboard-memory-request=128Mi","--dashboard-memory-limit=512Mi","--dashboard-token-login","--dashboard-mcp","--dashboard-fingerprints-configmap=pacto-operator-fingerprints","--dashboard-index=auto"]
+          value: ["--leader-elect=true","--health-probe-bind-address=:8081","--metrics-bind-address=:8443","--metrics-secure=true","--chart-version=9.9.9","--enable-probing=auto","--enable-metrics-observation=auto","--egress-gateway-logs=auto","--node-agent-namespace=pacto-node-agent","--enable-dashboard","--dashboard-cpu-request=50m","--dashboard-memory-request=128Mi","--dashboard-memory-limit=512Mi","--dashboard-token-login","--dashboard-mcp","--dashboard-fingerprints-configmap=pacto-operator-fingerprints","--dashboard-index=auto"]
       - template: templates/clusterrole.yaml
         equal:
           path: rules
@@ -405,3 +407,38 @@ tests:
           pattern: "  Registry: ghcr.io/acme in 2 of 2 namespaces, 100% of workloads \\(from running pods\\) \\[partial: read only the watched namespaces\\]"
       - matchRegexRaw:
           pattern: "Most of the namespaces Pacto read pull from that registry"
+
+  # The cluster inventory (514-S5): the chart version the operator advertises
+  # for a generated member install, and the inventory args.
+  - it: chart version arg matches Chart.yaml
+    template: templates/deployment.yaml
+    chart:
+      version: 1.2.3
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --chart-version=1.2.3}
+      - notContains: {path: "spec.template.spec.containers[0].args", content: --cluster-inventory}
+
+  - it: clusterInventory renders the inventory args
+    template: templates/deployment.yaml
+    set:
+      clusterInventory.enabled: true
+      clusterInventory.secretNamespaces: [argocd, flux-system]
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --cluster-inventory}
+      - contains: {path: "spec.template.spec.containers[0].args", content: "--cluster-inventory-namespaces=argocd,flux-system"}
+
+  - it: clusterInventory without namespaces renders no namespace arg
+    template: templates/deployment.yaml
+    set:
+      clusterInventory.enabled: true
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --cluster-inventory}
+      - notMatchRegex: {path: "spec.template.spec.containers[0].args[*]", pattern: "^--cluster-inventory-namespaces"}
+
+  - it: secretNamespaces refuses a name that is not a DNS label
+    template: templates/deployment.yaml
+    set:
+      clusterInventory.secretNamespaces: [Argo_CD]
+    asserts:
+      - failedTemplate:
+          errorPattern: "secretNamespaces"

@@ -345,6 +345,26 @@
         }
       }
     },
+    "clusterInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "List the candidate clusters the hub's GitOps and cluster managers know, as metadata only."
+        },
+        "secretNamespaces": {
+          "type": "array",
+          "description": "Namespaces where the operator may list Secret metadata for Argo CD and Flux cluster Secrets.",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 63,
+            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+          }
+        }
+      }
+    },
     "profile": {
       "description": "Installation profile: default, hardened or idp, or a list of them (hardened wins where they disagree).",
       "oneOf": [

@@ -468,6 +468,72 @@ tests:
             resources: [ciliumnetworkpolicies]
             verbs: [list]
 
+  # The cluster inventory (514-S5): list on each inventory group, only with
+  # clusterInventory.enabled, only where the cluster serves the API, and
+  # whenever the ClusterRole renders (outside the cluster-wide block).
+  - it: default renders no inventory rule
+    template: templates/clusterrole.yaml
+    capabilities:
+      apiVersions: &inventoryAPIs
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - cluster.x-k8s.io/v1beta1
+        - cluster.open-cluster-management.io/v1
+        - management.cattle.io/v3
+    asserts:
+      - notContains: {path: rules, content: {apiGroups: [cluster.x-k8s.io]}, any: true}
+      - notContains: {path: rules, content: {apiGroups: [cluster.open-cluster-management.io]}, any: true}
+      - notContains: {path: rules, content: {apiGroups: [management.cattle.io]}, any: true}
+
+  - it: inventory groups render only when served
+    template: templates/clusterrole.yaml
+    set:
+      clusterInventory.enabled: true
+    asserts:
+      - notContains: {path: rules, content: {apiGroups: [cluster.x-k8s.io]}, any: true}
+      - notContains: {path: rules, content: {apiGroups: [cluster.open-cluster-management.io]}, any: true}
+      - notContains: {path: rules, content: {apiGroups: [management.cattle.io]}, any: true}
+
+  - it: clusterInventory enabled with CAPI served
+    template: templates/clusterrole.yaml
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - cluster.x-k8s.io/v1beta2
+    set:
+      clusterInventory.enabled: true
+    asserts:
+      - contains: {path: rules, content: {apiGroups: [cluster.x-k8s.io], resources: [clusters], verbs: [list]}}
+      - notContains: {path: rules, content: {apiGroups: [cluster.open-cluster-management.io]}, any: true}
+      - notContains: {path: rules, content: {apiGroups: [management.cattle.io]}, any: true}
+      - notContains: {path: rules, content: {apiGroups: [""], resources: [secrets]}, any: true}
+
+  - it: watchNamespaces with nodeAgent and clusterInventory.enabled
+    template: templates/clusterrole.yaml
+    capabilities:
+      apiVersions: *inventoryAPIs
+    set:
+      controller.watchNamespaces: [payments]
+      nodeAgent.enabled: true
+      clusterInventory.enabled: true
+    asserts:
+      - hasDocuments: {count: 1}
+      - contains: {path: rules, content: {apiGroups: [cluster.x-k8s.io], resources: [clusters], verbs: [list]}}
+      - contains: {path: rules, content: {apiGroups: [cluster.open-cluster-management.io], resources: [managedclusters], verbs: [list]}}
+      - contains: {path: rules, content: {apiGroups: [management.cattle.io], resources: [clusters], verbs: [list]}}
+      - notContains: {path: rules, content: {apiGroups: [""], resources: [pods]}, any: true}
+
+  - it: watchNamespaces only and clusterInventory.enabled renders no ClusterRole
+    capabilities:
+      apiVersions: *inventoryAPIs
+    set:
+      controller.watchNamespaces: [payments]
+      clusterInventory.enabled: true
+    asserts:
+      - hasDocuments: {count: 0}
+        template: templates/clusterrole.yaml
+      - hasDocuments: {count: 0}
+        template: templates/clusterrolebinding.yaml
+
   # Every binding's roleRef and subjects are pinned: the per-render cases below.
   - it: 'default: every rule, roleRef and subject of clusterrole.yaml is pinned'
     template: templates/clusterrole.yaml
