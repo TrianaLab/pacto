@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -23,21 +24,24 @@ import (
 
 // Gate decides, on every reconcile tick, whether the Evidence Server runs
 // under profile idp (--evidence-server-auto): only while the registry serves
-// native OCI Referrers, a subject or subject prefix is set and the trust
-// Secret holds a public key. A check that cannot tell keeps the current
-// state: unknown is never positive, and it never deletes a running server.
+// native OCI Referrers, a subject or subject prefix is set on that registry
+// and the trust Secret holds what the server reads as trust. A check that
+// cannot tell keeps the current state: unknown is never positive, and it
+// never deletes a running server. Before the first known decision the current
+// state is whether the managed Deployment exists, so an operator restart
+// keeps the URL of a server that still runs.
 type Gate struct {
 	// Reader must be uncached (mgr.GetAPIReader()): the trust Secret is read
 	// with one Get by name, as the Secret RBAC is get only.
 	Reader client.Reader
 	// Namespace and TrustSecret name the trust Secret; TrustConfigKey, when
-	// set, is a key of it that counts as trust.
+	// set, is the one key of it the server reads as trust.
 	Namespace, TrustSecret, TrustConfigKey string
 	// Registry is the installation registry (host/path); empty keeps it off.
 	Registry string
-	// Scoped is whether subjects or subject prefixes are set. The registry
-	// alone never counts as a scope.
-	Scoped bool
+	// Subjects are the subjects and subject prefixes (oci://host/...). The
+	// registry alone never counts as a scope.
+	Subjects []string
 	// Probe reports what the registry holding the target snapshot supports.
 	Probe func(ctx context.Context) (capabilities.Capabilities, error)
 	// LastPush is the target snapshot publisher's last attempt, nil before
@@ -46,18 +50,28 @@ type Gate struct {
 	// URL is the managed Evidence Server's internal URL.
 	URL string
 
+	// FirstPush, when set, is closed by the first target snapshot push, so
+	// the reconciler checks the gate then instead of on its next tick.
+	FirstPush <-chan struct{}
+
 	state   atomic.Pointer[detect.Entry]
 	running atomic.Bool
+	decided atomic.Bool
 }
 
 // Check decides the gate once: on, whether the decision is known, and the
 // detected row that says why. A known decision is remembered; an unknown one
-// leaves the remembered state as it was.
+// leaves the remembered state as it was, or, before any known decision, takes
+// it from whether the managed Deployment exists.
 func (g *Gate) Check(ctx context.Context) (on, known bool, e detect.Entry) {
 	on, known, e = g.check(ctx)
 	g.state.Store(&e)
-	if known {
+	switch {
+	case known:
 		g.running.Store(on)
+		g.decided.Store(true)
+	case !g.decided.Load():
+		g.running.Store(g.Reader.Get(ctx, client.ObjectKey{Namespace: g.Namespace, Name: Name}, &appsv1.Deployment{}) == nil)
 	}
 	return on, known, e
 }
@@ -67,20 +81,25 @@ func (g *Gate) check(ctx context.Context) (on, known bool, e detect.Entry) {
 	switch {
 	case g.Registry == "":
 		return false, true, off("no registry value", nil)
-	case !g.Scoped:
+	case len(g.Subjects) == 0:
 		return false, true, off("set evidence.registry.subjectPrefixes", nil)
 	}
+	if other := otherHost(g.Subjects, host); other != "" {
+		return unknown("subjects on " + other + ", which is not the registry, so Pacto cannot probe its OCI Referrers")
+	}
+	// Neither a push error nor a probe error enters the row: each can name
+	// the registry repository and the cluster-<id> tag of this cluster.
 	push := g.LastPush()
 	switch {
 	case push == nil:
 		return unknown("no target snapshot pushed yet to probe " + host)
 	case push.Error != "":
-		return unknown("the last target snapshot push failed: " + push.Error)
+		return unknown("the last target snapshot push failed; see the operator log")
 	}
 	caps, err := g.Probe(ctx)
 	switch {
 	case err != nil:
-		return unknown("probing " + host + " failed: " + err.Error())
+		return unknown("probing " + host + " failed; see the operator log")
 	case caps.Referrers != capabilities.ReferrersNative:
 		return false, true, off(host+" does not serve OCI Referrers", nil)
 	}
@@ -93,30 +112,48 @@ func (g *Gate) check(ctx context.Context) (on, known bool, e detect.Entry) {
 		return unknown("reading the trust Secret failed: " + reason(err))
 	}
 	trust := trustHeld(s.Data, g.TrustConfigKey)
-	if trust == "" {
+	switch {
+	case trust == "" && g.TrustConfigKey != "":
+		return false, true, off("the trust Secret holds no "+g.TrustConfigKey, secret)
+	case trust == "":
 		return false, true, off("the trust Secret holds no public key", secret)
 	}
 	return true, true, detect.EvidencePiece("on", host+" serves OCI Referrers; the trust Secret holds "+trust, secret, detect.Complete, "")
 }
 
-// trustHeld says what of data counts as trust: its *.pub keys, else the
-// trust config key. Empty when neither is there. Only names are counted,
-// never the bytes.
+// trustHeld says what of data the server reads as trust: the trust config
+// key alone when configKey is set (the server then reads only that file),
+// else its non-empty *.pub keys. Empty when there is none. Only names and
+// lengths are read, never the bytes.
 func trustHeld(data map[string][]byte, configKey string) string {
+	if configKey != "" {
+		if len(data[configKey]) > 0 {
+			return "a trust config"
+		}
+		return ""
+	}
 	n := 0
-	for k := range data {
-		if strings.HasSuffix(k, ".pub") {
+	for k, v := range data {
+		if strings.HasSuffix(k, ".pub") && len(v) > 0 {
 			n++
 		}
 	}
-	_, config := data[configKey]
-	switch {
-	case n == 1:
+	switch n {
+	case 0:
+		return ""
+	case 1:
 		return "1 public key"
-	case n > 1:
-		return fmt.Sprintf("%d public keys", n)
-	case configKey != "" && config:
-		return "a trust config"
+	}
+	return fmt.Sprintf("%d public keys", n)
+}
+
+// otherHost is the first host of subjects (oci://host/... refs) that is not
+// host, empty when every one is.
+func otherHost(subjects []string, host string) string {
+	for _, s := range subjects {
+		if h, _, _ := strings.Cut(strings.TrimPrefix(s, "oci://"), "/"); h != host {
+			return h
+		}
 	}
 	return ""
 }

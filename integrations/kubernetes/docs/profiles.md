@@ -73,7 +73,7 @@ on Data sources say whether each piece is on and why.
 
 | Piece | Prerequisite | How to turn it off |
 |---|---|---|
-| Evidence Server | The registry serves OCI Referrers; a subject or subject prefix is set; the trust Secret holds a `.pub` key | Remove the public keys from the trust Secret, or leave profile idp |
+| Evidence Server | The registry serves OCI Referrers; a subject or subject prefix is set, on that registry; the trust Secret holds a non-empty `.pub` key, or the `evidence.trust.configKey` key when that is set | Remove the public keys from the trust Secret, or leave profile idp |
 | Recorder | Pacto delivery renders; a streams repository (`registry` or `delivery.recorder.streamsRepository`); exactly one complete signing method; `delivery.recorder.enabled` left unset | `delivery.recorder.enabled=false` |
 | Crossplane | Detected under every profile; idp installs it only with `idp.crossplane.install=true` | `idp.crossplane.install=false` (see [Crossplane](#crossplane)) |
 
@@ -89,16 +89,20 @@ that later serves Referrers is seen after an operator restart. See
 
 A running recorder changes how approvals count, and older CLIs and promoters
 refuse its records. Upgrade the CLIs and promoters that follow these streams
-first, or set `delivery.recorder.enabled=false`.
+first, or set `delivery.recorder.enabled=false`. An upgrade with
+`--reuse-values` from an earlier chart keeps the `false` that chart set by
+default, so the recorder stays off until you set
+`delivery.recorder.enabled=null`.
 
 ### Crossplane
 
 The operator reads Crossplane from its running core Deployment, so CRDs left
 behind never read as a running Crossplane. A Crossplane that runs before it
-serves its APIs reads `Crossplane starting` until the next detection run.
-Under idp with no Crossplane, the
-row proposes the bootstrap, which installs upstream Crossplane into the
-release namespace with this release:
+serves its APIs reads `Crossplane starting` until the next detection run, and
+a core Deployment with no available replica reads `Crossplane not available`.
+Under idp with no Crossplane, the row proposes the bootstrap, except under
+profile hardened, which refuses it. The bootstrap installs upstream
+Crossplane into the release namespace with this release:
 
 ```bash
 helm upgrade pacto oci://ghcr.io/trianalab/pacto/charts/pacto-operator \

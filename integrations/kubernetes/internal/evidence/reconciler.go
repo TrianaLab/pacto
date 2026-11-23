@@ -103,6 +103,17 @@ func (r *Reconciler) apply(ctx context.Context, ac runtime.ApplyConfiguration) e
 func (r *Reconciler) Start(ctx context.Context) error {
 	logf.FromContext(ctx).WithName("evidence").Info("Starting evidence reconciler",
 		"enabled", r.Config.Enabled, "auto", r.Config.Auto, "image", r.Config.Image, "namespace", r.Config.Namespace)
+	if r.Config.Auto && r.Gate.FirstPush != nil {
+		// The first sync usually runs before the first push and cannot tell:
+		// check again once the push lands instead of a tick later.
+		go func() {
+			select {
+			case <-r.Gate.FirstPush:
+				_ = r.Sync(ctx)
+			case <-ctx.Done():
+			}
+		}()
+	}
 	return component.Run(ctx, "evidence", r.Config.Enabled || r.Config.Auto, r.tickInterval, r.Sync)
 }
 

@@ -10,7 +10,9 @@ package evidence
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -52,7 +54,7 @@ func TestReconcilerAutoAppliesWhenOn(t *testing.T) {
 
 func TestReconcilerAutoCleansUpWhenKnownOff(t *testing.T) {
 	r := autoReconciler(interceptor.Funcs{}, managedDeployment("test-ns"), managedService("test-ns"))
-	r.Gate.Scoped = false
+	r.Gate.Subjects = nil
 	if err := r.Sync(context.Background()); err != nil || deployed(t, r) {
 		t.Fatalf("err %v, deployed %v", err, deployed(t, r))
 	}
@@ -69,6 +71,34 @@ func TestReconcilerAutoKeepsStateWhenUnknown(t *testing.T) {
 	r.Gate.LastPush = func() *detect.PushResult { return nil }
 	if err := r.Sync(context.Background()); err != nil || deployed(t, r) {
 		t.Fatalf("unknown created the server: err %v", err)
+	}
+}
+
+// The gate is checked again when the first target snapshot push lands, not a
+// tick later.
+func TestReconcilerAutoSyncsOnFirstPush(t *testing.T) {
+	r := autoReconciler(interceptor.Funcs{})
+	var push atomic.Pointer[detect.PushResult]
+	first := make(chan struct{})
+	r.Gate.LastPush, r.Gate.FirstPush, r.tickInterval = push.Load, first, time.Hour
+	ctx := t.Context()
+	go func() { _ = r.Start(ctx) }()
+	push.Store(pushed())
+	close(first)
+	deadline := time.Now().Add(10 * time.Second)
+	for !deployed(t, r) {
+		if time.Now().After(deadline) {
+			t.Fatal("the first push never created the Evidence Server")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// A cancelled start never waits for a push.
+	r = autoReconciler(interceptor.Funcs{})
+	r.Gate.FirstPush = make(chan struct{})
+	stopped, stop := context.WithCancel(context.Background())
+	stop()
+	if err := r.Start(stopped); err != nil {
+		t.Fatal(err)
 	}
 }
 

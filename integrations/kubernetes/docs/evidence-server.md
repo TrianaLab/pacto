@@ -131,10 +131,12 @@ With `profile: idp` and `evidence.enabled` unset, the operator runs the
 Evidence Server only while all of these hold:
 
 - the registry serves the OCI Referrers API;
-- a subject or subject prefix is set; the prefix defaults to
-  `oci://<registry>/` when `registry` has a path, such as `ghcr.io/acme`;
+- a subject or subject prefix is set, on that registry; the prefix defaults
+  to `oci://<registry>/` when `registry` has a path, such as `ghcr.io/acme`;
 - the trust Secret, `evidence.trust.existingSecret` or
-  `<fullname>-evidence-trust`, holds a `.pub` key.
+  `<fullname>-evidence-trust`, holds a non-empty `.pub` key, or the
+  `evidence.trust.configKey` key when that is set, since the server then
+  reads only that key.
 
 The `Evidence` row in
 [Detected providers](../../operational-graph-providers.md) says which one is
@@ -142,8 +144,8 @@ missing:
 
 | Row | Why |
 |---|---|
-| `off` | `no registry value`, `set evidence.registry.subjectPrefixes`, `<host> does not serve OCI Referrers`, `the trust Secret does not exist` or `the trust Secret holds no public key` |
-| `unknown` | no target snapshot pushed yet, the last push failed, the Referrers probe failed or the trust Secret could not be read; the Evidence Server stays as it was |
+| `off` | `no registry value`, `set evidence.registry.subjectPrefixes`, `<host> does not serve OCI Referrers`, `the trust Secret does not exist`, `the trust Secret holds no public key` or `the trust Secret holds no <configKey>` |
+| `unknown` | no target snapshot pushed yet, the last push failed, the Referrers probe failed, a subject is on another registry or the trust Secret could not be read; the Evidence Server stays as it was, and after an operator restart it is wired again while its Deployment runs |
 
 See [Choose an installation profile](profiles.md#what-idp-turns-on-when-the-cluster-supports-it).
 

@@ -871,7 +871,8 @@ func evidenceGate(mgr ctrl.Manager, o *options, namespace string, ident kubeclus
 	}
 	g := &evidence.Gate{Reader: mgr.GetAPIReader(), Namespace: namespace, TrustSecret: o.evidenceTrustSecret,
 		TrustConfigKey: o.evidenceTrustConfigKey, Registry: o.registry,
-		Scoped: len(o.evidenceSubjects) > 0 || len(o.evidenceSubjectPrefixes) > 0, LastPush: lastPush.Load, URL: url}
+		Subjects: append(slices.Clone(o.evidenceSubjects), o.evidenceSubjectPrefixes...), LastPush: lastPush.Load, URL: url,
+		FirstPush: firstPush}
 	if o.registry != "" {
 		probe, err := targetsnapshot.ReferrersProbe(targetsnapshot.Config{Registry: o.registry, ClusterID: ident.ID,
 			Keychain: kc, Insecure: oci.EnvInsecureRegistries()})
@@ -985,6 +986,13 @@ func addLinker(mgr ctrl.Manager, o *options, namespace, clusterID string, kc, lo
 // lastPush is the target snapshot publisher's last attempt, which detection advertises.
 var lastPush atomic.Pointer[detect.PushResult]
 
+// firstPush is closed by the target snapshot publisher's first attempt, so the evidence gate checks then.
+var firstPush, closeFirstPush = func() (<-chan struct{}, func()) {
+	c := make(chan struct{})
+	var once sync.Once
+	return c, func() { once.Do(func() { close(c) }) }
+}()
+
 // addTargetSnapshot runs the target snapshot publisher when --registry is set: it ensures the installation
 // key, then publishes <registry>/pacto-targets:cluster-<uid> and the inferred contracts under
 // <registry>/pacto-inferred on the elected leader. It fills the registry fields of inst, the installation
@@ -1012,8 +1020,9 @@ func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kub
 		ClusterName: ident.Name, ClusterNameSource: ident.NameSource,
 		Namespace: namespace, ServiceAccount: os.Getenv("OPERATOR_SERVICE_ACCOUNT"), EvidenceURL: evidenceURL,
 		Watched: o.namespaces, Key: key, Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(),
-		OnPush: func(r detect.PushResult) { lastPush.Store(&r) }, OwnerPolicy: readOwnerPolicy(o.ownerPolicy),
-		Linked: linked})
+		OnPush:      func(r detect.PushResult) { lastPush.Store(&r); closeFirstPush() },
+		OwnerPolicy: readOwnerPolicy(o.ownerPolicy),
+		Linked:      linked})
 	if err != nil {
 		return nil, err
 	}

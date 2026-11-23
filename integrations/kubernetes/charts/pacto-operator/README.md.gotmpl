@@ -210,7 +210,7 @@ The chart follows security best practices by default:
 
 | Piece | Prerequisite | Turn it off |
 |---|---|---|
-| Evidence Server | The registry serves OCI Referrers, a subject or subject prefix is set (default `oci://<registry>/` when `registry` has a path) and the trust Secret (`<fullname>-evidence-trust` or `evidence.trust.existingSecret`) holds a `.pub` key | Remove the keys from the trust Secret, or leave profile idp |
+| Evidence Server | The registry serves OCI Referrers, a subject or subject prefix is set on that registry (default `oci://<registry>/` when `registry` has a path) and the trust Secret (`<fullname>-evidence-trust` or `evidence.trust.existingSecret`) holds a non-empty `.pub` key, or the `evidence.trust.configKey` key when that is set | Remove the keys from the trust Secret, or leave profile idp |
 | Recorder | A streams repository and exactly one complete signing method, with `delivery.recorder.enabled` unset | `delivery.recorder.enabled=false` |
 | Upstream Crossplane | `idp.crossplane.install=true`; refused outside idp, under hardened and where another Crossplane runs | `idp.crossplane.install=false`, which keeps Crossplane's CRDs and resources |
 

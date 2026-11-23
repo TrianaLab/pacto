@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -47,7 +48,7 @@ func pushed() *detect.PushResult {
 // newGate is a gate whose every prerequisite holds, reading objs.
 func newGate(objs ...client.Object) *Gate {
 	return &Gate{Reader: fake.NewClientBuilder().WithScheme(newScheme()).WithObjects(objs...).Build(),
-		Namespace: "test-ns", TrustSecret: "trust", Registry: "zot.acme.internal/acme", Scoped: true,
+		Namespace: "test-ns", TrustSecret: "trust", Registry: "zot.acme.internal/acme", Subjects: []string{"oci://zot.acme.internal/acme/"},
 		Probe: native, LastPush: pushed, URL: gateURL}
 }
 
@@ -83,7 +84,7 @@ func TestGateOnWithReferrersAndKey(t *testing.T) {
 	if len(e.Objects) != 1 || e.Objects[0] != (detect.Object{Kind: "Secret", Namespace: "test-ns", Name: "trust"}) {
 		t.Fatalf("objects %+v", e.Objects)
 	}
-	g = newGate(trustSecret(map[string][]byte{"ci.pub": nil}))
+	g = newGate(trustSecret(map[string][]byte{"ci.pub": []byte("k"), "empty.pub": nil}))
 	if _, _, e := check(t, g); !strings.HasSuffix(e.Evidence, "holds 1 public key") {
 		t.Fatalf("entry %+v", e)
 	}
@@ -120,9 +121,32 @@ func TestGateCountsConfigKeyAsTrust(t *testing.T) {
 	}
 }
 
+// With a config key the server reads only that file: .pub keys beside it
+// never turn the gate on, and an empty config is no trust.
+func TestGateWithConfigKeyIgnoresPubKeys(t *testing.T) {
+	g := newGate(trustSecret(keyBytes()))
+	g.TrustConfigKey = "trust.yaml"
+	wantOff(t, g, "the trust Secret holds no trust.yaml")
+	g = newGate(trustSecret(map[string][]byte{"trust.yaml": nil}))
+	g.TrustConfigKey = "trust.yaml"
+	wantOff(t, g, "the trust Secret holds no trust.yaml")
+}
+
+// A subject or prefix on another registry is a store the gate never probed:
+// unknown, never on.
+func TestGateUnknownForSubjectsOnAnotherRegistry(t *testing.T) {
+	g := newGate(trustSecret(keyBytes()))
+	g.Subjects = []string{"oci://zot.acme.internal/acme/", "oci://legacy-harbor.acme/apps/"}
+	wantUnknown(t, g, "subjects on legacy-harbor.acme, which is not the registry")
+	g.Subjects = []string{"zot.acme.internal/acme/orders@sha256:abc"}
+	if on, _, _ := check(t, g); !on {
+		t.Fatal("a subject on the registry kept the gate off")
+	}
+}
+
 func TestGateOffWithoutSubjectsOrPrefix(t *testing.T) {
 	g := newGate(trustSecret(keyBytes()))
-	g.Scoped = false
+	g.Subjects = nil
 	wantOff(t, g, "set evidence.registry.subjectPrefixes")
 }
 
@@ -134,16 +158,24 @@ func TestGateUnknownBeforeFirstPush(t *testing.T) {
 
 func TestGateUnknownAfterFailedPush(t *testing.T) {
 	g := newGate(trustSecret(keyBytes()))
-	g.LastPush = func() *detect.PushResult { return &detect.PushResult{Ref: "x", Error: "401 unauthorized"} }
-	wantUnknown(t, g, "the last target snapshot push failed: 401 unauthorized")
+	g.LastPush = func() *detect.PushResult {
+		return &detect.PushResult{Ref: "x", Error: `PUT "https://zot.acme.internal/v2/acme/pacto-targets/manifests/cluster-7f3c": 401`}
+	}
+	wantUnknown(t, g, "the last target snapshot push failed; see the operator log")
+	if _, _, e := check(t, g); strings.Contains(e.Reason, "cluster-7f3c") || strings.Contains(e.Reason, "pacto-targets") {
+		t.Fatalf("the row names the snapshot tag: %+v", e)
+	}
 }
 
 func TestGateUnknownOnProbeError(t *testing.T) {
 	g := newGate(trustSecret(keyBytes()))
 	g.Probe = func(context.Context) (capabilities.Capabilities, error) {
-		return capabilities.Capabilities{}, errors.New("the referrers endpoint answered 500")
+		return capabilities.Capabilities{}, errors.New("zot.acme.internal/acme/pacto-targets:cluster-7f3c: not found")
 	}
-	wantUnknown(t, g, "probing zot.acme.internal failed: the referrers endpoint answered 500")
+	wantUnknown(t, g, "probing zot.acme.internal failed; see the operator log")
+	if _, _, e := check(t, g); strings.Contains(e.Reason, "cluster-7f3c") {
+		t.Fatalf("the row names the snapshot tag: %+v", e)
+	}
 }
 
 func TestGateUnknownOnSecretReadError(t *testing.T) {
@@ -200,6 +232,34 @@ func TestGateURLEmptyUnlessOn(t *testing.T) {
 	check(t, g)
 	if g.EvidenceURL() != "" {
 		t.Fatalf("off: url %q", g.EvidenceURL())
+	}
+}
+
+// An operator restart keeps the URL of an Evidence Server that still runs:
+// the first check cannot tell before the first push, and the Deployment is
+// the current state until a decision is known.
+func TestGateRestartKeepsURLOfARunningServer(t *testing.T) {
+	running := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns", Name: Name}}
+	g := newGate(trustSecret(keyBytes()), running)
+	g.LastPush = func() *detect.PushResult { return nil }
+	check(t, g)
+	if g.EvidenceURL() != gateURL {
+		t.Fatalf("restart with a running server: url %q", g.EvidenceURL())
+	}
+	// Without the Deployment it stays empty.
+	g = newGate(trustSecret(keyBytes()))
+	g.LastPush = func() *detect.PushResult { return nil }
+	check(t, g)
+	if g.EvidenceURL() != "" {
+		t.Fatalf("restart without a server: url %q", g.EvidenceURL())
+	}
+	// Once a decision is known, an unknown keeps it, whatever runs.
+	g = newGate(running)
+	check(t, g)
+	g.LastPush = func() *detect.PushResult { return nil }
+	check(t, g)
+	if g.EvidenceURL() != "" {
+		t.Fatalf("a known off then unknown: url %q", g.EvidenceURL())
 	}
 }
 
