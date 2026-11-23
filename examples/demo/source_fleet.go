@@ -258,13 +258,18 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	linked := fleet.NewMemorySource("k8s-production-linked", fleet.SourceKindLinked, &fleet.Collection{
 		Cluster: prodCluster, Targets: linkedTargets,
 	})
+	// acme-idp speaks through the open seams (source_contribution.go).
+	evidence, err := demoEvidenceServer(prodCluster)
+	if err != nil {
+		return nil, nil, err
+	}
 	cat, err := demoCatalog()
 	if err != nil {
 		return nil, nil, err
 	}
 	snap, err := fleet.Build(context.Background(),
 		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat, DeclarationSigners: demoHandoverSigners()},
-		append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection, linked, demoMeshSource(prodCluster, demoNow())}, traceSources...)...)
+		append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection, linked, demoMeshSource(prodCluster, demoNow()), evidence}, traceSources...)...)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -281,7 +281,7 @@
      shared `.page-toc-main`; only the tighter section rhythm is this page's own. */
   .ev-body { gap: var(--sp-4); }
   /* Muted like every inferred item: a producer's record, never a contract. */
-  .ev-contribution { margin: 0; display: flex; align-items: center; gap: var(--sp-1); color: var(--c-text-3); overflow-wrap: anywhere; }
+  .ev-contribution { margin: 0; color: var(--c-text-3); overflow-wrap: anywhere; }
   .ev-replaced { margin: 0; color: var(--c-text-2); overflow-wrap: anywhere; }
   /* Look and behaviour come from the shared .disclosure class in styles/components.css. */
   .ev-key { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }

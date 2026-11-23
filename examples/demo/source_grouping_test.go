@@ -16,7 +16,7 @@ func TestDemoGroups(t *testing.T) {
 	snap := demoFleet(t)
 	byName := map[string]*fleet.InferredWorkload{}
 	for _, s := range snap.Services {
-		if s.Inferred() {
+		if s.Inferred() && s.Workload != nil { // a contribution names no workload
 			byName[s.Workload.Name] = s.Workload
 		}
 	}

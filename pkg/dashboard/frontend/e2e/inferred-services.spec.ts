@@ -8,7 +8,8 @@ import { appReady } from './ready';
 // each has its own page and the uncontracted caller on attention links to it.
 
 const T = 20_000;
-const INFERRED = 4;
+// Four workloads plus the service acme-idp contributes (source_contribution.go).
+const INFERRED = 5;
 
 test.describe('WASM demo: inferred services', () => {
   test('the Overview segment counts them and lands on the Services list filtered to them', async ({ page }) => {
