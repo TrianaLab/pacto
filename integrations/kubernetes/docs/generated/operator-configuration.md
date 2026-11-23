@@ -53,9 +53,9 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-oidc-username-claim` | `string` |  | chart value | ID token claim the API server takes the username from; must match its claim mapping (empty: sub). |
 | `-dashboard-oidc-username-prefix` | `string` |  | chart value | Prefix the API server puts before the username; must match its claim mapping (empty: the issuer URL and #; - for none). |
 | `-dashboard-owner-policy-configmap` | `string` |  | chart value | Immutable ConfigMap in the operator namespace holding the owner policy (policy.json) the dashboard mounts. |
-| `-dashboard-registry` | `string` |  | chart value | The registry (&lt;host&gt;/&lt;path&gt;) declarations made in the dashboard are published to; empty: no Declare. |
+| `-dashboard-registry` | `string` |  | chart value | The installation registry (&lt;host&gt;/&lt;path&gt;): the dashboard lists the golden paths and offerings published under it, and publishes declarations there; empty: the dashboard offers no Declare. |
 | `-dashboard-rekor-url` | `string` |  | chart value | Rekor the dashboard records signatures in (empty: public-good Sigstore). |
-| `-dashboard-repositories` | `value` |  | chart value | Comma-separated oci:// references the dashboard reads beside the contracts it discovers from Pacto resources, such as golden paths, which are never deployed. |
+| `-dashboard-repositories` | `value` |  | chart value | Deprecated: set --registry; the dashboard lists every golden path and offering under it. Comma-separated oci:// references the dashboard reads beside the contracts it discovers from Pacto resources, such as golden paths, which are never deployed. |
 | `-dashboard-session-idle-timeout` | `duration` |  | chart value | A dashboard session without a request for this long ends (0: 1h). |
 | `-dashboard-session-max-age` | `duration` |  | chart value | A dashboard session ends this long after sign-in, renewed or not (0: 12h). |
 | `-dashboard-sign-client-id` | `string` |  | chart value | A second OpenID Connect client at the dashboard's issuer whose audience Fulcio trusts and the API server does not: a signed-in person logs in again with it to sign a declaration. Empty: the dashboard saves drafts. |

@@ -69,6 +69,8 @@ type Config struct {
 	// Repositories are oci:// references the dashboard reads beside the
 	// contracts it discovers from Pacto resources, such as golden paths, which
 	// are never deployed and so have no Pacto resource to discover them from.
+	// Deprecated: with Registry set the dashboard lists every golden path and
+	// offering published under it; Repositories are still read.
 	Repositories []string
 
 	// ExternalCatalog is the organization external catalog the dashboard
@@ -145,8 +147,9 @@ type Config struct {
 	FulcioURL    string
 	RekorURL     string
 	TimestampURL string
-	// Registry is where declarations made in the dashboard are published
-	// (<host>/<path>); empty: the dashboard offers no Declare.
+	// Registry is the installation registry (<host>/<path>): the dashboard
+	// lists the golden paths and offerings published under it and publishes
+	// declarations there; empty: the dashboard offers no Declare.
 	Registry string
 	// DeclareRegistrySecret names an existing kubernetes.io/dockerconfigjson
 	// Secret, in the operator namespace, with push access to Registry. Only the

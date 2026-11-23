@@ -261,3 +261,21 @@ tests:
     asserts:
       - notMatchRegexRaw:
           pattern: "Profile (idp|hardened)"
+  - it: repositories set prints the deprecation line
+    set:
+      dashboard.repositories: [oci://ghcr.io/acme/go-http-postgres]
+    asserts:
+      - matchRegexRaw:
+          pattern: "dashboard.repositories is deprecated: set registry and the dashboard lists\n   every golden path and offering published under it."
+  - it: repositories empty prints none
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "dashboard.repositories is deprecated"
+  - it: repositories set without a managed dashboard prints none
+    set:
+      profile: hardened
+      controller.watchNamespaces: [payments]
+      dashboard.repositories: [oci://ghcr.io/acme/go-http-postgres]
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "dashboard.repositories is deprecated"

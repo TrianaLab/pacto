@@ -185,7 +185,8 @@ func bindDashboardDeclareFlags(fs *flag.FlagSet, o *options) {
 		"Immutable ConfigMap in the operator namespace whose trusted_root.json the dashboard verifies the declarations "+
 			"it signs with (a private Sigstore or an air-gapped install). Empty: public-good Sigstore.")
 	fs.StringVar(&o.dashboardDeclare.Registry, "dashboard-registry", "",
-		"The registry (<host>/<path>) declarations made in the dashboard are published to; empty: no Declare.")
+		"The installation registry (<host>/<path>): the dashboard lists the golden paths and offerings published "+
+			"under it, and publishes declarations there; empty: the dashboard offers no Declare.")
 	fs.StringVar(&o.dashboardDeclare.DeclareRegistrySecret, "dashboard-declare-registry-secret", "",
 		"An existing kubernetes.io/dockerconfigjson Secret in the operator namespace with push access to "+
 			"--dashboard-registry, mounted for the dashboard's Declare writer only. Empty: the dashboard plans only.")
@@ -251,7 +252,8 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.StringVar(&o.dashboardDeliveryTrust.Key, "dashboard-delivery-trust-key", "trust.yaml",
 		"Key of the trust config in that ConfigMap.")
 	fs.Func("dashboard-repositories",
-		"Comma-separated oci:// references the dashboard reads beside the contracts it discovers from Pacto "+
+		"Deprecated: set --registry; the dashboard lists every golden path and offering under it. "+
+			"Comma-separated oci:// references the dashboard reads beside the contracts it discovers from Pacto "+
 			"resources, such as golden paths, which are never deployed.",
 		func(v string) error {
 			o.dashboardRepositories = append(o.dashboardRepositories, strings.Split(v, ",")...)

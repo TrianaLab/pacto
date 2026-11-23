@@ -80,6 +80,11 @@ Pacto Operator has been installed.
    Declare in the dashboard saves drafts; set dashboard.auth.oidc.signClientID to sign there.
 {{- end }}
 {{- end }}
+{{- if .Values.dashboard.repositories }}
+
+   dashboard.repositories is deprecated: set registry and the dashboard lists
+   every golden path and offering published under it.
+{{- end }}
 {{- end }}
 {{- /* The idp lines name only the observation modes that render on (idp
 upgrades only a resolved auto) and the monitor read only when it renders. */}}
