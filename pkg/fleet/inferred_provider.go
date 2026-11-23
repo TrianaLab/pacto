@@ -167,7 +167,7 @@ func operatorSigned(rev *ContractRevision) bool {
 
 // withoutSurface is p as a restricted view sees it: every revision keeps its
 // version, digest, ref and signature, and no surface; its change keeps no
-// surface value. The surface was
+// surface value and no engine. The surface was
 // computed elsewhere, from consumers and sources (fleet source ids, never
 // namespaces) this view cannot check against what it hides, and values a
 // partial run carried forward name consumers that may have left. So every
@@ -183,10 +183,11 @@ func withoutSurface(p *ExternalProvider) *ExternalProvider {
 			out.Revisions[i].Surface, out.SurfaceHidden = nil, true
 		}
 	}
-	if c := p.Change; c != nil && len(c.Added)+len(c.Removed) > 0 {
-		// The versions, the check and the catalog-derived link stay.
+	if c := p.Change; c != nil && (len(c.Added)+len(c.Removed) > 0 || c.EngineFrom+c.EngineTo != "") {
+		// The versions, the check and the catalog-derived link stay; the
+		// engines are read from resources this view may not see.
 		hidden := *c
-		hidden.Added, hidden.Removed = nil, nil
+		hidden.Added, hidden.Removed, hidden.EngineFrom, hidden.EngineTo = nil, nil, "", ""
 		out.Change, out.SurfaceHidden = &hidden, true
 	}
 	return &out

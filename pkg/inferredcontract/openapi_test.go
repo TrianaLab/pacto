@@ -55,7 +55,7 @@ func linkAt(t *testing.T, reg publish.Registry, ref string) string {
 func stripeBundle(t *testing.T, version, openapi string) *contract.Bundle {
 	t.Helper()
 	snap := stripeFleet(t, []string{"api.stripe.com"})
-	b, err := Bundle("stripe", Surface(snap, "stripe", now), version, inputs(Deps{Pacto: "4.7.0"}, snap), openapi)
+	b, err := Bundle("stripe", Surface(snap, "stripe", now), version, inputs(Deps{Pacto: "4.7.0"}, snap), openapi, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestRepairNeverSignsForeignOpenAPILink(t *testing.T) {
 			d, root := deps(t, reg), host+"/demo/pacto-inferred"
 			repo := root + "/stripe"
 			snap := catalogFleet(t, run)
-			foreign, err := Bundle("stripe", Surface(snap, "stripe", now), "0.0.1", inputs(d, snap), spec("f"))
+			foreign, err := Bundle("stripe", Surface(snap, "stripe", now), "0.0.1", inputs(d, snap), spec("f"), "")
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -63,7 +63,7 @@ func TestSurfaceSeenWindow(t *testing.T) {
 
 func TestInferredSurfaceNamesNoConsumer(t *testing.T) {
 	snap := stripeFleet(t, []string{"api.stripe.com"}, "pay-agent")
-	b, err := Bundle("stripe", Surface(snap, "stripe", now), "0.0.1", inputs(Deps{Pacto: "4.7.0"}, snap), "")
+	b, err := Bundle("stripe", Surface(snap, "stripe", now), "0.0.1", inputs(Deps{Pacto: "4.7.0"}, snap), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestInferredSurfaceNamesNoConsumer(t *testing.T) {
 
 func TestBundleMinimalPactoYAML(t *testing.T) {
 	snap := stripeFleet(t, []string{"api.stripe.com"})
-	b, err := Bundle("stripe", Surface(snap, "stripe", now), "0.0.1", inputs(Deps{Pacto: "4.7.0"}, snap), "")
+	b, err := Bundle("stripe", Surface(snap, "stripe", now), "0.0.1", inputs(Deps{Pacto: "4.7.0"}, snap), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,10 +95,10 @@ func TestBundleMinimalPactoYAML(t *testing.T) {
 }
 
 func TestBundleValidates(t *testing.T) {
-	if _, err := Bundle("Stripe", contract.InferredSurface{}, "0.0.1", contract.InferredInputs{}, ""); err == nil || !strings.Contains(err.Error(), "invalid") {
+	if _, err := Bundle("Stripe", contract.InferredSurface{}, "0.0.1", contract.InferredInputs{}, "", ""); err == nil || !strings.Contains(err.Error(), "invalid") {
 		t.Errorf("an invalid identity = %v", err)
 	}
-	if _, err := Bundle("a: b", contract.InferredSurface{}, "0.0.1", contract.InferredInputs{}, ""); err == nil {
+	if _, err := Bundle("a: b", contract.InferredSurface{}, "0.0.1", contract.InferredInputs{}, "", ""); err == nil {
 		t.Error("an identity that breaks the YAML was accepted")
 	}
 }
@@ -106,8 +106,8 @@ func TestBundleValidates(t *testing.T) {
 func TestBundleDeterministic(t *testing.T) {
 	snap := stripeFleet(t, []string{"b.stripe.com", "a.stripe.com"})
 	in := inputs(Deps{Pacto: "4.7.0"}, snap)
-	b1, _ := Bundle("stripe", Surface(snap, "stripe", now), "0.0.1", in, "")
-	b2, _ := Bundle("stripe", Surface(snap, "stripe", now), "0.0.1", in, "")
+	b1, _ := Bundle("stripe", Surface(snap, "stripe", now), "0.0.1", in, "", "")
+	b2, _ := Bundle("stripe", Surface(snap, "stripe", now), "0.0.1", in, "", "")
 	if digestOf(b1) != digestOf(b2) {
 		t.Error("the same surface packs to two digests")
 	}
@@ -131,8 +131,8 @@ func TestNewCallerPublishesNothing(t *testing.T) {
 	ctx := context.Background()
 	one := stripeFleet(t, []string{"api.stripe.com"})
 	two := stripeFleet(t, []string{"api.stripe.com"}, "pay-agent")
-	old, _ := Bundle("stripe", Surface(one, "stripe", now), "0.0.1", inputs(Deps{}, one), "")
-	cur, _ := Bundle("stripe", Surface(two, "stripe", now.Add(time.Hour)), "0.0.2", inputs(Deps{}, two), "")
+	old, _ := Bundle("stripe", Surface(one, "stripe", now), "0.0.1", inputs(Deps{}, one), "", "")
+	cur, _ := Bundle("stripe", Surface(two, "stripe", now.Add(time.Hour)), "0.0.2", inputs(Deps{}, two), "", "")
 	if Changed(ctx, old, cur) {
 		t.Error("a new caller of a known host changed the surface")
 	}
@@ -141,8 +141,8 @@ func TestNewCallerPublishesNothing(t *testing.T) {
 func TestSurfaceChangePublishes(t *testing.T) {
 	one := stripeFleet(t, []string{"api.stripe.com"})
 	two := stripeFleet(t, []string{"api.stripe.com", "files.stripe.com"})
-	old, _ := Bundle("stripe", Surface(one, "stripe", now), "0.0.1", inputs(Deps{}, one), "")
-	cur, _ := Bundle("stripe", Surface(two, "stripe", now), "0.0.2", inputs(Deps{}, two), "")
+	old, _ := Bundle("stripe", Surface(one, "stripe", now), "0.0.1", inputs(Deps{}, one), "", "")
+	cur, _ := Bundle("stripe", Surface(two, "stripe", now), "0.0.2", inputs(Deps{}, two), "", "")
 	if !Changed(context.Background(), old, cur) {
 		t.Error("a new host is no change")
 	}
@@ -151,8 +151,8 @@ func TestSurfaceChangePublishes(t *testing.T) {
 func TestVersionBumpAloneIsNoChange(t *testing.T) {
 	snap := stripeFleet(t, []string{"api.stripe.com"})
 	s := Surface(snap, "stripe", now)
-	old, _ := Bundle("stripe", s, "0.0.1", inputs(Deps{}, snap), "")
-	cur, _ := Bundle("stripe", s, "0.0.7", inputs(Deps{}, snap), "")
+	old, _ := Bundle("stripe", s, "0.0.1", inputs(Deps{}, snap), "", "")
+	cur, _ := Bundle("stripe", s, "0.0.7", inputs(Deps{}, snap), "", "")
 	if Changed(context.Background(), old, cur) {
 		t.Error("a version bump alone is a change")
 	}

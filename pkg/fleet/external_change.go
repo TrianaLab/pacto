@@ -16,6 +16,11 @@ import (
 // reads it.
 const ExternalOpenAPIMetadataKey = "run.pacto.external.openapi"
 
+// ExternalEngineMetadataKey is the metadata key under which an inferred
+// contract records the observed engines of the managed resources of its
+// external system (see [ExternalEngineOf]).
+const ExternalEngineMetadataKey = "run.pacto.external.engine"
+
 // AttentionExternalChanged is the code of the item raised while a checked
 // change of an external system's inferred contract is fresh.
 const AttentionExternalChanged = "EXTERNAL_CHANGED"
@@ -56,6 +61,25 @@ type ExternalProviderChange struct {
 	Removed     []string `json:"removed,omitempty" doc:"Surface values as <list> <value>, for example clients stripe-go/76"`
 	OpenAPIFrom string   `json:"openapiFrom,omitempty" doc:"The vendor OpenAPI document the older revision links, set when the digest moved"`
 	OpenAPITo   string   `json:"openapiTo,omitempty" doc:"The vendor OpenAPI document the newer revision links, set when the digest moved"`
+	EngineFrom  string   `json:"engineFrom,omitempty" doc:"The observed engines the older revision records, set when the observed engine set moved"`
+	EngineTo    string   `json:"engineTo,omitempty" doc:"The observed engines the newer revision records, set when the observed engine set moved"`
+}
+
+// ExternalEngineOf is the observed engines of rec's managed resources: the
+// sorted, unique engine strings joined with ", ", "" when none reports one.
+// A desired-only engine (EngineRequested) is never part of it.
+func ExternalEngineOf(rec *ExternalRecord) string {
+	if rec == nil {
+		return ""
+	}
+	var engines []string
+	for _, r := range rec.Resources {
+		if r.Engine != "" {
+			engines = append(engines, r.Engine)
+		}
+	}
+	slices.Sort(engines)
+	return strings.Join(slices.Compact(engines), ", ")
 }
 
 // ExternalOpenAPIDigest is the digest a vendor OpenAPI link is pinned with:
@@ -66,13 +90,24 @@ func ExternalOpenAPIDigest(link string) string {
 
 // openAPILink is the vendor OpenAPI document rev records, or "".
 func openAPILink(rev *ContractRevision) string {
-	v, _ := rev.Contract.Metadata[ExternalOpenAPIMetadataKey].(string)
+	return metadataString(rev, ExternalOpenAPIMetadataKey)
+}
+
+// revisionEngine is the observed engines rev records, or "".
+func revisionEngine(rev *ContractRevision) string {
+	return metadataString(rev, ExternalEngineMetadataKey)
+}
+
+// metadataString is rev's string metadata value under key, or "".
+func metadataString(rev *ContractRevision, key string) string {
+	v, _ := rev.Contract.Metadata[key].(string)
 	return v
 }
 
 // providerChange is what changed from older to newer: the surface values
-// added and removed and the OpenAPI link, compared by digest (a document
-// re-hosted under the same digest is no change). It is nil when either is
+// added and removed, the OpenAPI link, compared by digest (a document
+// re-hosted under the same digest is no change), and the observed engines.
+// It is nil when either is
 // nil or nothing differs.
 func providerChange(newer, older *ContractRevision) *ExternalProviderChange {
 	if newer == nil || older == nil {
@@ -91,7 +126,10 @@ func providerChange(newer, older *ContractRevision) *ExternalProviderChange {
 	if from, to := openAPILink(older), openAPILink(newer); ExternalOpenAPIDigest(from) != ExternalOpenAPIDigest(to) {
 		c.OpenAPIFrom, c.OpenAPITo = from, to
 	}
-	if len(c.Added) == 0 && len(c.Removed) == 0 && c.OpenAPIFrom == "" && c.OpenAPITo == "" {
+	if from, to := revisionEngine(older), revisionEngine(newer); from != to {
+		c.EngineFrom, c.EngineTo = from, to
+	}
+	if len(c.Added) == 0 && len(c.Removed) == 0 && c.OpenAPIFrom == "" && c.OpenAPITo == "" && c.EngineFrom == "" && c.EngineTo == "" {
 		return nil
 	}
 	return c
@@ -119,7 +157,8 @@ func missing(list string, a, b []contract.SurfaceValue) []string {
 
 // externalChangedAttention reports one EXTERNAL_CHANGED item per external
 // system whose inferred contract changed, checked, within
-// MaxExternalChangeAge: its linked OpenAPI digest or its clients moved. Host
+// MaxExternalChangeAge: its linked OpenAPI digest, its observed engine or its
+// clients moved. Host
 // and port moves raise nothing: they are the organization's own calls. An
 // external item names no service, so a page or focus filters it out.
 func (q *Query) externalChangedAttention() []AttentionItem {
@@ -148,15 +187,11 @@ func (q *Query) externalChangedItem(rec *ExternalRecord) (AttentionItem, bool) {
 		Summary: "External system changed", NextStep: "pacto impact --changed " + ExternalSubjectPrefix + id,
 	}
 	between := " between " + c.From + " and " + c.To
+	consumers := consumersToReview(rec)
 	switch {
 	case c.OpenAPIFrom != "" && c.OpenAPITo != "":
-		n := rec.ConsumersTotal + rec.HiddenConsumers
-		consumers := strconv.Itoa(n) + " consumers"
-		if n == 1 {
-			consumers = "1 consumer"
-		}
 		it.Severity = severityWarning
-		it.Label = id + "'s linked OpenAPI document moved: " + consumers + " to review"
+		it.Label = id + "'s linked OpenAPI document moved: " + consumers
 		it.Reason = "the organization catalog's linked OpenAPI digest for " + id + " moved from " +
 			ExternalOpenAPIDigest(c.OpenAPIFrom) + " to " + ExternalOpenAPIDigest(c.OpenAPITo) + between
 	case c.OpenAPITo != "":
@@ -165,10 +200,24 @@ func (q *Query) externalChangedItem(rec *ExternalRecord) (AttentionItem, bool) {
 	case c.OpenAPIFrom != "":
 		it.Label = "the organization catalog no longer links " + id + "'s OpenAPI document"
 		it.Reason = "the inferred contract of " + id + " no longer links " + c.OpenAPIFrom + between
+	case c.EngineFrom != "" && c.EngineTo != "":
+		// A restricted view never gets here: withoutSurface drops the values.
+		it.Severity = severityWarning
+		it.Label = id + " engine " + c.EngineFrom + " -> " + c.EngineTo + ": " + consumers
+		it.Reason = "the observed engine of " + id + " moved from " + c.EngineFrom + " to " + c.EngineTo + between
 	default:
 		return clientsChangedItem(it, id, c, rec.Provider.SurfaceHidden)
 	}
 	return it, true
+}
+
+// consumersToReview is "<n> consumers to review" for rec, hidden consumers
+// included.
+func consumersToReview(rec *ExternalRecord) string {
+	if n := rec.ConsumersTotal + rec.HiddenConsumers; n != 1 {
+		return strconv.Itoa(n) + " consumers to review"
+	}
+	return "1 consumer to review"
 }
 
 // clientsChangedItem is it worded for a move of id's clients, when c moved

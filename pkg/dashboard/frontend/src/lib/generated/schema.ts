@@ -3922,6 +3922,10 @@ export interface components {
             at?: string;
             /** @description True only when this installation's operator signed both revisions; an unchecked change raises no attention */
             checked: boolean;
+            /** @description The observed engines the older revision records, set when the observed engine set moved */
+            engineFrom?: string;
+            /** @description The observed engines the newer revision records, set when the observed engine set moved */
+            engineTo?: string;
             /** @description The version of the older revision */
             from: string;
             /** @description The vendor OpenAPI document the older revision links, set when the digest moved */

@@ -96,7 +96,7 @@ func TestDemoInferredMatchesPublisher(t *testing.T) {
 	for _, v := range []string{"0.0.1", "0.0.2"} {
 		got := demoInferredRevision(v).Bundle
 		want, err := inferredcontract.Bundle("stripe", demoInferredSurface(v), v,
-			contract.InferredInputs{Pacto: "demo", Discovery: inferredcontract.Version, Sources: []contract.InferredSourceFile{}}, demoStripeOpenAPI[v])
+			contract.InferredInputs{Pacto: "demo", Discovery: inferredcontract.Version, Sources: []contract.InferredSourceFile{}}, demoStripeOpenAPI[v], "")
 		if err != nil {
 			t.Fatal(err)
 		}
