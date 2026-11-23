@@ -114,8 +114,9 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			contexts := splitList(v.GetStringSlice("dashboard.context"))
 			includeCurrent, clusterCfg, signInErr := signInCluster(v, contexts, d)
 			receiver, receiverErr := startReceiver(cmd.Context(), v.GetString("dashboard.otlp-receiver"))
+			registry, registryErr := dashboardRegistry(v.GetString("dashboard.registry"))
 			if err := errors.Join(app.CheckExternalCatalogRef(externalCatalog), app.CheckDetectedRef(v.GetString("dashboard.detected")), dashboardIndexErr(v.GetString("dashboard.index")),
-				signInErr, receiverErr); err != nil {
+				registryErr, signInErr, receiverErr); err != nil {
 				return err
 			}
 
@@ -146,7 +147,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				detected:        v.GetString("dashboard.detected"),
 				fingerprints:    v.GetString("dashboard.fingerprints"),
 				index:           v.GetString("dashboard.index"),
-				registry:        v.GetString("dashboard.registry"),
+				registry:        registry,
 			}
 
 			fopts := dashboardFleetOptions(dir, repos, namespaces, observation, det)
@@ -450,6 +451,21 @@ func dashboardIndexErr(v string) error {
 		return nil
 	}
 	return checkIndexRef(v)
+}
+
+// dashboardRegistry is the dashboard registry normalized as a discovery
+// prefix, "" when unset. A value discovery refuses (a tag, a digest) is a
+// startup error naming the dashboard's own setting: left to the snapshot, it
+// would fail every refresh with a message about --discover.
+func dashboardRegistry(v string) (string, error) {
+	if v == "" {
+		return "", nil
+	}
+	p, err := app.CheckDiscover(v)
+	if err != nil {
+		return "", fmt.Errorf("--registry (PACTO_DASHBOARD_REGISTRY) %q takes <registry>[/<path>] with no tag or digest", v)
+	}
+	return p, nil
 }
 
 // localRootHasBundle reports whether dir looks like a place contracts live: a

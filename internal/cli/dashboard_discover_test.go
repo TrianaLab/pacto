@@ -11,6 +11,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/spf13/viper"
 
+	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -53,5 +54,20 @@ func TestDashboardWithoutRegistryUnchanged(t *testing.T) {
 	fopts := dashboardFleetOptions("", []string{"ghcr.io/acme/a"}, nil, nil, dashboardSources{})
 	if fopts.Discover != nil || !slices.Equal(configuredSources(fopts), []string{"oci"}) {
 		t.Errorf("Discover %v, sources %v", fopts.Discover, configuredSources(fopts))
+	}
+}
+
+// TestDashboardRefusesTaggedRegistry: a registry discovery refuses fails the
+// start with the dashboard's own setting named, from the flag or the env,
+// instead of failing every snapshot with a --discover error.
+func TestDashboardRefusesTaggedRegistry(t *testing.T) {
+	isolateHost(t)
+	if _, err := runDashboard(t, app.NewService(nil, nil), viper.New(), t.TempDir(), "--port", "0", "--registry", "ghcr.io/acme/platform:v1"); err == nil ||
+		!strings.Contains(err.Error(), "PACTO_DASHBOARD_REGISTRY") || strings.Contains(err.Error(), "--discover") {
+		t.Errorf("a tagged --registry: %v", err)
+	}
+	t.Setenv("PACTO_DASHBOARD_REGISTRY", "ghcr.io/acme@sha256:"+strings.Repeat("a", 64))
+	if _, err := runDashboard(t, app.NewService(nil, nil), envViper(), t.TempDir(), "--port", "0"); err == nil || !strings.Contains(err.Error(), "--registry") {
+		t.Errorf("a digest through PACTO_DASHBOARD_REGISTRY: %v", err)
 	}
 }
