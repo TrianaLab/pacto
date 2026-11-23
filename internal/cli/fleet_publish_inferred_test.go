@@ -125,3 +125,13 @@ func TestFleetPublishInferredRepairsAndCaps(t *testing.T) {
 		t.Errorf("repair: %v\n%s", err, out)
 	}
 }
+
+// TestPublishInferredPrintsNextStep: each published contract names the
+// question to ask about it next.
+func TestPublishInferredPrintsNextStep(t *testing.T) {
+	host, key := inferredRegistry(t)
+	out, _, err := execFleet(t, "fleet", "publish-inferred", "--registry", host+"/demo", "--key", key, "--local", writeExternalFixture(t))
+	if err != nil || !strings.Contains(out, "pacto-inferred/stripe:0.0.1 (sha256:") || !strings.Contains(out, ")\n  next: pacto impact --changed external:stripe\n") {
+		t.Errorf("publish-inferred: %v\n%s", err, out)
+	}
+}

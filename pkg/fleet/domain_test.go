@@ -381,7 +381,7 @@ func TestOverview_UnownedEntryPoint(t *testing.T) {
 			ep = &ov.EntryPoints[i]
 		}
 	}
-	if ep == nil || ep.Label != "Services with no declared owner" || ep.Count != 1 || ep.Severity != "info" || ep.View != EntryPointAttention {
+	if ep == nil || ep.Label != "Services and external systems with no owner" || ep.Count != 1 || ep.Severity != "info" || ep.View != EntryPointAttention {
 		t.Fatalf("unowned entry point = %+v", ep)
 	}
 	// Every service with an item in the list counts, the unowned one included.

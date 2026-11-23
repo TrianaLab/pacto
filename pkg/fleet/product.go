@@ -622,8 +622,11 @@ type OverviewSummary struct {
 	// Externals counts the external systems the services declare, one per
 	// canonical identity (none is folded here); HiddenExternals those only
 	// services the caller's permissions hide declare, never named.
-	Externals                int `json:"externals" doc:"The external systems the services declare, one per canonical identity"`
-	HiddenExternals          int `json:"hiddenExternals,omitempty" doc:"The external systems only services the caller's permissions hide declare; never named"`
+	Externals       int `json:"externals" doc:"The external systems the services declare, one per canonical identity"`
+	HiddenExternals int `json:"hiddenExternals,omitempty" doc:"The external systems only services the caller's permissions hide declare; never named"`
+	// UnownedExternals counts the UNOWNED_EXTERNAL attention items, which
+	// the unowned tile adds to the services with no owner.
+	UnownedExternals         int `json:"unownedExternals" doc:"External systems with consumers and no owner"`
 	ServicesNeedingAttention int `json:"servicesNeedingAttention"`
 	// GoldenPaths counts the golden paths, which every other count leaves out:
 	// a golden path is a starting point for services, never one of them.
@@ -923,8 +926,9 @@ func (q *Query) Overview() *Overview {
 		sum.Knowledge.addService(q, s)
 	}
 	sum.Knowledge.finish()
-	sum.KnowledgeItems = len(q.knowledgeAttention()) + len(q.inferredProviderAttention())
+	sum.KnowledgeItems = len(q.knowledgeAttention()) + len(q.inferredProviderAttention()) + len(q.externalChangedAttention())
 	sum.Externals, sum.HiddenExternals = len(q.snap.Externals), q.snap.hiddenExternals
+	sum.UnownedExternals = len(q.unownedExternalAttention())
 
 	var recent []EvidenceItem
 	for _, r := range q.snap.Revisions {
@@ -1097,7 +1101,7 @@ func entryPoints(sum *OverviewSummary, items int) []EntryPoint {
 		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships + sum.UncontractedCallers, View: EntryPointAttention, Category: categoryUndeclared, Severity: undeclaredSeverity(sum)},
 		{Label: "Calls across environments", Count: sum.CrossEnvironmentCalls, View: EntryPointAttention, Category: categoryCrossEnvironment, Severity: sum.crossEnvironmentSeverity},
 		{Label: "Gaps in what the contracts say", Count: sum.KnowledgeItems, View: EntryPointAttention, Category: categoryKnowledge, Severity: severityInfo},
-		{Label: "Services with no declared owner", Count: sum.Ownership.Unowned, View: EntryPointAttention, Category: categoryUnowned, Severity: severityInfo},
+		{Label: "Services and external systems with no owner", Count: sum.Ownership.Unowned + sum.UnownedExternals, View: EntryPointAttention, Category: categoryUnowned, Severity: severityInfo},
 		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, View: EntryPointSources, Category: SourceHealthIncomplete, Severity: severityWarning},
 	}
 	out := []EntryPoint{}
@@ -1141,6 +1145,9 @@ type AttentionItem struct {
 	// Caller is the inferred service an uncontracted caller is; Entity and
 	// Service stay on the service it calls.
 	Caller *EntityRef `json:"caller,omitempty" doc:"The inferred service of an uncontracted caller, when Pacto sees its workload"`
+	// rank orders items within their category, highest first: how many
+	// services use an unowned external system, 0 for every other item.
+	rank int
 }
 
 // NextAction names the operation that fixes an attention item: a verb, the
@@ -1447,7 +1454,9 @@ func (q *Query) gatherAttention() []AttentionItem {
 	items = append(items, q.provisioningAttention()...)
 	items = append(items, q.knowledgeAttention()...)
 	items = append(items, q.inferredProviderAttention()...)
+	items = append(items, q.externalChangedAttention()...)
 	items = append(items, q.unownedAttention()...)
+	items = append(items, q.unownedExternalAttention()...)
 	items = append(items, q.undeclaredAttention()...)
 	items = append(items, q.crossEnvironmentAttention()...)
 	items = append(items, q.deployedTemplateAttention()...)
@@ -1664,8 +1673,9 @@ func (q *Query) serviceOwnedByKey(key, ownerKey string) bool {
 	return q.matchOwnerKey(q.snap.Services[ServiceKey(key)], ownerKey)
 }
 
-// sortAttention orders items by severity, then category, then label, so the most
-// severe items lead and the order is deterministic.
+// sortAttention orders items by severity, then category, then rank (highest
+// first), then label, so the most severe items lead and the order is
+// deterministic.
 func sortAttention(items []AttentionItem) {
 	sort.SliceStable(items, func(i, j int) bool {
 		if si, sj := severityOrder[items[i].Severity], severityOrder[items[j].Severity]; si != sj {
@@ -1673,6 +1683,9 @@ func sortAttention(items []AttentionItem) {
 		}
 		if items[i].Category != items[j].Category {
 			return items[i].Category < items[j].Category
+		}
+		if items[i].rank != items[j].rank {
+			return items[i].rank > items[j].rank
 		}
 		return items[i].Label < items[j].Label
 	})

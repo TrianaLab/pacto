@@ -41,6 +41,10 @@ type fixture struct {
 	svcs []svc
 	uses []fleet.RawExternalUse
 	lims []fleet.Limitation
+	// cat classifies the externals; nil is the default catalog.
+	cat *externalcatalog.Catalog
+	// catLims are the limitations of loading cat.
+	catLims []fleet.Limitation
 }
 
 func (f fixture) build(t *testing.T) *fleet.FleetSnapshot {
@@ -53,7 +57,7 @@ func (f fixture) build(t *testing.T) *fleet.FleetSnapshot {
 		col.Targets = append(col.Targets, fleet.RawTarget{Scope: s.ns, Kind: fleet.SourceKindKubernetes, Name: s.name, Service: s.name,
 			Digest: digest, Compliance: fleet.StatusCompliant, Limitations: f.lims})
 	}
-	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return now }}, fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, col))
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return now }, ExternalCatalog: f.cat, ExternalCatalogLimitations: f.catLims}, fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, col))
 	if err != nil {
 		t.Fatal(err)
 	}

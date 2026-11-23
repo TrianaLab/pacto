@@ -144,6 +144,8 @@
         // The other question the same workspace answers (#471): what depends on it.
         out.push({ label: 'What if it becomes unavailable?', href: fleetChangesUrl(svcKey, { event: 'unavailable' }) });
       } else if (a === 'impact' && e.kind === 'offering') out.push({ label: 'What if it becomes unavailable?', href: fleetChangesUrl('', { offering: e.key, event: 'unavailable' }) });
+      // An external system has no revision Pacto controls: the question is what its change reaches.
+      else if (a === 'impact' && e.kind === 'external') out.push({ label: 'What if it changes?', href: fleetChangesUrl('', { external: e.key, event: 'changed' }) });
       else if (a === 'service' && detail.target?.service?.href) out.push({ label: 'Open service', href: hashForHref(detail.target.service.href) });
     }
     return out;
@@ -240,7 +242,7 @@
         {:else if detail.offering}
           <OfferingEntity {detail} />
         {:else if detail.external}
-          <ExternalEntity {detail} />
+          <ExternalEntity {detail} {canDeclare} {declareQuery} />
         {/if}
         {#snippet failed(err, reset)}
           <EmptyState error title={`Couldn’t show this ${kindLabel(kind).toLowerCase()}`} message="Part of its record could not be drawn. Refresh to try again." onRetry={reset} />

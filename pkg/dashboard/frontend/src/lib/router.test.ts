@@ -563,6 +563,13 @@ describe('fleetChangesUrl', () => {
     expect(parseHash(url)).toEqual({ view: 'changes', params: { offering: 'postgresql', event: 'unavailable', outcome: 'breaks' } });
     expect(fleetChangesUrl('redis', { offering: 'postgresql' })).toBe('#/fleet/changes/redis');
   });
+  // An external event names the external system's identity, never a service key, and parses back.
+  it('carries an external event and parses it back', () => {
+    const url = fleetChangesUrl('', { external: 'aws/rds/1/eu/db', event: 'changed', outcome: 'attention' });
+    expect(url).toBe('#/fleet/changes?external=aws%2Frds%2F1%2Feu%2Fdb&event=changed&outcome=attention');
+    expect(parseHash(url)).toEqual({ view: 'changes', params: { external: 'aws/rds/1/eu/db', event: 'changed', outcome: 'attention' } });
+    expect(fleetChangesUrl('redis', { external: 'stripe' })).toBe('#/fleet/changes/redis');
+  });
   it('carries an unresolved legacy name as a query hint, never as the path key', () => {
     expect(fleetChangesUrl('', { name: 'payments' })).toBe('#/fleet/changes?name=payments');
   });
@@ -930,6 +937,10 @@ describe('cluster filter on the services and targets lists', () => {
 });
 
 describe('serviceDeclareUrl', () => {
+  it('opens the Claim panel and round-trips the signed intent through the external system route', () => {
+    expect(parseHash('#/fleet/externals/aws%2Fsqs?declare=1&signed=sha256%3Aabc&changesKind=x').params).toEqual({ kind: 'external', key: 'aws/sqs', declare: '1', signed: 'sha256:abc' });
+  });
+
   it('opens the Declare panel and round-trips the signed intent through the service route', () => {
     const key = 'default/k8s:shop/Deployment/cart';
     expect(serviceDeclareUrl(key)).toBe('#/fleet/services/default%2Fk8s%3Ashop%2FDeployment%2Fcart?declare=1');

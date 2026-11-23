@@ -100,14 +100,14 @@ func TestFleetGetExternalProviderText(t *testing.T) {
 }
 
 // TestFleetAttentionPrintsDeclareNext: the INFERRED_PROVIDER item of an
-// external says the step that exists today, a hand-written contract (an
-// edit), never pacto declare, which reads only workloads.
+// unclaimed external says claim it, never pacto declare, which reads only
+// workloads.
 func TestFleetAttentionPrintsDeclareNext(t *testing.T) {
 	src, store := inferredProviderFixture(t)
 	out, _, err := execFleetStore(t, store, append([]string{"fleet", "attention", "--category", "knowledge"}, src...)...)
 	if err != nil || !strings.Contains(out, "1 service checks a range against stripe's inferred contract") ||
-		!strings.Contains(out, "(action: edit-contract: pacto ci)") || strings.Contains(out, "pacto declare") ||
-		!strings.Contains(out, "Write a contract with service.external: stripe") {
+		!strings.Contains(out, "(action: claim: pacto claim stripe --owner <team>)") || strings.Contains(out, "pacto declare") ||
+		!strings.Contains(out, "Claim stripe with pacto claim stripe --owner <team>") {
 		t.Errorf("attention = %v:\n%s", err, out)
 	}
 }

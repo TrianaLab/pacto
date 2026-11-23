@@ -167,11 +167,17 @@ func declarationScope(s *FleetSnapshot, rev *ContractRevision) (WorkloadScope, b
 // declarationSourceHidden reports whether hidden says no to the workload rev's
 // declaration came from: its cluster facts are that workload's data, so they
 // need namespace read and workload read of its kind. An inferredFrom Pacto
-// cannot read hides them too: unknown is never positive.
+// cannot read hides them too: unknown is never positive. A claim of an
+// external system read no workload: whether the viewer sees that system is
+// restrictExternal's to decide.
 func declarationSourceHidden(s *FleetSnapshot, rev *ContractRevision, hidden func(cluster, namespace, kind string) bool) bool {
 	sc, ok := declarationScope(s, rev)
 	if !ok {
-		return rev.Record != nil && rev.Record.Declaration != nil && rev.Record.Declaration.InferredFrom != ""
+		if rev.Record == nil || rev.Record.Declaration == nil {
+			return false
+		}
+		_, claim := contract.InferredFromExternal(rev.Record.Declaration.InferredFrom)
+		return !claim && rev.Record.Declaration.InferredFrom != ""
 	}
 	return hidden(sc.Cluster, sc.Namespace, sc.Kind)
 }

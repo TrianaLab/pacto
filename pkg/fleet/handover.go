@@ -125,8 +125,8 @@ func inferredFromClaims(snap *FleetSnapshot, byWorkload map[workloadKey][]inferr
 	claims := map[workloadKey][]inferredClaim{}
 	for _, svc := range slices.Sorted(maps.Keys(newest)) {
 		rev := newest[svc]
-		if rev.Record.Declaration.InferredFrom == "" {
-			continue // declared from its folder alone: it claims no workload
+		if !namesWorkload(rev.Record.Declaration.InferredFrom) {
+			continue
 		}
 		wk, ok := claimedWorkload(snap, rev, byWorkload)
 		if !ok {
@@ -141,6 +141,14 @@ func inferredFromClaims(snap *FleetSnapshot, byWorkload map[workloadKey][]inferr
 		claims[wk] = append(claims[wk], inferredClaim{rev: rev, by: rev.Record.Declaration.Asker.Subject})
 	}
 	return claims
+}
+
+// namesWorkload reports whether a declaration's inferredFrom may name a
+// workload: one declared from its folder alone names none, and one that
+// claims an external system is linkExternalClaims's to read.
+func namesWorkload(from string) bool {
+	_, external := contract.InferredFromExternal(from)
+	return from != "" && !external
 }
 
 // claimedWorkload is the workload rev's declaration names, false with a

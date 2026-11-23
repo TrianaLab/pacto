@@ -1577,6 +1577,11 @@ type ExternalRecord struct {
 	// Provider is its inferred contract, when a source read one under
 	// pacto-inferred/<identity>. It is never a service.
 	Provider *ExternalProvider `json:"provider,omitempty" doc:"The inferred contract published for it under pacto-inferred; never a service, and a range is never checked against it"`
+	// Claim is the declared contract that claims it (see linkExternalClaims).
+	Claim *ExternalClaim `json:"claim,omitempty" doc:"The declared contract that claims this external system; absent while it is unclaimed"`
+	// Claimants counts the services that each establish a claim on it when
+	// more than one does: then no claim counts and Claim is absent.
+	Claimants int `json:"claimants,omitempty" doc:"How many services claim it when more than one does: no claim counts until all but one are retracted; absent otherwise"`
 	// declarations counts, per consumer, the revisions that declare it plus
 	// each observed or inferred source.
 	declarations map[ServiceKey]int
@@ -1586,6 +1591,25 @@ type ExternalRecord struct {
 	catalogLabel string
 	// hidden is the consumers a restriction hid, so a fold counts each once.
 	hidden map[ServiceKey]bool
+}
+
+// ExternalClaim is the declared contract that claims an external system: the
+// newest revision of the one service an accepted person declaration of
+// inferredFrom external:<identity> established (see linkExternalClaims).
+type ExternalClaim struct {
+	Service ServiceKey `json:"service,omitempty" doc:"The service whose declared contract claims it"`
+	Ref     string     `json:"ref,omitempty" doc:"The claimed revision, repository@digest"`
+	Version string     `json:"version,omitempty" doc:"The version of the claimed revision"`
+	By      string     `json:"by,omitempty" doc:"The person whose accepted declaration established the claim"`
+	// DeclaredVersion is the version By declared; Version is the newest
+	// revision, which a later publish may carry without the owner rule.
+	DeclaredVersion string `json:"declaredVersion,omitempty" doc:"The version whose accepted declaration established the claim; the newest revision (version) may be a later publish that carried it"`
+	Owner           string `json:"owner,omitempty" doc:"The owner Pacto uses for the service that claims it, as shown; absent when it has none or its owners conflict"`
+	OwnerKey        string `json:"ownerKey,omitempty" doc:"The canonical key of owner (team:<name> or dri:<name>); absent with owner"`
+	Hidden          bool   `json:"hidden,omitempty" doc:"You may not read the service that claims it"`
+	// ownerless says the claiming service has no verified owner, computed on
+	// the full snapshot so a restricted view keeps it for a hidden claimer.
+	ownerless bool
 }
 
 // ExternalProvider is the inferred contract of an external system: the
@@ -1601,6 +1625,8 @@ type ExternalProvider struct {
 	RangeReason    string `json:"rangeReason" enum:"INFERRED_PROVIDER" doc:"Always INFERRED_PROVIDER"`
 	// SurfaceHidden is set when a restricted view dropped a surface.
 	SurfaceHidden bool `json:"surfaceHidden,omitempty" doc:"True when the caller's view is restricted, so the surface is not shown; absent when the record holds none"`
+	// Change is what changed between the two revisions shown first.
+	Change *ExternalProviderChange `json:"change,omitempty" doc:"What changed between the two revisions shown first; checked says whether this installation's operator signed both; values are absent when the view is restricted"`
 }
 
 // ExternalProviderRevision is one revision of an inferred contract.
@@ -1639,6 +1665,9 @@ type ExternalCatalogMatch struct {
 	Origin string `json:"origin" enum:"default,organization"`
 	Digest string `json:"digest" doc:"The digest of the catalog artifact"`
 	Entry  string `json:"entry" doc:"The identity of the catalog entry"`
+	// OpenAPI is the vendor OpenAPI document the entry links, pinned by
+	// digest (see [externalcatalog.Entry.OpenAPI]).
+	OpenAPI string `json:"openapi,omitempty" doc:"The vendor OpenAPI document the catalog entry links, pinned by digest; Pacto never fetches it"`
 }
 
 // ExternalCatalogRef records one catalog a snapshot classified external

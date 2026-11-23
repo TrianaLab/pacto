@@ -47,7 +47,7 @@ func newFleetPublishInferredCommand(svc *app.Service, v *viper.Viper) *cobra.Com
 			}
 			w := cmd.OutOrStdout()
 			for _, e := range rep.Published {
-				_, _ = fmt.Fprintf(w, "Published %s:%s (%s)\n", e.Repository, e.Version, e.Digest)
+				_, _ = fmt.Fprintf(w, "Published %s:%s (%s)\n  next: pacto impact --changed external:%s\n", e.Repository, e.Version, e.Digest, e.Identity)
 			}
 			for _, e := range rep.Repaired {
 				_, _ = fmt.Fprintf(w, "Signed %s:%s, pushed earlier without its signature\n", e.Repository, e.Version)

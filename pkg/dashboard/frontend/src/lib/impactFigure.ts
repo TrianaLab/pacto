@@ -148,8 +148,9 @@ export function impactModel(im: ProductImpact) {
 }
 
 /** What an event does to a consumer (pkg/impact Effect*), in D3's lane order. */
-export type Effect = 'breaks' | 'may-degrade' | 'unknown';
-export const EFFECTS: Effect[] = ['breaks', 'may-degrade', 'unknown'];
+// attention is an external change's only effect (D10): nothing checked the change.
+export type Effect = 'breaks' | 'may-degrade' | 'attention' | 'unknown';
+export const EFFECTS: Effect[] = ['breaks', 'may-degrade', 'attention', 'unknown'];
 /** effectOf mirrors the Go effect; anything else is unknown, never compatible. */
 export function effectOf(c: { effect?: string | null }): Effect {
   return EFFECTS.includes(c.effect as Effect) ? (c.effect as Effect) : 'unknown';
@@ -157,6 +158,7 @@ export function effectOf(c: { effect?: string | null }): Effect {
 export const EFFECT_META: Record<Effect, { label: string; tone: FigTone; hatch: boolean; glyph: GlyphName }> = {
   breaks: { label: 'Breaks', tone: 'err', hatch: false, glyph: 'err' },
   'may-degrade': { label: 'May degrade', tone: 'warn', hatch: false, glyph: 'warn' },
+  attention: { label: 'Attention', tone: 'info', hatch: false, glyph: 'warn' },
   unknown: { label: 'Unknown', tone: 'neutral', hatch: true, glyph: 'unknown' },
 };
 // An event has no version a consumer can refuse, so its gate never blocks (Decision 7).
@@ -169,6 +171,7 @@ const EVENT_GATE: Record<string, { cls: string; label: string; tone: FigTone; st
 function eventVerb(im: ProductImpact): string {
   const rev = im.event?.revision || '';
   const at = rev.startsWith('sha256:') ? `sha256:${shortDigest(rev, 12)}` : rev;
+  if (im.event?.kind === 'changed') return 'changes';
   if (im.event?.kind === 'removed') return 'is removed';
   if (im.event?.kind === 'regressed') return `regressed${at ? ` at ${at}` : ''}`;
   return 'becomes unavailable';
@@ -176,6 +179,15 @@ function eventVerb(im: ProductImpact): string {
 /** The event in words: "redis becomes unavailable". */
 export function eventPhrase(im: ProductImpact): string {
   return `${im.service?.label || im.service?.key || ''} ${eventVerb(im)}`;
+}
+/** The event figure's question. A changed external system cannot be compared, so it asks who needs attention. */
+export function eventQuestion(im: ProductImpact): string {
+  return `If ${eventPhrase(im)}, ${im.event?.kind === 'changed' ? 'who needs attention' : 'who breaks'}?`;
+}
+const EVENT_STAMP: Record<string, string> = { unavailable: 'Unavailable', removed: 'Removed', regressed: 'Regressed', changed: 'Changed' };
+/** The answer card's stamp for an event: its kind, or "What if". */
+export function eventStamp(im: ProductImpact): string {
+  return EVENT_STAMP[im.event?.kind ?? ''] ?? 'What if';
 }
 
 /** "a, b and c": no Oxford comma. */
@@ -201,7 +213,9 @@ export function eventModel(im: ProductImpact) {
   const chipsOf = (k: Effect) => (cs.highlights ?? []).filter((c) => effectOf(c) === k).slice(0, 4)
     .map((c) => ({ key: c.service.key, label: c.service.label || c.service.key, href: c.uncontracted ? '' : c.service.href || '', ring: false }));
 
-  const lanes: ImpactLane[] = EFFECTS.map((k) => ({
+  // The Attention lane belongs to an external change: it is drawn only when a consumer carries it.
+  const drawn = EFFECTS.filter((k) => k !== 'attention' || by[k] > 0);
+  const lanes: ImpactLane[] = drawn.map((k) => ({
     key: k, label: EFFECT_META[k].label, tone: EFFECT_META[k].tone, hatch: EFFECT_META[k].hatch, glyph: EFFECT_META[k].glyph,
     n: by[k], share: total ? by[k] / total : 0, chips: chipsOf(k), decides: unverified && by[k] > 0, ghost: false,
   }));
@@ -215,7 +229,7 @@ export function eventModel(im: ProductImpact) {
   const atLeast = partial ? 'at least ' : '';
   const missing = unavailable ? `the ${countOf(unavailable, 'unavailable source')}` : 'sources Pacto cannot read';
   // "5 consumers break, 3 may degrade and 2 are unknown": the first count names consumers.
-  const VERB: Record<Effect, [string, string]> = { breaks: ['breaks', 'break'], 'may-degrade': ['may degrade', 'may degrade'], unknown: ['is unknown', 'are unknown'] };
+  const VERB: Record<Effect, [string, string]> = { breaks: ['breaks', 'break'], 'may-degrade': ['may degrade', 'may degrade'], attention: ['needs attention', 'need attention'], unknown: ['is unknown', 'are unknown'] };
   const parts = EFFECTS.filter((k) => by[k]).map((k, i) => `${i ? formatCount(by[k]) : countOf(by[k], 'consumer')} ${VERB[k][by[k] === 1 ? 0 : 1]}`);
   // Even a complete answer only knows contracts and observed calls: the Go clear
   // reason's hedge is carried here.
@@ -243,10 +257,10 @@ export function eventModel(im: ProductImpact) {
   const steps: Step[] = [
     { cap: `Suppose ${phrase}. This is a question: nothing has changed.`, dur: 240, show: ['[data-m="subject"]', 'w:w-stack'], sig: ['w-stack'] },
     { cap: `It reaches ${atLeast || 'the '}${countOf(total, 'consumer')} that depend on ${service}.`, dur: 160, show: ['[data-m="split"]'] },
-    { cap: `Each consumer is sorted by whether every path to ${service} is required.`, dur: 240, show: [...laneIds.map((k) => `[data-m="ln-${k}"]`), ...laneIds.map((k) => `w:w-l${k}`)], sig: laneIds.map((k) => `w-l${k}`) },
+    { cap: im.event?.kind === 'changed' ? `Pacto cannot compare an external system's operations, so every consumer of ${service} needs attention.` : `Each consumer is sorted by whether every path to ${service} is required.`, dur: 240, show: [...laneIds.map((k) => `[data-m="ln-${k}"]`), ...laneIds.map((k) => `w:w-l${k}`)], sig: laneIds.map((k) => `w-l${k}`) },
   ];
   if (gate) steps.push({ cap: `${gate.says}${by.breaks ? `: ${countOf(by.breaks, 'consumer')} would break` : ''}.`, dur: 160, show: ['[data-m="gate"]', 'w:w-gate'], sig: ['w-gate'] });
-  const alt = `If ${phrase}: ${EFFECTS.map((k) => `${by[k]} ${k}`).join(', ')} of ${atLeast}${total} consumers`
+  const alt = `If ${phrase}: ${drawn.map((k) => `${by[k]} ${k}`).join(', ')} of ${atLeast}${total} consumers`
     + `; ${hidden} you may not see; gate ${gate ? gate.label.toLowerCase() : 'none'}; evidence ${partial ? 'partial' : 'complete'}.`;
 
   return {

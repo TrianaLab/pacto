@@ -24,7 +24,7 @@ import (
 
 // impactEventFlags are the what-if flags of `pacto impact`, in the order
 // usage errors name them.
-var impactEventFlags = []string{impact.EventUnavailable, impact.EventRemoved, impact.EventRegressed}
+var impactEventFlags = []string{impact.EventUnavailable, impact.EventRemoved, impact.EventRegressed, impact.EventChanged}
 
 // newImpactCommand builds `pacto impact <old> <new>`: it composes a semantic
 // contract diff with the operational graph to report a change's real blast
@@ -32,7 +32,7 @@ var impactEventFlags = []string{impact.EventUnavailable, impact.EventRemoved, im
 // instead. Source flags mirror `pacto fleet`; override flags mirror `pacto diff`.
 func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "impact <old> <new> | --running <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision>",
+		Use:   "impact <old> <new> | --running <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision> | --changed external:<identity>",
 		Short: "Analyze which consumers a change affects across the fleet",
 		Long: "Composes a semantic contract diff (old→new) with the operational " +
 			"graph to answer which consumers a change really affects, how strong " +
@@ -58,6 +58,13 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 			"clear (exit 0) only when the complete snapshot shows nothing does. --regressed with an " +
 			"artifact digest reads delivery's recorded failures with your own cluster credentials " +
 			"when a cluster is reachable.\n\n" +
+			"--changed external:<identity> and --unavailable external:<identity> ask what a change or an outage of an external " +
+			"system, such as a vendor API nobody here controls, does to every service that uses it. Each consumer row says where " +
+			"the use was seen (declared, observed, inferred, pod-spec or repository), the client major its record names (always possible) and " +
+			"the range it pins. A change puts every consumer in attention; an outage breaks a declared required use, may degrade " +
+			"a declared optional one and is unknown for the rest. The gate is always unverified (exit 2): an external system is " +
+			"never verified. When a consumer pins no range, the answer ends with the dependencies block that pins one on its inferred " +
+			"contract, or declares the external system when it has none.\n\n" +
 			"The answer ends in a release gate, and the exit status follows it:\n" +
 			"  0  clear: the change is not BREAKING and every service that references its policy passes the new policy, " +
 			"or the snapshot is complete and no service depends on the changed one.\n" +
@@ -106,6 +113,11 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 
   # What breaks if every provider of the postgresql offering becomes unavailable
   pacto impact --unavailable offering:postgresql --local .
+
+  # Which consumers a change of the Stripe API affects, and what a Stripe
+  # outage does
+  pacto impact --changed external:stripe --local .
+  pacto impact --unavailable external:stripe --local .
 
   # What a regressed artifact affects, with delivery's recorded failures
   pacto impact --regressed payments-service@sha256:<digest> --local .`,
@@ -197,7 +209,7 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 	cmd.Flags().Bool("include-observed", false, "let observed (runtime) relationships raise consumer confidence")
 	// Declared before the shared set so this narrowing wins: impact takes ONE
 	// trace document and reads it itself (see divergentFleetFlagTypes).
-	cmd.Flags().String("traces", "", "OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)")
+	cmd.Flags().String("traces", "", "OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed); refused with external:<identity>")
 	// Every other fleet source flag, from the one declaration `pacto fleet` uses.
 	addFleetSourceFlags(cmd.Flags())
 	addStatsFlags(cmd)
@@ -209,9 +221,10 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 
 // impactEventFlagHelp is the help of each event flag.
 var impactEventFlagHelp = map[string]string{
-	impact.EventUnavailable: "what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable; offering:<name> asks it of every provider of an offering",
+	impact.EventUnavailable: "what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable; offering:<name> asks it of every provider of an offering and external:<identity> of an external system",
 	impact.EventRemoved:     "what happens if this service (a fleet service key, or a name only one domain holds) is removed; offering:<name> asks it of every provider of an offering",
 	impact.EventRegressed:   "what happens if <service>@<revision> regressed; an artifact digest reads delivery's recorded failures",
+	impact.EventChanged:     "what a change of this external system (external:<identity>) does to every service that uses it; each consumer needs attention",
 }
 
 // impactArgs takes two revisions, one with --running, or none with exactly
@@ -235,7 +248,7 @@ func impactArgs(cmd *cobra.Command, args []string) error {
 	case len(set) == 1 && len(args) > 0:
 		return fmt.Errorf("%s takes no <old> <new> arguments, got %d", set[0], len(args))
 	case len(set) == 0 && len(args) != 2:
-		return fmt.Errorf("accepts <old> <new> (2 arguments) or one of --unavailable, --removed, --regressed, received %d arguments", len(args))
+		return fmt.Errorf("accepts <old> <new> (2 arguments) or one of --unavailable, --removed, --regressed, --changed, received %d arguments", len(args))
 	}
 	return nil
 }
@@ -323,6 +336,7 @@ var impactLanes = []struct{ effect, title string }{
 	{impact.EffectBreaks, "BREAKS"},
 	{impact.EffectMayDegrade, "MAY DEGRADE"},
 	{impact.EffectUnknown, "UNKNOWN"},
+	{impact.EffectAttention, "ATTENTION"},
 }
 
 // printImpactResult renders an impact result as text or JSON.
@@ -485,6 +499,10 @@ func targetSnapshotLine(s fleet.SourceState, result *impact.Result) string {
 
 // printEventHeader writes the header of an event answer.
 func printEventHeader(w io.Writer, result *impact.Result) {
+	if result.External != nil {
+		printExternalHeader(w, result)
+		return
+	}
 	subject, at := result.Event.Service, ""
 	if result.Event.Revision != "" {
 		at = " at " + result.Event.Revision
@@ -534,9 +552,16 @@ func printImpactConsumers(w io.Writer, result *impact.Result) {
 			continue
 		}
 		_, _ = fmt.Fprintf(w, "%s (%d):\n", lane.title, len(in))
+		if result.External != nil {
+			printExternalConsumers(w, result, in)
+			continue
+		}
 		for _, c := range in {
 			printImpactConsumer(w, result, c)
 		}
+	}
+	if result.External != nil {
+		printExternalPin(w, result)
 	}
 }
 

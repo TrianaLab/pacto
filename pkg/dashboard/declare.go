@@ -33,7 +33,8 @@ type Declarer interface {
 }
 
 // DeclareWorkload is the inferred service a declaration is for, as the
-// viewer's snapshot names it.
+// viewer's snapshot names it. An external system a claim is for has Key
+// external:<identity>, Name the identity and no cluster fields.
 type DeclareWorkload struct {
 	Key       string
 	Name      string
@@ -45,6 +46,9 @@ type DeclareWorkload struct {
 	// alone, and from no list RepositoryUnknown says is incomplete.
 	Repositories      []fleet.InferredRepository
 	RepositoryUnknown string
+	// View is the viewer's restricted fleet, set for an external system: a
+	// claim plan names nothing it hides.
+	View *fleet.Query
 }
 
 // DraftRef names one draft by its tag and the digest the person was shown.
@@ -55,20 +59,29 @@ type DraftRef struct {
 
 // DeclareInput asks for a declaration plan.
 type DeclareInput struct {
-	ServiceKey string    `json:"serviceKey" minLength:"1" doc:"The inferred service to declare"`
+	ServiceKey string    `json:"serviceKey" minLength:"1" doc:"The inferred service to declare, or external:<identity> to claim an external system"`
 	Accept     []string  `json:"accept,omitempty" maxItems:"64" doc:"The dependencies whose proposed range the declaration accepts"`
 	FromDraft  *DraftRef `json:"fromDraft,omitempty" doc:"Plan accepting this draft instead: its own texts, what nothing backs and an intent digest that covers the draft digest"`
 	// IntentDigest names the plan a signing login was started for.
 	IntentDigest string `json:"intentDigest,omitempty" doc:"The intent a signing login was started for: back from that login, the accepted ranges are the ones it was started with, whatever accept says"`
+	ClaimInput
+}
+
+// ClaimInput names the owner and service name of a claim: set only when
+// serviceKey is external:<identity>.
+type ClaimInput struct {
+	Owner string `json:"owner,omitempty" maxLength:"253" pattern:"^[a-zA-Z0-9._/-]+$" doc:"The team that owns the external system; set only when serviceKey is external:<identity>"`
+	Name  string `json:"name,omitempty" maxLength:"63" pattern:"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$" doc:"The claimed contract's service name; defaults to the name the visible claim already has, else the identity's last segment"`
 }
 
 // DeclareAcceptInput carries out a plan the person reviewed.
 type DeclareAcceptInput struct {
-	ServiceKey   string    `json:"serviceKey" minLength:"1" doc:"The inferred service to declare"`
+	ServiceKey   string    `json:"serviceKey" minLength:"1" doc:"The inferred service to declare, or external:<identity> to claim an external system"`
 	Accept       []string  `json:"accept,omitempty" maxItems:"64" doc:"The dependencies whose proposed range the declaration accepts"`
 	IntentDigest string    `json:"intentDigest" minLength:"1" doc:"The intent digest of the plan the person reviewed: a plan that moved since is refused with PlanStale"`
 	Mode         string    `json:"mode" enum:"sign,draft" doc:"sign: publish the declared version signed by the person's fresh login; draft: save a draft-<n> a person accepts later"`
 	FromDraft    *DraftRef `json:"fromDraft,omitempty" doc:"Accept this draft: its tag must still name the digest the plan showed"`
+	ClaimInput
 }
 
 // DeclareText is one file of a declaration, at most MaxDeclareText bytes.
@@ -186,7 +199,7 @@ type DeclareWrite struct {
 // DeclareRefusal is a declaration that was refused, with the command a person
 // runs about it.
 type DeclareRefusal struct {
-	Code    string `json:"code" enum:"PlanStale,IntentRequired,WorkloadNotFound,WorkloadAmbiguous,AlreadyDeclared,RangeNotProposed,NoRegistry,RegistryUnreadable,VersionConflict,SignerNotAllowed,SignerUnverified,DraftNotFound,ExecuteNeedsStdio,BaselineNeedsMigration,BundleRepoMismatch,AcceptNothingProposed,FieldNotAcceptable,BreakNotAnnounced,NotPublished,PersonSigningUnavailable,OWNER_SIGNER_NOT_PERSON,OWNER_SIGNER_NOT_ALLOWED,OWNER_POLICY_UNVERIFIED,OWNER_SIGNER_UNVERIFIED,IdentityRequired,SignInLinkReadsFleet,ReviewFailed,ClusterNotReviewable,NotAllowed" doc:"The pacto declare refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable and NotAllowed"`
+	Code    string `json:"code" enum:"PlanStale,IntentRequired,WorkloadNotFound,WorkloadAmbiguous,AlreadyDeclared,RangeNotProposed,NoRegistry,RegistryUnreadable,VersionConflict,SignerNotAllowed,SignerUnverified,DraftNotFound,ExecuteNeedsStdio,BaselineNeedsMigration,BundleRepoMismatch,AcceptNothingProposed,FieldNotAcceptable,BreakNotAnnounced,NotPublished,PersonSigningUnavailable,OWNER_SIGNER_NOT_PERSON,OWNER_SIGNER_NOT_ALLOWED,OWNER_POLICY_UNVERIFIED,OWNER_SIGNER_UNVERIFIED,IdentityRequired,SignInLinkReadsFleet,ReviewFailed,ClusterNotReviewable,NotAllowed,OwnerRequired,ExternalMismatch,ExternalUnknown,ClaimRepositoryInferred,DraftNotOffered" doc:"The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed and DraftNotOffered (a shared dashboard claims only with the person's own signature)"`
 	Message string `json:"message"`
 	Command string `json:"command,omitempty" doc:"The command a person runs about it"`
 }
@@ -199,7 +212,8 @@ type DeclareAnswer struct {
 	DraftsTotal int             `json:"draftsTotal,omitempty"`
 	Signing     DeclareSigning  `json:"signing"`
 	Write       DeclareWrite    `json:"write"`
-	Command     string          `json:"command,omitempty" doc:"The exact pacto declare command a person runs in a terminal"`
+	NoDraft     string          `json:"noDraft,omitempty" doc:"Why this host saves no draft of this plan: a shared dashboard claims an external system only with the person's own signature"`
+	Command     string          `json:"command,omitempty" doc:"The exact pacto declare (pacto claim) command a person runs in a terminal"`
 	PRCLI       string          `json:"prCli,omitempty" doc:"The pacto declare command that opens the repository pull request with the person's own Git token; the dashboard never opens it"`
 	SignTicket  string          `json:"signTicket,omitempty" doc:"Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page>; present only with signing mode fresh-login"`
 	SignedIn    bool            `json:"signedIn,omitempty" doc:"Back from a signing login: the login for the intentDigest asked about is still live, unused and unexpired"`
@@ -297,7 +311,8 @@ func (s *Server) declareIdentity(ctx context.Context) error {
 
 // declareWorkload is the inferred service key names in the viewer's
 // snapshot, after the caller's identity is checked: a hidden service and a
-// declared one answer as a missing one.
+// declared one answer as a missing one. A key external:<identity> names the
+// external system a claim is for.
 func (s *Server) declareWorkload(ctx context.Context, key string) (DeclareWorkload, error) {
 	if err := s.declareIdentity(ctx); err != nil {
 		return DeclareWorkload{}, err
@@ -305,6 +320,13 @@ func (s *Server) declareWorkload(ctx context.Context, key string) (DeclareWorklo
 	q, err := s.fleetQuery(ctx)
 	if err != nil {
 		return DeclareWorkload{}, err
+	}
+	if id, ok := fleet.ParseExternalSubject(key); ok {
+		x := q.SnapshotForSerialization().Externals[id]
+		if x == nil || x.Class == fleet.ClassOtherEgress {
+			return DeclareWorkload{}, huma.Error404NotFound("no external system with this key")
+		}
+		return DeclareWorkload{Key: key, Name: string(id), View: q}, nil
 	}
 	rec := q.SnapshotForSerialization().Services[fleet.ServiceKey(key)]
 	if rec == nil || !rec.Inferred() || rec.Workload == nil {

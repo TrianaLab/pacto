@@ -397,10 +397,9 @@ func TestInferredProviderAttentionOnePerProvider(t *testing.T) {
 
 func TestInferredProviderAttentionNextActionDeclare(t *testing.T) {
 	items := inferredItems(t, infFleet(t, []RawRevision{stripeProvider()}, svc("checkout", "shop", pinStripe("^2023.10"))))
-	// pacto declare reads only workloads, so an external's step is the one
-	// that exists today: a hand-written contract naming it.
-	if len(items) != 1 || items[0].NextAction == nil || *items[0].NextAction != *editContract() ||
-		items[0].NextStep != "Write a contract with service.external: stripe, publish it outside pacto-inferred, then point the ranges at it" ||
+	// An unclaimed external system is claimed with pacto claim.
+	if len(items) != 1 || !reflect.DeepEqual(items[0].NextAction, claimAction("stripe")) ||
+		items[0].NextStep != "Claim stripe with pacto claim stripe --owner <team>, then point the ranges at the claimed contract" ||
 		strings.Contains(items[0].Reason, "published") {
 		t.Errorf("items = %+v", items)
 	}
@@ -706,5 +705,23 @@ func TestCollectionNotesNeverDegradeTheSource(t *testing.T) {
 	}
 	if snap.Completeness != CompletenessComplete || !slices.Contains(snap.Limitations, note) || snap.Sources[1].Status != SourceAvailable {
 		t.Errorf("%s %+v %+v", snap.Completeness, snap.Sources, snap.Limitations)
+	}
+}
+
+func TestInferredNextStepOfRecord(t *testing.T) {
+	var none *ExternalRecord
+	cases := map[string]struct {
+		rec  *ExternalRecord
+		want string
+	}{
+		"no record": {none, InferredExternalNextStep("stripe", "")},
+		"unclaimed": {&ExternalRecord{}, InferredExternalNextStep("stripe", "")},
+		"claimed":   {&ExternalRecord{Claim: &ExternalClaim{Ref: "ghcr.io/acme/stripe@sha256:a"}}, InferredExternalNextStep("stripe", "ghcr.io/acme/stripe")},
+		"hidden":    {&ExternalRecord{Claim: &ExternalClaim{Hidden: true}}, hiddenClaimStep},
+	}
+	for name, c := range cases {
+		if got := c.rec.InferredNextStep("stripe"); got != c.want {
+			t.Errorf("%s: %q", name, got)
+		}
 	}
 }

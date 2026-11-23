@@ -334,6 +334,74 @@ pacto ci init [dir] [flags]
 
 ---
 
+## `pacto claim`
+
+Claims an external system the fleet lists, such as stripe or
+aws/rds/eu-west-1/orders-db, for a team. The claim is a declared contract:
+service.external names the system, service.owner.team the team, and its
+pacto.inferred.yaml declaration names inferredFrom external:&lt;identity&gt;. It is
+published to &lt;registry&gt;/&lt;name&gt;, where the name is --name or the identity's
+last segment. No workload is read and nothing is copied from the inferred
+contract Pacto publishes under pacto-inferred; the kubeconfig cluster, when
+it is reachable, is read only for the installation signer policy.
+
+Without --yes it prints the plan and writes nothing; the plan ends with its
+intent digest. --yes prints the plan, then publishes it signed keyless by you
+through an interactive Sigstore login (a browser, or a device code with
+--device). No Git access is needed. Only that login writes a declared
+version: a key, an ambient OIDC token or a CI identity writes the next
+draft-&lt;n&gt; tag instead, and the output names the command a person runs to
+accept it with --from-draft.
+
+Naming the first owner of an external system takes a default approver of the
+installation's owner policy; changing it takes a person who belongs to the
+current owner or a default approver. Anyone else is refused before anything is
+pushed. The owner policy is read from the signed target snapshots in
+&lt;registry&gt;/pacto-targets, verified with --delivery-trust. The fleet routes an
+unclaimed external system to the default approvers for routing only: routing
+grants no right.
+
+```
+pacto claim <identity> [flags]
+```
+
+**Examples:**
+
+```
+  # What claiming stripe for team-platform would publish
+  pacto claim stripe --owner team-platform --registry ghcr.io/acme
+
+  # Claim it, signed by you
+  pacto claim stripe --owner team-platform --registry ghcr.io/acme --yes
+
+  # Accept a claim an agent wrote as a draft
+  pacto claim stripe --registry ghcr.io/acme --from-draft draft-1 --yes
+```
+
+**Flags:**
+
+```
+      --delivery-trust string    the trust config the target snapshots that carry the owner policy are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
+      --device[=true|false]      log in with a device code instead of a browser
+      --draft[=true|false]       write a draft-<n> a person accepts later, without a person's login: signed only by --sign-key or an ambient OIDC token when one is set
+      --from-draft string        accept this draft-<n> tag, signed by you (a workload draft reads the workload again)
+      --fulcio-url string        Fulcio to get the signing certificate from (default "https://fulcio.sigstore.dev")
+  -h, --help[=true|false]        help for claim
+      --intent string            the intent digest of the plan you reviewed: a different plan is refused
+      --name string              the service name the claim is published under (default: the identity's last segment)
+      --oidc-client-id string    OpenID Connect client of the Sigstore login (default "sigstore")
+      --oidc-issuer-url string   OpenID Connect issuer of the Sigstore login (default "https://oauth2.sigstore.dev/auth")
+      --owner string             the team that owns the external system (taken from the draft with --from-draft)
+      --registry string          the registry the contract is published to, as host/path
+      --rekor-url string         Rekor transparency log the signature is recorded in (default "https://rekor.sigstore.dev")
+      --sign-key string          sign with this key file: a key names no person, so the run writes a draft
+      --timestamp-url string     timestamp authority to date the signature with
+      --trusted-root string      Sigstore trusted root JSON to verify with (default: public-good Sigstore)
+      --yes[=true|false]         publish the plan (or write a draft) after printing it
+```
+
+---
+
 ## `pacto cluster`
 
 Every cluster whose operator sets registry publishes a signed snapshot to &lt;registry&gt;/pacto-targets:cluster-&lt;uid&gt;. This cluster, the hub, reads them: a cluster stays pending until a person approves its key, and only an approved member's services, targets and workloads join the hub's fleet. The hub is the current kubeconfig context or --context.
@@ -633,7 +701,7 @@ pacto declare <service> [flags]
       --dir string               a folder pacto init --cluster wrote, declared instead of a new draft
       --draft[=true|false]       write a draft-<n> a person accepts later, without a person's login: signed only by --sign-key or an ambient OIDC token when one is set
       --folder string            the folder of the repository the contract lives in (default: the folder a source names, else the root)
-      --from-draft string        accept this draft-<n> tag: the workload is read again and you sign
+      --from-draft string        accept this draft-<n> tag, signed by you (a workload draft reads the workload again)
       --fulcio-url string        Fulcio to get the signing certificate from (default "https://fulcio.sigstore.dev")
       --git-host string          the Git host API that serves the repository, when its URL does not say: github, gitlab, bitbucket (Cloud) or gitea (Forgejo too)
   -h, --help[=true|false]        help for declare
@@ -1550,7 +1618,7 @@ pacto fleet [flags]
 
 ### `pacto fleet attention`
 
-Lists what needs attention, most severe first, each item with its reason and next step. --category undeclared lists runtime calls no contract declares and callers with no contract. --category lifecycle lists services that use a deprecated or past-sunset provider, or whose range refuses its successor.
+Lists what needs attention, most severe first, each item with its reason and next step. --category undeclared lists runtime calls no contract declares and callers with no contract. --category lifecycle lists services that use a deprecated or past-sunset provider, or whose range refuses its successor. --category unowned lists services and external systems with no owner; an external system ranks by how many services use it.
 
 ```
 pacto fleet attention [flags]
@@ -1840,7 +1908,7 @@ pacto fleet snapshot [flags]
 
 ### `pacto fleet status`
 
-Reports what needs attention: non-compliant, unknown, invalid and stale targets, revisions without readiness, unresolved dependencies, dependencies whose provider version is outside the declared range, services that use a deprecated or past-sunset provider, services with no declared owner and undeclared runtime dependencies. With no category flag it reports every category.
+Reports what needs attention: non-compliant, unknown, invalid and stale targets, revisions without readiness, unresolved dependencies, dependencies whose provider version is outside the declared range, services that use a deprecated or past-sunset provider, services and external systems with no owner and undeclared runtime dependencies. With no category flag it reports every category.
 
 ```
 pacto fleet status [flags]
@@ -1862,7 +1930,7 @@ pacto fleet status [flags]
       --stats-registry string               also write a coverage run record of the whole fleet to this stats repository (unsigned statistics; none with --namespace); never read from PACTO_STATS_REGISTRY
       --undeclared[=true|false]             report runtime calls no contract declares and callers with no contract
       --unknown[=true|false]                report targets with unknown compliance
-      --unowned[=true|false]                report services with no declared owner
+      --unowned[=true|false]                report services and external systems with no owner
       --unresolved-deps[=true|false]        report unresolved declared dependencies
       --unsatisfied-ranges[=true|false]     report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)
 ```
@@ -1957,6 +2025,8 @@ With --running, impact judges &lt;new&gt; against the revisions of its service t
 
 With --unavailable, --removed or --regressed, impact answers what happens if that service becomes unavailable, is removed or a revision of it regressed. --unavailable and --removed also take offering:&lt;name&gt;, which asks the same of every service that provides the platform offering. Consumers are graded breaks (every edge on their path is required), may degrade (an optional edge) or unknown. The gate is unverified (exit 2) when anything depends on the service and clear (exit 0) only when the complete snapshot shows nothing does. --regressed with an artifact digest reads delivery's recorded failures with your own cluster credentials when a cluster is reachable.
 
+--changed external:&lt;identity&gt; and --unavailable external:&lt;identity&gt; ask what a change or an outage of an external system, such as a vendor API nobody here controls, does to every service that uses it. Each consumer row says where the use was seen (declared, observed, inferred, pod-spec or repository), the client major its record names (always possible) and the range it pins. A change puts every consumer in attention; an outage breaks a declared required use, may degrade a declared optional one and is unknown for the rest. The gate is always unverified (exit 2): an external system is never verified. When a consumer pins no range, the answer ends with the dependencies block that pins one on its inferred contract, or declares the external system when it has none.
+
 The answer ends in a release gate, and the exit status follows it:
   0  clear: the change is not BREAKING and every service that references its policy passes the new policy, or the snapshot is complete and no service depends on the changed one.
   1  blocked: a consumer that runs on a known target does not accept the new version of a BREAKING change, or its contract fails the changed service's new policy, whatever the classification.
@@ -1970,7 +2040,7 @@ When you pass no --k8s, --target-state, --evidence-url or --target-snapshot, imp
 From the same ref impact also reads the consumers published to the organization index, &lt;host&gt;/<first path segment>/pacto-index then &lt;host&gt;/pacto-index, checks them against the target snapshot it reads and prints a Consumers line; --index names another &lt;registry&gt;/pacto-index, --index none reads none, a --root list skips it and a pair of --local folders reads no index.
 
 ```
-pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision> [flags]
+pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision> | --changed external:<identity> [flags]
 ```
 
 **Examples:**
@@ -1997,6 +2067,11 @@ pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed
   # What breaks if every provider of the postgresql offering becomes unavailable
   pacto impact --unavailable offering:postgresql --local .
 
+  # Which consumers a change of the Stripe API affects, and what a Stripe
+  # outage does
+  pacto impact --changed external:stripe --local .
+  pacto impact --unavailable external:stripe --local .
+
   # What a regressed artifact affects, with delivery's recorded failures
   pacto impact --regressed payments-service@sha256:<digest> --local .
 ```
@@ -2006,6 +2081,7 @@ pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed
 ```
       --backstage-url string            base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --cache[=true|false]              include every bundle in the local OCI cache as an offline baseline revision
+      --changed string                  what a change of this external system (external:<identity>) does to every service that uses it; each consumer needs attention
       --context stringArray             kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string           the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string                 add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)
@@ -2036,8 +2112,8 @@ pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed
       --stats-registry string           publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
       --target-snapshot stringArray     signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray        offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
-      --traces string                   OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
-      --unavailable string              what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable; offering:<name> asks it of every provider of an offering
+      --traces string                   OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed); refused with external:<identity>
+      --unavailable string              what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable; offering:<name> asks it of every provider of an offering and external:<identity> of an external system
 ```
 
 ---

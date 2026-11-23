@@ -1,6 +1,6 @@
 /** The Declare panel's pure words and links (513-S6). */
 import { describe, it, expect } from 'vitest';
-import { rangeRows, draftLine, draftMark, draftAsker, signUrl, declareTarget, moved } from './declare.ts';
+import { rangeRows, draftLine, draftMark, draftAsker, signUrl, signReturn, declareTarget, moved, claimId, claimFieldError } from './declare.ts';
 
 const plan = { version: '0.1.0', deploy: 'none', ranges: [
   { dependency: 'ledger', compatibility: 'unknown', proposed: '^2.3.0', observed: '2.3.1' },
@@ -69,5 +69,31 @@ describe('moved', () => {
     expect(moved(a, a)).toBe('what the cluster read');
     expect(moved({}, { version: '1' })).toBe('the version (none to 1)');
     expect(moved(null, a)).toBe('the plan');
+  });
+});
+
+describe('claims', () => {
+  it('signReturn is the page signUrl comes back to', () => {
+    for (const key of ['default/k8s:shop/Deployment/cart', 'external:stripe']) {
+      expect(new URLSearchParams(signUrl('t', key, 'sha256:abc').split('?')[1]).get('return')).toBe('/' + signReturn(key, 'sha256:abc'));
+    }
+    expect(signReturn('external:stripe', 'sha256:abc')).toBe('#/fleet/externals/stripe?declare=1&signed=sha256%3Aabc');
+  });
+  it('comes back from a signing login to the external system page', () => {
+    const ret = new URLSearchParams(signUrl('t', 'external:aws/sqs/x', 'sha256:abc').split('?')[1]).get('return');
+    expect(ret).toBe('/#/fleet/externals/aws%2Fsqs%2Fx?declare=1&signed=sha256%3Aabc');
+  });
+  it('names the external system of a claim subject only', () => {
+    expect(claimId('external:stripe')).toBe('stripe');
+    expect(claimId('default/k8s:shop/Deployment/cart')).toBe('');
+  });
+  it('requires an owner and checks the team and name patterns', () => {
+    expect(claimFieldError('', '')).toEqual({ field: 'owner', message: 'Name the team that owns it' });
+    expect(claimFieldError('team platform', '').message).toMatch(/^A team uses/);
+    expect(claimFieldError('x'.repeat(254), '').field).toBe('owner');
+    expect(claimFieldError('team-platform', 'Payments')).toEqual({ field: 'name', message: expect.stringMatching(/^A service name uses/) });
+    expect(claimFieldError('team-platform', 'a'.repeat(64)).field).toBe('name');
+    expect(claimFieldError('org/team-platform', 'payments-stripe')).toEqual({ field: '', message: '' });
+    expect(claimFieldError('team-platform', '').message).toBe('');
   });
 });

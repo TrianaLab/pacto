@@ -83,7 +83,8 @@ identity. A `?correlationID=CHG-2041` in the page's URL fills the panel's
 
 Fleet attention items carry `nextAction` (`{verb, tool, cli}`). `cli` is
 always set; `tool` only when the server answering registers it. It grants
-nothing.
+nothing. `UNOWNED_EXTERNAL` carries
+[`claim`](inferred-contracts.md#claim-an-external-system).
 
 An agent plans with `pacto_delivery_operation_plan`, then proposes with
 `pacto_delivery_operation_propose`, the plan's intent digest, the person who

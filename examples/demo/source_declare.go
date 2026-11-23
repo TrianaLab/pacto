@@ -43,6 +43,10 @@ type demoDeclarer struct {
 	who    func(*http.Request) string
 	mu     sync.Mutex
 	drafts map[string][]demoDraft // per service key, oldest first
+	claims map[fleet.ExternalKey]demoClaim
+	// claimed refolds the fleet with every claimed revision of the tab; nil
+	// leaves the fleet as it is.
+	claimed func([]fleet.RawRevision) error
 }
 
 // demoDraft is one saved draft: its tag, the ranges it requests and whom
@@ -53,7 +57,7 @@ type demoDraft struct {
 }
 
 func newDemoDeclarer(who func(*http.Request) string) *demoDeclarer {
-	return &demoDeclarer{who: who, drafts: map[string][]demoDraft{}}
+	return &demoDeclarer{who: who, drafts: map[string][]demoDraft{}, claims: map[fleet.ExternalKey]demoClaim{}}
 }
 
 // CanWrite implements dashboard.Declarer: the demo saves drafts in the tab.
@@ -67,6 +71,10 @@ func demoSigning() dashboard.DeclareSigning {
 func (d *demoDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, in dashboard.DeclareInput) (*dashboard.DeclareAnswer, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if id, ok := fleet.ParseExternalSubject(w.Key); ok {
+		ans, _ := d.planClaim(d.who(r), id, in.ClaimInput, in.IntentDigest)
+		return ans, nil
+	}
 	ans := &dashboard.DeclareAnswer{Signing: demoSigning(), Write: dashboard.DeclareWrite{Available: true}}
 	// A draft's requested ranges stay unknown unless the person accepts them.
 	accept, from := in.Accept, (*demoDraft)(nil)
@@ -97,6 +105,9 @@ func (d *demoDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, in das
 // Accept implements dashboard.Declarer: Save draft writes the next
 // draft-<n>, unless the newest draft is this one again; nobody signs.
 func (d *demoDeclarer) Accept(r *http.Request, w dashboard.DeclareWorkload, in dashboard.DeclareAcceptInput) (*dashboard.DeclareAcceptAnswer, error) {
+	if id, ok := fleet.ParseExternalSubject(w.Key); ok {
+		return d.acceptClaim(d.who(r), id, in)
+	}
 	if in.Mode != "draft" || in.FromDraft != nil {
 		return &dashboard.DeclareAcceptAnswer{Refusal: &dashboard.DeclareRefusal{Code: "NotAllowed",
 			Message: "you cannot sign here: " + demoNoSignIn, Command: demoCommand(w, in.Accept, in.IntentDigest)}}, nil

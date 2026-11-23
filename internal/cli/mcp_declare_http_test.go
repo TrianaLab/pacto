@@ -23,8 +23,10 @@ import (
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
 // httpDeclarer is pacto_declare over HTTP with a registry and a push
@@ -358,4 +360,32 @@ func TestMCPHTTPExecuteWithoutPlanPassesTheError(t *testing.T) {
 	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
 	raw, refused, err := httpDeclarer(w).Execute(ctx, a)
 	expect(t, raw == nil && refused == nil && err != nil, "%s %+v %v", raw, refused, err)
+}
+
+// withFleet is rd reading the caller's fleet view from mode.
+func (r remoteDeclarer) withFleet(mode *pactomcp.FleetMode) remoteDeclarer {
+	r.fleet = mode
+	return r
+}
+
+// TestMCPHTTPClaimOnlyPlans: an HTTP server only plans a caller's claim:
+// no review of the caller backs it, and a draft would go with the server's
+// own push credential (the shared dashboard's rule). Execute names the pacto
+// claim a person runs and pushes nothing.
+func TestMCPHTTPClaimOnlyPlans(t *testing.T) {
+	w := newDeclareWorld(t)
+	s := newSelfReviewed(false)
+	rd := httpDeclarer(w).withFleet(claimFleet(t, nil, map[fleet.ExternalKey]*fleet.ExternalClaim{"stripe": nil}))
+	a := pactomcp.DeclareArgs{Service: "external:stripe", Owner: "team-platform", Name: "ledger-v2", Registry: w.host + "/acme"}
+	ctx := callerCtx("alice", s, &bytes.Buffer{})
+	raw, refused, err := rd.Plan(ctx, a)
+	var p app.DeclarePlan
+	_ = json.Unmarshal(raw, &p)
+	expect(t, err == nil && refused == nil && p.State == "" && p.AcceptCLI == "" && p.Signer.Source == "none", "%s %+v %v", raw, refused, err)
+	a.IntentDigest = p.IntentDigest
+	raw, refused, err = rd.Execute(ctx, a)
+	expect(t, err == nil && raw == nil && refused != nil && refused.Code == pactomcp.RefusalExecuteNeedsStdio && refused.CLI == a.Command(p.IntentDigest),
+		"%s %+v %v", raw, refused, err)
+	_, err = publish.NewClient(oci.NewKeychain(oci.EnvCredentialOptions()), w.host).Pull(t.Context(), w.host+"/acme/ledger-v2:draft-1")
+	expect(t, err != nil && len(s.asked) == 0, "a claim pushed a draft: %v", err)
 }

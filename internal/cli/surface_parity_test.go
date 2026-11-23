@@ -92,7 +92,7 @@ const (
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
 // the fleet, delivery, impact and contract surfaces to its concept. A story
 // that adds one adds its row here in the same commit.
-var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), acceptRows(), clusterRows())
+var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), claimRows(), acceptRows(), clusterRows())
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
@@ -179,6 +179,8 @@ func impactRows() []surfaceRow {
 			{"", "pacto_impact.service", "POST /api/fleet/impact body.serviceKey", "the CLI takes the service as the event flag's value"},
 			{"", "pacto_impact.revision", "POST /api/fleet/impact body.revision", "the CLI takes the revision after @ in --regressed"},
 			{"", "pacto_impact.offering", "POST /api/fleet/impact body.offeringKey", "the CLI takes the offering as offering:<name> in --unavailable or --removed"},
+			{"impact --changed", "", "", "pacto_impact.event and the dashboard's body.event take changed as a value"},
+			{"", "pacto_impact.external", "POST /api/fleet/impact body.externalKey", "the CLI takes the external system as external:<identity> in --changed or --unavailable"},
 			{"impact --policy", "pacto_impact.policy", "", "the dashboard answers with the default policy, warn"},
 		},
 		alike("impact", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs",
@@ -403,6 +405,27 @@ func declareRows() []surfaceRow {
 			{"declare --git-host", "", "", prWhy + "; a stdio agent gets GitHostUnknown with the CLI line"},
 		},
 		alike("declare", "", "", whyLocal, "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
+			"rekor-url", "trusted-root"),
+	)
+}
+
+// claimRows map pacto claim, pacto declare for an external system. MCP
+// pacto_declare and the dashboard Declare routes claim through the same
+// subject, external:<identity>.
+func claimRows() []surfaceRow {
+	const why = "pacto_declare and the dashboard Declare routes claim with service external:<identity> (pacto_declare.service, body.serviceKey)"
+	const whyLocal = "a person's local signing: MCP callers are agents and never sign a declared record"
+	const plan, accept = "POST /api/fleet/declare", "POST /api/fleet/declare/accept"
+	return slices.Concat(
+		[]surfaceRow{
+			{"claim <identity>", "", "", why},
+			{"claim --owner", "pacto_declare.owner", plan + " body.owner", ""},
+			{"", "", accept + " body.owner", "the accept route carries out the plan with the owner it named"},
+			{"claim --name", "pacto_declare.name", plan + " body.name", ""},
+			{"", "", accept + " body.name", "the accept route carries out the plan with the name it named"},
+		},
+		alike("claim", "", "", why, "registry", "yes", "intent", "draft", "from-draft", "delivery-trust"),
+		alike("claim", "", "", whyLocal, "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
 			"rekor-url", "trusted-root"),
 	)
 }
@@ -959,6 +982,7 @@ var jsonRuns = map[string][]string{
 	"accept":                 {"--dry-run", "does-not-exist"},
 	"ci":                     {"."},
 	"cluster list":           {"--registry", "127.0.0.1:1/acme/pacto-targets"},
+	"claim":                  {"stripe", "--owner", "team-platform"},
 	"declare":                {"invoices", "--dir", "/nonexistent"},
 	"delivery approve":       {"-n", "prod", "held"},
 	"delivery autonomy":      {},

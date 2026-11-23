@@ -100,6 +100,23 @@ test.describe('WASM demo — external systems', () => {
     expect(await noSideScroll(page)).toBe(true);
   });
 
+  test('the stripe page offers What if it changes? and says what changed, unchecked', async ({ page }) => {
+    await page.goto('/#/fleet/externals/stripe');
+    await page.addStyleTag({ content: WIDE_FONT });
+    const block = page.getByTestId('external-inferred-contract');
+    await expect(block).toBeVisible({ timeout: T });
+    await block.locator('summary').first().click();
+    // examples/demo/source_inferred.go: 0.0.2 moved the linked OpenAPI digest and no
+    // source checked either revision's signature.
+    const change = block.getByTestId('external-provider-change');
+    await expect(change).toContainText(/Changed 0\.0\.1 → 0\.0\.2( \(.+\))?, unchecked/);
+    expect(await noSideScroll(page)).toBe(true);
+    await audit(page, 'stripe external');
+    await page.getByRole('link', { name: 'What if it changes?' }).click();
+    await expect(page).toHaveURL((u) => u.hash === '#/fleet/changes?external=stripe&event=changed', { timeout: T });
+    await expect(page.getByTestId('changes-answer')).toBeVisible({ timeout: T });
+  });
+
   test('the graph focused on an external system draws it with its consumers', async ({ page }) => {
     await page.goto('/#/fleet/graph/external/llm-provider');
     await page.addStyleTag({ content: WIDE_FONT });

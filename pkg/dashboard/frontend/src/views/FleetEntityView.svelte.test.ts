@@ -463,6 +463,20 @@ describe('FleetEntityView — rich service page (D)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  // An external system's impact action asks what its change reaches.
+  it('the External page offers What if it changes?', async () => {
+    detailFn.mockResolvedValue({
+      meta, entity: { kind: 'external', key: 'stripe', label: 'Stripe', href: '/fleet/externals/stripe' }, actions: ['open-graph', 'impact'],
+      external: { external: { key: 'stripe', label: 'Stripe', class: 'vendor-api', consumers: [], consumersTotal: 0, sourcesTotal: 0, sources: [] }, consumers: [] },
+    });
+    const { target, component } = await mountView('external', 'stripe');
+    await vi.waitFor(() => expect(target.querySelector('a.page-hd-action')).toBeTruthy());
+    const links = Array.from(target.querySelectorAll('a.page-hd-action'));
+    expect(links.map((a) => a.textContent?.trim())).toEqual(['Open in graph', 'What if it changes?']);
+    expect(links[1].getAttribute('href')).toBe('#/fleet/changes?external=stripe&event=changed');
+    unmount(component); document.body.removeChild(target);
+  });
+
   // An external system's page: its class, catalog, consumers and where it was recognized.
   it('shows an external system with its catalog, consumers and sources', async () => {
     detailFn.mockResolvedValue({

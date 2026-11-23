@@ -280,6 +280,9 @@ workload without a repository, signed by you
   [Declare this service](dashboard-service-page.md#declare-an-inferred-service)
   signs with a fresh login of yours or saves a draft, and accepts the drafts
   that `--draft`, an agent or the panel wrote.
+- An external system has no workload: name its owner with
+  [`pacto claim <identity> --owner <team>`](inferred-contracts.md#claim-an-external-system),
+  which publishes through the same declaration.
 
 ## What's next
 

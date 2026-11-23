@@ -298,6 +298,16 @@ describe('OperationalSummary', () => {
     expect(sec[2].getAttribute('href')).toBe('#/fleet/sources?sourceHealth=incomplete');
   });
 
+  it('shortens the unowned chip that counts services and external systems', () => {
+    const p = summaryProps();
+    p.entryPoints.push({ label: 'Services and external systems with no owner', count: 3, view: 'attention', category: 'unowned', severity: 'info', href: '/fleet/attention?category=unowned' });
+    comp = mount(OperationalSummary, { target, props: p });
+    const chip = Array.from(target.querySelectorAll('.op-secondary a.op-sec')).find((a) => a.textContent?.includes('unowned')) as HTMLElement;
+    expect(chip.querySelector('.op-sec-label')?.textContent).toBe('unowned services and systems');
+    expect(chip.querySelector('.op-sec-label')?.getAttribute('title')).toBe('Services and external systems with no owner');
+    expect(chip.querySelector('.op-sec-count')?.textContent).toBe('3');
+  });
+
   it('leads with failing health checks and keeps knowledge gaps a secondary chip', () => {
     const p = summaryProps();
     p.entryPoints.push(

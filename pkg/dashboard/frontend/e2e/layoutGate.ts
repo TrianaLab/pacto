@@ -433,6 +433,18 @@ export function installScaleFixture(): void {
       for (const c of (doc.columns as { nodes?: Record<string, unknown>[] }[] | undefined) ?? []) for (const n of c.nodes ?? []) long(n);
     }
     if (route === '/api/fleet/attention') {
+      // 517-S4: an EXTERNAL_CHANGED item (the demo raises none: no source checked its
+      // revisions) with a 200-character identity, so its label and reason wrap at scale.
+      if (q.get('category') === 'knowledge') {
+        const id = `aws/rds/123456789012/eu-west-1/${'orders-db-replica-'.repeat(12)}`.slice(0, 200).replace(/-+$/, '');
+        const items = (doc.items as Record<string, unknown>[] | undefined) ?? [];
+        doc.items = [{
+          entity: { kind: 'external', key: id, label: id, secondary: 'managed-cloud', status: 'Unknown', href: `/fleet/externals/${id}` },
+          label: `${id}'s linked OpenAPI document moved: 412 consumers to review`, severity: 'warning', code: 'EXTERNAL_CHANGED', category: 'knowledge',
+          summary: 'External system changed', nextStep: `pacto impact --changed external:${id}`,
+          reason: `the organization catalog's linked OpenAPI digest for ${id} moved from sha256:${'3e9a'.repeat(16)} to sha256:${'7c21'.repeat(16)} between 0.0.1233 and 0.0.1234`,
+        }, ...items];
+      }
       page(doc, 2400);
       scaleTally(doc.severities as Record<string, number>, 2400);
       // Every category holds items, so each bar and its label are drawn at scale.
@@ -483,6 +495,19 @@ export function installScaleFixture(): void {
       delete x.catalog; delete rec.catalog;
       Object.assign(rec, { class: 'unclassified', joinedBy: 'normalized-name', consumersTotal: 120, sourcesTotal: 140, hiddenConsumers: 3 });
       x.foldedInto = 'other-egress';
+      // 517-S5: a claim by a service the viewer cannot see.
+      rec.claim = { hidden: true };
+    }
+    // 'external entity, claimed' (517-S5): the Owner block at its longest, a 63-character
+    // owner and claiming service.
+    // 'external entity, claimed, no verified owner': the same claim with no owner.
+    const claimed = (window as unknown as { __externalClaimed?: boolean | 'ownerless' }).__externalClaimed;
+    if (route === '/api/fleet/entities/external' && claimed) {
+      const rec = (doc.external as Record<string, unknown>).external as Record<string, unknown>;
+      const name = `payments-${'stripe-gateway-'.repeat(5)}`.slice(0, 63).replace(/-+$/, '');
+      const owner = `team-${'platform-'.repeat(8)}`.slice(0, 63).replace(/-+$/, '');
+      rec.claim = { service: name, version: '0.12.0', declaredVersion: '0.1.0', ...(claimed === 'ownerless' ? {} : { owner, ownerKey: `team:${owner}` }),
+        by: `${longName('ana')}@acme.example`, ref: `ghcr.io/${longName('acme')}/${name}@sha256:${'c1'.repeat(32)}` };
     }
     // 'external entity, inferred contract' (517-S3): the provider block at its longest, a
     // 200-character managed-cloud identity, operator-signed, from a partial run with long
@@ -502,6 +527,12 @@ export function installScaleFixture(): void {
             hosts: fifty((i) => `${longName(`inferred-host-${i}`).replace(/[^a-z0-9-]/g, '')}.eu-west-1.rds.amazonaws.com:5432`),
             ports: fifty((i) => String(5000 + i)), clients: fifty((i) => `@aws-sdk/${longName(`client-${i}`).replace(/[^a-z0-9-]/g, '')}/3`) },
         }],
+        // 517-S4: the change line at its longest: checked, full links, 2,000 values each way.
+        change: { from: '0.0.1233', to: '0.0.1234', at: seen, checked: true,
+          openapiFrom: `oci://registry.example.com/acme/vendor/${id}-openapi@sha256:${'3e9a'.repeat(16)}`,
+          openapiTo: `oci://registry.example.com/acme/vendor/${id}-openapi@sha256:${'7c21'.repeat(16)}`,
+          added: Array.from({ length: 2000 }, (_, i) => `clients @aws-sdk/${longName(`client-${i}`).replace(/[^a-z0-9-]/g, '')}/4`),
+          removed: Array.from({ length: 2000 }, (_, i) => `clients @aws-sdk/${longName(`client-${i}`).replace(/[^a-z0-9-]/g, '')}/3`) },
       };
     }
     // 509-S3: an inferred service's Group and Repository facts at their longest.
@@ -952,11 +983,14 @@ export function installScaleFixture(): void {
         ...Array.from({ length: 9 }, (_, i) => longName(`consumer-${i}`)),
       ];
       const V = ['incompatible', 'unknown', 'compatible'];
-      const E = ['breaks', 'may-degrade', 'unknown'];
       let req: Record<string, unknown> = {};
       try { req = JSON.parse(body ?? '{}'); } catch { /* no body */ }
       const outcome = String(req.outcome ?? '');
       const event = String(req.event ?? '');
+      // An external change puts every consumer in the Attention lane (517-S4).
+      const attention = !!req.externalKey && event === 'changed';
+      const E = attention ? ['attention'] : ['breaks', 'may-degrade', 'unknown'];
+      const SOURCES = ['declared', 'observed', 'pod-spec', 'repository'];
       // Every fact the table renders, long: via, evidence (one stale), more than 20
       // targets, resources with phases and an owner link, on items and highlights alike.
       const consumer = (name: string, i: number) => {
@@ -981,6 +1015,8 @@ export function installScaleFixture(): void {
           ],
           resources: event === 'removed' ? Array.from({ length: 3 }, (_, r) => ({ entry: longName(`database-${r}`), environment: longName(`production-${r}`), phase: ['Ready', 'Failed', 'Provisioning'][r], provenance: 'observed', verified: true })) : undefined,
           resourcesTotal: event === 'removed' ? 24 : undefined,
+          sources: req.externalKey ? SOURCES.slice(0, 1 + (i % 4)) : undefined,
+          client: req.externalKey ? { sdk: longName(`stripe-go-client-${i}`), major: 2026, confidence: 'possible', revision: `${key}@sha256:${'ab12'.repeat(16)}` } : undefined,
         };
       };
       const all = names.map(consumer);
@@ -991,16 +1027,30 @@ export function installScaleFixture(): void {
           return { kind: 'service', key, label: longName(`provider-${i}`), href: `/fleet/services/${encodeURIComponent(key)}` };
         });
       }
+      // An external answer at its longest: a 200-character identity, a change with full
+      // links and 2,000 values each way, and a long multi-line pin.
+      if (req.externalKey) {
+        const id = `aws/rds/123456789012/eu-west-1/${'orders-db-replica-'.repeat(12)}`.slice(0, 200).replace(/-+$/, '');
+        const repo = `registry.example.com/acme/pacto-inferred/${id}`;
+        doc.external = { identity: id, class: 'managed-cloud', provider: repo,
+          change: { from: '0.0.1233', to: '0.0.1234', at: '2026-11-16T08:00:00Z', checked: false,
+            openapiFrom: `oci://registry.example.com/acme/vendor/${id}-openapi@sha256:${'3e9a'.repeat(16)}`,
+            openapiTo: `oci://registry.example.com/acme/vendor/${id}-openapi@sha256:${'7c21'.repeat(16)}`,
+            added: Array.from({ length: 2000 }, (_, i) => `clients ${longName(`stripe-go-${i}`)}/77`),
+            removed: Array.from({ length: 2000 }, (_, i) => `clients ${longName(`stripe-go-${i}`)}/76`) } };
+        doc.pin = `dependencies:\n  - name: ${longName('orders-db-replica')}\n    ref: oci://${repo}\n    required: true\n    compatibility: "${'>=2023.10.16 <2026.0.0 || '.repeat(6)}^2026.1"\n`;
+      }
       // A leaf (the real answer lists no consumer) draws the clear answer: every lane
-      // empty and the gate under them, the shape a complete snapshot gives it.
+      // empty and the gate under them, the shape a complete snapshot gives it. An
+      // external is never verified, so its leaf stays unverified.
       const leaf = !!event && !cs.total;
-      if (leaf) {
+      if (leaf && !req.externalKey) {
         doc.gate = 'clear';
         doc.gateReason = longName('no contract in the complete snapshot declares a dependency on it and no observation source saw a caller; a service with no contract can still call it');
       } else if (event) {
         // The event population: lanes by effect sum to the total, and each lane's list
         // (filtered by effect, never by verdict) totals its lane.
-        const byOutcome = [{ key: 'breaks', count: 1900 }, { key: 'may-degrade', count: 1300 }, { key: 'unknown', count: 800 }];
+        const byOutcome = attention ? [{ key: 'attention', count: 4000 }] : [{ key: 'breaks', count: 1900 }, { key: 'may-degrade', count: 1300 }, { key: 'unknown', count: 800 }];
         const listed = outcome ? all.filter((c) => c.effect === outcome) : all;
         Object.assign(cs, {
           items: listed.slice(0, 10), highlights: all.slice(0, 8), total: 4000, direct: 1400, count: Math.min(10, listed.length), offset: 0, limit: 10,
@@ -1256,7 +1306,7 @@ export function installScaleFixture(): void {
   // multiCluster (514-S2) answers every entities list as a view over three clusters with
   // 63-character names: the demo's own cluster, one the reader may not read and one whose
   // review failed, so the Cluster filter, its caption and the Clusters block render.
-  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed'; __pactoNoDeclare?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed'; __pactoMultiCluster?: boolean; __pactoDeclare?: DeclareMode; __pactoClusterJoin?: boolean | 'viewer' | 'off'; __pactoInspected?: boolean };
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed'; __pactoNoDeclare?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed' | 'external'; __pactoMultiCluster?: boolean; __pactoDeclare?: DeclareMode; __pactoClusterJoin?: boolean | 'viewer' | 'off'; __pactoInspected?: boolean };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1603,6 +1653,15 @@ export function installScaleFixture(): void {
     if (flags.__pactoClusterFacts === 'dropped') {
       Object.assign(rev, { inferred: [], inferredTotal: 0,
         declaration: { state: 'declared', signatureChecked: false, claimedSubject: `${'mallory'.repeat(10)}@unverified.example.com`, inferredFromHidden: true } });
+      return;
+    }
+    if (flags.__pactoClusterFacts === 'external') {
+      // 517-S5: a claim of an external system with a 200-character managed-cloud
+      // identity, so the linked 'from external <id>' line wraps; a claim reads no cluster.
+      const id = `aws/rds/123456789012/eu-west-1/${'orders-db-replica-'.repeat(12)}`.slice(0, 200).replace(/-+$/, '');
+      Object.assign(rev, { inferred: [], inferredTotal: 0,
+        declaration: { state: 'declared', signatureChecked: true, signer: { subject: `${'ana'.repeat(25)}@acme.example.com`, issuer: 'https://accounts.google.com', class: 'human' },
+          inferredFrom: `external:${id}` } });
       return;
     }
     if (flags.__pactoClusterFacts === 'notAllowed') {
@@ -2377,6 +2436,23 @@ export const declareRoute = (mode: DeclareMode | '') => async (page: Page) => {
   await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
 };
 
+/** Opens stripe's page with its Claim panel planned (517-S5): the demo's own declarer
+ *  when mode is empty, else the declare fixture's refusal; the owner and name at their
+ *  longest. Reload: the flag is read per answer and the init script runs only on a new
+ *  document. */
+export const claimRoute = (mode: '' | 'refused') => async (page: Page) => {
+  if (mode) await page.addInitScript((m) => { (window as unknown as { __pactoDeclare?: string }).__pactoDeclare = m; }, mode);
+  await page.goto('/#/fleet/externals/stripe?declare=1');
+  await page.reload();
+  const panel = page.getByTestId('declare');
+  await panel.getByTestId('claim-owner').fill(`team-${'platform-'.repeat(8)}`.slice(0, 63).replace(/-+$/, ''));
+  await panel.getByTestId('claim-name').fill(`stripe-${'payments-'.repeat(8)}`.slice(0, 63).replace(/-+$/, ''));
+  await panel.getByTestId('claim-plan').click();
+  await expect(panel.getByTestId(mode === 'refused' ? 'refusal' : 'declare-signer').first()).toBeVisible({ timeout: 30_000 });
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+};
+
 export const acceptPlanRoute = (mode: 'plan' | 'refused' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed') => async (page: Page) => {
   const flag = (m: string) => { (window as unknown as { __pactoAccept?: string }).__pactoAccept = m; };
   await page.addInitScript(flag, mode);
@@ -2782,6 +2858,17 @@ export const ROUTES: Route[] = [
     },
   },
   {
+    // 517-S5: a revision declared by a claim of an external system, its 200-character
+    // identity linked to the External page. Reload: the flag is read per answer.
+    name: 'revision entity, external claim',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __pactoClusterFacts?: string }).__pactoClusterFacts = 'external'; });
+      await firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/')(page);
+      await page.reload();
+      await expect(page.getByTestId('inferred-declaration').locator('a[href^="#/fleet/externals/aws"]')).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
     // pacto ci raised the authored pactoVersion in memory: muted text, behind badge and
     // the provenance mark that ends the row. Reload: the init script runs on a new document.
     name: 'revision entity, migrated contract',
@@ -2918,6 +3005,19 @@ export const ROUTES: Route[] = [
   { name: 'offering entity adapters', hash: '#/fleet/offerings/security-scanning' },
   { name: 'offering entity unresolved uses', hash: '#/fleet/offerings/shared-config' },
   { name: 'change analysis offering event', hash: '#/fleet/changes?offering=postgresql&event=unavailable' },
+  { name: 'change analysis external changed', hash: '#/fleet/changes?external=stripe&event=changed' },
+  { name: 'change analysis external unavailable', hash: '#/fleet/changes?external=stripe&event=unavailable' },
+  { name: 'change analysis external not a question', hash: '#/fleet/changes?external=stripe&event=removed' },
+  {
+    // The pin is collapsed and the gate skips a closed disclosure: open it so its long snippet is measured.
+    name: 'change analysis external pin',
+    open: async (page) => {
+      await page.goto('/#/fleet/changes?external=stripe&event=changed');
+      const pin = page.locator('details[data-testid="changes-pin"]');
+      await expect(pin).toBeVisible({ timeout: 30_000 });
+      await pin.evaluate((d) => { (d as HTMLDetailsElement).open = true; });
+    },
+  },
   {
     // The successor range line is component state, never in the URL: type the range.
     name: 'offering entity postgresql range',
@@ -2944,6 +3044,16 @@ export const ROUTES: Route[] = [
       await block.getByText("What this installation's operator saw").click();
       // G1 measures only what is visible: both summaries are open before it does.
       await expect(block.locator('.xe-surface li').last()).toBeVisible({ timeout: 30_000 });
+      // The change line's tooltip at its longest (517-S4): focus opens it on every pointer.
+      // An open tip overlays the page by design, so G1 would count it as overlapping text:
+      // it is checked here to stay inside the viewport, then closed before the matrix measures.
+      const line = block.getByTestId('external-provider-change');
+      await line.getByRole('button').focus();
+      const tip = line.locator('.help-body');
+      await expect(tip).toBeVisible({ timeout: 30_000 });
+      expect(await tip.evaluate((el) => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= document.documentElement.clientWidth; })).toBe(true);
+      await page.keyboard.press('Escape');
+      await expect(tip).toBeHidden();
       await page.evaluate(() => window.scrollTo(0, 0));
     },
   },
@@ -3389,6 +3499,13 @@ export const ROUTES: Route[] = [
       await expect(page.locator('[data-testid="service-domain"] [data-testid="domain-inferred"]')).toBeVisible();
     },
   },
+  // 517-S5: the External page's Owner block claimed, unclaimed with its Claim button
+  // (the demo plans claims), the Claim panel planned and refused.
+  { name: 'external entity, claimed, no verified owner', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __externalClaimed?: string }).__externalClaimed = 'ownerless'; }); await page.goto('/#/fleet/externals/stripe'); await page.reload(); await expect(page.getByTestId('external-owner-claimed')).toContainText('No verified owner', { timeout: 30_000 }); } },
+  { name: 'external entity, claimed', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __externalClaimed?: boolean }).__externalClaimed = true; }); await page.goto('/#/fleet/externals/stripe'); await page.reload(); await expect(page.getByTestId('external-owner-claimed')).toBeVisible({ timeout: 30_000 }); } }, // reload: the init script only runs on a new document
+  { name: 'external entity, unclaimed with claim', open: async (page) => { await page.goto('/#/fleet/externals/stripe'); await expect(page.getByTestId('external-claim')).toBeVisible({ timeout: 30_000 }); } },
+  { name: 'external entity, claim panel', open: claimRoute('') },
+  { name: 'external entity, claim refused', open: claimRoute('refused') },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

@@ -16,6 +16,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/publish"
@@ -126,15 +127,19 @@ func (r *run) one(ctx context.Context, key fleet.ExternalKey, rep *Report) {
 		return
 	}
 	cur := Surface(r.snap, key, r.now)
-	prev, prevSurface, err := r.previous(ctx, repo, key, versions(tags), cur, rep)
+	link := openAPIOf(r.snap, key)
+	prev, prevSurface, err := r.previous(ctx, repo, key, versions(tags), cur, link, rep)
 	if err != nil {
 		return // a signer that failed on the repair would leave a new tag unsigned too
 	}
 	if prev != nil && r.partial {
 		cur = Merge(*prevSurface, cur)
 	}
+	if prev != nil {
+		link = r.keepLink(key, link, prev)
+	}
 	version := NextVersion(tags)
-	b, err := Bundle(key, cur, version, r.in)
+	b, err := Bundle(key, cur, version, r.in, link)
 	if err != nil {
 		fail(err)
 		return
@@ -163,12 +168,12 @@ func (r *run) one(ctx context.Context, key fleet.ExternalKey, rep *Report) {
 // for byte (a push whose signing failed), so the key never signs bytes this
 // routine would not have pushed. It returns errSigning when that signature
 // failed.
-func (r *run) previous(ctx context.Context, repo string, key fleet.ExternalKey, tags []string, cur contract.InferredSurface, rep *Report) (*contract.Bundle, *contract.InferredSurface, error) {
+func (r *run) previous(ctx context.Context, repo string, key fleet.ExternalKey, tags []string, cur contract.InferredSurface, link string, rep *Report) (*contract.Bundle, *contract.InferredSurface, error) {
 	for i, tag := range tags {
 		if i == maxTagsVerified {
 			break
 		}
-		b, s, repaired, err := r.verified(ctx, repo, tag, key, cur, i == 0)
+		b, s, repaired, err := r.verified(ctx, repo, tag, key, cur, link, i == 0)
 		e := Entry{Identity: string(key), Repository: repo, Version: tag}
 		if err != nil {
 			e.Error = err.Error()
@@ -192,8 +197,9 @@ var errSigning = errors.New("signing the unsigned tag")
 
 // verified pulls repo:tag and returns it with its surface when this
 // installation signed it or, for the newest tag, when it signs it now, with
-// the digest it signed.
-func (r *run) verified(ctx context.Context, repo, tag string, key fleet.ExternalKey, cur contract.InferredSurface, newest bool) (*contract.Bundle, *contract.InferredSurface, string, error) {
+// the digest it signed. The rebuild that decides a repair carries link, the
+// OpenAPI link this run computed, never one read from the pulled bytes.
+func (r *run) verified(ctx context.Context, repo, tag string, key fleet.ExternalKey, cur contract.InferredSurface, link string, newest bool) (*contract.Bundle, *contract.InferredSurface, string, error) {
 	reg := r.d.Registry
 	h, err := reg.Head(ctx, repo+":"+tag)
 	if err != nil || h == nil {
@@ -217,13 +223,38 @@ func (r *run) verified(ctx context.Context, repo, tag string, key fleet.External
 	}
 	s := cur
 	s.AsOf, s.Completeness = rec.Surface.AsOf, rec.Surface.Completeness
-	if rebuilt, err := Bundle(key, s, tag, r.in); err != nil || !digestsOf(rebuilt).Same(h.Digest) {
+	if rebuilt, err := Bundle(key, s, tag, r.in, link); err != nil || !digestsOf(rebuilt).Same(h.Digest) {
 		return nil, nil, "", refused
 	}
 	if err := publish.SignDigest(ctx, reg, r.d.Signer, repo, h.Digest); err != nil {
 		return nil, nil, "", fmt.Errorf("%w: %w", errSigning, err)
 	}
 	return b, rec.Surface, h.Digest, nil
+}
+
+// openAPIOf is the vendor OpenAPI document key's catalog entry links in
+// snap, or "".
+func openAPIOf(snap *fleet.FleetSnapshot, key fleet.ExternalKey) string {
+	if m := snap.Externals[key].Catalog; m != nil {
+		return m.OpenAPI
+	}
+	return ""
+}
+
+// keepLink is the OpenAPI link key's new contract records: link, or the
+// one prev (a tag this installation signed) records when link is empty.
+// Only a complete run whose match comes from an organization catalog removes
+// a link: an organization entry replaces the default whole, so one without
+// openapi is the organization removing it, while the default catalog (the
+// operator's) links nothing and a partial run may have missed the catalog.
+func (r *run) keepLink(key fleet.ExternalKey, link string, prev *contract.Bundle) string {
+	if link != "" {
+		return link
+	}
+	if m := r.snap.Externals[key].Catalog; !r.partial && m != nil && m.Origin == externalcatalog.OriginOrganization {
+		return ""
+	}
+	return openAPILink(prev)
 }
 
 // push writes b to repo, tags it version and signs it, returning its

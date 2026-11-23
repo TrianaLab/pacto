@@ -170,7 +170,7 @@ func TestImpactEventHrefs(t *testing.T) {
 // An event kind the tool does not know is refused before any analysis, even
 // by a client that skips the input schema.
 func TestImpactArgsRefuseUnknownEvent(t *testing.T) {
-	if _, err := (impactArgs{Event: "exploded", Service: "x"}).request(); err == nil || err.Error() != "event is one of unavailable, removed or regressed" {
+	if _, err := (impactArgs{Event: "exploded", Service: "x"}).request(); err == nil || err.Error() != "event is one of unavailable, removed, regressed or changed" {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -227,7 +227,7 @@ func TestMCPImpactRunningRejectsOldRef(t *testing.T) {
 func TestMCPImpactRunningRejectsEvent(t *testing.T) {
 	for _, a := range []impactArgs{{Event: "removed"}, {Service: "x"}, {Offering: "o"}, {Revision: "1"}} {
 		a.Running, a.NewRef = true, "b"
-		if _, err := a.request(); err == nil || !strings.Contains(err.Error(), "pass no event, service, offering or revision") {
+		if _, err := a.request(); err == nil || !strings.Contains(err.Error(), "pass no event, service, offering, external or revision") {
 			t.Errorf("%+v: %v", a, err)
 		}
 	}

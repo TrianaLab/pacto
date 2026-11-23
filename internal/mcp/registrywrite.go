@@ -1,12 +1,15 @@
 package mcp
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"strconv"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/externalid"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // The agent write contract: every MCP tool that writes to a registry on an
@@ -48,6 +51,13 @@ const (
 	RefusalGitTokenMissing            WriteRefusal = "GitTokenMissing"
 	RefusalPullRequestFailed          WriteRefusal = "PullRequestFailed"
 	RefusalPullRequestNeedsLocalToken WriteRefusal = "PullRequestNeedsLocalToken"
+	// The claim codes: a claim names no owner, its repository holds another
+	// external system, it names no external system, or it would publish
+	// under pacto-inferred.
+	RefusalOwnerRequired           WriteRefusal = "OwnerRequired"
+	RefusalExternalMismatch        WriteRefusal = "ExternalMismatch"
+	RefusalExternalUnknown         WriteRefusal = "ExternalUnknown"
+	RefusalClaimRepositoryInferred WriteRefusal = "ClaimRepositoryInferred"
 	// An HTTP server's draft write: the caller may not update the workload,
 	// writes on behalf of someone else or into another workload's
 	// repository (NotAllowed), or the review of the caller failed.
@@ -74,6 +84,7 @@ var writeRefusals = []WriteRefusal{
 	RefusalBaselineNeedsMigration, RefusalBundleRepoMismatch, RefusalRepositoryUnknown, RefusalRepositoryUnconfirmed,
 	RefusalGitHostUnknown, RefusalGitTokenMissing, RefusalPullRequestFailed, RefusalPullRequestNeedsLocalToken, RefusalNotAllowed, RefusalReviewFailed, RefusalAcceptNothingProposed, RefusalFieldNotAcceptable,
 	RefusalBreakNotAnnounced, RefusalNotPublished, RefusalPersonSigningUnavailable,
+	RefusalOwnerRequired, RefusalExternalMismatch, RefusalExternalUnknown, RefusalClaimRepositoryInferred,
 	RefusalOwnerSignerNotPerson, RefusalOwnerSignerNotAllowed, RefusalOwnerPolicyUnverified, RefusalOwnerSignerUnverified,
 }
 
@@ -177,22 +188,72 @@ type DeclareArgs struct {
 	Repository string `json:"repository"`
 	Folder     string `json:"folder"`
 	RepoMap    string `json:"repo_map"`
+	// Owner and Name are set only on a claim (service external:<identity>):
+	// the owning team and the service name the claim publishes under.
+	Owner string `json:"owner"`
+	Name  string `json:"name,omitempty"`
 }
 
-// Command is the pacto declare a person runs for a: it replays every
-// argument the intent digest binds, and the digest when intent is set.
-// Without --yes it prints the plan and writes nothing.
+// Claim is the external system a claims and whether a is a claim.
+func (a DeclareArgs) Claim() (string, bool) {
+	return strings.CutPrefix(a.Service, fleet.ExternalSubjectPrefix)
+}
+
+// Verb is the command a person runs for a: pacto claim for a claim, else
+// pacto declare.
+func (a DeclareArgs) Verb() string {
+	if _, ok := a.Claim(); ok {
+		return "pacto claim"
+	}
+	return "pacto declare"
+}
+
+// ArgsRefused refuses, before any read, arguments a's subject does not
+// take: a claim takes owner, name, registry, draft and intent and names a
+// valid external identity; a workload takes no owner or name. Its command
+// carries only arguments the subject takes.
+func (a DeclareArgs) ArgsRefused() *Refused {
+	id, claim := a.Claim()
+	switch {
+	case claim && (a.Namespace != "" || a.Dir != "" || len(a.Accept) > 0 || a.MaxItems != 0 || a.CallWindow != "" ||
+		a.PR || a.Repository != "" || a.Folder != "" || a.RepoMap != ""):
+		return &Refused{Code: RefusalFieldNotAcceptable, Message: "pacto claim takes owner, name, registry, draft and intent: " +
+			"call again without namespace, dir, accept, max_items, call_window, pr, repository, folder and repo_map", CLI: a.Command("")}
+	case claim:
+		if _, err := externalid.Parse(id); err != nil {
+			return &Refused{Code: RefusalExternalUnknown, Message: "service external:<identity> names no external identity: " +
+				"find its identity with pacto fleet search", CLI: "pacto claim <identity> --owner <team> --registry <registry>"}
+		}
+	case a.Owner != "" || a.Name != "":
+		return &Refused{Code: RefusalFieldNotAcceptable, Message: "owner and name are a claim's (service external:<identity>): " +
+			"a workload's owner and name come from its contract", CLI: a.Command("")}
+	}
+	return nil
+}
+
+// Command is the pacto declare (pacto claim for a claim) a person runs for
+// a: it replays every argument the intent digest binds, and the digest when
+// intent is set. Without --yes it prints the plan and writes nothing. A
+// claim's command carries only the flags pacto claim defines.
 func (a DeclareArgs) Command(intent string) string {
+	reg := cmp.Or(a.Registry, "<registry>")
+	if id, ok := a.Claim(); ok {
+		parts := []string{"pacto claim", id, "--owner", cmp.Or(a.Owner, "<team>")}
+		if a.Name != "" {
+			parts = append(parts, "--name", a.Name)
+		}
+		parts = append(parts, "--registry", reg)
+		if intent != "" {
+			parts = append(parts, "--intent", intent)
+		}
+		return strings.Join(parts, " ")
+	}
 	parts := []string{"pacto declare", a.Service}
 	if a.Namespace != "" {
 		parts = append(parts, "--namespace", a.Namespace)
 	}
 	if a.Dir != "" {
 		parts = append(parts, "--dir", a.Dir)
-	}
-	reg := a.Registry
-	if reg == "" {
-		reg = "<registry>"
 	}
 	parts = append(parts, "--registry", reg)
 	for _, n := range a.Accept {
@@ -247,6 +308,7 @@ type Declarer interface {
 
 // declaredRun is the part of a Declarer's JSON pacto_declare reads.
 type declaredRun struct {
+	Service      string          `json:"service"`
 	IntentDigest string          `json:"intentDigest"`
 	AcceptCLI    string          `json:"acceptCLI"`
 	Unchanged    string          `json:"unchanged"`

@@ -358,14 +358,29 @@ type impactRequest struct {
 	SnapshotID      string `json:"snapshotId,omitempty" doc:"The snapshot the client analyzed; a mismatch with the published snapshot is rejected"`
 	ServiceKey      string `json:"serviceKey,omitempty"`
 	OfferingKey     string `json:"offeringKey,omitempty" doc:"With event unavailable or removed: a platform offering instead of serviceKey"`
+	ExternalKey     string `json:"externalKey,omitempty" doc:"With event changed or unavailable: an external system's identity instead of serviceKey"`
 	FromRevisionKey string `json:"fromRevisionKey,omitempty" doc:"Canonical revision key of the old revision. Required unless event is set"`
 	ToRevisionKey   string `json:"toRevisionKey,omitempty" doc:"Canonical revision key of the new revision. Required unless event is set"`
-	Event           string `json:"event,omitempty" enum:"unavailable,removed,regressed" doc:"Ask what happens if serviceKey becomes unavailable, is removed or regressed, instead of comparing two revisions"`
+	Event           string `json:"event,omitempty" enum:"unavailable,removed,regressed,changed" doc:"Ask what happens if serviceKey becomes unavailable, is removed or regressed, or externalKey changes or becomes unavailable, instead of comparing two revisions"`
 	Revision        string `json:"revision,omitempty" doc:"With event regressed: the artifact digest (sha256:...) or version that regressed; a digest lets the answer cite delivery's recorded failures"`
 	IncludeObserved bool   `json:"includeObserved,omitempty"`
 	Limit           int    `json:"limit,omitempty" doc:"Max consumers per page (negatives rejected; excessive values capped)"`
 	Offset          int    `json:"offset,omitempty" doc:"Consumer page offset (negatives rejected)"`
-	Outcome         string `json:"outcome,omitempty" enum:"incompatible,unknown,compatible,unclassified,breaks,may-degrade" doc:"List only the consumers of this outcome; the tallies still cover every consumer. An event answer's outcomes are breaks, may-degrade and unknown"`
+	Outcome         string `json:"outcome,omitempty" enum:"incompatible,unknown,compatible,unclassified,breaks,may-degrade,attention" doc:"List only the consumers of this outcome; the tallies still cover every consumer. An event answer's outcomes are breaks, may-degrade and unknown, and every consumer of an external change is attention"`
+}
+
+// changeRequestErr refuses a contract change request that carries an
+// event-only subject or lacks one of its two revision keys.
+func changeRequestErr(b impactRequest) error {
+	switch {
+	case b.OfferingKey != "":
+		return huma.Error422UnprocessableEntity("offeringKey", errors.New("offeringKey is read only with event unavailable or removed"))
+	case b.ExternalKey != "":
+		return huma.Error422UnprocessableEntity("externalKey", errors.New("externalKey is read only with event changed or unavailable"))
+	case b.FromRevisionKey == "" || b.ToRevisionKey == "":
+		return huma.Error422UnprocessableEntity("revisionKey", errors.New("a contract change needs fromRevisionKey and toRevisionKey; an event needs event and serviceKey"))
+	}
+	return nil
 }
 
 type fleetImpactPostInput struct {
@@ -390,11 +405,8 @@ func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) 
 	if b.Event != "" {
 		return s.fleetImpactEvent(ctx, q, b)
 	}
-	if b.OfferingKey != "" {
-		return nil, huma.Error422UnprocessableEntity("offeringKey", errors.New("offeringKey is read only with event unavailable or removed"))
-	}
-	if b.FromRevisionKey == "" || b.ToRevisionKey == "" {
-		return nil, huma.Error422UnprocessableEntity("revisionKey", errors.New("a contract change needs fromRevisionKey and toRevisionKey; an event needs event and serviceKey"))
+	if err := changeRequestErr(b); err != nil {
+		return nil, err
 	}
 	// Both keys must exist, belong to the SAME logical service, and (if given) match
 	// the requested ServiceKey - before any content is fetched.

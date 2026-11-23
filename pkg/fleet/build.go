@@ -189,6 +189,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	foldExternalUses(snap, append(uses, recordExternalUses(snap)...))
 	foldServiceFacts(snap, facts)
 	attachInferredProviders(snap, cat)
+	linkExternalClaims(snap)
 	finalizeExternals(snap)
 	reconcileDeclared(snap, undeclaredOnly)
 	matchProvisioning(snap)
@@ -3323,7 +3324,7 @@ func externalRecord(snap *FleetSnapshot, cat *externalcatalog.Catalog, key Exter
 		if e.Identity == externalid.ID(key) {
 			rec.catalogLabel = e.Label
 		}
-		rec.Catalog = &ExternalCatalogMatch{Origin: ref.Origin, Digest: ref.Digest, Entry: string(e.Identity)}
+		rec.Catalog = &ExternalCatalogMatch{Origin: ref.Origin, Digest: ref.Digest, Entry: string(e.Identity), OpenAPI: e.OpenAPI}
 		rec.Aliases = slices.Clone(e.Aliases)
 	}
 	snap.Externals[key] = rec

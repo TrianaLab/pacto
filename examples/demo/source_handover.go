@@ -42,9 +42,12 @@ dependencies:
 const handoverManifest = "kind: Deployment\nmetadata:\n  name: invoices\n"
 
 // demoHandoverSigners is the installation signer policy the demo reads:
-// every acme.example person of handoverIssuer may declare a service.
+// every acme.example person of handoverIssuer may declare a service, and
+// every example.com person of the demo's simulated sign-in may claim an
+// external system in the tab.
 func demoHandoverSigners() *fleet.DeclarationSignerPolicy {
-	return &fleet.DeclarationSignerPolicy{Signers: []fleet.PolicySigner{{Issuer: handoverIssuer, Subjects: `[^@]+@acme\.example`}}}
+	return &fleet.DeclarationSignerPolicy{Signers: []fleet.PolicySigner{{Issuer: handoverIssuer, Subjects: `[^@]+@acme\.example`},
+		{Issuer: demoSignIssuer, Subjects: `[^@]+@example\.com`}}}
 }
 
 // demoHandover is a person declaring a running workload: the invoices

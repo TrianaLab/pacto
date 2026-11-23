@@ -1333,6 +1333,30 @@ var (
 	draftTagRE        = regexp.MustCompile(`^draft-[1-9][0-9]*$`)
 )
 
+// externalInferredPrefix is the inferredFrom form of a claimed external
+// system, the fleet's external subject.
+const externalInferredPrefix = "external:"
+
+// ExternalInferredFrom is the inferredFrom of a claim of the external
+// system id.
+func ExternalInferredFrom(id string) string { return externalInferredPrefix + id }
+
+// InferredFromExternal is the external identity s claims, and whether s is
+// that form. The identity is checked in code, never by widening
+// inferredFromRE: a nested identity pattern overflows the WebKit worker
+// stack (TestPatternsStayShallow).
+func InferredFromExternal(s string) (string, bool) {
+	id, ok := strings.CutPrefix(s, externalInferredPrefix)
+	return id, ok && validIdentity(id)
+}
+
+// validInferredFrom reports whether s is a workload (k8s:) or an external
+// system (external:) inferredFrom.
+func validInferredFrom(s string) bool {
+	_, external := InferredFromExternal(s)
+	return external || inferredFromRE.MatchString(s)
+}
+
 // checkDeclaration is why d cannot be a record's declaration, as a suffix of
 // "declaration", or nil: another state; a declared record not signed by a
 // person or a draft signed by one; an unsigned asker other than
@@ -1353,8 +1377,8 @@ func checkDeclaration(d *InferredDeclaration) error {
 		return err
 	}
 	switch {
-	case d.InferredFrom != "" && !inferredFromRE.MatchString(d.InferredFrom):
-		return errors.New(".inferredFrom is not k8s:[<cluster>/]<namespace>/<Kind>/<name>")
+	case d.InferredFrom != "" && !validInferredFrom(d.InferredFrom):
+		return errors.New(".inferredFrom is not k8s:[<cluster>/]<namespace>/<Kind>/<name> or external:<identity>")
 	case len(d.Cluster) > 64:
 		return errors.New(".cluster is longer than 64 bytes")
 	}

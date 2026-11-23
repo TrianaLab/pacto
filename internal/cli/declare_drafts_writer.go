@@ -23,7 +23,7 @@ func writeServerDraft(ctx context.Context, svc *app.Service, req app.DeclareRequ
 		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, nil
 	}
 	if tag := sameDraft(ctx, req, p, decl.Contract(), who); tag != "" {
-		return &dashboard.DeclareAcceptAnswer{Tag: tag, Draft: true, Command: app.AcceptDraftCLI(p.Service, req.Registry, tag)}, nil
+		return &dashboard.DeclareAcceptAnswer{Tag: tag, Draft: true, Command: req.AcceptCLI(p.Service, tag)}, nil
 	}
 	return runDeclare(ctx, svc, req, via, who)
 }

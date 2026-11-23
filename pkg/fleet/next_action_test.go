@@ -56,8 +56,15 @@ func adoptionRows() []actionRow {
 		// A replaced inferred service: check the contract describes it.
 		{handed, attentionInferredReplaced, invoicesName + " was replaced by invoices", editContract()},
 		{func(t *testing.T) *Query { return replacedQuery(t, 1) }, attentionInferredReplaced, cartName + " was replaced by cart-svc", editContract()},
-		// A range on an inferred contract: declare a service, write an external.
-		{stripe, RangeReasonInferredProvider, "1 service checks a range against stripe's inferred contract", editContract()},
+		// A range on an inferred contract: declare a service, claim an external
+		// system, point the ranges at a claimed one.
+		{stripe, RangeReasonInferredProvider, "1 service checks a range against stripe's inferred contract", claimAction("stripe")},
+		{func(t *testing.T) *Query {
+			return claimFleet(t, []RawRevision{stripeProvider(), stripeClaim()}, svc("pay", "shop", pinStripe("^2023")))
+		},
+			RangeReasonInferredProvider, "1 service checks a range against stripe's inferred contract", editContract()},
+		// An external system with consumers and no owner: claim it.
+		{func(t *testing.T) *Query { return claimFleet(t, nil, checkoutStripe()) }, "UNOWNED_EXTERNAL", "Stripe: 1 service uses it", claimAction("stripe")},
 		{ledger, RangeReasonInferredProvider, "1 service checks a range against ledger's inferred contract", declare("pacto declare ledger")},
 	}
 }
@@ -143,6 +150,7 @@ var preAdoptionCodes = map[string]string{
 	codeCrossEnvironmentCall:          "a person finds out why the workload calls across environments; no contract edit stops the call",
 	codeCrossEnvironmentPreviewCall:   "a person finds out why the workload calls a preview; no contract edit stops the call",
 	CodeClusterIssuerDiffers:          "a person approves a group mapping with pacto cluster map-groups; no contract edit answers it",
+	AttentionExternalChanged:          "a person reviews the consumers with pacto impact; no contract edit changes the vendor",
 }
 
 // dynamicCodeProducers are the functions that set a computed code, each with

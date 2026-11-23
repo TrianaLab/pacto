@@ -72,21 +72,36 @@ surface:
     - {value: stripe-go/76, sources: [org-repositories]}
 ```
 
+When the system's entry in an organization catalog links the vendor's
+[OpenAPI document](external-catalog-reference.md#catalog-format),
+`pacto.yaml` records it under `metadata`, which every contract version reads:
+
+```yaml
+metadata:
+  run.pacto.external.openapi: "https://docs.stripe.com/openapi.json@sha256:7c21..."
+```
+
+Only [`pacto fleet publish-inferred --external-catalog`](#publish-without-an-operator)
+writes the link. The operator classifies with the default catalog, which
+links nothing, and keeps a link it finds in the last revision it signed.
+
 The bundle never names a consumer. Who calls the system stays in the fleet,
 where [restricted views](operational-graph-reference.md#query-semantics) apply.
 The version is a count of surface changes and never a vendor version.
 
 ## When a revision is published
 
-A new `0.0.<n>` tag is pushed only when the surface changes: a host, port or
-client added or removed. A new caller adds a source and publishes nothing, and
-so do changed sources, times, `asOf` and `completeness`. Tags are never
-overwritten.
+A new `0.0.<n>` tag is pushed only when the surface changes, a host, port or
+client added or removed, or when the digest of the linked OpenAPI document
+moves. A document re-hosted under the same digest publishes nothing. A new
+caller adds a source and publishes nothing, and so do changed sources, times,
+`asOf` and `completeness`. Tags are never overwritten.
 
 `asOf` says when the surface was computed and `completeness` whether the fleet
 snapshot was complete. A partial snapshot never removes a value: the operator
 keeps every value the last revision it signed holds and only adds new ones.
-Removing a value needs a complete snapshot. An operator that watches only some
+Removing a value needs a complete snapshot. An OpenAPI link is removed only by
+a complete run whose organization catalog entry links none. An operator that watches only some
 namespaces always publishes a partial snapshot, with `TARGET_SNAPSHOT_SCOPED`.
 
 At most 20 contracts are pushed per run; the rest wait for the next run.
@@ -135,20 +150,65 @@ and the Stage environment gate never pass it. A range against a revision only
 the operator signed, wherever it is published, reads the same way. An inferred
 contract never clears a gate.
 
-## Declare instead
+## Claim an external system
 
-Each external system with such a range raises one attention item,
-`INFERRED_PROVIDER`, in the knowledge category: "2 services check a range
-against stripe's inferred contract". For a service its next action is
-`declare`. `pacto declare` reads only workloads, so for an external system the
-next action is `edit-contract`: write a contract with
-`service.external: <identity>`, publish it outside `pacto-inferred` and point
-the ranges at its repository: the reason then disappears.
+Each external system with such a range raises `INFERRED_PROVIDER` in the
+knowledge category: "2 services check a range against stripe's inferred
+contract". Each one with consumers and no owner raises
+[`UNOWNED_EXTERNAL`](operational-graph-tallies.md#attention-categories),
+routed to the installation's default approvers for routing only. Both name
+the fix:
+
+```text
+$ pacto claim stripe --owner team-platform --registry ghcr.io/acme --yes
+claimed external:stripe -> oci://ghcr.io/acme/stripe:0.1.0
+  signed by alice@acme.com (person), inferredFrom: stripe, no Git write
+```
+
+`pacto claim` is [`pacto declare`](publishing.md#declare-a-running-service)
+for a system with no workload; without `--yes` it prints the plan. It
+publishes `service.external` and `service.owner.team`, signed by your Sigstore
+login, with a [record](contract-reference/inferred-record.md#declaration) that
+names `inferredFrom: external:stripe`, to `<registry>/<name>` (`--name` or the
+identity's last segment), never under `pacto-inferred`. Naming the first
+owner takes a default approver of the [owner policy](owner-setting.md). An
+agent's `pacto_declare` with `service: external:stripe` writes a `draft-<n>` a
+person accepts with `--from-draft`; over HTTP it only plans. The dashboard's External page offers
+**Claim** in its Owner line.
+
+## After a claim
+
+The claimed contract wins: the fleet names its owner, explain says
+`EXTERNAL_CLAIMED` and impact names it. The operator keeps publishing under
+`pacto-inferred/stripe`. A range there stays `unknown` until you point it at
+the claimed repository, as `INFERRED_PROVIDER` then says. A ref-less
+`external: true` dependency never resolves to the claimed contract, whose
+versions say nothing about the vendor's API.
+
+Only a declared claim counts. A service that sets `service.external` with no
+claim in its history, a claim whose owner the owner rule did not allow, two
+claiming services (retract all but one) and an unreadable newest revision link
+nothing and add `INFERRED_LINK_IGNORED`. A claiming service with no
+verified owner keeps `UNOWNED_EXTERNAL`.
 
 The External page on the dashboard shows the inferred contract in a collapsed
 block after Consumers: what its signature check established, when the surface
 was computed, whether that run was partial and, for each value, when it was
 last seen. Each list shows its first 12 values.
+
+## A change between revisions
+
+When the provider has two revisions, `change` on the provider says what moved
+between the two shown first: `from` and `to` (their versions), `at`, the
+surface values `added` and `removed`, and `openapiFrom` and `openapiTo` when the
+link's digest moved. `checked` is `true` only when this installation's operator
+signed both revisions. An unchecked change is shown, marked unchecked, and
+raises no attention, because anyone with push access to the registry could
+have written either revision. A checked change of the OpenAPI digest or the
+clients raises [`EXTERNAL_CHANGED`](impact-what-if.md#an-external-system-changes-or-goes-down);
+host and port moves raise nothing, since they are your own calls. A restricted
+view drops `added` and `removed` and keeps the link. The collapsed block on
+the External page shows it as one **Changed** line.
 
 ## Publish without an operator
 

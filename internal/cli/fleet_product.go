@@ -259,7 +259,8 @@ func newFleetAttentionCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Short: "List what needs attention, most severe first",
 		Long: "Lists what needs attention, most severe first, each item with its reason and next step. " +
 			"--category undeclared lists runtime calls no contract declares and callers with no contract. " +
-			"--category lifecycle lists services that use a deprecated or past-sunset provider, or whose range refuses its successor.",
+			"--category lifecycle lists services that use a deprecated or past-sunset provider, or whose range refuses its successor. " +
+			"--category unowned lists services and external systems with no owner; an external system ranks by how many services use it.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q, err := buildQuery(cmd, svc)

@@ -176,3 +176,28 @@ func TestCarriedFieldRangeUnknownRefused(t *testing.T) {
 		}
 	}
 }
+
+func TestDeclarationExternalMismatch(t *testing.T) {
+	claim := func(external string) []string {
+		t.Helper()
+		yaml := "pactoVersion: \"2.5\"\nservice:\n  name: stripe\n  version: 0.1.0\n"
+		if external != "" {
+			yaml += "  external: " + external + "\n"
+		}
+		data, c := parseString(t, yaml)
+		rec := goodRecord()
+		rec.Declaration = &contract.InferredDeclaration{State: contract.DeclarationDeclared,
+			Asker:        contract.InferredSigner{Subject: "ana@acme.com", Issuer: "https://accounts.google.com", Class: contract.SignerClassHuman},
+			InferredFrom: contract.ExternalInferredFrom("stripe")}
+		r := validation.Validate(c, data, recordBundle(rec))
+		return codesAt(r, contract.InferredRecordFile)
+	}
+	if got := claim("stripe"); len(got) != 0 {
+		t.Fatalf("same identity: %v", got)
+	}
+	for _, other := range []string{"twilio", ""} {
+		if got := claim(other); !reflect.DeepEqual(got, []string{"DECLARATION_EXTERNAL_MISMATCH"}) {
+			t.Fatalf("service.external %q: %v", other, got)
+		}
+	}
+}

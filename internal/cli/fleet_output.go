@@ -247,6 +247,7 @@ func printExternal(w io.Writer, rec fleet.ExternalRecord, into fleet.ExternalKey
 		consumers = "consumer"
 	}
 	_, _ = fmt.Fprintf(w, "%s  external, %s  (used by %d %s)\n", rec.Key, rec.Class, rec.ConsumersTotal, consumers)
+	printExternalOwner(w, rec)
 	label := "sources"
 	line := func(format string, a ...any) {
 		_, _ = fmt.Fprintf(w, "  %-7s  "+format+"\n", append([]any{label}, a...)...)
@@ -291,6 +292,25 @@ func printExternal(w io.Writer, rec fleet.ExternalRecord, into fleet.ExternalKey
 		_, _ = fmt.Fprintf(w, "  hidden consumers %d\n", rec.HiddenConsumers)
 	}
 	printExternalProvider(w, rec.Provider)
+}
+
+// printExternalOwner prints who owns an external system: the claiming
+// service's team, a claim the viewer may not read, or none, routed for
+// routing only. Other egress is no system to claim, so it prints nothing.
+func printExternalOwner(w io.Writer, rec fleet.ExternalRecord) {
+	line := "unclaimed, routed to the default approvers (routing only)"
+	switch c := rec.Claim; {
+	case rec.Key == fleet.OtherEgress:
+		return
+	case rec.Claimants > 1:
+		line = fmt.Sprintf("claimed by %d services, so no claim counts until all but one are retracted", rec.Claimants)
+	case c == nil:
+	case c.Hidden:
+		line = "claimed by a service you cannot see"
+	default:
+		line = fmt.Sprintf("%s (claimed by %s %s)", cmp.Or(c.Owner, "no verified owner"), c.Service, c.Version)
+	}
+	_, _ = fmt.Fprintf(w, "  owner    %s\n", line)
 }
 
 // printExternalProvider is the inferred contract block of an external

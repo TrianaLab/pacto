@@ -54,6 +54,12 @@ var (
 	nameSeparatorRE = regexp.MustCompile(`[^a-z0-9]+`)
 )
 
+// ValidServiceName reports whether s is a service name: the schema's
+// service.name pattern, at most 63 characters.
+func ValidServiceName(s string) bool {
+	return len(s) <= 63 && serviceNameRE.MatchString(s)
+}
+
 // SanitizeName turns s into a service name: lowercased, every run of other
 // characters turned into one hyphen and the ends trimmed.
 func SanitizeName(s string) string {
