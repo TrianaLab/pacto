@@ -28,6 +28,8 @@
     st.phase === 'Unknown' && st.source ? (st.verified ? 'signed' : 'unsigned') : '',
     st.provider ? `adapter ${st.provider}` : '',
     st.externalRef ?? '',
+    // The step a person may take, visible as well: a title alone never reaches a touch pointer.
+    st.suggestion ?? '',
   ].filter(Boolean);
   const reasons = (u) => [...new Set((u.consumption ?? []).map((c) => c.reason).filter(Boolean))];
   // Usage: a number reads as current only in figures (a signed, fresh, uncontested report);

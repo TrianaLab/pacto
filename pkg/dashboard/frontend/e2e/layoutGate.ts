@@ -306,6 +306,21 @@ export function installScaleFixture(): void {
         usedFor: ['proposal for registryPullSecret: it needs push on <registry>/pacto-*; a pod pull Secret usually grants pull only'],
         hint: `--set registryPullSecret=${secret}`,
       });
+      // The two profile idp pieces (515-S2) with their longest reasons: the Evidence
+      // Server on a 253-character registry host with its trust Secret, and the recorder
+      // off because its signing method fails a recorder check.
+      const host = `${'h'.repeat(63)}.${'o'.repeat(63)}.${'s'.repeat(63)}.${'t'.repeat(59)}.io`;
+      (doc.providers as Record<string, unknown>[]).push({
+        id: 'evidence', source: 'cluster-detection', provenance: 'inferred', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Evidence',
+        evidence: `on ${host} serves OCI Referrers; the trust Secret holds 2 public keys (from operator evidence gate, cluster ${clusters[0]})`,
+        status: 'available', cluster: clusters[0], usedFor: ['Evidence Server for provisioning reports (profile idp)'],
+        objects: [{ kind: 'Secret', namespace: 'n'.repeat(63), name: longName('pacto-operator-evidence-trust') }],
+      });
+      (doc.providers as Record<string, unknown>[]).push({
+        id: 'recorder', source: 'cluster-detection', provenance: 'inferred', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Recorder',
+        evidence: `off the signing method fails a recorder check: see helm template with delivery.recorder.enabled=true (from chart values, cluster ${clusters[0]})`,
+        status: 'available', cluster: clusters[0], usedFor: ['signed delivery records (profile idp)'],
+      });
       // A live edge-source row (509-S9): the OTLP receiver's Collector row, partial
       // with a long reason, the full receiver snippet for a 63-character namespace as its
       // hint and the evidence suffix every edge source appends.
@@ -317,7 +332,7 @@ export function installScaleFixture(): void {
         hint: `exporters: {otlphttp/pacto: {endpoint: "http://pacto-dashboard.${'n'.repeat(63)}:4318", encoding: json}}`,
         limitations: [{ code: 'EDGE_SOURCE_PARTIAL', source: 'otlp-receiver', message: `not exporting to pacto-dashboard.${'n'.repeat(63)}:4318; ${longName('requests-used-protobuf-set-encoding-json')}` }],
       });
-      doc.total = 33;
+      doc.total = 35;
       const meta = doc.meta as Record<string, unknown>;
       meta.sources = [...((meta.sources as unknown[] | undefined) ?? []), ...Array.from({ length: 6 }, (_, i) => ({
         id: longName(`unreadable-cluster-${i}`), kind: 'kubernetes', status: 'unavailable', revisionCount: 0, targetCount: 0,
@@ -683,7 +698,9 @@ export function installScaleFixture(): void {
         const pv = base.provider as Record<string, unknown>;
         const phases = [
           { phase: 'Failed', verified: true, producer: longName('platform-adapter'), source: 'evidence', asOf: '2026-11-10T07:00:00Z' },
-          { phase: 'Unknown', verified: false, source: 'target-state', stale: true, reportedPhase: 'Ready', reason: longName('the last report is older than the provisioning window'), asOf: '2026-07-29T09:40:00Z' },
+          { phase: 'Unknown', verified: false, source: 'target-state', stale: true, reportedPhase: 'Ready', reason: longName('the last report is older than the provisioning window'), asOf: '2026-07-29T09:40:00Z',
+            // The step a person may take (515-S2), its longest form: a 253-rune cluster name, then the docs URL form.
+            suggestion: `Crossplane detected in ${'c'.repeat(253)}: accept its inferred offerings; no provisioner found: see Write an adapter (https://pacto.run/latest/provision-infrastructure/#write-an-adapter)` },
           { phase: 'Ready', verified: false, producer: longName('platform-adapter'), source: 'target-state', asOf: '2026-11-10T07:00:00Z' },
         ];
         // Usage per environment: reported, unknown with untrusted figures and long figures.

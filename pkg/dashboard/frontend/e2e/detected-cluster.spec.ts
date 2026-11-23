@@ -4,7 +4,7 @@ import { appReady, settle } from './ready';
 
 // What the demo cluster's operator detected (examples/demo/detected.json, the advisory
 // source cluster-detection in examples/demo/source_fleet.go) against the built WASM
-// demo: eleven inferred rows (three egress readers among them) inside the Detected providers block of Data sources, each
+// demo: twelve inferred rows (three egress readers and the running Crossplane among them) inside the Detected providers block of Data sources, each
 // with one provenance mark, the registry's proposal behind More details, and one toggle
 // that hides them and says so in the URL, plus the operator's declared Installation row
 // (510-S6), which the toggle keeps. No total row count is asserted: other stories add
@@ -13,7 +13,7 @@ import { appReady, settle } from './ready';
 // stays a detected row.
 
 const T = 20_000;
-const DETECTED = ['Registry', 'Cloud', 'Sign-in', 'Exposure', 'Metrics', 'Nodes', 'Pull Secret', 'Datadog', 'Istio egress', 'Cilium FQDN', 'Egress gateway'];
+const DETECTED = ['Registry', 'Cloud', 'Sign-in', 'Exposure', 'Metrics', 'Nodes', 'Pull Secret', 'Datadog', 'Istio egress', 'Cilium FQDN', 'Egress gateway', 'Crossplane'];
 const DECLARED = "Declared: by the operator's configuration";
 
 test.describe('WASM demo: what the cluster provides', () => {

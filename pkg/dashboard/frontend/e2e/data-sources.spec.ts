@@ -190,8 +190,8 @@ test.describe('the inventory says what Pacto detected', () => {
     // inferred services, the Kargo promotion row, the Istio row of the mesh
     // source, the demo and partner registries and five reporting adapter
     // rows, one producer's signed and unsigned reports apart), the operator's
-    // declared Installation row, the eleven the cluster's operator detected
-    // (Datadog and three egress readers among them) and the three trace
+    // declared Installation row, the twelve the cluster's operator detected
+    // (Datadog, three egress readers and Crossplane among them) and the three trace
     // backends their edge sources report: five show, the
     // reported and declared ones first and least healthy first, the rest
     // behind Show all, and no cluster is unread in the demo.
@@ -205,8 +205,8 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(istio.locator('.dp-why li')).toHaveText(['1 namespace without sidecars']);
     await expect(block).toContainText('Pacto CRD');
     await expect(block).toContainText('reports provisioning');
-    await block.getByRole('button', { name: 'Show all 30 providers' }).click();
-    await expect(rows).toHaveCount(30);
+    await block.getByRole('button', { name: 'Show all 31 providers' }).click();
+    await expect(rows).toHaveCount(31);
     await expect(block).toContainText('Kubernetes workloads');
     await expect(block).toContainText('service grouping, repository provenance');
     // One registry serves Referrers and _catalog; the other serves neither,
@@ -216,6 +216,14 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(block).toContainText('no Referrers, no _catalog');
     await expect(rows.nth(15)).not.toHaveClass(/dp-inferred/);
     await expect(rows.nth(16)).toHaveClass(/dp-inferred/);
+    // The running Crossplane is one more inferred row in the same block: its
+    // version, what it serves and one provenance mark, never a block of its own.
+    const crossplane = rows.filter({ has: page.locator('.dp-name bdi[title="Crossplane"]') });
+    await expect(crossplane).toHaveCount(1);
+    await expect(crossplane).toHaveClass(/dp-inferred/);
+    await expect(crossplane.locator('.dp-evidence')).toContainText('Crossplane v2.1.0 runs and serves apiextensions.crossplane.io/v2');
+    await expect(crossplane.getByRole('button', { name: 'Inferred: from cluster-detection' })).toHaveCount(1);
+    await expect(page.getByTestId('detected-providers')).toHaveCount(1);
     await expect(block.getByTestId('provider-not-read')).toHaveCount(0);
     // The block lives inside Data sources: the primary navigation gained no entry.
     const primary = page.getByRole('navigation', { name: 'Primary' }).first();
