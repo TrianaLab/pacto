@@ -4,7 +4,7 @@ import {
   readinessUrl, fleetUrl,
   hashForHref, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl,
   fleetEntityUrl, fleetGraphFocusUrl, fleetAttentionUrl, fleetChangesUrl,
-  legacyRedirectTarget, replaceHash, fleetEntityListUrl, fleetGoldenPathsUrl, fleetOfferingsUrl, fleetExternalsUrl, serviceChangesUrl, serviceDeclareUrl,
+  legacyRedirectTarget, replaceHash, fleetEntityListUrl, fleetGoldenPathsUrl, goldenPathDeclareUrl, fleetOfferingsUrl, fleetExternalsUrl, serviceChangesUrl, serviceDeclareUrl,
   deliveryHistoryUrl, metricsUrl,
 } from './router.ts';
 
@@ -804,6 +804,16 @@ describe('golden paths routes', () => {
       view: 'fleet-golden-paths', params: { text: 'http', sort: 'health', offset: '25' },
     });
     expect(fleetGoldenPathsUrl()).toBe('#/fleet/golden-paths');
+  });
+
+  it('round-trips declaration, declare and signed on the Golden paths list only', () => {
+    const url = fleetGoldenPathsUrl({ declaration: 'inferred', declare: 'template:default/springboot-service', signed: 'sha256:abc' });
+    expect(url).toBe('#/fleet/golden-paths?declaration=inferred&declare=template%3Adefault%2Fspringboot-service&signed=sha256%3Aabc');
+    expect(parseHash(url)).toEqual({ view: 'fleet-golden-paths', params: { declaration: 'inferred', declare: 'template:default/springboot-service', signed: 'sha256:abc' } });
+    expect(goldenPathDeclareUrl('template:default/x', { signed: 's' })).toBe('#/fleet/golden-paths?declare=template%3Adefault%2Fx&signed=s');
+    for (const list of ['owners', 'sources', 'domains', 'offerings']) {
+      expect(parseHash(`#/fleet/${list}?declaration=inferred&declare=template:a/b&signed=s&text=a`).params).toEqual({ text: 'a' });
+    }
   });
 
   it('keeps the services created from a golden path in the Services list URL', () => {

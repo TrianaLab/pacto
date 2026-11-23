@@ -1,6 +1,6 @@
 <script>
   import { api } from '../lib/api.ts';
-  import { rangeRows, draftLine, draftMark, signUrl, signReturn, moved, completenessLine, claimId, claimFieldError } from '../lib/declare.ts';
+  import { rangeRows, draftLine, draftMark, signUrl, signReturn, moved, completenessLine, claimId, claimFieldError, isTemplateKey } from '../lib/declare.ts';
   import { formatCount } from '../lib/format.ts';
   import { hostSignsIn, signIn } from '../lib/session.svelte.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
@@ -23,6 +23,9 @@
   // draft (noDraft) offers only signing.
   let { serviceKey = '', open = false, signed = '', claimedName = '' } = $props();
   const claim = $derived(claimId(serviceKey));
+  // A serviceKey template:<namespace>/<name> accepts a golden path a catalog holds: a
+  // contract-only plan that reads no cluster, so it has no deploy artifact.
+  const template = $derived(isTemplateKey(serviceKey));
   // The owner and name of a claim ride across the signing login like a draft.
   const claimKey = (intent) => `pacto-claim:${intent}`;
   let owner = $state('');
@@ -204,7 +207,7 @@
     </form>
   {/if}
   {#if loading && !answer}
-    <p class="t-meta dp-p">{claim ? 'Planning the claim…' : 'Reading the cluster as you…'}</p>
+    <p class="t-meta dp-p">{claim ? 'Planning the claim…' : template ? 'Reading the catalog…' : 'Reading the cluster as you…'}</p>
   {:else if error}
     <RefusalNotice {error} />
   {:else if answer}
@@ -217,7 +220,7 @@
       {/if}
       <dl class="dp-facts">
         <div><dt>Version</dt><dd><bdi>{p.version}</bdi>{#if p.unchanged} (nothing changed since {p.unchanged}, so nothing is written){/if}</dd></div>
-        <div><dt>Deploy</dt><dd><bdi title={p.deploy}>{p.deploy}</bdi></dd></div>
+        {#if p.deploy}<div><dt>Deploy</dt><dd><bdi title={p.deploy}>{p.deploy}</bdi></dd></div>{/if}
         <div><dt>Signer</dt><dd data-testid="declare-signer">{#if signs}You, <bdi title={signing.identity}>{signing.identity}</bdi>, after you sign in again{:else if done}You, <bdi title={signing.identity}>{signing.identity}</bdi>{:else}You do not sign here{#if noSign}: <bdi>{noSign}</bdi>{/if}{/if}</dd></div>
         {#if p.owner}<div><dt>Owner</dt><dd><bdi title={p.owner}>{p.owner}</bdi></dd></div>{/if}
       </dl>
@@ -263,7 +266,7 @@
       {/if}
       {#if result}
         <p class="dp-p" role="status" data-testid="declare-result">
-          {#if result.draft}Saved <bdi>{result.tag}</bdi>. {claim ? 'A default approver accepts it' : 'A person who may update the workload accepts it'} from the drafts below or with the command.{:else}Published <bdi>{result.tag}</bdi>{#if result.signed}, signed by you as <bdi>{signing.identity}</bdi>{/if}.{/if}
+          {#if result.draft}Saved <bdi>{result.tag}</bdi>. {claim ? 'A default approver accepts it' : template ? 'A person who may update pactos in the installation namespace accepts it' : 'A person who may update the workload accepts it'} from the drafts below or with the command.{:else}Published <bdi>{result.tag}</bdi>{#if result.signed}, signed by you as <bdi>{signing.identity}</bdi>{/if}.{/if}
         </p>
         {#if result.draft && result.command}<div class="dp-command" data-testid="declare-accept-command"><span class="t-meta">Accept it with</span> <CopyableIdentifier value={result.command} label="command" /></div>{/if}
       {/if}

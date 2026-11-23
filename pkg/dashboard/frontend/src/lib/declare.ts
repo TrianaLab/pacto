@@ -4,7 +4,7 @@
  * what moved between two plans. Pure, so the panel only draws.
  */
 
-import { fleetEntityUrl, serviceAcceptSignedUrl, serviceDeclareUrl } from './router.ts';
+import { fleetEntityUrl, goldenPathDeclareUrl, serviceAcceptSignedUrl, serviceDeclareUrl } from './router.ts';
 import { pagedHash } from './paging.ts';
 
 type Range = { dependency: string; compatibility: string; proposed?: string; observed?: string; accepted?: boolean };
@@ -87,8 +87,9 @@ export function signUrl(ticket: string, serviceKey: string, intent: string): str
 }
 
 /** signReturn is the page a signing login comes back to: this service's (or external
- *  system's) panel with the intent it was started for. */
+ *  system's, or inferred golden path's) panel with the intent it was started for. */
 export function signReturn(serviceKey: string, intent: string): string {
+  if (isTemplateKey(serviceKey)) return goldenPathDeclareUrl(serviceKey, { signed: intent });
   const id = claimId(serviceKey);
   return id ? pagedHash(fleetEntityUrl('external', id), { declare: '1', signed: intent }) : serviceDeclareUrl(serviceKey, { signed: intent });
 }
@@ -97,6 +98,12 @@ export function signReturn(serviceKey: string, intent: string): string {
  *  for an inferred service. */
 export function claimId(serviceKey: string): string {
   return serviceKey.startsWith('external:') ? serviceKey.slice('external:'.length) : '';
+}
+
+/** isTemplateKey says whether a declare subject is an inferred golden path,
+ *  template:<namespace>/<name>: it has no service page, only the Golden paths list. */
+export function isTemplateKey(serviceKey: string): boolean {
+  return serviceKey.startsWith('template:');
 }
 
 // The contract schema's owner.team and service.name patterns.
@@ -116,7 +123,7 @@ export function claimFieldError(owner: string, name: string): { field: '' | 'own
 /** acceptSignUrl starts the signing login for an accept plan and comes back to the
  *  service page with the intent it was started for. */
 export function acceptSignUrl(ticket: string, serviceKey: string, intent: string): string {
-  const ret = '/' + serviceAcceptSignedUrl(serviceKey, intent);
+  const ret = '/' + (isTemplateKey(serviceKey) ? goldenPathDeclareUrl(serviceKey, { signed: intent }) : serviceAcceptSignedUrl(serviceKey, intent));
   return `/auth/sign?ticket=${encodeURIComponent(ticket)}&return=${encodeURIComponent(ret)}`;
 }
 
