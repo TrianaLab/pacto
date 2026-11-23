@@ -13,6 +13,10 @@
 # (a member with a live review channel, 514-S4) adds one rule, create
 # subjectaccessreviews: the two `hub.url` renders turn the dashboard off,
 # because the default dashboard already holds that rule.
+# Member requests (delivery.remote, 514-S6) add their own ClusterRole and
+# binding in delivery/member-intake-rbac.yaml wherever delivery renders with a
+# registry (`idp with registry`): Stage read, Operation create and read,
+# create subjectaccessreviews and the identities ConfigMap by name.
 # The `idp crossplane install` render pins the upstream Crossplane chart's
 # roles and bindings that idp.crossplane.install adds (a person's choice,
 # vendored in files/crossplane): its ClusterRoles write Secrets, CRDs and webhook configurations cluster-wide and
@@ -32,6 +36,7 @@ templates:
   - templates/delivery/recorder.yaml
   - templates/delivery/identities.yaml
   - templates/delivery/environments.yaml
+  - templates/delivery/member-intake-rbac.yaml
   - templates/dashboard-signin.yaml
   - templates/cluster-identity-role.yaml
   - templates/idp/flux.yaml
@@ -7433,3 +7438,100 @@ tests:
         - {kind: ServiceAccount, name: source-controller, namespace: flux-system}
       documentIndex: 4
     - notMatchRegex: {path: kind, pattern: ^(Role|RoleBinding)$}
+  - it: 'default: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'watchNamespaces: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: *id001
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'watchNamespaces with the release namespace: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: *id002
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'delivery: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: *id003
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'watchNamespaces with delivery: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: *id004
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'nodeAgent: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: *id005
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'metrics observation: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: *id006
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'hardened: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: {profile: hardened, controller.watchNamespaces: [payments, ledger]}
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'hardened with registry: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: {profile: hardened, controller.watchNamespaces: [payments, ledger], registry: ghcr.io/acme}
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'idp: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: {profile: idp}
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'hardened and idp: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: {profile: [hardened, idp], controller.watchNamespaces: [payments, ledger]}
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'idp with registry: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: {profile: idp, registry: ghcr.io/acme, delivery.recorder.signing.kms: 'awskms:///alias/pacto-recorder'}
+    asserts:
+    - hasDocuments: {count: 2}
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-member-intake}
+      documentIndex: 0
+    - notExists: {path: metadata.namespace}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [delivery.pacto.trianalab.io]
+          resources: [stages]
+          verbs: [get, list, watch]
+        - apiGroups: [delivery.pacto.trianalab.io]
+          resources: [operations]
+          verbs: [create, get, list, watch]
+        - apiGroups: [authorization.k8s.io]
+          resources: [subjectaccessreviews]
+          verbs: [create]
+        - apiGroups: ['']
+          resourceNames: [pacto-delivery-identities]
+          resources: [configmaps]
+          verbs: [get]
+      documentIndex: 0
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-member-intake}
+      documentIndex: 1
+    - notExists: {path: metadata.namespace}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-member-intake}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+      documentIndex: 1

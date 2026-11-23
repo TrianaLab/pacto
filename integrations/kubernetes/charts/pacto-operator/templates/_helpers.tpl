@@ -198,6 +198,21 @@ Controller arguments derived from values
 - --hub-ca-file=/etc/pacto/hub-ca/ca.crt
 {{- end }}
 {{- end }}
+{{- if include "pacto-operator.memberRequests" . }}
+{{- $allow := dig "allow" dict (.Values.delivery.remote | default dict) }}
+- --member-requests
+{{- with (dig "services" list $allow) }}
+- --member-allow-services={{ join "," . }}
+{{- end }}
+{{- with (dig "namespaces" list $allow) }}
+- --member-allow-namespaces={{ join "," . }}
+{{- end }}
+{{- with (dig "environments" list $allow) }}
+- --member-allow-environments={{ join "," . }}
+{{- end }}
+- --delivery-policy-configmap={{ include "pacto-operator.delivery.namespace" . }}/pacto-delivery-identities
+- --recorded-ttl={{ .Values.delivery.recorder.operationTTL }}
+{{- end }}
 {{- /* .Values.declare in the guard: the declare block decides (gen_integration_docs reads guards). */}}
 {{- if and .Values.declare (include "pacto-operator.ownerPolicy.json" .) }}
 - --owner-policy=/etc/pacto/owner-policy/policy.json
@@ -1226,6 +1241,15 @@ check would stop the install too: this names why.
 {{- end }}
 {{- end }}
 {{- end }}
+{{- end }}
+
+{{/*
+Whether the operator takes member requests: delivery renders (so not
+hardened), registry is set and delivery.remote.enabled is not false. A
+release whose values predate delivery.remote takes them too.
+*/}}
+{{- define "pacto-operator.memberRequests" -}}
+{{- if and (include "pacto-operator.deliveryEnabled" .) .Values.registry (ne (toString (dig "enabled" "auto" (.Values.delivery.remote | default dict))) "false") }}true{{ end }}
 {{- end }}
 
 {{/*

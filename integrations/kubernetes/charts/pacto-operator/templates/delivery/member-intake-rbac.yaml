@@ -1,0 +1,33 @@
+{{- if include "pacto-operator.memberRequests" . }}
+# Member requests (delivery.remote): the operator raises one promote for each
+# request a person signed, on that person's behalf. It lives here, apart from
+# the operator ClusterRole, so delivery leaves that role unchanged and a member
+# that watches a namespace list still takes requests.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pacto-operator.fullname" . }}-member-intake
+  labels:
+    {{- include "pacto-operator.labels" . | nindent 4 }}
+rules:
+  # It resolves the one Stage a request names and checks it did not move.
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [stages]
+    verbs: [get, list, watch]
+  # It raises the promote and follows it to its outcome. Admission holds
+  # spec.actor to the operator itself.
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [operations]
+    verbs: [create, get, list, watch]
+  # It asks whether the person who signed may create Operations in the Stage's namespace.
+  - apiGroups: [authorization.k8s.io]
+    resources: [subjectaccessreviews]
+    verbs: [create]
+  # The approver signers a request must verify under.
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [pacto-delivery-identities]
+    verbs: [get]
+---
+{{ include "pacto-operator.binding" (dict "kind" "ClusterRoleBinding" "name" (printf "%s-member-intake" (include "pacto-operator.fullname" .)) "labels" (include "pacto-operator.labels" .) "serviceAccount" (include "pacto-operator.serviceAccountName" .) "serviceAccountNamespace" .Release.Namespace) }}
+{{- end }}

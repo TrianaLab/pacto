@@ -9,6 +9,8 @@ templates:
   - templates/delivery/rbac.yaml
   - templates/delivery/deployment.yaml
   - templates/delivery/identities.yaml
+  - templates/deployment.yaml
+  - templates/delivery/member-intake-rbac.yaml
 release:
   name: t
   namespace: default
@@ -331,3 +333,20 @@ tests:
           path: spec.template.spec.containers[0].args[*]
           pattern: ^--(environment-retire-after|cdevents-sink)
         template: templates/delivery/deployment.yaml
+
+  - it: values without delivery.remote that had delivery and a registry take member requests
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.remote: null
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --member-requests
+        template: templates/deployment.yaml
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--member-allow-
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 2}
+        template: templates/delivery/member-intake-rbac.yaml

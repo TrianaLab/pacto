@@ -1,0 +1,214 @@
+# Member requests (514-S6): wherever delivery renders with a registry, the
+# operator takes the requests a person on the hub signs for this member, with
+# zero values (D8). delivery.remote.enabled=false turns them off and
+# delivery.remote.allow only narrows. The intake RBAC lives in its own
+# template, so the operator ClusterRole stays as it was.
+suite: member requests
+templates:
+  - templates/deployment.yaml
+  - templates/clusterrole.yaml
+  - templates/delivery/member-intake-rbac.yaml
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: no intake under profile default
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--(member-|recorded-ttl|delivery-policy-configmap)
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/member-intake-rbac.yaml
+
+  - it: no intake with delivery.enabled and no registry
+    set:
+      delivery.enabled: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --member-requests
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/member-intake-rbac.yaml
+
+  - it: intake with registry and delivery.enabled
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --member-requests
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --delivery-policy-configmap=pacto-delivery/pacto-delivery-identities
+        template: templates/deployment.yaml
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--member-allow-
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 2}
+        template: templates/delivery/member-intake-rbac.yaml
+
+  - it: intake under profile idp with registry
+    set:
+      profile: idp
+      registry: ghcr.io/acme
+      delivery.recorder.signing.kms: awskms:///alias/pacto-recorder
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --member-requests
+        template: templates/deployment.yaml
+
+  - it: no intake under hardened
+    set:
+      profile: [idp, hardened]
+      controller.watchNamespaces: [billing]
+      registry: ghcr.io/acme
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --member-requests
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/member-intake-rbac.yaml
+
+  - it: delivery.remote.enabled=false turns it off
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.remote.enabled: false
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--(member-|recorded-ttl|delivery-policy-configmap)
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/member-intake-rbac.yaml
+
+  - it: delivery.remote.enabled=true behaves as auto
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.remote.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --member-requests
+        template: templates/deployment.yaml
+
+  - it: allow values pass as flags
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.remote.allow.services: [billing, 'pay-*']
+      delivery.remote.allow.namespaces: [billing]
+      delivery.remote.allow.environments: [staging, production]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --member-allow-services=billing,pay-*
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --member-allow-namespaces=billing
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --member-allow-environments=staging,production
+        template: templates/deployment.yaml
+
+  - it: recorded-ttl follows operationTTL
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.recorder.operationTTL: 24h
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --recorded-ttl=24h
+        template: templates/deployment.yaml
+
+  - it: operations create only with intake
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - {apiGroups: [delivery.pacto.trianalab.io], resources: [stages], verbs: [get, list, watch]}
+            - {apiGroups: [delivery.pacto.trianalab.io], resources: [operations], verbs: [create, get, list, watch]}
+            - {apiGroups: [authorization.k8s.io], resources: [subjectaccessreviews], verbs: [create]}
+            - {apiGroups: [""], resources: [configmaps], resourceNames: [pacto-delivery-identities], verbs: [get]}
+        template: templates/delivery/member-intake-rbac.yaml
+        documentIndex: 0
+      - notExists:
+          path: metadata.namespace
+        template: templates/delivery/member-intake-rbac.yaml
+        documentIndex: 0
+
+  - it: SAR create with intake and dashboard off
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      dashboard.enabled: false
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [authorization.k8s.io], resources: [subjectaccessreviews], verbs: [create]}
+        template: templates/delivery/member-intake-rbac.yaml
+        documentIndex: 0
+      - notContains:
+          path: rules
+          content: {apiGroups: [authorization.k8s.io], resources: [subjectaccessreviews], verbs: [create]}
+        template: templates/clusterrole.yaml
+
+  - it: ClusterRole renders with watchNamespaces and intake
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      dashboard.enabled: false
+      controller.watchNamespaces: [billing]
+    asserts:
+      - hasDocuments: {count: 0}
+        template: templates/clusterrole.yaml
+      - equal:
+          path: kind
+          value: ClusterRole
+        template: templates/delivery/member-intake-rbac.yaml
+        documentIndex: 0
+      - equal:
+          path: roleRef
+          value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-member-intake}
+        template: templates/delivery/member-intake-rbac.yaml
+        documentIndex: 1
+      - equal:
+          path: subjects
+          value:
+            - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+        template: templates/delivery/member-intake-rbac.yaml
+        documentIndex: 1
+
+  - it: clusterrole.yaml unchanged with intake on
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      dashboard.enabled: false
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [delivery.pacto.trianalab.io], resources: [operations], verbs: [create, get, list, watch]}
+        template: templates/clusterrole.yaml
+      - notMatchRegex:
+          path: metadata.name
+          pattern: member-intake
+        template: templates/clusterrole.yaml

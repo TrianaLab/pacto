@@ -26,13 +26,6 @@ var chartlessFlags = map[string]string{
 	"metrics-cert-name": "only meaningful with --metrics-cert-path, which the chart does not render",
 	"metrics-cert-key":  "only meaningful with --metrics-cert-path, which the chart does not render",
 	"zap-*":             "logging flags; production JSON logging is fixed in main",
-	// ponytail: P2 of 514-S6 renders these six and removes the entries.
-	"member-requests":           "rendered by the chart in P2 of 514-S6",
-	"member-allow-services":     "rendered by the chart in P2 of 514-S6",
-	"member-allow-namespaces":   "rendered by the chart in P2 of 514-S6",
-	"member-allow-environments": "rendered by the chart in P2 of 514-S6",
-	"delivery-policy-configmap": "rendered by the chart in P2 of 514-S6",
-	"recorded-ttl":              "rendered by the chart in P2 of 514-S6",
 }
 
 // chartlessKey returns the chartlessFlags entry covering name, or "" when none does.

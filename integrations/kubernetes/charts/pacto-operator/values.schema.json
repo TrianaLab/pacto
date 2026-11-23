@@ -1651,6 +1651,33 @@
         "manifestInspector": {
           "oneOf": [{ "type": "boolean" }, { "const": "auto" }]
         },
+        "remote": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "enum": ["auto", true, false]
+            },
+            "allow": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "services": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "namespaces": {
+                  "type": "array",
+                  "items": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 }
+                },
+                "environments": {
+                  "type": "array",
+                  "items": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 }
+                }
+              }
+            }
+          }
+        },
         "admissionPolicies": {
           "type": "object",
           "additionalProperties": false,
