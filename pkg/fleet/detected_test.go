@@ -301,6 +301,8 @@ func TestHideClusterClearsDetectedClusterIDAndHint(t *testing.T) {
 	crossplane.Evidence = CrossplaneNoneFound + " apiextensions.crossplane.io is not served (from API discovery, cluster prod-eu)"
 	metrics := detectedRow("metrics", "")
 	metrics.Hint = "keep me"
+	// A row with a cluster id and no cluster name loses the id too.
+	metrics.ClusterID = "uid-3"
 	// The cloud row is cluster-wide, so the view narrows the rows.
 	cloud := detectedRow("cloud", ScopeCluster)
 	q := NewQuery(buildProviders(t,
@@ -310,7 +312,7 @@ func TestHideClusterClearsDetectedClusterIDAndHint(t *testing.T) {
 	if p := providerByID(t, rows, ProviderCrossplane); p.Cluster != "" || p.ClusterID != "" || p.Hint != "" || strings.Contains(p.Evidence, "prod-eu") {
 		t.Errorf("crossplane row of a hidden cluster = %+v", p)
 	}
-	if p := providerByID(t, rows, "metrics"); p.Hint != "keep me" {
+	if p := providerByID(t, rows, "metrics"); p.Hint != "keep me" || p.ClusterID != "" {
 		t.Errorf("metrics row with no cluster lost its hint: %+v", p)
 	}
 }

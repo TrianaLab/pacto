@@ -529,9 +529,9 @@ func hideCluster(p *Provider, shown map[string]bool) bool {
 	p.Evidence, p.Limitations = hideDetectedCluster(*p)
 	if p.Cluster != "" {
 		// The kept row names no cluster, and its hint is for that cluster.
-		p.ClusterID, p.Hint = "", ""
+		p.Hint = ""
 	}
-	p.Cluster = ""
+	p.Cluster, p.ClusterID = "", ""
 	return true
 }
 
