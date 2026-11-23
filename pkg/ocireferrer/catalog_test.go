@@ -115,3 +115,30 @@ func TestCatalogTruncated(t *testing.T) {
 		t.Fatalf("pages bound: %d %v", len(got), err)
 	}
 }
+
+// TestCatalogSeekPastUnknownLast pins zot's catalog: a last that names no
+// repository answers an empty list, so the walk starts again from the top
+// and still finds the names under the prefix.
+func TestCatalogSeekPastUnknownLast(t *testing.T) {
+	all := []string{"aaa/x", "acme/paths/http-service", "acme/streams-1", "zzz/y"}
+	var queries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		queries = append(queries, r.URL.RawQuery)
+		if last := r.URL.Query().Get("last"); last != "" && !slices.Contains(all, last) {
+			testutil.ServeCatalog(w, r, nil)
+			return
+		}
+		testutil.ServeCatalog(w, r, all)
+	}))
+	t.Cleanup(srv.Close)
+	repo := &remote.Repository{Reference: registry.Reference{Registry: strings.TrimPrefix(srv.URL, "http://"), Repository: "acme/pacto-index"}, PlainHTTP: true}
+	got, err := Catalog(t.Context(), repo, "acme", 10)
+	if err != nil || !slices.Equal(got, all[1:3]) || len(queries) != 2 {
+		t.Fatalf("%v %v after %v", got, err, queries)
+	}
+	// Nothing at all under the prefix stays an empty, complete listing.
+	queries = nil
+	if got, err := Catalog(t.Context(), repo, "nothing", 10); err != nil || len(got) != 0 || len(queries) != 2 {
+		t.Fatalf("%v %v after %v", got, err, queries)
+	}
+}

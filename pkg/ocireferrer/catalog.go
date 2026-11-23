@@ -41,25 +41,13 @@ func Catalog(ctx context.Context, repo *remote.Repository, path string, max int)
 	if path != "" {
 		prefix = path + "/"
 	}
-	var out []string
-	pages := 0
-	err := reg.Repositories(ctx, path, func(names []string) error {
-		if pages++; pages > maxTagPages {
-			return ErrCatalogTruncated
-		}
-		for _, n := range names {
-			switch {
-			case strings.HasPrefix(n, prefix):
-				if len(out) == max {
-					return ErrCatalogTruncated
-				}
-				out = append(out, n)
-			case n > prefix:
-				return errCatalogDone
-			}
-		}
-		return nil
-	})
+	out, seen, err := catalogWalk(ctx, reg, path, prefix, max)
+	// ponytail: zot answers a last that names no repository with an empty
+	// list, so an empty seek walks again from the start. On distribution
+	// that costs one walk only when nothing sorts past path.
+	if err == nil && seen == 0 && path != "" {
+		out, _, err = catalogWalk(ctx, reg, "", prefix, max)
+	}
 	var resp *errcode.ErrorResponse
 	host := repo.Reference.Registry
 	switch {
@@ -73,4 +61,30 @@ func Catalog(ctx context.Context, repo *remote.Repository, path string, max int)
 		return nil, fmt.Errorf("%s %w", host, ErrCatalogRefused)
 	}
 	return nil, err
+}
+
+// catalogWalk pages the catalog from last, keeps the names under prefix
+// (at most max) and stops at the first name sorted past prefix. seen is how
+// many names the registry returned.
+func catalogWalk(ctx context.Context, reg *remote.Registry, last, prefix string, max int) (out []string, seen int, err error) {
+	pages := 0
+	err = reg.Repositories(ctx, last, func(names []string) error {
+		if pages++; pages > maxTagPages {
+			return ErrCatalogTruncated
+		}
+		seen += len(names)
+		for _, n := range names {
+			switch {
+			case strings.HasPrefix(n, prefix):
+				if len(out) == max {
+					return ErrCatalogTruncated
+				}
+				out = append(out, n)
+			case n > prefix:
+				return errCatalogDone
+			}
+		}
+		return nil
+	})
+	return out, seen, err
 }
