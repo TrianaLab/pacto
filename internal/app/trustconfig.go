@@ -44,6 +44,11 @@ type trustConfigKey struct {
 	// AllowedProviderRepos lists the prefixes of provider-contract repositories a
 	// ResourceProvisioned or ResourceUsage report may be about; empty means any provider.
 	AllowedProviderRepos []string `yaml:"allowedProviderRepos"`
+	// AllowedExtensionRefs lists the extension capability refs this key may
+	// report CapabilityObserved for. A key that lists any is an extension
+	// verifier: it reports nothing else and lists exactly
+	// allowedObservationKinds: [CapabilityObserved].
+	AllowedExtensionRefs []string `yaml:"allowedExtensionRefs"`
 }
 
 // loadStructuredTrustStore parses a versioned trust-config file into a
@@ -116,7 +121,7 @@ func trustEntryFromConfigKey(k trustConfigKey, dir string, ts evidenceenvelope.M
 			return evidenceenvelope.TrustEntry{}, fmt.Errorf("key %q: malformed subject pattern %q: %w", k.KeyID, pat, err)
 		}
 	}
-	if err := cmp.Or(validateContractRepos(k), validateObservationKinds(k.AllowedObservationKinds), validateProviderScope(k)); err != nil {
+	if err := cmp.Or(validateContractRepos(k), validateObservationKinds(k.AllowedObservationKinds), validateProviderScope(k), validateExtensionRefs(k)); err != nil {
 		return evidenceenvelope.TrustEntry{}, fmt.Errorf("key %q: %w", k.KeyID, err)
 	}
 	return evidenceenvelope.TrustEntry{
@@ -126,6 +131,7 @@ func trustEntryFromConfigKey(k trustConfigKey, dir string, ts evidenceenvelope.M
 		ContractRepos:           k.AllowedContractRepos,
 		AllowedObservationKinds: k.AllowedObservationKinds,
 		ProviderRepos:           k.AllowedProviderRepos,
+		ExtensionRefs:           k.AllowedExtensionRefs,
 	}, nil
 }
 
@@ -193,6 +199,25 @@ func validateProviderScope(k trustConfigKey) error {
 		return slices.Contains(k.AllowedObservationKinds, string(kind))
 	}) {
 		return fmt.Errorf("allowedProviderRepos scopes provisioning and usage reports, so allowedObservationKinds must list ResourceProvisioned or ResourceUsage")
+	}
+	return nil
+}
+
+// validateExtensionRefs checks a key's allowedExtensionRefs: each entry is a
+// namespaced extension capability ref listed once, and a key that lists any is
+// an extension verifier, so its only granted kind is CapabilityObserved (an
+// empty kinds list would mean every runtime kind).
+func validateExtensionRefs(k trustConfigKey) error {
+	for i, ref := range k.AllowedExtensionRefs {
+		if !contract.NamespacedRef(ref) {
+			return fmt.Errorf("allowedExtensionRefs entry %q is not a namespaced extension capability ref (example.com/name)", ref)
+		}
+		if slices.Contains(k.AllowedExtensionRefs[:i], ref) {
+			return fmt.Errorf("allowedExtensionRefs entry %q is listed twice", ref)
+		}
+	}
+	if len(k.AllowedExtensionRefs) > 0 && !slices.Equal(k.AllowedObservationKinds, []string{string(evidence.CapabilityObserved)}) {
+		return fmt.Errorf("allowedExtensionRefs grants extension reports only, so an extension verifier key lists allowedObservationKinds: [CapabilityObserved]")
 	}
 	return nil
 }

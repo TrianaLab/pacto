@@ -239,7 +239,20 @@ keys:
     publicKeyFile: platform-adapter__adapter-2026.pub
     allowedObservationKinds: [ResourceProvisioned]
     allowedProviderRepos: [ghcr.io/acme/platform/postgresql]
+  - keyId: acme-backup-2026
+    producerId: acme-backup
+    publicKeyFile: acme-backup__acme-backup-2026.pub
+    allowedObservationKinds: [CapabilityObserved]
+    allowedExtensionRefs: [x.acme.io/backup]
 ```
+
+The `acme-backup` key is an extension verifier:
+
+- It reports only on the listed
+  [extension capabilities](../../evidence.md#extension-capabilities), and only
+  with `CapabilityObserved`.
+- The Pacto resource status reports only what the operator observes in its cluster.
+- Extension verdicts from producers appear in the fleet: pacto fleet get, the dashboard and MCP.
 
 A usage adapter's key lists
 [`ResourceUsage`](../../provider-reports.md#usage-reports) instead.
@@ -259,7 +272,8 @@ kubectl create secret generic pacto-evidence-trust \
   --namespace pacto-operator-system \
   --from-file=trust.yaml \
   --from-file=keys/acme-ci__release-2026.pub \
-  --from-file=keys/platform-adapter__adapter-2026.pub
+  --from-file=keys/platform-adapter__adapter-2026.pub \
+  --from-file=keys/acme-backup__acme-backup-2026.pub
 ```
 
 Add `--set evidence.trust.configKey=trust.yaml` to the install command above.
@@ -270,9 +284,10 @@ longer trusted. The chart accepts only a `.yaml` or `.yml` key.
 
 ### Read provisioning reports
 
-The targets endpoint answers with schema `pacto.dev/evidence-source/v5` when it
-carries a cluster, which the operator passes, so upgrade older readers that
-accept only v2 to v4. Without a cluster it answers with
+The targets endpoint answers with schema `pacto.dev/evidence-source/v6` and an
+`extensions` list when it holds extension capability reports, and with
+`pacto.dev/evidence-source/v5` when it carries a cluster, which the operator
+passes, so upgrade older readers that accept only v2 to v5. Without a cluster it answers with
 `pacto.dev/evidence-source/v4` and a `usage` list when it holds usage reports, with
 `pacto.dev/evidence-source/v3` and a `provisioning` list when it holds only
 provisioning reports, and with `pacto.dev/evidence-source/v2` otherwise, so an

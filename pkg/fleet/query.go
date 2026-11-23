@@ -1468,6 +1468,9 @@ func (q *Query) explainService(s *ServiceRecord) *ExplainResult {
 	for _, tk := range s.Targets {
 		res.Reasons = append(res.Reasons, targetReasons(q.snap.Targets[tk])...)
 	}
+	for _, r := range statusRevisions(q.snap, s) {
+		res.Reasons = append(res.Reasons, extensionReasons(r)...)
+	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
 		// Dependency edges only: the reasons below judge resolution and ranges.

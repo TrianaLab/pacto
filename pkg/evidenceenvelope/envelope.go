@@ -84,6 +84,9 @@ var (
 	ErrProducerMismatch   = errors.New("evidence envelope: producer id is not authorized for this key")
 	ErrSubjectNotAllowed  = errors.New("evidence envelope: subject is outside the key's authorized scope")
 	ErrKindNotAllowed     = errors.New("evidence envelope: observation kind is not authorized for this key")
+	// ErrExtensionNotAllowed is an extension capability observation from a key
+	// whose ExtensionRefs does not list its ref.
+	ErrExtensionNotAllowed = errors.New("evidence envelope: extension capability is not authorized for this key")
 )
 
 // signingBytes returns the canonical bytes signed and verified. It normalizes to
@@ -165,6 +168,12 @@ type TrustEntry struct {
 	// under one of them. Empty means any provider. Enforced at the ingestion
 	// seam, which holds the consumer contract.
 	ProviderRepos []string
+	// ExtensionRefs lists the extension capability refs this key may report
+	// CapabilityObserved for; empty means none, whatever AllowedObservationKinds
+	// says. A key with refs is an extension verifier and nothing else: it may
+	// send only extension CapabilityObserved observations, never a runtime or
+	// provider observation and never an empty set.
+	ExtensionRefs []string
 }
 
 // KindAllowed reports whether this key may report observations of kind k.
@@ -259,10 +268,18 @@ func (t TrustEntry) authorize(e Envelope) error {
 		if !t.KindAllowed(o.Kind) {
 			return ErrKindNotAllowed
 		}
+		ext := o.Kind == evidence.CapabilityObserved && evidence.ExtensionSubject(o.Subject)
+		if ext && !slices.Contains(t.ExtensionRefs, o.Subject.Name) {
+			return ErrExtensionNotAllowed
+		}
+		if len(t.ExtensionRefs) > 0 && !ext {
+			return ErrKindNotAllowed
+		}
 	}
 	// An empty set is a runtime report: only a key granted a runtime kind may
-	// send one, so a provisioning-only key never commits a runtime record.
-	if len(e.EvidenceSet.Observations) == 0 && !t.runtimeAllowed() {
+	// send one, so a provisioning-only key or an extension verifier never
+	// commits a runtime record.
+	if len(e.EvidenceSet.Observations) == 0 && (!t.runtimeAllowed() || len(t.ExtensionRefs) > 0) {
 		return ErrKindNotAllowed
 	}
 	return nil

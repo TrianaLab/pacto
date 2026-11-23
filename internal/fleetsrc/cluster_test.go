@@ -112,10 +112,15 @@ func TestEvidenceHTTPSourceAcceptsV5(t *testing.T) {
 	if _, err := NewEvidenceHTTPSource("", srv.URL).Collect(context.Background()); err != nil {
 		t.Fatalf("a v5 body must be accepted: %v", err)
 	}
-	future := serveJSON(t, clusterBody(t, "pacto.dev/evidence-source/v6"))
+	v6 := serveJSON(t, clusterBody(t, evidenceingest.TargetsSchemaVersionExtensions))
+	defer v6.Close()
+	if _, err := NewEvidenceHTTPSource("", v6.URL).Collect(context.Background()); err != nil {
+		t.Fatalf("a v6 body must be accepted: %v", err)
+	}
+	future := serveJSON(t, clusterBody(t, "pacto.dev/evidence-source/v7"))
 	defer future.Close()
 	_, err := NewEvidenceHTTPSource("", future.URL).Collect(context.Background())
-	if err == nil || !strings.Contains(err.Error(), evidenceingest.TargetsSchemaVersionCluster) {
+	if err == nil || !strings.Contains(err.Error(), evidenceingest.TargetsSchemaVersionExtensions) {
 		t.Fatalf("an unknown version is refused by name: %v", err)
 	}
 }

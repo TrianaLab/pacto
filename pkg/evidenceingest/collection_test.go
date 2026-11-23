@@ -1,8 +1,11 @@
 package evidenceingest
 
 import (
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -96,5 +99,36 @@ func TestTargetsCollectionRefuses(t *testing.T) {
 		if _, err := TargetsCollection("ev", []byte(body)); err == nil {
 			t.Errorf("%s: no error", name)
 		}
+	}
+}
+
+func TestTargetsCollectionMapsExtensions(t *testing.T) {
+	body := `{"schemaVersion":"pacto.dev/evidence-source/v6","generatedAt":"2026-11-22T10:00:00Z",
+	 "health":{"status":"ready","subjects":1,"failedSubjects":0,"invalidArtifacts":0},"truncated":false,
+	 "cluster":{"id":"c1","name":"prod","nameSource":"label"},"targets":[],
+	 "extensions":[
+	  {"subject":"r/pay/prod/extension/backup","service":"pay","contractRef":"oci://r/pay@sha256:aa","producer":"acme-backup","producerKeyId":"k1",
+	   "ref":"x.acme.io/backup","outcome":"Observed","present":false,"details":{"lastBackup":"2026-11-22T03:00:00Z"},
+	   "evidenceAt":"2026-11-22T09:00:00Z","acceptedAt":"2026-11-22T09:01:00Z","cluster":"c1"},
+	  {"subject":"r/pay/prod/extension/scan","service":"pay","digest":"sha256:bb","contractRef":"oci://r/pay@sha256:bb","producer":"acme-backup",
+	   "ref":"x.acme.io/scan","outcome":"Failed","evidenceAt":"2026-11-22T09:00:00Z","acceptedAt":"2026-11-22T09:01:00Z","cluster":"c2"}]}`
+	col, err := TargetsCollection("ev", []byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(col.Extensions) != 2 || len(col.Targets) != 0 || len(col.Limitations) != 0 {
+		t.Fatalf("collection = %+v", col)
+	}
+	at := func(v string) time.Time { tm, _ := time.Parse(time.RFC3339, v); return tm }
+	accepted, absent := at("2026-11-22T09:01:00Z"), false
+	want := []fleet.RawExtension{
+		{Subject: "r/pay/prod/extension/backup", Service: "pay", Digest: "sha256:aa", Ref: "x.acme.io/backup", Present: &absent, Details: json.RawMessage(`{"lastBackup":"2026-11-22T03:00:00Z"}`),
+			Outcome: "Observed", Producer: "acme-backup", ProducerKeyID: "k1", ObservedAt: at("2026-11-22T09:00:00Z"), AcceptedAt: &accepted,
+			Cluster: &fleet.Cluster{ID: "c1", Name: "prod", NameSource: "label"}, Verified: true},
+		{Subject: "r/pay/prod/extension/scan", Service: "pay", Digest: "sha256:bb", Ref: "x.acme.io/scan", Outcome: "Failed", Producer: "acme-backup",
+			ObservedAt: at("2026-11-22T09:00:00Z"), AcceptedAt: &accepted, Cluster: &fleet.Cluster{ID: "c2"}, Verified: true},
+	}
+	if !reflect.DeepEqual(col.Extensions, want) {
+		t.Errorf("extensions = %+v, want %+v", col.Extensions, want)
 	}
 }

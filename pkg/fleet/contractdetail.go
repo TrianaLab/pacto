@@ -289,6 +289,9 @@ type CapabilitySummary struct {
 	Type    string                    `json:"type,omitempty"`
 	Ref     string                    `json:"ref,omitempty"`
 	Binding *CapabilityBindingSummary `json:"binding,omitempty"`
+	// Check is what trusted producers report on an extension capability; nil
+	// when none has a report on it (the extension is unverified).
+	Check *ExtensionCheck `json:"check,omitempty" doc:"What trusted producers report on this extension capability; absent when none has a report on it, so it stays unverified."`
 }
 
 // CapabilitiesPreview is a bounded preview of declared capabilities.
@@ -395,11 +398,15 @@ func policiesPreview(ps []contract.Policy, resolved map[string]*RefResolution) P
 	return PoliciesPreview{Total: total, Count: len(items), Truncated: trunc, Items: items}
 }
 
-func capabilitiesPreview(cs []contract.Capability) CapabilitiesPreview {
+func capabilitiesPreview(cs []contract.Capability, checks []ExtensionCheck) CapabilitiesPreview {
 	src, total, trunc := boundSlice(cs, MaxDetailPreview)
 	items := make([]CapabilitySummary, 0, len(src))
 	for _, c := range src {
 		item := CapabilitySummary{Type: c.Type, Ref: c.Ref}
+		if i := slices.IndexFunc(checks, func(chk ExtensionCheck) bool { return chk.Ref == c.Ref }); i >= 0 && c.Type == contract.CapabilityExtension {
+			chk := checks[i]
+			item.Check = &chk
+		}
 		if c.Binding != nil {
 			item.Binding = &CapabilityBindingSummary{
 				Type: c.Binding.Type, Interface: c.Binding.Interface, Path: c.Binding.Path,

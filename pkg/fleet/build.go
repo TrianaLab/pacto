@@ -526,6 +526,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	}
 	recordProblems = append(recordProblems, ingestProvisioning(snap, src, col.Provisioning, now)...)
 	recordProblems = append(recordProblems, ingestUsage(snap, src, col.Usage, now)...)
+	recordProblems = append(recordProblems, ingestExtensions(snap, src, col, now)...)
 	kept, capped := boundInferred(col, src.ID())
 	recordProblems = append(recordProblems, capped...)
 	// A source that reported record-level problems is partial: keep its usable
@@ -2119,6 +2120,8 @@ func aggregateServices(snap *FleetSnapshot) {
 		// collapsing them by map iteration order would fabricate a service label
 		// and break target-correlated search. Labels live on the target.
 	}
+	matchExtensions(snap)
+	deriveExtensionChecks(snap, true)
 	placed := targetPlacementKnown(snap)
 	for _, s := range snap.Services {
 		s.Declaration = DeclarationDeclared
@@ -2774,7 +2777,9 @@ func serviceStatus(snap *FleetSnapshot, s *ServiceRecord) string {
 	if s.Contribution != nil {
 		return StatusUnknown
 	}
-	if st := targetAggregateStatus(snap, s); st != "" {
+	// A trusted producer's report on an extension capability of a revision the
+	// service runs (its current one when none runs) counts like a target.
+	if st := worstStatus(targetAggregateStatus(snap, s), extensionStatus(snap, s)); st != "" {
 		return st
 	}
 	if len(s.Revisions) > 0 {
