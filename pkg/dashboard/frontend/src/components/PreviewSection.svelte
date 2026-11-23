@@ -153,6 +153,9 @@
   .ps-toned[data-tone='info'] { border-left-color: var(--c-info); }
 
   .ps-head { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
+  /* A title can carry an id (a producer, a service): a long one wraps inside the head
+     instead of spilling past it. */
+  .ps-head > :global(.t-section-title), .ps-head > :global(.t-subsection-title) { min-width: 0; overflow-wrap: anywhere; }
   /* The count never drops to a line of its own: in a grid of cards it would leave each
      card's title at a different height. */
   .ps-head-end { display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap; margin-left: auto; }
