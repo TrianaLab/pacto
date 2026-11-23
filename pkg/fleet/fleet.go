@@ -1664,6 +1664,11 @@ type ManagedResource struct {
 	Missing         []string   `json:"missing,omitempty" doc:"The identity segments that were not read, so the system is its catalog entry's identity"`
 	Provenance      string     `json:"provenance" enum:"inferred"`
 	ObservedAt      *time.Time `json:"observedAt,omitempty" doc:"When the source last read it"`
+	// Contract, Offering and Evidence are set when a query serves the record
+	// (see resourceContract): unknown is never through an offering.
+	Contract string     `json:"contract,omitempty" enum:"offering,outside" doc:"offering when a verified, current provisioning record from the offering provider a consumer uses names it; outside for every other resource"`
+	Offering *EntityRef `json:"offering,omitempty" doc:"The offering whose provider's provisioning record names it; absent outside contract"`
+	Evidence string     `json:"evidence,omitempty" doc:"The producer and time of that provisioning record, never its body"`
 }
 
 // ExternalClaim is the declared contract that claims an external system: the

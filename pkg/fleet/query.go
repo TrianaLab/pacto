@@ -44,6 +44,8 @@ type Query struct {
 	folded    map[ExternalKey]bool
 	// attention memoizes gatherAttention (see collectAttention).
 	attention func() []AttentionItem
+	// contracts memoizes resourceContracts.
+	contracts func() map[ExternalKey][]ManagedResource
 	// members memoizes mapMembers by grouping for pages of nodes and focuses
 	// (see pageMembers).
 	members *sync.Map
@@ -56,6 +58,7 @@ func NewQuery(s *FleetSnapshot) *Query {
 	q := &Query{base: s, members: &sync.Map{}}
 	q.snap, q.externals, q.folded = foldExternals(s)
 	q.attention = sync.OnceValue(q.gatherAttention)
+	q.contracts = sync.OnceValue(q.resourceContracts)
 	return q
 }
 

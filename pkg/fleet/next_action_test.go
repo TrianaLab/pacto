@@ -151,6 +151,7 @@ var preAdoptionCodes = map[string]string{
 	codeCrossEnvironmentPreviewCall:   "a person finds out why the workload calls a preview; no contract edit stops the call",
 	CodeClusterIssuerDiffers:          "a person approves a group mapping with pacto cluster map-groups; no contract edit answers it",
 	AttentionExternalChanged:          "a person reviews the consumers with pacto impact; no contract edit changes the vendor",
+	codeManagedGroupUnread:            "a person runs the row's helm upgrade; no Pacto command grants the operator a read",
 }
 
 // dynamicCodeProducers are the functions that set a computed code, each with

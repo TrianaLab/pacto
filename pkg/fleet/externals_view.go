@@ -178,8 +178,8 @@ func (q *Query) lookupExternal(key string) (*ExternalRecord, ExternalKey, error)
 
 // boundExternal is a copy of rec listing at most MaxExternalSources
 // consumers, in key order, and only their sources, and at most
-// MaxExternalResources resources.
-func boundExternal(rec *ExternalRecord) ExternalRecord {
+// MaxExternalResources resources, each with its contract state.
+func (q *Query) boundExternal(rec *ExternalRecord) ExternalRecord {
 	out := *rec
 	out.Consumers, _, _ = boundSlice(rec.Consumers, MaxExternalSources)
 	out.Sources = nil
@@ -188,7 +188,7 @@ func boundExternal(rec *ExternalRecord) ExternalRecord {
 			out.Sources = append(out.Sources, src)
 		}
 	}
-	out.Resources, _, _ = boundSlice(rec.Resources, MaxExternalResources)
+	out.Resources, _, _ = boundSlice(q.managedResources(rec), MaxExternalResources)
 	return out
 }
 

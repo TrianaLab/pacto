@@ -96,7 +96,7 @@ func (q *Query) GetExternal(key string) (*ExternalView, error) {
 	if err != nil {
 		return nil, err
 	}
-	b := boundExternal(rec)
+	b := q.boundExternal(rec)
 	return jsonClone(&ExternalView{Meta: q.externalMeta(), External: b, Catalog: q.externalCatalogRef(rec), FoldedInto: into,
 		ExternalEvidence: q.externalEvidence(rec.Key, b.Consumers)}), nil
 }
@@ -157,7 +157,7 @@ func (q *Query) explainExternal(key string) (*ExplainResult, error) {
 		return nil, err
 	}
 	res := &ExplainResult{Meta: q.externalMeta(), Subject: ExternalSubjectPrefix + string(rec.Key), Kind: string(KindExternal), Status: StatusUnknown, Reasons: []Reason{}}
-	b := boundExternal(rec)
+	b := q.boundExternal(rec)
 	for _, src := range b.Sources {
 		if src.Provenance != ProvenanceInferred {
 			res.Reasons = append(res.Reasons, externalSourceReason(src))
@@ -363,7 +363,7 @@ func (q *Query) externalDetail(key string) (*EntityDetail, error) {
 	if err != nil {
 		return nil, err
 	}
-	b := boundExternal(rec)
+	b := q.boundExternal(rec)
 	data := &ExternalDetailData{External: b, Consumers: []ExternalConsumer{}, Catalog: q.externalCatalogRef(rec), FoldedInto: into,
 		ExternalEvidence: q.externalEvidence(rec.Key, b.Consumers)}
 	for _, c := range b.Consumers {

@@ -932,7 +932,7 @@ func (q *Query) Overview() *Overview {
 		sum.Knowledge.addService(q, s)
 	}
 	sum.Knowledge.finish()
-	sum.KnowledgeItems = len(q.knowledgeAttention()) + len(q.inferredProviderAttention()) + len(q.externalChangedAttention())
+	sum.KnowledgeItems = len(q.knowledgeAttention()) + len(q.inferredProviderAttention()) + len(q.externalChangedAttention()) + len(q.managedGroupAttention())
 	sum.Externals, sum.HiddenExternals = len(q.snap.Externals), q.snap.hiddenExternals
 	sum.UnownedExternals = len(q.unownedExternalAttention())
 
@@ -1461,6 +1461,7 @@ func (q *Query) gatherAttention() []AttentionItem {
 	items = append(items, q.knowledgeAttention()...)
 	items = append(items, q.inferredProviderAttention()...)
 	items = append(items, q.externalChangedAttention()...)
+	items = append(items, q.managedGroupAttention()...)
 	items = append(items, q.unownedAttention()...)
 	items = append(items, q.unownedExternalAttention()...)
 	items = append(items, q.undeclaredAttention()...)

@@ -4635,10 +4635,17 @@ export interface components {
             cluster?: string;
             /** @description A display name for the cluster that read it; never an identity */
             clusterName?: string;
+            /**
+             * @description offering when a verified, current provisioning record from the offering provider a consumer uses names it; outside for every other resource
+             * @enum {string}
+             */
+            contract?: "offering" | "outside";
             /** @description The engine and version the resource reports it runs */
             engine?: string;
             /** @description The engine and version the resource requests, when it reports none it runs */
             engineRequested?: string;
+            /** @description The producer and time of that provisioning record, never its body */
+            evidence?: string;
             /** @description The state URL or file name, never its contents */
             location?: string;
             /** @description The identity segments that were not read, so the system is its catalog entry's identity */
@@ -4651,6 +4658,8 @@ export interface components {
              * @description When the source last read it
              */
             observedAt?: string;
+            /** @description The offering whose provider's provisioning record names it; absent outside contract */
+            offering?: components["schemas"]["Fleet.EntityRef"];
             /** @enum {string} */
             provenance: "inferred";
             /**
@@ -4727,6 +4736,11 @@ export interface components {
             missing?: components["schemas"]["Fleet.SectionCount"][] | null;
             /**
              * Format: int64
+             * @description Managed resources of the group's external systems no offering produced
+             */
+            outsideContract?: number;
+            /**
+             * Format: int64
              * @description Mean contract completeness of the group's judged services; absent when none is judged
              */
             percentComplete?: number;
@@ -4769,6 +4783,11 @@ export interface components {
              * @description Visible services it depends on
              */
             out?: number;
+            /**
+             * Format: int64
+             * @description Managed resources of this external system no offering produced
+             */
+            outsideContract?: number;
             owner?: string;
             /** Format: int64 */
             percentComplete?: number;
@@ -4916,6 +4935,8 @@ export interface components {
              * @description Matched services and dependencies over those Pacto can observe, rounded down; absent when Pacto observes none
              */
             percent?: number;
+            /** @description The managed resources an offering produced over those discovered, fleet-wide; absent when none was discovered */
+            resources?: components["schemas"]["Fleet.ResourceCoverage"];
             /** @description Services that are no golden path, by match state; an inferred service is observed-only */
             services: components["schemas"]["Fleet.MatchCounts"];
         };
@@ -5663,6 +5684,23 @@ export interface components {
             /** @enum {string} */
             state: "reported" | "unknown" | "not-reported";
             verified?: boolean;
+        };
+        "Fleet.ResourceCoverage": {
+            /**
+             * Format: int64
+             * @description Managed resources the sources read
+             */
+            discovered: number;
+            /**
+             * Format: int64
+             * @description throughOfferings over discovered, rounded down
+             */
+            percent?: number;
+            /**
+             * Format: int64
+             * @description Managed resources a verified, current provisioning record of an offering provider names
+             */
+            throughOfferings: number;
         };
         "Fleet.RevisionCapabilities": {
             revision: string;
@@ -7616,6 +7654,11 @@ export interface components {
              * @description Visible services it depends on
              */
             out?: number;
+            /**
+             * Format: int64
+             * @description Managed resources of this external system no offering produced
+             */
+            outsideContract?: number;
             owner?: string;
             /** Format: int64 */
             percentComplete?: number;
@@ -11345,6 +11388,8 @@ export interface operations {
                 failed?: boolean;
                 /** @description Keeps the external systems of this class (external entities) */
                 class?: "vendor-api" | "managed-cloud" | "legacy" | "unclassified" | "other-egress";
+                /** @description Keeps the external systems with a managed resource no offering produced (external entities) */
+                outsideContract?: boolean;
                 /** @description Order: name (natural, so 2 before 10), health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings and external systems with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first); absent orders by kind then key */
                 sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created" | "failed" | "consumers" | "gaps";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */

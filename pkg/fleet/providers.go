@@ -87,6 +87,10 @@ const (
 	UseExternalEgress = "external-egress"
 	// ProviderCrossplane is the row of the Crossplane the operator detected.
 	ProviderCrossplane = "crossplane"
+	// ProviderManagedResources is the row of the managed-resource objects
+	// the operator lists; a detail "unread <group>/<plural>" names a kind
+	// whose group appeared after install, so the chart grants no read of it.
+	ProviderManagedResources = "managed-resources"
 	// CrossplaneNoneFound starts the evidence of a Crossplane row that found
 	// no Crossplane, so a reader tells it apart with no detect import.
 	CrossplaneNoneFound = "none found"
