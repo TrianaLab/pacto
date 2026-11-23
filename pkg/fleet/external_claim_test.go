@@ -94,7 +94,8 @@ func inShop(q *Query) *Query {
 
 func TestClaimLinksDeclaredPerson(t *testing.T) {
 	q := claimFleet(t, []RawRevision{stripeClaim()}, checkoutStripe())
-	want := &ExternalClaim{Service: NewServiceKey("stripe"), Ref: "ghcr.io/acme/stripe@sha256:stripe-0.1.0", Version: "0.1.0", By: anaSubject, Owner: "team-platform"}
+	want := &ExternalClaim{Service: NewServiceKey("stripe"), Ref: "ghcr.io/acme/stripe@sha256:stripe-0.1.0", Version: "0.1.0", By: anaSubject,
+		DeclaredVersion: "0.1.0", Owner: "team-platform", OwnerKey: "team:team-platform"}
 	if got := q.snap.Externals["stripe"].Claim; !reflect.DeepEqual(got, want) {
 		t.Errorf("claim = %+v, want %+v", got, want)
 	}
@@ -490,10 +491,134 @@ func TestExplainExternalClaimReasons(t *testing.T) {
 		t.Errorf("unclaimed = %q", got)
 	}
 	q := claimFleet(t, []RawRevision{stripeClaim()}, checkoutStripe())
-	if got := reason(q, ReasonExternalClaimed); got != "Claimed by stripe 0.1.0 (declared by "+anaSubject+")" {
+	if got := reason(q, ReasonExternalClaimed); got != "Claimed by stripe 0.1.0 (claim established by "+anaSubject+" at 0.1.0)" {
 		t.Errorf("claimed = %q", got)
 	}
 	if got := reason(inShop(q), ReasonExternalClaimed); got != "Claimed by a service you may not read" {
 		t.Errorf("hidden = %q", got)
+	}
+}
+
+func TestClaimNamesTheRevisionThatEstablishedIt(t *testing.T) {
+	ci := claimRev(claimOf{version: "0.3.0", external: "stripe", owner: "team-platform", prov: ciSigned()})
+	q := claimFleet(t, []RawRevision{stripeClaim(), ci}, checkoutStripe())
+	c := q.snap.Externals["stripe"].Claim
+	if c == nil || c.Version != "0.3.0" || c.DeclaredVersion != "0.1.0" {
+		t.Fatalf("claim = %+v", c)
+	}
+	if got := claimReason(q.snap.Externals["stripe"], false).Message; got != "Claimed by stripe 0.3.0 (claim established by "+anaSubject+" at 0.1.0)" {
+		t.Errorf("reason = %q", got)
+	}
+}
+
+func TestClaimOwnerKeyOfDRIOnlyClaimer(t *testing.T) {
+	dri := claimRev(claimOf{version: "0.2.0", external: "stripe", prov: ciSigned()})
+	dri.Bundle.Contract.Service.Owner = contract.Owner{DRI: "alice"}
+	q := claimFleet(t, []RawRevision{stripeClaim(), dri}, checkoutStripe())
+	if c := q.snap.Externals["stripe"].Claim; c == nil || c.Owner != "alice" || c.OwnerKey != "dri:alice" {
+		t.Errorf("claim = %+v, want owner alice keyed dri:alice", c)
+	}
+}
+
+func TestClaimOwnerRuleVerdictGatesTheClaim(t *testing.T) {
+	for code, why := range map[string]string{"OWNER_SIGNER_NOT_ALLOWED": "the owner rule refused its owner", ownerPolicyUnverified: "the owner rule could not check its owner"} {
+		prov := anaSigned()
+		prov.OwnerRight = &OwnerRightCheck{Code: code}
+		refused := claimRev(claimOf{service: "stripe-mine", external: "stripe", from: "external:stripe", owner: "team-m", prov: prov})
+		q := claimFleet(t, []RawRevision{refused, stripeClaim()}, checkoutStripe())
+		if c := q.snap.Externals["stripe"].Claim; c == nil || c.Service != NewServiceKey("stripe") || q.snap.Externals["stripe"].Claimants != 0 {
+			t.Errorf("%s: claim = %+v, want the valid claim linked", code, c)
+		}
+		if len(limitationWith(q, "stripe-mine claims external stripe, but "+why)) != 1 || len(limitationWith(q, "is claimed by")) != 0 {
+			t.Errorf("%s: limitations = %+v", code, q.snap.Limitations)
+		}
+	}
+}
+
+func TestClaimByTwoServicesSaysSo(t *testing.T) {
+	other := claimRev(claimOf{service: "stripe-two", external: "stripe", from: "external:stripe", owner: "payments", prov: anaSigned()})
+	q := claimFleet(t, []RawRevision{stripeProvider(), stripeClaim(), other}, checkoutStripe(), svc("pay", "shop", pinStripe("^2023")))
+	for _, view := range []*Query{q, inShop(q)} {
+		rec := view.snap.Externals["stripe"]
+		if rec.Claimants != 2 {
+			t.Fatalf("claimants = %d", rec.Claimants)
+		}
+		items := unownedExternals(t, view)
+		if len(items) != 1 || !strings.HasSuffix(items[0].Reason, "and 2 services claim it, so no claim counts") || items[0].NextStep != claimantsStep || items[0].NextAction != nil {
+			t.Errorf("items = %+v", items)
+		}
+		if got := claimReason(rec, false).Message; got != "Claimed by 2 services, so no claim counts until all but one are retracted" {
+			t.Errorf("reason = %q", got)
+		}
+		if rec.InferredNextStep("stripe") != claimantsStep {
+			t.Errorf("inferred step = %q", rec.InferredNextStep("stripe"))
+		}
+	}
+	for _, it := range attentionOf(t, q, AttentionFilter{}).Items {
+		if it.Code == "INFERRED_PROVIDER" && (it.NextAction != nil || it.NextStep != claimantsStep) {
+			t.Errorf("inferred provider item = %+v", it)
+		}
+	}
+}
+
+func TestOwnerlessVisibleClaimIsClaimedAgainUnderItsName(t *testing.T) {
+	ownerless := claimRev(claimOf{service: "payments-stripe", external: "stripe", from: "external:stripe", prov: anaSigned()})
+	q := claimFleet(t, []RawRevision{ownerless}, checkoutStripe())
+	items := unownedExternals(t, q)
+	want := "pacto claim stripe --owner <team> --name payments-stripe"
+	if len(items) != 1 || items[0].NextAction == nil || items[0].NextAction.CLI != want || !strings.Contains(items[0].NextStep, want) {
+		t.Errorf("items = %+v", items)
+	}
+	// A hidden ownerless claimer invites no second claim.
+	items = unownedExternals(t, inShop(q))
+	if len(items) != 1 || items[0].NextAction != nil || items[0].NextStep != hiddenClaimStep {
+		t.Errorf("hidden items = %+v", items)
+	}
+}
+
+func TestClaimOfConflictingOwnersShowsNoOwner(t *testing.T) {
+	a := claimRev(claimOf{external: "stripe", from: "external:stripe", owner: "team-a", prov: anaSigned()})
+	b := claimRev(claimOf{external: "stripe", from: "external:stripe", owner: "team-b", prov: anaSigned()})
+	b.Digest, b.ResolvedRef = "sha256:stripe-0.1.0-b", "ghcr.io/acme/stripe@sha256:stripe-0.1.0-b"
+	q := claimFleet(t, []RawRevision{a, b}, checkoutStripe())
+	if bk, _ := q.ownershipBucket(q.snap.Services[NewServiceKey("stripe")]); bk != OwnershipConflicting {
+		t.Fatalf("fixture is %s, not conflicting", bk)
+	}
+	if c := q.snap.Externals["stripe"].Claim; c == nil || c.Owner != "" || c.OwnerKey != "" {
+		t.Errorf("claim = %+v, want no owner shown", c)
+	}
+	if items := unownedExternals(t, q); len(items) != 0 {
+		t.Errorf("conflicting owners are OWNER_CONFLICT, not unowned: %+v", items)
+	}
+}
+
+func TestUnclaimedWithIncompleteSourcesIsUnknown(t *testing.T) {
+	q := claimFleet(t, nil, checkoutStripe())
+	q.snap.Sources[0].Status = SourceUnavailable
+	items := unownedExternals(t, q)
+	if len(items) != 1 || !strings.HasSuffix(items[0].Reason, "no claim of it was read; some sources are incomplete, so it may be claimed") {
+		t.Errorf("items = %+v", items)
+	}
+	if got := claimReason(q.snap.Externals["stripe"], true).Message; !strings.HasPrefix(got, "No claim was read, and some sources are incomplete") {
+		t.Errorf("reason = %q", got)
+	}
+}
+
+func TestRestrictKeepsClaimDeclarationSource(t *testing.T) {
+	visible := func() (RawRevision, RawTarget) {
+		r, tg := infSvc("stripe", "shop")
+		return stripeClaim(), RawTarget{Scope: tg.Scope, Kind: tg.Kind, Name: "stripe", Service: "stripe", Digest: r.Digest, Compliance: StatusCompliant}
+	}
+	full := claimFleet(t, nil, checkoutStripe(), visible)
+	for _, r := range full.snap.Revisions {
+		if declarationSourceHidden(full.snap, r, func(string, string, string) bool { return true }) {
+			t.Errorf("a claim reads no workload, so nothing hides its source: %s", r.Service)
+		}
+	}
+	q := inShop(full)
+	for _, r := range q.snap.Revisions {
+		if r.Service == "stripe" && (r.declarationHidden || r.Record == nil || r.Record.Declaration.InferredFrom != "external:stripe") {
+			t.Errorf("restricted claimed revision = %+v", r)
+		}
 	}
 }

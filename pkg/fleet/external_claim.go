@@ -16,11 +16,12 @@ import (
 const routedToApprovers = "routed to the installation's default approvers (routing only; it grants no right)"
 
 // claimer is one service whose history establishes a claim on key: rev is
-// its newest revision, by the person whose declaration established it.
+// its newest revision, decl the one whose declaration by established it.
 type claimer struct {
-	key ExternalKey
-	rev *ContractRevision
-	by  string
+	key  ExternalKey
+	rev  *ContractRevision
+	decl *ContractRevision
+	by   string
 }
 
 // linkExternalClaims links each external system to the one service that
@@ -48,7 +49,10 @@ func linkExternalClaims(snap *FleetSnapshot) {
 				svcs[i] = c.rev.ServiceKey
 			}
 			snap.Limitations = append(snap.Limitations, Limitation{Code: LimitationInferredLinkIgnored, Source: "fleet",
-				Message: "external " + string(key) + " is claimed by " + keyList(svcs) + ", so it stays unclaimed until one claim is retracted"})
+				Message: "external " + string(key) + " is claimed by " + keyList(svcs) + ", so no claim counts until all but one are retracted"})
+			if rec != nil {
+				rec.Claimants = len(cs)
+			}
 			continue
 		}
 		if rec == nil {
@@ -58,9 +62,11 @@ func linkExternalClaims(snap *FleetSnapshot) {
 		svc := snap.Services[c.rev.ServiceKey]
 		b, _ := q.ownershipBucket(svc)
 		ownerless := b == OwnershipUnowned || b == OwnershipUnknown
-		rec.Claim = &ExternalClaim{Service: c.rev.ServiceKey, Ref: claimRef(c.rev), Version: c.rev.Version, By: c.by, ownerless: ownerless}
-		if !ownerless {
-			rec.Claim.Owner = svc.Owner.DisplayString()
+		rec.Claim = &ExternalClaim{Service: c.rev.ServiceKey, Ref: claimRef(c.rev), Version: c.rev.Version, By: c.by,
+			DeclaredVersion: c.decl.Version, ownerless: ownerless}
+		// Contested owners are reported by OWNER_CONFLICT: none is shown as the owner.
+		if !ownerless && b != OwnershipConflicting {
+			rec.Claim.Owner, rec.Claim.OwnerKey = svc.Owner.DisplayString(), svc.Owner.KeyString()
 		}
 	}
 }
@@ -100,7 +106,7 @@ func claimCandidate(snap *FleetSnapshot, s *ServiceRecord) (claimer, bool) {
 			Message: string(s.Key) + " claims external " + id + ", but " + why + ", so it stays unclaimed"})
 		return claimer{}, false
 	}
-	return claimer{key: key, rev: newest, by: by}, true
+	return claimer{key: key, rev: newest, decl: decl, by: by}, true
 }
 
 // claimRevisions is the newest revision of s, its newest declared one and
@@ -143,14 +149,21 @@ func externalOf(rev *ContractRevision) (ExternalKey, bool) {
 }
 
 // claimTrusted is the person whose declaration rev carries, or why it does
-// not establish a claim: the declaration rule of a workload hand-over, and
-// never an operator's signature.
+// not establish a claim: the declaration rule of a workload hand-over, never
+// an operator's signature, and an owner the owner rule allowed: a refused
+// or unchecked owner never claims and never makes a claim ambiguous.
 func claimTrusted(rev *ContractRevision) (by, why string) {
 	if operatorSigned(rev) {
 		return "", "only this installation's operator signed it"
 	}
 	if why, fix := declarationRejected(rev); why != "" {
 		return "", why + "; " + fix
+	}
+	switch ownerBlocked(rev) {
+	case LimitationOwnerDeclarationRefused:
+		return "", "the owner rule refused its owner"
+	case LimitationOwnerDeclarationUnverified:
+		return "", "the owner rule could not check its owner"
 	}
 	return rev.Record.Declaration.Asker.Subject, ""
 }
@@ -182,11 +195,32 @@ func (r *ExternalRecord) unowned() bool { return r.Claim == nil || r.Claim.owner
 // claimAction is the action that claims external id, nil when id is no
 // canonical identity or names other egress.
 func claimAction(id string) *NextAction {
+	return claimActionNamed(id, "")
+}
+
+// claimActionNamed is claimAction under service name (none: the default),
+// the name a visible claim already has, so a claim again never adds a
+// second claiming service.
+func claimActionNamed(id, name string) *NextAction {
 	if p, err := externalid.Parse(id); err != nil || string(p) != id || ExternalKey(p) == OtherEgress {
 		return nil
 	}
-	return &NextAction{Verb: "claim", Tool: "pacto_declare", CLI: "pacto claim " + id + " --owner <team>"}
+	return &NextAction{Verb: "claim", Tool: "pacto_declare", CLI: claimCommand(id, name)}
 }
+
+// claimCommand is the pacto claim of external id under service name (none:
+// the default).
+func claimCommand(id, name string) string {
+	cli := "pacto claim " + id + " --owner <team>"
+	if name != "" {
+		cli += " --name " + name
+	}
+	return cli
+}
+
+// claimantsStep is the next step of an external system more than one
+// service claims: another claim cannot settle it.
+const claimantsStep = "Retract all but one claim: until then no claim counts"
 
 // unownedExternalAttention reports one UNOWNED_EXTERNAL item per external
 // system with consumers and no owner, ranked by how many services use it. It
@@ -207,20 +241,40 @@ func (q *Query) unownedExternalAttention() []AttentionItem {
 		if n == 1 {
 			label = rec.Label + ": 1 service uses it"
 		}
-		reason := "no declared contract claims it"
-		if rec.Claim != nil {
-			reason = "the service that claims it has no verified owner"
-		}
+		reason, step, action := q.unownedWhy(k, rec)
 		out = append(out, AttentionItem{
 			Entity: externalEntityRef(rec), Label: label, rank: n,
 			Severity: severityInfo, Code: "UNOWNED_EXTERNAL", Category: categoryUnowned,
 			Summary:    "External system has no owner",
 			Reason:     consumerWords(rec) + " " + rec.Label + ", and " + reason,
-			NextStep:   "Claim " + string(k) + " for a team with pacto claim " + string(k) + " --owner <team>; until then it is " + routedToApprovers,
-			NextAction: claimAction(string(k)),
+			NextStep:   step,
+			NextAction: action,
 		})
 	}
 	return out
+}
+
+// unownedWhy is why external k (rec) has no owner, the step that fixes it
+// and that step's action. More than one claim is settled by retracting, a
+// hidden claimer invites no second claim, and a visible one is claimed
+// again under its own name. Incomplete sources make no claim unknown.
+func (q *Query) unownedWhy(k ExternalKey, rec *ExternalRecord) (reason, step string, action *NextAction) {
+	id, name := string(k), ""
+	switch c := rec.Claim; {
+	case rec.Claimants > 1:
+		return strconv.Itoa(rec.Claimants) + " services claim it, so no claim counts", claimantsStep, nil
+	case c == nil:
+		reason = "no declared contract claims it"
+		if q.sourcesIncomplete() {
+			reason = "no claim of it was read; some sources are incomplete, so it may be claimed"
+		}
+	case c.Hidden:
+		return "the service that claims it has no verified owner", hiddenClaimStep, nil
+	default:
+		_, name = ParseServiceKey(c.Service)
+		reason = "the service that claims it has no verified owner"
+	}
+	return reason, "Claim " + id + " for a team with " + claimCommand(id, name) + "; until then it is " + routedToApprovers, claimActionNamed(id, name)
 }
 
 // consumerWords names up to three visible consumers of rec and counts the
@@ -247,14 +301,19 @@ func consumerWords(rec *ExternalRecord) string {
 	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1] + verb
 }
 
-// claimReason is the explain reason of rec's claim, or of its absence.
-func claimReason(rec *ExternalRecord) Reason {
+// claimReason is the explain reason of rec's claim, or of its absence;
+// incomplete sources make no claim unknown.
+func claimReason(rec *ExternalRecord, incomplete bool) Reason {
 	switch c := rec.Claim; {
+	case rec.Claimants > 1:
+		return Reason{Code: ReasonExternalUnclaimed, Message: "Claimed by " + strconv.Itoa(rec.Claimants) + " services, so no claim counts until all but one are retracted"}
+	case c == nil && incomplete:
+		return Reason{Code: ReasonExternalUnclaimed, Message: "No claim was read, and some sources are incomplete, so it may be claimed: " + routedToApprovers}
 	case c == nil:
 		return Reason{Code: ReasonExternalUnclaimed, Message: "Unclaimed: " + routedToApprovers}
 	case c.Hidden:
 		return Reason{Code: ReasonExternalClaimed, Message: "Claimed by a service you may not read"}
 	default:
-		return Reason{Code: ReasonExternalClaimed, Message: "Claimed by " + string(c.Service) + " " + c.Version + " (declared by " + c.By + ")"}
+		return Reason{Code: ReasonExternalClaimed, Message: "Claimed by " + string(c.Service) + " " + c.Version + " (claim established by " + c.By + " at " + c.DeclaredVersion + ")"}
 	}
 }

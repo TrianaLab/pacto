@@ -3678,10 +3678,14 @@ export interface components {
         "Fleet.ExternalClaim": {
             /** @description The person whose accepted declaration established the claim */
             by?: string;
+            /** @description The version whose accepted declaration established the claim; the newest revision (version) may be a later publish that carried it */
+            declaredVersion?: string;
             /** @description You may not read the service that claims it */
             hidden?: boolean;
-            /** @description The verified owner of the service that claims it; absent when it has none */
+            /** @description The owner Pacto uses for the service that claims it, as shown; absent when it has none or its owners conflict */
             owner?: string;
+            /** @description The canonical key of owner (team:<name> or dri:<name>); absent with owner */
+            ownerKey?: string;
             /** @description The claimed revision, repository@digest */
             ref?: string;
             /** @description The service whose declared contract claims it */
@@ -3833,6 +3837,11 @@ export interface components {
             catalog?: components["schemas"]["Fleet.ExternalCatalogMatch"];
             /** @description The declared contract that claims this external system; absent while it is unclaimed */
             claim?: components["schemas"]["Fleet.ExternalClaim"];
+            /**
+             * Format: int64
+             * @description How many services claim it when more than one does: no claim counts until all but one are retracted; absent otherwise
+             */
+            claimants?: number;
             /**
              * @description The catalog class, unclassified when no catalog entry names it
              * @enum {string}

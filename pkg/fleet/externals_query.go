@@ -187,7 +187,7 @@ func (q *Query) explainExternal(key string) (*ExplainResult, error) {
 		res.Reasons = append(res.Reasons, Reason{Code: ReasonExternalNameOnly, Message: "no catalog alias equals this name; consumers that spell it differently do not join"})
 	}
 	if rec.Class != ClassOtherEgress {
-		res.Reasons = append(res.Reasons, claimReason(rec))
+		res.Reasons = append(res.Reasons, claimReason(rec, q.sourcesIncomplete()))
 	}
 	switch {
 	case into != "":

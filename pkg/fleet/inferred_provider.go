@@ -228,6 +228,8 @@ type inferredProviderGroup struct {
 	// it.
 	claimed     string
 	claimHidden bool
+	// claimants is set when more than one service claims it.
+	claimants bool
 }
 
 // inferredProviderAttention reports one knowledge item per inferred provider a
@@ -265,7 +267,7 @@ func (q *Query) inferredProviderGroup(rel Relationship) *inferredProviderGroup {
 	if rel.ToExternal != "" {
 		rec := q.externalRecord(rel.ToExternal)
 		return &inferredProviderGroup{entity: externalEntityRef(rec), name: string(rel.ToExternal),
-			claimed: rec.ClaimedRepository(), claimHidden: rec.Claim != nil && rec.Claim.Hidden}
+			claimed: rec.ClaimedRepository(), claimHidden: rec.Claim != nil && rec.Claim.Hidden, claimants: rec.Claimants > 1}
 	}
 	svc := q.snap.Services[rel.ToService]
 	return &inferredProviderGroup{entity: serviceEntityRef(svc), service: string(svc.Key), name: svc.Name}
@@ -302,7 +304,7 @@ func (g *inferredProviderGroup) nextAction() *NextAction {
 		if a := declareAction(g.name, ""); a != nil {
 			return a
 		}
-	case g.claimHidden:
+	case g.claimHidden || g.claimants:
 		return nil
 	case g.claimed == "":
 		return claimAction(g.name)
@@ -317,6 +319,8 @@ func (g *inferredProviderGroup) nextStep() string {
 		return "Declare a contract for " + g.name + " with pacto declare, then point the ranges at it"
 	case g.claimHidden:
 		return hiddenClaimStep
+	case g.claimants:
+		return claimantsStep
 	}
 	return InferredExternalNextStep(g.name, g.claimed)
 }
@@ -329,8 +333,11 @@ const hiddenClaimStep = "Claimed by a service you cannot see; ask the installati
 // external id as the viewer sees it: a hidden claimer names nothing and
 // invites no second claim.
 func (r *ExternalRecord) InferredNextStep(id string) string {
-	if r != nil && r.Claim != nil && r.Claim.Hidden {
+	switch {
+	case r != nil && r.Claim != nil && r.Claim.Hidden:
 		return hiddenClaimStep
+	case r != nil && r.Claimants > 1:
+		return claimantsStep
 	}
 	return InferredExternalNextStep(id, r.ClaimedRepository())
 }

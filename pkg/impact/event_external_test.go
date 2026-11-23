@@ -573,3 +573,13 @@ func TestImpactExternalSubjectUnclaimedNamesClaim(t *testing.T) {
 		t.Errorf("gate %s, notes %q", res.Gate, res.Notes)
 	}
 }
+
+func TestImpactExternalSubjectClaimantsNamesNoClaim(t *testing.T) {
+	snap := externalFleet(t)
+	snap.Externals["stripe"].Claimants = 2
+	res := externalEvent(snap, EventChanged, "stripe")
+	want := "external stripe is claimed by 2 services, so no claim counts until all but one are retracted"
+	if !reflect.DeepEqual(res.Notes, []string{want}) {
+		t.Errorf("notes %q", res.Notes)
+	}
+}

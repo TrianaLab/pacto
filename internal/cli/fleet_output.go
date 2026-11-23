@@ -266,6 +266,8 @@ func printExternalOwner(w io.Writer, rec fleet.ExternalRecord) {
 	switch c := rec.Claim; {
 	case rec.Key == fleet.OtherEgress:
 		return
+	case rec.Claimants > 1:
+		line = fmt.Sprintf("claimed by %d services, so no claim counts until all but one are retracted", rec.Claimants)
 	case c == nil:
 	case c.Hidden:
 		line = "claimed by a service you cannot see"

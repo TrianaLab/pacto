@@ -1503,6 +1503,9 @@ type ExternalRecord struct {
 	Provider *ExternalProvider `json:"provider,omitempty" doc:"The inferred contract published for it under pacto-inferred; never a service, and a range is never checked against it"`
 	// Claim is the declared contract that claims it (see linkExternalClaims).
 	Claim *ExternalClaim `json:"claim,omitempty" doc:"The declared contract that claims this external system; absent while it is unclaimed"`
+	// Claimants counts the services that each establish a claim on it when
+	// more than one does: then no claim counts and Claim is absent.
+	Claimants int `json:"claimants,omitempty" doc:"How many services claim it when more than one does: no claim counts until all but one are retracted; absent otherwise"`
 	// declarations counts, per consumer, the revisions that declare it plus
 	// each observed or inferred source.
 	declarations map[ServiceKey]int
@@ -1522,8 +1525,12 @@ type ExternalClaim struct {
 	Ref     string     `json:"ref,omitempty" doc:"The claimed revision, repository@digest"`
 	Version string     `json:"version,omitempty" doc:"The version of the claimed revision"`
 	By      string     `json:"by,omitempty" doc:"The person whose accepted declaration established the claim"`
-	Owner   string     `json:"owner,omitempty" doc:"The verified owner of the service that claims it; absent when it has none"`
-	Hidden  bool       `json:"hidden,omitempty" doc:"You may not read the service that claims it"`
+	// DeclaredVersion is the version By declared; Version is the newest
+	// revision, which a later publish may carry without the owner rule.
+	DeclaredVersion string `json:"declaredVersion,omitempty" doc:"The version whose accepted declaration established the claim; the newest revision (version) may be a later publish that carried it"`
+	Owner           string `json:"owner,omitempty" doc:"The owner Pacto uses for the service that claims it, as shown; absent when it has none or its owners conflict"`
+	OwnerKey        string `json:"ownerKey,omitempty" doc:"The canonical key of owner (team:<name> or dri:<name>); absent with owner"`
+	Hidden          bool   `json:"hidden,omitempty" doc:"You may not read the service that claims it"`
 	// ownerless says the claiming service has no verified owner, computed on
 	// the full snapshot so a restricted view keeps it for a hidden claimer.
 	ownerless bool

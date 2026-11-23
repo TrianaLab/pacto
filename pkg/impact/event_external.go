@@ -101,7 +101,7 @@ func analyzeExternalEvent(snap *fleet.FleetSnapshot, q *fleet.Query, opts Option
 	if q.ExternalsUnreported() {
 		res.partial(fleet.LimitationExternalsUnreported, "some targets do not report the external systems they use, so the consumers listed may be incomplete")
 	}
-	if note := claimNote(id, rec.Claim); note != "" {
+	if note := claimNote(id, rec); note != "" {
 		res.Notes = append(res.Notes, note)
 	}
 	res.Pin = pinFor(snap, key, rec, res.Consumers)
@@ -331,8 +331,11 @@ func (r *Result) externalGateReason() string {
 // hidden claim never invites a second one. Consumer effects stay the
 // vendor's: the event is about the external system, never the declared
 // contract.
-func claimNote(id string, c *fleet.ExternalClaim) string {
+func claimNote(id string, rec *fleet.ExternalRecord) string {
+	c := rec.Claim
 	switch {
+	case rec.Claimants > 1:
+		return "external " + id + " is claimed by " + strconv.Itoa(rec.Claimants) + " services, so no claim counts until all but one are retracted"
 	case c == nil:
 		return "external " + id + " has no claim: name its owner with pacto claim " + id + " --owner <team>"
 	case c.Hidden:

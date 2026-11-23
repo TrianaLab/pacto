@@ -432,7 +432,7 @@ func fleetStatusTool() *mcpsdk.Tool {
 		Description: "Report services and targets needing attention: non-compliant, unknown, invalid, " +
 			"stale evidence, missing readiness, unresolved dependencies and dependencies whose provider " +
 			"version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED), services that use a deprecated or past-sunset provider " +
-			"(DEPENDENCY_SERVICE_DEPRECATED, DEPENDENCY_SERVICE_SUNSET, SUCCESSOR_OUT_OF_RANGE), services and external systems with no owner (UNOWNED_EXTERNAL, ranked by how many services use it), " +
+			"(DEPENDENCY_SERVICE_DEPRECATED, DEPENDENCY_SERVICE_SUNSET, SUCCESSOR_OUT_OF_RANGE), services and external systems with no owner (UNOWNED_EXTERNAL; pacto_fleet_attention ranks it by how many services use it), " +
 			"undeclared runtime dependencies, running services that declare service.template (GOLDEN_PATH_DEPLOYED) and " +
 			"resources that failed to provision or report stale (category provisioning: PROVISIONING_FAILED, PROVISIONING_STALE; " +
 			"needs_attention includes them). 'total' and 'truncated' say whether the limit cut the list. With no category " +

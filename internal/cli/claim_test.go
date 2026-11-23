@@ -186,16 +186,18 @@ func TestClaimCommandNoKubeconfigStillPlans(t *testing.T) {
 
 func TestFleetGetExternalOwnerLine(t *testing.T) {
 	for _, tc := range []struct {
-		claim *fleet.ExternalClaim
-		want  string
+		claim     *fleet.ExternalClaim
+		want      string
+		claimants int
 	}{
-		{nil, "  owner    unclaimed, routed to the default approvers (routing only)\n"},
-		{&fleet.ExternalClaim{Hidden: true}, "  owner    claimed by a service you cannot see\n"},
-		{&fleet.ExternalClaim{Service: fleet.NewServiceKey("stripe"), Version: "0.1.0", Owner: "team-platform"}, "  owner    team-platform (claimed by stripe 0.1.0)\n"},
-		{&fleet.ExternalClaim{Service: fleet.NewServiceKey("stripe"), Version: "0.1.0"}, "  owner    no verified owner (claimed by stripe 0.1.0)\n"},
+		{nil, "  owner    unclaimed, routed to the default approvers (routing only)\n", 0},
+		{nil, "  owner    claimed by 2 services, so no claim counts until all but one are retracted\n", 2},
+		{&fleet.ExternalClaim{Hidden: true}, "  owner    claimed by a service you cannot see\n", 0},
+		{&fleet.ExternalClaim{Service: fleet.NewServiceKey("stripe"), Version: "0.1.0", Owner: "team-platform"}, "  owner    team-platform (claimed by stripe 0.1.0)\n", 0},
+		{&fleet.ExternalClaim{Service: fleet.NewServiceKey("stripe"), Version: "0.1.0"}, "  owner    no verified owner (claimed by stripe 0.1.0)\n", 0},
 	} {
 		var b bytes.Buffer
-		printExternal(&b, fleet.ExternalRecord{Key: "stripe", Class: "saas", ConsumersTotal: 1, Claim: tc.claim}, "", fleet.ExternalEvidence{})
+		printExternal(&b, fleet.ExternalRecord{Key: "stripe", Class: "saas", ConsumersTotal: 1, Claim: tc.claim, Claimants: tc.claimants}, "", fleet.ExternalEvidence{})
 		if lines := strings.SplitAfter(b.String(), "\n"); len(lines) < 2 || lines[1] != tc.want {
 			t.Errorf("claim %+v:\n%s", tc.claim, b.String())
 		}
