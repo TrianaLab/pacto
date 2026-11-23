@@ -128,11 +128,3 @@ func TestOfferingAnnotation(t *testing.T) {
 		t.Error("a service that provides no offering names one")
 	}
 }
-
-func TestContributedOfferingExportsInferred(t *testing.T) {
-	t.Skip("515-S4 format")
-	ann := byKey(t, ctbMap(t, nil, contributed("pg", "postgresql", fixed.Add(-time.Hour))), ctbKey("pg")).Metadata.Annotations
-	if ann[AnnotationOffering] != "postgresql" || ann[AnnotationContributedBy] != ctbProducer || ann[AnnotationProvenance] != provenanceInferred {
-		t.Errorf("annotations = %v", ann)
-	}
-}

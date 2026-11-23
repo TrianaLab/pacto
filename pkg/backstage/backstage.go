@@ -54,7 +54,8 @@ const (
 	// AnnotationDependencyRanges is JSON: for each spec.dependsOn ref, the
 	// distinct ranges in-use revisions declare with the fleet's range status
 	// (satisfied, unsatisfied or unknown) and reason. An empty status reads
-	// unknown, never absent.
+	// unknown, never absent. A declared dependency that did not resolve has no
+	// dependsOn ref, so no entry: AnnotationUnresolvedDependency counts it.
 	AnnotationDependencyRanges = "pacto.trianalab.io/dependency-ranges"
 	// AnnotationConformance is the service's runtime conformance in the
 	// reader's view: one of the fleet's Status values.

@@ -105,17 +105,31 @@ func TestFakePrivateIDPEndToEnd(t *testing.T) {
 	if err := os.WriteFile(tokenFile, []byte("Authorization: Bearer "+acmeReader+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	runScript := func() {
-		t.Helper()
+	script := func(keys string) (string, error) {
 		run := exec.Command("bash", "-euo", "pipefail", scriptPath)
 		run.Dir = work
 		run.Env = append(env, "REGISTRY="+registry, "EVIDENCE_URL="+evidenceURL, "PACTO_URL="+pactoURL,
 			"PACTO_TOKEN_FILE="+tokenFile, "CHECKOUT_REF="+checkoutRef, "KEYS="+keys)
 		out, err := run.CombinedOutput()
-		if err != nil || !strings.Contains(string(out), "acme-portal: done") {
+		return string(out), err
+	}
+	runScript := func() {
+		t.Helper()
+		if out, err := script(keys); err != nil || !strings.Contains(out, "acme-portal: done") {
 			t.Fatalf("acme-portal.sh: %v\n%s", err, out)
 		}
 	}
+
+	// The first run, with no key yet, only creates the key and stops: the
+	// Evidence Server cannot trust it before the platform grants it.
+	fresh := t.TempDir()
+	if out, err := script(fresh); err != nil || !strings.Contains(out, "acme-portal__acme-portal-2026.pub") || strings.Contains(out, "acme-portal: done") {
+		t.Fatalf("first run: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(work, "envelope.json")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the first run signed evidence before the key was granted: %v", err)
+	}
+
 	runScript()
 	entities, err := os.ReadFile(filepath.Join(work, "entities.yaml"))
 	if err != nil {
@@ -271,6 +285,14 @@ func checkScriptHonesty(t *testing.T, path string) {
 	}
 	if m := regexp.MustCompile(`(?m)^\s*(oras|jq|go)\b|\|\s*(oras|jq|go)\b|\$\((oras|jq|go)\b`).FindString(script); m != "" {
 		t.Errorf("acme-portal.sh calls %q", m)
+	}
+	// shasum ships with Perl, not coreutils or busybox: only as a fallback.
+	if strings.Contains(script, "shasum") && !strings.Contains(script, "sha256sum") {
+		t.Error("acme-portal.sh needs shasum, which slim runners lack; prefer sha256sum")
+	}
+	// The script reports fixture facts, so it must say so before a reader runs it.
+	if !strings.Contains(strings.SplitN(script, "set -euo pipefail", 2)[0], "fixture facts") {
+		t.Error("acme-portal.sh's header does not say it reports fixture facts")
 	}
 	if strings.Contains(script, "Bearer $") || strings.Contains(script, "--local") {
 		t.Error("acme-portal.sh puts the token in argv or reads Pacto internals")

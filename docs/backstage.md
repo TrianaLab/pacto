@@ -182,7 +182,7 @@ adds `pacto.trianalab.io/caller-ambiguous: "true"` and is `partial`.
 | `pacto.trianalab.io/name-source` | Where an inferred name came from |
 | `pacto.trianalab.io/relation-provenance` | Provenance of each `dependsOn` ref |
 | `pacto.trianalab.io/inferred-depends-on` | Edges Pacto only inferred |
-| `pacto.trianalab.io/dependency-ranges` | JSON: for each `dependsOn` ref, the ranges its contract accepts and whether the provider version Pacto sees satisfies each: `satisfied`, `unsatisfied` or `unknown`. A range Pacto could not evaluate reads `unknown`, never absent |
+| `pacto.trianalab.io/dependency-ranges` | JSON: for each `dependsOn` ref, the ranges its contract accepts and whether the provider revisions Pacto reads from the registry (the locked revision, or every published one) satisfy each: `rangeStatus` reads `satisfied`, `unsatisfied` or `unknown`, and `rangeReason` reads `INFERRED_PROVIDER` when the provider is only an inferred contract. A declared range on a `dependsOn` ref with no computed status reads `unknown`, never absent. A declared dependency that did not resolve has no `dependsOn` ref and no entry here: `unresolved-dependencies` counts it. The versions a running target reaches show up in `conformance` |
 | `pacto.trianalab.io/conformance` | Runtime conformance of the service in your view: `Compliant`, `Warning`, `Unknown`, `NonCompliant`, `Invalid`, `Reference` or `NotEvaluated` |
 | `pacto.trianalab.io/offering` | The platform offering the Component provides |
 | `pacto.trianalab.io/contributed-by` | The producer whose contribution alone describes the Component. It reads `inferred`, or `observed` when a running target shows it, never `declared` |

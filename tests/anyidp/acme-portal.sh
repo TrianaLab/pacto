@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
 # acme-portal: a private in-house IDP that sits on top of Pacto through the
-# open seams only, with curl and the pacto CLI. The platform sets:
+# open seams only, with curl, the pacto CLI and coreutils. A template: the
+# service, versions and database it reports are fixture facts; replace them
+# with what your portal knows before you run it for real. The platform sets:
 #   REGISTRY          where contracts live, such as registry.acme.internal/acme
 #   EVIDENCE_URL      the Evidence Server's base URL
 #   PACTO_URL         the dashboard's base URL
 #   PACTO_TOKEN_FILE  a 0600 file holding "Authorization: Bearer <reader token>"
-#   CHECKOUT_REF      the checkout revision running in prod (oci://...@sha256:...)
+#   CHECKOUT_REF      the running checkout revision (oci://...@sha256:...)
 #   KEYS              where acme-portal keeps its signing key, never a bundle
 set -euo pipefail
 
 KEY="$KEYS/acme-portal-2026.key"
-[ -f "$KEY" ] || pacto evidence keygen --out "$KEYS" --producer acme-portal --key-id acme-portal-2026
+if [ ! -f "$KEY" ]; then
+  pacto evidence keygen --out "$KEYS" --producer acme-portal --key-id acme-portal-2026
+  echo "acme-portal: hand $KEYS/acme-portal__acme-portal-2026.pub to the platform for its trust grant, then run again"
+  exit 0
+fi
 # Ingest refuses a sequence no greater than the producer's last, across runs.
 seq=$(( $(date +%s) * 1000 ))
 
@@ -29,7 +35,7 @@ contribute() { # name version depends-on
   local dir digest
   dir=$(mktemp -d)
   echo "{\"$1\": {\"dependsOn\": [\"$3\"]}}" > "$dir/portal.json"
-  digest=$(shasum -a 256 "$dir/portal.json" | cut -d' ' -f1)
+  digest=$( (sha256sum 2>/dev/null || shasum -a 256) < "$dir/portal.json" | cut -d' ' -f1)
   cat > "$dir/pacto.yaml" <<YAML
 pactoVersion: "2.5"
 service: {name: $1, version: $2}
@@ -48,8 +54,8 @@ YAML
 # 1. Contribution: a service the portal runs that has no contract yet.
 contribute legacy-billing 0.1.0 payments
 
-# 2. Target: checkout runs in prod, whoever deployed it, and reaches the
-# versions of payments and postgresql its contract accepts.
+# 2. Target: a running checkout named checkout-prod, whoever deployed it, and
+# the payments and postgresql versions it reaches, which conformance checks.
 now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 subject='{"kind": "service", "name": "checkout-prod"}'
 prov="{\"collector\": \"acme-portal\", \"detectedAt\": \"$now\"}"
