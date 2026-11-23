@@ -184,6 +184,13 @@ tests:
     asserts:
       - notMatchRegex: {path: "spec.template.spec.containers[0].args[*]", pattern: ^--evidence-subject}
 
+  - it: idp with a trailing-slash registry is refused by the schema
+    template: templates/deployment.yaml
+    set: {profile: idp, registry: ghcr.io/acme/}
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?i)registry.*does not match pattern"
+
   - it: idp with evidence.registry.credentialsSecret renders --evidence-credentials-secret
     template: templates/deployment.yaml
     set: {profile: idp, evidence.registry.credentialsSecret: evidence-push}

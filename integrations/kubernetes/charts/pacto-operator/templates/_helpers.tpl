@@ -980,10 +980,11 @@ The subject prefix profile idp defaults to: oci://<registry>/, only under
 --evidence-server-auto with neither subjects nor subjectPrefixes set, and only
 when registry has a path segment. A bare host would scope evidence to every
 repository on it, a scope no person chose, so it gets none and the operator's
-evidence row asks for evidence.registry.subjectPrefixes.
+evidence row asks for evidence.registry.subjectPrefixes. The values schema
+refuses a trailing slash on registry, so the prefix never renders "//".
 */}}
 {{- define "pacto-operator.evidenceDefaultPrefix" -}}
-{{- $registry := regexReplaceAll "/+$" (toString (default "" .Values.registry)) "" }}
+{{- $registry := toString (default "" .Values.registry) }}
 {{- if and (include "pacto-operator.evidenceManaged" .) (not .Values.evidence.enabled) (not .Values.evidence.registry.subjects) (not .Values.evidence.registry.subjectPrefixes) (contains "/" $registry) }}
 {{- printf "oci://%s/" $registry }}
 {{- end }}
