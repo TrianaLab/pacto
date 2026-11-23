@@ -1,5 +1,5 @@
 # The RBAC inventory: every Role, ClusterRole and binding the chart renders, in
-# twelve full renders and eight single-template renders, with its exact rules,
+# twelve full renders and ten single-template renders, with its exact rules,
 # roleRef and subjects. A new rule, verb,
 # subject or retargeted binding fails here; review it against the least-privilege
 # rules (no cluster-wide Secret read, a namespace list renders no ClusterRole
@@ -13,6 +13,9 @@
 # (a member with a live review channel, 514-S4) adds one rule, create
 # subjectaccessreviews: the two `hub.url` renders turn the dashboard off,
 # because the default dashboard already holds that rule.
+# clusterInventory.secretNamespaces (514-S5) renders one Role per named namespace
+# with list on secrets and its RoleBinding: the `secretNamespaces argocd,flux-system`
+# and `hardened with secretNamespaces` renders. No ClusterRole ever gains it.
 # The `idp crossplane install` render pins the upstream Crossplane chart's
 # roles and bindings that idp.crossplane.install adds (a person's choice,
 # vendored in files/crossplane): its ClusterRoles write Secrets, CRDs and webhook configurations cluster-wide and
@@ -33,6 +36,7 @@ templates:
   - templates/delivery/identities.yaml
   - templates/dashboard-signin.yaml
   - templates/cluster-identity-role.yaml
+  - templates/cluster-inventory-rbac.yaml
   - templates/idp/flux.yaml
   # upstream Crossplane, rendered only with idp.crossplane.install
   - templates/idp/crossplane.yaml
@@ -533,6 +537,54 @@ tests:
         template: templates/clusterrole.yaml
       - hasDocuments: {count: 0}
         template: templates/clusterrolebinding.yaml
+
+  # clusterInventory.secretNamespaces (514-S5): a person names each namespace
+  # where Secret metadata may be listed; one Role and RoleBinding per name, list
+  # only, and never a Secret rule in a ClusterRole.
+  - it: secretNamespaces renders one Role per namespace and no ClusterRole secret rule
+    set:
+      clusterInventory.enabled: true
+      clusterInventory.secretNamespaces: [flux-system, argocd]
+    asserts:
+      - hasDocuments: {count: 4}
+        template: templates/cluster-inventory-rbac.yaml
+      - notContains: {path: rules, content: {apiGroups: [""], resources: [secrets]}, any: true}
+        template: templates/clusterrole.yaml
+      - notContains: {path: rules, content: {apiGroups: [""], resources: [secrets], verbs: [list]}, any: true}
+        template: templates/role.yaml
+
+  - it: hardened renders the namespaced Roles only
+    set:
+      profile: hardened
+      controller.watchNamespaces: [payments, ledger]
+      clusterInventory.enabled: true
+      clusterInventory.secretNamespaces: [argocd]
+    asserts:
+      - hasDocuments: {count: 2}
+        template: templates/cluster-inventory-rbac.yaml
+      - hasDocuments: {count: 0}
+        template: templates/clusterrole.yaml
+      - hasDocuments: {count: 0}
+        template: templates/clusterrolebinding.yaml
+
+  - it: secretNamespaces without clusterInventory.enabled renders no Role
+    template: templates/cluster-inventory-rbac.yaml
+    set:
+      clusterInventory.secretNamespaces: [argocd]
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: clusterInventory.enabled without secretNamespaces renders no Role
+    template: templates/cluster-inventory-rbac.yaml
+    set:
+      clusterInventory.enabled: true
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: default renders no cluster inventory Role
+    template: templates/cluster-inventory-rbac.yaml
+    asserts:
+      - hasDocuments: {count: 0}
 
   # Every binding's roleRef and subjects are pinned: the per-render cases below.
   - it: 'default: every rule, roleRef and subject of clusterrole.yaml is pinned'
@@ -7101,3 +7153,99 @@ tests:
         - {kind: ServiceAccount, name: source-controller, namespace: flux-system}
       documentIndex: 4
     - notMatchRegex: {path: kind, pattern: ^(Role|RoleBinding)$}
+  - it: 'secretNamespaces argocd,flux-system: every rule, roleRef and subject of cluster-inventory-rbac.yaml is pinned'
+    template: templates/cluster-inventory-rbac.yaml
+    set:
+      clusterInventory.enabled: true
+      clusterInventory.secretNamespaces: [flux-system, argocd]
+    asserts:
+    - hasDocuments: {count: 4}
+    - equal: {path: kind, value: Role}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-cluster-inventory}
+      documentIndex: 0
+    - equal: {path: metadata.namespace, value: argocd}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: [list]
+      documentIndex: 0
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-cluster-inventory}
+      documentIndex: 1
+    - equal: {path: metadata.namespace, value: argocd}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-operator-cluster-inventory}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+      documentIndex: 1
+    - equal: {path: kind, value: Role}
+      documentIndex: 2
+    - equal: {path: metadata.name, value: pacto-operator-cluster-inventory}
+      documentIndex: 2
+    - equal: {path: metadata.namespace, value: flux-system}
+      documentIndex: 2
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: [list]
+      documentIndex: 2
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 3
+    - equal: {path: metadata.name, value: pacto-operator-cluster-inventory}
+      documentIndex: 3
+    - equal: {path: metadata.namespace, value: flux-system}
+      documentIndex: 3
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-operator-cluster-inventory}
+      documentIndex: 3
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+      documentIndex: 3
+  - it: 'hardened with secretNamespaces: every rule, roleRef and subject of cluster-inventory-rbac.yaml is pinned'
+    template: templates/cluster-inventory-rbac.yaml
+    set: {profile: hardened, controller.watchNamespaces: [payments, ledger], clusterInventory.enabled: true, clusterInventory.secretNamespaces: [argocd]}
+    asserts:
+    - hasDocuments: {count: 2}
+    - equal: {path: kind, value: Role}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-cluster-inventory}
+      documentIndex: 0
+    - equal: {path: metadata.namespace, value: argocd}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: [list]
+      documentIndex: 0
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-cluster-inventory}
+      documentIndex: 1
+    - equal: {path: metadata.namespace, value: argocd}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-operator-cluster-inventory}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+      documentIndex: 1
