@@ -42,10 +42,12 @@ func Catalog(ctx context.Context, repo *remote.Repository, path string, max int)
 		prefix = path + "/"
 	}
 	out, seen, err := catalogWalk(ctx, reg, path, prefix, max)
-	// ponytail: zot answers a last that names no repository with an empty
-	// list, so an empty seek walks again from the start. On distribution
-	// that costs one walk only when nothing sorts past path.
-	if err == nil && seen == 0 && path != "" {
+	// zot (and Harbor) answer a last that names no repository with an empty
+	// list, so an empty seek walks again from the start, but only on a
+	// registry that does so: one that honours an unknown last answered the
+	// truth, nothing sorts past path, and a second walk would page through
+	// every repository before it.
+	if err == nil && seen == 0 && path != "" && !honoursUnknownLast(ctx, reg) {
 		out, _, err = catalogWalk(ctx, reg, "", prefix, max)
 	}
 	var resp *errcode.ErrorResponse
@@ -61,6 +63,20 @@ func Catalog(ctx context.Context, repo *remote.Repository, path string, max int)
 		return nil, fmt.Errorf("%s %w", host, ErrCatalogRefused)
 	}
 	return nil, err
+}
+
+// honoursUnknownLast reports whether the registry answers a last naming no
+// repository with the names after it: "-" sorts before every repository
+// name and names none, so any name on its first page says yes. An error or
+// an empty registry says no, and the caller walks from the start, which
+// costs one page on an empty registry.
+func honoursUnknownLast(ctx context.Context, reg *remote.Registry) bool {
+	got := false
+	_ = reg.Repositories(ctx, "-", func(names []string) error { // the answer is got
+		got = len(names) > 0
+		return errCatalogDone
+	})
+	return got
 }
 
 // catalogWalk pages the catalog from last, keeps the names under prefix

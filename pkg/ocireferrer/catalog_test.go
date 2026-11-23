@@ -133,12 +133,24 @@ func TestCatalogSeekPastUnknownLast(t *testing.T) {
 	t.Cleanup(srv.Close)
 	repo := &remote.Repository{Reference: registry.Reference{Registry: strings.TrimPrefix(srv.URL, "http://"), Repository: "acme/pacto-index"}, PlainHTTP: true}
 	got, err := Catalog(t.Context(), repo, "acme", 10)
-	if err != nil || !slices.Equal(got, all[1:3]) || len(queries) != 2 {
+	if err != nil || !slices.Equal(got, all[1:3]) || len(queries) != 3 {
 		t.Fatalf("%v %v after %v", got, err, queries)
 	}
 	// Nothing at all under the prefix stays an empty, complete listing.
 	queries = nil
-	if got, err := Catalog(t.Context(), repo, "nothing", 10); err != nil || len(got) != 0 || len(queries) != 2 {
+	if got, err := Catalog(t.Context(), repo, "nothing", 10); err != nil || len(got) != 0 || len(queries) != 3 {
 		t.Fatalf("%v %v after %v", got, err, queries)
+	}
+}
+
+// TestCatalogEmptySeekOnDistribution: a registry that honours an unknown
+// last and has nothing past the prefix answered the truth; the listing is
+// complete and empty after one probe, never a walk through every
+// repository before the prefix (which would pass maxTagPages).
+func TestCatalogEmptySeekOnDistribution(t *testing.T) {
+	cs, repo := newCatalogServer(t, names("aaa", 2000), 0)
+	got, err := Catalog(t.Context(), repo, "zeta", 10)
+	if err != nil || len(got) != 0 || len(cs.queries) != 2 {
+		t.Fatalf("%v %v after %v", got, err, cs.queries)
 	}
 }
