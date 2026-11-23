@@ -60,8 +60,8 @@ const scopedNodes = "with controller.watchNamespaces the operator may not list n
 
 var httpRouteGVK = schema.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRouteList"}
 
-// Detector is the leader-only runnable that detects on start and every
-// Interval, writing only the ConfigMap Name in Namespace.
+// Detector is the leader-only runnable that detects on start, every Interval
+// and on every Wake, writing only the ConfigMap Name in Namespace.
 type Detector struct {
 	// Reader must be uncached: detection adds no informer to the manager.
 	Reader client.Reader
@@ -85,6 +85,10 @@ type Detector struct {
 	// attempt, nil before the first one.
 	Installation *detect.Installation
 	LastPush     func() *detect.PushResult
+	// Wake, when set, runs a detection at once: the snapshot publisher sends
+	// on it after every push, so lastPush is advertised without waiting for
+	// the next Interval.
+	Wake <-chan struct{}
 	// Readers are the egress readers the operator started with.
 	Readers Readers
 
@@ -109,9 +113,20 @@ func readerOff(e detect.Entry, running bool) detect.Entry {
 }
 
 // Start implements manager.Runnable. Runnables default to leader election,
-// so only the leader writes.
+// so only the leader writes. Sync never fails, so neither does Start.
 func (d *Detector) Start(ctx context.Context) error {
-	return component.Run(ctx, "detection", true, d.Interval, d.Sync)
+	_ = d.Sync(ctx)
+	t := time.NewTicker(cmp.Or(d.Interval, component.DefaultInterval))
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-t.C:
+		case <-d.Wake: // a nil Wake never fires
+		}
+		_ = d.Sync(ctx)
+	}
 }
 
 // Sync detects once and writes the ConfigMap. It always returns nil: a failed

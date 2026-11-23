@@ -764,6 +764,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig()),
 		inst, lastPush.Load, detection.Readers{GatewayLogs: o.egressGatewayLogs, KernelEvidence: o.enableKernelEvidence,
 			ServiceEntries: servesServiceEntries(mgr), CiliumPolicies: servesCiliumPolicies(mgr)}); d != nil {
+		d.Wake = pushed
 		if err := mgr.Add(d); err != nil {
 			return fmt.Errorf("failed to add detection: %w", err)
 		}
@@ -917,8 +918,21 @@ func addLinker(mgr ctrl.Manager, o *options, namespace, clusterID string, kc, lo
 	return l.Current, mgr.Add(l)
 }
 
-// lastPush is the target snapshot publisher's last attempt, which detection advertises.
-var lastPush atomic.Pointer[detect.PushResult]
+// lastPush is the target snapshot publisher's last attempt, which detection advertises; pushed wakes
+// detection after each attempt, so it is advertised at once rather than on the next detection round.
+var (
+	lastPush atomic.Pointer[detect.PushResult]
+	pushed   = make(chan struct{}, 1)
+)
+
+// recordPush stores a publish attempt and wakes detection without ever blocking the publisher.
+func recordPush(r detect.PushResult) {
+	lastPush.Store(&r)
+	select {
+	case pushed <- struct{}{}:
+	default:
+	}
+}
 
 // addTargetSnapshot runs the target snapshot publisher when --registry is set: it ensures the installation
 // key, then publishes <registry>/pacto-targets:cluster-<uid> and the inferred contracts under
@@ -946,7 +960,7 @@ func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kub
 		ClusterName: ident.Name, ClusterNameSource: ident.NameSource,
 		Namespace: namespace, ServiceAccount: os.Getenv("OPERATOR_SERVICE_ACCOUNT"), EvidenceURL: evidenceURL,
 		Watched: o.namespaces, Key: key, Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(),
-		OnPush: func(r detect.PushResult) { lastPush.Store(&r) }, OwnerPolicy: readOwnerPolicy(o.ownerPolicy),
+		OnPush: recordPush, OwnerPolicy: readOwnerPolicy(o.ownerPolicy),
 		Linked: linked})
 	if err != nil {
 		return nil, err

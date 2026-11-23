@@ -16,6 +16,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -593,6 +594,51 @@ func TestDetectorCopiesLastPush(t *testing.T) {
 	_, res := readResult(t, c)
 	if res.Installation == nil || res.Installation.LastPush == nil || res.Installation.LastPush.Ref != last.Ref || inst.LastPush != nil {
 		t.Errorf("installation = %+v, configured = %+v", res.Installation, inst)
+	}
+}
+
+// TestDetectorWakeAdvertisesPushAtOnce is the regression for a member whose
+// first push landed after detection's start round: lastPush stayed unadvertised
+// for a whole Interval, past the cluster-join scenario's wait.
+func TestDetectorWakeAdvertisesPushAtOnce(t *testing.T) {
+	c := newClient(interceptor.Funcs{}, clusterObjects()...)
+	var last atomic.Pointer[detect.PushResult]
+	wake := make(chan struct{}, 1)
+	d := ForOperator(deploy, opNS, nil, "", kubecluster.Identity{ID: "cluster-uid"}, c, c, servedAll,
+		&detect.Installation{Registry: "ghcr.io/acme"}, last.Load, allReaders(detect.GatewayLogsAuto))
+	d.Now, d.Interval, d.Wake = func() time.Time { return now }, time.Hour, wake
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error)
+	go func() { done <- d.Start(ctx) }()
+	defer func() { cancel(); <-done }()
+	advertised := func() *detect.PushResult {
+		cm := &corev1.ConfigMap{}
+		if c.Get(context.Background(), client.ObjectKey{Namespace: opNS, Name: cmName}, cm) != nil {
+			return nil
+		}
+		res, err := detect.Decode([]byte(cm.Data[detect.ConfigMapKey]))
+		if err != nil || res.Installation == nil {
+			return nil
+		}
+		return res.Installation.LastPush
+	}
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if c.Get(context.Background(), client.ObjectKey{Namespace: opNS, Name: cmName}, &corev1.ConfigMap{}) == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the start round wrote no ConfigMap")
+		}
+	}
+	if p := advertised(); p != nil {
+		t.Fatalf("lastPush advertised before any push: %+v", p)
+	}
+	last.Store(&detect.PushResult{At: now, Ref: "ghcr.io/acme/pacto-targets:cluster-cluster-uid"})
+	wake <- struct{}{}
+	for deadline := time.Now().Add(5 * time.Second); advertised() == nil; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("a wake did not advertise the push before the next Interval")
+		}
 	}
 }
 
