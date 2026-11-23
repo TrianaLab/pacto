@@ -135,6 +135,11 @@ type FleetOptions struct {
 	// reads none. Impact rebuilds and registry writes clear it
 	// (withoutListings): an index alone never clears a gate.
 	ReadIndex string
+	// Discover are registry prefixes, host[/path], whose golden paths and
+	// offerings join the snapshot: listed from <prefix>/pacto-index, then
+	// _catalog. Requires a BundleStore. Impact and CIPlan ignore it
+	// (withoutListings).
+	Discover []string
 	// extraSources join the configured ones. Impact uses it to add the new
 	// revision when no configured source holds the changed service.
 	extraSources []fleet.Source
@@ -152,6 +157,7 @@ func (o FleetOptions) hasTargetInput() bool {
 // repository: what impact rebuilds and registry writes build from.
 func (o FleetOptions) withoutListings() FleetOptions {
 	o.ReadIndex = ""
+	o.Discover = nil
 	return o
 }
 
@@ -211,6 +217,11 @@ func (o FleetOptions) ConsumerSources() []string {
 // The snapshot is a pure read model; query it with [fleet.NewQuery]. Source
 // failures are surfaced as explicit limitations unless DisallowPartial is set.
 func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSnapshot, error) {
+	discover, err := checkDiscovers(opts.Discover)
+	if err != nil {
+		return nil, err
+	}
+	opts.Discover = discover
 	cat, catLims, err := s.externalCatalog(ctx, opts)
 	if err != nil {
 		return nil, err
@@ -240,9 +251,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	}
 	if len(opts.OCIRefs) > 0 {
 		if s.BundleStore != nil {
-			src := fleetsrc.NewOCISource("oci", s.BundleStore, opts.OCIRefs)
-			s.registryChecks(opts)(src)
-			sources = append(sources, src)
+			sources = append(sources, s.ociSourceFor("oci", opts.OCIRefs, opts))
 		} else {
 			sources = append(sources, fleet.NewFailingSource("oci", "oci", errNoBundleStore))
 		}
@@ -255,6 +264,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		}
 	}
 	sources = append(sources, s.indexFleetSources(opts)...)
+	sources = append(sources, s.registrySources(opts)...)
 	if opts.IncludeK8s || len(opts.K8sContexts) > 0 {
 		sources = append(sources, s.k8sSources(ctx, opts, fp.Promoters)...)
 	}
@@ -279,25 +289,25 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	}, sources...)
 }
 
-// registryChecks sets on a registry source the provenance, owner-right and
-// registry-probe checks opts asks for: every source that pulls published
-// bundles is checked alike.
-func (s *Service) registryChecks(opts FleetOptions) func(*fleetsrc.OCISource) {
-	return func(src *fleetsrc.OCISource) {
-		if opts.Provenance != nil {
-			src.Provenance = opts.Provenance.Check
-			src.OwnerRights = opts.Provenance.ownerRights(s.fleetOwnerPolicy(opts.TargetSnapshotTrustFile))
-		}
-		src.RegistryProbe = opts.RegistryProbe
+// ociSourceFor is the registry source id over refs with the provenance,
+// owner-right and registry-probe checks opts asks for: every source that
+// pulls published bundles is built here, so all are checked alike.
+func (s *Service) ociSourceFor(id string, refs []string, opts FleetOptions) *fleetsrc.OCISource {
+	src := fleetsrc.NewOCISource(id, s.BundleStore, refs)
+	if opts.Provenance != nil {
+		src.Provenance = opts.Provenance.Check
+		src.OwnerRights = opts.Provenance.ownerRights(s.fleetOwnerPolicy(opts.TargetSnapshotTrustFile))
 	}
+	src.RegistryProbe = opts.RegistryProbe
+	return src
 }
 
 // declarationSigners is the installation signer policy a declared
-// revision's signer is judged with. Only the registry sources (OCIRefs and
-// ReadIndex) check provenance, so only they can show a declaration's
+// revision's signer is judged with. Only the registry sources (OCIRefs,
+// ReadIndex and Discover) check provenance, so only they can show a declaration's
 // cluster facts: without them none is read.
 func (s *Service) declarationSigners(ctx context.Context, opts FleetOptions) *fleet.DeclarationSignerPolicy {
-	if opts.Provenance == nil || (len(opts.OCIRefs) == 0 && opts.ReadIndex == "") || s.BundleStore == nil {
+	if opts.Provenance == nil || (len(opts.OCIRefs) == 0 && opts.ReadIndex == "" && len(opts.Discover) == 0) || s.BundleStore == nil {
 		return nil
 	}
 	return opts.Provenance.DeclarationSigners(ctx)

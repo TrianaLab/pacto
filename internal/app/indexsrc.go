@@ -20,6 +20,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/singleflight"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry/remote"
 
@@ -244,6 +245,8 @@ type indexMemo struct {
 	entries map[string]indexCached
 	// seen holds the repositories a read listed entries in.
 	seen map[string]bool
+	// flight joins concurrent reads of one candidate list.
+	flight singleflight.Group
 }
 
 // IndexEntries is the read of the first organization index among
@@ -265,18 +268,22 @@ func (s *Service) IndexEntries(ctx context.Context, candidates []string) *indexR
 	if rd != nil && now.Sub(rd.at) < indexListingTTL {
 		return rd
 	}
-	rd = s.readIndex(ctx, candidates)
-	rd.at = now
-	if rd.status == impact.IndexRead && ctx.Err() == nil {
-		m.mu.Lock()
-		if m.reads == nil {
-			m.reads, m.seen = map[string]*indexRead{}, map[string]bool{}
+	// Sources of one build read concurrently: they share one read.
+	v, _, _ := m.flight.Do(key, func() (any, error) {
+		rd := s.readIndex(ctx, candidates)
+		rd.at = now
+		if rd.status == impact.IndexRead && ctx.Err() == nil {
+			m.mu.Lock()
+			if m.reads == nil {
+				m.reads, m.seen = map[string]*indexRead{}, map[string]bool{}
+			}
+			m.reads[key] = rd
+			m.seen[rd.repo] = true
+			m.mu.Unlock()
 		}
-		m.reads[key] = rd
-		m.seen[rd.repo] = true
-		m.mu.Unlock()
-	}
-	return rd
+		return rd, nil
+	})
+	return v.(*indexRead)
 }
 
 // indexSeen reports whether this Service once listed entries in the index

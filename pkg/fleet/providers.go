@@ -81,6 +81,27 @@ const (
 // does not know which mode it would use there.
 const LimitationRegistryProbeFailed = "REGISTRY_PROBE_FAILED"
 
+// Limitation codes of a registry discovery source: why the golden paths and
+// offerings under a registry prefix may be more than it lists.
+const (
+	// LimitationRegistryListingIndexOnly: the registry serves no _catalog
+	// (or refused it to the credential), so only what the organization index
+	// lists was found.
+	LimitationRegistryListingIndexOnly = "REGISTRY_LISTING_INDEX_ONLY"
+	// LimitationRegistryListingNone: there is no organization index and the
+	// registry serves no _catalog, so nothing under the prefix was listed.
+	LimitationRegistryListingNone = "REGISTRY_LISTING_NONE"
+	// LimitationRegistryListingTruncated: a bound or the read timeout stopped
+	// a listing; what lies past it is unknown.
+	LimitationRegistryListingTruncated = "REGISTRY_LISTING_TRUNCATED"
+	// LimitationRegistryListingUnavailable: a listing failed.
+	LimitationRegistryListingUnavailable = "REGISTRY_LISTING_UNAVAILABLE"
+	// LimitationRegistryListingEntryUnreadable: listed bundles that could not
+	// be read, or that did not match their repository, were left out; the
+	// limitation counts them and names none.
+	LimitationRegistryListingEntryUnreadable = "REGISTRY_LISTING_ENTRY_UNREADABLE"
+)
+
 // Row ids, UsedFor value and limitation codes of the service mesh rows.
 const (
 	// ProviderIstio is the row of the Istio mesh a mesh source found.

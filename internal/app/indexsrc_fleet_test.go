@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -27,7 +26,7 @@ func (e *idxEnv) whole(svc *Service, repo string, longRunning bool) *indexFleetS
 	if repo == "" {
 		repo = e.index()
 	}
-	return &indexFleetSource{svc: svc, repo: repo, longRunning: longRunning, configure: svc.registryChecks(FleetOptions{})}
+	return &indexFleetSource{svc: svc, repo: repo, longRunning: longRunning, opts: FleetOptions{}}
 }
 
 // collectWhole reads src once.
@@ -159,7 +158,7 @@ func TestIndexFleetSourceReadsNamedInferredContracts(t *testing.T) {
 		t.Fatalf("stripe %+v; lims %+v", x, snap.Limitations)
 	}
 	src := e.whole(e.svc, "", false)
-	src.configure = func(o *fleetsrc.OCISource) { o.RegistryProbe = probeAll }
+	src.opts.RegistryProbe = probeAll
 	coll := collectWhole(t, src)
 	if len(coll.Providers) != 1 || len(coll.Providers[0].Services) != 2 || len(coll.Limitations) != 0 {
 		t.Fatalf("rows %+v lims %+v", coll.Providers, coll.Limitations)

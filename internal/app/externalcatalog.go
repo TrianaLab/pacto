@@ -192,5 +192,10 @@ func readsGHCR(opts FleetOptions) bool {
 			return true
 		}
 	}
+	for _, p := range opts.Discover {
+		if host, _, _ := strings.Cut(contract.TrimOCIScheme(p), "/"); strings.EqualFold(host, "ghcr.io") {
+			return true
+		}
+	}
 	return false
 }

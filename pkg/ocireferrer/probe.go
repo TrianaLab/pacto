@@ -190,13 +190,8 @@ var errFirstPage = errors.New("first page read")
 // probeCatalog reads one _catalog page: success is catalog, an explicit
 // refusal (401, 403, 404, 405) is tags, any other error fails.
 func probeCatalog(ctx context.Context, client remote.Client, repo *remote.Repository) (capabilities.ListingMode, error) {
-	reg := &remote.Registry{
-		RepositoryOptions: remote.RepositoryOptions{
-			Client: client, PlainHTTP: repo.PlainHTTP,
-			Reference: registry.Reference{Registry: repo.Reference.Registry},
-		},
-		RepositoryListPageSize: 1,
-	}
+	reg := catalogRegistry(client, repo)
+	reg.RepositoryListPageSize = 1
 	err := reg.Repositories(ctx, "", func([]string) error { return errFirstPage })
 	var resp *errcode.ErrorResponse
 	switch {
@@ -206,6 +201,16 @@ func probeCatalog(ctx context.Context, client remote.Client, repo *remote.Reposi
 		return capabilities.ListingTags, nil
 	}
 	return "", err
+}
+
+// catalogRegistry is the registry holding repo, reached through client.
+func catalogRegistry(client remote.Client, repo *remote.Repository) *remote.Registry {
+	return &remote.Registry{
+		RepositoryOptions: remote.RepositoryOptions{
+			Client: client, PlainHTTP: repo.PlainHTTP,
+			Reference: registry.Reference{Registry: repo.Reference.Registry},
+		},
+	}
 }
 
 // probeAuth reads the /v2/ challenge without credentials: anonymous, basic,

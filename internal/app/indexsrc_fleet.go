@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
@@ -31,7 +30,7 @@ type indexFleetSource struct {
 	svc         *Service
 	repo        string
 	longRunning bool
-	configure   func(*fleetsrc.OCISource)
+	opts        FleetOptions
 }
 
 // wholeIndexSourceID is the id of the whole-index source.
@@ -99,9 +98,7 @@ func (s *indexFleetSource) namePullFailures(coll *fleet.Collection, byRef map[st
 
 // pull reads refs through a registry source checked like the --oci one.
 func (s *indexFleetSource) pull(ctx context.Context, refs []string) (*fleet.Collection, error) {
-	src := fleetsrc.NewOCISource(s.ID(), s.svc.BundleStore, refs)
-	s.configure(src)
-	return src.Collect(ctx)
+	return s.svc.ociSourceFor(s.ID(), refs, s.opts).Collect(ctx)
 }
 
 // keepNamed drops every revision no entry pulling it names, with one
@@ -225,5 +222,5 @@ func (s *Service) indexFleetSources(opts FleetOptions) []fleet.Source {
 	case s.BundleStore == nil:
 		return []fleet.Source{fleet.NewFailingSource(wholeIndexSourceID, "index", errNoBundleStore)}
 	}
-	return []fleet.Source{&indexFleetSource{svc: s, repo: opts.ReadIndex, longRunning: opts.LongRunning, configure: s.registryChecks(opts)}}
+	return []fleet.Source{&indexFleetSource{svc: s, repo: opts.ReadIndex, longRunning: opts.LongRunning, opts: opts}}
 }
