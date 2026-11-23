@@ -252,7 +252,7 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.StringVar(&o.dashboardDeliveryTrust.Key, "dashboard-delivery-trust-key", "trust.yaml",
 		"Key of the trust config in that ConfigMap.")
 	fs.Func("dashboard-repositories",
-		"Deprecated: set --registry; the dashboard lists every golden path and offering under it. "+
+		"Deprecated: set --dashboard-registry (the chart's registry value); the dashboard lists every golden path and offering published under it. "+
 			"Comma-separated oci:// references the dashboard reads beside the contracts it discovers from Pacto "+
 			"resources, such as golden paths, which are never deployed.",
 		func(v string) error {

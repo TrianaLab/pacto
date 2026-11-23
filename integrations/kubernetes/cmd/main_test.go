@@ -231,3 +231,14 @@ func TestDashboardBackstageFlags(t *testing.T) {
 		t.Errorf("backstage options = %q %+v", o.dashboardBackstageURL, o.dashboardBackstageToken)
 	}
 }
+
+// TestDashboardRepositoriesDeprecationNamesDiscoveryFlag: the deprecated
+// flag points at --dashboard-registry, which turns discovery on; the
+// operator's --registry does not reach the dashboard.
+func TestDashboardRepositoriesDeprecationNamesDiscoveryFlag(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	bindFlags(fs, &options{})
+	if u := fs.Lookup("dashboard-repositories").Usage; !strings.HasPrefix(u, "Deprecated: set --dashboard-registry") {
+		t.Errorf("usage %q", u)
+	}
+}
