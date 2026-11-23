@@ -138,7 +138,14 @@ Evidence Server only while all of these hold:
 
 The `Evidence` row in
 [Detected providers](../../operational-graph-providers.md) says which one is
-missing. See [Choose an installation profile](profiles.md#what-idp-turns-on-when-the-cluster-supports-it).
+missing:
+
+| Row | Why |
+|---|---|
+| `off` | `no registry value`, `set evidence.registry.subjectPrefixes`, `<host> does not serve OCI Referrers`, `the trust Secret does not exist` or `the trust Secret holds no public key` |
+| `unknown` | no target snapshot pushed yet, the last push failed, the Referrers probe failed or the trust Secret could not be read; the Evidence Server stays as it was |
+
+See [Choose an installation profile](profiles.md#what-idp-turns-on-when-the-cluster-supports-it).
 
 ## Verifying the install
 
