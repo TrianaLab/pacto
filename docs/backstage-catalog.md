@@ -51,9 +51,10 @@ URL set, the dashboard reads that Service, always without a token, because
 anyone allowed to create a Service could have created it. A catalog that
 needs a token then refuses the read and the source says to set
 `dashboard.backstage.url` and `tokenSecret`. Candidates in several namespaces
-give no address to read: set the URL. Data sources names the Service read as
-`detected: <service>.<namespace>`. `pacto fleet` and `pacto mcp` show the
-detection row and never read a detected catalog.
+give no address to read: set the URL, and so does a detection that sampled
+part of a large cluster's pods. Data sources marks the source `detected`, and
+the Detected providers row names the Service read. `pacto fleet` and
+`pacto mcp` show the detection row and never read a detected catalog.
 
 ## Who sees the values
 
@@ -106,9 +107,9 @@ Owner: unknown
   `inferredBusinessDomain` as `{value, source, where, asOf}`, and
   `ownerProvenance: inferred` when no declared, attested or
   declared-via-target owner exists.
-- `pacto tui` and the dashboard service page show the value muted next to No
-  declared owner, Owner unknown or the domain, with one mark whose tooltip
-  names the source.
+- The dashboard service page shows the value muted next to No declared
+  owner, Owner unknown or the domain, with one mark whose tooltip names the
+  source. `pacto tui` shows the inferred owner the same way.
 - A dependency is an `inferred` edge whose source kind is `serviceFact`,
   muted and filterable like every inferred edge.
 - [`pacto export backstage`](backstage.md#annotations) writes the inferred owner and
@@ -123,6 +124,9 @@ service with only an inferred owner still counts as unowned, and the export
 keeps `spec.owner: unknown`.
 
 The source is advisory. An unreachable catalog is `unavailable` with the
-reason, and a read stopped at 5000 Components is `partial`. Neither makes a
-fleet answer partial nor blocks the export. A service the catalog says nothing
-about reads exactly as it did before.
+reason. A read stopped at 5000 Components or 10 pages, or one that left out
+the component dependencies past the first 50 of a Component, is `partial`.
+Neither makes a fleet answer partial nor blocks the export, and `pacto fleet`
+text output adds a note saying the catalog was not fully read. A service the
+catalog says nothing about reads exactly as it did before. A Component whose
+owner is the placeholder `unknown` has no inferred owner.
