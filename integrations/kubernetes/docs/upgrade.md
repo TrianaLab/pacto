@@ -130,9 +130,8 @@ If a future release ever ships an incompatible schema change, the upgrade or
 the resource read fails with an error, so no resource disappears silently.
 See the [CRD reference](crd-reference.md) for the current field set.
 
-This exact flow is exercised against a real cluster by
 `tests/acceptance/kind/upgrade-v4-v5.sh`, the `upgrade` leg of CI's
-`ci-e2e-kind` job. It installs the real v4 chart with its v4 CRDs, hands them to
+`ci-e2e-kind` job, runs this flow on a real cluster. It installs the real v4 chart with its v4 CRDs, hands them to
 Helm as [above](#hand-older-crds-to-helm), then `helm upgrade`s to the current
 chart and asserts the CRDs migrate and the pre-existing resource survives and
 reconciles.
@@ -289,7 +288,7 @@ A dashboard you run yourself beyond loopback still needs `--token-login`,
 ## The dashboard serves MCP at /mcp
 
 After an upgrade, reused values included, the managed dashboard also serves
-MCP to AI agents at `/mcp` when token sign-in is on. The new value `dashboard.mcp.enabled` defaults to
+MCP at `/mcp` when token sign-in is on. The new value `dashboard.mcp.enabled` defaults to
 `true`, the install notes say so once and print a client snippet, and no RBAC,
 Service or port changes. To turn it off, set `dashboard.mcp.enabled=false`; see
 [MCP at /mcp](dashboard-authentication.md#mcp-at-mcp).

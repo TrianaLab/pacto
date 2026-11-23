@@ -89,8 +89,8 @@ that later serves Referrers is seen after an operator restart. See
 
 A running recorder changes how approvals count, and older CLIs and promoters
 refuse its records. Upgrade the CLIs and promoters that follow these streams
-first, or set `delivery.recorder.enabled=false`. An upgrade with
-`--reuse-values` from an earlier chart keeps the `false` that chart set by
+first, or set `delivery.recorder.enabled=false`. An upgrade that
+reuses an earlier chart's values keeps the `false` that chart set by
 default, so the recorder stays off until you set
 `delivery.recorder.enabled=null`.
 
@@ -123,6 +123,8 @@ ServiceAccount writes CRDs, Secrets, ServiceAccounts, Services, Deployments and
 webhook configurations cluster-wide, the `rbac-manager` ServiceAccount may escalate
 and bind ClusterRoles, and the `crossplane:masters` group gets
 `crossplane-admin`.
+
+### Turn the Crossplane bootstrap off
 
 Crossplane creates its CRDs and webhook configurations at runtime, so Helm
 never owns them. `idp.crossplane.install=false` removes the Crossplane core
