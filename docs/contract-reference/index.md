@@ -1,4 +1,4 @@
-# Contract Reference (v2.5)
+# Contract Reference (v2.6)
 
 A Pacto contract is one YAML file, `pacto.yaml`, that says what a service is and
 what it needs to run: its interfaces, dependencies, configuration, capabilities
@@ -29,7 +29,10 @@ which adds `service.domain`, `service.offering`, `service.summary`,
 `service.lifecycle`, `service.template` and `service.origin`, and `values` and a
 `configuration` selector beside a configuration `ref`, and
 [`pacto-v2.5.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.5.schema.json),
-the newest. A contract is validated against the schema of its [`pactoVersion`](sections.md#pactoversion), or of the newest version when it declares none.
+which makes `pactoVersion`, `service`, `service.name` and `service.version`
+optional and adds an interface `port` and `breaks`, and
+[`pacto-v2.6.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.6.schema.json),
+the newest, which makes `environments[].file` optional. A contract is validated against the schema of its [`pactoVersion`](sections.md#pactoversion), or of the newest version when it declares none.
 
 ---
 
@@ -109,7 +112,7 @@ empty `pacto.yaml` beside a chart named `payments` reads:
 
 ```console
 $ pacto validate .
-. is valid (pactoVersion 2.5 from this CLI, service.name payments from chart/Chart.yaml:2, service.version not declared)
+. is valid (pactoVersion 2.6 from this CLI, service.name payments from chart/Chart.yaml:2, service.version not declared)
 ```
 
 An absent `pactoVersion` reads as the newest version the CLI supports. An

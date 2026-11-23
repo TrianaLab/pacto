@@ -89,7 +89,7 @@ overwrites your edits. For an image
 `k8s/service.yaml`, the contract is:
 
 ```yaml
-pactoVersion: "2.5"        # 2.5 holds compatibility: unknown
+pactoVersion: "2.6"        # 2.5 and later hold compatibility: unknown
 service:
   name: my-service         # no version: pacto ci --publish derives it
   owner:

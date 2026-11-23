@@ -156,10 +156,12 @@ test:
 ## contract is not valid v2. This is the offline proof that the demo contracts are
 ## valid; the live `pacto validate` against ghcr.io only passes once the release
 ## republishes the demo bundles as v2 (a production publish, out of scope here).
-## The payments story contracts (../story/contracts) are validated as their own set.
+## The payments story contracts (../story/contracts) are validated as their own set,
+## and so is the pactoVersion 2.6 contract with a file-less environment (testdata).
 validate:
 	go run ./validatebundles
 	go run ./validatebundles ../story/contracts
+	go run ./validatebundles testdata/contract-2.6
 
 ## Exercise the built wasm engine end-to-end in Node (needs `make build` first).
 smoke:

@@ -65,6 +65,30 @@ The file is part of the bundle, so `pacto pack` and `pacto push` ship it with
 the contract. A [`.pactoignore`](../pactoignore.md) entry that hides it makes
 validation report `FILE_NOT_FOUND`.
 
+### An environment without a values file
+
+From `pactoVersion: "2.6"` an environment may leave out `file`. It adds no
+values of its own, so each configuration runs on its defaults, and validation
+checks it like that. A required configuration whose defaults leave out a key
+its schema needs reports `ENVIRONMENT_VALUES_MISSING` at `environments[i]`,
+for example `environment pr-412 declares no values file: chart needs
+ingress.host`. Diff, impact, the fleet and the delivery plan read it as an
+environment with no values, never as a file they could not read. A contract
+older than 2.6 still requires `file`.
+
+```yaml
+pactoVersion: "2.6"
+environments:
+  - name: production
+    file: environments/production.yaml
+  - name: pr-412
+    lifetime: temporary
+    expires: "2026-11-20T00:00:00Z"
+```
+
+`pacto_edit` declares one with `add_environments` and `noFile`, such as
+`[{"name":"pr-412","noFile":true}]`, and raises the contract to 2.6.
+
 ### Temporary environments
 
 A preview or pull-request environment lives hours or days. Declare it
@@ -239,7 +263,7 @@ web-1.5.0 is invalid
 PASS load
 SKIP lock               no pacto.lock
 PASS structural
-  INFO  [CONTRACT_BEHIND] pactoVersion: pactoVersion "2.3" is behind "2.5"; fix the errors this run reports before Pacto can tell whether raising pactoVersion keeps its meaning
+  INFO  [CONTRACT_BEHIND] pactoVersion: pactoVersion "2.3" is behind "2.6"; fix the errors this run reports before Pacto can tell whether raising pactoVersion keeps its meaning
 PASS cross-field
 PASS policy
 SKIP configuration-refs no configuration references
