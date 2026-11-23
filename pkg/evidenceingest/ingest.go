@@ -103,6 +103,16 @@ var (
 // on top at ingest.
 func CheckContractRef(ref string) error { return validateContractRef(ref, nil) }
 
+// underInferred reports whether ref lies below a pacto-inferred repository,
+// where [contract.InferredRef] looks: an external's inferred contract, a
+// producer's contribution or anything else below its grant. None is ever a
+// compliance subject.
+func underInferred(ref string) bool {
+	repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(ref))
+	segs := strings.Split(repo, "/")
+	return len(segs) >= 3 && slices.Contains(segs[2:len(segs)-1], contract.InferredRepository)
+}
+
 // validateContractRef enforces the externally-reported contract-ref policy: an
 // immutable oci:// digest reference (a full, well-formed sha256 digest — not
 // merely a string that contains "@sha256:"), optionally within an allowlisted
@@ -271,9 +281,10 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 	// The producer was authenticated by Verify, so its trust entry (with any repo
 	// allowlist) is present.
 	entry, _ := a.trust.Entry(env.Producer.KeyID)
-	if _, contributed := contract.ContributionRef(env.EvidenceSet.ContractRef); contributed {
+	if underInferred(env.EvidenceSet.ContractRef) {
 		// A producer's grant is also a contract-repo prefix, so this rule, not
-		// configuration, keeps a contribution from ever reading Compliant.
+		// configuration, keeps a contribution (or any repository below the
+		// grant) from ever reading Compliant.
 		return Record{}, fmt.Errorf("%w: a contribution is an inferred record, never a compliance subject", ErrContractRefPolicy)
 	}
 	if err := validateContractRef(env.EvidenceSet.ContractRef, entry.ContractRepos); err != nil {

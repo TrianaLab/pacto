@@ -90,10 +90,16 @@ func TestEnvelopeOnContributionRefRefused(t *testing.T) {
 		ContractRepos: []string{"ghcr.io/acme/pacto-inferred/env-a"}}}
 	resolver := fakeResolver{c: contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "payments"}}}
 	a := NewAcceptor(trust, resolver, NewMemoryStore(), fixedNow)
-	es := testEvidenceSet()
-	es.ContractRef = "oci://ghcr.io/acme/pacto-inferred/env-a/services@sha256:" + strings.Repeat("b", 64)
-	_, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", es))
-	if !errors.Is(err, ErrContractRefPolicy) || !strings.Contains(err.Error(), "a contribution is an inferred record, never a compliance subject") {
-		t.Fatalf("accept = %v, want the contribution refusal", err)
+	// Any repository below the grant, not only services, is refused.
+	for i, repo := range []string{"services", "checkout", "checkout/deeper"} {
+		es := testEvidenceSet()
+		es.ContractRef = "oci://ghcr.io/acme/pacto-inferred/env-a/" + repo + "@sha256:" + strings.Repeat("b", 64)
+		_, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, uint64(i+1), "e"+strings.ReplaceAll(repo, "/", "-"), es))
+		if !errors.Is(err, ErrContractRefPolicy) || !strings.Contains(err.Error(), "a contribution is an inferred record, never a compliance subject") {
+			t.Fatalf("%s: accept = %v, want the contribution refusal", repo, err)
+		}
+	}
+	if underInferred("oci://ghcr.io/pacto-inferred/payments@sha256:x") || underInferred("ghcr.io") {
+		t.Error("an organization named pacto-inferred, or a bare host, is under pacto-inferred")
 	}
 }
