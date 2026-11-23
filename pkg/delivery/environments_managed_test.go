@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 var managedPayments = ServiceRef{Domain: "ghcr.io/acme", Name: "payments"}
@@ -97,5 +98,13 @@ func TestNoGateReadsLadderOrPlacement(t *testing.T) {
 	}
 	if !slices.Contains(files, "plan.go") || scanned < 10 {
 		t.Fatalf("scanned %d files of %v", scanned, files)
+	}
+}
+
+func TestRetireAfterGrace(t *testing.T) {
+	// D5: a temporary environment expiring 2026-11-20 is retired seven days later.
+	expires := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
+	if got := RetireAt(expires, 168*time.Hour); !got.Equal(time.Date(2026, 11, 27, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("retired at %v", got)
 	}
 }

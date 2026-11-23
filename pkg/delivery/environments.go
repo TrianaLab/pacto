@@ -314,7 +314,17 @@ const (
 	// KeepAnnotation, "true" on a namespace Pacto created, says Pacto never
 	// deletes it.
 	KeepAnnotation = managedPrefix + "keep"
+	// RetiringSinceAnnotation shows, on a managed Stage, when its environment
+	// stopped being desired (RFC 3339): Pacto retires it RetireAt then.
+	RetiringSinceAnnotation = managedPrefix + "retiring-since"
 )
+
+// RetireAt is when an environment that stopped being desired at since, or a
+// temporary one that expired then, is retired: since plus the grace
+// (delivery.environments.retireAfter).
+func RetireAt(since time.Time, grace time.Duration) time.Time {
+	return since.Add(grace)
+}
 
 // NamespaceCandidatesKey is the key of PlacementsConfigMap that lists, as a
 // sorted JSON array, the namespaces Pacto would create once a person allows

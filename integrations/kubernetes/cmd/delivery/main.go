@@ -161,6 +161,11 @@ func runPromoter(args []string) error {
 	createNamespaces := fs.Bool("environment-create-namespaces", false,
 		"Create the namespace a service is placed in when it does not exist: at once for a declared or observed "+
 			"placement, once a person's installation ladder confirmation allows it for any other.")
+	retireAfter := fs.Duration("environment-retire-after", delivery.DefaultRetireAfter,
+		"How long a Stage Pacto created is kept after its environment leaves the installation ladder or the "+
+			"contract, or a temporary environment expires, before Pacto retires it.")
+	sink := fs.String("cdevents-sink", "", "A URL to POST a CDEvent to when a Stage Pacto created from the "+
+		"installation ladder is created or deleted (environment.created, environment.deleted), best effort.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -234,7 +239,13 @@ func runPromoter(args []string) error {
 		Resync: *resync, Policy: policy, LadderRepository: *ladderRepo,
 		RecordOptions: recordOpts, Registry: *registry, Cluster: cluster,
 		Accepted: pubs.NewestAccepted, Placement: pubs.VerifiedPlacement,
-		CreateAppliers: *createAppliers, DeployerRole: *deployerRole, CreateNamespaces: *createNamespaces}
+		CreateAppliers: *createAppliers, DeployerRole: *deployerRole, CreateNamespaces: *createNamespaces,
+		RetireAfter: *retireAfter,
+		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
+		Events: mgr.GetEventRecorderFor("pacto-delivery")}
+	if *sink != "" {
+		envs.CDEvents = &delivery.Events{Sink: *sink, Source: "/pacto-delivery/" + clusterID}
+	}
 	if err := envs.SetupWithManager(mgr); err != nil {
 		return err
 	}

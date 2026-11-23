@@ -85,6 +85,12 @@ spec:
             {{- if include "pacto-operator.delivery.createNamespaces" . }}
             - --environment-create-namespaces
             {{- end }}
+            {{- with dig "environments" "retireAfter" "" .Values.delivery }}
+            - --environment-retire-after={{ . }}
+            {{- end }}
+            {{- with .Values.delivery.recorder.cdeventsSink }}
+            - {{ printf "--cdevents-sink=%s" . | quote }}
+            {{- end }}
             {{- end }}
             {{- $fullname := include "pacto-operator.delivery.fullname" . }}
             {{- $policies := list "operation" "cancel" "approval" "pointer" "applier" "promoter-writes" "status" }}

@@ -277,3 +277,54 @@ tests:
       - notContains:
           path: rules
           content: {apiGroups: [""], resources: [namespaces], verbs: [create]}
+
+  - it: retires managed Stages after seven days by default
+    template: templates/delivery/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-retire-after=168h
+
+  - it: retireAfter sets the grace
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.environments.retireAfter: 24h
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-retire-after=24h
+
+  - it: refuses a retireAfter that is not a Go duration
+    set:
+      delivery.environments.retireAfter: 7d
+    asserts:
+      - failedTemplate: {}
+
+  - it: the promoter posts environment events to the recorder's CDEvents sink
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.recorder.cdeventsSink: https://events.acme.io/cdevents
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --cdevents-sink=https://events.acme.io/cdevents
+
+  - it: no sink renders no promoter --cdevents-sink
+    template: templates/delivery/deployment.yaml
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--cdevents-sink
+
+  - it: the installation ladder off renders neither retire flag nor promoter sink
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.environments.enabled: false
+      delivery.recorder.cdeventsSink: https://events.acme.io/cdevents
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-retire-after=168h
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --cdevents-sink=https://events.acme.io/cdevents

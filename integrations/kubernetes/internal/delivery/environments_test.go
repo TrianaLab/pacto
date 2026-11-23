@@ -87,7 +87,7 @@ func newEnvFixture(t *testing.T, funcs interceptor.Funcs, objs ...client.Object)
 	now := time.Date(2026, 11, 23, 10, 0, 0, 0, time.UTC)
 	f.r = &EnvironmentReconciler{Client: cl, APIReader: cl, Namespace: deliveryNS, ClusterID: "cid",
 		ClusterName: "eu-1", NameSource: fleet.ClusterNameFromNodeLabel, Ladder: []string{"staging", "production"},
-		Now: func() time.Time { return now }, Resync: time.Minute}
+		Now: func() time.Time { return now }, Resync: time.Minute, RetireAfter: DefaultRetireAfter}
 	return f
 }
 

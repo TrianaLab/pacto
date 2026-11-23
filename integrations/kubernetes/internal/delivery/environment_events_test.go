@@ -176,3 +176,44 @@ func TestRecorderEnvironmentEventsOnlyOnTransitions(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 }
+
+// TestManagedStageSeedsWithoutEvent: a managed Stage is still given its
+// stream id, but the StageReconciler says neither EnvironmentCreated nor
+// EnvironmentDeleted for it: the EnvironmentReconciler does, from its state.
+func TestManagedStageSeedsWithoutEvent(t *testing.T) {
+	s := stageObj(dA)
+	s.Status.Stream.ID = ""
+	s.Labels = map[string]string{delivery.ManagedLabel: delivery.ManagedBy}
+	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dA))
+	rec := record.NewFakeRecorder(100)
+	e.st.Events = rec
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	seeded := e.getStage()
+	if seeded.Status.Stream.ID == "" {
+		t.Fatal("not seeded")
+	}
+	e.st.stageDeleted(context.Background(), cevent.DeleteEvent{Object: seeded}, nil)
+	if ev := drain(rec); hasEvent(ev, "Normal EnvironmentCreated") || hasEvent(ev, "Normal EnvironmentDeleted") {
+		t.Fatalf("events %v", ev)
+	}
+}
+
+// TestRecorderSkipsManagedStages: the recorder posts no environment event for
+// a managed Stage.
+func TestRecorderSkipsManagedStages(t *testing.T) {
+	srv, got := sink(t, http.StatusAccepted)
+	r := &Recorder{Events: &Events{Sink: srv.URL, Source: "/pacto-delivery/cid"}, Now: time.Now}
+	seeded := envStage("prod", "payments-prod", "", "u1")
+	seeded.Labels = map[string]string{delivery.ManagedLabel: delivery.ManagedBy}
+	unseeded := seeded.DeepCopy()
+	unseeded.Status.Stream.ID = ""
+	r.stageStreamSeeded(context.Background(), cevent.UpdateEvent{ObjectOld: unseeded, ObjectNew: seeded}, nil)
+	r.stageGone(context.Background(), cevent.DeleteEvent{Object: seeded}, nil)
+	select {
+	case ev := <-got:
+		t.Fatalf("unexpected event %v", ev)
+	case <-time.After(200 * time.Millisecond):
+	}
+}

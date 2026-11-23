@@ -51,6 +51,12 @@ type managedObject struct {
 	Service     string    `json:"service"`
 	Domain      string    `json:"domain,omitempty"`
 	Environment string    `json:"environment"`
+	// Stream and CreatedAt are, for a Stage, its stream id and creation time
+	// once a pass reported it created; RetiringSince is when its environment
+	// stopped being desired (RFC 3339).
+	Stream        string `json:"stream,omitempty"`
+	CreatedAt     string `json:"createdAt,omitempty"`
+	RetiringSince string `json:"retiringSince,omitempty"`
 }
 
 // managedState is the reconciler's private state: the objects it created,

@@ -317,3 +317,17 @@ tests:
           content: {apiGroups: [""], resources: [namespaces], verbs: [get, list, watch]}
         template: templates/delivery/rbac.yaml
         documentIndex: 1
+
+  - it: delivery.environments null renders no retire flag and no promoter sink
+    set:
+      delivery.enabled: true
+      delivery.identities.allowEmptyHumanGroups: true
+      delivery.argocd.enabled: false
+      delivery.flux: null
+      delivery.environments: null
+      delivery.recorder.cdeventsSink: https://events.acme.io/cdevents
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--(environment-retire-after|cdevents-sink)
+        template: templates/delivery/deployment.yaml

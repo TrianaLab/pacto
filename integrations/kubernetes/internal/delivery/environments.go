@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -95,6 +96,13 @@ type EnvironmentReconciler struct {
 	// does not exist: at once for a declared or observed placement, once a
 	// person's ladder record allows it for any other.
 	CreateNamespaces bool
+	// RetireAfter is how long a managed Stage whose environment stopped being
+	// desired, or expired, is kept before it is retired.
+	RetireAfter time.Duration
+	// Events and CDEvents report each managed Stage created and deleted;
+	// the StageReconciler and the recorder report only hand-written ones.
+	Events   record.EventRecorder
+	CDEvents *Events
 
 	// mu serializes a pass and a placement confirmation, which both write
 	// the private state.
@@ -184,7 +192,8 @@ func (r *EnvironmentReconciler) Reconcile(ctx context.Context, _ reconcile.Reque
 	view.Proposal = delivery.ProposeLadder(known, in)
 	view.ProposalDigest = delivery.ProposalDigest(view.Proposal)
 	st := placementState{namespaces: map[string]bool{}, pactos: pactos, occupants: map[string][]delivery.NamespaceOccupant{},
-		ladder: slices.Concat(view.Declared, view.Confirmed), candidates: map[string]bool{}}
+		ladder: slices.Concat(view.Declared, view.Confirmed), candidates: map[string]bool{},
+		desired: map[string]string{}, unsure: map[string]bool{}, complete: lr.unread == ""}
 	if lr.from != nil {
 		st.namespacesDigest = lr.from.Record.NamespacesDigest
 	}
@@ -416,6 +425,16 @@ type placementState struct {
 	// a person allows it.
 	namespacesDigest string
 	candidates       map[string]bool
+	// desired holds, by envKey, each environment a service read in full
+	// should run in here, with when it expired ("" while it has not);
+	// unsure, by envKey with no environment, the services whose accepted
+	// contract could not be read. complete is false when the index or the
+	// installation ladder was read in part: nothing is then retired.
+	desired  map[string]string
+	unsure   map[string]bool
+	complete bool
+	// events are what the pass reports once it wrote the state.
+	events []envEvent
 }
 
 // place reads the organization index and places each delivered service in
@@ -434,6 +453,7 @@ func (r *EnvironmentReconciler) place(ctx context.Context, view *delivery.Enviro
 		view.Idle = "the organization index at " + repo + " could not be read (" + err.Error() + "), so Pacto places no service"
 		return []string{"the organization index: " + err.Error()}, nil
 	}
+	st.complete = st.complete && len(unread) == 0
 	for _, ns := range namespaces {
 		st.namespaces[ns] = true
 	}
@@ -475,7 +495,20 @@ func (r *EnvironmentReconciler) place(ctx context.Context, view *delivery.Enviro
 		}
 	}
 	view.NamespaceCandidates = len(st.candidates)
-	return st.unread, r.writePlacements(ctx, rows, &st)
+	err = r.finishPass(ctx, rows, &st)
+	return st.unread, err
+}
+
+// finishPass retires what is due, bounds the private state, writes it with
+// rows and then reports the environment events it records.
+func (r *EnvironmentReconciler) finishPass(ctx context.Context, rows []delivery.PlacementRow, st *placementState) error {
+	r.retireManaged(ctx, st)
+	st.bound()
+	if err := r.writePlacements(ctx, rows, st); err != nil {
+		return err
+	}
+	r.emitFromState(ctx, st.events)
+	return nil
 }
 
 // readIndex reads the newest entry of each service the index repo lists,
@@ -526,6 +559,7 @@ func (r *EnvironmentReconciler) placeService(ctx context.Context, st *placementS
 	svc := delivery.ServiceRef{Domain: domain, Name: name}
 	bundleRepo, _ := contract.SplitOCIDigest(e.Bundle)
 	waiting := func(why string) []delivery.PlacementRow {
+		st.unsure[envKey(domain, name, "")] = true
 		return []delivery.PlacementRow{{Service: name, Domain: domain, Reason: why}}
 	}
 	if r.Accepted == nil {
@@ -540,7 +574,11 @@ func (r *EnvironmentReconciler) placeService(ctx context.Context, st *placementS
 		return waiting("the accepted bundle " + bundleRepo + "@" + v.Digest + " could not be read: " + err.Error())
 	}
 	c := b.Contract
-	if c == nil || c.Service.Name != name || c.Publish == nil || c.Publish.Deploy == "" {
+	if c == nil || c.Service.Name != name {
+		st.unsure[envKey(domain, name, "")] = true
+		return nil
+	}
+	if c.Publish == nil || c.Publish.Deploy == "" {
 		return nil // Pacto delivers only what publishes a deploy artifact
 	}
 	in := delivery.PlacementInput{Service: svc, Owner: c.Service.Owner.Team, HostedRungs: st.hosted, Policy: st.policy,
@@ -556,6 +594,7 @@ func (r *EnvironmentReconciler) placeService(ctx context.Context, st *placementS
 	var envs []placedEnv
 	for _, d := range delivery.DesiredEnvironments(st.ladder, c.Environments, r.Now()) {
 		if st.hosts(d.Name) { // else another cluster's
+			st.desired[envKey(domain, name, d.Name)] = d.RetireFrom
 			e := r.placeEnvironment(ctx, st, &in, d)
 			e.deploy = deploy
 			envs = append(envs, e)
@@ -698,22 +737,22 @@ func (r *EnvironmentReconciler) occupants(ctx context.Context, st *placementStat
 // readStages lists the cluster's Stages live, so a Stage this pass or the
 // last created is never missed: the ones whose UID the state holds are
 // Pacto's, every other is hand-written, whatever its labels say. A Stage the
-// state holds that is gone leaves the state.
+// state holds that is gone leaves the state (noteStages).
 func (r *EnvironmentReconciler) readStages(ctx context.Context, st *placementState) error {
 	list := &dv1.StageList{}
 	if err := r.APIReader.List(ctx, list); err != nil {
 		return err
 	}
 	st.byName = map[string]*dv1.Stage{}
-	live := map[types.UID]bool{}
+	live := map[types.UID]*dv1.Stage{}
 	for i := range list.Items {
 		s := &list.Items[i]
-		st.byName[s.Namespace+"/"+s.Name], live[s.UID] = s, true
+		st.byName[s.Namespace+"/"+s.Name], live[s.UID] = s, s
 		if !st.state.owns(s.UID) {
 			st.stages = append(st.stages, delivery.StageObject{Metadata: delivery.ObjectMeta{Name: s.Name, Namespace: s.Namespace, Labels: s.Labels}, Spec: s.Spec})
 		}
 	}
-	st.state.Objects = slices.DeleteFunc(st.state.Objects, func(o managedObject) bool { return o.Kind == kindStage && !live[o.UID] })
+	st.noteStages(live)
 	return nil
 }
 
