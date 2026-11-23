@@ -57,9 +57,10 @@ type CrossplaneFacts struct {
 // Crossplane says whether Crossplane runs. CRDs outlive Crossplane, so only
 // a served API with a found controller reads complete and running; served
 // APIs without a controller, or with one that could not be read, are
-// partial. No API served is fleet.CrossplaneNoneFound, complete, with the
-// bootstrap hint under profile idp. The Deployment's namespace never enters
-// the entry.
+// partial. A found controller whose APIs discovery does not serve yet is a
+// Crossplane still starting, partial. No API served otherwise is
+// fleet.CrossplaneNoneFound, complete, with the bootstrap hint under profile
+// idp. The Deployment's namespace never enters the entry.
 func Crossplane(c CrossplaneFacts, idp bool) Entry {
 	const kind = fleet.ProviderCrossplane
 	if c.APIErr != nil {
@@ -68,6 +69,9 @@ func Crossplane(c CrossplaneFacts, idp bool) Entry {
 	e := Entry{Kind: kind, Source: "Crossplane Deployment and API discovery", Completeness: Complete}
 	served := "serves apiextensions.crossplane.io/" + c.API
 	switch {
+	case c.API == "" && c.Controller == CrossplaneControllerFound:
+		e.Value, e.Evidence, e.Completeness = "Crossplane starting", "runs and does not serve apiextensions.crossplane.io yet", Partial
+		e.Reason, e.Scope = "a Crossplane Deployment runs but discovery does not serve its APIs yet", fleet.ScopeCluster
 	case c.API == "":
 		e.Value, e.Evidence, e.Source = fleet.CrossplaneNoneFound, "apiextensions.crossplane.io is not served", "API discovery"
 		if idp {

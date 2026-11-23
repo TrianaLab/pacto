@@ -94,7 +94,9 @@ first, or set `delivery.recorder.enabled=false`.
 ### Crossplane
 
 The operator reads Crossplane from its running core Deployment, so CRDs left
-behind never read as a running Crossplane. Under idp with no Crossplane, the
+behind never read as a running Crossplane. A Crossplane that runs before it
+serves its APIs reads `Crossplane starting` until the next detection run.
+Under idp with no Crossplane, the
 row proposes the bootstrap, which installs upstream Crossplane into the
 release namespace with this release:
 

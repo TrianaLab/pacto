@@ -49,6 +49,19 @@ func TestCrossplaneEntryAPIsWithoutControllerIsPartial(t *testing.T) {
 	}
 }
 
+func TestCrossplaneEntryControllerWithoutAPIsIsStarting(t *testing.T) {
+	// A Crossplane still creating its CRDs is never none found, so idp
+	// proposes no bootstrap and no "no provisioner found".
+	e := Crossplane(CrossplaneFacts{Version: "v2.4.3", Controller: CrossplaneControllerFound}, true)
+	if e.Value != "Crossplane starting" || e.Completeness != Partial || e.Reason == "" || e.Hint != "" || e.Scope != fleet.ScopeCluster {
+		t.Errorf("entry = %+v", e)
+	}
+	rows := ProviderRows(Result{AsOf: time.Now(), Entries: []Entry{e}}, "detected", time.Now())
+	if strings.HasPrefix(rows[0].Evidence, fleet.CrossplaneNoneFound+" ") || rows[0].Status == fleet.SourceAvailable {
+		t.Errorf("row = %+v", rows[0])
+	}
+}
+
 func TestCrossplaneEntryControllerUnreadIsPartial(t *testing.T) {
 	e := Crossplane(CrossplaneFacts{API: "v2", Controller: CrossplaneControllerUnread}, false)
 	if e.Value != "Crossplane v2 APIs served" || e.Completeness != Partial || e.Reason == "" {

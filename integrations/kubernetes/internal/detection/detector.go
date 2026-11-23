@@ -260,10 +260,11 @@ func (d *Detector) installation() *detect.Installation {
 	return &inst
 }
 
-// crossplane reads the Crossplane API major from discovery and, when one is
-// served, its core Deployment: CRDs outlive Crossplane, so only a running
-// controller reads as Crossplane. Each run asks afresh, so a Crossplane
-// installed or removed later shows on the next run.
+// crossplane reads the Crossplane API major from discovery and its core
+// Deployment: CRDs outlive Crossplane, so only a running controller reads as
+// Crossplane, and a controller whose APIs are not served yet is a Crossplane
+// still starting. Each run asks afresh, so a Crossplane installed or removed
+// later shows on the next run.
 func (d *Detector) crossplane(ctx context.Context) detect.Entry {
 	var c detect.CrossplaneFacts
 	for _, v := range []string{"v2", "v1"} {
@@ -277,7 +278,7 @@ func (d *Detector) crossplane(ctx context.Context) detect.Entry {
 			break
 		}
 	}
-	if c.APIErr == nil && c.API != "" {
+	if c.APIErr == nil {
 		c.Version, c.Controller = d.crossplaneController(ctx)
 	}
 	return detect.Crossplane(c, d.Installation != nil && slices.Contains(d.Installation.Profile, "idp"))
@@ -285,7 +286,8 @@ func (d *Detector) crossplane(ctx context.Context) detect.Entry {
 
 // crossplaneController is the image tag of the Crossplane core Deployment and
 // whether it was found. A namespace-list install may not list Deployments
-// cluster-wide, and a failed list is unread, never none.
+// cluster-wide, and a failed list is unread, never none. The rbac-manager
+// carries the core's app.kubernetes.io/name, so it never counts as the core.
 func (d *Detector) crossplaneController(ctx context.Context) (version, controller string) {
 	if len(d.Namespaces) > 0 {
 		return "", detect.CrossplaneControllerUnread
@@ -295,8 +297,10 @@ func (d *Detector) crossplaneController(ctx context.Context) (version, controlle
 		if err := d.Reader.List(ctx, l, sel); err != nil {
 			return "", detect.CrossplaneControllerUnread
 		}
-		if len(l.Items) > 0 {
-			return imageTag(l.Items[0].Spec.Template.Spec.Containers), detect.CrossplaneControllerFound
+		for _, dep := range l.Items {
+			if !strings.HasSuffix(dep.Labels["app"], "-rbac-manager") {
+				return imageTag(dep.Spec.Template.Spec.Containers), detect.CrossplaneControllerFound
+			}
 		}
 	}
 	return "", detect.CrossplaneControllerNone

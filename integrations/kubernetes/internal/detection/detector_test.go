@@ -796,6 +796,38 @@ func TestDetectorCrossplaneCRDsWithoutControllerPartial(t *testing.T) {
 	}
 }
 
+func TestDetectorCrossplaneStartingIsPartial(t *testing.T) {
+	// The Deployment runs before its init container created the CRDs: never
+	// none found, so idp proposes no bootstrap.
+	core := crossplaneDeployment("x:v2.4.3", map[string]string{"app": "crossplane"})
+	c := newClient(interceptor.Funcs{}, operatorDeployment(), core)
+	d := newDetector(c, servedCrossplane())
+	d.Installation, d.LastPush = &detect.Installation{Profile: []string{"idp"}}, func() *detect.PushResult { return nil }
+	if e := crossplaneEntry(t, d, c); e.Value != "Crossplane starting" || e.Completeness != detect.Partial || e.Hint != "" {
+		t.Fatalf("starting = %+v", e)
+	}
+	// A namespace-list install cannot list the controller: no API served
+	// still reads none found.
+	if e := crossplaneEntry(t, newDetector(c, servedCrossplane(), "a"), c); e.Value != fleet.CrossplaneNoneFound {
+		t.Fatalf("scoped = %+v", e)
+	}
+}
+
+func TestDetectorCrossplaneRBACManagerIsNoCore(t *testing.T) {
+	labels := map[string]string{"app": "crossplane-rbac-manager", "app.kubernetes.io/name": "crossplane"}
+	rbac := crossplaneDeployment("x:v2.4.3", labels)
+	rbac.Name = "a-rbac-manager" // listed before the core
+	c := newClient(interceptor.Funcs{}, operatorDeployment(), rbac)
+	if e := crossplaneEntry(t, newDetector(c, servedCrossplane("v2")), c); e.Value != "Crossplane APIs served, controller not found" {
+		t.Fatalf("rbac-manager only = %+v", e)
+	}
+	core := crossplaneDeployment("x:v2.4.3", map[string]string{"app": "crossplane", "app.kubernetes.io/name": "crossplane"})
+	c = newClient(interceptor.Funcs{}, operatorDeployment(), rbac, core)
+	if e := crossplaneEntry(t, newDetector(c, servedCrossplane("v2")), c); e.Value != "Crossplane v2.4.3" || e.Completeness != detect.Complete {
+		t.Fatalf("core and rbac-manager = %+v", e)
+	}
+}
+
 func TestDetectorCrossplaneListForbiddenIsUnread(t *testing.T) {
 	c := newClient(interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, l client.ObjectList, opts ...client.ListOption) error {
 		if _, ok := l.(*appsv1.DeploymentList); ok {
