@@ -224,12 +224,7 @@ func TestSnapshotEvidenceCarriesExtensionReports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
-	defer srv.Close()
-	viaHTTP, err := fleetsrc.NewEvidenceHTTPSource("ev", srv.URL).Collect(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	viaHTTP := collectEvidenceHTTP(t, body)
 	e := newSnapEnv(t)
 	s := evidenceOnlySnapshot(t, snapA, "webapp", fleet.CompletenessComplete)
 	s.Evidence = body
@@ -246,6 +241,26 @@ func TestSnapshotEvidenceCarriesExtensionReports(t *testing.T) {
 		x.Subject != "reg.example/acme/webapp/prod/extension/backup" {
 		t.Fatalf("extension %+v", x)
 	}
+	assertCarriedRecordUnmatched(t, srcs)
+}
+
+// collectEvidenceHTTP serves body as an Evidence Server targets response and
+// reads it back through the evidence-http source.
+func collectEvidenceHTTP(t *testing.T, body []byte) *fleet.Collection {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
+	defer srv.Close()
+	data, err := fleetsrc.NewEvidenceHTTPSource("ev", srv.URL).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+// assertCarriedRecordUnmatched builds a snapshot from srcs and checks the
+// record carried by srcs[2] is accepted as valid and reaches matching.
+func assertCarriedRecordUnmatched(t *testing.T, srcs []fleet.Source) {
+	t.Helper()
 	// Build accepts the carried record as valid: no revision declares the ref,
 	// so it is dropped as unmatched, never as invalid.
 	snap, err := fleet.Build(t.Context(), fleet.BuildOptions{}, srcs...)

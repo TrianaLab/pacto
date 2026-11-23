@@ -193,9 +193,8 @@ need a key granted them by name. See [Provider reports](provider-reports.md).
      another outcome. The service reads Unknown.
    - **no check**: no producer reports on the extension. It stays in
      `coverage.unverified` and never counts against compliance.
-
-   A check moves the service status only on a revision the service runs, or
-   on its current revision when none runs.
+   - A check moves the service status only on a revision the service runs, or
+     on its current revision when none runs.
 
 - The Pacto resource status reports only what the operator observes in its cluster.
 - Extension verdicts from producers appear in the fleet: pacto fleet get, the dashboard and MCP.
