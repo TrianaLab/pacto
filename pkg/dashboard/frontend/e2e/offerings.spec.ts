@@ -109,6 +109,16 @@ test.describe('WASM demo — platform offerings', () => {
     await expect(consumer).toBeVisible();
     // No provider reports on payments-service's database, so its badge says Unknown.
     await expect(consumer.getByTestId('provisioning-badge').first().locator('.tag')).toHaveText('Unknown');
+    // Its suggestion is visible text once the badge is picked: no hover reaches a touch pointer.
+    // The detail renders again while it loads, which drops an early pick: pick until it holds.
+    const pick = consumer.getByTestId('provisioning-badge').first();
+    await expect(async () => {
+      if (await pick.getAttribute('aria-pressed') !== 'true') await pick.click();
+      await expect(pick).toHaveAttribute('aria-pressed', 'true', { timeout: 1_000 });
+    }).toPass({ timeout: T });
+    await expect(page.getByTestId('offering-use-figure').getByTestId('use-suggestion'))
+      .toHaveText('Crossplane detected in production: accept its inferred offerings');
+    await audit(page, 'postgresql with the payments-service request picked');
     await expect(provider.locator('.ov-chips li').first()).toBeVisible();
     expect(await noSideScroll(page)).toBe(true);
   });

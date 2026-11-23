@@ -277,7 +277,7 @@ export function phaseTrack(phases: PhaseTally | undefined, phaseConsumers?: Phas
 
 // ── Offering use: is this one request ready? ───────────────────────────────────────
 
-export interface UseRequest { phase?: string; environment?: string; entry?: string; asOf?: string; verified?: boolean }
+export interface UseRequest { phase?: string; environment?: string; entry?: string; asOf?: string; verified?: boolean; suggestion?: string }
 
 /**
  * useDetailModel is one request of an offering use on its rail: Requested →

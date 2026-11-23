@@ -242,4 +242,13 @@ describe('OfferingUseFigure (A6)', () => {
     expect(target.querySelector('figcaption')?.textContent).toContain('readiness is unknown');
     unmount(c);
   });
+  it('shows the suggestion of a request nothing reported on as visible caption text, unless its host already does', async () => {
+    const request = { phase: 'Unknown', suggestion: 'Crossplane detected in production: accept its inferred offerings' };
+    const a = render(OfferingUseFigure, { consumer: 'orders', useKey: 'k', request }, true);
+    const b = render(OfferingUseFigure, { consumer: 'orders', useKey: 'k', request, suggest: false }, true);
+    await settle();
+    expect(a.target.querySelector('figcaption [data-testid="use-suggestion"]')?.textContent).toBe(request.suggestion);
+    expect(b.target.querySelector('[data-testid="use-suggestion"]')).toBeNull();
+    unmount(a.c); unmount(b.c);
+  });
 });

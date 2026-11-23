@@ -110,7 +110,7 @@
         </div>
       {/if}
       {#if pickedSt}
-        <OfferingUseFigure consumer={u.consumer?.label ?? service} request={pickedSt} useKey={`${u.consumer?.key}:${u.provider?.key}:${u.via}:${picked?.i}`} />
+        <OfferingUseFigure consumer={u.consumer?.label ?? service} request={pickedSt} suggest={false} useKey={`${u.consumer?.key}:${u.provider?.key}:${u.via}:${picked?.i}`} />
       {/if}
       {#if (u.consumption ?? []).length}
         <div class="rl-block" data-testid="resource-usage">
