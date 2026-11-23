@@ -171,8 +171,85 @@ describe('FleetGoldenPathsView inferred golden paths', () => {
     await vi.waitFor(() => expect(rowsOf(target).length).toBe(3));
     expect(target.querySelector('[data-testid="inferred-accept"]')).toBeNull();
     const why = [...target.querySelectorAll('[data-testid="inferred-no-accept"]')].map((e) => e.textContent);
-    expect(why).toEqual(['Set dashboard.backstage.url to accept templates from this catalog', 'The name is held by a service that is no golden path', 'Accepting needs update pactos in the installation namespace']);
+    expect(why).toEqual(['Set dashboard.backstage.url to accept templates from this catalog', 'The name is held by a service that is no golden path']);
     done();
+  });
+
+  it('names the missing right only on a host that declares for this caller', async () => {
+    entitiesFn.mockResolvedValue(withInferred([], [tpl('c')]));
+    const reasons = async (props: Record<string, unknown>) => {
+      const { target, done } = mountView({ canAccept: false, ...props });
+      await vi.waitFor(() => expect(rowsOf(target).length).toBe(1));
+      const out = [target.querySelector('[data-testid="inferred-no-accept"]')?.textContent ?? '', !!target.querySelector('[data-testid="inferred-accept"]')];
+      done();
+      return out;
+    };
+    // Capabilities still unknown: no reason and no button.
+    expect(await reasons({ declares: null })).toEqual(['', false]);
+    // A host that declares nothing for this caller: the CLI line, never the RBAC right.
+    expect(await reasons({ declares: false })).toEqual(['Accept it from a terminal: pacto declare template:default/c', false]);
+    expect(await reasons({ declares: true })).toEqual(['Accepting needs update pactos in the installation namespace', false]);
+  });
+
+  it('opens no panel for a declare key that is no template', async () => {
+    entitiesFn.mockResolvedValue(withInferred([], [tpl('springboot-service')]));
+    const { target, done } = mountView({ declare: 'default/legacy-billing', canAccept: true });
+    await vi.waitFor(() => expect(rowsOf(target).length).toBe(1));
+    expect(target.querySelector('[data-testid="golden-path-accept"]')).toBeNull();
+    expect(declareFn).not.toHaveBeenCalled();
+    done();
+  });
+
+  it('says a read time is unknown when neither the template nor the list has one', async () => {
+    entitiesFn.mockResolvedValue(withInferred([], [tpl('a', { observedAt: undefined })], { asOf: undefined }));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(rowsOf(target).length).toBe(1));
+    (rowsOf(target)[0].querySelector('.prov-mark button') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(target.textContent).toContain('template:default/a, read time unknown.'));
+    expect(target.textContent).not.toContain('read .');
+    done();
+  });
+
+  it('keeps the pager past the end of the declared list when a catalog lists templates', async () => {
+    entitiesFn.mockResolvedValue({ ...withInferred([], [tpl('a'), tpl('b')]), total: 14, count: 0, offset: 14 });
+    const { target, done } = mountView({ offset: '25' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="golden-path-past-end"]')).toBeTruthy());
+    expect(rowsOf(target).length).toBe(0);
+    done();
+  });
+
+  it('says an empty list with an unreadable catalog is unknown, never none', async () => {
+    const limitations = [{ code: 'SOURCE_UNAVAILABLE', message: 'the catalog could not be reached' }];
+    for (const declaration of ['', 'inferred']) {
+      entitiesFn.mockResolvedValue(withInferred([], [], { completeness: 'partial', limitations }));
+      const { target, done } = mountView({ declaration });
+      const line = await vi.waitFor(() => { const x = target.querySelector('[data-testid="inferred-partial"]'); expect(x).toBeTruthy(); return x!; });
+      expect(line.textContent).toContain('the catalog could not be reached');
+      expect(target.querySelector('[data-testid="golden-paths-empty"]')).toBeNull();
+      done();
+    }
+  });
+
+  it('keeps the signing login of the open panel when list navigation drops it from the URL', async () => {
+    declareFn.mockResolvedValue({
+      plan: { service: 'springboot-service', version: '0.1.0', bundleRepo: 'ghcr.io/acme/springboot-service', state: 'declared', deploy: 'none', ranges: [],
+        signer: { class: 'person', source: 'login' }, intentDigest: 'sha256:abc', contract: { text: 'x' }, record: { text: 'y' } },
+      signing: { mode: 'fresh-login', identity: 'ana@acme.com' }, signedIn: true, write: { available: true }, command: 'pacto declare template:default/springboot-service',
+    });
+    entitiesFn.mockResolvedValue(withInferred([], [tpl('springboot-service')]));
+    const props = $state({ refreshTick: 0, text: '', declare: 'template:default/springboot-service', signed: 'sha256:abc', canAccept: true });
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(FleetGoldenPathsView, { target, props });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="declare-signed-return"]')).toBeTruthy());
+    props.text = 'spring';
+    props.declare = '';
+    props.signed = '';
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ text: 'spring' })));
+    expect(target.querySelector('[data-testid="golden-path-accept"]')).toBeTruthy();
+    expect(target.querySelector('[data-testid="declare-signed-return"]')).toBeTruthy();
+    unmount(component);
+    target.remove();
   });
 
   it('gives a declared path holding a catalog template name its Open in Backstage link and one mark', async () => {
