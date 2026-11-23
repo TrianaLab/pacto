@@ -2,10 +2,12 @@
 // image, ports and probes) from its decoded form. It imports only the
 // standard library, so a cluster reader and a folder reader can share it.
 // It never reads environment values, Secrets, ConfigMaps, probe headers, exec
-// commands, container args or object metadata.
+// commands, container args or object metadata; of a Secret it reads only the
+// name a pod template references.
 package workloadshape
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -39,12 +41,7 @@ type Probe struct {
 // first. Image and probes come from the main container, ports from every
 // container.
 func ReadWorkloadShape(kind, name string, obj map[string]any) WorkloadShape {
-	podPath := "spec.template.spec"
-	pod := dig(obj, "spec", "template", "spec")
-	if kind == "CronJob" {
-		podPath = "spec.jobTemplate.spec.template.spec"
-		pod = dig(obj, "spec", "jobTemplate", "spec", "template", "spec")
-	}
+	podPath, pod := podTemplate(kind, obj)
 	containers, _ := dig(pod, "containers").([]any)
 	main := 0
 	for i, c := range containers {
@@ -75,6 +72,53 @@ func ReadWorkloadShape(kind, name string, obj map[string]any) WorkloadShape {
 		}
 	}
 	return s
+}
+
+// podTemplate is the pod template of obj, a workload of kind, and its path:
+// spec.template.spec, or spec.jobTemplate.spec.template.spec for a CronJob.
+func podTemplate(kind string, obj map[string]any) (string, any) {
+	if kind == "CronJob" {
+		return "spec.jobTemplate.spec.template.spec", dig(obj, "spec", "jobTemplate", "spec", "template", "spec")
+	}
+	return "spec.template.spec", dig(obj, "spec", "template", "spec")
+}
+
+// SecretNames is every Secret name the pod template of obj, a workload of
+// kind, references, sorted and unique: env[].valueFrom.secretKeyRef.name and
+// envFrom[].secretRef.name of every container and init container,
+// volumes[].secret.secretName and volumes[].projected.sources[].secret.name.
+// Only the names are read, never a key, value or Secret.
+func SecretNames(kind string, obj map[string]any) []string {
+	_, pod := podTemplate(kind, obj)
+	var names []string
+	add := func(v any) {
+		if n, ok := v.(string); ok && n != "" {
+			names = append(names, n)
+		}
+	}
+	for _, list := range []string{"containers", "initContainers"} {
+		containers, _ := dig(pod, list).([]any)
+		for _, c := range containers {
+			env, _ := dig(c, "env").([]any)
+			for _, e := range env {
+				add(dig(e, "valueFrom", "secretKeyRef", "name"))
+			}
+			envFrom, _ := dig(c, "envFrom").([]any)
+			for _, e := range envFrom {
+				add(dig(e, "secretRef", "name"))
+			}
+		}
+	}
+	volumes, _ := dig(pod, "volumes").([]any)
+	for _, v := range volumes {
+		add(dig(v, "secret", "secretName"))
+		sources, _ := dig(v, "projected", "sources").([]any)
+		for _, src := range sources {
+			add(dig(src, "secret", "name"))
+		}
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
 }
 
 // readProbes is every readiness, liveness and startup probe of c, in that

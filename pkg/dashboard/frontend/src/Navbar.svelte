@@ -94,7 +94,7 @@
     if (mobileMenuOpen && !e.target.closest('.navbar')) closeMenu(false);
   }
 
-  const enabledSources = $derived(sourcesInfo.filter((s) => s.enabled && !s.egress));
+  const enabledSources = $derived(sourcesInfo.filter((s) => s.enabled && !s.egress && !s.resources));
   // "Kubernetes — live cluster runtime data" reads as a name and a label, so the name is
   // printed once instead of the wire type above a sentence that repeats it.
   function sourceParts(type) {

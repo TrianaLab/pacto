@@ -85,6 +85,9 @@ const (
 	// UseExternalEgress: Pacto reads calls leaving the cluster, to Externals,
 	// from what the row read.
 	UseExternalEgress = "external-egress"
+	// UseManagedResources: Pacto reads managed cloud resources (cluster
+	// objects, Terraform state, cloud inventory) from what the row read.
+	UseManagedResources = "managed-resources"
 	// ProviderCrossplane is the row of the Crossplane the operator detected.
 	ProviderCrossplane = "crossplane"
 	// ProviderManagedResources is the row of the managed-resource objects

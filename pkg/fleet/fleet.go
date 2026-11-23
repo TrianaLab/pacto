@@ -659,6 +659,9 @@ const (
 	// LimitationManagedResourceInvalid: a source reported managed resources
 	// with an identity that is not one; they were dropped.
 	LimitationManagedResourceInvalid = "MANAGED_RESOURCE_INVALID"
+	// LimitationManagedResourcesCapped: a reader found more managed
+	// resources than its bound keeps; what lies past it is unknown.
+	LimitationManagedResourcesCapped = "MANAGED_RESOURCES_CAPPED"
 	// LimitationExternalCatalogMismatch: a source classified external uses
 	// with a catalog other than the one this snapshot classifies with, so
 	// one external system may join evidence from two catalog versions.

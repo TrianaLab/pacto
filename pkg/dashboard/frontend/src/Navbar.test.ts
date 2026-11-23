@@ -271,11 +271,13 @@ describe('Navbar — data sources', () => {
     done();
   });
 
-  it('egress rows are no data source pill', () => {
-    let m = mountWith({ sourcesInfo: [{ type: 'kubernetes', enabled: true }, { type: 'kernel-egress', enabled: true, egress: true, coverage: 'partial' }] });
+  it('egress and resources rows are no data source pill', () => {
+    let m = mountWith({ sourcesInfo: [{ type: 'kubernetes', enabled: true }, { type: 'kernel-egress', enabled: true, egress: true, coverage: 'partial' },
+      { type: 'managed-resources', enabled: true, resources: true, coverage: 'complete' }] });
     const panel = m.target.querySelector('#navbar-sources') as HTMLElement;
     expect(Array.from(panel.querySelectorAll('li strong')).map((n) => n.textContent)).toEqual(['Kubernetes']);
     expect(m.target.querySelectorAll('.source-dot-kernel-egress')).toHaveLength(0);
+    expect(m.target.querySelectorAll('.source-dot-managed-resources')).toHaveLength(0);
     m.done();
     m = mountWith({ sourcesInfo: [{ type: 'istio-egress', enabled: true, egress: true, coverage: 'complete' }] });
     expect(m.target.querySelector('[data-testid="navbar-sources"]')).toBeNull();

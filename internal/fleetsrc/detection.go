@@ -109,8 +109,26 @@ func (s *DetectionSource) Collect(ctx context.Context) (*fleet.Collection, error
 	col := &fleet.Collection{Advisory: true, State: &state}
 	if state.Status != fleet.SourceUnavailable {
 		col.Providers = detect.ProviderRows(res, s.id, s.now())
+		col.ManagedResources, col.SecretRefs = stampManaged(res)
+		if res.ManagedCapped() {
+			col.Limitations = append(col.Limitations, detect.ManagedCappedLimitation(res, s.id))
+		}
 	}
 	return col, nil
+}
+
+// stampManaged is the managed resources and Secret refs of res, each stamped
+// with the cluster the Result was read in: whatever cluster an entry names
+// in the ConfigMap is overwritten, so a restricted view places it correctly.
+func stampManaged(res detect.Result) ([]fleet.RawManagedResource, []fleet.RawSecretRef) {
+	resources, refs := slices.Clone(res.ManagedResources), slices.Clone(res.SecretRefs)
+	for i := range resources {
+		resources[i].Cluster, resources[i].ClusterName = res.Cluster, res.ClusterName
+	}
+	for i := range refs {
+		refs[i].Cluster, refs[i].ClusterName = res.Cluster, res.ClusterName
+	}
+	return resources, refs
 }
 
 // Read is the decoded Result with the source's state: unavailable with why

@@ -68,11 +68,13 @@ describe('DetectedProviders', () => {
     providersFn.mockResolvedValue(resp([
       row('istio-egress', { provenance: 'inferred', usedFor: ['reads calls leaving the cluster; nothing is turned on', 'external-egress'] }),
       row('kernel-egress', { usedFor: ['external-egress'] }),
+      row('managed-resources', { provenance: 'inferred', usedFor: ['reads managed cloud resources and the services that use them; nothing is turned on', 'managed-resources'] }),
     ]));
     const t = render();
-    await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
+    await vi.waitFor(() => expect(rows(t)).toHaveLength(3));
     expect(text(rows(t)[0].querySelector('.dp-used'))).toBe('reads calls leaving the cluster; nothing is turned on');
     expect(text(rows(t)[1].querySelector('.dp-used'))).toBe('external egress');
+    expect(text(rows(t)[2].querySelector('.dp-used'))).toBe('reads managed cloud resources and the services that use them; nothing is turned on');
   });
 
   it('collapses the reasons of a partial row under "Why partial" and of a stale one under "Why stale"', async () => {

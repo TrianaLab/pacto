@@ -3,6 +3,7 @@ package detect
 import (
 	"cmp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -21,7 +22,8 @@ var rowNames = map[string]string{
 	"jaeger": "Jaeger", "datadog": "Datadog", "traces": "Traces",
 	"istio-egress": "Istio egress", "cilium-fqdn": "Cilium FQDN", "egress-gateway": "Egress gateway",
 	"crossplane": "Crossplane", "evidence": "Evidence", "recorder": "Recorder", fleet.ProviderApplier: "Applier",
-	"backstage": "Backstage catalog",
+	"backstage": "Backstage catalog", fleet.ProviderManagedResources: "Managed resources",
+	"terraform": "Terraform state", "cloud-inventory": "Cloud inventory",
 }
 
 // usedFor says, per kind, what a person may do with the proposal. Nothing is
@@ -35,6 +37,7 @@ var usedFor = map[string]string{
 	"nodes":    "proposal for runtime conformance; nothing is turned on",
 	"pull-secret": "proposal for registryPullSecret: it needs push on <registry>/pacto-*; " +
 		"a pod pull Secret usually grants pull only",
+	"managed-resources": managedSentence, "terraform": managedSentence, "cloud-inventory": managedSentence,
 	"otel-collector":      observedEdges,
 	"tempo":               observedEdges,
 	"jaeger":              observedEdges,
@@ -49,6 +52,13 @@ var usedFor = map[string]string{
 	"recorder":            "signed delivery records (profile idp)",
 	"backstage":           "inferred owners, domains and dependencies, read by the dashboard; nothing is turned on",
 }
+
+// managedSentence is what a managed-resource reader's row is used for.
+const managedSentence = "reads managed cloud resources and the services that use them; nothing is turned on"
+
+// ManagedKinds are the kinds whose rows read managed cloud resources: their
+// UsedFor carries [fleet.UseManagedResources] after the sentence.
+var ManagedKinds = []string{fleet.ProviderManagedResources, "terraform", "cloud-inventory"}
 
 // egressSentence is what an egress reader's row is used for.
 const egressSentence = "reads calls leaving the cluster; nothing is turned on"
@@ -76,6 +86,7 @@ func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
 		rows = append(rows, installationRow(res, source, now))
 	}
 	for _, e := range res.Entries {
+		e, capped := managedCap(res, e)
 		asOf, cluster := res.AsOf, cmp.Or(res.ClusterName, res.Cluster)
 		p := fleet.Provider{
 			ID: e.Kind, Name: rowName(e.Kind), Evidence: evidence(e, source, cluster),
@@ -96,19 +107,44 @@ func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
 			code := "DETECTION_" + strings.ToUpper(strings.ReplaceAll(e.Kind, "-", "_")) + "_" + strings.ToUpper(e.Completeness)
 			p.Limitations = []fleet.Limitation{{Code: code, Source: source, Message: e.Reason}}
 		}
+		if capped {
+			p.Limitations = append(p.Limitations, ManagedCappedLimitation(res, source))
+		}
 		rows = append(rows, p)
 	}
 	return rows
 }
 
 // rowUsedFor is the UsedFor of a row of kind: its sentence, then
-// [fleet.UseExternalEgress] for an egress kind.
+// [fleet.UseExternalEgress] for an egress kind or
+// [fleet.UseManagedResources] for a managed kind.
 func rowUsedFor(kind string) []string {
 	out := []string{cmp.Or(usedFor[kind], "proposal; nothing is turned on")}
-	if slices.Contains(EgressKinds, kind) {
+	switch {
+	case slices.Contains(EgressKinds, kind):
 		out = append(out, fleet.UseExternalEgress)
+	case slices.Contains(ManagedKinds, kind):
+		out = append(out, fleet.UseManagedResources)
 	}
 	return out
+}
+
+// managedCap lowers a complete managed entry of a capped res to partial and
+// says whether it did: what lies past the cap is unknown.
+func managedCap(res Result, e Entry) (Entry, bool) {
+	if !res.ManagedCapped() || !slices.Contains(ManagedKinds, e.Kind) || e.Completeness != Complete {
+		return e, false
+	}
+	e.Completeness = Partial
+	return e, true
+}
+
+// ManagedCappedLimitation is the MANAGED_RESOURCES_CAPPED limitation of a
+// capped res read by source.
+func ManagedCappedLimitation(res Result, source string) fleet.Limitation {
+	return fleet.Limitation{Code: fleet.LimitationManagedResourcesCapped, Source: source,
+		Message: strconv.Itoa(res.ManagedResourcesTotal-len(res.ManagedResources)) + " of " + strconv.Itoa(res.ManagedResourcesTotal) +
+			" managed resources past the bound of " + strconv.Itoa(MaxManagedResources) + " were not kept; raise MaxManagedResources if a real cluster hits it"}
 }
 
 // rowName is the row name of kind.

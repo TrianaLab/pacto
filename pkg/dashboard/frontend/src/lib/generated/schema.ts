@@ -6246,7 +6246,7 @@ export interface components {
         GetSourcesOutputBody: {
             /** @description True while the first snapshot is still being built */
             discovering: boolean;
-            /** @description Data sources backing the published snapshot, then one row per provider that reads calls leaving the cluster (egress set) */
+            /** @description Data sources backing the published snapshot, then one row per provider that reads calls leaving the cluster (egress set) or managed resources (resources set) */
             sources: components["schemas"]["SourceInfo"][] | null;
         };
         GlobalGraph: {
@@ -8942,10 +8942,10 @@ export interface components {
             name: string;
         };
         SourceInfo: {
-            /** @description The cluster an egress row describes, when its source names one; set on egress rows only */
+            /** @description The cluster an egress or resources row describes, when its source names one; set on those rows only */
             cluster?: string;
             /**
-             * @description How much of the calls leaving the cluster an egress row read; set on egress rows only
+             * @description How much an egress or resources row read; set on those rows only
              * @enum {string}
              */
             coverage?: "complete" | "partial" | "unavailable";
@@ -8953,7 +8953,9 @@ export interface components {
             egress?: boolean;
             enabled: boolean;
             reason?: string;
-            /** @description The fleet source that reported an egress row; set on egress rows only */
+            /** @description Set on a row projected from a detected provider that reads managed resources; such a row is not a data source */
+            resources?: boolean;
+            /** @description The fleet source that reported an egress or resources row; set on those rows only */
             source?: string;
             type: string;
         };
