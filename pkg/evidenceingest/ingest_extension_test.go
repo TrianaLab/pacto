@@ -4,6 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -162,6 +166,105 @@ func TestHasInnerSegment(t *testing.T) {
 	for _, tc := range cases {
 		if got := hasInnerSegment(tc.rest, tc.seg); got != tc.want {
 			t.Errorf("hasInnerSegment(%q, %q) = %v, want %v", tc.rest, tc.seg, got, tc.want)
+		}
+	}
+}
+
+// extRecord is an accepted extension record about backupRef (with details) and
+// x.acme.io/scan (Failed), accepted in cluster.
+func extRecord(cluster string) Record {
+	present := capObs(backupRef, true)
+	present.Value = json.RawMessage(`{"present":true,"details":{"lastBackup":"2026-11-22T03:00:00Z"}}`)
+	failed, _ := evidence.NewUnobserved(evidence.CapabilityObserved, evidence.SubjectRef{Kind: "capability", Name: "x.acme.io/scan"}, evidence.Failed, extProv())
+	var env evidenceenvelope.Envelope
+	env.Producer = evidenceenvelope.Producer{ID: "acme-backup", KeyID: "acme-backup-2026"}
+	env.EvidenceSet = extSet("ghcr.io/a/orders/production/extension/backup", fixedNow().Add(-time.Minute), present, failed)
+	return Record{Envelope: env, AcceptedAt: fixedNow(), Service: "orders", Domain: "ghcr.io/a", Digest: "sha256:bb", Cluster: cluster}
+}
+
+func TestHandleTargetsProjectsExtensions(t *testing.T) {
+	var body TargetsResponse
+	if err := json.Unmarshal([]byte(targetsBody(t, []Record{extRecord("uid-a"), clusterRecord("payments", "")}, nil)), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.SchemaVersion != TargetsSchemaVersionExtensions {
+		t.Errorf("schema = %q, want v6 with an extension report", body.SchemaVersion)
+	}
+	if len(body.Targets) != 1 || body.Targets[0].Subject != "payments" {
+		t.Errorf("an extension report is never a target: %+v", body.Targets)
+	}
+	if len(body.Extensions) != 2 {
+		t.Fatalf("extensions = %+v, want one per observation", body.Extensions)
+	}
+	got := body.Extensions[0]
+	if got.Present == nil || !*got.Present || string(got.Details) != `{"lastBackup":"2026-11-22T03:00:00Z"}` {
+		t.Errorf("observed DTO = %+v", got)
+	}
+	got.Present, got.Details = nil, nil
+	want := ExtensionDTO{Subject: "ghcr.io/a/orders/production/extension/backup", Service: "orders", Domain: "ghcr.io/a", Digest: "sha256:bb",
+		ContractRef: ordersRef, Producer: "acme-backup", ProducerKeyID: "acme-backup-2026", Ref: backupRef, Outcome: "Observed",
+		EvidenceAt: fixedNow().Add(-time.Minute), AcceptedAt: fixedNow(), Cluster: "uid-a"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("DTO = %+v, want %+v", got, want)
+	}
+	if f := body.Extensions[1]; f.Ref != "x.acme.io/scan" || f.Outcome != "Failed" || f.Present != nil || f.Details != nil {
+		t.Errorf("a non-Observed DTO carries no payload: %+v", f)
+	}
+}
+
+// TestHandleTargetsExtensionsShareBudget: the extension DTOs share the targets
+// budget and its truncation flag.
+func TestHandleTargetsExtensionsShareBudget(t *testing.T) {
+	h := NewHandler(NewAcceptor(nil, fakeResolver{}, healthStore{recs: []Record{extRecord(""), clusterRecord("payments", "")}, health: SourceHealth{Status: HealthReady}}, fixedNow), nil, nil)
+	mux := http.NewServeMux()
+	h.Routes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	for _, tc := range []struct{ budget, extensions int }{{0, 0}, {1, 1}, {2, 2}} {
+		h.maxTargets = tc.budget
+		var b TargetsResponse
+		getJSON(t, srv.URL+TargetsPath, &b)
+		if len(b.Extensions) != tc.extensions || len(b.Targets) != 0 || !b.Truncated {
+			t.Errorf("budget %d: extensions %d targets %d truncated %v", tc.budget, len(b.Extensions), len(b.Targets), b.Truncated)
+		}
+	}
+}
+
+// TestHandleTargetsMixedRecordStaysTarget: a record stored before extension
+// grants existed, mixing an extension observation with a runtime kind, still
+// projects as a target.
+func TestHandleTargetsMixedRecordStaysTarget(t *testing.T) {
+	rec := extRecord("")
+	rec.Envelope.EvidenceSet.Observations = []evidence.Observation{capObs(backupRef, true),
+		evidence.NewWorkloadObserved(evidence.SubjectRef{Kind: "service", Name: "orders"}, "service", extProv())}
+	body := targetsBody(t, []Record{rec}, nil)
+	if strings.Contains(body, `"extensions"`) || !strings.Contains(body, `"schemaVersion":"`+TargetsSchemaVersion+`"`) ||
+		!strings.Contains(body, `"subject":"ghcr.io/a/orders/production/extension/backup"`) {
+		t.Errorf("a mixed record stays a v2 target: %s", body)
+	}
+}
+
+func TestHandleTargetsWithoutExtensionsKeepsVersion(t *testing.T) {
+	prov := Record{Service: "orders"}
+	prov.Envelope.EvidenceSet = provisionedSet("ghcr.io/a/orders/production/db", fixedNow(), provisioned("configuration", "db", "production"))
+	use := Record{Service: "orders"}
+	use.Envelope.EvidenceSet = provisionedSet("ghcr.io/a/orders/production/usage/configuration/db", fixedNow(), usageObs("configuration", "db", "production"))
+	for name, tc := range map[string]struct {
+		recs []Record
+		want string
+	}{
+		"targets only":          {[]Record{clusterRecord("old", "")}, TargetsSchemaVersion},
+		"provisioning":          {[]Record{prov}, TargetsSchemaVersionProvisioning},
+		"usage":                 {[]Record{prov, use}, TargetsSchemaVersionUsage},
+		"cluster":               {[]Record{clusterRecord("here", "uid-a"), prov, use}, TargetsSchemaVersionCluster},
+		"extension and cluster": {[]Record{clusterRecord("here", "uid-a"), extRecord("")}, TargetsSchemaVersionExtensions},
+	} {
+		body := targetsBody(t, tc.recs, nil)
+		if !strings.Contains(body, `"schemaVersion":"`+tc.want+`"`) {
+			t.Errorf("%s: body %s, want schema %s", name, body, tc.want)
+		}
+		if tc.want != TargetsSchemaVersionExtensions && strings.Contains(body, `"extensions"`) {
+			t.Errorf("%s: a body with no extension report carries no extensions key: %s", name, body)
 		}
 	}
 }

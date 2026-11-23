@@ -768,6 +768,12 @@ const TargetsSchemaVersionUsage = "pacto.dev/evidence-source/v4"
 // a body it would misread.
 const TargetsSchemaVersionCluster = "pacto.dev/evidence-source/v5"
 
+// TargetsSchemaVersionExtensions is v5 plus the extensions list. The server
+// writes it only when the response carries an extension report, so a v5 reader
+// keeps working against a server with none, and refuses a body it would
+// misread.
+const TargetsSchemaVersionExtensions = "pacto.dev/evidence-source/v6"
+
 // maxFindingsPerTarget bounds the findings projected per target so one pathological
 // target cannot blow the response body even under the target-count bound.
 const maxFindingsPerTarget = 500
@@ -893,6 +899,30 @@ type UsageDTO struct {
 	AcceptedAt    time.Time              `json:"acceptedAt"`
 }
 
+// ExtensionDTO is one producer's report on an extension capability Ref that
+// the consumer revision (Service, Domain, Digest, ContractRef) declares. It is
+// never a target: an extension report is a verdict on one assertion of the
+// contract and adds no environment to the fleet. Present and Details are set
+// only for an Observed outcome; Details is the producer's own bounded account,
+// never interpreted.
+type ExtensionDTO struct {
+	Subject       string          `json:"subject"`
+	Service       string          `json:"service"`
+	Domain        string          `json:"domain,omitempty"`
+	Digest        string          `json:"digest,omitempty"`
+	ContractRef   string          `json:"contractRef"`
+	Producer      string          `json:"producer"`
+	ProducerKeyID string          `json:"producerKeyId,omitempty"`
+	Ref           string          `json:"ref"`
+	Outcome       string          `json:"outcome"`
+	Present       *bool           `json:"present,omitempty"`
+	Details       json.RawMessage `json:"details,omitempty"`
+	EvidenceAt    time.Time       `json:"evidenceAt"`
+	AcceptedAt    time.Time       `json:"acceptedAt"`
+	// Cluster is the id of the cluster whose server accepted the record.
+	Cluster string `json:"cluster,omitempty"`
+}
+
 // TargetsResponse is the versioned read-only evidence-source contribution.
 type TargetsResponse struct {
 	SchemaVersion string            `json:"schemaVersion"`
@@ -902,6 +932,7 @@ type TargetsResponse struct {
 	Targets       []TargetDTO       `json:"targets"`
 	Provisioning  []ProvisioningDTO `json:"provisioning,omitempty"`
 	Usage         []UsageDTO        `json:"usage,omitempty"`
+	Extensions    []ExtensionDTO    `json:"extensions,omitempty"`
 	Cluster       *ClusterDTO       `json:"cluster,omitempty"`
 }
 
@@ -930,6 +961,13 @@ func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
 	// reports cannot grow the response past the bound targets alone respect.
 	budget := h.maxTargets
 	for _, rec := range res.Records {
+		// Only a record whose every observation is an extension one is an
+		// extension report; a record that mixed one with runtime kinds before
+		// extension grants existed stays a target.
+		if isExtensionReport(rec.Envelope.EvidenceSet) {
+			budget = appendExtensionReports(&out, rec, budget)
+			continue
+		}
 		if isResourceReport(rec.Envelope.EvidenceSet) {
 			budget = appendResourceReports(&out, rec, budget)
 			continue
@@ -943,6 +981,8 @@ func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
 		budget--
 	}
 	switch {
+	case len(out.Extensions) > 0:
+		out.SchemaVersion = TargetsSchemaVersionExtensions
 	case clustered:
 		out.SchemaVersion = TargetsSchemaVersionCluster
 	case len(out.Usage) > 0:
@@ -1000,6 +1040,30 @@ func appendResourceReports(out *TargetsResponse, rec Record, budget int) int {
 			Provider: p.Provider, ExternalRef: p.ExternalRef, Phase: string(p.Phase), Outcome: string(o.Outcome),
 			EvidenceAt: es.ObservedAt, AcceptedAt: rec.AcceptedAt,
 		})
+	}
+	return budget
+}
+
+// appendExtensionReports projects one extension record, one DTO per
+// observation, within budget, and returns the budget left.
+func appendExtensionReports(out *TargetsResponse, rec Record, budget int) int {
+	es := rec.Envelope.EvidenceSet
+	for _, o := range es.Observations {
+		if budget == 0 {
+			out.Truncated = true
+			return 0
+		}
+		budget--
+		dto := ExtensionDTO{
+			Subject: es.Subject.Name, Service: rec.Service, Domain: rec.Domain, Digest: rec.Digest,
+			ContractRef: es.ContractRef, Producer: rec.Envelope.Producer.ID, ProducerKeyID: rec.Envelope.Producer.KeyID,
+			Ref: o.Subject.Name, Outcome: string(o.Outcome), EvidenceAt: es.ObservedAt, AcceptedAt: rec.AcceptedAt, Cluster: rec.Cluster,
+		}
+		// The payload was validated at accept; a non-Observed outcome has none.
+		if p, err := o.GetCapabilityObservation(); err == nil {
+			dto.Present, dto.Details = &p.Present, p.Details
+		}
+		out.Extensions = append(out.Extensions, dto)
 	}
 	return budget
 }

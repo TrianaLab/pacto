@@ -1,0 +1,15 @@
+{
+  "subject": {"kind": "service", "name": "SUBJECT"},
+  "contractRef": "CONTRACT_REF",
+  "source": "acme-backup",
+  "observedAt": "OBSERVED_AT",
+  "observations": [
+    {
+      "kind": "CapabilityObserved",
+      "subject": {"kind": "capability", "name": "x.acme.io/backup"},
+      "outcome": "Observed",
+      "value": {"present": true, "details": {"lastBackup": "2026-11-22T03:00:00Z"}},
+      "provenance": {"collector": "acme-backup", "detectedAt": "OBSERVED_AT"}
+    }
+  ]
+}
