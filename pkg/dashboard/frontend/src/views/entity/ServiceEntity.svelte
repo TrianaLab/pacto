@@ -53,6 +53,9 @@
   // acceptSigned is the intent a signing login for the accept plan came back with.
   let { detail, deliveryState = 'unknown', refreshTick = 0, miraURL = '', changesQuery = {}, acceptSigned = '' } = $props();
   const d = $derived(detail.service ?? {});
+  // A producer's contribution names no owner and is never delivered: its owner and
+  // Delivery blocks would only offer to set what no contract declares.
+  const contributed = $derived(!!d.contribution);
   // The Delivery section's Stage rows, bound out so the Environments section joins them without a second fetch.
   let deliveryRows = $state([]);
   let deliveryCompleteness = $state('');
@@ -200,7 +203,7 @@
         <IdentityBadge label={businessDomainLabel('')} tone="neutral" title="Its contract declares no service.domain." describe />
       {/if}
     </div>
-    {#if d.ownership}
+    {#if d.ownership && !contributed}
       <div class="se-fact" data-testid="service-owner">
         <span class="se-k">Owner</span>
         <!-- Both unowned states lead to this service's own `unowned` attention item,
@@ -522,10 +525,12 @@
       kind={changesQuery.kind ?? ''} offset={changesQuery.offset ?? ''} limit={changesQuery.limit ?? ''} section={changesQuery.section ?? ''} />
   </div>
 
+  {#if !contributed}
   <div class="se-wrap" data-testid="service-delivery">
     <ServiceDelivery service={self} domain={detail.entity?.domain ?? ''} state={deliveryState} {refreshTick}
       bind:rows={deliveryRows} bind:completeness={deliveryCompleteness} bind:listing={deliveryListing} />
   </div>
+  {/if}
 
   <div class="se-grid se-grid--two">
     <PreviewSection title="Revisions in use" total={d.activeRevisions?.total ?? 0} count={d.activeRevisions?.count ?? 0} truncated={d.activeRevisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No running target matches a revision yet." help="The revisions at least one running target is matched to. Newest first.">

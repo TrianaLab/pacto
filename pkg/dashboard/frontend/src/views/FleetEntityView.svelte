@@ -18,6 +18,7 @@
   import EmptyState from '../components/EmptyState.svelte';
   import TargetKeyChooser from '../components/TargetKeyChooser.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
+  import ProvenanceMark from '../components/ProvenanceMark.svelte';
   import ServiceEntity from './entity/ServiceEntity.svelte';
   import RevisionEntity from './entity/RevisionEntity.svelte';
   import TargetEntity from './entity/TargetEntity.svelte';
@@ -105,6 +106,20 @@
   // Asked for by the key of an inferred service a contract took over: the answer is the
   // declared service, and the page says so once instead of renaming the question.
   const replacedFrom = $derived(detail?.replacedFrom);
+
+  // A service only a producer's contribution describes: inferred, yet rich enough for the
+  // service page. One discreet mark in the header says who contributed it and when; the
+  // details stay in the tip.
+  const contribution = $derived(detail?.service?.contribution);
+  const contributionTip = $derived.by(() => {
+    const c = contribution;
+    if (!c) return '';
+    const now = Date.parse(detail?.meta?.asOf ?? '') || Date.now();
+    const recorded = c.asOf ? `recorded ${formatWhen(c.asOf, now)}` : 'record time unknown';
+    const read = c.readAt ? `, read ${formatWhen(c.readAt, now)}` : '';
+    const key = c.keyId ? `, signed by key ${c.keyId}` : '';
+    return `Contributed by ${c.producer} from ${c.ref}${key}; ${recorded}${read}${c.stale ? ', stale' : ''}. Inferred: a producer's record, never a contract, and it never clears a gate.`;
+  });
   const replacedAge = $derived(replacedFrom?.at ? ` ${formatWhen(replacedFrom.at, Date.parse(detail?.meta?.asOf ?? '') || Date.now())}` : '');
 
   // Entity-relationship breadcrumbs from canonical DTO refs; a minimal
@@ -173,7 +188,11 @@
     asOf={detail?.meta?.asOf}
     {revalidating}
     subtitle={detail?.entity?.summary || ''}
-  />
+  >
+    {#if contribution}
+      <p class="ev-contribution t-meta" data-testid="service-contribution">Contributed by <bdi>{contribution.producer}</bdi> <ProvenanceMark label={`Inferred: contributed by ${contribution.producer}`} text={contributionTip} /></p>
+    {/if}
+  </PageHeader>
 
   {#if state.kind !== 'ready' && candidates.length}
     <TargetKeyChooser message={loader.error?.message ?? ''} {candidates} hrefFor={(key) => fleetEntityUrl('target', key) + currentQuery()} />
@@ -223,7 +242,7 @@
       <!-- One malformed record (a duplicate key, a field of the wrong shape) must cost
            this body, not the page: without a boundary it left the skeleton up for ever. -->
       <svelte:boundary>
-        {#if detail.service && detail.entity?.declaration === 'inferred'}
+        {#if detail.service && detail.entity?.declaration === 'inferred' && !contribution}
           <InferredServiceEntity {detail} {canDeclare} {declareQuery} />
         {:else if detail.service}
           <ServiceEntity {detail} {deliveryState} {refreshTick} {miraURL} {changesQuery} acceptSigned={declareQuery.signed ?? ''} />
@@ -261,6 +280,8 @@
      page header is still waiting for the request. The column layout comes from the
      shared `.page-toc-main`; only the tighter section rhythm is this page's own. */
   .ev-body { gap: var(--sp-4); }
+  /* Muted like every inferred item: a producer's record, never a contract. */
+  .ev-contribution { margin: 0; display: flex; align-items: center; gap: var(--sp-1); color: var(--c-text-3); overflow-wrap: anywhere; }
   .ev-replaced { margin: 0; color: var(--c-text-2); overflow-wrap: anywhere; }
   /* Look and behaviour come from the shared .disclosure class in styles/components.css. */
   .ev-key { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }

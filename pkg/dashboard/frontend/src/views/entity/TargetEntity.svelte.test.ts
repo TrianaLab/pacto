@@ -76,3 +76,21 @@ describe('TargetEntity link', () => {
     expect(mounted.el.querySelectorAll('.prov-mark')).toHaveLength(0);
   });
 });
+
+describe('TargetEntity scope fact', () => {
+  const reported = (el: HTMLElement) => el.querySelector('[data-testid="target-reported-by"]') as HTMLElement | null;
+
+  it('names the producer that reported the target', () => {
+    mounted = render({ scope: 'my-idp', kind: 'external', reportedBy: 'my-idp' });
+    const f = reported(mounted.el);
+    expect(f?.querySelector('.te-k')?.textContent).toBe('Reported by');
+    expect(f?.querySelector('bdi')?.textContent).toBe('my-idp');
+    expect(mounted.el.textContent).not.toContain('Scope');
+  });
+
+  it('keeps Scope for an external target no producer reported', () => {
+    mounted = render({ scope: 'billing', kind: 'external' });
+    expect(reported(mounted.el)).toBeNull();
+    expect(mounted.el.textContent).toContain('Scopebilling');
+  });
+});

@@ -1139,3 +1139,76 @@ describe('FleetEntityView — inferred service (509-S1)', () => {
     unmount(component); document.body.removeChild(target);
   });
 });
+
+describe('FleetEntityView — contributed service (509-S11)', () => {
+  beforeEach(() => detailFn.mockReset());
+  const empty = { total: 0, count: 0, truncated: false, items: [] };
+  const KEY = 'ghcr.io/acme/pacto-inferred/my-idp/ledger-sync';
+  const contribution = {
+    producer: 'my-idp',
+    repository: 'ghcr.io/acme/pacto-inferred/my-idp/services',
+    ref: 'ghcr.io/acme/pacto-inferred/my-idp/services@sha256:ab12',
+    keyId: 'key-1',
+    asOf: '2026-07-29T07:00:00Z',
+    readAt: '2026-07-29T09:58:00Z',
+  };
+  function contributed(extra: Record<string, unknown> = {}): Record<string, any> {
+    return {
+      meta,
+      entity: { kind: 'service', key: KEY, label: 'ledger-sync', href: `/fleet/services/${encodeURIComponent(KEY)}`, declaration: 'inferred' },
+      actions: ['open-graph'],
+      service: {
+        summary: { targets: 0, revisions: 1, declaredDependencies: 0 },
+        ownership: { declared: false },
+        revisions: empty, activeRevisions: empty, deployments: empty, dependencies: empty, dependents: empty, limitations: empty,
+        contribution: { ...contribution, ...extra },
+      },
+    };
+  }
+  const marks = (t: HTMLElement) => t.querySelectorAll('[data-testid="service-contribution"]');
+
+  it('routes a contributed service to the service page with one mark in the header', async () => {
+    detailFn.mockResolvedValue(contributed());
+    const { target, component } = await mountView('service', KEY);
+    await vi.waitFor(() => expect(target.querySelector('.svc-entity')).toBeTruthy());
+    expect(target.querySelector('[data-testid="inferred-workload"]')).toBeNull();
+    expect(marks(target)).toHaveLength(1);
+    const mark = marks(target)[0] as HTMLElement;
+    expect(mark.closest('header.page-hd')).toBeTruthy();
+    const tip = mark.querySelector('.help-body')?.textContent ?? '';
+    for (const want of ['my-idp', contribution.ref, 'key-1', 'recorded 3 hours ago', 'read 2 minutes ago', 'never clears a gate']) expect(tip).toContain(want);
+    expect(tip).not.toContain('stale');
+    expect(target.querySelectorAll('h1')).toHaveLength(1);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('says a stale contribution is stale, and an unknown record time is unknown', async () => {
+    detailFn.mockResolvedValue(contributed({ stale: true, asOf: undefined }));
+    const { target, component } = await mountView('service', KEY);
+    await vi.waitFor(() => expect(marks(target)).toHaveLength(1));
+    const tip = marks(target)[0].querySelector('.help-body')?.textContent ?? '';
+    expect(tip).toContain('record time unknown');
+    expect(tip).toContain('stale');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('offers only the graph: no Compare and no impact action', async () => {
+    detailFn.mockResolvedValue(contributed());
+    const { target, component } = await mountView('service', KEY);
+    await vi.waitFor(() => expect(target.querySelector('.page-hd-actions')).toBeTruthy());
+    const labels = Array.from(target.querySelectorAll('.page-hd-action')).map((a) => a.textContent);
+    expect(labels).toEqual(['Open in graph']);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('keeps an inferred workload without a contribution on the inferred page, with no mark', async () => {
+    const d = contributed();
+    delete d.service.contribution;
+    d.service = { ...d.service, workload: { source: 'k8s-workloads', namespace: 'shop', kind: 'Deployment', name: 'cart' }, calls: empty, callsObserved: false };
+    detailFn.mockResolvedValue(d);
+    const { target, component } = await mountView('service', KEY);
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="inferred-workload"]')).toBeTruthy());
+    expect(marks(target)).toHaveLength(0);
+    unmount(component); document.body.removeChild(target);
+  });
+});

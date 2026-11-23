@@ -133,7 +133,8 @@
         <ProvenanceMark label="How this workload was linked" text={linkTip(link, detail.meta?.asOf ?? '')} />
       </div>
     {/if}
-    {#if d.scope}<div class="te-fact"><span class="te-k">Scope</span><span>{d.scope}</span></div>{/if}
+    {#if d.reportedBy}<div class="te-fact" data-testid="target-reported-by"><span class="te-k">Reported by</span><bdi class="te-long">{d.reportedBy}</bdi></div>
+    {:else if d.scope}<div class="te-fact"><span class="te-k">Scope</span><span>{d.scope}</span></div>{/if}
     {#if cluster}
       <div class="te-fact" data-testid="target-cluster">
         <span class="te-k">{d.clusterRelation === 'runs-in' ? 'Runs in cluster' : 'Reported through cluster'}</span>
