@@ -142,7 +142,7 @@
   function checkTip(k) {
     const said = k.state === 'unknown' ? sentence(k.reason)
       : `${k.producer} (key ${k.producerKeyId}) reported it ${k.state === 'covered' ? 'present' : 'absent'} ${formatWhen(k.asOf)} through a signed report.`;
-    return k.source ? `${said} Source: ${k.source}.` : said;
+    return [said, k.source && `Source: ${k.source}.`].filter(Boolean).join(' ');
   }
 </script>
 

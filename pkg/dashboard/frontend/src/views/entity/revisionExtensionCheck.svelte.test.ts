@@ -73,4 +73,15 @@ describe('RevisionEntity, extension checks', () => {
     expect(tip(rows[1])).toContain('acme-backup (key acme-backup-2026) reported it absent');
     expect(tip(rows[2])).toBe('The last report is older than the freshness window. Source: evidence-prod.');
   });
+
+  it('falls back to the producer when a failing check lists no producers, and to the source alone for an unknown with no reason', () => {
+    const fallback = [
+      { type: 'extension', ref: 'x.acme.io/restore', check: { ref: 'x.acme.io/restore', state: 'failing', producer: 'acme-backup', producerKeyId: 'acme-backup-2026', asOf: '2026-11-22T03:00:00Z', source: 'evidence-prod', provenance: 'observed' } },
+      { type: 'extension', ref: 'x.acme.io/audit', check: { ref: 'x.acme.io/audit', state: 'unknown', producer: 'dr-audit', source: 'evidence-prod', provenance: 'observed' } },
+    ];
+    comp = mount(RevisionEntity, { target, props: { detail: detail({ capabilities: preview(fallback) }) } });
+    const rows = [...open('Capabilities').querySelectorAll('.re-caps li')] as HTMLElement[];
+    expect(rows[0].querySelector('[data-testid="ext-check"]')!.textContent!.trim()).toBe('Reported absent by acme-backup');
+    expect(rows[1].querySelector('.prov-mark [role="note"]')!.textContent).toBe('Source: evidence-prod.');
+  });
 });
