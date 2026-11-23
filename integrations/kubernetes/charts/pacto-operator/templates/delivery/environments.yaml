@@ -1,6 +1,7 @@
 {{- if and (include "pacto-operator.deliveryEnabled" .) (include "pacto-operator.delivery.environments" .) }}
 # The promoter publishes the installation ladder in pacto-delivery-environments
-# and patches only that ConfigMap. RBAC cannot narrow create by name, so create
+# and each delivered service's placement in pacto-delivery-placements, and
+# patches only those ConfigMaps. RBAC cannot narrow create by name, so create
 # is a rule of its own, in the delivery namespace only.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -12,7 +13,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: [configmaps]
-    resourceNames: [pacto-delivery-environments]
+    resourceNames: [pacto-delivery-environments, pacto-delivery-placements]
     verbs: [get, patch]
   - apiGroups: [""]
     resources: [configmaps]

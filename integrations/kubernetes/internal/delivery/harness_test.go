@@ -55,6 +55,9 @@ var (
 	gvkOCI   = schema.GroupVersionKind{Group: "source.toolkit.fluxcd.io", Version: "v1", Kind: "OCIRepository"}
 	gvkKs    = schema.GroupVersionKind{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Kind: "Kustomization"}
 	gvkPacto = schema.GroupVersionKind{Group: "pacto.trianalab.io", Version: "v1alpha1", Kind: "Pacto"}
+	// gvkGitRepository is a Flux GitRepository, which a Kustomization's
+	// sourceRef names.
+	gvkGitRepository = schema.GroupVersionKind{Group: "source.toolkit.fluxcd.io", Version: "v1", Kind: "GitRepository"}
 )
 
 // fakeRegistry serves artifact annotations by digest and bundles by contract ref.
@@ -157,7 +160,7 @@ func newScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(s)
 	_ = dv1.AddToScheme(s)
-	for _, gvk := range []schema.GroupVersionKind{gvkOCI, gvkKs, gvkPacto, gvkApplication, gvkHelmRelease} {
+	for _, gvk := range []schema.GroupVersionKind{gvkOCI, gvkKs, gvkPacto, gvkApplication, gvkHelmRelease, gvkGitRepository} {
 		s.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
 		s.AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
 	}

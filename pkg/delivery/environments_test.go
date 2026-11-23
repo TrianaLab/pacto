@@ -5,6 +5,10 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 var ladderServices = []string{"payments", "orders", "cart", "search", "payments-api"}
@@ -129,5 +133,73 @@ func TestProposalBounded(t *testing.T) {
 	}
 	if got := ProposeLadder(nil, LadderInput{Advertised: adv}); len(got) != maxProposedRungs {
 		t.Fatalf("got %d rungs", len(got))
+	}
+}
+
+var chain = []LadderRung{{Name: "staging", Provenance: RungDeclared}, {Name: "production", Upstream: "staging", Provenance: RungDeclared},
+	{Name: "preview", Provenance: RungConfirmed}}
+
+func TestHostedRungsFromClusterName(t *testing.T) {
+	for name, want := range map[string][]string{
+		"eu-prod":     {"production"},
+		"stage-eu":    {"staging"},
+		"eu-1":        {"staging", "production", "preview"},
+		"dev-sandbox": nil,
+	} {
+		if got := HostedRungs(chain, AdvertisedEnvironments(nil, name, "node-label")); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s hosts %v, want %v", name, got, want)
+		}
+	}
+	if got := HostedRungs(chain, AdvertisedEnvironments(nil, "prod-uid", fleet.ClusterNameFromUID)); len(got) != 3 {
+		t.Errorf("a uid-named cluster hosts %v", got)
+	}
+}
+
+func TestNoDeclaredEnvironmentsTakesTheLadder(t *testing.T) {
+	got := DesiredEnvironments(chain, nil, time.Now())
+	want := []DesiredEnvironment{{Name: "staging", Source: DesiredFromLadder}, {Name: "production", Upstream: "staging", Source: DesiredFromLadder},
+		{Name: "preview", Source: DesiredFromConfirmed}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestDeclaredEnvironmentsAreTheExactSet(t *testing.T) {
+	got := DesiredEnvironments(chain, []contract.Environment{{Name: "staging"}}, time.Now())
+	if !reflect.DeepEqual(got, []DesiredEnvironment{{Name: "staging", Source: DesiredFromContract}}) {
+		t.Fatalf("got %+v", got)
+	}
+	// A declared rung keeps its upstream, so its gate is never skipped.
+	got = DesiredEnvironments(chain, []contract.Environment{{Name: "production"}}, time.Now())
+	if len(got) != 1 || got[0].Upstream != "staging" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestDeclaredExtraIsARegistryLeaf(t *testing.T) {
+	now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
+	got := DesiredEnvironments(chain, []contract.Environment{{Name: "staging"},
+		{Name: "pr-412", Lifetime: contract.EnvironmentTemporary, Expires: "2026-11-20T00:00:00Z"}}, now)
+	if len(got) != 2 || got[1] != (DesiredEnvironment{Name: "pr-412", Source: DesiredFromContract}) {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestExpiredTemporaryIsRetiring(t *testing.T) {
+	envs := []contract.Environment{{Name: "pr-412", Lifetime: contract.EnvironmentTemporary, Expires: "2026-11-20T00:00:00+01:00"},
+		{Name: "staging", Expires: "2026-11-20T00:00:00Z"}}
+	got := DesiredEnvironments(chain, envs, time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC))
+	if got[0].RetireFrom != "2026-11-19T23:00:00Z" || got[1].RetireFrom != "" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestDesiredSourceLabels(t *testing.T) {
+	got := DesiredEnvironments(chain, nil, time.Now())
+	if got[0].Source != "ladder" || got[2].Source != "inferred-confirmed" {
+		t.Fatalf("got %+v", got)
+	}
+	if got := DesiredEnvironments(chain, []contract.Environment{{Name: "preview"}}, time.Now()); got[0].Source != "declared" {
+		t.Fatalf("got %+v", got)
 	}
 }

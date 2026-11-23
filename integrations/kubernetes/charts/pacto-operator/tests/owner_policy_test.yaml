@@ -357,7 +357,7 @@ tests:
       - equal:
           path: rules
           value:
-            - {apiGroups: [""], resources: [configmaps], resourceNames: [pacto-delivery-environments], verbs: [get, patch]}
+            - {apiGroups: [""], resources: [configmaps], resourceNames: [pacto-delivery-environments, pacto-delivery-placements], verbs: [get, patch]}
             - {apiGroups: [""], resources: [configmaps], verbs: [create]}
 
   - it: TestDeclareSchemaRefusesOpenSubject

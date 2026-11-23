@@ -239,7 +239,8 @@ func runPromoter(args []string) error {
 		Namespace: os.Getenv("POD_NAMESPACE"), ClusterID: clusterID, ClusterName: ident.Name, NameSource: ident.NameSource,
 		Ladder: delivery.SplitList(*ladder), Off: !*environments, Now: time.Now,
 		Resync: *resync, Policy: policy, LadderRepository: *ladderRepo,
-		RecordOptions: recordOpts}).SetupWithManager(mgr); err != nil {
+		RecordOptions: recordOpts, Registry: *registry, Cluster: cluster,
+		Accepted: pubs.NewestAccepted, Placement: pubs.VerifiedPlacement}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	return startPromoter(mgr, user)

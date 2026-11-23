@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package delivery
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,7 @@ import (
 	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -29,11 +31,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/orgindex"
 	"github.com/trianalab/pacto/v4/pkg/signing"
+	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
 )
 
 // ladderSource is where a declared installation ladder rung comes from.
@@ -66,11 +72,26 @@ type EnvironmentReconciler struct {
 	// records sit in, read with RecordOptions. Empty reads none.
 	LadderRepository string
 	RecordOptions    ocireferrer.Options
+	// Registry is the installation registry (host/path): the organization
+	// index is its pacto-index repository, read with RecordOptions. Empty
+	// places no service.
+	Registry string
+	// Cluster reads the workloads placement checks and pulls bundles.
+	Cluster Cluster
+	// Accepted is the verdict on the newest version of a service in its
+	// bundle repository the publisher check accepts (Publishers.NewestAccepted);
+	// nil accepts none.
+	Accepted func(ctx context.Context, svc delivery.ServiceRef, repo string) (*delivery.PublisherVerdict, string)
+	// Placement is the verified placement policy and why it could not be
+	// read (Publishers.VerifiedPlacement); nil reads none.
+	Placement func(ctx context.Context) (*delivery.PlacementPolicy, string)
 
 	// records remembers what each ladder record manifest names, and the
 	// records that never count; last is the ladder the last full read gave.
 	records deliveryrecord.Reader
 	last    ladderRead
+	// maxServices lowers orgindex.MaxServices in tests.
+	maxServices int
 }
 
 // SetupWithManager registers the pass on Namespace and, when the cluster
@@ -141,15 +162,15 @@ func (r *EnvironmentReconciler) Reconcile(ctx context.Context, _ reconcile.Reque
 	if r.LadderRepository != "" {
 		view.Repository, view.Stream = r.LadderRepository, delivery.LadderStream(r.ClusterID)
 	}
-	for i, name := range r.Ladder {
-		rung := delivery.LadderRung{Name: name, Source: ladderSource, Provenance: delivery.RungDeclared}
-		if i > 0 {
-			rung.Upstream = r.Ladder[i-1]
-		}
-		view.Declared = append(view.Declared, rung)
-	}
+	view.Declared = r.declaredRungs()
 	view.Proposal = delivery.ProposeLadder(known, in)
 	view.ProposalDigest = delivery.ProposalDigest(view.Proposal)
+	placed, err := r.place(ctx, &view, placementState{namespaces: map[string]bool{}, pactos: pactos, occupants: map[string][]delivery.NamespaceOccupant{},
+		ladder: slices.Concat(view.Declared, view.Confirmed)}, in.Namespaces)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	unread = append(unread, placed...)
 	if len(unread) > 0 {
 		view.Completeness = fleet.CompletenessPartial
 		view.CompletenessReason = "could not read " + strings.Join(unread, "; ")
@@ -157,23 +178,42 @@ func (r *EnvironmentReconciler) Reconcile(ctx context.Context, _ reconcile.Reque
 	return reconcile.Result{RequeueAfter: r.Resync}, r.writeView(ctx, view)
 }
 
-// writeView creates EnvironmentsConfigMap, or merge-patches its view.json
-// when it exists. It reads through APIReader, so the promoter caches no
-// ConfigMap and needs get on this one name only.
+// declaredRungs is the declared installation ladder as a chain of rungs.
+func (r *EnvironmentReconciler) declaredRungs() []delivery.LadderRung {
+	out := make([]delivery.LadderRung, 0, len(r.Ladder))
+	for i, name := range r.Ladder {
+		rung := delivery.LadderRung{Name: name, Source: ladderSource, Provenance: delivery.RungDeclared}
+		if i > 0 {
+			rung.Upstream = r.Ladder[i-1]
+		}
+		out = append(out, rung)
+	}
+	return out
+}
+
+// writeView writes v as view.json of EnvironmentsConfigMap.
 func (r *EnvironmentReconciler) writeView(ctx context.Context, v delivery.EnvironmentsView) error {
 	b, _ := json.Marshal(v) // ponytail: plain strings, slices and ints: Marshal cannot fail
+	return r.writeConfigMap(ctx, delivery.EnvironmentsConfigMap, "view.json", b)
+}
+
+// writeConfigMap creates the ConfigMap name in the delivery namespace with
+// key set to b, or merge-patches it when it exists. It reads through
+// APIReader, so the promoter caches no ConfigMap and needs get on this one
+// name only.
+func (r *EnvironmentReconciler) writeConfigMap(ctx context.Context, name, key string, b []byte) error {
 	cm := &corev1.ConfigMap{}
-	err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: r.Namespace, Name: delivery.EnvironmentsConfigMap}, cm)
+	err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: r.Namespace, Name: name}, cm)
 	if apierrors.IsNotFound(err) {
 		return r.Client.Create(ctx, &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Namespace: r.Namespace, Name: delivery.EnvironmentsConfigMap},
-			Data:       map[string]string{"view.json": string(b)}})
+			ObjectMeta: metav1.ObjectMeta{Namespace: r.Namespace, Name: name},
+			Data:       map[string]string{key: string(b)}})
 	}
 	if err != nil {
 		return err
 	}
 	patch := client.MergeFrom(cm.DeepCopy())
-	cm.Data = map[string]string{"view.json": string(b)}
+	cm.Data = map[string]string{key: string(b)}
 	return r.Client.Patch(ctx, cm, patch)
 }
 
@@ -320,4 +360,361 @@ func (r *EnvironmentReconciler) environmentLadderReview(ctx context.Context, use
 		return false, errors.New("the review could not be evaluated: " + sar.Status.EvaluationError)
 	}
 	return sar.Status.Allowed, nil
+}
+
+// maxPlacementRows bounds the private placement rows: a ConfigMap holds at
+// most 1 MiB. A var so tests lower it.
+// ponytail: 2000 rows (the index's own MaxServices); more mark the answer
+// partial. Shard the rows over ConfigMaps if an installation delivers more.
+var maxPlacementRows = 2000
+
+// indexReadTimeout bounds one read of the organization index.
+const indexReadTimeout = 30 * time.Second
+
+// placementState is what one pass places every delivered service from: the
+// installation ladder and the rungs this cluster hosts, the cluster's
+// namespaces, Pactos, Stages and GitOps objects, the verified placement
+// rules, and the occupants of each namespace read so far.
+type placementState struct {
+	ladder     []delivery.LadderRung
+	hosted     []string
+	advertised []delivery.AdvertisedEnvironment
+	namespaces map[string]bool
+	pactos     []delivery.PactoView
+	stages     []delivery.StageObject
+	gitops     []delivery.GitOpsTarget
+	policy     []delivery.PlacementRule
+	occupants  map[string][]delivery.NamespaceOccupant
+	unread     []string
+}
+
+// place reads the organization index and places each delivered service in
+// each hosted rung it should run in, writes the rows to PlacementsConfigMap
+// and counts the unplaced ones in view. No registry, or an index that cannot
+// be read, leaves the promoter idle with the reason and the last rows as
+// they are. It returns what could not be read.
+func (r *EnvironmentReconciler) place(ctx context.Context, view *delivery.EnvironmentsView, st placementState, namespaces []string) ([]string, error) {
+	if r.Registry == "" {
+		view.Idle = "no registry is configured (the chart value registry), so Pacto reads no organization index and places no service"
+		return nil, nil
+	}
+	repo := r.Registry + "/" + orgindex.RepositoryName
+	entries, unread, err := r.readIndex(ctx, repo)
+	if err != nil {
+		view.Idle = "the organization index at " + repo + " could not be read (" + err.Error() + "), so Pacto places no service"
+		return []string{"the organization index: " + err.Error()}, nil
+	}
+	for _, ns := range namespaces {
+		st.namespaces[ns] = true
+	}
+	st.advertised = delivery.AdvertisedEnvironments(nil, r.ClusterName, r.NameSource)
+	st.hosted = delivery.HostedRungs(st.ladder, st.advertised)
+	if st.stages, err = r.stages(ctx); err != nil {
+		view.Idle = "the Stages could not be listed (" + err.Error() + "), so Pacto places no service"
+		return append(unread, "the Stages: "+err.Error()), nil
+	}
+	st.unread = unread
+	st.gitops = r.gitOps(ctx, &st)
+	if r.Placement != nil {
+		pol, why := r.Placement(ctx)
+		if pol != nil {
+			st.policy = pol.Rules
+		}
+		if why != "" {
+			st.unread = append(st.unread, why)
+		}
+	}
+	rows := []delivery.PlacementRow{}
+	for _, e := range entries {
+		rows = append(rows, r.placeService(ctx, &st, e)...)
+	}
+	if len(rows) > maxPlacementRows {
+		st.unread = append(st.unread, fmt.Sprintf("%d placement rows; only the first %d are kept", len(rows), maxPlacementRows))
+		rows = rows[:maxPlacementRows]
+	}
+	for _, row := range rows {
+		if row.Placement == nil || !row.Placement.Placed() {
+			view.UnplacedCount++
+		}
+	}
+	return st.unread, r.writePlacements(ctx, rows)
+}
+
+// readIndex reads the newest entry of each service the index repo lists,
+// at most orgindex.MaxServices of them, through the shared entry reader.
+// unread says what a bound cut or which entries were refused.
+// ponytail: one entry at a time, every pass; read orgindex.Workers at once
+// and keep entries by manifest digest if a large index makes a pass slow.
+func (r *EnvironmentReconciler) readIndex(ctx context.Context, repo string) ([]orgindex.Entry, []string, error) {
+	rr, err := ocireferrer.Open(repo, r.RecordOptions)
+	if err != nil {
+		return nil, nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, indexReadTimeout)
+	defer cancel()
+	tags, err := ocireferrer.Tags(ctx, rr, "")
+	if err != nil {
+		return nil, nil, err
+	}
+	newest, _ := orgindex.Newest(tags)
+	prefixes := slices.Sorted(maps.Keys(newest))
+	var unread []string
+	if bound := cmp.Or(r.maxServices, orgindex.MaxServices); len(prefixes) > bound {
+		unread = append(unread, fmt.Sprintf("the organization index lists %d services; only the first %d were read", len(prefixes), bound))
+		prefixes = prefixes[:bound]
+	}
+	var entries []orgindex.Entry
+	refused := 0
+	for _, p := range prefixes {
+		e, err := orgindex.ReadEntry(ctx, rr, repo, newest[p], nil)
+		if err != nil {
+			refused++
+			continue
+		}
+		entries = append(entries, e)
+	}
+	if refused > 0 {
+		unread = append(unread, fmt.Sprintf("%d organization index entries could not be read or were refused", refused))
+	}
+	return entries, unread, nil
+}
+
+// placeService is the rows of the service e names: one waiting row when no
+// version of its bundle repository has an accepted publisher verdict, none
+// when its accepted contract deploys nothing, else one per environment it
+// should run in that this cluster hosts.
+func (r *EnvironmentReconciler) placeService(ctx context.Context, st *placementState, e orgindex.Entry) []delivery.PlacementRow {
+	domain, name := fleet.ParseServiceKey(fleet.ServiceKey(e.Service))
+	svc := delivery.ServiceRef{Domain: domain, Name: name}
+	bundleRepo, _ := contract.SplitOCIDigest(e.Bundle)
+	waiting := func(why string) []delivery.PlacementRow {
+		return []delivery.PlacementRow{{Service: name, Domain: domain, Reason: why}}
+	}
+	if r.Accepted == nil {
+		return waiting("waiting: publisher not trusted yet (the promoter has no publisher check)")
+	}
+	v, why := r.Accepted(ctx, svc, bundleRepo)
+	if v == nil {
+		return waiting("waiting: publisher not trusted yet (" + why + ")")
+	}
+	b, err := r.Cluster.Registry().Pull(ctx, bundleRepo+"@"+v.Digest)
+	if err != nil {
+		return waiting("the accepted bundle " + bundleRepo + "@" + v.Digest + " could not be read: " + err.Error())
+	}
+	c := b.Contract
+	if c == nil || c.Service.Name != name || c.Publish == nil || c.Publish.Deploy == "" {
+		return nil // Pacto delivers only what publishes a deploy artifact
+	}
+	in := delivery.PlacementInput{Service: svc, Owner: c.Service.Owner.Team, HostedRungs: st.hosted, Policy: st.policy,
+		Pactos: st.pactos, Stages: st.stages, BundleRepository: bundleRepo, GitOps: st.gitops, Namespaces: st.namespaces,
+		SystemNamespaces: []string{r.Namespace, "flux-system", "argocd"}, Taken: map[string]string{}}
+	if rec, _ := contract.ReadInferredRecord(b.FS); rec != nil && rec.Declaration != nil {
+		in.InferredFrom = rec.Declaration.InferredFrom
+	}
+	if v.Identity != nil {
+		in.Repository = v.Identity.Repository
+	}
+	var rows []delivery.PlacementRow
+	for _, d := range delivery.DesiredEnvironments(st.ladder, c.Environments, r.Now()) {
+		if st.hosts(d.Name) { // else another cluster's
+			rows = append(rows, r.placeEnvironment(ctx, st, &in, d))
+		}
+	}
+	return rows
+}
+
+// placeEnvironment is the row of d, an environment this cluster hosts: why
+// it is not placed, or where it is placed.
+func (r *EnvironmentReconciler) placeEnvironment(ctx context.Context, st *placementState, in *delivery.PlacementInput, d delivery.DesiredEnvironment) delivery.PlacementRow {
+	row := delivery.PlacementRow{Service: in.Service.Name, Domain: in.Service.Domain, Environment: d.Name, Source: d.Source}
+	switch {
+	case d.RetireFrom != "":
+		row.Reason = "expired at " + d.RetireFrom + ": retiring"
+	case d.Upstream != "" && !slices.Contains(st.hosted, d.Upstream):
+		row.Reason = "upstream " + d.Upstream + " is not in this cluster: remote delivery is not available yet"
+	default:
+		in.Rung = d.Name
+		p := r.resolve(ctx, st, *in)
+		row.Placement = &p
+		if p.Placed() {
+			in.Taken[p.Namespace] = d.Name
+		}
+	}
+	return row
+}
+
+// hosts reports whether this cluster hosts environment name: a ladder rung
+// when HostedRungs names it, an environment only the contract declares when
+// the cluster's name advertises none or advertises it.
+func (st *placementState) hosts(name string) bool {
+	if slices.ContainsFunc(st.ladder, func(r delivery.LadderRung) bool { return r.Name == name }) {
+		return slices.Contains(st.hosted, name)
+	}
+	return len(delivery.HostedRungs([]delivery.LadderRung{{Name: name}}, st.advertised)) == 1
+}
+
+// resolve places in, then reads who manages the service's workload in the
+// namespace it chose and who else runs there, and places it again with
+// that: the order never depends on them, only the guard and refusal do.
+func (r *EnvironmentReconciler) resolve(ctx context.Context, st *placementState, in delivery.PlacementInput) delivery.Placement {
+	p := delivery.ResolvePlacement(in)
+	ns := p.Namespace
+	if ns == "" || p.Source == delivery.PlacementFromStage {
+		return p
+	}
+	in.Managers = map[string]workloadmanager.Manager{}
+	if m, found := r.serviceManager(ctx, st, in, ns); found {
+		in.Managers[ns] = m
+	}
+	in.Occupants = map[string][]delivery.NamespaceOccupant{ns: r.occupants(ctx, st, ns)}
+	return delivery.ResolvePlacement(in)
+}
+
+// serviceManager detects the manager of the service's workload in ns: the
+// one its Pacto there targets, else the one its contract was inferred from,
+// else the Deployment named after it. found is false when there is none. A
+// workload that cannot be read reads ambiguous, so nothing is created.
+func (r *EnvironmentReconciler) serviceManager(ctx context.Context, st *placementState, in delivery.PlacementInput, ns string) (workloadmanager.Manager, bool) {
+	kind, name := "Deployment", in.Service.Name
+	if _, ins, k, n, ok := fleet.ParseK8sCaller(in.InferredFrom); ok && ins == ns {
+		kind, name = k, n
+	}
+	for _, p := range delivery.PactosFor(st.pactos, ns, in.Service.Name) {
+		if w := p.Spec.Target.Workload(); w != nil {
+			kind, name = w.Kind, w.Name
+		}
+	}
+	o, err := r.Cluster.workloadObject(ctx, ns, kind, name)
+	switch {
+	case apierrors.IsNotFound(err):
+		return workloadmanager.Manager{}, false
+	case err != nil:
+		st.unread = append(st.unread, kind+" "+ns+"/"+name+": "+err.Error())
+		return workloadmanager.Manager{Name: workloadmanager.Ambiguous, Evidence: "it could not be read"}, true
+	}
+	return r.Cluster.Managers.Detect(o), true
+}
+
+// workloadKinds are the workloads whose owner a namespace's refusal checks.
+// ponytail: Deployments, StatefulSets and DaemonSets; add batch kinds if a
+// bare Job turns out to hold a namespace.
+var workloadKinds = []string{"DeploymentList", "StatefulSetList", "DaemonSetList"}
+
+// occupants are the Pactos and workloads of ns and whom each belongs to: a
+// Pacto's own service and team, and an unknown owner for a workload no Pacto
+// there targets. A namespace that cannot be read holds an unknown owner.
+func (r *EnvironmentReconciler) occupants(ctx context.Context, st *placementState, ns string) []delivery.NamespaceOccupant {
+	if o, ok := st.occupants[ns]; ok {
+		return o
+	}
+	var out []delivery.NamespaceOccupant
+	targeted := map[string]bool{}
+	for _, p := range st.pactos {
+		if p.Metadata.Namespace != ns {
+			continue
+		}
+		o := delivery.NamespaceOccupant{Workload: "Pacto " + p.Metadata.Name}
+		if c := p.Status.Contract; c != nil && c.Owner != nil {
+			o.Service, o.Team = c.ServiceName, c.Owner.Team
+		}
+		if w := p.Spec.Target.Workload(); w != nil {
+			targeted[w.Kind+"/"+w.Name] = true
+		}
+		out = append(out, o)
+	}
+	for _, kind := range workloadKinds {
+		list := &metav1.PartialObjectMetadataList{}
+		list.SetGroupVersionKind(schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: kind})
+		if err := r.APIReader.List(ctx, list, client.InNamespace(ns)); err != nil {
+			st.unread = append(st.unread, "the workloads in "+ns+": "+err.Error())
+			out = append(out, delivery.NamespaceOccupant{Workload: "unreadable " + strings.TrimSuffix(kind, "List") + "s"})
+			continue
+		}
+		for _, w := range list.Items {
+			if what := strings.TrimSuffix(kind, "List") + "/" + w.Name; !targeted[what] {
+				out = append(out, delivery.NamespaceOccupant{Workload: what})
+			}
+		}
+	}
+	st.occupants[ns] = out
+	return out
+}
+
+// stages are the cluster's Stages.
+func (r *EnvironmentReconciler) stages(ctx context.Context) ([]delivery.StageObject, error) {
+	list := &dv1.StageList{}
+	if err := r.Client.List(ctx, list); err != nil {
+		return nil, err
+	}
+	out := make([]delivery.StageObject, 0, len(list.Items))
+	for _, s := range list.Items {
+		out = append(out, delivery.StageObject{Metadata: delivery.ObjectMeta{Name: s.Name, Namespace: s.Namespace, Labels: s.Labels}, Spec: s.Spec})
+	}
+	return out, nil
+}
+
+var (
+	gvkApplicationList   = gvkApplication.GroupVersion().WithKind("ApplicationList")
+	gvkGitRepositoryList = schema.GroupVersionKind{Group: "source.toolkit.fluxcd.io", Version: "v1", Kind: "GitRepositoryList"}
+)
+
+// gitOps are the Argo CD Applications (when the promoter watches them) and
+// Flux Kustomizations with a targetNamespace (unless it runs with
+// --flux=false), each with the Git repositories it deploys. A kind the
+// cluster does not serve has none; one that cannot be listed is unread.
+func (r *EnvironmentReconciler) gitOps(ctx context.Context, st *placementState) []delivery.GitOpsTarget {
+	var out []delivery.GitOpsTarget
+	list := func(gvk schema.GroupVersionKind) []unstructured.Unstructured {
+		l := &unstructured.UnstructuredList{}
+		l.SetGroupVersionKind(gvk)
+		err := r.APIReader.List(ctx, l)
+		if err != nil && !meta.IsNoMatchError(err) {
+			st.unread = append(st.unread, "the "+strings.TrimSuffix(gvk.Kind, "List")+"s: "+err.Error())
+		}
+		return l.Items
+	}
+	if r.Cluster.CacheApplications {
+		for _, a := range list(gvkApplicationList) {
+			g := delivery.GitOpsTarget{Kind: "Application", Namespace: a.GetNamespace(), Name: a.GetName()}
+			g.Destination, _, _ = unstructured.NestedString(a.Object, "spec", "destination", "namespace")
+			if u, _, _ := unstructured.NestedString(a.Object, "spec", "source", "repoURL"); u != "" {
+				g.Repositories = append(g.Repositories, u)
+			}
+			srcs, _, _ := unstructured.NestedSlice(a.Object, "spec", "sources")
+			for _, src := range srcs {
+				if m, ok := src.(map[string]any); ok {
+					if u, _ := m["repoURL"].(string); u != "" {
+						g.Repositories = append(g.Repositories, u)
+					}
+				}
+			}
+			out = append(out, g)
+		}
+	}
+	if r.Cluster.NoFlux {
+		return out
+	}
+	urls := map[string]string{}
+	for _, g := range list(gvkGitRepositoryList) {
+		urls[g.GetNamespace()+"/"+g.GetName()], _, _ = unstructured.NestedString(g.Object, "spec", "url")
+	}
+	for _, k := range list(gvkKustomization) {
+		g := delivery.GitOpsTarget{Kind: "Kustomization", Namespace: k.GetNamespace(), Name: k.GetName()}
+		g.Destination, _, _ = unstructured.NestedString(k.Object, "spec", "targetNamespace")
+		kind, _, _ := unstructured.NestedString(k.Object, "spec", "sourceRef", "kind")
+		name, _, _ := unstructured.NestedString(k.Object, "spec", "sourceRef", "name")
+		ns, _, _ := unstructured.NestedString(k.Object, "spec", "sourceRef", "namespace")
+		if u := urls[cmp.Or(ns, k.GetNamespace())+"/"+name]; kind == "GitRepository" && u != "" {
+			g.Repositories = []string{u}
+		}
+		out = append(out, g)
+	}
+	return out
+}
+
+// writePlacements writes rows as rows.json of PlacementsConfigMap, which
+// only the promoter writes and no reader binding names.
+func (r *EnvironmentReconciler) writePlacements(ctx context.Context, rows []delivery.PlacementRow) error {
+	b, _ := json.Marshal(rows) // ponytail: plain strings and bools: Marshal cannot fail
+	return r.writeConfigMap(ctx, delivery.PlacementsConfigMap, "rows.json", b)
 }

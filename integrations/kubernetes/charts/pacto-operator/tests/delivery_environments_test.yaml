@@ -83,7 +83,7 @@ tests:
             - {apiGroup: rbac.authorization.k8s.io, kind: Group, name: "system:authenticated"}
         documentIndex: 3
 
-  - it: the writer Role grants get, create, patch on pacto-delivery-environments only
+  - it: the writer Role grants get, create, patch on pacto-delivery-environments and pacto-delivery-placements only
     template: templates/delivery/environments.yaml
     asserts:
       - equal:
@@ -93,7 +93,7 @@ tests:
       - equal:
           path: rules
           value:
-            - {apiGroups: [""], resources: [configmaps], resourceNames: [pacto-delivery-environments], verbs: [get, patch]}
+            - {apiGroups: [""], resources: [configmaps], resourceNames: [pacto-delivery-environments, pacto-delivery-placements], verbs: [get, patch]}
             # RBAC cannot narrow create by name.
             - {apiGroups: [""], resources: [configmaps], verbs: [create]}
         documentIndex: 0
@@ -141,3 +141,37 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].args
           content: --ladder-repository=-approvals
+
+  - it: the promoter lists workload metadata and reads GitRepositories to place services
+    template: templates/delivery/rbac.yaml
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - source.toolkit.fluxcd.io/v1/OCIRepository
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [apps], resources: [deployments, statefulsets, daemonsets], verbs: [list]}
+        documentIndex: 1
+      - contains:
+          path: rules
+          content: {apiGroups: [source.toolkit.fluxcd.io], resources: [gitrepositories], verbs: [get, list, watch]}
+        documentIndex: 1
+
+  - it: delivery.flux.enabled=false reads no GitRepository
+    template: templates/delivery/rbac.yaml
+    set:
+      delivery.flux.enabled: false
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [source.toolkit.fluxcd.io], resources: [gitrepositories], verbs: [get, list, watch]}
+        documentIndex: 1
+
+  - it: no reader binding names pacto-delivery-placements
+    template: templates/delivery/environments.yaml
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [configmaps], resourceNames: [pacto-delivery-placements], verbs: [get]}
+        documentIndex: 2

@@ -1855,6 +1855,12 @@ tests:
         - apiGroups: ['']
           resources: [namespaces]
           verbs: [get, list, watch]
+        - apiGroups: [apps]
+          resources: [deployments, statefulsets, daemonsets]
+          verbs: [list]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [gitrepositories]
+          verbs: [get, list, watch]
       documentIndex: 1
     - equal: {path: kind, value: ClusterRoleBinding}
       documentIndex: 2
@@ -2103,7 +2109,7 @@ tests:
         path: rules
         value:
         - apiGroups: ['']
-          resourceNames: [pacto-delivery-environments]
+          resourceNames: [pacto-delivery-environments, pacto-delivery-placements]
           resources: [configmaps]
           verbs: [get, patch]
         - apiGroups: ['']
@@ -2643,6 +2649,12 @@ tests:
         - apiGroups: ['']
           resources: [namespaces]
           verbs: [get, list, watch]
+        - apiGroups: [apps]
+          resources: [deployments, statefulsets, daemonsets]
+          verbs: [list]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [gitrepositories]
+          verbs: [get, list, watch]
       documentIndex: 1
     - equal: {path: kind, value: ClusterRoleBinding}
       documentIndex: 2
@@ -2891,7 +2903,7 @@ tests:
         path: rules
         value:
         - apiGroups: ['']
-          resourceNames: [pacto-delivery-environments]
+          resourceNames: [pacto-delivery-environments, pacto-delivery-placements]
           resources: [configmaps]
           verbs: [get, patch]
         - apiGroups: ['']
@@ -5031,6 +5043,12 @@ tests:
         - apiGroups: ['']
           resources: [namespaces]
           verbs: [get, list, watch]
+        - apiGroups: [apps]
+          resources: [deployments, statefulsets, daemonsets]
+          verbs: [list]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [gitrepositories]
+          verbs: [get, list, watch]
       documentIndex: 1
     - equal: {path: kind, value: ClusterRoleBinding}
       documentIndex: 2
@@ -5220,7 +5238,7 @@ tests:
         path: rules
         value:
         - apiGroups: ['']
-          resourceNames: [pacto-delivery-environments]
+          resourceNames: [pacto-delivery-environments, pacto-delivery-placements]
           resources: [configmaps]
           verbs: [get, patch]
         - apiGroups: ['']

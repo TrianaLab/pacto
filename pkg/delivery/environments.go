@@ -8,7 +8,9 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -165,4 +167,87 @@ type EnvironmentsView struct {
 	// not be read; CompletenessReason says what.
 	Completeness       fleet.Completeness `json:"completeness"`
 	CompletenessReason string             `json:"completenessReason,omitempty"`
+}
+
+// HostedRungs are the installation ladder rungs this cluster hosts: when its
+// name advertises environments (AdvertisedEnvironments over the name alone),
+// only the rungs they canonicalize to (eu-prod hosts production); otherwise
+// every rung.
+func HostedRungs(ladder []LadderRung, advertised []AdvertisedEnvironment) []string {
+	named := map[string]bool{}
+	for _, a := range advertised {
+		named[canonicalEnvironment(a.Name)] = true
+	}
+	var out []string
+	for _, r := range ladder {
+		if len(named) == 0 || named[canonicalEnvironment(r.Name)] {
+			out = append(out, r.Name)
+		}
+	}
+	return out
+}
+
+// The source of a desired environment.
+const (
+	// DesiredFromContract: the contract's environments[] names it.
+	DesiredFromContract = "declared"
+	// DesiredFromLadder: a declared installation ladder rung, which the
+	// contract does not opt out of.
+	DesiredFromLadder = "ladder"
+	// DesiredFromConfirmed: an inferred rung a person confirmed.
+	DesiredFromConfirmed = "inferred-confirmed"
+)
+
+// DesiredEnvironment is one environment a service should be delivered to:
+// its name, the environment it takes versions from (empty: the registry),
+// its source and, for an expired temporary environment, when it started to
+// retire (RFC 3339).
+type DesiredEnvironment struct {
+	Name       string `json:"name"`
+	Upstream   string `json:"upstream,omitempty"`
+	Source     string `json:"source"`
+	RetireFrom string `json:"retireFrom,omitempty"`
+}
+
+// DesiredEnvironments are the environments a service whose contract declares
+// envs should be delivered to, as of now. A contract that declares none takes
+// the whole installation ladder (declared and confirmed rungs). One that
+// declares environments names its exact set: a rung it leaves out is opted
+// out, and an entry outside the ladder is a leaf fed from the registry. A
+// temporary environment whose expires has passed is retiring from then.
+func DesiredEnvironments(ladder []LadderRung, envs []contract.Environment, now time.Time) []DesiredEnvironment {
+	if len(envs) == 0 {
+		out := make([]DesiredEnvironment, 0, len(ladder))
+		for _, r := range ladder {
+			out = append(out, desiredOf(r))
+		}
+		return out
+	}
+	out := make([]DesiredEnvironment, 0, len(envs))
+	for _, e := range envs {
+		d := DesiredEnvironment{Name: e.Name, Source: DesiredFromContract}
+		if i := slices.IndexFunc(ladder, func(r LadderRung) bool { return r.Name == e.Name }); i >= 0 {
+			d.Upstream = ladder[i].Upstream
+		}
+		d.RetireFrom = retireAt(e, now)
+		out = append(out, d)
+	}
+	return out
+}
+
+func desiredOf(r LadderRung) DesiredEnvironment {
+	d := DesiredEnvironment{Name: r.Name, Upstream: r.Upstream, Source: DesiredFromLadder}
+	if r.Provenance == RungConfirmed {
+		d.Source = DesiredFromConfirmed
+	}
+	return d
+}
+
+// retireAt is when e started to retire: its expires, once a temporary
+// environment's has passed; "" otherwise.
+func retireAt(e contract.Environment, now time.Time) string {
+	if t, ok := e.ExpiresAt(); ok && e.Lifetime == contract.EnvironmentTemporary && !t.After(now) {
+		return t.UTC().Format(time.RFC3339)
+	}
+	return ""
 }
