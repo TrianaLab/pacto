@@ -40,7 +40,11 @@ func CheckBackstageConfig(u, token string) error {
 		return err
 	}
 	p, _ := url.Parse(u) // CheckSourceURL parsed it
-	if token == "" || p.Scheme == "https" || loopback(p.Hostname()) || inCluster() && detect.CheckEndpoint("http://"+p.Host) == nil {
+	host := p.Host
+	if p.Port() == "" {
+		host += ":80" // CheckEndpoint wants an explicit port; plain http defaults to 80
+	}
+	if token == "" || p.Scheme == "https" || loopback(p.Hostname()) || inCluster() && detect.CheckEndpoint("http://"+host) == nil {
 		return nil
 	}
 	return fmt.Errorf("backstage source http://%s: a reader token travels only over https; use https or run inside the cluster", p.Hostname())
