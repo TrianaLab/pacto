@@ -10,8 +10,7 @@ follows that person's Kubernetes RBAC and every action runs as them:
   (SubjectAccessReview) whether you may make the same list or get there, so a
   namespace your RBAC denies stays out of every view, and a list across every
   namespace needs your cluster-wide permission. The caches are an index: they
-  decide what you see, never what you may do, and one copy scales where a copy
-  per person does not.
+  decide what you see, never what you may do.
 - **Every other read and every action uses your token.** Propose, approve,
   cancel, roll back and unfreeze go to the API server with your own token, so
   RBAC and admission decide and the audit log names you. The reads an action
@@ -56,8 +55,6 @@ whose token a sign-in link carries (TokenReview). There is no impersonation.
    and for a moment after you change something, the dashboard reads with your
    token instead.
 
-On every page, the person button in the header opens who you are, your groups
-and **Sign out**.
 Approving a held change needs your own identity, from your identity provider
 or your own token, and a recent sign-in where delivery asks for one
 ([a recent sign-in to decide](delivery-identity.md#a-recent-sign-in-to-decide)).
@@ -112,10 +109,6 @@ dashboard:
 
 For an evaluation cluster, the chart can bundle Dex and wire it for you
 ([quickstart](quickstart.md)).
-
-The sign-in screen's button says **Sign in with OIDC**. Set `displayName` to
-the name people know the provider by and it says **Sign in with** that name
-instead.
 
 Register `https://<dashboard>/auth/callback` as the client's redirect URL and
 terminate TLS in front of the dashboard. `pacto dashboard` takes the same
@@ -271,7 +264,7 @@ everything its ServiceAccount reads, and the install notes warn about it
 
 ## MCP at /mcp
 
-The managed dashboard serves MCP to AI agents at `/mcp` with the same sign-in
+The managed dashboard serves MCP to agents at `/mcp` with the same sign-in
 (`dashboard.mcp.enabled`, on by default; [connect an agent](../../mcp-integration.md#connect-to-an-installed-pacto)).
 Every request carries a bearer token:
 

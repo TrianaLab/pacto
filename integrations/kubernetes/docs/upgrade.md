@@ -289,9 +289,9 @@ A dashboard you run yourself beyond loopback still needs `--token-login`,
 ## The dashboard serves MCP at /mcp
 
 After an upgrade, reused values included, the managed dashboard also serves
-MCP to AI agents at `/mcp` when token sign-in is on. The new value `dashboard.mcp.enabled` defaults to
-`true`, the install notes say so once and print a client snippet, and no RBAC,
-Service or port changes. To turn it off, set `dashboard.mcp.enabled=false`; see
+MCP at `/mcp` when token sign-in is on. The new value `dashboard.mcp.enabled` defaults to
+`true`; the install notes print a client snippet, and no RBAC, Service or
+port changes. Set it to `false` to turn MCP off; see
 [MCP at /mcp](dashboard-authentication.md#mcp-at-mcp).
 
 ## Pull secrets outside granted namespaces
