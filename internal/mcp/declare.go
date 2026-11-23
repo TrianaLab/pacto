@@ -63,9 +63,11 @@ func registerDeclare(server *mcpsdk.Server, d Declarer, remote bool) {
 			"It never publishes a declared version. A refusal carries a stable code and the pacto declare command a person runs. " +
 			"With service external:<identity> and owner it claims an external system the fleet lists for that team instead: no workload is read, " +
 			"and the draft is accepted by a person with pacto claim <identity> --from-draft draft-<n> --yes, the command its refusals name. " +
-			"A claim takes only owner, name, registry, draft and intent; over HTTP a claim is only planned.",
+			"A claim takes only owner, name, registry, draft and intent; over HTTP a claim is only planned. " +
+			"With service template:<namespace>/<name> it accepts a golden path a catalog holds as a contract-only golden path: " +
+			"it takes only registry, draft and intent, and a person accepts the draft.",
 		InputSchema: inputSchema(map[string]property{
-			"service":       {Type: "string", Description: "The workload: name, namespace/name, namespace/Kind/name or k8s:namespace/Kind/name; or external:<identity> to claim an external system"},
+			"service":       {Type: "string", Description: "The workload: name, namespace/name, namespace/Kind/name or k8s:namespace/Kind/name; or external:<identity> to claim an external system; or template:<namespace>/<name> to accept a golden path a catalog holds"},
 			"owner":         {Type: "string", Description: "The team that owns the external system; required when service is external:<identity>", Pattern: ownerPattern},
 			"name":          {Type: "string", Description: "The claimed contract's service name, lower case; defaults to the last identity segment", Pattern: serviceNamePattern},
 			"namespace":     {Type: "string", Description: "The namespace of the workload (default: every namespace the name is found in)"},

@@ -5,15 +5,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path"
 	"slices"
 	"strings"
 	"time"
 
 	gcrauthn "github.com/google/go-containerregistry/pkg/authn"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/authn"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
@@ -35,10 +39,12 @@ type mcpDeclarer struct {
 	git  deps
 }
 
-// newMCPDeclarer signs drafts against public-good Sigstore and reads the
-// owner policy from the target snapshots trust verifies.
-func newMCPDeclarer(svc *app.Service, trust string) mcpDeclarer {
-	base := app.DeclareRequest{DeliveryTrust: trust}
+// newMCPDeclarer signs drafts against public-good Sigstore, reads the
+// owner policy from the target snapshots trust verifies and a
+// template:<namespace>/<name> subject from the Backstage catalog at
+// backstageURL (the server's own --backstage-url).
+func newMCPDeclarer(svc *app.Service, trust, backstageURL string) mcpDeclarer {
+	base := app.DeclareRequest{DeliveryTrust: trust, BackstageURL: backstageURL}
 	base.Signing.FulcioURL, base.Signing.RekorURL = signing.PublicFulcio, signing.PublicRekor
 	return mcpDeclarer{svc: svc, base: base}
 }
@@ -47,6 +53,9 @@ func (m mcpDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.Raw
 	req, err := m.request(a)
 	if err != nil {
 		return nil, nil, err
+	}
+	if err := m.template(ctx, &req); err != nil {
+		return declareAnswer[app.DeclarePlan](nil, err)
 	}
 	if req.Dynamic, err = declareDynamic(req); err != nil {
 		return nil, nil, err
@@ -72,6 +81,9 @@ func (m mcpDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (json.
 	req, err := m.request(a)
 	if err != nil {
 		return nil, nil, err
+	}
+	if err := m.template(ctx, &req); err != nil {
+		return declareAnswer[app.DeclarePlan](nil, err)
 	}
 	if req.Dynamic, err = declareDynamic(req); err != nil {
 		return nil, nil, err
@@ -107,6 +119,18 @@ func (m mcpDeclarer) request(a pactomcp.DeclareArgs) (app.DeclareRequest, error)
 	return req, declareSubject(&req, a.Service)
 }
 
+// template reads the golden path a template:<namespace>/<name> request
+// names from the server's own catalog, with the reader token of its
+// environment; any other request is left as it is.
+func (m mcpDeclarer) template(ctx context.Context, req *app.DeclareRequest) error {
+	if req.TemplateSubject == "" {
+		return nil
+	}
+	t, err := m.svc.InferredTemplate(ctx, req.BackstageURL, os.Getenv(backstageTokenEnv), req.TemplateSubject)
+	req.Template = t
+	return err
+}
+
 // declareAnswer is a plan or a run as pacto_declare's JSON, a declare
 // refusal as its code, message and command.
 func declareAnswer[T any](v *T, err error) (json.RawMessage, *pactomcp.Refused, error) {
@@ -139,6 +163,9 @@ type remoteDeclarer struct {
 	// it writes nothing.
 	registry string
 	push     gcrauthn.Keychain
+	// installNS is the namespace Pacto is installed in: accepting a golden
+	// path a catalog holds needs update pactos there (Decision 17).
+	installNS string
 }
 
 // writes is whether the server writes drafts.
@@ -176,6 +203,9 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 	who := reviewedFrom(ctx)
 	if who.own == nil {
 		return nil, nil, errNobodyReviewed
+	}
+	if refused := r.template(ctx, who.own.Dynamic, &req); refused != nil {
+		return nil, refused, nil
 	}
 	req.Dynamic, req.Observed = who.own.Dynamic, r.observed(ctx, req)
 	p, _, err := r.svc.PlanDeclare(ctx, req)
@@ -403,6 +433,9 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 	if err != nil {
 		return nil, nil, err
 	}
+	if refused := r.template(ctx, who.own.Dynamic, &req); refused != nil {
+		return nil, refused, nil
+	}
 	req.Draft, req.OnBehalfOf, req.Dynamic, req.Observed = true, who.person.User, who.own.Dynamic, r.observed(ctx, req)
 	p, decl, err := r.svc.PlanDeclare(ctx, req)
 	if p == nil {
@@ -417,11 +450,77 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 		return nil, &pactomcp.Refused{Code: pactomcp.RefusalPlanStale, Message: "the plan changed since intent " + a.IntentDigest + " was reviewed; it is now " +
 			p.IntentDigest + ": review the new plan"}, nil
 	}
-	if refused := mayUpdateSelf(ctx, who.own.Dynamic, p.InferredFrom); refused != nil {
-		return nil, refused, nil
+	if req.Template == nil {
+		// A golden path's right was asked before the plan.
+		if refused := mayUpdateSelf(ctx, who.own.Dynamic, p.InferredFrom); refused != nil {
+			return nil, refused, nil
+		}
 	}
 	req.Store = pushWriter(r.push, p.BundleRepo)
 	return mcpWritten(writeServerDraft(ctx, r.svc, req, p, decl, who.person.User, "mcp"))
+}
+
+// template is, for a template:<namespace>/<name> request, the golden path
+// the caller's fleet view lists, set on req after the caller passed
+// Decision 17 (update pactos in the installation namespace, asked with
+// their own client dyn); a refusal when they may not, or when the view lists
+// it from a catalog the installation did not configure or under a name a
+// service already holds. A template the view does not list is left unset:
+// the planner refuses it as not found.
+func (r remoteDeclarer) template(ctx context.Context, dyn dynamic.Interface, req *app.DeclareRequest) *pactomcp.Refused {
+	if req.TemplateSubject == "" {
+		return nil
+	}
+	if refused := mayUpdatePactos(ctx, dyn, cmp.Or(r.installNS, delivery.PolicyNamespace)); refused != nil {
+		return refused
+	}
+	if q := r.view(ctx); q != nil {
+		req.Template = listedTemplate(q, req.TemplateSubject)
+	}
+	if req.Template == nil {
+		return nil
+	}
+	if refusal := templateRefusal(req.Template, req.TemplateSubject); refusal != nil {
+		return &pactomcp.Refused{Code: pactomcp.WriteRefusal(refusal.Code), Message: refusal.Message}
+	}
+	return nil
+}
+
+// listedTemplate is the inferred golden path subject names in view q, nil
+// when q lists none.
+func listedTemplate(q *fleet.Query, subject string) *fleet.InferredTemplate {
+	l := q.InferredTemplates("")
+	if l == nil {
+		return nil
+	}
+	for i, t := range l.Items {
+		if t.Entity == subject {
+			return &l.Items[i]
+		}
+	}
+	return nil
+}
+
+// mayUpdatePactos refuses a caller the apiserver does not allow to update
+// pactos in ns: a SelfSubjectAccessReview with the caller's own client dyn.
+// A review that failed or could not be evaluated refuses too.
+func mayUpdatePactos(ctx context.Context, dyn dynamic.Interface, ns string) *pactomcp.Refused {
+	res := authn.PactoResource
+	review := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectAccessReview",
+		"spec": map[string]any{"resourceAttributes": map[string]any{"namespace": ns, "verb": "update", "group": res.Group, "resource": res.Resource}}}}
+	out, err := dyn.Resource(gvrSelfAccess).Create(ctx, review, metav1.CreateOptions{})
+	if err != nil {
+		return &pactomcp.Refused{Code: pactomcp.RefusalReviewFailed, Message: "asking whether you may update pactos in " + ns + " failed: " + err.Error()}
+	}
+	allowed, _, _ := unstructured.NestedBool(out.Object, "status", "allowed")
+	evalErr, _, _ := unstructured.NestedString(out.Object, "status", "evaluationError")
+	switch {
+	case !allowed && evalErr != "":
+		return &pactomcp.Refused{Code: pactomcp.RefusalReviewFailed, Message: "asking whether you may update pactos in " + ns + " could not be evaluated: " + evalErr}
+	case !allowed:
+		return &pactomcp.Refused{Code: pactomcp.RefusalNotAllowed, Message: "accepting a golden path needs update pactos in " + ns}
+	}
+	return nil
 }
 
 // mayUpdateSelf refuses a caller the apiserver does not allow to update the

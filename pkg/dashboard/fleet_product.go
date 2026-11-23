@@ -514,6 +514,8 @@ func (schemaDeclarer) AcceptRanges(*http.Request, AcceptTarget, AcceptExecuteInp
 	return nil, errors.New("schema export only")
 }
 
+func (schemaDeclarer) MayDeclareTemplate(context.Context) bool { return false }
+
 func parseViews(s string) []fleet.KnowledgeView {
 	if s == "" {
 		return nil

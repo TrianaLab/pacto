@@ -15,7 +15,9 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
@@ -324,14 +326,24 @@ func TestDeclareTemplateRefusesWorkloadFlags(t *testing.T) {
 	}
 }
 
-// TestDeclareTemplateSubjectSameOnEverySurface: the CLI argument reaches
-// DeclareRequest.TemplateSubject as typed (the MCP and HTTP halves join in
-// with their declarers).
+// TestDeclareTemplateSubjectSameOnEverySurface: the CLI argument,
+// pacto_declare.service and the dashboard's body.serviceKey reach
+// DeclareRequest.TemplateSubject as typed, with the template's name as
+// Service.
 func TestDeclareTemplateSubjectSameOnEverySurface(t *testing.T) {
 	const subject = "template:default/springboot-service"
-	var req app.DeclareRequest
-	if err := declareSubject(&req, subject); err != nil || req.TemplateSubject != subject || req.Service != "springboot-service" {
-		t.Fatalf("%v %+v", err, req)
+	var cli app.DeclareRequest
+	err := declareSubject(&cli, subject)
+	mcp, mcpErr := mcpDeclarer{}.request(pactomcp.DeclareArgs{Service: subject})
+	h := newDeclareHost(t, true, false)
+	dash, dashErr := h.d.request(h.req(), springTemplate(true), nil, nil, dashboard.ClaimInput{})
+	for name, req := range map[string]app.DeclareRequest{"cli": cli, "mcp": mcp, "dashboard": dash} {
+		if req.TemplateSubject != subject || req.Service != "springboot-service" {
+			t.Errorf("%s: %+v", name, req)
+		}
+	}
+	if err != nil || mcpErr != nil || dashErr != nil || dash.Template == nil {
+		t.Fatalf("%v %v %v", err, mcpErr, dashErr)
 	}
 }
 

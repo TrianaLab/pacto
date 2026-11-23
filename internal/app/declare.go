@@ -307,6 +307,12 @@ const (
 	codeBreakNotAnnounced        = "BreakNotAnnounced"
 	codeNotPublished             = "NotPublished"
 	codePersonSigningUnavailable = "PersonSigningUnavailable"
+	// The template:<namespace>/<name> subject codes.
+	codeTemplateNotFound           = "TemplateNotFound"
+	codeTemplateCatalogUnset       = "TemplateCatalogUnset"
+	codeTemplateCatalogUnavailable = "TemplateCatalogUnavailable"
+	codeTemplateNameInvalid        = "TemplateNameInvalid"
+	codeTemplateNameTaken          = "TemplateNameTaken"
 )
 
 // firstDeclaration is the version of a service its registry holds none of.

@@ -352,7 +352,8 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	if err != nil {
 		return err
 	}
-	rm.authoring = remoteAuthoring(svc, ociRefs, rm.modes.Fleet, registry, push)
+	policyNS, _ := cmd.Flags().GetString("delivery-namespace")
+	rm.authoring = remoteAuthoring(svc, ociRefs, rm.modes.Fleet, registry, push, policyNS)
 	if rm.delivery != nil {
 		policy := rm.delivery(nil) // only its trust and policy namespace are read
 		id := baseDashboardIdentity(cluster, d, policy.Trust, policy.PolicyNamespace)

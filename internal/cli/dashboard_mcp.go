@@ -88,7 +88,7 @@ func newDashboardMCP(v *viper.Viper, svc *app.Service, version string, repos []s
 		View: viewerFleetView(id.viewer), Impact: dashboardMCPImpact(svc, prov), DashboardURL: strings.TrimSuffix(resource, "/mcp")}}}
 	// ponytail: /mcp plans declarations only; pass the dashboard's registry
 	// and push credential here once agents should write drafts through it.
-	rm.authoring = remoteAuthoring(svc, repos, rm.modes.Fleet, "", nil)
+	rm.authoring = remoteAuthoring(svc, repos, rm.modes.Fleet, "", nil, id.policyNS)
 	// Delivery follows the dashboard: served with a cluster, with its trust
 	// and policy namespace.
 	rm.delivery = deliveryClientsFor(id.trust, id.policyNS, d)

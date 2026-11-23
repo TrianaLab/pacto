@@ -17,15 +17,6 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/semver"
 )
 
-// The template: subject refusal codes.
-const (
-	codeTemplateNotFound           = "TemplateNotFound"
-	codeTemplateCatalogUnset       = "TemplateCatalogUnset"
-	codeTemplateCatalogUnavailable = "TemplateCatalogUnavailable"
-	codeTemplateNameInvalid        = "TemplateNameInvalid"
-	codeTemplateNameTaken          = "TemplateNameTaken"
-)
-
 // maxSummaryRunes is the service.summary bound of the 2.5 schema.
 const maxSummaryRunes = 200
 

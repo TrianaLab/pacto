@@ -294,7 +294,7 @@ func TestRefusalEnumMatchesApp(t *testing.T) {
 		})
 	}
 	want := append(append(app, string(RefusalIntentRequired), string(RefusalExecuteNeedsStdio), string(RefusalNotAllowed), string(RefusalReviewFailed),
-		string(RefusalPullRequestNeedsLocalToken)), delivery.OwnerRightCodes...)
+		string(RefusalPullRequestNeedsLocalToken), string(RefusalTemplateSourceUnverified)), delivery.OwnerRightCodes...)
 	got := make([]string, len(writeRefusals))
 	for i, c := range writeRefusals {
 		got[i] = string(c)
@@ -533,5 +533,20 @@ func TestDeclareArgsCommandClaimCarriesOnlyClaimFlags(t *testing.T) {
 	a := DeclareArgs{Service: "external:stripe", Owner: "t", Registry: "r", Namespace: "n", Dir: "d", Accept: []string{"x"}, MaxItems: 5, CallWindow: "1h"}
 	if got := a.Command(planDigest); got != "pacto claim stripe --owner t --registry r --intent "+planDigest {
 		t.Fatal(got)
+	}
+}
+
+// TestDeclareArgsTemplate: a golden path a catalog holds takes registry,
+// draft and intent only, and its command names the catalog to read it from.
+func TestDeclareArgsTemplate(t *testing.T) {
+	a := DeclareArgs{Service: "template:default/springboot-service", Registry: "ghcr.io/acme/paths"}
+	if a.ArgsRefused() != nil || a.Command("sha256:i") != "pacto declare template:default/springboot-service --backstage-url <backstage-url> --registry ghcr.io/acme/paths --intent sha256:i" {
+		t.Fatalf("%+v %q", a.ArgsRefused(), a.Command("sha256:i"))
+	}
+	for _, bad := range []DeclareArgs{{Namespace: "x"}, {Dir: "x"}, {Accept: []string{"x"}}, {MaxItems: 3}, {CallWindow: "1h"}, {PR: true}, {Repository: "x"}, {Folder: "x"}, {RepoMap: "x"}, {Owner: "x"}, {Name: "x"}} {
+		bad.Service = a.Service
+		if r := bad.ArgsRefused(); r == nil || r.Code != RefusalFieldNotAcceptable {
+			t.Errorf("%+v: %+v", bad, r)
+		}
 	}
 }

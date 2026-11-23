@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -30,11 +31,17 @@ type Declarer interface {
 	// acceptance draft or accepts a draft, with the same signer, review and
 	// write rules as a declaration.
 	AcceptRanges(r *http.Request, t AcceptTarget, in AcceptExecuteInput) (*AcceptExecuteAnswer, error)
+	// MayDeclareTemplate reports whether the caller of ctx may accept a
+	// golden path a catalog holds here: on a shared host, update pactos in
+	// the installation namespace.
+	MayDeclareTemplate(ctx context.Context) bool
 }
 
 // DeclareWorkload is the inferred service a declaration is for, as the
 // viewer's snapshot names it. An external system a claim is for has Key
-// external:<identity>, Name the identity and no cluster fields.
+// external:<identity>, Name the identity and no cluster fields; a golden
+// path a catalog holds has Key template:<namespace>/<name>, Name the
+// template's name and Template set.
 type DeclareWorkload struct {
 	Key       string
 	Name      string
@@ -49,6 +56,9 @@ type DeclareWorkload struct {
 	// View is the viewer's restricted fleet, set for an external system: a
 	// claim plan names nothing it hides.
 	View *fleet.Query
+	// Template is set when the subject is an inferred golden path; the
+	// workload fields are then empty.
+	Template *fleet.InferredTemplate
 }
 
 // DraftRef names one draft by its tag and the digest the person was shown.
@@ -59,7 +69,7 @@ type DraftRef struct {
 
 // DeclareInput asks for a declaration plan.
 type DeclareInput struct {
-	ServiceKey string    `json:"serviceKey" minLength:"1" doc:"The inferred service to declare, or external:<identity> to claim an external system"`
+	ServiceKey string    `json:"serviceKey" minLength:"1" doc:"The inferred service to declare, or external:<identity> to claim an external system, or template:<namespace>/<name> for a golden path a catalog holds"`
 	Accept     []string  `json:"accept,omitempty" maxItems:"64" doc:"The dependencies whose proposed range the declaration accepts"`
 	FromDraft  *DraftRef `json:"fromDraft,omitempty" doc:"Plan accepting this draft instead: its own texts, what nothing backs and an intent digest that covers the draft digest"`
 	// IntentDigest names the plan a signing login was started for.
@@ -76,7 +86,7 @@ type ClaimInput struct {
 
 // DeclareAcceptInput carries out a plan the person reviewed.
 type DeclareAcceptInput struct {
-	ServiceKey   string    `json:"serviceKey" minLength:"1" doc:"The inferred service to declare, or external:<identity> to claim an external system"`
+	ServiceKey   string    `json:"serviceKey" minLength:"1" doc:"The inferred service to declare, or external:<identity> to claim an external system, or template:<namespace>/<name> for a golden path a catalog holds"`
 	Accept       []string  `json:"accept,omitempty" maxItems:"64" doc:"The dependencies whose proposed range the declaration accepts"`
 	IntentDigest string    `json:"intentDigest" minLength:"1" doc:"The intent digest of the plan the person reviewed: a plan that moved since is refused with PlanStale"`
 	Mode         string    `json:"mode" enum:"sign,draft" doc:"sign: publish the declared version signed by the person's fresh login; draft: save a draft-<n> a person accepts later"`
@@ -199,7 +209,7 @@ type DeclareWrite struct {
 // DeclareRefusal is a declaration that was refused, with the command a person
 // runs about it.
 type DeclareRefusal struct {
-	Code    string `json:"code" enum:"PlanStale,IntentRequired,WorkloadNotFound,WorkloadAmbiguous,AlreadyDeclared,RangeNotProposed,NoRegistry,RegistryUnreadable,VersionConflict,SignerNotAllowed,SignerUnverified,DraftNotFound,ExecuteNeedsStdio,BaselineNeedsMigration,BundleRepoMismatch,AcceptNothingProposed,FieldNotAcceptable,BreakNotAnnounced,NotPublished,PersonSigningUnavailable,OWNER_SIGNER_NOT_PERSON,OWNER_SIGNER_NOT_ALLOWED,OWNER_POLICY_UNVERIFIED,OWNER_SIGNER_UNVERIFIED,IdentityRequired,SignInLinkReadsFleet,ReviewFailed,ClusterNotReviewable,NotAllowed,OwnerRequired,ExternalMismatch,ExternalUnknown,ClaimRepositoryInferred,DraftNotOffered" doc:"The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed and DraftNotOffered (a shared dashboard claims only with the person's own signature)"`
+	Code    string `json:"code" enum:"PlanStale,IntentRequired,WorkloadNotFound,WorkloadAmbiguous,AlreadyDeclared,RangeNotProposed,NoRegistry,RegistryUnreadable,VersionConflict,SignerNotAllowed,SignerUnverified,DraftNotFound,ExecuteNeedsStdio,BaselineNeedsMigration,BundleRepoMismatch,AcceptNothingProposed,FieldNotAcceptable,BreakNotAnnounced,NotPublished,PersonSigningUnavailable,OWNER_SIGNER_NOT_PERSON,OWNER_SIGNER_NOT_ALLOWED,OWNER_POLICY_UNVERIFIED,OWNER_SIGNER_UNVERIFIED,IdentityRequired,SignInLinkReadsFleet,ReviewFailed,ClusterNotReviewable,NotAllowed,OwnerRequired,ExternalMismatch,ExternalUnknown,ClaimRepositoryInferred,DraftNotOffered,TemplateNotFound,TemplateCatalogUnset,TemplateCatalogUnavailable,TemplateNameInvalid,TemplateNameTaken,TemplateSourceUnverified" doc:"The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed, DraftNotOffered (a shared dashboard claims only with the person's own signature) and TemplateSourceUnverified (a golden path is accepted only from the catalog the installation configured)"`
 	Message string `json:"message"`
 	Command string `json:"command,omitempty" doc:"The command a person runs about it"`
 }
@@ -312,7 +322,9 @@ func (s *Server) declareIdentity(ctx context.Context) error {
 // declareWorkload is the inferred service key names in the viewer's
 // snapshot, after the caller's identity is checked: a hidden service and a
 // declared one answer as a missing one. A key external:<identity> names the
-// external system a claim is for.
+// external system a claim is for, a key template:<namespace>/<name> the
+// inferred golden path the viewer's snapshot lists (one a declared golden
+// path holds the name of answers as missing).
 func (s *Server) declareWorkload(ctx context.Context, key string) (DeclareWorkload, error) {
 	if err := s.declareIdentity(ctx); err != nil {
 		return DeclareWorkload{}, err
@@ -328,6 +340,9 @@ func (s *Server) declareWorkload(ctx context.Context, key string) (DeclareWorklo
 		}
 		return DeclareWorkload{Key: key, Name: string(id), View: q}, nil
 	}
+	if strings.HasPrefix(key, fleet.TemplateSubjectPrefix) {
+		return inferredTemplate(q, key)
+	}
 	rec := q.SnapshotForSerialization().Services[fleet.ServiceKey(key)]
 	if rec == nil || !rec.Inferred() || rec.Workload == nil {
 		return DeclareWorkload{}, huma.Error404NotFound("no inferred service with this serviceKey")
@@ -335,4 +350,17 @@ func (s *Server) declareWorkload(ctx context.Context, key string) (DeclareWorklo
 	wl := rec.Workload
 	return DeclareWorkload{Key: key, Name: wl.Name, Cluster: wl.Cluster, Namespace: wl.Namespace, Kind: wl.Kind,
 		Repositories: wl.Repositories, RepositoryUnknown: wl.RepositoriesIncomplete()}, nil
+}
+
+// inferredTemplate is the inferred golden path key names in view q, as a
+// missing service when q lists none.
+func inferredTemplate(q *fleet.Query, key string) (DeclareWorkload, error) {
+	if l := q.InferredTemplates(""); l != nil {
+		for i, t := range l.Items {
+			if t.Entity == key {
+				return DeclareWorkload{Key: key, Name: t.Name, Template: &l.Items[i]}, nil
+			}
+		}
+	}
+	return DeclareWorkload{}, huma.Error404NotFound("no inferred service with this serviceKey")
 }

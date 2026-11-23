@@ -69,6 +69,16 @@ const (
 	RefusalBreakNotAnnounced        WriteRefusal = "BreakNotAnnounced"
 	RefusalNotPublished             WriteRefusal = "NotPublished"
 	RefusalPersonSigningUnavailable WriteRefusal = "PersonSigningUnavailable"
+	// The template:<namespace>/<name> codes: no such template, no catalog to
+	// read it from, a catalog that could not be read, a name no contract
+	// carries, a name a service already holds, and (an HTTP server's own) a
+	// catalog the installation did not configure.
+	RefusalTemplateNotFound           WriteRefusal = "TemplateNotFound"
+	RefusalTemplateCatalogUnset       WriteRefusal = "TemplateCatalogUnset"
+	RefusalTemplateCatalogUnavailable WriteRefusal = "TemplateCatalogUnavailable"
+	RefusalTemplateNameInvalid        WriteRefusal = "TemplateNameInvalid"
+	RefusalTemplateNameTaken          WriteRefusal = "TemplateNameTaken"
+	RefusalTemplateSourceUnverified   WriteRefusal = "TemplateSourceUnverified"
 	// The owner rule's codes, defined once in pkg/delivery.
 	RefusalOwnerSignerNotPerson  WriteRefusal = delivery.OwnerSignerNotPerson
 	RefusalOwnerSignerNotAllowed WriteRefusal = delivery.OwnerSignerNotAllowed
@@ -85,6 +95,8 @@ var writeRefusals = []WriteRefusal{
 	RefusalGitHostUnknown, RefusalGitTokenMissing, RefusalPullRequestFailed, RefusalPullRequestNeedsLocalToken, RefusalNotAllowed, RefusalReviewFailed, RefusalAcceptNothingProposed, RefusalFieldNotAcceptable,
 	RefusalBreakNotAnnounced, RefusalNotPublished, RefusalPersonSigningUnavailable,
 	RefusalOwnerRequired, RefusalExternalMismatch, RefusalExternalUnknown, RefusalClaimRepositoryInferred,
+	RefusalTemplateNotFound, RefusalTemplateCatalogUnset, RefusalTemplateCatalogUnavailable, RefusalTemplateNameInvalid, RefusalTemplateNameTaken,
+	RefusalTemplateSourceUnverified,
 	RefusalOwnerSignerNotPerson, RefusalOwnerSignerNotAllowed, RefusalOwnerPolicyUnverified, RefusalOwnerSignerUnverified,
 }
 
@@ -199,6 +211,18 @@ func (a DeclareArgs) Claim() (string, bool) {
 	return strings.CutPrefix(a.Service, fleet.ExternalSubjectPrefix)
 }
 
+// workloadArgs is whether a sets an argument only a workload takes.
+func (a DeclareArgs) workloadArgs() bool {
+	return a.Namespace != "" || a.Dir != "" || len(a.Accept) > 0 || a.MaxItems != 0 || a.CallWindow != "" ||
+		a.PR || a.Repository != "" || a.Folder != "" || a.RepoMap != ""
+}
+
+// template is whether a accepts a golden path a catalog holds
+// (service template:<namespace>/<name>).
+func (a DeclareArgs) template() bool {
+	return strings.HasPrefix(a.Service, fleet.TemplateSubjectPrefix)
+}
+
 // Verb is the command a person runs for a: pacto claim for a claim, else
 // pacto declare.
 func (a DeclareArgs) Verb() string {
@@ -215,8 +239,7 @@ func (a DeclareArgs) Verb() string {
 func (a DeclareArgs) ArgsRefused() *Refused {
 	id, claim := a.Claim()
 	switch {
-	case claim && (a.Namespace != "" || a.Dir != "" || len(a.Accept) > 0 || a.MaxItems != 0 || a.CallWindow != "" ||
-		a.PR || a.Repository != "" || a.Folder != "" || a.RepoMap != ""):
+	case claim && a.workloadArgs():
 		return &Refused{Code: RefusalFieldNotAcceptable, Message: "pacto claim takes owner, name, registry, draft and intent: " +
 			"call again without namespace, dir, accept, max_items, call_window, pr, repository, folder and repo_map", CLI: a.Command("")}
 	case claim:
@@ -224,6 +247,9 @@ func (a DeclareArgs) ArgsRefused() *Refused {
 			return &Refused{Code: RefusalExternalUnknown, Message: "service external:<identity> names no external identity: " +
 				"find its identity with pacto fleet search", CLI: "pacto claim <identity> --owner <team> --registry <registry>"}
 		}
+	case a.template() && (a.workloadArgs() || a.Owner != "" || a.Name != ""):
+		return &Refused{Code: RefusalFieldNotAcceptable, Message: "a golden path a catalog holds takes registry, draft and intent: " +
+			"call again without namespace, dir, accept, max_items, call_window, pr, repository, folder, repo_map, owner and name", CLI: a.Command("")}
 	case a.Owner != "" || a.Name != "":
 		return &Refused{Code: RefusalFieldNotAcceptable, Message: "owner and name are a claim's (service external:<identity>): " +
 			"a workload's owner and name come from its contract", CLI: a.Command("")}
@@ -249,6 +275,9 @@ func (a DeclareArgs) Command(intent string) string {
 		return strings.Join(parts, " ")
 	}
 	parts := []string{"pacto declare", a.Service}
+	if a.template() {
+		parts = append(parts, "--backstage-url", "<backstage-url>")
+	}
 	if a.Namespace != "" {
 		parts = append(parts, "--namespace", a.Namespace)
 	}

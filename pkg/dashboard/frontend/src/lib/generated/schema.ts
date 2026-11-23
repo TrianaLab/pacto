@@ -1373,6 +1373,8 @@ export interface components {
             auth: components["schemas"]["CapabilityAuth"];
             /** @description This caller can plan declaring an inferred service: the host declares and knows who the caller is */
             declare: boolean;
+            /** @description This caller may accept a golden path a catalog holds: on a shared host, update pactos in the installation namespace */
+            declareTemplate: boolean;
             /** @description The delivery views and actions are served */
             delivery: boolean;
             /** @description The operational-graph (fleet) endpoints are served */
@@ -1796,7 +1798,7 @@ export interface components {
             name?: string;
             /** @description The team that owns the external system; set only when serviceKey is external:<identity> */
             owner?: string;
-            /** @description The inferred service to declare, or external:<identity> to claim an external system */
+            /** @description The inferred service to declare, or external:<identity> to claim an external system, or template:<namespace>/<name> for a golden path a catalog holds */
             serviceKey: string;
         };
         DeclareAnswer: {
@@ -1849,7 +1851,7 @@ export interface components {
             name?: string;
             /** @description The team that owns the external system; set only when serviceKey is external:<identity> */
             owner?: string;
-            /** @description The inferred service to declare, or external:<identity> to claim an external system */
+            /** @description The inferred service to declare, or external:<identity> to claim an external system, or template:<namespace>/<name> for a golden path a catalog holds */
             serviceKey: string;
         };
         DeclarePlan: {
@@ -1905,10 +1907,10 @@ export interface components {
         };
         DeclareRefusal: {
             /**
-             * @description The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed and DraftNotOffered (a shared dashboard claims only with the person's own signature)
+             * @description The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed, DraftNotOffered (a shared dashboard claims only with the person's own signature) and TemplateSourceUnverified (a golden path is accepted only from the catalog the installation configured)
              * @enum {string}
              */
-            code: "PlanStale" | "IntentRequired" | "WorkloadNotFound" | "WorkloadAmbiguous" | "AlreadyDeclared" | "RangeNotProposed" | "NoRegistry" | "RegistryUnreadable" | "VersionConflict" | "SignerNotAllowed" | "SignerUnverified" | "DraftNotFound" | "ExecuteNeedsStdio" | "BaselineNeedsMigration" | "BundleRepoMismatch" | "AcceptNothingProposed" | "FieldNotAcceptable" | "BreakNotAnnounced" | "NotPublished" | "PersonSigningUnavailable" | "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED" | "IdentityRequired" | "SignInLinkReadsFleet" | "ReviewFailed" | "ClusterNotReviewable" | "NotAllowed" | "OwnerRequired" | "ExternalMismatch" | "ExternalUnknown" | "ClaimRepositoryInferred" | "DraftNotOffered";
+            code: "PlanStale" | "IntentRequired" | "WorkloadNotFound" | "WorkloadAmbiguous" | "AlreadyDeclared" | "RangeNotProposed" | "NoRegistry" | "RegistryUnreadable" | "VersionConflict" | "SignerNotAllowed" | "SignerUnverified" | "DraftNotFound" | "ExecuteNeedsStdio" | "BaselineNeedsMigration" | "BundleRepoMismatch" | "AcceptNothingProposed" | "FieldNotAcceptable" | "BreakNotAnnounced" | "NotPublished" | "PersonSigningUnavailable" | "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED" | "IdentityRequired" | "SignInLinkReadsFleet" | "ReviewFailed" | "ClusterNotReviewable" | "NotAllowed" | "OwnerRequired" | "ExternalMismatch" | "ExternalUnknown" | "ClaimRepositoryInferred" | "DraftNotOffered" | "TemplateNotFound" | "TemplateCatalogUnset" | "TemplateCatalogUnavailable" | "TemplateNameInvalid" | "TemplateNameTaken" | "TemplateSourceUnverified";
             /** @description The command a person runs about it */
             command?: string;
             message: string;
