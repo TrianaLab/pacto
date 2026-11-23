@@ -116,7 +116,9 @@ func TestIDPPiecesOnlyUnderIDP(t *testing.T) {
 		t.Fatal("pieces outside idp")
 	}
 	got := idpPieces(&detect.Installation{Profile: []string{"idp"}}, nil, true, "no-signer")()
-	if len(got) != 2 || got[0].Kind != "evidence" || got[0].Value != "on" || got[1].Kind != "recorder" || got[1].Value != "off" {
+	if len(got) != 2 ||
+		got[0].Kind != "evidence" || got[0].Value != "on" ||
+		got[1].Kind != "recorder" || got[1].Value != "off" {
 		t.Fatalf("pieces %+v", got)
 	}
 }
