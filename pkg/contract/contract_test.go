@@ -620,3 +620,17 @@ func TestParseReadError(t *testing.T) {
 		t.Errorf("Parse(failing reader) = %v, want a ParseError naming the read error", err)
 	}
 }
+
+func TestNamespacedRef(t *testing.T) {
+	for ref, want := range map[string]bool{
+		"example.com/custom": true,
+		"custom":             false,
+		"example/custom":     false,
+		"/x":                 false,
+		"":                   false,
+	} {
+		if got := NamespacedRef(ref); got != want {
+			t.Errorf("NamespacedRef(%q) = %v, want %v", ref, got, want)
+		}
+	}
+}

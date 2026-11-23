@@ -341,7 +341,7 @@ func validateCapabilities(c *contract.Contract, result *ValidationResult) {
 				)
 			}
 		}
-		if cap.Type == "extension" && (!strings.Contains(cap.Ref, "/") || !strings.Contains(strings.Split(cap.Ref, "/")[0], ".")) {
+		if cap.Type == "extension" && !contract.NamespacedRef(cap.Ref) {
 			result.AddError(
 				fmt.Sprintf("capabilities[%d].ref", i),
 				"CAPABILITY_REF_INVALID",

@@ -29,6 +29,12 @@ type SubjectRef struct {
 	Environment string `json:"environment,omitempty"`
 }
 
+// ExtensionSubject reports whether s names an extension capability. An extension capability ref is
+// namespaced (it holds a "/"); health and metrics never do.
+func ExtensionSubject(s SubjectRef) bool {
+	return s.Kind == "capability" && strings.Contains(s.Name, "/")
+}
+
 // Provenance tracks how an observation was collected.
 type Provenance struct {
 	Collector  string    `json:"collector"`

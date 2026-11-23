@@ -536,3 +536,21 @@ func TestEnvelopeWithDetailRejected(t *testing.T) {
 		t.Fatal("an observation carrying a detail key must fail the strict decode")
 	}
 }
+
+func TestExtensionSubject(t *testing.T) {
+	cases := []struct {
+		s    SubjectRef
+		want bool
+	}{
+		{SubjectRef{Kind: "capability", Name: "x.acme.io/backup"}, true},
+		{SubjectRef{Kind: "capability", Name: "health"}, false},
+		{SubjectRef{Kind: "capability", Name: "metrics"}, false},
+		{SubjectRef{Kind: "capability", Name: "cap1"}, false},
+		{SubjectRef{Kind: "service", Name: "a/b"}, false},
+	}
+	for _, c := range cases {
+		if got := ExtensionSubject(c.s); got != c.want {
+			t.Errorf("ExtensionSubject(%+v) = %v, want %v", c.s, got, c.want)
+		}
+	}
+}
