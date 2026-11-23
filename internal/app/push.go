@@ -109,9 +109,9 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 		return nil, fmt.Errorf("contract validation failed: %s", validationCheck(guarantees).Message)
 	}
 
-	ref := parsed.Location
-	if !hasTagOrDigest(ref) {
-		ref = ref + ":" + defaultPushTag(c, contribution)
+	ref, err := pushRef(parsed.Location, c, contribution)
+	if err != nil {
+		return nil, err
 	}
 
 	bundle := &contract.Bundle{Contract: c, FS: bundleFS}
@@ -197,14 +197,40 @@ func defaultPushTag(c *contract.Contract, contribution bool) string {
 	return c.Service.Version
 }
 
+// pushRef is the ref location is pushed as: tagged by defaultPushTag when it
+// names no tag or digest, and refused when a contribution reader would never
+// take it (see contributionTag).
+func pushRef(location string, c *contract.Contract, contribution bool) (string, error) {
+	ref := location
+	if !hasTagOrDigest(ref) {
+		ref += ":" + defaultPushTag(c, contribution)
+	}
+	if contribution {
+		return ref, contributionTag(ref, c)
+	}
+	return ref, nil
+}
+
+// contributionTag refuses a contribution ref no reader takes: one with no
+// tag or a tag other than <name>_<version>, and a version holding '+', which
+// no OCI tag can hold.
+func contributionTag(ref string, c *contract.Contract) error {
+	repo, tag, _ := contract.SplitOCIRef(ref)
+	want := defaultPushTag(c, true)
+	if strings.Contains(c.Service.Version, "+") {
+		return fmt.Errorf("%s: version %s holds build metadata ('+'), which no OCI tag holds: a contribution is tagged <name>_<version>", ref, c.Service.Version)
+	}
+	if tag != want {
+		return fmt.Errorf("%s: a contribution is pushed by tag, as %s", ref, repo+":"+want)
+	}
+	return nil
+}
+
 // pushContribution pushes b to ref, a tag of a contribution repository,
 // annotated with when it was pushed: the time a reader shows the
 // contribution was made, covered by its signed digest.
 func (s *Service) pushContribution(ctx context.Context, ref string, b *contract.Bundle) (string, error) {
 	repo, tag, _ := contract.SplitOCIRef(ref)
-	if tag == "" {
-		return "", fmt.Errorf("%s: a contribution is pushed by tag, as %s", ref, repo+":"+defaultPushTag(b.Contract, true))
-	}
 	env := s.env()
 	created := env.now().UTC().Format(time.RFC3339)
 	annotated := func() v1.Image {

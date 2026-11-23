@@ -181,6 +181,29 @@ func TestPushSetsCreatedAnnotation(t *testing.T) {
 	}
 }
 
+// TestPushContributionRefusesForeignTag: a contribution tagged otherwise than
+// <name>_<version>, or whose version no OCI tag can hold, is refused before
+// anything is pushed.
+func TestPushContributionRefusesForeignTag(t *testing.T) {
+	e := newPushEnv(t, plainRegistry())
+	ctx := context.Background()
+	repo := e.host + "/acme/pacto-inferred/my-idp/services"
+	if _, err := e.svc.Push(ctx, PushOptions{Ref: "oci://" + repo + ":ledger_9.0.0", Path: writeContribution(t)}); err == nil ||
+		!strings.Contains(err.Error(), "pushed by tag, as "+repo+":checkout_1.0.0") {
+		t.Fatalf("another tag: %v", err)
+	}
+	dir := writeContribution(t)
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.5\"\nservice:\n  name: checkout\n  version: 1.0.0+build.1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.Push(ctx, PushOptions{Ref: "oci://" + repo, Path: dir}); err == nil || !strings.Contains(err.Error(), "version 1.0.0+build.1 holds build metadata") {
+		t.Fatalf("a version with '+': %v", err)
+	}
+	if tags, _ := e.reg.Tags(ctx, repo); len(tags) != 0 {
+		t.Errorf("tags = %v", tags)
+	}
+}
+
 // TestPushToContributionWritesNoIndex: a contribution never reaches the
 // organization index, and the result says so.
 func TestPushToContributionWritesNoIndex(t *testing.T) {
