@@ -30,6 +30,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -174,8 +176,15 @@ func runPromoter(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Discovery is cached for the life of the process; Infra invalidates it
+	// once on a kind it does not list, so a Crossplane kind served after
+	// start is read, and one still missing reads Unknown, never Pass.
+	dc, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
+	if err != nil {
+		return err
+	}
 	cluster := delivery.Cluster{Client: mgr.GetClient(), Cache: mgr.GetCache(), CacheApplications: *argocd,
-		NoFlux: !*flux, FluxHelm: *fluxHelm, Managers: managers,
+		NoFlux: !*flux, FluxHelm: *fluxHelm, Managers: managers, Infra: kubecluster.Infra(memory.NewMemCacheClient(dc)),
 		Registry: func(hosts ...string) core.Registry {
 			return oci.NewClient(keychain, oci.WithInsecureRegistries(slices.Concat(insecure, hosts)...))
 		}}

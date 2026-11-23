@@ -5,6 +5,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -145,6 +146,10 @@ func (perfRegistry) Pull(_ context.Context, ref string) (*contract.Bundle, error
 	_, d, _ := strings.Cut(ref, "@")
 	return &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.0",
 		Service: contract.Service{Name: "c", Version: "1." + d[len(d)-6:len(d)-4] + ".0", Owner: contract.Owner{Team: "team-a"}}}}, nil
+}
+
+func (perfRegistry) Layer(context.Context, string, int64) (string, []byte, error) {
+	return "", nil, errors.New("no layer")
 }
 
 func (perfRegistry) Resolve(context.Context, string) (string, error) { return "", nil }

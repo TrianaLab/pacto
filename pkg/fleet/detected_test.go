@@ -290,3 +290,25 @@ func TestRestrictDropsDeclaredRowOfHiddenCluster(t *testing.T) {
 		t.Errorf("installation row = %+v", p)
 	}
 }
+
+// TestRestrictDropsApplierRowOfHiddenCluster: the Applier row proposes a
+// value on one cluster's Pacto release, so a view that hides that cluster
+// hides the row; a view that names the cluster keeps it.
+func TestRestrictDropsApplierRowOfHiddenCluster(t *testing.T) {
+	at := fixedNow()
+	applier := Provider{ID: ProviderApplier, Name: "Applier", Evidence: "none found", Status: SourceAvailable, Provenance: ProvenanceInferred,
+		AsOf: &at, Cluster: "prod-eu", ClusterID: "uid-2", Hint: "Set idp.flux.install=true on this Pacto release"}
+	q := NewQuery(buildProviders(t,
+		NewMemorySource("k8s-1", SourceKindKubernetes, &Collection{Cluster: clusterOf("uid-1", "staging", ClusterNameFromContext), Targets: []RawTarget{workload("team-a", "web")}}),
+		NewMemorySource("k8s-2", SourceKindKubernetes, &Collection{Cluster: clusterOf("uid-2", "prod-eu", ClusterNameFromContext), Targets: []RawTarget{workload("shop", "api")}}),
+		detectedSource(SourceAvailable, applier)))
+	for _, p := range q.Restrict(anyCluster(readerOf("team-a")), anyClusterKind(nil)).SnapshotForSerialization().Providers {
+		if p.ID == ProviderApplier {
+			t.Errorf("a view hiding cluster uid-2 got its applier row: %+v", p)
+		}
+	}
+	r := q.Restrict(anyCluster(readerOf("team-a", "shop")), anyClusterKind(nil)).SnapshotForSerialization()
+	if p := providerByID(t, r.Providers, ProviderApplier); p.Hint == "" || p.Cluster != "prod-eu" {
+		t.Errorf("applier row = %+v", p)
+	}
+}

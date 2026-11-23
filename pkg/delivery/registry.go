@@ -15,6 +15,10 @@ import (
 type Registry interface {
 	Annotations(ctx context.Context, ref string) (map[string]string, error)
 	Pull(ctx context.Context, ref string) (*contract.Bundle, error)
+	// Layer returns the media type and the still-compressed bytes of the
+	// single layer of ref, refusing a manifest with more than one layer and
+	// a layer over limit bytes.
+	Layer(ctx context.Context, ref string, limit int64) (string, []byte, error)
 }
 
 // RepoFromURL turns a Flux OCIRepository spec.url ("oci://host/path") into a

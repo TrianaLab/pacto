@@ -71,6 +71,10 @@ type ApplierTarget struct {
 	Manager  workloadmanager.Manager
 }
 
+// NoApplierMessage is what a Stage whose applier API the cluster does not
+// serve reads, on its applier status and its Ready condition.
+const NoApplierMessage = "no applier: install Flux or Argo CD; in profile idp, set idp.flux.install=true on the Pacto release"
+
 // ApplierInput is what AdoptApplier reads: the Stage's namespace, service
 // and applyRef, each target, the workloads a Pacto reports that do not exist
 // yet, what could not be read, and the Kustomizations the promoter read
@@ -84,6 +88,9 @@ type ApplierInput struct {
 	Unread         []string
 	Kustomizations []KustomizationView
 	Now            time.Time
+	// NoAPI says the cluster does not serve the applyRef's API: no Flux or
+	// Argo CD runs.
+	NoAPI bool
 }
 
 // verdict of one target.
@@ -101,6 +108,10 @@ func AdoptApplier(in ApplierInput) ApplierStatus {
 	st := ApplierStatus{Since: now, AsOf: now, Completeness: "complete"}
 	if len(in.Unread) > 0 {
 		st.Completeness = "partial"
+	}
+	if in.NoAPI {
+		st.State, st.Manager, st.Message = ApplierUnknown, workloadmanager.None, NoApplierMessage
+		return st
 	}
 	if len(in.Targets) == 0 {
 		if len(in.Unread) > 0 {

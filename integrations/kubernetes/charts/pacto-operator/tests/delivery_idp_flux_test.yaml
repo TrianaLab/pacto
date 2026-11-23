@@ -1,0 +1,208 @@
+# Profile idp delivers through Flux whether Flux comes with this release or a
+# later upgrade of it: delivery.flux auto resolves to true under idp, so the
+# promoter's Flux RBAC and the applier policies render with no Flux API served.
+# The inspector is on wherever delivery renders. And the chart never renders a
+# Flux object or a pacto-applier object while idp.flux.install is off.
+suite: delivery idp flux
+templates:
+  - templates/delivery/deployment.yaml
+  - templates/delivery/rbac.yaml
+  - templates/delivery/admission.yaml
+  - templates/delivery/identities.yaml
+release:
+  name: d
+  namespace: pacto-system
+capabilities:
+  majorVersion: 1
+  minorVersion: 30
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: idp resolves delivery.flux auto to true
+    set:
+      profile: idp
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --flux=false
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --flux-helm
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: rules
+          content:
+            apiGroups: [source.toolkit.fluxcd.io]
+            resources: [ocirepositories]
+            verbs: [get, list, watch, patch]
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
+            apiGroups: [helm.toolkit.fluxcd.io]
+            resources: [helmreleases]
+            verbs: [get, list, watch]
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1
+      - containsDocument:
+          kind: ValidatingAdmissionPolicy
+          apiVersion: admissionregistration.k8s.io/v1
+          name: d-pacto-operator-delivery-applier
+          any: true
+        template: templates/delivery/admission.yaml
+      - containsDocument:
+          kind: ValidatingAdmissionPolicy
+          apiVersion: admissionregistration.k8s.io/v1
+          name: d-pacto-operator-delivery-applier-helmrelease
+          any: true
+        template: templates/delivery/admission.yaml
+
+  - it: default keeps auto following the API
+    set:
+      delivery.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --flux=false
+        template: templates/delivery/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --flux-helm
+        template: templates/delivery/deployment.yaml
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [source.toolkit.fluxcd.io]
+            resources: [ocirepositories]
+            verbs: [get, list, watch, patch]
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1
+
+  - it: idp keeps delivery.flux false off
+    set:
+      profile: idp
+      delivery.flux.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --flux=false
+        template: templates/delivery/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --flux-helm
+        template: templates/delivery/deployment.yaml
+
+  - it: manifestInspector auto is on under idp
+    set:
+      profile: idp
+    template: templates/delivery/identities.yaml
+    asserts:
+      - matchRegex:
+          path: data["policy.json"]
+          pattern: '"manifestInspector":true'
+        documentIndex: 0
+
+  - it: refuseRawInfra is on under idp only
+    set:
+      profile: idp
+    template: templates/delivery/identities.yaml
+    asserts:
+      - matchRegex:
+          path: data["policy.json"]
+          pattern: '"refuseRawInfra":true'
+        documentIndex: 0
+
+  - it: refuseRawInfra is off under delivery.enabled=true
+    set:
+      delivery.enabled: true
+    template: templates/delivery/identities.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["policy.json"]
+          pattern: refuseRawInfra
+        documentIndex: 0
+
+  - it: manifestInspector auto is on under delivery.enabled=true
+    set:
+      delivery.enabled: true
+    template: templates/delivery/identities.yaml
+    asserts:
+      - matchRegex:
+          path: data["policy.json"]
+          pattern: '"manifestInspector":true'
+        documentIndex: 0
+
+  - it: manifestInspector false turns it off under idp
+    set:
+      profile: idp
+      delivery.manifestInspector: false
+    template: templates/delivery/identities.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["policy.json"]
+          pattern: manifestInspector
+        documentIndex: 0
+      - notMatchRegex:
+          path: data["policy.json"]
+          pattern: refuseRawInfra
+        documentIndex: 0
+
+  - it: manifestInspector false turns it off under delivery.enabled=true
+    set:
+      delivery.enabled: true
+      delivery.manifestInspector: false
+    template: templates/delivery/identities.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["policy.json"]
+          pattern: manifestInspector
+        documentIndex: 0
+
+  - it: manifestInspector true is on under delivery.enabled=true
+    set:
+      delivery.enabled: true
+      delivery.manifestInspector: true
+    template: templates/delivery/identities.yaml
+    asserts:
+      - matchRegex:
+          path: data["policy.json"]
+          pattern: '"manifestInspector":true'
+        documentIndex: 0
+---
+# The whole render, every template: with idp.flux.install off (absent here) no
+# profile renders a Flux object, and no profile ever renders a pacto-applier
+# object (Pacto adds no applier).
+suite: no flux and no pacto-applier with idp.flux.install off
+templates:
+  - templates/*.yaml
+  - templates/*/*.yaml
+release:
+  name: d
+  namespace: pacto-system
+capabilities:
+  majorVersion: 1
+  minorVersion: 30
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+skipEmptyTemplates: true
+tests:
+  - it: no Flux object and no pacto-applier object in default
+    asserts: &tripwire
+      - notMatchRegex:
+          path: apiVersion
+          pattern: toolkit\.fluxcd\.io
+      - notMatchRegex:
+          path: metadata.name
+          pattern: pacto-applier
+  - it: no Flux object and no pacto-applier object in hardened
+    set: {profile: hardened, controller.watchNamespaces: [payments]}
+    asserts: *tripwire
+  - it: no Flux object and no pacto-applier object in idp
+    set: {profile: idp}
+    asserts: *tripwire
+  - it: no Flux object and no pacto-applier object in hardened+idp
+    set: {profile: [idp, hardened], controller.watchNamespaces: [payments]}
+    asserts: *tripwire

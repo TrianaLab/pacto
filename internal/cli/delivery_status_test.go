@@ -58,7 +58,7 @@ func TestDeliveryStatusWhy(t *testing.T) {
 	ready := statusDeps(map[string]any{"candidate": cliB, "conditions": []any{map[string]any{"type": "Ready", "status": "True", "reason": "Ready"}}})
 	checkDeliveryRuns(t, ready, []deliveryRun{
 		{"text", []string{"status", "--service", "payments", "--why"}, false, []string{
-			"== prod/payments-prod: ", "\n  Frozen: ", "  automatic promote: ", "\n  predicted: Waits\n"}},
+			"== prod/payments-prod: ", "\n  Frozen: ", "  automatic promote: ", "\n  predicted: Held\n"}},
 	})
 }
 

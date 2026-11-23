@@ -961,6 +961,52 @@ The schema refuses an unknown name first: that fail backs up
 {{- if (.Values.delivery | default dict).enabled }}{{ fail "profile hardened renders no ClusterRole and Pacto delivery needs cluster-wide roles: set delivery.enabled=false or leave profile hardened" }}{{ end }}
 {{- if and $dex.enabled (ne (toString $dexRBAC.create) "false") (ne (toString $dexRBAC.createClusterScoped) "false") }}{{ fail "profile hardened renders no ClusterRole: set dex.rbac.createClusterScoped=false or dex.enabled=false" }}{{ end }}
 {{- end }}
+{{- if dig "flux" "install" false (.Values.idp | default dict) }}
+{{- if include "pacto-operator.hardened" . }}{{ fail "profile hardened renders no ClusterRole: leave idp.flux.install false" }}{{ end }}
+{{- if not (include "pacto-operator.idp" .) }}{{ fail "idp.flux.install needs profile idp" }}{{ end }}
+{{- if include "pacto-operator.fluxForeign" . }}{{ fail "Flux is already installed: leave idp.flux.install false" }}{{ end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Whether this is a live install or upgrade: lookup sees the release Namespace.
+helm template, a client dry-run and Argo CD see nothing, so every refusal that
+reads the cluster is skipped there.
+*/}}
+{{- define "pacto-operator.liveRender" -}}
+{{- if lookup "v1" "Namespace" "" .Release.Namespace }}true{{ end }}
+{{- end }}
+
+{{/*
+The upstream Flux packaged with this release (files/flux/): profile idp,
+idp.flux.install and not hardened. profileChecks refuses the other
+combinations.
+*/}}
+{{- define "pacto-operator.idpFlux" -}}
+{{- if and (dig "flux" "install" false (.Values.idp | default dict)) (include "pacto-operator.idp" .) (not (include "pacto-operator.hardened" .)) }}true{{ end }}
+{{- end }}
+
+{{/*
+The vendored Flux version, from files/flux/VERSION.
+*/}}
+{{- define "pacto-operator.fluxVersion" -}}
+{{- regexFind "(?m)^version: .*$" (.Files.Get "files/flux/VERSION") | trimPrefix "version: " }}
+{{- end }}
+
+{{/*
+On a live render, the name of a Flux controller Deployment in any namespace
+that another release (or no release) owns; empty otherwise. Helm's ownership
+check would stop the install too: this names why.
+*/}}
+{{- define "pacto-operator.fluxForeign" -}}
+{{- if include "pacto-operator.liveRender" . }}
+{{- range (lookup "apps/v1" "Deployment" "" "").items | default list }}
+{{- $a := .metadata.annotations | default dict }}
+{{- if and (has .metadata.name (list "source-controller" "kustomize-controller")) (not (and (eq (index $a "meta.helm.sh/release-name" | default "") $.Release.Name) (eq (index $a "meta.helm.sh/release-namespace" | default "") $.Release.Namespace))) }}
+{{- printf "%s/%s " .metadata.namespace .metadata.name }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- end }}
 
 {{/*

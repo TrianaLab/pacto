@@ -584,11 +584,18 @@ type KustomizationView struct {
 	} `json:"metadata"`
 	Spec struct {
 		TargetNamespace string `json:"targetNamespace"`
-		SourceRef       struct {
+		// Path is the directory of the artifact the Kustomization builds.
+		Path      string `json:"path,omitempty"`
+		SourceRef struct {
 			Kind      string `json:"kind"`
 			Name      string `json:"name"`
 			Namespace string `json:"namespace"`
 		} `json:"sourceRef"`
+		// Patches, PostBuild and Components are read for presence only:
+		// each transforms the artifact (ManifestTargetOf).
+		Patches    json.RawMessage `json:"patches,omitempty"`
+		PostBuild  json.RawMessage `json:"postBuild,omitempty"`
+		Components json.RawMessage `json:"components,omitempty"`
 	} `json:"spec"`
 }
 

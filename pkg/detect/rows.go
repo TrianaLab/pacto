@@ -20,6 +20,7 @@ var rowNames = map[string]string{
 	"pull-secret": "Pull Secret", "otel-collector": "OTel Collector", "tempo": "Tempo",
 	"jaeger": "Jaeger", "datadog": "Datadog", "traces": "Traces",
 	"istio-egress": "Istio egress", "cilium-fqdn": "Cilium FQDN", "egress-gateway": "Egress gateway",
+	fleet.ProviderApplier: "Applier",
 }
 
 // usedFor says, per kind, what a person may do with the proposal. Nothing is
@@ -33,14 +34,15 @@ var usedFor = map[string]string{
 	"nodes":    "proposal for runtime conformance; nothing is turned on",
 	"pull-secret": "proposal for registryPullSecret: it needs push on <registry>/pacto-*; " +
 		"a pod pull Secret usually grants pull only",
-	"otel-collector": observedEdges,
-	"tempo":          observedEdges,
-	"jaeger":         observedEdges,
-	"datadog":        observedEdges,
-	"traces":         observedEdges,
-	"istio-egress":   egressSentence,
-	"cilium-fqdn":    egressSentence,
-	"egress-gateway": egressSentence,
+	"otel-collector":      observedEdges,
+	"tempo":               observedEdges,
+	"jaeger":              observedEdges,
+	"datadog":             observedEdges,
+	"traces":              observedEdges,
+	"istio-egress":        egressSentence,
+	"cilium-fqdn":         egressSentence,
+	"egress-gateway":      egressSentence,
+	fleet.ProviderApplier: "proposal for delivery in profile idp; set it on the Pacto release yourself",
 }
 
 // egressSentence is what an egress reader's row is used for.
@@ -60,7 +62,9 @@ const observedEdges = "observed edges, read by the dashboard; nothing is turned 
 // object the entry names becomes a row object, so a restricted view narrows
 // it. Every surface (WASM demo, Compose demo, dashboard, CLI, fleet source)
 // maps a Result through this one function. An Installation block adds the
-// one declared row; every row built from the entries stays inferred.
+// one declared row; every row built from the entries stays inferred. An
+// Applier row's hint is always [FluxInstallHint]: the ConfigMap decides
+// whether the offer shows, never what a person copies.
 func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
 	rows := make([]fleet.Provider, 0, len(res.Entries)+1)
 	if res.Installation != nil {
@@ -73,6 +77,9 @@ func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
 			UsedFor: rowUsedFor(e.Kind), Status: status(e.Completeness, now.Sub(asOf)),
 			Provenance: fleet.ProvenanceInferred, AsOf: &asOf, Hint: e.Hint, Details: slices.Clone(e.Details),
 			Scope: e.Scope, Cluster: cluster, ClusterID: res.Cluster,
+		}
+		if e.Kind == fleet.ProviderApplier && p.Hint != "" {
+			p.Hint = FluxInstallHint
 		}
 		for _, ns := range e.Namespaces {
 			p.Objects = append(p.Objects, fleet.ProviderObject{Kind: "Namespace", Namespace: ns, Name: ns})

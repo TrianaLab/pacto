@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"reflect"
 	"slices"
@@ -1294,6 +1295,44 @@ func TestRefusals(t *testing.T) {
 	f.refusalsErr = Refuse(http.StatusForbidden, "Forbidden", "no")
 	code, _ := call(t, http.MethodGet, base+"/api/delivery/refusals", nil)
 	expect(t, code == http.StatusForbidden, "refused: %d", code)
+}
+
+// TestRefusalsTotalCountsBothKinds: refused publishes and promotes are sorted,
+// counted and capped once, together.
+func TestRefusalsTotalCountsBothKinds(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	f := sampleCluster("acme:team-payments")
+	base := startDelivery(t, f, a.auth(false, true), true, nil)
+	f.refusals = &PublishRefusals{Completeness: "complete"}
+	for i := range 25 {
+		r := PublishRefusal{Service: "payments", Version: fmt.Sprintf("2.4.%d", i), Check: "version", At: fmt.Sprintf("2026-10-22T10:%02d:00Z", i)}
+		if i%2 == 1 {
+			r.Check, r.Stage, r.Record = "manifests", "payments-prod", fmt.Sprintf("rec-%d", i)
+		}
+		f.refusals.Refusals = append(f.refusals.Refusals, r)
+	}
+	_, r := call(t, http.MethodGet, base+"/api/delivery/refusals", nil)
+	list := r["refusals"].([]any)
+	first := list[0].(map[string]any)
+	expect(t, r["total"] == float64(25) && len(list) == recentRefusals && first["version"] == "2.4.24" && first["check"] == "version" &&
+		list[1].(map[string]any)["check"] == "manifests" && list[1].(map[string]any)["record"] == "rec-23" && list[1].(map[string]any)["stage"] == "payments-prod",
+		"both kinds, newest first, one cap: %v", r)
+}
+
+// TestRefusalsJSONKeepsFields: a refused publish keeps every key it had
+// before refused promotes joined the list, and adds none of theirs.
+func TestRefusalsJSONKeepsFields(t *testing.T) {
+	b, err := json.Marshal(PublishRefusal{Service: "s", Version: "v", Check: "version", Reason: "r", Baseline: "b", RequiredBump: "major", Actor: "a", At: "t", Verified: true})
+	expect(t, err == nil, "marshal: %v", err)
+	var m map[string]any
+	_ = json.Unmarshal(b, &m)
+	keys := slices.Sorted(maps.Keys(m))
+	expect(t, slices.Equal(keys, []string{"actor", "at", "baseline", "check", "reason", "requiredBump", "service", "verified", "version"}), "keys: %v", keys)
+	// A refused promote names where it was refused and what.
+	b, _ = json.Marshal(PublishRefusal{Check: "manifests", Namespace: "prod", Stage: "pay", Digest: "sha256:d", Code: "RawInfraInArtifact", Record: "rec"})
+	m = nil
+	_ = json.Unmarshal(b, &m)
+	expect(t, m["namespace"] == "prod" && m["digest"] == "sha256:d" && m["code"] == "RawInfraInArtifact" && m["version"] == "", "promote keys: %v", m)
 }
 
 // TestEnvironmentRowJSONKeepsFields: the shared row keeps every key the

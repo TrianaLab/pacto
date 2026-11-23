@@ -52,6 +52,8 @@ export function unknownHelp(v: { gate?: string; citation?: Record<string, string
     case 'pacto.contract':
     case 'pacto.runtime':
       return 'Pacto could not read the service\'s contract status. Check that the operator evaluates the Pacto for this service and that its runtime agent reports.';
+    case 'pacto.manifests':
+      return 'Pacto could not tell what this version applies. The Proof names what it could not read: a templated or unknown kind, a kustomization or applier object that transforms the artifact or an artifact it could not download.';
     case 'pacto.impact':
       return 'Pacto could not tell which services this affects. Publish a contract for each service that calls this one, with the versions it accepts.';
     default:
@@ -451,6 +453,7 @@ const GATE_LABELS: Record<string, string> = {
   'pacto.runtime': 'Runtime callers',
   'pacto.preempted': 'Superseded',
   'pacto.applier': 'Applier owns the workloads',
+  'pacto.manifests': 'Objects stay in the Stage namespace',
 };
 
 // ── Who applies a Stage's workloads ─────────────────────────────────────────

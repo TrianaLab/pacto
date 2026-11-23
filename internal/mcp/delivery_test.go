@@ -705,3 +705,30 @@ func TestDeliveryHistoryAtArg(t *testing.T) {
 		t.Fatal("an error is surfaced")
 	}
 }
+
+// TestPlanToolDescribesManifests: the plan tool and the server instructions
+// say where an agent reads the objects a promote applies and what the
+// inspector refused.
+func TestPlanToolDescribesManifests(t *testing.T) {
+	ctx := context.Background()
+	t1, t2 := mcpsdk.NewInMemoryTransports()
+	if _, err := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: false}}).Connect(ctx, t1, nil); err != nil {
+		t.Fatal(err)
+	}
+	s, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil).Connect(ctx, t2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	tools, err := s.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(tools.Tools, func(x *mcpsdk.Tool) bool { return x.Name == "pacto_delivery_operation_plan" })
+	if i < 0 || !strings.Contains(tools.Tools[i].Description, manifestsNote) {
+		t.Fatal("the plan tool does not describe the pacto.manifests citation")
+	}
+	if !strings.Contains(deliveryInstructions, manifestsNote) {
+		t.Fatal("the instructions do not describe the pacto.manifests citation")
+	}
+}

@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -78,6 +79,10 @@ type Cluster struct {
 	// promoter trusts no upstream key: such a Stage is not Ready and offers
 	// nothing.
 	Upstream func(ctx context.Context, r delivery.RemoteStage, seen delivery.RecordMark, acked []string) (*delivery.StageStatus, string)
+	// Infra tells which kinds the manifest inspector reads as infrastructure
+	// Crossplane manages (kubecluster.Infra over cached API discovery). Nil
+	// tells them by group only.
+	Infra delivery.InfraFunc
 }
 
 // remote reads the upstream Stage in another cluster that stage follows, or
@@ -142,6 +147,19 @@ func (a argoApplier) src() *source                       { return a.source }
 // the pointer of a labelled object only, and lets the promoter write nothing
 // else.
 const ApplyRefLabel = "delivery.pacto.trianalab.io/apply-ref"
+
+// scopeFrom is the scope of each kind: the built-in kinds first, so a mapper
+// that calls a core cluster-scoped kind namespaced never turns it into one,
+// then what m maps. A kind m cannot map is unknown.
+func scopeFrom(m meta.RESTMapper) delivery.ScopeFunc {
+	return delivery.ChainScope(delivery.BuiltinScope, func(group, kind string) (bool, bool) {
+		mapping, err := m.RESTMapping(schema.GroupKind{Group: group, Kind: kind})
+		if err != nil {
+			return false, false
+		}
+		return mapping.Scope.Name() == meta.RESTScopeNameNamespace, true
+	})
+}
 
 // cached is the reader of the watched kinds: Cache, or Client without one.
 func (c Cluster) cached(kind string) client.Reader {

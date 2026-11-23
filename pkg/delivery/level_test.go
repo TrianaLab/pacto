@@ -263,16 +263,16 @@ func TestAssemblePlanInputAutonomy(t *testing.T) {
 	src := &echoSources{}
 	stage := StageObject{Spec: stageSpec(), Status: StageStatus{ObservedRevision: &ObservedRevision{Digest: dA}}}
 	spec := OperationSpec{Type: TypeAutonomy, Facet: FacetLevel, Params: Params{From: "observe", To: "advise"}}
-	in, err := AssemblePlanInput(context.Background(), src, spec, stage, ClassHuman, now)
+	in, err := AssemblePlanInput(context.Background(), src, spec, stage, ClassHuman, now, false)
 	if err != nil || in.From.Digest != dA || in.To.Digest != "" {
 		t.Fatalf("observe reads what the source reports: %+v %v", in.From, err)
 	}
 	stage.Status.Pointer = dB
-	if in, _ = AssemblePlanInput(context.Background(), src, spec, stage, ClassHuman, now); in.From.Digest != dB {
+	if in, _ = AssemblePlanInput(context.Background(), src, spec, stage, ClassHuman, now, false); in.From.Digest != dB {
 		t.Fatalf("the pointer is what runs: %+v", in.From)
 	}
 	spec.Params = Params{From: "advise", To: "observe"}
-	if in, _ = AssemblePlanInput(context.Background(), src, spec, stage, ClassHuman, now); in.From.Digest != "" {
+	if in, _ = AssemblePlanInput(context.Background(), src, spec, stage, ClassHuman, now, false); in.From.Digest != "" {
 		t.Fatalf("lowering reads nothing: %+v", in.From)
 	}
 }

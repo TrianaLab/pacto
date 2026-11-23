@@ -43,8 +43,11 @@ helm install pacto oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
 ```
 
 Probing and metrics observation go from `auto` to `on` in every watched
-namespace. A value you set to `off` stays `off`. Pacto delivery turns on.
-Dashboard sign-in keeps its OIDC settings.
+namespace. A value you set to `off` stays `off`. Pacto delivery turns on, with
+the [manifest inspector](delivery-setup.md#how-a-change-moves)
+(`delivery.manifestInspector`, on wherever delivery is enabled). Dashboard
+sign-in keeps its OIDC settings. No profile installs Flux until you set
+`idp.flux.install=true` ([IDP mode](delivery-setup.md#idp-mode)).
 
 Under idp an explicit `auto` also reads `on`, so a namespace label no longer
 selects which namespaces Pacto observes. To observe only labelled namespaces,
@@ -60,6 +63,39 @@ You choose `idp`, so you choose what it adds:
   `-view` and `-edit` ClusterRoles, plus the recorder's ClusterRole when
   `delivery.recorder.enabled` is `true` (the quickstart sets it). See
   [Delivery](delivery.md).
+- The promoter's Flux grants: `delivery.flux.enabled: auto` reads `true`, so
+  they render before Flux arrives, in the same release or a later upgrade.
+- With `idp.flux.install=true`, upstream Flux and its privilege, below.
+
+### The packaged Flux
+
+`idp.flux.install=true` installs upstream Flux 2.10.1 with this release: the
+source-controller, kustomize-controller and helm-controller in `flux-system`,
+their CRDs and RBAC.
+The chart renders the upstream release manifests vendored under `files/flux/`,
+pinned in `files/flux/VERSION`, and changes only Pacto's labels,
+`helm.sh/resource-policy: keep` and these controller arguments:
+
+- `--no-cross-namespace-refs=true` and `--default-service-account=default` on
+  kustomize-controller and helm-controller: an applier object reads sources
+  only in its own namespace, and one without `serviceAccountName` applies as
+  the namespace's `default` account, never as cluster-admin.
+- `--no-remote-bases=true` on kustomize-controller: a kustomization pulls no
+  base the manifest inspector did not read.
+- No `--events-addr`: no notification-controller runs.
+
+The privilege is upstream's: the Flux ClusterRoles and the cluster-admin
+binding of kustomize-controller and helm-controller, listed in the chart
+README. Each Pacto chart version pins one Flux version: to keep it, stay on
+that chart version; `helm upgrade` to a newer chart upgrades Flux when the
+release notes name a newer one.
+
+The chart refuses the value under `default` (`idp.flux.install needs profile
+idp`) and with hardened (`profile hardened renders no ClusterRole: leave
+idp.flux.install false`). When a `source-controller` or `kustomize-controller`
+Deployment that this release did not install already runs, it refuses with
+`Flux is already installed: leave idp.flux.install false`. `helm template`
+cannot look, so check that no other Flux runs first.
 
 ## Combine hardened and idp
 
@@ -88,6 +124,7 @@ watch Role and Pacto delivery stays off.
 | Dex subchart's cluster-scoped RBAC | Refused | Set `dex.rbac.createClusterScoped=false` or `dex.enabled=false`; otherwise leave profile hardened |
 | Namespaces the chart creates (node agent, delivery) | None rendered | Leave profile hardened; outside it, `nodeAgent.createNamespace` and `delivery.createNamespace` |
 | Pacto delivery | Refused, because its roles are cluster-wide | Leave profile hardened, then set `delivery.enabled=true` or `profile: idp` |
+| Packaged Flux (`idp.flux.install`) | Refused: upstream Flux binds cluster-admin | Leave profile hardened, set `profile: idp`, then `idp.flux.install=true` |
 | The delivery namespace after delivery is dropped | Kept with its trust config, pins and keys | Turn delivery back on to adopt it again, or `kubectl delete namespace <ns>` |
 | Watch Roles, with `namespaces get` on the watched namespace while a mode is `auto` | Kept: one Role per watched namespace | Already on; set probing and metrics to `on` or `off` to drop the `namespaces get` |
 | Release-namespace grants: leader election, events, `secrets` `get`, and `secrets` `create` with `registry` | Kept | Already on; leave `registry` empty to drop `create` |

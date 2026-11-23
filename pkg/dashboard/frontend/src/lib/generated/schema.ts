@@ -316,8 +316,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Publishes Pacto refused
-         * @description Recent publishes Pacto refused, newest first, with the check that refused each and the version bump the change needs. recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing.
+         * Publishes and promotes Pacto refused
+         * @description Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing.
          */
         get: operations["delivery-refusals"];
         put?: never;
@@ -4273,7 +4273,10 @@ export interface components {
         "Fleet.InstallationApplier": {
             /** @description The detected row's id: argocd or flux */
             manager: string;
-            /** @enum {string} */
+            /**
+             * @description adopted: Pacto adopts the applier that owns the workloads; idp-flux: profile idp delivers unmanaged workloads through Flux
+             * @enum {string}
+             */
             mode: "adopted" | "idp-flux";
             /** @enum {string} */
             provenance: "declared" | "observed" | "inferred" | "host";
@@ -5265,7 +5268,7 @@ export interface components {
              * @description How many objects the row had before the cap or your permissions narrowed it
              */
             objectsTotal?: number;
-            /** @description Pacto integrations that fit this provider, offered because it was detected; Pacto installs nothing */
+            /** @description Pacto integrations that fit this provider, offered because it was detected; Pacto installs nothing; a person turns each one on */
             offers?: components["schemas"]["Fleet.ProviderOffer"][] | null;
             /** @description declared for the operator's Installation row (its configuration); inferred for a row Pacto detected; empty for a row a source reported directly */
             provenance?: string;
@@ -8157,19 +8160,29 @@ export interface components {
             at: string;
             /** @description The highest published version below it, the one the change was compared with */
             baseline?: string;
-            /** @description The check that refused it: version, sign, lock, validation or conflict */
+            /** @description The check that refused it: version, sign, lock, validation or conflict for a publish; manifests (the manifest inspector, before the promoter wrote the pointer) for a promote */
             check: string;
+            /** @description The stable code of a refused promote, such as RawInfraInArtifact, when it has one */
+            code?: string;
+            /** @description The deploy artifact digest a refused promote asked for */
+            digest?: string;
+            /** @description The namespace of the Stage a refused promote was proposed on */
+            namespace?: string;
             /** @description Why, in one sentence */
             reason: string;
+            /** @description The id of the operation record of a refused promote: read it with the namespace, Stage and id */
+            record?: string;
             /**
              * @description The smallest bump the change needs
              * @enum {string}
              */
             requiredBump?: "major" | "minor" | "patch";
             service: string;
+            /** @description The Stage a refused promote was proposed on */
+            stage?: string;
             /** @description A signed record of the refusal was verified */
             verified: boolean;
-            /** @description The version the publish asked for */
+            /** @description The version the publish or promote asked for; empty on a refused promote whose plan read no contract version (digest names it) */
             version: string;
         };
         PublishedCounts: {
@@ -8383,7 +8396,7 @@ export interface components {
             completeness: "complete" | "partial";
             /** @description Where the refusals were read and what may be missing */
             note?: string;
-            /** @description This cluster keeps a record of refused publishes; false means an empty list proves nothing */
+            /** @description This cluster keeps a record of refused publishes or promotes; false means an empty list proves nothing */
             recorded: boolean;
             refusals: components["schemas"]["PublishRefusal"][] | null;
             /**

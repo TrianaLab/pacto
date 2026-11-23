@@ -42,6 +42,16 @@ type fakeDeliveryRegistry struct {
 	// unbounded is set when a tag lookup came with no deadline: against a
 	// registry that is down it would wait as long as the transport retries.
 	unbounded bool
+	// layer is every artifact's deploy layer, of media type layerType.
+	layerType string
+	layer     []byte
+}
+
+func (f *fakeDeliveryRegistry) Layer(context.Context, string, int64) (string, []byte, error) {
+	if f.layer == nil {
+		return "", nil, errors.New("no layer")
+	}
+	return f.layerType, f.layer, nil
 }
 
 func (f *fakeDeliveryRegistry) Annotations(_ context.Context, ref string) (map[string]string, error) {

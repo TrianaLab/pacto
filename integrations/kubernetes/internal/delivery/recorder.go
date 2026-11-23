@@ -108,6 +108,32 @@ type Recorder struct {
 	missing map[gapKey]time.Time
 	// pinned are the trust operations whose pin this process pushed.
 	pinned map[types.UID]bool
+	// refused are the (service, Stage, digest) whose apply refusal this
+	// process pushed or found.
+	refused map[refusalKey]bool
+	// refusals reads the apply refusal streams; a manifest read once is
+	// never fetched again.
+	refusals deliveryrecord.Reader
+}
+
+// refusalKey names one refused version on one Stage.
+type refusalKey struct {
+	svc                      delivery.ServiceRef
+	namespace, stage, digest string
+}
+
+// refusedOnce reports whether this process pushed or found k's apply
+// refusal already, and with mark remembers that it did.
+func (r *Recorder) refusedOnce(k refusalKey, mark bool) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if mark {
+		if r.refused == nil {
+			r.refused = map[refusalKey]bool{}
+		}
+		r.refused[k] = true
+	}
+	return r.refused[k]
 }
 
 // pinnedOnce reports whether this process pushed op's pin already, and
@@ -549,6 +575,9 @@ func (w *writer) record(ctx context.Context, it item) (time.Duration, error) {
 		}
 		rec = written
 	}
+	if err := w.applyRefusal(ctx, op, rec); err != nil {
+		return 0, err
+	}
 	if !it.leftover {
 		if err := w.advance(ctx, it.seq); err != nil {
 			return 0, err
@@ -627,6 +656,47 @@ func (w *writer) pin(ctx context.Context, op *dv1.Operation) error {
 		return err
 	}
 	w.pinnedOnce(op.UID, true) // ponytail: per process; a restart between the pin and the record pushes one more
+	return nil
+}
+
+// applyRefusal writes the signed apply refusal a promote the manifest
+// inspector rejected owes, citing its operation record rec, once per
+// (service, Stage, digest): neither a retry, a restart nor another Operation
+// proposing the same digest pushes a second one, so re-proposing a refused
+// version cannot push other refusals out of a reader's bound.
+func (w *writer) applyRefusal(ctx context.Context, op *dv1.Operation, rec *stored) error {
+	svc := w.stage.Spec.Service
+	r, ok := delivery.ApplyRefusalOf(svc, delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: op.Name, Namespace: op.Namespace, UID: string(op.UID)},
+		Spec: op.Spec, Status: op.Status})
+	key := refusalKey{svc: svc, namespace: r.Namespace, stage: r.Stage, digest: r.Digest}
+	if !ok || w.refusedOnce(key, false) {
+		return nil
+	}
+	r.Record = rec.ID
+	stream := delivery.ApplyRefusalStream(svc)
+	at, err := w.Store.anchorIn(ctx, w.Store.Streams, stream)
+	if err != nil {
+		return err
+	}
+	// ponytail: the list holds the newest MaxApplyRefusals, so after a
+	// restart a version refused before 20 newer refusals gets one more
+	// record; the once-map covers the running process.
+	l, err := w.refusals.ListApplyRefusals(ctx, at.repo, svc, func(b []byte) error { return w.Store.Verify(stream, 0, b) })
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(l.Refusals, func(a deliveryrecord.ApplyRefusal) bool {
+		return a.Refusal.Namespace == r.Namespace && a.Refusal.Stage == r.Stage && a.Refusal.Digest == r.Digest
+	}) {
+		bundle, _, err := delivery.SignApplyRefusal(ctx, w.Signer, delivery.NewApplyRefusalStatement(r.Digest, r))
+		if err != nil {
+			return fmt.Errorf("%w: %w", errSigner, err)
+		}
+		if _, err := deliveryrecord.PushApplyRefusal(ctx, at.repo, at.mode, bundle); err != nil {
+			return err
+		}
+	}
+	w.refusedOnce(key, true)
 	return nil
 }
 

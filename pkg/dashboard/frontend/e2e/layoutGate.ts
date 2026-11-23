@@ -306,6 +306,14 @@ export function installScaleFixture(): void {
         usedFor: ['proposal for registryPullSecret: it needs push on <registry>/pacto-*; a pod pull Secret usually grants pull only'],
         hint: `--set registryPullSecret=${secret}`,
       });
+      // The Applier row (511-S4): no GitOps engine served under profile idp, so it
+      // proposes the one Flux install value, the longest hint a detected row carries.
+      (doc.providers as Record<string, unknown>[]).push({
+        id: 'applier', source: 'cluster-detection', provenance: 'inferred', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Applier',
+        evidence: `none found none of kustomize.toolkit.fluxcd.io/v1, helm.toolkit.fluxcd.io/v2 and argoproj.io/v1alpha1 is served; no applier: install Flux or Argo CD (from API discovery, cluster ${clusters[0]})`,
+        status: 'available', cluster: clusters[0], usedFor: ['proposal for delivery in profile idp; set it on the Pacto release yourself'],
+        hint: 'Set idp.flux.install=true on this Pacto release, at the chart version it runs: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator --version <version> -n <namespace> --reset-then-reuse-values --set idp.flux.install=true',
+      });
       // A live edge-source row (509-S9): the OTLP receiver's Collector row, partial
       // with a long reason, the full receiver snippet for a 63-character namespace as its
       // hint and the evidence suffix every edge source appends.
@@ -317,7 +325,7 @@ export function installScaleFixture(): void {
         hint: `exporters: {otlphttp/pacto: {endpoint: "http://pacto-dashboard.${'n'.repeat(63)}:4318", encoding: json}}`,
         limitations: [{ code: 'EDGE_SOURCE_PARTIAL', source: 'otlp-receiver', message: `not exporting to pacto-dashboard.${'n'.repeat(63)}:4318; ${longName('requests-used-protobuf-set-encoding-json')}` }],
       });
-      doc.total = 33;
+      doc.total = 34;
       const meta = doc.meta as Record<string, unknown>;
       meta.sources = [...((meta.sources as unknown[] | undefined) ?? []), ...Array.from({ length: 6 }, (_, i) => ({
         id: longName(`unreadable-cluster-${i}`), kind: 'kubernetes', status: 'unavailable', revisionCount: 0, targetCount: 0,
@@ -873,6 +881,20 @@ export function installScaleFixture(): void {
         for (const v of svc.versions ?? []) if (typeof v.sourceRevision === 'string') v.sourceRevision = longName(v.sourceRevision);
       }
     }
+    // The refused list at its longest (511-S4): 20 rows of both kinds, with service and
+    // namespace and Stage names at the 63-character Kubernetes limit, a record on every refused promote
+    // and more refusals read than the list holds.
+    if (route === '/api/delivery/refusals') {
+      const at63 = (s: string) => (s + '-' + 'x'.repeat(63)).slice(0, 63);
+      Object.assign(doc, { recorded: true, completeness: 'complete', total: 57,
+        refusals: Array.from({ length: 20 }, (_, i) => (i % 2
+          ? { service: at63(`payments-settlement-${i}`), version: `2.5.${i}`, check: 'manifests', namespace: at63(`payments-production-${i}`), stage: at63(`payments-production-eu-west-${i}`),
+            digest: `sha256:${String(i).padStart(64, 'd')}`, code: 'RawInfraInArtifact', record: `sha256:${String(i).padStart(64, '0')}`, reason: `ClusterRoleBinding ${at63('orders-admin')} is cluster-scoped`,
+            at: `2026-11-21T10:${String(59 - i).padStart(2, '0')}:00Z`, verified: true }
+          : { service: at63(`orders-reconciliation-${i}`), version: `1.9.${i}`, check: 'version', requiredBump: 'major', baseline: `1.8.${i}`,
+            reason: 'the change is BREAKING, so it needs a major bump', actor: `system:serviceaccount:agents:${at63('pay-agent')}`,
+            at: `2026-11-21T10:${String(59 - i).padStart(2, '0')}:00Z`, verified: false })) });
+    }
     // A version's lifecycle at its longest: long environment, Stage and record names, a
     // long note and the newest 50 events on every Stage.
     if (route === '/api/delivery/lifecycle') {
@@ -1173,10 +1195,12 @@ export function installScaleFixture(): void {
   // unverified signer whose namespace the viewer may not read: no rows, no namespace and
   // no hidden count (its cluster facts were already dropped). 'notAllowed' answers it as a
   // checked signature the installation signer policy refuses.
+  // inspected (511-S4) adds to every plan a failed pacto.manifests verdict citing 50 long
+  // objects and two refusals, the longest citation the manifest inspector writes.
   // multiCluster (514-S2) answers every entities list as a view over three clusters with
   // 63-character names: the demo's own cluster, one the reader may not read and one whose
   // review failed, so the Cluster filter, its caption and the Clusters block render.
-  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed'; __pactoNoDeclare?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed'; __pactoMultiCluster?: boolean; __pactoDeclare?: DeclareMode; __pactoClusterJoin?: boolean | 'viewer' | 'off' };
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed'; __pactoNoDeclare?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed'; __pactoMultiCluster?: boolean; __pactoDeclare?: DeclareMode; __pactoClusterJoin?: boolean | 'viewer' | 'off'; __pactoInspected?: boolean };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1769,6 +1793,11 @@ export function installScaleFixture(): void {
       return res;
     }
     if (declared) clusterFacts(doc);
+    if (flags.__pactoInspected && method === 'POST' && route === '/api/delivery/plan' && Array.isArray(doc.verdicts)) {
+      const refused = [`ClusterRoleBinding ${longName('orders-admin')} is cluster-scoped`, `Deployment ${longName('orders')} is in ${longName('kube-system')}, outside prod`];
+      doc.verdicts.push({ gate: 'pacto.manifests', phase: 'pre', result: 'Fail', message: `the version reaches outside prod: ${refused.join('; ')}`,
+        citation: { artifact: 'manifests', objects: `${Array.from({ length: 50 }, (_, i) => `Deployment ${longName(`orders-${i}`)}`).join(', ')} and 12 more`, refused: refused.join('; ') } });
+    }
     if (flags.__pactoMultiCluster && method === 'GET' && route === '/api/fleet/entities' && doc.meta) {
       const n63 = (s: string) => `${s}-${'x'.repeat(63)}`.slice(0, 63);
       (doc.meta as Record<string, unknown>).clusters = [
@@ -3095,6 +3124,17 @@ export const ROUTES: Route[] = [
     open: async (page) => {
       await openPropose(page);
       await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the panel into view; the gate reads from the top
+    },
+  },
+  {
+    name: 'propose with inspected objects',
+    open: async (page) => {
+      await page.evaluate(() => { (window as unknown as { __pactoInspected?: boolean }).__pactoInspected = true; });
+      const panel = await openPropose(page);
+      const verdict = panel.getByTestId('plan-verdicts').locator('li.vl-item').filter({ hasText: 'pacto.manifests' });
+      await verdict.locator('summary').click();
+      await expect(verdict.locator('.vl-cite dt', { hasText: 'objects' })).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
     },
   },
   {
