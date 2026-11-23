@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -186,12 +187,18 @@ func newEvidenceServeCommand(svc *app.Service, _ *viper.Viper) *cobra.Command {
 		Long: "Starts an HTTP host that accepts signed evidence envelopes at " +
 			"POST /api/evidence/v1/envelopes, verifies them against --trust, evaluates " +
 			"the carried evidence against its resolved contract and publishes accepted " +
-			"records to the contract registry as OCI 1.1 referrers of the exact contract " +
-			"revision each report is about. Every --subject is an immutable " +
-			"oci://<repo>@sha256:<digest> reference; the registry is the only durable " +
+			"records to the contract registry: as OCI 1.1 referrers of the exact contract " +
+			"revision each report is about where the registry serves them, as write-once " +
+			"tags in <prefix>pacto-evidence otherwise. Every --subject is an immutable " +
+			"oci://<repo>@sha256:<digest> reference; every --subject-prefix " +
+			"(oci://<registry>/<path>/) accepts evidence for any immutable revision " +
+			"published under it, with no restart, and records each subject in " +
+			"<prefix>pacto-evidence. Set --subject or --subject-prefix. The registry is the only durable " +
 			"store, so the host keeps no local state and survives restarts. GET " +
-			".../health is an always-200 liveness probe; .../ready reports 503 while a " +
-			"subject cannot be resolved or its referrers enumerated; .../producers " +
+			".../health is an always-200 liveness probe; .../ready reports 503 while an " +
+			"exact subject cannot be resolved, a prefix ledger cannot be listed or a " +
+			"registry cannot be probed (a prefix with an empty ledger is probed at its " +
+			"first commit); .../producers " +
 			"advertises trusted producer ids; .../targets exposes the latest accepted " +
 			"targets. Registry credentials come from the same sources as `pacto pull`. " +
 			"Exactly one server may write to a subject set. Serves until interrupted.",
@@ -200,6 +207,10 @@ func newEvidenceServeCommand(svc *app.Service, _ *viper.Viper) *cobra.Command {
 			opts := app.ServeOptions{}
 			opts.TrustPath, _ = cmd.Flags().GetString("trust")
 			opts.Subjects, _ = cmd.Flags().GetStringArray("subject")
+			opts.SubjectPrefixes, _ = cmd.Flags().GetStringArray("subject-prefix")
+			if len(opts.Subjects) == 0 && len(opts.SubjectPrefixes) == 0 {
+				return errors.New("set --subject or --subject-prefix")
+			}
 			opts.Producers, _ = cmd.Flags().GetStringArray("producer")
 			cluster, err := serveClusterFlags(cmd)
 			if err != nil {
@@ -218,13 +229,13 @@ func newEvidenceServeCommand(svc *app.Service, _ *viper.Viper) *cobra.Command {
 	cmd.Flags().Int("port", 8686, "port to listen on (127.0.0.1); superseded by --listen-address")
 	cmd.Flags().String("listen-address", "", "host:port to listen on (supersedes --port)")
 	cmd.Flags().String("trust", "", "trust store: a public-key file or a directory of <keyId>.pub files")
-	cmd.Flags().StringArray("subject", nil, "exact contract revision evidence is stored on: oci://<repo>@sha256:<digest> (repeatable, required)")
+	cmd.Flags().StringArray("subject", nil, "exact contract revision evidence is stored on: oci://<repo>@sha256:<digest> (repeatable; set --subject or --subject-prefix)")
+	cmd.Flags().StringArray("subject-prefix", nil, "registry prefix whose immutable revisions evidence may be stored on: oci://<registry>/<path>/ (repeatable)")
 	cmd.Flags().StringArray("producer", nil, "advertised trusted producer id (repeatable)")
 	cmd.Flags().String("cluster-id", "", "the kube-system namespace UID of the cluster this server runs in; the operator sets it")
 	cmd.Flags().String("cluster-name", "", "display name of that cluster (needs --cluster-id)")
 	cmd.Flags().String("cluster-name-source", "", "how the name was found: node-label, context, file or uid (needs --cluster-id)")
 	_ = cmd.MarkFlagRequired("trust")
-	_ = cmd.MarkFlagRequired("subject")
 	return cmd
 }
 

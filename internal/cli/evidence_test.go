@@ -242,13 +242,22 @@ const testSubject = "oci://reg.example/team/orders@sha256:" +
 
 func TestEvidenceServe_RequiresFlags(t *testing.T) {
 	dir, _, _ := setup(t)
-	// Both --trust and --subject are required: there is no default trust store and
-	// no default evidence location to fall back to.
+	// --trust is required, and so is --subject or --subject-prefix: there is no
+	// default trust store and no default evidence location to fall back to.
 	if _, err := runEvidence(t, "evidence", "serve"); err == nil {
-		t.Error("expected required-flag error (--trust, --subject)")
+		t.Error("expected required-flag error (--trust)")
 	}
-	if _, err := runEvidence(t, "evidence", "serve", "--trust", dir); err == nil {
-		t.Error("expected required-flag error (--subject)")
+	if _, err := runEvidence(t, "evidence", "serve", "--trust", dir); err == nil || !strings.Contains(err.Error(), "set --subject or --subject-prefix") {
+		t.Errorf("err = %v, want set --subject or --subject-prefix", err)
+	}
+}
+
+func TestEvidenceServeNeedsSubjectOrPrefix(t *testing.T) {
+	dir, _, _ := setup(t)
+	// A prefix alone is enough: the command gets past the check and fails on
+	// the invalid port, after the flags were accepted.
+	if _, err := runEvidence(t, "evidence", "serve", "--port", "-1", "--trust", dir, "--subject-prefix", "oci://reg.example/acme/"); err == nil || strings.Contains(err.Error(), "set --subject") {
+		t.Errorf("err = %v, want the listen error past the flag check", err)
 	}
 }
 

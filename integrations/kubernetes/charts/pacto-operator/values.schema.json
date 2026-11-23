@@ -793,6 +793,14 @@
                 "pattern": "^oci://[^@]+@sha256:[0-9a-f]{64}$"
               }
             },
+            "subjectPrefixes": {
+              "type": "array",
+              "description": "Registry prefixes, each oci://<registry>/<path>/ ending in /, whose immutable revisions evidence may be stored on.",
+              "items": {
+                "type": "string",
+                "pattern": "^oci://[^@/]+/([^@/]+/)*$"
+              }
+            },
             "credentialsSecret": {
               "type": "string"
             }
@@ -848,14 +856,28 @@
             ],
             "properties": {
               "registry": {
-                "required": [
-                  "subjects"
-                ],
-                "properties": {
-                  "subjects": {
-                    "minItems": 1
+                "anyOf": [
+                  {
+                    "required": [
+                      "subjects"
+                    ],
+                    "properties": {
+                      "subjects": {
+                        "minItems": 1
+                      }
+                    }
+                  },
+                  {
+                    "required": [
+                      "subjectPrefixes"
+                    ],
+                    "properties": {
+                      "subjectPrefixes": {
+                        "minItems": 1
+                      }
+                    }
                   }
-                }
+                ]
               }
             }
           }

@@ -73,7 +73,7 @@ func TestConfigValidate(t *testing.T) {
 		{"enabled without trust secret fails", noTrust, true, "no trust secret set"},
 		// The registry is the store, so an Evidence Server with no subject has
 		// nowhere to write: that is a configuration error, not an empty store.
-		{"enabled without a subject fails", noSubjects, true, "no contract subject set"},
+		{"enabled without a subject or prefix fails", noSubjects, true, "set evidence.registry.subjects or evidence.registry.subjectPrefixes"},
 		{"enabled with bad resource quantity fails", badResources, true, "invalid evidence memory-request quantity"},
 		{"enabled with a subject valid", validEnabledConfig(), false, ""},
 		{"enabled with registry credentials valid", withCredentials, false, ""},
@@ -214,4 +214,18 @@ func searchString(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// A prefix alone is enough: the server accepts every revision under it.
+func TestConfigValidateSubjectOrPrefix(t *testing.T) {
+	cfg := validEnabledConfig()
+	cfg.Subjects = nil
+	cfg.SubjectPrefixes = []string{"oci://zot.acme.internal/acme/"}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("a prefix alone: unexpected error %v", err)
+	}
+	cfg.SubjectPrefixes = nil
+	if err := cfg.Validate(); err == nil || !containsString(err.Error(), "subjectPrefixes") {
+		t.Fatalf("neither: got %v, want the subjects-or-prefixes error", err)
+	}
 }

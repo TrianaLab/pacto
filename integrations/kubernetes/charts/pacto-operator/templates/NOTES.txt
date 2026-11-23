@@ -287,7 +287,9 @@ Registry: {{ . }}
     {{ . }}
 {{- end }}
   Outside them only referrers are written, by digest onto an existing
-  manifest: the Evidence Server's records and the recorder's.
+  manifest: the Evidence Server's records and the recorder's
+{{- if include "pacto-operator.evidenceLedgers" $ | fromYamlArray }}, plus the
+  Evidence Server's subject ledger tags named below{{ end }}.
   Pull on {{ . }}/pacto-targets reads every namespace's Pacto status and
   workload shape regardless of Kubernetes RBAC and, with evidence.enabled, every
   target, provisioning and usage record (cost included) the Evidence Server
@@ -338,6 +340,21 @@ Proposed pull Secret (inferred from pod specs; it needs push on
 
   --set registryPullSecret={{ $proposedSecret }}
 {{- end }}
+{{- end }}
+{{- end }}
+{{- with include "pacto-operator.evidenceLedgers" . | fromYamlArray }}
+
+The Evidence Server also tags, with evidence.registry.credentialsSecret, only
+its subject ledgers:
+{{- range . }}
+    {{ . }}
+{{- end }}
+  Each ledger holds the refs and evidence of every revision under its prefix:
+  keep it private, or no more visible than the most restricted repository
+  under the prefix.
+{{- if not $.Values.evidence.trust.configKey }}
+  Every trusted key may report on every revision under the subject prefixes:
+  set allowedContractRepos per key in a trust config.
 {{- end }}
 {{- end }}
 {{- if and .Release.IsUpgrade (include "pacto-operator.watchNamespaces" . | fromYamlArray) (not (and (include "pacto-operator.dashboardEnabled" .) (include "pacto-operator.dashboardDeliveryNamespace" .))) }}

@@ -573,6 +573,9 @@ type ServeOptions struct {
 	TrustPath string   // a public-key file or a directory of <keyId>.pub files
 	Subjects  []string // exact oci://…@sha256:… contract revisions evidence is stored on
 	Producers []string // trusted producer ids advertised on GET /producers
+	// SubjectPrefixes are oci://<registry>/[<path>/] prefixes: evidence may be
+	// stored on every immutable revision published under one.
+	SubjectPrefixes []string
 	// Cluster is the cluster this server runs in (the operator sets it), stamped
 	// on every record it accepts; nil when unknown.
 	Cluster *evidenceingest.ClusterDTO
@@ -604,44 +607,51 @@ const defaultReadinessTimeout = 3 * time.Second
 // written to the contract registry and authenticates like a contract does. The
 // cloud workload-identity sources are skipped: the server writes referrers onto
 // subjects anywhere, so it carries no host-wide cloud identity. Its push scope
-// is referrer-only (decision 11): it never tags, deletes or writes a
-// subject-less manifest.
-func evidenceStoreOptions() evidenceoci.RepositoryOptions {
+// (decision 11) holds exactly the ledger repository of each subject prefix,
+// <prefix>pacto-evidence: everywhere else it never tags, deletes or writes a
+// subject-less manifest. With no prefix it is referrer-only.
+func evidenceStoreOptions(prefixes evidenceoci.PrefixList) evidenceoci.RepositoryOptions {
 	creds := oci.EnvCredentialOptions()
 	creds.SkipCloud = true
 	return evidenceoci.RepositoryOptions{
 		Keychain: oci.NewKeychain(creds),
 		Insecure: oci.EnvInsecureRegistries(),
-		Scope:    oci.NewPushScope(""),
+		Scope:    oci.NewPushScope("", prefixes.Ledgers()...),
 	}
 }
 
 // buildEvidenceHost assembles the ingestion HTTP mux over the contract registry:
-// it loads the trust store, parses the configured contract subjects and opens one
-// repository per subject. Nothing is stored locally, so there is no recovery to
-// wait for — the host is ready as soon as every subject resolves and answers
-// native Referrers discovery, which /ready checks live. Assembly errors (an
+// it loads the trust store, parses the configured contract subjects and subject
+// prefixes and opens one repository per subject and one ledger per prefix.
+// Nothing is stored locally, so there is no recovery to wait for: the host is
+// ready once every exact subject resolves live, every ledger lists and each
+// registry host has been probed once, which /ready checks. Assembly errors (an
 // unreadable trust store, an empty or malformed subject list) surface here so
 // serve validates configuration before it listens; a registry that is merely
 // unreachable surfaces via /ready, not as a startup failure. It takes no context:
-// every registry call it wires up belongs to the request that triggers it, so
-// it returns the ids of keys that may report provisioning for every provider
-// for the caller to warn about.
-func (s *Service) buildEvidenceHost(opts ServeOptions) (*http.ServeMux, []string, error) {
+// every registry call it wires up belongs to the request that triggers it. It
+// returns, for the caller to warn about, the ids of keys that may report
+// provisioning for every provider and, when a prefix is set, the ids of keys
+// that may report on every revision under it.
+func (s *Service) buildEvidenceHost(opts ServeOptions) (*http.ServeMux, evidenceHostWarnings, error) {
 	if err := checkServeCluster(opts.Cluster); err != nil {
-		return nil, nil, err
+		return nil, evidenceHostWarnings{}, err
 	}
 	trust, err := loadTrustStore(opts.TrustPath)
 	if err != nil {
-		return nil, nil, err
+		return nil, evidenceHostWarnings{}, err
 	}
 	subjects, err := evidenceoci.ParseSubjects(opts.Subjects)
 	if err != nil {
-		return nil, nil, err
+		return nil, evidenceHostWarnings{}, err
 	}
-	store, err := evidenceoci.NewStore(subjects, evidenceStoreOptions())
+	prefixes, err := evidenceoci.ParsePrefixes(opts.SubjectPrefixes)
 	if err != nil {
-		return nil, nil, err
+		return nil, evidenceHostWarnings{}, err
+	}
+	store, err := evidenceoci.NewStore(subjects, prefixes, evidenceStoreOptions(prefixes))
+	if err != nil {
+		return nil, evidenceHostWarnings{}, err
 	}
 	if opts.Cluster != nil {
 		store.WithCluster(opts.Cluster.ID)
@@ -659,7 +669,31 @@ func (s *Service) buildEvidenceHost(opts ServeOptions) (*http.ServeMux, []string
 	}).WithCluster(opts.Cluster).WithAdapters(evidenceingest.ReportingAdapters(trust))
 	mux := http.NewServeMux()
 	handler.Routes(mux)
-	return mux, unscopedProvisioningKeys(trust), nil
+	warn := evidenceHostWarnings{provisioning: unscopedProvisioningKeys(trust)}
+	if len(prefixes) > 0 {
+		warn.contract = contractUnscopedKeys(trust)
+	}
+	return mux, warn, nil
+}
+
+// evidenceHostWarnings are the trust keys serve warns about at startup.
+type evidenceHostWarnings struct {
+	provisioning []string // ResourceProvisioned or ResourceUsage for every provider
+	contract     []string // no allowedContractRepos while a subject prefix is set
+}
+
+// contractUnscopedKeys returns, sorted, the ids of keys with no contract
+// repository scope: under a subject prefix each may report on every revision
+// under it.
+func contractUnscopedKeys(ts evidenceenvelope.MapTrustStore) []string {
+	var ids []string
+	for id, e := range ts {
+		if len(e.ContractRepos) == 0 {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	return ids
 }
 
 // unscopedProvisioningKeys returns, sorted, the ids of keys granted a
@@ -680,14 +714,17 @@ func unscopedProvisioningKeys(ts evidenceenvelope.MapTrustStore) []string {
 // ctx is cancelled, then shuts down gracefully. It takes ownership of ln, closing
 // it if assembly fails. This is the seam tests drive on a random port.
 func (s *Service) ServeEvidenceOnListener(ctx context.Context, ln net.Listener, opts ServeOptions) error {
-	mux, unscoped, err := s.buildEvidenceHost(opts)
+	mux, warn, err := s.buildEvidenceHost(opts)
 	if err != nil {
 		_ = ln.Close()
 		return err
 	}
 	log := logging.LoggerFromContext(ctx)
-	for _, id := range unscoped {
+	for _, id := range warn.provisioning {
 		log.Warn("trust key grants ResourceProvisioned or ResourceUsage for every provider", "keyId", id, "hint", "set allowedProviderRepos when more than one adapter reports")
+	}
+	for _, id := range warn.contract {
+		log.Warn(fmt.Sprintf("evidence key %s has no allowedContractRepos: it may report on every revision under the subject prefixes", id), "keyId", id, "hint", "set allowedContractRepos for this key")
 	}
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	errCh := make(chan error, 1)

@@ -422,20 +422,39 @@ evidence:
     # durable evidence store: every accepted record is published as an OCI 1.1
     # referrer of one of these manifests, so the chart installs nothing durable
     # in the cluster. A mutable tag is rejected, because moving it onto another
-    # manifest would change what the stored evidence reports on. That registry
-    # must serve the native OCI 1.1 Referrers API. GHCR and CNCF distribution
-    # (registry:2, registry:3) lack it, and the Evidence Server stays
-    # permanently not-ready against them.
+    # manifest would change what the stored evidence reports on. A subject on a
+    # registry without the OCI 1.1 Referrers API (GHCR, CNCF distribution) needs
+    # a subjectPrefixes entry covering it, which stores its evidence as
+    # write-once tags; uncovered, the Evidence Server stays not-ready.
     subjects: []
+    # -- Optional registry prefixes, each oci://<registry>/<path>/ ending in /,
+    # whose immutable revisions evidence may be reported against, including
+    # revisions published after install, with no Helm edit and no restart. Refs
+    # must still be @sha256 digests. The Evidence Server records each subject
+    # in <prefix>pacto-evidence and, where the registry serves no OCI Referrers,
+    # stores each record there as a write-once tag. The credentialsSecret must
+    # allow push to <prefix>pacto-evidence. That repository holds the refs and
+    # evidence of every revision under the prefix: keep it private, or no more
+    # visible than the most restricted repository under the prefix. Keep the
+    # existing subjects when you add a prefix, so their earlier evidence stays
+    # in the replay check. Set allowedContractRepos per key in a trust config
+    # (trust.configKey): a key with none may report on every revision under
+    # the prefix. Either subjects or subjectPrefixes is required when evidence
+    # is enabled.
+    subjectPrefixes: []
     # -- Optional name of an EXISTING kubernetes.io/dockerconfigjson Secret with
     # credentials for that registry, mounted read-only. The chart never creates
     # it and never renders its contents. Empty means anonymous or in-cluster
     # access.
     credentialsSecret: ""
     # NOTE: retention, backup and garbage collection of accepted evidence are the
-    # registry's responsibility. Deleting a contract subject or its referrers in
-    # the registry deletes the evidence reported against it; nothing in this
-    # cluster holds a copy.
+    # registry's responsibility; nothing in this cluster holds a copy. Deleting
+    # a contract subject deletes the evidence stored as its referrers. Records
+    # stored as write-once tags in <prefix>pacto-evidence outlive their subject.
+    # A deleted revision never blocks new writes. Retention may delete old
+    # evidence-<hash>-<12 hex> record tags as long as it keeps the newest record
+    # per producer and per target; keep every anchor tag and every
+    # evidence-<hash>-native marker tag. A ledger past 100,000 tags is unreadable and the Evidence Server refuses writes until pruned.
   trust:
     # -- Name of an existing Secret of trusted producer public keys, mounted
     # read-only. Signature verification is mandatory, so this is required when
