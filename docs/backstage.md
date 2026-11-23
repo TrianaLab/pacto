@@ -55,12 +55,13 @@ the path instead.
 
 A dashboard with a fleet serves `GET /api/backstage/entities`, the same YAML
 `pacto export backstage` writes over the same sources, with only what the
-reader may read, so Backstage needs no file or sync job.
+reader may read, so Backstage needs no file or sync job. Any IDP reads
+the same route: [Sit on top of any IDP](any-idp.md).
 
 On a dashboard with sign-in, the reader is a ServiceAccount: the chart's
 `pacto-viewer`, or one you bind to `get` and `list` on
-`pactos.pacto.trianalab.io`. Mint its token for the dashboard and rotate it
-before it expires:
+`pactos.pacto.trianalab.io`. Mint its token and rotate it before it
+expires:
 
 ```bash
 kubectl -n pacto create token pacto-viewer --audience pacto-dashboard --duration 720h
@@ -96,8 +97,8 @@ catalog:
 ```
 
 Backstage shows the reader's scope to every Backstage user. A namespace-scoped
-reader sees no service known only from a registry, so give a reader that should
-see the whole fleet a cluster-wide grant. A namespace grant shows that
+reader sees no service known only from a registry, so give a whole-fleet
+reader a cluster-wide grant. A namespace grant shows that
 namespace in its own cluster only ([Multi-cluster](multi-cluster.md)).
 
 Open and local dashboards serve the route without a token. Whenever

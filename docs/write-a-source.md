@@ -137,3 +137,6 @@ status and `asOf`.
 Readers pull records only from a repository under a registry they already
 read, such as the registry of their `--oci` refs, and only when a signature
 verifies with a key the Evidence Server advertises for that producer.
+
+To read ranges and conformance back into your tool as well, see
+[Sit on top of any IDP](any-idp.md).
