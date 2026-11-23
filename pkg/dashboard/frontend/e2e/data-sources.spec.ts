@@ -38,9 +38,9 @@ const DEMO_SOURCES_LISTED = DEMO_SOURCES_TALLIED + DEMO_UNTALLIED.length;
  * The pills the legacy navbar's sources popover lists: the /api/sources rows that are
  * data sources, one per source kind. The demo's four egress readers come back as rows
  * of their own with `egress` set, so they never add a pill. The hub's two members
- * share one target-snapshot pill.
+ * share one target-snapshot pill, and the Evidence Server adds an evidence-http pill.
  */
-const NAV_PILLS = 11;
+const NAV_PILLS = 12;
 const EGRESS_ROWS = { 'kernel-egress': 'partial', 'istio-egress': 'complete', 'cilium-fqdn': 'unavailable', 'egress-gateway': 'partial' };
 
 async function overviewSources(page: Page) {
