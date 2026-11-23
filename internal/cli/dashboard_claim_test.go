@@ -214,3 +214,18 @@ func TestDashboardReclaimUsesClaimedName(t *testing.T) {
 	orphan := stripeWL(t, nil, &fleet.ExternalClaim{Service: "gone"})
 	expect(t, claimerName(orphan.View, "stripe") == "", "a claimer the view holds no record of is named nowhere")
 }
+
+// TestDashboardClaimOffering: the dashboard claim panel's offering reaches
+// the shared claim planner, which writes it as display-only metadata and
+// names it in the command; an invalid slug is the OfferingInvalid refusal.
+func TestDashboardClaimOffering(t *testing.T) {
+	h := newDeclareHost(t, true, true)
+	ans := h.claimPlan(t, stripeWL(t, nil, nil), dashboard.DeclareInput{ClaimInput: dashboard.ClaimInput{Owner: "team-platform", Offering: "postgresql"}})
+	expect(t, ans.Refusal == nil && ans.Plan != nil, "%+v", ans.Refusal)
+	expect(t, strings.Contains(ans.Command, " --offering postgresql "), "command %q", ans.Command)
+	expect(t, strings.Contains(ans.Plan.Contract.Text, fleet.ExternalOfferingMetadataKey+": postgresql") && !strings.Contains(ans.Plan.Contract.Text, "offering: postgresql\n  owner"),
+		"contract %q", ans.Plan.Contract.Text)
+	expect(t, slices.ContainsFunc(ans.Plan.Notes, func(n string) bool { return strings.Contains(n, "offering postgresql") }), "notes %v", ans.Plan.Notes)
+	bad := h.claimPlan(t, stripeWL(t, nil, nil), dashboard.DeclareInput{ClaimInput: dashboard.ClaimInput{Owner: "team-platform", Offering: "Not A Slug"}})
+	expect(t, bad.Refusal != nil && bad.Refusal.Code == "OfferingInvalid" && bad.Plan == nil, "%+v %+v", bad.Refusal, bad.Plan)
+}

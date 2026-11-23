@@ -1794,6 +1794,8 @@ export interface components {
             mode: "sign" | "draft";
             /** @description The claimed contract's service name; defaults to the name the visible claim already has, else the identity's last segment */
             name?: string;
+            /** @description The platform offering the external system is meant to join, written as display-only metadata on the claimed contract and never as service.offering; joining an offering another team provides writes a draft for that team. Invalid slugs are refused with OfferingInvalid */
+            offering?: string;
             /** @description The team that owns the external system; set only when serviceKey is external:<identity> */
             owner?: string;
             /** @description The inferred service to declare, or external:<identity> to claim an external system */
@@ -1847,6 +1849,8 @@ export interface components {
             intentDigest?: string;
             /** @description The claimed contract's service name; defaults to the name the visible claim already has, else the identity's last segment */
             name?: string;
+            /** @description The platform offering the external system is meant to join, written as display-only metadata on the claimed contract and never as service.offering; joining an offering another team provides writes a draft for that team. Invalid slugs are refused with OfferingInvalid */
+            offering?: string;
             /** @description The team that owns the external system; set only when serviceKey is external:<identity> */
             owner?: string;
             /** @description The inferred service to declare, or external:<identity> to claim an external system */
@@ -1908,7 +1912,7 @@ export interface components {
              * @description The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed and DraftNotOffered (a shared dashboard claims only with the person's own signature)
              * @enum {string}
              */
-            code: "PlanStale" | "IntentRequired" | "WorkloadNotFound" | "WorkloadAmbiguous" | "AlreadyDeclared" | "RangeNotProposed" | "NoRegistry" | "RegistryUnreadable" | "VersionConflict" | "SignerNotAllowed" | "SignerUnverified" | "DraftNotFound" | "ExecuteNeedsStdio" | "BaselineNeedsMigration" | "BundleRepoMismatch" | "AcceptNothingProposed" | "FieldNotAcceptable" | "BreakNotAnnounced" | "NotPublished" | "PersonSigningUnavailable" | "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED" | "IdentityRequired" | "SignInLinkReadsFleet" | "ReviewFailed" | "ClusterNotReviewable" | "NotAllowed" | "OwnerRequired" | "ExternalMismatch" | "ExternalUnknown" | "ClaimRepositoryInferred" | "DraftNotOffered";
+            code: "PlanStale" | "IntentRequired" | "WorkloadNotFound" | "WorkloadAmbiguous" | "AlreadyDeclared" | "RangeNotProposed" | "NoRegistry" | "RegistryUnreadable" | "VersionConflict" | "SignerNotAllowed" | "SignerUnverified" | "DraftNotFound" | "ExecuteNeedsStdio" | "BaselineNeedsMigration" | "BundleRepoMismatch" | "AcceptNothingProposed" | "FieldNotAcceptable" | "BreakNotAnnounced" | "NotPublished" | "PersonSigningUnavailable" | "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED" | "IdentityRequired" | "SignInLinkReadsFleet" | "ReviewFailed" | "ClusterNotReviewable" | "NotAllowed" | "OwnerRequired" | "ExternalMismatch" | "ExternalUnknown" | "ClaimRepositoryInferred" | "OfferingInvalid" | "DraftNotOffered";
             /** @description The command a person runs about it */
             command?: string;
             message: string;

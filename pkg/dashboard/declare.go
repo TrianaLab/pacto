@@ -72,6 +72,9 @@ type DeclareInput struct {
 type ClaimInput struct {
 	Owner string `json:"owner,omitempty" maxLength:"253" pattern:"^[a-zA-Z0-9._/-]+$" doc:"The team that owns the external system; set only when serviceKey is external:<identity>"`
 	Name  string `json:"name,omitempty" maxLength:"63" pattern:"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$" doc:"The claimed contract's service name; defaults to the name the visible claim already has, else the identity's last segment"`
+	// Offering has no pattern: an invalid slug is the OfferingInvalid
+	// refusal the CLI and MCP give, never a bare 422.
+	Offering string `json:"offering,omitempty" maxLength:"253" doc:"The platform offering the external system is meant to join, written as display-only metadata on the claimed contract and never as service.offering; joining an offering another team provides writes a draft for that team. Invalid slugs are refused with OfferingInvalid"`
 }
 
 // DeclareAcceptInput carries out a plan the person reviewed.
@@ -199,7 +202,7 @@ type DeclareWrite struct {
 // DeclareRefusal is a declaration that was refused, with the command a person
 // runs about it.
 type DeclareRefusal struct {
-	Code    string `json:"code" enum:"PlanStale,IntentRequired,WorkloadNotFound,WorkloadAmbiguous,AlreadyDeclared,RangeNotProposed,NoRegistry,RegistryUnreadable,VersionConflict,SignerNotAllowed,SignerUnverified,DraftNotFound,ExecuteNeedsStdio,BaselineNeedsMigration,BundleRepoMismatch,AcceptNothingProposed,FieldNotAcceptable,BreakNotAnnounced,NotPublished,PersonSigningUnavailable,OWNER_SIGNER_NOT_PERSON,OWNER_SIGNER_NOT_ALLOWED,OWNER_POLICY_UNVERIFIED,OWNER_SIGNER_UNVERIFIED,IdentityRequired,SignInLinkReadsFleet,ReviewFailed,ClusterNotReviewable,NotAllowed,OwnerRequired,ExternalMismatch,ExternalUnknown,ClaimRepositoryInferred,DraftNotOffered" doc:"The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed and DraftNotOffered (a shared dashboard claims only with the person's own signature)"`
+	Code    string `json:"code" enum:"PlanStale,IntentRequired,WorkloadNotFound,WorkloadAmbiguous,AlreadyDeclared,RangeNotProposed,NoRegistry,RegistryUnreadable,VersionConflict,SignerNotAllowed,SignerUnverified,DraftNotFound,ExecuteNeedsStdio,BaselineNeedsMigration,BundleRepoMismatch,AcceptNothingProposed,FieldNotAcceptable,BreakNotAnnounced,NotPublished,PersonSigningUnavailable,OWNER_SIGNER_NOT_PERSON,OWNER_SIGNER_NOT_ALLOWED,OWNER_POLICY_UNVERIFIED,OWNER_SIGNER_UNVERIFIED,IdentityRequired,SignInLinkReadsFleet,ReviewFailed,ClusterNotReviewable,NotAllowed,OwnerRequired,ExternalMismatch,ExternalUnknown,ClaimRepositoryInferred,OfferingInvalid,DraftNotOffered" doc:"The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed and DraftNotOffered (a shared dashboard claims only with the person's own signature)"`
 	Message string `json:"message"`
 	Command string `json:"command,omitempty" doc:"The command a person runs about it"`
 }

@@ -130,7 +130,7 @@ func (d *dashboardDeclarer) request(r *http.Request, w dashboard.DeclareWorkload
 	}
 	cfg := d.clusterConfig(r.Context(), w.Cluster)
 	if id, ok := claimOf(w); ok {
-		req.Service, req.Owner, req.Name = fleet.ExternalSubjectPrefix+id, claim.Owner, cmp.Or(claim.Name, claimerName(w.View, id))
+		req.Service, req.Owner, req.Name, req.Offering = fleet.ExternalSubjectPrefix+id, claim.Owner, cmp.Or(claim.Name, claimerName(w.View, id)), claim.Offering
 		// No workload is read: the one cluster, when there is one, gives
 		// the installation signer policy a baseline is judged by.
 		if cfg != nil {
@@ -316,6 +316,9 @@ func declareCommand(req app.DeclareRequest, intent string) string {
 		}
 		if req.Name != "" {
 			cmd += " --name " + req.Name
+		}
+		if req.Offering != "" && req.FromDraft == "" {
+			cmd += " --offering " + req.Offering
 		}
 		cmd += " --registry " + req.Registry
 	}

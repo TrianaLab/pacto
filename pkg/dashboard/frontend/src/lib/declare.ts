@@ -103,13 +103,15 @@ export function claimId(serviceKey: string): string {
 const TEAM = /^[a-zA-Z0-9._/-]+$/;
 const NAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 
-/** claimFieldError says which field of a claim is wrong, its owner (required) or
- *  name (optional), and what is wrong with it; field '' and message '' when both
- *  are fine. */
-export function claimFieldError(owner: string, name: string): { field: '' | 'owner' | 'name'; message: string } {
+/** claimFieldError says which field of a claim is wrong, its owner (required),
+ *  name or offering (both optional), and what is wrong with it; field '' and
+ *  message '' when all are fine. */
+export function claimFieldError(owner: string, name: string, offering = ''): { field: '' | 'owner' | 'name' | 'offering'; message: string } {
   if (!owner) return { field: 'owner', message: 'Name the team that owns it' };
   if (owner.length > 253 || !TEAM.test(owner)) return { field: 'owner', message: 'A team uses letters, digits, dots, dashes, underscores and slashes' };
   if (name && (name.length > 63 || !NAME.test(name))) return { field: 'name', message: 'A service name uses lower-case letters, digits and dashes, at most 63' };
+  // The offering is a slug like service.offering; the server refuses any other with OfferingInvalid.
+  if (offering && (offering.length > 63 || !NAME.test(offering))) return { field: 'offering', message: 'An offering uses lower-case letters, digits and dashes, at most 63' };
   return { field: '', message: '' };
 }
 

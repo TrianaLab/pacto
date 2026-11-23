@@ -64,12 +64,35 @@ describe('FleetExternalsView', () => {
     entitiesFn.mockResolvedValue(listResp([{ kind: 'external', key: 'stripe', label: 'Stripe', secondary: 'vendor-api', consumers: 1 }]));
     const { target, done } = mountView({ text: 'st' });
     await vi.waitFor(() => expect(target.querySelector('[data-testid="external-list"]')).not.toBeNull());
-    const chips = Array.from(target.querySelectorAll('[data-testid="external-class-filter"] a'));
+    const chips = Array.from(target.querySelectorAll('[data-testid="external-class-filter"] a[data-class]'));
     expect(chips.map((a) => a.textContent)).toEqual(['All', 'Vendor API', 'Managed cloud', 'Legacy', 'Unclassified', 'Other egress']);
     expect(chips[1].getAttribute('href')).toBe('#/fleet/externals?text=st&class=vendor-api');
     expect(chips[0].getAttribute('href')).toBe('#/fleet/externals?text=st');
     expect(chips[0].getAttribute('aria-current')).toBe('true');
     done();
+  });
+
+  it('outside contract chip filters', async () => {
+    entitiesFn.mockResolvedValue(listResp([{ kind: 'external', key: 'aws/rds', label: 'Amazon RDS', secondary: 'managed-cloud', consumers: 1 }]));
+    const { target, done } = mountView({ klass: 'managed-cloud' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="external-list"]')).not.toBeNull());
+    expect(entitiesFn).toHaveBeenLastCalledWith(expect.not.objectContaining({ outsideContract: true }));
+    const chip = target.querySelector('[data-testid="external-outside-contract"]')!;
+    // One chip after the class chips, in the same row, keeping the class.
+    expect(chip.parentElement?.getAttribute('data-testid')).toBe('external-class-filter');
+    expect(chip.previousElementSibling?.getAttribute('data-class')).toBe('other-egress');
+    expect(chip.textContent).toBe('Outside contract');
+    expect(chip.getAttribute('href')).toBe('#/fleet/externals?class=managed-cloud&outsideContract=1');
+    expect(chip.getAttribute('aria-current')).toBeNull();
+    done();
+    const on = mountView({ klass: 'managed-cloud', outsideContract: '1' });
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenLastCalledWith(expect.objectContaining({ kinds: ['external'], class: 'managed-cloud', outsideContract: true })));
+    const active = on.target.querySelector('[data-testid="external-outside-contract"]')!;
+    expect(active.getAttribute('aria-current')).toBe('true');
+    // Pressed again it clears the filter; a class chip keeps it.
+    expect(active.getAttribute('href')).toBe('#/fleet/externals?class=managed-cloud');
+    expect(on.target.querySelector('[data-class="vendor-api"]')?.getAttribute('href')).toBe('#/fleet/externals?class=vendor-api&outsideContract=1');
+    on.done();
   });
 
   it('counts the external systems only hidden services declare, never naming them', async () => {

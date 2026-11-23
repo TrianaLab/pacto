@@ -888,6 +888,7 @@ describe('external-system routes', () => {
     expect(url).toBe('#/fleet/externals?text=pay&class=vendor-api&offset=25&sort=consumers');
     expect(parseHash(url)).toEqual({ view: 'fleet-externals', params: { text: 'pay', class: 'vendor-api', offset: '25', sort: 'consumers' } });
     expect(fleetExternalsUrl()).toBe('#/fleet/externals');
+    expect(parseHash(fleetExternalsUrl({ outsideContract: true })).params).toEqual({ outsideContract: '1' });
     expect(fleetEntityListUrl('external')).toBe('#/fleet/externals');
   });
 

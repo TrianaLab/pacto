@@ -20,15 +20,28 @@
   // A serviceKey external:<identity> claims an external system: the person names
   // the owning team (and optionally the service name, claimedName on a claim
   // again) first, and the plan is asked for with them. A host that saves no claim
-  // draft (noDraft) offers only signing.
-  let { serviceKey = '', open = false, signed = '', claimedName = '' } = $props();
+  // draft (noDraft) offers only signing. A claim may name the platform offering the
+  // system is meant to join (517-S7): one of the fleet's offerings or a new name,
+  // written as display-only metadata. offeringFocus (join#<n> or propose#<n>, a new
+  // value each time) focuses that field.
+  let { serviceKey = '', open = false, signed = '', claimedName = '', offeringFocus = '' } = $props();
   const claim = $derived(claimId(serviceKey));
   // The owner and name of a claim ride across the signing login like a draft.
   const claimKey = (intent) => `pacto-claim:${intent}`;
   let owner = $state('');
   let name = $state('');
+  let offering = $state('');
   let claimTouched = $state(false);
-  const claimError = $derived(claimFieldError(owner.trim(), name.trim()));
+  const claimError = $derived(claimFieldError(owner.trim(), name.trim(), offering.trim()));
+  // The fleet's offerings for the combobox, asked for once a claim panel opens; a list
+  // that cannot be read leaves free text.
+  let offerings = $state([]);
+  let offeringEl = $state(null);
+  const bare = (o) => (o ?? '').replace(/^team:/, '');
+  // Joining an offering another team provides is that team's call: the server writes a draft.
+  const offeringOwner = $derived(bare(offerings.find((o) => o.key === offering.trim())?.owner));
+  const otherTeam = $derived(!!offeringOwner && !!owner.trim() && offeringOwner !== bare(owner.trim()) ? offeringOwner : '');
+  $effect(() => { if (offeringFocus && offeringEl) offeringEl.focus(); });
 
   // A draft being accepted rides across the signing login here, keyed by the intent
   // digest that covers its digest, so a changed draft never matches.
@@ -68,7 +81,7 @@
   }
 
   // claimBody is what a claim adds to every request: its owner and name.
-  const claimBody = () => (claim ? { owner: owner.trim(), name: name.trim() || undefined } : {});
+  const claimBody = () => (claim ? { owner: owner.trim(), name: name.trim() || undefined, offering: offering.trim() || undefined } : {});
 
   async function load(body = {}) {
     loading = true;
@@ -90,12 +103,15 @@
     }
     draft = from;
     if (claim) {
+      // ponytail: the first 100 offerings by name; free text names any other.
+      Promise.resolve().then(() => api.fleetEntities({ kinds: ['offering'], limit: 100, sort: 'name' })).then((l) => { offerings = l?.entities ?? []; }, () => {});
       let kept = null;
       if (signed) {
         try { kept = JSON.parse(sessionStorage.getItem(claimKey(signed)) || 'null'); } catch { kept = null; }
       }
       owner = kept?.owner ?? '';
       name = kept?.name ?? claimedName;
+      offering = kept?.offering ?? '';
       // A claim is planned once the person names its owner.
       if (!kept) return;
     }
@@ -148,7 +164,7 @@
   function startSign(e) {
     try {
       if (draft) sessionStorage.setItem(draftKey(p.intentDigest), JSON.stringify(draft));
-      if (claim) sessionStorage.setItem(claimKey(p.intentDigest), JSON.stringify({ owner: owner.trim(), name: name.trim() }));
+      if (claim) sessionStorage.setItem(claimKey(p.intentDigest), JSON.stringify({ owner: owner.trim(), name: name.trim(), ...(offering.trim() ? { offering: offering.trim() } : {}) }));
     } catch { /* the plan is asked for again by hand */ }
     // A host that signs in itself (the WASM demo) keeps the tab: it signs the person
     // in again and comes back to the same return page.
@@ -199,8 +215,11 @@
     <form class="dp-claim" onsubmit={planClaim} novalidate data-testid="claim-fields">
       <label class="dp-field"><span>Owner team</span><input class="input" bind:value={owner} required maxlength="253" autocomplete="off" aria-invalid={claimTouched && claimError.field === 'owner' ? 'true' : undefined} aria-describedby="dp-claim-error" data-testid="claim-owner" /></label>
       <label class="dp-field"><span>Service name <span class="t-meta">(optional)</span></span><input class="input" bind:value={name} maxlength="63" autocomplete="off" placeholder={claimedName || claim.split('/').pop()} aria-invalid={claimTouched && claimError.field === 'name' ? 'true' : undefined} aria-describedby="dp-claim-error" data-testid="claim-name" /></label>
+      <label class="dp-field"><span>Offering <span class="t-meta">(optional)</span></span><input class="input" bind:this={offeringEl} bind:value={offering} maxlength="63" autocomplete="off" list="dp-offerings" placeholder={offeringFocus.startsWith('propose') ? 'A new offering name' : 'An offering of the fleet'} aria-invalid={claimTouched && claimError.field === 'offering' ? 'true' : undefined} aria-describedby="dp-claim-error" data-testid="claim-offering" /></label>
+      <datalist id="dp-offerings">{#each offerings as o (o.key)}<option value={o.key}>{o.label && o.label !== o.key ? o.label : ''}</option>{/each}</datalist>
       <button type="submit" class="btn btn-sm" aria-disabled={loading ? 'true' : undefined} data-testid="claim-plan">Show the plan</button>
       <p class="t-meta dp-p" id="dp-claim-error" role={claimTouched && claimError.message ? 'alert' : undefined}>{claimTouched ? claimError.message : ''}</p>
+      {#if otherTeam}<p class="t-meta dp-p" data-testid="claim-offering-draft"><bdi>{otherTeam}</bdi> provides <bdi>{offering.trim()}</bdi>, so the claim is saved as a draft that a person of <bdi>{otherTeam}</bdi> accepts.</p>{/if}
     </form>
   {/if}
   {#if loading && !answer}

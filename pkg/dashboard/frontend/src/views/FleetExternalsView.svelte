@@ -21,25 +21,28 @@
   // that declare it and the catalog entry that joined them (or "name only", which joins
   // only consumers that spell it the same). External systems only hidden services
   // declare are counted under the list, never named.
-  let { text = '', klass = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  // outsideContract (1) keeps the external systems with a managed resource no offering
+  // produced (517-S7).
+  let { text = '', klass = '', outsideContract = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   const DEFAULT_SORT = 'consumers';
   const pageOffset = $derived(urlInt(offset));
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   const order = $derived(sort || DEFAULT_SORT);
-  const anyFilter = $derived(!!(text || klass));
+  const outside = $derived(!!outsideContract);
+  const anyFilter = $derived(!!(text || klass || outside));
 
   let textDraft = $state(untrack(() => text));
   let submittedText = null;
   $effect(() => { if (text !== submittedText) textDraft = text; submittedText = null; });
 
   const loader = createProductLoader(() => api.fleetEntities({
-    kinds: ['external'], text: text || undefined, class: klass || undefined,
+    kinds: ['external'], text: text || undefined, class: klass || undefined, outsideContract: outside || undefined,
     offset: pageOffset || undefined, limit: pageLimit, sort: order,
   }));
-  const queryIdentity = $derived(`${text}@@${klass}@@${pageOffset}@@${pageLimit}@@${order}`);
-  const listIdentity = $derived(`${text}@@${klass}@@${order}`);
+  const queryIdentity = $derived(`${text}@@${klass}@@${outside}@@${pageOffset}@@${pageLimit}@@${order}`);
+  const listIdentity = $derived(`${text}@@${klass}@@${outside}@@${order}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -55,7 +58,7 @@
   const noneDeclared = $derived(state.kind === 'empty-fleet');
 
   const urlWith = (patch, off = 0, lim = pageLimit) => fleetExternalsUrl({
-    text: (patch.text ?? text) || undefined, class: (patch.klass ?? klass) || undefined,
+    text: (patch.text ?? text) || undefined, class: (patch.klass ?? klass) || undefined, outsideContract: patch.outside ?? outside,
     offset: off, limit: limitParam(lim, limit, PAGE_SIZE), sort: (patch.sort ?? sort) || undefined,
   });
   const pageHref = (off, lim) => urlWith({}, off, lim);
@@ -89,6 +92,7 @@
     {#each EXTERNAL_CLASSES as c (c)}
       <a class="chip" class:active={klass === c} aria-current={klass === c ? 'true' : undefined} href={urlWith({ klass: c })} data-class={c || 'all'}>{c ? externalClassLabel(c) : 'All'}</a>
     {/each}
+    <a class="chip" class:active={outside} aria-current={outside ? 'true' : undefined} href={urlWith({ outside: !outside })} title="External systems with a managed resource no offering produced" data-testid="external-outside-contract">Outside contract</a>
   </nav>
   <ActiveFilterChips {chips} onRemove={removeChip} onClear={clearAll} />
 

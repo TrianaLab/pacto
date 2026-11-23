@@ -538,7 +538,10 @@
     countOf(groupCount(g, shown), 'service'),
     g.match.percent == null ? 'Pacto observes nothing yet' : `${g.match.percent}% match · ${g.match.coverage ?? 0}% observed`,
     g.percentComplete == null ? 'Contract completeness not judged' : `${g.percentComplete}% contract completeness`,
-  ];
+    g.outsideContract ? outsideWords(g.outsideContract) : '',
+  ].filter(Boolean);
+  /** outsideWords counts managed resources no offering produced (517-S7). */
+  const outsideWords = (n: number) => `${countOf(n, 'resource')} outside contract`;
   const note = $derived(answer ? mapNote(answer, (iso) => formatRelative(iso)) : '');
   /** Legend tones as design tokens. */
   const TONE: Partial<Record<keyof Palette, string>> = { text2: '--c-text-2', text3: '--c-text-3', err: '--c-err', warn: '--c-warn', info: '--c-info', neutral: '--c-neutral' };
@@ -550,7 +553,7 @@
     `${callers === 1 ? '1 service calls' : `${formatCount(callers)} services call`} it, it calls ${formatCount(callees)}`;
   const live = $derived(
     layout ? `Focus on ${layout.focus.name}: ${callWords(layout.callers, layout.callees)}. Escape returns to the whole fleet.`
-      : selected ? `Selected ${selected.node.label || selected.node.name}. Enter opens it, Escape clears the selection.`
+      : selected ? `Selected ${selected.node.label || selected.node.name}${selected.node.outsideContract ? `, ${outsideWords(selected.node.outsideContract)}` : ''}. Enter opens it, Escape clears the selection.`
         : tipGroup ? `${tipGroup.label}: ${tipWords(tipGroup).join(', ')}. Enter frames it.`
           : `Level ${lvl}, ${LEVEL_NAMES[lvl]}${centre ? `, ${centre}` : ''}`,
   );
@@ -766,6 +769,7 @@
       <span>{[n.version ? `v${n.version}` : '', n.external ? 'external system' : n.owner || 'no owner', selected.group.label].filter(Boolean).join(' · ')}</span>
       <span>{n.inferred ? 'Inferred, no contract' : statusLabel(n.status)}{(n.severity === 'error' || n.severity === 'warning') && n.worst ? ` · ${attentionCategoryLabel(n.worst)}` : ''}</span>
       <span>{callWords(n.in ?? 0, n.out ?? 0)}</span>
+      {#if n.outsideContract}<span>{outsideWords(n.outsideContract)}</span>{/if}
       <div class="fm-panel-actions">
         <button type="button" onclick={() => focusService(n.key)}>Focus</button>
         <button type="button" onclick={() => open(n.key)}>Open</button>
@@ -791,6 +795,8 @@
           <line x1="1" y1="6" x2="21" y2="6" stroke={tone(e)} stroke-width="2" stroke-dasharray={dashOf(e.dash)} />
         {:else if e.shape === 'dot'}
           <circle cx="11" cy="6" r="3.5" fill={tone(e)} />
+        {:else if e.shape === 'badge'}
+          <rect x="4" y="1.5" width="14" height="9" rx="4.5" fill="none" stroke={tone(e)} stroke-width="1" />
         {:else}
           <circle cx="11" cy="6" r="3.5" fill="none" stroke={tone(e)} stroke-width="1.25" stroke-dasharray={dashOf(e.dash)} />
           {#if e.shape === 'ring2'}<circle cx="11" cy="6" r="5.5" fill="none" stroke={tone(e)} stroke-width="1" />{/if}

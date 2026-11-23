@@ -7,10 +7,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 
-const { planFn, acceptFn } = vi.hoisted(() => ({ planFn: vi.fn(), acceptFn: vi.fn() }));
+const { planFn, acceptFn, entitiesFn } = vi.hoisted(() => ({ planFn: vi.fn(), acceptFn: vi.fn(), entitiesFn: vi.fn() }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
-  return { ...actual, api: { fleetDeclare: (...a: unknown[]) => planFn(...a), fleetDeclareAccept: (...a: unknown[]) => acceptFn(...a) } };
+  return { ...actual, api: { fleetDeclare: (...a: unknown[]) => planFn(...a), fleetDeclareAccept: (...a: unknown[]) => acceptFn(...a), fleetEntities: (...a: unknown[]) => entitiesFn(...a) } };
 });
 // @ts-expect-error — Svelte component has no declaration file
 import DeclarePanel from './DeclarePanel.svelte';
@@ -40,7 +40,7 @@ const FRESH = { signing: { mode: 'fresh-login', identity: LONG_ID }, signTicket:
 
 let target: HTMLElement;
 let comp: ReturnType<typeof mount> | null = null;
-beforeEach(() => { planFn.mockReset(); acceptFn.mockReset(); sessionStorage.clear(); target = document.createElement('div'); document.body.appendChild(target); });
+beforeEach(() => { planFn.mockReset(); acceptFn.mockReset(); entitiesFn.mockReset(); entitiesFn.mockResolvedValue({ entities: [] }); sessionStorage.clear(); target = document.createElement('div'); document.body.appendChild(target); });
 afterEach(() => { if (comp) { unmount(comp); comp = null; } target.remove(); });
 
 const text = (el: Element | null) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -424,6 +424,37 @@ describe('DeclarePanel claim', () => {
     button('Publish 0.1.0').click();
     await vi.waitFor(() => expect(acceptFn).toHaveBeenCalledWith({ serviceKey: CLAIM, owner: 'team-platform', name: undefined, accept: [], intentDigest: 'sha256:i1', mode: 'sign', fromDraft: undefined }));
     await vi.waitFor(() => expect(sessionStorage.getItem('pacto-claim:sha256:i1')).toBeNull());
+  });
+
+  it('external claim shows Offering field', async () => {
+    entitiesFn.mockResolvedValue({ entities: [{ kind: 'offering', key: 'postgresql', label: 'postgresql', owner: 'team-platform' }, { kind: 'offering', key: 'kafka', label: 'kafka' }] });
+    planFn.mockResolvedValue(claimAnswer());
+    await open();
+    const field = q('[data-testid="claim-offering"]') as HTMLInputElement;
+    expect(field).toBeTruthy();
+    // A combobox of the fleet's offerings that also takes a new name.
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['offering'] })));
+    await vi.waitFor(() => expect([...target.querySelectorAll(`#${field.getAttribute('list')} option`)].map((o) => (o as HTMLOptionElement).value)).toEqual(['postgresql', 'kafka']));
+    type('claim-owner', 'team-shop');
+    type('claim-offering', 'Bad Slug');
+    submit();
+    expect(planFn).not.toHaveBeenCalled();
+    expect(text(q('#dp-claim-error'))).toMatch(/^An offering uses/);
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+    // Another team's offering: the claim becomes a draft for that team's approver.
+    type('claim-offering', 'postgresql');
+    expect(text(q('[data-testid="claim-offering-draft"]'))).toBe('team-platform provides postgresql, so the claim is saved as a draft that a person of team-platform accepts.');
+    type('claim-owner', 'team-platform');
+    expect(q('[data-testid="claim-offering-draft"]')).toBeNull();
+    submit();
+    await vi.waitFor(() => expect(planFn).toHaveBeenCalledWith(expect.objectContaining({ serviceKey: CLAIM, owner: 'team-platform', offering: 'postgresql' })));
+  });
+
+  it('service declare panel shows no Offering field', async () => {
+    planFn.mockResolvedValue(answer());
+    await render();
+    expect(q('[data-testid="claim-offering"]')).toBeNull();
+    expect(entitiesFn).not.toHaveBeenCalled();
   });
 
   it('renders a ClaimRepositoryInferred refusal with its command', async () => {

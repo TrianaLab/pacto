@@ -29,8 +29,9 @@ beforeEach(() => {
 });
 afterEach(() => { done(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-async function renderMap(answer = mapAnswer(), props: { params?: Record<string, string>; onparams?: (p: Record<string, string | null>) => void; variant?: 'embedded' | 'full' } = {}, mapFn?: (q: { groupBy?: string }) => Promise<FleetMapAnswer>) {
-  const nodes = vi.fn(async (q: { group: string }) => nodesPage(q.group, [{}, { severity: 'error' }]));
+type NodeOver = Parameters<typeof nodesPage>[1];
+async function renderMap(answer = mapAnswer(), props: { params?: Record<string, string>; onparams?: (p: Record<string, string | null>) => void; variant?: 'embedded' | 'full' } = {}, mapFn?: (q: { groupBy?: string }) => Promise<FleetMapAnswer>, pageNodes: NodeOver = [{}, { severity: 'error' }]) {
+  const nodes = vi.fn(async (q: { group: string }) => nodesPage(q.group, pageNodes));
   const map = vi.fn(mapFn ?? (async () => answer));
   const focus = vi.fn(async (q: { service: string; hops?: number }): Promise<FleetMapFocusAnswer> => focusAnswer(q.service, q.hops ?? 1));
   const store = new FleetMapStore({ map, nodes, focus });
@@ -273,6 +274,40 @@ describe('FleetMap', () => {
   }
   const tap = (canvas: Element, [x, y]: [number, number]) => { ptr(canvas, 'pointerdown', 1, x, y); ptr(canvas, 'pointerup', 1, x, y); flushSync(); };
   const focused = async (t: Element) => { await vi.waitFor(() => expect(focusBar(t)).not.toBeNull()); await settle(); };
+
+  it('marks external node outside contract', async () => {
+    // The strokes of one frame by line width and dash, the frame drawn last.
+    const strokes = async (outsideContract: number) => {
+      const ctx = recordingContext();
+      vi.mocked(HTMLCanvasElement.prototype.getContext).mockImplementation(() => ctx as never);
+      const r = await renderMap(mapAnswer(), {}, undefined, [{ external: true, name: 'orders-db', outsideContract }, { severity: 'error', x: 30 }]);
+      const at = await nodeScreen(r.nodes);
+      ctx.reset();
+      key(r.canvas, 'ArrowLeft'); key(r.canvas, 'ArrowRight');
+      await settle();
+      const out = new Map<string, number>();
+      for (const c of ctx.calls) if (c.name === 'stroke') out.set(`${c.lineWidth}|${c.dash.join(',')}`, (out.get(`${c.lineWidth}|${c.dash.join(',')}`) ?? 0) + 1);
+      return { ...r, at, out };
+    };
+    const plain = await strokes(0);
+    expect(hooks().labels().find((l) => l.text === '3')).toBeUndefined();
+    done();
+    const { target, canvas, at, out } = await strokes(3);
+    // A small corner count badge, recorded like every drawn label.
+    const badge = hooks().labels().find((l) => l.text === '3');
+    expect(badge).toBeTruthy();
+    expect(badge!.x).toBeGreaterThan(at[0]);
+    expect(badge!.y).toBeLessThan(at[1]);
+    // The node keeps its solid external ring: each badge adds one thin solid outline and no other stroke changes.
+    const added = [...out].flatMap(([k, n]) => (n > (plain.out.get(k) ?? 0) ? [[k, n - (plain.out.get(k) ?? 0)]] : []));
+    expect(added).toEqual([['1|', 2]]); // one badge per group's external node
+    expect([...plain.out].every(([k, n]) => (out.get(k) ?? 0) >= n)).toBe(true);
+    // A legend entry, then the selection panel and the live region say it.
+    expect([...target.querySelectorAll('[aria-label="Legend"] li')].map((li) => li.textContent?.replace(/\s+/g, ' ').trim())).toContain('# Resources outside contract');
+    tap(canvas, at);
+    expect(target.querySelector('[data-testid="fleet-map-selection"]')?.textContent).toContain('3 resources outside contract');
+    expect(live(target)).toBe('Selected orders-db, 3 resources outside contract. Enter opens it, Escape clears the selection.');
+  });
 
   it('one click selects, second click opens', async () => {
     const { target, canvas, nodes } = await renderMap();
