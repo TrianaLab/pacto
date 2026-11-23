@@ -76,6 +76,13 @@ rules:
     verbs: [get]
   {{- include "pacto-operator.rbac.clusterIdentityRule" . | nindent 2 }}
   {{- if include "pacto-operator.delivery.environments" . }}
+  # It creates and updates the Stages of the installation ladder, and retires
+  # them. The promoter-managed admission policy holds it to Stages labelled
+  # delivery.pacto.trianalab.io/managed-by=pacto, and it acts only on the ones
+  # its private state records it created.
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [stages]
+    verbs: [create, patch, delete]
   # It proposes installation ladder rungs from the namespaces' names.
   - apiGroups: [""]
     resources: [namespaces]

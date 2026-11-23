@@ -255,6 +255,11 @@ tests:
           content: {apiGroups: [""], resources: [namespaces], verbs: [get, list, watch]}
         template: templates/delivery/rbac.yaml
         documentIndex: 1
+      - notContains:
+          path: rules
+          content: {apiGroups: [delivery.pacto.trianalab.io], resources: [stages], verbs: [create, patch, delete]}
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1
       - notMatchRegex:
           path: spec.template.spec.containers[0].args[8]
           pattern: ^--environment

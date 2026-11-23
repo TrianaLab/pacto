@@ -111,6 +111,24 @@ tests:
           path: rules
           content: {apiGroups: [""], resources: [namespaces], verbs: [get, list, watch]}
 
+  - it: the promoter creates, updates and retires the Stages of the installation ladder
+    template: templates/delivery/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [delivery.pacto.trianalab.io], resources: [stages], verbs: [create, patch, delete]}
+
+  - it: delivery off renders no stage create right
+    set:
+      delivery.environments.enabled: false
+    template: templates/delivery/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [delivery.pacto.trianalab.io], resources: [stages], verbs: [create, patch, delete]}
+
   - it: refuses a ladder rung that is not a DNS label
     set:
       delivery.environments.ladder: [Staging]

@@ -251,3 +251,55 @@ func retireAt(e contract.Environment, now time.Time) string {
 	}
 	return ""
 }
+
+// ManagedLabel, set to ManagedBy, marks a Stage Pacto created from the
+// installation ladder. It is for display, the event split and the admission
+// safety net only: what Pacto owns is the UID list in its private state, since
+// anyone who may edit a Stage may write this label.
+const (
+	ManagedLabel = "delivery.pacto.trianalab.io/managed-by"
+	ManagedBy    = "pacto"
+)
+
+// managedPrefix prefixes the labels and annotations of a managed Stage.
+const managedPrefix = "delivery.pacto.trianalab.io/"
+
+// ManagedLabels are the labels of the managed Stage of service in
+// environment. The service label holds the name alone: a domain is no label
+// value.
+func ManagedLabels(service ServiceRef, environment string) map[string]string {
+	return map[string]string{ManagedLabel: ManagedBy, managedPrefix + "service": service.Name, managedPrefix + "environment": environment}
+}
+
+// PlacementAnnotations show, on a managed Stage, where its placement and its
+// environment come from (source is a DesiredEnvironment's). Display only:
+// Pacto never reads them back.
+func PlacementAnnotations(source string, p Placement) map[string]string {
+	return map[string]string{
+		managedPrefix + "placement-provenance": p.Provenance,
+		managedPrefix + "placement-source":     p.Source,
+		managedPrefix + "placement-evidence":   p.Evidence,
+		managedPrefix + "environment-source":   source,
+	}
+}
+
+// ManagedStageSpec is the spec of the Stage Pacto creates for service in
+// environment, applying through applier, the adopted Argo CD or Flux object
+// already running workload (nil: the Deployment named after the service). The
+// first environment of the installation ladder (upstream nil) takes versions
+// from the registry, a later one from its upstream environment's Stage. A
+// guarded applier (labelled ApplyRefLabel for this Stage) starts autonomous
+// with every promote held for a person; any other starts at observe, which
+// never ships.
+func ManagedStageSpec(service ServiceRef, environment string, upstream *StageRef, applier ApplyRef, workload *WorkloadRef, guarded bool) StageSpec {
+	s := StageSpec{Service: service, Environment: environment, ApplyRef: applier, Workload: workload, StartLevel: LevelObserve}
+	if upstream == nil {
+		s.Candidates.Registry = &RegistryCandidates{}
+	} else {
+		s.Candidates.UpstreamStage = upstream
+	}
+	if guarded {
+		s.StartLevel, s.Approval.Always = LevelAutonomous, true
+	}
+	return s
+}

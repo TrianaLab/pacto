@@ -440,15 +440,44 @@ func TestPlacementRowsBounded(t *testing.T) {
 
 func TestPlacementWriteFailureIsReturned(t *testing.T) {
 	boom := errors.New("boom")
+	reads := 0
 	pe := newPlaceEnv(t, interceptor.Funcs{Get: func(ctx context.Context, c client.WithWatch, k client.ObjectKey, o client.Object, opts ...client.GetOption) error {
 		if k.Name == delivery.PlacementsConfigMap {
-			return boom
+			if reads++; reads > 1 { // the state reads; the write fails
+				return boom
+			}
 		}
 		return c.Get(ctx, k, o, opts...)
 	}})
 	pe.publish(t, "payments", nil, nil)
 	if _, err := pe.r.Reconcile(t.Context(), reconcile.Request{}); !errors.Is(err, boom) {
 		t.Fatalf("err %v", err)
+	}
+}
+
+func TestUnreadableStateActsOnNothing(t *testing.T) {
+	boom := errors.New("boom")
+	fail := true
+	pe := newPlaceEnv(t, interceptor.Funcs{Get: func(ctx context.Context, c client.WithWatch, k client.ObjectKey, o client.Object, opts ...client.GetOption) error {
+		if fail && k.Name == delivery.PlacementsConfigMap {
+			return boom
+		}
+		return c.Get(ctx, k, o, opts...)
+	}}, namespace("staging"))
+	pe.publish(t, "payments", delivered("payments"), nil)
+	if v := pe.pass(t); !strings.Contains(v.Idle, "the private state in pacto-delivery-placements could not be read (boom)") ||
+		!strings.Contains(v.CompletenessReason, "the private state: boom") {
+		t.Fatalf("view %+v", v)
+	}
+	// A state that does not decode is unread too: Pacto cannot tell its
+	// Stages from hand-written ones.
+	fail = false
+	if err := pe.c.Create(t.Context(), &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: deliveryNS, Name: delivery.PlacementsConfigMap},
+		Data: map[string]string{"stages.json": "{"}}); err != nil {
+		t.Fatal(err)
+	}
+	if v := pe.pass(t); !strings.Contains(v.Idle, "stages.json: unexpected end of JSON input") {
+		t.Fatalf("view %+v", v)
 	}
 }
 

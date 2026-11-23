@@ -67,7 +67,7 @@ tests:
       minorVersion: 29
     asserts:
       - hasDocuments:
-          count: 14
+          count: 16
 
   - it: refuses the removed admissionPolicies.enabled with its replacement
     template: templates/delivery/deployment.yaml

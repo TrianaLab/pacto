@@ -702,6 +702,10 @@ spec:
   matchConditions:
     - name: promoter
       expression: "request.userInfo.username == '{{ $controller }}'"
+    # A pointer the promoter created from the installation ladder is held by
+    # promoter-managed instead, so its first promote can unsuspend it.
+    - name: managed
+      expression: "!(has(object.metadata.labels) && object.metadata.labels['delivery.pacto.trianalab.io/managed-by'] == 'pacto')"
   variables:
     - name: ref
       expression: "has(object.spec.ref) ? object.spec.ref : {}"
@@ -730,6 +734,50 @@ metadata:
 spec:
   policyName: {{ $fullname }}-promoter-writes
   validationActions: [Deny]
+{{- if include "pacto-operator.delivery.environments" . }}
+---
+# The promoter creates, updates and retires only objects labelled
+# delivery.pacto.trianalab.io/managed-by=pacto: a safety net under its own
+# rule, which acts only on the objects its private state records it created.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-promoter-managed
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [delivery.pacto.trianalab.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [stages]
+  matchConditions:
+    - name: promoter
+      expression: "request.userInfo.username == '{{ $controller }}'"
+  validations:
+    - expression: >-
+        request.operation == 'DELETE' ||
+        (has(object.metadata.labels) && object.metadata.labels['delivery.pacto.trianalab.io/managed-by'] == 'pacto')
+      message: "the promoter creates and updates only objects labelled delivery.pacto.trianalab.io/managed-by=pacto"
+      reason: Forbidden
+    - expression: >-
+        request.operation == 'CREATE' ||
+        (has(oldObject.metadata.labels) && oldObject.metadata.labels['delivery.pacto.trianalab.io/managed-by'] == 'pacto')
+      message: "the promoter updates and deletes only objects labelled delivery.pacto.trianalab.io/managed-by=pacto"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-promoter-managed
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-promoter-managed
+  validationActions: [Deny]
+{{- end }}
 {{- if include "pacto-operator.delivery.argocd" . }}
 ---
 # The promoter on Argo CD: only an Application a Stage applies through, and

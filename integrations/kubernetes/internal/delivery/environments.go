@@ -194,26 +194,26 @@ func (r *EnvironmentReconciler) declaredRungs() []delivery.LadderRung {
 // writeView writes v as view.json of EnvironmentsConfigMap.
 func (r *EnvironmentReconciler) writeView(ctx context.Context, v delivery.EnvironmentsView) error {
 	b, _ := json.Marshal(v) // ponytail: plain strings, slices and ints: Marshal cannot fail
-	return r.writeConfigMap(ctx, delivery.EnvironmentsConfigMap, "view.json", b)
+	return r.writeConfigMap(ctx, delivery.EnvironmentsConfigMap, map[string]string{"view.json": string(b)})
 }
 
-// writeConfigMap creates the ConfigMap name in the delivery namespace with
-// key set to b, or merge-patches it when it exists. It reads through
+// writeConfigMap creates the ConfigMap name in the delivery namespace holding
+// data, or merge-patches it to data when it exists. It reads through
 // APIReader, so the promoter caches no ConfigMap and needs get on this one
 // name only.
-func (r *EnvironmentReconciler) writeConfigMap(ctx context.Context, name, key string, b []byte) error {
+func (r *EnvironmentReconciler) writeConfigMap(ctx context.Context, name string, data map[string]string) error {
 	cm := &corev1.ConfigMap{}
 	err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: r.Namespace, Name: name}, cm)
 	if apierrors.IsNotFound(err) {
 		return r.Client.Create(ctx, &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Namespace: r.Namespace, Name: name},
-			Data:       map[string]string{key: string(b)}})
+			Data:       data})
 	}
 	if err != nil {
 		return err
 	}
 	patch := client.MergeFrom(cm.DeepCopy())
-	cm.Data = map[string]string{key: string(b)}
+	cm.Data = data
 	return r.Client.Patch(ctx, cm, patch)
 }
 
@@ -373,8 +373,9 @@ const indexReadTimeout = 30 * time.Second
 
 // placementState is what one pass places every delivered service from: the
 // installation ladder and the rungs this cluster hosts, the cluster's
-// namespaces, Pactos, Stages and GitOps objects, the verified placement
-// rules, and the occupants of each namespace read so far.
+// namespaces, Pactos, hand-written Stages and GitOps objects, the verified
+// placement rules, and the occupants of each namespace read so far; and what
+// it keeps: every Stage by namespace/name and the reconciler's private state.
 type placementState struct {
 	ladder     []delivery.LadderRung
 	hosted     []string
@@ -382,6 +383,8 @@ type placementState struct {
 	namespaces map[string]bool
 	pactos     []delivery.PactoView
 	stages     []delivery.StageObject
+	byName     map[string]*dv1.Stage
+	state      managedState
 	gitops     []delivery.GitOpsTarget
 	policy     []delivery.PlacementRule
 	occupants  map[string][]delivery.NamespaceOccupant
@@ -409,7 +412,11 @@ func (r *EnvironmentReconciler) place(ctx context.Context, view *delivery.Enviro
 	}
 	st.advertised = delivery.AdvertisedEnvironments(nil, r.ClusterName, r.NameSource)
 	st.hosted = delivery.HostedRungs(st.ladder, st.advertised)
-	if st.stages, err = r.stages(ctx); err != nil {
+	if st.state, err = r.readState(ctx); err != nil {
+		view.Idle = "the private state in " + delivery.PlacementsConfigMap + " could not be read (" + err.Error() + "), so Pacto places no service"
+		return append(unread, "the private state: "+err.Error()), nil
+	}
+	if err = r.readStages(ctx, &st); err != nil {
 		view.Idle = "the Stages could not be listed (" + err.Error() + "), so Pacto places no service"
 		return append(unread, "the Stages: "+err.Error()), nil
 	}
@@ -437,7 +444,7 @@ func (r *EnvironmentReconciler) place(ctx context.Context, view *delivery.Enviro
 			view.UnplacedCount++
 		}
 	}
-	return st.unread, r.writePlacements(ctx, rows)
+	return st.unread, r.writePlacements(ctx, rows, &st)
 }
 
 // readIndex reads the newest entry of each service the index repo lists,
@@ -514,19 +521,25 @@ func (r *EnvironmentReconciler) placeService(ctx context.Context, st *placementS
 	if v.Identity != nil {
 		in.Repository = v.Identity.Repository
 	}
-	var rows []delivery.PlacementRow
+	var envs []placedEnv
 	for _, d := range delivery.DesiredEnvironments(st.ladder, c.Environments, r.Now()) {
 		if st.hosts(d.Name) { // else another cluster's
-			rows = append(rows, r.placeEnvironment(ctx, st, &in, d))
+			envs = append(envs, r.placeEnvironment(ctx, st, &in, d))
 		}
+	}
+	r.manageService(ctx, st, svc, envs)
+	rows := make([]delivery.PlacementRow, 0, len(envs))
+	for _, e := range envs {
+		rows = append(rows, *e.row)
 	}
 	return rows
 }
 
 // placeEnvironment is the row of d, an environment this cluster hosts: why
-// it is not placed, or where it is placed.
-func (r *EnvironmentReconciler) placeEnvironment(ctx context.Context, st *placementState, in *delivery.PlacementInput, d delivery.DesiredEnvironment) delivery.PlacementRow {
-	row := delivery.PlacementRow{Service: in.Service.Name, Domain: in.Service.Domain, Environment: d.Name, Source: d.Source}
+// it is not placed, or where it is placed and who applies the service there.
+func (r *EnvironmentReconciler) placeEnvironment(ctx context.Context, st *placementState, in *delivery.PlacementInput, d delivery.DesiredEnvironment) placedEnv {
+	row := &delivery.PlacementRow{Service: in.Service.Name, Domain: in.Service.Domain, Environment: d.Name, Source: d.Source}
+	e := placedEnv{row: row, upstream: d.Upstream}
 	switch {
 	case d.RetireFrom != "":
 		row.Reason = "expired at " + d.RetireFrom + ": retiring"
@@ -534,13 +547,14 @@ func (r *EnvironmentReconciler) placeEnvironment(ctx context.Context, st *placem
 		row.Reason = "upstream " + d.Upstream + " is not in this cluster: remote delivery is not available yet"
 	default:
 		in.Rung = d.Name
-		p := r.resolve(ctx, st, *in)
+		var p delivery.Placement
+		p, e.manager, e.workload = r.resolve(ctx, st, *in)
 		row.Placement = &p
 		if p.Placed() {
 			in.Taken[p.Namespace] = d.Name
 		}
 	}
-	return row
+	return e
 }
 
 // hosts reports whether this cluster hosts environment name: a ladder rung
@@ -555,26 +569,30 @@ func (st *placementState) hosts(name string) bool {
 
 // resolve places in, then reads who manages the service's workload in the
 // namespace it chose and who else runs there, and places it again with
-// that: the order never depends on them, only the guard and refusal do.
-func (r *EnvironmentReconciler) resolve(ctx context.Context, st *placementState, in delivery.PlacementInput) delivery.Placement {
+// that: the order never depends on them, only the guard and refusal do. It
+// also returns that manager and the workload, nil for the Deployment named
+// after the service.
+func (r *EnvironmentReconciler) resolve(ctx context.Context, st *placementState, in delivery.PlacementInput) (delivery.Placement, workloadmanager.Manager, *delivery.WorkloadRef) {
 	p := delivery.ResolvePlacement(in)
 	ns := p.Namespace
 	if ns == "" || p.Source == delivery.PlacementFromStage {
-		return p
+		return p, workloadmanager.Manager{}, nil
 	}
 	in.Managers = map[string]workloadmanager.Manager{}
-	if m, found := r.serviceManager(ctx, st, in, ns); found {
+	m, w, found := r.serviceManager(ctx, st, in, ns)
+	if found {
 		in.Managers[ns] = m
 	}
 	in.Occupants = map[string][]delivery.NamespaceOccupant{ns: r.occupants(ctx, st, ns)}
-	return delivery.ResolvePlacement(in)
+	return delivery.ResolvePlacement(in), m, w
 }
 
 // serviceManager detects the manager of the service's workload in ns: the
 // one its Pacto there targets, else the one its contract was inferred from,
-// else the Deployment named after it. found is false when there is none. A
-// workload that cannot be read reads ambiguous, so nothing is created.
-func (r *EnvironmentReconciler) serviceManager(ctx context.Context, st *placementState, in delivery.PlacementInput, ns string) (workloadmanager.Manager, bool) {
+// else the Deployment named after it (w nil). found is false when there is
+// none. A workload that cannot be read reads ambiguous, so nothing is
+// created.
+func (r *EnvironmentReconciler) serviceManager(ctx context.Context, st *placementState, in delivery.PlacementInput, ns string) (m workloadmanager.Manager, w *delivery.WorkloadRef, found bool) {
 	kind, name := "Deployment", in.Service.Name
 	if _, ins, k, n, ok := fleet.ParseK8sCaller(in.InferredFrom); ok && ins == ns {
 		kind, name = k, n
@@ -584,15 +602,18 @@ func (r *EnvironmentReconciler) serviceManager(ctx context.Context, st *placemen
 			kind, name = w.Kind, w.Name
 		}
 	}
+	if kind != "Deployment" || name != in.Service.Name {
+		w = &delivery.WorkloadRef{Kind: kind, Name: name}
+	}
 	o, err := r.Cluster.workloadObject(ctx, ns, kind, name)
 	switch {
 	case apierrors.IsNotFound(err):
-		return workloadmanager.Manager{}, false
+		return workloadmanager.Manager{}, w, false
 	case err != nil:
 		st.unread = append(st.unread, kind+" "+ns+"/"+name+": "+err.Error())
-		return workloadmanager.Manager{Name: workloadmanager.Ambiguous, Evidence: "it could not be read"}, true
+		return workloadmanager.Manager{Name: workloadmanager.Ambiguous, Evidence: "it could not be read"}, w, true
 	}
-	return r.Cluster.Managers.Detect(o), true
+	return r.Cluster.Managers.Detect(o), w, true
 }
 
 // workloadKinds are the workloads whose owner a namespace's refusal checks.
@@ -640,17 +661,26 @@ func (r *EnvironmentReconciler) occupants(ctx context.Context, st *placementStat
 	return out
 }
 
-// stages are the cluster's Stages.
-func (r *EnvironmentReconciler) stages(ctx context.Context) ([]delivery.StageObject, error) {
+// readStages lists the cluster's Stages live, so a Stage this pass or the
+// last created is never missed: the ones whose UID the state holds are
+// Pacto's, every other is hand-written, whatever its labels say. A Stage the
+// state holds that is gone leaves the state.
+func (r *EnvironmentReconciler) readStages(ctx context.Context, st *placementState) error {
 	list := &dv1.StageList{}
-	if err := r.Client.List(ctx, list); err != nil {
-		return nil, err
+	if err := r.APIReader.List(ctx, list); err != nil {
+		return err
 	}
-	out := make([]delivery.StageObject, 0, len(list.Items))
-	for _, s := range list.Items {
-		out = append(out, delivery.StageObject{Metadata: delivery.ObjectMeta{Name: s.Name, Namespace: s.Namespace, Labels: s.Labels}, Spec: s.Spec})
+	st.byName = map[string]*dv1.Stage{}
+	live := map[types.UID]bool{}
+	for i := range list.Items {
+		s := &list.Items[i]
+		st.byName[s.Namespace+"/"+s.Name], live[s.UID] = s, true
+		if !st.state.owns(s.UID) {
+			st.stages = append(st.stages, delivery.StageObject{Metadata: delivery.ObjectMeta{Name: s.Name, Namespace: s.Namespace, Labels: s.Labels}, Spec: s.Spec})
+		}
 	}
-	return out, nil
+	st.state.Objects = slices.DeleteFunc(st.state.Objects, func(o managedObject) bool { return o.Kind == kindStage && !live[o.UID] })
+	return nil
 }
 
 var (
@@ -712,9 +742,11 @@ func (r *EnvironmentReconciler) gitOps(ctx context.Context, st *placementState) 
 	return out
 }
 
-// writePlacements writes rows as rows.json of PlacementsConfigMap, which
-// only the promoter writes and no reader binding names.
-func (r *EnvironmentReconciler) writePlacements(ctx context.Context, rows []delivery.PlacementRow) error {
-	b, _ := json.Marshal(rows) // ponytail: plain strings and bools: Marshal cannot fail
-	return r.writeConfigMap(ctx, delivery.PlacementsConfigMap, "rows.json", b)
+// writePlacements writes rows as rows.json and the private state as
+// stages.json of PlacementsConfigMap, which only the promoter writes and no
+// reader binding names.
+func (r *EnvironmentReconciler) writePlacements(ctx context.Context, rows []delivery.PlacementRow, st *placementState) error {
+	b, _ := json.Marshal(rows)     // ponytail: plain strings and bools: Marshal cannot fail
+	s, _ := json.Marshal(st.state) // and plain strings
+	return r.writeConfigMap(ctx, delivery.PlacementsConfigMap, map[string]string{"rows.json": string(b), stateKey: string(s)})
 }

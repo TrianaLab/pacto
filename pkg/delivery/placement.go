@@ -173,13 +173,15 @@ func (p Placement) Placed() bool {
 
 // PlacementRow is one delivered service's environment as the promoter
 // publishes it privately: its source (declared, ladder or
-// inferred-confirmed), its placement, or why it has none.
+// inferred-confirmed), its placement, the managed Stage Pacto keeps for it
+// (namespace/name), or why it has none.
 type PlacementRow struct {
 	Service     string     `json:"service"`
 	Domain      string     `json:"domain,omitempty"`
 	Environment string     `json:"environment"`
 	Source      string     `json:"source"`
 	Placement   *Placement `json:"placement,omitempty"`
+	Stage       string     `json:"stage,omitempty"`
 	Reason      string     `json:"reason,omitempty"`
 }
 

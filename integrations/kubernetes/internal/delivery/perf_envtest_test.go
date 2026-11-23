@@ -24,15 +24,19 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 	admissionv1 "k8s.io/api/admissionregistration/v1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/go-logr/logr"
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
@@ -360,5 +364,93 @@ func fluxCRDs() []*apiextensionsv1.CustomResourceDefinition {
 	return []*apiextensionsv1.CustomResourceDefinition{
 		crd("source.toolkit.fluxcd.io", "OCIRepository", "ocirepositories"),
 		crd("kustomize.toolkit.fluxcd.io", "Kustomization", "kustomizations"),
+	}
+}
+
+// TestManagedStagesEnvtest runs the installation ladder pass against a real
+// apiserver: the Stages it creates pass the CRD's validation (one candidate
+// source, a fixed startLevel), carry the UID the state records, chain through
+// upstreamStage, and a second pass changes none of them.
+func TestManagedStagesEnvtest(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Skip("KUBEBUILDER_ASSETS is not set: run make perf-envtest")
+	}
+	ctrl.SetLogger(logr.Discard())
+	te := &envtest.Environment{CRDDirectoryPaths: []string{filepath.Join("..", "..", "config", "crd", "bases")},
+		ErrorIfCRDPathMissing: true, CRDs: fluxCRDs()}
+	cfg, err := te.Start()
+	must(t, err)
+	t.Cleanup(func() { _ = te.Stop() })
+	c, err := client.NewWithWatch(cfg, client.Options{Scheme: newScheme()})
+	must(t, err)
+	ctx := t.Context()
+	pe := &placeEnv{envFixture: &envFixture{c: c}, reg: newTestRegistry(t),
+		bundles: &fakeRegistry{bundles: map[string]*contract.Bundle{}}, accepted: map[string]*delivery.PublisherVerdict{}}
+	pe.root = pe.reg.host + "/acme"
+	pe.r = &EnvironmentReconciler{Client: c, APIReader: c, Namespace: deliveryNS, ClusterID: "cid", ClusterName: "eu-1",
+		Ladder: []string{"staging", "production"}, Now: time.Now, Resync: time.Minute, Registry: pe.root,
+		Cluster: Cluster{Client: c, Registry: func(...string) delivery.Registry { return pe.bundles }},
+		Accepted: func(_ context.Context, svc delivery.ServiceRef, _ string) (*delivery.PublisherVerdict, string) {
+			return pe.accepted[svc.Name], "not accepted"
+		}}
+	obj := func(gvk schema.GroupVersionKind, space, name string, fields map[string]any) *unstructured.Unstructured {
+		u := &unstructured.Unstructured{Object: fields}
+		u.SetGroupVersionKind(gvk)
+		u.SetNamespace(space)
+		u.SetName(name)
+		return u
+	}
+	must(t, c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: deliveryNS}}))
+	for _, env := range []string{"staging", "production"} {
+		space := "payments-" + env
+		must(t, c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: space}}))
+		oci := obj(gvkOCIRepository, space, "payments", map[string]any{"spec": map[string]any{"url": "oci://" + pe.root + "/payments"}})
+		if env == "staging" {
+			oci.SetLabels(map[string]string{ApplyRefLabel: "payments-staging"})
+		}
+		must(t, c.Create(ctx, oci))
+		must(t, c.Create(ctx, obj(gvkKs, space, "payments", map[string]any{"spec": map[string]any{
+			"sourceRef": map[string]any{"kind": "OCIRepository", "name": "payments"}}})))
+		labels := map[string]string{"app": "payments", "kustomize.toolkit.fluxcd.io/name": "payments", "kustomize.toolkit.fluxcd.io/namespace": space}
+		must(t, c.Create(ctx, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: space, Name: "payments", Labels: labels},
+			Spec: appsv1.DeploymentSpec{Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "payments"}},
+				Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "payments"}},
+					Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "busybox"}}}}}}))
+		p := obj(gvkPacto, space, "payments", map[string]any{"spec": map[string]any{
+			"contractRef": map[string]any{"oci": pe.root + "/payments@sha256:aa"},
+			"target":      map[string]any{"serviceName": "payments", "workloadRef": map[string]any{"kind": "Deployment", "name": "payments"}}}})
+		must(t, c.Create(ctx, p))
+		p.Object["status"] = map[string]any{"contract": map[string]any{"serviceName": "payments", "version": "1.5.0",
+			"owner": map[string]any{"team": "team-payments"}, "resolvedRef": "oci://" + pe.root + "/payments@sha256:aa"}}
+		must(t, c.Status().Update(ctx, p))
+	}
+	pe.publish(t, "payments", delivered("payments"), nil)
+
+	if _, err := pe.r.Reconcile(ctx, reconcile.Request{}); err != nil {
+		t.Fatal(err)
+	}
+	staging, prod := &dv1.Stage{}, &dv1.Stage{}
+	must(t, c.Get(ctx, client.ObjectKey{Namespace: "payments-staging", Name: "payments-staging"}, staging))
+	must(t, c.Get(ctx, client.ObjectKey{Namespace: "payments-production", Name: "payments-production"}, prod))
+	if staging.Spec.StartLevel != delivery.LevelAutonomous || !staging.Spec.Approval.Always || staging.Spec.Candidates.Registry == nil ||
+		staging.Spec.ApplyRef != (delivery.ApplyRef{Kind: delivery.ApplierFlux, Name: "payments"}) {
+		t.Fatalf("staging %+v", staging.Spec)
+	}
+	if prod.Spec.StartLevel != delivery.LevelObserve || prod.Spec.Candidates.UpstreamStage == nil ||
+		*prod.Spec.Candidates.UpstreamStage != (delivery.StageRef{Name: "payments-staging", Namespace: "payments-staging"}) {
+		t.Fatalf("production %+v", prod.Spec)
+	}
+	st := pe.state(t)
+	if len(st.Objects) != 2 || !st.owns(staging.UID) || !st.owns(prod.UID) {
+		t.Fatalf("state %+v", st)
+	}
+	// A second pass changes no Stage.
+	if _, err := pe.r.Reconcile(ctx, reconcile.Request{}); err != nil {
+		t.Fatal(err)
+	}
+	again := &dv1.Stage{}
+	must(t, c.Get(ctx, client.ObjectKey{Namespace: "payments-staging", Name: "payments-staging"}, again))
+	if again.ResourceVersion != staging.ResourceVersion {
+		t.Fatalf("staging rewritten: %s -> %s", staging.ResourceVersion, again.ResourceVersion)
 	}
 }
