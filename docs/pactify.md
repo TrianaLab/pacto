@@ -422,7 +422,7 @@ names outside the cluster:
 External dependencies: 2 (sqs:newsletter-signups, stripe), inferred
   dependencies[newsletter-signups]  external, from infra/main.tf:1 (aws_sqs_queue newsletter-signups, possible)
   dependencies[stripe]              external, from chart/values.yaml:9 (STRIPE_API_BASE) and requirements.txt:1 (stripe, possible)
-  catalog default sha256:62a3fd52...
+  catalog default sha256:385565ae...
 ```
 
 - A `possible` external is also named under **Unknown**, such as

@@ -4,7 +4,7 @@ inputs:
     discovery: "5"
     sources: []
     catalog:
-        - default sha256:62a3fd52949e99b18eb330766ec3269d47ba7a821f59b77ab69dea81ad76a063
+        - default sha256:385565ae13db14c9acb82c882c5bdb85d6c48b79f621749c657a9284bf828b36
     cluster:
         asOf: "2026-11-22T11:21:53Z"
         object: billing/Deployment/invoices

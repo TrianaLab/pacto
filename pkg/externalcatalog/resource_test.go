@@ -146,7 +146,7 @@ func TestMatchOriginNamesCatalog(t *testing.T) {
 }
 
 // rowKeyRE is a key whose values each need a cited source.
-var rowKeyRE = regexp.MustCompile(`^\s+(sdkModules|terraform|crossplane):(.*)$`)
+var rowKeyRE = regexp.MustCompile(`^\s+(sdkModules|terraform|crossplane|inventory):(.*)$`)
 
 func TestDefaultCatalogValidates(t *testing.T) {
 	if err := mustParse(t, string(DefaultBytes())).Validate(); err != nil {
@@ -171,7 +171,7 @@ func TestDefaultCatalogValidates(t *testing.T) {
 		}
 		inRows = false
 	}
-	for _, want := range []string{"pypi:stripe", "aws_sqs_queue:name", "sqs.aws.upbound.io/Queue"} {
+	for _, want := range []string{"pypi:stripe", "aws_sqs_queue:name", "sqs.aws.upbound.io/Queue", "rds:db", "sqladmin.googleapis.com/Instance"} {
 		if !bytes.Contains(DefaultBytes(), []byte(want)) {
 			t.Errorf("default catalog lacks %s", want)
 		}
