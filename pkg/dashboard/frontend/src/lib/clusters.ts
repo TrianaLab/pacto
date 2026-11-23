@@ -119,12 +119,12 @@ export function joinCounts(hidden: number, otherHubs: number, reviewFailed = fal
 }
 
 /** The sources a candidate cluster comes from, in the order their groups show. */
-export const CANDIDATE_SOURCES: Record<string, string> = { argocd: 'Argo CD', flux: 'Flux', capi: 'Cluster API', ocm: 'OCM', rancher: 'Rancher' };
+const CANDIDATE_SOURCES: Record<string, string> = { argocd: 'Argo CD', flux: 'Flux', capi: 'Cluster API', ocm: 'OCM', rancher: 'Rancher' };
 
 /** The one action per source group: only Argo CD and Flux get a generated install. */
 const INSTALL_ACTIONS: Record<string, string> = { argocd: 'Get ApplicationSet', flux: 'Get Flux manifests' };
 
-export type CandidateGroup = { source: string; label: string; install: 'argocd' | 'flux' | null; action: string; items: ClusterCandidate[] };
+type CandidateGroup = { source: string; label: string; install: 'argocd' | 'flux' | null; action: string; items: ClusterCandidate[] };
 
 /** candidateGroups are the candidates grouped by source, in CANDIDATE_SOURCES order. */
 export function candidateGroups(cands: ClusterCandidate[]): CandidateGroup[] {

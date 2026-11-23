@@ -44,11 +44,11 @@
   }
 </script>
 
-<details class="disclosure scc sc-candidates" data-testid="cluster-candidates">
+<details class="disclosure scc" data-testid="cluster-candidates">
   <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>{candidates.length} candidate cluster{candidates.length === 1 ? '' : 's'}{partial ? ', partial' : ''}</summary>
   <p class="t-meta scc-note">The clusters the hub's GitOps and cluster managers know{asOf ? `, as of ${formatDate(asOf)}` : ''}. Nothing joins on its own: each new cluster waits for a person's approval.</p>
   {#each groups as g (g.source)}
-    <section class="scc-group" data-testid="cluster-candidate-group" data-source={g.source} aria-label={`Candidate clusters from ${g.label}`}>
+    <section data-testid="cluster-candidate-group" data-source={g.source} aria-label={`Candidate clusters from ${g.label}`}>
       <p class="scc-head">
         <span class="scc-from">From {g.label}</span>
         {#if g.install}<button type="button" class="btn btn-sm scc-action" data-testid="cluster-candidate-install" disabled={busy === g.install} aria-busy={busy === g.install} onclick={() => download(g.install)}>{g.action}</button>{/if}
