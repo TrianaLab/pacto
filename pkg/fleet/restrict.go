@@ -259,7 +259,9 @@ func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadV
 	extensionRecords := readableExtensionRecords(s, readable, visible)
 	linkedNames := linkedKindHidden(s, workloadHidden(hiddenNS, workloadVisible), clusters, hiddenTargets)
 	hiddenSvc, offeringOnly := hiddenServices(s, hiddenNS, hiddenTargets, restricted, workloadVisible)
-	if len(hiddenNS)+len(hiddenSvc)+len(offeringOnly)+len(hiddenTargets)+len(linkedNames)+len(s.extensionRecords)-len(extensionRecords) == 0 && keepsEveryName(s, restricted, workloadHidden(hiddenNS, workloadVisible)) {
+	hideClusterContributions(s, visible, hiddenSvc, offeringOnly)
+	if len(hiddenNS)+len(hiddenSvc)+len(offeringOnly)+len(hiddenTargets)+len(linkedNames)+len(s.extensionRecords)-len(extensionRecords) == 0 && keepsEveryName(s, restricted, workloadHidden(hiddenNS, workloadVisible)) &&
+		!offeringSourceHidden(s, visible) {
 		if !providersNarrowed(s, visible, workloadVisible, clusters) {
 			return q
 		}
@@ -311,6 +313,7 @@ func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadV
 	origins, hiddenCreated := restrictOrigins(s, hiddenSvc)
 	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenCounts{hiddenDeps, hiddenDependents, hiddenReferrers}, origins, hiddenCreated, workloadVisible)...)
 	restrictExternals(&out, s)
+	restrictOfferingDrift(&out, s, hiddenSvc, visible)
 	out.targetsHidden = targetsHidden(&out, s.Services, offeringOnly)
 	out.hiddenProviders = hiddenProviders(&out, s.Services, hiddenSvc)
 	out.hiddenProviderMatch = hiddenProviderMatch(s, out.hiddenProviders, hiddenSvc)
@@ -1494,4 +1497,54 @@ func restrictIndex[K comparable](m map[K][]ServiceKey, keyOK func(K) bool, neigh
 		}
 	}
 	return out
+}
+
+// hideClusterContributions hides every contributed service whose records an
+// installation of a cluster advertised (ServiceContribution.Cluster) from a
+// caller who may not read that cluster's scope: the source objects it was
+// read from are cluster data. A contribution with no cluster keeps the rule
+// every other service follows.
+func hideClusterContributions(s *FleetSnapshot, visible func(cluster, namespace string) bool, hiddenSvc, offeringOnly map[ServiceKey]bool) {
+	for k, svc := range s.Services {
+		if c := svc.Contribution; c != nil && c.Cluster != "" && !visible(c.Cluster, "") {
+			hiddenSvc[k] = true
+			delete(offeringOnly, k)
+		}
+	}
+}
+
+// restrictOfferingDrift turns the drift of every visible declared offering
+// whose inferred source the caller may not see into unknown, naming no
+// record: what changed in a hidden source object is cluster data too.
+func restrictOfferingDrift(out, s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, visible func(cluster, namespace string) bool) {
+	for k, svc := range out.Services {
+		if svc.OfferingDrift == nil && svc.offeringFrom == "" {
+			continue
+		}
+		head := s.contributedHeads[svc.offeringFrom]
+		if head == nil || !hiddenSvc[head.ServiceKey] && !headHidden(head, visible) {
+			continue
+		}
+		cp := *svc
+		cp.OfferingDrift = &OfferingDrift{State: DriftUnknown, Producer: head.contributor.Producer,
+			AcceptedDigest: svc.offeringDigest, Reason: "the inferred offering is outside your view"}
+		out.Services[k] = &cp
+	}
+}
+
+// headHidden reports whether the cluster that advertised head's records is
+// one the caller may not read the scope of.
+func headHidden(head *ContractRevision, visible func(cluster, namespace string) bool) bool {
+	return head.contributor.Cluster != "" && !visible(head.contributor.Cluster, "")
+}
+
+// offeringSourceHidden reports whether some declared offering of s was
+// accepted from records a cluster the caller may not read advertised.
+func offeringSourceHidden(s *FleetSnapshot, visible func(cluster, namespace string) bool) bool {
+	for _, svc := range s.Services {
+		if head := s.contributedHeads[svc.offeringFrom]; svc.offeringFrom != "" && head != nil && headHidden(head, visible) {
+			return true
+		}
+	}
+	return false
 }

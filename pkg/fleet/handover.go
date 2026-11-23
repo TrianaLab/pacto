@@ -144,11 +144,14 @@ func inferredFromClaims(snap *FleetSnapshot, byWorkload map[workloadKey][]inferr
 }
 
 // namesWorkload reports whether a declaration's inferredFrom may name a
-// workload: one declared from its folder alone names none, and one that
-// claims an external system is linkExternalClaims's to read.
+// workload: one declared from its folder alone names none, one that claims
+// an external system is linkExternalClaims's to read and one accepted from
+// an inferred offering names its producer's record, whose visibility
+// follows the contributed service.
 func namesWorkload(from string) bool {
 	_, external := contract.InferredFromExternal(from)
-	return from != "" && !external
+	_, _, _, offering := contract.InferredFromOffering(from)
+	return from != "" && !external && !offering
 }
 
 // claimedWorkload is the workload rev's declaration names, false with a

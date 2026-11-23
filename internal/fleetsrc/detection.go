@@ -1,7 +1,11 @@
 package fleetsrc
 
 import (
+	"cmp"
 	"context"
+	"crypto/ed25519"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +20,7 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	"github.com/trianalab/pacto/v4/pkg/detect"
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -31,6 +36,11 @@ type DetectionSource struct {
 	now  func() time.Time
 	// fixed is a Result already read, reported as is.
 	fixed *detect.Result
+	// Contributions reads the inferred offerings the installation
+	// advertises, verified with its installation key; nil reads none.
+	Contributions ContributionReader
+	// Freshness is the producer row's freshness window; 0 checks no age.
+	Freshness time.Duration
 }
 
 // errDetectionInvalid and errDetectionForeign are the classes of a Result
@@ -109,8 +119,73 @@ func (s *DetectionSource) Collect(ctx context.Context) (*fleet.Collection, error
 	col := &fleet.Collection{Advisory: true, State: &state}
 	if state.Status != fleet.SourceUnavailable {
 		col.Providers = detect.ProviderRows(res, s.id, s.now())
+		s.offerings(ctx, res, col)
 	}
 	return col, nil
+}
+
+// offerings reads the inferred offerings res's installation advertises into
+// col: through s.Contributions, only from the installation's own repository
+// (see [detect.Result.OfferingsRepository]) and verified only with the
+// installation key it advertises, as one producer row. Every revision read
+// is marked with the cluster it was advertised in. A repository that is not
+// the installation's own is never read and says so; a partial advertisement
+// makes the producer row partial. Without an advertisement, or a reader,
+// nothing changes.
+func (s *DetectionSource) offerings(ctx context.Context, res detect.Result, col *fleet.Collection) {
+	if s.Contributions == nil || res.Installation == nil || res.Installation.Offerings == nil {
+		return
+	}
+	inst, o := res.Installation, res.Installation.Offerings
+	obs := fleet.OfferingObservation{Producer: o.Producer, Cluster: res.Cluster, Observed: slices.Clone(o.Observed), AsOf: o.AsOf, Partial: o.Partial}
+	repo, ok := res.OfferingsRepository()
+	if !ok {
+		obs.Unread = "the advertised repository is not this installation's own"
+		col.Offerings = append(col.Offerings, obs)
+		col.Notes = append(col.Notes, fleet.Limitation{Code: fleet.LimitationContributionUnread, Source: s.id,
+			Message: "the inferred offerings the installation advertises were not read: " + obs.Unread})
+		return
+	}
+	f := fleet.ProducerFacts{Producer: o.Producer}
+	c := evidenceingest.ProducerContributor{Producer: o.Producer, Repository: repo}
+	if raw, ok := rawEd25519(inst.SnapshotKey); ok {
+		c.Keys = []evidenceingest.ContributorKey{{KeyID: inst.SnapshotKeyID, PublicKey: raw}}
+	}
+	revs, lims := s.Contributions.Read(ctx, s.id, c, &f)
+	for i := range revs {
+		revs[i].Contributor.Cluster = res.Cluster
+	}
+	if o.Partial != "" {
+		f.Problems = append(f.Problems, "the producer's last run stopped short: "+o.Partial)
+		lims = append(lims, fleet.Limitation{Code: fleet.LimitationContributionUnread, Source: s.id,
+			Message: "the inferred offerings of " + o.Producer + " are partial: " + o.Partial})
+	}
+	if len(lims) > 0 {
+		obs.Unread = lims[0].Message
+	}
+	col.Revisions = append(col.Revisions, revs...)
+	col.Notes = append(col.Notes, lims...)
+	col.Offerings = append(col.Offerings, obs)
+	if row, ok := fleet.ProducerRow(f, s.now(), s.Freshness); ok {
+		row.Cluster, row.ClusterID = cmp.Or(res.ClusterName, res.Cluster), res.Cluster
+		col.Providers = append(col.Providers, row)
+	}
+}
+
+// rawEd25519 is the base64 of the raw Ed25519 public key whose PKIX DER
+// encoded is the base64 of, as a contribution reader takes it; false for
+// any other key.
+func rawEd25519(encoded string) (string, bool) {
+	der, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", false
+	}
+	pub, err := x509.ParsePKIXPublicKey(der)
+	if err != nil {
+		return "", false
+	}
+	ed, ok := pub.(ed25519.PublicKey)
+	return base64.StdEncoding.EncodeToString(ed), ok
 }
 
 // Read is the decoded Result with the source's state: unavailable with why

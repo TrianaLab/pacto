@@ -1212,6 +1212,8 @@ type OfferingProvider struct {
 	// LatestSupported is the newest readable revision that declares no
 	// lifecycle.
 	LatestSupported *EntityRef `json:"latestSupported,omitempty"`
+	// Drift is the provider's [ServiceRecord.OfferingDrift].
+	Drift *OfferingDrift `json:"drift,omitempty" doc:"When the provider was accepted from an inferred offering: whether its source changed since"`
 }
 
 // OfferingProvidersPreview is a bounded preview of offering providers.
@@ -1806,7 +1808,7 @@ func (q *Query) offeringProvider(s *ServiceRecord, x *availIndex) OfferingProvid
 		Versions:       q.offeringProviderVersions(s, ""),
 		Interfaces:     interfacesPreview(nil, nil, nil, q.snap.GeneratedAt),
 		Configurations: cfgs, Policies: pols, Consume: consumeSnippet(q.snap, s, newest),
-		Availability: x.providerAvailability(s),
+		Availability: x.providerAvailability(s), Drift: s.OfferingDrift,
 	}
 	if current != nil {
 		if rec := q.snap.Revisions[RevisionKey(current.Key)]; rec.Contract != nil {

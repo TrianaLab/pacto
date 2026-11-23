@@ -985,6 +985,14 @@ type ServiceRecord struct {
 	// Contribution is the newest record a producer contributed for a service
 	// only contributions describe; nil for any other service.
 	Contribution *ServiceContribution `json:"contribution,omitempty" doc:"The newest record a producer contributed for this inferred service, read from its contribution repository; set only when contributions alone describe the service"`
+	// OfferingDrift compares a declared offering accepted from an inferred
+	// one with what its producer now reports; nil when it was accepted from
+	// none, or for a fresh, complete observation equal to what was accepted.
+	OfferingDrift *OfferingDrift `json:"offeringDrift,omitempty" doc:"On a declared offering accepted from an inferred one: whether its source changed since; absent when in sync or not accepted from one"`
+	// offeringFrom is the producer/service the declaration was accepted
+	// from; inferredOffering the facts of a contributed offering.
+	offeringFrom, offeringDigest string
+	inferredOffering             *InferredOfferingFacts
 }
 
 // ServiceContribution is the newest record a producer contributed for a
@@ -997,6 +1005,8 @@ type ServiceContribution struct {
 	ReadAt     *time.Time `json:"readAt,omitempty" doc:"When Pacto read the record"`
 	AsOf       *time.Time `json:"asOf,omitempty" doc:"When the producer made the record, from its signed manifest; absent when unknown"`
 	Stale      bool       `json:"stale,omitempty" doc:"The record is older than the freshness window, its age is unknown or a newer version was refused"`
+	// Cluster is the cluster whose installation advertised the repository.
+	Cluster string `json:"cluster,omitempty" doc:"The cluster whose installation advertised the repository; only a reader of that cluster sees the service"`
 	// NewerRefused is the newest version the reader refused (unsigned,
 	// signed by another key or mis-tagged) before reading this older one.
 	NewerRefused string `json:"newerRefused,omitempty" doc:"A newer version of the record that was refused, so this older one is shown stale"`
@@ -1786,6 +1796,11 @@ type FleetSnapshot struct {
 	// over a service the producer contributed, so a restricted view counts
 	// only the ones it may see.
 	supersededBy map[string][]ServiceKey
+	// contributedHeads is each producer's newest contributed record per
+	// service (producer/service), kept before supersedeContributions drops
+	// any; offeringObs the inferred-offering observations by producer.
+	contributedHeads map[string]*ContractRevision
+	offeringObs      map[string]OfferingObservation
 	// declarationSigners is BuildOptions.DeclarationSigners.
 	declarationSigners *DeclarationSignerPolicy
 	// inferredLinkNotes are the limitations replaceByInferredFrom raised

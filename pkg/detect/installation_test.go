@@ -310,3 +310,31 @@ func TestOlderDetectionReaderIgnoresOfferings(t *testing.T) {
 		t.Fatalf("older reader = %+v, %v", older.Installation, err)
 	}
 }
+
+func TestInstallationOfferingsRepositoryMustBeOwn(t *testing.T) {
+	own := func() Result {
+		return Result{Cluster: "c1", Installation: &Installation{Registry: "ghcr.io/acme",
+			Offerings: &OfferingsAd{Producer: "idp-c1", Repository: "ghcr.io/acme/pacto-inferred/idp-c1/services"}}}
+	}
+	if repo, ok := own().OfferingsRepository(); !ok || repo != "ghcr.io/acme/pacto-inferred/idp-c1/services" {
+		t.Fatalf("own repository = %q %v", repo, ok)
+	}
+	for name, edit := range map[string]func(*Result){
+		"no installation":    func(r *Result) { r.Installation = nil },
+		"no offerings":       func(r *Result) { r.Installation.Offerings = nil },
+		"no registry":        func(r *Result) { r.Installation.Registry = "" },
+		"no cluster":         func(r *Result) { r.Cluster = "" },
+		"other cluster":      func(r *Result) { r.Cluster = "c2" },
+		"other registry":     func(r *Result) { r.Installation.Registry = "ghcr.io/other" },
+		"other producer":     func(r *Result) { r.Installation.Offerings.Producer = "idp-c1x" },
+		"producer mismatch":  func(r *Result) { r.Installation.Offerings.Repository = "ghcr.io/acme/pacto-inferred/x-c1/services" },
+		"no contribution":    func(r *Result) { r.Installation.Offerings.Repository = "ghcr.io/acme/idp-c1" },
+		"nested under other": func(r *Result) { r.Installation.Offerings.Repository = "ghcr.io/acme/x/pacto-inferred/idp-c1/services" },
+	} {
+		r := own()
+		edit(&r)
+		if repo, ok := r.OfferingsRepository(); ok {
+			t.Errorf("%s: read %q", name, repo)
+		}
+	}
+}

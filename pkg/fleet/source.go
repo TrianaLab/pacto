@@ -183,6 +183,9 @@ type Collection struct {
 	// ClusterLinks are member link facts by cluster id, read only from a
 	// [SourceKindMemberLinks] source.
 	ClusterLinks map[string]ClusterLink
+	// Offerings are the inferred-offering observations installations
+	// advertised; never a service.
+	Offerings []OfferingObservation
 }
 
 // RawServiceFact is what a source outside every contract (an IDP's catalog)
@@ -388,6 +391,23 @@ type Contributor struct {
 	Producer, KeyID string
 	ReadAt, AsOf    time.Time
 	NewerRefused    string
+	// Cluster is the cluster whose installation advertised the repository
+	// the record was read from; empty for a producer the trust config grants.
+	Cluster string
+}
+
+// OfferingObservation is what an installation's inferred-offering producer
+// advertised it observed: the slugs of its last complete run and when that
+// run finished, why the newest run stopped short and why Pacto could not
+// read its records. Drift reads it so a head that stopped moving never
+// reads as in sync.
+type OfferingObservation struct {
+	Producer, Cluster string
+	Observed          []string
+	AsOf              *time.Time
+	// Partial is why the producer's newest run stopped short; Unread why
+	// its records could not all be read.
+	Partial, Unread string
 }
 
 // OwnerView is raw as the owner rule reads it, before Build: its service,

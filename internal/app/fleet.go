@@ -451,10 +451,11 @@ func (s *Service) detectionSources(ctx context.Context, opts FleetOptions, assem
 		bare = []fleet.Source{fleetsrc.NewReceiverSource(receiverID, nil, nil, opts.LiveEdges)}
 	}
 	src := s.detectionReader(opts.Detected)
-	switch {
-	case src == nil:
+	if src == nil {
 		return bare
-	case opts.LiveEdges == nil:
+	}
+	s.readOfferings(src, opts)
+	if opts.LiveEdges == nil {
 		return []fleet.Source{src}
 	}
 	res, st := src.Read(ctx)
@@ -468,12 +469,28 @@ func (s *Service) detectionSources(ctx context.Context, opts FleetOptions, assem
 		}
 	}
 	rest, taken := detect.SplitEdgeKinds(res, kinds)
-	out := append([]fleet.Source{fleetsrc.NewDetectionResultSource(src.ID(), rest, s.env().now)}, s.liveEdgeSources(res, taken, free(serviceGraphID), opts)...)
+	fixed := fleetsrc.NewDetectionResultSource(src.ID(), rest, s.env().now)
+	s.readOfferings(fixed, opts)
+	out := append([]fleet.Source{fixed}, s.liveEdgeSources(res, taken, free(serviceGraphID), opts)...)
 	out = append(out, s.detectedBackstage(res, free(backstage.SourceKind))...)
 	if !slices.ContainsFunc(taken, func(e detect.Entry) bool { return e.Kind == "otel-collector" }) {
 		out = append(out, bare...)
 	}
 	return out
+}
+
+// readOfferings makes src read the inferred offerings its installation
+// advertises through the reader the Evidence Server sources use, with the
+// fleet's freshness window.
+func (s *Service) readOfferings(src *fleetsrc.DetectionSource, opts FleetOptions) {
+	now, window := s.env().now, opts.FreshnessWindow
+	if opts.Now != nil {
+		now = opts.Now
+	}
+	if window == 0 {
+		window = fleet.RecentEvidenceWindow
+	}
+	src.Contributions, src.Freshness = s.contributionReader(opts, now), window
 }
 
 // detectedBackstage is the tokenless Backstage source over the detected
@@ -655,11 +672,7 @@ func (s *Service) httpSources(opts FleetOptions) ([]fleet.Source, error) {
 	if window == 0 {
 		window = fleet.RecentEvidenceWindow
 	}
-	var reader fleetsrc.ContributionReader
-	if s.BundleStore != nil {
-		reader = &contributionReader{Store: s.BundleStore, Registry: s.env().publishRegistry(), Roots: contributionRoots(opts),
-			Now: now, Memo: &s.contributionsVerified}
-	}
+	reader := s.contributionReader(opts, now)
 	var sources []fleet.Source
 	for i, url := range opts.EvidenceURLs {
 		src := fleetsrc.NewEvidenceHTTPSource(sourceID("evidence-http", i, len(opts.EvidenceURLs)), url)
@@ -680,6 +693,18 @@ func (s *Service) httpSources(opts FleetOptions) ([]fleet.Source, error) {
 		sources = append(sources, src)
 	}
 	return sources, nil
+}
+
+// contributionReader is the reader of the records producers contribute
+// under the registry roots opts reads, remembering verified digests across
+// builds; nil without a bundle store. The Evidence Server and detection
+// sources share it.
+func (s *Service) contributionReader(opts FleetOptions, now func() time.Time) fleetsrc.ContributionReader {
+	if s.BundleStore == nil {
+		return nil
+	}
+	return &contributionReader{Store: s.BundleStore, Registry: s.env().publishRegistry(), Roots: contributionRoots(opts),
+		Now: now, Memo: &s.contributionsVerified}
 }
 
 // contributionRoots are the registry roots a producer's contribution

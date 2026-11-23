@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -34,6 +35,25 @@ type OfferingsAd struct {
 	Observed   []string   `json:"observed,omitempty"`
 	AsOf       *time.Time `json:"asOf,omitempty"`
 	Partial    string     `json:"partial,omitempty"`
+}
+
+// OfferingsRepository is the repository r's installation advertises its
+// inferred offerings in, when it is that installation's own: the
+// contribution repository of its producer under its registry, the producer
+// id ending in -<the cluster id r was read in>. Any other repository is
+// never read, so two installations sharing a registry read apart and one
+// never makes Pacto pull another's.
+func (r Result) OfferingsRepository() (string, bool) {
+	inst := r.Installation
+	if inst == nil || inst.Offerings == nil || inst.Registry == "" || r.Cluster == "" {
+		return "", false
+	}
+	o := inst.Offerings
+	p, ok := contract.ContributionRef(o.Repository)
+	if !ok || p != o.Producer || !strings.HasSuffix(o.Producer, "-"+r.Cluster) || o.Repository != contract.ContributionRepository(inst.Registry, o.Producer) {
+		return "", false
+	}
+	return o.Repository, true
 }
 
 // PushResult is the last target snapshot push the operator attempted: when,
