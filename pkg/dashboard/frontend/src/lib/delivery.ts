@@ -4,7 +4,7 @@
  * provider.
  */
 import { api } from './api.ts';
-import type { DeliveryDecision, DeliveryEnvironments, DeliveryOffer, DeliveryOperation } from './api.ts';
+import type { DeliveryDecision, DeliveryEnvironments, DeliveryInbox, DeliveryOffer, DeliveryOperation } from './api.ts';
 import { formatCount } from './format.ts';
 
 /** The operation type that asks a person to confirm a new publisher. */
@@ -803,4 +803,40 @@ export function historyWindow(since: string, until: string, timed: string, now =
 export function windowSince(key: string, now = Date.now()): string | undefined {
   const w = HISTORY_WINDOWS.find((x) => x.key === key);
   return w ? new Date(now - w.ms).toISOString().replace(/\.\d+Z$/, 'Z') : undefined;
+}
+
+type EnvironmentRowOf = NonNullable<DeliveryEnvironments['environments']>[number];
+export type InboxLadder = NonNullable<DeliveryInbox['ladder']>;
+
+/** Where an environment comes from, as the provenance mark's tip says it. */
+const ENVIRONMENT_SOURCE: Record<string, string> = {
+  declared: "the contract's environments[]",
+  ladder: 'the installation ladder the chart declares',
+  'inferred-confirmed': 'an inferred rung of the installation ladder a person confirmed',
+  'hand-written': 'a Stage a person wrote',
+};
+
+/** placementWords is a placement in words: its provenance, evidence and confirmer. */
+function placementWords(p: { provenance?: string; evidence?: string; confirmedBy?: string } | null | undefined): string {
+  if (!p?.provenance) return '';
+  return `placement ${p.provenance}${p.evidence ? ` (${p.evidence})` : ''}${p.confirmedBy ? `, confirmed by ${p.confirmedBy}` : ''}`;
+}
+
+/**
+ * placementTip is the tip of a Stage's one provenance mark: where its environment comes
+ * from and where its service runs there and why. Empty where the promoter publishes no
+ * installation ladder, so the row shows no mark.
+ */
+export function placementTip(r: Pick<EnvironmentRowOf, 'source' | 'placement'>): string {
+  if (!r.source) return '';
+  const from = `From ${ENVIRONMENT_SOURCE[r.source] ?? r.source}.`;
+  const words = placementWords(r.placement);
+  if (!words) return from;
+  const ns = r.placement?.namespace;
+  return `${from} ${ns ? `In namespace ${ns}, ${words}` : `P${words.slice(1)}`}.`;
+}
+
+/** ladderCommand is the command that confirms exactly the proposal the inbox shows. */
+export function ladderCommand(l: Pick<InboxLadder, 'command' | 'proposalDigest'>): string {
+  return l.command || `pacto delivery ladder confirm --proposal ${l.proposalDigest}`;
 }

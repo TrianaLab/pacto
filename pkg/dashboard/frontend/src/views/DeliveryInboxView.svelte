@@ -18,6 +18,7 @@
   import InboxFigure from '../components/figure/InboxFigure.svelte';
   import DeliveryServiceFilter from '../components/DeliveryServiceFilter.svelte';
   import ProposePanel from '../components/ProposePanel.svelte';
+  import LadderBlock from '../components/LadderBlock.svelte';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
 
@@ -158,6 +159,7 @@
     <ListingNote listing={inbox} error={loader.error} onRetry={() => loader.refresh()} />
 
     {#if lead}<DeliveryLead head={lead.head} rest={lead.rest} testid="inbox-answer" />{/if}
+    {#if inbox.ladder}<LadderBlock ladder={inbox.ladder} />{/if}
     {#if inbox.byEnvironment?.length}
       <!-- Over every page and before the environment filter, so it never moves while the
            lists below are paged or narrowed; each count links to its narrowed list. -->

@@ -4,7 +4,7 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryHistoryUrl, deliveryEnvironmentsUrl, fleetEntityUrl } from '../lib/router.ts';
   import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
-  import { shortDigest, levelLabel, levelHelp, shadowLabel, heldButRan, timeLabel, sentence, andList, exceptList, exceptParam, offerLabel, offerRequest, checkText, applierLine, serverNow } from '../lib/delivery.ts';
+  import { shortDigest, levelLabel, levelHelp, shadowLabel, heldButRan, timeLabel, sentence, andList, exceptList, exceptParam, offerLabel, offerRequest, checkText, applierLine, serverNow, placementTip } from '../lib/delivery.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
@@ -23,6 +23,7 @@
   import DeliveryLead from '../components/DeliveryLead.svelte';
   import DeliveryServiceFilter from '../components/DeliveryServiceFilter.svelte';
   import HelpTip from '../components/HelpTip.svelte';
+  import ProvenanceMark from '../components/ProvenanceMark.svelte';
   import { cap } from '../lib/cap.svelte.ts';
   import EnvFleetFigure from '../components/figure/EnvFleetFigure.svelte';
   import PromotionFigure from '../components/figure/PromotionFigure.svelte';
@@ -127,6 +128,11 @@
   const serviceTotal = $derived(data?.page?.total ?? services.length);
   const observing = $derived(rows.filter((r) => r.level === 'observe' && r.shadow?.length && shown.includes(r.environment)));
   const observingCap = cap(5);
+  // The environments of delivered services that have no Stage: part of the board,
+  // collapsed and muted, counted with the ones the caller may not read.
+  const unplaced = $derived(data?.unplaced ?? []);
+  const unplacedTotal = $derived(unplaced.length + (data?.unplacedHidden ?? 0));
+  const unplacedCap = cap(25);
   // The page's answer: what failed or froze, and what waits for a person, in
   // the environments shown, over every page: the server counts them. Without
   // its counts the page's own are said to be the page's.
@@ -176,6 +182,7 @@
 {#snippet stack(svc, env)}
     {#each cell(svc, env) as r (r.namespace + '/' + r.stage)}
       {@const applier = applierLine(r.applier, serverNow(data?.asOf), r.ready)}
+      {@const tip = placementTip(r)}
       <div class="ev-cell" data-testid="env-cell" data-stage={`${r.namespace}/${r.stage}`}>
         {#if cell(svc, env).length > 1}<span class="t-meta ev-stage">{r.namespace}/{r.stage}</span>{/if}
         <span class="ev-head">
@@ -187,6 +194,7 @@
               title={r.pointer || 'nothing deployed yet'}>{r.version || shortDigest(r.pointer) || 'Nothing yet'}</a>
           {/if}
           {#if r.level}<span class="t-meta ev-level" data-testid="level" title={levelHelp(r.level)}>{levelLabel(r.level)}</span>{/if}
+          {#if tip}<span data-testid="env-placement"><ProvenanceMark label={`Where ${r.service} runs in ${r.environment}`} text={tip} /></span>{/if}
         </span>
         <DeliveryBadges row={r} />
         {#if r.frozen && r.frozenReason}<span class="t-meta ev-frozen">Frozen: {sentence(r.frozenReason)}</span>{/if}
@@ -403,6 +411,20 @@
         </section>
       {/if}
     {/if}
+    {#if unplacedTotal}
+      <details class="disclosure ev-unplaced" data-testid="environments-unplaced">
+        <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>{countOf(unplacedTotal, 'environment')} not placed</summary>
+        {#if unplaced.length}
+          <ul class="ev-unplaced-list">
+            {#each unplacedCap.slice(unplaced) as u, i (`${u.domain ?? ''}/${u.service}/${u.environment ?? ''}/${i}`)}
+              <li data-testid="unplaced-row"><bdi title={u.service}>{u.service}</bdi>{#if u.environment}{' in '}<bdi title={u.environment}>{u.environment}</bdi>{/if}{#if u.placement?.namespace}{' (namespace '}<bdi title={u.placement.namespace}>{u.placement.namespace}</bdi>{')'}{/if}: {u.reason}</li>
+            {/each}
+          </ul>
+          <ShowAll cap={unplacedCap} total={unplaced.length} noun="environments not placed" testid="unplaced-more" />
+        {/if}
+        {#if data.unplacedHidden}<p class="ev-unplaced-hidden">{countOf(data.unplacedHidden, 'environment')} hidden: you may not read {data.unplacedHidden === 1 ? 'it' : 'them'}.</p>{/if}
+      </details>
+    {/if}
   {/if}
 </div>
 
@@ -466,6 +488,12 @@
   .ev-shadows h2 { margin: 0; }
   .ev-shadow summary { display: flex; align-items: baseline; gap: var(--sp-2); cursor: pointer; }
   .ev-shadow-title { margin: 0; }
+  /* Unplaced environments: part of the board, collapsed and muted. */
+  .ev-unplaced { color: var(--c-text-3); font-size: var(--text-sm); }
+  .ev-unplaced summary { display: flex; align-items: center; gap: var(--sp-2); cursor: pointer; min-block-size: var(--touch-min); }
+  .ev-unplaced-list { margin: var(--sp-2) 0 0; padding-inline-start: var(--sp-4); overflow-wrap: anywhere; }
+  .ev-unplaced-hidden { margin: var(--sp-2) 0 0; }
+  @media (pointer: coarse) { .ev-unplaced summary { min-block-size: 44px; } }
   .ev-detail-head .ev-shadow-title { font-size: var(--text-sm); font-weight: 600; }
   .ev-shadow[open] > :not(summary) { margin-top: var(--sp-2); }
   /* The board's frame is the container (SPEC 24.2), so the card form follows the width

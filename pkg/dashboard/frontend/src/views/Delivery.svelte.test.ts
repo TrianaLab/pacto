@@ -638,6 +638,79 @@ function heldOperation(over: Record<string, unknown> = {}) {
   };
 }
 
+describe('installation ladder (511-S5)', () => {
+  const stage = (environment: string, over = {}) => ({ namespace: `payments-${environment}`, stage: `payments-${environment}`, service: 'payments', environment, pointer: D1, version: '1.0.0', verified: true, failed: false, frozen: false, autoHold: false, held: 0, actions: [], offers: [], ...over });
+  const placed = [
+    stage('staging', { source: 'inferred-confirmed', placement: { namespace: 'payments-staging', provenance: 'inferred', source: 'gitops-source', evidence: 'Argo CD source github.com/acme/payments', confirmedBy: 'bob' } }),
+    stage('production', { source: 'ladder', placement: { namespace: 'production', provenance: 'default', source: 'environment-name' } }),
+  ];
+
+  it('TestEnvironmentsRowProvenanceIsOneMark: each Stage carries one mark whose tip says where it runs and who confirmed it', async () => {
+    fns.environments.mockResolvedValue({ ...listing, environments: placed });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const cells = [...target.querySelectorAll('[data-testid="env-cell"]')];
+    expect(cells).toHaveLength(2);
+    for (const c of cells) expect(c.querySelectorAll('.prov-mark')).toHaveLength(1);
+    const staging = target.querySelector('[data-stage="payments-staging/payments-staging"]')!;
+    const tip = staging.querySelector('.prov-tip')!.textContent!;
+    expect(tip).toContain('placement inferred (Argo CD source github.com/acme/payments), confirmed by bob');
+    expect(staging.querySelector('.prov-mark button')!.getAttribute('aria-label')).toBe('Where payments runs in staging');
+    // Provenance only in the tip: the row's own text never names it.
+    expect(text(staging as HTMLElement)).not.toContain('inferred');
+    // No installation ladder: no mark and no unplaced block.
+    expect(target.querySelector('[data-testid="environments-unplaced"]')).toBeNull();
+    destroy();
+    fns.environments.mockResolvedValue({ ...listing, environments: [stage('staging')] });
+    const plain = render(DeliveryEnvironmentsView);
+    await settle();
+    expect(plain.target.querySelector('.prov-mark')).toBeNull();
+    plain.destroy();
+  });
+
+  it('keeps unplaced environments in one collapsed, muted details and counts the hidden ones', async () => {
+    fns.environments.mockResolvedValue({ ...listing, environments: placed, unplacedHidden: 2,
+      unplaced: [{ service: 'checkout', environment: 'production', source: 'ladder', placement: { namespace: 'orders', provenance: 'unknown' }, reason: 'refused: namespace orders belongs to orders (team-orders)' }, { service: 'ledger', reason: 'no applier: install Flux or Argo CD' }] });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const d = target.querySelectorAll('[data-testid="environments-unplaced"]');
+    expect(d).toHaveLength(1);
+    const det = d[0] as HTMLDetailsElement;
+    expect(det.open).toBe(false);
+    expect(det.classList.contains('ev-unplaced')).toBe(true);
+    expect(text(det.querySelector('summary') as HTMLElement).trim()).toBe('4 environments not placed');
+    const rows = [...det.querySelectorAll('[data-testid="unplaced-row"]')].map((r) => text(r as HTMLElement));
+    expect(rows).toEqual(['checkout in production (namespace orders): refused: namespace orders belongs to orders (team-orders)', 'ledger: no applier: install Flux or Argo CD']);
+    expect(det.querySelector('bdi[title="orders"]')).not.toBeNull();
+    expect(text(det)).toContain('2 environments hidden: you may not read them.');
+    destroy();
+  });
+
+  it('counts every unplaced environment for a reader who may read none, and shows them even with no Stage', async () => {
+    fns.environments.mockResolvedValue({ ...listing, environments: [], unplacedHidden: 1 });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const det = target.querySelector('[data-testid="environments-unplaced"]') as HTMLElement;
+    expect(text(det.querySelector('summary') as HTMLElement).trim()).toBe('1 environment not placed');
+    expect(det.querySelector('ul')).toBeNull();
+    expect(text(det)).toContain('1 environment hidden: you may not read it.');
+    destroy();
+  });
+
+  it('the inbox shows the ladder proposal as one block above the figure', async () => {
+    const digest = `sha256:${'5be1'.repeat(16)}`;
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [],
+      byEnvironment: [{ environment: 'staging', held: 1, frozen: 0, errored: 0 }],
+      ladder: { declared: [{ name: 'staging', source: 'chart', provenance: 'declared' }], confirmed: [], proposal: [{ name: 'perf', source: 'namespaces *-perf, 3 found', provenance: 'inferred' }], proposalDigest: digest, canConfirm: false, command: `pacto delivery ladder confirm --proposal ${digest}` } });
+    const { target, destroy } = render(DeliveryInboxView);
+    await settle();
+    const blocks = target.querySelectorAll('[data-testid="inbox-ladder"]');
+    expect(blocks).toHaveLength(1);
+    expect([...blocks[0].querySelectorAll('button')].some((b) => b.textContent === 'Confirm')).toBe(false);
+    destroy();
+  });
+});
+
 describe('board offers and links (B2)', () => {
   const base = { namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', pointer: D1, version: '1.0.0', verified: true, failed: false,
     frozen: false, autoHold: false, held: 0, candidate: D2, candidateVersion: '2.0.0', ready: 'True', actions: [], state: 'verified' };
