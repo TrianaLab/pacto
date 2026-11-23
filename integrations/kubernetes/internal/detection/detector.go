@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -116,7 +117,14 @@ type Detector struct {
 	warnedOwner bool
 	// reads are the state and inventory reads of the last Interval.
 	reads map[string]remoteRead
+	// last is the Result of the last run, nil before the first.
+	last atomic.Pointer[detect.Result]
 }
+
+// Last is the Result of the last run, nil before the first. The inferred
+// publisher reads it in process: the ConfigMap is writable by others in the
+// operator namespace, so it never feeds what the operator signs.
+func (d *Detector) Last() *detect.Result { return d.last.Load() }
 
 // Readers is what the operator reads beside detection, fixed at its start: the
 // controller.egressGatewayLogs mode (auto, on or off), whether kernel evidence
@@ -176,7 +184,9 @@ func (d *Detector) Sync(ctx context.Context) error {
 		}
 		d.owner = owner
 	}
-	data, err := detect.Encode(d.detect(ctx))
+	res := d.detect(ctx)
+	d.last.Store(&res)
+	data, err := detect.Encode(res)
 	if err == nil {
 		err = d.Writer.Apply(ctx, corev1ac.ConfigMap(d.Name, d.Namespace).
 			WithLabels(map[string]string{

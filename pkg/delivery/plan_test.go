@@ -1242,3 +1242,18 @@ func TestUnseenConsumerUndeclaredRange(t *testing.T) {
 		t.Fatalf("unseenConsumersOf = %q, want %q", got, want)
 	}
 }
+
+// TestSnapshotExtraSources: an extra source is read beside the Pactos, so
+// its managed resources reach the graph.
+func TestSnapshotExtraSources(t *testing.T) {
+	const id = "aws/rds/123456789012/eu-west-1/orders-db"
+	extra := fleet.NewMemorySource("detection", fleet.SourceKindDetection, &fleet.Collection{
+		ManagedResources: []fleet.RawManagedResource{{Source: "crossplane", Identity: id, Type: "rds.aws.upbound.io/Instance", Name: "orders-db"}}})
+	snap, err := Snapshot(context.Background(), nil, nil, nil, now, extra)
+	if err != nil || len(snap.Sources) != 2 || snap.Sources[1].ID != "detection" {
+		t.Fatalf("snapshot: %v %+v", err, snap.Sources)
+	}
+	if rec := snap.Externals[fleet.ExternalKey(id)]; rec == nil || len(rec.Resources) != 1 {
+		t.Fatalf("externals = %+v", snap.Externals)
+	}
+}

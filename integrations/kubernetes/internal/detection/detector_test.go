@@ -978,3 +978,19 @@ func TestDetectorCrossplaneHintUnderIDP(t *testing.T) {
 		t.Fatalf("hardened crossplane = %+v", e)
 	}
 }
+
+// TestDetectorLastResult: Last is nil before the first run and the Result
+// of the last run after it, the same one the ConfigMap holds.
+func TestDetectorLastResult(t *testing.T) {
+	c := newClient(routesInterceptor(), clusterObjects()...)
+	d := newDetector(c, servedAll)
+	if d.Last() != nil {
+		t.Fatal("a detector that has not run has a result")
+	}
+	_ = d.Sync(context.Background())
+	_, written := readResult(t, c)
+	got := d.Last()
+	if got == nil || got.Cluster != "cluster-uid" || !got.AsOf.Equal(written.AsOf) || len(got.Entries) != len(written.Entries) {
+		t.Fatalf("Last = %+v, written %+v", got, written)
+	}
+}

@@ -122,3 +122,21 @@ func TestIDPPiecesOnlyUnderIDP(t *testing.T) {
 		t.Fatalf("pieces %+v", got)
 	}
 }
+
+// TestInferredReadsDetectorInProcess: the inferred publisher reads the
+// detector's last Result through lastDetected, never the ConfigMap.
+func TestInferredReadsDetectorInProcess(t *testing.T) {
+	t.Setenv("OPERATOR_DEPLOYMENT_NAME", "pacto-operator")
+	res := &detect.Result{Cluster: "uid-1"}
+	lastDetected = func() *detect.Result { return res }
+	t.Cleanup(func() { lastDetected = nil })
+	m := newFakeManager()
+	o := &options{registry: "registry.example/acme"}
+	if _, err := addTargetSnapshot(m, o, "pacto", testIdent, nil, nil, &detect.Installation{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(m.added, isInferred)
+	if p := m.added[i].(*inferredpublish.InferredPublisher); p.Detected == nil || p.Detected() != res {
+		t.Fatal("the inferred publisher does not read the detector's last Result")
+	}
+}

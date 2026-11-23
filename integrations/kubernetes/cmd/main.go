@@ -806,6 +806,11 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 	if err != nil {
 		return err
 	}
+	// Detection proposes what the cluster provides in one ConfigMap; it never
+	// changes an argument, a rule or a feature. The managed dashboard mounts it
+	// as a file. It is built before the publishers, so the inferred publisher
+	// reads its last Result in process.
+	d := newDetector(mgr, o, namespace, ident)
 	inst, err := addPublishers(mgr, o, namespace, ident, evidenceSourceURL, kc, loaderKC, rec)
 	if err != nil {
 		return err
@@ -841,15 +846,8 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 		Registry:              o.dashboardDeclare.Registry,
 		DeclareRegistrySecret: o.dashboardDeclare.DeclareRegistrySecret,
 	}
-	// Detection proposes what the cluster provides in one ConfigMap; it never
-	// changes an argument, a rule or a feature. The managed dashboard mounts it
-	// as a file.
-	if d := detection.ForOperator(os.Getenv("OPERATOR_DEPLOYMENT_NAME"), namespace, o.namespaces,
-		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig()),
-		inst, lastPush.Load, detection.Readers{GatewayLogs: o.egressGatewayLogs, KernelEvidence: o.enableKernelEvidence,
-			ServiceEntries: servesServiceEntries(mgr), CiliumPolicies: servesCiliumPolicies(mgr),
-			Managed: detection.ManagedFor(mgr.GetConfig()), TerraformStates: o.terraformStates,
-			CloudInventory: o.cloudInventory, WorkloadIdentity: o.workloadIdentity}); d != nil {
+	if d != nil {
+		d.Installation = inst
 		d.Wake = pushed
 		d.Pieces = idpPieces(inst, gate, o.enableEvidence, recorder)
 		if err := mgr.Add(d); err != nil {
@@ -908,6 +906,21 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 	}
 
 	return addNodeAgent(mgr, o, namespace)
+}
+
+// newDetector is the operator's detector, nil without OPERATOR_DEPLOYMENT_NAME. It sets lastDetected to the
+// detector's Last; its Installation is set once the publishers have built it.
+func newDetector(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity) *detection.Detector {
+	d := detection.ForOperator(os.Getenv("OPERATOR_DEPLOYMENT_NAME"), namespace, o.namespaces,
+		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig()),
+		nil, lastPush.Load, detection.Readers{GatewayLogs: o.egressGatewayLogs, KernelEvidence: o.enableKernelEvidence,
+			ServiceEntries: servesServiceEntries(mgr), CiliumPolicies: servesCiliumPolicies(mgr),
+			Managed: detection.ManagedFor(mgr.GetConfig()), TerraformStates: o.terraformStates,
+			CloudInventory: o.cloudInventory, WorkloadIdentity: o.workloadIdentity})
+	if d != nil {
+		lastDetected = d.Last
+	}
+	return d
 }
 
 // idpPieces are the profile idp rows detection writes (the Evidence Server and the recorder), nil outside idp.
@@ -1067,6 +1080,9 @@ func addLinker(mgr ctrl.Manager, o *options, namespace, clusterID string, kc, lo
 var (
 	lastPush atomic.Pointer[detect.PushResult]
 	pushed   = make(chan struct{}, 1)
+	// lastDetected is the detector's last Result (Detector.Last), which the
+	// inferred publisher reads in process; nil when detection is off.
+	lastDetected func() *detect.Result
 )
 
 // recordPush stores a publish attempt and wakes detection without ever blocking the publisher.
@@ -1140,7 +1156,8 @@ func addInferred(mgr ctrl.Manager, o *options, key ed25519.PrivateKey, kc authn.
 		return nil
 	}
 	inferred, err := inferredpublish.ForOperator(inferredpublish.Config{Registry: o.registry, Key: key, Keychain: kc,
-		Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(), Watched: o.namespaces, Pacto: version})
+		Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(), Watched: o.namespaces, Pacto: version,
+		Detected: lastDetected})
 	if err != nil {
 		return err
 	}

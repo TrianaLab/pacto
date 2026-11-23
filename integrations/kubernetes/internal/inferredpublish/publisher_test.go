@@ -25,6 +25,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/registry"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,7 +34,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
@@ -68,6 +72,7 @@ func pacto(ns, service, host string) *unstructured.Unstructured {
 // reader serves objs; fail, when set, answers the list in a namespace.
 func reader(fail func(ns string) error, objs ...client.Object) client.Reader {
 	s := runtime.NewScheme()
+	_ = corev1.AddToScheme(s)
 	s.AddKnownTypeWithName(gvkPactoList.GroupVersion().WithKind("Pacto"), &unstructured.Unstructured{})
 	s.AddKnownTypeWithName(gvkPactoList, &unstructured.UnstructuredList{})
 	return fake.NewClientBuilder().WithScheme(s).WithObjects(objs...).WithInterceptorFuncs(interceptor.Funcs{
@@ -249,5 +254,111 @@ func TestInferredPublisherStartPublishesOnEveryTick(t *testing.T) {
 	p.Tick = nil // the real ticker: a cancelled context stops after one run
 	if err := p.Start(ctx); err != nil {
 		t.Fatal(err)
+	}
+}
+
+const ordersDB = "aws/rds/123456789012/eu-west-1/orders-db"
+
+// targeted is pacto() whose target workload is the Deployment named service.
+func targeted(ns, service string) *unstructured.Unstructured {
+	u := pacto(ns, service, "api.stripe.com")
+	u.Object["spec"] = map[string]any{"target": map[string]any{"serviceName": service,
+		"workloadRef": map[string]any{"kind": "Deployment", "name": service}}}
+	return u
+}
+
+// detected is a detector Result on cluster-uid: the Deployment shop/checkout
+// mounts the Secret orders-db-conn, which a Crossplane RDS instance whose
+// observed engine is engine writes its connection to.
+func detected(engine string) *detect.Result {
+	return &detect.Result{AsOf: now, Cluster: "cluster-uid", ClusterName: "kind-pacto",
+		ManagedResources: []fleet.RawManagedResource{{Source: "crossplane", Identity: ordersDB, Entry: "aws/rds",
+			Catalog: externalcatalog.DefaultDigest(), Type: "rds.aws.upbound.io/Instance", Cluster: "cluster-uid",
+			ClusterName: "kind-pacto", Name: "orders-db", ConnectionSecrets: []string{"shop/orders-db-conn"}, Engine: engine}},
+		SecretRefs: []fleet.RawSecretRef{{Cluster: "cluster-uid", ClusterName: "kind-pacto", Namespace: "shop",
+			Kind: "Deployment", Name: "checkout", Secret: "orders-db-conn"}}}
+}
+
+// engineAt is the observed engine metadata of repo:tag.
+func engineAt(t *testing.T, repo, tag string) string {
+	t.Helper()
+	b, err := publish.NewClient(authn.DefaultKeychain).Pull(context.Background(), repo+":"+tag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, _ := b.Contract.Metadata[fleet.ExternalEngineMetadataKey].(string)
+	return v
+}
+
+// TestPublisherPublishesEngineChange: the consumer is joined from a detected
+// Secret ref on a Pacto's target workload, and an observed engine upgrade
+// publishes a new revision with the engine metadata.
+func TestPublisherPublishesEngineChange(t *testing.T) {
+	host := testHost(t)
+	p, _ := publisher(t, host, reader(nil, targeted("shop", "checkout")), &logs{})
+	res := detected("postgres 15")
+	p.Detected = func() *detect.Result { return res }
+	p.run(context.Background())
+	repo := p.Root + "/" + ordersDB
+	if got := tags(t, repo); !slices.Equal(got, []string{"0.0.1"}) || engineAt(t, repo, "0.0.1") != "postgres 15" {
+		t.Fatalf("tags = %v", got)
+	}
+	res = detected("postgres 16")
+	p.run(context.Background())
+	if got := tags(t, repo); len(got) != 2 || engineAt(t, repo, "0.0.2") != "postgres 16" {
+		t.Fatalf("an engine upgrade published no revision: tags = %v", got)
+	}
+}
+
+// TestPublisherPartialBeforeFirstDetection: before the detector's first run
+// the managed resources are unknown, so the snapshot is partial and no
+// observed engine is dropped; a capped Result is partial too.
+func TestPublisherPartialBeforeFirstDetection(t *testing.T) {
+	host := testHost(t)
+	// The status also names the database, so it stays in the snapshot with
+	// no managed resource read.
+	pc := targeted("shop", "checkout")
+	status := pc.Object["status"].(map[string]any)
+	status["externals"] = append(status["externals"].([]any), map[string]any{"identity": ordersDB, "class": "managed-cloud",
+		"confidence": "likely", "kind": "env", "where": "deployment/checkout env DATABASE_HOST", "entry": "aws/rds"})
+	p, _ := publisher(t, host, reader(nil, pc), &logs{})
+	res := detected("postgres 15")
+	p.Detected = func() *detect.Result { return res }
+	p.run(context.Background())
+	res = nil
+	p.run(context.Background())
+	repo := p.Root + "/" + ordersDB
+	if got := tags(t, repo); len(got) != 1 {
+		t.Fatalf("a detector that has not run removed the engine: tags = %v", got)
+	}
+	extra, undetected := p.detected()
+	if extra != nil || !undetected {
+		t.Fatalf("detected = %v, %v", extra, undetected)
+	}
+	res = detected("")
+	res.ManagedResourcesTotal = detect.MaxManagedResources + 1
+	p.run(context.Background())
+	if got := tags(t, repo); len(got) != 1 {
+		t.Fatalf("a capped detection removed the engine: tags = %v", got)
+	}
+	p.Detected = nil
+	if extra, undetected := p.detected(); extra != nil || undetected {
+		t.Fatalf("no detector: %v, %v", extra, undetected)
+	}
+}
+
+// TestPublisherIgnoresEditedDetectedConfigMap: a forged engine in the
+// detected ConfigMap never reaches what the operator signs; the in-process
+// Result does.
+func TestPublisherIgnoresEditedDetectedConfigMap(t *testing.T) {
+	host := testHost(t)
+	forged, _ := detect.Encode(*detected("postgres 99"))
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: "pacto-system", Name: "pacto-detected"},
+		Data: map[string]string{detect.ConfigMapKey: string(forged)}}
+	p, _ := publisher(t, host, reader(nil, targeted("shop", "checkout"), cm), &logs{})
+	p.Detected = func() *detect.Result { return detected("postgres 16") }
+	p.run(context.Background())
+	if got := engineAt(t, p.Root+"/"+ordersDB, "0.0.1"); got != "postgres 16" {
+		t.Fatalf("published engine = %q", got)
 	}
 }
