@@ -73,6 +73,7 @@
   // Empty with complete knowledge: say what a golden path is. With incomplete knowledge,
   // or a catalog that could not be read whole, "none yet" would be a guess.
   const noneDeclared = $derived(state.kind === 'empty-fleet' && !limitations.length);
+  const noneKnown = $derived(state.kind === 'empty-fleet' && limitations.length > 0);
 
   // The inferred rows follow the declared ones on the last declared page.
   const inferredList = $derived(list?.inferredTemplates ?? null);
@@ -202,7 +203,7 @@
   <!-- Past the end counts the declared rows only: the inferred block rides on every page. -->
   {#if pastEnd(list, list?.entities?.length ?? 0)}
     <Pager page={list} href={pageHref} count={0} noun="golden paths" testid="golden-path" />
-  {:else if state.kind === 'empty-fleet' && limitations.length}
+  {:else if noneKnown}
     <p class="t-body-2" role="status" data-testid="golden-paths-unknown">No golden path is known yet.</p>
   {:else if noneDeclared}
     <div class="gp-empty" role="status" data-testid="golden-paths-empty">
