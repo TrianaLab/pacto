@@ -217,8 +217,7 @@ eventually 40 row_is '.state == "pending" and .keyID == $k and .name != "" and .
 }
 pass "pacto cluster list: $M_UID pending as $(member_row | jq -r '"\(.name) (\(.nameSource))"'), key sha256:$K1 equal to the member's snapshotKeyID"
 
-kubectl --context "$CTX_H" create clusterrole pacto-cluster-approver --verb=approve --resource=clusterjoins.pacto.trianalab.io \
-  --dry-run=client -o yaml | kubectl --context "$CTX_H" apply -f - >/dev/null
+cluster_approver_role "$CTX_H"
 kubectl --context "$CTX_H" create clusterrolebinding pacto-cluster-approver --clusterrole=pacto-cluster-approver \
   --user=oidc:alice@acme.test --serviceaccount="$NS:pacto-viewer" --dry-run=client -o yaml | kubectl --context "$CTX_H" apply -f - >/dev/null
 DASH_PF="$(pf "$LOCAL_DASH_PORT" svc/pacto-dashboard 3000)"

@@ -349,8 +349,7 @@ HUB="https://$HUB_HOST"
 hcurl() { curl -s --cacert "$WORK/ca.crt" --resolve "$HUB_HOST:443:$HUB_IP" "$@"; }
 hub_up() { [ "$(hcurl -o /dev/null -w '%{http_code}' "$HUB/")" != 000 ] && [ "$(hcurl -o /dev/null -w '%{http_code}' "$HUB/")" -lt 500 ]; }
 eventually 60 hub_up || fail "the hub dashboard does not answer at $HUB through the ingress"
-kubectl --context "$CTX_H" create clusterrole pacto-cluster-approver --verb=approve --resource=clusterjoins.pacto.trianalab.io \
-  --dry-run=client -o yaml | kubectl --context "$CTX_H" apply -f - >/dev/null
+cluster_approver_role "$CTX_H"
 kubectl --context "$CTX_H" create clusterrolebinding pacto-cluster-approver --clusterrole=pacto-cluster-approver \
   --user=oidc:alice@acme.test --dry-run=client -o yaml | kubectl --context "$CTX_H" apply -f - >/dev/null
 pass "the hub dashboard answers at $HUB with TLS from the scenario CA"

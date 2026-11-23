@@ -756,3 +756,16 @@ helm_teardown() { # NS — the generic cleanup: uninstall the release, drop the 
   helm uninstall pacto-operator -n "$1" --wait >/dev/null 2>&1 || true
   kubectl delete ns "$1" --wait=false >/dev/null 2>&1 || true
 }
+
+# cluster_approver_role CONTEXT — the ClusterRole pacto-cluster-approver, granting
+# approve on clusterjoins.pacto.trianalab.io. The hub authorizes an approval with
+# a SubjectAccessReview on that resource, which no API serves, so it is written
+# as YAML: `kubectl create clusterrole` refuses a resource discovery does not list.
+cluster_approver_role() {
+  kubectl --context "$1" apply -f - >/dev/null <<'YAML'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: pacto-cluster-approver}
+rules: [{apiGroups: [pacto.trianalab.io], resources: [clusterjoins], verbs: [approve]}]
+YAML
+}
