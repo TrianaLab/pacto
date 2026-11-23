@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -48,6 +49,9 @@ type Installation struct {
 	// Pushes is every prefix a cluster-side process may push under.
 	Pushes   []string    `json:"pushes,omitempty"`
 	LastPush *PushResult `json:"lastPush,omitempty"`
+	// ChartVersion is the chart version the operator runs, the one a
+	// generated member install pins; empty when it is not advertised.
+	ChartVersion string `json:"chartVersion,omitempty"`
 }
 
 // Declared is the Installation block as the capability answer reads it, with
@@ -79,6 +83,9 @@ func checkInstallation(inst *Installation) error {
 	return nil
 }
 
+// chartVersion is at most 64 bytes of semver characters.
+var chartVersion = regexp.MustCompile(`^[0-9A-Za-z.+-]{0,64}$`)
+
 // sanitizeInstallation cleans every string of inst and caps its prefixes and
 // profiles.
 func sanitizeInstallation(inst *Installation) {
@@ -87,6 +94,9 @@ func sanitizeInstallation(inst *Installation) {
 	}
 	for _, s := range []*string{&inst.Registry, &inst.Targets, &inst.Index, &inst.Inferred, &inst.SnapshotKey, &inst.SnapshotKeyID} {
 		*s = clean(*s)
+	}
+	if inst.ChartVersion = clean(inst.ChartVersion); !chartVersion.MatchString(inst.ChartVersion) {
+		inst.ChartVersion = ""
 	}
 	inst.Pushes = cleanAll(inst.Pushes, MaxPushes)
 	inst.Profile = cleanAll(inst.Profile, MaxProfiles)
