@@ -27,7 +27,7 @@ rules:
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [operations]
     # delete: with the recorder, a recorded operation is deleted after recorder.operationTTL.
-    verbs: [get, list, watch, create, update, patch{{ if .Values.delivery.recorder.enabled }}, delete{{ end }}]
+    verbs: [get, list, watch, create, update, patch{{ if include "pacto-operator.recorderEnabled" . }}, delete{{ end }}]
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [stages/status, operations/status]
     verbs: [get, update, patch]

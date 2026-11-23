@@ -368,3 +368,154 @@ func TestInstallationAppliersAdoptedOutsideIDP(t *testing.T) {
 		}
 	}
 }
+
+// installRow is the operator's declared Installation row, detected in cluster.
+func installRow(id, name string) Provider {
+	at := fixedNow()
+	return Provider{ID: "installation", Name: "Installation", Evidence: "profile idp", Status: SourceAvailable,
+		Provenance: ProvenanceDeclared, AsOf: &at, Cluster: name, ClusterID: id}
+}
+
+// engineOf is the provisioning engine q answers for the operator declared in
+// cluster id.
+func engineOf(q *Query, id string) InstallationProvisioning {
+	in := declaredInput("idp")
+	in.Declared.ClusterID = id
+	return q.Installation(in).Provisioning
+}
+
+func TestInstallationEngineCrossplane(t *testing.T) {
+	q := idpQuery(t, ordersFleet(), nil, installRow("uid-2", "prod-eu"), crossplaneRow("uid-2", "prod-eu", SourceAvailable, crossplaneRuns),
+		crossplaneRow("uid-1", "staging", SourceAvailable, crossplaneNone))
+	p := engineOf(q, "uid-2")
+	if p.Engine != InstallationEngineCrossplane || p.Completeness != InstallationComplete || p.Provenance != ProvenanceInferred ||
+		!strings.Contains(p.Source, "detected crossplane row") || p.AsOf == nil || !p.AsOf.Equal(fixedNow()) {
+		t.Errorf("provisioning = %+v", p)
+	}
+}
+
+// Only a provisioning record makes the engine adapter: a usage report or a
+// reporting row from the same adapter does not.
+func TestInstallationEngineAdapterFromProvisioningRecordOnly(t *testing.T) {
+	none := crossplaneRow("uid-1", "staging", SourceAvailable, crossplaneNone)
+	q := idpQuery(t, ordersFleet(), &Collection{Provisioning: []RawProvisioning{report()}}, installRow("uid-1", "staging"), none)
+	if p := engineOf(q, "uid-1"); p.Engine != InstallationEngineAdapter || p.Completeness != InstallationComplete || !strings.Contains(p.Source, "an adapter reported provisioning in this cluster: 1 reports") {
+		t.Errorf("provisioning = %+v", p)
+	}
+	q = idpQuery(t, ordersFleet(), &Collection{Usage: []RawUsage{usageReport()}}, installRow("uid-1", "staging"), none)
+	if p := engineOf(q, "uid-1"); p.Engine != InstallationEngineNone {
+		t.Errorf("a usage report alone made provisioning %+v", p)
+	}
+	// A source bound to prod-eu attributes its records there, whatever their environment.
+	dev := report(func(r *RawProvisioning) { r.Environment = "dev" })
+	q = idpQuery(t, ordersFleet(), &Collection{Cluster: clusterOf("uid-2", "prod-eu", ClusterNameFromContext), Provisioning: []RawProvisioning{dev}},
+		installRow("uid-2", "prod-eu"), crossplaneRow("uid-2", "prod-eu", SourceAvailable, crossplaneNone))
+	if p := engineOf(q, "uid-2"); p.Engine != InstallationEngineAdapter {
+		t.Errorf("a record from prod-eu's source made provisioning %+v", p)
+	}
+}
+
+func TestInstallationEngineNone(t *testing.T) {
+	q := idpQuery(t, ordersFleet(), nil, installRow("uid-2", "prod-eu"), crossplaneRow("uid-2", "prod-eu", SourceAvailable, crossplaneNone))
+	if p := engineOf(q, "uid-2"); p.Engine != InstallationEngineNone || p.Completeness != InstallationComplete || !strings.Contains(p.Source, CrossplaneNoneFound) {
+		t.Errorf("provisioning = %+v", p)
+	}
+}
+
+func TestInstallationEngineUnknownWhenRowStale(t *testing.T) {
+	for _, row := range []Provider{
+		crossplaneRow("uid-2", "prod-eu", SourceStale, crossplaneRuns),
+		crossplaneRow("uid-2", "prod-eu", SourceStale, crossplaneNone),
+		crossplaneRow("uid-2", "prod-eu", SourcePartial, crossplaneNoCtrl),
+	} {
+		q := idpQuery(t, ordersFleet(), nil, installRow("uid-2", "prod-eu"), row)
+		if p := engineOf(q, "uid-2"); p.Engine != InstallationEngineUnknown || p.Completeness != InstallationUnknown || p.Source != installationProvisioning {
+			t.Errorf("%s: provisioning = %+v", row.Evidence, p)
+		}
+	}
+}
+
+func TestInstallationEngineHiddenClusterUnknown(t *testing.T) {
+	q := idpQuery(t, ordersFleet(), nil, installRow("uid-2", "prod-eu"), crossplaneRow("uid-2", "prod-eu", SourceAvailable, crossplaneNone))
+	r := q.Restrict(anyCluster(readerOf("team-a")), anyClusterKind(nil))
+	if p := engineOf(r, "uid-2"); p.Engine != InstallationEngineUnknown || p.Completeness != InstallationUnknown {
+		t.Errorf("a hidden cluster's engine = %+v", p)
+	}
+	for _, p := range r.SnapshotForSerialization().Providers {
+		if p.ID == ProviderCrossplane && (p.Hint != "" || p.ClusterID != "" || p.Cluster != "") {
+			t.Errorf("hidden crossplane row = %+v", p)
+		}
+	}
+}
+
+// A record attributed to staging never makes prod-eu's engine adapter.
+func TestInstallationEngineIgnoresOtherClustersRecords(t *testing.T) {
+	q := idpQuery(t, ordersFleet(), &Collection{Provisioning: []RawProvisioning{report()}}, installRow("uid-2", "prod-eu"),
+		crossplaneRow("uid-2", "prod-eu", SourceAvailable, crossplaneNone))
+	if p := engineOf(q, "uid-2"); p.Engine != InstallationEngineNone {
+		t.Errorf("provisioning = %+v", p)
+	}
+}
+
+// A record from a source bound to no cluster whose environment names no
+// target of its service is attributed to no cluster: unknown, never none.
+func TestInstallationEngineUnattributableRecordIsUnknown(t *testing.T) {
+	for name, rec := range map[string]RawProvisioning{
+		"no target in the environment": report(func(r *RawProvisioning) { r.Environment = "dev" }),
+		"no environment": report(func(r *RawProvisioning) {
+			r.Environment, r.Outcome, r.Phase, r.Provider, r.ExternalRef = "", "Insufficient", "", "", ""
+		}),
+	} {
+		q := idpQuery(t, ordersFleet(), &Collection{Provisioning: []RawProvisioning{rec}}, installRow("uid-2", "prod-eu"),
+			crossplaneRow("uid-2", "prod-eu", SourceAvailable, crossplaneNone))
+		if p := engineOf(q, "uid-2"); p.Engine != InstallationEngineUnknown || p.Completeness != InstallationUnknown || !strings.Contains(p.Source, "attributed") {
+			t.Errorf("%s: provisioning = %+v", name, p)
+		}
+	}
+}
+
+// A restricted view attributes a report from the unrestricted snapshot: a
+// report the full view cannot place, because orders runs in production in
+// both clusters, never lands on the one cluster the viewer still sees.
+func TestInstallationEngineRestrictedViewKeepsTheFullAttribution(t *testing.T) {
+	q := idpQueryWith(t, ordersFleet(), &Collection{Provisioning: []RawProvisioning{report()}}, nil, []RawTarget{ordersIn("team-b")},
+		installRow("uid-1", "staging"), crossplaneRow("uid-1", "staging", SourceAvailable, crossplaneNone))
+	if p := engineOf(q, "uid-1"); p.Engine != InstallationEngineUnknown {
+		t.Fatalf("unrestricted provisioning = %+v", p)
+	}
+	r := q.Restrict(anyCluster(readerOf("team-a", "shop")), anyClusterKind(nil))
+	if p := engineOf(r, "uid-1"); p.Engine != InstallationEngineUnknown || p.Completeness != InstallationUnknown {
+		t.Errorf("restricted provisioning = %+v", p)
+	}
+}
+
+// A view that hides the service an adapter reported for may not know of that
+// adapter: its none-found row gives unknown, never none.
+func TestInstallationEngineRestrictedViewNeverSaysNone(t *testing.T) {
+	billing := report(func(r *RawProvisioning) { r.Service, r.Digest = "billing", testDigest(acme, "billing", "1.0.0") })
+	base := ordersFleet()
+	base.Revisions = append(base.Revisions, consumer("billing", "1.0.0", "postgresql"))
+	q := idpQueryWith(t, base, &Collection{Provisioning: []RawProvisioning{billing}}, []RawTarget{workload("ops", "billing")}, nil,
+		installRow("uid-1", "staging"), crossplaneRow("uid-1", "staging", SourceAvailable, crossplaneNone))
+	r := q.Restrict(anyCluster(readerOf("team-a")), anyClusterKind(nil))
+	if p := engineOf(r, "uid-1"); p.Engine != InstallationEngineUnknown || !strings.Contains(p.Source, "partial") {
+		t.Errorf("restricted provisioning = %+v", p)
+	}
+}
+
+// Only stale reports never make a fresh, complete adapter: the engine is
+// unknown, dated by the newest report.
+func TestInstallationEngineStaleReportsAreUnknown(t *testing.T) {
+	old := fixedNow().AddDate(0, -8, 0)
+	stale := report(func(r *RawProvisioning) { r.ObservedAt, r.AcceptedAt = old, &old })
+	q := idpQuery(t, ordersFleet(), &Collection{Provisioning: []RawProvisioning{stale}}, installRow("uid-1", "staging"),
+		crossplaneRow("uid-1", "staging", SourceAvailable, crossplaneNone))
+	if p := engineOf(q, "uid-1"); p.Engine != InstallationEngineUnknown || p.AsOf == nil || !p.AsOf.Equal(old) || !strings.Contains(p.Source, "older than the provisioning window") {
+		t.Errorf("provisioning = %+v", p)
+	}
+	// A fresh report is dated by itself, never by the snapshot.
+	q = idpQuery(t, ordersFleet(), &Collection{Provisioning: []RawProvisioning{report()}}, installRow("uid-1", "staging"))
+	if p := engineOf(q, "uid-1"); p.Engine != InstallationEngineAdapter || p.AsOf == nil || !p.AsOf.Equal(fixedNow().Add(-time.Hour)) {
+		t.Errorf("provisioning = %+v", p)
+	}
+}

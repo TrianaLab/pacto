@@ -6,4 +6,4 @@ dependencies:
   repository: https://charts.dexidp.io
   version: 0.26.0
 digest: sha256:18037f61364c12e215c77c927cb1deb1087f58e139e6ac163b8b722db7840f39
-generated: "2026-10-27T21:39:58.195443+01:00"
+generated: "2026-11-23T07:54:21.851342+01:00"

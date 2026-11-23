@@ -93,6 +93,16 @@ describe('ResourceList', () => {
     done();
   });
 
+  it('ResourceList shows the suggestion as a note', () => {
+    const suggestion = 'no provisioner found: see Write an adapter (https://pacto.run/latest/provision-infrastructure/#write-an-adapter)';
+    const uses = [{ ...catalog[0], provisioning: [{ phase: 'Unknown', provenance: 'observed', verified: false, reason: 'no provider has reported provisioning for this use', suggestion }] }];
+    const { target, done } = render({ uses });
+    const notes = Array.from(target.querySelectorAll('[data-testid="resource-status"] .rl-note'));
+    expect(notes.map((n) => n.getAttribute('title'))).toContain(suggestion);
+    expect(notes.map(text)).toContain(suggestion);
+    done();
+  });
+
   it('opens the request rail from a badge', () => {
     const { target, done } = render({ uses: catalog });
     expect(target.querySelector('[data-testid="offering-use-figure"]')).toBeNull();

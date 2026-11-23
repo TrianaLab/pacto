@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -16,6 +17,9 @@ const (
 	InstallationApplierAdopted   = "adopted"
 	InstallationApplierIDPFlux   = "idp-flux"
 	InstallationEngineUnknown    = "unknown"
+	InstallationEngineCrossplane = "crossplane"
+	InstallationEngineAdapter    = "adapter"
+	InstallationEngineNone       = "none"
 	installationRowID            = "installation"
 	installationHidden           = "the fleet snapshot in your view holds no Installation row for this cluster: your view hides it, or the snapshot predates the detection"
 	installationNoQuery          = "no fleet snapshot in your view: none is published yet, or your permissions could not be checked"
@@ -28,6 +32,12 @@ const (
 	installationInProcess        = "this server serves delivery itself"
 	installationProbed           = "the delivery probe of this server"
 	installationProvisioning     = "no source here detects a provisioning engine"
+	installationEngineRow        = "detected crossplane row: "
+	installationEngineAdapter    = "an adapter reported provisioning in this cluster: %d reports attributed through their source or environment"
+	installationEngineNoAdapter  = "; no adapter reported provisioning here"
+	installationEngineUnplaced   = "%d provisioning reports could not be attributed to a cluster, so an adapter may run here"
+	installationEngineStale      = "%d provisioning reports attributed here or to no cluster are older than the provisioning window (newest %s), so whether an adapter still runs here is unknown"
+	installationEnginePartial    = "; your view of the fleet snapshot is partial, so a provisioning report may be hidden from it"
 	installationJoinsNotRead     = "; cluster join requests are not read here"
 	installationClustersInView   = "the clusters in your view of the fleet snapshot"
 	installationApplierEvidence  = "Pacto delivery adopts workloads it owns per target"
@@ -175,7 +185,7 @@ func (q *Query) Installation(in InstallationInput) Installation {
 		Profile:      installationProfile(d, source, completeness),
 		Registry:     installationRegistry(d, source, completeness),
 		Delivery:     q.installationDelivery(in, d),
-		Provisioning: InstallationProvisioning{Engine: InstallationEngineUnknown, Source: installationProvisioning, AsOf: &now, Provenance: ProvenanceInferred, Completeness: InstallationUnknown},
+		Provisioning: q.installationProvisioning(d, now),
 		Clusters:     q.installationClusters(in),
 		MCP:          InstallationMCP{Served: in.MCPServed, Source: in.MCPSource, AsOf: &now, Provenance: InstallationProvenanceHost, Completeness: InstallationComplete},
 	}
@@ -337,6 +347,97 @@ func (out *InstallationDelivery) addApplier(p Provider, idp bool) {
 		}
 		out.Appliers = append(out.Appliers, a)
 	}
+}
+
+// installationProvisioning is the provisioning engine of the declared
+// cluster, inferred from that cluster's detected crossplane rows and the
+// provisioning reports attributed to it: a running Crossplane is crossplane,
+// else an attributed report is adapter, else a report attributed to no
+// cluster is unknown, else a row that found no Crossplane is none. Anything
+// else, a hidden cluster (d nil) included, is unknown.
+func (q *Query) installationProvisioning(d *InstallationDeclared, now time.Time) InstallationProvisioning {
+	out := InstallationProvisioning{Engine: InstallationEngineUnknown, Source: installationProvisioning, AsOf: &now, Provenance: ProvenanceInferred, Completeness: InstallationUnknown}
+	if d == nil {
+		return out
+	}
+	clusters := clusterOfSource(q.snap)
+	var none *Provider
+	for _, p := range q.snap.Providers {
+		if p.ID != ProviderCrossplane || p.Provenance != ProvenanceInferred || p.Cluster == "" || providerCluster(p, clusters) != d.ClusterID {
+			continue
+		}
+		switch {
+		case crossplaneRunning(p):
+			out.Engine, out.Source, out.AsOf, out.Completeness = InstallationEngineCrossplane, installationEngineRow+p.Evidence, p.AsOf, InstallationComplete
+			return out
+		case crossplaneNoneFound(p):
+			none = &p
+		}
+	}
+	r := q.reportsIn(d.ClusterID, clusters)
+	at := q.snap.GeneratedAt
+	switch {
+	case r.in > 0:
+		out.Engine, out.Source, out.AsOf, out.Completeness = InstallationEngineAdapter, fmt.Sprintf(installationEngineAdapter, r.in), &r.newest, InstallationComplete
+	case r.unplaced > 0:
+		out.Source, out.AsOf = fmt.Sprintf(installationEngineUnplaced, r.unplaced), &at
+	case r.stale > 0:
+		out.Source, out.AsOf = fmt.Sprintf(installationEngineStale, r.stale, r.newest.UTC().Format(time.RFC3339)), &r.newest
+	case none != nil && q.snap.Completeness == CompletenessPartial:
+		out.Source, out.AsOf = installationEngineRow+none.Evidence+installationEnginePartial, none.AsOf
+	case none != nil:
+		out.Engine, out.Source, out.AsOf, out.Completeness = InstallationEngineNone, installationEngineRow+none.Evidence+installationEngineNoAdapter, none.AsOf, InstallationComplete
+	}
+	return out
+}
+
+// reportCount is the provisioning reports reportsIn attributes: fresh ones
+// in the cluster, fresh ones attributed to no cluster, stale ones of either,
+// and the newest ObservedAt of the fresh ones in the cluster, else of the
+// stale ones.
+type reportCount struct {
+	in, unplaced, stale int
+	newest              time.Time
+}
+
+// reportsIn counts the provisioning reports attributed to cluster and those
+// attributed to none (see reportCluster). A restricted view reads the
+// attribution Restrict made from the unrestricted snapshot. A report older
+// than the provisioning window is only stale: an adapter that reported once
+// and was removed runs nowhere now.
+func (q *Query) reportsIn(cluster string, clusters map[string]string) reportCount {
+	var r reportCount
+	var envs map[serviceEnv]map[string]bool
+	var newestStale time.Time
+	for i := range q.snap.Provisioning {
+		rec := &q.snap.Provisioning[i]
+		c := rec.cluster
+		if !q.snap.reportsPlaced {
+			if envs == nil && clusters[rec.Source] == "" {
+				envs = envClusterIndex(q.snap)
+			}
+			c = reportCluster(rec, clusters, envs)
+		}
+		switch {
+		case c != "" && c != cluster:
+		case q.staleReport(rec):
+			r.stale++
+			if rec.ObservedAt.After(newestStale) {
+				newestStale = rec.ObservedAt
+			}
+		case c == "":
+			r.unplaced++
+		default:
+			r.in++
+			if rec.ObservedAt.After(r.newest) {
+				r.newest = rec.ObservedAt
+			}
+		}
+	}
+	if r.in == 0 {
+		r.newest = newestStale
+	}
+	return r
 }
 
 // installationClusters counts the clusters of the caller's snapshot and the

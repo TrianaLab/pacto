@@ -922,6 +922,9 @@ func provisioningText(st fleet.ProvisioningStatus) string {
 	if st.Reason != "" {
 		s += ": " + st.Reason
 	}
+	if st.Suggestion != "" {
+		s += "; " + st.Suggestion
+	}
 	return s
 }
 

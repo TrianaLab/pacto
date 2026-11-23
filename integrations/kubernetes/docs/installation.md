@@ -222,6 +222,9 @@ Delivery stays off until `delivery.enabled=true`.
   recorder writes `pacto-streams`. Every other tag, delete and manifest push
   is refused. Outside these repositories only referrers are written, by
   digest onto an existing manifest, by the Evidence Server and the recorder.
+  With `evidence.registry.subjectPrefixes`, the Evidence Server also tags
+  `<prefix>pacto-evidence` with its own credential; see
+  [the Evidence Server](evidence-server.md).
 - **Read ACL:** pull on `pacto-targets` reads every namespace's Pacto status
   and workload shape, so give that repository its own read ACL.
 - **Installation key:** the operator creates the Secret

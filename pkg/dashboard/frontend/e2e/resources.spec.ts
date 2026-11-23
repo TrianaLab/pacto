@@ -69,6 +69,19 @@ test.describe('WASM demo — resources a service consumes', () => {
     await expect(list.getByTestId('resource-usage-entry')).toHaveCount(0);
   });
 
+  test('payments-service: a use nothing reported on suggests the detected Crossplane, in the title and as a visible note', async ({ page }) => {
+    const list = await openResources(page, 'payments-service');
+    const SUGGESTION = 'Crossplane detected in production: accept its inferred offerings';
+    const status = list.getByTestId('resource-status').filter({ hasText: SUGGESTION });
+    await expect(status.first()).toBeVisible({ timeout: T });
+    await expect(status.first()).toContainText('Unknown: no provider has reported provisioning for this use');
+    // The note is visible text, so a touch pointer reaches it; the badge title ends with it.
+    await expect(status.first().locator('.rl-note', { hasText: SUGGESTION })).toBeVisible();
+    const title = await status.first().getByTestId('provisioning-badge').locator('.tag').getAttribute('title');
+    expect(title?.split('\n').at(-1)).toBe(SUGGESTION);
+    await expectAxeClean(page);
+  });
+
   test('notification-worker: a resource with no offering that failed, and its attention item', async ({ page }) => {
     const list = await openResources(page, 'notification-worker');
     const card = list.getByTestId('service-resource').filter({ has: page.locator('a.entity-link[href$="/fleet/services/email-provider"]') });

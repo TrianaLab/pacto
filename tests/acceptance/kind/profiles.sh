@@ -42,6 +42,8 @@ set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 # shellcheck source=tests/acceptance/kind/delivery-lib.sh
 source "$(dirname "$0")/delivery-lib.sh"
+# shellcheck source=tests/acceptance/kind/profiles-lib.sh
+source "$(dirname "$0")/profiles-lib.sh"
 
 CLUSTER="${KIND_CLUSTER:-pacto-mono}"
 HD=pacto-hd   # hardened release and its namespace (also the registry's)
@@ -96,23 +98,9 @@ SETS=(--set global.imageRegistry= --set image.repository="$OP_REPO" --set image.
       --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never
       --set "insecureRegistries[0]=$REG_HOST" --set "delivery.insecureRegistries[0]=$REG_HOST")
 
-# adopt_crds RELEASE — the CRDs are kept on uninstall (helm.sh/resource-policy:
-# keep) and carry the release that created them; hand them to RELEASE so its
-# install adopts them instead of refusing them.
-adopt_crds() {
-  local crds
-  crds="$(kubectl get crd -o name | grep 'pacto\.trianalab\.io$' || true)"
-  [ -z "$crds" ] && return 0
-  # shellcheck disable=SC2086  # one argument per CRD
-  kubectl annotate --overwrite $crds "meta.helm.sh/release-name=$1" "meta.helm.sh/release-namespace=$1" >/dev/null
-}
-
-gone() { ! kubectl get "$@" >/dev/null 2>&1; }
-detected_json() { kubectl -n "$NS" get configmap "$DETECTED" -o jsonpath='{.data.detected\.json}' 2>/dev/null; }
 detected_profile() { # JSON_ARRAY — the operator advertises exactly that profile
   detected_json | jq -e --argjson want "$1" '.installation.profile == $want' >/dev/null 2>&1
 }
-op_args() { kubectl -n "$NS" get deploy pacto-operator -o json | jq -c '.spec.template.spec.containers[0].args'; }
 revision() { helm status "$1" -n "$1" -o json | jq -r .version; }
 release_leftovers() { # RELEASE — every object labelled with the release, in any namespace
   kubectl get all,role,rolebinding,clusterrole,clusterrolebinding,serviceaccount,configmap -A \
@@ -181,7 +169,6 @@ eventually 30 detected_profile '["hardened"]' || fail "the detected ConfigMap do
 # first push, so the push is read from the registry, not from lastPush.
 CLUSTER_ID="$(detected_json | jq -r .cluster)"
 REG_PF="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
-pushed() { curl -fsS --max-time 5 "http://127.0.0.1:${LOCAL_REG_PORT}/v2/acme/pacto-targets/tags/list" | jq -e --arg t "cluster-$CLUSTER_ID" '.tags | index($t)' >/dev/null 2>&1; }
 eventually 60 pushed || { kill "$REG_PF" 2>/dev/null || true; fail "the operator never pushed $REG_HOST/acme/pacto-targets:cluster-$CLUSTER_ID"; }
 kill "$REG_PF" 2>/dev/null || true
 pass "the operator advertises profile [hardened], cluster $CLUSTER_ID and pushed $REG_HOST/acme/pacto-targets:cluster-$CLUSTER_ID"
@@ -266,7 +253,6 @@ eventually 30 detected_profile '["idp"]' || fail "the detected profile never rea
 DASH_PF="$(pf "$LOCAL_DASH_PORT" svc/pacto-dashboard 3000)"
 SESSION="$(dash_token_login "$LOCAL_DASH_PORT" "$(kubectl -n "$IDP" create token pacto-viewer --audience pacto-dashboard --duration 10m)" link)"
 [[ -n "$SESSION" && "$SESSION" != *" "* ]] || { kill "$DASH_PF" 2>/dev/null || true; fail "the pacto-viewer token did not sign in: $SESSION"; }
-installation() { curl -fsS -H "Cookie: __Host-pacto-session=$SESSION" "http://127.0.0.1:${LOCAL_DASH_PORT}/api/capabilities" | jq -c .installation; }
 idp_answer() {
   installation | jq -e '.profile.value == ["idp"] and .delivery.enabled == true and .mcp.served == true' >/dev/null
 }

@@ -173,16 +173,17 @@ keys:
 ```
 
 The Evidence Server stores each report on the consumer revision it is about,
-so that revision must be one of its `--subject` values. Its targets endpoint
-lists consumer contracts, producers and external references: keep it behind
-the same network and auth boundary as the dashboard. See
+so that revision must be one of its `--subject` values or sit under a
+`--subject-prefix`. With
+`evidence.registry.subjectPrefixes: ["oci://<registry>/<org>/"]` every revision
+published under it can receive reports with no restart. Keep its targets
+endpoint behind the same network and auth boundary as the dashboard. See
 [Evidence](evidence.md) for the trust store and the Evidence Server.
 
 On Kubernetes, put that trust config in the operator's trust Secret next to
 the public keys and set `evidence.trust.configKey` to its key; see
 [Provisioning reports](integrations/kubernetes/evidence-server.md#provisioning-reports).
-Without it, the operator's Evidence Server trusts each public key for runtime
-evidence only and rejects `ResourceProvisioned` reports.
+Without it, the operator's Evidence Server accepts runtime evidence only.
 
 [Plugins](plugins.md) are another seam: `pacto generate` hands a contract to
 a program that writes files, such as the manifests your provisioning tool
@@ -203,6 +204,17 @@ it is neither failure nor success. The status is Unknown when:
 - the newest report is for an older revision of the consumer;
 - two producers with current reports disagree, which also adds a
   `PROVISIONING_CONFLICT` limitation.
+
+When no provider has reported, the status may carry one suggestion:
+
+- `Crossplane detected in <cluster>: accept its inferred offerings`, when a
+  cluster in your view runs Crossplane;
+- `no provisioner found: see Write an adapter`, when every cluster in your
+  view runs no Crossplane and no adapter has reported;
+- nothing when Pacto cannot tell.
+
+The CLI appends it to the status, `pacto_fleet_entity` returns it as
+`suggestion` and the dashboard shows it under the status.
 
 Reports from a target-state file show as unsigned. A viewer restricted to some
 namespaces sees a provider with no Kubernetes target, its owner and versions,

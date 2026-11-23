@@ -204,3 +204,46 @@ tests:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     asserts:
       - hasDocuments: {count: 0}
+
+  # 6.x values carry no idp key and hold delivery.recorder.enabled: false (515-S2):
+  # the arguments stay the 6.x list.
+  - it: should render the 6.x arguments for 6.x values without idp
+    template: templates/deployment.yaml
+    set:
+      <<: *reuse6x
+      idp: null
+      delivery.recorder.enabled: false
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+          - --leader-elect=true
+          - --health-probe-bind-address=:8081
+          - --metrics-bind-address=:8443
+          - --metrics-secure=true
+          - --node-agent-namespace=pacto-node-agent
+          - --enable-dashboard
+          - --dashboard-cpu-request=50m
+          - --dashboard-memory-request=128Mi
+          - --dashboard-memory-limit=512Mi
+          - --dashboard-token-login
+          - --dashboard-mcp
+
+  # --reuse-values keeps the 6.x default delivery.recorder.enabled: false, which
+  # reads as a person's false: profile idp keeps the recorder off and says so.
+  - it: should keep the recorder off when idp is set over reused 6.x values
+    template: templates/deployment.yaml
+    capabilities:
+      apiVersions: [admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy]
+    set:
+      <<: *reuse6x
+      idp: null
+      delivery.recorder.enabled: false
+      profile: idp
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --idp-recorder=off
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-server-auto

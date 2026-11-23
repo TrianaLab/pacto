@@ -5,13 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
-
-	"oras.land/oras-go/v2/registry/remote/errcode"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -72,20 +68,12 @@ func (s *Service) indexRepository(ctx context.Context, candidates []string) (rep
 				note = "after " + strings.Join(absent, ", ") + ": not found"
 			}
 			return c, note, tags, nil
-		case err != nil && !registryNotFound(err):
+		case err != nil && !ocireferrer.RepositoryNotFound(err):
 			return c, "", nil, err
 		}
 		absent = append(absent, c)
 	}
 	return candidates[0], "", nil, fmt.Errorf("%w at %s", errIndexNotFound, strings.Join(candidates, " or "))
-}
-
-// registryNotFound reports whether a registry answered that a repository
-// does not exist.
-func registryNotFound(err error) bool {
-	var resp *errcode.ErrorResponse
-	return errors.As(err, &resp) && (resp.StatusCode == http.StatusNotFound ||
-		slices.ContainsFunc(resp.Errors, func(e errcode.Error) bool { return e.Code == errcode.ErrorCodeNameUnknown }))
 }
 
 // keepIndexEntry writes the organization index entry of b, published as

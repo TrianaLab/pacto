@@ -331,7 +331,7 @@ func TestTargetPublisherUnionsEvidenceTargets(t *testing.T) {
 	}))
 	defer srv.Close()
 	e := newTargetsEnv(t, fakeReader(snapshotObjects()...))
-	e.p.EvidenceURL, e.p.HTTP = srv.URL, srv.Client()
+	e.p.EvidenceURL, e.p.HTTP = func() string { return srv.URL }, srv.Client()
 	if err := e.p.publish(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +353,8 @@ func TestTargetPublisherUnionsEvidenceTargets(t *testing.T) {
 	} {
 		name := tc.name
 		mu.Lock()
-		e.p.EvidenceURL, answer, status = tc.url, tc.answer, tc.status
+		url := tc.url
+		e.p.EvidenceURL, answer, status = func() string { return url }, tc.answer, tc.status
 		mu.Unlock()
 		if err := e.p.publish(context.Background()); err != nil {
 			t.Fatalf("%s: %v", name, err)

@@ -37,6 +37,9 @@ func TestDemoCapabilitiesInstallation(t *testing.T) {
 	if e := inst.Delivery.Enabled; e == nil || !*e || inst.Delivery.Source != "this server serves delivery itself" {
 		t.Errorf("delivery %+v", inst.Delivery)
 	}
+	if inst.Provisioning.Engine != fleet.InstallationEngineCrossplane {
+		t.Errorf("provisioning %+v, want engine crossplane from the detected Crossplane row", inst.Provisioning)
+	}
 	for name, src := range map[string]string{"profile": inst.Profile.Source, "registry": inst.Registry.Source, "delivery": inst.Delivery.Source,
 		"provisioning": inst.Provisioning.Source, "clusters": inst.Clusters.Source, "mcp": inst.MCP.Source} {
 		if src == "" {

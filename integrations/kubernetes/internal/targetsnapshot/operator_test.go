@@ -30,6 +30,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
@@ -174,7 +175,7 @@ func TestPublisherReadsEvidenceFromManagedServer(t *testing.T) {
 	defer srv.Close()
 	reg := newTestRegistry(t)
 	cfg := operatorConfig(t, reg, fakeReader())
-	cfg.EvidenceURL = srv.URL
+	cfg.EvidenceURL = func() string { return srv.URL }
 	forOperator(t, cfg).attempt(context.Background())
 	s := fetch(t, cfg)
 	if len(s.Sources) != 3 || s.Sources[2].Kind != fleet.SourceKindEvidenceHTTP || s.Evidence == nil {
@@ -265,5 +266,72 @@ func TestTargetPublisherWithoutOwnerPolicyUnchanged(t *testing.T) {
 	}
 	if s, _ := e.pushed(t); s.OwnerPolicy != nil {
 		t.Fatalf("snapshot carries an owner policy: %+v", s.OwnerPolicy)
+	}
+}
+
+// The gate's probe resolves the cluster's own tag: it errs before the first
+// push and reads native Referrers after it.
+func TestReferrersProbeResolvesClusterTag(t *testing.T) {
+	reg := newTestRegistry(t)
+	cfg := operatorConfig(t, reg, fakeReader())
+	probe, err := ReferrersProbe(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := probe(context.Background()); err == nil {
+		t.Fatal("probe before the first push answered")
+	}
+	forOperator(t, cfg).attempt(context.Background())
+	caps, err := probe(context.Background())
+	if err != nil || caps.Referrers != capabilities.ReferrersNative {
+		t.Fatalf("caps %+v, err %v", caps, err)
+	}
+	if _, err := ReferrersProbe(Config{Registry: "UPPER CASE/x"}); err == nil {
+		t.Fatal("an invalid registry opened")
+	}
+}
+
+// The gate's probe and the snapshot's mode probe share ocireferrer.Probes:
+// once one answered, a registry that stops answering keeps that answer.
+func TestReferrersProbeSharesProbesCache(t *testing.T) {
+	reg := newTestRegistry(t)
+	cfg := operatorConfig(t, reg, fakeReader())
+	p := forOperator(t, cfg)
+	p.attempt(context.Background())
+	if p.Mode(context.Background()) == "" {
+		t.Fatal("no mode after the push")
+	}
+	reg.fault = func(r *http.Request) int {
+		if strings.Contains(r.URL.Path, "/referrers/") {
+			return http.StatusInternalServerError
+		}
+		return 0
+	}
+	probe, _ := ReferrersProbe(cfg)
+	if caps, err := probe(context.Background()); err != nil || caps.Referrers != capabilities.ReferrersNative {
+		t.Fatalf("caps %+v, err %v", caps, err)
+	}
+}
+
+// The publisher reads the evidence URL on every publish: a gate that turns
+// on adds the evidence section, one that turns off drops it.
+func TestPublisherReadsEvidenceURLPerPublish(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(evidenceBody))
+	}))
+	defer srv.Close()
+	reg := newTestRegistry(t)
+	cfg := operatorConfig(t, reg, fakeReader())
+	url := ""
+	cfg.EvidenceURL = func() string { return url }
+	p := forOperator(t, cfg)
+	p.attempt(context.Background())
+	if s := fetch(t, cfg); len(s.Sources) != 2 {
+		t.Fatalf("off: %d sources", len(s.Sources))
+	}
+	url = srv.URL
+	p.attempt(context.Background())
+	if s := fetch(t, cfg); len(s.Sources) != 3 || s.Evidence == nil {
+		t.Fatalf("on: snapshot %+v", s)
 	}
 }

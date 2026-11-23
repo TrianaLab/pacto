@@ -859,7 +859,7 @@ func TestCIPublishIndexNoneWritesNothing(t *testing.T) {
 		t.Fatalf("%v %+v", err, p)
 	}
 	r, _ := anonRepo(e.host + "/acme/pacto-index")
-	if tags, err := ocireferrer.Tags(t.Context(), r, ""); len(tags) != 0 || (err != nil && !registryNotFound(err)) {
+	if tags, err := ocireferrer.Tags(t.Context(), r, ""); len(tags) != 0 || (err != nil && !ocireferrer.RepositoryNotFound(err)) {
 		t.Fatalf("--index none wrote %v (%v)", tags, err)
 	}
 }

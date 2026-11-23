@@ -28,6 +28,8 @@
     st.phase === 'Unknown' && st.source ? (st.verified ? 'signed' : 'unsigned') : '',
     st.provider ? `adapter ${st.provider}` : '',
     st.externalRef ?? '',
+    // The step a person may take, visible as well: a title alone never reaches a touch pointer.
+    st.suggestion ?? '',
   ].filter(Boolean);
   const reasons = (u) => [...new Set((u.consumption ?? []).map((c) => c.reason).filter(Boolean))];
   // Usage: a number reads as current only in figures (a signed, fresh, uncontested report);
@@ -108,7 +110,7 @@
         </div>
       {/if}
       {#if pickedSt}
-        <OfferingUseFigure consumer={u.consumer?.label ?? service} request={pickedSt} useKey={`${u.consumer?.key}:${u.provider?.key}:${u.via}:${picked?.i}`} />
+        <OfferingUseFigure consumer={u.consumer?.label ?? service} request={pickedSt} suggest={false} useKey={`${u.consumer?.key}:${u.provider?.key}:${u.via}:${picked?.i}`} />
       {/if}
       {#if (u.consumption ?? []).length}
         <div class="rl-block" data-testid="resource-usage">

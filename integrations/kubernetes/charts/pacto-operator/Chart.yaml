@@ -14,7 +14,9 @@ keywords:
   - gitops
 # Optional, off by default: a registry and an identity provider for an
 # evaluation install (values-quickstart.yaml). The archives are vendored in
-# charts/ and pinned by Chart.lock, so the chart packages offline.
+# charts/ and pinned by Chart.lock, so the chart packages offline. Upstream
+# Crossplane (idp.crossplane.install) is no dependency: see
+# templates/idp/crossplane.yaml.
 dependencies:
   - name: zot
     version: 0.1.128

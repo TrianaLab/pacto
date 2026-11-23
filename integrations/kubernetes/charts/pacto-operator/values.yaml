@@ -56,6 +56,12 @@ idp:
     # refused when another Flux runs. Uninstalling Pacto or turning this off leaves Flux, its CRDs and every
     # workload it applied in place. See https://pacto.run/latest/integrations/kubernetes/delivery-setup/#idp-mode
     install: false
+  crossplane:
+    # -- Install upstream Crossplane with this release. Needs profile idp;
+    # refused when Crossplane is already installed. Turning it off removes the
+    # Crossplane core and keeps its CRDs, XRDs, Compositions and claims. See
+    # https://pacto.run/latest/integrations/kubernetes/profiles/#crossplane
+    install: false
 
 # -- namespace/name of an existing Secret that authenticates to `registry`, for
 # a registry without workload identity. Pacto proposes one it saw running pods
@@ -431,20 +437,39 @@ evidence:
     # durable evidence store: every accepted record is published as an OCI 1.1
     # referrer of one of these manifests, so the chart installs nothing durable
     # in the cluster. A mutable tag is rejected, because moving it onto another
-    # manifest would change what the stored evidence reports on. That registry
-    # must serve the native OCI 1.1 Referrers API. GHCR and CNCF distribution
-    # (registry:2, registry:3) lack it, and the Evidence Server stays
-    # permanently not-ready against them.
+    # manifest would change what the stored evidence reports on. A subject on a
+    # registry without the OCI 1.1 Referrers API (GHCR, CNCF distribution) needs
+    # a subjectPrefixes entry covering it, which stores its evidence as
+    # write-once tags; uncovered, the Evidence Server stays not-ready.
     subjects: []
+    # -- Optional registry prefixes, each oci://<registry>/<path>/ ending in /,
+    # whose immutable revisions evidence may be reported against, including
+    # revisions published after install, with no Helm edit and no restart. Refs
+    # must still be @sha256 digests. The Evidence Server records each subject
+    # in <prefix>pacto-evidence and, where the registry serves no OCI Referrers,
+    # stores each record there as a write-once tag. The credentialsSecret must
+    # allow push to <prefix>pacto-evidence. That repository holds the refs and
+    # evidence of every revision under the prefix: keep it private, or no more
+    # visible than the most restricted repository under the prefix. Keep the
+    # existing subjects when you add a prefix, so their earlier evidence stays
+    # in the replay check. Set allowedContractRepos per key in a trust config
+    # (trust.configKey): a key with none may report on every revision under
+    # the prefix. Either subjects or subjectPrefixes is required when evidence
+    # is enabled.
+    subjectPrefixes: []
     # -- Optional name of an EXISTING kubernetes.io/dockerconfigjson Secret with
     # credentials for that registry, mounted read-only. The chart never creates
     # it and never renders its contents. Empty means anonymous or in-cluster
     # access.
     credentialsSecret: ""
     # NOTE: retention, backup and garbage collection of accepted evidence are the
-    # registry's responsibility. Deleting a contract subject or its referrers in
-    # the registry deletes the evidence reported against it; nothing in this
-    # cluster holds a copy.
+    # registry's responsibility; nothing in this cluster holds a copy. Deleting
+    # a contract subject deletes the evidence stored as its referrers. Records
+    # stored as write-once tags in <prefix>pacto-evidence outlive their subject.
+    # A deleted revision never blocks new writes. Retention may delete old
+    # evidence-<hash>-<12 hex> record tags as long as it keeps the newest record
+    # per producer and per target; keep every anchor tag and every
+    # evidence-<hash>-native marker tag. A ledger past 100,000 tags is unreadable and the Evidence Server refuses writes until pruned.
   trust:
     # -- Name of an existing Secret of trusted producer public keys, mounted
     # read-only. Signature verification is mandatory, so this is required when
@@ -764,14 +789,18 @@ delivery:
     signers: []
 
   recorder:
-    # -- Run the recorder, which writes a signed record of every concluded operation to the registry
-    # as OCI referrers. Off by default. When on, the promoter leaves the record finalizer to it. The
-    # recorder detects whether the registry serves the OCI Referrers API and otherwise writes one
-    # write-once, content-addressed tag per record in the streams repository. It also signs every
-    # Approval into the registry, and the promoter then counts an Approval only once its record is
-    # written. Upgrade the CLIs and the promoters that follow these streams first: an older reader
-    # refuses an operation record that names its approvals' records.
-    enabled: false
+    # -- (bool or null) Run the recorder, which writes a signed record of every concluded operation
+    # to the registry as OCI referrers. `true` runs it and fails the render on a missing or incomplete
+    # signing method or streams repository. `false` keeps it off under every profile. Unset (`null`,
+    # the default) is off, except under profile idp, which runs it when a streams repository and
+    # exactly one complete signing method are set. When on, the promoter leaves the record finalizer
+    # to it. The recorder detects whether the registry serves the OCI Referrers API and otherwise
+    # writes one write-once, content-addressed tag per record in the streams repository. It also
+    # signs every Approval into the registry, and the promoter then counts an Approval only once its
+    # record is written. Upgrade the CLIs and the promoters that follow these streams first: an older
+    # reader refuses an operation record that names its approvals' records.
+    # @default -- `null`
+    enabled: null
     # -- Repository (`host/path`) that holds one anchor per Stage stream. Defaults to
     # `<registry>/pacto-streams` when the top-level `registry` is set; required otherwise when enabled.
     streamsRepository: ""
@@ -967,9 +996,9 @@ declare:
     # -- Timestamp authority the dashboard's signatures use (empty: public-good Sigstore)
     timestampURL: ""
 
-# Optional bundled dependencies for an evaluation install, both off by default.
-# values-quickstart.yaml turns them on and wires them. Every other key under
-# `zot` and `dex` passes through to the upstream chart.
+# Optional bundled dependencies, all off by default. values-quickstart.yaml
+# turns zot and dex on for an evaluation install and wires them. Every other
+# key under `zot` and `dex` passes through to the upstream chart.
 zot:
   # -- Install [zot](https://zotregistry.dev) from its official chart as an in-cluster OCI registry with native referrers. Its values are the upstream chart's
   enabled: false

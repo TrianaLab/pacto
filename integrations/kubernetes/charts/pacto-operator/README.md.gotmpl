@@ -205,6 +205,23 @@ The chart follows security best practices by default:
 - Seccomp profile set to `RuntimeDefault`
 - Metrics endpoint served over HTTPS with authentication (chart default `metrics.secure=true`); see [Scraping the metrics](https://pacto.run/latest/integrations/kubernetes/installation/#scraping-the-metrics)
 
+### Profile idp
+
+`profile: idp` turns each piece on only where its prerequisite holds; `pacto fleet providers` says why each one is on or off. See [What idp turns on](https://pacto.run/latest/integrations/kubernetes/profiles/#what-idp-turns-on-when-the-cluster-supports-it).
+
+| Piece | Prerequisite | Turn it off |
+|---|---|---|
+| Evidence Server | The registry serves OCI Referrers, a subject or subject prefix is set on that registry (default `oci://<registry>/` when `registry` has a path) and the trust Secret (`<fullname>-evidence-trust` or `evidence.trust.existingSecret`) holds a non-empty `.pub` key, or the `evidence.trust.configKey` key when that is set | Remove the keys from the trust Secret, or leave profile idp |
+| Recorder | A streams repository and exactly one complete signing method, with `delivery.recorder.enabled` unset | `delivery.recorder.enabled=false` |
+| Upstream Crossplane | `idp.crossplane.install=true`; refused outside idp, under hardened and where another Crossplane runs | `idp.crossplane.install=false`, which keeps Crossplane's CRDs and resources |
+
+The privilege idp adds:
+
+- Pacto delivery's ClusterRoles, and the recorder's ClusterRole when the recorder runs
+- The read of ServiceMonitors and PodMonitors
+- `create`, `delete`, `get`, `patch` and `update` on Deployments and Services in the release namespace, for the Evidence Server
+- With `idp.crossplane.install=true` only, the upstream Crossplane chart's RBAC: the `crossplane` ServiceAccount writes CRDs, Secrets, ServiceAccounts, Services, Deployments and webhook configurations cluster-wide, the `rbac-manager` ServiceAccount may escalate and bind ClusterRoles, and the `crossplane:masters` group is bound to `crossplane-admin`
+
 ## Artifact Verification
 
 The chart and the controller image are signed keyless with Sigstore. [Published artifacts](https://pacto.run/latest/integrations/kubernetes/artifact-hub/) gives the coordinates and the verify command.

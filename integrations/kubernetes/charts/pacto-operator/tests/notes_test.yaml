@@ -360,3 +360,79 @@ tests:
     asserts:
       - notMatchRegexRaw:
           pattern: "pending member|snapshotKeyID|dashboard.ociSecrets"
+
+  # 515-S2: under profile idp, one line for the Evidence Server and one for
+  # the recorder, plus the upgrade order when idp turned the recorder on.
+  - it: idp names the Evidence Server's prerequisites and the trust Secret
+    set: {profile: idp, registry: ghcr.io/acme}
+    capabilities:
+      apiVersions: [admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy]
+    asserts:
+      - matchRegexRaw:
+          pattern: "Evidence Server: on when the registry serves OCI Referrers and Secret\\n.*pacto-operator-evidence-trust holds a public key; see pacto fleet providers\\."
+
+  - it: idp with evidence.enabled prints no Evidence Server line
+    set: {profile: idp, registry: ghcr.io/acme, evidence.enabled: true, evidence.registry.subjectPrefixes: ["oci://ghcr.io/acme/"]}
+    capabilities:
+      apiVersions: [admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy]
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "Evidence Server: on when"
+
+  - it: idp with a signer says the recorder is on and names the upgrade order
+    set: {profile: idp, registry: ghcr.io/acme, delivery.recorder.signing.kms: "awskms:///alias/pacto-recorder"}
+    capabilities:
+      apiVersions: [admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy]
+    asserts:
+      - matchRegexRaw:
+          pattern: "Recorder: on\\."
+      - matchRegexRaw:
+          pattern: "Upgrade CLIs and promoters before the recorder signs records; set\\ndelivery.recorder.enabled=false to keep it off\\."
+
+  - it: idp with recorder.enabled=true prints no upgrade order
+    set: {profile: idp, registry: ghcr.io/acme, delivery.recorder.enabled: true, delivery.recorder.signing.kms: "awskms:///alias/pacto-recorder"}
+    capabilities:
+      apiVersions: [admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy]
+    asserts:
+      - matchRegexRaw:
+          pattern: "Recorder: on\\."
+      - notMatchRegexRaw:
+          pattern: "Upgrade CLIs and promoters"
+
+  - it: idp without a signer says why the recorder is off
+    set: {profile: idp, registry: ghcr.io/acme}
+    capabilities:
+      apiVersions: [admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy]
+    asserts:
+      - matchRegexRaw:
+          pattern: "Recorder: off: configure exactly one of delivery.recorder.signing.ed25519.secretName, delivery.recorder.signing.kms or delivery.recorder.signing.keyless\\."
+      - notMatchRegexRaw:
+          pattern: "Upgrade CLIs and promoters"
+
+  - it: idp without a registry says the recorder needs a streams repository
+    set: {profile: idp}
+    capabilities:
+      apiVersions: [admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy]
+    asserts:
+      - matchRegexRaw:
+          pattern: "Recorder: off: the recorder needs a streams repository: set registry or delivery.recorder.streamsRepository\\."
+
+  - it: idp with recorder.enabled=false says it is off
+    set: {profile: idp, registry: ghcr.io/acme, delivery.recorder.enabled: false, delivery.recorder.signing.kms: "awskms:///alias/pacto-recorder"}
+    capabilities:
+      apiVersions: [admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy]
+    asserts:
+      - matchRegexRaw:
+          pattern: "Recorder: off: delivery.recorder.enabled is false \\(an upgrade with --reuse-values carries the false an earlier chart defaulted to\\); set it to null to let profile idp decide\\."
+
+  - it: hardened and idp say delivery is off for the recorder
+    set: {profile: [hardened, idp], controller.watchNamespaces: [payments]}
+    asserts:
+      - matchRegexRaw:
+          pattern: "Recorder: off: profile hardened renders no Pacto delivery\\."
+
+  - it: the default profile prints no Evidence Server or recorder line
+    set: {registry: ghcr.io/acme}
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "Evidence Server: on when|Recorder: "

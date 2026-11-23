@@ -319,8 +319,10 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_REVIEW").WithValue("local"))
 	}
 	env = append(append(env, authEnv(cfg)...), deliveryEnv(cfg)...)
-	if cfg.EvidenceSourceURL != "" {
-		env = append(env, corev1ac.EnvVar().WithName("PACTO_EVIDENCE_SOURCE_URL").WithValue(cfg.EvidenceSourceURL))
+	if cfg.EvidenceSourceURL != nil {
+		if url := cfg.EvidenceSourceURL(); url != "" {
+			env = append(env, corev1ac.EnvVar().WithName("PACTO_EVIDENCE_SOURCE_URL").WithValue(url))
+		}
 	}
 	if cfg.InsecureRegistries != "" {
 		env = append(env, corev1ac.EnvVar().WithName(loader.InsecureRegistriesEnvVar).WithValue(cfg.InsecureRegistries))

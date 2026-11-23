@@ -176,3 +176,30 @@ func TestFleetProvidersListsEgressRows(t *testing.T) {
 	}
 	expect(t, ids["kernel-egress"] && ids["istio-egress"] && ids["cilium-fqdn"], "providers json lacks an egress row: %s", js.String())
 }
+
+func TestProvisioningTextAppendsSuggestion(t *testing.T) {
+	st := fleet.ProvisioningStatus{Phase: fleet.StatusUnknown, Reason: "no provider has reported provisioning for this use",
+		Suggestion: "Crossplane detected in prod-eu: accept its inferred offerings"}
+	want := "Unknown: no provider has reported provisioning for this use; Crossplane detected in prod-eu: accept its inferred offerings"
+	expect(t, provisioningText(st) == want, "provisioning text = %q", provisioningText(st))
+	st.Suggestion = ""
+	expect(t, !strings.Contains(provisioningText(st), ";"), "no suggestion, no separator: %q", provisioningText(st))
+}
+
+// TestFleetProvidersPrintsIDPRows: the Crossplane, Evidence and Recorder rows
+// print through the one providers table, value then why, with no new shape.
+func TestFleetProvidersPrintsIDPRows(t *testing.T) {
+	at := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
+	rows := detect.ProviderRows(detect.Result{SchemaVersion: "1", AsOf: at, Entries: []detect.Entry{
+		detect.Crossplane(detect.CrossplaneFacts{API: "v2", Version: "v2.1.0", Controller: detect.CrossplaneControllerFound}, true),
+		detect.EvidencePiece("on", "zot.acme.internal serves OCI Referrers; the trust Secret holds 2 keys", nil, detect.Complete, ""),
+		detect.RecorderPiece("no-signer"),
+	}}, "detection", at)
+	var out bytes.Buffer
+	printProviderTable(&out, rows)
+	want := "PROVIDER               EVIDENCE                                                                                                         USED FOR\n" +
+		"Crossplane (inferred)  Crossplane v2.1.0 runs and serves apiextensions.crossplane.io/v2 (from Crossplane Deployment and API discovery)  provisioning engine; profile idp offers its XRDs once accepted\n" +
+		"Evidence (inferred)    on: zot.acme.internal serves OCI Referrers; the trust Secret holds 2 keys (from operator evidence gate)          Evidence Server for provisioning reports (profile idp)\n" +
+		"Recorder (inferred)    off: no signing method is set; set one of delivery.recorder.signing (from chart values)                          signed delivery records (profile idp)\n"
+	expect(t, out.String() == want, "providers table:\n%s", out.String())
+}

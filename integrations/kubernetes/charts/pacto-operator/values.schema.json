@@ -367,10 +367,20 @@
       ]
     },
     "idp": {
+      "description": "Pieces profile idp installs with this release on a person's confirmation.",
       "type": "object",
       "additionalProperties": false,
-      "description": "Opt-in upstream installs of profile idp, upgraded with this release.",
       "properties": {
+        "crossplane": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "install": {
+              "type": "boolean",
+              "description": "Install upstream Crossplane with this release. Needs profile idp; refused when Crossplane is already installed."
+            }
+          }
+        },
         "flux": {
           "type": "object",
           "additionalProperties": false,
@@ -807,6 +817,14 @@
                 "pattern": "^oci://[^@]+@sha256:[0-9a-f]{64}$"
               }
             },
+            "subjectPrefixes": {
+              "type": "array",
+              "description": "Registry prefixes, each oci://<registry>/<path>/ ending in /, whose immutable revisions evidence may be stored on.",
+              "items": {
+                "type": "string",
+                "pattern": "^oci://[^@/]+/([^@/]+/)*$"
+              }
+            },
             "credentialsSecret": {
               "type": "string"
             }
@@ -862,14 +880,28 @@
             ],
             "properties": {
               "registry": {
-                "required": [
-                  "subjects"
-                ],
-                "properties": {
-                  "subjects": {
-                    "minItems": 1
+                "anyOf": [
+                  {
+                    "required": [
+                      "subjects"
+                    ],
+                    "properties": {
+                      "subjects": {
+                        "minItems": 1
+                      }
+                    }
+                  },
+                  {
+                    "required": [
+                      "subjectPrefixes"
+                    ],
+                    "properties": {
+                      "subjectPrefixes": {
+                        "minItems": 1
+                      }
+                    }
                   }
-                }
+                ]
               }
             }
           }
@@ -1164,7 +1196,10 @@
           "additionalProperties": false,
           "properties": {
             "enabled": {
-              "type": "boolean"
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "streamsRepository": {
               "type": "string"

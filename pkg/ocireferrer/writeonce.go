@@ -143,6 +143,14 @@ func scanTags(ctx context.Context, repo *remote.Repository, last, prefix string,
 	return out, err
 }
 
+// RepositoryNotFound reports whether a registry answered that a repository
+// does not exist.
+func RepositoryNotFound(err error) bool {
+	var resp *errcode.ErrorResponse
+	return errors.As(err, &resp) && (resp.StatusCode == http.StatusNotFound ||
+		slices.ContainsFunc(resp.Errors, func(e errcode.Error) bool { return e.Code == errcode.ErrorCodeNameUnknown }))
+}
+
 // Attached lists what is attached to subject: the native Referrers listing
 // and, when tagPrefix is set, the names of repo's tags with that prefix
 // (write-once records). A registry without the Referrers API is tolerated

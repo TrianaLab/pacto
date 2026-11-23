@@ -210,7 +210,7 @@ func TestDetectorResultAllKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	cm, res := readResult(t, c)
-	if !res.AsOf.Equal(now) || res.Cluster != "cluster-uid" || res.ClusterName != "kind-pacto" || len(res.Entries) != 8 || cm.Labels[detect.ManagedByLabel] != detect.ManagedBy {
+	if !res.AsOf.Equal(now) || res.Cluster != "cluster-uid" || res.ClusterName != "kind-pacto" || len(res.Entries) != 9 || cm.Labels[detect.ManagedByLabel] != detect.ManagedBy {
 		t.Fatalf("result = %+v", res)
 	}
 	for kind, ok := range map[string]func(detect.Entry) bool{
@@ -816,5 +816,165 @@ func TestDetectorAppendsApplierOnlyWithoutEngine(t *testing.T) {
 	}
 	if e := entry(t, run(served(false, false, errors.New("boom")), "idp"), "applier"); e.Completeness != detect.Unknown || e.Hint != "" {
 		t.Errorf("failed discovery applier = %+v", e)
+	}
+}
+
+// crossplaneDeployment is a Crossplane core Deployment labelled with labels.
+func crossplaneDeployment(image string, labels map[string]string) *appsv1.Deployment {
+	return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "crossplane-system", Name: "crossplane", Labels: labels},
+		Spec:   appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "crossplane", Image: image}}}}},
+		Status: appsv1.DeploymentStatus{AvailableReplicas: 1}}
+}
+
+// servedCrossplane serves only the Crossplane group versions in versions.
+func servedCrossplane(versions ...string) func(string) (bool, error) {
+	return func(gv string) (bool, error) {
+		for _, v := range versions {
+			if gv == crossplaneGroup+v {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+}
+
+func crossplaneEntry(t *testing.T, d *Detector, c client.Client) detect.Entry {
+	t.Helper()
+	_ = d.Sync(context.Background())
+	_, res := readResult(t, c)
+	return entry(t, res, fleet.ProviderCrossplane)
+}
+
+func TestDetectorWritesCrossplaneEntry(t *testing.T) {
+	c := newClient(interceptor.Funcs{}, operatorDeployment())
+	e := crossplaneEntry(t, newDetector(c, servedCrossplane()), c)
+	if e.Value != fleet.CrossplaneNoneFound || e.Completeness != detect.Complete || e.Hint != "" {
+		t.Fatalf("crossplane = %+v", e)
+	}
+	failing := func(string) (bool, error) { return false, errors.New("dial tcp 10.0.0.1:443") }
+	if e := crossplaneEntry(t, newDetector(c, failing), c); e.Completeness != detect.Unknown || strings.Contains(e.Reason, "10.0.0.1") {
+		t.Fatalf("discovery error = %+v", e)
+	}
+}
+
+func TestDetectorCrossplaneFromControllerDeployment(t *testing.T) {
+	for _, tc := range []struct {
+		image  string
+		labels map[string]string
+		served []string
+		want   string
+	}{
+		{"xpkg.crossplane.io/crossplane/crossplane:v2.1.0", map[string]string{"app.kubernetes.io/name": "crossplane"}, []string{"v2", "v1"}, "Crossplane v2.1.0"},
+		{"localhost:5000/crossplane:v1.20.0@sha256:abc", map[string]string{"app": "crossplane"}, []string{"v1"}, "Crossplane v1.20.0"},
+		{"localhost:5000/crossplane", map[string]string{"app": "crossplane"}, []string{"v1"}, "Crossplane v1"},
+	} {
+		c := newClient(interceptor.Funcs{}, operatorDeployment(), crossplaneDeployment(tc.image, tc.labels))
+		e := crossplaneEntry(t, newDetector(c, servedCrossplane(tc.served...)), c)
+		if e.Value != tc.want || e.Completeness != detect.Complete || e.Scope != fleet.ScopeCluster || strings.Contains(e.Evidence, "crossplane-system") {
+			t.Errorf("%s: crossplane = %+v", tc.image, e)
+		}
+	}
+	if imageTag(nil) != "" {
+		t.Error("no container has a tag")
+	}
+}
+
+func TestDetectorCrossplaneCRDsWithoutControllerPartial(t *testing.T) {
+	c := newClient(interceptor.Funcs{}, operatorDeployment())
+	e := crossplaneEntry(t, newDetector(c, servedCrossplane("v2")), c)
+	if e.Value != "Crossplane APIs served, controller not found" || e.Completeness != detect.Partial {
+		t.Fatalf("crossplane = %+v", e)
+	}
+}
+
+func TestDetectorCrossplaneStartingIsPartial(t *testing.T) {
+	// The Deployment runs before its init container created the CRDs: never
+	// none found, so idp proposes no bootstrap.
+	core := crossplaneDeployment("x:v2.4.3", map[string]string{"app": "crossplane"})
+	c := newClient(interceptor.Funcs{}, operatorDeployment(), core)
+	d := newDetector(c, servedCrossplane())
+	d.Installation, d.LastPush = &detect.Installation{Profile: []string{"idp"}}, func() *detect.PushResult { return nil }
+	if e := crossplaneEntry(t, d, c); e.Value != "Crossplane starting" || e.Completeness != detect.Partial || e.Hint != "" {
+		t.Fatalf("starting = %+v", e)
+	}
+	// A namespace-list install cannot list the controller: no API served
+	// still reads none found.
+	if e := crossplaneEntry(t, newDetector(c, servedCrossplane(), "a"), c); e.Value != fleet.CrossplaneNoneFound {
+		t.Fatalf("scoped = %+v", e)
+	}
+}
+
+// A core Deployment scaled to zero, whose CRDs stay served, never reads as a
+// running Crossplane.
+func TestDetectorCrossplaneWithNoAvailableReplicaIsPartial(t *testing.T) {
+	core := crossplaneDeployment("x:v2.4.3", map[string]string{"app": "crossplane"})
+	core.Status.AvailableReplicas = 0
+	c := newClient(interceptor.Funcs{}, operatorDeployment(), core)
+	if e := crossplaneEntry(t, newDetector(c, servedCrossplane("v2")), c); e.Value != "Crossplane not available" || e.Completeness != detect.Partial {
+		t.Fatalf("scaled to zero = %+v", e)
+	}
+}
+
+func TestDetectorCrossplaneRBACManagerIsNoCore(t *testing.T) {
+	labels := map[string]string{"app": "crossplane-rbac-manager", "app.kubernetes.io/name": "crossplane"}
+	rbac := crossplaneDeployment("x:v2.4.3", labels)
+	rbac.Name = "a-rbac-manager" // listed before the core
+	c := newClient(interceptor.Funcs{}, operatorDeployment(), rbac)
+	if e := crossplaneEntry(t, newDetector(c, servedCrossplane("v2")), c); e.Value != "Crossplane APIs served, controller not found" {
+		t.Fatalf("rbac-manager only = %+v", e)
+	}
+	core := crossplaneDeployment("x:v2.4.3", map[string]string{"app": "crossplane", "app.kubernetes.io/name": "crossplane"})
+	c = newClient(interceptor.Funcs{}, operatorDeployment(), rbac, core)
+	if e := crossplaneEntry(t, newDetector(c, servedCrossplane("v2")), c); e.Value != "Crossplane v2.4.3" || e.Completeness != detect.Complete {
+		t.Fatalf("core and rbac-manager = %+v", e)
+	}
+}
+
+func TestDetectorCrossplaneListForbiddenIsUnread(t *testing.T) {
+	c := newClient(interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, l client.ObjectList, opts ...client.ListOption) error {
+		if _, ok := l.(*appsv1.DeploymentList); ok {
+			return apierrors.NewForbidden(schema.GroupResource{Group: "apps", Resource: "deployments"}, "", errors.New("no"))
+		}
+		return c.List(ctx, l, opts...)
+	}}, operatorDeployment())
+	e := crossplaneEntry(t, newDetector(c, servedCrossplane("v2")), c)
+	if e.Value != "Crossplane v2 APIs served" || e.Completeness != detect.Partial {
+		t.Fatalf("forbidden = %+v", e)
+	}
+	// A namespace-list install never lists Deployments cluster-wide.
+	c = newClient(interceptor.Funcs{}, operatorDeployment(), crossplaneDeployment("x:v2.1.0", map[string]string{"app": "crossplane"}))
+	if e := crossplaneEntry(t, newDetector(c, servedCrossplane("v2"), "a"), c); e.Completeness != detect.Partial {
+		t.Fatalf("scoped = %+v", e)
+	}
+}
+
+func TestDetectorWritesPiecesOnlyUnderIDP(t *testing.T) {
+	c := newClient(interceptor.Funcs{}, operatorDeployment())
+	d := newDetector(c, servedCrossplane())
+	_ = d.Sync(context.Background())
+	if _, res := readResult(t, c); slices.ContainsFunc(res.Entries, func(e detect.Entry) bool { return e.Kind == "evidence" || e.Kind == "recorder" }) {
+		t.Fatalf("pieces outside idp: %+v", res.Entries)
+	}
+	d.Pieces = func() []detect.Entry {
+		return []detect.Entry{detect.EvidencePiece("on", "x serves OCI Referrers", nil, detect.Complete, ""), detect.RecorderPiece("no-signer")}
+	}
+	_ = d.Sync(context.Background())
+	_, res := readResult(t, c)
+	if entry(t, res, "evidence").Value != "on" || entry(t, res, "recorder").Value != "off" {
+		t.Fatalf("pieces = %+v", res.Entries)
+	}
+}
+
+func TestDetectorCrossplaneHintUnderIDP(t *testing.T) {
+	c := newClient(interceptor.Funcs{}, operatorDeployment())
+	d := newDetector(c, servedCrossplane())
+	d.Installation, d.LastPush = &detect.Installation{Profile: []string{"idp"}}, func() *detect.PushResult { return nil }
+	if e := crossplaneEntry(t, d, c); e.Hint != "helm upgrade <release> <chart> --reuse-values --set idp.crossplane.install=true" {
+		t.Fatalf("crossplane = %+v", e)
+	}
+	// Profile hardened refuses the bootstrap, so it is never proposed.
+	d.Installation = &detect.Installation{Profile: []string{"hardened", "idp"}}
+	if e := crossplaneEntry(t, d, c); e.Value != fleet.CrossplaneNoneFound || e.Hint != "" {
+		t.Fatalf("hardened crossplane = %+v", e)
 	}
 }

@@ -185,8 +185,8 @@ measures when delivery asks for one (`delivery.promoter.authFreshness`).
 **Sign out** ends the session, revokes the refresh token where the provider
 supports revocation and, where the provider publishes an
 `end_session_endpoint`, sends the browser there to end the provider's session
-too. Sessions live in the memory of one dashboard process. The operator runs
-the dashboard as one replica, and a restart signs everyone out. A
+too. Sessions live in the memory of the dashboard's single replica, so a restart
+signs everyone out. A
 `pacto dashboard` you deploy yourself with sign-in needs one replica too, or a
 load balancer with session affinity (for example `sessionAffinity: ClientIP`
 on its Service) so each person keeps reaching the replica that holds their
@@ -229,9 +229,6 @@ To get your own token:
 - **On EKS**, run `aws eks get-token --cluster-name <cluster>` and take its
   `status.token` field.
 - **On GKE**, run `gcloud auth print-access-token`.
-
-Cloud provider tokens are short-lived, and the session ends when its token
-expires.
 
 ### The sign-in link
 

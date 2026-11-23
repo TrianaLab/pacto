@@ -54,14 +54,14 @@ func TestAddTargetSnapshotReturnsKey(t *testing.T) {
 	t.Setenv("OPERATOR_DEPLOYMENT_NAME", "pacto-operator")
 	m := newFakeManager()
 	inst := &detect.Installation{}
-	key, err := addTargetSnapshot(m, &options{registry: "registry.example/acme"}, "pacto", testIdent, "", nil, inst, nil)
+	key, err := addTargetSnapshot(m, &options{registry: "registry.example/acme"}, "pacto", testIdent, nil, nil, inst, nil)
 	if err != nil || len(key) != ed25519.PrivateKeySize {
 		t.Fatalf("addTargetSnapshot = %d-byte key, %v; want the installation key", len(key), err)
 	}
 	if !m.has(isInferred) || inst.SnapshotKeyID == "" {
 		t.Fatal("a registry install publishes inferred contracts and advertises the snapshot key")
 	}
-	key, err = addTargetSnapshot(newFakeManager(), &options{}, "pacto", testIdent, "", nil, &detect.Installation{}, nil)
+	key, err = addTargetSnapshot(newFakeManager(), &options{}, "pacto", testIdent, nil, nil, &detect.Installation{}, nil)
 	if key != nil || err != nil {
 		t.Fatalf("addTargetSnapshot without --registry = %v, %v; want no key", key, err)
 	}
@@ -71,7 +71,7 @@ func TestMemberDoesNotPublishInferred(t *testing.T) {
 	t.Setenv("OPERATOR_DEPLOYMENT_NAME", "pacto-operator")
 	m := newFakeManager()
 	o := &options{registry: "registry.example/acme", hubURL: "https://pacto.acme.dev", profile: "default"}
-	if _, err := addPublishers(m, o, "pacto", testIdent, "", nil, nil, &controller.PactoReconciler{}); err != nil {
+	if _, err := addPublishers(m, o, "pacto", testIdent, nil, nil, nil, &controller.PactoReconciler{}); err != nil {
 		t.Fatal(err)
 	}
 	if m.has(isInferred) || !m.has(isLink) {
@@ -105,7 +105,20 @@ func TestHubURLNeedsRegistry(t *testing.T) {
 
 func TestAddInstallationRefusesBadProfile(t *testing.T) {
 	o, rec := &options{profile: "nope"}, &controller.PactoReconciler{}
-	if _, err := addPublishers(newFakeManager(), o, "pacto", testIdent, "", nil, nil, rec); err == nil {
+	if _, err := addPublishers(newFakeManager(), o, "pacto", testIdent, nil, nil, nil, rec); err == nil {
 		t.Fatal("an unknown profile stops the operator")
+	}
+}
+
+// Detection writes the evidence and recorder rows only under profile idp.
+func TestIDPPiecesOnlyUnderIDP(t *testing.T) {
+	if idpPieces(&detect.Installation{Profile: []string{"default"}}, nil, false, "") != nil {
+		t.Fatal("pieces outside idp")
+	}
+	got := idpPieces(&detect.Installation{Profile: []string{"idp"}}, nil, true, "no-signer")()
+	if len(got) != 2 ||
+		got[0].Kind != "evidence" || got[0].Value != "on" ||
+		got[1].Kind != "recorder" || got[1].Value != "off" {
+		t.Fatalf("pieces %+v", got)
 	}
 }

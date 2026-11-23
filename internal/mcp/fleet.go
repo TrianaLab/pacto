@@ -444,9 +444,12 @@ func fleetStatusTool() *mcpsdk.Tool {
 			"needs_attention includes them). 'total' and 'truncated' say whether the limit cut the list. With no category " +
 			"selected, including empty input, it reports every category. The answer's 'providers' lists what Pacto detected in each " +
 			"source (evidence, usedFor, status, limitations). providers includes what the operator detected (registry, cloud, " +
-			"sign-in, exposure, metrics, nodes and a Pull Secret proposal) with provenance inferred and asOf, and an Installation " +
+			"sign-in, exposure, metrics, nodes, a Pull Secret proposal, a Crossplane row naming the running version or none found and, " +
+			"under profile idp, Evidence and Recorder rows saying whether the Evidence Server and the delivery recorder are on and why; " +
+			"providers is the one MCP surface for these rows) with provenance inferred and asOf, and an Installation " +
 			"row with provenance declared naming the profile, the registry, the target snapshot, index and inferred repositories and the push " +
-			"prefixes; nothing detected is turned on, a Pull Secret is never used until a person sets registryPullSecret, and no " +
+			"prefixes; a detected proposal is never turned on, except that under profile idp the operator itself starts the Evidence Server " +
+			"while its Evidence row reads on, a Pull Secret is never used until a person sets registryPullSecret, and no " +
 			"provider row clears a gate. The OCI source adds one observed 'registry:<host>' row per registry it read " +
 			"contracts from, with no provenance: Pacto probed it itself, usedFor and details give the mode it uses there and asOf " +
 			"when it probed; it is separate from the operator's inferred registry row. 'contractCompleteness' is how completely " +

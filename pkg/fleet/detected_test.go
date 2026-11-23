@@ -312,3 +312,29 @@ func TestRestrictDropsApplierRowOfHiddenCluster(t *testing.T) {
 		t.Errorf("applier row = %+v", p)
 	}
 }
+
+// TestHideClusterClearsDetectedClusterIDAndHint: the inferred row a view keeps
+// for a hidden cluster loses its cluster id and its hint too, so nothing
+// downstream reads it as a row of that cluster; a row with no cluster keeps
+// its hint.
+func TestHideClusterClearsDetectedClusterIDAndHint(t *testing.T) {
+	crossplane := detectedRow(ProviderCrossplane, "")
+	crossplane.ClusterID, crossplane.Cluster, crossplane.Hint = "uid-2", "prod-eu", "helm upgrade <release> <chart> --reuse-values --set idp.crossplane.install=true"
+	crossplane.Evidence = CrossplaneNoneFound + " apiextensions.crossplane.io is not served (from API discovery, cluster prod-eu)"
+	metrics := detectedRow("metrics", "")
+	metrics.Hint = "keep me"
+	// A row with a cluster id and no cluster name loses the id too.
+	metrics.ClusterID = "uid-3"
+	// The cloud row is cluster-wide, so the view narrows the rows.
+	cloud := detectedRow("cloud", ScopeCluster)
+	q := NewQuery(buildProviders(t,
+		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Cluster: clusterOf("uid-1", "staging", ClusterNameFromContext), Targets: []RawTarget{workload("team-a", "web")}}),
+		detectedSource(SourceAvailable, crossplane, metrics, cloud)))
+	rows := q.Restrict(anyCluster(readerOf("team-a")), anyClusterKind(nil)).SnapshotForSerialization().Providers
+	if p := providerByID(t, rows, ProviderCrossplane); p.Cluster != "" || p.ClusterID != "" || p.Hint != "" || strings.Contains(p.Evidence, "prod-eu") {
+		t.Errorf("crossplane row of a hidden cluster = %+v", p)
+	}
+	if p := providerByID(t, rows, "metrics"); p.Hint != "keep me" || p.ClusterID != "" {
+		t.Errorf("metrics row with no cluster lost its hint: %+v", p)
+	}
+}

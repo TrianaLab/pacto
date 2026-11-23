@@ -12,6 +12,7 @@ import (
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/registry/remote"
+	"oras.land/oras-go/v2/registry/remote/errcode"
 
 	"github.com/trianalab/pacto/v4/internal/testutil"
 )
@@ -428,6 +429,22 @@ func TestWriteOnceNeverWritesReferrersTagIndex(t *testing.T) {
 	for _, tag := range tags {
 		if strings.HasPrefix(tag, "sha256-") {
 			t.Fatalf("a write-once stream wrote the referrers-tag index %s", tag)
+		}
+	}
+}
+
+func TestRepositoryNotFound(t *testing.T) {
+	for name, tc := range map[string]struct {
+		err  error
+		want bool
+	}{
+		"404":                   {&errcode.ErrorResponse{StatusCode: http.StatusNotFound}, true},
+		"NAME_UNKNOWN in a 400": {fmt.Errorf("wrapped: %w", &errcode.ErrorResponse{StatusCode: http.StatusBadRequest, Errors: errcode.Errors{{Code: errcode.ErrorCodeNameUnknown}}}), true},
+		"500":                   {&errcode.ErrorResponse{StatusCode: http.StatusInternalServerError, Errors: errcode.Errors{{Code: "UNKNOWN"}}}, false},
+		"plain error":           {errors.New("boom"), false},
+	} {
+		if got := RepositoryNotFound(tc.err); got != tc.want {
+			t.Errorf("%s: RepositoryNotFound = %v, want %v", name, got, tc.want)
 		}
 	}
 }

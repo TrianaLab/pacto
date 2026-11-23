@@ -279,7 +279,7 @@ KMS recorder names no public key.
 */}}
 {{- define "pacto-operator.delivery.pinSigner" -}}
 {{- $r := .Values.delivery.recorder }}
-{{- if and $r.enabled (kindIs "map" .Values.delivery.publishers) }}
+{{- if and (include "pacto-operator.recorderEnabled" .) (kindIs "map" .Values.delivery.publishers) }}
 {{- $k := $r.signing.keyless }}
 {{- $streams := list "pins/*/*" }}
 {{- if $k.enabled }}

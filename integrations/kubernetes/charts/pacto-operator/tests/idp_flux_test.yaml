@@ -158,7 +158,7 @@ tests:
       objects:
         - kind: Namespace
           apiVersion: v1
-          metadata: {name: pacto-system}
+          metadata: {name: kube-system}
         - kind: Deployment
           apiVersion: apps/v1
           metadata:
@@ -185,7 +185,7 @@ tests:
       objects:
         - kind: Namespace
           apiVersion: v1
-          metadata: {name: pacto-system}
+          metadata: {name: kube-system}
         - kind: Deployment
           apiVersion: apps/v1
           metadata: {name: source-controller, namespace: flux-system, any: true}
@@ -206,7 +206,7 @@ tests:
       objects:
         - kind: Namespace
           apiVersion: v1
-          metadata: {name: pacto-system}
+          metadata: {name: kube-system}
         - kind: Deployment
           apiVersion: apps/v1
           metadata:

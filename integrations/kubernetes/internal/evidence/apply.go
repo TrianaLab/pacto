@@ -27,7 +27,7 @@ import (
 // the registry being readable; liveness is independent, so a registry outage
 // makes the server unready without restarting it.
 func deploymentAC(cfg Config) runtime.ApplyConfiguration {
-	args := make([]string, 0, 6+2*len(cfg.Subjects))
+	args := make([]string, 0, 6+2*len(cfg.Subjects)+2*len(cfg.SubjectPrefixes))
 	trust := TrustMountPath
 	if cfg.TrustConfigKey != "" {
 		trust = TrustMountPath + "/" + cfg.TrustConfigKey
@@ -35,6 +35,9 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	args = append(args, "evidence", "serve", "--trust", trust, "--listen-address", ":8686")
 	for _, subject := range cfg.Subjects {
 		args = append(args, "--subject", subject)
+	}
+	for _, prefix := range cfg.SubjectPrefixes {
+		args = append(args, "--subject-prefix", prefix)
 	}
 	if id := cfg.Cluster.ID; id != "" {
 		args = append(args, "--cluster-id", id)

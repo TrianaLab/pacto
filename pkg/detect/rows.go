@@ -20,7 +20,7 @@ var rowNames = map[string]string{
 	"pull-secret": "Pull Secret", "otel-collector": "OTel Collector", "tempo": "Tempo",
 	"jaeger": "Jaeger", "datadog": "Datadog", "traces": "Traces",
 	"istio-egress": "Istio egress", "cilium-fqdn": "Cilium FQDN", "egress-gateway": "Egress gateway",
-	fleet.ProviderApplier: "Applier",
+	"crossplane": "Crossplane", "evidence": "Evidence", "recorder": "Recorder", fleet.ProviderApplier: "Applier",
 }
 
 // usedFor says, per kind, what a person may do with the proposal. Nothing is
@@ -43,6 +43,9 @@ var usedFor = map[string]string{
 	"cilium-fqdn":         egressSentence,
 	"egress-gateway":      egressSentence,
 	fleet.ProviderApplier: "proposal for delivery in profile idp; set it on the Pacto release yourself",
+	"crossplane":          "provisioning engine; profile idp offers its XRDs once accepted",
+	"evidence":            "Evidence Server for provisioning reports (profile idp)",
+	"recorder":            "signed delivery records (profile idp)",
 }
 
 // egressSentence is what an egress reader's row is used for.
@@ -119,14 +122,22 @@ func rowName(kind string) string {
 }
 
 // evidence is what the row says: the value, the entry's evidence and where it
-// came from.
+// came from. A bare state (the Evidence and Recorder rows' on and off) ends
+// with a colon before its reason, so the two never read as one sentence.
 func evidence(e Entry, source, cluster string) string {
 	from := "from " + cmp.Or(e.Source, source)
 	if cluster != "" {
 		from += ", cluster " + cluster
 	}
-	return strings.TrimSpace(strings.Join(slices.DeleteFunc([]string{e.Value, e.Evidence}, func(s string) bool { return s == "" }), " ") + " (" + from + ")")
+	sep := " "
+	if stateKinds[e.Kind] {
+		sep = ": "
+	}
+	return strings.TrimSpace(strings.Join(slices.DeleteFunc([]string{e.Value, e.Evidence}, func(s string) bool { return s == "" }), sep) + " (" + from + ")")
 }
+
+// stateKinds are the kinds whose Value is a bare state (on, off or unknown).
+var stateKinds = map[string]bool{"evidence": true, "recorder": true}
 
 // status is the row status of an entry of completeness c that is age old.
 // Unknown stays unavailable however old it is; anything else read longer ago

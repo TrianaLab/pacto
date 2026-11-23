@@ -310,6 +310,7 @@ func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadV
 	out.hiddenProviders = hiddenProviders(&out, s.Services, hiddenSvc)
 	out.hiddenProviderMatch = hiddenProviderMatch(s, out.hiddenProviders, hiddenSvc)
 	restrictReports(&out, s)
+	placeReports(&out, s)
 
 	keep := func(k ServiceKey) bool { return !hiddenSvc[k] }
 	out.reverseDeps = restrictIndex(s.reverseDeps, keep, keep)
@@ -411,6 +412,17 @@ func kindHiddenNote(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS ma
 		}
 	}
 	return ""
+}
+
+// placeReports stamps each report of out with the cluster s, the
+// unrestricted snapshot, attributes it to: a view that lost the target or
+// cluster that places a report must never place it elsewhere.
+func placeReports(out, s *FleetSnapshot) {
+	clusters, envs := clusterOfSource(s), envClusterIndex(s)
+	for i := range out.Provisioning {
+		out.Provisioning[i].cluster = reportCluster(&out.Provisioning[i], clusters, envs)
+	}
+	out.reportsPlaced = true
 }
 
 // restrictReports keeps the provider reports a restricted view may hold.
