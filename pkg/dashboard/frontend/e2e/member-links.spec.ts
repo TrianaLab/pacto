@@ -26,7 +26,8 @@ test('Data sources shows each member channel muted, with the issuer in the tip',
 
 test('Needs attention lists the issuer us-west reads under a group mapping', async ({ page }) => {
   await appReady(page, '/#/fleet/attention?category=cluster');
-  const item = page.getByTestId('attention-item').filter({ hasText: 'CLUSTER_ISSUER_DIFFERS' });
+  // The list beside the Overview's map words CLUSTER_ISSUER_DIFFERS by its summary.
+  const item = page.getByTestId('fleet-map-rail-item').filter({ hasText: "Member clusters do not accept this hub's sign-in tokens" });
   await expect(item).toHaveCount(1, { timeout: T });
   await expect(item).toContainText('Reads in us-west use the group mapping approved by oidc:alice@northwind.example');
 });
