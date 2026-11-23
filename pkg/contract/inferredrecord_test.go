@@ -1277,7 +1277,7 @@ func TestParseRecordExternalInferredFrom(t *testing.T) {
 		}
 	}
 	for _, bad := range []string{"external:", "external:Stripe", "external:stripe x", "external:a/b/c/d/e/f"} {
-		refuses(t, declDoc(t, declarationYAML, "inferredFrom: k8s:shop/Deployment/invoices", "inferredFrom: \""+bad+"\""), "or external:<identity>")
+		refuses(t, declDoc(t, declarationYAML, "inferredFrom: k8s:shop/Deployment/invoices", "inferredFrom: \""+bad+"\""), "external:<identity>")
 	}
 	if _, ok := InferredFromExternal("k8s:shop/Deployment/invoices"); ok {
 		t.Fatal("a workload inferredFrom read as external")
@@ -1290,5 +1290,57 @@ func TestParseRecordExternalInferredFrom(t *testing.T) {
 func TestOldPatternRefusesExternalInferredFrom(t *testing.T) {
 	if inferredFromRE.MatchString(ExternalInferredFrom("stripe")) {
 		t.Fatal("the k8s: pattern accepts external:stripe")
+	}
+}
+
+// offeringFrom is an accepted offering's inferredFrom.
+const offeringFrom = "offering:crossplane-6f1c2a9e-3b4d-4c5e-8f7a-1b2c3d4e5f60/xbucket@sha256:" +
+	"4c1e000000000000000000000000000000000000000000000000000000000000"
+
+func TestParseRecordOfferingInferredFrom(t *testing.T) {
+	rec, err := ParseInferredRecord([]byte(declDoc(t, declarationYAML, "inferredFrom: k8s:shop/Deployment/invoices", "inferredFrom: \""+offeringFrom+"\"")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Declaration.InferredFrom != offeringFrom {
+		t.Fatalf("inferredFrom = %q", rec.Declaration.InferredFrom)
+	}
+	refuses(t, declDoc(t, declarationYAML, "inferredFrom: k8s:shop/Deployment/invoices", "inferredFrom: \"offering:xbucket\""),
+		"offering:<producer>/<service>@sha256:<hex>")
+}
+
+func TestInferredFromOfferingParses(t *testing.T) {
+	p, svc, d, ok := InferredFromOffering(offeringFrom)
+	if !ok || p != "crossplane-6f1c2a9e-3b4d-4c5e-8f7a-1b2c3d4e5f60" || svc != "xbucket" || d != offeringFrom[strings.Index(offeringFrom, "@")+1:] {
+		t.Fatalf("InferredFromOffering = %q %q %q %v", p, svc, d, ok)
+	}
+}
+
+func TestOfferingInferredFromRejectsBadForms(t *testing.T) {
+	digest := offeringFrom[strings.Index(offeringFrom, "@"):]
+	for _, bad := range []string{
+		"offering:/xbucket" + digest,                  // no producer
+		"offering:host/xbucket" + digest,              // reserved producer
+		"offering:Acme/xbucket" + digest,              // producer not lowercase
+		"offering:acme/xbucket@sha256:abc",            // bad digest
+		"offering:acme/xbucket",                       // no digest
+		"offering:acme/x/bucket" + digest,             // a / in the service
+		"offering:acme/XBucket" + digest,              // service not a DNS label
+		"offering:acme" + digest,                      // no service
+		"external:acme/xbucket" + digest,              // another form
+		strings.TrimPrefix(offeringFrom, "offering:"), // no prefix
+	} {
+		if _, _, _, ok := InferredFromOffering(bad); ok {
+			t.Errorf("InferredFromOffering(%q) accepted", bad)
+		}
+	}
+}
+
+// TestOldPatternRefusesOfferingInferredFrom documents the older reader: its
+// k8s:-only check refuses the offering form, so it reads the record as
+// unreadable, never as a declaration.
+func TestOldPatternRefusesOfferingInferredFrom(t *testing.T) {
+	if inferredFromRE.MatchString(offeringFrom) {
+		t.Fatal("the k8s: pattern accepts the offering form")
 	}
 }

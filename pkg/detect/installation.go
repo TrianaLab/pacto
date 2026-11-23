@@ -18,6 +18,24 @@ const MaxPushes = 8
 // MaxProfiles caps the profile names an installation advertises.
 const MaxProfiles = 3
 
+// MaxObservedOfferings caps the offering slugs an installation advertises:
+// the operator maps at most this many source objects per run.
+const MaxObservedOfferings = 200
+
+// OfferingsAd is what an installation's inferred-offering producer
+// advertises: its producer id, the one repository it pushes offerings to
+// (<registry>/pacto-inferred/<producer>/services), the sorted slugs its last
+// complete run observed, when that run finished and, when the newest run
+// stopped short, why. A reader never reads a slug missing from Observed as
+// deleted while Partial is set.
+type OfferingsAd struct {
+	Producer   string     `json:"producer,omitempty"`
+	Repository string     `json:"repository,omitempty"`
+	Observed   []string   `json:"observed,omitempty"`
+	AsOf       *time.Time `json:"asOf,omitempty"`
+	Partial    string     `json:"partial,omitempty"`
+}
+
 // PushResult is the last target snapshot push the operator attempted: when,
 // to which ref and, on failure, why. A failed push is never shown as healthy.
 type PushResult struct {
@@ -48,6 +66,9 @@ type Installation struct {
 	// Pushes is every prefix a cluster-side process may push under.
 	Pushes   []string    `json:"pushes,omitempty"`
 	LastPush *PushResult `json:"lastPush,omitempty"`
+	// Offerings is the inferred-offering producer's advertisement; nil when
+	// the installation produces no inferred offerings.
+	Offerings *OfferingsAd `json:"offerings,omitempty"`
 }
 
 // Declared is the Installation block as the capability answer reads it, with
@@ -92,6 +113,10 @@ func sanitizeInstallation(inst *Installation) {
 	inst.Profile = cleanAll(inst.Profile, MaxProfiles)
 	if p := inst.LastPush; p != nil {
 		p.Ref, p.Error = clean(p.Ref), clean(p.Error)
+	}
+	if o := inst.Offerings; o != nil {
+		o.Producer, o.Repository, o.Partial = clean(o.Producer), clean(o.Repository), clean(o.Partial)
+		o.Observed = cleanAll(o.Observed, MaxObservedOfferings)
 	}
 }
 

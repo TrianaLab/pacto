@@ -201,3 +201,29 @@ func TestDeclarationExternalMismatch(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateDeclarationOfferingInferredFrom(t *testing.T) {
+	const from = "offering:crossplane-6f1c2a9e-3b4d-4c5e-8f7a-1b2c3d4e5f60/xbucket@sha256:4c1e000000000000000000000000000000000000000000000000000000000000"
+	accept := func(offering string) []string {
+		t.Helper()
+		yaml := "pactoVersion: \"2.5\"\nservice:\n  name: xbucket\n  version: 1.0.0\n"
+		if offering != "" {
+			yaml += "  offering: " + offering + "\n"
+		}
+		data, c := parseString(t, yaml)
+		rec := goodRecord()
+		rec.Declaration = &contract.InferredDeclaration{State: contract.DeclarationDeclared,
+			Asker:        contract.InferredSigner{Subject: "ana@acme.com", Issuer: "https://accounts.google.com", Class: contract.SignerClassHuman},
+			InferredFrom: from}
+		r := validation.Validate(c, data, recordBundle(rec))
+		return codesAt(r, contract.InferredRecordFile)
+	}
+	if got := accept("xbucket"); len(got) != 0 {
+		t.Fatalf("same offering: %v", got)
+	}
+	for _, other := range []string{"postgresql", ""} {
+		if got := accept(other); !reflect.DeepEqual(got, []string{"DECLARATION_OFFERING_MISMATCH"}) {
+			t.Fatalf("service.offering %q: %v", other, got)
+		}
+	}
+}
