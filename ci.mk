@@ -14,7 +14,7 @@ REPOWISE_VERSION ?= 0.36.0
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-linked-workloads test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
        test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-idp-flux test-acceptance-kind-delivery-demo test-acceptance-kind-least-privilege \
-       test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
+       test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-cluster-install test-acceptance-kind-member-review ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
 
@@ -134,7 +134,7 @@ test-acceptance-kind: test-acceptance-kind-dashboard test-acceptance-kind-upgrad
 	test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
 	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-linked-workloads test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
 	test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-idp-flux test-acceptance-kind-least-privilege \
-	test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review
+	test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-cluster-install test-acceptance-kind-member-review
 
 test-acceptance-kind-dashboard:
 	bash tests/acceptance/kind/dashboard-modes.sh
@@ -179,6 +179,17 @@ test-acceptance-kind-multi-cluster:
 # pending and a removal takes the targets out.
 test-acceptance-kind-cluster-join:
 	bash tests/acceptance/kind/cluster-join.sh
+
+# Find candidate clusters and install a member through Argo CD and Flux on two
+# kind clusters and a zot: the hub's inventory lists the member unmatched
+# (hidden from a dashboard reader who may not approve), the generated
+# ApplicationSet applied unchanged installs Pacto on the member and never on
+# the hub, a stated UID reads same-uid while pending and matched once approved
+# with prod as an inventory environment, deleting the ApplicationSet orphans,
+# and the pushed Flux bootstrap pins its digest so a re-pointed tag changes
+# nothing.
+test-acceptance-kind-cluster-install:
+	bash tests/acceptance/kind/cluster-install.sh
 
 # Review people in a member cluster through its outbound channel on two kind
 # clusters, Keycloak (issuer A, token exchange) and Dex (issuer B): the member
