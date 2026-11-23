@@ -47,7 +47,7 @@ var usedFor = map[string]string{
 	"crossplane":          "provisioning engine; profile idp offers its XRDs once accepted",
 	"evidence":            "Evidence Server for provisioning reports (profile idp)",
 	"recorder":            "signed delivery records (profile idp)",
-	"backstage":           "inferred owners, domains and dependencies, read by the dashboard; nothing is turned on",
+	"backstage":           "inferred owners, domains, dependencies and golden paths, read by the dashboard; nothing is turned on",
 }
 
 // egressSentence is what an egress reader's row is used for.

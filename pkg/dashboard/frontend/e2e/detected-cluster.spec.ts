@@ -57,7 +57,7 @@ test.describe('WASM demo: what the cluster provides', () => {
 
     // The in-cluster Backstage is a proposal row: the dashboard reads its catalog and turns nothing on.
     const backstage = detected.filter({ has: page.locator('.dp-name').getByTitle('Backstage catalog', { exact: true }) });
-    await expect(backstage.locator('.dp-used')).toHaveText('inferred owners, domains and dependencies, read by the dashboard; nothing is turned on');
+    await expect(backstage.locator('.dp-used')).toHaveText('inferred owners, domains, dependencies and golden paths, read by the dashboard; nothing is turned on');
 
     // The egress gateway's logs need a person's switch: the command waits behind More details.
     const gateway = detected.filter({ has: page.locator('.dp-name').getByTitle('Egress gateway', { exact: true }) });

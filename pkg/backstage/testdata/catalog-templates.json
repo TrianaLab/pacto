@@ -1,0 +1,42 @@
+{
+  "items": [
+    {
+      "apiVersion": "scaffolder.backstage.io/v1beta3",
+      "kind": "Template",
+      "metadata": {
+        "name": "springboot-service",
+        "title": "Spring Boot service",
+        "description": "A Spring Boot service with Postgres\u202e and CI"
+      },
+      "spec": {"owner": "group:default/platform-team", "type": "service"}
+    },
+    {
+      "apiVersion": "scaffolder.backstage.io/v1beta3",
+      "kind": "Template",
+      "metadata": {"name": "docs-site", "namespace": "web", "title": "Docs site"},
+      "spec": {"type": "website"}
+    },
+    {
+      "apiVersion": "example.com/v1",
+      "kind": "Template",
+      "metadata": {"name": "other-group"}
+    },
+    {
+      "apiVersion": "scaffolder.backstage.io/v1beta3",
+      "kind": "Template",
+      "metadata": {"name": "Spring_Boot"}
+    },
+    {
+      "apiVersion": "scaffolder.backstage.io/v1beta3",
+      "kind": "Template",
+      "metadata": {"name": "exported", "annotations": {"pacto.trianalab.io/provenance": "declared"}}
+    },
+    {
+      "apiVersion": "backstage.io/v1alpha1",
+      "kind": "Component",
+      "metadata": {"name": "ledger"},
+      "spec": {"owner": "group:default/team-ledger"}
+    }
+  ],
+  "pageInfo": {"nextCursor": "c2"}
+}

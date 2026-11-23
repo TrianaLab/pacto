@@ -22,7 +22,7 @@ const (
 	backstagePageSize     = 500
 	maxBackstagePages     = backstage.MaxCatalogEntities / backstagePageSize // 10; a catalog whose pages bring no Components still ends
 	maxBackstageBodyBytes = 16 << 20                                         // 16 MiB; a larger page is an error that names the bound
-	backstageFields       = "kind,metadata.name,metadata.namespace,metadata.annotations,spec.owner,spec.system,spec.dependsOn"
+	backstageFields       = "kind,metadata.name,metadata.namespace,metadata.annotations,spec.owner,spec.system,spec.dependsOn,apiVersion,metadata.title,metadata.description,spec.type"
 )
 
 // inCluster reports whether the process runs in a Kubernetes pod; tests swap it.
@@ -111,8 +111,10 @@ func (s *BackstageSource) ID() string { return s.id }
 func (s *BackstageSource) Kind() string { return backstage.SourceKind }
 
 // Collect pages through the catalog's Components, at most
-// [backstage.MaxCatalogEntities] of them. It never returns an error: a failed
-// read is an unavailable state with a sanitized reason, a capped one partial.
+// [backstage.MaxCatalogEntities] of them, and its scaffolder Templates. It
+// never returns an error: a failed read is an unavailable state with a
+// sanitized reason, a capped one partial. Every collection says it lists
+// templates, so a failed read never reads as "no templates".
 func (s *BackstageSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	if t, ok := s.client.Transport.(*http.Transport); ok {
 		// Each refresh builds a new detected source: its connections must not outlive it.
@@ -120,8 +122,9 @@ func (s *BackstageSource) Collect(ctx context.Context) (*fleet.Collection, error
 	}
 	at := s.now()
 	state := fleet.SourceState{Status: fleet.SourceAvailable, ObservedAt: &at, LastSuccessfulSync: &at, Ref: s.origin}
-	col := &fleet.Collection{Advisory: true, State: &state}
-	facts, capped, trimmed, err := s.read(ctx, at)
+	col := &fleet.Collection{Advisory: true, State: &state, ListsTemplates: true}
+	read, capped, err := s.read(ctx, at)
+	trimmed := read.Trimmed
 	switch {
 	case err != nil:
 		if err.Code == codeAuthFailed && s.origin != "" {
@@ -140,40 +143,65 @@ func (s *BackstageSource) Collect(ctx context.Context) (*fleet.Collection, error
 		}
 		fallthrough
 	default:
-		col.ServiceFacts = facts
+		col.ServiceFacts, col.InferredTemplates = read.Facts, s.templates(read.Templates)
 	}
 	return col, nil
 }
 
+// templates fills where each template was read and, for a configured
+// catalog only, its scaffolder link and that a person may accept it: a
+// detected endpoint is an in-cluster Service a browser cannot open and
+// anyone could have created.
+func (s *BackstageSource) templates(ts []fleet.RawInferredTemplate) []fleet.RawInferredTemplate {
+	from := "Backstage (in-cluster)"
+	if s.origin == "" {
+		u, _ := url.Parse(s.baseURL) // CheckSourceURL parsed it
+		from = "Backstage (" + u.Host + ")"
+	}
+	for i := range ts {
+		ts[i].From = from
+		if s.origin == "" {
+			ns, name, _ := strings.Cut(strings.TrimPrefix(ts[i].Entity, "template:"), "/")
+			ts[i].URL, ts[i].Acceptable = backstage.ScaffolderURL(s.baseURL, ns, name), true
+		}
+	}
+	return ts
+}
+
 // read pages until the last page, the component cap or the page cap, which
-// it reports, and counts the components whose dependencies were trimmed.
-func (s *BackstageSource) read(ctx context.Context, at time.Time) (facts []fleet.RawServiceFact, capped bool, trimmed int, err *fleet.SourceError) {
+// it reports, keeping the templates of every page read and counting the
+// components whose dependencies were trimmed.
+func (s *BackstageSource) read(ctx context.Context, at time.Time) (backstage.CatalogRead, bool, *fleet.SourceError) {
+	var out backstage.CatalogRead
 	cursor := ""
 	for range maxBackstagePages {
-		page, next, cut, err := s.page(ctx, cursor, at)
+		page, err := s.page(ctx, cursor, at)
 		if err != nil {
-			return nil, false, 0, err
+			return backstage.CatalogRead{}, false, err
 		}
-		facts, trimmed = append(facts, page...), trimmed+cut
-		if len(facts) >= backstage.MaxCatalogEntities {
-			return facts[:backstage.MaxCatalogEntities], next != "" || len(facts) > backstage.MaxCatalogEntities, trimmed, nil
+		out.Facts, out.Templates, out.Trimmed = append(out.Facts, page.Facts...), append(out.Templates, page.Templates...), out.Trimmed+page.Trimmed
+		if len(out.Facts) >= backstage.MaxCatalogEntities {
+			capped := page.Next != "" || len(out.Facts) > backstage.MaxCatalogEntities
+			out.Facts = out.Facts[:backstage.MaxCatalogEntities]
+			return out, capped, nil
 		}
-		if next == "" {
-			return facts, false, trimmed, nil
+		if page.Next == "" {
+			return out, false, nil
 		}
-		cursor = next
+		cursor = page.Next
 	}
 	// A catalog still paging after maxBackstagePages pages (empty pages, a
 	// repeating cursor) is capped, never read forever.
-	return facts, true, trimmed, nil
+	return out, true, nil
 }
 
-// page reads one by-query page: the first with the filter, a later one by
-// its cursor, which carries the filter.
-func (s *BackstageSource) page(ctx context.Context, cursor string, at time.Time) ([]fleet.RawServiceFact, string, int, *fleet.SourceError) {
+// page reads one by-query page: the first with the filter for Components and
+// Templates (the catalog ORs repeated filters), a later one by its cursor,
+// which carries the filter.
+func (s *BackstageSource) page(ctx context.Context, cursor string, at time.Time) (backstage.CatalogRead, *fleet.SourceError) {
 	q := url.Values{"fields": {backstageFields}, "limit": {fmt.Sprint(backstagePageSize)}}
 	if cursor == "" {
-		q.Set("filter", "kind=component")
+		q["filter"] = []string{"kind=component", "kind=template"}
 	} else {
 		q.Set("cursor", cursor)
 	}
@@ -185,24 +213,24 @@ func (s *BackstageSource) page(ctx context.Context, cursor string, at time.Time)
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, "", 0, &fleet.SourceError{Code: "UNREACHABLE", Message: "the catalog could not be reached"}
+		return backstage.CatalogRead{}, &fleet.SourceError{Code: "UNREACHABLE", Message: "the catalog could not be reached"}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if serr := backstageStatus(resp.StatusCode); serr != nil {
-		return nil, "", 0, serr
+		return backstage.CatalogRead{}, serr
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBackstageBodyBytes+1))
 	if err != nil {
-		return nil, "", 0, &fleet.SourceError{Code: "UNREACHABLE", Message: "the catalog answer could not be read"}
+		return backstage.CatalogRead{}, &fleet.SourceError{Code: "UNREACHABLE", Message: "the catalog answer could not be read"}
 	}
 	if len(data) > maxBackstageBodyBytes {
-		return nil, "", 0, &fleet.SourceError{Code: "TOO_LARGE", Message: fmt.Sprintf("a catalog page is larger than %d MiB", maxBackstageBodyBytes>>20)}
+		return backstage.CatalogRead{}, &fleet.SourceError{Code: "TOO_LARGE", Message: fmt.Sprintf("a catalog page is larger than %d MiB", maxBackstageBodyBytes>>20)}
 	}
-	facts, next, trimmed, err := backstage.ReadCatalogPage(data, at)
+	read, err := backstage.ReadCatalogPage(data, at)
 	if err != nil {
-		return nil, "", 0, &fleet.SourceError{Code: "INVALID", Message: "the catalog answer is not an entities/by-query page"}
+		return backstage.CatalogRead{}, &fleet.SourceError{Code: "INVALID", Message: "the catalog answer is not an entities/by-query page"}
 	}
-	return facts, next, trimmed, nil
+	return read, nil
 }
 
 // codeAuthFailed is the error code of a catalog that refused the request.

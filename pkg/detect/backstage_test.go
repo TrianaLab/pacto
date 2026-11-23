@@ -20,7 +20,7 @@ func TestBackstageDetection(t *testing.T) {
 		name      string
 		ws        []Workload
 		svcs      []Service
-		want      string // completeness, "" for no entry
+		want      string // completeness
 		endpoint  string
 		reason    string
 		details   []string
@@ -41,16 +41,9 @@ func TestBackstageDetection(t *testing.T) {
 			objects: []Object{{Kind: "Service", Namespace: "aaa", Name: "backstage"}, svc}},
 		{name: "no Service on 7007", ws: []Workload{app("idp")}, svcs: []Service{backstageSvc("idp", "backstage", 80), backstageSvc("other", "x", 7007)},
 			want: Partial, reason: "no Service on port 7007 in front of it", namespace: []string{"idp"}},
-		{name: "no image", svcs: []Service{backstageSvc("idp", "backstage", 7007)}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := Backstage(tc.ws, tc.svcs)
-			if tc.want == "" {
-				if e.Kind != "" {
-					t.Fatalf("entry = %+v, want none", e)
-				}
-				return
-			}
 			if e.Kind != "backstage" || e.Value != "Backstage" || e.Source != "running pods and Services" || e.Completeness != tc.want ||
 				e.Endpoint != tc.endpoint || e.Reason != tc.reason || !reflect.DeepEqual(e.Details, tc.details) ||
 				!reflect.DeepEqual(e.Objects, tc.objects) || !reflect.DeepEqual(e.Namespaces, tc.namespace) {
@@ -69,7 +62,7 @@ func TestBackstageImages(t *testing.T) {
 		"ghcr.io/acme/backstage:1": true, "ghcr.io/acme/backstage-app:1.2": true, "ghcr.io/acme/backstage-backend:1": true,
 		"ghcr.io/acme/stagehand": false, "evil/backstage-x": false, "ghcr.io/acme/notbackstage": false,
 	} {
-		if got := Backstage([]Workload{{Namespace: "idp", Images: []string{img}}}, svcs).Kind == "backstage"; got != want {
+		if got := Backstage([]Workload{{Namespace: "idp", Images: []string{img}}}, svcs).Value != NotDetected; got != want {
 			t.Errorf("%s counts = %v, want %v", img, got, want)
 		}
 	}
@@ -81,5 +74,16 @@ func TestDetectedBackstageRowStaysProposal(t *testing.T) {
 	if len(rows) != 1 || rows[0].ID != "backstage" || rows[0].Name != "Backstage catalog" ||
 		len(rows[0].UsedFor) != 1 || !strings.Contains(rows[0].UsedFor[0], "nothing is turned on") || !strings.Contains(rows[0].UsedFor[0], "inferred owners") {
 		t.Errorf("rows = %+v", rows)
+	}
+}
+
+// TestBackstageNotDetectedIsPartial: no Backstage image gives a partial "not
+// detected" row naming the value that reads an external catalog, never an
+// endpoint or an object.
+func TestBackstageNotDetectedIsPartial(t *testing.T) {
+	e := Backstage(nil, []Service{backstageSvc("idp", "backstage", 7007)})
+	if e.Kind != "backstage" || e.Value != NotDetected || e.Completeness != Partial || e.Source != tracesSource ||
+		!strings.Contains(e.Reason, "dashboard.backstage.url") || e.Endpoint != "" || len(e.Objects) != 0 || len(e.Namespaces) != 0 {
+		t.Errorf("entry = %+v", e)
 	}
 }

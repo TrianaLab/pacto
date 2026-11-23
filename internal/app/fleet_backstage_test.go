@@ -171,3 +171,18 @@ func TestDetectedBackstageNotReadByTheCLI(t *testing.T) {
 		t.Errorf("detection rows = %v", rowsOf(snap, "detection"))
 	}
 }
+
+// TestConfiguredBackstageHidesNotDetectedRow: with a configured catalog the
+// dashboard drops the not-detected row, which would advise setting the URL
+// already set; without one the row stays.
+func TestConfiguredBackstageHidesNotDetectedRow(t *testing.T) {
+	notDetected := writeDetected(t, detect.Backstage(nil, nil))
+	snap := liveFleet(t, FleetOptions{Detected: notDetected, LiveEdges: fleetsrc.NewLiveEdges(time.Now), BackstageURL: ledgerCatalog(t).URL})
+	if slices.Contains(rowsOf(snap, "detection"), "backstage") {
+		t.Errorf("configured: detection rows = %v, want no backstage row", rowsOf(snap, "detection"))
+	}
+	snap = liveFleet(t, FleetOptions{Detected: notDetected, LiveEdges: fleetsrc.NewLiveEdges(time.Now)})
+	if !slices.Contains(rowsOf(snap, "detection"), "backstage") {
+		t.Errorf("not configured: detection rows = %v, want the backstage row", rowsOf(snap, "detection"))
+	}
+}

@@ -468,6 +468,11 @@ func (s *Service) detectionSources(ctx context.Context, opts FleetOptions, assem
 		}
 	}
 	rest, taken := detect.SplitEdgeKinds(res, kinds)
+	if opts.BackstageURL != "" {
+		// The configured catalog's own state row speaks for it: never advise
+		// setting what is already set.
+		rest.Entries = slices.DeleteFunc(rest.Entries, func(e detect.Entry) bool { return e.Kind == "backstage" && e.Value == detect.NotDetected })
+	}
 	out := append([]fleet.Source{fleetsrc.NewDetectionResultSource(src.ID(), rest, s.env().now)}, s.liveEdgeSources(res, taken, free(serviceGraphID), opts)...)
 	out = append(out, s.detectedBackstage(res, free(backstage.SourceKind))...)
 	if !slices.ContainsFunc(taken, func(e detect.Entry) bool { return e.Kind == "otel-collector" }) {
