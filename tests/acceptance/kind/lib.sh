@@ -407,6 +407,16 @@ wait_pacto_status() {
 # shellcheck disable=SC2034  # read by the scenarios that source this file
 PACTO_REGISTRY_IMAGE="ghcr.io/project-zot/zot-minimal:v2.1.20@sha256:73f26433b341f4a319963f7c5e169858663a10565e4037e71605737daee202ee"
 
+# PACTO_CROSSPLANE_IMAGE is the image of the upstream Crossplane chart the
+# operator chart vendors (charts/crossplane-<v>.tgz, idp.crossplane.install):
+# the core, its init container and the RBAC manager all run it. Pinned to the
+# chart's appVersion tag and its multi-platform index digest (`docker buildx
+# imagetools inspect xpkg.crossplane.io/crossplane/crossplane:v2.4.3`,
+# 2026-11-23); bump both with the vendored chart. The pods pull IfNotPresent,
+# so the image load_images puts on the node is the one that runs.
+# shellcheck disable=SC2034  # read by idp.sh
+PACTO_CROSSPLANE_IMAGE="xpkg.crossplane.io/crossplane/crossplane:v2.4.3@sha256:1c66261d805a73cade46e2ac94b665c73aebd4a00844de5fcae4bcadaa2be638"
+
 # install_registry — an in-cluster OCI registry in $NS, ready to be pushed to.
 # Plain HTTP, so callers must also teach whatever resolves from it to treat the
 # service host as insecure. imagePullPolicy: Never, because the image is loaded
