@@ -102,7 +102,8 @@ usage reports unsigned, so they always read unknown.
 
 A producer that checks an `extension` capability the contract declares
 reports with `CapabilityObserved` under a key granted that ref by
-`allowedExtensionRefs`. Its verdict feeds compliance: reported absent makes
-the service NonCompliant, and a stale report reads Unknown. A provisioning or
+`allowedExtensionRefs`. Its verdict feeds compliance on a revision the service
+runs, or on its current revision when none runs: reported absent makes the
+service NonCompliant, and a stale report reads Unknown. A provisioning or
 usage report never changes compliance. See
 [Extension capabilities](evidence.md#extension-capabilities).
