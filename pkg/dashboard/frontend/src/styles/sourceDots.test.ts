@@ -16,6 +16,8 @@ const kinds = [...table.matchAll(/^\s*'?([\w-]+)'?:\s*'/gm)].map((m) => m[1]);
 describe('source dots', () => {
   it('reads the source kinds', () => expect(kinds).toContain('index'));
   it.each(kinds)('paints a background for %s', (kind) => {
-    expect(css).toMatch(new RegExp(`\\.source-dot-${kind}(?![\\w-])[^{]*\\{[^}]*background:`));
+    // Catalog kinds (catalog, <idp>-catalog) share one generic attribute rule.
+    const selector = kind.includes('catalog') ? '\\.source-dot\\[class\\*="catalog"\\]' : `\\.source-dot-${kind}(?![\\w-])`;
+    expect(css).toMatch(new RegExp(`${selector}[^{]*\\{[^}]*background:`));
   });
 });
