@@ -1,6 +1,7 @@
 package delivery_test
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -227,4 +228,31 @@ func TestStaleDeclaredPrefixDropsRecord(t *testing.T) {
 	if _, _, why := delivery.ConfirmedLadder([]delivery.VerifiedLadder{none}, "cid", chart); !strings.Contains(why, "was empty") {
 		t.Fatalf("why %q", why)
 	}
+}
+
+// TestSignLadderOpens: a record signed through NewLadderStatement and
+// SignLadder opens as itself, and a signer that fails signs nothing.
+func TestSignLadderOpens(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	kp, _ := signing.FromPrivateKey(priv)
+	b, err := delivery.SignLadder(t.Context(), signing.Keyed(kp, ""), delivery.NewLadderStatement(goodLadder()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, _ := delivery.PublicKeyPEM(kp.GetPublicKey())
+	verify, _ := signing.OpenKey(delivery.TrustedKey{PublicKey: pub})
+	st, _, err := delivery.OpenLadderRecord(b, func(b []byte) (time.Time, error) { return ladderSignedAt, verify(b) })
+	if err != nil || st.Predicate.ClusterID != "cid" || len(st.Predicate.Rungs) != 3 {
+		t.Fatalf("%+v %v", st.Predicate, err)
+	}
+	if _, err := delivery.SignLadder(t.Context(), downSigner{}, delivery.NewLadderStatement(goodLadder())); err == nil {
+		t.Fatal("a failing signer signed")
+	}
+}
+
+// downSigner is a signer that cannot sign.
+type downSigner struct{}
+
+func (downSigner) Sign(context.Context, string, []byte) ([]byte, error) {
+	return nil, errors.New("down")
 }

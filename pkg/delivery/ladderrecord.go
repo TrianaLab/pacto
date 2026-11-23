@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"cmp"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -155,6 +156,19 @@ type LadderStatement struct {
 	Subject       []Subject    `json:"subject"`
 	PredicateType string       `json:"predicateType"`
 	Predicate     LadderRecord `json:"predicate"`
+}
+
+// NewLadderStatement builds the statement of l: its subject is the ladder
+// stream of the cluster it names.
+func NewLadderStatement(l LadderRecord) LadderStatement {
+	return LadderStatement{Type: StatementType, Subject: []Subject{ladderSubject(l.ClusterID)},
+		PredicateType: PredicateEnvironmentLadder, Predicate: l}
+}
+
+// SignLadder signs st and returns the bundle.
+func SignLadder(ctx context.Context, s Signer, st LadderStatement) ([]byte, error) {
+	bundle, _, err := signStatement(ctx, s, st)
+	return bundle, err
 }
 
 // ladderSubject is the subject of the ladder records of clusterID.
