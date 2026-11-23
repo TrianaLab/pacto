@@ -489,7 +489,8 @@ func mcpAuthoring(cmd *cobra.Command, svc *app.Service) pactomcp.Authoring {
 		trust, _ := cmd.Flags().GetString("delivery-trust")
 		a.Init = mcpInit(svc, trust)
 		a.Catalog, a.CatalogUnavailable = mcpCatalog(cmd, svc)
-		a.Declare, a.Accept = newMCPDeclarer(svc, trust), mcpAcceptor{svc: svc, trust: publisherTrust(cmd, fleetDeps(), "")}
+		detected, _ := cmd.Flags().GetString("detected")
+		a.Declare, a.Accept = newMCPDeclarer(svc, trust, detected), mcpAcceptor{svc: svc, trust: publisherTrust(cmd, fleetDeps(), "")}
 	}
 	return a
 }
@@ -726,9 +727,9 @@ func viewerFleetView(v *authn.Viewer) pactomcp.FleetView {
 // apiserver names: pacto_schema, and pacto_declare planning only in the
 // registries ociRefs name. Every HTTP authoring tool is set here, so both
 // remote servers (pacto mcp -t http and the dashboard's /mcp) register it.
-func remoteAuthoring(svc *app.Service, ociRefs []string, fleet *pactomcp.FleetMode, registry string, push gcrauthn.Keychain) pactomcp.Authoring {
+func remoteAuthoring(svc *app.Service, ociRefs []string, fleet *pactomcp.FleetMode, registry string, push gcrauthn.Keychain, detected string) pactomcp.Authoring {
 	rd := newRemoteDeclarer(svc, ociRefs, fleet)
-	rd.registry, rd.push = registry, push
+	rd.registry, rd.push, rd.detected = registry, push, detected
 	return pactomcp.Authoring{Validate: svc.ValidationReport, Remote: true, Declare: rd}
 }
 

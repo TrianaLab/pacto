@@ -253,10 +253,8 @@ func TestDeclareCommandRefusesOtherSubjectKinds(t *testing.T) {
 	noKube(t)
 	var got app.DeclareRequest
 	d := declareDeps(t, &got, declarePlanFixture(), nil, nil)
-	for _, arg := range []string{"offering:postgres", "template:http-service"} {
-		if _, _, err := runRoot(t, d, nil, "declare", arg); err == nil || !strings.Contains(err.Error(), "offerings and templates are declared by a later release") {
-			t.Fatalf("%s: %v", arg, err)
-		}
+	if _, _, err := runRoot(t, d, nil, "declare", "template:http-service"); err == nil || !strings.Contains(err.Error(), "templates are declared by a later release") {
+		t.Fatal(err)
 	}
 	if _, _, err := runRoot(t, d, nil, "declare", "k8s:billing/Deployment/invoices"); err != nil || got.Service != "billing/Deployment/invoices" {
 		t.Fatalf("%v %+v", err, got)

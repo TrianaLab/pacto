@@ -35,10 +35,12 @@ type mcpDeclarer struct {
 	git  deps
 }
 
-// newMCPDeclarer signs drafts against public-good Sigstore and reads the
-// owner policy from the target snapshots trust verifies.
-func newMCPDeclarer(svc *app.Service, trust string) mcpDeclarer {
-	base := app.DeclareRequest{DeliveryTrust: trust}
+// newMCPDeclarer signs drafts against public-good Sigstore, reads the
+// owner policy from the target snapshots trust verifies and verifies an
+// inferred offering with the installation key the detection detected
+// advertises.
+func newMCPDeclarer(svc *app.Service, trust, detected string) mcpDeclarer {
+	base := app.DeclareRequest{DeliveryTrust: trust, Detected: detected}
 	base.Signing.FulcioURL, base.Signing.RekorURL = signing.PublicFulcio, signing.PublicRekor
 	return mcpDeclarer{svc: svc, base: base}
 }
@@ -95,6 +97,11 @@ func (m mcpDeclarer) request(a pactomcp.DeclareArgs) (app.DeclareRequest, error)
 		req.Service, req.Owner, req.Name = a.Service, a.Owner, a.Name
 		return req, nil
 	}
+	// An offering acceptance reads its contribution, never a workload.
+	if _, ok := a.Offering(); ok {
+		req.Service, req.Owner, req.Version, req.From = a.Service, a.Owner, a.Version, a.From
+		return req, nil
+	}
 	req.Namespace, req.Dir, req.Accept, req.MaxItems = a.Namespace, a.Dir, a.Accept, a.MaxItems
 	req.PR, req.Repository, req.Folder, req.RepoMap = a.PR, a.Repository, a.Folder, a.RepoMap
 	if a.CallWindow != "" {
@@ -139,6 +146,9 @@ type remoteDeclarer struct {
 	// it writes nothing.
 	registry string
 	push     gcrauthn.Keychain
+	// detected is the detection (--detected) whose installation key
+	// verifies an inferred offering, read with the caller's own client.
+	detected string
 }
 
 // writes is whether the server writes drafts.
@@ -165,6 +175,9 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 	if refused := r.refused(a); refused != nil {
 		return nil, refused, nil
 	}
+	if refused := r.offeringArgs(ctx, a); refused != nil {
+		return nil, refused, nil
+	}
 	a, refused := r.claimArgs(ctx, a)
 	if refused != nil {
 		return nil, refused, nil
@@ -178,6 +191,7 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 		return nil, nil, errNobodyReviewed
 	}
 	req.Dynamic, req.Observed = who.own.Dynamic, r.observed(ctx, req)
+	r.offering(&req)
 	p, _, err := r.svc.PlanDeclare(ctx, req)
 	if p != nil {
 		if _, claim := a.Claim(); claim || !r.writes() || a.Registry != r.registry {
@@ -192,6 +206,47 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 		}
 	}
 	return declareAnswer(p, err)
+}
+
+// offering sets, on an offering acceptance, the detection that verifies
+// its contribution.
+func (r remoteDeclarer) offering(req *app.DeclareRequest) {
+	if strings.HasPrefix(req.Service, pactomcp.OfferingSubjectPrefix) {
+		req.Detected = r.detected
+	}
+}
+
+// offeringArgs refuses an offering acceptance whose from names no
+// contribution the caller's fleet view lists, with one refusal that names
+// nothing of it.
+func (r remoteDeclarer) offeringArgs(ctx context.Context, a pactomcp.DeclareArgs) *pactomcp.Refused {
+	if _, ok := a.Offering(); !ok || listsContribution(r.view(ctx), a.From) {
+		return nil
+	}
+	return &pactomcp.Refused{Code: pactomcp.RefusalNotAllowed, Message: "your view of the fleet lists no inferred offering at " + a.From +
+		": accept one pacto_fleet_entities lists with kind offering and declaration inferred, or run pacto declare on your machine", CLI: a.Command("")}
+}
+
+// listsContribution reports whether view q (nil: one that shows nothing)
+// holds a contributed revision read from ref, by its ref or its digest.
+func listsContribution(q *fleet.Query, ref string) bool {
+	if q == nil || ref == "" {
+		return false
+	}
+	ref = contract.TrimOCIScheme(ref)
+	snap := q.SnapshotForSerialization()
+	for _, s := range snap.Services {
+		if s.Contribution == nil {
+			continue
+		}
+		for _, rk := range s.Revisions {
+			rev := snap.Revisions[rk]
+			if rev != nil && rev.ResolvedRef != "" && (contract.TrimOCIScheme(rev.ResolvedRef) == ref || repoOf(rev.ResolvedRef)+"@"+rev.Digest == ref) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // claimArgs is a as this server plans it: a claim only of an external
@@ -384,6 +439,9 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server only plans a claim: a draft would go with its own push " +
 			"credential for any caller; run the command on your machine, where adding --yes publishes the claim signed by you", CLI: a.Command(a.IntentDigest)}, nil
 	}
+	if refused := r.offeringArgs(ctx, a); refused != nil {
+		return nil, refused, nil
+	}
 	if !r.writes() {
 		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server writes no declaration: run the command on your machine; " +
 			"it prints the same plan, and adding --yes publishes it signed by you", CLI: a.Command(a.IntentDigest)}, nil
@@ -404,6 +462,7 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 		return nil, nil, err
 	}
 	req.Draft, req.OnBehalfOf, req.Dynamic, req.Observed = true, who.person.User, who.own.Dynamic, r.observed(ctx, req)
+	r.offering(&req)
 	p, decl, err := r.svc.PlanDeclare(ctx, req)
 	if p == nil {
 		p = &app.DeclarePlan{Service: req.Service}
@@ -417,8 +476,12 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 		return nil, &pactomcp.Refused{Code: pactomcp.RefusalPlanStale, Message: "the plan changed since intent " + a.IntentDigest + " was reviewed; it is now " +
 			p.IntentDigest + ": review the new plan"}, nil
 	}
-	if refused := mayUpdateSelf(ctx, who.own.Dynamic, p.InferredFrom); refused != nil {
-		return nil, refused, nil
+	// An offering names no workload to update: an agent only drafts, and a
+	// person's acceptance of the draft is the gate.
+	if _, offer := a.Offering(); !offer {
+		if refused := mayUpdateSelf(ctx, who.own.Dynamic, p.InferredFrom); refused != nil {
+			return nil, refused, nil
+		}
 	}
 	req.Store = pushWriter(r.push, p.BundleRepo)
 	return mcpWritten(writeServerDraft(ctx, r.svc, req, p, decl, who.person.User, "mcp"))

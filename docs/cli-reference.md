@@ -697,10 +697,12 @@ pacto declare <service> [flags]
       --accept strings           a dependency whose proposed range you accept as declared; repeat it for more
       --call-window duration     how far back a call counts as a dependency (at least 1m, default 24h)
       --delivery-trust string    the trust config the target snapshots that carry the owner policy are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
+      --detected string          with offering:<name>, the detection whose installation key verifies --from: k8s:<namespace>/<name> of the operator's <release>-detected ConfigMap, or a file holding the same JSON
       --device[=true|false]      log in with a device code instead of a browser
       --dir string               a folder pacto init --cluster wrote, declared instead of a new draft
       --draft[=true|false]       write a draft-<n> a person accepts later, without a person's login: signed only by --sign-key or an ambient OIDC token when one is set
       --folder string            the folder of the repository the contract lives in (default: the folder a source names, else the root)
+      --from string              with offering:<name>, the inferred offering's contribution ref (oci://<registry>/pacto-inferred/<producer>/services:<tag>), as pacto fleet offerings --inferred prints it
       --from-draft string        accept this draft-<n> tag, signed by you (a workload draft reads the workload again)
       --fulcio-url string        Fulcio to get the signing certificate from (default "https://fulcio.sigstore.dev")
       --git-host string          the Git host API that serves the repository, when its URL does not say: github, gitlab, bitbucket (Cloud) or gitea (Forgejo too)
@@ -710,6 +712,7 @@ pacto declare <service> [flags]
   -n, --namespace string         the namespace of the workload (default: every namespace the name is found in)
       --oidc-client-id string    OpenID Connect client of the Sigstore login (default "sigstore")
       --oidc-issuer-url string   OpenID Connect issuer of the Sigstore login (default "https://oauth2.sigstore.dev/auth")
+      --owner string             with offering:<name>, the team that owns the offering; required on its first acceptance
       --pr[=true|false]          open a pull request with your own Git token after the bundle is written; needs --yes to write
       --registry string          the registry the contract is published to, as host/path
       --rekor-url string         Rekor transparency log the signature is recorded in (default "https://rekor.sigstore.dev")
@@ -718,6 +721,7 @@ pacto declare <service> [flags]
       --sign-key string          sign with this key file: a key names no person, so the run writes a draft
       --timestamp-url string     timestamp authority to date the signature with
       --trusted-root string      Sigstore trusted root JSON to verify with (default: public-good Sigstore)
+      --version string           with offering:<name>, the version you publish (MAJOR.MINOR.PATCH, above the newest declared)
       --yes[=true|false]         publish the plan (or write a draft) after printing it
 ```
 
@@ -1790,6 +1794,23 @@ pacto fleet neighborhood <service> [flags]
       --max-edges int       maximum edges (0 = 120, at most 1000)
       --max-nodes int       maximum services (0 = 60, at most 500)
       --views string        comma-separated knowledge views (expected, observed, differences) (default "expected,observed")
+```
+
+### `pacto fleet offerings`
+
+Lists the declared platform offerings, with a drift line under an offering accepted from an inferred one whose source changed or that Pacto cannot check, and how many inferred offerings --inferred lists. With --inferred it lists the inferred offerings producers contributed instead: never declared, never consumable and never a gate, each with its source object, producer, classes and the pacto declare offering:&lt;name&gt; command a person runs to accept it.
+
+```
+pacto fleet offerings [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]       help for offerings
+      --inferred[=true|false]   list the inferred offerings producers contributed instead of the declared ones (pacto fleet entities --kind offering --declaration inferred)
+      --limit int               maximum results (0 = 100, capped at 500)
+      --offset int              result offset for paging
 ```
 
 ### `pacto fleet overview`

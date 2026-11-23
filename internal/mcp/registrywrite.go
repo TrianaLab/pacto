@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -198,14 +199,33 @@ type DeclareArgs struct {
 	Folder     string `json:"folder"`
 	RepoMap    string `json:"repo_map"`
 	// Owner and Name are set only on a claim (service external:<identity>):
-	// the owning team and the service name the claim publishes under.
+	// the owning team and the service name the claim publishes under. Owner
+	// also names the owner of an accepted offering.
 	Owner string `json:"owner"`
 	Name  string `json:"name,omitempty"`
+	// Version and From are set only on an offering acceptance (service
+	// offering:<name>): the version it publishes and the inferred offering's
+	// contribution ref.
+	Version string `json:"version,omitempty"`
+	From    string `json:"from,omitempty"`
 }
+
+// serviceNameRE is serviceNamePattern, the name an offering acceptance
+// names.
+var serviceNameRE = regexp.MustCompile(serviceNamePattern)
+
+// OfferingSubjectPrefix is the declare subject of an inferred offering a
+// person accepts: offering:<name>.
+const OfferingSubjectPrefix = "offering:"
 
 // Claim is the external system a claims and whether a is a claim.
 func (a DeclareArgs) Claim() (string, bool) {
 	return strings.CutPrefix(a.Service, fleet.ExternalSubjectPrefix)
+}
+
+// Offering is the offering a accepts and whether a is an acceptance.
+func (a DeclareArgs) Offering() (string, bool) {
+	return strings.CutPrefix(a.Service, OfferingSubjectPrefix)
 }
 
 // Verb is the command a person runs for a: pacto claim for a claim, else
@@ -219,13 +239,19 @@ func (a DeclareArgs) Verb() string {
 
 // ArgsRefused refuses, before any read, arguments a's subject does not
 // take: a claim takes owner, name, registry, draft and intent and names a
-// valid external identity; a workload takes no owner or name. Its command
-// carries only arguments the subject takes.
+// valid external identity; an offering acceptance takes owner, version,
+// from, registry, draft and intent; a workload takes no owner, name,
+// version or from. Its command carries only arguments the subject takes.
 func (a DeclareArgs) ArgsRefused() *Refused {
+	if name, ok := a.Offering(); ok {
+		return a.offeringRefused(name)
+	}
 	id, claim := a.Claim()
 	switch {
-	case claim && (a.Namespace != "" || a.Dir != "" || len(a.Accept) > 0 || a.MaxItems != 0 || a.CallWindow != "" ||
-		a.PR || a.Repository != "" || a.Folder != "" || a.RepoMap != ""):
+	case a.Version != "" || a.From != "":
+		return &Refused{Code: RefusalFieldNotAcceptable, Message: "version and from are an offering acceptance's (service offering:<name>): " +
+			"call again without them", CLI: a.Command("")}
+	case claim && a.workloadArgs():
 		return &Refused{Code: RefusalFieldNotAcceptable, Message: "pacto claim takes owner, name, registry, draft and intent: " +
 			"call again without namespace, dir, accept, max_items, call_window, pr, repository, folder and repo_map", CLI: a.Command("")}
 	case claim:
@@ -240,12 +266,35 @@ func (a DeclareArgs) ArgsRefused() *Refused {
 	return nil
 }
 
+// workloadArgs is whether a sets an argument only a workload takes.
+func (a DeclareArgs) workloadArgs() bool {
+	return a.Namespace != "" || a.Dir != "" || len(a.Accept) > 0 || a.MaxItems != 0 || a.CallWindow != "" ||
+		a.PR || a.Repository != "" || a.Folder != "" || a.RepoMap != ""
+}
+
+// offeringRefused refuses an acceptance of offering name that names no
+// offering, or sets an argument it takes not.
+func (a DeclareArgs) offeringRefused(name string) *Refused {
+	switch {
+	case !serviceNameRE.MatchString(name):
+		return &Refused{Code: RefusalFieldNotAcceptable, Message: "service offering:<name> names a lower-case offering of at most 63 characters: " +
+			"find its name with pacto_fleet_entities, kind offering and declaration inferred", CLI: "pacto fleet offerings --inferred"}
+	case a.workloadArgs() || a.Name != "":
+		return &Refused{Code: RefusalFieldNotAcceptable, Message: "accepting an offering takes owner, version, from, registry, draft and intent: " +
+			"call again without namespace, dir, accept, max_items, call_window, pr, repository, folder, repo_map and name", CLI: a.Command("")}
+	}
+	return nil
+}
+
 // Command is the pacto declare (pacto claim for a claim) a person runs for
 // a: it replays every argument the intent digest binds, and the digest when
 // intent is set. Without --yes it prints the plan and writes nothing. A
 // claim's command carries only the flags pacto claim defines.
 func (a DeclareArgs) Command(intent string) string {
 	reg := cmp.Or(a.Registry, "<registry>")
+	if _, ok := a.Offering(); ok {
+		return a.offeringCommand(reg, intent)
+	}
 	if id, ok := a.Claim(); ok {
 		parts := []string{"pacto claim", id, "--owner", cmp.Or(a.Owner, "<team>")}
 		if a.Name != "" {
@@ -335,4 +384,20 @@ type declaredRun struct {
 	Repository *struct {
 		URL string `json:"url"`
 	} `json:"repository"`
+}
+
+// offeringCommand is the pacto declare offering:<name> a person runs for a,
+// with the flags that command defines. The --detected whose installation
+// key verifies from is the person's own: a stdio server's is its own
+// --detected, which a person's machine may not read.
+func (a DeclareArgs) offeringCommand(reg, intent string) string {
+	parts := []string{"pacto declare", a.Service, "--from", cmp.Or(a.From, "<contribution>"), "--detected", "k8s:<namespace>/<configmap>",
+		"--registry", reg, "--version", cmp.Or(a.Version, "<version>")}
+	if a.Owner != "" {
+		parts = append(parts, "--owner", a.Owner)
+	}
+	if intent != "" {
+		parts = append(parts, "--intent", intent)
+	}
+	return strings.Join(parts, " ")
 }

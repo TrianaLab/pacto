@@ -238,7 +238,7 @@ func TestMCPDeclareCITokenSignsDraft(t *testing.T) {
 	const wf = "acme/invoices/.github/workflows/release.yml@refs/heads/main"
 	t.Setenv("SIGSTORE_ID_TOKEN", testutil.TokenWith(map[string]string{"sub": "https://github.com/" + wf, "iss": "https://token.actions.githubusercontent.com",
 		"job_workflow_ref": wf, "repository": "https://github.com/acme/invoices", "ref": "refs/heads/main"}))
-	decl := newMCPDeclarer(app.NewService(nil, nil), "")
+	decl := newMCPDeclarer(app.NewService(nil, nil), "", "")
 	decl.base.Signing.FulcioURL, decl.base.Signing.TimestampURL, decl.base.Signing.RekorURL, decl.base.Signing.TrustedRoot = ss.Fulcio, ss.TSA, "", rootPath
 	server := func() *mcpsdk.Server {
 		s, _ := pactomcp.New("v", pactomcp.Authoring{Declare: decl}, pactomcp.Modes{})
@@ -255,9 +255,9 @@ func TestMCPDeclareCITokenSignsDraft(t *testing.T) {
 
 func TestMCPDeclareRequestErrors(t *testing.T) {
 	newDeclareWorld(t)
-	decl := newMCPDeclarer(app.NewService(nil, nil), "")
+	decl := newMCPDeclarer(app.NewService(nil, nil), "", "")
 	ctx := context.Background()
-	for _, a := range []pactomcp.DeclareArgs{{Service: "invoices", CallWindow: "a day"}, {Service: "offering:pay"}} {
+	for _, a := range []pactomcp.DeclareArgs{{Service: "invoices", CallWindow: "a day"}, {Service: "template:pay"}} {
 		if _, _, err := decl.Plan(ctx, a); err == nil {
 			t.Errorf("%+v planned", a)
 		}
@@ -328,7 +328,7 @@ func TestMCPDeclareHTTPRefusesDraftArgument(t *testing.T) {
 }
 
 func TestMCPDeclareStdioPassesDraft(t *testing.T) {
-	req, err := newMCPDeclarer(nil, "").request(pactomcp.DeclareArgs{Service: "invoices", Draft: true})
+	req, err := newMCPDeclarer(nil, "", "").request(pactomcp.DeclareArgs{Service: "invoices", Draft: true})
 	if err != nil || !req.Draft || !req.Agent {
 		t.Fatalf("%+v %v", req, err)
 	}
@@ -609,11 +609,11 @@ func TestMCPDeclareExternalRequiresOwner(t *testing.T) {
 }
 
 func TestMCPDeclareExternalBypassesWorkloadSubject(t *testing.T) {
-	req, err := newMCPDeclarer(nil, "").request(pactomcp.DeclareArgs{Service: "external:stripe", Owner: "team-platform", Name: "payments-stripe"})
+	req, err := newMCPDeclarer(nil, "", "").request(pactomcp.DeclareArgs{Service: "external:stripe", Owner: "team-platform", Name: "payments-stripe"})
 	if err != nil || req.Service != "external:stripe" || req.Owner != "team-platform" || req.Name != "payments-stripe" || !req.Agent {
 		t.Fatalf("%+v %v", req, err)
 	}
-	if _, err := newMCPDeclarer(nil, "").request(pactomcp.DeclareArgs{Service: "offering:x"}); err == nil || !strings.Contains(err.Error(), "offering:") {
+	if _, err := newMCPDeclarer(nil, "", "").request(pactomcp.DeclareArgs{Service: "template:x"}); err == nil || !strings.Contains(err.Error(), "template:") {
 		t.Fatal(err)
 	}
 	// A claim whose kubeconfig fails plans with the signer policy unread.

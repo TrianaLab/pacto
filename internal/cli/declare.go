@@ -18,6 +18,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/gitexport"
+	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -100,6 +101,12 @@ pacto.inferred.yaml as inferred.`,
 	f.StringVar(&req.Folder, "folder", "", "the folder of the repository the contract lives in (default: the folder a source names, else the root)")
 	f.StringVar(&req.RepoMap, "repo-map", "", "a YAML file mapping service names to {repository, folder}; read only with --pr")
 	f.StringVar(&req.GitHost, "git-host", "", "the Git host API that serves the repository, when its URL does not say: github, gitlab, bitbucket (Cloud) or gitea (Forgejo too)")
+	// Owner is also pacto claim's flag: an offering's are on this command
+	// alone, never in the flags both share.
+	f.StringVar(&req.Owner, "owner", "", "with offering:<name>, the team that owns the offering; required on its first acceptance")
+	f.StringVar(&req.From, "from", "", "with offering:<name>, the inferred offering's contribution ref (oci://<registry>/pacto-inferred/<producer>/services:<tag>), as pacto fleet offerings --inferred prints it")
+	f.StringVar(&req.Version, "version", "", "with offering:<name>, the version you publish (MAJOR.MINOR.PATCH, above the newest declared)")
+	f.StringVar(&req.Detected, "detected", "", "with offering:<name>, the detection whose installation key verifies --from: k8s:<namespace>/<name> of the operator's <release>-detected ConfigMap, or a file holding the same JSON")
 	declareFlags(f, &req, &yes)
 	return cmd
 }
@@ -162,18 +169,23 @@ func declareFlags(f *pflag.FlagSet, req *app.DeclareRequest, yes *bool) {
 		"a YAML file with a key scoped to each cluster (default $"+app.TrustEnv+")")
 }
 
-// declareSubject reads the workload argument into req: name, ns/name,
-// ns/Kind/name or k8s:ns/Kind/name. An external system is claimed with
-// pacto claim; any other <kind>: subject is refused.
+// declareSubject reads the subject argument into req: a workload (name,
+// ns/name, ns/Kind/name or k8s:ns/Kind/name) or an inferred offering to
+// accept (offering:<name>). An external system is claimed with pacto claim;
+// any other <kind>: subject is refused.
 func declareSubject(req *app.DeclareRequest, arg string) error {
 	if kind, rest, ok := strings.Cut(arg, ":"); ok {
-		if kind+":" == fleet.ExternalSubjectPrefix {
+		switch kind + ":" {
+		case fleet.ExternalSubjectPrefix:
 			return errors.New("claim an external system with pacto claim " + rest + " --owner <team>")
+		case pactomcp.OfferingSubjectPrefix:
+			req.Service = arg
+			return nil
+		case "k8s:":
+			arg = rest
+		default:
+			return fmt.Errorf("pacto declare reads a workload or an offering:<name>, not %s: templates are declared by a later release", kind+":")
 		}
-		if kind != "k8s" {
-			return fmt.Errorf("pacto declare reads a workload, not %s: offerings and templates are declared by a later release", kind+":")
-		}
-		arg = rest
 	}
 	req.Service = arg
 	return nil
@@ -188,7 +200,7 @@ func declareDynamic(req app.DeclareRequest) (dynamic.Interface, error) {
 		return nil, nil
 	}
 	dyn, err := initDynamic()
-	if err != nil && req.Dir == "" && !strings.HasPrefix(req.Service, fleet.ExternalSubjectPrefix) {
+	if err != nil && req.Dir == "" && !strings.HasPrefix(req.Service, fleet.ExternalSubjectPrefix) && !strings.HasPrefix(req.Service, pactomcp.OfferingSubjectPrefix) {
 		return nil, fmt.Errorf("declaring a workload reads the cluster: %w", err)
 	}
 	if err != nil {
@@ -279,7 +291,7 @@ func printDeclarePlan(w io.Writer, p *app.DeclarePlan) {
 		if p.Cluster != "" {
 			cluster = " (cluster " + p.Cluster + ")"
 		}
-		_, _ = fmt.Fprintf(w, "inferredFrom %s%s\n", p.InferredFrom, cluster)
+		_, _ = fmt.Fprintf(w, "inferredFrom %s%s\n", inferredFromText(p.InferredFrom), cluster)
 	}
 	printDeclareRepository(w, p)
 	printPullRequestPlan(w, p.PullRequest)
@@ -427,6 +439,7 @@ func complete(rows []contract.InferredCoverage) int {
 func printDeclareResult(w io.Writer, res *app.DeclareResult) {
 	p := res.Plan
 	id, claim := contract.InferredFromExternal(p.InferredFrom)
+	_, _, _, offer := contract.InferredFromOffering(p.InferredFrom)
 	switch {
 	case p.Unchanged != "":
 		printDeclarePlan(w, &p)
@@ -434,11 +447,13 @@ func printDeclareResult(w io.Writer, res *app.DeclareResult) {
 		return
 	case claim:
 		printClaimResult(w, res, id)
+	case offer:
+		printOfferingResult(w, res)
 	case res.Draft:
 		_, _ = fmt.Fprintf(w, "wrote %s (%s): a person accepts it with %s\n", res.Tag, res.Published, p.AcceptCLI)
 	default:
 		_, _ = fmt.Fprintf(w, "signed as %s via %s\n", p.Signer.Subject, p.Signer.Issuer)
-		_, _ = fmt.Fprintf(w, "published %s (inferredFrom %s)\n", res.Published, p.InferredFrom)
+		_, _ = fmt.Fprintf(w, "published %s (inferredFrom %s)\n", res.Published, inferredFromText(p.InferredFrom))
 	}
 	if r := res.PullRequest; r != nil {
 		_, _ = fmt.Fprintf(w, "opened %s as %s (%s)\n", r.URL, r.Login, r.TokenSource)
@@ -529,4 +544,27 @@ func printClaimResult(w io.Writer, res *app.DeclareResult, id string) {
 	}
 	_, _ = fmt.Fprintf(w, "claimed %s%s -> oci://%s:%s\n", fleet.ExternalSubjectPrefix, id, p.BundleRepo, p.Version)
 	_, _ = fmt.Fprintf(w, "  signed by %s (person), inferredFrom: %s, no Git write\n", p.Signer.Subject, id)
+}
+
+// printOfferingResult prints what an offering acceptance wrote: the
+// declared version and who signed it, or the draft and the command a person
+// accepts it with.
+func printOfferingResult(w io.Writer, res *app.DeclareResult) {
+	p := res.Plan
+	if res.Draft {
+		_, _ = fmt.Fprintf(w, "wrote %s of %s%s (%s): a person accepts it with %s --yes\n", res.Tag, pactomcp.OfferingSubjectPrefix, p.Service, res.Published, p.AcceptCLI)
+		return
+	}
+	_, _ = fmt.Fprintf(w, "declared %s%s -> oci://%s:%s\n", pactomcp.OfferingSubjectPrefix, p.Service, p.BundleRepo, p.Version)
+	_, _ = fmt.Fprintf(w, "  signed by %s (person), inferredFrom: %s, producer signature checked, no Git write\n", p.Signer.Subject, inferredFromText(p.InferredFrom))
+}
+
+// inferredFromText is a declaration's inferredFrom as the CLI prints it:
+// an accepted offering as offering <producer>/<service> and its digest,
+// anything else as it is.
+func inferredFromText(from string) string {
+	if producer, service, digest, ok := contract.InferredFromOffering(from); ok {
+		return "offering " + producer + "/" + service + " (" + digest + ")"
+	}
+	return from
 }
