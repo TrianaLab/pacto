@@ -337,7 +337,7 @@ func TestManagedStageWriteFailures(t *testing.T) {
 	if err := pe.c.Update(t.Context(), s); err != nil {
 		t.Fatal(err)
 	}
-	if v := pe.pass(t); !strings.Contains(v.CompletenessReason, "the Stage payments-staging/payments-staging could not be updated: boom") {
+	if v := pe.pass(t); !pe.missedHas(t, v, "the Stage payments-staging/payments-staging could not be updated: boom") {
 		t.Fatalf("view %+v", v)
 	}
 }
@@ -353,7 +353,7 @@ func TestUnreadableKustomizationIsPartial(t *testing.T) {
 	pe.r.Ladder = []string{"staging"}
 	pe.adopted(t, "payments-staging", map[string]string{"kustomize.toolkit.fluxcd.io/name": "p", "kustomize.toolkit.fluxcd.io/namespace": "flux-system"}, nil)
 	pe.publish(t, "payments", delivered("payments"), nil)
-	if v := pe.pass(t); !strings.Contains(v.CompletenessReason, "Kustomization flux-system/p: boom") {
+	if v := pe.pass(t); !pe.missedHas(t, v, "Kustomization flux-system/p: boom") {
 		t.Fatalf("view %+v", v)
 	}
 }

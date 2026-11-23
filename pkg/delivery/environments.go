@@ -159,6 +159,13 @@ type EnvironmentsView struct {
 	// Notes say why a ladder record was not counted or how the chart value
 	// overrides the confirmed ladder.
 	Notes []string `json:"notes,omitempty"`
+	// Dropped are the rungs the counted ladder record left out: a new
+	// confirmation carries them, so a dropped rung is never proposed again.
+	Dropped []string `json:"dropped,omitempty"`
+	// LadderUnread says why the ladder records were read in part: the
+	// confirmed ladder and the dropped rungs may be stale, so no confirmation
+	// is signed on top of them.
+	LadderUnread string `json:"ladderUnread,omitempty"`
 	// Idle says why the promoter places nothing, when it does not.
 	Idle                string `json:"idle,omitempty"`
 	UnplacedCount       int    `json:"unplacedCount"`
@@ -288,14 +295,23 @@ func PlacementAnnotations(source string, p Placement) map[string]string {
 // placement come from: the environment source and placement Pacto wrote on a
 // Stage it labelled ManagedLabel, and who confirmed the placement. managed is
 // false for any other Stage, which a person wrote. Ownership never rests on
-// it: anyone who may edit a Stage may write these.
+// it: anyone who may edit a Stage may write these, so they are claims, and a
+// provenance or source outside the known values reads unknown (empty for the
+// source).
 func StagePlacement(meta ObjectMeta) (source string, p Placement, confirmedBy string, managed bool) {
 	if meta.Labels[ManagedLabel] != ManagedBy {
 		return PlacementFromStage, Placement{Namespace: meta.Namespace, Provenance: PlacementDeclared, Source: PlacementFromStage}, "", false
 	}
 	a := meta.Annotations
-	return a[managedPrefix+"environment-source"], Placement{Namespace: meta.Namespace, Provenance: a[managedPrefix+"placement-provenance"],
-		Source: a[managedPrefix+"placement-source"], Evidence: a[managedPrefix+"placement-evidence"]}, a[PlacementConfirmedByAnnotation], true
+	p = Placement{Namespace: meta.Namespace, Provenance: a[managedPrefix+"placement-provenance"],
+		Source: a[managedPrefix+"placement-source"], Evidence: a[managedPrefix+"placement-evidence"]}
+	if !slices.Contains([]string{PlacementDeclared, PlacementObserved, PlacementInferred, PlacementDefault, PlacementUnknown}, p.Provenance) {
+		p.Provenance = PlacementUnknown
+	}
+	if source = a[managedPrefix+"environment-source"]; !slices.Contains([]string{DesiredFromContract, DesiredFromLadder, DesiredFromConfirmed}, source) {
+		source = ""
+	}
+	return source, p, a[PlacementConfirmedByAnnotation], true
 }
 
 // ManagedStageSpec is the spec of the Stage Pacto creates for service in

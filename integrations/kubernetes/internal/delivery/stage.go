@@ -384,7 +384,11 @@ func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) err
 		Reason: "automatic promote of the newest eligible candidate",
 		Actor:  delivery.Actor{User: r.Policy.ControllerUser},
 	}
-	if q := r.Environments.question(ctx, stage); q != "" {
+	q, err := r.Environments.question(ctx, stage)
+	if err != nil {
+		return err
+	}
+	if q != "" {
 		spec.Reason = q + " " + spec.Reason
 	}
 	return r.raise(ctx, stage, "auto", spec)

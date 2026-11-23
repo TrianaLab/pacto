@@ -336,6 +336,15 @@ func TestVerifiedPlacementUnreadable(t *testing.T) {
 	if pol, why := w.p.VerifiedPlacement(t.Context()); pol != nil || !strings.Contains(why, "could not be read (503)") {
 		t.Fatalf("head: %+v %q", pol, why)
 	}
+	// Once one verified, a read that fails keeps it, unread.
+	w.reg.layerErr, w.reg.headErr = nil, nil
+	if pol, why := w.p.VerifiedPlacement(t.Context()); pol == nil || why != "" {
+		t.Fatalf("verified: %+v %q", pol, why)
+	}
+	w.reg.headErr = errors.New("503")
+	if pol, why := w.p.VerifiedPlacement(t.Context()); pol == nil || !strings.Contains(why, "could not be read (503)") {
+		t.Fatalf("kept: %+v %q", pol, why)
+	}
 	// No delivery policy, no placement policy.
 	w.p.Policy = ""
 	if pol, why := w.p.VerifiedPlacement(t.Context()); pol != nil || why != "" {
@@ -349,20 +358,21 @@ func TestNewestAccepted(t *testing.T) {
 	repo := w.host + "/payments"
 	ours := w.push("1.0.0", acmeRepo, w.ci(acmeSubject, acmeRepo))
 	w.push("1.1.0", otherRepo, w.ci(otherSub, otherRepo))
-	if v, why := w.p.NewestAccepted(t.Context(), svc, repo); v == nil || why != "" || v.Digest != ours || v.Identity.Repository != acmeRepo {
+	if v, why, err := w.p.NewestAccepted(t.Context(), svc, repo); v == nil || why != "" || err != nil || v.Digest != ours || v.Identity.Repository != acmeRepo {
 		t.Fatalf("accepted %+v %q", v, why)
 	}
-	if v, why := w.p.NewestAccepted(t.Context(), delivery.ServiceRef{Name: "orders"}, w.host+"/orders"); v != nil || why == "" {
+	if v, why, err := w.p.NewestAccepted(t.Context(), delivery.ServiceRef{Name: "orders"}, w.host+"/orders"); v != nil || why == "" || err != nil {
 		t.Fatalf("no version %+v %q", v, why)
 	}
 	w.p.listings = nil
 	w.reg.tagsErr = errors.New("503")
-	if v, why := w.p.NewestAccepted(t.Context(), svc, repo); v != nil || !strings.Contains(why, "cannot be listed") {
-		t.Fatalf("listing %+v %q", v, why)
+	// A read that fails is an error, never an untrusted publisher.
+	if v, why, err := w.p.NewestAccepted(t.Context(), svc, repo); v != nil || why != "" || err == nil || !strings.Contains(err.Error(), "cannot be listed") {
+		t.Fatalf("listing %+v %q %v", v, why, err)
 	}
 	w.p.Root = func() (root.TrustedMaterial, error) { return nil, errors.New("tuf") }
 	w.p.tm, w.p.rootNext = nil, time.Time{}
-	if v, why := w.p.NewestAccepted(t.Context(), svc, repo); v != nil || !strings.Contains(why, "trusted root") {
-		t.Fatalf("root %+v %q", v, why)
+	if v, _, err := w.p.NewestAccepted(t.Context(), svc, repo); v != nil || err == nil || !strings.Contains(err.Error(), "trusted root") {
+		t.Fatalf("root %+v %v", v, err)
 	}
 }

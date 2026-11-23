@@ -138,7 +138,7 @@ func (r *EnvironmentReconciler) retireManaged(ctx context.Context, st *placement
 			}
 			if err := mergePatch(ctx, r.Client, st.byName[o.Namespace+"/"+o.Name], map[string]any{"metadata": map[string]any{
 				"annotations": map[string]any{delivery.RetiringSinceAnnotation: v}}}); err != nil {
-				st.unread = append(st.unread, "the Stage "+o.Namespace+"/"+o.Name+" could not be marked: "+err.Error())
+				st.missed = append(st.missed, "the Stage "+o.Namespace+"/"+o.Name+" could not be marked: "+err.Error())
 			}
 		}
 	}
@@ -161,7 +161,7 @@ func (r *EnvironmentReconciler) retireManaged(ctx context.Context, st *placement
 func (r *EnvironmentReconciler) retire(ctx context.Context, st *placementState, s managedObject) {
 	for _, o := range append(st.state.dependents(s), s) {
 		if err := r.deleteOwned(ctx, o); err != nil {
-			st.unread = append(st.unread, "the "+o.Kind+" "+o.Namespace+"/"+o.Name+" could not be retired: "+err.Error())
+			st.missed = append(st.missed, "the "+o.Kind+" "+o.Namespace+"/"+o.Name+" could not be retired: "+err.Error())
 			return
 		}
 		st.state.drop(o)

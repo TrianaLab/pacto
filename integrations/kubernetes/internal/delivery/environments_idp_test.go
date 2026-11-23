@@ -87,6 +87,15 @@ func approved(ns, name, by string) *dv1.Operation {
 	return op
 }
 
+// promoteAsked is approved with the reason the promoter raises it with: the
+// placement question of the managed Stage ns/name, when it asks one.
+func (pe *placeEnv) promoteAsked(t *testing.T, ns, name, by string) *dv1.Operation {
+	t.Helper()
+	op := approved(ns, name, by)
+	op.Spec.Reason = strings.TrimSpace(q1(t, pe.r, pe.stage(t, ns, name)) + " automatic promote of the newest eligible candidate")
+	return op
+}
+
 func TestPointerNeverAppliesBeforeFirstPromote(t *testing.T) {
 	pacto := ladderPacto("payments-staging", "payments")
 	_ = unstructured.SetNestedField(pacto.Object, "oci://ghcr.io/acme/payments@sha256:aa", "status", "contract", "resolvedRef")
@@ -127,7 +136,7 @@ func TestPointerNeverAppliesBeforeFirstPromote(t *testing.T) {
 			}
 			// The promoter's approved promote wrote the digest: only then is
 			// it unsuspended.
-			if err := pe.r.confirmPlacement(t.Context(), approved(ns, "payments-staging", "alice"), s); err != nil {
+			if err := pe.r.confirmPlacement(t.Context(), pe.promoteAsked(t, ns, "payments-staging", "alice"), s); err != nil {
 				t.Fatal(err)
 			}
 			if suspended(pe.flux(t, "OCIRepository", ns, "payments-staging")) || suspended(pe.flux(t, "Kustomization", ns, "payments-staging")) {
@@ -175,7 +184,7 @@ func TestFirstApprovalConfirmsPlacementAndUnsuspends(t *testing.T) {
 	if s.Spec.ApplyRef != (delivery.ApplyRef{Kind: delivery.ApplierHelmRelease, Name: "payments-staging"}) {
 		t.Fatalf("applyRef %+v", s.Spec.ApplyRef)
 	}
-	if err := pe.r.confirmPlacement(t.Context(), approved("staging", "payments-staging", "alice"), s); err != nil {
+	if err := pe.r.confirmPlacement(t.Context(), pe.promoteAsked(t, "staging", "payments-staging", "alice"), s); err != nil {
 		t.Fatal(err)
 	}
 	st := pe.state(t)
@@ -196,7 +205,7 @@ func TestFirstApprovalConfirmsPlacementAndUnsuspends(t *testing.T) {
 		t.Fatalf("again: %v %v", err, pe.writes)
 	}
 	pe.pass(t)
-	if q := pe.r.question(t.Context(), pe.stage(t, "staging", "payments-staging")); q != "" {
+	if q := q1(t, pe.r, pe.stage(t, "staging", "payments-staging")); q != "" {
 		t.Fatalf("question %q", q)
 	}
 }
@@ -215,7 +224,7 @@ func TestForgedConfirmedAnnotationUnsuspendsNothing(t *testing.T) {
 		pe.has(t, &corev1.ServiceAccount{}, "staging", "payments-deployer") {
 		t.Fatal("a forged annotation confirmed the placement")
 	}
-	if q := pe.r.question(t.Context(), s); !strings.HasPrefix(q, "deploy payments to namespace staging") {
+	if q := q1(t, pe.r, s); !strings.HasPrefix(q, "deploy payments to namespace staging") {
 		t.Fatalf("question %q", q)
 	}
 }
@@ -450,10 +459,10 @@ func TestConfirmPlacementRefusals(t *testing.T) {
 	}, namespace("staging"), namespace("production"))
 	pe.pass(t)
 	s := pe.stage(t, "staging", "payments-staging")
-	ok := approved("staging", "payments-staging", "alice")
+	ok := pe.promoteAsked(t, "staging", "payments-staging", "alice")
 	// Not managed, not ours, or not running: nothing to do.
 	var nilR *EnvironmentReconciler
-	if nilR.confirmPlacement(t.Context(), ok, s) != nil || nilR.question(t.Context(), s) != "" {
+	if nilR.confirmPlacement(t.Context(), ok, s) != nil || q1(t, nilR, s) != "" {
 		t.Fatal("nil")
 	}
 	hand := s.DeepCopy()
@@ -461,14 +470,16 @@ func TestConfirmPlacementRefusals(t *testing.T) {
 	other := s.DeepCopy()
 	other.UID = "other"
 	for _, st := range []*dv1.Stage{hand, other} {
-		if err := pe.r.confirmPlacement(t.Context(), ok, st); err != nil || pe.r.question(t.Context(), st) != "" {
+		if err := pe.r.confirmPlacement(t.Context(), ok, st); err != nil || q1(t, pe.r, st) != "" {
 			t.Fatal(err)
 		}
 	}
 	// The private state cannot be read.
 	fail[delivery.PlacementsConfigMap] = true
-	if pe.r.confirmPlacement(t.Context(), ok, s) == nil || pe.r.question(t.Context(), s) != "" {
-		t.Fatal("unreadable state")
+	// No question is raised without its placement sentence: the promote
+	// waits (requeues) instead.
+	if _, err := pe.r.question(t.Context(), s); pe.r.confirmPlacement(t.Context(), ok, s) == nil || err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("unreadable state: %v", err)
 	}
 	fail[delivery.PlacementsConfigMap] = false
 	// The pointer cannot be read, or is not the one Pacto created.
@@ -504,7 +515,7 @@ func TestConfirmPlacementRefusals(t *testing.T) {
 	if err := pe.c.Update(t.Context(), cm); err != nil {
 		t.Fatal(err)
 	}
-	if err := pe.r.confirmPlacement(t.Context(), ok, s); err == nil || !strings.Contains(err.Error(), "is not known") || pe.r.question(t.Context(), s) != "" {
+	if err := pe.r.confirmPlacement(t.Context(), ok, s); err == nil || !strings.Contains(err.Error(), "is not known") || q1(t, pe.r, s) != "" {
 		t.Fatalf("err %v", err)
 	}
 	cm.Data["rows.json"] = "{"
@@ -524,7 +535,7 @@ func TestConfirmPlacementDeclaredAndWriteFailures(t *testing.T) {
 	}
 	pe.pass(t)
 	s := pe.stage(t, "staging", "payments-staging")
-	if q := pe.r.question(t.Context(), s); q != "" {
+	if q := q1(t, pe.r, s); q != "" {
 		t.Fatalf("a declared placement asks nothing: %q", q)
 	}
 	failPatch := func(kind string) {
@@ -661,5 +672,62 @@ func TestTrustQuestionCarriesPlacement(t *testing.T) {
 	want := "deploy payments to namespace " + ns + " (Argo CD source github.com/acme/payments)? new signer " + otherSub
 	if len(ops) != 1 || ops[0].Spec.Reason != want {
 		t.Fatalf("ops %+v", ops)
+	}
+}
+
+// q1 is question's sentence, failing t on an error.
+func q1(t *testing.T, r *EnvironmentReconciler, s *dv1.Stage) string {
+	t.Helper()
+	q, err := r.question(t.Context(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return q
+}
+
+// TestApprovalOfAnotherQuestionNeverConfirmsPlacement: only an approval of a
+// promote that asked this very placement confirms it. A promote raised
+// without the sentence, or asking another namespace, unsuspends nothing.
+func TestApprovalOfAnotherQuestionNeverConfirmsPlacement(t *testing.T) {
+	pe := idpEnv(t, contract.ArtifactManifests, interceptor.Funcs{}, namespace("staging"), namespace("production"))
+	pe.pass(t)
+	s := pe.stage(t, "staging", "payments-staging")
+	for _, reason := range []string{"automatic promote of the newest eligible candidate",
+		"deploy payments to namespace elsewhere? automatic promote of the newest eligible candidate"} {
+		op := approved("staging", "payments-staging", "alice")
+		op.Spec.Reason = reason
+		if err := pe.r.confirmPlacement(t.Context(), op, s); err == nil || !strings.Contains(err.Error(), "asks it confirms it") {
+			t.Fatalf("%q: %v", reason, err)
+		}
+	}
+	if !suspended(pe.flux(t, "OCIRepository", "staging", "payments-staging")) || len(pe.state(t).Confirmations) != 0 {
+		t.Fatal("an approval of another question confirmed the placement")
+	}
+}
+
+// TestQuestionWaitsForAReadableState: while the private state cannot be
+// read, neither the automatic promote nor the trust question is raised
+// without its placement sentence: the reconcile fails and is retried.
+func TestQuestionWaitsForAReadableState(t *testing.T) {
+	e := managedStageWorld(t, true, inferredHere())
+	cm := &corev1.ConfigMap{}
+	must(t, e.c.Get(t.Context(), client.ObjectKey{Namespace: deliveryNS, Name: delivery.PlacementsConfigMap}, cm))
+	cm.Data["stages.json"] = "{"
+	must(t, e.c.Update(t.Context(), cm))
+	if err := e.reconcileStage("payments-prod"); err == nil || len(e.ops()) != 0 {
+		t.Fatalf("promote raised on an unread state: %v %d", err, len(e.ops()))
+	}
+
+	w := newWatch(t, registryAt("-"))
+	s := w.e.getStage()
+	s.UID, s.Labels = "uid-stage", map[string]string{delivery.ManagedLabel: delivery.ManagedBy}
+	must(t, w.e.c.Update(t.Context(), s))
+	must(t, w.e.c.Create(t.Context(), &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: deliveryNS, Name: delivery.PlacementsConfigMap},
+		Data: map[string]string{"stages.json": "{"}}))
+	w.e.st.Environments = &EnvironmentReconciler{APIReader: w.e.c, Namespace: deliveryNS}
+	w.push("1.0.0", otherRepo, w.ci(otherSub, otherRepo))
+	w.p.listings = nil
+	if err := w.e.reconcileStage("payments-prod"); err == nil || len(w.trustOps()) != 0 {
+		t.Fatalf("trust question raised on an unread state: %v %+v", err, w.trustOps())
 	}
 }

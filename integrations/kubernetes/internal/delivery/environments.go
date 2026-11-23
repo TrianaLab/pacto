@@ -81,9 +81,10 @@ type EnvironmentReconciler struct {
 	// Cluster reads the workloads placement checks and pulls bundles.
 	Cluster Cluster
 	// Accepted is the verdict on the newest version of a service in its
-	// bundle repository the publisher check accepts (Publishers.NewestAccepted);
-	// nil accepts none.
-	Accepted func(ctx context.Context, svc delivery.ServiceRef, repo string) (*delivery.PublisherVerdict, string)
+	// bundle repository the publisher check accepts (Publishers.NewestAccepted):
+	// nil and why when none is, an error when the check could not run; nil
+	// accepts none.
+	Accepted func(ctx context.Context, svc delivery.ServiceRef, repo string) (*delivery.PublisherVerdict, string, error)
 	// Placement is the verified placement policy and why it could not be
 	// read (Publishers.VerifiedPlacement); nil reads none.
 	Placement func(ctx context.Context) (*delivery.PlacementPolicy, string)
@@ -160,9 +161,11 @@ func (r *EnvironmentReconciler) Reconcile(ctx context.Context, _ reconcile.Reque
 	for _, n := range namespaces.Items {
 		in.Namespaces = append(in.Namespaces, n.Name)
 	}
+	unreadSteps := map[string]string{}
 	pactos, err := Cluster{Client: r.Client}.pactos(ctx)
 	if err != nil {
 		unread = append(unread, "the Pactos: "+err.Error())
+		unreadSteps[delivery.PlacementFromPacto] = "the Pactos could not be listed"
 	}
 	services := map[string]bool{}
 	for _, p := range pactos {
@@ -184,7 +187,9 @@ func (r *EnvironmentReconciler) Reconcile(ctx context.Context, _ reconcile.Reque
 	if f := lr.from; f != nil {
 		view.Record, view.ConfirmedBy, view.ConfirmedAt = f.Ref, f.User, f.SignedAt.UTC().Format(time.RFC3339)
 		known = append(known, f.Record.Dropped...) // a person dropped them: never asked again
+		view.Dropped = f.Record.Dropped
 	}
+	view.LadderUnread = lr.unread
 	if r.LadderRepository != "" {
 		view.Repository, view.Stream = r.LadderRepository, delivery.LadderStream(r.ClusterID)
 	}
@@ -193,7 +198,7 @@ func (r *EnvironmentReconciler) Reconcile(ctx context.Context, _ reconcile.Reque
 	view.ProposalDigest = delivery.ProposalDigest(view.Proposal)
 	st := placementState{namespaces: map[string]bool{}, pactos: pactos, occupants: map[string][]delivery.NamespaceOccupant{},
 		ladder: slices.Concat(view.Declared, view.Confirmed), candidates: map[string]bool{},
-		desired: map[string]string{}, unsure: map[string]bool{}, complete: lr.unread == ""}
+		desired: map[string]string{}, unsure: map[string]bool{}, complete: lr.unread == "", unreadSteps: unreadSteps}
 	if lr.from != nil {
 		st.namespacesDigest = lr.from.Record.NamespacesDigest
 	}
@@ -420,6 +425,13 @@ type placementState struct {
 	policy     []delivery.PlacementRule
 	occupants  map[string][]delivery.NamespaceOccupant
 	unread     []string
+	// missed are the objects of delivered services this pass could not
+	// read, update or retire. They name services and namespaces, so they go
+	// to PlacementsConfigMap alone; the view counts them.
+	missed []string
+	// unreadSteps is, by placement step source, why what it reads could not
+	// be read (delivery.PlacementInput.Unread).
+	unreadSteps map[string]string
 	// namespacesDigest is the NamespacesDigest the counted ladder record
 	// binds; candidates collects the namespaces this pass would create once
 	// a person allows it.
@@ -479,6 +491,9 @@ func (r *EnvironmentReconciler) place(ctx context.Context, view *delivery.Enviro
 		}
 		if why != "" {
 			st.unread = append(st.unread, why)
+			if pol == nil {
+				st.unreadSteps[delivery.PlacementFromPolicy] = "the placement policy could not be read"
+			}
 		}
 	}
 	rows := []delivery.PlacementRow{}
@@ -490,12 +505,15 @@ func (r *EnvironmentReconciler) place(ctx context.Context, view *delivery.Enviro
 		rows = rows[:maxPlacementRows]
 	}
 	for _, row := range rows {
-		if row.Placement == nil || !row.Placement.Placed() {
+		if row.Stage == "" {
 			view.UnplacedCount++
 		}
 	}
 	view.NamespaceCandidates = len(st.candidates)
 	err = r.finishPass(ctx, rows, &st)
+	if n := len(st.missed); n > 0 {
+		st.unread = append(st.unread, fmt.Sprintf("%d objects of delivered services (%s lists them under %s)", n, delivery.PlacementsConfigMap, unreadKey))
+	}
 	return st.unread, err
 }
 
@@ -565,12 +583,17 @@ func (r *EnvironmentReconciler) placeService(ctx context.Context, st *placementS
 	if r.Accepted == nil {
 		return waiting("waiting: publisher not trusted yet (the promoter has no publisher check)")
 	}
-	v, why := r.Accepted(ctx, svc, bundleRepo)
-	if v == nil {
+	v, why, err := r.Accepted(ctx, svc, bundleRepo)
+	switch {
+	case err != nil:
+		st.missed = append(st.missed, "the publisher check of "+bundleRepo+": "+err.Error())
+		return waiting("the publisher check could not run: " + err.Error())
+	case v == nil:
 		return waiting("waiting: publisher not trusted yet (" + why + ")")
 	}
 	b, err := r.Cluster.Registry().Pull(ctx, bundleRepo+"@"+v.Digest)
 	if err != nil {
+		st.missed = append(st.missed, "the accepted bundle "+bundleRepo+"@"+v.Digest+": "+err.Error())
 		return waiting("the accepted bundle " + bundleRepo + "@" + v.Digest + " could not be read: " + err.Error())
 	}
 	c := b.Contract
@@ -583,7 +606,8 @@ func (r *EnvironmentReconciler) placeService(ctx context.Context, st *placementS
 	}
 	in := delivery.PlacementInput{Service: svc, Owner: c.Service.Owner.Team, HostedRungs: st.hosted, Policy: st.policy,
 		Pactos: st.pactos, Stages: st.stages, BundleRepository: bundleRepo, GitOps: st.gitops, Namespaces: st.namespaces,
-		SystemNamespaces: []string{r.Namespace, "flux-system", "argocd"}, Taken: map[string]string{}, CreateNamespaces: r.CreateNamespaces}
+		SystemNamespaces: []string{r.Namespace, "flux-system", "argocd"}, Taken: map[string]string{}, CreateNamespaces: r.CreateNamespaces,
+		Unread: st.unreadSteps}
 	if rec, _ := contract.ReadInferredRecord(b.FS); rec != nil && rec.Declaration != nil {
 		in.InferredFrom = rec.Declaration.InferredFrom
 	}
@@ -592,10 +616,11 @@ func (r *EnvironmentReconciler) placeService(ctx context.Context, st *placementS
 	}
 	deploy := deployInput(c, v.Identity)
 	var envs []placedEnv
-	for _, d := range delivery.DesiredEnvironments(st.ladder, c.Environments, r.Now()) {
+	desired := delivery.DesiredEnvironments(st.ladder, c.Environments, r.Now())
+	for _, d := range desired {
 		if st.hosts(d.Name) { // else another cluster's
 			st.desired[envKey(domain, name, d.Name)] = d.RetireFrom
-			e := r.placeEnvironment(ctx, st, &in, d)
+			e := r.placeEnvironment(ctx, st, &in, d, desired)
 			e.deploy = deploy
 			envs = append(envs, e)
 		}
@@ -608,14 +633,17 @@ func (r *EnvironmentReconciler) placeService(ctx context.Context, st *placementS
 	return rows
 }
 
-// placeEnvironment is the row of d, an environment this cluster hosts: why
-// it is not placed, or where it is placed and who applies the service there.
-func (r *EnvironmentReconciler) placeEnvironment(ctx context.Context, st *placementState, in *delivery.PlacementInput, d delivery.DesiredEnvironment) placedEnv {
+// placeEnvironment is the row of d, one of the service's desired
+// environments this cluster hosts: why it is not placed, or where it is
+// placed and who applies the service there.
+func (r *EnvironmentReconciler) placeEnvironment(ctx context.Context, st *placementState, in *delivery.PlacementInput, d delivery.DesiredEnvironment, desired []delivery.DesiredEnvironment) placedEnv {
 	row := &delivery.PlacementRow{Service: in.Service.Name, Domain: in.Service.Domain, Environment: d.Name, Source: d.Source}
 	e := placedEnv{row: row, upstream: d.Upstream}
 	switch {
 	case d.RetireFrom != "":
 		row.Reason = "expired at " + d.RetireFrom + ": retiring"
+	case d.Upstream != "" && !slices.ContainsFunc(desired, func(o delivery.DesiredEnvironment) bool { return o.Name == d.Upstream }):
+		row.Reason = "the contract opts out of " + d.Upstream + ", which feeds " + d.Name + ": add " + d.Upstream + " to its environments[], since Pacto never skips an upstream gate"
 	case d.Upstream != "" && !slices.Contains(st.hosted, d.Upstream):
 		row.Reason = "upstream " + d.Upstream + " is not in this cluster: remote delivery is not available yet"
 	default:
@@ -653,11 +681,30 @@ func (r *EnvironmentReconciler) resolve(ctx context.Context, st *placementState,
 	}
 	in.Managers = map[string]workloadmanager.Manager{}
 	m, w, found := r.serviceManager(ctx, st, in, ns)
+	occupants := r.occupants(ctx, st, ns)
 	if found {
 		in.Managers[ns] = m
+		occupants = ownWorkload(occupants, w, in)
 	}
-	in.Occupants = map[string][]delivery.NamespaceOccupant{ns: r.occupants(ctx, st, ns)}
+	in.Occupants = map[string][]delivery.NamespaceOccupant{ns: occupants}
 	return delivery.ResolvePlacement(in), m, w
+}
+
+// ownWorkload is occupants with the service's own workload, the one
+// serviceManager found (w, nil for the Deployment named after it), credited
+// to the service and its team: a namespace only the service occupies passes.
+func ownWorkload(occupants []delivery.NamespaceOccupant, w *delivery.WorkloadRef, in delivery.PlacementInput) []delivery.NamespaceOccupant {
+	self := "Deployment/" + in.Service.Name
+	if w != nil {
+		self = w.Kind + "/" + w.Name
+	}
+	out := slices.Clone(occupants)
+	for i, o := range out {
+		if o.Workload == self && o.Team == "" {
+			out[i].Service, out[i].Team = in.Service.Name, in.Owner
+		}
+	}
+	return out
 }
 
 // serviceManager detects the manager of the service's workload in ns: the
@@ -683,7 +730,7 @@ func (r *EnvironmentReconciler) serviceManager(ctx context.Context, st *placemen
 	case apierrors.IsNotFound(err):
 		return workloadmanager.Manager{}, w, false
 	case err != nil:
-		st.unread = append(st.unread, kind+" "+ns+"/"+name+": "+err.Error())
+		st.missed = append(st.missed, kind+" "+ns+"/"+name+": "+err.Error())
 		return workloadmanager.Manager{Name: workloadmanager.Ambiguous, Evidence: "it could not be read"}, w, true
 	}
 	return r.Cluster.Managers.Detect(o), w, true
@@ -720,7 +767,7 @@ func (r *EnvironmentReconciler) occupants(ctx context.Context, st *placementStat
 		list := &metav1.PartialObjectMetadataList{}
 		list.SetGroupVersionKind(schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: kind})
 		if err := r.APIReader.List(ctx, list, client.InNamespace(ns)); err != nil {
-			st.unread = append(st.unread, "the workloads in "+ns+": "+err.Error())
+			st.missed = append(st.missed, "the workloads in "+ns+": "+err.Error())
 			out = append(out, delivery.NamespaceOccupant{Workload: "unreadable " + strings.TrimSuffix(kind, "List") + "s"})
 			continue
 		}
@@ -773,6 +820,7 @@ func (r *EnvironmentReconciler) gitOps(ctx context.Context, st *placementState) 
 		err := r.APIReader.List(ctx, l)
 		if err != nil && !meta.IsNoMatchError(err) {
 			st.unread = append(st.unread, "the "+strings.TrimSuffix(gvk.Kind, "List")+"s: "+err.Error())
+			st.unreadSteps[delivery.PlacementFromGitOps] = "the " + strings.TrimSuffix(gvk.Kind, "List") + "s could not be listed"
 		}
 		return l.Items
 	}
@@ -815,14 +863,19 @@ func (r *EnvironmentReconciler) gitOps(ctx context.Context, st *placementState) 
 	return out
 }
 
+// unreadKey is the key of PlacementsConfigMap that lists the objects of
+// delivered services the last pass could not read, update or retire.
+const unreadKey = "unread.json"
+
 // writePlacements writes rows as rows.json, the private state as
-// stages.json and the namespace candidates as NamespaceCandidatesKey of
-// PlacementsConfigMap, which only the promoter writes and no reader binding
-// names.
+// stages.json, the namespace candidates as NamespaceCandidatesKey and the
+// objects missed as unreadKey of PlacementsConfigMap, which only the
+// promoter writes and no reader binding names.
 func (r *EnvironmentReconciler) writePlacements(ctx context.Context, rows []delivery.PlacementRow, st *placementState) error {
 	b, _ := json.Marshal(rows)     // ponytail: plain strings and bools: Marshal cannot fail
 	s, _ := json.Marshal(st.state) // and plain strings
 	n, _ := json.Marshal(append([]string{}, slices.Sorted(maps.Keys(st.candidates))...))
+	u, _ := json.Marshal(append([]string{}, st.missed...))
 	return r.writeConfigMap(ctx, delivery.PlacementsConfigMap, map[string]string{"rows.json": string(b), stateKey: string(s),
-		delivery.NamespaceCandidatesKey: string(n)})
+		delivery.NamespaceCandidatesKey: string(n), unreadKey: string(u)})
 }

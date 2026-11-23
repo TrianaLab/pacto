@@ -160,8 +160,10 @@ func TestObservedPactoPlacesOnAdoptedApplier(t *testing.T) {
 	in.Pactos = []PactoView{placedPacto("payments-staging", "payments", "team-payments", "reg.example/acme/payments", nil)}
 	in.Occupants = map[string][]NamespaceOccupant{"payments-staging": {{Workload: "Deployment/payments", Service: "payments", Team: "team-payments"}}}
 	in.Managers = map[string]workloadmanager.Manager{"payments-staging": argoManager}
+	// A Pacto's service and team come from the bundle it references, so a
+	// person confirms even an observed one.
 	p := ResolvePlacement(in)
-	if p.Namespace != "payments-staging" || p.Provenance != PlacementObserved || p.Source != PlacementFromPacto || p.Confirm ||
+	if p.Namespace != "payments-staging" || p.Provenance != PlacementObserved || p.Source != PlacementFromPacto || !p.Confirm ||
 		!strings.Contains(p.Evidence, "applied by Argo CD") {
 		t.Fatalf("placement %+v", p)
 	}
@@ -185,6 +187,79 @@ func TestSquattedPactoNeverObserved(t *testing.T) {
 		if p := ResolvePlacement(in); p.Namespace == "team-x-staging" {
 			t.Fatalf("squatted %+v", p)
 		}
+	}
+}
+
+// TestGenuineBundleSquatterNeedsAPerson: a Pacto in another team's
+// namespace that references the service's genuine bundle carries the
+// service's own team in its status, so nothing tells it from the service's
+// own: it is never confirmed without a person, even on an adopted applier.
+func TestGenuineBundleSquatterNeedsAPerson(t *testing.T) {
+	in := placeIn("staging")
+	in.Namespaces["team-x-staging"] = true
+	in.Pactos = []PactoView{placedPacto("team-x-staging", "payments", "team-payments", "reg.example/acme/payments", nil)}
+	in.Occupants = map[string][]NamespaceOccupant{"team-x-staging": {{Workload: "Pacto payments", Service: "payments", Team: "team-payments"}}}
+	in.Managers = map[string]workloadmanager.Manager{"team-x-staging": argoManager}
+	if p := ResolvePlacement(in); !p.Confirm {
+		t.Fatalf("placement %+v", p)
+	}
+}
+
+// TestUnreadStepNeverFallsThrough: evidence that could not be read is
+// unknown, never absent: from the step that reads it on, nothing places, so
+// the default namespace never answers for an unread policy, Pactos or GitOps
+// objects. A hand-written Stage still places.
+func TestUnreadStepNeverFallsThrough(t *testing.T) {
+	for _, source := range []string{PlacementFromPolicy, PlacementFromPacto, PlacementFromGitOps} {
+		in := placeIn("staging")
+		in.Unread = map[string]string{source: "x could not be read"}
+		if p := ResolvePlacement(in); p.Placed() || p.Provenance != PlacementUnknown || p.Evidence != "x could not be read, so Pacto cannot tell where payments runs in staging" {
+			t.Fatalf("%s: %+v", source, p)
+		}
+	}
+	// A step before the unread one still places.
+	in := placeIn("staging")
+	in.Unread = map[string]string{PlacementFromGitOps: "x could not be read"}
+	in.Policy = []PlacementRule{{Name: "r", Environments: []string{"*"}, Namespace: "staging"}}
+	if p := ResolvePlacement(in); !p.Placed() || p.Source != PlacementFromPolicy {
+		t.Fatalf("policy before the unread step: %+v", p)
+	}
+	in.Stages = []StageObject{{Metadata: ObjectMeta{Namespace: "team-a", Name: "s"}, Spec: StageSpec{Service: ServiceRef{Name: "payments"}, Environment: "staging"}}}
+	in.Unread[PlacementFromPolicy] = "y"
+	if p := ResolvePlacement(in); p.Source != PlacementFromStage {
+		t.Fatalf("hand-written: %+v", p)
+	}
+}
+
+// TestDomainlessHandWrittenStageMatchesAnyDomain: a hand-written Stage that
+// names no domain is the service's in any domain, as everywhere else in
+// delivery; one naming another domain is not.
+func TestDomainlessHandWrittenStageMatchesAnyDomain(t *testing.T) {
+	in := placeIn("staging")
+	in.Service.Domain = "reg.example/acme"
+	in.Stages = []StageObject{{Metadata: ObjectMeta{Namespace: "staging", Name: "payments"}, Spec: StageSpec{Service: ServiceRef{Name: "payments"}, Environment: "staging"}}}
+	if p := ResolvePlacement(in); p.Source != PlacementFromStage || p.Namespace != "staging" {
+		t.Fatalf("domain-less: %+v", p)
+	}
+	in.Stages[0].Spec.Service.Domain = "reg.example/other"
+	if p := ResolvePlacement(in); p.Source == PlacementFromStage {
+		t.Fatalf("another domain: %+v", p)
+	}
+}
+
+// TestGitOpsRepositoryInTwoNamespacesUnknown: a repository deployed into two
+// namespaces of the environment (a monorepo of several services) never
+// places the service in whichever is listed first.
+func TestGitOpsRepositoryInTwoNamespacesUnknown(t *testing.T) {
+	in := placeIn("staging")
+	in.Repository = "https://github.com/acme/platform"
+	in.Namespaces["orders-staging"], in.Namespaces["payments-staging"] = true, true
+	in.GitOps = []GitOpsTarget{{Kind: "Application", Namespace: "argocd", Name: "orders", Repositories: []string{in.Repository}, Destination: "orders-staging"},
+		{Kind: "Application", Namespace: "argocd", Name: "payments", Repositories: []string{in.Repository}, Destination: "payments-staging"},
+		{Kind: "Application", Namespace: "argocd", Name: "payments-2", Repositories: []string{in.Repository}, Destination: "payments-staging"}}
+	p := ResolvePlacement(in)
+	if p.Placed() || p.Provenance != PlacementUnknown || p.Evidence != "github.com/acme/platform is deployed into 2 namespaces of staging: orders-staging, payments-staging" {
+		t.Fatalf("placement %+v", p)
 	}
 }
 

@@ -390,8 +390,8 @@ func TestManagedStagesEnvtest(t *testing.T) {
 	pe.r = &EnvironmentReconciler{Client: c, APIReader: c, Namespace: deliveryNS, ClusterID: "cid", ClusterName: "eu-1",
 		Ladder: []string{"staging", "production"}, Now: time.Now, Resync: time.Minute, Registry: pe.root,
 		Cluster: Cluster{Client: c, Registry: func(...string) delivery.Registry { return pe.bundles }},
-		Accepted: func(_ context.Context, svc delivery.ServiceRef, _ string) (*delivery.PublisherVerdict, string) {
-			return pe.accepted[svc.Name], "not accepted"
+		Accepted: func(_ context.Context, svc delivery.ServiceRef, _ string) (*delivery.PublisherVerdict, string, error) {
+			return pe.accepted[svc.Name], "not accepted", nil
 		}}
 	obj := func(gvk schema.GroupVersionKind, space, name string, fields map[string]any) *unstructured.Unstructured {
 		u := &unstructured.Unstructured{Object: fields}

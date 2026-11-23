@@ -54,12 +54,12 @@ func newPlaceEnv(t *testing.T, funcs interceptor.Funcs, objs ...client.Object) *
 	pe.root = pe.reg.host + "/acme"
 	pe.r.Registry = pe.root
 	pe.r.Cluster = Cluster{Client: pe.r.Client, Registry: func(...string) delivery.Registry { return pe.bundles }}
-	pe.r.Accepted = func(_ context.Context, svc delivery.ServiceRef, repo string) (*delivery.PublisherVerdict, string) {
+	pe.r.Accepted = func(_ context.Context, svc delivery.ServiceRef, repo string) (*delivery.PublisherVerdict, string, error) {
 		pe.asked = append(pe.asked, repo)
 		if v := pe.accepted[svc.Name]; v != nil {
-			return v, ""
+			return v, "", nil
 		}
-		return nil, "no version of " + repo + " has a signer the publisher rule, policy or a pin accepts"
+		return nil, "no version of " + repo + " has a signer the publisher rule, policy or a pin accepts", nil
 	}
 	return pe
 }
@@ -110,6 +110,19 @@ func (pe *placeEnv) rows(t *testing.T) []delivery.PlacementRow {
 	return rows
 }
 
+// missedHas reports whether the pass that gave v missed want: the
+// world-readable view is partial and only counts the objects missed, and the
+// private PlacementsConfigMap names them (unreadKey).
+func (pe *placeEnv) missedHas(t *testing.T, v delivery.EnvironmentsView, want string) bool {
+	t.Helper()
+	cm := &corev1.ConfigMap{}
+	if err := pe.c.Get(t.Context(), client.ObjectKey{Namespace: deliveryNS, Name: delivery.PlacementsConfigMap}, cm); err != nil {
+		t.Fatal(err)
+	}
+	return v.Completeness == fleet.CompletenessPartial && strings.Contains(v.CompletenessReason, "objects of delivered services") &&
+		!strings.Contains(v.CompletenessReason, want) && strings.Contains(cm.Data[unreadKey], want)
+}
+
 func rowOf(t *testing.T, rows []delivery.PlacementRow, service, env string) delivery.PlacementRow {
 	t.Helper()
 	for _, r := range rows {
@@ -134,10 +147,11 @@ func TestPlacementsRowsPrivate(t *testing.T) {
 	if prod := rowOf(t, rows, "payments", "production"); prod.Placement.Placed() || !strings.Contains(prod.Placement.Refused, "does not exist") {
 		t.Fatalf("production %+v", prod.Placement)
 	}
-	// The world-readable view counts the unplaced rows and names no service.
+	// The world-readable view counts the rows with no Stage (staging has
+	// nothing applying it, production is refused) and names no service.
 	cm := &corev1.ConfigMap{}
 	_ = pe.c.Get(t.Context(), client.ObjectKey{Namespace: deliveryNS, Name: delivery.EnvironmentsConfigMap}, cm)
-	if v.UnplacedCount != 1 || v.Idle != "" || strings.Contains(cm.Data["view.json"], "payments") || v.Completeness != fleet.CompletenessComplete {
+	if v.UnplacedCount != 2 || v.Idle != "" || strings.Contains(cm.Data["view.json"], "payments") || v.Completeness != fleet.CompletenessComplete {
 		t.Fatalf("view %+v: %s", v, cm.Data["view.json"])
 	}
 }
@@ -157,7 +171,9 @@ func TestPlacementsWrittenWithCreateThenMergePatch(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("writes %v", pe.writes)
 	}
-	if v := pe.view(t); v.UnplacedCount != 0 {
+	// Both environments are placed, but nothing applies payments there, so
+	// neither has a Stage: the view counts what readers of the rows list.
+	if v := pe.view(t); v.UnplacedCount != 2 {
 		t.Fatalf("view %+v", v)
 	}
 }
@@ -249,8 +265,8 @@ func TestUntrustedBundleNeverPlaces(t *testing.T) {
 		t.Fatalf("rows %+v", rows)
 	}
 	// An accepted bundle that cannot be pulled places nothing.
-	pe.r.Accepted = func(context.Context, delivery.ServiceRef, string) (*delivery.PublisherVerdict, string) {
-		return &delivery.PublisherVerdict{Digest: "sha256:" + strings.Repeat("c", 64), Verdict: delivery.VerdictAccepted}, ""
+	pe.r.Accepted = func(context.Context, delivery.ServiceRef, string) (*delivery.PublisherVerdict, string, error) {
+		return &delivery.PublisherVerdict{Digest: "sha256:" + strings.Repeat("c", 64), Verdict: delivery.VerdictAccepted}, "", nil
 	}
 	pe.pass(t)
 	if rows := pe.rows(t); len(rows) != 1 || !strings.Contains(rows[0].Reason, "could not be read") {
@@ -308,7 +324,8 @@ func TestPlacementObservesAdoptedApplier(t *testing.T) {
 	pe.publish(t, "payments", delivered("payments"), nil)
 	pe.pass(t)
 	p := rowOf(t, pe.rows(t), "payments", "staging").Placement
-	if p.Namespace != "payments-staging" || p.Provenance != delivery.PlacementObserved || p.Source != delivery.PlacementFromPacto || p.Confirm {
+	// A Pacto's team comes from the bundle it references: a person confirms.
+	if p.Namespace != "payments-staging" || p.Provenance != delivery.PlacementObserved || p.Source != delivery.PlacementFromPacto || !p.Confirm {
 		t.Fatalf("placement %+v", p)
 	}
 }
@@ -318,19 +335,26 @@ func TestPlacementRowsReasons(t *testing.T) {
 		&dv1.Stage{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "orders-staging"},
 			Spec: delivery.StageSpec{Service: delivery.ServiceRef{Domain: "", Name: "orders"}, Environment: "staging"}})
 	pe.r.ClusterName = "eu-prod" // hosts production only
-	pe.publish(t, "payments", delivered("payments", contract.Environment{Name: "production"},
+	pe.publish(t, "payments", delivered("payments"), nil)
+	pe.publish(t, "checkout", delivered("checkout", contract.Environment{Name: "production"},
 		contract.Environment{Name: "pr-1", Lifetime: contract.EnvironmentTemporary, Expires: "2026-11-01T00:00:00Z"}), nil)
 	pe.pass(t)
 	rows := pe.rows(t)
 	if r := rowOf(t, rows, "payments", "production"); r.Placement != nil || r.Reason != "upstream staging is not in this cluster: remote delivery is not available yet" {
 		t.Fatalf("production %+v", r)
 	}
-	if len(rows) != 1 {
+	// checkout keeps production but opts out of staging, which feeds it:
+	// the reason says so instead of telling the reader to wait.
+	if r := rowOf(t, rows, "checkout", "production"); r.Placement != nil ||
+		r.Reason != "the contract opts out of staging, which feeds production: add staging to its environments[], since Pacto never skips an upstream gate" {
+		t.Fatalf("checkout production %+v", r)
+	}
+	if len(rows) != 2 {
 		t.Fatalf("rows %+v", rows) // pr-1 is not hosted here
 	}
 	pe.r.ClusterName = "eu-1"
 	pe.pass(t)
-	if r := rowOf(t, pe.rows(t), "payments", "pr-1"); r.Reason != "expired at 2026-11-01T00:00:00Z: retiring" {
+	if r := rowOf(t, pe.rows(t), "checkout", "pr-1"); r.Reason != "expired at 2026-11-01T00:00:00Z: retiring" {
 		t.Fatalf("pr-1 %+v", r)
 	}
 }
@@ -381,8 +405,12 @@ func TestPlacementPolicyAndGitOpsReachTheResolver(t *testing.T) {
 	if v := pe.pass(t); !strings.Contains(v.CompletenessReason, "the placement policy x could not be read") {
 		t.Fatalf("view %+v", v)
 	}
-	if p := rowOf(t, pe.rows(t), "cart", "staging").Placement; p.Source == delivery.PlacementFromGitOps {
-		t.Fatalf("flux off %+v", p)
+	// An unread policy is never absent: what a later step would give reads
+	// unknown, so nothing lands in the default namespace meanwhile.
+	for _, r := range pe.rows(t) {
+		if r.Placement == nil || r.Placement.Provenance != delivery.PlacementUnknown || !strings.HasPrefix(r.Placement.Evidence, "the placement policy could not be read") {
+			t.Fatalf("unread policy %+v", r.Placement)
+		}
 	}
 }
 
@@ -413,12 +441,26 @@ func TestPlacementReadFailures(t *testing.T) {
 	if v := pe.pass(t); !strings.HasPrefix(v.Idle, "the Stages could not be listed") || !strings.Contains(v.CompletenessReason, "the Stages: boom") {
 		t.Fatalf("stages %+v", v)
 	}
-	failing["StageList"], failing["ApplicationList"], failing["DeploymentList"], failing["get"] = false, true, true, true
+	// Applications that cannot be listed are partial, and leave every
+	// placement past the GitOps step unknown.
+	failing["StageList"], failing["ApplicationList"] = false, true
+	if v := pe.pass(t); !strings.Contains(v.CompletenessReason, "the Applications: boom") ||
+		rowOf(t, pe.rows(t), "payments", "staging").Placement.Provenance != delivery.PlacementUnknown {
+		t.Errorf("reason %q", v.CompletenessReason)
+	}
+	failing["ApplicationList"], failing["DeploymentList"], failing["get"] = false, true, true
 	v := pe.pass(t)
-	for _, want := range []string{"the Applications: boom", "the workloads in staging: boom", "Deployment staging/payments: boom"} {
-		if !strings.Contains(v.CompletenessReason, want) {
-			t.Errorf("reason %q lacks %q", v.CompletenessReason, want)
+	// What names a service's namespace or workload stays private: the
+	// world-readable view only counts it.
+	for _, want := range []string{"the workloads in staging: boom", "Deployment staging/payments: boom"} {
+		if !pe.missedHas(t, v, want) {
+			t.Errorf("reason %q: %q not private", v.CompletenessReason, want)
 		}
+	}
+	cm := &corev1.ConfigMap{}
+	_ = pe.c.Get(t.Context(), client.ObjectKey{Namespace: deliveryNS, Name: delivery.EnvironmentsConfigMap}, cm)
+	if strings.Contains(cm.Data["view.json"], "payments") {
+		t.Fatalf("the view names a service: %s", cm.Data["view.json"])
 	}
 	// An unreadable workload or namespace never places.
 	if p := rowOf(t, pe.rows(t), "payments", "staging").Placement; p.Placed() {

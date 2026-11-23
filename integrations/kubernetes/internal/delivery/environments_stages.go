@@ -157,18 +157,46 @@ func (r *EnvironmentReconciler) manageService(ctx context.Context, st *placement
 		switch {
 		case p == nil:
 		case p.Source == delivery.PlacementFromStage:
-			refs[e.row.Environment] = handWrittenRef(st, svc, e.row.Environment)
+			ref := handWrittenRef(st, svc, e.row.Environment)
+			refs[e.row.Environment], e.row.Stage = ref, ref.Namespace+"/"+ref.Name
 		case p.Placed():
 			if ref := r.applyManaged(ctx, st, svc, e, refs); ref != nil {
 				refs[e.row.Environment] = ref
 			}
+		default:
+			r.markUnplaced(ctx, st, svc, e)
+		}
+	}
+}
+
+// markUnplaced rewrites the placement annotations of the managed Stage of e,
+// an environment whose placement no longer places it (unknown or refused), so
+// the Stage never shows a placement Pacto stopped standing by.
+func (r *EnvironmentReconciler) markUnplaced(ctx context.Context, st *placementState, svc delivery.ServiceRef, e placedEnv) {
+	i := slices.IndexFunc(st.state.Objects, func(o managedObject) bool {
+		return o.Kind == kindStage && o.Service == svc.Name && o.Domain == svc.Domain && o.Environment == e.row.Environment
+	})
+	if i < 0 {
+		return
+	}
+	o := st.state.Objects[i]
+	cur := st.byName[o.Namespace+"/"+o.Name] // noteStages kept only the live ones
+	p := *e.row.Placement
+	p.Provenance, p.Evidence = delivery.PlacementUnknown, cmp.Or(p.Refused, p.Evidence)
+	next := cur.DeepCopy()
+	next.Annotations = merged(next.Annotations, delivery.PlacementAnnotations(e.row.Source, p))
+	if !equality.Semantic.DeepEqual(next, cur) {
+		if err := r.Client.Patch(ctx, next, client.MergeFrom(cur)); err != nil {
+			st.missed = append(st.missed, "the Stage "+o.Namespace+"/"+o.Name+" could not be updated: "+err.Error())
 		}
 	}
 }
 
 // handWrittenRef names the hand-written Stage of svc in environment.
 func handWrittenRef(st *placementState, svc delivery.ServiceRef, environment string) *delivery.StageRef {
-	i := slices.IndexFunc(st.stages, func(s delivery.StageObject) bool { return s.Spec.Service == svc && s.Spec.Environment == environment })
+	i := slices.IndexFunc(st.stages, func(s delivery.StageObject) bool {
+		return delivery.OfService(s, svc.Name, svc.Domain) && s.Spec.Environment == environment
+	})
 	s := st.stages[i] // placeByStage found it there
 	return &delivery.StageRef{Name: s.Metadata.Name, Namespace: s.Metadata.Namespace}
 }
@@ -217,7 +245,7 @@ func (r *EnvironmentReconciler) applyManaged(ctx context.Context, st *placementS
 	next.Spec.Candidates, next.Spec.Workload = spec.Candidates, spec.Workload
 	if !equality.Semantic.DeepEqual(next, cur) {
 		if err := r.Client.Patch(ctx, next, client.MergeFrom(cur)); err != nil {
-			st.unread = append(st.unread, "the Stage "+ns+"/"+name+" could not be updated: "+err.Error())
+			st.missed = append(st.missed, "the Stage "+ns+"/"+name+" could not be updated: "+err.Error())
 		}
 	}
 	row.Stage = ns + "/" + name
@@ -282,7 +310,7 @@ func (r *EnvironmentReconciler) kustomizationSource(ctx context.Context, st *pla
 	k.SetGroupVersionKind(gvkKustomization.GroupVersion().WithKind("Kustomization"))
 	if err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: m.OwnerNamespace, Name: m.OwnerName}, k); err != nil {
 		if !apierrors.IsNotFound(err) {
-			st.unread = append(st.unread, what+": "+err.Error())
+			st.missed = append(st.missed, what+": "+err.Error())
 		}
 		return delivery.ApplyRef{}, what + ", which applies the workload, could not be read: " + err.Error()
 	}

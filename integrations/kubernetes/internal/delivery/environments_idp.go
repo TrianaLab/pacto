@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -190,9 +191,11 @@ func (r *EnvironmentReconciler) confirmPlacement(ctx context.Context, op *dv1.Op
 	switch {
 	case i < 0 || rows[i].Placement == nil:
 		return errors.New("the placement of Stage " + stage.Name + " is not known: nothing it applies through is unsuspended")
-	case by == "" && rows[i].Placement.Confirm:
+	case rows[i].Placement.Confirm && (by == "" || !strings.HasPrefix(op.Spec.Reason, delivery.PlacementQuestion(stage.Spec.Service.Name, *rows[i].Placement))):
+		// Only an approval of a promote that asked this very placement
+		// confirms it: one that did not name it, or named another, never does.
 		return errors.New(delivery.PlacementQuestion(stage.Spec.Service.Name, *rows[i].Placement) +
-			" A person's approval of this promote confirms it: until then nothing it applies through is unsuspended")
+			" A person's approval of a promote that asks it confirms it: until then nothing it applies through is unsuspended")
 	case by == "":
 		by = op.Spec.Actor.User
 	}
@@ -274,18 +277,22 @@ func (r *EnvironmentReconciler) writeState(ctx context.Context, s managedState) 
 // question is the placement sentence a promote or trust question of the
 // managed Stage starts with while its placement waits for a person, "" when
 // it does not: the Stage is not one the private state records, its
-// placement needs no person or one confirmed it.
-func (r *EnvironmentReconciler) question(ctx context.Context, stage *dv1.Stage) string {
+// placement needs no person or one confirmed it. A private state that cannot
+// be read is an error, so no question is raised without the sentence.
+func (r *EnvironmentReconciler) question(ctx context.Context, stage *dv1.Stage) (string, error) {
 	if r == nil || r.Off || stage.Labels[delivery.ManagedLabel] != delivery.ManagedBy {
-		return ""
+		return "", nil
 	}
 	s, rows, err := r.readPrivate(ctx)
-	if err != nil || !s.owns(stage.UID) || s.confirmed(stage.Namespace, stage.Name) {
-		return ""
+	if err != nil {
+		return "", fmt.Errorf("whether the placement of Stage %s waits for a person could not be read: %w", stage.Name, err)
+	}
+	if !s.owns(stage.UID) || s.confirmed(stage.Namespace, stage.Name) {
+		return "", nil
 	}
 	i := slices.IndexFunc(rows, func(row delivery.PlacementRow) bool { return row.Stage == stage.Namespace+"/"+stage.Name })
 	if i < 0 || rows[i].Placement == nil || !rows[i].Placement.Confirm {
-		return ""
+		return "", nil
 	}
-	return delivery.PlacementQuestion(stage.Spec.Service.Name, *rows[i].Placement)
+	return delivery.PlacementQuestion(stage.Spec.Service.Name, *rows[i].Placement), nil
 }

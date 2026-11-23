@@ -152,6 +152,11 @@ type PlacementInput struct {
 	// Taken maps the namespaces earlier environments of the service were
 	// placed in to those environments.
 	Taken map[string]string
+	// Unread names, by the source of a step (PlacementFromPolicy,
+	// PlacementFromPacto, PlacementFromGitOps), why what that step reads
+	// could not be read: from that step on, any placement reads unknown,
+	// since the unread evidence might have placed the service elsewhere.
+	Unread map[string]string
 }
 
 // Placement is where a service runs in one environment: the namespace, the
@@ -189,8 +194,13 @@ type PlacementRow struct {
 // whether it applies, and a note on a candidate it skipped.
 type placementStep func(in PlacementInput) (p Placement, ok bool, note string)
 
-// placementSteps is the placement order, first that applies wins.
-var placementSteps = []placementStep{placeByStage, placeByPolicy, placeByPacto, placeByInferredFrom, placeByGitOps, placeByName}
+// placementSteps is the placement order, first that applies wins, each with
+// the source it places from.
+var placementSteps = []struct {
+	source string
+	step   placementStep
+}{{PlacementFromStage, placeByStage}, {PlacementFromPolicy, placeByPolicy}, {PlacementFromPacto, placeByPacto},
+	{PlacementFromInferred, placeByInferredFrom}, {PlacementFromGitOps, placeByGitOps}, {PlacementFromRungName, placeByName}}
 
 // ResolvePlacement places in.Service in in.Rung: a hand-written Stage, a rule
 // of the verified placement policy, a Pacto of the service with the same
@@ -199,19 +209,27 @@ var placementSteps = []placementStep{placeByStage, placeByPolicy, placeByPacto, 
 // environment. Every namespace but a hand-written Stage's passes placementRefusal and
 // the manager guard: an adopted applier reads observed, any other manager
 // reads unknown, so Pacto never adds a second applier. An inferred or default
-// placement needs a person.
+// placement needs a person. Once a step whose evidence could not be read
+// (in.Unread) is reached, nothing but a hand-written Stage places: the
+// placement reads unknown with why.
 func ResolvePlacement(in PlacementInput) Placement {
 	var notes []string
-	for _, step := range placementSteps {
-		p, ok, note := step(in)
+	blocked := ""
+	for _, s := range placementSteps {
+		p, ok, note := s.step(in)
 		if note != "" {
 			notes = append(notes, note)
 		}
-		if !ok {
-			continue
+		if why := in.Unread[s.source]; blocked == "" {
+			blocked = why
 		}
-		if p.Source == PlacementFromStage || p.Provenance == PlacementUnknown {
+		switch {
+		case !ok:
+			continue
+		case p.Source == PlacementFromStage || p.Provenance == PlacementUnknown:
 			return p
+		case blocked != "":
+			return Placement{Provenance: PlacementUnknown, Evidence: blocked + ", so Pacto cannot tell where " + in.Service.Name + " runs in " + in.Rung}
 		}
 		p.Evidence = strings.Join(append([]string{p.Evidence}, notes...), "; ")
 		return finishPlacement(in, p)
@@ -240,7 +258,10 @@ func finishPlacement(in PlacementInput, p Placement) Placement {
 		p.Refused = "namespace " + p.Namespace + " does not exist: create it or set delivery.environments.createNamespaces=true"
 		return p
 	}
-	p.Confirm = p.Provenance == PlacementInferred || p.Provenance == PlacementDefault
+	// A Pacto's service and team come from the bundle it references, which
+	// anyone may reference from their own namespace: what it shows is evidence
+	// a person confirms, even on an adopted applier.
+	p.Confirm = p.Provenance == PlacementInferred || p.Provenance == PlacementDefault || p.Source == PlacementFromPacto
 	return p
 }
 
@@ -287,7 +308,7 @@ func unresolved(ns, rung, what string) string {
 
 func placeByStage(in PlacementInput) (Placement, bool, string) {
 	for _, s := range in.Stages {
-		if s.Spec.Service == in.Service && s.Spec.Environment == in.Rung {
+		if OfService(s, in.Service.Name, in.Service.Domain) && s.Spec.Environment == in.Rung {
 			return Placement{Namespace: s.Metadata.Namespace, Provenance: PlacementDeclared, Source: PlacementFromStage,
 				Evidence: "Stage " + s.Metadata.Namespace + "/" + s.Metadata.Name}, true, ""
 		}
@@ -352,13 +373,16 @@ func placeByInferredFrom(in PlacementInput) (Placement, bool, string) {
 }
 
 // placeByGitOps places the service where a GitOps object deploys its
-// verified source repository; it does not apply without one.
+// verified source repository; it does not apply without one. A repository
+// deployed into two namespaces of the environment (a monorepo of several
+// services) reads unknown.
 func placeByGitOps(in PlacementInput) (Placement, bool, string) {
 	if in.Repository == "" {
 		return Placement{}, false, ""
 	}
 	want := repoKey(in.Repository)
 	var notes []string
+	found := map[string]string{}
 	for _, g := range in.GitOps {
 		if g.Destination == "" || !slices.ContainsFunc(g.Repositories, func(r string) bool { return repoKey(r) == want }) {
 			continue
@@ -367,10 +391,19 @@ func placeByGitOps(in PlacementInput) (Placement, bool, string) {
 			notes = append(notes, unresolved(g.Destination, in.Rung, "the GitOps destination"))
 			continue
 		}
-		return Placement{Namespace: g.Destination, Provenance: PlacementInferred, Source: PlacementFromGitOps,
-			Evidence: g.Kind + " " + g.Namespace + "/" + g.Name + " deploys " + want}, true, ""
+		if found[g.Destination] == "" {
+			found[g.Destination] = g.Kind + " " + g.Namespace + "/" + g.Name + " deploys " + want
+		}
 	}
-	return Placement{}, false, strings.Join(notes, "; ")
+	switch nss := slices.Sorted(maps.Keys(found)); len(nss) {
+	case 0:
+		return Placement{}, false, strings.Join(notes, "; ")
+	case 1:
+		return Placement{Namespace: nss[0], Provenance: PlacementInferred, Source: PlacementFromGitOps, Evidence: found[nss[0]]}, true, ""
+	default:
+		return Placement{Provenance: PlacementUnknown,
+			Evidence: want + " is deployed into " + fmt.Sprint(len(nss)) + " namespaces of " + in.Rung + ": " + strings.Join(nss, ", ")}, true, ""
+	}
 }
 
 func placeByName(in PlacementInput) (Placement, bool, string) {

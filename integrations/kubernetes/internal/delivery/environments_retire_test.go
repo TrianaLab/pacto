@@ -225,7 +225,7 @@ func TestRetireFailuresKeepTheStage(t *testing.T) {
 	}})
 	v := pe.pass(t)
 	if !pe.has(t, &dv1.Stage{}, "payments-production", "payments-production") || pe.entry(t, "payments-production", "payments-production") == nil ||
-		!strings.Contains(v.CompletenessReason, "the Kustomization payments-production/payments-production could not be retired: apiserver down") {
+		!pe.missedHas(t, v, "the Kustomization payments-production/payments-production could not be retired: apiserver down") {
 		t.Fatalf("view %+v", v)
 	}
 	// A read that fails keeps it too.
@@ -238,7 +238,7 @@ func TestRetireFailuresKeepTheStage(t *testing.T) {
 	}})
 	v = pe2.pass(t)
 	if !pe2.has(t, &dv1.Stage{}, "payments-production", "payments-production") ||
-		!strings.Contains(v.CompletenessReason, "could not be retired: apiserver down") {
+		!pe2.missedHas(t, v, "could not be retired: apiserver down") {
 		t.Fatalf("view %+v", v)
 	}
 }
@@ -254,7 +254,7 @@ func TestRetiringMarkFailureIsPartial(t *testing.T) {
 		return c.Patch(ctx, o, p, opts...)
 	}})
 	v := pe.pass(t)
-	if !strings.Contains(v.CompletenessReason, "the Stage payments-production/payments-production could not be marked: denied") {
+	if !pe.missedHas(t, v, "the Stage payments-production/payments-production could not be marked: denied") {
 		t.Fatalf("view %+v", v)
 	}
 }

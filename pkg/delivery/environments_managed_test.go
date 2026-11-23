@@ -118,6 +118,12 @@ func TestStagePlacementReadsWhatPactoWrote(t *testing.T) {
 	if source != DesiredFromLadder || got != p || by != "bob@acme.com" || !managed {
 		t.Fatalf("got %q %+v %q %v", source, got, by, managed)
 	}
+	// Anyone who may edit the Stage may write them: a value outside the
+	// known ones reads unknown (empty for the source), never as written.
+	ann[managedPrefix+"placement-provenance"], ann[managedPrefix+"environment-source"] = "", "signed-policy"
+	if source, got, _, _ := StagePlacement(meta); got.Provenance != PlacementUnknown || source != "" {
+		t.Fatalf("forged: %q %+v", source, got)
+	}
 	source, got, by, managed = StagePlacement(ObjectMeta{Namespace: "shop", Annotations: ann})
 	if source != PlacementFromStage || got != (Placement{Namespace: "shop", Provenance: PlacementDeclared, Source: PlacementFromStage}) || by != "" || managed {
 		t.Fatalf("hand-written: %q %+v %q %v", source, got, by, managed)
