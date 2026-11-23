@@ -19,6 +19,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // GateManifests refuses a promote whose deploy artifact reaches outside the
@@ -339,8 +341,10 @@ func (in *ManifestInspection) readChartValues(files []tarFile, target ManifestTa
 			in.Unread = append(in.Unread, target.ValuesFile+" is not in the chart of this version, so Argo CD cannot render it for "+target.Environment)
 			return
 		}
-		var values map[string]any
-		if err := yaml.Unmarshal(f.data, &values); err != nil {
+		// Decoded as an environment file is, so the environment gate compares
+		// like with like.
+		values, err := contract.ParseEnvironmentValues(f.data)
+		if err != nil {
 			in.Unread = append(in.Unread, target.ValuesFile+" in this version is not valid YAML")
 			return
 		}
@@ -989,23 +993,25 @@ func InspectRevision(ctx context.Context, reg Registry, repo, digest string, tar
 // rejects. An Unknown with an unknown publication asks one question naming
 // both and stops the chain, as the publication's own question does;
 // otherwise it returns what Pacto cannot tell, for the caller to ask after
-// the later gates. It reports whether the promote may go on.
-func manifestsGate(ctx context.Context, in PlanInput, p *Plan, pub Verdict) (bool, string) {
+// the later gates. It returns the inspection, for the environment gate to
+// read the values the applier applies, and reports whether the promote may
+// go on.
+func manifestsGate(ctx context.Context, in PlanInput, p *Plan, pub Verdict) (ManifestInspection, bool, string) {
 	ins := in.Manifests(ctx)
 	ins.RefuseInfra = in.RefuseRawInfra
 	v := ins.Verdict()
 	p.Verdicts = append(p.Verdicts, v)
 	switch v.Result {
 	case Fail:
-		return false, ""
+		return ins, false, ""
 	case Unknown:
 		what := "what " + short(p.To) + " applies: " + v.Citation["unread"]
 		if pub.Result == Unknown {
 			p.Floor = Floor{Human: true, Decision: AcceptUnknown}
 			p.Question = "Pacto cannot tell whether pacto publish published " + short(p.To) + ": " + pub.Message + "; and " + what + ". Accept the unknown?"
-			return false, ""
+			return ins, false, ""
 		}
-		return true, what
+		return ins, true, what
 	}
-	return true, ""
+	return ins, true, ""
 }

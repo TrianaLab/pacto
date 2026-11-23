@@ -149,7 +149,7 @@ func TestInspectChartReadsValuesFile(t *testing.T) {
 	in := InspectArtifact(HelmChartMediaType, chartWith(t, map[string]string{"values-production.yaml": prodValues}), target, BuiltinScope)
 	v := wantVerdict(t, "values", in, Pass, "every one of the 1 objects")
 	if v.Citation["valuesFile"] != "values-production.yaml" || v.Citation["valuesDigest"] != sha(prodValues) ||
-		in.Values["replicas"] != 3 || in.ValuesDigest != sha(prodValues) {
+		in.Values["replicas"] != float64(3) || in.ValuesDigest != sha(prodValues) {
 		t.Fatalf("the values file is read and cited: %+v %+v", v, in)
 	}
 	in = InspectArtifact(HelmChartMediaType, chartWith(t, map[string]string{"values-production.yaml": "a: [\n"}), target, BuiltinScope)

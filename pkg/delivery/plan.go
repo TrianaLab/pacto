@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"path"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -404,8 +406,11 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 	if !applierGate(in, p) {
 		return
 	}
+	var ins ManifestInspection // zero with the inspector off: no values were read
 	if in.InspectManifests && in.Manifests != nil {
-		ok, unread := manifestsGate(ctx, in, p, pub)
+		var ok bool
+		var unread string
+		ins, ok, unread = manifestsGate(ctx, in, p, pub)
 		if !ok {
 			return
 		}
@@ -435,7 +440,7 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 	}
 	impactGate(ctx, in, p)
 	suitesGate(in, p)
-	if !environmentGate(in, p) {
+	if !environmentGate(in, p, ins) {
 		return
 	}
 	ownerGate(in, p)
@@ -451,19 +456,25 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 // passes and says so. The check is pacto validate's environments stage, run on
 // the version's own bundle. Values outside a tiered offering's parameter
 // space (a parameter code) fail and nobody can approve them: the space is the
-// offering owner's, never the consuming team's. It reports whether the
-// promote may go on.
-func environmentGate(in PlanInput, p *Plan) bool {
+// offering owner's, never the consuming team's. ins is what pacto.manifests
+// read: when the applier applies a chart values file that is not the values
+// the contract declares for the environment, Pacto has not checked the
+// values that run, so the gate is Unknown, for a person to accept. It
+// reports whether the promote may go on.
+func environmentGate(in PlanInput, p *Plan, ins ManifestInspection) bool {
 	c, env := in.To.Bundle.Contract, in.Stage.Environment
 	v := Verdict{Gate: GateEnvironment, Phase: "pre", Result: Pass, Citation: map[string]string{"environment": env, "contract": in.To.ContractRef}}
+	a := appliedValues(ins)
+	a.cite(v.Citation)
 	defer func() { p.Verdicts = append(p.Verdicts, v) }()
 	if len(c.Environments) == 0 {
 		v.Citation["applicable"] = "false"
-		v.Message = "not applicable: the contract of " + short(p.To) + " declares no environments"
+		v.Message = "not applicable: the contract of " + short(p.To) + " declares no environments" + a.clause()
 		return true
 	}
 	var errs, codes, unverified []string
-	if i := slices.IndexFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env }); i >= 0 {
+	i := slices.IndexFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env })
+	if i >= 0 {
 		errs, codes, unverified = environmentFindings(c, in.To.Bundle.FS, in.To.ConfigRefs, i)
 	} else {
 		names := make([]string, len(c.Environments))
@@ -489,7 +500,94 @@ func environmentGate(in PlanInput, p *Plan) bool {
 	default:
 		v.Message = "the values of environment " + env + " satisfy the configuration schemas"
 	}
+	switch why := a.unchecked(c, in.To.Bundle.FS, i, env); {
+	case why != "":
+		v.Result, v.Message = Unknown, v.Message+"; "+why
+		holdFor(p, AcceptUnknown, why, "Pacto cannot verify the values of environment "+env+" in "+short(p.To)+": "+why+". Accept the unknown?")
+		askServiceTeam(in, p)
+	case a.chart:
+		v.Message += fmt.Sprintf("; Argo CD applies the same values as environments[%d].file", i)
+	}
 	return true
+}
+
+// applied is the values file or overlay the applier applies, as
+// pacto.manifests read it from the version: chart says it is a chart's
+// values file, read and decoded into values, not an overlay.
+type applied struct {
+	file, digest string
+	values       map[string]any
+	chart        bool
+}
+
+// appliedValues is what ins read of the values the applier applies.
+func appliedValues(ins ManifestInspection) applied {
+	return applied{ins.ValuesFile, ins.ValuesDigest, ins.Values, ins.ValuesDigest != ""}
+}
+
+// cite records the applied values file and its digest in citation.
+func (a applied) cite(citation map[string]string) {
+	if a.file != "" {
+		citation["appliedValues"] = a.file
+	}
+	if a.digest != "" {
+		citation["appliedValuesDigest"] = a.digest
+	}
+}
+
+// clause says what the applier applies, "" for nothing read.
+func (a applied) clause() string {
+	switch {
+	case a.chart:
+		return "; the applier applies " + a.file + " (" + a.digest + ")"
+	case a.file != "":
+		return "; the applier applies " + a.file
+	}
+	return ""
+}
+
+// unchecked is why the chart values the applier applies are not the values c
+// declares for environment env (at index i, -1 for none), "" when they are
+// or when no chart values file was read. An overlay is a directory with no
+// Helm values: pacto.manifests judges its objects, and it is never
+// compared.
+func (a applied) unchecked(c *contract.Contract, fsys fs.FS, i int, env string) string {
+	if !a.chart {
+		return ""
+	}
+	lead, tail := "the applier applies "+a.file+" ("+a.digest+")", ", so Pacto has not checked the values that run"
+	if i < 0 {
+		return lead + ", and the contract declares no environment " + env + tail
+	}
+	e := c.Environments[i]
+	if e.File == "" {
+		return fmt.Sprintf("%s, and environments[%d] declares no file%s", lead, i, tail)
+	}
+	cfg, ok := chartConfiguration(c)
+	if !ok {
+		return lead + ", and no one configuration of the contract has the chart's values.schema.json as its schema" + tail
+	}
+	if _, values, err := contract.ReadEnvironmentValues(fsys, e); err != nil || !reflect.DeepEqual(values[cfg], any(a.values)) {
+		return fmt.Sprintf("%s, different values from environments[%d].file%s", lead, i, tail)
+	}
+	return ""
+}
+
+// chartConfiguration is the one configuration of c whose schema is a chart's
+// values.schema.json, the configuration a chart values file sets.
+// ponytail: matched by file name, since the contract names no chart
+// directory; two such configurations name none, and the gate asks a person.
+func chartConfiguration(c *contract.Contract) (string, bool) {
+	var names []string
+	for _, cfg := range c.Configurations {
+		if path.Base(cfg.Schema) == "values.schema.json" {
+			names = append(names, cfg.Name)
+		}
+	}
+	if len(names) != 1 {
+		return "", false
+	}
+	return names[0], true
 }
 
 // parameterRefusal is the first of codes that refuses values outside a tiered
