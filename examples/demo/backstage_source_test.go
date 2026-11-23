@@ -85,3 +85,32 @@ func TestDemoBackstageEdge(t *testing.T) {
 		t.Error("the catalog edge reached the declared relationships")
 	}
 }
+
+// demoGoldenPaths is how many golden paths the demo declares: http-service.
+const demoGoldenPaths = 1
+
+// TestDemoInferredTemplates: the catalog's springboot-service template is an
+// inferred golden path with a scaffolder link on the configured base; its
+// http-service template is folded into the declared http-service golden
+// path, which keeps it as its link and is listed once.
+func TestDemoInferredTemplates(t *testing.T) {
+	res, err := fleet.NewQuery(demoFleet(t)).Entities(fleet.EntityFilter{Template: fleet.TemplateOnly})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := res.InferredTemplates
+	if list == nil || list.Completeness != fleet.CompletenessComplete || list.Total != 1 || len(list.Items) != 1 {
+		t.Fatalf("inferred templates = %+v", list)
+	}
+	sb := list.Items[0]
+	if sb.Name != "springboot-service" || sb.Provenance != fleet.ProvenanceInferred || !sb.Acceptable ||
+		sb.URL != demoBackstageBase+"/create/templates/default/springboot-service" || sb.Entity != "template:default/springboot-service" {
+		t.Errorf("springboot-service = %+v", sb)
+	}
+	if len(res.Entities) != demoGoldenPaths {
+		t.Fatalf("golden paths = %+v, want %d", res.Entities, demoGoldenPaths)
+	}
+	if d := list.Declared; len(d) != 1 || d[0].Name != "http-service" || d[0].DeclaredAs != res.Entities[0].Key {
+		t.Errorf("declared = %+v, golden path %q", d, res.Entities[0].Key)
+	}
+}

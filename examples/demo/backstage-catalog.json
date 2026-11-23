@@ -23,8 +23,30 @@
       "kind": "Component",
       "metadata": {"name": "analytics-pipeline", "namespace": "default"},
       "spec": {"owner": "group:default/data-platform", "system": "analytics"}
+    },
+    {
+      "apiVersion": "scaffolder.backstage.io/v1beta3",
+      "kind": "Template",
+      "metadata": {
+        "name": "springboot-service",
+        "namespace": "default",
+        "title": "Spring Boot service",
+        "description": "A Spring Boot HTTP service with a PostgreSQL database and the platform CI"
+      },
+      "spec": {"owner": "group:default/platform-team", "type": "service"}
+    },
+    {
+      "apiVersion": "scaffolder.backstage.io/v1beta3",
+      "kind": "Template",
+      "metadata": {
+        "name": "http-service",
+        "namespace": "default",
+        "title": "HTTP service",
+        "description": "A Go HTTP service with health checks and the platform CI"
+      },
+      "spec": {"owner": "group:default/platform-team", "type": "service"}
     }
   ],
-  "totalItems": 4,
+  "totalItems": 6,
   "pageInfo": {}
 }

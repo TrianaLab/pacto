@@ -11,8 +11,10 @@ import (
 
 // demoBackstageCatalog is one entities/by-query page of the organization's
 // Backstage catalog: legacy-billing's owner, system and dependsOn, a
-// payments-service owner that contradicts the declared one and a component
-// Pacto exported, which is never read back.
+// payments-service owner that contradicts the declared one, a component
+// Pacto exported, which is never read back, and two software templates:
+// springboot-service, an inferred golden path, and http-service, which the
+// declared http-service golden path holds the name of.
 //
 //go:embed backstage-catalog.json
 var demoBackstageCatalog []byte
