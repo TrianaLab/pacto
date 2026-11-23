@@ -223,14 +223,14 @@ func TestPublishRecordPushFails(t *testing.T) {
 	}
 }
 
-// TestBundleDigestPinned proves this story changed no packaging: the digest a
-// push would publish a fixed bundle under is the one it was before run
-// records existed.
+// TestBundleDigestPinned proves run records changed no packaging: the legacy
+// digest of a fixed bundle is the one it was before run records existed.
+// Typed bundles moved what a push writes, never the legacy packer.
 func TestBundleDigestPinned(t *testing.T) {
 	const want = "sha256:efaa2dd406380eca840b11c3fbe79d382b467a7cb200b6b81251b26baa453a31"
-	got, err := oci.BundleDigest(testutil.TestBundle())
-	if err != nil || got != want {
-		t.Fatalf("BundleDigest = %s %v, want %s", got, err, want)
+	got, err := oci.BundleDigests(testutil.TestBundle())
+	if err != nil || got.Legacy != want {
+		t.Fatalf("BundleDigests = %+v %v, want legacy %s", got, err, want)
 	}
 }
 
