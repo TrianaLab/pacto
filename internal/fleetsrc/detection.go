@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -80,6 +82,37 @@ func configMapKey(dyn dynamic.Interface, namespace, name, key, manager string) f
 			return nil, errDetectionForeign
 		}
 		return []byte(data), nil
+	}
+}
+
+// ClustersReader reads the candidate clusters beside the detection at ref
+// on each call: k8s:<namespace>/<name> reads the clusters.json key of that
+// ConfigMap with dyn under the rule detected.json is trusted by; a file ref
+// reads the clusters.json file beside it. An absent key or file is no
+// candidates and no error (an operator that predates them, or runs no
+// inventory); an unreadable, foreign or future-dated document is an error
+// that says why without its raw text.
+func ClustersReader(dyn dynamic.Interface, ref string, now func() time.Time) func(context.Context) (detect.Clusters, error) {
+	read := func(context.Context) ([]byte, error) {
+		return os.ReadFile(filepath.Join(filepath.Dir(ref), detect.ClustersConfigMapKey))
+	}
+	if rest, ok := strings.CutPrefix(ref, "k8s:"); ok {
+		ns, name, _ := strings.Cut(rest, "/")
+		read = configMapKey(dyn, ns, name, detect.ClustersConfigMapKey, detect.FieldManager)
+	}
+	return func(ctx context.Context) (detect.Clusters, error) {
+		data, err := read(ctx)
+		if errors.Is(err, fs.ErrNotExist) {
+			return detect.Clusters{}, nil
+		}
+		if err == nil {
+			var c detect.Clusters
+			if c, err = detect.DecodeClusters(data); err == nil && !c.AsOf.After(now().Add(detect.MaxFutureSkew)) {
+				return c, nil
+			}
+			err = errDetectionInvalid
+		}
+		return detect.Clusters{}, errors.New(detectionError(err).Message)
 	}
 }
 

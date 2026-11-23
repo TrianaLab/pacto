@@ -1047,3 +1047,48 @@ func TestPluralCountsClusters(t *testing.T) {
 		t.Fatal(plural(2, "cluster"))
 	}
 }
+
+// TestClusterJoinsMatchesCandidates: candidates read at the end of a join
+// read are matched to its members; a failed read leaves the candidates
+// partial and says why, and the members' completeness is untouched.
+func TestClusterJoinsMatchesCandidates(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	m := newMember(memberA, "eu-prod")
+	e.publish(t, m, m.key, snapNow)
+	e.decide(t, m, delivery.JoinApprove)
+	var readErr error
+	o := e.opts()
+	o.Candidates = func(context.Context) (detect.Clusters, error) {
+		return detect.Clusters{AsOf: e.clock, Candidates: []detect.Candidate{{Source: detect.SourceArgoCD, Kind: "Secret", Namespace: "argocd", Name: "eu",
+			UID: memberA, Labels: map[string]string{"env": "prod"}}}}, readErr
+	}
+	l := e.svc.ClusterJoins(t.Context(), o)
+	if len(l.Candidates) != 1 || l.Candidates[0].Match != delivery.CandidateMatched || len(l.Clusters[0].InventoryEnvironments) != 1 {
+		t.Fatalf("matched: %+v", l)
+	}
+	readErr = errors.New("not written by the Pacto operator")
+	l = e.svc.ClusterJoins(t.Context(), o)
+	if l.Candidates != nil || l.CandidatesCompleteness != fleet.CompletenessPartial || l.Completeness != fleet.CompletenessComplete ||
+		len(l.Limitations) != 1 || l.Limitations[0].Message != "the candidate clusters were not read: not written by the Pacto operator" {
+		t.Fatalf("unread: %+v", l)
+	}
+}
+
+// TestFleetReadsNoCandidates: the fleet's join read never reads candidates,
+// however its options resolve, so none reaches a source or a gate.
+func TestFleetReadsNoCandidates(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	m := newMember(memberA, "eu-prod")
+	e.publish(t, m, m.key, snapNow)
+	read := func(context.Context) (detect.Clusters, error) {
+		t.Error("the fleet read candidates")
+		return detect.Clusters{}, errors.New("read")
+	}
+	o := e.opts()
+	o.Candidates = read
+	for _, opts := range []JoinOptions{o, {Resolve: func(context.Context) (JoinOptions, error) { return o, nil }}} {
+		if _, err := e.svc.Fleet(t.Context(), FleetOptions{ClusterJoins: &opts, Now: func() time.Time { return e.clock }}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

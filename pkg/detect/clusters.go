@@ -402,3 +402,34 @@ func cleanLabels(l map[string]string) map[string]string {
 	}
 	return out
 }
+
+// DecodeClusters reads a Clusters document. One larger than
+// MaxClustersBytes, of another major or with no asOf is refused; every
+// string is cleaned and every list capped again, a candidate from an unknown
+// source is dropped and a UID that is not a cluster UID is ignored, so a
+// hand-edited ConfigMap cannot flood an answer or claim an identity.
+func DecodeClusters(data []byte) (Clusters, error) {
+	if len(data) > MaxClustersBytes {
+		return Clusters{}, fmt.Errorf("clusters document is %d bytes, over the %d bound", len(data), MaxClustersBytes)
+	}
+	var c Clusters
+	if err := json.Unmarshal(data, &c); err != nil {
+		return Clusters{}, fmt.Errorf("decoding clusters: %w", err)
+	}
+	if major, _, _ := strings.Cut(c.SchemaVersion, "."); major != SchemaVersion {
+		return Clusters{}, fmt.Errorf("clusters schema version %q is not %s", clean(c.SchemaVersion), SchemaVersion)
+	}
+	if c.AsOf.IsZero() {
+		return Clusters{}, errors.New("clusters document has no asOf")
+	}
+	c.Candidates = slices.DeleteFunc(c.Candidates, func(cand Candidate) bool { return inventoryResources[cand.Source] == "" })
+	for i := range c.Candidates {
+		if cand := &c.Candidates[i]; !uuid.MatchString(cand.UID) {
+			cand.UID, cand.UIDSource = "", ""
+		}
+	}
+	c.Total = max(c.Total, len(c.Candidates))
+	sanitizeClusters(&c)
+	cutCandidates(&c, MaxCandidates)
+	return c, nil
+}

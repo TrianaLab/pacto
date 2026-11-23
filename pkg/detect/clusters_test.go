@@ -250,3 +250,54 @@ func TestInventoryEntryProposesNamespaces(t *testing.T) {
 		t.Errorf("proposal = %+v", e)
 	}
 }
+
+func TestClustersRoundTrip(t *testing.T) {
+	in := Clusters{AsOf: asOf, Cluster: "hub", Total: 2, Sources: []InventorySource{{Source: SourceArgoCD, Completeness: Complete, Namespaces: []string{"argocd"}}},
+		Candidates: []Candidate{{Source: SourceArgoCD, Kind: "Secret", Namespace: "argocd", Name: "eu", DisplayName: "eu",
+			Labels: map[string]string{"env": "prod"}, UID: uid1, UIDSource: "annotation " + ClusterUIDAnnotation},
+			{Source: SourceArgoCD, Kind: "Secret", Namespace: "argocd", Name: "us", DisplayName: "us"}}}
+	b, err := EncodeClusters(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := DecodeClusters(b)
+	in.SchemaVersion = SchemaVersion
+	if err != nil || !reflect.DeepEqual(got, in) {
+		t.Errorf("round trip = %+v %v, want %+v", got, err, in)
+	}
+}
+
+func TestClustersDecodeRefusesOtherMajor(t *testing.T) {
+	for name, doc := range map[string]string{
+		"major":    `{"schemaVersion":"2","asOf":"2026-11-23T10:00:00Z"}`,
+		"json":     `{`,
+		"asOf":     `{"schemaVersion":"1"}`,
+		"oversize": `{"schemaVersion":"1","asOf":"2026-11-23T10:00:00Z","cluster":"` + strings.Repeat("x", MaxClustersBytes) + `"}`,
+	} {
+		if _, err := DecodeClusters([]byte(doc)); err == nil {
+			t.Errorf("%s: decoded", name)
+		}
+	}
+	if c, err := DecodeClusters([]byte(`{"schemaVersion":"1.3","asOf":"2026-11-23T10:00:00Z"}`)); err != nil || c.Total != 0 {
+		t.Errorf("minor = %+v %v", c, err)
+	}
+}
+
+// TestClustersDecodeCleans: a hand-edited document loses unknown sources and
+// UIDs that are not cluster UIDs, and is capped again.
+func TestClustersDecodeCleans(t *testing.T) {
+	var cands []string
+	for i := range MaxCandidates + 5 {
+		cands = append(cands, fmt.Sprintf(`{"source":"capi","kind":"Cluster","name":"c%03d","uid":"eu-prod","uidSource":"forged"}`, i))
+	}
+	doc := `{"schemaVersion":"1","asOf":"2026-11-23T10:00:00Z","sources":[{"source":"capi","completeness":"complete"}],"candidates":[` +
+		`{"source":"git","name":"x"},` + strings.Join(cands, ",") + `]}`
+	c, err := DecodeClusters([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Candidates) != MaxCandidates || c.Total != MaxCandidates+5 || c.Candidates[0].Source != SourceCAPI || c.Candidates[0].UID != "" ||
+		c.Candidates[0].UIDSource != "" || c.Sources[0].Completeness != Partial {
+		t.Errorf("decoded = %d candidates, total %d, %+v, %+v", len(c.Candidates), c.Total, c.Candidates[0], c.Sources)
+	}
+}

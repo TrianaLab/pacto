@@ -22,7 +22,8 @@ func (s *Server) registerClusterOperations(api huma.API) {
 		Summary:     "List the member clusters of this hub",
 		Description: "The clusters that publish to this hub's registry and where each stands: approved members, pending clusters " +
 			"with why they are pending and removed members, as pacto cluster list and pacto_cluster_list answer. A signed-in reader " +
-			"who may not approve clusterjoins sees the approved members only; the rest are counted in hidden. Approving is a " +
+			"who may not approve clusterjoins sees the approved members only; the rest are counted in hidden, and the candidate clusters " +
+			"the hub's GitOps and cluster managers know in hiddenCandidates. A candidate is matched to a member only by a UID it states. Approving is a " +
 			"person's signed decision with pacto cluster approve.",
 		Tags:   []string{"Fleet"},
 		Errors: []int{http.StatusBadGateway},
