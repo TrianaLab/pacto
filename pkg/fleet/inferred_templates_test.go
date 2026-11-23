@@ -184,6 +184,9 @@ func TestInferredTemplatesCapped(t *testing.T) {
 	if len(capped) != 1 || !strings.Contains(capped[0].Message, fmt.Sprint(MaxInferredTemplates+1)) {
 		t.Fatalf("capped %+v", capped)
 	}
+	if l.Completeness != CompletenessPartial {
+		t.Fatalf("completeness %q, want partial: a capped list leaves templates out", l.Completeness)
+	}
 }
 
 func TestInferredTemplatesCompletenessFollowsSource(t *testing.T) {

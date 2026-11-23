@@ -106,6 +106,10 @@ func ReadCatalogPage(data []byte, at time.Time) (CatalogRead, error) {
 	return out, nil
 }
 
+// TemplateEntityPrefix starts the catalog reference of a software template,
+// template:<namespace>/<name>.
+const TemplateEntityPrefix = "template:"
+
 // templateEntity is the inferred golden path of the scaffolder Template e.
 // Its name is kept as read: the fold drops a name a contract cannot carry.
 func templateEntity(e catalogEntity, at time.Time) fleet.RawInferredTemplate {
@@ -116,7 +120,7 @@ func templateEntity(e catalogEntity, at time.Time) fleet.RawInferredTemplate {
 	}
 	t := fleet.RawInferredTemplate{
 		Name:       name,
-		Entity:     "template:" + ns + "/" + name,
+		Entity:     TemplateEntityPrefix + ns + "/" + name,
 		Title:      cleanFact(e.Metadata.Title),
 		Summary:    cleanFact(e.Metadata.Description),
 		Type:       cleanFact(e.Spec.Type),

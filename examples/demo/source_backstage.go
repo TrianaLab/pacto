@@ -32,7 +32,7 @@ func demoBackstageSource(now time.Time) (fleet.Source, error) {
 		return nil, err
 	}
 	for i, t := range read.Templates {
-		ns, name, _ := strings.Cut(strings.TrimPrefix(t.Entity, "template:"), "/")
+		ns, name, _ := strings.Cut(strings.TrimPrefix(t.Entity, backstage.TemplateEntityPrefix), "/")
 		read.Templates[i].From, read.Templates[i].Acceptable = "Backstage (backstage.acme.example)", true
 		read.Templates[i].URL = backstage.ScaffolderURL(demoBackstageBase, ns, name)
 	}

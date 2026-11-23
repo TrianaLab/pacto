@@ -161,7 +161,7 @@ func (s *BackstageSource) templates(ts []fleet.RawInferredTemplate) []fleet.RawI
 	for i := range ts {
 		ts[i].From = from
 		if s.origin == "" {
-			ns, name, _ := strings.Cut(strings.TrimPrefix(ts[i].Entity, "template:"), "/")
+			ns, name, _ := strings.Cut(strings.TrimPrefix(ts[i].Entity, backstage.TemplateEntityPrefix), "/")
 			ts[i].URL, ts[i].Acceptable = backstage.ScaffolderURL(s.baseURL, ns, name), true
 		}
 	}

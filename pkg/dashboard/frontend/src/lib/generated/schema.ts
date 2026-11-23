@@ -4357,7 +4357,7 @@ export interface components {
              */
             asOf?: string;
             /**
-             * @description Partial when a source that lists templates could not read them all; a missing template is then unknown
+             * @description Partial when a source that lists templates could not read them all or the list was capped; a missing template is then unknown
              * @enum {string}
              */
             completeness: "complete" | "partial";

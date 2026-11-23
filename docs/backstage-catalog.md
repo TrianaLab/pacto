@@ -142,7 +142,8 @@ Inferred golden paths (complete, asOf 2026-11-23T09:00:00Z):
   the link and the template is listed once. A name another service holds is
   listed with no accept.
 - A name a contract cannot carry is skipped and named in
-  `INFERRED_TEMPLATES_SKIPPED`. At most 200 templates are listed.
+  `INFERRED_TEMPLATES_SKIPPED`. At most 200 templates are listed; past that
+  the block is `partial` with `INFERRED_TEMPLATES_CAPPED`.
 - Every viewer, restricted ones included, sees each template the reader token
   reads.
 - An unavailable or partial catalog makes the block `partial` with the
@@ -150,8 +151,8 @@ Inferred golden paths (complete, asOf 2026-11-23T09:00:00Z):
 
 With no Backstage in a watched namespace, Detected providers reads
 `Backstage catalog: not detected`, partial, because an external catalog is
-invisible to the cluster. The dashboard hides that row when a URL is set,
-since the source's own row then speaks for it.
+invisible to the cluster. The dashboard and `pacto fleet` hide that row when
+a URL is set, since the source's own row then speaks for it.
 
 ## Accept a template as a golden path
 

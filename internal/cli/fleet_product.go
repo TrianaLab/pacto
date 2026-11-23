@@ -16,6 +16,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
+	"github.com/trianalab/pacto/v4/pkg/backstage"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -414,7 +415,7 @@ func printInferredTemplate(w io.Writer, it fleet.InferredTemplate, catalogURL st
 	case !it.Acceptable:
 		_, _ = fmt.Fprintln(w, "    set --backstage-url to accept templates from this catalog")
 	default:
-		subject := fleet.TemplateSubjectPrefix + strings.TrimPrefix(it.Entity, "template:")
+		subject := fleet.TemplateSubjectPrefix + strings.TrimPrefix(it.Entity, backstage.TemplateEntityPrefix)
 		_, _ = fmt.Fprintf(w, "    accept: pacto declare %s --registry <registry> --backstage-url %s\n", subject, cmp.Or(catalogURL, "<url>"))
 	}
 }

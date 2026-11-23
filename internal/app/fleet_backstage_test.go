@@ -186,3 +186,17 @@ func TestConfiguredBackstageHidesNotDetectedRow(t *testing.T) {
 		t.Errorf("not configured: detection rows = %v, want the backstage row", rowsOf(snap, "detection"))
 	}
 }
+
+// TestCLIConfiguredBackstageHidesNotDetectedRow: the CLI (no LiveEdges) with
+// --backstage-url drops the row too, keeps every other row, and still reads
+// no detected catalog.
+func TestCLIConfiguredBackstageHidesNotDetectedRow(t *testing.T) {
+	notDetected := writeDetected(t, detect.Backstage(nil, nil))
+	snap := liveFleet(t, FleetOptions{Detected: notDetected, BackstageURL: ledgerCatalog(t).URL})
+	if rows := rowsOf(snap, "detection"); slices.Contains(rows, "backstage") {
+		t.Errorf("configured: detection rows = %v, want no backstage row", rows)
+	}
+	if st := sourceState(snap, "detection"); st == nil || st.Status == fleet.SourceUnavailable {
+		t.Errorf("detection source = %+v", st)
+	}
+}

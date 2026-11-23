@@ -49,7 +49,7 @@ type InferredTemplateList struct {
 	Items        []InferredTemplate `json:"items" doc:"The inferred golden paths, sorted by name; never paged"`
 	Total        int                `json:"total" doc:"How many inferred golden paths are listed; the ones a declared golden path holds the name of are not counted"`
 	AsOf         *time.Time         `json:"asOf,omitempty" doc:"When the oldest listed template was read, else when a source last listed templates"`
-	Completeness Completeness       `json:"completeness" enum:"complete,partial" doc:"Partial when a source that lists templates could not read them all; a missing template is then unknown"`
+	Completeness Completeness       `json:"completeness" enum:"complete,partial" doc:"Partial when a source that lists templates could not read them all or the list was capped; a missing template is then unknown"`
 	Limitations  []Limitation       `json:"limitations,omitempty" doc:"Why the list is partial and which templates were left out"`
 	Declared     []InferredTemplate `json:"declared,omitempty" doc:"Catalog templates a declared golden path holds the name of: the link of that golden path, never listed or counted as inferred"`
 }
@@ -212,6 +212,10 @@ func (q *Query) InferredTemplates(text string) *InferredTemplateList {
 	l.Total = len(l.Items)
 	newest := q.templateCompleteness(l)
 	l.Limitations = append(l.Limitations, q.snap.templateNotes...)
+	// A capped list leaves templates out: a missing one is unknown.
+	if slices.ContainsFunc(q.snap.templateNotes, func(n Limitation) bool { return n.Code == LimitationInferredTemplatesCapped }) {
+		l.Completeness = CompletenessPartial
+	}
 	l.AsOf = oldestTemplate(q.snap.InferredTemplates)
 	if l.AsOf == nil {
 		l.AsOf = newest
