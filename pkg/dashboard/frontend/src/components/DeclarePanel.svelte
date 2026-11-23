@@ -1,6 +1,6 @@
 <script>
   import { api } from '../lib/api.ts';
-  import { rangeRows, draftLine, draftMark, signUrl, moved, completenessLine } from '../lib/declare.ts';
+  import { rangeRows, draftLine, draftMark, signUrl, moved, completenessLine, claimId, claimFieldError } from '../lib/declare.ts';
   import { formatCount } from '../lib/format.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
   import FieldProvenanceRow from './FieldProvenanceRow.svelte';
@@ -16,7 +16,18 @@
   // the identity provider; back from it (`signed` is the intent it was started for)
   // the panel shows the whole plan again and publishes only on a click. Without a
   // signing login it saves a draft, and the exact command is always there.
-  let { serviceKey = '', open = false, signed = '' } = $props();
+  // A serviceKey external:<identity> claims an external system: the person names
+  // the owning team (and optionally the service name, claimedName on a claim
+  // again) first, and the plan is asked for with them. A host that saves no claim
+  // draft (noDraft) offers only signing.
+  let { serviceKey = '', open = false, signed = '', claimedName = '' } = $props();
+  const claim = $derived(claimId(serviceKey));
+  // The owner and name of a claim ride across the signing login like a draft.
+  const claimKey = (intent) => `pacto-claim:${intent}`;
+  let owner = $state('');
+  let name = $state('');
+  let claimTouched = $state(false);
+  const claimError = $derived(claimFieldError(owner.trim(), name.trim()));
 
   // A draft being accepted rides across the signing login here, keyed by the intent
   // digest that covers its digest, so a changed draft never matches.
@@ -55,11 +66,14 @@
     accept = (a?.plan?.ranges ?? []).filter((r) => r.accepted).map((r) => r.dependency);
   }
 
+  // claimBody is what a claim adds to every request: its owner and name.
+  const claimBody = () => (claim ? { owner: owner.trim(), name: name.trim() || undefined } : {});
+
   async function load(body = {}) {
     loading = true;
     error = null;
     try {
-      adopt(await api.fleetDeclare({ serviceKey, ...body }));
+      adopt(await api.fleetDeclare({ serviceKey, ...claimBody(), ...body }));
     } catch (e) {
       answer = null;
       error = e;
@@ -74,6 +88,16 @@
       try { from = JSON.parse(sessionStorage.getItem(draftKey(signed)) || 'null'); } catch { from = null; }
     }
     draft = from;
+    if (claim) {
+      let kept = null;
+      if (signed) {
+        try { kept = JSON.parse(sessionStorage.getItem(claimKey(signed)) || 'null'); } catch { kept = null; }
+      }
+      owner = kept?.owner ?? '';
+      name = kept?.name ?? claimedName;
+      // A claim is planned once the person names its owner.
+      if (!kept) return;
+    }
     await load({ intentDigest: signed || undefined, fromDraft: from || undefined });
     if (!signed || !p || !fresh) return;
     if (!answer.signedIn) movedText = 'Your signing login expired or was used: check your ranges and sign again';
@@ -121,7 +145,18 @@
   }
 
   function startSign() {
-    try { if (draft) sessionStorage.setItem(draftKey(p.intentDigest), JSON.stringify(draft)); } catch { /* the draft is opened again by hand */ }
+    try {
+      if (draft) sessionStorage.setItem(draftKey(p.intentDigest), JSON.stringify(draft));
+      if (claim) sessionStorage.setItem(claimKey(p.intentDigest), JSON.stringify({ owner: owner.trim(), name: name.trim() }));
+    } catch { /* the plan is asked for again by hand */ }
+  }
+
+  function planClaim(e) {
+    e.preventDefault();
+    claimTouched = true;
+    if (claimError || loading) return;
+    reset();
+    load({ fromDraft: draft || undefined });
   }
 
   async function send(mode) {
@@ -130,7 +165,7 @@
     busy = true;
     const before = p;
     try {
-      const out = await api.fleetDeclareAccept({ serviceKey, accept, intentDigest: before.intentDigest, mode, fromDraft: draft || undefined });
+      const out = await api.fleetDeclareAccept({ serviceKey, ...claimBody(), accept, intentDigest: before.intentDigest, mode, fromDraft: draft || undefined });
       if (out.refusal?.code === 'PlanStale' && out.plan) {
         adopt(out.plan);
         movedText = `The plan changed since you read it: ${moved(before, out.plan.plan)} moved. Read it again`;
@@ -138,7 +173,7 @@
         refusal = out.refusal;
       } else {
         result = out;
-        try { if (signed) sessionStorage.removeItem(draftKey(signed)); } catch { /* nothing kept */ }
+        try { if (signed) { sessionStorage.removeItem(draftKey(signed)); sessionStorage.removeItem(claimKey(signed)); } } catch { /* nothing kept */ }
         if (out.draft) {
           draft = null;
           await load({ accept });
@@ -153,8 +188,16 @@
 </script>
 
 <div class="dp" data-testid="declare">
+  {#if claim}
+    <form class="dp-claim" onsubmit={planClaim} novalidate data-testid="claim-fields">
+      <label class="dp-field"><span>Owner team</span><input class="input" bind:value={owner} required maxlength="253" autocomplete="off" aria-invalid={claimTouched && !!claimError ? 'true' : undefined} aria-describedby="dp-claim-error" data-testid="claim-owner" /></label>
+      <label class="dp-field"><span>Service name <span class="t-meta">(optional)</span></span><input class="input" bind:value={name} maxlength="63" autocomplete="off" placeholder={claimedName || claim.split('/').pop()} data-testid="claim-name" /></label>
+      <button type="submit" class="btn btn-sm" aria-disabled={loading ? 'true' : undefined} data-testid="claim-plan">Show the plan</button>
+      <p class="t-meta dp-p" id="dp-claim-error" role={claimTouched && claimError ? 'alert' : undefined}>{claimTouched ? claimError : ''}</p>
+    </form>
+  {/if}
   {#if loading && !answer}
-    <p class="t-meta dp-p">Reading the cluster as you…</p>
+    <p class="t-meta dp-p">{claim ? 'Planning the claim…' : 'Reading the cluster as you…'}</p>
   {:else if error}
     <RefusalNotice {error} />
   {:else if answer}
@@ -201,7 +244,7 @@
           {:else if signHref}
             <a class="btn btn-sm btn-primary" href={signHref} onclick={startSign} data-testid="declare-sign"><span class="dp-nowrap">Sign as</span> <bdi class="dp-id">{signing.identity}</bdi></a>
           {/if}
-          {#if writes && !draft}
+          {#if writes && !draft && !answer.noDraft}
             <button type="button" class="btn btn-sm" aria-disabled={busy || loading ? 'true' : undefined} onclick={() => send('draft')} data-testid="declare-save-draft">Save draft</button>
           {:else if !write.available}
             <p class="t-meta dp-p" data-testid="declare-no-write">{write.reason}</p>
@@ -210,7 +253,7 @@
       {/if}
       {#if result}
         <p class="dp-p" role="status" data-testid="declare-result">
-          {#if result.draft}Saved <bdi>{result.tag}</bdi>. A person who may update the workload accepts it from the drafts below or with the command.{:else}Published <bdi>{result.tag}</bdi>{#if result.signed}, signed by you as <bdi>{signing.identity}</bdi>{/if}.{/if}
+          {#if result.draft}Saved <bdi>{result.tag}</bdi>. {claim ? 'A default approver accepts it' : 'A person who may update the workload accepts it'} from the drafts below or with the command.{:else}Published <bdi>{result.tag}</bdi>{#if result.signed}, signed by you as <bdi>{signing.identity}</bdi>{/if}.{/if}
         </p>
         {#if result.draft && result.command}<div class="dp-command" data-testid="declare-accept-command"><span class="t-meta">Accept it with</span> <CopyableIdentifier value={result.command} label="command" /></div>{/if}
       {/if}
@@ -274,11 +317,15 @@
   .dp-nowrap { white-space: nowrap; flex: none; }
   .dp-id { min-inline-size: 0; }
   .dp-link { border: 0; background: none; padding: 0; color: var(--c-accent); font: inherit; text-decoration: underline; cursor: pointer; }
+  .dp-claim { display: flex; flex-wrap: wrap; align-items: end; gap: var(--sp-2); min-inline-size: 0; }
+  .dp-field { display: flex; flex-direction: column; gap: 2px; flex: 1 1 16ch; min-inline-size: 0; }
+  .dp-field .input { inline-size: 100%; }
+  .dp-claim .dp-p { flex-basis: 100%; }
   .dp-command { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-inline-size: 0; }
   /* One long YAML line scrolls inside its box instead of widening the page. */
   .dp-yaml { margin: 0; overflow: auto; max-block-size: 24rem; max-inline-size: 100%; padding: var(--sp-2); border: 1px solid var(--c-border); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: var(--text-xs); }
   @media (pointer: coarse) {
-    .dp-link, .dp :global(.btn) { min-block-size: 44px; }
+    .dp-link, .dp :global(.btn), .dp-field .input { min-block-size: 44px; }
     .dp-box { inline-size: 24px; block-size: 24px; }
     .dp-rows :global(.fpf-control) { min-block-size: 44px; }
   }

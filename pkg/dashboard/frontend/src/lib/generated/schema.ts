@@ -1765,16 +1765,22 @@ export interface components {
              * @enum {string}
              */
             mode: "sign" | "draft";
-            /** @description The inferred service to declare */
+            /** @description The claimed contract's service name; defaults to the name the visible claim already has, else the identity's last segment */
+            name?: string;
+            /** @description The team that owns the external system; set only when serviceKey is external:<identity> */
+            owner?: string;
+            /** @description The inferred service to declare, or external:<identity> to claim an external system */
             serviceKey: string;
         };
         DeclareAnswer: {
-            /** @description The exact pacto declare command a person runs in a terminal */
+            /** @description The exact pacto declare (pacto claim) command a person runs in a terminal */
             command?: string;
             /** @description The service's drafts, newest first, at most 20 */
             drafts?: components["schemas"]["DeclareDraft"][] | null;
             /** Format: int64 */
             draftsTotal?: number;
+            /** @description Why this host saves no draft of this plan: a shared dashboard claims an external system only with the person's own signature */
+            noDraft?: string;
             /** @description Absent when the plan was refused before it was built */
             plan?: components["schemas"]["DeclarePlan"];
             refusal?: components["schemas"]["DeclareRefusal"];
@@ -1810,7 +1816,11 @@ export interface components {
             fromDraft?: components["schemas"]["DraftRef"];
             /** @description The intent a signing login was started for: back from that login, the accepted ranges are the ones it was started with, whatever accept says */
             intentDigest?: string;
-            /** @description The inferred service to declare */
+            /** @description The claimed contract's service name; defaults to the name the visible claim already has, else the identity's last segment */
+            name?: string;
+            /** @description The team that owns the external system; set only when serviceKey is external:<identity> */
+            owner?: string;
+            /** @description The inferred service to declare, or external:<identity> to claim an external system */
             serviceKey: string;
         };
         DeclarePlan: {
@@ -1862,10 +1872,10 @@ export interface components {
         };
         DeclareRefusal: {
             /**
-             * @description The pacto declare refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable and NotAllowed
+             * @description The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed and DraftNotOffered (a shared dashboard claims only with the person's own signature)
              * @enum {string}
              */
-            code: "PlanStale" | "IntentRequired" | "WorkloadNotFound" | "WorkloadAmbiguous" | "AlreadyDeclared" | "RangeNotProposed" | "NoRegistry" | "RegistryUnreadable" | "VersionConflict" | "SignerNotAllowed" | "SignerUnverified" | "DraftNotFound" | "ExecuteNeedsStdio" | "BaselineNeedsMigration" | "BundleRepoMismatch" | "AcceptNothingProposed" | "FieldNotAcceptable" | "BreakNotAnnounced" | "NotPublished" | "PersonSigningUnavailable" | "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED" | "IdentityRequired" | "SignInLinkReadsFleet" | "ReviewFailed" | "ClusterNotReviewable" | "NotAllowed";
+            code: "PlanStale" | "IntentRequired" | "WorkloadNotFound" | "WorkloadAmbiguous" | "AlreadyDeclared" | "RangeNotProposed" | "NoRegistry" | "RegistryUnreadable" | "VersionConflict" | "SignerNotAllowed" | "SignerUnverified" | "DraftNotFound" | "ExecuteNeedsStdio" | "BaselineNeedsMigration" | "BundleRepoMismatch" | "AcceptNothingProposed" | "FieldNotAcceptable" | "BreakNotAnnounced" | "NotPublished" | "PersonSigningUnavailable" | "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED" | "IdentityRequired" | "SignInLinkReadsFleet" | "ReviewFailed" | "ClusterNotReviewable" | "NotAllowed" | "OwnerRequired" | "ExternalMismatch" | "ExternalUnknown" | "ClaimRepositoryInferred" | "DraftNotOffered";
             /** @description The command a person runs about it */
             command?: string;
             message: string;

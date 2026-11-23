@@ -182,14 +182,12 @@ func (r remoteDeclarer) claimArgs(ctx context.Context, a pactomcp.DeclareArgs) (
 	if !ok {
 		return a, nil
 	}
-	ev := r.external(ctx, id)
-	if ev == nil {
+	q := r.view(ctx)
+	if !lists(q, id) {
 		return a, &pactomcp.Refused{Code: pactomcp.RefusalNotAllowed, Message: "your view of the fleet lists no external system " + id +
 			": claim one it lists, or run pacto claim on your machine", CLI: a.Command("")}
 	}
-	if c := ev.External.Claim; a.Name == "" && c != nil && !c.Hidden {
-		a.Name = string(c.Service)
-	}
+	a.Name = cmp.Or(a.Name, claimerName(q, id))
 	return a, nil
 }
 
@@ -198,30 +196,71 @@ func (r remoteDeclarer) claimArgs(ctx context.Context, a pactomcp.DeclareArgs) (
 // caller's view does not show is one refusal naming none of it: the name
 // alone may collide with a hidden service.
 func (r remoteDeclarer) redact(ctx context.Context, a pactomcp.DeclareArgs, p *app.DeclarePlan, err error) (*app.DeclarePlan, error) {
-	if id, ok := a.Claim(); ok && r.claimHidden(ctx, id, cmp.Or(a.Name, inferredcontract.ServiceName(fleet.ExternalKey(id))), p, err) {
-		return nil, &app.DeclareError{Code: string(pactomcp.RefusalNotAllowed), CLI: a.Command(""),
-			Message: "the repository for this name holds a service you may not read: claim with the CLI and --name"}
+	if id, ok := a.Claim(); ok && claimHidden(r.view(ctx), id, cmp.Or(a.Name, inferredcontract.ServiceName(fleet.ExternalKey(id))), p, err) {
+		return nil, &app.DeclareError{Code: string(pactomcp.RefusalNotAllowed), CLI: a.Command(""), Message: claimHiddenMessage}
 	}
 	return r.hide(ctx, p, err)
 }
 
+// claimHiddenMessage is the one refusal of a claim whose repository holds
+// what the caller may not read: the name alone may collide with a hidden
+// service, so it names none of it.
+const claimHiddenMessage = "the repository for this name holds a service you may not read: claim with the CLI and --name"
+
 // claimHidden reports whether the repository the claim of id under name
-// writes to holds what the caller may not read: a published version, or a
-// draft not of an external system, of a service their view does not show,
-// or a draft of another external system it does not list. Drafts of an
-// external system the caller sees are theirs to read.
-func (r remoteDeclarer) claimHidden(ctx context.Context, id, name string, p *app.DeclarePlan, err error) bool {
+// writes to holds what view q (nil: one that shows nothing) hides: a
+// published version, or a draft not of an external system, of a service q
+// does not show, or a draft of another external system q does not list.
+// Drafts of an external system the caller sees are theirs to read.
+func claimHidden(q *fleet.Query, id, name string, p *app.DeclarePlan, err error) bool {
+	if p == nil {
+		p = &app.DeclarePlan{}
+	}
 	var de *app.DeclareError
 	mismatch := errors.As(err, &de) && de.Code == string(pactomcp.RefusalExternalMismatch)
 	held := p.Baseline != nil || len(p.Skipped) > 0 || p.DraftsTotal > len(p.Drafts) || mismatch || baselineRefusal(err)
 	return slices.ContainsFunc(p.Drafts, func(d app.DraftView) bool {
 		other, ok := strings.CutPrefix(d.From.InferredFrom, fleet.ExternalSubjectPrefix)
 		if ok {
-			return other != id && r.external(ctx, other) == nil
+			return other != id && !lists(q, other)
 		}
 		held = true
 		return false
-	}) || held && !r.shows(ctx, name)
+	}) || held && !showsService(q, name)
+}
+
+// lists reports whether view q lists the external system id.
+func lists(q *fleet.Query, id string) bool {
+	if q == nil {
+		return false
+	}
+	_, err := q.GetExternal(id)
+	return err == nil
+}
+
+// showsService reports whether view q shows service.
+func showsService(q *fleet.Query, service string) bool {
+	if q == nil {
+		return false
+	}
+	_, err := q.GetService(service)
+	return err == nil
+}
+
+// claimerName is the name of the service view q shows claiming the external
+// system id; "" when it is unclaimed or q hides its claimer.
+func claimerName(q *fleet.Query, id string) string {
+	if q == nil {
+		return ""
+	}
+	ev, err := q.GetExternal(id)
+	if err != nil || ev.External.Claim == nil {
+		return ""
+	}
+	if s := q.SnapshotForSerialization().Services[ev.External.Claim.Service]; s != nil {
+		return s.Name
+	}
+	return ""
 }
 
 // hide is p and err as a caller reads them: for a caller the fleet view
@@ -419,23 +458,7 @@ func (r remoteDeclarer) view(ctx context.Context) *fleet.Query {
 
 // shows is whether the caller's fleet view shows service.
 func (r remoteDeclarer) shows(ctx context.Context, service string) bool {
-	q := r.view(ctx)
-	if q == nil {
-		return false
-	}
-	_, err := q.GetService(service)
-	return err == nil
-}
-
-// external is the external system id as the caller's fleet view shows it;
-// nil when it shows none.
-func (r remoteDeclarer) external(ctx context.Context, id string) *fleet.ExternalView {
-	q := r.view(ctx)
-	if q == nil {
-		return nil
-	}
-	ev, _ := q.GetExternal(id)
-	return ev
+	return showsService(r.view(ctx), service)
 }
 
 // baselineHidden is p for a caller who may not see its service: the

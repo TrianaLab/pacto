@@ -29,7 +29,7 @@
   import DeliveryLifecycle from '../../components/DeliveryLifecycle.svelte';
   import StageOffers from '../../components/StageOffers.svelte';
   import { stageRowsOf, artifactOf, promotes } from '../../lib/delivery.ts';
-  import { declarationLine, declarationNote } from '../../lib/declaration.ts';
+  import { declarationLine, declarationNote, declarationParts } from '../../lib/declaration.ts';
 
   // The revision page: an IMMUTABLE version of the service contract, not a deployment,
   // and the CONTRACT INSPECTOR -- the one place a user reads what this exact revision
@@ -170,7 +170,7 @@
       {#if d.declaration}
         <!-- Who declared this revision from an inferred service: one muted line, the rest
              in the mark's note. Shown even when every cluster field was dropped. -->
-        <p class="re-muted re-declaration" data-testid="inferred-declaration"><bdi>{declarationLine(d)}</bdi> <ProvenanceMark label="About this declaration" text={declarationNote(d)} /></p>
+        <p class="re-muted re-declaration" data-testid="inferred-declaration">{#if declarationParts(d).href}{@const dp = declarationParts(d)}<bdi>{dp.before}<a href={dp.href}>{dp.link}</a>{dp.after}</bdi>{:else}<bdi>{declarationLine(d)}</bdi>{/if} <ProvenanceMark label="About this declaration" text={declarationNote(d)} /></p>
       {/if}
       {#if d.inferred?.length || d.inferredUnreadable}
         <InferredFieldList items={d.inferred ?? []} total={d.inferredTotal ?? 0} unreadable={!!d.inferredUnreadable} />

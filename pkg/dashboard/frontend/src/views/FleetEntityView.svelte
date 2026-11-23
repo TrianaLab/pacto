@@ -242,7 +242,7 @@
         {:else if detail.offering}
           <OfferingEntity {detail} />
         {:else if detail.external}
-          <ExternalEntity {detail} />
+          <ExternalEntity {detail} {canDeclare} {declareQuery} />
         {/if}
         {#snippet failed(err, reset)}
           <EmptyState error title={`Couldn’t show this ${kindLabel(kind).toLowerCase()}`} message="Part of its record could not be drawn. Refresh to try again." onRetry={reset} />

@@ -9,6 +9,7 @@
 import type { components } from './generated/schema.ts';
 import { joinAnd } from './answers.ts';
 import { countOf, formatCount } from './format.ts';
+import { fleetEntityUrl } from './router.ts';
 
 type S = components['schemas'];
 interface DeclaredRevision {
@@ -18,17 +19,30 @@ interface DeclaredRevision {
 }
 
 const HIDDEN = 'a workload you may not read';
+// A claim's inferredFrom names the external system it claims.
+const EXTERNAL = 'external:';
 
-/** The muted line under the Inferred label; empty without a declaration. */
-export function declarationLine(r: DeclaredRevision): string {
+/** The muted line under the Inferred label, in parts: the words before the external
+ *  system a claim came from, its link (text and href, empty for any other declaration)
+ *  and the words after it. All empty without a declaration. */
+export function declarationParts(r: DeclaredRevision): { before: string; link: string; href: string; after: string } {
   const d = r.declaration;
-  if (!d) return '';
-  if (!d.signatureChecked) return 'Declaration by an unverified signer';
-  if (!d.signer) return 'Declaration by a signer this installation does not allow';
-  const from = d.inferredFrom ? ` from ${d.inferredFrom}` : d.inferredFromHidden ? ` from ${HIDDEN}` : '';
+  const none = { before: '', link: '', href: '', after: '' };
+  if (!d) return none;
+  if (!d.signatureChecked) return { ...none, before: 'Declaration by an unverified signer' };
+  if (!d.signer) return { ...none, before: 'Declaration by a signer this installation does not allow' };
   const cov = r.inferredCoverage ?? [];
   const read = cov.length ? ` · cluster read ${formatCount(cov.filter((c) => c.state === 'complete').length)} of ${countOf(cov.length, 'source')} complete` : '';
-  return `Declared by ${d.signer.subject}${from}${read}`;
+  const ext = d.inferredFrom?.startsWith(EXTERNAL) ? d.inferredFrom.slice(EXTERNAL.length) : '';
+  if (ext) return { before: `Declared by ${d.signer.subject} from `, link: `external ${ext}`, href: fleetEntityUrl('external', ext), after: read };
+  const from = d.inferredFrom ? ` from ${d.inferredFrom}` : d.inferredFromHidden ? ` from ${HIDDEN}` : '';
+  return { ...none, before: `Declared by ${d.signer.subject}${from}${read}` };
+}
+
+/** The muted line under the Inferred label as one string; empty without a declaration. */
+export function declarationLine(r: DeclaredRevision): string {
+  const p = declarationParts(r);
+  return p.before + p.link + p.after;
 }
 
 /** Who signed, as the note words it. */

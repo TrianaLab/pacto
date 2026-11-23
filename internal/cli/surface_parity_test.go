@@ -404,14 +404,16 @@ func declareRows() []surfaceRow {
 // pacto_declare and the dashboard Declare routes claim through the same
 // subject, external:<identity>.
 func claimRows() []surfaceRow {
-	const why = "pacto_declare and the dashboard Declare routes claim with service external:<identity>; their owner and name rows are their surfaces'"
+	const why = "pacto_declare and the dashboard Declare routes claim with service external:<identity> (pacto_declare.service, body.serviceKey)"
 	const whyLocal = "a person's local signing: MCP callers are agents and never sign a declared record"
-	const whyDashboard = "the dashboard Declare routes take no owner or name yet; pacto_declare claims as an agent's draft"
+	const plan, accept = "POST /api/fleet/declare", "POST /api/fleet/declare/accept"
 	return slices.Concat(
 		[]surfaceRow{
 			{"claim <identity>", "", "", why},
-			{"claim --owner", "pacto_declare.owner", "", whyDashboard},
-			{"claim --name", "pacto_declare.name", "", whyDashboard},
+			{"claim --owner", "pacto_declare.owner", plan + " body.owner", ""},
+			{"", "", accept + " body.owner", "the accept route carries out the plan with the owner it named"},
+			{"claim --name", "pacto_declare.name", plan + " body.name", ""},
+			{"", "", accept + " body.name", "the accept route carries out the plan with the name it named"},
 		},
 		alike("claim", "", "", why, "registry", "yes", "intent", "draft", "from-draft", "delivery-trust"),
 		alike("claim", "", "", whyLocal, "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",

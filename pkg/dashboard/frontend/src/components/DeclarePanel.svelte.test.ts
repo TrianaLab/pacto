@@ -307,3 +307,85 @@ describe('DeclarePanel', () => {
     expect(planFn).toHaveBeenLastCalledWith({ serviceKey: KEY, accept: [] });
   });
 });
+
+describe('DeclarePanel claim', () => {
+  const CLAIM = 'external:stripe';
+  const claimAnswer = (patch: Record<string, unknown> = {}) => answer({ command: 'pacto claim stripe --owner team-platform --registry ghcr.io/acme --intent sha256:i1', ...patch },
+    { service: 'stripe', bundleRepo: 'ghcr.io/acme/stripe', inferredFrom: CLAIM, ranges: [], owner: 'team:team-platform' });
+  async function open(props: Record<string, unknown> = {}) {
+    comp = mount(DeclarePanel, { target, props: { serviceKey: CLAIM, open: true, ...props } });
+    flushSync();
+    await vi.waitFor(() => expect(q('[data-testid="claim-fields"]')).toBeTruthy());
+  }
+  const type = (testid: string, v: string) => {
+    const el = q(`[data-testid="${testid}"]`) as HTMLInputElement;
+    el.value = v;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+  };
+  const submit = () => { (q('[data-testid="claim-fields"]') as HTMLFormElement).requestSubmit(); flushSync(); };
+
+  it('plans nothing until the owner is named, then posts owner and name', async () => {
+    planFn.mockResolvedValue(claimAnswer());
+    await open();
+    expect(planFn).not.toHaveBeenCalled();
+    submit();
+    expect(planFn).not.toHaveBeenCalled();
+    expect(text(q('#dp-claim-error'))).toBe('Name the team that owns it');
+    type('claim-owner', 'team-platform');
+    type('claim-name', 'Bad Name');
+    submit();
+    expect(planFn).not.toHaveBeenCalled();
+    expect(text(q('#dp-claim-error'))).toMatch(/^A service name uses/);
+    type('claim-name', 'payments-stripe');
+    submit();
+    await vi.waitFor(() => expect(planFn).toHaveBeenCalledWith({ serviceKey: CLAIM, owner: 'team-platform', name: 'payments-stripe', fromDraft: undefined }));
+    await vi.waitFor(() => expect(q('[data-testid="declare-signer"]')).toBeTruthy());
+    expect(q('[data-testid="declare-ranges"]')).toBeNull();
+  });
+
+  it('prefills the claimed name and offers only signing on a host that saves no claim draft', async () => {
+    planFn.mockResolvedValue(claimAnswer({ ...FRESH, noDraft: 'a shared dashboard claims only with your own signature' }));
+    await open({ claimedName: 'payments-stripe' });
+    expect((q('[data-testid="claim-name"]') as HTMLInputElement).value).toBe('payments-stripe');
+    type('claim-owner', 'team-platform');
+    submit();
+    await vi.waitFor(() => expect(q('[data-testid="declare-sign"]')).toBeTruthy());
+    expect(q('[data-testid="declare-save-draft"]')).toBeNull();
+    (q('[data-testid="declare-sign"]') as HTMLAnchorElement).click();
+    expect(JSON.parse(sessionStorage.getItem('pacto-claim:sha256:i1') ?? 'null')).toEqual({ owner: 'team-platform', name: 'payments-stripe' });
+  });
+
+  it('back from the signing login plans with the kept owner and name and posts them on publish', async () => {
+    sessionStorage.setItem('pacto-claim:sha256:i1', JSON.stringify({ owner: 'team-platform', name: '' }));
+    planFn.mockResolvedValue(claimAnswer({ ...FRESH, signedIn: true }));
+    acceptFn.mockResolvedValue({ tag: '0.1.0', signed: true });
+    await open({ signed: 'sha256:i1' });
+    await vi.waitFor(() => expect(planFn).toHaveBeenCalledWith({ serviceKey: CLAIM, owner: 'team-platform', name: undefined, intentDigest: 'sha256:i1', fromDraft: undefined }));
+    await vi.waitFor(() => expect(button('Publish 0.1.0')).toBeTruthy());
+    button('Publish 0.1.0').click();
+    await vi.waitFor(() => expect(acceptFn).toHaveBeenCalledWith({ serviceKey: CLAIM, owner: 'team-platform', name: undefined, accept: [], intentDigest: 'sha256:i1', mode: 'sign', fromDraft: undefined }));
+    await vi.waitFor(() => expect(sessionStorage.getItem('pacto-claim:sha256:i1')).toBeNull());
+  });
+
+  it('renders a ClaimRepositoryInferred refusal with its command', async () => {
+    planFn.mockResolvedValue({ signing: { mode: 'none' }, write: { available: true }, command: 'pacto claim stripe --owner team-platform --name pacto-inferred --registry ghcr.io/acme',
+      refusal: { code: 'ClaimRepositoryInferred', message: 'ghcr.io/acme/pacto-inferred is where Pacto publishes inferred contracts', command: 'pacto claim stripe --owner team-platform --registry ghcr.io/acme' } });
+    await open();
+    type('claim-owner', 'team-platform');
+    submit();
+    await vi.waitFor(() => expect(text(q('[role="alert"]'))).toContain('where Pacto publishes inferred contracts'));
+    expect(text(q('[data-testid="declare-command"]'))).toContain('pacto claim stripe');
+  });
+
+  it('says a default approver accepts a saved claim draft', async () => {
+    planFn.mockResolvedValue(claimAnswer());
+    acceptFn.mockResolvedValue({ tag: 'draft-1', draft: true, command: 'pacto claim stripe --registry ghcr.io/acme --from-draft draft-1' });
+    await open();
+    type('claim-owner', 'team-platform');
+    submit();
+    await vi.waitFor(() => expect(q('[data-testid="declare-save-draft"]')).toBeTruthy());
+    (q('[data-testid="declare-save-draft"]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(text(q('[data-testid="declare-result"]'))).toContain('A default approver accepts it'));
+  });
+});

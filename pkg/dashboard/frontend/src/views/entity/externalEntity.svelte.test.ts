@@ -179,3 +179,67 @@ describe('ExternalEntity inferred contract', () => {
     expect(t.querySelector('[data-testid="inferred-surface-ports-show-all"]')).toBeNull();
   });
 });
+
+describe('ExternalEntity owner', () => {
+  const render = (rec: Record<string, unknown>, props: Record<string, unknown> = {}) => {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const detail = { external: { external: { key: 'stripe', label: 'Stripe', class: 'vendor-api', consumers: [], consumersTotal: 2, ...rec }, consumers: [] } };
+    const c = mount(ExternalEntity, { target, props: { detail, ...props } });
+    flushSync();
+    cleanup = () => { unmount(c); target.remove(); };
+    return target;
+  };
+  const tip = (t: HTMLElement) => t.querySelector('[data-testid="external-owner"] [data-tip], [data-testid="external-owner"] [title]');
+
+  it('says an unclaimed system is routed for routing only, with a Claim button only for a caller who can declare', () => {
+    const t = render({});
+    expect(t.querySelector('[data-testid="external-owner-unclaimed"]')?.textContent).toContain('Unclaimed');
+    expect(t.querySelector('[data-testid="external-owner"]')?.innerHTML).toContain("Routed to the installation's default approvers (routing only; it grants no right)");
+    expect(t.querySelector('[data-testid="external-claim"]')).toBeNull();
+    cleanup?.();
+    const w = render({}, { canDeclare: true });
+    const btn = w.querySelector('[data-testid="external-claim"]') as HTMLButtonElement;
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    btn.click();
+    flushSync();
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+    expect(w.querySelector('[data-testid="claim-fields"]')).toBeTruthy();
+  });
+
+  it('names the owner and the claiming service, with who declared it in the mark', () => {
+    const t = render({ claim: { service: 'payments-stripe', version: '0.2.0', owner: 'team-platform', by: 'ana@acme.com', ref: 'ghcr.io/acme/payments-stripe@sha256:abc' } }, { canDeclare: true });
+    const line = t.querySelector('[data-testid="external-owner-claimed"]');
+    expect(line?.textContent?.replace(/\s+/g, ' ')).toContain('team-platform, claimed by payments-stripe 0.2.0');
+    expect(line?.querySelector('a[href="#/owners/team%3Ateam-platform"]')).toBeTruthy();
+    expect(line?.querySelector('a[href="#/fleet/services/payments-stripe"]')?.getAttribute('title')).toBe('payments-stripe');
+    expect(tip(t as HTMLElement)).toBeTruthy();
+    expect(line?.innerHTML).toContain('Declared by ana@acme.com');
+    // A claim again opens the panel with the claimed name.
+    (t.querySelector('[data-testid="external-claim"]') as HTMLButtonElement).click();
+    flushSync();
+    expect((t.querySelector('[data-testid="claim-name"]') as HTMLInputElement).value).toBe('payments-stripe');
+  });
+
+  it('says when the claiming service has no verified owner', () => {
+    const t = render({ claim: { service: 'payments-stripe', version: '0.2.0' } });
+    expect(t.querySelector('[data-testid="external-owner-claimed"]')?.textContent).toContain('No verified owner');
+    expect(t.querySelector('[data-testid="external-owner-claimed"]')?.innerHTML).toContain('Declared by an unnamed person');
+  });
+
+  it('shows a claim the caller cannot see with no Claim button', () => {
+    const t = render({ claim: { hidden: true } }, { canDeclare: true });
+    expect(t.querySelector('[data-testid="external-owner-hidden"]')?.textContent).toBe('Claimed by a service you cannot see');
+    expect(t.querySelector('[data-testid="external-claim"]')).toBeNull();
+  });
+
+  it('shows no owner on the other-egress node', () => {
+    const t = render({ key: 'other-egress', class: 'other-egress' }, { canDeclare: true });
+    expect(t.querySelector('[data-testid="external-owner"]')).toBeNull();
+  });
+
+  it('opens the claim panel back from a signing login', () => {
+    const t = render({}, { canDeclare: true, declareQuery: { open: true, signed: 'sha256:i1' } });
+    expect(t.querySelector('[data-testid="claim-fields"]')).toBeTruthy();
+  });
+});

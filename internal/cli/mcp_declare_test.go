@@ -743,7 +743,7 @@ func checkClaimRedacted(t *testing.T, w *declareWorld, name string, mode *pactom
 func TestRemoteDeclareExternalReclaimUsesClaimedName(t *testing.T) {
 	w := newDeclareWorld(t)
 	rd := newRemoteDeclarer(app.NewService(nil, nil), []string{"oci://" + w.host + "/acme"},
-		claimFleet(t, nil, map[fleet.ExternalKey]*fleet.ExternalClaim{"stripe": {Service: "payments-stripe"}}))
+		claimFleet(t, []string{"payments-stripe"}, map[fleet.ExternalKey]*fleet.ExternalClaim{"stripe": {Service: "payments-stripe"}}))
 	raw, refused, err := rd.Plan(remoteCtx(declareCluster()), pactomcp.DeclareArgs{Service: "external:stripe", Owner: "team-platform", Registry: w.host + "/acme"})
 	var p app.DeclarePlan
 	_ = json.Unmarshal(raw, &p)

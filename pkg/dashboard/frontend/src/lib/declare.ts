@@ -4,7 +4,8 @@
  * what moved between two plans. Pure, so the panel only draws.
  */
 
-import { serviceAcceptSignedUrl, serviceDeclareUrl } from './router.ts';
+import { fleetEntityUrl, serviceAcceptSignedUrl, serviceDeclareUrl } from './router.ts';
+import { pagedHash } from './paging.ts';
 
 type Range = { dependency: string; compatibility: string; proposed?: string; observed?: string; accepted?: boolean };
 type Signer = { subject?: string; issuer?: string; class?: string };
@@ -82,8 +83,28 @@ export function completenessLine(p: Completeness | null | undefined): string {
  *  this service's panel with the intent it was started for. The accepted ranges ride
  *  on the ticket, never on the URL. */
 export function signUrl(ticket: string, serviceKey: string, intent: string): string {
-  const ret = '/' + serviceDeclareUrl(serviceKey, { signed: intent });
+  const id = claimId(serviceKey);
+  const ret = '/' + (id ? pagedHash(fleetEntityUrl('external', id), { declare: '1', signed: intent }) : serviceDeclareUrl(serviceKey, { signed: intent }));
   return `/auth/sign?ticket=${encodeURIComponent(ticket)}&return=${encodeURIComponent(ret)}`;
+}
+
+/** claimId is the external system a claim's subject (external:<identity>) names, or ''
+ *  for an inferred service. */
+export function claimId(serviceKey: string): string {
+  return serviceKey.startsWith('external:') ? serviceKey.slice('external:'.length) : '';
+}
+
+// The contract schema's owner.team and service.name patterns.
+const TEAM = /^[a-zA-Z0-9._/-]+$/;
+const NAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+
+/** claimFieldError says what is wrong with a claim's owner (required) and name
+ *  (optional), or '' when both are fine. */
+export function claimFieldError(owner: string, name: string): string {
+  if (!owner) return 'Name the team that owns it';
+  if (owner.length > 253 || !TEAM.test(owner)) return 'A team uses letters, digits, dots, dashes, underscores and slashes';
+  if (name && (name.length > 63 || !NAME.test(name))) return 'A service name uses lower-case letters, digits and dashes, at most 63';
+  return '';
 }
 
 /** acceptSignUrl starts the signing login for an accept plan and comes back to the
