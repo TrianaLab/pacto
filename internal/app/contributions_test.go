@@ -255,6 +255,22 @@ func TestContributionReaderRefusesForeignRepository(t *testing.T) {
 	}
 }
 
+// TestContributionReaderOneRowPerProducer: a producer granted under two
+// registry roots, one the reader is configured for, is one partial row that
+// names both repositories and why the other was not read.
+func TestContributionReaderOneRowPerProducer(t *testing.T) {
+	e := newCtbEnv(t)
+	e.push(t, "ledger-sync_1.0.0", "ledger-sync", "1.0.0", readNow().Add(-time.Hour).Format(time.RFC3339), e.mine)
+	other := e.contributor()
+	other.Repository = contract.ContributionRepository("elsewhere.example/acme", "my-idp")
+	col := collectContributors(t, []evidenceingest.ProducerContributor{e.contributor(), other}, e.reader)
+	if len(col.Revisions) != 1 || len(col.Providers) != 1 || col.Providers[0].Status != fleet.SourcePartial ||
+		!strings.Contains(col.Providers[0].Evidence, e.repo+" and "+other.Repository) ||
+		!strings.Contains(col.Providers[0].Limitations[0].Message, "could not read "+other.Repository+": it is no contribution repository") {
+		t.Errorf("revisions = %d rows = %+v", len(col.Revisions), col.Providers)
+	}
+}
+
 // TestContributionReaderDropsUnsigned: an unsigned record is refused and
 // counted; the source is not partial.
 func TestContributionReaderDropsUnsigned(t *testing.T) {

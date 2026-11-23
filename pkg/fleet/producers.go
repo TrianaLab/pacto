@@ -32,8 +32,8 @@ type ProducerFacts struct {
 	// is the newest creation time among them, nil when none says when.
 	Read               int
 	NewestContribution *time.Time
-	// Unread is why Repository could not be listed, sanitized; empty when it
-	// was.
+	// Unread is why a repository could not be listed, "<repository>: <why>"
+	// sanitized and joined by "; "; empty when every one was.
 	Unread string
 	// Problems are why some records were not read; each makes the row partial.
 	Problems []string
@@ -91,8 +91,10 @@ func producerConcerns(p ProducerFacts, now time.Time, window time.Duration) []pr
 	var out []producerConcern
 	if p.Repository != "" {
 		switch {
+		case p.Unread != "" && p.Read == 0:
+			out = append(out, producerConcern{SourceUnavailable, "could not read " + p.Unread})
 		case p.Unread != "":
-			out = append(out, producerConcern{SourceUnavailable, "could not read " + p.Repository + ": " + p.Unread})
+			out = append(out, producerConcern{SourcePartial, "could not read " + p.Unread})
 		case p.Read == 0 && len(p.Problems) == 0:
 			out = append(out, producerConcern{SourcePartial, "no contribution found at " + p.Repository})
 		}

@@ -107,17 +107,21 @@ func decodeKeys(keys []evidenceingest.ContributorKey) []contributorKey {
 // A refused record (unsigned, signed by another key or tagged with another
 // name or version) is counted on f and never makes the source partial.
 func (r *contributionReader) Read(ctx context.Context, source string, c evidenceingest.ProducerContributor, f *fleet.ProducerFacts) ([]fleet.RawRevision, []fleet.Limitation) {
-	f.Repository = c.Repository
+	// A producer granted under several registry roots is one row naming
+	// every repository.
+	f.Repository = strings.TrimPrefix(f.Repository+" and "+c.Repository, " and ")
+	unlisted := func(why string) []fleet.Limitation {
+		f.Unread = strings.TrimPrefix(f.Unread+"; "+c.Repository+": "+why, "; ")
+		return []fleet.Limitation{unreadLimitation(source, c.Producer, why)}
+	}
 	if !r.rebuilt(c) {
-		f.Unread = "it is no contribution repository of " + c.Producer + " under a registry Pacto is configured to read"
-		return nil, []fleet.Limitation{unreadLimitation(source, c.Producer, f.Unread)}
+		return nil, unlisted("it is no contribution repository of " + c.Producer + " under a registry Pacto is configured to read")
 	}
 	ctx, cancel := context.WithTimeout(ctx, contributionDeadline)
 	defer cancel()
 	tags, err := r.Registry.Tags(ctx, c.Repository)
 	if err != nil {
-		f.Unread = fleet.SanitizedReason(err)
-		return nil, []fleet.Limitation{unreadLimitation(source, c.Producer, f.Unread)}
+		return nil, unlisted(fleet.SanitizedReason(err))
 	}
 	services, ignored := newestTags(tags)
 	f.Ignored += ignored
