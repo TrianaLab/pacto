@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/externalid"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -175,26 +176,51 @@ func (a DeclareArgs) Verb() string {
 	return "pacto declare"
 }
 
+// ArgsRefused refuses, before any read, arguments a's subject does not
+// take: a claim takes owner, name, registry, draft and intent and names a
+// valid external identity; a workload takes no owner or name. Its command
+// carries only arguments the subject takes.
+func (a DeclareArgs) ArgsRefused() *Refused {
+	id, claim := a.Claim()
+	switch {
+	case claim && (a.Namespace != "" || a.Dir != "" || len(a.Accept) > 0 || a.MaxItems != 0 || a.CallWindow != ""):
+		return &Refused{Code: RefusalFieldNotAcceptable, Message: "pacto claim takes owner, name, registry, draft and intent: " +
+			"call again without namespace, dir, accept, max_items and call_window", CLI: a.Command("")}
+	case claim:
+		if _, err := externalid.Parse(id); err != nil {
+			return &Refused{Code: RefusalExternalUnknown, Message: "service external:<identity> names no external identity: " +
+				"find its identity with pacto fleet search", CLI: "pacto claim <identity> --owner <team> --registry <registry>"}
+		}
+	case a.Owner != "" || a.Name != "":
+		return &Refused{Code: RefusalFieldNotAcceptable, Message: "owner and name are a claim's (service external:<identity>): " +
+			"a workload's owner and name come from its contract", CLI: a.Command("")}
+	}
+	return nil
+}
+
 // Command is the pacto declare (pacto claim for a claim) a person runs for
 // a: it replays every argument the intent digest binds, and the digest when
-// intent is set. Without --yes it prints the plan and writes nothing.
+// intent is set. Without --yes it prints the plan and writes nothing. A
+// claim's command carries only the flags pacto claim defines.
 func (a DeclareArgs) Command(intent string) string {
-	parts := []string{"pacto declare", a.Service}
+	reg := cmp.Or(a.Registry, "<registry>")
 	if id, ok := a.Claim(); ok {
-		parts = []string{"pacto claim", id, "--owner", cmp.Or(a.Owner, "<team>")}
+		parts := []string{"pacto claim", id, "--owner", cmp.Or(a.Owner, "<team>")}
 		if a.Name != "" {
 			parts = append(parts, "--name", a.Name)
 		}
+		parts = append(parts, "--registry", reg)
+		if intent != "" {
+			parts = append(parts, "--intent", intent)
+		}
+		return strings.Join(parts, " ")
 	}
+	parts := []string{"pacto declare", a.Service}
 	if a.Namespace != "" {
 		parts = append(parts, "--namespace", a.Namespace)
 	}
 	if a.Dir != "" {
 		parts = append(parts, "--dir", a.Dir)
-	}
-	reg := a.Registry
-	if reg == "" {
-		reg = "<registry>"
 	}
 	parts = append(parts, "--registry", reg)
 	for _, n := range a.Accept {
@@ -224,6 +250,7 @@ type Declarer interface {
 
 // declaredRun is the part of a Declarer's JSON pacto_declare reads.
 type declaredRun struct {
+	Service      string          `json:"service"`
 	IntentDigest string          `json:"intentDigest"`
 	AcceptCLI    string          `json:"acceptCLI"`
 	Unchanged    string          `json:"unchanged"`

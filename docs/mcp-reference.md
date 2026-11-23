@@ -192,7 +192,12 @@ running workload.
   system instead, with `owner` (the owning team) and `name` (the service name
   it publishes under, by default the identity's last segment; the schema
   refuses anything other than a lower-case name of at most 63 characters). It reads no
-  workload, and `acceptCLI` is the `pacto claim --from-draft` command.
+  workload, takes no `namespace`, `dir`, `accept`, `max_items` or
+  `call_window` (`FieldNotAcceptable`), and `acceptCLI` is the
+  `pacto claim --from-draft` command. Over HTTP a claim is only planned:
+  `dry_run: false` refuses with `ExecuteNeedsStdio` and the `pacto claim`
+  command a person runs, because a draft would go with the server's own push
+  credential.
 - `dry_run` defaults to true: the call returns the plan and its `intentDigest`.
   The plan lists the service's `drafts` waiting, newest first, with
   `draftsTotal`.
@@ -269,7 +274,7 @@ the command a person runs:
 | Code | Meaning |
 |---|---|
 | `AcceptNothingProposed` | The newest published version proposes nothing to accept |
-| `FieldNotAcceptable` | The field is no proposed dependency `ref` or `compatibility`: declare it with `pacto declare` |
+| `FieldNotAcceptable` | The field is no proposed dependency `ref` or `compatibility`: declare it with `pacto declare`; or a `pacto_declare` argument its subject takes not (a workload argument on a claim, `owner` or `name` on a workload), or a claim `name` that is no service name |
 | `BreakNotAnnounced` | The provider version announces no break for this service, published or in `from` |
 | `NotPublished` | The service has no published version to attach the acceptance to |
 | `PersonSigningUnavailable` | Accepting a draft needs a person's interactive Sigstore login |

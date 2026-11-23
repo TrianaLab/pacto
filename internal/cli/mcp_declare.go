@@ -68,20 +68,21 @@ func (m mcpDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (json.
 // request is the agent's declare request for a.
 func (m mcpDeclarer) request(a pactomcp.DeclareArgs) (app.DeclareRequest, error) {
 	req := m.base
-	req.Namespace, req.Dir, req.Registry, req.Accept = a.Namespace, a.Dir, a.Registry, a.Accept
-	req.OnBehalfOf, req.IntentDigest, req.MaxItems, req.Agent, req.Draft = a.OnBehalfOf, a.IntentDigest, a.MaxItems, true, a.Draft
+	req.Registry, req.OnBehalfOf, req.IntentDigest, req.Agent, req.Draft = a.Registry, a.OnBehalfOf, a.IntentDigest, true, a.Draft
+	// A claim names an external system, never a workload: declareSubject
+	// would send it to pacto claim, which is this request. It takes none of
+	// a workload's arguments (ArgsRefused), and never an agent's folder.
+	if _, ok := a.Claim(); ok {
+		req.Service, req.Owner, req.Name = a.Service, a.Owner, a.Name
+		return req, nil
+	}
+	req.Namespace, req.Dir, req.Accept, req.MaxItems = a.Namespace, a.Dir, a.Accept, a.MaxItems
 	if a.CallWindow != "" {
 		w, err := time.ParseDuration(a.CallWindow)
 		if err != nil {
 			return req, errors.New("call_window is a duration such as 24h: " + err.Error())
 		}
 		req.CallWindow = w
-	}
-	// A claim names an external system, never a workload: declareSubject
-	// would send it to pacto claim, which is this request.
-	if _, ok := a.Claim(); ok {
-		req.Service, req.Owner, req.Name = a.Service, a.Owner, a.Name
-		return req, nil
 	}
 	return req, declareSubject(&req, a.Service)
 }
@@ -159,7 +160,7 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 	req.Dynamic = who.own.Dynamic
 	p, _, err := r.svc.PlanDeclare(ctx, req)
 	if p != nil {
-		if !r.writes() || a.Registry != r.registry {
+		if _, claim := a.Claim(); claim || !r.writes() || a.Registry != r.registry {
 			// This server signs nothing and writes no draft here: who would sign
 			// is the person who runs the plan's command, whose login decides the state.
 			p.Signer = app.SignerView{Class: contract.SignerClassAgent, Source: "none",
@@ -286,11 +287,11 @@ func (r remoteDeclarer) refused(a pactomcp.DeclareArgs) *pactomcp.Refused {
 		return &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "dir names a folder of this server: declare a folder with pacto declare --dir " +
 			"on your machine, or pacto_declare over stdio", CLI: a.Command("")}
 	case a.Draft && !r.writes():
-		return &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server writes no draft: save one with pacto declare --draft " +
+		return &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server writes no draft: save one with " + a.Verb() + " --draft " +
 			"on your machine, or pacto_declare over stdio", CLI: a.Command("")}
 	case !r.reads(a.Registry):
 		return &pactomcp.Refused{Code: pactomcp.RefusalNoRegistry, Message: "this server plans declarations only in the registries it reads (" +
-			strings.Join(r.repos, ", ") + "): run pacto declare on your machine with your own registry credentials", CLI: a.Command("")}
+			strings.Join(r.repos, ", ") + "): run " + a.Verb() + " on your machine with your own registry credentials", CLI: a.Command("")}
 	}
 	return nil
 }
@@ -345,7 +346,18 @@ func hiddenOwnerRefusal(err error) error {
 // (a SelfSubjectAccessReview with their own credentials), through the
 // dashboard's writer. Without them it names the pacto declare a person
 // runs, replaying every argument the intent digest binds, without --yes.
+// A claim is never written here: no review of the caller backs it, and the
+// draft would go with the server's own push credential (the shared
+// dashboard's rule), so it names the pacto claim a person runs.
 func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (json.RawMessage, *pactomcp.Refused, error) {
+	if _, claim := a.Claim(); claim {
+		a, refused := r.claimArgs(ctx, a)
+		if refused != nil {
+			return nil, refused, nil
+		}
+		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server only plans a claim: a draft would go with its own push " +
+			"credential for any caller; run the command on your machine, where adding --yes publishes the claim signed by you", CLI: a.Command(a.IntentDigest)}, nil
+	}
 	if !r.writes() {
 		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server writes no declaration: run the command on your machine; " +
 			"it prints the same plan, and adding --yes publishes it signed by you", CLI: a.Command(a.IntentDigest)}, nil
@@ -360,10 +372,6 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 	case a.OnBehalfOf != "" && a.OnBehalfOf != who.person.User:
 		return nil, &pactomcp.Refused{Code: pactomcp.RefusalNotAllowed, Message: "this server writes a draft only on behalf of the caller it reviewed, " +
 			who.person.User + ", never " + a.OnBehalfOf}, nil
-	}
-	a, refused := r.claimArgs(ctx, a)
-	if refused != nil {
-		return nil, refused, nil
 	}
 	req, err := mcpDeclarer{}.request(a)
 	if err != nil {
@@ -383,12 +391,8 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 		return nil, &pactomcp.Refused{Code: pactomcp.RefusalPlanStale, Message: "the plan changed since intent " + a.IntentDigest + " was reviewed; it is now " +
 			p.IntentDigest + ": review the new plan"}, nil
 	}
-	// A claim has no workload to review: the owner rule a person's
-	// acceptance runs is its gate.
-	if _, claim := a.Claim(); !claim {
-		if refused := mayUpdateSelf(ctx, who.own.Dynamic, p.InferredFrom); refused != nil {
-			return nil, refused, nil
-		}
+	if refused := mayUpdateSelf(ctx, who.own.Dynamic, p.InferredFrom); refused != nil {
+		return nil, refused, nil
 	}
 	req.Store = pushWriter(r.push, p.BundleRepo)
 	return mcpWritten(writeServerDraft(ctx, r.svc, req, p, decl, who.person.User, "mcp"))

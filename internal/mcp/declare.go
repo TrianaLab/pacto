@@ -7,6 +7,9 @@ import (
 	"errors"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/inferredcontract"
 )
 
 // declareSentence and remoteDeclareSentence name pacto_declare in the
@@ -16,10 +19,14 @@ const (
 		"with its intent_digest); with dry_run false and that intent_digest it writes a draft a person accepts, and it never publishes a declared version."
 	remoteDeclareSentence = "This server also offers pacto_declare, a registry write tool that plans declaring a running workload with your own cluster " +
 		"credentials; when the server has a registry to write to, dry_run false writes an unsigned draft on your behalf for a person to accept, " +
-		"otherwise its refusal names the pacto declare command a person runs."
+		"otherwise its refusal names the pacto declare command a person runs. It only plans a claim of an external system (service external:<identity>): " +
+		"its refusal names the pacto claim command a person runs."
 	// serviceNamePattern is a lower-case service name of at most 63
 	// characters, the name a claim publishes under (the dashboard's DeclareInput.name).
 	serviceNamePattern = "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+	// ownerPattern is an owner team of at most 253 characters, the
+	// dashboard's DeclareInput.owner.
+	ownerPattern = "^[a-zA-Z0-9._/-]{1,253}$"
 )
 
 // errOnBehalfOfRequired refuses a draft that names nobody it is written for.
@@ -48,10 +55,11 @@ func registerDeclare(server *mcpsdk.Server, d Declarer, remote bool) {
 			"over HTTP it writes that draft only when the server has a registry, and otherwise refuses with ExecuteNeedsStdio. " +
 			"It never publishes a declared version. A refusal carries a stable code and the pacto declare command a person runs. " +
 			"With service external:<identity> and owner it claims an external system the fleet lists for that team instead: no workload is read, " +
-			"and the draft is accepted by a person with pacto claim <identity> --from-draft draft-<n> --yes, the command its refusals name.",
+			"and the draft is accepted by a person with pacto claim <identity> --from-draft draft-<n> --yes, the command its refusals name. " +
+			"A claim takes only owner, name, registry, draft and intent; over HTTP a claim is only planned.",
 		InputSchema: inputSchema(map[string]property{
 			"service":       {Type: "string", Description: "The workload: name, namespace/name, namespace/Kind/name or k8s:namespace/Kind/name; or external:<identity> to claim an external system"},
-			"owner":         {Type: "string", Description: "The team that owns the external system; required when service is external:<identity>"},
+			"owner":         {Type: "string", Description: "The team that owns the external system; required when service is external:<identity>", Pattern: ownerPattern},
 			"name":          {Type: "string", Description: "The claimed contract's service name, lower case; defaults to the last identity segment", Pattern: serviceNamePattern},
 			"namespace":     {Type: "string", Description: "The namespace of the workload (default: every namespace the name is found in)"},
 			"dir":           {Type: "string", Description: dir},
@@ -74,8 +82,8 @@ func registerDeclare(server *mcpsdk.Server, d Declarer, remote bool) {
 // fresh plan and writes the draft. Over HTTP (remote) the server names who
 // the draft is for: the caller it reviewed.
 func declare(ctx context.Context, d Declarer, a DeclareArgs, remote bool) (*mcpsdk.CallToolResult, any, error) {
-	if !dryRun(a.DryRun) && a.OnBehalfOf == "" && !remote {
-		return errorResult(errOnBehalfOfRequired), nil, nil
+	if res, out, done := precheck(a, remote); done {
+		return res, out, nil
 	}
 	raw, refused, err := d.Plan(ctx, a)
 	if err != nil {
@@ -87,14 +95,15 @@ func declare(ctx context.Context, d Declarer, a DeclareArgs, remote bool) (*mcps
 	if len(raw) > 0 {
 		out.Plan = raw
 	}
+	cli := planned(a, plan).Command("")
 	if refused == nil && plan.Unchanged != "" {
-		return writeAnswer(out, nil, a.Command("")) // nothing changed: nothing to write, whatever dry_run says
+		return writeAnswer(out, nil, cli) // nothing changed: nothing to write, whatever dry_run says
 	}
 	if refused == nil && !dryRun(a.DryRun) {
 		refused = requireIntent(plan.IntentDigest, a.IntentDigest)
 	}
 	if refused != nil || dryRun(a.DryRun) {
-		return writeAnswer(out, refused, a.Command(""))
+		return writeAnswer(out, refused, cli)
 	}
 	if raw, refused, err = d.Execute(ctx, a); err != nil {
 		return errorResult(err), nil, nil
@@ -110,7 +119,31 @@ func declare(ctx context.Context, d Declarer, a DeclareArgs, remote bool) (*mcps
 	if run.Draft {
 		out.Draft = &DraftRef{Tag: run.Tag, Published: run.Published, Signed: run.Signed}
 	}
-	return writeAnswer(out, refused, a.Command(""))
+	return writeAnswer(out, refused, cli)
+}
+
+// precheck is the answer to a call refused before any plan; done is false
+// when there is none: arguments the subject takes not, or a stdio write
+// that names nobody it is for.
+func precheck(a DeclareArgs, remote bool) (res *mcpsdk.CallToolResult, out any, done bool) {
+	if refused := a.ArgsRefused(); refused != nil {
+		res, out, _ = writeAnswer(WriteResult{}, refused, "")
+		return res, out, true
+	}
+	if !dryRun(a.DryRun) && a.OnBehalfOf == "" && !remote {
+		return errorResult(errOnBehalfOfRequired), nil, true
+	}
+	return nil, nil, false
+}
+
+// planned is a as the Declarer planned it: a claim that names no service
+// takes the name its plan publishes under when that is not the default
+// (the name a visible claim already has), so its command claims there too.
+func planned(a DeclareArgs, plan declaredRun) DeclareArgs {
+	if id, ok := a.Claim(); ok && a.Name == "" && plan.Service != inferredcontract.ServiceName(fleet.ExternalKey(id)) {
+		a.Name = plan.Service
+	}
+	return a
 }
 
 // writeAnswer is out as the tool's result: a refusal is an error result

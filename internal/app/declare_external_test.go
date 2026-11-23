@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -88,8 +89,13 @@ func TestClaimPlanName(t *testing.T) {
 		t.Fatalf("%+v", p)
 	}
 	req.Name = "Bad/Name"
-	if _, _, err := e.svc.PlanDeclare(t.Context(), req); err == nil || !strings.Contains(err.Error(), "is not a service name") {
+	if _, _, err := e.svc.PlanDeclare(t.Context(), req); refusal(t, err).Code != codeFieldNotAcceptable || !strings.Contains(err.Error(), "is not a service name") {
 		t.Fatal(err)
+	}
+	// A double dash is a service name the schema accepts.
+	req.Name = "my--vendor"
+	if p, _ := e.plan(t, req); p.Service != "my--vendor" {
+		t.Fatalf("%+v", p)
 	}
 }
 
@@ -342,6 +348,7 @@ func TestClaimRefusalCLIIsClaim(t *testing.T) {
 	reg := e.host + "/acme"
 	req := e.claimReq("team-platform")
 	req.Name, req.Namespace, req.Dir = "payments-provider", "ignored", "/ignored"
+	req.Accept, req.MaxItems, req.CallWindow = []string{"x"}, 500, time.Hour
 	if got := req.command("sha256:x"); got != "pacto claim stripe --owner team-platform --name payments-provider --registry "+reg+" --intent sha256:x" {
 		t.Fatal(got)
 	}

@@ -452,8 +452,9 @@ func (pl *declarePlanner) claimNameOwner() (string, string, error) {
 	if owner == "" {
 		return "", "", &DeclareError{Code: codeOwnerRequired, Message: "claiming " + string(pl.claim) + " names its owner: pass --owner <team>", CLI: pl.req.command("")}
 	}
-	if name != contract.SanitizeName(name) || name == "" || len(name) > 63 {
-		return "", "", fmt.Errorf("%q is not a service name: claim with --name <lower-case-name>", name)
+	if !contract.ValidServiceName(name) {
+		return "", "", &DeclareError{Code: codeFieldNotAcceptable, CLI: pl.req.command(""),
+			Message: fmt.Sprintf("%q is not a service name: use lower-case letters, digits and dashes, at most 63, with --name", name)}
 	}
 	return name, owner, nil
 }
@@ -1302,10 +1303,13 @@ func (req DeclareRequest) command(intent string) string {
 			add("--owner", cmp.Or(req.Owner, "<team>"))
 		}
 		add("--name", req.Name)
-	} else {
-		add("--namespace", req.Namespace)
-		add("--dir", req.Dir)
+		add("--registry", cmp.Or(req.Registry, "<registry>"))
+		add("--from-draft", req.FromDraft)
+		add("--intent", intent)
+		return strings.Join(parts, " ") // pacto claim defines no workload flag
 	}
+	add("--namespace", req.Namespace)
+	add("--dir", req.Dir)
 	add("--registry", cmp.Or(req.Registry, "<registry>"))
 	for _, n := range req.Accept {
 		add("--accept", n)

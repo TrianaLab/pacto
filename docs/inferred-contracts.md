@@ -173,7 +173,7 @@ names `inferredFrom: external:stripe`, to `<registry>/<name>` (`--name` or the
 identity's last segment), never under `pacto-inferred`. Naming the first
 owner takes a default approver of the [owner policy](owner-setting.md). An
 agent's `pacto_declare` with `service: external:stripe` writes a `draft-<n>` a
-person accepts with `--from-draft`. The dashboard's External page offers
+person accepts with `--from-draft` (over stdio; an HTTP server only plans it). The dashboard's External page offers
 **Claim** in its Owner line.
 
 ## After a claim
@@ -186,8 +186,10 @@ the claimed repository, as `INFERRED_PROVIDER` then says. A ref-less
 versions say nothing about the vendor's API.
 
 Only a declared claim counts. A service that sets `service.external` with no
-claim in its history, two claiming services and an unreadable newest revision
-link nothing and add `INFERRED_LINK_IGNORED`. A claiming service with no
+claim in its history, a claim whose owner the owner rule refused or could not
+check, two claiming services and an unreadable newest revision link nothing
+and add `INFERRED_LINK_IGNORED`. Two claiming services say so on the external
+system, and only retracting all but one settles it. A claiming service with no
 verified owner keeps `UNOWNED_EXTERNAL`.
 
 The External page on the dashboard shows the inferred contract in a collapsed

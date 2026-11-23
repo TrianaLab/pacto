@@ -662,8 +662,13 @@ func claimFleet(t *testing.T, services []string, externals map[fleet.ExternalKey
 func TestRemoteDeclareExternalOutsideReposRefused(t *testing.T) {
 	rd := newRemoteDeclarer(app.NewService(nil, nil), []string{"oci://ghcr.io/acme/ledger"}, claimFleet(t, nil, map[fleet.ExternalKey]*fleet.ExternalClaim{"stripe": nil}))
 	_, refused, err := rd.Plan(remoteCtx(nil), pactomcp.DeclareArgs{Service: "external:stripe", Owner: "team-platform", Registry: "ghcr.io/evil"})
-	if err != nil || refused == nil || refused.Code != pactomcp.RefusalNoRegistry || refused.CLI != "pacto claim stripe --owner team-platform --registry ghcr.io/evil" {
+	if err != nil || refused == nil || refused.Code != pactomcp.RefusalNoRegistry || refused.CLI != "pacto claim stripe --owner team-platform --registry ghcr.io/evil" ||
+		!strings.Contains(refused.Message, "run pacto claim on your machine") {
 		t.Fatalf("%+v %v", refused, err)
+	}
+	_, refused, _ = rd.Plan(remoteCtx(nil), pactomcp.DeclareArgs{Service: "external:stripe", Owner: "team-platform", Registry: "ghcr.io/acme", Draft: true})
+	if refused == nil || !strings.Contains(refused.Message, "save one with pacto claim --draft") {
+		t.Fatalf("%+v", refused)
 	}
 }
 
@@ -730,10 +735,10 @@ func checkClaimRedacted(t *testing.T, w *declareWorld, name string, mode *pactom
 		refused.Message != "the repository for this name holds a service you may not read: claim with the CLI and --name" {
 		t.Errorf("%s: %s %+v %v", name, raw, refused, err)
 	}
-	// Execute refuses the same way, before any write.
+	// Execute never writes a claim, so it reads nothing to redact.
 	a.IntentDigest = "sha256:" + strings.Repeat("0", 64)
 	raw, refused, err = httpDeclarer(w).withFleet(mode).Execute(callerCtx("alice", newSelfReviewed(true), &bytes.Buffer{}), a)
-	if err != nil || raw != nil || refused == nil || refused.Code != pactomcp.RefusalNotAllowed {
+	if err != nil || raw != nil || refused == nil || refused.Code != pactomcp.RefusalExecuteNeedsStdio || strings.Contains(refused.Message, "repository") {
 		t.Errorf("%s execute: %s %+v %v", name, raw, refused, err)
 	}
 }
