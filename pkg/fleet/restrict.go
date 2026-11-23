@@ -827,8 +827,8 @@ func clusterLabel(name string) string {
 
 // WithClusterAccess marks the reviewed clusters a restricted view q shows
 // nothing of: access maps a cluster id to ClusterNoAccess, ClusterReviewFailed
-// or ClusterNotReviewable. Each marked cluster a Kubernetes source of full read
-// is listed again with its mark (a cluster only another source reported stays
+// or ClusterNotReviewable. Each marked cluster a Kubernetes source of full read,
+// or a member joined through the registry, is listed again with its mark (a cluster only another source reported stays
 // shown only while a visible target carries it), gets one CLUSTER_HIDDEN
 // limitation and makes the view partial; a member that joined through the
 // registry and that Pacto cannot review is named so. Cluster names are the server's
@@ -854,7 +854,7 @@ func (q *Query) WithClusterAccess(full *Query, access map[string]string) *Query 
 	for _, c := range full.base.Clusters {
 		names[c.ID] = cmp.Or(c.Name, c.ID)
 		joined[c.ID] = !slices.ContainsFunc(c.Sources, kube) && slices.ContainsFunc(c.Sources, func(s string) bool { return member[s] })
-		if shown[c.ID] || access[c.ID] != "" && slices.ContainsFunc(c.Sources, kube) {
+		if shown[c.ID] || access[c.ID] != "" && (joined[c.ID] || slices.ContainsFunc(c.Sources, kube)) {
 			c.Access = access[c.ID]
 			out.Clusters = append(out.Clusters, c)
 		}

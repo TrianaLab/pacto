@@ -117,7 +117,13 @@ func TestWithClusterAccessNamesJoinedMember(t *testing.T) {
 			State: &SourceState{Status: SourceAvailable, Signer: "member:us-west"}}),
 	))
 	view := full.Restrict(euOnly, everyWorkloadIn)
-	got := clusterHidden(view.WithClusterAccess(full, map[string]string{clusterB: ClusterNotReviewable}).SnapshotForSerialization())
+	hidden := view.WithClusterAccess(full, map[string]string{clusterB: ClusterNotReviewable}).SnapshotForSerialization()
+	// The member is listed with its mark, as a Kubernetes cluster would be,
+	// so a reader sees which joined cluster hides what from them.
+	if c := clusterRecord(hidden, clusterB); c == nil || c.Access != ClusterNotReviewable {
+		t.Errorf("the hidden member is not listed with its mark: %+v", hidden.Clusters)
+	}
+	got := clusterHidden(hidden)
 	want := "cluster us-west joined through the registry and has no live channel yet, so its services are hidden from signed-in readers"
 	if len(got) != 1 || got[0].Message != want {
 		t.Errorf("CLUSTER_HIDDEN = %+v, want %q", got, want)
@@ -132,9 +138,13 @@ func TestWithClusterAccessNamesJoinedMember(t *testing.T) {
 	if len(got) != 1 || !strings.HasSuffix(got[0].Message, clusterHiddenReasons[ClusterNotReviewable]) {
 		t.Errorf("a --target-snapshot cluster = %+v", got)
 	}
-	got = clusterHidden(view.WithClusterAccess(full, map[string]string{clusterB: ClusterReviewFailed}).SnapshotForSerialization())
+	failed := view.WithClusterAccess(full, map[string]string{clusterB: ClusterReviewFailed}).SnapshotForSerialization()
+	got = clusterHidden(failed)
 	if len(got) != 1 || !strings.HasSuffix(got[0].Message, clusterHiddenReasons[ClusterReviewFailed]) {
 		t.Errorf("a failed review of a member = %+v", got)
+	}
+	if c := clusterRecord(failed, clusterB); c == nil || c.Access != ClusterReviewFailed {
+		t.Errorf("a member whose review failed is not listed with its mark: %+v", failed.Clusters)
 	}
 }
 
