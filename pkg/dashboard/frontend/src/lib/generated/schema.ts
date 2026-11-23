@@ -11349,7 +11349,7 @@ export interface operations {
                 service?: string;
                 /** @description Golden path filter for service and revision entities: only keeps the golden paths (services whose contract declares service.template and that run nowhere) and, with no kinds, lists services only; exclude leaves them and their revisions out. Absent lists every service, golden paths marked template */
                 template?: "only" | "exclude";
-                /** @description Declaration filter for service entities: inferred keeps only the services Pacto infers from workloads no contract describes and, with no kinds, lists services only; declared leaves them out. Absent lists every service, inferred ones marked */
+                /** @description Declaration filter for service entities: inferred keeps only the services Pacto infers from workloads no contract describes and, with no kinds, lists services only; declared leaves them out. Absent lists every service, inferred ones marked; with template only, inferred lists the golden paths a catalog holds (inferredTemplates) and declared leaves them out */
                 declaration?: "declared" | "inferred";
                 /** @description Group filter for inferred service entities: the workload.group.key of an inferred service; with no kinds it lists services only */
                 group?: string;

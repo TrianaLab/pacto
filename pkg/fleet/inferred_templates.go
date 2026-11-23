@@ -11,6 +11,10 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
+// TemplateSubjectPrefix starts the subject that accepts an inferred golden
+// path, template:<namespace>/<name>, on every surface.
+const TemplateSubjectPrefix = "template:"
+
 // maxSkippedTemplateNames bounds the names one INFERRED_TEMPLATES_SKIPPED
 // lists.
 const maxSkippedTemplateNames = 5

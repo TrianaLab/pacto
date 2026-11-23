@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -58,6 +60,9 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
 	addDeclarationFlag(cmd)
+	// Only entities answers carry the inferred golden paths, so only its help names them.
+	f.Lookup("template").Usage = "golden paths only (with the inferred ones a catalog holds listed apart), or exclude to leave them out"
+	f.Lookup("declaration").Usage += "; with --template, inferred lists the golden paths a catalog holds and declared leaves them out"
 	f.String("group", "", "inferred services the cluster groups under this key (rule/namespace/name: workload.group.key in pacto fleet entity --output-format json)")
 	f.String("created-from", "", "services created from this golden path, by key; "+fleet.NoOrigin+" for no declared origin or "+fleet.UnresolvedOrigin+" for an origin that resolves to no golden path")
 	f.String("sort", "", "order: name, health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first)")
@@ -322,6 +327,7 @@ func printFleetEntities(cmd *cobra.Command, res *fleet.EntityList, format string
 		_, _ = fmt.Fprintf(w, "%d of %d entit(ies):\n", res.Count, res.Total)
 		for _, e := range res.Entities {
 			_, _ = fmt.Fprintf(w, "  %-11s %-28s %-32s %s\n", entityRowKind(e), e.Label, e.Key, orDash(e.Status))
+			printDeclaredTemplateLink(w, e, res.InferredTemplates)
 			switch {
 			case e.Declaration == fleet.DeclarationInferred:
 				_, _ = fmt.Fprintf(w, "              namespace %s  kind %s  image %s  group %s\n", e.Scope, e.Secondary, orDash(e.Image), orDash(entityGroupLabel(e.Group)))
@@ -332,6 +338,7 @@ func printFleetEntities(cmd *cobra.Command, res *fleet.EntityList, format string
 					e.Services, e.NonCompliant, e.FailingHealth, e.Unknown, e.Stale, e.WithGaps)
 			}
 		}
+		printInferredTemplates(cmd, res.InferredTemplates)
 		if res.Aggregate.Knowledge.Services > 0 {
 			printOverviewKnowledge(w, res.Aggregate.Knowledge)
 		}
@@ -342,6 +349,74 @@ func printFleetEntities(cmd *cobra.Command, res *fleet.EntityList, format string
 		noteScopedPhase(cmd, res.Meta)
 		return nil
 	}, nil)
+}
+
+// printDeclaredTemplateLink prints, under a golden path row, the link of the
+// catalog template holding its name.
+func printDeclaredTemplateLink(w io.Writer, e fleet.EntityRef, l *fleet.InferredTemplateList) {
+	if !e.Template || l == nil {
+		return
+	}
+	for _, d := range l.Declared {
+		if d.DeclaredAs == e.Key && d.URL != "" {
+			_, _ = fmt.Fprintf(w, "    open: %s\n", d.URL)
+			return
+		}
+	}
+}
+
+// printInferredTemplates prints the inferred golden paths block of a
+// golden-path answer: nothing when no source lists templates, each item with
+// where it was read, its link and the command that accepts it, then the
+// block's limitations. A partial block also warns on stderr.
+func printInferredTemplates(cmd *cobra.Command, l *fleet.InferredTemplateList) {
+	if l == nil {
+		return
+	}
+	w := cmd.OutOrStdout()
+	asOf := "unknown"
+	if l.AsOf != nil {
+		asOf = l.AsOf.Format(time.RFC3339)
+	}
+	if len(l.Items) == 0 {
+		_, _ = fmt.Fprintf(w, "Inferred golden paths: none (%s, asOf %s)\n", l.Completeness, asOf)
+	} else {
+		_, _ = fmt.Fprintf(w, "Inferred golden paths (%s, asOf %s):\n", l.Completeness, asOf)
+	}
+	catalogURL, _ := cmd.Flags().GetString("backstage-url")
+	for _, it := range l.Items {
+		printInferredTemplate(w, it, catalogURL)
+	}
+	for _, lim := range l.Limitations {
+		_, _ = fmt.Fprintf(w, "  note: %s\n", lim.Message)
+	}
+	if l.Completeness != fleet.CompletenessComplete {
+		ew := cmd.ErrOrStderr()
+		_, _ = fmt.Fprintf(ew, "warning: inferred golden paths may be incomplete (as of %s)\n", asOf)
+		for _, lim := range l.Limitations {
+			_, _ = fmt.Fprintf(ew, "  - [%s] %s\n", lim.Code, lim.Message)
+		}
+	}
+}
+
+// printInferredTemplate prints one inferred golden path: an accept command
+// only for a template a configured catalog read whose name no service holds.
+func printInferredTemplate(w io.Writer, it fleet.InferredTemplate, catalogURL string) {
+	_, _ = fmt.Fprintf(w, "  %s  inferred from %s  %s\n", it.Name, it.From, it.Entity)
+	if it.URL != "" {
+		_, _ = fmt.Fprintf(w, "    open: %s\n", it.URL)
+	} else {
+		_, _ = fmt.Fprintln(w, "    open it in your Backstage")
+	}
+	switch {
+	case it.NameTaken:
+		_, _ = fmt.Fprintln(w, "    the name is held by another service: no accept")
+	case !it.Acceptable:
+		_, _ = fmt.Fprintln(w, "    set --backstage-url to accept templates from this catalog")
+	default:
+		subject := fleet.TemplateSubjectPrefix + strings.TrimPrefix(it.Entity, "template:")
+		_, _ = fmt.Fprintf(w, "    accept: pacto declare %s --registry <registry> --backstage-url %s\n", subject, cmp.Or(catalogURL, "<url>"))
+	}
 }
 
 // entityRowKind is the kind column of an entity row: golden path and

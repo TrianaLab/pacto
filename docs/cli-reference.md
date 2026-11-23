@@ -1660,7 +1660,7 @@ pacto fleet entities [text] [flags]
       --cluster string                   entities in this cluster, by its UID as meta.clusters lists it: targets, services with a target or an inferred workload there and revisions a target there runs; other kinds ignore it
       --consumes string                  services that depend on or reference a provider of this platform offering
       --created-from string              services created from this golden path, by key; (none) for no declared origin or (unresolved) for an origin that resolves to no golden path
-      --declaration string               inferred keeps only the services Pacto infers from workloads no contract describes; declared leaves them out
+      --declaration string               inferred keeps only the services Pacto infers from workloads no contract describes; declared leaves them out; with --template, inferred lists the golden paths a catalog holds and declared leaves them out
       --domain string                    exact registry path, the domain part of a service key
       --environment string               with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment
       --failed[=true|false]              with --kind offering, offerings with at least one failed provisioning request
@@ -1685,7 +1685,7 @@ pacto fleet entities [text] [flags]
       --source-health string             sources by health (available, partial, stale, unavailable, or incomplete for any of the last three)
       --source-kind string               sources of this exact kind only (oci, kubernetes, evidence-http, ...)
       --status string                    canonical compliance status
-      --template string[="only"]         golden paths only, or exclude to leave them out
+      --template string[="only"]         golden paths only (with the inferred ones a catalog holds listed apart), or exclude to leave them out
 ```
 
 ### `pacto fleet entity`
