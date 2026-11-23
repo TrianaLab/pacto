@@ -116,3 +116,28 @@ tests:
       delivery.environments.ladder: [Staging]
     asserts:
       - failedTemplate: {}
+
+  - it: promoter reads the ladder from the approvals repository
+    template: templates/delivery/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --ladder-repository=ghcr.io/acme/pacto-streams-approvals
+
+  - it: an explicit approvals repository is where the ladder is read
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.recorder.approvalsRepository: registry.acme.io/people/approvals
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --ladder-repository=registry.acme.io/people/approvals
+
+  - it: no registry renders no ladder repository
+    template: templates/delivery/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --ladder-repository=-approvals

@@ -75,6 +75,9 @@ spec:
             {{- end }}
             {{- if include "pacto-operator.delivery.environments" . }}
             - --environment-ladder={{ join "," .Values.delivery.environments.ladder }}
+            {{- if or .Values.delivery.recorder.approvalsRepository (include "pacto-operator.delivery.streamsRepository" .) }}
+            - --ladder-repository={{ include "pacto-operator.delivery.approvalsRepository" . }}
+            {{- end }}
             {{- end }}
             {{- $fullname := include "pacto-operator.delivery.fullname" . }}
             {{- $policies := list "operation" "cancel" "approval" "pointer" "applier" "promoter-writes" "status" }}

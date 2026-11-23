@@ -153,6 +153,9 @@ type EnvironmentsView struct {
 	// Repository and Stream are where a confirmation is pushed.
 	Repository string `json:"repository,omitempty"`
 	Stream     string `json:"stream,omitempty"`
+	// Notes say why a ladder record was not counted or how the chart value
+	// overrides the confirmed ladder.
+	Notes []string `json:"notes,omitempty"`
 	// Idle says why the promoter places nothing, when it does not.
 	Idle                string `json:"idle,omitempty"`
 	UnplacedCount       int    `json:"unplacedCount"`

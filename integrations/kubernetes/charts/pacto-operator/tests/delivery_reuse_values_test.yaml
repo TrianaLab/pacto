@@ -260,6 +260,20 @@ tests:
           pattern: ^--environment
         template: templates/delivery/deployment.yaml
 
+  - it: delivery.environments null reads no ladder repository
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.identities.allowEmptyHumanGroups: true
+      delivery.argocd.enabled: false
+      delivery.flux: null
+      delivery.environments: null
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --ladder-repository=ghcr.io/acme/pacto-streams-approvals
+        template: templates/delivery/deployment.yaml
+
   - it: delivery.environments present adds --environment-ladder
     set:
       delivery.enabled: true

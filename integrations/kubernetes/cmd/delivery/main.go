@@ -149,6 +149,9 @@ func runPromoter(args []string) error {
 			core.EnvironmentsConfigMap+" of the promoter's namespace.")
 	ladder := fs.String("environment-ladder", "staging,production",
 		"The installation ladder, comma-separated in promotion order: each rung takes what the one before verified.")
+	ladderRepo := fs.String("ladder-repository", "",
+		"The approvals repository (host/path) people push signed installation ladder confirmations to. "+
+			"Empty reads none, so only the declared installation ladder holds.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -235,7 +238,8 @@ func runPromoter(args []string) error {
 	if err := (&delivery.EnvironmentReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(),
 		Namespace: os.Getenv("POD_NAMESPACE"), ClusterID: clusterID, ClusterName: ident.Name, NameSource: ident.NameSource,
 		Ladder: delivery.SplitList(*ladder), Off: !*environments, Now: time.Now,
-		Resync: *resync}).SetupWithManager(mgr); err != nil {
+		Resync: *resync, Policy: policy, LadderRepository: *ladderRepo,
+		RecordOptions: recordOpts}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	return startPromoter(mgr, user)
