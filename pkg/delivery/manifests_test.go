@@ -327,8 +327,18 @@ func TestInspectBounds(t *testing.T) {
 }
 
 func TestInspectOtherMediaTypeUnknown(t *testing.T) {
-	in := InspectArtifact("application/vnd.oci.image.layer.v1.tar+gzip", nil, ManifestTarget{Namespace: "prod"}, BuiltinScope)
-	wantVerdict(t, "other", in, Unknown, "Pacto reads Flux and Helm OCI artifacts only")
+	in := InspectArtifact("application/vnd.oci.image.layer.v1.tar", nil, ManifestTarget{Namespace: "prod"}, BuiltinScope)
+	wantVerdict(t, "other", in, Unknown, "Pacto reads Flux, Helm and Argo CD OCI artifacts only")
+}
+
+// An Argo CD OCI source's default layer is read like Flux content: a
+// Deployment and its Pacto in the Stage namespace pass, a Namespace is refused.
+func TestInspectArgoCDLayer(t *testing.T) {
+	ok := map[string]string{"deployment.yaml": obj("apps/v1", "Deployment", "payments", ""), "pacto.yaml": obj("pacto.trianalab.io/v1alpha1", "Pacto", "payments", "")}
+	in := InspectArtifact(ArgoCDContentMediaType, tgz(t, ok), ManifestTarget{Namespace: "prod"}, BuiltinScope)
+	wantVerdict(t, "argo pass", in, Pass, "")
+	in = InspectArtifact(ArgoCDContentMediaType, tgz(t, map[string]string{"ns.yaml": obj("v1", "Namespace", "n", "")}), ManifestTarget{Namespace: "prod"}, BuiltinScope)
+	wantVerdict(t, "argo refused", in, Fail, "Namespace n")
 }
 
 func TestInspectCitationBounded(t *testing.T) {

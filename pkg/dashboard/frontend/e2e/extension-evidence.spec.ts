@@ -15,7 +15,8 @@ const T = 30_000;
 async function openRevision(page: Page, version: string) {
   await appReady(page);
   await page.goto('/#/fleet/revisions?service=payments-service');
-  const exact = new RegExp(`\\b${version.replace(/\./g, '\\.')}(?![.\\d])`);
+  const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const exact = new RegExp(`\\b${escaped}(?![.\\d])`);
   const link = page.locator('main a[href*="/fleet/revisions/"]').filter({ hasText: exact }).first();
   await expect(link).toBeVisible({ timeout: T });
   await link.click();
