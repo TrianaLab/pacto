@@ -102,15 +102,17 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 		case err == nil:
 			// A bundle that cannot be packed has no digest and reads as a
 			// conflict below: refused, never overwritten.
-			local, _ := oci.BundleDigest(bundle)
-			if remote == local || s.onlyRecordDiffers(ctx, ref, remote, bundle) {
+			// A tag an older Pacto wrote holds the legacy (untyped) digest of
+			// the same content: identical, never moved.
+			ds, _ := oci.BundleDigests(bundle)
+			if ds.Same(remote) || s.onlyRecordDiffers(ctx, ref, remote, bundle) {
 				logging.LoggerFromContext(ctx).Debug("identical artifact already published", "ref", ref, "digest", remote)
 				result.Digest, result.Unchanged = remote, true
 				// An already published version still gets its missing entry.
 				result.Index = s.keepIndexEntry(ctx, bundle, ref, result.Digest, orgindex.Publisher{}, opts.Index)
 				return result, nil
 			}
-			return nil, fmt.Errorf("%w: %s holds %s, not this bundle's %s (use --force to overwrite)", ErrArtifactAlreadyExists, ref, remote, local)
+			return nil, fmt.Errorf("%w: %s holds %s, not this bundle's %s (use --force to overwrite)", ErrArtifactAlreadyExists, ref, remote, ds.Typed)
 		case !isNotFound(err):
 			return nil, err
 		}

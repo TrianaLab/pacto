@@ -128,7 +128,10 @@ find "$WORK" -name pacto.lock -delete   # regenerated fresh against the live coo
 # digest locally (publishbundles --print-digests -> the same digest Push produces)
 # and compare to the remote:
 #   absent            -> will publish
-#   identical digest  -> no-op (a deterministic re-push yields the same digest)
+#   identical digest  -> no-op (a deterministic re-push yields the same digest).
+#                        Either digest counts: the typed one a push writes now, or
+#                        the legacy (untyped) one a Pacto before 4.7 wrote for the
+#                        same content, so a published tag never moves.
 #   different digest   -> CONFLICT: fail BEFORE pushing anything (no mutation). Bump
 #                         the contract version, or set PACTO_DEMO_MIGRATE=1 for the
 #                         deliberate one-time migration (records an audit inventory).
@@ -156,7 +159,7 @@ if command -v crane >/dev/null 2>&1; then
     printf '%s' "$out" >&2
     return 1
   }
-  while read -r tag local_d; do
+  while read -r tag local_d legacy_d; do
     [ -n "$tag" ] && [ -n "$local_d" ] || continue
     if ! remote_d="$(rdig "$COORD/$tag")"; then
       UNREADABLE+=("$COORD/$tag")
@@ -164,7 +167,9 @@ if command -v crane >/dev/null 2>&1; then
     fi
     [ -z "$remote_d" ] && continue                     # absent -> will publish
     READABLE=$((READABLE+1))
-    [ "$remote_d" = "$local_d" ] && continue            # identical digest -> no-op
+    if [ "$remote_d" = "$local_d" ] || [ "$remote_d" = "$legacy_d" ]; then
+      continue                                          # identical digest -> no-op
+    fi
     if [ "$MIGRATE" = "1" ]; then
       MIGRATED+=("$COORD/$tag: $remote_d -> $local_d")
     else
@@ -210,7 +215,7 @@ else
 fi
 
 echo "==> push demo bundles to $COORD"
-PUSHED="$WORK/pushed.txt"   # lines: "<svc>:<version> <digest>"
+PUSHED="$WORK/pushed.txt"   # lines: "<svc>:<version> <digest>[ unchanged]"
 ( cd "$ROOT/examples/demo" && go run ./publishbundles "$WORK/bundles" "$COORD" ) | tee "$PUSHED" | sed 's/^/    /'
 
 # ---- step 1b: lock and push the held bundles ----
@@ -228,6 +233,7 @@ if [ -d "$HELD" ]; then
       remote_d="$(rdig "$COORD/$tag")" || { echo "could not read $COORD/$tag" >&2; exit 1; }
       if [ -n "$remote_d" ]; then
         echo "    $tag already published with its lock; left as it is"
+        echo "$tag $remote_d unchanged" >> "$PUSHED"   # the proof below resolves it too
         continue
       fi
     fi

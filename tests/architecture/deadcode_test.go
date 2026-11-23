@@ -99,10 +99,8 @@ var deadCodeAllowlist = map[string]string{
 	"integrations/kubernetes/api/v1alpha1.CollectionDegraded": crdVocabulary,
 	"integrations/kubernetes/api/v1alpha1.CollectionFailed":   crdVocabulary,
 
-	"pkg/oci.BundleDigests":     "515-S3 P2 wires it",
-	"pkg/oci.LegacyBundleImage": "515-S3 P2 wires it",
-	"pkg/oci.ClassifyManifest":  "515-S3 P3 wires it",
-	"pkg/oci.KindFromConfig":    "515-S3 P3 wires it",
+	"pkg/oci.ClassifyManifest": "515-S3 P3 wires it",
+	"pkg/oci.KindFromConfig":   "515-S3 P3 wires it",
 }
 
 // crdVocabulary is the operator's counterpart of schemaVocabulary: the values
