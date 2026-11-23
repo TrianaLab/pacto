@@ -2,6 +2,8 @@ package detect
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -109,5 +111,57 @@ func TestManagedEntryScopedIsUnknown(t *testing.T) {
 	if e := ManagedEntry([]string{"rds.aws.upbound.io"}, []string{"a.io/x"}, 3, 0, true); e.Completeness != Unknown ||
 		e.Reason != "a namespace-scoped install does not read managed resources" || e.Kind != fleet.ProviderManagedResources {
 		t.Errorf("scoped = %+v", e)
+	}
+}
+
+func TestTerraformEntryFailedLocation(t *testing.T) {
+	all := TerraformEntry([]string{"s3://a/x.tfstate", "gs://b/y.tfstate"}, nil)
+	if all.Kind != "terraform" || all.Completeness != Complete || all.Value != "2 listed states read" ||
+		all.Evidence != "reads s3://a/x.tfstate, gs://b/y.tfstate" || all.Scope != fleet.ScopeCluster {
+		t.Errorf("all read = %+v", all)
+	}
+	some := TerraformEntry([]string{"s3://a/x.tfstate"}, map[string]string{"gs://b/y.tfstate": "not found"})
+	if some.Completeness != Partial || some.Reason != "1 of 2 listed states could not be read" ||
+		!slices.Equal(some.Details, []string{"gs://b/y.tfstate: not found"}) {
+		t.Errorf("some failed = %+v", some)
+	}
+	failed := map[string]string{}
+	for i := range MaxDetails + 2 {
+		failed[fmt.Sprintf("s3://a/%02d.tfstate", i)] = "access denied"
+	}
+	none := TerraformEntry(nil, failed)
+	if none.Completeness != Unknown || none.Value != "" || none.Evidence != "" || len(none.Details) != MaxDetails ||
+		none.Details[0] != "s3://a/00.tfstate: access denied" {
+		t.Errorf("none read = %+v", none)
+	}
+}
+
+func TestCloudInventoryRowOffWithoutIdentity(t *testing.T) {
+	if e := CloudInventoryEntry("off", "", "", false, nil); e.Kind != "" {
+		t.Errorf("off with no identity wrote %+v", e)
+	}
+	if e := CloudInventoryEntry("", "", "", false, nil); e.Kind != "" {
+		t.Errorf("unset with no identity wrote %+v", e)
+	}
+	e := CloudInventoryEntry("aws", "", "no read-only workload identity on the operator ServiceAccount", false, nil)
+	if e.Kind != "cloud-inventory" || e.Value != "off" || e.Completeness != Unknown ||
+		e.Reason != "no read-only workload identity on the operator ServiceAccount" || !strings.Contains(e.Hint, "serviceAccount.annotations") {
+		t.Errorf("on with no identity = %+v", e)
+	}
+	if e := CloudInventoryEntry("gcp", "x@p.iam.gserviceaccount.com", "", true, errors.New("status 403")); e.Completeness != Unknown ||
+		e.Reason != "reading the gcp inventory failed: status 403" {
+		t.Errorf("failed = %+v", e)
+	}
+	if e := CloudInventoryEntry("azure", "client 1", "", true, nil); e.Completeness != Complete || e.Value != "azure" || e.Evidence != "read with client 1" {
+		t.Errorf("read = %+v", e)
+	}
+}
+
+func TestCloudInventoryRowOffNamesOptIn(t *testing.T) {
+	e := CloudInventoryEntry("off", "aws identity arn:aws:iam::1:role/pacto", "", true, nil)
+	if e.Kind != "cloud-inventory" || e.Value != "off" || e.Completeness != Unknown ||
+		!strings.Contains(e.Reason, "controller.cloudInventory") || !strings.Contains(e.Reason, "arn:aws:iam::1:role/pacto") ||
+		!strings.Contains(e.Hint, "--set controller.cloudInventory=") {
+		t.Errorf("off with an identity = %+v", e)
 	}
 }

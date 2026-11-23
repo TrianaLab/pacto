@@ -412,6 +412,20 @@ func (c *Catalog) Entry(id externalid.ID) (Entry, Ref, bool) {
 	return s.entry, c.refs[s.ref], true
 }
 
+// InventoryTypes returns the sorted cloud inventory types the entries of
+// provider ("aws", "gcp" or "azure") list: what a cloud inventory read asks
+// for.
+func (c *Catalog) InventoryTypes(provider string) []string {
+	var out []string
+	for id, s := range c.entries {
+		if p, _, _ := strings.Cut(string(id), "/"); p == provider {
+			out = append(out, s.entry.Inventory...)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 // Len returns the number of entries.
 func (c *Catalog) Len() int { return len(c.entries) }
 

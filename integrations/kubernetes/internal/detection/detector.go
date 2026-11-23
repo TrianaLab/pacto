@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -106,9 +107,15 @@ type Detector struct {
 	// Pieces are the profile idp rows (the Evidence Server and the recorder),
 	// read on every run; nil outside idp.
 	Pieces func() []detect.Entry
+	// HTTP is the client of the state and inventory reads and Getenv reads
+	// the identity webhooks' environment; nil uses the defaults.
+	HTTP   *http.Client
+	Getenv func(string) string
 
 	owner       *metav1ac.OwnerReferenceApplyConfiguration
 	warnedOwner bool
+	// reads are the state and inventory reads of the last Interval.
+	reads map[string]remoteRead
 }
 
 // Readers is what the operator reads beside detection, fixed at its start: the
@@ -117,10 +124,16 @@ type Detector struct {
 // Cilium policy readers run (each needs its API served at startup). Managed,
 // when set, reports the catalog's managed kinds discovery serves (see
 // [ManagedFor]): the managed-resources entry is read only with it.
+// TerraformStates are the controller.terraformStates locations,
+// CloudInventory the cloud controller.cloudInventory names ("off" or empty
+// for none) and WorkloadIdentity the --workload-identity <cloud>=<value> the
+// chart renders from the ServiceAccount annotation.
 type Readers struct {
 	GatewayLogs                                    string
 	KernelEvidence, ServiceEntries, CiliumPolicies bool
 	Managed                                        func(context.Context) (map[string][]metav1.APIResource, error)
+	TerraformStates                                []string
+	CloudInventory, WorkloadIdentity               string
 }
 
 // readerOff is e partial when its API is served but the operator's reader did
@@ -263,6 +276,7 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 	}
 	res.Entries = append(res.Entries, d.crossplane(ctx))
 	d.managed(ctx, &res)
+	d.remote(ctx, &res)
 	if d.Pieces != nil {
 		res.Entries = append(res.Entries, d.Pieces()...)
 	}

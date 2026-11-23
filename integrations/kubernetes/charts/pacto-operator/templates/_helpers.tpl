@@ -254,6 +254,15 @@ Controller arguments derived from values
 {{- if not (kindIs "invalid" .Values.controller.egressGatewayLogs) }}
 - --egress-gateway-logs={{ include "pacto-operator.egressGatewayLogs" . }}
 {{- end }}
+{{- range .Values.controller.terraformStates }}
+- --terraform-state={{ . }}
+{{- end }}
+{{- with .Values.controller.cloudInventory }}{{ if ne (toString .) "off" }}
+- --cloud-inventory={{ . }}
+{{- end }}{{ end }}
+{{- with include "pacto-operator.workloadIdentity" . }}
+- --workload-identity={{ . }}
+{{- end }}
 {{- /* Always passed: a disabled agent is pruned from its namespace, and kernel evidence defaults to it. */}}
 - --node-agent-namespace={{ include "pacto-operator.nodeAgentNamespace" . }}
 {{- with .Values.nodeAgent }}
@@ -810,6 +819,21 @@ public.ecr.aws), azure (*.azurecr.io, .cn, .us), else empty.
 {{- else if regexMatch `^([0-9]{12}\.dkr\.ecr(-fips)?\.[a-z0-9-]+\.amazonaws\.com(\.cn)?|public\.ecr\.aws)$` $h }}aws
 {{- else if regexMatch `^([a-z0-9-]+\.)+azurecr\.(io|cn|us)$` $h }}azure
 {{- end }}
+{{- end }}
+
+{{/*
+The workload identity bound to the operator ServiceAccount, <cloud>=<value>,
+from the first of the EKS IRSA, GKE and Azure workload identity annotations;
+empty with none. The operator reads the cloud inventory with it only when
+controller.cloudInventory names that cloud.
+*/}}
+{{- define "pacto-operator.workloadIdentity" -}}
+{{- $ann := .Values.serviceAccount.annotations | default dict }}
+{{- $found := list }}
+{{- range $pair := list (list "aws" "eks.amazonaws.com/role-arn") (list "gcp" "iam.gke.io/gcp-service-account") (list "azure" "azure.workload.identity/client-id") }}
+{{- with get $ann (index $pair 1) }}{{ $found = append $found (printf "%s=%v" (index $pair 0) .) }}{{ end }}
+{{- end }}
+{{- if $found }}{{ first $found }}{{ end }}
 {{- end }}
 
 {{/*

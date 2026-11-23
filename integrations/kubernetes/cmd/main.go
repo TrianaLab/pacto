@@ -65,6 +65,8 @@ import (
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
+	"github.com/trianalab/pacto/v4/pkg/managedres"
+	"github.com/trianalab/pacto/v4/pkg/managedres/cloud"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing"
@@ -146,6 +148,9 @@ type options struct {
 	kernelEvidenceStaleness           time.Duration
 	egressGatewayLogs                 string
 	callerIgnoreNamespaces            []string
+	terraformStates                   []string
+	cloudInventory                    string
+	workloadIdentity                  string
 
 	enableNodeAgent          bool
 	nodeAgentNamespace       string
@@ -410,6 +415,34 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			}
 			return fmt.Errorf("want auto, on or off, got %q", v)
 		})
+	fs.Func("terraform-state",
+		"A remote Terraform or OpenTofu state to read managed resources from (repeatable), written "+
+			"s3://<bucket>/<key>?region=<region>, gs://<bucket>/<object> or azurerm://<account>/<container>/<key>. "+
+			"Read through the operator's workload identity; only resource types, ids, regions and engines are kept.",
+		func(v string) error {
+			loc, err := managedres.ParseLocation(v)
+			if err == nil {
+				o.terraformStates = append(o.terraformStates, loc.String())
+			}
+			return err
+		})
+	o.cloudInventory = "off"
+	fs.Func("cloud-inventory",
+		"The cloud whose inventory to read managed resources from, written `=cloud`: aws (Resource Explorer), "+
+			"gcp (Cloud Asset Inventory), azure (Resource Graph) or off. Read only through the operator's workload "+
+			"identity for that cloud. off by default.",
+		func(v string) error {
+			switch v {
+			case "off", cloud.CloudAWS, cloud.CloudGCP, cloud.CloudAzure:
+				o.cloudInventory = v
+				return nil
+			}
+			return fmt.Errorf("want aws, gcp, azure or off, got %q", v)
+		})
+	fs.StringVar(&o.workloadIdentity, "workload-identity", "",
+		"The workload identity bound to the operator ServiceAccount, written <cloud>=<value>, the value being a role "+
+			"ARN, a service account email or a client id; the chart renders it from serviceAccount.annotations. Empty "+
+			"reads the identity webhooks' environment.")
 	fs.Func("caller-coverage-ignore-namespace",
 		"Namespace whose host-network pods are taken not to call workloads, so they leave a Service's caller "+
 			"coverage complete (repeatable). kube-system and the other cluster namespaces and the node agent's "+
@@ -815,7 +848,8 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig()),
 		inst, lastPush.Load, detection.Readers{GatewayLogs: o.egressGatewayLogs, KernelEvidence: o.enableKernelEvidence,
 			ServiceEntries: servesServiceEntries(mgr), CiliumPolicies: servesCiliumPolicies(mgr),
-			Managed: detection.ManagedFor(mgr.GetConfig())}); d != nil {
+			Managed: detection.ManagedFor(mgr.GetConfig()), TerraformStates: o.terraformStates,
+			CloudInventory: o.cloudInventory, WorkloadIdentity: o.workloadIdentity}); d != nil {
 		d.Wake = pushed
 		d.Pieces = idpPieces(inst, gate, o.enableEvidence, recorder)
 		if err := mgr.Add(d); err != nil {

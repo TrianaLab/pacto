@@ -1,6 +1,8 @@
 package detect
 
 import (
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -46,4 +48,55 @@ func ManagedEntry(groups, unread []string, total, unverified int, scoped bool) E
 		}
 	}
 	return e
+}
+
+// TerraformEntry is the terraform entry of a run that read the listed
+// states read and could not read the states failed (location to reason):
+// complete when every listed state was read, partial when some failed and
+// unknown when none was read. A failure is one detail per location.
+func TerraformEntry(read []string, failed map[string]string) Entry {
+	e := Entry{Kind: "terraform", Source: "listed Terraform states", Completeness: Complete, Scope: fleet.ScopeCluster,
+		Value: strconv.Itoa(len(read)) + " listed states read"}
+	if len(read) > 0 {
+		e.Evidence = "reads " + strings.Join(read, ", ")
+	}
+	if len(failed) == 0 {
+		return e
+	}
+	e.Completeness, e.Reason = Partial, strconv.Itoa(len(failed))+" of "+strconv.Itoa(len(read)+len(failed))+" listed states could not be read"
+	if len(read) == 0 {
+		e.Completeness, e.Value = Unknown, ""
+	}
+	for _, loc := range slices.Sorted(maps.Keys(failed))[:min(len(failed), MaxDetails)] {
+		e.Details = append(e.Details, loc+": "+failed[loc])
+	}
+	return e
+}
+
+// CloudInventoryEntry is the cloud-inventory entry. cloud is the cloud
+// controller.cloudInventory names ("off" or empty when none); identity the
+// read-only workload identity bound to the operator ServiceAccount, ok when
+// it holds, and reason why it does not; err the inventory read's failure.
+// Off with no identity writes no entry (Kind empty); off with one names the
+// opt-in; on with none names the missing identity. Nothing off reads as
+// complete.
+func CloudInventoryEntry(cloud, identity, reason string, ok bool, err error) Entry {
+	const kind = "cloud-inventory"
+	off := cloud == "" || cloud == "off"
+	switch {
+	case off && !ok:
+		return Entry{}
+	case off:
+		return Entry{Kind: kind, Value: "off", Source: "controller.cloudInventory", Completeness: Unknown, Scope: fleet.ScopeCluster,
+			Reason: "set controller.cloudInventory to read the inventory with " + identity,
+			Hint:   "helm upgrade <release> <chart> --reuse-values --set controller.cloudInventory=<cloud>"}
+	case !ok:
+		return Entry{Kind: kind, Value: "off", Source: "controller.cloudInventory=" + cloud, Completeness: Unknown, Scope: fleet.ScopeCluster,
+			Reason: reason, Hint: "bind a read-only " + cloud + " identity to the operator ServiceAccount (serviceAccount.annotations)"}
+	case err != nil:
+		return Entry{Kind: kind, Source: "controller.cloudInventory=" + cloud, Completeness: Unknown, Scope: fleet.ScopeCluster,
+			Reason: "reading the " + cloud + " inventory failed: " + err.Error()}
+	}
+	return Entry{Kind: kind, Value: cloud, Evidence: "read with " + identity, Source: "controller.cloudInventory=" + cloud,
+		Completeness: Complete, Scope: fleet.ScopeCluster}
 }

@@ -19,6 +19,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | Flag | Type | Default | Via chart | Description |
 | --- | --- | --- | --- | --- |
 | `-caller-coverage-ignore-namespace` | `value` |  | chart value | Namespace whose host-network pods are taken not to call workloads, so they leave a Service's caller coverage complete (repeatable). kube-system and the other cluster namespaces and the node agent's are always ignored. |
+| `-cloud-inventory` | `=cloud` |  | chart value | The cloud whose inventory to read managed resources from, written =cloud: aws (Resource Explorer), gcp (Cloud Asset Inventory), azure (Resource Graph) or off. Read only through the operator's workload identity for that cloud. off by default. |
 | `-dashboard-allow-anonymous` | `bool` |  | chart value | Serve the dashboard without sign-in when neither an issuer nor token sign-in is set; everyone who reaches it reads what its ServiceAccount reads. |
 | `-dashboard-backstage-token-key` | `string` | `token` | chart value | Key of the reader token in that Secret. |
 | `-dashboard-backstage-token-secret` | `string` |  | chart value | Secret in the operator namespace holding the catalog reader token, which the dashboard sends only to --dashboard-backstage-url; the operator never reads it. |
@@ -120,10 +121,12 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-registry-pull-secret` | `string` |  | chart value | namespace/name of the Secret that authenticates to the installation registry; used only under the push prefixes. |
 | `-registry-push-prefix` | `value` |  | chart value | Repeatable: a repository prefix a Pacto component may push under; the chart renders every one. |
 | `-stabilization-window` | `duration` | `2m0s` | chart value | The stabilization window duration for compliance assertions before they trigger a false condition. Assertions must remain unsatisfied for this entire window before being considered a failure. |
+| `-terraform-state` | `value` |  | chart value | A remote Terraform or OpenTofu state to read managed resources from (repeatable), written s3://&lt;bucket&gt;/&lt;key&gt;?region=&lt;region&gt;, gs://&lt;bucket&gt;/&lt;object&gt; or azurerm://&lt;account&gt;/&lt;container&gt;/&lt;key&gt;. Read through the operator's workload identity; only resource types, ids, regions and engines are kept. |
 | `-trusted-root` | `string` |  | chart value | File holding a Sigstore trusted root (trusted_root.json) that the signatures of an owner change must chain to. Empty fetches public-good Sigstore's root through TUF, caching nothing on disk. |
 | `-version` | `bool` |  | no | Print version information and exit. |
 | `-watch-namespace` | `string` |  | no | Deprecated: use --watch-namespaces. Merged into the --watch-namespaces list. |
 | `-watch-namespaces` | `string` |  | chart value | Restrict the controller and the managed dashboard to these namespaces (comma-separated). Empty (default) means cluster-wide. |
+| `-workload-identity` | `string` |  | chart value | The workload identity bound to the operator ServiceAccount, written &lt;cloud&gt;=&lt;value&gt;, the value being a role ARN, a service account email or a client id; the chart renders it from serviceAccount.annotations. Empty reads the identity webhooks' environment. |
 | `-zap-devel` | `bool` |  | no | Development Mode defaults(encoder=consoleEncoder,logLevel=Debug,stackTraceLevel=Warn). Production Mode defaults(encoder=jsonEncoder,logLevel=Info,stackTraceLevel=Error) |
 | `-zap-encoder` | `value` |  | no | Zap log encoding (one of 'json' or 'console') |
 | `-zap-log-level` | `value` |  | no | Zap Level to configure the verbosity of logging. Can be one of 'debug', 'info', 'error', 'panic' or any integer value > 0 which corresponds to custom debug levels of increasing verbosity |

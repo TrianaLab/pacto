@@ -221,6 +221,20 @@ controller:
   # in a Role there, never in a ClusterRole. Quote "off": a bare off is YAML
   # false, and false keeps meaning auto; true means on.
   egressGatewayLogs: auto
+  # -- Remote Terraform or OpenTofu states the operator reads managed
+  # resources from, through its workload identity (serviceAccount.annotations),
+  # written s3://<bucket>/<key>?region=<region>, gs://<bucket>/<object> or
+  # azurerm://<account>/<container>/<key>. Only resource types, ids, regions and
+  # engines are kept, never another attribute value. Bind a role that may only
+  # read these objects. pacto ci proposes the backends it finds.
+  terraformStates: []
+  # -- The cloud whose inventory the operator reads managed resources from:
+  # aws (Resource Explorer), gcp (Cloud Asset Inventory), azure (Resource Graph)
+  # or "off" (quoted: a bare off is YAML false). Read only through the workload
+  # identity of that cloud on serviceAccount.annotations, never a node identity.
+  # The identity often serves registry access too, so it is never used for the
+  # inventory until you name the cloud here; bind it a read-only role.
+  cloudInventory: "off"
 
 leaderElection:
   # -- Enable leader election for HA deployments
