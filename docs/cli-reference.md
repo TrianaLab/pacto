@@ -273,6 +273,7 @@ pacto ci [root] [flags]
       --context stringArray                kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string              the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string                    add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)
+      --discover stringArray               registry whose golden paths and offerings join the snapshot, as <registry>[/<path>] with no tag or digest: listed from <registry>/pacto-index, then _catalog (repeatable; pacto impact and pacto ci ignore it)
       --evidence-url stringArray           base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --explain string                     explain one service's row: its folder, baseline, why it changed, its inferred fields and its consumers
       --external-catalog string            organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
@@ -439,7 +440,7 @@ pacto dashboard [sources...] [flags]
       --otlp-receiver string              address Collectors in the cluster export OTLP/HTTP JSON traces to, as http://HOST:PORT; Pacto maps spans to observed calls, keeps no span and serves nothing else there; empty turns it off (also PACTO_DASHBOARD_OTLP_RECEIVER)
       --owner-policy string               the mounted owner policy (the chart's declare block as policy.json) that decides who may set a service owner (also PACTO_DASHBOARD_OWNER_POLICY)
       --port int                          port for the dashboard server (default 3000)
-      --registry string                   the registry declarations made in the dashboard are published to (<host>/<path>); without it the dashboard offers no Declare (also PACTO_DASHBOARD_REGISTRY)
+      --registry string                   the installation registry (<host>/<path>): the dashboard lists the golden paths and offerings published under it, and declarations made in the dashboard are published there; without it the dashboard offers no Declare (also PACTO_DASHBOARD_REGISTRY)
       --rekor-url string                  Rekor transparency log the signature is recorded in (default "https://rekor.sigstore.dev")
       --review string                     how people are reviewed: cluster asks once about every namespace and needs a ClusterRole; local asks in each --namespace only, which a namespaced Role grants, and then services without a namespace show to nobody (also PACTO_DASHBOARD_REVIEW) (default "cluster")
       --session-idle-timeout duration     a session without a request for this long ends (default 1h)
@@ -1372,6 +1373,7 @@ pacto export backstage [flags]
       --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string               add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)
+      --discover stringArray          registry whose golden paths and offerings join the snapshot, as <registry>[/<path>] with no tag or digest: listed from <registry>/pacto-index, then _catalog (repeatable; pacto impact and pacto ci ignore it)
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
       --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
@@ -1408,6 +1410,7 @@ pacto fleet [flags]
       --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string               add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)
+      --discover stringArray          registry whose golden paths and offerings join the snapshot, as <registry>[/<path>] with no tag or digest: listed from <registry>/pacto-index, then _catalog (repeatable; pacto impact and pacto ci ignore it)
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
       --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
@@ -1886,6 +1889,7 @@ pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed
       --context stringArray             kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string           the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string                 add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)
+      --discover stringArray            registry whose golden paths and offerings join the snapshot, as <registry>[/<path>] with no tag or digest: listed from <registry>/pacto-index, then _catalog (repeatable; pacto impact and pacto ci ignore it)
       --evidence-url stringArray        base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string         organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
       --fingerprints string             a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
@@ -2232,6 +2236,7 @@ pacto mcp [bundle-ref] [flags]
       --delivery-namespace string        in --delivery mode: namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
       --delivery-trust string            the trust config delivery records (in --delivery mode), the golden paths pacto_create creates from and the target snapshots (the owner policy pacto_declare reads included) pacto_impact and --target-snapshot read are verified with (a PEM public key or a YAML trust config: the recorder's key for records, the operator's advertised installation key for a target snapshot, which verifies only under a key scoped to its cluster: streams ["<uid>/*/*"]; default $PACTO_DELIVERY_TRUST)
       --detected string                  add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)
+      --discover stringArray             registry whose golden paths and offerings join the snapshot, as <registry>[/<path>] with no tag or digest: listed from <registry>/pacto-index, then _catalog (repeatable; pacto impact and pacto ci ignore it)
       --evidence-url stringArray         base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --exchange-audience string         with --fleet or --delivery over HTTP with --auth-issuer: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
       --exchange-client-id string        with --fleet or --delivery over HTTP with --auth-issuer: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
@@ -2611,6 +2616,7 @@ pacto stats [flags]
       --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string               add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)
+      --discover stringArray          registry whose golden paths and offerings join the snapshot, as <registry>[/<path>] with no tag or digest: listed from <registry>/pacto-index, then _catalog (repeatable; pacto impact and pacto ci ignore it)
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
       --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
@@ -2679,6 +2685,7 @@ pacto tui [flags]
       --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string               add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)
+      --discover stringArray          registry whose golden paths and offerings join the snapshot, as <registry>[/<path>] with no tag or digest: listed from <registry>/pacto-index, then _catalog (repeatable; pacto impact and pacto ci ignore it)
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
       --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers

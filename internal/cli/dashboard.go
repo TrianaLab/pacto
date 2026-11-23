@@ -146,6 +146,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				detected:        v.GetString("dashboard.detected"),
 				fingerprints:    v.GetString("dashboard.fingerprints"),
 				index:           v.GetString("dashboard.index"),
+				registry:        v.GetString("dashboard.registry"),
 			}
 
 			fopts := dashboardFleetOptions(dir, repos, namespaces, observation, det)
@@ -153,7 +154,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			fopts.LiveEdges.Receiver = receiver
 			configured := configuredSources(fopts)
 			if answersNothing(configured) {
-				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no --index, no cached bundles and no Kubernetes configuration", dir)
+				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no --index, no --registry, no cached bundles and no Kubernetes configuration", dir)
 			}
 
 			// One snapshot Manager serves many requests from one coherent,
@@ -246,7 +247,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().String("oidc-internal-issuer-url", "", "address the dashboard reaches the issuer at when it differs from the public issuer URL browsers use, such as an in-cluster Service; ID tokens must still name the public issuer (also PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL)")
 	addClaimFlags(cmd)
 	addSignFlags(cmd, v)
-	cmd.Flags().String("registry", "", "the registry declarations made in the dashboard are published to (<host>/<path>); without it the dashboard offers no Declare (also PACTO_DASHBOARD_REGISTRY)")
+	cmd.Flags().String("registry", "", "the installation registry (<host>/<path>): the dashboard lists the golden paths and offerings published under it, "+
+		"and declarations made in the dashboard are published there; without it the dashboard offers no Declare (also PACTO_DASHBOARD_REGISTRY)")
 	cmd.Flags().String("declare-registry-config", "", "a Docker config.json with push access to --registry: a shared dashboard writes declarations and drafts only with this credential of its own, "+
 		"never with the credentials it reads registries with (also PACTO_DASHBOARD_DECLARE_REGISTRY_CONFIG)")
 	cmd.Flags().Var(new(indexFlag), "index", "organization index whose every service the dashboard reads, as <registry>/pacto-index; none or unset reads none "+
@@ -435,6 +437,10 @@ type dashboardSources struct {
 	// reads (--index, PACTO_DASHBOARD_INDEX, written by the operator from its
 	// own registry); empty or none reads none.
 	index string
+	// registry is the installation registry (--registry,
+	// PACTO_DASHBOARD_REGISTRY) whose golden paths and offerings the
+	// dashboard discovers; empty discovers none.
+	registry string
 }
 
 // dashboardIndexErr checks a non-empty dashboard index, which
@@ -503,6 +509,7 @@ func configuredSources(fopts app.FleetOptions) []string {
 		{"local", len(fopts.LocalRoots) > 0},
 		{"oci", len(fopts.OCIRefs) > 0},
 		{"index", fopts.ReadIndex != ""},
+		{"registry", len(fopts.Discover) > 0},
 		{"cache", fopts.IncludeCache},
 		{"k8s", fopts.IncludeK8s},
 		{"context " + strings.Join(fopts.K8sContexts, ", context "), len(fopts.K8sContexts) > 0},
@@ -872,5 +879,8 @@ func dashboardFleetOptions(dir string, repos []string, namespaces []string, obse
 	fopts.Detected = det.detected
 	fopts.Fingerprints = det.fingerprints
 	fopts.ReadIndex = readIndex(det.index)
+	if det.registry != "" {
+		fopts.Discover = []string{det.registry}
+	}
 	return fopts
 }

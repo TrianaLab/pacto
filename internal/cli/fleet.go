@@ -85,6 +85,8 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.StringArray("target-snapshot", nil, "signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests "+
 		"to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off")
 	shared.String("delivery-trust", "", "the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $"+app.TrustEnv+")")
+	shared.StringArray("discover", nil, "registry whose golden paths and offerings join the snapshot, as <registry>[/<path>] with no tag or digest: "+
+		"listed from <registry>/pacto-index, then _catalog (repeatable; pacto impact and pacto ci ignore it)")
 	shared.Var(new(indexFlag), "index", "organization index, as <registry>/pacto-index with no tag or digest: pacto impact and pacto ci read the consumers of a change from it "+
 		"(default <registry>/pacto-index from the provider reference; skipped when --root names the consumers) and pacto ci --publish writes its entries there; "+
 		"every other fleet command reads every service it lists as a published revision; none reads none")
@@ -102,7 +104,7 @@ func fleetFlagNames() []string {
 	return []string{
 		"local", "root", "target-state", "evidence-url", "mira-source", "backstage-url", "traces", "oci",
 		"cache", "k8s", "context", "namespace", "freshness", "external-catalog", "detected", "fingerprints",
-		"target-snapshot", "delivery-trust", "index",
+		"target-snapshot", "delivery-trust", "index", "discover",
 	}
 }
 
@@ -221,6 +223,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	fingerprints, _ := cmd.Flags().GetString("fingerprints")
 	snapshots, _ := cmd.Flags().GetStringArray("target-snapshot")
 	index, _ := cmd.Flags().GetString("index")
+	discover, _ := cmd.Flags().GetStringArray("discover")
 	prov := app.NewProvenanceChecker()
 	prov.Trust = publisherTrust(cmd, fleetDeps(), detected)
 	return app.FleetOptions{
@@ -249,6 +252,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		Now:                     fleetNow,
 		Index:                   index,
 		ReadIndex:               readIndex(index),
+		Discover:                discover,
 	}
 }
 

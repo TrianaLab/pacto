@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -196,6 +197,11 @@ func TestDashboardFleetOptions(t *testing.T) {
 	want := []string{"local", "oci", "cache", "k8s"}
 	if got := configuredSources(fopts); !slices.Equal(got, want) {
 		t.Errorf("configuredSources = %v, want %v", got, want)
+	}
+	// A registry is discovered under, and named as its own source.
+	reg := dashboardFleetOptions("", nil, nil, nil, dashboardSources{registry: "ghcr.io/acme"})
+	if got := fmt.Sprint(reg.Discover, configuredSources(reg)); got != "[ghcr.io/acme] [registry]" {
+		t.Errorf("Discover and configuredSources with a registry = %s", got)
 	}
 	// A detected local root the caller cannot name is not a local source.
 	if got := dashboardFleetOptions("", nil, nil, nil, dashboardSources{local: true}); len(got.LocalRoots) != 0 {

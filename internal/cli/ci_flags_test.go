@@ -14,8 +14,9 @@ import (
 // the organization index, which alone is never a consumer source: without a
 // target source it is CONSUMER_INDEX_UNCHECKED (509-S7 Decision 16), and the
 // Backstage catalog, whose dependencies are inferred and never name a
-// consumer a gate reads.
-var nonConsumerFlags = []string{"local", "backstage-url", "namespace", "freshness", "external-catalog", "fingerprints", "delivery-trust", "index"}
+// consumer a gate reads, and registry discovery, which pacto impact and
+// pacto ci ignore: a golden path never consumes anything.
+var nonConsumerFlags = []string{"local", "backstage-url", "namespace", "freshness", "external-catalog", "fingerprints", "delivery-trust", "index", "discover"}
 
 func TestConsumerSourcesClassifiesEveryFleetFlag(t *testing.T) {
 	value := map[string]string{"cache": "true", "k8s": "true", "freshness": "1m", "index": "r/pacto-index"}
