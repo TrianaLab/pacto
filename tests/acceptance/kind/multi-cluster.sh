@@ -76,6 +76,12 @@ YAML
 section "fixtures: the Pacto CRD and Pactos in both clusters, a reader in cluster A"
 for ctx in "$CTX_A" "$CTX_B"; do
   kubectl --context "$ctx" apply --server-side -f "$CRD" >/dev/null
+  # A just-created CRD can have no status.conditions yet; kubectl wait then
+  # fails at once instead of waiting, so retry until the condition is readable.
+  for _ in $(seq 30); do
+    kubectl --context "$ctx" wait --for condition=established --timeout=60s crd/pactos.pacto.trianalab.io >/dev/null 2>&1 && break
+    sleep 2
+  done
   kubectl --context "$ctx" wait --for condition=established --timeout=60s crd/pactos.pacto.trianalab.io >/dev/null
 done
 kubectl --context "$CTX_A" create ns mc-a --dry-run=client -o yaml | kubectl --context "$CTX_A" apply -f - >/dev/null

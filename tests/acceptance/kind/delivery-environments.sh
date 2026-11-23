@@ -110,10 +110,12 @@ install_registry
 REG_PF_PID="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
 # reg CMD... — CMD with the forwarded port as a plain-HTTP proxy, so it reaches
 # the registry AS $REG_HOST, the host the cluster reads, and outside any CI
-# context (a pull-request pipeline refuses to publish).
+# context (a pull-request pipeline refuses to publish). The artifacts then name
+# no source repository: the runner's would contradict the one $SOURCE's
+# signing certificate attests, and the promoter refuses that version.
 reg() {
   env -u GITHUB_ACTIONS -u GITHUB_BASE_REF -u GITHUB_STEP_SUMMARY -u GITHUB_REPOSITORY_OWNER -u ACTIONS_ID_TOKEN_REQUEST_URL \
-    -u GITLAB_CI -u CI_MERGE_REQUEST_DIFF_BASE_SHA -u SIGSTORE_ID_TOKEN \
+    -u GITHUB_SERVER_URL -u GITHUB_REPOSITORY -u GITLAB_CI -u CI_MERGE_REQUEST_DIFF_BASE_SHA -u CI_PROJECT_URL -u SIGSTORE_ID_TOKEN \
     HTTP_PROXY="http://127.0.0.1:${LOCAL_REG_PORT}" NO_PROXY="" no_proxy="" PACTO_INSECURE_REGISTRIES="$REG_HOST" COSIGN_PASSWORD="" "$@"
 }
 REPO="$WORK/shop"
@@ -238,7 +240,10 @@ YAML
 ORDERS="$(push_bundle "$PACTO" "$LOCAL_REG_PORT" "$od" "orders:1.0.0")"
 [ -n "$ORDERS" ] || fail "pushing orders resolved no digest"
 
-section "helm install pacto with profile idp, its Flux and the installation ladder"
+section "helm install pacto with profile idp and its Flux, the installation ladder off"
+# The ladder starts once the workloads below and their Pactos exist, as it
+# would on a cluster that already runs them: its first pass would otherwise
+# place ledger and fraud by name before any Pacto says where they run.
 RECORDER_KEY="$KEYDIR/recorder.pem"
 openssl genpkey -algorithm ed25519 -out "$RECORDER_KEY" 2>/dev/null || fail "openssl could not generate the recorder's key"
 kubectl -n "$DNS" create secret generic recorder-key --from-file=key.pem="$RECORDER_KEY" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -248,16 +253,12 @@ helm install pacto "$PACTO_CHART" -n "$NS" --set profile=idp --set idp.flux.inst
   --set delivery.createNamespace=false --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
   --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never \
   --set "delivery.insecureRegistries[0]=$REG_HOST" --set delivery.promoter.poll=2s --set delivery.promoter.resync=15s \
-  --set delivery.environments.retireAfter=1m \
+  --set delivery.environments.enabled=false --set delivery.environments.retireAfter=1m \
   --set delivery.publishers.registry=ghcr.io/acme --set-file delivery.publishers.trustedRoot="$KEYDIR/trusted_root.json" \
   --set delivery.recorder.enabled=true --set delivery.recorder.streamsRepository="$REG_HOST/pacto-delivery-streams" --set delivery.recorder.poll=5s \
   --set delivery.recorder.signing.ed25519.secretName=recorder-key --set delivery.recorder.signing.allowOperatorReadableKey=true \
   --wait --timeout 300s >/dev/null || fail "helm install pacto with profile idp did not roll out"
-promoter_args="$(kubectl -n "$DNS" get deploy pacto-operator-delivery -o jsonpath='{.spec.template.spec.containers[0].args}')"
-for want in --environments=true --environment-ladder=staging,production --environment-create-appliers --environment-retire-after=1m; do
-  grep -qF -- "$want" <<<"$promoter_args" || fail "the promoter runs without $want: $promoter_args"
-done
-pass "the promoter runs the installation ladder staging -> production and creates Flux objects under profile idp"
+pass "pacto runs with profile idp and its Flux, the installation ladder off"
 
 section "workloads: orders and its Pacto, ledger by Helm, checkout's in pr-412, a hand-written Stage"
 # deployment NS NAME — a Deployment kubectl creates, which no applier manages.
@@ -308,6 +309,15 @@ YAML
 handwritten() { kubectl -n orders-staging get stage orders -o json | jq -c '{g: .metadata.generation, l: .metadata.labels, a: .metadata.annotations, s: .spec}'; }
 HANDWRITTEN="$(handwritten)"
 pass "orders runs in orders-staging, ledger by Helm in ledger-staging and checkout in pr-412, each with its Pacto"
+
+section "turn the installation ladder on"
+helm upgrade pacto "$PACTO_CHART" -n "$NS" --reuse-values --set delivery.environments.enabled=true --wait --timeout 300s >/dev/null \
+  || fail "helm upgrade pacto with the installation ladder on did not roll out"
+promoter_args="$(kubectl -n "$DNS" get deploy pacto-operator-delivery -o jsonpath='{.spec.template.spec.containers[0].args}')"
+for want in --environments=true --environment-ladder=staging,production --environment-create-appliers --environment-retire-after=1m; do
+  grep -qF -- "$want" <<<"$promoter_args" || fail "the promoter runs without $want: $promoter_args"
+done
+pass "the promoter runs the installation ladder staging -> production and creates Flux objects under profile idp"
 
 # placements — the rows the promoter writes, which only it and admins read.
 placements() { kubectl -n "$DNS" get configmap pacto-delivery-placements -o jsonpath='{.data.rows\.json}' 2>/dev/null || echo '[]'; }
