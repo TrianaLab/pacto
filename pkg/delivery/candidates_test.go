@@ -158,3 +158,35 @@ func TestCandidatesNoteUsesReady(t *testing.T) {
 		t.Fatalf("CandidateUnverified points at spec.verify: %s", got)
 	}
 }
+
+// Production fed by staging is offered only the digests staging offered and
+// verified, minus the ones that failed on production, whatever values files
+// each digest carries.
+func TestProductionNeverOffersUnverifiedDigest(t *testing.T) {
+	prod := candidateStage(Candidates{UpstreamStage: &StageRef{Name: "payments", Namespace: "staging"}},
+		StageStatus{FailedDigests: []string{cand3}})
+	prod.Spec.Environment = "production"
+	staging := &StageStatus{Offered: []string{cand1, cand2, cand3}, Verified: []string{cand1, cand3}}
+	got := CandidateDigests(prod, staging)
+	if strings.Join(got, ",") != cand1 {
+		t.Fatalf("cand2 was offered but never verified and cand3 failed on production: %v", got)
+	}
+}
+
+// One digest carries every environment's values file: staging and production
+// read different values from it and are offered the same digest.
+func TestValuesFilesShareOneDigest(t *testing.T) {
+	layer := chartWith(t, map[string]string{"values-staging.yaml": "replicas: 1\n", "values-production.yaml": prodValues})
+	read := func(env string) ManifestInspection {
+		stage := StageObject{Metadata: ObjectMeta{Namespace: env}, Spec: StageSpec{Environment: env, ApplyRef: argoRef}}
+		return InspectArtifact(HelmChartMediaType, layer, ManifestTargetOf(stage, argoApp(valueFiles("values-"+env+".yaml"), ""), nil, nil), BuiltinScope)
+	}
+	st, pr := read("staging"), read("production")
+	if st.ValuesDigest == "" || st.ValuesDigest == pr.ValuesDigest || st.ValuesFile != "values-staging.yaml" || pr.ValuesFile != "values-production.yaml" {
+		t.Fatalf("each environment reads its own file: %+v %+v", st, pr)
+	}
+	prod := candidateStage(Candidates{UpstreamStage: &StageRef{Name: "payments", Namespace: "staging"}}, StageStatus{})
+	if got := CandidateDigests(prod, &StageStatus{Offered: []string{cand1}, Verified: []string{cand1}}); strings.Join(got, ",") != cand1 {
+		t.Fatalf("production is offered the digest staging verified: %v", got)
+	}
+}
