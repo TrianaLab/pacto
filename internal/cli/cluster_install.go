@@ -121,7 +121,7 @@ func installInputs(ctx context.Context, dyn dynamic.Interface, opts app.JoinOpti
 	if err != nil {
 		return fmt.Errorf("the candidate clusters were not read: %w", err)
 	}
-	o.Flux, o.Argo = candidatesOf(c, detect.SourceFlux), candidatesOf(c, detect.SourceArgoCD)
+	o.Flux, o.Argo = c.From(detect.SourceFlux), c.From(detect.SourceArgoCD)
 	o.Matched = matched(ctx)
 	return nil
 }
@@ -157,24 +157,8 @@ func dashboardInstall(d deps, cluster *rest.Config, detected string, joins *app.
 		if err != nil {
 			return nil, err
 		}
-		var b strings.Builder
-		for _, w := range res.Warnings {
-			b.WriteString("# warning: " + strings.ReplaceAll(w, "\n", " ") + "\n")
-		}
-		b.Write(delivery.MemberInstallYAML(res.Files))
-		return []byte(b.String()), nil
+		return delivery.MemberInstallDownload(res), nil
 	}
-}
-
-// candidatesOf are the candidates of c from source.
-func candidatesOf(c detect.Clusters, source string) []detect.Candidate {
-	var out []detect.Candidate
-	for _, cand := range c.Candidates {
-		if cand.Source == source {
-			out = append(out, cand)
-		}
-	}
-	return out
 }
 
 // printMemberInstall prints the files to apply on stdout, and the warnings

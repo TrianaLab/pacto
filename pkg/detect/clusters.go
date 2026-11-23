@@ -50,6 +50,17 @@ type Clusters struct {
 	Total int `json:"total"`
 }
 
+// From are the candidates of c from source.
+func (c Clusters) From(source string) []Candidate {
+	var out []Candidate
+	for _, cand := range c.Candidates {
+		if cand.Source == source {
+			out = append(out, cand)
+		}
+	}
+	return out
+}
+
 // InventorySource is how one source was read: completeness, why it is short
 // of complete and the namespaces it was read in.
 type InventorySource struct {

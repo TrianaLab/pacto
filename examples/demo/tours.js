@@ -249,9 +249,10 @@
     target: "#sec-observed-traffic-and-differences"
   }, {
     // Only something to read: the demo cluster is a hub, and its Clusters block lists
-    // the members that joined through the registry and the one waiting for a person.
+    // the members that joined through the registry, the one waiting for a person and
+    // the candidate clusters the hub's Argo CD and Cluster API know.
     title: "Which clusters report here?",
-    text: "This cluster is a hub: eu-prod and us-west joined it through the registry once a person approved their keys, and ap-dev waits under Clusters until someone who may approve it runs the command its Approve button shows.",
+    text: "This cluster is a hub: eu-prod and us-west joined it through the registry once a person approved their keys, and ap-dev waits under Clusters until someone who may approve it runs the command its Approve button shows, while Candidate clusters lists what Argo CD and Cluster API already know and Get ApplicationSet hands you the file that installs Pacto on each one.",
     hash: "#/fleet/sources",
     target: '[data-testid="source-clusters"]'
   }, {

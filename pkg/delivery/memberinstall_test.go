@@ -401,3 +401,12 @@ func TestInstallArchiveHoldsTheFiles(t *testing.T) {
 		t.Fatalf("archive %v", got)
 	}
 }
+
+// TestMemberInstallDownloadLeadsWithWarnings: each warning is one comment
+// line before the YAML stream.
+func TestMemberInstallDownloadLeadsWithWarnings(t *testing.T) {
+	res := MemberInstallResult{Warnings: []string{"one\ntwo"}, Files: []InstallFile{{Path: "a.yaml", Content: "a: 1\n"}, {Path: "b.yaml", Content: "b: 2\n"}}}
+	if got := string(MemberInstallDownload(res)); got != "# warning: one two\na: 1\n---\nb: 2\n" {
+		t.Errorf("download = %q", got)
+	}
+}

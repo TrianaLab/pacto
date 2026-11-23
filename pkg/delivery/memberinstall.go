@@ -322,6 +322,17 @@ func InstallArchive(files []InstallFile) []byte {
 	return buf.Bytes()
 }
 
+// MemberInstallDownload is res as a download hands it out: each warning as a
+// leading comment line, then the files as one YAML stream.
+func MemberInstallDownload(res MemberInstallResult) []byte {
+	var b bytes.Buffer
+	for _, w := range res.Warnings {
+		b.WriteString("# warning: " + strings.ReplaceAll(w, "\n", " ") + "\n")
+	}
+	b.Write(MemberInstallYAML(res.Files))
+	return b.Bytes()
+}
+
 // MemberInstallYAML is files as one YAML stream, the way a person applies it.
 func MemberInstallYAML(files []InstallFile) []byte {
 	var b bytes.Buffer

@@ -127,6 +127,9 @@ func main() {
 	opts.Declare = declarer
 	// The production cluster is a hub with two members and one pending cluster.
 	opts.ClusterJoins = func(context.Context) (delivery.ClusterJoinList, error) { return demoClusterJoins(), nil }
+	// Its Argo CD and Cluster API know three candidate clusters; the Argo CD
+	// group hands out the generated ApplicationSet.
+	opts.ClusterInstall = demoClusterInstall
 	if opts.InstallationConfig, err = demoInstallationConfig(); err != nil {
 		panic(err)
 	}

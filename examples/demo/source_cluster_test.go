@@ -201,3 +201,63 @@ func checkDemoMembersInFleet(t *testing.T, snap *fleet.FleetSnapshot) {
 		}
 	}
 }
+
+// TestDemoCandidatesMatchByUID: the demo hub's three candidates are read
+// through MatchCandidates: eu-prod's Argo CD Secret states eu-prod's UID and
+// matches it, adding prod to its inventory environments with the label named
+// and leaving what eu-prod signed alone; staging-west states no UID and
+// ap-dev-pool, a Cluster API cluster, neither; nothing else gains one.
+func TestDemoCandidatesMatchByUID(t *testing.T) {
+	l := demoClusterJoins()
+	var got []string
+	for _, c := range l.Candidates {
+		got = append(got, c.Source+" "+c.Name+" "+c.Match)
+	}
+	want := []string{"argocd eu-prod matched", "argocd staging-west unmatched", "capi ap-dev-pool unmatched"}
+	if !slices.Equal(got, want) || l.CandidatesCompleteness != fleet.CompletenessComplete || len(l.Limitations) != 0 {
+		t.Fatalf("candidates = %v (%s, %v), want %v", got, l.CandidatesCompleteness, l.Limitations, want)
+	}
+	if m := l.Candidates[0].Member; m == nil || m.Name != "eu-prod" || l.Candidates[1].Reason != "the candidate states no cluster UID" {
+		t.Errorf("eu-prod member = %+v, staging-west reason %q", m, l.Candidates[1].Reason)
+	}
+	for _, c := range l.Clusters {
+		signed := delivery.AdvertisedEnvironments(nil, c.Name, c.NameSource)
+		if !slices.Equal(c.Environments, signed) {
+			t.Errorf("%s: environments %v, want what it signed %v", c.Name, c.Environments, signed)
+		}
+		var inv []delivery.InventoryEnvironment
+		if c.Name == "eu-prod" {
+			inv = []delivery.InventoryEnvironment{{Name: "prod", Source: "label env=prod on Argo CD cluster Secret argocd/eu-prod", Candidate: "argocd:argocd/eu-prod"}}
+		}
+		if !slices.Equal(c.InventoryEnvironments, inv) {
+			t.Errorf("%s: inventory environments %+v, want %+v", c.Name, c.InventoryEnvironments, inv)
+		}
+	}
+}
+
+// TestDemoInstallDownload: the dashboard's download hands out the Argo CD
+// ApplicationSet with the demo registry and no hub URL, warning that
+// eu-prod already runs Pacto; Flux has no candidate in the demo and says so.
+func TestDemoInstallDownload(t *testing.T) {
+	h := demoHandler(dashboard.Options{ClusterJoins: func(context.Context) (delivery.ClusterJoinList, error) { return demoClusterJoins(), nil },
+		ClusterInstall: demoClusterInstall})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/fleet/clusters/install?from=argocd", nil))
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Disposition") != `attachment; filename="pacto-members-argocd.yaml"` {
+		t.Fatalf("argocd: %d %v %s", rec.Code, rec.Header(), body)
+	}
+	for _, s := range []string{"# warning: Argo CD cluster Secret argocd/eu-prod", "kind: ApplicationSet\n", "registry: demo.pacto.local\n", "targetRevision: " + demoChartVersion} {
+		if !strings.Contains(body, s) {
+			t.Errorf("argocd install lacks %q:\n%s", s, body)
+		}
+	}
+	if strings.Contains(body, "hub:") {
+		t.Errorf("argocd install sets a hub URL:\n%s", body)
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/fleet/clusters/install?from=flux", nil))
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("flux: %d %s", rec.Code, rec.Body.String())
+	}
+}

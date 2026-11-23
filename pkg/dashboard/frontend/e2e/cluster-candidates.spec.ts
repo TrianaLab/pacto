@@ -53,3 +53,24 @@ test('Get ApplicationSet downloads the install, with registry and no hub URL', a
   expect(text).not.toContain('hub:');
   await expect(det.getByTestId('cluster-candidate-error')).toHaveCount(0);
 });
+
+test('the demo hub lists its three candidates and hands out its ApplicationSet', async ({ page }) => {
+  await appReady(page);
+  await page.goto('/#/fleet/sources');
+  const det = page.getByTestId('cluster-candidates');
+  await expect(det.locator('summary')).toHaveText('3 candidate clusters', { timeout: 30_000 });
+  await det.locator('summary').click();
+  await expect(det.getByTestId('cluster-candidate-group')).toHaveCount(2);
+  await expect(det.getByTestId('cluster-candidate').locator('.scc-word')).toHaveText(['matched to eu-prod', 'not matched', 'not matched']);
+  await expect(det.getByRole('button', { name: 'Get Flux manifests' })).toHaveCount(0);
+  await det.getByTestId('cluster-candidate-member').click();
+  await expect(page.locator('#sc-member-9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34')).toBeFocused();
+  const [download] = await Promise.all([page.waitForEvent('download'), det.getByRole('button', { name: 'Get ApplicationSet' }).click()]);
+  expect(download.suggestedFilename()).toBe('pacto-members-argocd.yaml');
+  const text = readFileSync(await download.path(), 'utf8');
+  expect(text).toContain('kind: ApplicationSet');
+  expect(text).toContain('registry: demo.pacto.local');
+  expect(text).toContain('# warning: Argo CD cluster Secret argocd/eu-prod');
+  expect(text).not.toContain('hub:');
+  await expect(det.getByTestId('cluster-candidate-error')).toHaveCount(0);
+});

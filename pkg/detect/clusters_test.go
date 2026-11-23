@@ -301,3 +301,14 @@ func TestClustersDecodeCleans(t *testing.T) {
 		t.Errorf("decoded = %d candidates, total %d, %+v, %+v", len(c.Candidates), c.Total, c.Candidates[0], c.Sources)
 	}
 }
+
+// TestClustersFromKeepsOneSource: From keeps a source's candidates in order.
+func TestClustersFromKeepsOneSource(t *testing.T) {
+	c := Clusters{Candidates: []Candidate{{Source: SourceArgoCD, Name: "a"}, {Source: SourceCAPI, Name: "b"}, {Source: SourceArgoCD, Name: "c"}}}
+	if got := c.From(SourceArgoCD); len(got) != 2 || got[0].Name != "a" || got[1].Name != "c" {
+		t.Errorf("From(argocd) = %+v", got)
+	}
+	if got := c.From(SourceFlux); got != nil {
+		t.Errorf("From(flux) = %+v", got)
+	}
+}
