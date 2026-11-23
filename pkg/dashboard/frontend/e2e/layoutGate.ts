@@ -639,6 +639,8 @@ export function installScaleFixture(): void {
       if (Array.isArray(doc.environments)) {
         doc.unplaced = Array.from({ length: 2000 }, (_, i) => ({ service: longName(`unplaced-${i}`), environment: longName(`rung-${i % 16}`), source: 'ladder',
           placement: { namespace: longName(`namespace-${i}`), provenance: 'inferred', source: 'inferred-from' }, reason: longName(`namespace refused ${i}`) }));
+        // and more hidden in namespaces the reader cannot list, counted under the list.
+        doc.unplacedHidden = 1234;
       }
     }
     // The Why card at its longest: many reasons, each with a long message and fix.
@@ -762,14 +764,17 @@ export function installScaleFixture(): void {
       if (typeof changes?.completenessReason === 'string') changes.completenessReason = longName(changes.completenessReason);
     }
     // A revision's and a target's environments at their longest: names, files and owners.
-    const lengthenEnv = (d: Record<string, unknown> | undefined) => {
+    // Every third revision environment has no values file (pactoVersion 2.6), so its
+    // "No values file" slot is drawn at scale too.
+    const lengthenEnv = (d: Record<string, unknown> | undefined, i = 1) => {
       if (!d) return;
-      d.name = longName(String(d.name ?? 'env')); d.file = longName(String(d.file ?? 'file'));
+      d.name = longName(String(d.name ?? 'env'));
+      if (i % 3) d.file = longName(String(d.file ?? 'file')); else delete d.file;
       if (d.owner) d.owner = { team: longName(String((d.owner as { team?: string }).team ?? 'team')) };
     };
     if (route === '/api/fleet/entities/revision') {
       const rev = doc.revision as Record<string, unknown> | undefined;
-      for (const d of (rev?.environments as { items?: Record<string, unknown>[] } | undefined)?.items ?? []) lengthenEnv(d);
+      for (const [i, d] of ((rev?.environments as { items?: Record<string, unknown>[] } | undefined)?.items ?? []).entries()) lengthenEnv(d, i);
       // pactoVersion 2.5 at its longest: 20 announced break consumers of 25 with a long
       // reason (every other one linked to the service it names), a 5-digit port on
       // every interface, a long inferred source and a dependency named from its ref

@@ -1423,8 +1423,9 @@ const demoLeaf = "preview"
 // Environments is what the promoter publishes about the installation
 // ladder: the chain the chart declares, one confirmed leaf, one open
 // proposal inferred from namespaces and, privately, where each environment
-// of a delivered service runs. checkout's preview environment is the one
-// Pacto could not place. Everyone here may read every row.
+// of a delivered service runs. checkout's preview environment is refused,
+// and fraud's runs where Helm owns it, so Pacto adds no applier there.
+// Everyone here may read every row.
 func (d *demoDelivery) Environments(context.Context) (*delivery.EnvironmentsView, []delivery.PlacementRow, bool, error) {
 	now := d.now()
 	declared := []delivery.LadderRung{
@@ -1437,13 +1438,15 @@ func (d *demoDelivery) Environments(context.Context) (*delivery.EnvironmentsView
 		Confirmed: []delivery.LadderRung{{Name: demoLeaf, Source: "namespaces *-preview, 2 found", Provenance: delivery.RungConfirmed}},
 		Record:    recordID("ladder"), ConfirmedBy: story.Alice.User, ConfirmedAt: stamp(now.Add(-24 * time.Hour)),
 		Repository: "registry.example/story/approvals", Stream: clusterID + "/pacto-delivery/ladder",
-		UnplacedCount: 1, AsOf: stamp(now), Completeness: "complete"}
+		UnplacedCount: 2, AsOf: stamp(now), Completeness: "complete"}
 	rows := []delivery.PlacementRow{
 		{Service: "payments", Environment: story.Test, Source: delivery.DesiredFromLadder, Stage: stageKey(story.Test, "payments")},
 		{Service: "payments", Environment: story.Prod, Source: delivery.DesiredFromLadder, Stage: stageKey(story.Prod, "payments")},
 		{Service: "checkout", Environment: demoLeaf, Source: delivery.DesiredFromConfirmed, Placement: &delivery.Placement{Namespace: "orders",
 			Provenance: delivery.PlacementInferred, Source: delivery.PlacementFromInferred, Evidence: "the workload checkout was inferred from",
 			Refused: "namespace orders belongs to orders (team-orders)"}},
+		{Service: "fraud", Environment: demoLeaf, Source: delivery.DesiredFromConfirmed, Placement: &delivery.Placement{Namespace: "fraud",
+			Provenance: delivery.PlacementUnknown, Evidence: "owned by Helm (release fraud, release annotations): Pacto does not add another applier"}},
 	}
 	return view, rows, true, nil
 }

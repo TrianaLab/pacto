@@ -151,3 +151,50 @@ func TestInboxLadderAbsentWithoutProposal(t *testing.T) {
 	f.ladder = nil
 	expect(t, inboxLadderOf(t, f) == nil, "no installation ladder, no block")
 }
+
+// TestUnplacedUnknownSaysWhy: an environment whose placement is unknown (a
+// workload Helm owns) gives its evidence as the reason, never an empty one.
+func TestUnplacedUnknownSaysWhy(t *testing.T) {
+	f := ladderCluster()
+	f.placements = append(f.placements, delivery.PlacementRow{Service: "payments", Environment: "preview", Source: delivery.DesiredFromConfirmed,
+		Placement: &delivery.Placement{Namespace: "payments-staging", Provenance: delivery.PlacementUnknown,
+			Evidence: "owned by Helm (release payments): Pacto does not add another applier"}})
+	un := environmentsOf(t, f, "?environment=preview")["unplaced"].([]any)
+	expect(t, len(un) == 1 && un[0].(map[string]any)["reason"] == "owned by Helm (release payments): Pacto does not add another applier", "reason: %v", un)
+}
+
+// TestUnplacedHiddenIsInstallationWide: a caller who may not read the
+// placement rows is told the hidden count is across the installation,
+// whatever the filters, since it names no service.
+func TestUnplacedHiddenIsInstallationWide(t *testing.T) {
+	f := ladderCluster()
+	f.placements, f.placementsReadable = nil, false
+	envs := environmentsOf(t, f, "?service=orders")
+	expect(t, envs["unplacedHidden"] == float64(2) && envs["unplacedUnreadable"] == true, "installation-wide: %v", envs)
+	_, marked := environmentsOf(t, ladderCluster(), "")["unplacedUnreadable"]
+	expect(t, !marked, "a reader of the rows: %v", marked)
+}
+
+// TestPartialViewMarksTheListing: a view the promoter marked partial marks
+// the answer partial with its reason, and an idle promoter's rows are named
+// as an earlier pass's.
+func TestPartialViewMarksTheListing(t *testing.T) {
+	f := ladderCluster()
+	f.ladder.Completeness, f.ladder.CompletenessReason, f.ladder.AsOf = "partial", "could not read the organization index: 503", "2026-11-22T10:00:00Z"
+	f.ladder.Idle = "the organization index could not be read (503), so Pacto places no service"
+	envs := environmentsOf(t, f, "")
+	expect(t, envs["completeness"] == "partial" && slices.Contains(toStrings(envs["unreadable"]),
+		"the installation ladder: could not read the organization index: 503; the environments not placed are from an earlier pass as of 2026-11-22T10:00:00Z "+
+			"(the organization index could not be read (503), so Pacto places no service)"), "partial: %v", envs["unreadable"])
+}
+
+// TestInboxLadderUnreadNeverConfirms: while the promoter read the ladder
+// records in part, nobody is offered the confirmation, and the block carries
+// the view's asOf and completeness.
+func TestInboxLadderUnreadNeverConfirms(t *testing.T) {
+	f := ladderCluster()
+	f.ladder.LadderUnread, f.ladder.Completeness, f.ladder.AsOf = "the ladder records: 503", "partial", "2026-11-23T10:00:00Z"
+	l := inboxLadderOf(t, f)
+	expect(t, l["canConfirm"] == false && l["unread"] == "the ladder records: 503" && l["completeness"] == "partial" && l["asOf"] == "2026-11-23T10:00:00Z" &&
+		f.cans.Load() == 0, "ladder: %v", l)
+}

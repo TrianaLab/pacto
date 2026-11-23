@@ -709,6 +709,36 @@ describe('installation ladder (511-S5)', () => {
     expect([...blocks[0].querySelectorAll('button')].some((b) => b.textContent === 'Confirm')).toBe(false);
     destroy();
   });
+
+  it('an unplaced row with no reason ends with its name, never a bare colon', async () => {
+    fns.environments.mockResolvedValue({ ...listing, environments: placed, unplaced: [{ service: 'fraud', environment: 'preview', placement: { namespace: 'fraud', provenance: 'unknown' }, reason: '' }] });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    expect(text(target.querySelector('[data-testid="unplaced-row"]') as HTMLElement)).toBe('fraud in preview (namespace fraud)');
+    destroy();
+  });
+
+  it('says an unreadable count is installation-wide, whatever the filter', async () => {
+    fns.environments.mockResolvedValue({ ...listing, environments: [], unplacedHidden: 3, unplacedUnreadable: true });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const det = target.querySelector('[data-testid="environments-unplaced"]') as HTMLElement;
+    expect(text(det.querySelector('summary') as HTMLElement).trim()).toBe('3 environments not placed across the installation');
+    expect(text(det.querySelector('[data-testid="unplaced-hidden"]') as HTMLElement)).toBe('You may not read where they would run, so none is listed and no filter narrows the count.');
+    destroy();
+  });
+
+  it('counts the ladder proposal as the one decision when nothing else waits', async () => {
+    const digest = `sha256:${'5be1'.repeat(16)}`;
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [],
+      ladder: { declared: [{ name: 'staging', source: 'chart', provenance: 'declared' }], confirmed: [], proposal: [{ name: 'perf', source: 'namespaces *-perf, 3 found', provenance: 'inferred' }], proposalDigest: digest, canConfirm: true, command: `pacto delivery ladder confirm --proposal ${digest}` } });
+    const { target, destroy } = render(DeliveryInboxView);
+    await settle();
+    expect(text(target.querySelector('.page-hd-count') as HTMLElement)).toBe('1 waiting for a decision');
+    expect(text(target.querySelector('[data-testid="inbox-answer"]') as HTMLElement)).toContain('The installation ladder proposal waits for you to confirm it.');
+    expect(text(target.querySelector('[data-testid="inbox-empty"] h2') as HTMLElement)).toBe('Only the installation ladder waits on you');
+    destroy();
+  });
 });
 
 describe('board offers and links (B2)', () => {

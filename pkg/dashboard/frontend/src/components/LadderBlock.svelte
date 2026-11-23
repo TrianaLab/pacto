@@ -31,12 +31,13 @@
       {#each proposal as r (r.name)}<li class="lb-inferred" data-testid="ladder-rung"><bdi title={r.name}>{r.name}</bdi>: inferred from {r.source}</li>{/each}
     </ul>
     <p class="lb-text">An inferred environment feeds no other, so confirming it never changes what reaches the chain the chart declares.</p>
+    {#if ladder.unread}<p class="lb-text" data-testid="ladder-unread">Pacto read the ladder records in part ({ladder.unread}), so nobody can confirm until it reads them.</p>{/if}
     {#if ladder.canConfirm}
       <button type="button" class="btn lb-btn" aria-expanded={open} aria-controls={panelId} onclick={() => (open = !open)}>Confirm</button>
       {#if open}
         <div class="lb-panel" id={panelId} data-testid="ladder-confirm">
           <CopyableIdentifier value={command} label="command" />
-          <p class="lb-text">Confirming signs a record as you. Run it yourself; the proposal digest pins exactly what you read here.</p>
+          <p class="lb-text">Confirming signs a record as you. Run it yourself; the proposal digest pins exactly what you read here. Pacto counts it only when approve on environmentladders is granted to your user, not only to a group.</p>
         </div>
       {/if}
     {/if}

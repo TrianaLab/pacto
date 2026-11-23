@@ -60,7 +60,8 @@ var deliveryReadTools = []deliveryRead{
 		"is in a team the question names (break-glass also gets those that name no team), with the decision asked and the affected services; " +
 		"a change whose update rights could not be checked marks the answer partial. Also the frozen Stages of the caller's services " +
 		"(every frozen Stage they can read when owner teams do not narrow) and the Errored operations on them. " +
-		"When the promoter proposes rungs for the installation ladder, also that proposal and the exact pacto delivery ladder confirm command a person runs to confirm it.",
+		"When the promoter proposes rungs for the installation ladder, also that proposal with its asOf and completeness, and the exact pacto delivery ladder confirm " +
+		"command a person runs to confirm it; canConfirm counts the caller's groups, while the promoter counts only a grant to the person's own user.",
 		params: map[string]property{
 			"held":        {Type: "integer", Description: "Where the page of held changes starts"},
 			"frozen":      {Type: "integer", Description: "Where the page of frozen Stages starts"},
@@ -77,8 +78,9 @@ var deliveryReadTools = []deliveryRead{
 	{route: "environments", description: "Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. " +
 		"With service it also says, per Stage, which actions the caller may take and why, including freeze and undo. " +
 		"Where the promoter publishes the installation ladder, each Stage also says where its environment comes from (declared, ladder, inferred-confirmed or hand-written) " +
-		"and its placement (namespace, provenance, evidence and who confirmed it), and the environments with no Stage are listed with the reason; " +
-		"those the caller may not read are only counted.",
+		"and its placement (namespace, provenance, evidence and who confirmed it), read from the Stage's annotations, which anyone who may edit the Stage can write. " +
+		"The environments with no Stage are listed with the reason; those the caller may not read are only counted, and with unplacedUnreadable that count is " +
+		"installation-wide, never narrowed by the filters.",
 		params: page(map[string]property{
 			"environment": {Type: "string", Description: "Keep only the services with a Stage in this environment, and only those Stages"},
 			"tier": {Type: "string", Enum: []string{"dev", "test", "prod"}, Description: "Keep only the services with a Stage in an environment whose name says this tier " +

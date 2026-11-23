@@ -964,8 +964,10 @@ func TestDemoStagesAreManaged(t *testing.T) {
 	if code := call(t, h, "GET", "/api/delivery/environments", "", &out); code != 200 {
 		t.Fatalf("environments %d", code)
 	}
-	if len(out.Unplaced) != 1 || out.Unplaced[0].Service != "checkout" || out.Unplaced[0].Environment != demoLeaf ||
-		out.Unplaced[0].Reason != "namespace orders belongs to orders (team-orders)" {
+	// The Helm-owned one says why in its evidence.
+	if len(out.Unplaced) != 2 || out.Unplaced[0].Service != "checkout" || out.Unplaced[0].Environment != demoLeaf ||
+		out.Unplaced[0].Reason != "namespace orders belongs to orders (team-orders)" ||
+		out.Unplaced[1].Reason != "owned by Helm (release fraud, release annotations): Pacto does not add another applier" {
 		t.Errorf("unplaced %+v", out.Unplaced)
 	}
 }

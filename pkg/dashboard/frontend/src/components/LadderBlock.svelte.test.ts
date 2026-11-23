@@ -13,12 +13,12 @@ const COMMAND = `pacto delivery ladder confirm --proposal ${DIGEST}`;
 let cleanup: (() => void) | null = null;
 afterEach(() => { cleanup?.(); cleanup = null; });
 
-function render(canConfirm: boolean) {
+function render(canConfirm: boolean, extra: Record<string, unknown> = {}) {
   const ladder = {
     declared: [{ name: 'staging', source: 'chart value delivery.environments.ladder', provenance: 'declared' }, { name: 'production', upstream: 'staging', source: 'chart value delivery.environments.ladder', provenance: 'declared' }],
     confirmed: [{ name: 'preview', source: 'namespaces *-preview, 4 found', provenance: 'confirmed' }],
     proposal: [{ name: 'perf', source: 'namespaces *-perf, 3 found', provenance: 'inferred' }],
-    proposalDigest: DIGEST, canConfirm, command: COMMAND,
+    proposalDigest: DIGEST, canConfirm, command: COMMAND, ...extra,
   };
   const target = document.createElement('div'); document.body.appendChild(target);
   const c = mount(LadderBlock, { target, props: { ladder } });
@@ -49,6 +49,14 @@ describe('LadderBlock', () => {
     btn.click(); flushSync();
     expect(btn.getAttribute('aria-expanded')).toBe('true');
     expect(t.querySelector('.copyable-value')?.textContent).toBe(COMMAND);
+  });
+
+  it('says why nobody can confirm while the ladder records were read in part', () => {
+    const t = render(false, { unread: 'the ladder records: 503' });
+    expect(t.querySelector('[data-testid="ladder-unread"]')?.textContent).toBe('Pacto read the ladder records in part (the ladder records: 503), so nobody can confirm until it reads them.');
+    expect([...t.querySelectorAll('button')].some((b) => b.textContent === 'Confirm')).toBe(false);
+    cleanup?.(); cleanup = null;
+    expect(render(true).querySelector('[data-testid="ladder-unread"]')).toBeNull();
   });
 
   it('copies the exact command', async () => {

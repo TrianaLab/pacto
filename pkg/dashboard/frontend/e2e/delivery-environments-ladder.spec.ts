@@ -63,8 +63,11 @@ test('an unplaced environment says why in the collapsed details', async ({ page 
   const unplaced = page.getByTestId('environments-unplaced');
   await expect(unplaced).not.toHaveAttribute('open', /.*/, { timeout: T });
   await unplaced.locator('summary').click({ timeout: T });
-  await expect(unplaced.locator('summary')).toHaveText('1 environment not placed');
-  await expect(unplaced.getByTestId('unplaced-row')).toHaveText('checkout in preview (namespace orders): namespace orders belongs to orders (team-orders)');
+  await expect(unplaced.locator('summary')).toHaveText('2 environments not placed');
+  await expect(unplaced.getByTestId('unplaced-row')).toHaveText([
+    'checkout in preview (namespace orders): namespace orders belongs to orders (team-orders)',
+    // An unknown placement (Helm owns the workload) says why: never a bare colon.
+    'fraud in preview (namespace fraud): owned by Helm (release fraud, release annotations): Pacto does not add another applier']);
   await audit(page, 'environments, unplaced open');
 });
 
@@ -73,5 +76,56 @@ test('a person without confirm rights sees no Confirm', async ({ page }) => {
   const ladder = await inbox(page);
   await ladder.locator('summary').click();
   await expect(ladder.getByTestId('ladder-rung')).toBeVisible();
+  await expect(ladder.getByRole('button', { name: 'Confirm', exact: true })).toHaveCount(0);
+});
+
+// amendDemo rewrites one answer of the demo's in-browser server: 'hidden' is a reader
+// who may not read the placement rows, 'ladder-only' an inbox where only the ladder
+// proposal waits, 'ladder-unread' one whose ladder records were read in part.
+function amendDemo(mode: 'hidden' | 'ladder-only' | 'ladder-unread') {
+  type Serve = (m: string, p: string, b: string | null) => Promise<{ status: number; body: string; contentType: string }>;
+  let real: Serve | null = null;
+  const wrapped: Serve = async (m, p, b) => {
+    const res = await (real as Serve)(m, p, b);
+    const route = p.split('?')[0];
+    if (m !== 'GET' || res.status !== 200 || !['/api/delivery/environments', '/api/delivery/inbox'].includes(route)) return res;
+    const doc = JSON.parse(res.body);
+    if (mode === 'hidden' && route === '/api/delivery/environments') Object.assign(doc, { unplaced: undefined, unplacedHidden: 2, unplacedUnreadable: true });
+    if (mode !== 'hidden' && route === '/api/delivery/inbox') {
+      if (mode === 'ladder-only') Object.assign(doc, { held: [], frozen: [], errored: [], heldPage: undefined, frozenPage: undefined, erroredPage: undefined, heldShared: 0 });
+      else Object.assign(doc.ladder, { unread: 'the ladder records: 503', completeness: 'partial', canConfirm: false });
+    }
+    return { ...res, body: JSON.stringify(doc) };
+  };
+  Object.defineProperty(window, '__pactoServe', { configurable: true, get() { return real ? wrapped : undefined; }, set(v: Serve) { real = v; } });
+}
+
+test('a reader who may not read the placement rows sees an installation-wide count', async ({ page }) => {
+  await page.addInitScript(amendDemo, 'hidden');
+  await page.goto('/#/delivery/environments?service=payments');
+  const unplaced = page.getByTestId('environments-unplaced');
+  await unplaced.locator('summary').click({ timeout: T });
+  await expect(unplaced.locator('summary')).toHaveText('2 environments not placed across the installation');
+  await expect(unplaced.getByTestId('unplaced-hidden')).toHaveText('You may not read where they would run, so none is listed and no filter narrows the count.');
+  await expect(unplaced.getByTestId('unplaced-row')).toHaveCount(0);
+  await audit(page, 'environments, unplaced hidden');
+});
+
+test('an inbox where only the ladder proposal waits says so', async ({ page }) => {
+  await page.addInitScript(amendDemo, 'ladder-only');
+  await inbox(page);
+  await switchTo(page, 'alice');
+  await expect(page.getByTestId('inbox-answer')).toContainText('The installation ladder proposal waits for you to confirm it.', { timeout: T });
+  await expect(page.getByTestId('inbox-empty').locator('h2')).toHaveText('Only the installation ladder waits on you');
+  await expect(page.locator('.page-hd-count')).toHaveText('1 waiting for a decision');
+  await audit(page, 'inbox, only the ladder waits');
+});
+
+test('a ladder read in part offers no Confirm and says why', async ({ page }) => {
+  await page.addInitScript(amendDemo, 'ladder-unread');
+  const ladder = await inbox(page);
+  await switchTo(page, 'alice');
+  await ladder.locator('summary').click({ timeout: T });
+  await expect(ladder.getByTestId('ladder-unread')).toHaveText('Pacto read the ladder records in part (the ladder records: 503), so nobody can confirm until it reads them.');
   await expect(ladder.getByRole('button', { name: 'Confirm', exact: true })).toHaveCount(0);
 });

@@ -413,16 +413,17 @@
     {/if}
     {#if unplacedTotal}
       <details class="disclosure ev-unplaced" data-testid="environments-unplaced">
-        <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>{countOf(unplacedTotal, 'environment')} not placed</summary>
+        <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>{countOf(unplacedTotal, 'environment')} not placed{data.unplacedUnreadable ? ' across the installation' : ''}</summary>
         {#if unplaced.length}
           <ul class="ev-unplaced-list">
             {#each unplacedCap.slice(unplaced) as u, i (`${u.domain ?? ''}/${u.service}/${u.environment ?? ''}/${i}`)}
-              <li data-testid="unplaced-row"><bdi title={u.service}>{u.service}</bdi>{#if u.environment}{' in '}<bdi title={u.environment}>{u.environment}</bdi>{/if}{#if u.placement?.namespace}{' (namespace '}<bdi title={u.placement.namespace}>{u.placement.namespace}</bdi>{')'}{/if}: {u.reason}</li>
+              <li data-testid="unplaced-row"><bdi title={u.service}>{u.service}</bdi>{#if u.environment}{' in '}<bdi title={u.environment}>{u.environment}</bdi>{/if}{#if u.placement?.namespace}{' (namespace '}<bdi title={u.placement.namespace}>{u.placement.namespace}</bdi>{')'}{/if}{#if u.reason}: {u.reason}{/if}</li>
             {/each}
           </ul>
           <ShowAll cap={unplacedCap} total={unplaced.length} noun="environments not placed" testid="unplaced-more" />
         {/if}
-        {#if data.unplacedHidden}<p class="ev-unplaced-hidden">{countOf(data.unplacedHidden, 'environment')} hidden: you may not read {data.unplacedHidden === 1 ? 'it' : 'them'}.</p>{/if}
+        {#if data.unplacedUnreadable}<p class="ev-unplaced-hidden" data-testid="unplaced-hidden">You may not read where they would run, so none is listed and no filter narrows the count.</p>
+        {:else if data.unplacedHidden}<p class="ev-unplaced-hidden" data-testid="unplaced-hidden">{countOf(data.unplacedHidden, 'environment')} hidden: you may not read {data.unplacedHidden === 1 ? 'it' : 'them'}.</p>{/if}
       </details>
     {/if}
   {/if}
