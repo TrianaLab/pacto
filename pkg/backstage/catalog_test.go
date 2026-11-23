@@ -59,7 +59,7 @@ func TestReadCatalogPage(t *testing.T) {
 		{name: "no name", item: component("", "", nil, nil), none: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			facts, next, err := ReadCatalogPage(page(t, "c2", tc.item), at)
+			facts, next, _, err := ReadCatalogPage(page(t, "c2", tc.item), at)
 			if err != nil || next != "c2" {
 				t.Fatalf("ReadCatalogPage = %v, %q", err, next)
 			}
@@ -78,10 +78,10 @@ func TestReadCatalogPage(t *testing.T) {
 			}
 		})
 	}
-	if _, _, err := ReadCatalogPage([]byte("{"), at); err == nil {
+	if _, _, _, err := ReadCatalogPage([]byte("{"), at); err == nil {
 		t.Error("bad JSON decoded")
 	}
-	if _, next, _ := ReadCatalogPage(page(t, ""), at); next != "" {
+	if _, next, _, _ := ReadCatalogPage(page(t, ""), at); next != "" {
 		t.Errorf("last page next = %q", next)
 	}
 }
@@ -92,12 +92,12 @@ func TestReadCatalogPageBounds(t *testing.T) {
 		deps[i] = fmt.Sprintf("component:svc-%d", i)
 	}
 	long := strings.Repeat("a", 300)
-	facts, _, err := ReadCatalogPage(page(t, "", component("led\x00ger\u202e", "", map[string]string{AnnotationServiceKey: long}, map[string]any{"dependsOn": deps})), time.Now())
-	if err != nil || len(facts) != 1 {
-		t.Fatalf("ReadCatalogPage = %+v, %v", facts, err)
+	facts, _, trimmed, err := ReadCatalogPage(page(t, "", component("led\x00ger\u202e", "", map[string]string{AnnotationServiceKey: long}, map[string]any{"dependsOn": deps})), time.Now())
+	if err != nil || len(facts) != 1 || trimmed != 1 {
+		t.Fatalf("ReadCatalogPage = %+v, %d trimmed, %v", facts, trimmed, err)
 	}
 	f := facts[0]
-	if f.Name != "ledger" || len([]rune(string(f.ServiceKey))) != maxFactRunes || len(f.DependsOn) != maxFactDependsOn {
+	if f.Name != "ledger" || len([]rune(string(f.ServiceKey))) != maxFactRunes || len(f.DependsOn) != MaxFactDependsOn {
 		t.Errorf("fact = name %q, key %d runes, %d dependsOn", f.Name, len([]rune(string(f.ServiceKey))), len(f.DependsOn))
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -60,6 +61,19 @@ func endlessCatalog(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(catalogPage(fmt.Sprintf("svc%d", n), 500, fmt.Sprintf("p%d", n+1))))
 }
 
+// endlessEmptyCatalog answers an empty page with the same next cursor
+// forever and fails the test past the page bound.
+func endlessEmptyCatalog() http.HandlerFunc {
+	var calls atomic.Int32
+	return func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) > maxBackstagePages {
+			w.WriteHeader(http.StatusTeapot)
+			return
+		}
+		_, _ = w.Write([]byte(`{"items":[],"pageInfo":{"nextCursor":"same"}}`))
+	}
+}
+
 // checkBackstageState asserts an advisory collection with status, facts
 // service facts and a message containing msg but never the server URL.
 func checkBackstageState(t *testing.T, col *fleet.Collection, err error, status fleet.SourceStatus, facts int, msg string) {
@@ -103,6 +117,17 @@ func TestBackstageSourceStates(t *testing.T) {
 				_, _ = w.Write([]byte(catalogPage("a", backstage.MaxCatalogEntities+1, "")))
 			}},
 		{name: "cap reached", status: fleet.SourcePartial, facts: backstage.MaxCatalogEntities, msg: "the read stopped at 5000 components", handler: endlessCatalog},
+		{name: "endless empty pages", status: fleet.SourcePartial, msg: "or 10 pages", handler: endlessEmptyCatalog()},
+		{name: "dependencies trimmed", status: fleet.SourcePartial, facts: 1, msg: "1 components list more than 50 component dependencies",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				deps := make([]string, 60)
+				for i := range deps {
+					deps[i] = fmt.Sprintf("component:svc-%d", i)
+				}
+				data, _ := json.Marshal(map[string]any{"items": []any{map[string]any{"kind": "Component",
+					"metadata": map[string]any{"name": "gateway"}, "spec": map[string]any{"dependsOn": deps}}}})
+				_, _ = w.Write(data)
+			}},
 		{name: "401", status: fleet.SourceUnavailable, msg: "refused", handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(401) }},
 		{name: "403", status: fleet.SourceUnavailable, msg: "refused", handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(403) }},
 		{name: "404", status: fleet.SourceUnavailable, msg: "entities/by-query", handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(404) }},
@@ -110,7 +135,7 @@ func TestBackstageSourceStates(t *testing.T) {
 		{name: "bad JSON", status: fleet.SourceUnavailable, msg: "not an entities/by-query page", handler: func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte("{"))
 		}},
-		{name: "body over 16 MiB", status: fleet.SourceUnavailable, msg: "not an entities/by-query page", handler: func(w http.ResponseWriter, r *http.Request) {
+		{name: "body over 16 MiB", status: fleet.SourceUnavailable, msg: "a catalog page is larger than 16 MiB", handler: func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(`{"items":[],"pad":"` + strings.Repeat("x", maxBackstageBodyBytes) + `"}`))
 		}},
 		{name: "body cut short", status: fleet.SourceUnavailable, msg: "could not be read", handler: func(w http.ResponseWriter, r *http.Request) {
@@ -189,7 +214,9 @@ func TestBackstageTokenRefusedOverPlainHTTP(t *testing.T) {
 		{url: "http://backstage.backstage.svc.cluster.local/", token: testToken, cluster: true},
 		{url: "http://backstage.backstage.svc", token: testToken, refused: "use https or run inside the cluster"},
 		{url: "http://backstage.backstage.svc:7007", token: testToken, refused: "use https or run inside the cluster"},
-		{url: "http://backstage.example.com", token: testToken, cluster: true, refused: "use https or run inside the cluster"},
+		{url: "http://backstage.example.com", token: testToken, cluster: true, refused: "use https or the in-cluster Service name http://<service>.<namespace>.svc:<port>"},
+		{url: "http://backstage:7007", token: testToken, cluster: true, refused: "use https or the in-cluster Service name"},
+		{url: "http://backstage.backstage:7007", token: testToken, cluster: true, refused: "use https or the in-cluster Service name"},
 		{url: "http://backstage.example.com"},
 		{url: "https://backstage.example.com", token: testToken},
 		{url: "https://u:p@backstage.example.com", refused: "credentials"},
@@ -213,7 +240,7 @@ func TestBackstageTokenRefusedOverPlainHTTP(t *testing.T) {
 }
 
 func TestDetectedBackstageSourceRefusesABadEndpoint(t *testing.T) {
-	if s, err := NewDetectedBackstageSource("backstage-catalog", "ftp://backstage.idp.svc:7007", "detected: backstage.idp", time.Now); err == nil || s != nil {
+	if s, err := NewDetectedBackstageSource("backstage-catalog", "ftp://backstage.idp.svc:7007", "detected", time.Now); err == nil || s != nil {
 		t.Fatalf("source = %+v, err = %v", s, err)
 	}
 }
@@ -227,13 +254,13 @@ func TestDetectedBackstageSourceSendsNoToken(t *testing.T) {
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer srv.Close()
-	s, err := NewDetectedBackstageSource("backstage-catalog", srv.URL, "detected: backstage.idp", time.Now)
+	s, err := NewDetectedBackstageSource("backstage-catalog", srv.URL, "detected", time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	col, _ := s.Collect(context.Background())
 	st := col.State
-	if st.Status != fleet.SourceUnavailable || st.Ref != "detected: backstage.idp" || st.Error == nil ||
+	if st.Status != fleet.SourceUnavailable || st.Ref != "detected" || st.Error == nil ||
 		st.Error.Message != "the catalog refused the request; set dashboard.backstage.url and tokenSecret to read this catalog" {
 		t.Fatalf("state = %+v", st)
 	}

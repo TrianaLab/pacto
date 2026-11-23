@@ -20,8 +20,10 @@ const MaxCatalogEntities = 5000
 
 // Bounds on what one catalog entity may carry into a fact.
 const (
-	maxFactRunes     = 256
-	maxFactDependsOn = 50
+	maxFactRunes = 256
+	// MaxFactDependsOn is how many component dependencies one fact keeps; a
+	// read that trims more says so.
+	MaxFactDependsOn = 50
 )
 
 // CatalogPage is one page of the catalog API's entities/by-query answer. The
@@ -50,24 +52,30 @@ type catalogEntity struct {
 
 // ReadCatalogPage decodes one entities/by-query page into a fact per
 // Component, read at at, and returns the cursor of the next page ("" for the
-// last one). An owner, system or depends-on the contract rules do not accept
+// last one), and how many Components listed more than [MaxFactDependsOn]
+// component dependencies, which were trimmed. An owner, system or depends-on the contract rules do not accept
 // is left out; only component refs count as dependencies. A Component Pacto
 // exported is marked so [fleet.Build] never reads it back.
-func ReadCatalogPage(data []byte, at time.Time) (facts []fleet.RawServiceFact, next string, err error) {
+func ReadCatalogPage(data []byte, at time.Time) (facts []fleet.RawServiceFact, next string, trimmed int, err error) {
 	var page CatalogPage
 	if err := json.Unmarshal(data, &page); err != nil {
-		return nil, "", err
+		return nil, "", 0, err
 	}
 	for _, e := range page.Items {
 		if strings.EqualFold(e.Kind, kindComp) && cleanFact(e.Metadata.Name) != "" {
-			facts = append(facts, entityFact(e, at))
+			f, cut := entityFact(e, at)
+			facts = append(facts, f)
+			if cut {
+				trimmed++
+			}
 		}
 	}
-	return facts, page.PageInfo.NextCursor, nil
+	return facts, page.PageInfo.NextCursor, trimmed, nil
 }
 
-// entityFact is the fact of the Component e.
-func entityFact(e catalogEntity, at time.Time) fleet.RawServiceFact {
+// entityFact is the fact of the Component e, and whether its component
+// dependencies were trimmed to [MaxFactDependsOn].
+func entityFact(e catalogEntity, at time.Time) (fleet.RawServiceFact, bool) {
 	name := cleanFact(e.Metadata.Name)
 	ns := cleanFact(e.Metadata.Namespace)
 	if ns == "" {
@@ -87,12 +95,18 @@ func entityFact(e catalogEntity, at time.Time) fleet.RawServiceFact {
 	if d, ok := DomainFromRef(cleanFact(e.Spec.System)); ok {
 		f.BusinessDomain = d
 	}
+	cut := false
 	for _, ref := range e.Spec.DependsOn {
-		if r, ok := dependsOnRef(ref); ok && len(f.DependsOn) < maxFactDependsOn {
+		r, ok := dependsOnRef(ref)
+		switch {
+		case !ok:
+		case len(f.DependsOn) < MaxFactDependsOn:
 			f.DependsOn = append(f.DependsOn, r)
+		default:
+			cut = true
 		}
 	}
-	return f
+	return f, cut
 }
 
 // dependsOnRef is the depends-on ref when it names a component.

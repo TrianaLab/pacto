@@ -31,6 +31,9 @@ func TestOwnerFromRef(t *testing.T) {
 		"group:bad owner":             {},
 		"user:bad owner":              {},
 		"system:payments":             {},
+		"unknown":                     {},
+		"group:default/unknown":       {},
+		"user:Unknown":                {},
 	} {
 		got, ok := OwnerFromRef(ref)
 		if got.Team != want.Team || got.DRI != want.DRI || ok != !want.IsEmpty() {

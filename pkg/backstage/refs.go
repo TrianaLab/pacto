@@ -19,10 +19,13 @@ func EntityRef(ref string) (kind, name string) {
 
 // OwnerFromRef reads the owner reference ref: a group, the default kind, is a
 // team and a user is a person. Any other kind, or a name the contract does not
-// accept, is no owner.
+// accept, is no owner, and so is the placeholder name "unknown" Pacto's own
+// export and many catalogs write when nobody owns a component.
 func OwnerFromRef(ref string) (contract.Owner, bool) {
 	kind, name := EntityRef(ref)
 	switch {
+	case strings.EqualFold(name, "unknown"):
+		return contract.Owner{}, false
 	case (kind == "" || kind == "group") && contract.ValidTeamName(name):
 		return contract.Owner{Team: name}, true
 	case kind == "user" && contract.ValidDRIName(name):

@@ -19,7 +19,7 @@ var demoBackstageCatalog []byte
 // demoBackstageSource reads the catalog page as the dashboard's Backstage
 // source does: an available advisory source of inferred service facts.
 func demoBackstageSource(now time.Time) (fleet.Source, error) {
-	facts, _, err := backstage.ReadCatalogPage(demoBackstageCatalog, now)
+	facts, _, _, err := backstage.ReadCatalogPage(demoBackstageCatalog, now)
 	if err != nil {
 		return nil, err
 	}
