@@ -28,7 +28,8 @@ const (
 	// POTENTIAL_BREAKING. It is the zero value so a caller that says nothing gets
 	// the safe classification.
 	dirUnknown schemaDirection = iota
-	// dirRequest is data the consumer sends: an OpenAPI request body.
+	// dirRequest is data the consumer sends: an OpenAPI request body, or an
+	// offering's configuration schema (the parameters a consumer asks for).
 	dirRequest
 	// dirResponse is data the provider returns: an OpenAPI response body.
 	dirResponse
@@ -40,7 +41,13 @@ const (
 
 // diffSchema compares two JSON Schema files and returns changes for any
 // structural difference: properties, required fields, types, constraints, etc.
+// It grades the schema with no direction; diffSchemaAt takes one.
 func diffSchema(oldPath, newPath string, oldFS, newFS fs.FS) []Change {
+	return diffSchemaAt(dirUnknown, oldPath, newPath, oldFS, newFS)
+}
+
+// diffSchemaAt is diffSchema for a schema that sits in position dir.
+func diffSchemaAt(dir schemaDirection, oldPath, newPath string, oldFS, newFS fs.FS) []Change {
 	if oldFS == nil || newFS == nil || oldPath == "" || newPath == "" {
 		return nil
 	}
@@ -57,7 +64,7 @@ func diffSchema(oldPath, newPath string, oldFS, newFS fs.FS) []Change {
 	}
 
 	sensitive := slices.Concat(sensitivePaths(oldDoc), sensitivePaths(newDoc))
-	return redact(diffJSON(dirUnknown, nil, schemaRoot, oldDoc, newDoc), sensitive)
+	return redact(diffJSON(dir, nil, schemaRoot, oldDoc, newDoc), sensitive)
 }
 
 // schemaRoot is the path diffSchema gives a schema document's root.

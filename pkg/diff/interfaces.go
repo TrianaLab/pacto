@@ -165,8 +165,15 @@ func diffPort(name string, o, n int) []Change {
 // diffConfiguration compares configuration slices by name and delegates to JSON Schema diff.
 // A contract that goes from one configuration to several also loses its default: a consumer's
 // reference that names no configuration selected the only one and now reads as ambiguous.
+// When both sides declare service.offering, a configuration schema is the parameter set a
+// consumer sends to the offering, so it is graded as request data; every other contract
+// keeps the conservative directionless grading.
 func diffConfiguration(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
-	changes := diffRefSources("configurations",
+	dir := dirUnknown
+	if old.Service.Offering != "" && new.Service.Offering != "" {
+		dir = dirRequest
+	}
+	changes := diffRefSources("configurations", dir,
 		configRefSources(old.Configurations), configRefSources(new.Configurations), oldFS, newFS)
 	if len(old.Configurations) == 1 && len(new.Configurations) > 1 {
 		c := newChange("configurations.default", Removed, old.Configurations[0].Name, nil)
@@ -203,8 +210,9 @@ func policyRefSources(pols []contract.Policy) []refSource {
 
 // diffRefSources diffs two sets of named schema/ref sources (configurations or
 // policies) by name, including local schema-file content diffs. field is the
-// change-path prefix ("configurations" or "policies").
-func diffRefSources(field string, old, new []refSource, oldFS, newFS fs.FS) []Change {
+// change-path prefix ("configurations" or "policies"); dir is the position the
+// schema files are graded in.
+func diffRefSources(field string, dir schemaDirection, old, new []refSource, oldFS, newFS fs.FS) []Change {
 	var changes []Change
 	oldByName := indexRefSources(old)
 	newByName := indexRefSources(new)
@@ -230,7 +238,7 @@ func diffRefSources(field string, old, new []refSource, oldFS, newFS fs.FS) []Ch
 		}
 		// Diff schema file contents when both reference local schemas.
 		if o.schema != "" && n.schema != "" {
-			changes = append(changes, diffSchema(o.schema, n.schema, oldFS, newFS)...)
+			changes = append(changes, diffSchemaAt(dir, o.schema, n.schema, oldFS, newFS)...)
 		}
 		// Diff inline configuration values (never consumer-facing).
 		changes = append(changes, diffConfigValues(field, name, n.ref, o.values, n.values)...)
@@ -280,7 +288,7 @@ func indexRefSources(sources []refSource) map[string]refSource {
 
 // diffPolicy compares policies arrays by name.
 func diffPolicy(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
-	changes := diffRefSources("policies",
+	changes := diffRefSources("policies", dirUnknown,
 		policyRefSources(old.Policies), policyRefSources(new.Policies), oldFS, newFS)
 
 	// Auto-detect: compare policy/schema.json when bundles ship it but
