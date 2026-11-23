@@ -257,6 +257,11 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 			return nil, fmt.Errorf("scenario %s: evidence subject: %w", s.Name, err)
 		}
 	}
+	contribution, contributionSubject, err := s.composeContribution(subjects)
+	if err != nil {
+		return nil, err
+	}
+	seedInputs = append(seedInputs, contribution...)
 
 	f := composeFile{Extension: composeExtension{
 		Version:        opts.Version,
@@ -274,7 +279,7 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 			Image:      opts.PactoImage,
 			Restart:    "unless-stopped",
 			Entrypoint: []string{"/bin/sh", "-euc"},
-			Command:    []string{evidenceScript(signer, agent, subjects)},
+			Command:    []string{evidenceScript(signer, agent, subjects, composeContributionGrant(contributionSubject))},
 			// Ingestion RESOLVES each envelope's ContractRef before accepting it, so
 			// the server reaches the registry itself; without this it answers 502
 			// contract_resolution_failed on a plain-HTTP demo registry.
@@ -319,6 +324,10 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 				"PACTO_DEMO_STATS_BASE_EPOCH": strconv.FormatInt(story.Now.Unix(), 10),
 				"PACTO_DEMO_STATS_REPO":       ComposeStatsRepo,
 				"PACTO_DEMO_DETECTED":         ComposeArtifactMount + "/detected.json",
+				// A producer outside Pacto contributes a service and reports a target.
+				"PACTO_DEMO_CONTRIBUTION":       ComposeContributionDir,
+				"PACTO_DEMO_CONTRIBUTOR":        ComposeContributor,
+				"PACTO_DEMO_CONTRIBUTION_STAMP": composeContributionStamp,
 			},
 			DependsOn: map[string]composeDep{
 				// The registry needs no healthcheck of its own: the seed's first push
@@ -702,21 +711,27 @@ var composeReservedServices = map[string]struct{}{
 // declares, minting its keypair on first run.
 //
 // The private key is MOVED out of the trust directory it is written into: the
-// trust loader reads every *.pub there, and leaving the key beside them would put
-// signing material in the directory whose job is to hold only public keys. The
-// guard makes a restart reuse the identity it already published, so an envelope
-// signed before the restart still verifies after it.
-func evidenceScript(signer, agent Signer, subjects []string) string {
+// trust directory holds only public keys and the trust config. The guard makes
+// a restart reuse the identity it already published, so an envelope signed
+// before the restart still verifies after it.
+//
+// The server reads a structured trust config: the scenario's signer and the
+// host agent with no allowlists, as the bare key directory trusted them, and
+// the contributing producer granted its own contribution path and the subject
+// repository it reports on.
+func evidenceScript(signer, agent Signer, subjects, grant []string) string {
+	trust := composeTrustDir + "/trust.yaml"
 	serve := "exec pacto evidence serve" +
 		" --listen-address 0.0.0.0:" + strconv.Itoa(composeEvidencePort) +
-		" --trust " + composeTrustDir
+		" --trust " + trust
 	for _, subj := range subjects {
 		serve += " --subject " + subj
 	}
 	lines := []string{"mkdir -p " + composeTrustDir + " " + composeKeyDir}
+	config := []string{"apiVersion: pacto.dev/evidence-trust/v1", "keys:"}
 	// The host agent's identity, when there is one, is minted the same way and
 	// trusted beside the scenario's signer, which stays the last --producer.
-	for _, id := range []Signer{agent, signer} {
+	for _, id := range []Signer{agent, signer, composeContributorSigner} {
 		if id == (Signer{}) {
 			continue
 		}
@@ -726,11 +741,27 @@ func evidenceScript(signer, agent Signer, subjects []string) string {
 				" --key-id "+id.KeyID+" --producer "+id.Producer,
 			"  mv "+composeTrustDir+"/"+id.KeyID+".key "+composeKeyDir+"/"+id.KeyID+".key",
 			"fi")
+		config = append(config, "  - keyId: "+id.KeyID, "    producerId: "+id.Producer,
+			"    publicKeyFile: "+id.publicKeyFile())
+		if id == composeContributorSigner {
+			config = append(config, "    allowedContractRepos: ["+strings.Join(grant, ", ")+"]")
+		}
 	}
+	lines = append(lines, "cat >"+trust+" <<'EOF'")
+	lines = append(append(lines, config...), "EOF")
 	if agent != (Signer{}) {
 		serve += " --producer " + agent.Producer
 	}
 	return strings.Join(append(lines, serve+" --producer "+signer.Producer), "\n") + "\n"
+}
+
+// publicKeyFile is the file `pacto evidence keygen` writes id's public key
+// to: <producer>__<keyId>.pub, or <keyId>.pub when the two are the same.
+func (id Signer) publicKeyFile() string {
+	if id.Producer == id.KeyID {
+		return id.KeyID + ".pub"
+	}
+	return id.Producer + "__" + id.KeyID + ".pub"
 }
 
 // portMapping is a published port as Compose reads it: the default, overridable

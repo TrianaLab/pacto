@@ -17,6 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/trianalab/pacto/v4/examples/story"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/runrecord"
 )
 
@@ -1239,5 +1240,46 @@ func TestSeedRefreshesDetectedAsOf(t *testing.T) {
 	}
 	if strings.Replace(string(body), res.AsOf.Format(time.RFC3339), "2026-11-16T09:00:00Z", 1) != composeDetected {
 		t.Error("the seed changed more than asOf")
+	}
+}
+
+// TestComposeEvidenceTrustFile: the Evidence Server reads a structured trust
+// config that trusts the scenario's signer and the host agent with no
+// allowlists, as the bare key directory did, and grants compose-idp its own
+// contribution path and the subject repository it reports on.
+func TestComposeEvidenceTrustFile(t *testing.T) {
+	script := argsOf(t, composeSvc(t, composeFileOf(t, OperationalGraph), "evidence"), "command")
+	if !strings.Contains(script, " --trust "+composeTrustDir+"/trust.yaml") {
+		t.Errorf("the Evidence Server reads no trust config:\n%s", script)
+	}
+	_, body, ok := strings.Cut(script, "<<'EOF'\n")
+	body, _, closed := strings.Cut(body, "\nEOF\n")
+	if !ok || !closed {
+		t.Fatalf("the script writes no trust config:\n%s", script)
+	}
+	var cfg struct {
+		APIVersion string `yaml:"apiVersion"`
+		Keys       []struct {
+			ProducerID           string   `yaml:"producerId"`
+			AllowedContractRepos []string `yaml:"allowedContractRepos"`
+		}
+	}
+	if err := yaml.Unmarshal([]byte(body), &cfg); err != nil || cfg.APIVersion != "pacto.dev/evidence-trust/v1" {
+		t.Fatalf("trust config %q: %v", body, err)
+	}
+	signer, _ := OperationalGraph.signer()
+	grants := map[string][]string{}
+	for _, k := range cfg.Keys {
+		grants[k.ProducerID] = k.AllowedContractRepos
+	}
+	if g, ok := grants[signer.Producer]; !ok || len(g) != 0 {
+		t.Errorf("the signer %s: %v", signer.Producer, g)
+	}
+	if g, ok := grants[composeAgentSigner.Producer]; !ok || len(g) != 0 {
+		t.Errorf("the host agent %s: %v", composeAgentSigner.Producer, g)
+	}
+	want := ComposeDomain + "/" + contract.InferredRepository + "/" + ComposeContributor
+	if g := grants[ComposeContributor]; len(g) != 2 || g[0] != want || !strings.HasPrefix(g[1], ComposeDomain+"/") {
+		t.Errorf("%s is granted %v, want %s and its subject repository", ComposeContributor, g, want)
 	}
 }

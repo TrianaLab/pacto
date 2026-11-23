@@ -4,8 +4,11 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -19,8 +22,10 @@ import (
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/override"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
@@ -261,5 +266,44 @@ func TestPushContributionWriteFails(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "refused") {
 			t.Fatalf("%+v: %v", fail, err)
 		}
+	}
+}
+
+// TestPushContributionKeepsItsRecord: a contribution is pushed with the
+// record its producer wrote, never replaced by what Pacto infers from the
+// folder; a folder Pacto cannot read or an override it cannot apply is
+// refused before anything is pushed.
+func TestPushContributionKeepsItsRecord(t *testing.T) {
+	e := newPushEnv(t, plainRegistry())
+	dir := writeContribution(t)
+	export := []byte(`{"checkout":["ledger"]}`)
+	sum := sha256.Sum256(export)
+	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat,
+		Inputs: contract.InferredInputs{Pacto: "4.6.0", Discovery: "1", Sources: []contract.InferredSourceFile{{Path: "export.json", Digest: "sha256:" + hex.EncodeToString(sum[:])}}},
+		Fields: []contract.Inferred{{Field: "dependencies[ledger]", Value: "ledger", Source: "export.json:1", Confidence: contract.ConfidenceLikely}}}
+	for name, data := range map[string][]byte{"export.json": export, contract.InferredRecordFile: rec.Marshal()} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ref := "oci://" + e.host + "/acme/pacto-inferred/my-idp/services"
+	res, err := e.svc.Push(context.Background(), PushOptions{Ref: ref, Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := e.svc.BundleStore.Pull(context.Background(), res.Ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := fs.ReadFile(b.FS, contract.InferredRecordFile); err != nil || string(got) != string(rec.Marshal()) {
+		t.Errorf("pushed record = %q, %v", got, err)
+	}
+
+	if _, err := e.svc.Push(context.Background(), PushOptions{Ref: ref, Path: filepath.Join(dir, "missing")}); err == nil {
+		t.Error("a missing folder was pushed")
+	}
+	bad := override.Overrides{SetValues: []string{"service.version=2.0.0"}, ValueFiles: []string{filepath.Join(dir, "missing.yaml")}}
+	if _, err := e.svc.Push(context.Background(), PushOptions{Ref: ref, Path: dir, Overrides: bad}); err == nil {
+		t.Error("an override that cannot be applied was pushed")
 	}
 }

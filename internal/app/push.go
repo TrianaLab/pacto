@@ -91,7 +91,7 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 	}
 	path := defaultPath(opts.Path)
 
-	c, bundleFS, err := s.pushable(ctx, path, opts.Overrides)
+	c, bundleFS, err := s.pushable(ctx, path, opts.Overrides, contribution)
 	if err == nil {
 		err = s.signKeyOutside(opts.SignKeyPath, path, bundleFS)
 	}
@@ -323,13 +323,18 @@ func rejectLocalRefs(c *contract.Contract) error {
 
 // pushable completes and validates the contract at path for a push: valid,
 // with remote references resolved, and with no local dependency or
-// reference a registry could not follow.
-func (s *Service) pushable(ctx context.Context, path string, overrides override.Overrides) (*contract.Contract, fs.FS, error) {
-	cat, err := s.completionCatalog(ctx)
-	if err != nil {
-		return nil, nil, err
+// reference a registry could not follow. A contribution is pushed as the
+// producer wrote it: its pacto.inferred.yaml is the record, never replaced
+// by what Pacto would infer from the folder.
+func (s *Service) pushable(ctx context.Context, path string, overrides override.Overrides, contribution bool) (*contract.Contract, fs.FS, error) {
+	var c *contract.Contract
+	var bundleFS fs.FS
+	var err error
+	if contribution {
+		c, bundleFS, err = loadContribution(ctx, path, overrides, s.BundleStore)
+	} else {
+		c, bundleFS, err = s.loadCompleted(ctx, path, overrides)
 	}
-	c, _, bundleFS, err := loadAndValidateFull(ctx, path, overrides, s.BundleStore, s.localInputs(path, ""), cat, false)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -340,4 +345,29 @@ func (s *Service) pushable(ctx context.Context, path string, overrides override.
 		return nil, nil, err
 	}
 	return c, bundleFS, nil
+}
+
+// loadCompleted is the bundle at path completed with what Pacto infers from
+// its folder, then validated.
+func (s *Service) loadCompleted(ctx context.Context, path string, overrides override.Overrides) (*contract.Contract, fs.FS, error) {
+	cat, err := s.completionCatalog(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	c, _, bundleFS, err := loadAndValidateFull(ctx, path, overrides, s.BundleStore, s.localInputs(path, ""), cat, false)
+	return c, bundleFS, err
+}
+
+// loadContribution is the bundle at path as read, validated: a contribution
+// carries the record its producer wrote.
+func loadContribution(ctx context.Context, path string, overrides override.Overrides, store oci.BundleStore) (*contract.Contract, fs.FS, error) {
+	b, err := readLocalBundle(path)
+	if err == nil {
+		b, err = applyOverrides(b, overrides)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	c, _, bundleFS, err := validatedFull(ctx, path, b, store, false)
+	return c, bundleFS, err
 }
