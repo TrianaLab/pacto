@@ -487,8 +487,15 @@ func remoteDeliveryClients(cmd *cobra.Command, d deps) (func(dyn dynamic.Interfa
 // deliveryClientsFor builds each caller's delivery client over their own
 // token with trust and the policy namespace policyNS.
 func deliveryClientsFor(trust *delivery.TrustConfig, policyNS string, d deps) func(dyn dynamic.Interface) *app.Delivery {
+	// API discovery is the same for every caller: read once, as the server.
+	var scope delivery.ScopeFunc
+	var infra delivery.InfraFunc
+	if d.clusterConfig != nil {
+		cfg, _ := d.clusterConfig()
+		scope, infra = app.DiscoveryScope(cfg)
+	}
 	return func(dyn dynamic.Interface) *app.Delivery {
 		return &app.Delivery{Dynamic: dyn, Registry: d.newDeliveryRegistry, Records: d.newRecordRepo, Trust: trust,
-			Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now}
+			Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now, Scope: scope, Infra: infra}
 	}
 }

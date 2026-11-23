@@ -43,9 +43,9 @@ type DeliveryAPI interface {
 	Undo(ctx context.Context, namespace, name, stage string) (*delivery.Undo, error)
 	// Record reads one record of a Stage's stream by its id.
 	Record(ctx context.Context, namespace, stage, id string) (*delivery.RecordView, error)
-	// PublishRefusals are the publishes Pacto refused for services with Stages
-	// in namespace ("" for all). Nil with no error means this host keeps no
-	// record of refused publishes.
+	// PublishRefusals are the publishes and promotes Pacto refused for
+	// services with Stages in namespace ("" for all). Nil with no error means this host keeps no
+	// record of refused publishes or promotes.
 	PublishRefusals(ctx context.Context, namespace string) (*PublishRefusals, error)
 	// Trust is which publishers the services of stages accept: the
 	// installation's rule or signed policy and, per service, its pins, the
@@ -210,9 +210,9 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 			"404 LifecycleNotFound only when the search read every artifact the Stages know on a complete listing; a search that left any " +
 			"unread is 400 LifecycleUnresolved and names what it did not read."}), s.deliveryLifecycle)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-refusals", Method: http.MethodGet, Path: "/api/delivery/refusals",
-		Summary: "Publishes Pacto refused",
-		Description: "Recent publishes Pacto refused, newest first, with the check that refused each and the version bump the change needs. " +
-			"recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing."}), s.deliveryRefusals)
+		Summary: "Publishes and promotes Pacto refused",
+		Description: "Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs " +
+			"and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing."}), s.deliveryRefusals)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-operation", Method: http.MethodGet, Path: "/api/delivery/operations/{namespace}/{name}",
 		Summary:     "One change",
 		Description: "The explained operation (summary, verdicts with how to re-run each), the operation itself (plan, approvals, times) and the actions the caller may take."}), s.deliveryOperation)

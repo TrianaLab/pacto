@@ -193,3 +193,48 @@ tests:
           path: spec.template.spec.containers[0].args[*]
           pattern: ^--(publishers-|records-repository|pin-signer|record-trust)
         template: templates/delivery/deployment.yaml
+
+  # A release from a chart without delivery.manifestInspector: with delivery
+  # off nothing new renders; with delivery on the policy gains only
+  # "manifestInspector":true, and the promoter rules and arguments stay the
+  # 6.x lists pinned above.
+  - it: should render nothing for values without delivery.manifestInspector and delivery off
+    set:
+      delivery.manifestInspector: null
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/identities.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/rbac.yaml
+
+  - it: should add only manifestInspector to the policy for values without delivery.manifestInspector and delivery on
+    set:
+      delivery.enabled: true
+      delivery.identities.allowEmptyHumanGroups: true
+      delivery.argocd.enabled: false
+      delivery.flux: null
+      delivery.manifestInspector: null
+    asserts:
+      - equal:
+          path: data["policy.json"]
+          value: '{"agentGroups":["pacto:agents"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":[],"manifestInspector":true,"requireOwnerTeam":false}'
+        template: templates/delivery/identities.yaml
+        documentIndex: 0
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - promoter
+            - --leader-elect=true
+            - --poll=3s
+            - --resync=1m
+            - --workers=4
+            - --auth-freshness=0
+            - --controller-user=system:serviceaccount:pacto-delivery:t-pacto-operator-delivery
+            - --identities=/etc/pacto/identities/policy.json
+            - --admission-policies=t-pacto-operator-delivery-operation,t-pacto-operator-delivery-cancel,t-pacto-operator-delivery-approval,t-pacto-operator-delivery-pointer,t-pacto-operator-delivery-applier,t-pacto-operator-delivery-promoter-writes,t-pacto-operator-delivery-status
+        template: templates/delivery/deployment.yaml

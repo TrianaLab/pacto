@@ -37,6 +37,7 @@ What the chart installs:
 - CRDs: `Pacto`, `PactoRevision` and `NodeRuntimeObservation`, which `helm upgrade` updates and `helm uninstall` keeps (`crds.install=false` leaves them to you)
 - Optional: Prometheus `ServiceMonitor`
 - Optional: the node agent `DaemonSet` (`nodeAgent.enabled`, off by default), in its own namespace (`nodeAgent.namespace`, default `pacto-node-agent`) that the chart creates privileged for Pod Security, with a `ValidatingAdmissionPolicy` binding each agent's writes to its own node
+- Optional: upstream Flux 2.10.1 (`idp.flux.install`, profile idp only), its source, kustomize and helm controllers vendored under `files/flux/` and upgraded with this release. Privilege: the Flux ClusterRoles, the cluster-admin ClusterRoleBinding upstream gives kustomize-controller and helm-controller (each applier object runs as its namespace's ServiceAccount under the lockdown) and the CRDs. Uninstalling Pacto or turning the value off leaves Flux running; see [IDP mode](https://pacto.run/latest/integrations/kubernetes/delivery-setup/#idp-mode) for the exit path
 
 The operator controller never modifies your workloads. It only reads them and reports whether they match their contracts. The same chart ships an opt-in delivery component (alpha, `delivery.enabled`), its own `Deployment`, which decides which version runs where and moves Flux or Argo CD source pointers. Its own admission policies guard each promotion. See [Delivery](https://pacto.run/latest/integrations/kubernetes/delivery/).
 
@@ -308,6 +309,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | delivery.image.tag | string | `""` | Overrides the image tag (default is the chart appVersion) |
 | delivery.imagePullSecrets | list | `[]` | Image pull secrets of the promoter and the recorder, after `global.imagePullSecrets` |
 | delivery.insecureRegistries | list | `[]` | Registry hosts (`host:port`) the promoter and the recorder reach over plain HTTP. An OCIRepository with `spec.insecure: true` is read over HTTP anyway. |
+| delivery.manifestInspector | bool or `auto` | `"auto"` | Refuse a version that carries a cluster-scoped kind, an object outside the Stage namespace or a RoleBinding to a ClusterRole, before the promoter writes its pointer. `auto` is on wherever delivery is enabled; `false` opts out. |
 | delivery.metrics.enabled | bool | `true` | Expose the promoter's metrics (plain HTTP, port 8080) through a Service. The recorder's come with `delivery.recorder.monitoring` |
 | delivery.metrics.serviceMonitor.enabled | bool | `false` | Create a Prometheus Operator ServiceMonitor for that Service |
 | delivery.metrics.serviceMonitor.interval | string | `""` | Scrape interval (empty uses Prometheus' default) |
@@ -406,6 +408,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | global.securityContext.runAsUser | int | `65532` | Run as UID 65532 (nonroot in distroless) |
 | hub.caConfigMap | string | `""` | ConfigMap in the release namespace holding `ca.crt`, the PEM CAs the hub's certificate may chain to beside the system pool. |
 | hub.url | string | `""` | The hub's https:// or wss:// URL. Setting it makes this joined cluster a member: the operator dials out to the hub, proves its installation key and answers the hub's per-person reviews with this cluster's own SubjectAccessReview. Nothing listens for the hub: no inbound port, Service or Ingress. Needs `registry`; profile hardened runs no review channel. |
+| idp.flux.install | bool | `false` | Install upstream Flux (source, kustomize and helm controllers) with this release, at the version in files/flux/VERSION, so profile idp can deliver workloads that no GitOps engine manages. Needs profile idp; refused when another Flux runs. Uninstalling Pacto or turning this off leaves Flux, its CRDs and every workload it applied in place. See https://pacto.run/latest/integrations/kubernetes/delivery-setup/#idp-mode |
 | image.digest | string | `""` | Pins the image by digest (sha256:...), appended to the tag as tag@digest so the runtime pulls exactly that image whatever the tag resolves to later |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
 | image.registry | string | `""` | Controller image registry (defaults to `global.imageRegistry`) |

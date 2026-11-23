@@ -292,7 +292,7 @@ func storyProblems(t *testing.T, d *demoDelivery) {
 
 	// The refused publish (B4).
 	r, _ := d.PublishRefusals(t.Context(), "")
-	if len(r.Refusals) != 1 || r.Refusals[0].RequiredBump != "major" || r.Refusals[0].Verified {
+	if len(r.Refusals) != 2 || r.Refusals[0].RequiredBump != "major" || r.Refusals[0].Verified {
 		t.Fatalf("refusals: %+v", r)
 	}
 }
@@ -883,5 +883,60 @@ func TestDemoStagesRecordRegistryMode(t *testing.T) {
 	}
 	if n == 0 {
 		t.Fatal("no demo Stage has a record stream")
+	}
+}
+
+// TestDemoRefusalsListAPromote: the refused list holds one refused promote
+// beside the refused publish, on a Stage and version of the story.
+func TestDemoRefusalsListAPromote(t *testing.T) {
+	_, h := demoServer(t)
+	var out struct {
+		Total    int                        `json:"total"`
+		Refusals []dashboard.PublishRefusal `json:"refusals"`
+	}
+	if code := call(t, h, "GET", "/api/delivery/refusals", "", &out); code != 200 || out.Total != 2 {
+		t.Fatalf("refusals %d %+v", code, out)
+	}
+	i := slices.IndexFunc(out.Refusals, func(r dashboard.PublishRefusal) bool { return r.Check == "manifests" })
+	if i < 0 {
+		t.Fatalf("no refused promote: %+v", out.Refusals)
+	}
+	r := out.Refusals[i]
+	// Simulated: it advertises no record the tab cannot open, and is not
+	// verified.
+	if r.Service != "pay-agent" || r.Namespace != story.Prod || r.Stage != "pay-agent" || r.Digest != digest(r.Service, r.Version) ||
+		versionOf(r.Service, r.Digest) == "" || r.Verified || r.Record != "" ||
+		!strings.Contains(r.Reason, "ClusterRoleBinding pay-agent-admin is cluster-scoped") {
+		t.Fatalf("refused promote: %+v", r)
+	}
+	if d, _ := demoServer(t); d.stage(story.Prod, r.Stage) == nil {
+		t.Fatalf("no Stage %s in prod", r.Stage)
+	}
+}
+
+// TestDemoInspectedPlanComesFromPlanFor: prod/checkout inspects what a
+// promote applies, and the pacto.manifests verdict comes from PlanFor over a
+// simulated inspection of checkout's workload.
+func TestDemoInspectedPlanComesFromPlanFor(t *testing.T) {
+	_, h := demoServer(t)
+	req := `{"namespace":"` + story.Prod + `","stage":"checkout","onBehalfOf":"dana@example.com","to":"` + digest("checkout", "1.9.0") + `"}`
+	var p delivery.PlanAnswer
+	if code := call(t, h, "POST", "/api/delivery/plan", req, &p); code != 200 {
+		t.Fatalf("plan %d", code)
+	}
+	i := slices.IndexFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GateManifests })
+	if i < 0 {
+		t.Fatalf("no pacto.manifests verdict: %+v", p.Verdicts)
+	}
+	v := p.Verdicts[i]
+	if v.Result != delivery.Pass || !strings.Contains(v.Citation["artifact"], "simulated") ||
+		v.Citation["objects"] != "Deployment checkout, Service checkout" || v.Message != "every one of the 2 objects stays in prod" {
+		t.Fatalf("pacto.manifests: %+v", v)
+	}
+	// Only the chosen Stage is inspected.
+	req = strings.Replace(req, `"namespace":"`+story.Prod+`"`, `"namespace":"prod-eu"`, 1)
+	if code := call(t, h, "POST", "/api/delivery/plan", req, &p); code != 200 ||
+		slices.ContainsFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GateManifests }) {
+		t.Fatalf("prod-eu plan %d %+v", code, p.Verdicts)
 	}
 }

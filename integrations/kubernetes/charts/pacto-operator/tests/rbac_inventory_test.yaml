@@ -1,5 +1,5 @@
 # The RBAC inventory: every Role, ClusterRole and binding the chart renders, in
-# eleven full renders and seven single-template renders, with its exact rules,
+# eleven full renders and eight single-template renders, with its exact rules,
 # roleRef and subjects. A new rule, verb,
 # subject or retargeted binding fails here; review it against the least-privilege
 # rules (no cluster-wide Secret read, a namespace list renders no ClusterRole
@@ -28,6 +28,7 @@ templates:
   - templates/delivery/identities.yaml
   - templates/dashboard-signin.yaml
   - templates/cluster-identity-role.yaml
+  - templates/idp/flux.yaml
 release:
   name: pacto-operator
   namespace: pacto-operator-system
@@ -4838,6 +4839,9 @@ tests:
         - apiGroups: [kustomize.toolkit.fluxcd.io]
           resources: [kustomizations]
           verbs: [get, list, watch]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
+          verbs: [get, list, watch]
         - apiGroups: [pacto.trianalab.io]
           resources: [pactos]
           verbs: [get, list, watch]
@@ -4916,6 +4920,9 @@ tests:
         - apiGroups: [source.toolkit.fluxcd.io]
           resources: [ocirepositories]
           verbs: [get]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
+          verbs: [get]
         - apiGroups: [kustomize.toolkit.fluxcd.io]
           resources: [kustomizations]
           verbs: [list]
@@ -4943,6 +4950,9 @@ tests:
           verbs: [get, list, watch]
         - apiGroups: [source.toolkit.fluxcd.io]
           resources: [ocirepositories]
+          verbs: [get]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
           verbs: [get]
         - apiGroups: [kustomize.toolkit.fluxcd.io]
           resources: [kustomizations]
@@ -5984,3 +5994,87 @@ tests:
           resources: [subjectaccessreviews]
           verbs: [create]
       documentIndex: 0
+
+  # Upstream Flux as vendored (files/flux/): its ClusterRoles and bindings,
+  # among them upstream's cluster-admin binding, whose only subjects are the
+  # kustomize-controller and helm-controller ServiceAccounts in flux-system.
+  # Each applier object runs as its own namespace's ServiceAccount under the
+  # lockdown (--default-service-account=default).
+  - it: 'idp flux install: every rule, roleRef and subject of idp/flux.yaml is pinned'
+    template: templates/idp/flux.yaml
+    set: {profile: idp, idp.flux.install: true}
+    asserts:
+    - hasDocuments: {count: 24}
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: crd-controller}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - {apiGroups: [source.toolkit.fluxcd.io], resources: ['*'], verbs: ['*']}
+        - {apiGroups: [kustomize.toolkit.fluxcd.io], resources: ['*'], verbs: ['*']}
+        - {apiGroups: [helm.toolkit.fluxcd.io], resources: ['*'], verbs: ['*']}
+        - {apiGroups: [notification.toolkit.fluxcd.io], resources: ['*'], verbs: ['*']}
+        - {apiGroups: [image.toolkit.fluxcd.io], resources: ['*'], verbs: ['*']}
+        - {apiGroups: [source.extensions.fluxcd.io], resources: ['*'], verbs: ['*']}
+        - {apiGroups: [''], resources: [namespaces, secrets, configmaps, serviceaccounts], verbs: [get, list, watch]}
+        - {apiGroups: [''], resources: [events], verbs: [create, patch]}
+        - {apiGroups: [''], resources: [configmaps], verbs: [get, list, watch, create, update, patch, delete]}
+        - {apiGroups: [''], resources: [configmaps/status], verbs: [get, update, patch]}
+        - {apiGroups: [coordination.k8s.io], resources: [leases], verbs: [get, list, watch, create, update, patch, delete]}
+        - {apiGroups: [authorization.k8s.io], resources: [subjectaccessreviews], verbs: [create]}
+        - {nonResourceURLs: [/livez/ping], verbs: [head]}
+      documentIndex: 0
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: flux-edit}
+      documentIndex: 1
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [notification.toolkit.fluxcd.io, source.toolkit.fluxcd.io, source.extensions.fluxcd.io, helm.toolkit.fluxcd.io, image.toolkit.fluxcd.io, kustomize.toolkit.fluxcd.io]
+          resources: ['*']
+          verbs: [create, delete, deletecollection, patch, update]
+      documentIndex: 1
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 2
+    - equal: {path: metadata.name, value: flux-view}
+      documentIndex: 2
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [notification.toolkit.fluxcd.io, source.toolkit.fluxcd.io, source.extensions.fluxcd.io, helm.toolkit.fluxcd.io, image.toolkit.fluxcd.io, kustomize.toolkit.fluxcd.io]
+          resources: ['*']
+          verbs: [get, list, watch]
+      documentIndex: 2
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 3
+    - equal: {path: metadata.name, value: cluster-reconciler}
+      documentIndex: 3
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-admin}
+      documentIndex: 3
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: kustomize-controller, namespace: flux-system}
+        - {kind: ServiceAccount, name: helm-controller, namespace: flux-system}
+      documentIndex: 3
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 4
+    - equal: {path: metadata.name, value: crd-controller}
+      documentIndex: 4
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: crd-controller}
+      documentIndex: 4
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: kustomize-controller, namespace: flux-system}
+        - {kind: ServiceAccount, name: helm-controller, namespace: flux-system}
+        - {kind: ServiceAccount, name: source-controller, namespace: flux-system}
+      documentIndex: 4
+    - notMatchRegex: {path: kind, pattern: ^(Role|RoleBinding)$}

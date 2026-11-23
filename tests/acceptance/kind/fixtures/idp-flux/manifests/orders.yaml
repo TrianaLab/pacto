@@ -1,0 +1,99 @@
+# orders ships plain manifests through Flux: the deployer account, the
+# OCIRepository Pacto moves and the Kustomization that applies it, as
+# `pacto init --delivery` wrote them on 2026-11-22 (copied once, never generated
+# at run time; 511-S5 stops init writing these objects). The kind scenario
+# delivery-idp-flux.sh applies it once the Pacto release installed Flux.
+#
+# The account Flux applies each version of orders as, in orders. Widen the Role in
+# git if your manifests need more; never give it cluster-wide rights or
+# the delivery, Flux or RBAC groups.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: orders-deployer
+  namespace: orders
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: orders-deployer
+  namespace: orders
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, secrets, services, serviceaccounts, persistentvolumeclaims]
+    verbs: ["*"]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets]
+    verbs: ["*"]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: ["*"]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: ["*"]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: ["*"]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, networkpolicies]
+    verbs: ["*"]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactos]
+    verbs: ["*"]
+  # Flux checks a rollout's health as this account, reading its ReplicaSets and Pods.
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: orders-deployer
+  namespace: orders
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: orders-deployer
+subjects:
+  - kind: ServiceAccount
+    name: orders-deployer
+---
+# The version that runs. Nothing runs yet, so the tag names no version and
+# Flux applies nothing until the first promote writes a digest here.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: orders
+  namespace: orders
+  labels:
+    delivery.pacto.trianalab.io/apply-ref: orders
+spec:
+  interval: 1m
+  url: oci://pacto-registry.pacto-system.svc.cluster.local:5000/apps/orders
+  insecure: true
+  ref:
+    tag: unreleased
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: orders
+  namespace: orders
+spec:
+  interval: 10m
+  sourceRef:
+    kind: OCIRepository
+    name: orders
+  path: ./
+  prune: true
+  targetNamespace: orders
+  # Flux applies each version as this account, never as itself: a version
+  # can then change only what the deployer Role above allows, in this
+  # namespace. An auto level judges the contract, not the manifests.
+  serviceAccountName: orders-deployer
+  # Ready only once what it applied is rolled out, so the Stage judges the new pods.
+  wait: true
+  timeout: 2m

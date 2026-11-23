@@ -60,7 +60,7 @@ func (d *Delivery) readStream(ctx context.Context, stage *delivery.StageObject) 
 	}
 	bounded, cancel := delivery.WithRegistryTimeout(ctx)
 	defer cancel()
-	l, err := deliveryrecord.ListStream(bounded, repo, s.ID, d.verifier())
+	l, err := deliveryrecord.ListStream(bounded, repo, s.ID, d.RecordVerifier())
 	if err != nil {
 		return nil, fmt.Errorf("reading the records of %s: %w", s.Anchor, err)
 	}
@@ -88,9 +88,9 @@ func (d *Delivery) streamKey(s delivery.Stream) string {
 	return strings.Join([]string{s.Anchor, s.ID, s.Head, trust}, "\x00")
 }
 
-// verifier checks records against the trust config, or checks nothing when
+// RecordVerifier checks records against the trust config, or checks nothing when
 // there is none, which every answer then says.
-func (d *Delivery) verifier() delivery.Verifier {
+func (d *Delivery) RecordVerifier() delivery.Verifier {
 	if d.Trust == nil {
 		return deliveryrecord.Unchecked
 	}
@@ -406,7 +406,7 @@ func (d *Delivery) subjectRecords(ctx context.Context, stage *delivery.StageObje
 	if err != nil {
 		return deliveryrecord.Listing{}, err
 	}
-	return deliveryrecord.List(bounded, repo, desc, d.verifier())
+	return deliveryrecord.List(bounded, repo, desc, d.RecordVerifier())
 }
 
 // A fleet audit walks every Stage in the caller's scope. One walk, the

@@ -48,6 +48,10 @@ const (
 	// ProviderFlux is the row of the Flux Kustomizations, HelmReleases and
 	// GitRepositories a workload source listed for the same reason.
 	ProviderFlux = "flux"
+	// ProviderApplier is the detected row that says no GitOps engine API is
+	// served in its cluster; under profile idp it proposes the Flux the
+	// Pacto release installs.
+	ProviderApplier = "applier"
 	// UseRepositoryProvenance: Pacto names the repository a group deploys
 	// from out of what the row read.
 	UseRepositoryProvenance = "repository-provenance"
@@ -129,7 +133,7 @@ type Provider struct {
 	Objects      []ProviderObject `json:"objects,omitempty" doc:"The objects the evidence names, at most 20"`
 	ObjectsTotal int              `json:"objectsTotal,omitempty" doc:"How many objects the row had before the cap or your permissions narrowed it"`
 	Limitations  []Limitation     `json:"limitations,omitempty"`
-	Offers       []ProviderOffer  `json:"offers,omitempty" doc:"Pacto integrations that fit this provider, offered because it was detected; Pacto installs nothing"`
+	Offers       []ProviderOffer  `json:"offers,omitempty" doc:"Pacto integrations that fit this provider, offered because it was detected; Pacto installs nothing; a person turns each one on"`
 	// Provenance, AsOf, Hint, Details and Scope are set on a row Pacto
 	// detected (see pkg/detect); a row a source reported directly leaves them
 	// empty. The operator's Installation row, from the same detection, is the
@@ -513,12 +517,13 @@ func allServicesHidden(p Provider, hiddenSvc map[ServiceKey]bool) bool {
 
 // hideCluster takes from p its cluster when shown does not name it, and
 // reports whether p stays. A declared row goes whole: the Installation row's
-// details and push error name the cluster's snapshot tag.
+// details and push error name the cluster's snapshot tag. The Applier row
+// goes whole too: its proposal is for that cluster's Pacto release.
 func hideCluster(p *Provider, shown map[string]bool) bool {
 	if shown[p.Cluster] {
 		return true
 	}
-	if p.Provenance == ProvenanceDeclared && p.Cluster != "" {
+	if (p.Provenance == ProvenanceDeclared || p.ID == ProviderApplier) && p.Cluster != "" {
 		return false
 	}
 	p.Evidence, p.Limitations = hideDetectedCluster(*p)

@@ -81,7 +81,7 @@ func (d *Delivery) trusted(at *delivery.RecordAt, open func(delivery.Verifier) e
 		at.Note = noTrust
 		return
 	}
-	if err := open(d.verifier()); err != nil {
+	if err := open(d.RecordVerifier()); err != nil {
 		at.Note = "unverified: " + err.Error()
 		return
 	}
@@ -194,7 +194,7 @@ func (d *Delivery) counted(ctx context.Context, streams string, op delivery.Appr
 	if err == nil {
 		bounded, cancel := delivery.WithRegistryTimeout(ctx)
 		defer cancel()
-		l, err = deliveryrecord.ListStream(bounded, repo, stream, d.verifier())
+		l, err = deliveryrecord.ListStream(bounded, repo, stream, d.RecordVerifier())
 	}
 	if err != nil {
 		return delivery.CountedUnknown, "the stream " + stream + " could not be read: " + err.Error()

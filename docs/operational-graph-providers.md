@@ -166,13 +166,13 @@ explains what each mode means for records.
 With `--detected`, the rows the operator
 [detected in a cluster](integrations/kubernetes/detection.md)
 join from a source of kind `detection`: Registry, Cloud, Sign-in, Exposure,
-Metrics, Nodes, the [trace backends](#trace-backends) and the egress readers. Each carries five more fields:
+Metrics, Nodes, the Applier, the [trace backends](#trace-backends) and the egress readers. Each carries five more fields:
 
 | Field | Meaning |
 |---|---|
 | `provenance` | Always `inferred` |
 | `asOf` | When the operator read it; older than 15 minutes is `stale` |
-| `hint` | A command to review, set only when one candidate holds most namespaces. MCP omits it |
+| `hint` | A command to review, set only when one candidate holds most namespaces, or the Applier proposal. MCP omits it |
 | `details` | Other candidates or facts, at most 5 |
 | `scope` | `cluster` for a row read cluster-wide |
 
@@ -185,6 +185,23 @@ reads `stale`. A restricted
 view clears the evidence, hint and details of a row that names a namespace
 you cannot read, or of a cluster-wide row when you cannot read the cluster
 scope.
+
+The **Applier** row (`applier`) appears only when the cluster serves none of
+`kustomize.toolkit.fluxcd.io/v1`, `helm.toolkit.fluxcd.io/v2` and
+`argoproj.io/v1alpha1`: it reads
+`none found`, since nothing would apply what Pacto delivery promotes. A failed
+discovery reads `unavailable`, never `none found`. Where Flux or Argo CD is
+served, their own rows speak. Under profile idp without hardened, its hint
+proposes one value of the Pacto release you run, at the chart version it
+runs, and nothing else:
+
+```text
+Set idp.flux.install=true on this Pacto release, at the chart version it runs: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator --version <version> -n <namespace> --reset-then-reuse-values --set idp.flux.install=true
+```
+
+Every reader shows this text from Pacto itself, whatever the detected row
+holds. Pacto installs nothing: you set the value on your release
+([IDP mode](integrations/kubernetes/delivery-setup.md#idp-mode)).
 
 The three egress readers are cluster-wide and read calls leaving the cluster
 ([Calls that leave the cluster](operational-graph-egress.md)):

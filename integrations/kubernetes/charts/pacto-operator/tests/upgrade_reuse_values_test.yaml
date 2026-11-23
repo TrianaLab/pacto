@@ -13,6 +13,7 @@ templates:
   - templates/clusterrole.yaml
   - templates/owner-policy.yaml
   - templates/nodeagent-namespace.yaml
+  - templates/idp/flux.yaml
 set:
   # 6.x values carry no fingerprints key: --reuse-values keeps it absent.
   fingerprints: null
@@ -189,3 +190,17 @@ tests:
             apiGroups: [monitoring.coreos.com]
             resources: [servicemonitors, podmonitors]
             verbs: [get, list, watch]
+
+  # 6.x values carry no idp key (511-S4): --reuse-values renders no Flux, even
+  # under profile idp.
+  - it: should render no Flux for 6.x values with no idp key
+    template: templates/idp/flux.yaml
+    set:
+      <<: *reuse6x
+      idp: null
+      profile: idp
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts:
+      - hasDocuments: {count: 0}

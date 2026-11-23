@@ -337,3 +337,34 @@ func TestInstallationMCPFromHost(t *testing.T) {
 		t.Errorf("mcp = %+v", m)
 	}
 }
+
+// idpFluxInstallation is the delivery part where Flux applies workloads in
+// uid-2, whose operator declared profile.
+func idpFluxInstallation(t *testing.T, profile ...string) InstallationDelivery {
+	t.Helper()
+	q := NewQuery(buildProviders(t,
+		NewMemorySource("k8s-2", SourceKindKubernetes, &Collection{Cluster: clusterOf("uid-2", "prod-eu", ClusterNameFromContext), Targets: []RawTarget{workload("shop", "api")},
+			Providers: []Provider{gitopsReadRow, managerRow(ProviderFlux, SourceAvailable)}}),
+		detectedSource(SourceAvailable, Provider{ID: "installation", Name: "Installation", Evidence: "profile", Status: SourceAvailable, Provenance: ProvenanceDeclared, Cluster: "prod-eu", ClusterID: "uid-2"})))
+	in := declaredInput(profile...)
+	in.DeliveryWired, in.DeliveryProbed, in.DeliveryInstalled = true, true, true
+	return q.Installation(in).Delivery
+}
+
+// Under profile idp the Flux row is the Flux IDP mode delivers through.
+func TestInstallationAppliersIDPFlux(t *testing.T) {
+	d := idpFluxInstallation(t, "idp")
+	if len(d.Appliers) != 1 || d.Appliers[0].Mode != InstallationApplierIDPFlux ||
+		d.Appliers[0].Source != "detected flux row; profile idp declared; "+installationApplierEvidence {
+		t.Errorf("appliers = %+v", d.Appliers)
+	}
+}
+
+func TestInstallationAppliersAdoptedOutsideIDP(t *testing.T) {
+	for _, profile := range [][]string{{"default"}, nil} {
+		d := idpFluxInstallation(t, profile...)
+		if len(d.Appliers) != 1 || d.Appliers[0].Mode != InstallationApplierAdopted || d.Appliers[0].Source != "detected flux row; "+installationApplierEvidence {
+			t.Errorf("%v: appliers = %+v", profile, d.Appliers)
+		}
+	}
+}

@@ -110,6 +110,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `delivery.image.tag` | `""` | Overrides the image tag (default is the chart appVersion) |
 | `delivery.imagePullSecrets` | `[]` | Image pull secrets of the promoter and the recorder, after `global.imagePullSecrets` |
 | `delivery.insecureRegistries` | `[]` | Registry hosts (`host:port`) the promoter and the recorder reach over plain HTTP. An OCIRepository with `spec.insecure: true` is read over HTTP anyway. |
+| `delivery.manifestInspector` | `auto` | (bool or `auto`) Refuse a version that carries a cluster-scoped kind, an object outside the Stage namespace or a RoleBinding to a ClusterRole, before the promoter writes its pointer. `auto` is on wherever delivery is enabled; `false` opts out. |
 | `delivery.metrics.enabled` | `true` | Expose the promoter's metrics (plain HTTP, port 8080) through a Service. The recorder's come with `delivery.recorder.monitoring` |
 | `delivery.metrics.serviceMonitor.enabled` | `false` | Create a Prometheus Operator ServiceMonitor for that Service |
 | `delivery.metrics.serviceMonitor.interval` | `""` | Scrape interval (empty uses Prometheus' default) |
@@ -207,6 +208,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `global.securityContext.runAsUser` | `65532` | Run as UID 65532 (nonroot in distroless) |
 | `hub.caConfigMap` | `""` | ConfigMap in the release namespace holding `ca.crt`, the PEM CAs the hub's certificate may chain to beside the system pool. |
 | `hub.url` | `""` | The hub's https:// or wss:// URL. Setting it makes this joined cluster a member: the operator dials out to the hub, proves its installation key and answers the hub's per-person reviews with this cluster's own SubjectAccessReview. Nothing listens for the hub: no inbound port, Service or Ingress. Needs `registry`; profile hardened runs no review channel. |
+| `idp.flux.install` | `false` | Install upstream Flux (source, kustomize and helm controllers) with this release, at the version in files/flux/VERSION, so profile idp can deliver workloads that no GitOps engine manages. Needs profile idp; refused when another Flux runs. Uninstalling Pacto or turning this off leaves Flux, its CRDs and every workload it applied in place. See https://pacto.run/latest/integrations/kubernetes/delivery-setup/#idp-mode |
 | `image.digest` | `""` | Pins the image by digest (sha256:...), appended to the tag as tag@digest so the runtime pulls exactly that image whatever the tag resolves to later |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `image.registry` | `""` | Controller image registry (defaults to `global.imageRegistry`) |

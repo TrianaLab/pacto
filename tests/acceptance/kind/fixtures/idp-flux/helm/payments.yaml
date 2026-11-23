@@ -1,0 +1,99 @@
+# payments ships a Helm chart through Flux: the deployer account the
+# HelmRelease installs as (copied once from `pacto init --delivery`,
+# 2026-11-22), the chart OCIRepository Pacto moves and a HelmRelease that names
+# it by chartRef. Never generated at run time.
+# The account Flux applies each version of payments as, in payments. Widen the Role in
+# git if your manifests need more; never give it cluster-wide rights or
+# the delivery, Flux or RBAC groups.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: payments-deployer
+  namespace: payments
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: payments-deployer
+  namespace: payments
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, secrets, services, serviceaccounts, persistentvolumeclaims]
+    verbs: ["*"]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets]
+    verbs: ["*"]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: ["*"]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: ["*"]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: ["*"]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, networkpolicies]
+    verbs: ["*"]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactos]
+    verbs: ["*"]
+  # Flux checks a rollout's health as this account, reading its ReplicaSets and Pods.
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: payments-deployer
+  namespace: payments
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: payments-deployer
+subjects:
+  - kind: ServiceAccount
+    name: payments-deployer
+---
+# The chart that runs. Nothing runs yet, so the tag names no version and
+# helm-controller installs nothing until the first promote writes a digest.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: payments-chart
+  namespace: payments
+  labels:
+    delivery.pacto.trianalab.io/apply-ref: payments
+spec:
+  interval: 1m
+  url: oci://pacto-registry.pacto-system.svc.cluster.local:5000/charts/payments
+  insecure: true
+  ref:
+    tag: unreleased
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: payments
+  namespace: payments
+  labels:
+    delivery.pacto.trianalab.io/apply-ref: payments
+spec:
+  interval: 1m
+  timeout: 2m
+  chartRef:
+    kind: OCIRepository
+    name: payments-chart
+  # helm-controller installs each version as this account, never as itself.
+  serviceAccountName: payments-deployer
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true

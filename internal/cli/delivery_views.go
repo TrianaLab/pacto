@@ -21,7 +21,7 @@ var deliveryViews = []struct{ route, short string }{
 	{"environments", "Show every Stage by service and environment: what it runs and whether it is verified, failed, frozen or held"},
 	{"autonomy", "Show the path to autonomy: each Stage's level, the next level Pacto proposes and what blocks it"},
 	{"published", "Show the versions the Stages know per service and whether Flux or the registry watch verified their signature"},
-	{"refusals", "Show the publishes Pacto refused and the version bump each change needs"},
+	{"refusals", "Show the publishes and promotes Pacto refused: the version bump a refused publish needs and the Stage of a refused promote"},
 	{"trust", "Show which publishers each service accepts: the rule, the signed policy, the pinned identities and the signers waiting for a person"},
 }
 

@@ -55,8 +55,9 @@
   // Stages name (the server lists a service once per domain).
   let lifecycle = $state({});
 
-  // Publishes Pacto refused, for whoever supervises: the check that refused
-  // each and, for the version rule, the bump the change needs. Its own read,
+  // Publishes and promotes Pacto refused, for whoever supervises: the check
+  // that refused each, for the version rule the bump the change needs and,
+  // for a refused promote, its Stage and operation record. Its own read,
   // so a cluster that keeps no record of them never hides the versions.
   const refusalsLoader = createProductLoader(() => api.deliveryRefusals());
   $effect(() => { refusalsLoader.sync(String(refreshTick)); });
@@ -71,12 +72,12 @@
   const contractShort = (ref) => (ref.includes('@') ? shortDigest(ref.slice(ref.lastIndexOf('@') + 1)) : ref);
   // Running and failed first, so the list a count opens leads with what matters.
   const stagesFirst = (stages) => [...(stages ?? [])].sort((a, b) => (b.running || b.failed ? 1 : 0) - (a.running || a.failed ? 1 : 0));
-  // The page's answer: how many publishes Pacto refused lately, when the
+  // The page's answer: how many publishes and promotes Pacto refused lately, when the
   // cluster keeps a record of them.
   const refusedTotal = $derived(refused?.total ?? refused?.refusals?.length ?? 0);
   const lead = $derived(!refused ? null
-    : !refused.recorded ? { head: 'Refused publishes are not recorded here.', rest: '' }
-    : refusedTotal ? { head: `${countOf(refusedTotal, 'publish', 'publishes')} refused lately.`, rest: refused.completeness === 'partial' ? 'There may be more.' : '' }
+    : !refused.recorded ? { head: 'Refusals are not recorded here.', rest: '' }
+    : refusedTotal ? { head: `${formatCount(refusedTotal)} refused lately.`, rest: refused.completeness === 'partial' ? 'There may be more.' : '' }
     : { head: 'Nothing refused lately.', rest: refused.completeness === 'partial' ? 'The list may be incomplete.' : '' });
   // Each version's signature, said once for the page: a version is marked only
   // where its state differs from the most common one (a tie leaves the
@@ -122,20 +123,20 @@
     paging={answer.paging}
   >
     {#if lead}<DeliveryLead head={lead.head} rest={lead.rest} tipLabel="Published versions"
-      tip="The versions your environments know about, whether their signature was checked and where each one runs, and the publishes Pacto refused." />{/if}
+      tip="The versions your environments know about, whether their signature was checked and where each one runs, and the publishes and promotes Pacto refused." />{/if}
   </PageHeader>
   <DeliveryNav current="delivery-publish" />
   <DeliveryServiceFilter {service} {domain} clear={deliveryPublishUrl({ q, signed })} />
   {#if data?.counts?.services}<PublishFigure counts={data.counts} href={(s) => deliveryPublishUrl({ q, signed: s, ...keep })} serviceHref={deliveryServiceUrl} />{/if}
 
-  <!-- The refused publishes are a count that opens: the versions are what the page lists. -->
+  <!-- The refused publishes and promotes are a count that opens: the versions are what the page lists. -->
   <section class="pv-refused" aria-labelledby="pv-refused" data-testid="refused-publishes">
     {#if !refused && refusalsLoader.loading}
-      <h2 id="pv-refused" class="t-section-title">Refused publishes</h2>
-      <p class="t-body-2" role="status">Reading refused publishes…</p>
+      <h2 id="pv-refused" class="t-section-title">Refused publishes and promotes</h2>
+      <p class="t-body-2" role="status">Reading refusals…</p>
     {:else if !refused && refusalsLoader.error}
-      <h2 id="pv-refused" class="t-section-title">Refused publishes</h2>
-      <p class="t-body-2 pv-err" role="alert">Could not read refused publishes: {refusalsLoader.error?.message || refusalsLoader.error}. <button type="button" class="btn btn-sm" onclick={() => refusalsLoader.refresh()}>Retry</button></p>
+      <h2 id="pv-refused" class="t-section-title">Refused publishes and promotes</h2>
+      <p class="t-body-2 pv-err" role="alert">Could not read refusals: {refusalsLoader.error?.message || refusalsLoader.error}. <button type="button" class="btn btn-sm" onclick={() => refusalsLoader.refresh()}>Retry</button></p>
     {:else if refused}
       {#if refused.recorded && refused.completeness === 'partial'}
         <p class="t-body-2 pv-partial" role="status" data-testid="refused-partial">This list may be incomplete{#if refused.note}: {refused.note}{/if}.{#if refused.unreadable?.length}{' '}Could not read: <CappedList items={refused.unreadable} max={3} inline={true} label="Repositories Pacto could not read">{#snippet item(u)}{u}{/snippet}</CappedList>.{/if}</p>
@@ -144,25 +145,27 @@
       <details class="disclosure pv-fold" open={!!(refused.recorded && refusedTotal)}>
         <summary>
           <span class="disclosure-caret" data-motion aria-hidden="true"></span>
-          <h2 id="pv-refused" class="t-section-title">Refused publishes</h2>
+          <h2 id="pv-refused" class="t-section-title">Refused publishes and promotes</h2>
           <span class="badge {refused.recorded && refusedTotal ? 'badge-err' : 'badge-neutral'}" data-testid="refused-chip">{refused.recorded ? formatCount(refusedTotal) : 'Not recorded'}</span>
         </summary>
         <div class="pv-fold-body">
           {#if !refused.recorded}
-            <p class="t-body-2 pv-none" data-testid="refused-unrecorded">This cluster keeps no record of refused publishes, so none can be shown here. <code>pacto publish</code> shows a refusal and the version bump it needs to whoever ran it.</p>
+            <p class="t-body-2 pv-none" data-testid="refused-unrecorded">This cluster keeps no record of refused publishes or promotes, so none can be shown here. <code>pacto publish</code> shows a refusal and the version bump it needs to whoever ran it.</p>
           {:else}
             {#if refused.total > (refused.refusals ?? []).length}<p class="t-meta" data-testid="refused-count">(the latest {formatCount(refused.refusals.length)} of {formatCount(refused.total)})</p>{/if}
             {#if refused.completeness !== 'partial' && refused.note}<p class="t-meta" data-testid="refused-note">{sentence(refused.note)}</p>{/if}
             {#if (refused.refusals ?? []).length === 0}
-              <p class="t-body-2 pv-none">No publish was refused{refused.completeness === 'partial' ? ' that Pacto could read' : ''}.</p>
+              <p class="t-body-2 pv-none">Nothing was refused{refused.completeness === 'partial' ? ' that Pacto could read' : ''}.</p>
             {:else}
               <ul class="pl-list">
                 {#each refused.refusals as r, i (r.service + '@' + r.version + '#' + i)}
                   <li class="pl-row pl-row--stack pv-row">
-                    <div class="pv-head">
+                    <div class="pv-rhead" data-testid="refused-head">
                       <strong>{r.service} {r.version}</strong>
-                      {#if r.requiredBump}<span class="badge badge-err">Needs {BUMPS[r.requiredBump] ?? r.requiredBump}</span>{:else}<span class="badge badge-err">Refused: {r.check}</span>{/if}
+                      {#if r.stage}{@const where = r.namespace ? `${r.namespace}/${r.stage}` : r.stage}<span class="t-meta">on <bdi class="pv-stage" title={where}>{where}</bdi></span>{/if}
+                      {#if r.requiredBump}<span class="badge badge-err">Needs {BUMPS[r.requiredBump] ?? r.requiredBump}</span>{:else if r.check === 'manifests'}<span class="badge badge-err" title={[r.code, r.digest].filter(Boolean).join(', ') || undefined}>Refused promote</span>{:else}<span class="badge badge-err">Refused: {r.check}</span>{/if}
                       {#if r.verified}<span class="badge badge-ok">Signed record</span>{/if}
+                      {#if r.record}<CopyableIdentifier value={r.record} label="operation record id" iconOnly={true} />{/if}
                     </div>
                     <p class="t-body-2">{sentence(r.reason)}{#if r.baseline}{' '}Compared with {r.baseline}.{/if}</p>
                     <p class="t-meta">{#if r.actor}By <Person user={r.actor} />,{' '}{/if}<time datetime={r.at}>{timeLabel(r.at)}</time></p>
@@ -259,7 +262,11 @@
   .pv-svc { display: flex; flex-direction: column; gap: var(--sp-2); }
   .pv-svc h2 a { color: var(--c-accent); }
   .pv-row { gap: var(--sp-1); padding: var(--sp-1) var(--sp-3); min-width: 0; overflow-wrap: break-word; }
-  .pv-head { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
+  .pv-stage, .pv-head > strong, .pv-rhead > strong { min-width: 0; overflow-wrap: anywhere; }
+  /* A refusal's head stays one wrapping line at every width: the versions grid
+     below would stretch its badge across a column and push its record mark
+     onto a second row. */
+  .pv-head, .pv-rhead { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .pv-sigline { margin: 0; }
   /* On a wide screen every version lines up in columns, so a long pre-release
      version is cut short (whole on hover) instead of pushing the rest along. */

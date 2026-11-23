@@ -119,14 +119,25 @@ func (s *Server) deliveryRecord(ctx context.Context, in *recordInput) (*recordOu
 	return out, nil
 }
 
-// PublishRefusal is one publish Pacto refused.
+// PublishRefusal is one publish or promote Pacto refused.
 type PublishRefusal struct {
 	Service string `json:"service"`
-	Version string `json:"version" doc:"The version the publish asked for"`
+	// Version is empty on a refused promote whose plan read no contract
+	// version: Digest names what was refused.
+	Version string `json:"version" doc:"The version the publish or promote asked for; empty on a refused promote whose plan read no contract version (digest names it)"`
 	// Check is the check that refused it: version (the version rule), sign,
-	// lock, validation or conflict.
-	Check  string `json:"check" doc:"The check that refused it: version, sign, lock, validation or conflict"`
-	Reason string `json:"reason" doc:"Why, in one sentence"`
+	// lock, validation or conflict refuse a publish; manifests (the manifest
+	// inspector) refuses a promote.
+	Check string `json:"check" doc:"The check that refused it: version, sign, lock, validation or conflict for a publish; manifests (the manifest inspector, before the promoter wrote the pointer) for a promote"`
+	// Namespace, Stage, Digest, Code and Record are set on a refused promote:
+	// the Stage it was proposed on, the refused deploy artifact, the stable
+	// code of the refusal when it has one and the id of its operation record.
+	Namespace string `json:"namespace,omitempty" doc:"The namespace of the Stage a refused promote was proposed on"`
+	Stage     string `json:"stage,omitempty" doc:"The Stage a refused promote was proposed on"`
+	Digest    string `json:"digest,omitempty" doc:"The deploy artifact digest a refused promote asked for"`
+	Code      string `json:"code,omitempty" doc:"The stable code of a refused promote, such as RawInfraInArtifact, when it has one"`
+	Record    string `json:"record,omitempty" doc:"The id of the operation record of a refused promote: read it with the namespace, Stage and id"`
+	Reason    string `json:"reason" doc:"Why, in one sentence"`
 	// Baseline and RequiredBump are set when the version rule refused it.
 	Baseline     string `json:"baseline,omitempty" doc:"The highest published version below it, the one the change was compared with"`
 	RequiredBump string `json:"requiredBump,omitempty" enum:"major,minor,patch" doc:"The smallest bump the change needs"`
@@ -137,7 +148,7 @@ type PublishRefusal struct {
 	Verified bool `json:"verified" doc:"A signed record of the refusal was verified"`
 }
 
-// PublishRefusals is what a host knows of refused publishes.
+// PublishRefusals is what a host knows of refused publishes and promotes.
 type PublishRefusals struct {
 	Completeness string           `json:"completeness" enum:"complete,partial"`
 	Note         string           `json:"note,omitempty" doc:"Where the refusals were read and what may be missing"`
@@ -148,8 +159,8 @@ type PublishRefusals struct {
 type refusalsOutput struct {
 	Body struct {
 		AsOf string `json:"asOf"`
-		// Recorded: this host keeps a record of refused publishes.
-		Recorded bool `json:"recorded" doc:"This cluster keeps a record of refused publishes; false means an empty list proves nothing"`
+		// Recorded: this host keeps a record of refused publishes or promotes.
+		Recorded bool `json:"recorded" doc:"This cluster keeps a record of refused publishes or promotes; false means an empty list proves nothing"`
 		PublishRefusals
 		Total int `json:"total" doc:"How many refusals were read; refusals holds the newest 20"`
 	}
@@ -171,7 +182,7 @@ func (s *Server) deliveryRefusals(ctx context.Context, _ *struct{}) (*refusalsOu
 	out.Body.AsOf = time.Now().UTC().Format(time.RFC3339)
 	if r == nil {
 		out.Body.Completeness, out.Body.Refusals = "partial", []PublishRefusal{}
-		out.Body.Note = "this cluster keeps no record of refused publishes: a refusal is shown only to whoever ran pacto publish"
+		out.Body.Note = "this cluster keeps no record of refused publishes or promotes: a refused publish is shown only to whoever ran pacto publish"
 		return out, nil
 	}
 	out.Body.Recorded, out.Body.PublishRefusals = true, *r

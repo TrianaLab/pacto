@@ -34,6 +34,9 @@ const (
 	// ReadyReasonPublisherUnverifiable: the promoter has no publisher check
 	// or no Sigstore trusted root to judge candidates.registry with.
 	ReadyReasonPublisherUnverifiable = "PublisherUnverifiable"
+	// ReadyReasonNoApplier: the cluster does not serve the API of the kind
+	// spec.applyRef names, so nothing can apply what the promoter writes.
+	ReadyReasonNoApplier = "NoApplier"
 )
 
 var readyFixes = map[string]string{
@@ -59,6 +62,7 @@ var readyFixes = map[string]string{
 	ReadyReasonApplierUnknown: "deliver the workloads through Argo CD or Flux so they carry its labels, or let the promoter read them; " +
 		"status.applier says what Pacto saw",
 	ReadyReasonApplierNotChartRef: "point the HelmRelease's spec.chartRef at an OCIRepository; a HelmChart pins a version, never a digest",
+	ReadyReasonNoApplier:          "install Flux or Argo CD; in profile idp, set idp.flux.install=true on the Pacto release",
 }
 
 // ReadyFix is the change that clears a Ready reason, or "" for a reason it

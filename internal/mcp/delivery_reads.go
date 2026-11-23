@@ -23,7 +23,7 @@ type DeliveryReads func(ctx context.Context, route string, q url.Values) (json.R
 const deliveryReadsInstructions = "pacto_delivery_caller, pacto_delivery_inbox, pacto_delivery_environments, " +
 	"pacto_delivery_autonomy, pacto_delivery_published, pacto_delivery_refusals and pacto_delivery_trust answer what the dashboard's " +
 	"delivery views show, with your own identity: who you are to delivery, what waits on you, every Stage, the path " +
-	"to autonomy, the versions the Stages know, the publishes Pacto refused and which publishers each service accepts. A list answer carries asOf and " +
+	"to autonomy, the versions the Stages know, the publishes and promotes Pacto refused and which publishers each service accepts. A list answer carries asOf and " +
 	"completeness. It covers the namespaces you may list Stages in and leaves out, without naming them, those outside your " +
 	"permissions; unreadable names a namespace that refused the list, and owners when no fleet tells whose Stages are yours."
 
@@ -104,8 +104,8 @@ var deliveryReadTools = []deliveryRead{
 				"no: keep only the services with an unsigned version, and only those versions; unknown: keep only the services with no unsigned version " +
 				"and a version whose signature Pacto cannot tell, and only those versions"},
 		})},
-	{route: "refusals", description: "Recent publishes Pacto refused, newest first, with the check that refused each and the version bump the change needs. " +
-		"recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing."},
+	{route: "refusals", description: "Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs " +
+		"and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing."},
 	{route: "trust", description: "Per service with a Stage that watches the registry and the caller can see: the installation's publisher rule or signed policy, " +
 		"the identities a person pinned, the CI signers waiting for a person to confirm them and the newest verdicts, each saying which source decided. " +
 		"Pins or a policy that could not be read mark the answer partial.",

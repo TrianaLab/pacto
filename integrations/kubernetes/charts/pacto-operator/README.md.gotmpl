@@ -37,6 +37,7 @@ What the chart installs:
 - CRDs: `Pacto`, `PactoRevision` and `NodeRuntimeObservation`, which `helm upgrade` updates and `helm uninstall` keeps (`crds.install=false` leaves them to you)
 - Optional: Prometheus `ServiceMonitor`
 - Optional: the node agent `DaemonSet` (`nodeAgent.enabled`, off by default), in its own namespace (`nodeAgent.namespace`, default `pacto-node-agent`) that the chart creates privileged for Pod Security, with a `ValidatingAdmissionPolicy` binding each agent's writes to its own node
+- Optional: upstream Flux 2.10.1 (`idp.flux.install`, profile idp only), its source, kustomize and helm controllers vendored under `files/flux/` and upgraded with this release. Privilege: the Flux ClusterRoles, the cluster-admin ClusterRoleBinding upstream gives kustomize-controller and helm-controller (each applier object runs as its namespace's ServiceAccount under the lockdown) and the CRDs. Uninstalling Pacto or turning the value off leaves Flux running; see [IDP mode](https://pacto.run/latest/integrations/kubernetes/delivery-setup/#idp-mode) for the exit path
 
 The operator controller never modifies your workloads. It only reads them and reports whether they match their contracts. The same chart ships an opt-in delivery component (alpha, `delivery.enabled`), its own `Deployment`, which decides which version runs where and moves Flux or Argo CD source pointers. Its own admission policies guard each promotion. See [Delivery](https://pacto.run/latest/integrations/kubernetes/delivery/).
 

@@ -218,11 +218,11 @@ func (r *StageReconciler) wouldHave(ctx context.Context, stage *dv1.Stage, spec 
 	from, to := spec.Params.From, spec.Params.To
 	synth := stageObject(stage)
 	synth.Status.Level, synth.Status.Pointer = delivery.LevelAutonomous, from
-	in, err := delivery.AssemblePlanInput(ctx, planSources{r.Cluster}, spec, synth, delivery.ClassController, now)
+	in, err := delivery.AssemblePlanInput(ctx, planSources{r.Cluster}, spec, synth, delivery.ClassController, now, r.Policy.ManifestInspector)
 	if err != nil {
 		return delivery.Shadow{}, err
 	}
-	in.RequireOwnerTeam, in.Gates = r.Policy.RequireOwnerTeam, r.Gates
+	in.RequireOwnerTeam, in.Gates, in.RefuseRawInfra = r.Policy.RequireOwnerTeam, r.Gates, r.Policy.RefuseRawInfra
 	p := delivery.PlanFor(ctx, in)
 	e := delivery.Shadow{Candidate: to, From: from, Predicted: p.Predicted, IntentDigest: p.IntentDigest,
 		ImpactDigest: p.ImpactDigest, PlannedAt: ts(now), Question: p.Question}

@@ -19,6 +19,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -62,6 +63,16 @@ type fakeRegistry struct {
 	bundles   map[string]*contract.Bundle
 	hosts     []string
 	annErr    error
+	// layers are the deploy layers (Flux content) by artifact digest.
+	layers map[string][]byte
+}
+
+func (f *fakeRegistry) Layer(_ context.Context, ref string, _ int64) (string, []byte, error) {
+	_, d, _ := strings.Cut(ref, "@")
+	if l, ok := f.layers[d]; ok {
+		return delivery.FluxContentMediaType, l, nil
+	}
+	return "", nil, errors.New("no layer")
 }
 
 func (f *fakeRegistry) Annotations(_ context.Context, ref string) (map[string]string, error) {
@@ -153,6 +164,16 @@ func newScheme() *runtime.Scheme {
 	return s
 }
 
+// servedMapper serves every kind of s, all namespaced, as an apiserver
+// would: the fake client's own mapper serves none.
+func servedMapper(s *runtime.Scheme) meta.RESTMapper {
+	m := meta.NewDefaultRESTMapper(s.PrioritizedVersionsAllGroups())
+	for gvk := range s.AllKnownTypes() {
+		m.Add(gvk, meta.RESTScopeNamespace)
+	}
+	return m
+}
+
 func kindOf(obj runtime.Object) string {
 	if u, ok := obj.(interface{ GetKind() string }); ok && u.GetKind() != "" {
 		return strings.TrimSuffix(u.GetKind(), "List")
@@ -173,7 +194,8 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 		}
 		return nil
 	}
-	e.c = fake.NewClientBuilder().WithScheme(newScheme()).
+	scheme := newScheme()
+	e.c = fake.NewClientBuilder().WithScheme(scheme).WithRESTMapper(servedMapper(scheme)).
 		WithStatusSubresource(&dv1.Stage{}, &dv1.Operation{}, &dv1.Approval{}).
 		WithIndex(&dv1.Approval{}, approvalOperationUID, approvalUID).
 		// Every reconciler runs guarded, as the chart installs it.

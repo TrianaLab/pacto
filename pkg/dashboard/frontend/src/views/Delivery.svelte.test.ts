@@ -2024,10 +2024,10 @@ describe('published paging', () => {
     expect(text(target)).toContain('300 services');
     expect(text(target.querySelector('[data-testid="refused-count"]') as HTMLElement)).toBe('(the latest 1 of 134)');
     // The page answers first, and the refusals it counts are open on screen.
-    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('134 publishes refused lately.');
+    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('134 refused lately.');
     const fold = target.querySelector('[data-testid="refused-publishes"] details') as HTMLDetailsElement;
     expect(fold.open).toBe(true);
-    expect(text(fold.querySelector('summary') as HTMLElement)).toContain('Refused publishes 134');
+    expect(text(fold.querySelector('summary') as HTMLElement)).toContain('Refused publishes and promotes 134');
     expect(target.querySelector('[data-testid="published-pager-next"]')?.getAttribute('href')).toBe('#/delivery/publish?q=pay&offset=10');
     expect((target.querySelector('[data-testid="published-filter"] input') as HTMLInputElement).value).toBe('pay');
     destroy();
@@ -2324,7 +2324,7 @@ describe('refused publishes', () => {
     fns.published.mockResolvedValue(pub);
     const { target, destroy } = render(DeliveryPublishView);
     await settle();
-    expect(text(target.querySelector('[data-testid="refused-unrecorded"]') as HTMLElement)).toContain('This cluster keeps no record of refused publishes');
+    expect(text(target.querySelector('[data-testid="refused-unrecorded"]') as HTMLElement)).toContain('This cluster keeps no record of refused publishes or promotes');
     destroy();
   });
 
@@ -2349,17 +2349,52 @@ describe('refused publishes', () => {
     destroy();
   });
 
+  it('lists a refused promote with its stage and record', async () => {
+    fns.published.mockResolvedValue(pub);
+    const stage = 'payments-production-eu-west-1-blue-green-canary-with-a-long-name';
+    fns.refusals.mockResolvedValue({ asOf: listing.asOf, recorded: true, completeness: 'complete',
+      refusals: [{ service: 'payments', version: '2.5.0', check: 'manifests', namespace: 'prod', stage, digest: 'sha256:dig', code: 'RawInfraInArtifact',
+        record: 'sha256:rec', reason: 'the version reaches outside prod', at: '2026-11-21T09:00:00Z', verified: true }] });
+    const { target, destroy } = render(DeliveryPublishView);
+    await settle();
+    const row = target.querySelector('[data-testid="refused-publishes"] li.pv-row') as HTMLElement;
+    expect(text(row).trim()).toContain(`payments 2.5.0 on prod/${stage} Refused promote Signed record`);
+    expect(text(row)).toContain('The version reaches outside prod.');
+    const bdi = row.querySelector('.pv-stage') as HTMLElement;
+    expect(bdi.tagName).toBe('BDI');
+    expect(bdi.getAttribute('title')).toBe(`prod/${stage}`);
+    // The code and digest are a tooltip on the badge, never a line of their own.
+    expect(Array.from(row.querySelectorAll('.badge')).find((b) => b.textContent === 'Refused promote')?.getAttribute('title')).toBe('RawInfraInArtifact, sha256:dig');
+    // The head is its own wrapping line, never the versions grid: the record mark sits in it.
+    const head = row.querySelector('[data-testid="refused-head"]') as HTMLElement;
+    expect(head.classList.contains('pv-head')).toBe(false);
+    expect(head.querySelector('.copyable')).toBeTruthy();
+    // The record is a discreet mark: its id in the tooltip, copyable, never a line of its own.
+    expect(row.querySelector('.copyable')?.getAttribute('title')).toBe('sha256:rec');
+    expect(row.querySelector('.copyable-value')).toBeNull();
+    destroy();
+  });
+
+  it('names both kinds in the refused heading', async () => {
+    fns.published.mockResolvedValue(pub);
+    fns.refusals.mockResolvedValue({ asOf: listing.asOf, recorded: true, completeness: 'complete', refusals: [] });
+    const { target, destroy } = render(DeliveryPublishView);
+    await settle();
+    expect(text(target.querySelector('#pv-refused') as HTMLElement)).toBe('Refused publishes and promotes');
+    destroy();
+  });
+
   it('says when none was refused, and when the list could not be read', async () => {
     fns.published.mockResolvedValue(pub);
     fns.refusals.mockResolvedValue({ asOf: listing.asOf, recorded: true, completeness: 'complete', refusals: [] });
     let r = render(DeliveryPublishView);
     await settle();
-    expect(text(r.target)).toContain('No publish was refused.');
+    expect(text(r.target)).toContain('Nothing was refused.');
     r.destroy();
     fns.refusals.mockResolvedValue({ asOf: listing.asOf, recorded: true, completeness: 'partial' });
     r = render(DeliveryPublishView);
     await settle();
-    expect(text(r.target)).toContain('No publish was refused that Pacto could read.');
+    expect(text(r.target)).toContain('Nothing was refused that Pacto could read.');
     expect(text(r.target)).toContain('This list may be incomplete.');
     r.destroy();
     fns.refusals.mockRejectedValueOnce(new ApiError(500, 'boom'));
@@ -2367,10 +2402,10 @@ describe('refused publishes', () => {
     r = render(DeliveryPublishView);
     await settle();
     const sec = r.target.querySelector('[data-testid="refused-publishes"]') as HTMLElement;
-    expect(text(sec)).toContain('Could not read refused publishes: boom');
+    expect(text(sec)).toContain('Could not read refusals: boom');
     (sec.querySelector('button') as HTMLButtonElement).click();
     await settle();
-    expect(text(sec)).toContain('No publish was refused.');
+    expect(text(sec)).toContain('Nothing was refused.');
     r.destroy();
   });
 });

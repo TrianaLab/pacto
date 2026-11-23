@@ -14,6 +14,7 @@ const (
 	InstallationPartial          = "partial"
 	InstallationUnknown          = "unknown"
 	InstallationApplierAdopted   = "adopted"
+	InstallationApplierIDPFlux   = "idp-flux"
 	InstallationEngineUnknown    = "unknown"
 	installationRowID            = "installation"
 	installationHidden           = "the fleet snapshot in your view holds no Installation row for this cluster: your view hides it, or the snapshot predates the detection"
@@ -131,7 +132,7 @@ type InstallationDelivery struct {
 // InstallationApplier is one tool that applies what Pacto delivery promotes.
 type InstallationApplier struct {
 	Manager    string `json:"manager" doc:"The detected row's id: argocd or flux"`
-	Mode       string `json:"mode" enum:"adopted,idp-flux"`
+	Mode       string `json:"mode" enum:"adopted,idp-flux" doc:"adopted: Pacto adopts the applier that owns the workloads; idp-flux: profile idp delivers unmanaged workloads through Flux"`
 	Provenance string `json:"provenance" enum:"declared,observed,inferred,host"`
 	Source     string `json:"source" doc:"The row Pacto inferred it from"`
 }
@@ -268,11 +269,7 @@ func (q *Query) installationDelivery(in InstallationInput, d *InstallationDeclar
 	case d != nil && slices.Contains(d.Profile, "hardened"):
 		out.notRead(installationDeliveryKept)
 	default:
-		cluster := ""
-		if d != nil {
-			cluster = d.ClusterID
-		}
-		q.addAppliers(&out, cluster)
+		q.addAppliers(&out, d)
 	}
 	return out
 }
@@ -285,15 +282,22 @@ func (out *InstallationDelivery) notRead(note string) {
 	}
 }
 
-// addAppliers lists one adopted applier per manager whose available argocd or
-// flux row counts an object of an applying kind, in cluster when it is known
-// (else in every cluster of the view). A row that is not available, no
-// workload source to read the rows, or a failed discovery lists nothing and
-// makes the part partial: an unread input is never an empty list.
-func (q *Query) addAppliers(out *InstallationDelivery, cluster string) {
+// addAppliers lists one applier per manager whose available argocd or flux
+// row counts an object of an applying kind, in the declared block d's cluster
+// when it is known (else in every cluster of the view). A row that is not
+// available, no workload source to read the rows, or a failed discovery lists
+// nothing and makes the part partial: an unread input is never an empty list.
+// The flux row reads idp-flux when d declares profile idp (hardened never
+// reaches here); Pacto cannot prove who installed Flux, so the source says
+// only what it read.
+func (q *Query) addAppliers(out *InstallationDelivery, d *InstallationDeclared) {
 	if q == nil {
 		out.notRead(installationAppliersNoQuery)
 		return
+	}
+	cluster, idp := "", false
+	if d != nil {
+		cluster, idp = d.ClusterID, slices.Contains(d.Profile, "idp")
 	}
 	clusters := clusterOfSource(q.snap)
 	read := false
@@ -307,7 +311,7 @@ func (q *Query) addAppliers(out *InstallationDelivery, cluster string) {
 		case p.ID == ProviderKubernetesWorkloads:
 			read = true
 		case p.ID == ProviderArgoCD || p.ID == ProviderFlux:
-			out.addApplier(p)
+			out.addApplier(p, idp && p.ID == ProviderFlux)
 		}
 	}
 	if !read && !strings.Contains(out.Source, installationUndiscovered) {
@@ -316,8 +320,9 @@ func (q *Query) addAppliers(out *InstallationDelivery, cluster string) {
 }
 
 // addApplier lists p's manager once when p is available and counts an object
-// of an applying kind: a served CRD with nothing in it applies nothing.
-func (out *InstallationDelivery) addApplier(p Provider) {
+// of an applying kind: a served CRD with nothing in it applies nothing. idp
+// lists it in mode idp-flux.
+func (out *InstallationDelivery) addApplier(p Provider, idp bool) {
 	switch {
 	case p.Status != SourceAvailable:
 		out.notRead("; " + p.ID + installationApplierNotListed)
@@ -325,8 +330,12 @@ func (out *InstallationDelivery) addApplier(p Provider) {
 	case slices.ContainsFunc(out.Appliers, func(a InstallationApplier) bool { return a.Manager == p.ID }):
 		// one row per cluster names the same manager
 	default:
-		out.Appliers = append(out.Appliers, InstallationApplier{Manager: p.ID, Mode: InstallationApplierAdopted, Provenance: ProvenanceInferred,
-			Source: "detected " + p.ID + " row; " + installationApplierEvidence})
+		a := InstallationApplier{Manager: p.ID, Mode: InstallationApplierAdopted, Provenance: ProvenanceInferred,
+			Source: "detected " + p.ID + " row; " + installationApplierEvidence}
+		if idp {
+			a.Mode, a.Source = InstallationApplierIDPFlux, "detected flux row; profile idp declared; "+installationApplierEvidence
+		}
+		out.Appliers = append(out.Appliers, a)
 	}
 }
 
