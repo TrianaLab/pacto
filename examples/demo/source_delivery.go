@@ -1397,6 +1397,11 @@ func (d *demoDelivery) Trust(_ context.Context, stages []delivery.StageObject, o
 // dashboard never asks.
 func (d *demoDelivery) StageNamespaces(context.Context) ([]string, error) { return nil, nil }
 
+// Environments publishes no installation ladder.
+func (d *demoDelivery) Environments(context.Context) (*delivery.EnvironmentsView, []delivery.PlacementRow, bool, error) {
+	return nil, nil, false, nil
+}
+
 // recordID is a stable stand-in record id for s.
 func recordID(s string) string {
 	sum := sha256.Sum256([]byte(s))

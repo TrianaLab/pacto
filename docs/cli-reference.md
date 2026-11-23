@@ -796,7 +796,7 @@ pacto delivery describe <type> [flags]
 
 ### `pacto delivery environments`
 
-Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. With service it also says, per Stage, which actions the caller may take and why, including freeze and undo.
+Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. With service it also says, per Stage, which actions the caller may take and why, including freeze and undo. Where the promoter publishes the installation ladder, each Stage also says where its environment comes from (declared, ladder, inferred-confirmed or hand-written) and its placement (namespace, provenance, evidence and who confirmed it), and the environments with no Stage are listed with the reason; those the caller may not read are only counted.
 
 It runs the dashboard's own environments view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
@@ -872,7 +872,7 @@ pacto delivery history [flags]
 
 ### `pacto delivery inbox`
 
-Held operations whose decision by the caller the promoter would count: the caller may update the Stage's workload and, when owner teams narrow who may answer, is in a team the question names (break-glass also gets those that name no team), with the decision asked and the affected services; a change whose update rights could not be checked marks the answer partial. Also the frozen Stages of the caller's services (every frozen Stage they can read when owner teams do not narrow) and the Errored operations on them.
+Held operations whose decision by the caller the promoter would count: the caller may update the Stage's workload and, when owner teams narrow who may answer, is in a team the question names (break-glass also gets those that name no team), with the decision asked and the affected services; a change whose update rights could not be checked marks the answer partial. Also the frozen Stages of the caller's services (every frozen Stage they can read when owner teams do not narrow) and the Errored operations on them. When the promoter proposes rungs for the installation ladder, also that proposal and the exact pacto delivery ladder confirm command a person runs to confirm it.
 
 It runs the dashboard's own inbox view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 

@@ -2235,6 +2235,12 @@ export interface components {
         "Delivery.ImpactGate": {
             declaredConsumersOnly?: boolean;
         };
+        "Delivery.LadderRung": {
+            name: string;
+            provenance: string;
+            source: string;
+            upstream?: string;
+        };
         "Delivery.LifecycleEvent": {
             actor: string;
             actorClass?: string;
@@ -2310,6 +2316,9 @@ export interface components {
             version?: string;
         };
         "Delivery.ObjectMeta": {
+            annotations?: {
+                [key: string]: string;
+            };
             creationTimestamp?: string;
             finalizers?: string[] | null;
             /** Format: int64 */
@@ -2992,6 +3001,8 @@ export interface components {
             namespace: string;
             /** @description Each action with whether the caller may ask for it here and why. Freeze and undo are offered only when the request names a service. Offers only describe: proposing goes through this surface's propose path, when it has one, with the caller's own identity, and admission decides */
             offers: components["schemas"]["Delivery.Offer"][] | null;
+            /** @description Where the service runs in this environment and why; absent where the promoter publishes no installation ladder */
+            placement?: components["schemas"]["PlacementView"];
             /** @description The digest the environment runs */
             pointer?: string;
             /** @description Why the Stage can or cannot move to its newest candidate; set by pacto delivery status --why and pacto_delivery_status why */
@@ -3007,6 +3018,11 @@ export interface components {
             service: string;
             /** @description On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed */
             shadow?: components["schemas"]["ShadowDecision"][] | null;
+            /**
+             * @description Where the environment comes from: the contract's environments[] (declared), a rung of the installation ladder the chart declares (ladder), an inferred rung a person confirmed (inferred-confirmed), or a Stage a person wrote (hand-written); empty where the promoter publishes no installation ladder
+             * @enum {string}
+             */
+            source?: "declared" | "ladder" | "inferred-confirmed" | "hand-written";
             /** @description The source revision pacto publish stamped on the running artifact (org.opencontainers.image.revision). An annotation, not signed */
             sourceRevision?: string;
             stage: string;
@@ -3042,6 +3058,13 @@ export interface components {
             page: components["schemas"]["Page"];
             /** @description With service: that service's promotion graph, from its Stages' declared upstreams */
             promotion?: components["schemas"]["PromotionGraph"];
+            /** @description The environments of services Pacto delivers that have no Stage, over every page, after q, service, domain, environment, except and tier (state keeps none); absent when there is none or the promoter publishes no installation ladder */
+            unplaced?: components["schemas"]["UnplacedRow"][] | null;
+            /**
+             * Format: int64
+             * @description How many such environments are hidden from the caller: every one when they may not read the placement rows, else those in a namespace they cannot list
+             */
+            unplacedHidden?: number;
             /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
             unreadable?: string[] | null;
         };
@@ -6574,6 +6597,17 @@ export interface components {
             toVersion?: string;
             type: string;
         };
+        InboxLadder: {
+            /** @description The caller is a person the apiserver allows to approve environmentladders.delivery.pacto.trianalab.io, so the promoter would count their confirmation */
+            canConfirm: boolean;
+            /** @description The command that signs a confirmation of exactly this proposal as the person who runs it */
+            command: string;
+            confirmed: components["schemas"]["Delivery.LadderRung"][] | null;
+            declared: components["schemas"]["Delivery.LadderRung"][] | null;
+            /** @description The inferred rungs Pacto proposes, each a leaf fed from the registry */
+            proposal: components["schemas"]["Delivery.LadderRung"][] | null;
+            proposalDigest: string;
+        };
         InboxOutputBody: {
             asOf: string;
             /** @description What waits to enter each environment, over every page after q, service and domain (environment and except do not narrow it), in the promotion order the Stages declare (candidates.upstreamStage), then by name; only environments where something waits */
@@ -6594,6 +6628,8 @@ export interface components {
              * @description How many held changes, over every page, more than one team may answer
              */
             heldShared: number;
+            /** @description The installation ladder proposal waiting for a person to confirm it; absent when there is none. No query narrows it */
+            ladder?: components["schemas"]["InboxLadder"];
             /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
             unreadable?: string[] | null;
         };
@@ -6814,6 +6850,20 @@ export interface components {
              * @description How many match, over every page
              */
             total: number;
+        };
+        PlacementView: {
+            /** @description The person whose approval of the first promote confirmed the placement */
+            confirmedBy?: string;
+            /** @description The evidence, in words */
+            evidence?: string;
+            namespace?: string;
+            /**
+             * @description declared: a signed placement rule or a Stage a person wrote; observed: an adopted applier already runs the service there; inferred: evidence of where it runs; default: the namespace named after the environment; unknown: Pacto cannot tell, so it creates nothing
+             * @enum {string}
+             */
+            provenance: "declared" | "observed" | "inferred" | "default" | "unknown";
+            /** @description What the placement was found from: hand-written, policy, pacto, inferred-from, gitops-source or environment-name */
+            source?: string;
         };
         PolicyInfo: {
             content?: string;
@@ -9241,6 +9291,20 @@ export interface components {
             versions?: {
                 [key: string]: string;
             };
+        };
+        UnplacedRow: {
+            domain?: string;
+            /** @description Empty when the reason holds for every environment of the service */
+            environment?: string;
+            placement?: components["schemas"]["PlacementView"];
+            /** @description Why the environment has no Stage */
+            reason: string;
+            service: string;
+            /**
+             * @description Where the environment comes from, as on a board row
+             * @enum {string}
+             */
+            source?: "declared" | "ladder" | "inferred-confirmed";
         };
         "V2.ErrorDetail": {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */

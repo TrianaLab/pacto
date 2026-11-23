@@ -228,3 +228,72 @@ func TestWriteLadderBindsNamespaceCandidates(t *testing.T) {
 		t.Fatal("unreadable candidates")
 	}
 }
+
+// inNamespace moves a ConfigMap fixture to ns.
+func inNamespace(u *unstructured.Unstructured, ns string) *unstructured.Unstructured {
+	_ = unstructured.SetNestedField(u.Object, ns, "metadata", "namespace")
+	return u
+}
+
+func rowsConfigMap(ns, rows string) *unstructured.Unstructured {
+	u := inNamespace(placementsConfigMap(""), ns)
+	_ = unstructured.SetNestedField(u.Object, rows, "data", "rows.json")
+	return u
+}
+
+func TestEnvironmentsReadsConfiguredNamespace(t *testing.T) {
+	rows := `[{"service":"payments","environment":"production","source":"ladder","reason":"waiting"}]`
+	d := ladderDelivery(inNamespace(ladderConfigMap(viewJSON(ladderView())), "ops"), rowsConfigMap("ops", rows),
+		ladderConfigMap(`{"proposalDigest":"sha256:default"}`))
+	d.PolicyNamespace = "ops"
+	view, got, readable, err := d.Environments(t.Context())
+	if err != nil || view == nil || view.ProposalDigest != ladderView().ProposalDigest || !readable || len(got) != 1 || got[0].Service != "payments" {
+		t.Fatalf("%+v %+v %v %v", view, got, readable, err)
+	}
+	d.PolicyNamespace = ""
+	if view, got, readable, err := d.Environments(t.Context()); view != nil || got != nil || readable || err != nil {
+		t.Fatalf("no delivery namespace, nothing read: %+v %v %v %v", view, got, readable, err)
+	}
+}
+
+func TestEnvironmentsAnswers(t *testing.T) {
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "configmaps"}, delivery.PlacementsConfigMap, errors.New("no"))
+	view := ladderConfigMap(viewJSON(ladderView()))
+	for _, c := range []struct {
+		name               string
+		objs               []runtime.Object
+		rowsErr            error
+		wantView, readable bool
+		wantRows           int
+		wantErr            string
+	}{
+		{name: "no ladder"},
+		{name: "bad view", objs: []runtime.Object{ladderConfigMap("{")}, wantErr: "the installation ladder in pacto-delivery/"},
+		{name: "no rows yet", objs: []runtime.Object{view}, wantView: true, readable: true},
+		{name: "empty rows", objs: []runtime.Object{view, placementsConfigMap("")}, wantView: true, readable: true},
+		{name: "rows", objs: []runtime.Object{view, rowsConfigMap(delivery.PolicyNamespace, `[{"service":"a"},{"service":"b"}]`)}, wantView: true, readable: true, wantRows: 2},
+		{name: "bad rows", objs: []runtime.Object{view, rowsConfigMap(delivery.PolicyNamespace, "{")}, wantErr: "the placements in pacto-delivery/"},
+		{name: "rows hidden", objs: []runtime.Object{view}, rowsErr: forbidden, wantView: true},
+		{name: "rows down", objs: []runtime.Object{view}, rowsErr: errors.New("down"), wantErr: "reading the placements in pacto-delivery: down"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d := ladderDelivery(c.objs...)
+			d.PolicyNamespace = delivery.PolicyNamespace
+			if c.rowsErr != nil {
+				d.Dynamic.(*dynamicfake.FakeDynamicClient).PrependReactor("get", "configmaps", func(a k8stesting.Action) (bool, runtime.Object, error) {
+					return a.(k8stesting.GetAction).GetName() == delivery.PlacementsConfigMap, nil, c.rowsErr
+				})
+			}
+			v, rows, readable, err := d.Environments(t.Context())
+			if c.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), c.wantErr) || v != nil {
+					t.Fatalf("want %q, got %v %+v", c.wantErr, err, v)
+				}
+				return
+			}
+			if err != nil || (v != nil) != c.wantView || readable != c.readable || len(rows) != c.wantRows {
+				t.Fatalf("%+v %+v %v %v", v, rows, readable, err)
+			}
+		})
+	}
+}

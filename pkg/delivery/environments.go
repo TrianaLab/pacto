@@ -284,6 +284,20 @@ func PlacementAnnotations(source string, p Placement) map[string]string {
 	}
 }
 
+// StagePlacement reads back, for display, where a Stage's environment and
+// placement come from: the environment source and placement Pacto wrote on a
+// Stage it labelled ManagedLabel, and who confirmed the placement. managed is
+// false for any other Stage, which a person wrote. Ownership never rests on
+// it: anyone who may edit a Stage may write these.
+func StagePlacement(meta ObjectMeta) (source string, p Placement, confirmedBy string, managed bool) {
+	if meta.Labels[ManagedLabel] != ManagedBy {
+		return PlacementFromStage, Placement{Namespace: meta.Namespace, Provenance: PlacementDeclared, Source: PlacementFromStage}, "", false
+	}
+	a := meta.Annotations
+	return a[managedPrefix+"environment-source"], Placement{Namespace: meta.Namespace, Provenance: a[managedPrefix+"placement-provenance"],
+		Source: a[managedPrefix+"placement-source"], Evidence: a[managedPrefix+"placement-evidence"]}, a[PlacementConfirmedByAnnotation], true
+}
+
 // ManagedStageSpec is the spec of the Stage Pacto creates for service in
 // environment, applying through applier, the adopted Argo CD or Flux object
 // already running workload (nil: the Deployment named after the service). The

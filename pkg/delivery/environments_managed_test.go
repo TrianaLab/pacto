@@ -108,3 +108,18 @@ func TestRetireAfterGrace(t *testing.T) {
 		t.Fatalf("retired at %v", got)
 	}
 }
+
+func TestStagePlacementReadsWhatPactoWrote(t *testing.T) {
+	p := Placement{Namespace: "payments-staging", Provenance: PlacementInferred, Source: PlacementFromGitOps, Evidence: "Argo CD source github.com/acme/payments"}
+	ann := PlacementAnnotations(DesiredFromLadder, p)
+	ann[PlacementConfirmedByAnnotation] = "bob@acme.com"
+	meta := ObjectMeta{Namespace: "payments-staging", Labels: ManagedLabels(ServiceRef{Name: "payments"}, "staging"), Annotations: ann}
+	source, got, by, managed := StagePlacement(meta)
+	if source != DesiredFromLadder || got != p || by != "bob@acme.com" || !managed {
+		t.Fatalf("got %q %+v %q %v", source, got, by, managed)
+	}
+	source, got, by, managed = StagePlacement(ObjectMeta{Namespace: "shop", Annotations: ann})
+	if source != PlacementFromStage || got != (Placement{Namespace: "shop", Provenance: PlacementDeclared, Source: PlacementFromStage}) || by != "" || managed {
+		t.Fatalf("hand-written: %q %+v %q %v", source, got, by, managed)
+	}
+}

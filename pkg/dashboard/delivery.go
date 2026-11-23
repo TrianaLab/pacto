@@ -64,6 +64,11 @@ type DeliveryAPI interface {
 	// whether or not anything else runs there. Nil with no error means this
 	// host cannot enumerate namespaces.
 	StageNamespaces(ctx context.Context) ([]string, error)
+	// Environments reads what the promoter publishes about the installation
+	// ladder: the view every authenticated user may read, nil when the
+	// promoter publishes none, and the per-service placement rows, which
+	// readable says whether the caller may read.
+	Environments(ctx context.Context) (view *delivery.EnvironmentsView, rows []delivery.PlacementRow, readable bool, err error)
 }
 
 // DeliveryError is a delivery answer that says no: the HTTP status, a stable

@@ -239,6 +239,7 @@ type inboxOutput struct {
 		// ByEnvironment is over every page and before environment, so paging
 		// or narrowing the lists never changes it.
 		ByEnvironment []InboxEnvironment `json:"byEnvironment" doc:"What waits to enter each environment, over every page after q, service and domain (environment and except do not narrow it), in the promotion order the Stages declare (candidates.upstreamStage), then by name; only environments where something waits"`
+		Ladder        *InboxLadder       `json:"ladder,omitempty" doc:"The installation ladder proposal waiting for a person to confirm it; absent when there is none. No query narrows it"`
 	}
 }
 
@@ -273,6 +274,7 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	out := &inboxOutput{}
 	b := &out.Body
 	b.Listing = uncheckedPartial(l, caller, unchecked)
+	b.Ladder = inboxLadder(ctx, api, caller, &b.Listing)
 	b.ByEnvironment = inboxByEnvironment(stages, held, errored, frozenStages)
 	if in.Environment != "" {
 		held, errored = inEnvironment(held, byStage, in.Environment), inEnvironment(errored, byStage, in.Environment)
@@ -417,6 +419,140 @@ type EnvironmentRow struct {
 	Revision string           `json:"revision,omitempty" doc:"The fleet revision whose contract the running artifact names, when this dashboard's fleet holds it"`
 	// HeldOperation lets a waiting badge open the one held change.
 	HeldOperation string `json:"heldOperation,omitempty" doc:"The name of the Operation waiting for a person, when exactly one is"`
+	// Source and Placement are set only where the promoter publishes the
+	// installation ladder.
+	Source    string         `json:"source,omitempty" enum:"declared,ladder,inferred-confirmed,hand-written" doc:"Where the environment comes from: the contract's environments[] (declared), a rung of the installation ladder the chart declares (ladder), an inferred rung a person confirmed (inferred-confirmed), or a Stage a person wrote (hand-written); empty where the promoter publishes no installation ladder"`
+	Placement *PlacementView `json:"placement,omitempty" doc:"Where the service runs in this environment and why; absent where the promoter publishes no installation ladder"`
+}
+
+// PlacementView is where a service runs in one environment and why. On a
+// Stage Pacto created it is read from what Pacto wrote on it, for display
+// only; on a Stage a person wrote it is that Stage's namespace.
+type PlacementView struct {
+	Namespace   string `json:"namespace,omitempty"`
+	Provenance  string `json:"provenance" enum:"declared,observed,inferred,default,unknown" doc:"declared: a signed placement rule or a Stage a person wrote; observed: an adopted applier already runs the service there; inferred: evidence of where it runs; default: the namespace named after the environment; unknown: Pacto cannot tell, so it creates nothing"`
+	Source      string `json:"source,omitempty" doc:"What the placement was found from: hand-written, policy, pacto, inferred-from, gitops-source or environment-name"`
+	Evidence    string `json:"evidence,omitempty" doc:"The evidence, in words"`
+	ConfirmedBy string `json:"confirmedBy,omitempty" doc:"The person whose approval of the first promote confirmed the placement"`
+}
+
+func placementView(p *delivery.Placement, confirmedBy string) *PlacementView {
+	if p == nil {
+		return nil
+	}
+	return &PlacementView{Namespace: p.Namespace, Provenance: p.Provenance, Source: p.Source, Evidence: p.Evidence, ConfirmedBy: confirmedBy}
+}
+
+// UnplacedRow is an environment of a service Pacto delivers that has no
+// Stage: where it would run, when Pacto could tell, and why it has none.
+type UnplacedRow struct {
+	Service     string         `json:"service"`
+	Domain      string         `json:"domain,omitempty"`
+	Environment string         `json:"environment,omitempty" doc:"Empty when the reason holds for every environment of the service"`
+	Source      string         `json:"source,omitempty" enum:"declared,ladder,inferred-confirmed" doc:"Where the environment comes from, as on a board row"`
+	Placement   *PlacementView `json:"placement,omitempty"`
+	Reason      string         `json:"reason" doc:"Why the environment has no Stage"`
+}
+
+// installation is what the promoter publishes about the installation ladder
+// as the caller reads it: the view (nil when it publishes none) and the
+// placement rows, which readable says whether the caller may read.
+type installation struct {
+	view     *delivery.EnvironmentsView
+	rows     []delivery.PlacementRow
+	readable bool
+}
+
+// installationOf reads it; a read that fails marks l partial and leaves
+// every row as it was: Pacto cannot tell where an environment comes from.
+func installationOf(ctx context.Context, api DeliveryAPI, l *Listing) installation {
+	v, rows, readable, err := api.Environments(ctx)
+	if err != nil {
+		l.Completeness, l.Unreadable = "partial", append(l.Unreadable, "the installation ladder: "+err.Error())
+		return installation{}
+	}
+	return installation{v, rows, readable}
+}
+
+// mark sets row's environment source and placement from its Stage.
+func (in installation) mark(row *EnvironmentRow, st delivery.StageObject) {
+	if in.view == nil {
+		return
+	}
+	source, p, by, _ := delivery.StagePlacement(st.Metadata)
+	row.Source, row.Placement = source, placementView(&p, by)
+}
+
+// unplaced is the environments with no Stage that q narrows to, as far as
+// the caller may read them, and how many it hides: every one when the caller
+// may not read the placement rows (the view counts them), else those in a
+// namespace the listing did not read in full; one with no namespace only
+// when it read every namespace.
+func (in installation) unplaced(q *environmentsInput, l Listing) ([]UnplacedRow, int) {
+	switch {
+	case in.view == nil:
+		return nil, 0
+	case !in.readable:
+		return nil, in.view.UnplacedCount
+	}
+	var out []UnplacedRow
+	hidden := 0
+	for _, r := range in.rows {
+		if r.Stage != "" || !q.keepsUnplaced(r) {
+			continue
+		}
+		var ns string
+		if r.Placement != nil {
+			ns = r.Placement.Namespace
+		}
+		if !l.read(ns) {
+			hidden++
+			continue
+		}
+		reason := r.Reason
+		if reason == "" && r.Placement != nil {
+			reason = r.Placement.Refused
+		}
+		out = append(out, UnplacedRow{Service: r.Service, Domain: r.Domain, Environment: r.Environment, Source: r.Source,
+			Placement: placementView(r.Placement, ""), Reason: reason})
+	}
+	return out, hidden
+}
+
+// keepsUnplaced is q, service, domain, environment, except and tier on an
+// unplaced row; a state keeps none, since a row with no Stage has none.
+func (in *environmentsInput) keepsUnplaced(r delivery.PlacementRow) bool {
+	return matches(in.Q, r.Service) && delivery.OfService(delivery.StageObject{Spec: delivery.StageSpec{Service: delivery.ServiceRef{Name: r.Service, Domain: r.Domain}}}, in.Service, in.Domain) &&
+		(in.Environment == "" || r.Environment == in.Environment) && !slices.Contains(in.Except, r.Environment) &&
+		(in.Tier == "" || envTier(r.Environment) == in.Tier) && in.State == ""
+}
+
+// InboxLadder is the installation ladder proposal waiting for a person: the
+// chart's chain, the rungs confirmed before, the proposed ones and the
+// command that confirms exactly this proposal.
+type InboxLadder struct {
+	Declared       []delivery.LadderRung `json:"declared"`
+	Confirmed      []delivery.LadderRung `json:"confirmed"`
+	Proposal       []delivery.LadderRung `json:"proposal" doc:"The inferred rungs Pacto proposes, each a leaf fed from the registry"`
+	ProposalDigest string                `json:"proposalDigest"`
+	CanConfirm     bool                  `json:"canConfirm" doc:"The caller is a person the apiserver allows to approve environmentladders.delivery.pacto.trianalab.io, so the promoter would count their confirmation"`
+	Command        string                `json:"command" doc:"The command that signs a confirmation of exactly this proposal as the person who runs it"`
+}
+
+// inboxLadder is the open installation ladder proposal; nil when the
+// promoter publishes none.
+func inboxLadder(ctx context.Context, api DeliveryAPI, caller delivery.Caller, l *Listing) *InboxLadder {
+	v := installationOf(ctx, api, l).view
+	if v == nil || v.ProposalDigest == "" {
+		return nil
+	}
+	out := &InboxLadder{Declared: append([]delivery.LadderRung{}, v.Declared...), Confirmed: append([]delivery.LadderRung{}, v.Confirmed...), Proposal: v.Proposal,
+		ProposalDigest: v.ProposalDigest, Command: "pacto delivery ladder confirm --proposal " + v.ProposalDigest}
+	if caller.Class == delivery.ClassHuman {
+		ok, err := api.Can(ctx, "approve", "environmentladders", "")
+		out.CanConfirm = err == nil && ok
+	}
+	return out
 }
 
 // environmentRowOf is one Stage as the board shows it; held counts the held
@@ -482,6 +618,9 @@ type environmentsOutput struct {
 		Counts StageCounts `json:"counts" doc:"Failed, frozen and waiting Stages over every page, after q, environment, tier and state; byEnvironment before environment, tier and state"`
 		// Promotion is the service's own path, only with service.
 		Promotion *PromotionGraph `json:"promotion,omitempty" doc:"With service: that service's promotion graph, from its Stages' declared upstreams"`
+		// Unplaced is over every page: one collapsed list under the board.
+		Unplaced       []UnplacedRow `json:"unplaced,omitempty" doc:"The environments of services Pacto delivers that have no Stage, over every page, after q, service, domain, environment, except and tier (state keeps none); absent when there is none or the promoter publishes no installation ladder"`
+		UnplacedHidden int           `json:"unplacedHidden,omitempty" doc:"How many such environments are hidden from the caller: every one when they may not read the placement rows, else those in a namespace they cannot list"`
 	}
 }
 
@@ -517,6 +656,7 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	if err != nil {
 		return nil, err
 	}
+	inst := installationOf(ctx, api, &l)
 	held, heldName := map[string]int{}, map[string]string{}
 	for _, o := range ops {
 		if o.Status.Phase == delivery.PhaseHeld {
@@ -559,8 +699,10 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 		if row.Held == 1 {
 			row.HeldOperation = heldName[st.Metadata.Namespace+"/"+st.Metadata.Name]
 		}
+		inst.mark(&row, st)
 		out.Body.Environments = append(out.Body.Environments, row)
 	}
+	out.Body.Unplaced, out.Body.UnplacedHidden = inst.unplaced(in, l)
 	if in.Service != "" {
 		undoOffers(ctx, api, shown, out.Body.Environments, caller)
 	}

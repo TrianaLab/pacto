@@ -25,21 +25,68 @@ var ErrLadderChanged = errors.New("the proposal changed: run pacto delivery inbo
 // caller's own credentials.
 func (d *Delivery) LadderView(ctx context.Context) (delivery.EnvironmentsView, error) {
 	ns := cmp.Or(d.PolicyNamespace, delivery.PolicyNamespace)
+	v, err := d.ladderView(ctx, ns)
+	if v == nil && err == nil {
+		return delivery.EnvironmentsView{}, fmt.Errorf("the promoter publishes no installation ladder in %s: it needs delivery.environments enabled on the pacto-operator chart", ns)
+	}
+	if err != nil {
+		return delivery.EnvironmentsView{}, err
+	}
+	return *v, nil
+}
+
+// ladderView reads the installation ladder in ns; nil when the promoter
+// publishes none there.
+func (d *Delivery) ladderView(ctx context.Context, ns string) (*delivery.EnvironmentsView, error) {
 	var cm struct {
 		Data map[string]string `json:"data"`
 	}
 	err := getInto(ctx, d.Dynamic.Resource(gvrConfigMaps).Namespace(ns), delivery.EnvironmentsConfigMap, &cm)
 	switch {
 	case apierrors.IsNotFound(err):
-		return delivery.EnvironmentsView{}, fmt.Errorf("the promoter publishes no installation ladder in %s: it needs delivery.environments enabled on the pacto-operator chart", ns)
+		return nil, nil
 	case err != nil:
-		return delivery.EnvironmentsView{}, fmt.Errorf("reading the installation ladder in %s: %w", ns, err)
+		return nil, fmt.Errorf("reading the installation ladder in %s: %w", ns, err)
 	}
 	var v delivery.EnvironmentsView
 	if err := json.Unmarshal([]byte(cm.Data["view.json"]), &v); err != nil {
-		return delivery.EnvironmentsView{}, fmt.Errorf("the installation ladder in %s/%s: %w", ns, delivery.EnvironmentsConfigMap, err)
+		return nil, fmt.Errorf("the installation ladder in %s/%s: %w", ns, delivery.EnvironmentsConfigMap, err)
 	}
-	return v, nil
+	return &v, nil
+}
+
+// Environments reads, with the caller's own credentials, what the promoter
+// publishes about the installation ladder in the delivery namespace
+// (PolicyNamespace): the view, nil when it publishes none or the namespace is
+// not known, and the per-service placement rows of
+// delivery.PlacementsConfigMap, which readable says whether the caller may
+// read. Only a forbidden read of the rows is hidden; any other failure is the
+// error.
+func (d *Delivery) Environments(ctx context.Context) (view *delivery.EnvironmentsView, rows []delivery.PlacementRow, readable bool, err error) {
+	if d.PolicyNamespace == "" {
+		return nil, nil, false, nil
+	}
+	if view, err = d.ladderView(ctx, d.PolicyNamespace); view == nil {
+		return nil, nil, false, err
+	}
+	var cm struct {
+		Data map[string]string `json:"data"`
+	}
+	err = getInto(ctx, d.Dynamic.Resource(gvrConfigMaps).Namespace(d.PolicyNamespace), delivery.PlacementsConfigMap, &cm)
+	switch {
+	case apierrors.IsForbidden(err):
+		return view, nil, false, nil
+	case apierrors.IsNotFound(err):
+		return view, nil, true, nil
+	case err != nil:
+		return nil, nil, false, fmt.Errorf("reading the placements in %s: %w", d.PolicyNamespace, err)
+	}
+	if v := cm.Data["rows.json"]; v != "" {
+		if err := json.Unmarshal([]byte(v), &rows); err != nil {
+			return nil, nil, false, fmt.Errorf("the placements in %s/%s: %w", d.PolicyNamespace, delivery.PlacementsConfigMap, err)
+		}
+	}
+	return view, rows, true, nil
 }
 
 // LadderRungs is the installation ladder a person confirms from view: its
