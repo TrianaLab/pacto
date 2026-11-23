@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"strings"
 	"time"
 
@@ -48,9 +49,9 @@ func (e Environment) ExpiredAt(asOf time.Time) bool {
 }
 
 // Summary is the one-line text form: name, file and the declared fields, an
-// undeclared lifetime written as such.
+// undeclared lifetime written as such and a missing file as no values file.
 func (e Environment) Summary() string {
-	parts := []string{e.Name + ": " + e.File, "lifetime " + cmp.Or(e.Lifetime, "not declared")}
+	parts := []string{e.Name + ": " + cmp.Or(e.File, "no values file"), "lifetime " + cmp.Or(e.Lifetime, "not declared")}
 	if e.Expires != "" {
 		parts = append(parts, "expires "+e.Expires)
 	}
@@ -58,6 +59,22 @@ func (e Environment) Summary() string {
 		parts = append(parts, "owner "+e.Owner.DisplayString())
 	}
 	return strings.Join(parts, ", ")
+}
+
+// ReadEnvironmentValues reads e's values file from fsys and returns its bytes
+// and its values (see [ParseEnvironmentValues]). An environment with no file
+// (pactoVersion 2.6) has no values of its own: it reads as empty values and
+// fsys is never touched, so it may be nil.
+func ReadEnvironmentValues(fsys fs.FS, e Environment) ([]byte, map[string]any, error) {
+	if e.File == "" {
+		return nil, map[string]any{}, nil
+	}
+	raw, err := fs.ReadFile(fsys, e.File)
+	if err != nil {
+		return nil, nil, err
+	}
+	values, err := ParseEnvironmentValues(raw)
+	return raw, values, err
 }
 
 // ParseEnvironmentValues decodes an environment's file, YAML or JSON, into

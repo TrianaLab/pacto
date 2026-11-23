@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -58,6 +59,31 @@ func TestEnvironmentSummary(t *testing.T) {
 		if got := tc.env.Summary(); got != tc.want {
 			t.Errorf("got %q, want %q", got, tc.want)
 		}
+	}
+}
+
+// TestSummaryFilelessEnvironment: an environment with no file says so.
+func TestSummaryFilelessEnvironment(t *testing.T) {
+	if got := (Environment{Name: "prod", Lifetime: EnvironmentPersistent}).Summary(); got != "prod: no values file, lifetime persistent" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// TestReadEnvironmentValues: a file-less environment reads as empty values
+// without touching the FS; a file reads, parses or fails.
+func TestReadEnvironmentValues(t *testing.T) {
+	if raw, v, err := ReadEnvironmentValues(nil, Environment{Name: "pr"}); err != nil || raw != nil || v == nil || len(v) != 0 {
+		t.Fatalf("file-less: %q %v %v", raw, v, err)
+	}
+	fsys := fstest.MapFS{"e.yaml": {Data: []byte("app: {a: 1}\n")}, "bad.yaml": {Data: []byte("- x\n")}}
+	if raw, v, err := ReadEnvironmentValues(fsys, Environment{File: "e.yaml"}); err != nil || len(raw) == 0 || v["app"] == nil {
+		t.Fatalf("file: %q %v %v", raw, v, err)
+	}
+	if _, _, err := ReadEnvironmentValues(fsys, Environment{File: "gone.yaml"}); err == nil {
+		t.Fatal("a missing file is an error")
+	}
+	if _, _, err := ReadEnvironmentValues(fsys, Environment{File: "bad.yaml"}); err == nil {
+		t.Fatal("a file that is not a map is an error")
 	}
 }
 

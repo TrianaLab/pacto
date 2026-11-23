@@ -736,7 +736,7 @@ func TestMarshalContract_KeyOrder(t *testing.T) {
 // it; a given one is written as given.
 func TestCreateLeavesVersionToPublish(t *testing.T) {
 	m := buildCreateMap(CreateInput{Name: "svc"})
-	if _, has := m["service"].(map[string]any)["version"]; has || m["pactoVersion"] != "2.5" {
+	if _, has := m["service"].(map[string]any)["version"]; has || m["pactoVersion"] != contract.Current() {
 		t.Errorf("empty version: %v", m)
 	}
 	m = buildCreateMap(CreateInput{Name: "svc", Version: "2.0.0"})
@@ -763,7 +763,7 @@ func readPactoYAML(t *testing.T, dir string) string {
 // range, and the result says impact reads it as unverified.
 func TestCreateOmittedCompatibilityIsUnknown(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "invoices")
-	res, err := Create(CreateInput{Name: "invoices", Path: dir, Dependencies: []DependencyInput{{Name: "ledger", Ref: "oci://reg.example/ledger", Required: true}}})
+	res, err := Create(CreateInput{Name: "invoices", Version: "1.0.0", Path: dir, Dependencies: []DependencyInput{{Name: "ledger", Ref: "oci://reg.example/ledger", Required: true}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2953,7 +2953,7 @@ func TestExternalDependencies(t *testing.T) {
 func TestExternalDependencyIdentity(t *testing.T) {
 	stripe := []DependencyInput{{Name: "payments-api", External: true, Version: "2024-06-20", Identity: "stripe"}}
 	dir := filepath.Join(t.TempDir(), "shop")
-	if _, err := Create(CreateInput{Name: "shop", Path: dir, Dependencies: stripe}); err != nil {
+	if _, err := Create(CreateInput{Name: "shop", Version: "1.0.0", Path: dir, Dependencies: stripe}); err != nil {
 		t.Fatal(err)
 	}
 	if y := readPactoYAML(t, dir); !strings.Contains(y, "identity: stripe") || !strings.Contains(y, `pactoVersion: "2.5"`) {

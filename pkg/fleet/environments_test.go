@@ -220,3 +220,32 @@ func TestMarkExpired(t *testing.T) {
 		t.Error("nil in, nil out")
 	}
 }
+
+// TestFleetFilelessEnvironmentPasses: an environment with no values file is
+// checked on the configuration defaults like any other: Pass when they
+// satisfy the schema, Fail naming the key when they leave one out.
+func TestFleetFilelessEnvironmentPasses(t *testing.T) {
+	doc := strings.NewReplacer("'2.3'", "'2.6'", "  required: true\n", "  required: true\n  values: {replicas: 2}\n",
+		"  file: envs/staging.yaml\n", "", "  file: envs/production.yaml\n", "").Replace(envLeafYAML)
+	fsys := fstest.MapFS{"app.json": {Data: []byte(`{"type":"object","properties":{"replicas":{"type":"integer"}},"required":["replicas"]}`)}}
+	result := func(doc string) []EnvironmentResult {
+		raw := RawRevision{Bundle: &contract.Bundle{Contract: mustParse(t, doc), RawYAML: []byte(doc), FS: fsys}, Digest: "sha256:env"}
+		snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("a", "local", &Collection{Revisions: []RawRevision{raw}}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, rev := range snap.Revisions {
+			return rev.Environments
+		}
+		return nil
+	}
+	for _, r := range result(doc) {
+		if r.Status != EnvironmentPass || r.File != "" || r.Findings.Total != 0 {
+			t.Fatalf("file-less with defaults = %+v", r)
+		}
+	}
+	r := result(strings.Replace(doc, "  values: {replicas: 2}\n", "", 1))[0]
+	if r.Status != EnvironmentFail || r.Findings.Items[0].Message != "environment staging declares no values file: app needs replicas" {
+		t.Fatalf("file-less without defaults = %+v", r)
+	}
+}
