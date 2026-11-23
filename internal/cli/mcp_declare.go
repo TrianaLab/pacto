@@ -221,7 +221,7 @@ func claimHidden(q *fleet.Query, id, name string, p *app.DeclarePlan, err error)
 	mismatch := errors.As(err, &de) && de.Code == string(pactomcp.RefusalExternalMismatch)
 	held := p.Baseline != nil || len(p.Skipped) > 0 || p.DraftsTotal > len(p.Drafts) || mismatch || baselineRefusal(err)
 	return slices.ContainsFunc(p.Drafts, func(d app.DraftView) bool {
-		other, ok := strings.CutPrefix(d.From.InferredFrom, fleet.ExternalSubjectPrefix)
+		other, ok := contract.InferredFromExternal(d.From.InferredFrom)
 		if ok {
 			return other != id && !lists(q, other)
 		}
