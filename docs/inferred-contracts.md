@@ -3,7 +3,7 @@
 This page describes the inferred contracts Pacto publishes for the
 [external systems](external-catalog-reference.md) your services call, such as
 Stripe or a legacy host. An inferred contract records what Pacto sees of a
-system nobody declares. A consumer can point a dependency
+system nobody in your organization declares. A consumer can point a dependency
 at it, and Pacto never checks a version range against it.
 
 ## What the operator publishes
@@ -21,8 +21,8 @@ acme/pacto-inferred/stripe
 acme/pacto-inferred/host/corp-legacy.example
 ```
 
-The operator publishes every 5 minutes and needs no other value and no Git
-access. Without `registry` nothing is
+The operator runs the publisher every 5 minutes and needs no other value: no
+flag, no extra chart key and no Git access. Without `registry` nothing is
 published. `registry` needs a path below the host: with a bare host such as
 `zot:5000` the operator publishes nothing and logs why, because readers take
 `zot:5000/pacto-inferred/stripe` for an organization named `pacto-inferred`. The operator log reports each run, and the metrics
@@ -44,8 +44,8 @@ service:
 ```
 
 `pacto.inferred.yaml` holds the `surface`: the hosts, ports and client majors
-the fleet sees, with their sources, catalog digest and first and last
-sighting:
+the fleet sees, each with the sources that saw it, the digest of the catalog
+that classified it and when it was first and last seen:
 
 ```yaml
 format: pacto.inferred/v1
@@ -93,13 +93,14 @@ The version is a count of surface changes and never a vendor version.
 
 A new `0.0.<n>` tag is pushed only when the surface changes, a host, port or
 client added or removed, or when the digest of the linked OpenAPI document
-moves. A re-hosted document with the same digest, a new caller, changed
-sources, times, `asOf` and `completeness` publish nothing. Tags are never
-overwritten.
+moves. A document re-hosted under the same digest publishes nothing. A new
+caller adds a source and publishes nothing, and so do changed sources, times,
+`asOf` and `completeness`. Tags are never overwritten.
 
 `asOf` says when the surface was computed and `completeness` whether the fleet
-snapshot was complete. A partial snapshot only adds values to the last signed
-revision, never removes one. Removing a value needs a complete snapshot. An OpenAPI link is removed only by
+snapshot was complete. A partial snapshot never removes a value: the operator
+keeps every value the last revision it signed holds and only adds new ones.
+Removing a value needs a complete snapshot. An OpenAPI link is removed only by
 a complete run whose organization catalog entry links none. An operator that watches only some
 namespaces always publishes a partial snapshot, with `TARGET_SNAPSHOT_SCOPED`.
 
@@ -109,13 +110,14 @@ At most 20 contracts are pushed per run; the rest wait for the next run.
 
 The operator signs every revision with the installation key, the key it
 creates once in the Secret `pacto-operator-installation-key`, and annotates
-the manifest with `run.pacto.contract.provenance: inferred` for registry UIs
-and `oras`. Pacto reads the location and the signature, never the annotation.
+the manifest with `run.pacto.contract.provenance: inferred` for registry UIs,
+`oras` and other readers. Pacto itself reads the location and the signature,
+never the annotation.
 
 An operator signature never makes a publisher. Readers name the operator's
 signer from the `snapshotKey` the `pacto-operator-detected` ConfigMap
-advertises (`--detected` on the CLI, a file or the ConfigMap), even with
-delivery off or no cluster. A revision only the operator signed shows
+advertises (`--detected` on the CLI, a file or the ConfigMap), even when
+delivery is off or there is no cluster. A revision only the operator signed shows
 its signature as `unverified` with source `operator`, even when its
 `publish.sign` names the operator. A declared revision that an accepted
 publisher also signed keeps that publisher's verdict. A revision under
@@ -154,7 +156,8 @@ Each external system with such a range raises `INFERRED_PROVIDER` in the
 knowledge category: "2 services check a range against stripe's inferred
 contract". Each one with consumers and no owner raises
 [`UNOWNED_EXTERNAL`](operational-graph-tallies.md#attention-categories),
-routed to the installation's default approvers. Both name the fix:
+routed to the installation's default approvers for routing only. Both name
+the fix:
 
 ```text
 $ pacto claim stripe --owner team-platform --registry ghcr.io/acme --yes
@@ -188,8 +191,10 @@ claiming services (retract all but one) and an unreadable newest revision link
 nothing and add `INFERRED_LINK_IGNORED`. A claiming service with no
 verified owner keeps `UNOWNED_EXTERNAL`.
 
-The dashboard's External page shows the inferred contract, its signature
-check, `asOf` and completeness in a collapsed block after Consumers.
+The External page on the dashboard shows the inferred contract in a collapsed
+block after Consumers: what its signature check established, when the surface
+was computed, whether that run was partial and, for each value, when it was
+last seen. Each list shows its first 12 values.
 
 ## A change between revisions
 
@@ -197,9 +202,9 @@ When the provider has two revisions, `change` on the provider says what moved
 between the two shown first: `from` and `to` (their versions), `at`, the
 surface values `added` and `removed`, and `openapiFrom` and `openapiTo` when the
 link's digest moved. `checked` is `true` only when this installation's operator
-signed both revisions. An unchecked change is shown as unchecked and raises
-no attention: anyone with registry push access could have written either
-revision. A checked change of the OpenAPI digest or the
+signed both revisions. An unchecked change is shown, marked unchecked, and
+raises no attention, because anyone with push access to the registry could
+have written either revision. A checked change of the OpenAPI digest or the
 clients raises [`EXTERNAL_CHANGED`](impact-what-if.md#an-external-system-changes-or-goes-down);
 host and port moves raise nothing, since they are your own calls. A restricted
 view drops `added` and `removed` and keeps the link. The collapsed block on
