@@ -267,23 +267,39 @@ fi
 rm -rf "$NEG"
 echo "  negative control failed as expected"
 
-TOTAL_REFS=0 MATCHED=0 ; PROVEN=() ; RESOLVE_FAIL=()
+TOTAL_REFS=0 MATCHED=0 ; PROVEN=() ; RESOLVE_FAIL=() ; CONFLICTED=()
 while IFS= read -r dir; do
   dep_bearing "$dir" || continue
-  if ! "$PACTO_BIN" lock "$dir" >/dev/null 2>&1; then RESOLVE_FAIL+=("lock: ${dir#"$WORK"/bundles/}"); continue; fi
-  # every pinned digest in the generated lock must be one we just pushed.
+  rel="${dir#"$WORK"/bundles/}"
   ok=1
-  while IFS= read -r d; do
-    TOTAL_REFS=$((TOTAL_REFS+1))
-    if grep -qF " $d" "$PUSHED"; then MATCHED=$((MATCHED+1)); else ok=0; fi
-  done < <(grep -oE 'sha256:[a-f0-9]+' "$dir/pacto.lock")
+  if ! lout="$("$PACTO_BIN" lock "$dir" 2>&1)"; then
+    # LOCK_CONFLICT is a fact about the closure, not about resolution: every ref
+    # resolved, but two edges picked different versions of one provider
+    # (ticketing-service 1.2.0 reaches postgresql 17.0.0 itself and 16.1.0 through
+    # inventory-service). Those bundles are published and immutable, so the lock
+    # can never be written. Resolution is still proven: the graph must resolve
+    # every edge with no error. A conflict that hides an unresolved ref fails here.
+    if ! printf '%s' "$lout" | grep -q 'LOCK_CONFLICT' ||
+       ! gout="$("$PACTO_BIN" graph --with-references --output-format json "$dir" 2>&1)" ||
+       printf '%s' "$gout" | grep -q '"error"'; then
+      RESOLVE_FAIL+=("lock: $rel"); continue
+    fi
+    CONFLICTED+=("$rel: ${lout##*LOCK_CONFLICT: }")
+    ok=0
+  else
+    # every pinned digest in the generated lock must be one we just pushed.
+    while IFS= read -r d; do
+      TOTAL_REFS=$((TOTAL_REFS+1))
+      if grep -qF " $d" "$PUSHED"; then MATCHED=$((MATCHED+1)); else ok=0; fi
+    done < <(grep -oE 'sha256:[a-f0-9]+' "$dir/pacto.lock")
+  fi
   # validate must not report a ref-RESOLUTION failure (policy/interface content
   # errors are unrelated pre-existing demo-fixture concerns and are ignored here).
   vout="$("$PACTO_BIN" validate "$dir" 2>&1 || true)"
   if printf '%s' "$vout" | grep -qE 'POLICY_REF_UNRESOLVED|POLICY_REF_CYCLE|ARTIFACT_NOT_FOUND|not found in bundle registry|could not resolve'; then
-    RESOLVE_FAIL+=("validate-resolve: ${dir#"$WORK"/bundles/}")
+    RESOLVE_FAIL+=("validate-resolve: $rel")
   fi
-  [ "$ok" = "1" ] && PROVEN+=("${dir#"$WORK"/bundles/}")
+  [ "$ok" = "1" ] && PROVEN+=("$rel")
 done < <(find "$WORK/bundles" -name pacto.yaml -exec dirname {} \; | sort)
 
 # ---- step 3: write the proof ----
@@ -314,6 +330,8 @@ mkdir -p "$(dirname "$PROOF")"
     echo "  ref-resolution FAILURES:    ${#RESOLVE_FAIL[@]}"
     printf '    %s\n' "${RESOLVE_FAIL[@]}"
   fi
+  echo "  resolved, closure conflicts (no lock, no pins): ${#CONFLICTED[@]}"
+  [ "${#CONFLICTED[@]}" -eq 0 ] || printf '    %s\n' "${CONFLICTED[@]}"
   echo
   echo "  proven bundles:"
   printf '    %s\n' "${PROVEN[@]}" | sort
