@@ -41,11 +41,12 @@ source (such as `prod`) and its workload source (`prod-workloads`).
   that says Pacto could not check. A restricted view lists only the workloads
   you may list.
 - **Reporting adapters**: one row per adapter, signed or unsigned, that
-  reports provisioning in the target-state file or signed envelopes, and one
-  per producer the Evidence Server's trust config allows to report
-  `ResourceProvisioned` or `ResourceUsage`, from the additive `adapters` list
-  of its `GET /api/evidence/v1/producers`. Trust config rows show to every
-  viewer, since that endpoint lists them to anyone.
+  reports provisioning in the target-state file or signed envelopes. A
+  producer the Evidence Server's trust config allows to report
+  `ResourceProvisioned` or `ResourceUsage` shows in its
+  [producer row](#producers).
+- **Producers**: one row per producer an Evidence Server lists; see
+  [Producers](#producers).
 - **Istio**, **Linkerd** and **Cilium Hubble** (ids `istio`, `linkerd` and
   `hubble`): one row per mesh the cluster's API discovery shows, from its
   mesh source (`prod-mesh`), such as `serves networking.istio.io; calls read
@@ -123,6 +124,30 @@ promoters:
 
 A workload one of the managers applies reads `external: <product>` in the
 [Stage applier verdict](integrations/kubernetes/delivery-reach.md#which-manager-applies-a-stage).
+
+## Producers
+
+An [Evidence Server source](evidence.md) adds one `producer/<id>` row per
+producer that reported a target, may report provisioning or usage, or may
+contribute records (see [Write a source](write-a-source.md)). Its `usedFor`
+lists `reported-targets`, `reporting` and `contributed-records`, and its
+`asOf` is the newest report or record. The evidence names the repository a
+producer contributes from and counts no service, so the row reads the same in
+a restricted view.
+
+- **available**: everything it said was read.
+- **stale**: its newest target is older than the freshness window (`last
+  reported 26h ago`), or its newest record is (`recorded 40d ago`) or says no
+  creation time.
+- **partial**: its repository holds no record yet, or some records were
+  refused, unsigned, tagged with another name or version, or over the bound
+  of 200 services.
+- **unavailable**: its repository could not be listed. The evidence source
+  then reads `partial` with `CONTRIBUTION_UNREAD`, since the services it would
+  add are unknown.
+
+A producer the server lists with nothing to show gets no row. One read takes
+at most 32 contributing producers.
 
 ## Registry rows
 
@@ -215,7 +240,8 @@ agent, so a backend running there is not detected.
 - **Datadog** (`datadog`): the Agent DaemonSet, its `DD_SITE` and the name of
   the Secret its `DD_API_KEY` comes from. Pacto reads no Secret and holds no
   Datadog client, so the row stays `partial`: Pacto reads Datadog calls
-  through an OpenTelemetry Collector.
+  through an OpenTelemetry Collector, or a script maps its service
+  dependencies export to records; see [Write a source](write-a-source.md).
 
 `pacto fleet` and `pacto mcp` show these as detected rows used for `observed
 edges, read by the dashboard`. On `pacto dashboard` each backend the dashboard

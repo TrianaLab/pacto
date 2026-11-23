@@ -82,6 +82,34 @@ and its status is empty.
   is hidden is left out too, and the declared service it calls counts it in
   `hiddenDependents`, even when you may list Pactos in the caller's namespace.
 
+## Contributed services
+
+A tool that [writes a source](write-a-source.md) contributes inferred services
+as signed records.
+
+- A contributed service is `declaration: inferred` too, keyed under its
+  producer's repository, such as `ghcr.io/acme/pacto-inferred/my-idp/checkout`.
+  Its record carries `contribution`: the producer, the record's ref and key,
+  when the producer made it (`asOf`), when Pacto read it and whether it is
+  `stale`.
+
+- `pacto fleet get` prints `Contributed by my-idp from <ref>, recorded 3h ago,
+  read 2m ago; inferred, never clears a gate`. The dashboard opens it on the
+  service page with one discreet mark beside its name and only the
+  `open-graph` action.
+- Its `dependencies[<name>]` fields resolve against the services declared in
+  the producer's registry. They are inferred edges with `compatibility:
+  unknown`: impact lists the service as an inferred consumer and the verdict
+  never moves.
+- It has no target and no status, so it never reads Compliant.
+- A record older than the freshness window, or one that says no creation time,
+  reads stale.
+- When a contract declares the same name in the producer's registry, the
+  contract wins: the record is dropped and `CONTRIBUTION_SUPERSEDED` counts it.
+  A record whose `pacto.yaml` declares more than its name and version, carries
+  a `declaration` or sits in another producer's repository is refused with
+  `CONTRIBUTION_REFUSED`.
+
 ## Groups and repositories
 
 Every inferred service carries `workload.group`, the group the cluster already

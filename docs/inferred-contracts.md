@@ -167,6 +167,19 @@ advertisement names its public key. Never run it
 against a registry an operator already writes. No MCP tool publishes inferred
 contracts: agents never sign as the installation.
 
+## Records a producer contributes
+
+The operator writes `<registry>/pacto-inferred/<identity>` only. A tool the
+Evidence Server's trust config grants writes one repository of its own,
+`<registry>/pacto-inferred/<producer>/services`, which no external system
+uses: one signed record per service it knows about, such as
+`ghcr.io/acme/pacto-inferred/my-idp/services:checkout_0.1.0`. Readers show each
+as a [contributed service](operational-graph-inferred.md#contributed-services).
+Like an external system's contract, a dependency pinned at a record never
+names a service and its range reads `unknown`. The organization index refuses
+an entry for any bundle under `pacto-inferred`. See
+[Write a source](write-a-source.md).
+
 ## Evidence
 
 A provisioning or usage key scoped with `allowedProviderRepos` never matches a
