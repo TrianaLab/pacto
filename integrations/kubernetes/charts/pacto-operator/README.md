@@ -226,6 +226,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | controller.watchNamespace | string | `""` | Deprecated: use watchNamespaces. Merged into it. |
 | controller.watchNamespaces | list | `[]` | Namespaces the controller and the managed dashboard watch. Empty means cluster-wide. With a list, the chart renders namespaced Roles, plus the dashboard's TokenReview grant for token sign-in; fleet answers report the rest as unknown. |
 | crds.install | bool | `true` | Install and upgrade the CRDs with the chart, the delivery CRDs too when `delivery.enabled`. They are kept on helm uninstall. Only one release in a cluster can own them: every other release, for example one per watched namespace, sets false. Set false to manage them yourself, for example from a separate GitOps source; the operator and delivery need them before they start |
+| crossplane | object | `{}` | Values for the upstream [Crossplane](https://crossplane.io) chart that idp.crossplane.install installs |
 | dashboard.auth.allowAnonymous | bool | `false` | Serve the dashboard without sign-in, only with tokenSignIn.enabled=false and no issuer. Everyone who reaches it reads every service the dashboard's ServiceAccount reads. With `false` and no sign-in the dashboard refuses to start |
 | dashboard.auth.oidc.caBundle.configMap | string | `""` | A ConfigMap in the operator namespace holding the PEM certificates of the CAs that sign the issuer's certificate (corporate or self-signed), trusted on top of the image's public roots |
 | dashboard.auth.oidc.caBundle.key | string | `"ca.crt"` | The key of the bundle in that ConfigMap or Secret |
@@ -407,6 +408,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | global.securityContext.runAsUser | int | `65532` | Run as UID 65532 (nonroot in distroless) |
 | hub.caConfigMap | string | `""` | ConfigMap in the release namespace holding `ca.crt`, the PEM CAs the hub's certificate may chain to beside the system pool. |
 | hub.url | string | `""` | The hub's https:// or wss:// URL. Setting it makes this joined cluster a member: the operator dials out to the hub, proves its installation key and answers the hub's per-person reviews with this cluster's own SubjectAccessReview. Nothing listens for the hub: no inbound port, Service or Ingress. Needs `registry`; profile hardened runs no review channel. |
+| idp.crossplane.install | bool | `false` | Install upstream Crossplane with this release. Needs profile idp; refused when Crossplane is already installed. Turning it off removes the Crossplane core and keeps its CRDs, XRDs, Compositions and claims. See https://pacto.run/latest/integrations/kubernetes/profiles/#crossplane |
 | image.digest | string | `""` | Pins the image by digest (sha256:...), appended to the tag as tag@digest so the runtime pulls exactly that image whatever the tag resolves to later |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
 | image.registry | string | `""` | Controller image registry (defaults to `global.imageRegistry`) |

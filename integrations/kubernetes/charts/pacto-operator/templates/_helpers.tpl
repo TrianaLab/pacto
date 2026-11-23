@@ -999,6 +999,40 @@ The schema refuses an unknown name first: that fail backs up
 {{- if (.Values.delivery | default dict).enabled }}{{ fail "profile hardened renders no ClusterRole and Pacto delivery needs cluster-wide roles: set delivery.enabled=false or leave profile hardened" }}{{ end }}
 {{- if and $dex.enabled (ne (toString $dexRBAC.create) "false") (ne (toString $dexRBAC.createClusterScoped) "false") }}{{ fail "profile hardened renders no ClusterRole: set dex.rbac.createClusterScoped=false or dex.enabled=false" }}{{ end }}
 {{- end }}
+{{- if dig "crossplane" "install" false (.Values.idp | default dict) }}
+{{- if include "pacto-operator.hardened" . }}{{ fail "profile hardened renders no ClusterRole: leave idp.crossplane.install false" }}{{ end }}
+{{- if not (include "pacto-operator.idp" .) }}{{ fail "idp.crossplane.install needs profile idp" }}{{ end }}
+{{- if include "pacto-operator.crossplaneForeign" . }}{{ fail "Crossplane is already installed: leave idp.crossplane.install false" }}{{ end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Whether this render talks to a cluster: the release namespace is found. Under
+helm template, a client dry-run or Argo CD, lookup returns nothing, so a
+refusal that needs cluster state is skipped there.
+*/}}
+{{- define "pacto-operator.liveRender" -}}
+{{- if lookup "v1" "Namespace" "" .Release.Namespace }}true{{ end }}
+{{- end }}
+
+{{/*
+On a live render, the name of a Deployment labelled
+app.kubernetes.io/name=crossplane, in any namespace, that this release and
+namespace do not own (another release or a hand install); empty otherwise.
+CRDs outlive Crossplane, so only a running Deployment counts.
+*/}}
+{{- define "pacto-operator.crossplaneForeign" -}}
+{{- if include "pacto-operator.liveRender" . }}
+{{- $foreign := list }}
+{{- range (lookup "apps/v1" "Deployment" "" "").items }}
+{{- $meta := .metadata | default dict }}
+{{- $annotations := $meta.annotations | default dict }}
+{{- if and (eq (dig "labels" "app.kubernetes.io/name" "" $meta) "crossplane") (not (and (eq (index $annotations "meta.helm.sh/release-name" | default "") $.Release.Name) (eq (index $annotations "meta.helm.sh/release-namespace" | default "") $.Release.Namespace))) }}
+{{- $foreign = append $foreign $meta.name }}
+{{- end }}
+{{- end }}
+{{- with $foreign }}{{ first . }}{{ end }}
+{{- end }}
 {{- end }}
 
 {{/*

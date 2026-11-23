@@ -5,5 +5,8 @@ dependencies:
 - name: dex
   repository: https://charts.dexidp.io
   version: 0.26.0
-digest: sha256:18037f61364c12e215c77c927cb1deb1087f58e139e6ac163b8b722db7840f39
-generated: "2026-10-27T21:39:58.195443+01:00"
+- name: crossplane
+  repository: https://charts.crossplane.io/stable
+  version: 2.4.3
+digest: sha256:6ccd3f6939ac65d238736a29947fb0b197534b9b291ad2702dd19188be0e6157
+generated: "2026-11-23T03:22:32.406798+01:00"

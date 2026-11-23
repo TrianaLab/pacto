@@ -48,6 +48,14 @@ registry: ""
 # https://pacto.run/latest/integrations/kubernetes/profiles/
 profile: default
 
+idp:
+  crossplane:
+    # -- Install upstream Crossplane with this release. Needs profile idp;
+    # refused when Crossplane is already installed. Turning it off removes the
+    # Crossplane core and keeps its CRDs, XRDs, Compositions and claims. See
+    # https://pacto.run/latest/integrations/kubernetes/profiles/#crossplane
+    install: false
+
 # -- namespace/name of an existing Secret that authenticates to `registry`, for
 # a registry without workload identity. Pacto proposes one it saw running pods
 # use (helm upgrade notes and Data sources) and never uses it until you name it
@@ -972,12 +980,15 @@ declare:
     # -- Timestamp authority the dashboard's signatures use (empty: public-good Sigstore)
     timestampURL: ""
 
-# Optional bundled dependencies for an evaluation install, both off by default.
-# values-quickstart.yaml turns them on and wires them. Every other key under
-# `zot` and `dex` passes through to the upstream chart.
+# Optional bundled dependencies, all off by default. values-quickstart.yaml
+# turns zot and dex on for an evaluation install and wires them;
+# idp.crossplane.install turns Crossplane on. Every other key under `zot`,
+# `dex` and `crossplane` passes through to the upstream chart.
 zot:
   # -- Install [zot](https://zotregistry.dev) from its official chart as an in-cluster OCI registry with native referrers. Its values are the upstream chart's
   enabled: false
+# -- Values for the upstream [Crossplane](https://crossplane.io) chart that idp.crossplane.install installs
+crossplane: {}
 dex:
   # -- Install [Dex](https://dexidp.io) from its official chart as the dashboard's OpenID Connect issuer. The chart then generates the dashboard's client secret into the Secret `dashboard.auth.oidc.clientSecretRef.name` names, with the keys `client-secret`, `admin-password` and `admin-password-hash`, and keeps it across upgrades. Its values are the upstream chart's
   enabled: false

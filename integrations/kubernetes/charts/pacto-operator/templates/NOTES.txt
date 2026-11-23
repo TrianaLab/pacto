@@ -161,6 +161,11 @@ It adds the cluster-wide read of ServiceMonitors and PodMonitors and Pacto
 delivery's cluster roles.
 {{- end }}
 {{- end }}
+{{- if and (dig "crossplane" "install" false (.Values.idp | default dict)) (not (include "pacto-operator.liveRender" .)) }}
+
+Check that no other Crossplane runs before you set idp.crossplane.install: this
+render could not look the cluster up, so it did not refuse a second Crossplane.
+{{- end }}
 {{- /* What the operator detected, read back on upgrade only. NOTES is the one
 template that looks the ConfigMap up, so detection changes no manifest. The
 object counts only when the operator wrote it: its managed-by label and an

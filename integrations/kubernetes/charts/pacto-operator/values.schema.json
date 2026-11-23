@@ -366,6 +366,23 @@
         }
       ]
     },
+    "idp": {
+      "description": "Pieces profile idp installs with this release on a person's confirmation.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "crossplane": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "install": {
+              "type": "boolean",
+              "description": "Install upstream Crossplane with this release. Needs profile idp; refused when Crossplane is already installed."
+            }
+          }
+        }
+      }
+    },
     "registryPullSecret": {
       "type": "string",
       "description": "namespace/name of an existing Secret that authenticates to registry; the chart grants get on that Secret only.",
@@ -1656,6 +1673,10 @@
           "type": "boolean"
         }
       }
+    },
+    "crossplane": {
+      "description": "Upstream Crossplane, installed with idp.crossplane.install. Every key passes through to the upstream chart.",
+      "type": "object"
     },
     "dex": {
       "description": "The bundled Dex identity provider. Every key besides enabled passes through to the upstream chart.",

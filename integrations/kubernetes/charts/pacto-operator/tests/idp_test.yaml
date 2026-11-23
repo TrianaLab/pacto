@@ -1,0 +1,138 @@
+# The Crossplane bootstrap (515-S2): idp.crossplane.install installs upstream
+# Crossplane with this release under profile idp. Every other profile refuses
+# it, and a live render refuses it while another Crossplane runs. Under
+# helm template (Argo CD) lookup is empty, so the refusal is skipped and NOTES
+# asks for the check. Each refusal is pinned with its exact text.
+suite: idp crossplane bootstrap
+templates:
+  - templates/deployment.yaml
+  - templates/NOTES.txt
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: default refuses the bootstrap
+    template: templates/deployment.yaml
+    set: {idp.crossplane.install: true}
+    asserts:
+      - failedTemplate:
+          errorMessage: idp.crossplane.install needs profile idp
+
+  - it: hardened refuses the bootstrap
+    template: templates/deployment.yaml
+    set: {profile: hardened, controller.watchNamespaces: [payments], idp.crossplane.install: true}
+    asserts:
+      - failedTemplate:
+          errorMessage: "profile hardened renders no ClusterRole: leave idp.crossplane.install false"
+
+  - it: hardened and idp refuse the bootstrap
+    template: templates/deployment.yaml
+    set: {profile: [hardened, idp], controller.watchNamespaces: [payments], idp.crossplane.install: true}
+    asserts:
+      - failedTemplate:
+          errorMessage: "profile hardened renders no ClusterRole: leave idp.crossplane.install false"
+
+  - it: a crossplane Deployment owned by another release refuses
+    template: templates/deployment.yaml
+    set: {profile: idp, idp.crossplane.install: true}
+    kubernetesProvider:
+      scheme:
+        "v1/Namespace":
+          gvr: {group: "", version: v1, resource: namespaces}
+          namespaced: false
+        "apps/v1/Deployment":
+          gvr: {group: apps, version: v1, resource: deployments}
+          namespaced: true
+      objects:
+        - {kind: Namespace, apiVersion: v1, metadata: {name: pacto-operator-system}}
+        - kind: Deployment
+          apiVersion: apps/v1
+          metadata:
+            name: crossplane
+            namespace: crossplane-system
+            labels: {app.kubernetes.io/name: crossplane}
+            annotations: {meta.helm.sh/release-name: crossplane, meta.helm.sh/release-namespace: crossplane-system}
+    asserts:
+      - failedTemplate:
+          errorMessage: "Crossplane is already installed: leave idp.crossplane.install false"
+
+  - it: an upgrade of the release that bootstrapped Crossplane renders
+    template: templates/deployment.yaml
+    set: {profile: idp, idp.crossplane.install: true}
+    release: {upgrade: true}
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - apiextensions.crossplane.io/v1
+    kubernetesProvider:
+      scheme:
+        "v1/Namespace":
+          gvr: {group: "", version: v1, resource: namespaces}
+          namespaced: false
+        "apps/v1/Deployment":
+          gvr: {group: apps, version: v1, resource: deployments}
+          namespaced: true
+      objects:
+        - {kind: Namespace, apiVersion: v1, metadata: {name: pacto-operator-system}}
+        - kind: Deployment
+          apiVersion: apps/v1
+          metadata:
+            name: crossplane
+            namespace: pacto-operator-system
+            labels: {app.kubernetes.io/name: crossplane}
+            annotations: {meta.helm.sh/release-name: pacto-operator, meta.helm.sh/release-namespace: pacto-operator-system}
+    asserts:
+      - hasDocuments: {count: 1}
+
+  - it: Crossplane APIs without lookup data render
+    set: {profile: idp, idp.crossplane.install: true}
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - apiextensions.crossplane.io/v1
+    asserts:
+      - hasDocuments: {count: 1}
+        template: templates/deployment.yaml
+      - matchRegexRaw:
+          pattern: Check that no other Crossplane runs before you set idp.crossplane.install
+        template: templates/NOTES.txt
+
+  - it: the default profile renders nothing of Crossplane
+    template: templates/NOTES.txt
+    asserts:
+      - notMatchRegexRaw:
+          pattern: Crossplane
+---
+# The subchart itself: it renders only with idp.crossplane.install, in the
+# release namespace, and templates no CRD (Crossplane's init creates them at
+# runtime, so Helm never owns them and turning the value off keeps them).
+suite: idp crossplane subchart
+templates:
+  - charts/crossplane/templates/*.yaml
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: the bootstrap renders under idp
+    template: charts/crossplane/templates/deployment.yaml
+    set: {profile: idp, idp.crossplane.install: true}
+    asserts:
+      - isKind: {of: Deployment}
+      - equal: {path: metadata.name, value: crossplane}
+      - equal: {path: metadata.namespace, value: pacto-operator-system}
+
+  - it: the bootstrap renders no CustomResourceDefinition
+    set: {profile: idp, idp.crossplane.install: true}
+    asserts:
+      - containsDocument: {kind: CustomResourceDefinition, apiVersion: apiextensions.k8s.io/v1, any: true}
+        not: true
+
+  - it: the default profile renders nothing of Crossplane
+    asserts:
+      - hasDocuments: {count: 0}

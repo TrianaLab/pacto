@@ -13,6 +13,11 @@
 # (a member with a live review channel, 514-S4) adds one rule, create
 # subjectaccessreviews: the two `hub.url` renders turn the dashboard off,
 # because the default dashboard already holds that rule.
+# The `idp crossplane install` render pins the upstream Crossplane chart's
+# roles and bindings that idp.crossplane.install adds (a person's choice): its
+# ClusterRoles write Secrets, CRDs and webhook configurations cluster-wide and
+# its RBAC manager may escalate and bind. A Crossplane version bump that
+# changes them fails here; list the change in the chart README.
 suite: rbac inventory
 templates:
   - templates/clusterrole.yaml
@@ -28,6 +33,13 @@ templates:
   - templates/delivery/identities.yaml
   - templates/dashboard-signin.yaml
   - templates/cluster-identity-role.yaml
+  # upstream Crossplane, rendered only with idp.crossplane.install
+  - charts/crossplane/templates/clusterrole.yaml
+  - charts/crossplane/templates/clusterrolebinding.yaml
+  - charts/crossplane/templates/rbac-manager-allowed-provider-permissions.yaml
+  - charts/crossplane/templates/rbac-manager-clusterrole.yaml
+  - charts/crossplane/templates/rbac-manager-clusterrolebinding.yaml
+  - charts/crossplane/templates/rbac-manager-managed-clusterroles.yaml
 release:
   name: pacto-operator
   namespace: pacto-operator-system
@@ -5984,3 +5996,336 @@ tests:
           resources: [subjectaccessreviews]
           verbs: [create]
       documentIndex: 0
+  - it: 'idp crossplane install: every rule, roleRef and subject of charts/crossplane/templates/clusterrole.yaml is pinned'
+    template: charts/crossplane/templates/clusterrole.yaml
+    set: {profile: idp, idp.crossplane.install: true}
+    asserts:
+    - hasDocuments: {count: 2}
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: 'crossplane'}
+      documentIndex: 0
+    - notExists: {path: rules}
+      documentIndex: 0
+    - equal:
+        path: aggregationRule
+        value:
+          clusterRoleSelectors:
+          - matchLabels: {rbac.crossplane.io/aggregate-to-crossplane: 'true'}
+      documentIndex: 0
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: 'crossplane:system:aggregate-to-crossplane'}
+      documentIndex: 1
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [events]
+          verbs: [create, update, patch, delete]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions, customresourcedefinitions/status]
+          verbs: ['*']
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: ['']
+          resources: [serviceaccounts, services]
+          verbs: ['*']
+        - apiGroups: [apiextensions.crossplane.io, ops.crossplane.io, pkg.crossplane.io, protection.crossplane.io]
+          resources: ['*']
+          verbs: ['*']
+        - apiGroups: [extensions, apps]
+          resources: [deployments]
+          verbs: [get, list, create, update, patch, delete, watch]
+        - apiGroups: ['', coordination.k8s.io]
+          resources: [configmaps, leases]
+          verbs: [get, list, create, update, patch, watch, delete]
+        - apiGroups: [admissionregistration.k8s.io]
+          resources: [validatingwebhookconfigurations, mutatingwebhookconfigurations]
+          verbs: [get, list, create, update, patch, watch, delete]
+      documentIndex: 1
+  - it: 'idp crossplane install: every rule, roleRef and subject of charts/crossplane/templates/clusterrolebinding.yaml is pinned'
+    template: charts/crossplane/templates/clusterrolebinding.yaml
+    set: {profile: idp, idp.crossplane.install: true}
+    asserts:
+    - hasDocuments: {count: 1}
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: 'crossplane'}
+      documentIndex: 0
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: crossplane}
+      documentIndex: 0
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: crossplane, namespace: pacto-operator-system}
+      documentIndex: 0
+  - it: 'idp crossplane install: every rule, roleRef and subject of charts/crossplane/templates/rbac-manager-allowed-provider-permissions.yaml is pinned'
+    template: charts/crossplane/templates/rbac-manager-allowed-provider-permissions.yaml
+    set: {profile: idp, idp.crossplane.install: true}
+    asserts:
+    - hasDocuments: {count: 1}
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: 'crossplane:allowed-provider-permissions'}
+      documentIndex: 0
+    - notExists: {path: rules}
+      documentIndex: 0
+    - equal:
+        path: aggregationRule
+        value:
+          clusterRoleSelectors:
+          - matchLabels: {rbac.crossplane.io/aggregate-to-allowed-provider-permissions: 'true'}
+      documentIndex: 0
+  - it: 'idp crossplane install: every rule, roleRef and subject of charts/crossplane/templates/rbac-manager-clusterrole.yaml is pinned'
+    template: charts/crossplane/templates/rbac-manager-clusterrole.yaml
+    set: {profile: idp, idp.crossplane.install: true}
+    asserts:
+    - hasDocuments: {count: 1}
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: 'crossplane-rbac-manager'}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [events]
+          verbs: [create, update, patch, delete]
+        - apiGroups: ['']
+          resources: [namespaces]
+          verbs: [get, list, watch]
+        - apiGroups: [apps]
+          resources: [deployments]
+          verbs: [get, list, watch]
+        - apiGroups: ['']
+          resources: [namespaces/finalizers]
+          verbs: [update]
+        - apiGroups: [apiextensions.crossplane.io]
+          resources: [compositeresourcedefinitions]
+          verbs: [get, list, watch]
+        - apiGroups: [apiextensions.crossplane.io]
+          resources: [compositeresourcedefinitions/finalizers]
+          verbs: [update]
+        - apiGroups: [pkg.crossplane.io]
+          resources: [providerrevisions]
+          verbs: [get, list, watch]
+        - apiGroups: [pkg.crossplane.io]
+          resources: [providerrevisions/finalizers]
+          verbs: [update]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions]
+          verbs: [get, list, watch]
+        - apiGroups: [rbac.authorization.k8s.io]
+          resources: [clusterroles, roles]
+          verbs: [get, list, watch, create, update, patch, escalate]
+        - apiGroups: [rbac.authorization.k8s.io]
+          resources: [clusterroles]
+          verbs: [bind]
+        - apiGroups: [rbac.authorization.k8s.io]
+          resources: [clusterrolebindings]
+          verbs: ['*']
+        - apiGroups: ['', coordination.k8s.io]
+          resources: [configmaps, leases]
+          verbs: [get, list, create, update, patch, watch, delete]
+      documentIndex: 0
+  - it: 'idp crossplane install: every rule, roleRef and subject of charts/crossplane/templates/rbac-manager-clusterrolebinding.yaml is pinned'
+    template: charts/crossplane/templates/rbac-manager-clusterrolebinding.yaml
+    set: {profile: idp, idp.crossplane.install: true}
+    asserts:
+    - hasDocuments: {count: 1}
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: 'crossplane-rbac-manager'}
+      documentIndex: 0
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: crossplane-rbac-manager}
+      documentIndex: 0
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: rbac-manager, namespace: pacto-operator-system}
+      documentIndex: 0
+  - it: 'idp crossplane install: every rule, roleRef and subject of charts/crossplane/templates/rbac-manager-managed-clusterroles.yaml is pinned'
+    template: charts/crossplane/templates/rbac-manager-managed-clusterroles.yaml
+    set: {profile: idp, idp.crossplane.install: true}
+    asserts:
+    - hasDocuments: {count: 9}
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: 'crossplane-admin'}
+      documentIndex: 0
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: crossplane-admin}
+      documentIndex: 0
+    - equal:
+        path: subjects
+        value:
+        - {apiGroup: rbac.authorization.k8s.io, kind: Group, name: 'crossplane:masters'}
+      documentIndex: 0
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: 'crossplane-admin'}
+      documentIndex: 1
+    - notExists: {path: rules}
+      documentIndex: 1
+    - equal:
+        path: aggregationRule
+        value:
+          clusterRoleSelectors:
+          - matchLabels: {rbac.crossplane.io/aggregate-to-admin: 'true'}
+      documentIndex: 1
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 2
+    - equal: {path: metadata.name, value: 'crossplane-edit'}
+      documentIndex: 2
+    - notExists: {path: rules}
+      documentIndex: 2
+    - equal:
+        path: aggregationRule
+        value:
+          clusterRoleSelectors:
+          - matchLabels: {rbac.crossplane.io/aggregate-to-edit: 'true'}
+      documentIndex: 2
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 3
+    - equal: {path: metadata.name, value: 'crossplane-view'}
+      documentIndex: 3
+    - notExists: {path: rules}
+      documentIndex: 3
+    - equal:
+        path: aggregationRule
+        value:
+          clusterRoleSelectors:
+          - matchLabels: {rbac.crossplane.io/aggregate-to-view: 'true'}
+      documentIndex: 3
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 4
+    - equal: {path: metadata.name, value: 'crossplane-browse'}
+      documentIndex: 4
+    - notExists: {path: rules}
+      documentIndex: 4
+    - equal:
+        path: aggregationRule
+        value:
+          clusterRoleSelectors:
+          - matchLabels: {rbac.crossplane.io/aggregate-to-browse: 'true'}
+      documentIndex: 4
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 5
+    - equal: {path: metadata.name, value: 'crossplane:aggregate-to-admin'}
+      documentIndex: 5
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [events]
+          verbs: [get, list, watch]
+        - apiGroups: ['']
+          resources: [secrets, namespaces]
+          verbs: ['*']
+        - apiGroups: [rbac.authorization.k8s.io]
+          resources: [clusterroles, roles]
+          verbs: [get, list, watch]
+        - apiGroups: [rbac.authorization.k8s.io]
+          resources: [clusterrolebindings, rolebindings]
+          verbs: ['*']
+        - apiGroups: [apiextensions.crossplane.io]
+          resources: ['*']
+          verbs: ['*']
+        - apiGroups: [pkg.crossplane.io]
+          resources: ['*']
+          verbs: ['*']
+        - apiGroups: [secrets.crossplane.io]
+          resources: ['*']
+          verbs: ['*']
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions]
+          verbs: [get, list, watch]
+        - apiGroups: [protection.crossplane.io]
+          resources: ['*']
+          verbs: ['*']
+        - apiGroups: [ops.crossplane.io]
+          resources: ['*']
+          verbs: ['*']
+      documentIndex: 5
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 6
+    - equal: {path: metadata.name, value: 'crossplane:aggregate-to-edit'}
+      documentIndex: 6
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [events]
+          verbs: [get, list, watch]
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: ['*']
+        - apiGroups: ['']
+          resources: [namespaces]
+          verbs: [get, list, watch]
+        - apiGroups: [apiextensions.crossplane.io]
+          resources: ['*']
+          verbs: ['*']
+        - apiGroups: [pkg.crossplane.io]
+          resources: ['*']
+          verbs: ['*']
+        - apiGroups: [secrets.crossplane.io]
+          resources: ['*']
+          verbs: ['*']
+        - apiGroups: [protection.crossplane.io]
+          resources: ['*']
+          verbs: ['*']
+        - apiGroups: [ops.crossplane.io]
+          resources: ['*']
+          verbs: ['*']
+      documentIndex: 6
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 7
+    - equal: {path: metadata.name, value: 'crossplane:aggregate-to-view'}
+      documentIndex: 7
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [events]
+          verbs: [get, list, watch]
+        - apiGroups: ['']
+          resources: [namespaces]
+          verbs: [get, list, watch]
+        - apiGroups: [apiextensions.crossplane.io]
+          resources: ['*']
+          verbs: [get, list, watch]
+        - apiGroups: [pkg.crossplane.io]
+          resources: ['*']
+          verbs: [get, list, watch]
+        - apiGroups: [secrets.crossplane.io]
+          resources: ['*']
+          verbs: [get, list, watch]
+        - apiGroups: [protection.crossplane.io]
+          resources: ['*']
+          verbs: [get, list, watch]
+        - apiGroups: [ops.crossplane.io]
+          resources: ['*']
+          verbs: [get, list, watch]
+      documentIndex: 7
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 8
+    - equal: {path: metadata.name, value: 'crossplane:aggregate-to-browse'}
+      documentIndex: 8
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [events]
+          verbs: [get, list, watch]
+        - apiGroups: [apiextensions.crossplane.io]
+          resources: ['*']
+          verbs: [get, list, watch]
+      documentIndex: 8
