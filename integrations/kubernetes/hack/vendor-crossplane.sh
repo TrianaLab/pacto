@@ -32,8 +32,12 @@ trap 'rm -rf "$work"' EXIT
 helm pull crossplane --repo "$repo" --version "$version" --destination "$work"
 # The placeholders are valid release names that occur nowhere upstream; the
 # template replaces them with .Release.Name and .Release.Namespace.
+# Upstream leaves trailing spaces on plain scalars and comments, where YAML
+# ignores them; stripping them keeps `git diff --check` clean. A future block
+# scalar with meaningful trailing spaces would need this narrowed.
 helm template xreleasenamex "$work/crossplane-$version.tgz" --namespace xreleasenamespacex |
-	grep -v '^# Source: ' >"$work/crossplane.yaml"
+	grep -v '^# Source: ' |
+	sed 's/[[:space:]]*$//' >"$work/crossplane.yaml"
 if grep -q '{{' "$work/crossplane.yaml"; then
 	echo "the render holds a template action; the chart emits it verbatim" >&2
 	exit 1

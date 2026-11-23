@@ -5,7 +5,7 @@ metadata:
   name: rbac-manager
   namespace: xreleasenamespacex
   labels:
-    app: crossplane    
+    app: crossplane
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -21,7 +21,7 @@ metadata:
   name: crossplane
   namespace: xreleasenamespacex
   labels:
-    app: crossplane    
+    app: crossplane
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -66,7 +66,7 @@ kind: ClusterRole
 metadata:
   name: crossplane
   labels:
-    app: crossplane    
+    app: crossplane
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -84,7 +84,7 @@ kind: ClusterRole
 metadata:
   name: crossplane:system:aggregate-to-crossplane
   labels:
-    app: crossplane    
+    app: crossplane
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -185,7 +185,7 @@ kind: ClusterRole
 metadata:
   name: crossplane:allowed-provider-permissions
   labels:
-    app: crossplane    
+    app: crossplane
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -203,7 +203,7 @@ kind: ClusterRole
 metadata:
   name: crossplane-rbac-manager
   labels:
-    app: crossplane    
+    app: crossplane
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -260,7 +260,7 @@ rules:
 # The RBAC manager creates a series of RBAC cluster roles for each XRD it sees.
 # These cluster roles are controlled (in the owner reference sense) by the XRD.
 # The RBAC manager needs permission to set finalizers on XRDs in order to
-# create resources that block their deletion when the 
+# create resources that block their deletion when the
 # OwnerReferencesPermissionEnforcement admission controller is enabled.
 # See https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/#ownerreferencespermissionenforcement
 - apiGroups:
@@ -280,7 +280,7 @@ rules:
 # The RBAC manager creates a series of RBAC cluster roles for each ProviderRevision
 # it sees. These cluster roles are controlled (in the owner reference sense) by the
 # ProviderRevision. The RBAC manager needs permission to set finalizers on
-# ProviderRevisions in order to create resources that block their deletion when the 
+# ProviderRevisions in order to create resources that block their deletion when the
 # OwnerReferencesPermissionEnforcement admission controller is enabled.
 # See https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/#ownerreferencespermissionenforcement
 - apiGroups:
@@ -343,7 +343,7 @@ kind: ClusterRole
 metadata:
   name: crossplane-admin
   labels:
-    app: crossplane    
+    app: crossplane
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -361,7 +361,7 @@ kind: ClusterRole
 metadata:
   name: crossplane-edit
   labels:
-    app: crossplane    
+    app: crossplane
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -379,7 +379,7 @@ kind: ClusterRole
 metadata:
   name: crossplane-view
   labels:
-    app: crossplane    
+    app: crossplane
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -397,7 +397,7 @@ kind: ClusterRole
 metadata:
   name: crossplane-browse
   labels:
-    app: crossplane    
+    app: crossplane
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -416,7 +416,7 @@ metadata:
   name: crossplane:aggregate-to-admin
   labels:
     rbac.crossplane.io/aggregate-to-admin: "true"
-    app: crossplane    
+    app: crossplane
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -477,7 +477,7 @@ metadata:
   name: crossplane:aggregate-to-edit
   labels:
     rbac.crossplane.io/aggregate-to-edit: "true"
-    app: crossplane    
+    app: crossplane
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -527,7 +527,7 @@ metadata:
   name: crossplane:aggregate-to-view
   labels:
     rbac.crossplane.io/aggregate-to-view: "true"
-    app: crossplane    
+    app: crossplane
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -572,7 +572,7 @@ metadata:
   name: crossplane:aggregate-to-browse
   labels:
     rbac.crossplane.io/aggregate-to-browse: "true"
-    app: crossplane    
+    app: crossplane
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -598,7 +598,7 @@ kind: ClusterRoleBinding
 metadata:
   name: crossplane
   labels:
-    app: crossplane    
+    app: crossplane
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -620,7 +620,7 @@ kind: ClusterRoleBinding
 metadata:
   name: crossplane-rbac-manager
   labels:
-    app: crossplane    
+    app: crossplane
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -642,7 +642,7 @@ kind: ClusterRoleBinding
 metadata:
   name: crossplane-admin
   labels:
-    app: crossplane    
+    app: crossplane
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -666,7 +666,7 @@ metadata:
   namespace: xreleasenamespacex
   labels:
     app: crossplane
-    release: xreleasenamex    
+    release: xreleasenamex
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -691,7 +691,7 @@ metadata:
   namespace: xreleasenamespacex
   labels:
     app: crossplane
-    release: xreleasenamex    
+    release: xreleasenamex
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -711,7 +711,7 @@ spec:
     metadata:
       labels:
         app: crossplane
-        release: xreleasenamex        
+        release: xreleasenamex
         helm.sh/chart: crossplane-2.4.3
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: cloud-infrastructure-controller
@@ -850,11 +850,11 @@ spec:
       volumes:
       - name: package-cache
         emptyDir:
-          medium: 
+          medium:
           sizeLimit: 20Mi
       - name: function-cache
         emptyDir:
-          medium: 
+          medium:
           sizeLimit: 512Mi
       - name: tls-server-certs
         secret:
@@ -870,7 +870,7 @@ metadata:
   namespace: xreleasenamespacex
   labels:
     app: crossplane-rbac-manager
-    release: xreleasenamex    
+    release: xreleasenamex
     helm.sh/chart: crossplane-2.4.3
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
@@ -890,7 +890,7 @@ spec:
     metadata:
       labels:
         app: crossplane-rbac-manager
-        release: xreleasenamex        
+        release: xreleasenamex
         helm.sh/chart: crossplane-2.4.3
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: cloud-infrastructure-controller
