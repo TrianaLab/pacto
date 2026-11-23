@@ -15,6 +15,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
@@ -219,7 +220,7 @@ func TestSnapshotEvidenceCarriesExtensionReports(t *testing.T) {
 		Cluster: &evidenceingest.ClusterDTO{ID: snapA, Name: "a"},
 		Extensions: []evidenceingest.ExtensionDTO{{Subject: "reg.example/acme/webapp/prod/extension/backup", Service: "webapp",
 			ContractRef: "oci://reg.example/acme/webapp@sha256:" + strings.Repeat("c", 64), Producer: "acme-backup", ProducerKeyID: "acme-backup-2026",
-			Ref: "x.acme.io/backup", Outcome: "Compliant", Present: &present, EvidenceAt: snapNow, AcceptedAt: snapNow, Cluster: snapA}}})
+			Ref: "x.acme.io/backup", Outcome: string(evidence.Observed), Present: &present, EvidenceAt: snapNow, AcceptedAt: snapNow, Cluster: snapA}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +242,24 @@ func TestSnapshotEvidenceCarriesExtensionReports(t *testing.T) {
 	if len(viaSnapshot.Extensions) != 1 || !reflect.DeepEqual(viaHTTP.Extensions, viaSnapshot.Extensions) {
 		t.Fatalf("http %+v\nsnapshot %+v", viaHTTP.Extensions, viaSnapshot.Extensions)
 	}
-	if x := viaSnapshot.Extensions[0]; x.Cluster == nil || x.Cluster.ID != snapA || !x.Verified || x.Ref != "x.acme.io/backup" {
+	if x := viaSnapshot.Extensions[0]; x.Cluster == nil || x.Cluster.ID != snapA || !x.Verified || x.Ref != "x.acme.io/backup" ||
+		x.Subject != "reg.example/acme/webapp/prod/extension/backup" {
 		t.Fatalf("extension %+v", x)
+	}
+	// Build accepts the carried record as valid: no revision declares the ref,
+	// so it is dropped as unmatched, never as invalid.
+	snap, err := fleet.Build(t.Context(), fleet.BuildOptions{}, srcs...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unmatched bool
+	for _, l := range snap.Limitations {
+		if l.Source == srcs[2].ID() && l.Code == fleet.LimitationSourceRecordInvalid {
+			t.Errorf("the carried record is invalid: %+v", l)
+		}
+		unmatched = unmatched || (l.Source == srcs[2].ID() && l.Code == fleet.LimitationExtensionUnmatched)
+	}
+	if !unmatched {
+		t.Errorf("the carried record never reached matching: %+v", snap.Limitations)
 	}
 }
