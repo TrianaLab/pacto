@@ -274,9 +274,10 @@
     serviceQuery = name;
     const my = ++serviceSearchSeq;
     serviceSearching = true;
+    const askedAt = location.hash;
     try {
       const res = await api.fleetEntities({ kinds: ['service'], text: name, limit: NAME_LOOKUP_LIMIT });
-      if (my !== serviceSearchSeq) return;
+      if (my !== serviceSearchSeq || location.hash !== askedAt) return;
       const { matches: exact, complete } = boundedMatches(res, (e) => e.label === name || e.key === name);
       if (complete && exact.length === 1) { replaceHash(fleetChangesUrl(exact[0].key, { correlationID: params.correlationID })); return; }
       // Only a complete page may narrow the picker to the exact matches: on a truncated one
@@ -324,6 +325,9 @@
     else analyzing = true;
     analyzeError = null;
     staleSnapshot = false;
+    // The URL this analysis was asked from: a reader who navigates during the
+    // request owns the URL, and a late write must not take them back here.
+    const askedAt = location.hash;
     try {
       const question = isEvent
         ? { event: eventKind, revision: eventKind === 'regressed' ? eventRev.trim() : undefined }
@@ -343,7 +347,7 @@
       // The analyzed pair becomes the URL, so the exact analysis is shareable and
       // restorable. A replaceState (not a push) keeps Back on the previous SCREEN rather
       // than on every selector tweak.
-      history.replaceState(null, '', changesUrl(outcome));
+      if (location.hash === askedAt) history.replaceState(null, '', changesUrl(outcome));
       if (showTable) { showTable = false; await tick(); openConsumers(); }
     } catch (e) {
       if (gen !== analyzeGen) return;
