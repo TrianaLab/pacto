@@ -68,22 +68,26 @@ Publish each version with `pacto publish`, signed with the key under
 
 ## Find one
 
-A golden path runs nowhere, so no Pacto resource points at it. Make your paths
-visible on each surface by naming their repositories:
+A golden path runs nowhere, so no Pacto resource points at it. Each surface
+finds the paths [published](publishing.md#the-organization-index-entry) under
+a registry:
 
-- CLI: `pacto fleet ... --oci oci://ghcr.io/acme/paths/http-service`.
-- MCP: `pacto mcp --fleet --oci oci://ghcr.io/acme/paths/http-service`.
-- Local dashboard: the repository as an argument,
-  `pacto dashboard oci://ghcr.io/acme/paths/http-service`, or a
-  comma-separated list in `PACTO_DASHBOARD_REPO`.
-- Operator dashboard: the `dashboard.repositories` chart value, a list of
-  `oci://` references.
+- Operator dashboard: the chart's top-level `registry` value. A private
+  registry needs `dashboard.ociSecrets`.
+- Local dashboard: `pacto dashboard --registry ghcr.io/acme`.
+- CLI and MCP: `pacto fleet ... --discover ghcr.io/acme` and
+  `pacto mcp --fleet --discover ghcr.io/acme`.
+- One repository, on any surface: `--oci oci://ghcr.io/acme/paths/http-service`,
+  a `pacto dashboard` argument or `PACTO_DASHBOARD_REPO`. The
+  `dashboard.repositories` chart value is deprecated and still read.
+
+Pacto lists `<registry>/pacto-index`, then `_catalog`. GHCR serves no
+`_catalog`, so there the answer is partial and a path with no index entry is
+unknown, never absent ([discovery](golden-paths-reference.md#discovery)).
 
 Developers then list the paths with `pacto fleet entities --template`,
 `pacto_fleet_entities` with `template: only` or **Golden paths** in the
-dashboard's sidebar. Search results mark each path;
-`pacto fleet search --template` keeps only paths and `--template=exclude`
-leaves them out. Each path shows its summary,
+dashboard's sidebar. Each path shows its summary,
 its requirements, its plugins, its signature and a command to copy, pinned to
 the path's digest when a registry served it.
 

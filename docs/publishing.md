@@ -112,10 +112,9 @@ conflict, so that version is spent: publish a higher `service.version`.
 The deploy artifact is tagged last: once its tag exists, everything it points
 at exists and is signed. The other tags, the bundle's included, may already
 exist when a run stops, but no Stage takes a version without its deploy
-artifact. Each tag is read again just before it is written, which narrows the
-window in which two runs racing on one version could both write. A registry has no
-compare-and-swap on tags, so the window stays open: give each version one
-publisher.
+artifact. Each tag is read again just before it is written. A registry has no
+compare-and-swap on tags, so two runs racing on one version can still both
+write: give each version one publisher.
 
 ## What gets published
 
@@ -166,6 +165,19 @@ shell, and assembles the deploy artifact itself; see
 `publish.artifacts[].build` is deprecated in `pactoVersion: "2.5"`.
 Registry credentials and plain-HTTP registries come from the same settings as
 `pacto push`.
+
+### Bundle type
+
+A contract bundle Pacto pushes carries:
+
+- the manifest `artifactType` `application/vnd.pacto.bundle.v1`;
+- the manifest annotation `io.pacto.kind`: `template` when the contract
+  declares `service.template`, else `offering` when it declares
+  `service.offering`, else `service`.
+  [Discovery](golden-paths-reference.md#discovery) reads both;
+- a manifest digest that differs from the one an older Pacto gives the same
+  content. Push, publish and the inferred-contract repair take either digest
+  as identical, so a tag an older Pacto wrote never moves.
 
 ## Signing
 

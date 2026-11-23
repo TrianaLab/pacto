@@ -87,11 +87,12 @@ helm install pacto-operator \
   the whole cluster).
 - `metrics.serviceMonitor.enabled` creates a Prometheus `ServiceMonitor`.
 - `dashboard.enabled` turns the operator-managed dashboard on or off.
-- `dashboard.repositories` lists `oci://` references the dashboard reads
-  beside the contracts it finds through Pacto resources. A
-  [golden path](../../golden-paths.md) is never deployed, so list it here to
-  show it on the Golden paths tab. A private registry needs
-  `dashboard.ociSecrets`.
+- `registry` names the installation registry. The managed dashboard lists
+  every [golden path](../../golden-paths.md#find-one) and platform offering
+  published under it, so they show on the Golden paths and Offerings pages
+  with no list to keep. A private registry needs `dashboard.ociSecrets`.
+- `dashboard.repositories` is deprecated and still read: `oci://` references
+  the dashboard reads beside the contracts it finds through Pacto resources.
 
 The CRDs are cluster-wide and belong to one release. For a second release, for
 example one per watched namespace, set `crds.install=false`, or its install
