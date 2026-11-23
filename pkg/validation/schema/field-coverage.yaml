@@ -1239,7 +1239,8 @@ fields:
     rule: 'cross-field: values satisfy the schema; configuration-refs: or the referenced contract''s selected configuration
       schema (2.4)'
     outcomes: CONFIG_VALUES_VALIDATION_FAILED; values beside a ref under 2.0 to 2.3 are NEEDS_PACTO_2_4; ENVIRONMENT_VALUES_MISSING
-      for a required ref configuration only in 2.4
+      for a required ref configuration only in 2.4; ParameterOutOfRange, ParameterNotDeclared or ClassNotOffered for values
+      outside a tiered offering's parameters (its schema declares x-pacto-tier)
     limitations: the operator may merge spec.overrides into them before validation, and validates the merged values against
       the resolved schema of a ref; values for a ref that cannot be resolved stay unchecked (CONFIG_REF_UNVERIFIED in lenient
       callers)
@@ -1334,7 +1335,9 @@ fields:
       is satisfied by its defaults; absent (2.6): no values of its own, checked on the defaults'
     outcomes: FILE_NOT_FOUND, ENVIRONMENT_UNKNOWN_CONFIGURATION, ENVIRONMENT_VALUES_INVALID, ENVIRONMENT_VALUES_MISSING;
       ENVIRONMENT_VALUES_UNVERIFIED (warning) for a configuration whose schema is behind a ref; SCHEMA_VIOLATION when
-      absent before 2.6
+      absent before 2.6; for a tiered offering (its schema declares x-pacto-tier) TierNotTunable for a field it does not
+      mark tunable and ParameterOutOfRange, ParameterNotDeclared or ClassNotOffered for values outside its parameters, and
+      ENVIRONMENT_VALUES_UNVERIFIED (warning) when the offering is inferred
     limitations: a configuration declared by ref has no schema in the bundle, so its values stay unverified
     tests:
       unit:

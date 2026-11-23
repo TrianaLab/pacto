@@ -435,7 +435,9 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 	}
 	impactGate(ctx, in, p)
 	suitesGate(in, p)
-	environmentGate(in, p)
+	if !environmentGate(in, p) {
+		return
+	}
 	ownerGate(in, p)
 }
 
@@ -447,19 +449,22 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 // Values Pacto could not check against a schema are Unknown, for a person to
 // accept. A contract that declares no environments is not judged: the gate
 // passes and says so. The check is pacto validate's environments stage, run on
-// the version's own bundle.
-func environmentGate(in PlanInput, p *Plan) {
+// the version's own bundle. Values outside a tiered offering's parameter
+// space (a parameter code) fail and nobody can approve them: the space is the
+// offering owner's, never the consuming team's. It reports whether the
+// promote may go on.
+func environmentGate(in PlanInput, p *Plan) bool {
 	c, env := in.To.Bundle.Contract, in.Stage.Environment
 	v := Verdict{Gate: GateEnvironment, Phase: "pre", Result: Pass, Citation: map[string]string{"environment": env, "contract": in.To.ContractRef}}
 	defer func() { p.Verdicts = append(p.Verdicts, v) }()
 	if len(c.Environments) == 0 {
 		v.Citation["applicable"] = "false"
 		v.Message = "not applicable: the contract of " + short(p.To) + " declares no environments"
-		return
+		return true
 	}
-	var errs, unverified []string
+	var errs, codes, unverified []string
 	if i := slices.IndexFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env }); i >= 0 {
-		errs, unverified = environmentFindings(c, in.To.Bundle.FS, in.To.ConfigRefs, i)
+		errs, codes, unverified = environmentFindings(c, in.To.Bundle.FS, in.To.ConfigRefs, i)
 	} else {
 		names := make([]string, len(c.Environments))
 		for j, e := range c.Environments {
@@ -468,7 +473,11 @@ func environmentGate(in PlanInput, p *Plan) {
 		errs = []string{fmt.Sprintf("version %s declares no environment %s for Stage %s (it declares %s)",
 			c.Service.Version, env, in.Spec.Stage, strings.Join(names, ", "))}
 	}
+	code, refused := parameterRefusal(codes)
 	switch {
+	case refused:
+		v.Result, v.Citation["code"], v.Message = Fail, code, strings.Join(errs, "; ")
+		return false
 	case len(errs) > 0:
 		v.Message = strings.Join(errs, "; ")
 		holdFor(p, Approve, v.Message, v.Message+". Approve shipping "+short(p.To)+" anyway?")
@@ -480,12 +489,26 @@ func environmentGate(in PlanInput, p *Plan) {
 	default:
 		v.Message = "the values of environment " + env + " satisfy the configuration schemas"
 	}
+	return true
+}
+
+// parameterRefusal is the first of codes that refuses values outside a tiered
+// offering's parameter space, and whether there is one.
+func parameterRefusal(codes []string) (string, bool) {
+	for _, c := range codes {
+		switch finding.Code(c) {
+		case finding.CodeTierNotTunable, finding.CodeParameterOutOfRange, finding.CodeParameterNotDeclared, finding.CodeClassNotOffered:
+			return c, true
+		}
+	}
+	return "", false
 }
 
 // environmentFindings runs the environments stage on a contract and returns
-// the errors, located in their values file, and the unverified warnings it
-// reports for its environment i, with refs the contract's configuration refs.
-func environmentFindings(c *contract.Contract, bundleFS fs.FS, refs validation.ConfigRefs, i int) (errs, unverified []string) {
+// the errors, located in their values file, with their codes, and the
+// unverified warnings it reports for its environment i, with refs the
+// contract's configuration refs.
+func environmentFindings(c *contract.Contract, bundleFS fs.FS, refs validation.ConfigRefs, i int) (errs, codes, unverified []string) {
 	at := fmt.Sprintf("environments[%d]", i)
 	under := func(path string) bool {
 		rest, ok := strings.CutPrefix(path, at)
@@ -498,7 +521,7 @@ func environmentFindings(c *contract.Contract, bundleFS fs.FS, refs validation.C
 			if e.Line > 0 {
 				loc += ":" + strconv.Itoa(e.Line)
 			}
-			errs = append(errs, loc+": "+e.Code+": "+e.Message)
+			errs, codes = append(errs, loc+": "+e.Code+": "+e.Message), append(codes, e.Code)
 		}
 	}
 	for _, w := range st.Warnings {
@@ -506,7 +529,7 @@ func environmentFindings(c *contract.Contract, bundleFS fs.FS, refs validation.C
 			unverified = append(unverified, w.Code+": "+w.Message)
 		}
 	}
-	return errs, unverified
+	return errs, codes, unverified
 }
 
 // holdFor asks a person to decide, adding why to a question already asked:

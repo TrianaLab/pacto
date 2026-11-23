@@ -477,7 +477,8 @@ func checkTool() *mcpsdk.Tool {
 			"each stage's status, located errors, warnings, next (the one command to run now), a contract summary, " +
 			"how complete the contract is section by section with the YAML that declares each gap (contractCompleteness) and actionable suggestions for " +
 			"improvement with ready-to-use pacto_edit tool calls, such as an owner that is not a bare team name " +
-			"or an external dependency whose compatibility can never be confirmed.",
+			"or an external dependency whose compatibility can never be confirmed. " +
+			"Environment values for an offering may change only its tunable fields (codes TierNotTunable, ParameterOutOfRange, ParameterNotDeclared and ClassNotOffered); each finding ends with the next step.",
 		InputSchema: inputSchema(map[string]property{
 			"path":         {Type: "string", Description: "Path to directory containing pacto.yaml (defaults to '.')"},
 			"environments": {Type: "string", Description: "Comma-separated names of two or more distinct environments, such as test,production: the result lists the environments compared in comparedEnvironments and the configuration values that differ between them in environmentDifferences, absent when they agree (all declared environments when empty and the contract declares two or more)"},
