@@ -397,8 +397,8 @@ type FluxApplierInput struct {
 	Publisher                       PublisherIdentity
 }
 
-// DeployerName is the account the Flux objects of service apply as.
-func DeployerName(service string) string { return service + "-deployer" }
+// deployerName is the account the Flux objects of service apply as.
+func deployerName(service string) string { return service + "-deployer" }
 
 // The Flux kinds Pacto creates for a service no applier runs yet.
 const (
@@ -415,7 +415,7 @@ const (
 // no ref at all, whatever the placement's provenance: nothing applies until
 // the promoter's first approved promote writes a digest and unsuspends them.
 // The pointer verifies the accepted publisher's keyless signature; the
-// applier runs as DeployerName in its own namespace, and a Kustomization
+// applier runs as deployerName in its own namespace, and a Kustomization
 // orphans what it applied when it is deleted.
 func FluxApplierObjects(in FluxApplierInput) []map[string]any {
 	name := in.Service + "-" + in.Environment
@@ -430,7 +430,7 @@ func FluxApplierObjects(in FluxApplierInput) []map[string]any {
 			"subject": "^" + regexp.QuoteMeta(in.Publisher.Subject) + "$"}}}}
 	source := map[string]any{"kind": "OCIRepository", "name": name}
 	applier := map[string]any{"interval": "10m", "suspend": true, "targetNamespace": in.Namespace,
-		"serviceAccountName": DeployerName(in.Service)}
+		"serviceAccountName": deployerName(in.Service)}
 	kind, api := "Kustomization", fluxKustomizeAPI
 	if in.Chart {
 		pointer["layerSelector"] = map[string]any{"mediaType": "application/vnd.cncf.helm.chart.content.v1.tar+gzip", "operation": "copy"}
@@ -447,7 +447,7 @@ func FluxApplierObjects(in FluxApplierInput) []map[string]any {
 
 // DeployerObjects are the account the Flux objects of service apply each
 // version as in namespace, and what it may touch: a ServiceAccount
-// DeployerName and a RoleBinding of it to clusterRole, the chart's
+// deployerName and a RoleBinding of it to clusterRole, the chart's
 // <fullname>-deployer ClusterRole that holds only namespaced workload kinds.
 // A RoleBinding grants them in namespace alone: nothing cluster-wide and
 // nothing of Pacto delivery, Flux or RBAC. Without it Flux applies as the
@@ -456,7 +456,7 @@ func FluxApplierObjects(in FluxApplierInput) []map[string]any {
 // who can publish a version could have a ClusterRoleBinding applied with no
 // person asked.
 func DeployerObjects(service, namespace, clusterRole string) []map[string]any {
-	name := DeployerName(service)
+	name := deployerName(service)
 	meta := map[string]any{"name": name, "namespace": namespace,
 		"labels": map[string]any{ManagedLabel: ManagedBy, managedPrefix + "service": service}}
 	return []map[string]any{

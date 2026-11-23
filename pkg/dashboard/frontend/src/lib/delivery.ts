@@ -806,7 +806,7 @@ export function windowSince(key: string, now = Date.now()): string | undefined {
 }
 
 type EnvironmentRowOf = NonNullable<DeliveryEnvironments['environments']>[number];
-export type InboxLadder = NonNullable<DeliveryInbox['ladder']>;
+type InboxLadder = NonNullable<DeliveryInbox['ladder']>;
 
 /** Where an environment comes from, as the provenance mark's tip says it. */
 const ENVIRONMENT_SOURCE: Record<string, string> = {
