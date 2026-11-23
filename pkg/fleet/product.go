@@ -1671,16 +1671,17 @@ func (q *Query) serviceOwnedByKey(key, ownerKey string) bool {
 }
 
 // sortAttention orders items by severity, then category, then label, so the most
-// severe items lead and the order is deterministic.
+// severe items lead. Items that tie on those (two services of one name in two
+// domains) fall back to entity key, code and reason, so the order does not
+// depend on map iteration.
 func sortAttention(items []AttentionItem) {
 	sort.SliceStable(items, func(i, j int) bool {
-		if si, sj := severityOrder[items[i].Severity], severityOrder[items[j].Severity]; si != sj {
+		a, b := items[i], items[j]
+		if si, sj := severityOrder[a.Severity], severityOrder[b.Severity]; si != sj {
 			return si < sj
 		}
-		if items[i].Category != items[j].Category {
-			return items[i].Category < items[j].Category
-		}
-		return items[i].Label < items[j].Label
+		return cmp.Or(cmp.Compare(a.Category, b.Category), cmp.Compare(a.Label, b.Label),
+			cmp.Compare(a.Entity.Key, b.Entity.Key), cmp.Compare(a.Code, b.Code), cmp.Compare(a.Reason, b.Reason)) < 0
 	})
 }
 
