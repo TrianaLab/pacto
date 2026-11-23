@@ -25,6 +25,10 @@ type Config struct {
 	// Enabled controls whether the operator manages an Evidence Server deployment.
 	Enabled bool
 
+	// Auto is --evidence-server-auto (profile idp): the reconciler runs the
+	// server only while its Gate is on. Ignored when Enabled is set.
+	Auto bool
+
 	// Image is the runtime container image (the pacto binary) that runs
 	// `pacto evidence serve`. Set at build time to couple it to the Pacto library
 	// version, same as the dashboard image. Not user-configurable.
@@ -105,9 +109,16 @@ func DefaultResources() corev1.ResourceRequirements {
 	}
 }
 
-// Validate checks the config is valid when the feature is enabled.
+// Scoped reports whether a subject or a subject prefix is set. The registry
+// alone never counts as a scope.
+func (c Config) Scoped() bool {
+	return len(c.Subjects) > 0 || len(c.SubjectPrefixes) > 0
+}
+
+// Validate checks the config is valid when the feature is enabled or auto.
+// Under auto a missing subject is no error: the gate reads it as off.
 func (c Config) Validate() error {
-	if !c.Enabled {
+	if !c.Enabled && !c.Auto {
 		return nil
 	}
 	if c.Image == "" {
@@ -125,7 +136,7 @@ func (c Config) Validate() error {
 	if c.TrustConfigKey != "" && !validTrustConfigKey(c.TrustConfigKey) {
 		return fmt.Errorf("evidence trust config key %q must be a plain Secret key ending in .yaml or .yml", c.TrustConfigKey)
 	}
-	if len(c.Subjects) == 0 && len(c.SubjectPrefixes) == 0 {
+	if c.Enabled && !c.Scoped() {
 		return fmt.Errorf("evidence enabled but no contract subject or subject prefix set: the registry is the evidence store (set evidence.registry.subjects or evidence.registry.subjectPrefixes)")
 	}
 	return c.Resources.Validate("evidence")

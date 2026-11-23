@@ -52,13 +52,14 @@ type Config struct {
 	// enabling ArgoCD to display them in the resource tree.
 	OwnerRef *metav1ac.OwnerReferenceApplyConfiguration
 
-	// EvidenceSourceURL, when set, is the internal URL of the operator-managed
-	// Evidence Server. The operator sets it when the evidence component is also
-	// enabled, so the dashboard consumes the evidence Operational Graph
-	// contribution read-only over HTTP (never mounting its bucket). Empty means
-	// no evidence source is configured (the dashboard reports it as unconfigured,
-	// not unavailable).
-	EvidenceSourceURL string
+	// EvidenceSourceURL, read on every apply, returns the internal URL of the
+	// operator-managed Evidence Server while it runs: always with the evidence
+	// component enabled, and while the evidence gate is on under profile idp.
+	// The dashboard consumes the evidence Operational Graph contribution
+	// read-only over HTTP (never mounting its bucket). Nil or empty means no
+	// evidence source is configured (the dashboard reports it as unconfigured,
+	// not unavailable), so a gate that is off never wires an unreachable source.
+	EvidenceSourceURL func() string
 
 	// InsecureRegistries is the comma-separated list of registry hosts the
 	// dashboard may reach over plain HTTP, inherited verbatim from the operator's

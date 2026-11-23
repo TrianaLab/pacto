@@ -16,6 +16,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -124,6 +125,8 @@ type options struct {
 	dashboardDeclare         dashboard.Config // the Sigstore, TrustedRootConfigMap, Registry, DeclareRegistrySecret
 
 	enableEvidence            bool
+	evidenceAuto              bool
+	idpRecorder               string
 	evidenceTrustSecret       string
 	evidenceTrustConfigKey    string
 	evidenceCredentialsSecret string
@@ -310,6 +313,13 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			"empty: the page explains how to turn recording on.")
 	fs.BoolVar(&o.enableEvidence, "enable-evidence-server", false,
 		"Enable the managed Pacto Evidence Server deployment. Disabled by default.")
+	fs.BoolVar(&o.evidenceAuto, "evidence-server-auto", false,
+		"Profile idp: run the managed Evidence Server only while the registry serves native OCI Referrers, "+
+			"a subject or subject prefix is set and the trust Secret holds a public key. "+
+			"Ignored with --enable-evidence-server.")
+	fs.StringVar(&o.idpRecorder, "idp-recorder", "",
+		"Profile idp: what the chart decided about the delivery recorder (on, off, no-signer, no-streams, "+
+			"signer-incomplete or delivery-off); advertised in the detected ConfigMap, never acted on.")
 	fs.Func("evidence-subject",
 		"Repeatable: an exact contract revision evidence is stored on, as oci://<repo>@sha256:<digest>. "+
 			"The registry holding it is the durable evidence store: accepted records are published as OCI 1.1 "+
@@ -719,12 +729,9 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 
 	ownerRef := operatorOwnerRef(mgr, namespace)
 
-	// When the Evidence Server is enabled, wire the dashboard to its internal
-	// Service so the dashboard consumes the evidence Operational Graph
-	// contribution read-only over HTTP (it never touches the evidence bucket).
-	evidenceSourceURL := ""
-	if o.enableEvidence {
-		evidenceSourceURL = fmt.Sprintf("http://%s.%s.svc:%d", evidence.Name, namespace, evidence.EvidencePort)
+	recorder, err := detection.ParseRecorderState(o.idpRecorder)
+	if err != nil {
+		return err
 	}
 
 	// The controller and the workloads it manages resolve contract refs against
@@ -735,6 +742,13 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 	// The cluster id names the cluster in Evidence Server reports and in what
 	// detection writes; read once.
 	ident := readClusterIdentity(mgr)
+	// While the Evidence Server runs, the dashboard and the target snapshot read
+	// its internal Service, so the dashboard consumes the evidence Operational
+	// Graph contribution read-only over HTTP (it never touches the evidence bucket).
+	gate, evidenceSourceURL, err := evidenceGate(mgr, o, namespace, ident, kc)
+	if err != nil {
+		return err
+	}
 	inst, err := addPublishers(mgr, o, namespace, ident, evidenceSourceURL, kc, loaderKC, rec)
 	if err != nil {
 		return err
@@ -774,6 +788,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig()),
 		inst, lastPush.Load, detection.Readers{GatewayLogs: o.egressGatewayLogs, KernelEvidence: o.enableKernelEvidence,
 			ServiceEntries: servesServiceEntries(mgr), CiliumPolicies: servesCiliumPolicies(mgr)}); d != nil {
+		d.Pieces = idpPieces(inst, gate, o.enableEvidence, recorder)
 		if err := mgr.Add(d); err != nil {
 			return fmt.Errorf("failed to add detection: %w", err)
 		}
@@ -804,6 +819,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 	evidenceCfg := evidence.Config{
 		Cluster:            ident,
 		Enabled:            o.enableEvidence,
+		Auto:               gate != nil,
 		Image:              dashboardImage, // the runtime image runs `pacto evidence serve`
 		Namespace:          namespace,
 		Subjects:           o.evidenceSubjects,
@@ -823,11 +839,48 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 		APIReader: mgr.GetAPIReader(),
 		Scheme:    mgr.GetScheme(),
 		Config:    evidenceCfg,
+		Gate:      gate,
 	}); err != nil {
 		return fmt.Errorf("failed to add evidence reconciler: %w", err)
 	}
 
 	return addNodeAgent(mgr, o, namespace)
+}
+
+// idpPieces are the profile idp rows detection writes (the Evidence Server and the recorder), nil outside idp.
+func idpPieces(inst *detect.Installation, gate *evidence.Gate, enabled bool, recorder string) func() []detect.Entry {
+	if !slices.Contains(inst.Profile, "idp") {
+		return nil
+	}
+	return func() []detect.Entry {
+		return []detect.Entry{evidence.Piece(gate, enabled), detect.RecorderPiece(recorder)}
+	}
+}
+
+// evidenceGate is the Evidence Server's gate under --evidence-server-auto (nil otherwise) and the URL the
+// dashboard and the target snapshot read on every use: constant with --enable-evidence-server, the gate's
+// while it is on, empty otherwise. The gate probes the target snapshot's repository, as the snapshot does.
+func evidenceGate(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity,
+	kc authn.Keychain) (*evidence.Gate, func() string, error) {
+	url := fmt.Sprintf("http://%s.%s.svc:%d", evidence.Name, namespace, evidence.EvidencePort)
+	switch {
+	case o.enableEvidence:
+		return nil, func() string { return url }, nil
+	case !o.evidenceAuto:
+		return nil, func() string { return "" }, nil
+	}
+	g := &evidence.Gate{Reader: mgr.GetAPIReader(), Namespace: namespace, TrustSecret: o.evidenceTrustSecret,
+		TrustConfigKey: o.evidenceTrustConfigKey, Registry: o.registry,
+		Scoped: len(o.evidenceSubjects) > 0 || len(o.evidenceSubjectPrefixes) > 0, LastPush: lastPush.Load, URL: url}
+	if o.registry != "" {
+		probe, err := targetsnapshot.ReferrersProbe(targetsnapshot.Config{Registry: o.registry, ClusterID: ident.ID,
+			Keychain: kc, Insecure: oci.EnvInsecureRegistries()})
+		if err != nil {
+			return nil, nil, err
+		}
+		g.Probe = probe
+	}
+	return g, g.EvidenceURL, nil
 }
 
 // addNodeAgent validates the node agent configuration and registers its reconciler.
@@ -868,8 +921,9 @@ func addNodeAgent(mgr ctrl.Manager, o *options, namespace string) error {
 // addPublishers runs the linker, the target snapshot publisher and, with --hub-url, the member link (both
 // signing with the one installation key). It returns the installation block detection advertises on every
 // install; only its registry fields need --registry.
-func addPublishers(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity, evidenceURL string,
-	kc, loaderKC authn.Keychain, rec *controller.PactoReconciler) (*detect.Installation, error) {
+func addPublishers(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity,
+	evidenceURL func() string, kc, loaderKC authn.Keychain,
+	rec *controller.PactoReconciler) (*detect.Installation, error) {
 	linked, err := addLinker(mgr, o, namespace, ident.ID, kc, loaderKC, rec)
 	if err != nil {
 		return nil, err
@@ -937,8 +991,9 @@ var lastPush atomic.Pointer[detect.PushResult]
 // detection advertises, and leaves them empty without --registry. It returns the installation key, nil
 // without --registry. A member (--hub-url) publishes no inferred contracts: its hub does, from the merged
 // snapshot. Any missing piece stops the operator at start with its reason.
-func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity, evidenceURL string,
-	kc authn.Keychain, inst *detect.Installation, linked func() core.LinkedTargets) (ed25519.PrivateKey, error) {
+func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity,
+	evidenceURL func() string, kc authn.Keychain, inst *detect.Installation,
+	linked func() core.LinkedTargets) (ed25519.PrivateKey, error) {
 	if o.registry == "" {
 		setupLog.Info("Target snapshot and inferred contracts are off: set the registry value")
 		return nil, nil

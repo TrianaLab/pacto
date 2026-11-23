@@ -49,7 +49,13 @@ const (
 	dexGV        = "dex.coreos.com/v1"
 	istioGV      = "networking.istio.io/v1"
 	ciliumGV     = "cilium.io/v2"
+	// crossplaneGroup is asked at v2, then v1: the API major Crossplane serves.
+	crossplaneGroup = "apiextensions.crossplane.io/"
 )
+
+// crossplaneLabels select the Crossplane core Deployment, the upstream chart's
+// label first.
+var crossplaneLabels = []client.MatchingLabels{{"app.kubernetes.io/name": "crossplane"}, {"app": "crossplane"}}
 
 // pageSize is the List page of the paginated reads.
 const pageSize = 500
@@ -87,6 +93,9 @@ type Detector struct {
 	LastPush     func() *detect.PushResult
 	// Readers are the egress readers the operator started with.
 	Readers Readers
+	// Pieces are the profile idp rows (the Evidence Server and the recorder),
+	// read on every run; nil outside idp.
+	Pieces func() []detect.Entry
 
 	owner       *metav1ac.OwnerReferenceApplyConfiguration
 	warnedOwner bool
@@ -218,6 +227,11 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 	ingresses, err := d.ingresses(ctx)
 	res.Entries = append(res.Entries, sampledEntry(detect.Exposure(gwServed, classed(errors.Join(gwErr, err)), routes, ingresses, watched), scoped, scopedReason))
 
+	res.Entries = append(res.Entries, d.crossplane(ctx))
+	if d.Pieces != nil {
+		res.Entries = append(res.Entries, d.Pieces()...)
+	}
+
 	svcs, svcErr := d.services(ctx)
 	if err := errors.Join(wsErr, svcErr); err != nil {
 		res.Entries = append(res.Entries, detect.TracesUnknown("reading the cluster failed: "+reason(err)))
@@ -244,6 +258,60 @@ func (d *Detector) installation() *detect.Installation {
 		inst.LastPush = &last
 	}
 	return &inst
+}
+
+// crossplane reads the Crossplane API major from discovery and, when one is
+// served, its core Deployment: CRDs outlive Crossplane, so only a running
+// controller reads as Crossplane. Each run asks afresh, so a Crossplane
+// installed or removed later shows on the next run.
+func (d *Detector) crossplane(ctx context.Context) detect.Entry {
+	var c detect.CrossplaneFacts
+	for _, v := range []string{"v2", "v1"} {
+		served, err := d.Served(crossplaneGroup + v)
+		if err != nil {
+			c.APIErr = classed(err)
+			break
+		}
+		if served {
+			c.API = v
+			break
+		}
+	}
+	if c.APIErr == nil && c.API != "" {
+		c.Version, c.Controller = d.crossplaneController(ctx)
+	}
+	return detect.Crossplane(c, d.Installation != nil && slices.Contains(d.Installation.Profile, "idp"))
+}
+
+// crossplaneController is the image tag of the Crossplane core Deployment and
+// whether it was found. A namespace-list install may not list Deployments
+// cluster-wide, and a failed list is unread, never none.
+func (d *Detector) crossplaneController(ctx context.Context) (version, controller string) {
+	if len(d.Namespaces) > 0 {
+		return "", detect.CrossplaneControllerUnread
+	}
+	for _, sel := range crossplaneLabels {
+		l := &appsv1.DeploymentList{}
+		if err := d.Reader.List(ctx, l, sel); err != nil {
+			return "", detect.CrossplaneControllerUnread
+		}
+		if len(l.Items) > 0 {
+			return imageTag(l.Items[0].Spec.Template.Spec.Containers), detect.CrossplaneControllerFound
+		}
+	}
+	return "", detect.CrossplaneControllerNone
+}
+
+// imageTag is the tag of the first container's image, empty without one.
+func imageTag(cs []corev1.Container) string {
+	if len(cs) == 0 {
+		return ""
+	}
+	ref, _, _ := strings.Cut(cs[0].Image, "@")
+	if i := strings.LastIndexAny(ref, ":/"); i >= 0 && ref[i] == ':' {
+		return ref[i+1:]
+	}
+	return ""
 }
 
 // scopedReason marks the namespaced entries of a namespace-list install.

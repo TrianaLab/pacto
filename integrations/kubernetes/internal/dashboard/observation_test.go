@@ -196,7 +196,7 @@ func TestDeploymentAC_WithObservationSources(t *testing.T) {
 		Image:             "img:v1",
 		Namespace:         "test-ns",
 		OCISecrets:        []string{"my-creds"},
-		EvidenceSourceURL: "http://pacto-evidence.test-ns.svc:8686",
+		EvidenceSourceURL: func() string { return "http://pacto-evidence.test-ns.svc:8686" },
 		Observation: []ObservationSource{
 			{Name: "orders", File: "traces.json", ExistingClaim: "orders-traces"},
 			{Name: "fixture", File: "traces.json", ConfigMap: "fixture-traces"},
@@ -267,7 +267,7 @@ func TestDeploymentAC_WithObservationSources(t *testing.T) {
 	if env[ObservationEnvVar] != want {
 		t.Errorf("%s = %q, want %q", ObservationEnvVar, env[ObservationEnvVar], want)
 	}
-	if env["PACTO_EVIDENCE_SOURCE_URL"] != cfg.EvidenceSourceURL {
+	if env["PACTO_EVIDENCE_SOURCE_URL"] != cfg.EvidenceSourceURL() {
 		t.Error("observation wiring displaced the evidence source URL")
 	}
 }

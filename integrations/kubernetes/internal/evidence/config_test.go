@@ -229,3 +229,21 @@ func TestConfigValidateSubjectOrPrefix(t *testing.T) {
 		t.Fatalf("neither: got %v, want the subjects-or-prefixes error", err)
 	}
 }
+
+// Under auto a missing subject is no start-up error (the gate reads it as
+// off), and the registry alone never counts as a scope.
+func TestConfigAutoRegistryAloneIsNoScope(t *testing.T) {
+	cfg := validEnabledConfig()
+	cfg.Enabled, cfg.Auto, cfg.Subjects, cfg.SubjectPrefixes = false, true, nil, nil
+	if err := cfg.Validate(); err != nil || cfg.Scoped() {
+		t.Fatalf("auto without a scope: err %v, scoped %v", err, cfg.Scoped())
+	}
+	cfg.TrustSecret = ""
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("auto still needs a trust Secret")
+	}
+	cfg.SubjectPrefixes = []string{"oci://zot.acme.internal/acme/"}
+	if !cfg.Scoped() {
+		t.Fatal("a prefix is a scope")
+	}
+}

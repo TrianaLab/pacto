@@ -150,8 +150,12 @@ func TestDetectorEntriesFitMaxEntries(t *testing.T) {
 	c := newClient(routesInterceptor(route("a", map[string]any{"name": "public", "namespace": "infra"})), objs...)
 	d := newDetector(c, servedAll)
 	d.Installation, d.LastPush = &detect.Installation{Registry: "ghcr.io/acme"}, func() *detect.PushResult { return nil }
+	d.Pieces = func() []detect.Entry {
+		return []detect.Entry{detect.EvidencePiece("off", "no registry value", nil, detect.Complete, ""), detect.RecorderPiece("on")}
+	}
 	res := d.detect(context.Background())
-	want := []string{"registry", "pull-secret", "cloud", "nodes", "metrics", "istio-egress", "cilium-fqdn", "sign-in", "exposure", "otel-collector", "tempo", "jaeger", "datadog"}
+	want := []string{"registry", "pull-secret", "cloud", "nodes", "metrics", "istio-egress", "cilium-fqdn", "sign-in", "exposure",
+		"crossplane", "evidence", "recorder", "otel-collector", "tempo", "jaeger", "datadog"}
 	got := make([]string, 0, len(res.Entries))
 	for _, e := range res.Entries {
 		got = append(got, e.Kind)

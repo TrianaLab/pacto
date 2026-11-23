@@ -506,6 +506,13 @@ Controller arguments derived from values
 {{- end }}
 {{- end }}
 {{- end }}
+{{- if include "pacto-operator.idp" . }}
+{{- if not .Values.evidence.enabled }}
+- --evidence-server-auto
+- --evidence-trust-secret={{ .Values.evidence.trust.existingSecret | default (printf "%s-evidence-trust" (include "pacto-operator.fullname" .)) }}
+{{- end }}
+- --idp-recorder={{ include "pacto-operator.recorderState" . }}
+{{- end }}
 {{- end }}
 
 {{/*
@@ -950,6 +957,15 @@ reads it here.
 */}}
 {{- define "pacto-operator.dashboardEnabled" -}}
 {{- if and .Values.dashboard.enabled (not (include "pacto-operator.hardened" .)) }}true{{ end }}
+{{- end }}
+
+{{/*
+What the chart decided about the delivery recorder under profile idp, the
+operator's --idp-recorder: delivery-off where delivery does not render, else
+no-signer.
+*/}}
+{{- define "pacto-operator.recorderState" -}}
+{{- if include "pacto-operator.deliveryEnabled" . }}no-signer{{ else }}delivery-off{{ end }}
 {{- end }}
 
 {{/*
