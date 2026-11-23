@@ -216,7 +216,7 @@ With delivery on, Pacto creates each environment's [Stage](glossary.md#stage)
 from the installation ladder (`staging`, then `production`) once a signed
 version is published, on the Argo CD or Flux object that runs the workload. In
 IDP mode it creates the Flux objects, suspended until a person approves the
-first promote. See [Setup and gates](integrations/kubernetes/delivery-setup.md).
+first promote. See [Environments and the installation ladder](integrations/kubernetes/delivery-environments.md).
 
 `delivery/pacto.yaml` tells the operator to check the service. It ships inside
 every version, so you never apply it. With a private registry, create the
@@ -238,8 +238,8 @@ nothing, and your GitOps tool keeps applying the tag you deploy.
 
 ```bash
 kubectl get stages.delivery.pacto.trianalab.io -A    # POINTER: the digest of the version each one runs
-pacto delivery history -n test --stage my-service     # what happened in test
-kubectl -n test describe stages.delivery.pacto.trianalab.io my-service  # if nothing moves: why, under Ready
+pacto delivery history -n staging --stage my-service-staging     # what happened in staging
+kubectl -n staging describe stages.delivery.pacto.trianalab.io my-service-staging  # if nothing moves: why, under Ready
 ```
 
 ## 5. Ship the next version
@@ -255,12 +255,12 @@ To leave observe, in this order:
    (`autonomy.proposeAfter` lowers that, see
    [the ladder](autonomy.md#earned-autonomy-pacto-proposes-a-person-decides)).
    The Stage's `status.proposal` lists what is still missing.
-2. Remove `spec.ref` from the OCIRepository that applies the service in test
+2. Remove `spec.ref` from the OCIRepository that applies the service in staging
    and apply it, so Flux stops setting the version, and label it so only Pacto may
    write its digest. Pacto then proposes `advise`:
 
     ```bash
-    kubectl -n test label ocirepository my-service delivery.pacto.trianalab.io/apply-ref=my-service
+    kubectl -n staging label ocirepository <name> delivery.pacto.trianalab.io/apply-ref=my-service-staging
     ```
 
 3. Ask for the raise; another person who may update the workload approves it (see
@@ -268,7 +268,7 @@ To leave observe, in this order:
    until the raise, nothing moves the version.
 
     ```bash
-    pacto delivery propose --type delivery.pacto.trianalab.io/autonomy --stage my-service -n test --to advise
+    pacto delivery propose --type delivery.pacto.trianalab.io/autonomy --stage my-service-staging -n staging --to advise
     ```
 
 Each level above that is one more approved operation. A Stage on a guarded
@@ -286,8 +286,8 @@ Each move is a [change](glossary.md#change); one that waits for a person shows
 ([Decide, unfreeze and roll back](pactify-decide.md) has the details):
 
 ```bash
-kubectl get operations.delivery.pacto.trianalab.io -n prod   # PHASE shows Held
-pacto delivery approve -n prod <name> --decision approve
+kubectl get operations.delivery.pacto.trianalab.io -n production   # PHASE shows Held
+pacto delivery approve -n production <name> --decision approve
 ```
 
 ## Many services at once

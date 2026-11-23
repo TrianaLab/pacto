@@ -89,6 +89,19 @@ environments:
 `pacto_edit` declares one with `add_environments` and `noFile`, such as
 `[{"name":"pr-412","noFile":true}]`, and raises the contract to 2.6.
 
+### Environments and the installation ladder
+
+With delivery on, Pacto creates a service's Stages from the
+[installation ladder](../integrations/kubernetes/delivery-environments.md),
+the chain of environments the installation declares, such as `staging` then
+`production`. A contract with no `environments` gets every rung. Declaring
+`environments` makes the list the exact set: a rung the list leaves out is
+opted out, and an entry outside the ladder, such as `pr-412`, is an addition
+that takes its versions from the registry. Once a temporary entry passes its
+`expires`, or an entry leaves the list, Pacto retires the Stage it created for
+it after `delivery.environments.retireAfter`. Pacto deletes no workload and
+retires only the Stages it created.
+
 ### Temporary environments
 
 A preview or pull-request environment lives hours or days. Declare it
@@ -115,8 +128,10 @@ Once `expires` is at or before the clock of the run, `pacto validate` and
 WARN  [ENVIRONMENT_EXPIRED] environments[1].expires: environment pr-482 expired at 2026-11-20T00:00:00Z; nothing was deleted: remove it with pacto_edit remove_environments or move expires
 ```
 
-The verdict stays the same. Pacto deletes nothing for an expired environment:
-no contract entry, file, Stage or resource. The fleet and the dashboard's
+The verdict stays the same. Validation deletes nothing for an expired
+environment: no contract entry, file, Stage or resource. Only a Stage Pacto
+created from the installation ladder retires, as
+[above](#environments-and-the-installation-ladder). The fleet and the dashboard's
 service page show it as expired (inferred), as of the time of their answer. An
 environment with no `owner` shows the service owner, labelled inferred.
 
@@ -125,13 +140,13 @@ environment with no `owner` shows the service owner, labelled inferred.
 | Task | Command |
 |---|---|
 | Add environments to a contract | `pacto_edit` with `add_environments`, such as `[{"name":"pr-482","lifetime":"temporary","expires":"2026-11-20T00:00:00Z"}]` |
-| Retire an environment | `pacto_edit` with `remove_environments`, such as `["pr-482"]`. A file no other environment names is deleted. Nothing in a cluster changes |
+| Retire an environment | `pacto_edit` with `remove_environments`, such as `["pr-482"]`. A file no other environment names is deleted. Once that version is published, a Stage Pacto created for it retires; nothing else in a cluster changes |
 | List a service's environments | `pacto fleet entity service <name>`, `pacto_fleet_entity` or the [service page](../dashboard-service-page.md#environments) |
 | Compare two environments | `pacto explain <bundle> --environments production,pr-482` or `pacto_check` with `environments` |
 | See the Stages that deliver it | `pacto delivery status --service <name>` |
 
 Adding an environment declares it: nothing in a cluster changes until a Stage
-exists for it. `pacto_edit` returns the steps that get there in `chain`:
+exists for it, one you write or one Pacto creates from the installation ladder. `pacto_edit` returns the steps that get there in `chain`:
 publish the contract, then plan a promote on the environment's Stage. Its
 `executor` names who acts on the published revision, an adapter or a GitOps
 tool, and `impact` says who the edit affects when the session has a fleet

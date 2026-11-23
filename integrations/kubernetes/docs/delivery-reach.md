@@ -3,8 +3,8 @@
 [Pacto delivery](delivery.md) never applies a version itself. It moves the
 version through the manager that already applies the service's workloads:
 a Flux Kustomization, a Flux HelmRelease or an Argo CD Application. This page
-covers how the promoter finds that manager, the HelmRelease and Argo CD
-set-ups, and a Stage that follows a Stage in another cluster.
+covers finding that manager, the HelmRelease and Argo CD set-ups and following
+a Stage in another cluster.
 
 !!! warning "Experimental"
     HelmRelease, Argo CD and several clusters are experimental, within an Alpha
@@ -46,7 +46,9 @@ compares it with its `spec.applyRef`:
 | `Unknown` | A workload carries no mark of the Stage's applier, an unsupported, external or ambiguous manager owns it, Pacto could not read it, a Pacto is not reconciled yet or evaluated another workload than the Stage runs, or a Kustomization in another namespace does not apply from the Stage's OCIRepository | is refused; `Ready` is `False` with `ApplierUnknown` |
 
 Nobody can accept a `Conflict` or an `Unknown`: Pacto never writes a pointer
-another manager may overwrite, and moving a workload is yours to do.
+another manager may overwrite, and moving a workload is yours to do. The same
+marks decide where Pacto creates the Stages of the
+[installation ladder](delivery-environments.md).
 
 - `pacto delivery status`, `pacto_delivery_status` and the dashboard print
   one line, such as
@@ -64,8 +66,8 @@ another manager may overwrite, and moving a workload is yours to do.
 A Stage can apply through a Flux `HelmRelease` whose `spec.chartRef` names an
 `OCIRepository`. The promoter writes the chart digest to that repository's
 `spec.ref.digest`, and a move counts as applied once the HelmRelease is
-`Ready` at that digest. A failed release of the digest fails the promote and
-starts the usual rollback.
+`Ready` at that digest. A failed release fails the promote and starts the
+usual rollback.
 
 ```yaml
 apiVersion: source.toolkit.fluxcd.io/v1
@@ -299,9 +301,8 @@ kubectl patch stage <stage> -n <namespace> --subresource=status --type=merge \
   -p '{"status":{"upstreamSeen":null}}'
 ```
 
-The promoter reads the upstream registry at most every 30 seconds for
-auto-promotion, and afresh when it plans a promote. It fetches and verifies
-each record once.
+The promoter reads the upstream registry at most every 30 seconds, and
+afresh when it plans a promote. It verifies each record once.
 
 ### Freezes
 
@@ -309,7 +310,7 @@ A freeze is local, in one cluster or across two. Freezing the upstream Stage
 does not stop a follower from taking a version the upstream already verified:
 freeze the follower too. When the promoter freezes a Stage because a check
 failed after release, its record names the failed version, so followers never
-take that version.
+take it.
 
 ## Limits
 

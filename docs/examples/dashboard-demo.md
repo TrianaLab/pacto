@@ -82,8 +82,8 @@ explains how to record your own.
 
 The delivery screens play the payments story, the scenario every demo shares.
 
-![The Stages tab: a figure of where the services stand in test, prod, prod-eu and prod-us, and below it each service with its running version, autonomy level and check result per environment, why a Stage cannot promote with its fix and the actions you may take](../assets/screenshots/dashboard-delivery-stages-light.png#only-light)
-![The Stages tab: a figure of where the services stand in test, prod, prod-eu and prod-us, and below it each service with its running version, autonomy level and check result per environment, why a Stage cannot promote with its fix and the actions you may take](../assets/screenshots/dashboard-delivery-stages-dark.png#only-dark)
+![The Stages tab: a figure of where the services stand in test, prod, prod-eu and prod-us, and below it each service with its running version, autonomy level, a discreet mark for where it runs and check result per environment, why a Stage cannot promote with its fix and the actions you may take](../assets/screenshots/dashboard-delivery-stages-light.png#only-light)
+![The Stages tab: a figure of where the services stand in test, prod, prod-eu and prod-us, and below it each service with its running version, autonomy level, a discreet mark for where it runs and check result per environment, why a Stage cannot promote with its fix and the actions you may take](../assets/screenshots/dashboard-delivery-stages-dark.png#only-dark)
 
 Before the tour starts, the tab has already played its first steps, so the
 screens show:
