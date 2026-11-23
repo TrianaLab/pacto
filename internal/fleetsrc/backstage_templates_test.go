@@ -130,4 +130,24 @@ func TestBackstageSourceTemplatesOnCappedRead(t *testing.T) {
 	if col.State.Status != fleet.SourcePartial || len(col.ServiceFacts) != backstage.MaxCatalogEntities || len(col.InferredTemplates) != maxBackstagePages {
 		t.Errorf("collection = %s, %d facts, %d templates", col.State.Status, len(col.ServiceFacts), len(col.InferredTemplates))
 	}
+	if col.TemplatesComplete {
+		t.Error("a capped read says it read every template")
+	}
+}
+
+// TestBackstageSourceTrimmedReadKeepsTemplatesComplete: trimmed component
+// dependencies leave out no template.
+func TestBackstageSourceTrimmedReadKeepsTemplatesComplete(t *testing.T) {
+	deps := make([]string, backstage.MaxFactDependsOn+1)
+	for i := range deps {
+		deps[i] = fmt.Sprintf("component:svc-%d", i)
+	}
+	data, _ := json.Marshal(map[string]any{"items": []any{map[string]any{"kind": "Component",
+		"metadata": map[string]any{"name": "gateway"}, "spec": map[string]any{"dependsOn": deps}}}})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(data) }))
+	defer srv.Close()
+	col, _ := newTestBackstage(t, srv, "").Collect(t.Context())
+	if col.State.Status != fleet.SourcePartial || !col.TemplatesComplete {
+		t.Errorf("collection = %s, templates complete %v", col.State.Status, col.TemplatesComplete)
+	}
 }

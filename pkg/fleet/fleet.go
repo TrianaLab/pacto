@@ -1830,7 +1830,12 @@ type FleetSnapshot struct {
 	InferredTemplates []InferredTemplate `json:"inferredTemplates,omitempty" doc:"Golden paths catalogs outside every registry hold, inferred: never services, never signed or declared, never offered for creation until a person accepts one"`
 	// templateSources are the ids of the sources that list inferred
 	// templates (Collection.ListsTemplates), in source order.
-	templateSources []string
+	templateSources []templateLister
+	// templatesValid are the templates whose name a contract can carry, one
+	// per source and entity, sorted, unmarked and uncapped; templatesSkipped
+	// names those left out.
+	templatesValid   []InferredTemplate
+	templatesSkipped []Limitation
 	// templateNotes are the limitations the template fold raised.
 	templateNotes []Limitation
 

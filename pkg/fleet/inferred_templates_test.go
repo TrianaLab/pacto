@@ -325,3 +325,60 @@ func TestInferredTemplateSummaryCut(t *testing.T) {
 		t.Fatalf("summary %d runes", len([]rune(s)))
 	}
 }
+
+// TestInferredTemplateLookupPastCap: the lookup finds a template the list cap
+// left out, and says when a missing one is unknown.
+func TestInferredTemplateLookupPastCap(t *testing.T) {
+	var ts []RawInferredTemplate
+	for i := range MaxInferredTemplates + 5 {
+		ts = append(ts, tmpl(fmt.Sprintf("path-%03d", i)))
+	}
+	q := tmplFleet(t, tmplCatalog(ts...))
+	if it, known := q.InferredTemplate("template:default/path-204"); it == nil || !known {
+		t.Fatalf("past the cap: %+v %v", it, known)
+	}
+	if it, known := q.InferredTemplate("template:default/none"); it != nil || !known {
+		t.Fatalf("complete miss: %+v %v", it, known)
+	}
+	if _, known := tmplFleet(t).InferredTemplate("template:default/none"); known {
+		t.Fatal("no lister reads as known")
+	}
+	at := fixedNow()
+	down := NewMemorySource(tmplSource, "idp-catalog", &Collection{Advisory: true, ListsTemplates: true, State: &SourceState{Status: SourceUnavailable, ObservedAt: &at}})
+	if _, known := tmplFleet(t, down).InferredTemplate("template:default/none"); known {
+		t.Fatal("an unavailable lister reads as known")
+	}
+}
+
+// TestInferredTemplatesUnavailableHasNoAsOf: a failed read is no time the
+// templates were known.
+func TestInferredTemplatesUnavailableHasNoAsOf(t *testing.T) {
+	at := fixedNow()
+	down := NewMemorySource(tmplSource, "idp-catalog", &Collection{Advisory: true, ListsTemplates: true, State: &SourceState{Status: SourceUnavailable, ObservedAt: &at}})
+	if l := tmplFleet(t, down).InferredTemplates(""); l.AsOf != nil || l.Completeness != CompletenessPartial {
+		t.Fatalf("asOf %v completeness %s", l.AsOf, l.Completeness)
+	}
+}
+
+// TestInferredTemplatesPartialSourceWithEveryTemplate: a partial source
+// that read every template leaves the list complete, without its reasons.
+func TestInferredTemplatesPartialSourceWithEveryTemplate(t *testing.T) {
+	at := fixedNow()
+	col := &Collection{Advisory: true, ListsTemplates: true, TemplatesComplete: true, InferredTemplates: []RawInferredTemplate{tmpl("springboot-service")},
+		State:       &SourceState{Status: SourcePartial, ObservedAt: &at},
+		Limitations: []Limitation{{Code: LimitationSourcePartial, Source: tmplSource, Message: "3 components list more than 50 component dependencies"}}}
+	l := tmplFleet(t, NewMemorySource(tmplSource, "idp-catalog", col)).InferredTemplates("")
+	if l.Completeness != CompletenessComplete || len(l.Limitations) != 0 {
+		t.Fatalf("completeness %s limitations %+v", l.Completeness, l.Limitations)
+	}
+}
+
+// TestInferredTemplatesNamesUnverified: when the services could not all be
+// read, a listed template may already be declared, so the list is partial.
+func TestInferredTemplatesNamesUnverified(t *testing.T) {
+	q := tmplFleet(t, tmplCatalog(tmpl("springboot-service")), NewFailingSource("reg-down", "oci", errors.New("down")))
+	l := q.InferredTemplates("")
+	if l.Completeness != CompletenessPartial || !strings.Contains(fmt.Sprint(l.Limitations), "may already be declared") {
+		t.Fatalf("completeness %s limitations %+v", l.Completeness, l.Limitations)
+	}
+}

@@ -305,6 +305,9 @@ func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadV
 	out.hiddenReferrers = hiddenReferrers
 	origins, hiddenCreated := restrictOrigins(s, hiddenSvc)
 	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenCounts{hiddenDeps, hiddenDependents, hiddenReferrers}, origins, hiddenCreated, workloadVisible)...)
+	// A template's marks come from the services the view keeps: a hidden
+	// service never shows as the holder of a name.
+	markTemplates(&out)
 	restrictExternals(&out, s)
 	out.targetsHidden = targetsHidden(&out, s.Services, offeringOnly)
 	out.hiddenProviders = hiddenProviders(&out, s.Services, hiddenSvc)

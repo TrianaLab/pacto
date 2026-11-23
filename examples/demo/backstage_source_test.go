@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/backstage"
@@ -99,7 +101,7 @@ func TestDemoInferredTemplates(t *testing.T) {
 		t.Fatal(err)
 	}
 	list := res.InferredTemplates
-	if list == nil || list.Completeness != fleet.CompletenessComplete || list.Total != 1 || len(list.Items) != 1 {
+	if list == nil || list.Total != 1 || len(list.Items) != 1 {
 		t.Fatalf("inferred templates = %+v", list)
 	}
 	sb := list.Items[0]
@@ -112,5 +114,15 @@ func TestDemoInferredTemplates(t *testing.T) {
 	}
 	if d := list.Declared; len(d) != 1 || d[0].Name != "http-service" || d[0].DeclaredAs != res.Entities[0].Key {
 		t.Errorf("declared = %+v, golden path %q", d, res.Entities[0].Key)
+	}
+}
+
+// TestDemoInferredTemplatesPartial: the demo's registry mirror and edge
+// cluster are not read whole, so a listed template may already be declared:
+// the list says so.
+func TestDemoInferredTemplatesPartial(t *testing.T) {
+	list := fleet.NewQuery(demoFleet(t)).InferredTemplates("")
+	if list.Completeness != fleet.CompletenessPartial || !strings.Contains(fmt.Sprint(list.Limitations), "may already be declared") {
+		t.Errorf("completeness %s limitations %+v", list.Completeness, list.Limitations)
 	}
 }

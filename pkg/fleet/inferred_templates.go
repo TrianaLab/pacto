@@ -65,7 +65,7 @@ type sourcedTemplate struct {
 // records the source as a lister when the collection says it lists templates.
 func sourcedTemplates(snap *FleetSnapshot, source string, col *Collection) []sourcedTemplate {
 	if col.ListsTemplates {
-		snap.templateSources = append(snap.templateSources, source)
+		snap.templateSources = append(snap.templateSources, templateLister{id: source, complete: col.TemplatesComplete})
 	}
 	out := make([]sourcedTemplate, len(col.InferredTemplates))
 	for i, t := range col.InferredTemplates {
@@ -74,16 +74,48 @@ func sourcedTemplates(snap *FleetSnapshot, source string, col *Collection) []sou
 	return out
 }
 
-// foldInferredTemplates keeps the templates sources list as
-// [FleetSnapshot.InferredTemplates]: only names a contract can carry, one per
-// source and entity, marked against the services already holding the name,
-// sorted and bounded. It runs after the golden paths are derived.
+// templateLister is a source that lists templates; complete says a partial
+// source still read every template (Collection.TemplatesComplete).
+type templateLister struct {
+	id       string
+	complete bool
+}
+
+// foldInferredTemplates keeps the templates sources list: only names a
+// contract can carry, one per source and entity, sorted. It runs after the
+// golden paths are derived.
 func foldInferredTemplates(snap *FleetSnapshot, raw []sourcedTemplate) {
-	items, notes := validTemplates(raw)
+	snap.templatesValid, snap.templatesSkipped = validTemplates(raw)
+	markTemplates(snap)
+}
+
+// markTemplates is [FleetSnapshot.InferredTemplates]: the valid templates
+// marked against the services snap holds and bounded. Restrict reruns it on
+// a view, so a mark never comes from a service the view hides.
+func markTemplates(snap *FleetSnapshot) {
+	items := slices.Clone(snap.templatesValid)
 	markNames(snap, items)
 	items, capped := capTemplates(items)
 	snap.InferredTemplates = items
-	snap.templateNotes = append(notes, capped...)
+	snap.templateNotes = append(slices.Clone(snap.templatesSkipped), capped...)
+}
+
+// InferredTemplate is the template a source lists under entity, past the
+// list cap too, marked against the view's services; nil when none is. known
+// says a nil answer means no source lists it: false when no source lists
+// templates or one could not read them all.
+func (q *Query) InferredTemplate(entity string) (t *InferredTemplate, known bool) {
+	l := &InferredTemplateList{Completeness: CompletenessComplete}
+	q.templateCompleteness(l)
+	known = len(q.snap.templateSources) > 0 && l.Completeness == CompletenessComplete
+	for _, it := range q.snap.templatesValid {
+		if it.Entity == entity {
+			items := []InferredTemplate{it}
+			markNames(q.snap, items)
+			return &items[0], known
+		}
+	}
+	return nil, known
 }
 
 // validTemplates is the templates whose name a contract can carry, one per
@@ -212,6 +244,7 @@ func (q *Query) InferredTemplates(text string) *InferredTemplateList {
 	l.Total = len(l.Items)
 	newest := q.templateCompleteness(l)
 	l.Limitations = append(l.Limitations, q.snap.templateNotes...)
+	q.namesUnverified(l)
 	// A capped list leaves templates out: a missing one is unknown.
 	if slices.ContainsFunc(q.snap.templateNotes, func(n Limitation) bool { return n.Code == LimitationInferredTemplatesCapped }) {
 		l.Completeness = CompletenessPartial
@@ -231,23 +264,36 @@ func templateMatchesText(it InferredTemplate, needle string) bool {
 	})
 }
 
-// templateCompleteness marks l partial for each lister that is not available,
-// with its reason, and returns the newest time a lister was observed. A
-// lister with no state is unknown, so partial.
+// namesUnverified marks l partial when a source that reports services could
+// not read them all: a template may then be declared, or its name held, by a
+// service the snapshot missed.
+func (q *Query) namesUnverified(l *InferredTemplateList) {
+	if slices.ContainsFunc(q.snap.Sources, SourceState.degraded) {
+		l.Completeness = CompletenessPartial
+		l.Limitations = append(l.Limitations, Limitation{Code: LimitationSourcePartial,
+			Message: "the declared golden paths and services could not all be read; a listed template may already be declared or its name taken"})
+	}
+}
+
+// templateCompleteness marks l partial for each lister that is not available
+// and may have left templates out, with its reason, and returns the newest
+// time a lister read the catalog. A lister with no state is unknown, so
+// partial; a failed read is no time the templates were known.
 func (q *Query) templateCompleteness(l *InferredTemplateList) *time.Time {
 	var newest *time.Time
-	for _, id := range q.snap.templateSources {
+	for _, ls := range q.snap.templateSources {
+		id := ls.id
 		st := SourceState{Status: SourceUnavailable}
 		if i := slices.IndexFunc(q.snap.Sources, func(s SourceState) bool { return s.ID == id }); i >= 0 {
 			st = q.snap.Sources[i]
 		}
-		if st.ObservedAt != nil && (newest == nil || st.ObservedAt.After(*newest)) {
+		if st.Status != SourceUnavailable && st.ObservedAt != nil && (newest == nil || st.ObservedAt.After(*newest)) {
 			newest = st.ObservedAt
 		}
-		switch st.Status {
-		case SourceAvailable:
+		switch {
+		case st.Status == SourceAvailable, st.Status == SourcePartial && ls.complete:
 			continue
-		case SourceUnavailable:
+		case st.Status == SourceUnavailable:
 			msg := "source " + id + " is unavailable; its templates are unknown"
 			if st.Error != nil {
 				msg = st.Error.Message

@@ -133,6 +133,8 @@ func (s *BackstageSource) Collect(ctx context.Context) (*fleet.Collection, error
 		state = fleet.SourceState{Status: fleet.SourceUnavailable, ObservedAt: &at, Error: err, Ref: s.origin}
 	case capped || trimmed > 0:
 		state.Status = fleet.SourcePartial
+		// Trimmed dependencies leave out no template; a cap may.
+		col.TemplatesComplete = !capped
 		if capped {
 			col.Limitations = append(col.Limitations, fleet.Limitation{Code: fleet.LimitationSourcePartial, Source: s.id,
 				Message: fmt.Sprintf("the read stopped at %d components or %d pages", backstage.MaxCatalogEntities, maxBackstagePages)})

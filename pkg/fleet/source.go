@@ -177,6 +177,10 @@ type Collection struct {
 	// when the source read none or failed, so an unavailable lister reads as
 	// partial, never as "no templates".
 	ListsTemplates bool
+	// TemplatesComplete says a partial source still read every template: its
+	// limitations are about other entities and never make the templates
+	// partial.
+	TemplatesComplete bool
 	// Providers are rows describing what this source detected and read;
 	// Build copies them, fills Source and Cluster and never lets a row claim
 	// better health than the source.
