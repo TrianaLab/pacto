@@ -468,6 +468,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fleet/clusters/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download the install of the Pacto chart on every member
+         * @description The Argo CD ApplicationSet (from=argocd) or Flux HelmReleases (from=flux) that install the Pacto chart on every cluster the engine reaches, as pacto cluster install prints them. The values are only registry: set hub.url with pacto cluster install --hub-url. Pacto writes nothing to Git and applies nothing; deleting the files never uninstalls Pacto from a member. Only for a reader who may approve clusterjoins.
+         */
+        get: operations["get-fleet-clusters-install"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/fleet/declare": {
         parameters: {
             query?: never;
@@ -11182,6 +11202,67 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Delivery.ClusterJoinList"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-fleet-clusters-install": {
+        parameters: {
+            query: {
+                /** @description the engine that applies the install */
+                from: "argocd" | "flux";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The install as YAML, an attachment */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    "Content-Type"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/yaml": string;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
                 };
             };
             /** @description Internal Server Error */

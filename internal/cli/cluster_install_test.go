@@ -10,7 +10,13 @@ import (
 	"time"
 
 	"github.com/opencontainers/go-digest"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/dynamic"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/rest"
 	"oras.land/oras-go/v2/registry/remote"
+
+	"github.com/trianalab/pacto/v4/internal/app"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
@@ -181,5 +187,51 @@ func TestClusterInstallRefusals(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dir, detect.ClustersConfigMapKey), []byte("{"), 0o600)
 	if out, err := run(e.d, "--from", "argocd", "--detected", det); err == nil || !strings.Contains(err.Error(), "candidate clusters were not read") || out != "" {
 		t.Errorf("no candidates: %v %q", err, out)
+	}
+}
+
+// TestDashboardInstall: the dashboard hands out what the CLI prints for the
+// hub's detection, with no hub URL and the warnings as leading comments, and
+// every read that fails is an error rather than a partial install.
+func TestDashboardInstall(t *testing.T) {
+	expect(t, dashboardInstall(defaultDeps(), &rest.Config{}, "x", nil, nil) == nil, "no joins, no install")
+	e, det := installHub(t, "4.6.0")
+	d := e.d
+	d.dynamicFor = func(*rest.Config) (dynamic.Interface, error) { return e.hub(), nil }
+	list := listOf(delivery.ClusterJoinList{Candidates: []delivery.ClusterCandidate{
+		{Source: detect.SourceArgoCD, Kind: "Secret", Namespace: "gitops", Name: "eu", Match: delivery.CandidateMatched}}})
+	install := func(d deps, det, from string) (string, error) {
+		b, err := dashboardInstall(d, &rest.Config{}, det, &app.JoinOptions{}, list)(t.Context(), from)
+		return string(b), err
+	}
+	host := strings.TrimSuffix(e.repo, "/"+delivery.TargetSnapshotRepository)
+	out, err := install(d, det, "argocd")
+	expect(t, err == nil && strings.HasPrefix(out, "# warning: Argo CD cluster Secret gitops/eu states the UID") && strings.Contains(out, "kind: ApplicationSet\n") &&
+		strings.Contains(out, "registry: "+host+"\n") && strings.Contains(out, "targetRevision: 4.6.0\n") && !strings.Contains(out, "hub:"), "%v %s", err, out)
+	out, err = install(d, det, "flux")
+	expect(t, err == nil && strings.Contains(out, "kind: HelmRelease\n") && !strings.Contains(out, "bootstrap"), "flux %v %s", err, out)
+
+	down := d
+	down.dynamicFor = func(*rest.Config) (dynamic.Interface, error) { return nil, errors.New("no client") }
+	noHub := d
+	noHub.dynamicFor = func(*rest.Config) (dynamic.Interface, error) {
+		return dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()), nil
+	}
+	_, noVersion := installHub(t, "")
+	_, broken := installHub(t, "4.6.0")
+	_ = os.WriteFile(filepath.Join(filepath.Dir(broken), detect.ClustersConfigMapKey), []byte("{"), 0o600)
+	for name, tc := range map[string]struct {
+		d         deps
+		det, want string
+	}{
+		"client":      {down, det, "no client"},
+		"hub":         {noHub, det, "kube-system"},
+		"no registry": {d, detectedFile(t, ""), "advertises no registry"},
+		"candidates":  {d, broken, "candidate clusters were not read"},
+		"version":     {d, noVersion, "no chart version"},
+	} {
+		if out, err := install(tc.d, tc.det, "argocd"); err == nil || !strings.Contains(err.Error(), tc.want) || out != "" {
+			t.Errorf("%s: %v %q", name, err, out)
+		}
 	}
 }

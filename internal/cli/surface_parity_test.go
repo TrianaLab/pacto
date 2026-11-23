@@ -463,8 +463,17 @@ func clusterRows() []surfaceRow {
 		[]surfaceRow{{CLI: "cluster list", MCP: "pacto_cluster_list", HTTP: "GET /api/fleet/clusters"}},
 		alike("cluster list", "", "", "pacto_cluster_list and the dashboard read the hub they run in, from the registry its operator advertises; "+
 			"the CLI names the hub, its registry and where its approver signers are published", "context", "registry", "detected", "delivery-namespace"),
+		[]surfaceRow{{CLI: "cluster install", HTTP: "GET /api/fleet/clusters/install", Reason: whyInstall}},
+		alike("cluster install", "", "GET /api/fleet/clusters/install", whyInstall, "from"),
+		alike("cluster install", "", "", "the dashboard hands out the install for the hub it runs in, from its operator's detection; "+
+			"the CLI names the hub, its registry and chart and pushes", "context", "registry", "detected", "delivery-namespace", "chart", "chart-version",
+			"push", "digest", "insecure-registry"),
+		alike("cluster install", "", "", "the dashboard never sets hub.url: a crafted link could point every new member at another hub", "hub-url"),
 	)
 }
+
+// whyInstall is why pacto cluster install has no MCP tool.
+const whyInstall = "a person installs members; an agent reads candidates with pacto_cluster_list"
 
 // excludedFromSurfaces are the commands no other surface mirrors, each with
 // the reason. Every other command has rows in surfaceRows, so a new command
@@ -475,7 +484,6 @@ var excludedFromSurfaces = map[string]string{
 	"cluster approve":          "a person's signed decision; agents never approve (#452)",
 	"cluster remove":           "a person's signed decision; agents never approve (#452)",
 	"cluster map-groups":       "a person's signed decision; agents never approve (#452)",
-	"cluster install":          "a person installs members from the CLI; an agent reads candidates with pacto_cluster_list",
 	"ci init":                  "writes a CI file into the local repository; an agent runs pacto ci init --dry-run and commits the result itself",
 	"dashboard":                "starts the dashboard server, which is itself the surface the routes belong to",
 	"diff":                     "compares two contracts in a pipeline without the fleet; MCP and the dashboard compare revisions with their consumers (pacto_impact, GET /api/fleet/impact)",
@@ -983,6 +991,7 @@ var jsonRuns = map[string][]string{
 	"accept":                 {"--dry-run", "does-not-exist"},
 	"ci":                     {"."},
 	"cluster list":           {"--registry", "127.0.0.1:1/acme/pacto-targets"},
+	"cluster install":        {"--from", "argocd", "--registry", "127.0.0.1:1/acme/pacto-targets"},
 	"claim":                  {"stripe", "--owner", "team-platform"},
 	"declare":                {"invoices", "--dir", "/nonexistent"},
 	"delivery approve":       {"-n", "prod", "held"},

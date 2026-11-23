@@ -1328,7 +1328,7 @@ export function installScaleFixture(): void {
   // multiCluster (514-S2) answers every entities list as a view over three clusters with
   // 63-character names: the demo's own cluster, one the reader may not read and one whose
   // review failed, so the Cluster filter, its caption and the Clusters block render.
-  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed'; __pactoNoDeclare?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed' | 'external'; __pactoMultiCluster?: boolean; __pactoDeclare?: DeclareMode; __pactoClusterJoin?: boolean | 'viewer' | 'off'; __pactoInspected?: boolean };
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed'; __pactoNoDeclare?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed' | 'external'; __pactoMultiCluster?: boolean; __pactoDeclare?: DeclareMode; __pactoClusterJoin?: boolean | 'viewer' | 'off' | 'candidates' | 'candidates-zero'; __pactoInspected?: boolean };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1855,9 +1855,30 @@ export function installScaleFixture(): void {
       { uid: '7fab4e20-7f1a-4c55-9d1e-2b8a4e6f0a24', name: n63('retired-ap-south-1'), nameSource: 'uid', state: 'removed', keyID: key('e5f6'), approver: `oidc:${longName('alice')}@acme.example`, approvedAt: '2026-11-18T09:00:00Z' },
     ];
     const viewer = flags.__pactoClusterJoin === 'viewer';
+    const zero = flags.__pactoClusterJoin === 'candidates-zero';
+    const withCandidates = zero || flags.__pactoClusterJoin === 'candidates';
     return { hub: { uid: '5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a10', name: 'hub' }, repository: 'ghcr.io/acme/pacto-targets', asOf: '2026-11-22T10:00:00Z',
-      completeness: 'complete', clusters: viewer ? rest.filter((r) => r.state === 'approved') : [...pending, ...rest],
-      hidden: viewer ? 3 : 0, otherHubs: 1, canApprove: !viewer };
+      completeness: 'complete', clusters: zero ? [] : viewer ? rest.filter((r) => r.state === 'approved') : [...pending, ...rest],
+      hidden: viewer ? 3 : 0, otherHubs: zero ? 0 : 1, canApprove: !viewer,
+      ...(withCandidates ? { candidates: candidateAnswer(), candidatesAsOf: '2026-11-22T10:00:00Z', candidatesCompleteness: 'complete' } : {}) };
+  };
+  // 514-S5: the candidate clusters the hub's GitOps and cluster managers know. The matched
+  // one states the UID of the demo's approved member eu-prod, whose chip it opens; the rest
+  // carry 63-character names and long label runs.
+  const candidateAnswer = () => {
+    const n63 = (s: string) => `${s}-${'x'.repeat(63)}`.slice(0, 63);
+    const euProd = '9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34';
+    return [
+      { source: 'argocd', kind: 'Secret', namespace: 'argocd', name: 'eu-prod', labels: { env: 'prod', region: 'eu-north-1', tier: 'gold', 'topology.kubernetes.io/zone': 'eu-north-1a' },
+        uid: euProd, uidSource: 'annotation pacto.trianalab.io/cluster-uid', match: 'matched', member: { uid: euProd, name: 'eu-prod' } },
+      { source: 'argocd', kind: 'Secret', namespace: 'argocd', name: 'ap-dev', labels: { env: 'dev' }, uid: 'e7b3d915-4a2c-4f8e-b6d1-0c9a5f3e2b17',
+        uidSource: 'annotation pacto.trianalab.io/cluster-uid', match: 'same-uid', reason: 'the cluster reports this UID about itself; a person has not approved it under this key' },
+      { source: 'argocd', kind: 'Secret', namespace: 'argocd', name: n63('production-sa-east-1'), labels: { [`team.acme.example/${'owner'.repeat(8)}`]: n63('payments') },
+        match: 'unmatched', reason: 'the candidate states no cluster UID' },
+      { source: 'flux', kind: 'Secret', namespace: 'flux-system', name: 'us-lab-kubeconfig', match: 'unmatched', reason: 'the candidate states no cluster UID' },
+      { source: 'capi', kind: 'Cluster', namespace: 'fleet', name: n63('capi-workload-eu-west-2'), labels: { 'cluster.x-k8s.io/cluster-name': n63('capi-workload-eu-west-2') },
+        match: 'unmatched', reason: 'the candidate states no cluster UID' },
+    ];
   };
   const wrapped: Serve = async (method, path, body) => {
     body = engineBody(path, body);
@@ -1865,6 +1886,10 @@ export function installScaleFixture(): void {
     if (flags.__pactoClusterJoin && method === 'GET' && route === '/api/fleet/clusters') {
       if (flags.__pactoClusterJoin === 'off') return { status: 404, contentType: 'application/problem+json', body: JSON.stringify({ status: 404, title: 'Not Found' }) };
       return { status: 200, contentType: 'application/json', body: JSON.stringify(clusterJoinAnswer()) };
+    }
+    if (flags.__pactoClusterJoin && method === 'GET' && route === '/api/fleet/clusters/install') {
+      const from = new URLSearchParams(path.split('?')[1] ?? '').get('from');
+      return { status: 200, contentType: 'application/yaml', body: `# The member install for ${from}\nregistry: ghcr.io/acme\n` };
     }
     if (method === 'GET' && (route === '/api/stats' || route === '/api/stats/records') && statsMode() !== 'engine') {
       if (statsMode() === 'off') return { status: 404, contentType: 'application/problem+json', body: JSON.stringify({ status: 404, title: 'Not Found' }) };
@@ -2757,6 +2782,21 @@ function openClusterJoin(approve: boolean): (page: Page) => Promise<void> {
   };
 }
 
+// 514-S5: Data sources under the candidate fixture, optionally with the disclosure open.
+function openCandidates(mode: 'candidates' | 'candidates-zero', open: boolean): (page: Page) => Promise<void> {
+  return async (page) => {
+    await page.evaluate((m) => { (window as unknown as { __pactoClusterJoin?: string }).__pactoClusterJoin = m; }, mode);
+    await page.goto('/#/fleet/sources');
+    const det = page.getByTestId('cluster-candidates');
+    await expect(det).toBeVisible({ timeout: 30_000 });
+    if (open) {
+      await det.evaluate((d) => { (d as HTMLDetailsElement).open = true; });
+      await expect(det.getByTestId('cluster-candidate').first()).toBeVisible();
+    }
+    await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+  };
+}
+
 export const ROUTES: Route[] = [
   { name: 'overview', hash: '#/fleet' },
   { name: 'overview watched namespaces', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __scoped?: boolean }).__scoped = true; }); await page.goto('/#/fleet'); await page.reload(); } }, // reload: the init script only runs on a new document
@@ -3488,6 +3528,10 @@ export const ROUTES: Route[] = [
   // 514-S3: pending members and the [Approve] hand-off inside the Clusters block.
   { name: 'sources, cluster-join', list: true, open: openClusterJoin(false) },
   { name: 'sources, cluster-join approve open', list: true, open: openClusterJoin(true) },
+  // 514-S5: the candidate clusters on a hub with no member yet, collapsed, and with the
+  // members and every source group open.
+  { name: 'sources, candidates', list: true, open: openCandidates('candidates-zero', false) },
+  { name: 'sources, candidates open', list: true, open: openCandidates('candidates', true) },
   // 514-S4: the eu-prod chip's tip opened, so the gate measures the long issuer URL.
   {
     name: 'sources, member-links tip open',

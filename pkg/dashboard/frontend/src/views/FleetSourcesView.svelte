@@ -25,10 +25,11 @@
   import ConnectAgent from '../components/ConnectAgent.svelte';
   import { loadTrustFigure } from '../lib/lazyFigures.ts';
   import HelpTip from '../components/HelpTip.svelte';
-  import { clusterWord, clusterReason, showClusters, shortKey, joinNameTip, joinHostsTip, approvedWords, removedWords, snapshotWords, joinCounts } from '../lib/clusters.ts';
+  import { clusterWord, clusterReason, showClusters, shortKey, joinNameTip, joinHostsTip, approvedWords, removedWords, snapshotWords, joinCounts, hiddenCandidateCount } from '../lib/clusters.ts';
   import { linkWords, linkTip } from '../lib/clusterLink.ts';
   import ProvenanceMark from '../components/ProvenanceMark.svelte';
   import ClusterApprove from '../components/ClusterApprove.svelte';
+  import ClusterCandidates from '../components/ClusterCandidates.svelte';
   import LimitationsList from '../components/LimitationsList.svelte';
 
   // The product Sources list: source discovery through
@@ -137,9 +138,14 @@
   const pending = $derived(joinRows.filter((r) => r.state === 'pending'));
   const removed = $derived(joinRows.filter((r) => r.state === 'removed'));
   const approved = $derived(new Map(joinRows.filter((r) => r.state === 'approved').map((r) => [r.uid, r])));
-  const counts = $derived(joinCounts(joins?.hidden ?? 0, joins?.otherHubs ?? 0, (joins?.limitations ?? []).some((l) => l.source === 'cluster-join-approver')));
+  const counts = $derived([...joinCounts(joins?.hidden ?? 0, joins?.otherHubs ?? 0, (joins?.limitations ?? []).some((l) => l.source === 'cluster-join-approver')),
+    hiddenCandidateCount(joins?.hiddenCandidates ?? 0)].filter(Boolean));
+  // The candidate clusters (514-S5): a hub with candidates and no member yet still shows the block.
+  const candidates = $derived(joins?.candidates ?? []);
+  const memberIds = $derived(new Set(clusters.map((c) => c.id)));
+  const memberAnchor = (uid) => `sc-member-${uid}`;
   const joinLimits = $derived(joins?.limitations ?? []);
-  const showBlock = $derived(showClusters(clusters) || !!joinsError || pending.length > 0 || removed.length > 0 || counts.length > 0 || joinLimits.length > 0);
+  const showBlock = $derived(showClusters(clusters) || !!joinsError || pending.length > 0 || removed.length > 0 || counts.length > 0 || joinLimits.length > 0 || candidates.length > 0);
 </script>
 
 <div class="product-page">
@@ -184,7 +190,7 @@
       <ul class="sc-list">
         {#each clusters as c, i (`${c.id}@@${i}`)}
           {@const link = linkWords(c, approved.has(c.id))}
-          <li class="sc-chip tone-{clusterTone(c)}" data-testid="source-cluster">
+          <li class="sc-chip tone-{clusterTone(c)}" id={memberAnchor(c.id)} tabindex="-1" data-testid="source-cluster">
             <span class="sc-dot" aria-hidden="true"></span>
             <bdi title={c.name || c.id}>{c.name || c.id}</bdi>
             <span class="sc-word">{clusterWord(c)}</span>
@@ -229,6 +235,7 @@
           </ul>
         </details>
       {/if}
+      {#if candidates.length}<ClusterCandidates {candidates} asOf={joins?.candidatesAsOf} completeness={joins?.candidatesCompleteness} members={memberIds} {memberAnchor} />{/if}
       {#if counts.length}<p class="t-meta" data-testid="cluster-join-counts">{counts.join('; ')}.</p>{/if}
       {#if joinLimits.length}<LimitationsList items={joinLimits} />{/if}
     </section>

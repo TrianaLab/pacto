@@ -294,6 +294,20 @@ describe('fleetClusters', () => {
   });
 });
 
+describe('fleetClusterInstall', () => {
+  it('GET /api/fleet/clusters/install resolves the YAML text', async () => {
+    mockFetch.mockResolvedValue(new Response('registry: ghcr.io/acme\n', { status: 200, headers: { 'Content-Type': 'application/yaml' } }));
+    await expect(api.fleetClusterInstall('flux')).resolves.toBe('registry: ghcr.io/acme\n');
+    expect(urlFor().pathname).toBe('/api/fleet/clusters/install');
+    expect(urlFor().searchParams.get('from')).toBe('flux');
+  });
+
+  it('throws an ApiError with the status on a 403', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ status: 403, detail: 'the member install is for those who may approve clusterjoins' }, 403));
+    await expect(api.fleetClusterInstall('argocd')).rejects.toMatchObject({ status: 403, message: 'the member install is for those who may approve clusterjoins' });
+  });
+});
+
 describe('error handling', () => {
   it('throws ApiError carrying the status', async () => {
     mockFetch.mockResolvedValue(new Response('not found', { status: 404 }));

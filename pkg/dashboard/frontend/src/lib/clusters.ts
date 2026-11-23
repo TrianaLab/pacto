@@ -1,7 +1,7 @@
 // Per-cluster status words for meta.clusters: the Cluster filter caption on the
 // Services and Targets lists and the Clusters block on Data sources, plus the
 // member join rows (514-S3) that block shows.
-import type { ClusterSummary, ClusterJoinState } from './api.ts';
+import type { ClusterSummary, ClusterJoinState, ClusterCandidate } from './api.ts';
 
 export type { ClusterSummary };
 
@@ -116,4 +116,53 @@ export function joinCounts(hidden: number, otherHubs: number, reviewFailed = fal
   if (hidden) out.push(reviewFailed ? `${clusters} hidden: whether you may approve them could not be checked` : `${clusters} you may not approve`);
   if (otherHubs) out.push(`${otherHubs} record${otherHubs === 1 ? '' : 's'} from another hub not used`);
   return out;
+}
+
+/** The sources a candidate cluster comes from, in the order their groups show. */
+export const CANDIDATE_SOURCES: Record<string, string> = { argocd: 'Argo CD', flux: 'Flux', capi: 'Cluster API', ocm: 'OCM', rancher: 'Rancher' };
+
+/** The one action per source group: only Argo CD and Flux get a generated install. */
+const INSTALL_ACTIONS: Record<string, string> = { argocd: 'Get ApplicationSet', flux: 'Get Flux manifests' };
+
+export type CandidateGroup = { source: string; label: string; install: 'argocd' | 'flux' | null; action: string; items: ClusterCandidate[] };
+
+/** candidateGroups are the candidates grouped by source, in CANDIDATE_SOURCES order. */
+export function candidateGroups(cands: ClusterCandidate[]): CandidateGroup[] {
+  return Object.keys(CANDIDATE_SOURCES).flatMap((source) => {
+    const items = cands.filter((c) => c.source === source);
+    if (!items.length) return [];
+    const install = source in INSTALL_ACTIONS ? (source as 'argocd' | 'flux') : null;
+    return [{ source, label: CANDIDATE_SOURCES[source], install, action: INSTALL_ACTIONS[source] ?? '', items }];
+  });
+}
+
+/** candidateWord is how a candidate stands against the members. Only a stated UID on an
+ *  approved member matches; "not matched" is the one negative word, never "not joined". */
+export function candidateWord(c: ClusterCandidate): string {
+  if (c.match === 'matched') return c.member?.name ? `matched to ${c.member.name}` : 'matched';
+  return c.match === 'same-uid' ? 'states the same UID' : 'not matched';
+}
+
+/** candidateTip says where a candidate came from and why it stands as it does; the UID
+ *  it states shows here and in no label. */
+export function candidateTip(c: ClusterCandidate): string {
+  const ref = c.namespace ? `${c.namespace}/${c.name}` : c.name;
+  const parts = [`From ${CANDIDATE_SOURCES[c.source] ?? c.source} ${c.kind} ${ref}.`];
+  if (c.uid) parts.push(`States UID ${c.uid}${c.uidSource ? ` (${c.uidSource})` : ''}.`);
+  if (c.match === 'matched') parts.push(['The approved member', c.member?.name, 'publishes that UID under its approved key.'].filter(Boolean).join(' '));
+  if (c.reason) parts.push(`${c.reason[0].toUpperCase()}${c.reason.slice(1)}.`);
+  return parts.join(' ');
+}
+
+/** candidateLabels are a candidate's first three labels as key=value, how many more it
+ *  has, and every label for the title. */
+export function candidateLabels(labels: Record<string, string> | undefined): { shown: string[]; more: number; title: string } {
+  const all = Object.keys(labels ?? {}).sort().map((k) => `${k}=${labels![k]}`);
+  return { shown: all.slice(0, 3), more: Math.max(0, all.length - 3), title: all.join(', ') };
+}
+
+/** hiddenCandidateCount words the candidates a reader may not see; '' when none. */
+export function hiddenCandidateCount(n: number): string {
+  if (!n) return '';
+  return `${n} candidate cluster${n === 1 ? '' : 's'} hidden: they show to those who may approve clusterjoins`;
 }

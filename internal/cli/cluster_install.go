@@ -1,12 +1,16 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -68,20 +72,13 @@ func clusterInstall(cmd *cobra.Command, svc *app.Service, d deps) (memberInstall
 	if err != nil {
 		return memberInstall{}, err
 	}
-	o := delivery.MemberInstallOptions{Engine: flag("from"), Registry: strings.TrimSuffix(opts.Repository, "/"+delivery.TargetSnapshotRepository),
-		HubURL: flag("hub-url"), Chart: flag("chart"), ChartVersion: flag("chart-version"), Digest: flag("digest"), InsecureRegistry: insecure}
-	if o.ChartVersion == "" && flag("detected") != "" {
-		if o.ChartVersion, err = app.AdvertisedChartVersion(ctx, dyn, flag("detected"), time.Now); err != nil {
-			return memberInstall{}, err
-		}
+	o := delivery.MemberInstallOptions{Engine: flag("from"), HubURL: flag("hub-url"), Chart: flag("chart"), ChartVersion: flag("chart-version"),
+		Digest: flag("digest"), InsecureRegistry: insecure}
+	matched := func(ctx context.Context) []delivery.ClusterCandidate {
+		return visibleJoins(svc.ClusterJoins(ctx, opts), true, nil).Candidates
 	}
-	if opts.Candidates != nil {
-		c, err := opts.Candidates(ctx)
-		if err != nil {
-			return memberInstall{}, fmt.Errorf("the candidate clusters were not read: %w", err)
-		}
-		o.Flux, o.Argo = candidatesOf(c, detect.SourceFlux), candidatesOf(c, detect.SourceArgoCD)
-		o.Matched = visibleJoins(svc.ClusterJoins(ctx, opts), true, nil).Candidates
+	if err := installInputs(ctx, dyn, opts, flag("detected"), &o, matched); err != nil {
+		return memberInstall{}, err
 	}
 	res, err := delivery.MemberInstall(o)
 	if err != nil || !push {
@@ -102,6 +99,71 @@ func clusterInstall(cmd *cobra.Command, svc *app.Service, d deps) (memberInstall
 		out.Files = res.Files
 	}
 	return out, nil
+}
+
+// installInputs fills o from the hub dyn reaches through opts: the
+// registry its members publish to, the chart version its detection at
+// detected advertises when o names none, and its candidates, with matched
+// (the hub's list of them) for the warnings.
+func installInputs(ctx context.Context, dyn dynamic.Interface, opts app.JoinOptions, detected string, o *delivery.MemberInstallOptions,
+	matched func(context.Context) []delivery.ClusterCandidate) error {
+	o.Registry = strings.TrimSuffix(opts.Repository, "/"+delivery.TargetSnapshotRepository)
+	var err error
+	if o.ChartVersion == "" && detected != "" {
+		if o.ChartVersion, err = app.AdvertisedChartVersion(ctx, dyn, detected, time.Now); err != nil {
+			return err
+		}
+	}
+	if opts.Candidates == nil {
+		return nil
+	}
+	c, err := opts.Candidates(ctx)
+	if err != nil {
+		return fmt.Errorf("the candidate clusters were not read: %w", err)
+	}
+	o.Flux, o.Argo = candidatesOf(c, detect.SourceFlux), candidatesOf(c, detect.SourceArgoCD)
+	o.Matched = matched(ctx)
+	return nil
+}
+
+// dashboardInstall hands out, for the engine from, the member install of
+// the hub the dashboard reads in cluster through its detection, with list's
+// candidates for the warnings, which lead the YAML as comments. It never
+// sets a hub URL: a crafted link could otherwise point every new member at
+// another hub. nil without joins.
+func dashboardInstall(d deps, cluster *rest.Config, detected string, joins *app.JoinOptions,
+	list func(context.Context) delivery.ClusterJoinList) func(context.Context, string) ([]byte, error) {
+	if joins == nil {
+		return nil
+	}
+	return func(ctx context.Context, from string) ([]byte, error) {
+		dyn, err := d.dynamicFor(cluster)
+		if err != nil {
+			return nil, err
+		}
+		opts, err := joinsOn(ctx, dyn, "", detected, "")
+		if err != nil {
+			return nil, err
+		}
+		if opts.Repository == "" {
+			return nil, errors.New("the hub's operator advertises no registry: set registry on it")
+		}
+		o := delivery.MemberInstallOptions{Engine: from}
+		matched := func(ctx context.Context) []delivery.ClusterCandidate { return list(ctx).Candidates }
+		if err := installInputs(ctx, dyn, opts, detected, &o, matched); err != nil {
+			return nil, err
+		}
+		res, err := delivery.MemberInstall(o)
+		if err != nil {
+			return nil, err
+		}
+		var b strings.Builder
+		for _, w := range res.Warnings {
+			b.WriteString("# warning: " + strings.ReplaceAll(w, "\n", " ") + "\n")
+		}
+		b.Write(delivery.MemberInstallYAML(res.Files))
+		return []byte(b.String()), nil
+	}
 }
 
 // candidatesOf are the candidates of c from source.

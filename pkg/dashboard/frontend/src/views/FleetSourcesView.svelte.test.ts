@@ -6,11 +6,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import { readFileSync } from 'node:fs';
 
-const { entitiesFn, clustersFn } = vi.hoisted(() => ({ entitiesFn: vi.fn(), clustersFn: vi.fn() }));
+const { entitiesFn, clustersFn, installFn, saveFn } = vi.hoisted(() => ({ entitiesFn: vi.fn(), clustersFn: vi.fn(), installFn: vi.fn(), saveFn: vi.fn() }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
-  return { ...actual, api: { fleetEntities: (...a: unknown[]) => entitiesFn(...a), fleetProviders: () => Promise.resolve({ providers: [] }), fleetClusters: () => clustersFn() } };
+  return { ...actual, api: { fleetEntities: (...a: unknown[]) => entitiesFn(...a), fleetProviders: () => Promise.resolve({ providers: [] }), fleetClusters: () => clustersFn(), fleetClusterInstall: (from: string) => installFn(from) } };
 });
+vi.mock('../lib/saveFile.ts', () => ({ saveFile: (...a: unknown[]) => saveFn(...a) }));
 
 // @ts-expect-error — Svelte component has no declaration file
 import FleetSourcesView from './FleetSourcesView.svelte';
@@ -180,5 +181,139 @@ describe('FleetSourcesView Clusters block', () => {
 
   it('draws the run in the muted token', () => {
     expect(readFileSync('src/views/FleetSourcesView.svelte', 'utf8')).toMatch(/\.sc-link \{[^}]*color: var\(--c-text-3\)/);
+  });
+
+  // 514-S5: the candidate clusters, one collapsed disclosure inside the same block.
+  const UID = '9f1c4e2a-0000-4000-8000-000000000001';
+  const candidates = [
+    { source: 'argocd', kind: 'Secret', namespace: 'argocd', name: 'eu-prod', labels: { env: 'prod', region: 'eu', tier: 'gold', zone: 'a' }, uid: UID,
+      uidSource: 'annotation pacto.trianalab.io/cluster-uid', match: 'matched', member: { uid: 'uid-eu', name: 'eu-prod' } },
+    { source: 'argocd', kind: 'Secret', namespace: 'argocd', name: 'ap-dev', match: 'same-uid', uid: UID, reason: 'the cluster reports this UID about itself; a person has not approved it under this key' },
+    { source: 'capi', kind: 'Cluster', namespace: 'fleet', name: 'us-lab', match: 'unmatched', reason: 'the candidate states no cluster UID' },
+  ];
+  const withMember = [...one, { id: 'uid-eu', name: 'eu-prod', status: 'available', targets: 3 }];
+  async function openCandidates(clusters: unknown[], over: Record<string, unknown> = {}) {
+    const r = await render(clusters, joinList({ clusters: [], candidates, candidatesAsOf: '2026-11-23T10:00:00Z', candidatesCompleteness: 'complete', ...over }));
+    const det = await vi.waitFor(() => { const d = r.target.querySelector('[data-testid="cluster-candidates"]'); expect(d).not.toBeNull(); return d as HTMLDetailsElement; });
+    return { ...r, det, cards: Array.from(det.querySelectorAll<HTMLElement>('[data-testid="cluster-candidate"]')) };
+  }
+
+  it('candidates alone show the Clusters block, collapsed', async () => {
+    const { det, target, done } = await openCandidates(one);
+    expect(det.closest('[data-testid="source-clusters"]')).not.toBeNull();
+    expect(det.open).toBe(false);
+    expect(det.querySelector('summary')?.textContent).toBe('3 candidate clusters');
+    expect(target.querySelectorAll('[data-testid="cluster-candidates"]')).toHaveLength(1);
+    done();
+  });
+
+  it('groups candidates by source', async () => {
+    const { det, done } = await openCandidates(one);
+    const groups = Array.from(det.querySelectorAll<HTMLElement>('[data-testid="cluster-candidate-group"]'));
+    expect(groups.map((g) => [g.dataset.source, g.querySelectorAll('[data-testid="cluster-candidate"]').length])).toEqual([['argocd', 2], ['capi', 1]]);
+    done();
+  });
+
+  it('never says not joined', async () => {
+    const { det, cards, done } = await openCandidates(one);
+    expect(cards.map((c) => c.querySelector('.scc-word')?.textContent)).toEqual(['matched to eu-prod', 'states the same UID', 'not matched']);
+    expect(det.textContent).not.toMatch(/not joined|not a member/);
+    done();
+  });
+
+  it('matched card links to the member row', async () => {
+    const { cards, target, done } = await openCandidates(withMember);
+    const row = target.querySelector<HTMLElement>('#sc-member-uid-eu')!;
+    row.scrollIntoView = vi.fn();
+    cards[0].querySelector<HTMLButtonElement>('[data-testid="cluster-candidate-member"]')!.click();
+    expect(row.scrollIntoView).toHaveBeenCalled();
+    expect(document.activeElement).toBe(row);
+    done();
+  });
+
+  it('same-uid card has no link, nor a matched one whose member row is not shown', async () => {
+    const { cards, done } = await openCandidates(one);
+    expect(cards.map((c) => !!c.querySelector('button.scc-open'))).toEqual([false, false, false]);
+    done();
+    const shown = await openCandidates(withMember);
+    expect(shown.cards.map((c) => !!c.querySelector('button.scc-open'))).toEqual([true, false, false]);
+    shown.done();
+  });
+
+  it('candidate card has one source mark', async () => {
+    const { cards, done } = await openCandidates(one);
+    expect(cards.map((c) => c.querySelectorAll('.prov-mark').length)).toEqual([1, 1, 1]);
+    expect(cards[2].querySelector('[role="note"]')?.textContent).toBe('From Cluster API Cluster fleet/us-lab. The candidate states no cluster UID.');
+    done();
+  });
+
+  it('no uid in a visible label', async () => {
+    const { cards, done } = await openCandidates(one);
+    for (const c of cards) {
+      const visible = Array.from(c.children).filter((e) => !e.classList.contains('prov-mark')).map((e) => `${e.textContent} ${e.getAttribute('title') ?? ''}`).join(' ');
+      expect(visible).not.toContain(UID.slice(0, 8));
+    }
+    expect(cards[0].querySelector('[role="note"]')?.textContent).toContain(UID);
+    done();
+  });
+
+  it('labels collapse after three with the rest in the title', async () => {
+    const { cards, done } = await openCandidates(one);
+    const l = cards[0].querySelector('.scc-labels')!;
+    expect(l.textContent).toBe('env=prod region=eu tier=gold +1');
+    expect(l.getAttribute('title')).toBe('env=prod, region=eu, tier=gold, zone=a');
+    expect(cards[0].querySelector('bdi')?.getAttribute('title')).toBe('eu-prod');
+    done();
+  });
+
+  it('download only for argocd and flux groups', async () => {
+    const { det, done } = await openCandidates(one, { candidates: [...candidates, { source: 'flux', kind: 'Secret', namespace: 'flux-system', name: 'us', match: 'unmatched' }] });
+    const actions = Array.from(det.querySelectorAll<HTMLElement>('[data-testid="cluster-candidate-group"]')).map((g) => [g.dataset.source, g.querySelector('[data-testid="cluster-candidate-install"]')?.textContent ?? null]);
+    expect(actions).toEqual([['argocd', 'Get ApplicationSet'], ['flux', 'Get Flux manifests'], ['capi', null]]);
+    done();
+  });
+
+  it('download fetches through the client and saves a blob', async () => {
+    installFn.mockReset(); saveFn.mockReset();
+    installFn.mockResolvedValue('registry: ghcr.io/acme\n');
+    const { det, done } = await openCandidates(one);
+    det.querySelector<HTMLButtonElement>('[data-testid="cluster-candidate-install"]')!.click();
+    await vi.waitFor(() => expect(saveFn).toHaveBeenCalledWith('pacto-members-argocd.yaml', 'registry: ghcr.io/acme\n'));
+    expect(installFn).toHaveBeenCalledWith('argocd');
+    expect(det.querySelector('[data-testid="cluster-candidate-error"]')).toBeNull();
+    done();
+  });
+
+  it('download shows the 403 message', async () => {
+    const { ApiError } = await import('../lib/api.ts');
+    installFn.mockReset(); saveFn.mockReset();
+    installFn.mockRejectedValue(new ApiError(403, 'forbidden'));
+    const { det, done } = await openCandidates(one);
+    det.querySelector<HTMLButtonElement>('[data-testid="cluster-candidate-install"]')!.click();
+    const err = await vi.waitFor(() => { const e = det.querySelector('[data-testid="cluster-candidate-error"]'); expect(e).not.toBeNull(); return e as HTMLElement; });
+    expect(err.textContent).toBe('Only those who may approve clusterjoins can download the member install.');
+    installFn.mockRejectedValue(new ApiError(422, 'the hub advertises no chart version'));
+    det.querySelector<HTMLButtonElement>('[data-testid="cluster-candidate-install"]')!.click();
+    const errText = () => det.querySelector('[data-testid="cluster-candidate-error"]')?.textContent;
+    await vi.waitFor(() => expect(errText()).toBe('the hub advertises no chart version'));
+    installFn.mockRejectedValue({});
+    det.querySelector<HTMLButtonElement>('[data-testid="cluster-candidate-install"]')!.click();
+    await vi.waitFor(() => expect(errText()).toBe('Pacto could not generate the member install.'));
+    expect(saveFn).not.toHaveBeenCalled();
+    done();
+  });
+
+  it('hidden candidates counted, and they alone show the block', async () => {
+    const { target, done } = await render(one, joinList({ clusters: [], canApprove: false, hiddenCandidates: 2 }));
+    const counts = await vi.waitFor(() => { const c = target.querySelector('[data-testid="cluster-join-counts"]'); expect(c).not.toBeNull(); return c as HTMLElement; });
+    expect(counts.textContent).toBe('2 candidate clusters hidden: they show to those who may approve clusterjoins.');
+    expect(target.querySelector('[data-testid="cluster-candidates"]')).toBeNull();
+    done();
+  });
+
+  it('says a partial candidate list is partial', async () => {
+    const { det, done } = await openCandidates(one, { candidatesCompleteness: 'partial' });
+    expect(det.querySelector('summary')?.textContent).toBe('3 candidate clusters, partial');
+    done();
   });
 });

@@ -47,6 +47,10 @@ const (
 	pushCredentialStep = "Each member publishes its snapshot once it holds a push credential on %s/pacto-targets: create that Secret in namespace pacto and set registryPullSecret in your own values overlay (https://pacto.run/latest/install-members/)."
 )
 
+// ErrNoChartVersion is MemberInstall's answer when no chart version is named
+// or advertised.
+var ErrNoChartVersion = errors.New("no chart version: pass --chart-version, or read a hub whose operator advertises its chart version")
+
 // MemberInstallOptions are what a member install is generated from. Registry
 // is the chart's registry value; HubURL, when set, its hub.url; Chart the
 // chart reference (DefaultMemberChart when empty) at ChartVersion. Digest, a
@@ -132,7 +136,7 @@ func checkMemberInstall(o *MemberInstallOptions) error {
 	case o.HubURL != "" && !hubURLPattern.MatchString(o.HubURL):
 		return fmt.Errorf("hub URL %q: name it https:// or wss:// with a host", o.HubURL)
 	case o.ChartVersion == "":
-		return errors.New("no chart version: pass --chart-version, or read a hub whose operator advertises its chart version")
+		return ErrNoChartVersion
 	case !chartVerPattern.MatchString(o.ChartVersion):
 		return fmt.Errorf("chart version %q is not a version", o.ChartVersion)
 	case !strings.HasPrefix(o.Chart, "oci://") || !registryPattern.MatchString(strings.TrimPrefix(o.Chart, "oci://")) || !strings.Contains(o.Chart[len("oci://"):], "/"):
