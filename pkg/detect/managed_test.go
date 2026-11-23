@@ -84,3 +84,30 @@ func TestDetectRowsPartialWhenCapped(t *testing.T) {
 		t.Errorf("uncapped managed row = %+v", got)
 	}
 }
+
+func TestManagedEntryUnreadIsPartial(t *testing.T) {
+	none := ManagedEntry(nil, nil, 0, 0, false)
+	if none.Completeness != Complete || none.Value != "none found" || none.Scope != fleet.ScopeCluster {
+		t.Errorf("no group = %+v", none)
+	}
+	read := ManagedEntry([]string{"rds.aws.upbound.io"}, nil, 3, 0, false)
+	if read.Completeness != Complete || read.Value != "3 managed resources" || read.Evidence != "lists the catalog kinds of rds.aws.upbound.io" || read.Details != nil {
+		t.Errorf("read = %+v", read)
+	}
+	unread := []string{"a.io/x", "b.io/x", "c.io/x", "d.io/x", "e.io/x", "f.io/x"}
+	e := ManagedEntry([]string{"rds.aws.upbound.io"}, unread, 3, 2, false)
+	if e.Completeness != Partial || e.Hint != ManagedUpgradeHint || !strings.HasPrefix(e.Reason, "6 managed-resource kinds") ||
+		len(e.Details) != MaxDetails || !strings.HasPrefix(e.Details[0], ClaimUnverified+": 2 resources") || e.Details[1] != "unread a.io/x" {
+		t.Errorf("unread = %+v", e)
+	}
+	if _, err := Encode(Result{Entries: []Entry{e}}); err != nil {
+		t.Errorf("the entry does not fit: %v", err)
+	}
+}
+
+func TestManagedEntryScopedIsUnknown(t *testing.T) {
+	if e := ManagedEntry([]string{"rds.aws.upbound.io"}, []string{"a.io/x"}, 3, 0, true); e.Completeness != Unknown ||
+		e.Reason != "a namespace-scoped install does not read managed resources" || e.Kind != fleet.ProviderManagedResources {
+		t.Errorf("scoped = %+v", e)
+	}
+}

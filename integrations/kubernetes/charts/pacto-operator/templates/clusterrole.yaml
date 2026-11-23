@@ -62,6 +62,9 @@ rules:
     resources: [ciliumnetworkpolicies, ciliumclusterwidenetworkpolicies]
     verbs: [list]
   {{- end }}
+  {{- /* Managed resources of the catalog kinds whose group the cluster serves at install or upgrade. */}}
+  {{- /* List only; helm upgrade grants a group served later. */}}
+  {{- with include "pacto-operator.managedRules" . }}{{ . | nindent 2 }}{{- end }}
   # daemonsets: the dashboard ClusterRole the operator applies lists them, and Kubernetes lets it grant only what it holds.
   - apiGroups: [apps]
     resources: [deployments, replicasets, statefulsets, daemonsets]

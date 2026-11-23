@@ -9,7 +9,9 @@ See LICENSE file in the project root for full license text.
 // pods, nodes, HTTPRoutes, Ingresses, Services and API discovery, infers
 // with pkg/detect and writes the result into one ConfigMap. Detection is
 // inert: nothing in the operator reads that ConfigMap back, and nothing it
-// finds sets a value, an argument or a grant.
+// finds sets a value, an argument or a grant. It also lists the managed
+// resources of the catalog kinds the chart granted, asking a
+// SelfSubjectAccessReview (which creates no object) for each kind first.
 package detection
 
 import (
@@ -36,6 +38,7 @@ import (
 
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 	"github.com/trianalab/pacto/v4/pkg/detect"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // Nodes list is the one grant detection adds, cluster-wide installs only; the
@@ -111,10 +114,13 @@ type Detector struct {
 // Readers is what the operator reads beside detection, fixed at its start: the
 // controller.egressGatewayLogs mode (auto, on or off), whether kernel evidence
 // is on (gateway logs are read with it) and whether the ServiceEntry and
-// Cilium policy readers run (each needs its API served at startup).
+// Cilium policy readers run (each needs its API served at startup). Managed,
+// when set, reports the catalog's managed kinds discovery serves (see
+// [ManagedFor]): the managed-resources entry is read only with it.
 type Readers struct {
 	GatewayLogs                                    string
 	KernelEvidence, ServiceEntries, CiliumPolicies bool
+	Managed                                        func(context.Context) (map[string][]metav1.APIResource, error)
 }
 
 // readerOff is e partial when its API is served but the operator's reader did
@@ -197,7 +203,8 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 
 	res.Installation = d.installation()
 
-	ws, sampled, wsErr := d.workloads(ctx)
+	ws, refs, sampled, wsErr := d.workloads(ctx)
+	res.SecretRefs = refs
 	reg := or(wsErr, "registry", func() detect.Entry { return detect.Registries(ws, sampled, !scoped) })
 	res.Entries = append(res.Entries, reg)
 	if ps := detect.PullSecret(ws, reg, sampled, !scoped); ps.Kind != "" {
@@ -255,6 +262,7 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 		res.Entries = append(res.Entries, e)
 	}
 	res.Entries = append(res.Entries, d.crossplane(ctx))
+	d.managed(ctx, &res)
 	if d.Pieces != nil {
 		res.Entries = append(res.Entries, d.Pieces()...)
 	}
@@ -412,20 +420,22 @@ func (d *Detector) scopes() []string {
 }
 
 // workloads reads running pods page by page, at most MaxPods, outside the
-// skipped namespaces, grouped by controller owner.
-func (d *Detector) workloads(ctx context.Context) ([]detect.Workload, bool, error) {
+// skipped namespaces, grouped by controller owner, and the Secret names each
+// owner's pods reference (names only, at most detect.MaxSecretRefs).
+func (d *Detector) workloads(ctx context.Context) ([]detect.Workload, []fleet.RawSecretRef, bool, error) {
 	byID, order, seen := map[string]*detect.Workload{}, []string{}, 0
+	refs := secretRefs{seen: map[fleet.RawSecretRef]bool{}, cluster: d.Cluster, name: d.ClusterName}
 	for _, ns := range d.scopes() {
 		next := ""
 		for {
 			l := &corev1.PodList{}
 			if err := d.Reader.List(ctx, l, client.InNamespace(ns), client.MatchingFields{"status.phase": string(corev1.PodRunning)},
 				client.Limit(pageSize), client.Continue(next)); err != nil {
-				return nil, false, err
+				return nil, nil, false, err
 			}
 			for i := range l.Items {
 				if seen == detect.MaxPods {
-					return collect(byID, order), true, nil
+					return collect(byID, order), refs.out, true, nil
 				}
 				seen++
 				p := &l.Items[i]
@@ -437,6 +447,7 @@ func (d *Detector) workloads(ctx context.Context) ([]detect.Workload, bool, erro
 				if o := metav1.GetControllerOf(p); o != nil {
 					id, owner = string(o.UID), ownerObject(p, o)
 				}
+				refs.add(owner, p)
 				w, ok := byID[id]
 				if !ok {
 					w = &detect.Workload{ID: id, Namespace: p.Namespace, Owner: owner}
@@ -456,7 +467,7 @@ func (d *Detector) workloads(ctx context.Context) ([]detect.Workload, bool, erro
 			}
 		}
 	}
-	return collect(byID, order), false, nil
+	return collect(byID, order), refs.out, false, nil
 }
 
 // ownerObject is the controller o of p as a detect object: a ReplicaSet

@@ -1,0 +1,8 @@
+apiVersion: platform.example.org/v1alpha1
+kind: PostgreSQLInstance
+metadata:
+  namespace: shop
+  name: orders-db
+spec:
+  writeConnectionSecretToRef:
+    name: orders-db-conn

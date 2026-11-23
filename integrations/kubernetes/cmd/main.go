@@ -814,7 +814,8 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 	if d := detection.ForOperator(os.Getenv("OPERATOR_DEPLOYMENT_NAME"), namespace, o.namespaces,
 		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig()),
 		inst, lastPush.Load, detection.Readers{GatewayLogs: o.egressGatewayLogs, KernelEvidence: o.enableKernelEvidence,
-			ServiceEntries: servesServiceEntries(mgr), CiliumPolicies: servesCiliumPolicies(mgr)}); d != nil {
+			ServiceEntries: servesServiceEntries(mgr), CiliumPolicies: servesCiliumPolicies(mgr),
+			Managed: detection.ManagedFor(mgr.GetConfig())}); d != nil {
 		d.Wake = pushed
 		d.Pieces = idpPieces(inst, gate, o.enableEvidence, recorder)
 		if err := mgr.Add(d); err != nil {

@@ -117,8 +117,17 @@ func resource(m externalcatalog.Match, idAttr, typ, addr string, attrs map[strin
 	account := strings.ToLower(cmp.Or(arnAccount, str("project")))
 	region := strings.ToLower(cmp.Or(str("region"), str("location"), arnRegion))
 	engine := strings.TrimSpace(str("engine") + " " + cmp.Or(str("engine_version"), str("version")))
-	r := fleet.RawManagedResource{Source: SourceTerraform, Identity: string(m.Identity), Entry: m.Entry, Type: typ, Name: addr,
+	r := fleet.RawManagedResource{Source: SourceTerraform, Entry: m.Entry, Type: typ, Name: addr,
 		Engine: cmp.Or(engine, str("database_version"))}
+	identify(&r, m, account, region, id)
+	return r
+}
+
+// identify sets the identity of r, classified as m: the full managed
+// identity when account, region and id are each one segment, else m's
+// entry identity with the parts that were not read listed in Missing.
+func identify(r *fleet.RawManagedResource, m externalcatalog.Match, account, region, id string) {
+	r.Identity = string(m.Identity)
 	for _, part := range []struct{ name, value string }{{"id", id}, {"account", account}, {"region", region}} {
 		if !segment(part.value) {
 			r.Missing = append(r.Missing, part.name)
@@ -128,7 +137,6 @@ func resource(m externalcatalog.Match, idAttr, typ, addr string, attrs map[strin
 		full, _ := externalid.Managed(provider, service, account, region, id) // ponytail: every part is a segment
 		r.Identity = string(full)
 	}
-	return r
 }
 
 // arnParts are the region and account of an AWS ARN, empty when arn is not

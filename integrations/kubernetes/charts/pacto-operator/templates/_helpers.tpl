@@ -1261,6 +1261,90 @@ renders "true" or nothing. helm template sees only what --api-versions names.
 {{- end }}
 
 {{/*
+The managed-resource kinds of the default external catalog's crossplane rows,
+one "<group>/<Kind>=<plural>" line each: the only kinds the operator may list.
+TestManagedKindsMatchCatalog (internal/controller/rbac_test.go) fails when this
+list and pkg/externalcatalog/default/catalog.yaml drift apart.
+*/}}
+{{- define "pacto-operator.managedKinds" -}}
+rds.aws.upbound.io/Instance=instances
+rds.aws.upbound.io/Cluster=clusters
+rds.services.k8s.aws/DBInstance=dbinstances
+rds.services.k8s.aws/DBCluster=dbclusters
+sqs.aws.upbound.io/Queue=queues
+sqs.services.k8s.aws/Queue=queues
+sns.aws.upbound.io/Topic=topics
+sns.services.k8s.aws/Topic=topics
+s3.aws.upbound.io/Bucket=buckets
+s3.services.k8s.aws/Bucket=buckets
+dynamodb.aws.upbound.io/Table=tables
+dynamodb.services.k8s.aws/Table=tables
+elasticache.aws.upbound.io/Cluster=clusters
+elasticache.aws.upbound.io/ReplicationGroup=replicationgroups
+elasticache.services.k8s.aws/CacheCluster=cacheclusters
+elasticache.services.k8s.aws/ReplicationGroup=replicationgroups
+sql.gcp.upbound.io/DatabaseInstance=databaseinstances
+sql.cnrm.cloud.google.com/SQLInstance=sqlinstances
+pubsub.gcp.upbound.io/Topic=topics
+pubsub.cnrm.cloud.google.com/PubSubTopic=pubsubtopics
+storage.gcp.upbound.io/Bucket=buckets
+storage.cnrm.cloud.google.com/StorageBucket=storagebuckets
+sql.azure.upbound.io/MSSQLServer=mssqlservers
+sql.azure.com/Server=servers
+servicebus.azure.upbound.io/ServiceBusNamespace=servicebusnamespaces
+servicebus.azure.com/Namespace=namespaces
+storage.azure.upbound.io/Account=accounts
+storage.azure.com/StorageAccount=storageaccounts
+{{- end }}
+
+{{/*
+The list-only rules of the managed resources the detector reads, one flow-style
+rule per line, nothing when none applies:
+- per catalog group the cluster serves at install or upgrade (any version in
+  .Capabilities.APIVersions), the plurals of that group's catalog kinds; a group
+  the catalog does not name, even under a cloud suffix, gets nothing;
+- when apiextensions.crossplane.io/v1 is served, the XRD list and, per XRD
+  helm can look up, its composite and claim plurals (the composite is read only
+  to confirm a claim). Under helm template the lookup is empty and the operator
+  reports the claim kinds it may not list. An XRD group that is not a DNS
+  name with a dot, or sits under k8s.io or kubernetes.io, and a plural that
+  is not a DNS label, are skipped.
+helm upgrade grants a group served later.
+*/}}
+{{- define "pacto-operator.managedRules" -}}
+{{- $groups := dict -}}
+{{- range (include "pacto-operator.managedKinds" . | splitList "\n") -}}
+{{- $kv := splitList "=" . -}}
+{{- $group := first (splitList "/" (first $kv)) -}}
+{{- $_ := set $groups $group (append (get $groups $group | default list) (last $kv)) -}}
+{{- end -}}
+{{- $rules := list -}}
+{{- range $group := keys $groups | sortAlpha -}}
+{{- $served := false -}}
+{{- range $.Capabilities.APIVersions -}}
+{{- if hasPrefix (printf "%s/" $group) . }}{{ $served = true }}{{ end -}}
+{{- end -}}
+{{- if $served -}}
+{{- $rules = append $rules (printf "- {apiGroups: [%s], resources: [%s], verbs: [list]}" $group (get $groups $group | uniq | sortAlpha | join ", ")) -}}
+{{- end -}}
+{{- end -}}
+{{- if include "pacto-operator.apiServed" (list $ "apiextensions.crossplane.io/v1") -}}
+{{- $rules = append $rules "- {apiGroups: [apiextensions.crossplane.io], resources: [compositeresourcedefinitions], verbs: [list]}" -}}
+{{- range (dig "items" list (lookup "apiextensions.crossplane.io/v1" "CompositeResourceDefinition" "" "")) -}}
+{{- $group := dig "spec" "group" "" . -}}
+{{- $plurals := list -}}
+{{- range compact (list (dig "spec" "names" "plural" "" .) (dig "spec" "claimNames" "plural" "" .)) -}}
+{{- if regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" . }}{{ $plurals = append $plurals . }}{{ end -}}
+{{- end -}}
+{{- if and (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$" $group) (not (regexMatch "(^|\\.)(k8s|kubernetes)\\.io$" $group)) $plurals -}}
+{{- $rules = append $rules (printf "- {apiGroups: [%s], resources: [%s], verbs: [list]}" $group (join ", " $plurals)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- join "\n" $rules -}}
+{{- end }}
+
+{{/*
 The installation's workload manager and promoter fingerprints as the YAML the
 dashboard and the promoter read with --fingerprints; empty when both lists are.
 */}}

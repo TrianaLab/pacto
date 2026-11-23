@@ -1,0 +1,15 @@
+# A resource a tenant of namespace tenant-a created with labels naming
+# another namespace's claim, owned by no composite.
+apiVersion: rds.aws.upbound.io/v1beta1
+kind: Instance
+metadata:
+  namespace: tenant-a
+  name: sneaky
+  labels:
+    crossplane.io/claim-name: orders-db
+    crossplane.io/claim-namespace: shop
+spec:
+  forProvider:
+    region: eu-west-1
+  writeConnectionSecretToRef:
+    name: sneaky-conn
