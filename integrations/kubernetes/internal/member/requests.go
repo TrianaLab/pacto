@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -112,6 +113,30 @@ type Intake struct {
 	done, logged map[string]bool
 	hub          string
 	hubAt        time.Time
+
+	// issuers are the approver issuers of the last policy read, nil before
+	// one; the target publisher reads them through JoinRequests.
+	mu      sync.Mutex
+	issuers []string
+}
+
+// JoinRequests is what the join block says about requests: nil when the
+// intake is off, before it read the approver signers, with no signer or
+// with no environment the allowlist takes, so a member never claims
+// requests it cannot verify or take. Otherwise the signers' issuers and the
+// environments RequestAllowlist.Hosted takes (nil: every environment).
+func (i *Intake) JoinRequests() *core.JoinRequests {
+	if i == nil {
+		return nil
+	}
+	i.mu.Lock()
+	issuers := i.issuers
+	i.mu.Unlock()
+	hosted := i.Allow.Hosted(core.AdvertisedEnvironments(nil, i.ClusterName, i.NameSource))
+	if len(issuers) == 0 || (hosted != nil && len(hosted) == 0) {
+		return nil
+	}
+	return &core.JoinRequests{Issuers: issuers, Environments: hosted}
 }
 
 // Start reads the operator's identity, then polls until ctx ends. A failed
@@ -149,6 +174,14 @@ func (i *Intake) poll(ctx context.Context) {
 		i.Log.Error(err, "member requests wait: the delivery identity policy could not be read")
 		return
 	}
+	issuers := []string{}
+	for _, sg := range policy.Signers {
+		issuers = append(issuers, sg.Issuer)
+	}
+	slices.Sort(issuers)
+	i.mu.Lock()
+	i.issuers = slices.Compact(issuers)
+	i.mu.Unlock()
 	rctx, cancel := core.WithRegistryTimeout(ctx)
 	recs, _, err := i.Records.ListOperationRequests(rctx, i.Repo, i.ClusterID)
 	cancel()

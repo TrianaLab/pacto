@@ -17,6 +17,7 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/controller"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/inferredpublish"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/member"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/targetsnapshot"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 )
@@ -54,14 +55,16 @@ func TestAddTargetSnapshotReturnsKey(t *testing.T) {
 	t.Setenv("OPERATOR_DEPLOYMENT_NAME", "pacto-operator")
 	m := newFakeManager()
 	inst := &detect.Installation{}
-	key, err := addTargetSnapshot(m, &options{registry: "registry.example/acme"}, "pacto", testIdent, nil, nil, inst, nil)
+	key, err := addTargetSnapshot(m, &options{registry: "registry.example/acme"}, "pacto", testIdent,
+		nil, nil, inst, nil, nil)
 	if err != nil || len(key) != ed25519.PrivateKeySize {
 		t.Fatalf("addTargetSnapshot = %d-byte key, %v; want the installation key", len(key), err)
 	}
 	if !m.has(isInferred) || inst.SnapshotKeyID == "" {
 		t.Fatal("a registry install publishes inferred contracts and advertises the snapshot key")
 	}
-	key, err = addTargetSnapshot(newFakeManager(), &options{}, "pacto", testIdent, nil, nil, &detect.Installation{}, nil)
+	key, err = addTargetSnapshot(newFakeManager(), &options{}, "pacto", testIdent,
+		nil, nil, &detect.Installation{}, nil, nil)
 	if key != nil || err != nil {
 		t.Fatalf("addTargetSnapshot without --registry = %v, %v; want no key", key, err)
 	}
@@ -120,5 +123,59 @@ func TestIDPPiecesOnlyUnderIDP(t *testing.T) {
 		got[0].Kind != "evidence" || got[0].Value != "on" ||
 		got[1].Kind != "recorder" || got[1].Value != "off" {
 		t.Fatalf("pieces %+v", got)
+	}
+}
+
+// TestPublisherJoinRequestsFollowIntake: the target publisher asks the
+// running intake what its join block says about requests, and nothing runs
+// or answers while --member-requests is off.
+func TestPublisherJoinRequestsFollowIntake(t *testing.T) {
+	t.Setenv("OPERATOR_DEPLOYMENT_NAME", "pacto-operator")
+	for _, on := range []bool{false, true} {
+		m := newFakeManager()
+		o := &options{registry: "registry.example/acme", profile: "default", memberRequests: on,
+			deliveryPolicyConfigMap: "pacto-delivery/pacto-delivery-identities"}
+		if _, err := addPublishers(m, o, "pacto", testIdent, nil, nil, nil, &controller.PactoReconciler{}); err != nil {
+			t.Fatal(err)
+		}
+		i := slices.IndexFunc(m.added, func(r manager.Runnable) bool {
+			_, ok := r.(*targetsnapshot.TargetPublisher)
+			return ok
+		})
+		if i < 0 || m.has(isIntake) != on {
+			t.Fatalf("member requests %v: want the publisher and an intake only when on, got %T", on, m.added)
+		}
+		if pub := m.added[i].(*targetsnapshot.TargetPublisher); pub.Requests == nil || pub.Requests() != nil {
+			t.Fatalf("member requests %v: the publisher asks the intake, which answers nothing before it read a policy", on)
+		}
+	}
+}
+
+func isIntake(r manager.Runnable) bool { _, ok := r.(*member.Intake); return ok }
+
+func TestAddIntakeRefusals(t *testing.T) {
+	_, key, _ := ed25519.GenerateKey(nil)
+	cases := map[string]struct {
+		o    options
+		key  ed25519.PrivateKey
+		want string
+	}{
+		"no registry key": {options{memberRequests: true}, nil, "needs --registry"},
+		"no policy map": {options{memberRequests: true, registry: "registry.example/acme"}, key,
+			"--delivery-policy-configmap"},
+		"bad registry name": {options{memberRequests: true, registry: "Not A Registry", deliveryPolicyConfigMap: "a/b"}, key,
+			"member request repository"},
+	}
+	for name, tc := range cases {
+		in, err := addIntake(newFakeManager(), &tc.o, testIdent, tc.key, nil)
+		if in != nil || err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: addIntake = %v, %v; want an error naming %q", name, in, err, tc.want)
+		}
+	}
+	t.Setenv("OPERATOR_DEPLOYMENT_NAME", "pacto-operator")
+	o := &options{registry: "registry.example/acme", profile: "default", memberRequests: true}
+	_, err := addPublishers(newFakeManager(), o, "pacto", testIdent, nil, nil, nil, &controller.PactoReconciler{})
+	if err == nil {
+		t.Fatal("an intake that cannot start stops the operator")
 	}
 }

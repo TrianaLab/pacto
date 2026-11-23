@@ -20,6 +20,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -922,5 +923,36 @@ func TestClassPolicyFrom(t *testing.T) {
 	}
 	if _, err := ClassPolicyFrom(c, types.NamespacedName{Namespace: "x", Name: "y"})(t.Context()); err == nil {
 		t.Fatal("a missing ConfigMap read")
+	}
+}
+
+// TestJoinRequestsOnlyWithIntake: the join block says the member takes
+// requests only once the intake read approver signers and while its
+// allowlist takes an environment; it then names their issuers, sorted and
+// once each, and the environments the allowlist takes.
+func TestJoinRequestsOnlyWithIntake(t *testing.T) {
+	var off *Intake
+	if off.JoinRequests() != nil {
+		t.Fatal("an intake that is off says nothing about requests")
+	}
+	e := newIntake(t)
+	if e.i.JoinRequests() != nil {
+		t.Fatal("before a policy read the member claims no requests")
+	}
+	e.poll()
+	if e.i.JoinRequests() != nil {
+		t.Fatal("with no approver signer the member takes no requests")
+	}
+	e.i.Policy = func(context.Context) (core.ClassPolicy, error) {
+		return core.ClassPolicy{Signers: []core.PersonSigner{{Issuer: "https://b.example"}, {Issuer: "https://a.example"}, {Issuer: "https://b.example"}}}, nil
+	}
+	e.poll()
+	got := e.i.JoinRequests()
+	if got == nil || !slices.Equal(got.Issuers, []string{"https://a.example", "https://b.example"}) || !slices.Equal(got.Environments, []string{"production"}) {
+		t.Fatalf("JoinRequests = %+v; want both issuers once and production", got)
+	}
+	e.i.Allow.Environments = []string{"staging"}
+	if got := e.i.JoinRequests(); got != nil {
+		t.Fatalf("an allowlist that takes no hosted environment takes no requests, got %+v", got)
 	}
 }

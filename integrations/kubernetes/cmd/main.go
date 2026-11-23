@@ -1008,38 +1008,43 @@ func addPublishers(mgr ctrl.Manager, o *options, namespace string, ident kubeclu
 		return nil, err
 	}
 	inst := &detect.Installation{Profile: profiles}
-	key, err := addTargetSnapshot(mgr, o, namespace, ident, evidenceURL, kc, inst, linked)
+	// The publisher starts after setup, so it reads intake as addIntake left it: nil while requests are off.
+	var intake *member.Intake
+	key, err := addTargetSnapshot(mgr, o, namespace, ident, evidenceURL, kc, inst, linked,
+		func() *core.JoinRequests { return intake.JoinRequests() })
 	if err != nil {
 		return nil, err
 	}
-	if err := addIntake(mgr, o, ident, key, kc); err != nil {
+	if intake, err = addIntake(mgr, o, ident, key, kc); err != nil {
 		return nil, err
 	}
 	return inst, addMember(mgr, o, ident, key)
 }
 
 // addIntake takes member requests when --member-requests is set: it opens <registry>/pacto-targets through
-// the push scope and signs its outcomes with the installation key the hub already trusts.
+// the push scope and signs its outcomes with the installation key the hub already trusts. It returns the
+// intake, nil while requests are off.
 func addIntake(mgr ctrl.Manager, o *options, ident kubecluster.Identity, key ed25519.PrivateKey,
-	kc authn.Keychain) error {
+	kc authn.Keychain) (*member.Intake, error) {
 	if !o.memberRequests {
-		return nil
+		return nil, nil
 	}
 	if key == nil {
-		return errors.New("--member-requests needs --registry: requests and their outcomes sit in <registry>/pacto-targets")
+		return nil, errors.New("--member-requests needs --registry: " +
+			"requests and their outcomes sit in <registry>/pacto-targets")
 	}
 	ns, name, ok := strings.Cut(o.deliveryPolicyConfigMap, "/")
 	if !ok {
-		return errors.New("--member-requests needs --delivery-policy-configmap as namespace/name")
+		return nil, errors.New("--member-requests needs --delivery-policy-configmap as namespace/name")
 	}
 	repo, err := ocireferrer.Open(oci.InstallationRepository(o.registry, oci.TargetsRepository), ocireferrer.Options{
 		Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Scope: oci.NewPushScope(o.registry)})
 	if err != nil {
-		return fmt.Errorf("the member request repository: %w", err)
+		return nil, fmt.Errorf("the member request repository: %w", err)
 	}
 	kp, _ := signing.FromPrivateKey(key) // a full-size Ed25519 key always loads
 	setupLog.Info("Member requests are on", "cluster", ident.ID)
-	return mgr.Add(&member.Intake{Reader: mgr.GetAPIReader(), Writer: mgr.GetClient(), Records: &deliveryrecord.Reader{},
+	in := &member.Intake{Reader: mgr.GetAPIReader(), Writer: mgr.GetClient(), Records: &deliveryrecord.Reader{},
 		Repo: repo, Signer: signing.Keyed(kp, ""), Key: key,
 		ClusterID: ident.ID, ClusterName: ident.Name, NameSource: ident.NameSource,
 		WhoAmI: member.SelfActor(mgr.GetClient()), Review: member.MayPropose(mgr.GetClient()),
@@ -1047,7 +1052,8 @@ func addIntake(mgr ctrl.Manager, o *options, ident kubecluster.Identity, key ed2
 		Allow: core.RequestAllowlist{Services: commaList(o.memberAllowServices),
 			Namespaces: commaList(o.memberAllowNamespaces), Environments: commaList(o.memberAllowEnvironments)},
 		Observed: o.namespaces, RecordedTTL: o.recordedTTL, Now: time.Now, Interval: 30 * time.Second,
-		Log: ctrl.Log.WithName("member-requests")})
+		Log: ctrl.Log.WithName("member-requests")}
+	return in, mgr.Add(in)
 }
 
 // commaList splits a comma-separated flag value, dropping empty items.
@@ -1128,7 +1134,7 @@ var firstPush, closeFirstPush = func() (<-chan struct{}, func()) {
 // snapshot. Any missing piece stops the operator at start with its reason.
 func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity,
 	evidenceURL func() string, kc authn.Keychain, inst *detect.Installation,
-	linked func() core.LinkedTargets) (ed25519.PrivateKey, error) {
+	linked func() core.LinkedTargets, requests func() *core.JoinRequests) (ed25519.PrivateKey, error) {
 	if o.registry == "" {
 		setupLog.Info("Target snapshot and inferred contracts are off: set the registry value")
 		return nil, nil
@@ -1149,7 +1155,7 @@ func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kub
 		Watched: o.namespaces, Key: key, Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(),
 		OnPush:      func(r detect.PushResult) { recordPush(r); closeFirstPush() },
 		OwnerPolicy: readOwnerPolicy(o.ownerPolicy),
-		Linked:      linked})
+		Linked:      linked, Requests: requests})
 	if err != nil {
 		return nil, err
 	}

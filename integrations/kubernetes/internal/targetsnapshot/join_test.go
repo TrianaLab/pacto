@@ -39,6 +39,23 @@ func TestPublisherWritesJoinBlock(t *testing.T) {
 	}
 }
 
+// TestPublisherJoinRequestsFromFunc: the join block carries what Requests
+// answers, and nothing about requests without it.
+func TestPublisherJoinRequestsFromFunc(t *testing.T) {
+	e := newTargetsEnv(t, fakeReader())
+	takes := &core.JoinRequests{Issuers: []string{"https://dex.example"}, Environments: []string{"production"}}
+	for _, req := range []func() *core.JoinRequests{nil, func() *core.JoinRequests { return takes }} {
+		e.p.Requests = req
+		if err := e.p.publish(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		_, bundle := e.pushed(t)
+		if got, want := pushedJoin(t, bundle).Requests, req != nil; (got != nil) != want || (want && fmt.Sprint(*got) != fmt.Sprint(*takes)) {
+			t.Fatalf("Requests set %v: join requests %+v", want, got)
+		}
+	}
+}
+
 // pushedJoin is the join block of bundle, which must verify under a trust
 // built from that block's public key, scoped to the cluster.
 func pushedJoin(t *testing.T, bundle []byte) core.SnapshotJoin {

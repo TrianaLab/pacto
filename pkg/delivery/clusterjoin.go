@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -43,6 +44,15 @@ type SnapshotJoin struct {
 	PublicKey string `json:"publicKey"`
 	// Environments are the environments the cluster seems to host, inferred.
 	Environments []AdvertisedEnvironment `json:"environments,omitempty"`
+	// Requests is present only while the cluster takes member requests.
+	Requests *JoinRequests `json:"requests,omitempty"`
+}
+
+// JoinRequests says a member takes requests: the issuers of the approver
+// signers it verifies them under and the environments it takes them for.
+type JoinRequests struct {
+	Issuers      []string `json:"issuers"`
+	Environments []string `json:"environments"`
 }
 
 // AdvertisedEnvironment is one environment a cluster seems to host and
@@ -58,7 +68,8 @@ var snapshotNameSources = []string{fleet.ClusterNameFromNodeLabel, fleet.Cluster
 // checkJoin refuses a join block whose key id is not the fingerprint of its
 // Ed25519 key, whose name or an environment name is not a DNS label, whose
 // name source is unknown or approval, with over 16 environments or a source
-// that is empty, over 200 bytes or not printable ASCII.
+// that is empty, over 200 bytes or not printable ASCII, and requests naming
+// an issuer that is not a URL or an environment that is not a DNS label.
 func checkJoin(j SnapshotJoin) error {
 	if err := checkKeyID(j.PublicKey, j.KeyID); err != nil {
 		return err
@@ -78,6 +89,25 @@ func checkJoin(j SnapshotJoin) error {
 		}
 		if e.Source == "" || len(e.Source) > maxEnvironmentSource || strings.ContainsFunc(e.Source, func(r rune) bool { return r < ' ' || r > '~' }) {
 			return fmt.Errorf("environment %s: source must be 1 to %d printable ASCII characters", e.Name, maxEnvironmentSource)
+		}
+	}
+	return checkJoinRequests(j.Requests)
+}
+
+// checkJoinRequests refuses requests naming an issuer that is not a URL or
+// an environment that is not a DNS label; nil checks.
+func checkJoinRequests(r *JoinRequests) error {
+	if r == nil {
+		return nil
+	}
+	for _, iss := range r.Issuers {
+		if u, err := url.Parse(iss); err != nil || u.Scheme == "" || u.Host == "" {
+			return fmt.Errorf("requests issuer %q is not a URL", iss)
+		}
+	}
+	for _, e := range r.Environments {
+		if !dnsLabel(e) {
+			return fmt.Errorf("requests environment %q is not a DNS label", e)
 		}
 	}
 	return nil

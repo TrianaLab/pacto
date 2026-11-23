@@ -90,7 +90,10 @@ type TargetPublisher struct {
 	// Linked, when set, is the linker's last result: its targets ride in
 	// Pactos (a released reader reads them as Pacto targets) and its
 	// completeness marks the Pacto section.
-	Linked   func() core.LinkedTargets
+	Linked func() core.LinkedTargets
+	// Requests, when set, says whether the cluster takes member requests:
+	// its answer is the join block's requests, nil omits them.
+	Requests func() *core.JoinRequests
 	Now      func() time.Time
 	Interval time.Duration
 	// Tick, when set, replaces the ticker (tests).
@@ -237,12 +240,17 @@ func (p *TargetPublisher) addLinked(s *core.TargetSnapshot, sec *core.SnapshotSo
 }
 
 // join is the snapshot's join block: the display name, the installation
-// public key and its fingerprint, and the environments pactos suggest.
+// public key and its fingerprint, the environments pactos suggest and
+// whether the cluster takes member requests.
 func (p *TargetPublisher) join(pactos []core.PactoView) *core.SnapshotJoin {
 	pub := p.Key.Public()
 	der, _ := x509.MarshalPKIXPublicKey(pub) // an Ed25519 key always marshals
-	return &core.SnapshotJoin{Name: p.ClusterName, NameSource: p.ClusterNameSource, KeyID: signing.Hint(pub),
+	j := &core.SnapshotJoin{Name: p.ClusterName, NameSource: p.ClusterNameSource, KeyID: signing.Hint(pub),
 		PublicKey: base64.StdEncoding.EncodeToString(der), Environments: core.AdvertisedEnvironments(pactos, p.ClusterName, p.ClusterNameSource)}
+	if p.Requests != nil {
+		j.Requests = p.Requests()
+	}
+	return j
 }
 
 // collectWorkloads adds every workload of the four kinds as an inferred
