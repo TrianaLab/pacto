@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/backstage"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -333,7 +334,9 @@ func buildQuery(cmd *cobra.Command, svc *app.Service) (*fleet.Query, error) {
 //
 // A complete answer prints nothing, except a note when freshness was not
 // checked: that limitation never makes an answer partial, yet a stale count of
-// zero must not read as "nothing is stale".
+// zero must not read as "nothing is stale". So does a Backstage catalog that
+// was not fully read: it is advisory, yet a missing inferred owner must not
+// read as "Backstage has none".
 func warnPartial(cmd *cobra.Command, m fleet.Meta) {
 	if m.Completeness == fleet.CompletenessComplete {
 		for _, l := range m.Limitations {
@@ -341,6 +344,7 @@ func warnPartial(cmd *cobra.Command, m fleet.Meta) {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "note: [%s] %s\n", l.Code, l.Message)
 			}
 		}
+		noteCatalogSources(cmd, m)
 		return
 	}
 	w := cmd.ErrOrStderr()
@@ -354,6 +358,27 @@ func warnPartial(cmd *cobra.Command, m fleet.Meta) {
 			seen[line] = true
 			_, _ = fmt.Fprint(w, line)
 		}
+	}
+}
+
+// noteCatalogSources prints a note for each Backstage catalog source that is
+// not available, with its error or limitations, so an inferred value it
+// could not read is never absence.
+func noteCatalogSources(cmd *cobra.Command, m fleet.Meta) {
+	for _, st := range m.Sources {
+		if st.Kind != backstage.SourceKind || st.Status == fleet.SourceAvailable {
+			continue
+		}
+		why := ""
+		if st.Error != nil {
+			why = ": " + st.Error.Message
+		}
+		for _, l := range m.Limitations {
+			if l.Source == st.ID {
+				why += ": " + l.Message
+			}
+		}
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "note: source %s is %s%s; an inferred owner, domain or dependency may be missing\n", st.ID, st.Status, why)
 	}
 }
 
