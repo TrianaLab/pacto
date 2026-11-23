@@ -9,7 +9,7 @@
 import type { components } from './generated/schema.ts';
 import { joinAnd } from './answers.ts';
 import { countOf, formatCount } from './format.ts';
-import { fleetEntityUrl } from './router.ts';
+import { fleetEntityUrl, fleetOfferingsUrl } from './router.ts';
 
 type S = components['schemas'];
 interface DeclaredRevision {
@@ -21,6 +21,9 @@ interface DeclaredRevision {
 const HIDDEN = 'a workload you may not read';
 // A claim's inferredFrom names the external system it claims.
 const EXTERNAL = 'external:';
+// An accepted offering's inferredFrom names the inferred offering it was accepted
+// from: offering:<producer>/<service>@sha256:<hex>.
+const OFFERING = /^offering:([^/@]+)\/([^/@]+)@/;
 
 /** The muted line under the Inferred label, in parts: the words before the external
  *  system a claim came from, its link (text and href, empty for any other declaration)
@@ -35,6 +38,8 @@ export function declarationParts(r: DeclaredRevision): { before: string; link: s
   const read = cov.length ? ` · cluster read ${formatCount(cov.filter((c) => c.state === 'complete').length)} of ${countOf(cov.length, 'source')} complete` : '';
   const ext = d.inferredFrom?.startsWith(EXTERNAL) ? d.inferredFrom.slice(EXTERNAL.length) : '';
   if (ext) return { before: `Declared by ${d.signer.subject} from `, link: `external ${ext}`, href: fleetEntityUrl('external', ext), after: read };
+  const off = OFFERING.exec(d.inferredFrom ?? '');
+  if (off) return { before: `Declared by ${d.signer.subject} from `, link: `inferred offering ${off[2]} of ${off[1]}`, href: fleetOfferingsUrl({ text: off[2], inferred: true }), after: read };
   const from = d.inferredFrom ? ` from ${d.inferredFrom}` : d.inferredFromHidden ? ` from ${HIDDEN}` : '';
   return { ...none, before: `Declared by ${d.signer.subject}${from}${read}` };
 }
@@ -94,8 +99,8 @@ export function declarationNote(r: DeclaredRevision): string {
     d.inferredFromHidden ? `From ${HIDDEN}${left ? `; ${left}` : ''}.` : left ? `${left}: they name a service you may not read.` : '',
     claims && !d.signer ? `The record claims: ${claims}` : claims,
     seen.length ? `The cluster read could not see ${joinAnd(seen)}.` : '',
-    // A claim of an external system reads no cluster, so it has no cluster facts.
-    d.inferredFrom?.startsWith(EXTERNAL) ? '' : 'Cluster facts are inferred and never clear a gate.',
+    // A claim of an external system and an accepted offering read no cluster, so they have no cluster facts.
+    d.inferredFrom?.startsWith(EXTERNAL) || OFFERING.test(d.inferredFrom ?? '') ? '' : 'Cluster facts are inferred and never clear a gate.',
   ];
   return parts.filter(Boolean).join(' ');
 }

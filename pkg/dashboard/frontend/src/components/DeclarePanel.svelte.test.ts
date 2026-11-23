@@ -447,3 +447,83 @@ describe('DeclarePanel claim', () => {
     await vi.waitFor(() => expect(text(q('[data-testid="declare-result"]'))).toContain('A default approver accepts it'));
   });
 });
+
+describe('DeclarePanel offering', () => {
+  const OKEY = 'ghcr.io/acme/pacto-inferred/crossplane-6f1c/services/xbucket';
+  const offeringAnswer = (patch: Record<string, unknown> = {}) => answer({ command: 'pacto declare offering:xbucket --from oci://x --version 1.0.0 --owner team-storage --intent sha256:i1', ...patch },
+    { service: 'xbucket', version: '1.0.0', bundleRepo: 'ghcr.io/acme/xbucket', inferredFrom: 'offering:crossplane-6f1c/xbucket@sha256:4c1e', ranges: [], owner: 'team:team-storage' });
+  async function open(props: Record<string, unknown> = {}) {
+    comp = mount(DeclarePanel, { target, props: { serviceKey: OKEY, offering: 'xbucket', open: true, ...props } });
+    flushSync();
+    await vi.waitFor(() => expect(q('[data-testid="offering-fields"]')).toBeTruthy());
+  }
+  const type = (testid: string, v: string) => {
+    const el = q(`[data-testid="${testid}"]`) as HTMLInputElement;
+    el.value = v;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+  };
+  const submit = () => { (q('[data-testid="offering-fields"]') as HTMLFormElement).requestSubmit(); flushSync(); };
+
+  it('plans nothing until a release version is set, then posts the version, owner and registry', async () => {
+    planFn.mockResolvedValue(offeringAnswer());
+    await open();
+    expect(q('[data-testid="claim-fields"]')).toBeNull();
+    submit();
+    expect(planFn).not.toHaveBeenCalled();
+    expect(text(q('#dp-offering-error'))).toBe('Set the version the declared offering is published at');
+    expect(q('[data-testid="offering-version"]')!.getAttribute('aria-invalid')).toBe('true');
+    type('offering-version', '1.0.0');
+    type('offering-owner', 'team-storage');
+    type('offering-registry', 'ghcr.io/acme/offerings');
+    submit();
+    await vi.waitFor(() => expect(planFn).toHaveBeenCalledWith({ serviceKey: OKEY, offering: { version: '1.0.0', owner: 'team-storage', registry: 'ghcr.io/acme/offerings' }, fromDraft: undefined }));
+    await vi.waitFor(() => expect(q('[data-testid="declare-signer"]')).toBeTruthy());
+    expect(text(q('[data-testid="declare"] dl'))).toContain('1.0.0');
+  });
+
+  it('lists each open path of a refused open schema with the --dir command', async () => {
+    planFn.mockResolvedValue({ signing: { mode: 'none' }, write: { available: true },
+      refusal: { code: 'OfferingSchemaOpen', command: 'pacto declare offering:xbucket --from oci://x --version 1.0.0 --dir <folder>',
+        message: "the offering's parameters are not a closed space, open at provisioning: schema.properties.tags, provisioning: schema.properties.class: close each path in a folder (additionalProperties: false, a type, a class enum) and accept it with --dir" } });
+    await open();
+    type('offering-version', '1.0.0');
+    submit();
+    await vi.waitFor(() => expect(q('[data-testid="offering-open-paths"]')).toBeTruthy());
+    expect(Array.from(target.querySelectorAll('[data-testid="offering-open-paths"] li')).map(text)).toEqual(['provisioning: schema.properties.tags', 'provisioning: schema.properties.class']);
+    expect(text(q('[data-testid="declare-refusal-command"]'))).toContain('--dir <folder>');
+  });
+
+  it('shows an unverified source refusal with its next command', async () => {
+    planFn.mockResolvedValue({ signing: { mode: 'none' }, write: { available: true },
+      refusal: { code: 'OfferingSourceUnverified', message: 'no key of crossplane-6f1c verified the record', command: 'pacto declare offering:xbucket --detected k8s:<namespace>/<configmap>' } });
+    await open();
+    type('offering-version', '1.0.0');
+    submit();
+    await vi.waitFor(() => expect(q('[data-code="OfferingSourceUnverified"]')).toBeTruthy());
+    expect(text(q('[data-testid="declare-refusal-command"]'))).toContain('--detected');
+    expect(q('[data-testid="offering-open-paths"]')).toBeNull();
+  });
+
+  it('only signs on a shared host, and keeps the fields across the signing login', async () => {
+    planFn.mockResolvedValue(offeringAnswer({ ...FRESH, noDraft: 'a shared dashboard accepts an offering only with your own signature' }));
+    await open();
+    type('offering-version', '1.0.0');
+    submit();
+    await vi.waitFor(() => expect(q('[data-testid="declare-sign"]')).toBeTruthy());
+    expect(q('[data-testid="declare-save-draft"]')).toBeNull();
+    (q('[data-testid="declare-sign"]') as HTMLAnchorElement).click();
+    expect(JSON.parse(sessionStorage.getItem('pacto-offering:sha256:i1') ?? 'null')).toEqual({ version: '1.0.0', owner: '', registry: '' });
+  });
+
+  it('back from the signing login plans with the kept fields and posts them on publish', async () => {
+    sessionStorage.setItem('pacto-offering:sha256:i1', JSON.stringify({ version: '1.0.0', owner: 'team-storage', registry: '' }));
+    planFn.mockResolvedValue(offeringAnswer({ ...FRESH, signedIn: true }));
+    acceptFn.mockResolvedValue({ tag: '1.0.0', signed: true });
+    await open({ signed: 'sha256:i1' });
+    await vi.waitFor(() => expect(planFn).toHaveBeenCalledWith({ serviceKey: OKEY, offering: { version: '1.0.0', owner: 'team-storage', registry: undefined }, intentDigest: 'sha256:i1', fromDraft: undefined }));
+    await vi.waitFor(() => expect(button('Publish 1.0.0')).toBeTruthy());
+    button('Publish 1.0.0').click();
+    await vi.waitFor(() => expect(acceptFn).toHaveBeenCalledWith(expect.objectContaining({ serviceKey: OKEY, offering: { version: '1.0.0', owner: 'team-storage', registry: undefined }, mode: 'sign' })));
+  });
+});

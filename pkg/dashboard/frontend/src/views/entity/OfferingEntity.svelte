@@ -1,7 +1,7 @@
 <script>
   import { fleetServicesUrl } from '../../lib/router.ts';
   import { formatCount, countOf } from '../../lib/format.ts';
-  import { formatRelative, formatDateTime } from '../../lib/dateFormat.ts';
+  import { formatRelative, formatDateTime, formatDate } from '../../lib/dateFormat.ts';
   import { PHASE_WORDS, phaseTone, adapterLine } from '../../lib/provisioning.ts';
   import { successorBadge } from '../../lib/behavior.ts';
   import { acceptsLabel } from '../../lib/entityLabels.ts';
@@ -73,6 +73,8 @@
           </div>
           {#if p.summary}<p class="oe-summary t-body-2">{p.summary}</p>{/if}
           <OfferingAvailability availability={p.availability} compact />
+          <!-- A provider accepted from an inferred offering: one line on whether its source object changed since. -->
+          {#if p.drift}<p class="oe-note" data-testid="provider-drift">{#if p.drift.state === 'drifted'}<bdi>{p.drift.reason}</bdi>{#if p.drift.asOf}, {formatDate(p.drift.asOf)}{/if}{:else}drift unknown: <bdi>{p.drift.reason}</bdi>{/if}</p>{/if}
           <!-- Provider revisions (current, successor, latest supported): their compliance is not this offering's availability. -->
           {#if p.currentRevision}
             <div class="oe-row"><span class="oe-k">Current</span><EntityLink ref={inService(p.currentRevision, self)} showStatus={false} showKind={false} /></div>

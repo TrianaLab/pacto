@@ -5,7 +5,7 @@
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
   import { kindLabel, serviceKeyName } from '../lib/entityLabels.ts';
   import { formatWhen } from '../lib/dateFormat.ts';
-  import { fleetOverviewUrl, fleetGraphFocusUrl, fleetChangesUrl, fleetEntityUrl, hashForHref, replaceHash } from '../lib/router.ts';
+  import { fleetOverviewUrl, fleetGraphFocusUrl, fleetChangesUrl, fleetEntityUrl, hashForHref, replaceHash, serviceDeclareUrl } from '../lib/router.ts';
   import { fleetEntityBreadcrumbs } from '../lib/breadcrumbs.ts';
   import { postureAnswer, revisionAnswer } from '../lib/answers.ts';
   import { currentEntity } from '../lib/currentEntity.svelte.ts';
@@ -162,6 +162,8 @@
       // An external system has no revision Pacto controls: the question is what its change reaches.
       else if (a === 'impact' && e.kind === 'external') out.push({ label: 'What if it changes?', href: fleetChangesUrl('', { external: e.key, event: 'changed' }) });
       else if (a === 'service' && detail.target?.service?.href) out.push({ label: 'Open service', href: hashForHref(detail.target.service.href) });
+      // An inferred offering a person may accept here: the page's own Accept panel.
+      else if (a === 'accept-offering' && canDeclare) out.push({ label: 'Accept', href: serviceDeclareUrl(e.key) });
     }
     return out;
   });
@@ -247,7 +249,9 @@
         {#if detail.service && detail.entity?.declaration === 'inferred' && !contribution}
           <InferredServiceEntity {detail} {canDeclare} {declareQuery} />
         {:else if detail.service}
-          <ServiceEntity {detail} {deliveryState} {refreshTick} {miraURL} {changesQuery} acceptSigned={declareQuery.signed ?? ''} />
+          <!-- A contributed inferred offering is accepted from its own page (515-S4). -->
+          <ServiceEntity {detail} {deliveryState} {refreshTick} {miraURL} {changesQuery} acceptSigned={declareQuery.signed ?? ''}
+            canDeclare={canDeclare && !!contribution && !!detail.entity?.offering} declareQuery={contribution && detail.entity?.offering ? declareQuery : {}} />
         {:else if detail.revision}
           <RevisionEntity {detail} {deliveryState} {miraURL} {correlation} />
         {:else if detail.target}

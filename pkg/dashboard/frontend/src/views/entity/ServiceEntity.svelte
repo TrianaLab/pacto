@@ -23,6 +23,8 @@
   import ConfigurationList from '../../components/ConfigurationList.svelte';
   import InferredFieldList from '../../components/InferredFieldList.svelte';
   import AcceptProposedRanges from '../../components/AcceptProposedRanges.svelte';
+  import DeclarePanel from '../../components/DeclarePanel.svelte';
+  import Fold from '../../components/Fold.svelte';
   import FieldProvenanceFold from '../../components/FieldProvenanceFold.svelte';
   import LifecycleBadge from '../../components/LifecycleBadge.svelte';
   import ResourceList from '../../components/ResourceList.svelte';
@@ -52,11 +54,17 @@
   // computed from the previews beside it: those are capped at 200 items, so counting
   // them would quietly turn "the first 200 targets" into "this service".
   // acceptSigned is the intent a signing login for the accept plan came back with.
-  let { detail, deliveryState = 'unknown', refreshTick = 0, miraURL = '', changesQuery = {}, acceptSigned = '' } = $props();
+  // canDeclare and declareQuery reach only a contributed inferred offering: declare=1
+  // opens its Accept panel, signed is the intent a signing login came back with.
+  let { detail, deliveryState = 'unknown', refreshTick = 0, miraURL = '', changesQuery = {}, acceptSigned = '', canDeclare = false, declareQuery = {} } = $props();
   const d = $derived(detail.service ?? {});
   // A producer's contribution names no owner and is never delivered: its owner and
   // Delivery blocks would only offer to set what no contract declares.
   const contributed = $derived(!!d.contribution);
+  // The server lists accept-offering only for a verified inferred offering on a host that writes.
+  const acceptable = $derived(contributed && canDeclare && (detail.actions ?? []).includes('accept-offering'));
+  let acceptToggled = $state(null);
+  const acceptOpen = $derived(acceptToggled ?? !!declareQuery.open);
   // The Delivery section's Stage rows, bound out so the Environments section joins them without a second fetch.
   let deliveryRows = $state([]);
   let deliveryCompleteness = $state('');
@@ -275,6 +283,14 @@
       </div>
     {/if}
   </section>
+
+  {#if acceptable}
+    <!-- Accept the inferred offering as a declared one: the version the person sets, the
+         plan first, signed by the person (515-S4). The panel plans only once open. -->
+    <Fold title="Accept this offering" testid="offering-accept" open={!!declareQuery.open} ontoggle={(e) => (acceptToggled = e.currentTarget.open)}>
+      {#key declareQuery.signed}<DeclarePanel serviceKey={key} offering={provides} open={acceptOpen} signed={declareQuery.signed ?? ''} />{/key}
+    </Fold>
+  {/if}
 
   {#if d.ownership?.conflicts?.count}
     <!-- Each conflict carries a canonical revision key, so joining them into one prose

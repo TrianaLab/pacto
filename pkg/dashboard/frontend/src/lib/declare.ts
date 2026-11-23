@@ -113,6 +113,28 @@ export function claimFieldError(owner: string, name: string): { field: '' | 'own
   return { field: '', message: '' };
 }
 
+const RELEASE = /^\d+\.\d+\.\d+$/;
+
+/** offeringFieldError says which field of an offering acceptance is wrong: its version
+ *  (a release MAJOR.MINOR.PATCH, required) or its owner (checked only when given: the
+ *  server asks for one on a first acceptance). field '' and message '' when both are fine. */
+export function offeringFieldError(version: string, owner: string): { field: '' | 'version' | 'owner'; message: string } {
+  if (!version) return { field: 'version', message: 'Set the version the declared offering is published at' };
+  if (version.length > 64 || !RELEASE.test(version)) return { field: 'version', message: 'A version is MAJOR.MINOR.PATCH, such as 1.0.0' };
+  if (owner && (owner.length > 253 || !TEAM.test(owner))) return { field: 'owner', message: 'A team uses letters, digits, dots, dashes, underscores and slashes' };
+  return { field: '', message: '' };
+}
+
+/** openPaths are the paths an OfferingSchemaOpen refusal names, one per open path of
+ *  the offering's parameters, so the panel lists them; [] for any other refusal. */
+export function openPaths(r: { code?: string; message?: string } | null | undefined): string[] {
+  if (r?.code !== 'OfferingSchemaOpen') return [];
+  // ponytail: reads the planner's own message ("open at a, b: close each path ..."); a
+  // structured paths field on the refusal if another surface ever needs them.
+  const m = /open at (.+?): close each path/.exec(r.message ?? '');
+  return m ? m[1].split(', ') : [];
+}
+
 /** acceptSignUrl starts the signing login for an accept plan and comes back to the
  *  service page with the intent it was started for. */
 export function acceptSignUrl(ticket: string, serviceKey: string, intent: string): string {
