@@ -1,0 +1,80 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xbuckets.storage.acme.io
+  generation: 3
+  uid: 11111111-1111-1111-1111-111111111111
+  managedFields:
+    - manager: kubectl
+spec:
+  group: storage.acme.io
+  names:
+    kind: XBucket
+    plural: xbuckets
+  claimNames:
+    kind: Bucket
+    plural: buckets
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: false
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                old:
+                  type: string
+    - name: v1beta1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            An object storage bucket.
+            Second line is dropped.
+          properties:
+            spec:
+              type: object
+              required: [region]
+              properties:
+                region:
+                  type: string
+                  enum: [eu-west-1, us-east-1]
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: region is immutable
+                storageGB:
+                  type: integer
+                  minimum: 1
+                  maximum: 500
+                name:
+                  type: string
+                  maxLength: 63
+                  pattern: "^[a-z0-9-]+$"
+                tags:
+                  type: object
+                  additionalProperties:
+                    type: string
+                lifecycle:
+                  type: object
+                  properties:
+                    days:
+                      type: integer
+                rules:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      prefix:
+                        type: string
+                    x-kubernetes-map-type: atomic
+                extra:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+status:
+  conditions:
+    - type: Established
