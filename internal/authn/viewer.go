@@ -715,14 +715,25 @@ func (v *Viewer) MayUpdateWorkload(ctx context.Context, p Person, cluster, names
 	if !ok {
 		return false, nil
 	}
+	res.Verb, res.Name = "update", name
+	return v.MayUpdate(ctx, p, cluster, namespace, res)
+}
+
+// MayUpdate asks the reviewer of cluster (the only one when cluster is
+// empty) whether p may do res (its verb and name) in namespace, "" for a
+// cluster-scoped object. A cluster nobody reviews p in, and a member cluster,
+// which answers only list over its fixed kinds, are ErrClusterNotReviewable.
+func (v *Viewer) MayUpdate(ctx context.Context, p Person, cluster, namespace string, res ResourceAttributes) (bool, error) {
 	m := v.reviews(ctx)
 	key, ok := v.router(ctx, m, p)(cluster)
 	if !ok {
 		return false, ErrClusterNotReviewable
 	}
-	res.Verb, res.Name = "update", name
-	who := reviewer(p)
-	return v.ask(ctx, &clusterWork{key: key, review: m[key]}, p, who, namespace, res)
+	allowed, err := v.ask(ctx, &clusterWork{key: key, review: m[key]}, p, reviewer(p), namespace, res)
+	if errors.Is(err, errMemberListOnly) {
+		return false, ErrClusterNotReviewable
+	}
+	return allowed, err
 }
 
 // ask is one cached review in w's cluster. Failures are not cached.

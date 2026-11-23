@@ -464,3 +464,42 @@ func TestInferredOfferingFactsFromUnreadableBundle(t *testing.T) {
 		t.Fatalf("drift = %+v", d)
 	}
 }
+
+func TestContributedOfferingDetailActions(t *testing.T) {
+	unverified := xbucket(2)
+	unverified.Bundle.Contract.Service.Name, unverified.Bundle.Contract.Service.Offering = "xqueue", "xqueue"
+	unverified.Contributor = &Contributor{Producer: offProducer, ReadAt: fixedNow(), Cluster: offCluster}
+	q := offFleet(t, []RawRevision{declaredPostgres()}, []RawRevision{xbucket(2), unverified}, nil)
+	for key, want := range map[ServiceKey][]string{
+		xbucketKey: {"open-graph", ActionAcceptOffering},
+		NewServiceKeyDomain(offRoot+"/pacto-inferred/"+offProducer, "xqueue"): {"open-graph"},
+		NewServiceKeyDomain(offRoot, "postgresql"):                            {"open-graph", "compare", "impact"},
+	} {
+		d, err := q.EntityDetail(KindService, string(key))
+		if err != nil || !slices.Equal(d.Actions, want) {
+			t.Errorf("%s: %v %v", key, err, d)
+		}
+	}
+}
+
+func TestContributionSource(t *testing.T) {
+	q := offFleet(t, nil, []RawRevision{xbucket(2)}, nil)
+	o, why := ContributionSource(q.snap, q.snap.Services[xbucketKey])
+	if why != "" || *o != (SourceObject{APIVersion: "example.io/v1", Kind: "SourceKind", Name: "xbuckets.example.io", Generation: 2}) {
+		t.Fatalf("%+v %q", o, why)
+	}
+	bad := offContributionOf("xbucket", 4, offRepo, offProducer, offCluster, fixedNow(), []byte("kind: ["), []byte(`{}`))
+	q = offFleet(t, nil, []RawRevision{bad}, nil)
+	if o, why := ContributionSource(q.snap, q.snap.Services[xbucketKey]); o != nil || why == "" {
+		t.Fatalf("%+v %q", o, why)
+	}
+	if o, why := ContributionSource(q.snap, &ServiceRecord{}); o != nil || why != "no record of the service was read" {
+		t.Fatalf("%+v %q", o, why)
+	}
+	missing := xbucket(2)
+	delete(missing.Bundle.FS.(fstest.MapFS), offObject)
+	q = offFleet(t, nil, []RawRevision{missing}, nil)
+	if o, why := ContributionSource(q.snap, q.snap.Services[xbucketKey]); o != nil || !strings.Contains(why, "could not be read") {
+		t.Fatalf("%+v %q", o, why)
+	}
+}

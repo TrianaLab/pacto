@@ -1482,14 +1482,22 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 	}
 	actions := []string{"open-graph", "compare", "impact"}
 	if s.Contribution != nil {
-		// A contribution has no contract to compare or change.
+		// A contribution has no contract to compare or change; a verified
+		// inferred offering may be accepted as a declared one.
 		actions = actions[:1]
+		if s.Offering != "" && s.Contribution.KeyID != "" {
+			actions = append(actions, ActionAcceptOffering)
+		}
 	}
 	return &EntityDetail{
 		Meta: q.productMetaWith(conflicts), Entity: self, Status: s.Status,
 		Service: data, Actions: actions, ReplacedFrom: view.ReplacedFrom,
 	}, nil
 }
+
+// ActionAcceptOffering is the detail action of a verified inferred offering:
+// a person accepts it as a declared offering (pacto declare offering:<name>).
+const ActionAcceptOffering = "accept-offering"
 
 func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 	rev := q.snap.Revisions[RevisionKey(key)]

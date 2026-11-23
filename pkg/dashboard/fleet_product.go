@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -201,6 +202,10 @@ func (s *Server) fleetEntityDetail(ctx context.Context, in *fleetEntityDetailInp
 		s.attachReached(ctx, q, fleet.ServiceKey(res.Entity.Key), &res.Service.Changes)
 	}
 	res.KeepServedTools(fleet.NoTools) // the dashboard serves no MCP tool
+	if d := s.opts.Declare; d == nil || !d.CanWrite() {
+		// Only a host that writes accepts an inferred offering.
+		res.Actions = slices.DeleteFunc(res.Actions, func(a string) bool { return a == fleet.ActionAcceptOffering })
+	}
 	return &fleetEntityDetailOutput{Body: productview.ToEntityDetail(res)}, nil
 }
 

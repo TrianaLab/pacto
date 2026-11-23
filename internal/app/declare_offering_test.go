@@ -536,7 +536,7 @@ func TestAcceptOfferingCommandAndAcceptCLI(t *testing.T) {
 		Detected: "k8s:pacto-system/pacto-operator-detected", Registry: "r/acme/offerings", Version: "1.0.0", Owner: "team-storage", Dir: "/tmp/x"}
 	want := "pacto declare offering:xbucket --from " + req.From + " --detected k8s:pacto-system/pacto-operator-detected --dir /tmp/x " +
 		"--registry r/acme/offerings --version 1.0.0 --owner team-storage --intent sha256:x"
-	if got := req.command("sha256:x"); got != want {
+	if got := req.Command("sha256:x"); got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
 	}
 	want = "pacto declare offering:xbucket --from " + req.From + " --detected k8s:pacto-system/pacto-operator-detected " +

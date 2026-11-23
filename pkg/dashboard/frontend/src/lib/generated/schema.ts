@@ -1794,6 +1794,8 @@ export interface components {
             mode: "sign" | "draft";
             /** @description The claimed contract's service name; defaults to the name the visible claim already has, else the identity's last segment */
             name?: string;
+            /** @description The offering acceptance the plan was made for */
+            offering?: components["schemas"]["OfferingInput"];
             /** @description The team that owns the external system; set only when serviceKey is external:<identity> */
             owner?: string;
             /** @description The inferred service to declare, or external:<identity> to claim an external system */
@@ -1847,6 +1849,8 @@ export interface components {
             intentDigest?: string;
             /** @description The claimed contract's service name; defaults to the name the visible claim already has, else the identity's last segment */
             name?: string;
+            /** @description Set to accept the inferred offering serviceKey names as a declared offering; the server takes the record it is accepted from from your view of the fleet */
+            offering?: components["schemas"]["OfferingInput"];
             /** @description The team that owns the external system; set only when serviceKey is external:<identity> */
             owner?: string;
             /** @description The inferred service to declare, or external:<identity> to claim an external system */
@@ -6998,6 +7002,16 @@ export interface components {
             /** Format: int64 */
             terminationGracePeriodSeconds?: number;
             workloadKind?: string;
+        };
+        OfferingInput: {
+            /** @description The offering accepted; defaults to the one the inferred offering offers */
+            name?: string;
+            /** @description The team that owns the offering; needed on its first acceptance */
+            owner?: string;
+            /** @description The registry path the offering is published under: the dashboard's registry (the default) or a path below it */
+            registry?: string;
+            /** @description The release version (MAJOR.MINOR.PATCH) the declared offering is published at */
+            version?: string;
         };
         OperationOutputBody: {
             /** @description What the caller may ask for: approve, reject, accept-unknown, cancel, rollback */

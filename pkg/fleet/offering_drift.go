@@ -173,32 +173,62 @@ func generationNote(head *ContractRevision) string {
 // inferredOfferingFacts are the list facts of s, a contributed offering,
 // read from its newest record.
 func inferredOfferingFacts(snap *FleetSnapshot, s *ServiceRecord) *InferredOfferingFacts {
-	var newest *ContractRevision
-	for _, rk := range s.Revisions {
-		if r := snap.Revisions[rk]; newest == nil || LessRevisionChrono(newest, r) {
-			newest = r
-		}
-	}
+	newest := newestRevision(snap, s)
 	from, gen := offeringSource(newest)
 	return &InferredOfferingFacts{Producer: s.Contribution.Producer, Offering: s.Offering, From: from, Generation: gen,
 		Classes: offeringClasses(newest), AsOf: s.Contribution.AsOf}
 }
 
-// offeringSource is "<kind> <name>" and the generation of the source object
-// rev's bundle cites, empty when it holds none or it does not parse.
-func offeringSource(rev *ContractRevision) (string, int64) {
+// SourceObject is the cluster object a contribution cites in its bundle's
+// source/object.yaml: what a producer read it from.
+type SourceObject struct {
+	APIVersion string
+	Kind       string
+	Namespace  string
+	Name       string
+	Generation int64
+}
+
+// ContributionSource is the source object the newest record of s, a
+// contributed service, cites; nil with why when its bundle holds none, is not
+// retained or does not parse.
+func ContributionSource(snap *FleetSnapshot, s *ServiceRecord) (*SourceObject, string) {
+	return sourceObject(newestRevision(snap, s))
+}
+
+// sourceObject is the source object rev's bundle cites, nil with why when
+// it holds none or it does not parse.
+func sourceObject(rev *ContractRevision) (*SourceObject, string) {
+	if rev == nil {
+		return nil, "no record of the service was read"
+	}
 	data, why := readBundleFile(rev, offeringObjectFile, maxOfferingFileBytes)
+	if why != "" {
+		return nil, why
+	}
 	var obj struct {
-		Kind     string `yaml:"kind"`
-		Metadata struct {
+		APIVersion string `yaml:"apiVersion"`
+		Kind       string `yaml:"kind"`
+		Metadata   struct {
+			Namespace  string `yaml:"namespace"`
 			Name       string `yaml:"name"`
 			Generation int64  `yaml:"generation"`
 		} `yaml:"metadata"`
 	}
-	if why != "" || yaml.Unmarshal(data, &obj) != nil || obj.Kind == "" || obj.Metadata.Name == "" {
+	if yaml.Unmarshal(data, &obj) != nil || obj.Kind == "" || obj.Metadata.Name == "" {
+		return nil, offeringObjectFile + " names no kind and name"
+	}
+	return &SourceObject{APIVersion: obj.APIVersion, Kind: obj.Kind, Namespace: obj.Metadata.Namespace, Name: obj.Metadata.Name, Generation: obj.Metadata.Generation}, ""
+}
+
+// offeringSource is "<kind> <name>" and the generation of the source object
+// rev's bundle cites, empty when it holds none or it does not parse.
+func offeringSource(rev *ContractRevision) (string, int64) {
+	o, _ := sourceObject(rev)
+	if o == nil {
 		return "", 0
 	}
-	return capLen(obj.Kind+" "+obj.Metadata.Name, maxRuntimeValueLen), obj.Metadata.Generation
+	return capLen(o.Kind+" "+o.Name, maxRuntimeValueLen), o.Generation
 }
 
 // offeringClasses are the class enum values of the first configuration

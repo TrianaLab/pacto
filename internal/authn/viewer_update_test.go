@@ -83,3 +83,38 @@ func TestMayUpdateWorkloadUsesClusterReviewer(t *testing.T) {
 		t.Errorf("a Pacto: %v %v %v", ok, err, got)
 	}
 }
+
+func TestViewerMayUpdateReviewsResource(t *testing.T) {
+	var got []string
+	v := NewViewer(func(context.Context) map[string]Review {
+		return map[string]Review{"c1": func(_ context.Context, _ Person, ns string, res ResourceAttributes) (bool, error) {
+			got = append(got, ns+"/"+res.Group+"/"+res.Resource+"/"+res.Verb+"/"+res.Name)
+			return true, nil
+		}}
+	})
+	res := ResourceAttributes{Group: "example.io", Resource: "widgets", Verb: "update", Name: "xbuckets.storage.acme.io"}
+	if ok, err := v.MayUpdate(context.Background(), alice, "c1", "", res); !ok || err != nil {
+		t.Fatalf("%v %v", ok, err)
+	}
+	if len(got) != 1 || got[0] != "/example.io/widgets/update/xbuckets.storage.acme.io" {
+		t.Fatalf("reviews = %v", got)
+	}
+	if _, err := v.MayUpdate(context.Background(), alice, "edge", "", res); !errors.Is(err, ErrClusterNotReviewable) {
+		t.Fatalf("an unreviewed cluster: %v", err)
+	}
+}
+
+func TestViewerMayUpdateMemberClusterNotReviewable(t *testing.T) {
+	member := MemberReview(&fakeLink{uid: "m1"}, nil, nil)
+	failing := func(context.Context, Person, string, ResourceAttributes) (bool, error) {
+		return false, errors.New("boom")
+	}
+	v := NewViewer(func(context.Context) map[string]Review { return map[string]Review{"m1": member, "c2": failing} })
+	res := ResourceAttributes{Group: "example.io", Resource: "widgets", Verb: "update", Name: "x"}
+	if ok, err := v.MayUpdate(context.Background(), alice, "m1", "", res); ok || !errors.Is(err, ErrClusterNotReviewable) {
+		t.Fatalf("a member cluster answered %v %v", ok, err)
+	}
+	if ok, err := v.MayUpdate(context.Background(), alice, "c2", "", res); ok || err == nil || errors.Is(err, ErrClusterNotReviewable) {
+		t.Fatalf("a failed review answered %v %v", ok, err)
+	}
+}

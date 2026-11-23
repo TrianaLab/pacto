@@ -1430,6 +1430,9 @@ func (s *Service) writeDraft(ctx context.Context, req DeclareRequest, res *Decla
 	return nil
 }
 
+// Command is the pacto declare that replays req, as command builds it.
+func (req DeclareRequest) Command(intent string) string { return req.command(intent) }
+
 // command is the pacto declare that replays req: every argument the intent
 // digest binds, and intent when it is set. Without --yes it prints the plan.
 func (req DeclareRequest) command(intent string) string {
