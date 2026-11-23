@@ -314,3 +314,30 @@ func TestEntryPointCommandOnlyForListViews(t *testing.T) {
 		t.Fatalf("services entry point: %q", got)
 	}
 }
+
+// TestFleetOptionsReadIndex: --index names the repository every fleet reader
+// reads every listed service from; none and unset read none, and Index
+// keeps the value impact reads.
+func TestFleetOptionsReadIndex(t *testing.T) {
+	const repo = "oci://r.example/acme/pacto-index"
+	commands := map[string]func() *cobra.Command{
+		"fleet": func() *cobra.Command { return newFleetCommand(newTestService(t), viper.New(), deps{}, &runRecorder{}) },
+		"tui":   func() *cobra.Command { return newTUICommand(newTestService(t), viper.New(), defaultDeps()) },
+		"mcp":   func() *cobra.Command { return newMCPCommand(newTestService(t), "v", defaultDeps()) },
+	}
+	for name, newCmd := range commands {
+		for value, want := range map[string]string{"": "", "none": "", repo: repo} {
+			cmd := newCmd()
+			var args []string
+			if value != "" {
+				args = []string{"--index", value}
+			}
+			if err := cmd.ParseFlags(args); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if o := fleetOptions(cmd); o.ReadIndex != want || o.Index != value {
+				t.Errorf("%s --index %q: ReadIndex %q, Index %q", name, value, o.ReadIndex, o.Index)
+			}
+		}
+	}
+}

@@ -5,7 +5,6 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -177,24 +176,24 @@ func miraPartial(m miraMap, unattributed int) string {
 	return "Mira's service map is incomplete: " + strings.Join(clauses, "; ")
 }
 
-// CheckMiraURL accepts an http(s) URL with a host and no userinfo, query or
-// fragment (the map path is appended to it). Mira URLs are
-// operator configuration only; the error names the scheme and host, never
-// credentials or the raw value.
-func CheckMiraURL(u string) error {
+// CheckSourceURL accepts an http(s) URL with a host and no userinfo, query
+// or fragment for the source kind (a path is appended to it). Source URLs are
+// operator configuration only; the error names the kind, the scheme and the
+// host, never credentials or the raw value.
+func CheckSourceURL(kind, u string) error {
 	p, err := url.Parse(u)
 	if err != nil {
-		return errors.New("mira source: not a valid URL")
+		return fmt.Errorf("%s source: not a valid URL", kind)
 	}
 	switch {
 	case p.Scheme != "http" && p.Scheme != "https":
-		return fmt.Errorf("mira source: scheme %q is not http or https", p.Scheme)
+		return fmt.Errorf("%s source: scheme %q is not http or https", kind, p.Scheme)
 	case p.Host == "":
-		return errors.New("mira source: the URL has no host")
+		return fmt.Errorf("%s source: the URL has no host", kind)
 	case p.User != nil:
-		return fmt.Errorf("mira source %s://%s: credentials in the URL are not allowed", p.Scheme, p.Hostname())
+		return fmt.Errorf("%s source %s://%s: credentials in the URL are not allowed", kind, p.Scheme, p.Hostname())
 	case strings.ContainsAny(u, "?#"):
-		return fmt.Errorf("mira source %s://%s: a query or fragment in the URL is not allowed", p.Scheme, p.Hostname())
+		return fmt.Errorf("%s source %s://%s: a query or fragment in the URL is not allowed", kind, p.Scheme, p.Hostname())
 	}
 	return nil
 }

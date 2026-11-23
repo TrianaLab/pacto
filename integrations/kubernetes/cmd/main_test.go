@@ -2,12 +2,16 @@ package main
 
 import (
 	"flag"
+	"io"
 	iofs "io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 )
 
 // chartlessFlags are the operator flags the chart deliberately never renders, each with the reason.
@@ -172,5 +176,58 @@ func TestEveryRegistryFlagIsClassified(t *testing.T) {
 		if !found[name] {
 			t.Errorf("registryFlags entry %q matches no chart flag: remove it", name)
 		}
+	}
+}
+
+func TestDashboardIndexFlag(t *testing.T) {
+	parse := func(args ...string) (*options, error) {
+		o := &options{}
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		bindFlags(fs, o)
+		return o, fs.Parse(args)
+	}
+	withRegistry := &detect.Installation{Index: "ghcr.io/acme/pacto-index"}
+	noRegistry := &detect.Installation{}
+	for _, tc := range []struct {
+		args []string
+		inst *detect.Installation
+		want string
+	}{
+		{nil, withRegistry, "ghcr.io/acme/pacto-index"},
+		{[]string{"--dashboard-index=auto"}, withRegistry, "ghcr.io/acme/pacto-index"},
+		{[]string{"--dashboard-index=auto"}, noRegistry, ""},
+		{[]string{"--dashboard-index=auto"}, nil, ""},
+		{[]string{"--dashboard-index=none"}, withRegistry, ""},
+	} {
+		o, err := parse(tc.args...)
+		if err != nil {
+			t.Fatalf("%v: %v", tc.args, err)
+		}
+		if got := dashboardIndex(o.dashboardIndex, tc.inst); got != tc.want {
+			t.Errorf("%v with %+v: index = %q, want %q", tc.args, tc.inst, got, tc.want)
+		}
+	}
+	for _, bad := range []string{"ghcr.io/acme/pacto-index", "", "Auto"} {
+		if _, err := parse("--dashboard-index=" + bad); err == nil || !strings.Contains(err.Error(), "want auto or none") {
+			t.Errorf("%q: err = %v", bad, err)
+		}
+	}
+}
+
+func TestDashboardBackstageFlags(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	o := &options{}
+	bindFlags(fs, o)
+	if o.dashboardBackstageToken.Key != "token" {
+		t.Errorf("default token key = %q, want token", o.dashboardBackstageToken.Key)
+	}
+	if err := fs.Parse([]string{"--dashboard-backstage-url=https://b.example.com",
+		"--dashboard-backstage-token-secret=reader", "--dashboard-backstage-token-key=t"}); err != nil {
+		t.Fatal(err)
+	}
+	want := dashboard.KeyRef{Name: "reader", Key: "t"}
+	if o.dashboardBackstageURL != "https://b.example.com" || o.dashboardBackstageToken != want {
+		t.Errorf("backstage options = %q %+v", o.dashboardBackstageURL, o.dashboardBackstageToken)
 	}
 }

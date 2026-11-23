@@ -12,8 +12,10 @@ import (
 // the workload-manager fingerprints, which
 // never clear a gate, the trust config target snapshots are verified with and
 // the organization index, which alone is never a consumer source: without a
-// target source it is CONSUMER_INDEX_UNCHECKED (509-S7 Decision 16).
-var nonConsumerFlags = []string{"local", "namespace", "freshness", "external-catalog", "fingerprints", "delivery-trust", "index"}
+// target source it is CONSUMER_INDEX_UNCHECKED (509-S7 Decision 16), and the
+// Backstage catalog, whose dependencies are inferred and never name a
+// consumer a gate reads.
+var nonConsumerFlags = []string{"local", "backstage-url", "namespace", "freshness", "external-catalog", "fingerprints", "delivery-trust", "index"}
 
 func TestConsumerSourcesClassifiesEveryFleetFlag(t *testing.T) {
 	value := map[string]string{"cache": "true", "k8s": "true", "freshness": "1m", "index": "r/pacto-index"}

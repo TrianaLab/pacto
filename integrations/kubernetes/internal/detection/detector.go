@@ -222,8 +222,19 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 	if err := errors.Join(wsErr, svcErr); err != nil {
 		res.Entries = append(res.Entries, detect.TracesUnknown("reading the cluster failed: "+reason(err)))
 	} else {
+		// The Backstage rule reads the same pods and Services: no new list call.
+		entries := detect.Traces(ws, svcs, d.Namespace)
+		if b := detect.Backstage(ws, svcs); b.Kind != "" {
+			entries = append(entries, b)
+		}
 		// A rule judged on part of the cluster proves no single backend.
-		for _, e := range detect.Traces(ws, svcs, d.Namespace) {
+		for _, e := range entries {
+			if sampled && e.Kind == "backstage" {
+				// The several-namespaces guard saw only the sampled pods, so a
+				// look-alike in a namespace that sorts first could win: the
+				// dashboard reads a detected catalog without asking, so give it none.
+				e.Endpoint = ""
+			}
 			e = sampledEntry(e, sampled, fmt.Sprintf("sampled the first %d running pods", detect.MaxPods))
 			res.Entries = append(res.Entries, sampledEntry(e, scoped, scopedReason))
 		}

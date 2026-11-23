@@ -270,7 +270,7 @@ func TestMiraSourceTimeout(t *testing.T) {
 	}
 }
 
-func TestCheckMiraURL(t *testing.T) {
+func TestCheckSourceURL(t *testing.T) {
 	cases := []struct {
 		url string
 		ok  bool
@@ -289,12 +289,23 @@ func TestCheckMiraURL(t *testing.T) {
 		{"http://mira:4318/base/", true},
 	}
 	for _, tc := range cases {
-		err := CheckMiraURL(tc.url)
+		err := CheckSourceURL("mira", tc.url)
 		if (err == nil) != tc.ok {
-			t.Errorf("CheckMiraURL(%q) = %v, want ok=%v", tc.url, err, tc.ok)
+			t.Errorf("CheckSourceURL(%q) = %v, want ok=%v", tc.url, err, tc.ok)
 		}
 		if err != nil && (strings.Contains(err.Error(), "pw") || strings.Contains(err.Error(), "user")) {
-			t.Errorf("CheckMiraURL(%q) error %q leaks userinfo", tc.url, err)
+			t.Errorf("CheckSourceURL(%q) error %q leaks userinfo", tc.url, err)
+		}
+	}
+}
+
+// TestCheckSourceURLNamesKind proves every refusal names the source kind it
+// checked, so one check serves every HTTP source.
+func TestCheckSourceURLNamesKind(t *testing.T) {
+	for _, u := range []string{"%zz", "ftp://x", "https://", "https://user:pw@host", "https://host/?q=1"} {
+		err := CheckSourceURL("catalog", u)
+		if err == nil || !strings.HasPrefix(err.Error(), "catalog source") {
+			t.Errorf("CheckSourceURL(catalog, %q) = %v, want an error naming the kind", u, err)
 		}
 	}
 }

@@ -129,6 +129,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	seenSourceIDs := map[string]bool{}
 	var observed []observedInput
 	var uses []sourcedUse
+	var facts []sourcedFact
 	var inferred []inferredInput
 	undeclaredOnly := map[string]bool{}
 	// Sources are processed in declared order so composition is deterministic
@@ -161,6 +162,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 			for _, u := range r.col.ExternalUses {
 				uses = append(uses, sourcedUse{use: u, source: src.ID()})
 			}
+			facts = append(facts, sourcedFacts(src.ID(), r.col)...)
 		}
 	}
 
@@ -185,6 +187,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	buildRelationships(snap, cat)
 	foldObservedRelationships(snap, observed)
 	foldExternalUses(snap, append(uses, recordExternalUses(snap)...))
+	foldServiceFacts(snap, facts)
 	attachInferredProviders(snap, cat)
 	finalizeExternals(snap)
 	reconcileDeclared(snap, undeclaredOnly)
@@ -521,6 +524,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	// values normalized at ingestion) are recorded on the target AND at the snapshot
 	// level, and mark the source partial.
 	snap.Limitations = append(snap.Limitations, col.Limitations...)
+	snap.Limitations = append(snap.Limitations, col.Notes...)
 	snap.Limitations = append(snap.Limitations, recordProblems...)
 	st, stateLims := sourceStateFor(src, col, now, revCount, targetCount, len(recordProblems) > 0)
 	st.Advisory, st.CautionOnly = col.Advisory, col.ObservedCautionOnly
@@ -2331,6 +2335,7 @@ func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 			s.OwnerProvenance = OwnerProvenanceDeclaredViaTarget
 		}
 	}
+	markInferredOwner(s)
 	return append(ownerConflict(snap, s), ownerBlockedLimitations(snap, s)...)
 }
 

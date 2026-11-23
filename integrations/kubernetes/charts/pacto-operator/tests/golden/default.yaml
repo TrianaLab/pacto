@@ -2588,6 +2588,7 @@ spec:
             - --dashboard-memory-limit=512Mi
             - --dashboard-token-login
             - --dashboard-fingerprints-configmap=pacto-operator-fingerprints
+            - --dashboard-index=auto
           ports:
             - name: metrics
               containerPort: 8443

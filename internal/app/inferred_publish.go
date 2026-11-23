@@ -23,7 +23,7 @@ type PublishInferredOptions struct {
 // the fleet snapshot knows under <registry>/pacto-inferred, when its surface
 // changed: the writer of an installation that runs no operator.
 func (s *Service) PublishInferred(ctx context.Context, opts PublishInferredOptions) (inferredcontract.Report, error) {
-	snap, err := s.Fleet(ctx, opts.Fleet)
+	snap, err := s.Fleet(ctx, opts.Fleet.withoutListings())
 	if err != nil {
 		return inferredcontract.Report{}, err
 	}

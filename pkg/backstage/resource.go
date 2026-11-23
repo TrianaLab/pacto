@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -27,6 +28,12 @@ func (e *exporter) resourceEntities() []Entity {
 			r.Metadata.Tags = []string{TagInferred}
 		}
 		r.Metadata.Annotations[AnnotationExternalKey] = string(x.Key)
+		if k := sourceKinds(x.Sources); k != "" {
+			r.Metadata.Annotations[AnnotationSource] = k
+		}
+		if x.Provider != nil {
+			r.Metadata.Annotations[AnnotationInferredContract] = x.Provider.Repository
+		}
 		r.Metadata.Name = name
 		r.Spec.Type = x.Class
 		r.Spec.Owner = unknown
@@ -51,4 +58,14 @@ func externalProvenance(sources []fleet.ExternalSource) string {
 		return fleet.ProvenanceObserved
 	}
 	return provenanceInferred
+}
+
+// sourceKinds is the sorted, distinct kinds of sources joined with commas.
+func sourceKinds(sources []fleet.ExternalSource) string {
+	kinds := make([]string, 0, len(sources))
+	for _, s := range sources {
+		kinds = append(kinds, s.Kind)
+	}
+	slices.Sort(kinds)
+	return strings.Join(slices.Compact(kinds), ",")
 }

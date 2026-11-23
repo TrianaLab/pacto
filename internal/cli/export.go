@@ -42,9 +42,11 @@ func newExportBackstageCommand(svc *app.Service) *cobra.Command {
 			"--local is set. When a source could not be read, or the fleet is empty, it writes nothing and exits 2, " +
 			"so a scheduled sync never drops the services that source holds; --allow-partial writes the file anyway. " +
 			"A --namespace scope whose namespaces were all read is not a failure: the file is written and each " +
-			"entity says partial.",
+			"entity says partial. With --index it reads every service the organization index lists, pulled by digest, " +
+			"and the inferred contracts they name; add --target-snapshot for the inferred services the clusters published.",
 		Example: "  pacto export backstage --oci ghcr.io/acme/payments --oci ghcr.io/acme/ledger > catalog/pacto-entities.yaml\n" +
-			"  pacto export backstage --root oci://ghcr.io/acme/platform --k8s -o catalog/pacto-entities.yaml",
+			"  pacto export backstage --root oci://ghcr.io/acme/platform --k8s -o catalog/pacto-entities.yaml\n" +
+			"  pacto export backstage --index oci://ghcr.io/acme/pacto-index --target-snapshot oci://ghcr.io/acme/pacto-targets > catalog/pacto-entities.yaml",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error { return runExportBackstage(cmd, svc) },
 	}

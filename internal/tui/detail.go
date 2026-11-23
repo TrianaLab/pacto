@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -160,17 +161,29 @@ func styledField(b *strings.Builder, label, value string) {
 
 // OwnerProvenanceMark is the text suffix that says where a service's owner
 // comes from: empty for a declared or absent provenance, else
-// " (declared via target)", " (attested: <source>)" or " (inferred)"; an
-// attested owner without a source prints " (attested)". The CLI and the TUI
-// share it so the owner reads the same on both.
-func OwnerProvenanceMark(p, source string) string {
-	if p == "" || p == fleet.OwnerProvenanceDeclared {
+// " (declared via target)", " (attested: <source>)", " (inferred: <label>
+// from <source>)" or " (inferred)"; an attested owner without a source prints
+// " (attested)" and an inferred one without its fact " (inferred)". The CLI
+// and the TUI share it so the owner reads the same on both.
+func OwnerProvenanceMark(p, source string, inferred *fleet.InferredFact) string {
+	switch {
+	case p == "" || p == fleet.OwnerProvenanceDeclared:
 		return ""
-	}
-	if p == fleet.OwnerProvenanceAttested && source != "" {
+	case p == fleet.OwnerProvenanceAttested && source != "":
 		return " (attested: " + source + ")"
+	case p == fleet.OwnerProvenanceInferred && inferred != nil:
+		return " (inferred: " + InferredOwnerLabel(inferred.Value) + " from " + inferred.Source + ")"
 	}
 	return " (" + strings.ReplaceAll(p, "-", " ") + ")"
+}
+
+// InferredOwnerLabel is the name an inferred owner key carries, the key
+// itself when it is no owner key.
+func InferredOwnerLabel(key string) string {
+	if k, err := contract.ParseOwnerKey(key); err == nil {
+		return k.Value
+	}
+	return key
 }
 
 func section(b *strings.Builder, title string) {
@@ -182,7 +195,7 @@ func section(b *strings.Builder, title string) {
 func renderServiceDetail(b *strings.Builder, service string, s *fleet.ServiceDetailData, c fleet.Completeness, asOf time.Time) {
 	field(b, "registry", s.Domain)
 	if s.Ownership != nil {
-		field(b, "owner", s.Ownership.Owner+OwnerProvenanceMark(s.Ownership.Provenance, s.Ownership.Source))
+		field(b, "owner", s.Ownership.Owner+OwnerProvenanceMark(s.Ownership.Provenance, s.Ownership.Source, s.Ownership.Inferred))
 	}
 	renderProvenance(b, s, asOf)
 	section(b, "Summary")

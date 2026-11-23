@@ -317,7 +317,9 @@ func fleetGetTool() *mcpsdk.Tool {
 			"comes from: declared (a revision), declared-via-target (the contract a target runs), attested (read from the " +
 			"repository at the commit a verified CI identity signed; 'ownerSource' names the file and line, commit and signer; " +
 			"routes reviews, never clears a gate) or inferred; " +
-			"an inferred owner never fills 'owner'. Each revision's 'provenance' says whether its " +
+			"an inferred owner never fills 'owner'. 'inferredOwner' and 'inferredBusinessDomain' are hints a source outside " +
+			"every contract reports (such as an IDP catalog), each with 'source', 'where' and 'asOf'; they are never an owner or a domain. " +
+			"Each revision's 'provenance' says whether its " +
 			"bundle signature was checked against a publisher rule, pin or policy (verified, unverified, " +
 			"unsigned, unknown) and lists its OCI referrers, when a registry source checked them; absent means " +
 			"no source checked. Give service as external:<identity> for an external system: its sources (each with " +

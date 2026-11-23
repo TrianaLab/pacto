@@ -32,6 +32,10 @@
       "description": "Bind address for the server",
       "type": "string"
     },
+    "PACTO_DASHBOARD_INDEX": {
+      "description": "Organization index whose every service the dashboard reads, as \u003cregistry\u003e/pacto-index; empty reads none",
+      "type": "string"
+    },
     "PACTO_DASHBOARD_MIRA_URL": {
       "description": "Mira's address, to link health-check citations and open a service in Mira",
       "type": "string"

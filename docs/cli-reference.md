@@ -268,6 +268,7 @@ pacto ci [root] [flags]
 **Flags:**
 
 ```
+      --backstage-url string               base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --cache[=true|false]                 include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray                kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string              the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
@@ -279,7 +280,7 @@ pacto ci [root] [flags]
       --freshness duration                 mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]                  help for ci
       --image stringArray                  with --publish: the image <service> deploys, pinned by digest, as <service>=<repo>@sha256:...; Pacto builds, signs and copies none. A bare <repo>@sha256:... needs exactly one changed service
-      --index string                       organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --index string                       organization index, as <registry>/pacto-index with no tag or digest: pacto impact and pacto ci read the consumers of a change from it (default <registry>/pacto-index from the provider reference; skipped when --root names the consumers) and pacto ci --publish writes its entries there; every other fleet command reads every service it lists as a published revision; none reads none
       --k8s[=true|false]                   include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray                  local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray            base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -408,6 +409,7 @@ pacto dashboard [sources...] [flags]
 
 ```
       --allow-anonymous[=true|false]      serve beyond loopback without sign-in: everyone who reaches the address reads the whole fleet (also PACTO_DASHBOARD_ALLOW_ANONYMOUS)
+      --backstage-url string              base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN (also PACTO_DASHBOARD_BACKSTAGE_URL)
       --context stringArray               kubeconfig context to read live Pacto CRs from (repeatable, each cluster read once); outside a pod the named contexts replace the current one and people sign in against the first (also PACTO_DASHBOARD_CONTEXT)
       --cors-origin string                explicit cross-origin allowed to call the API (default: same-origin only)
       --declare-registry-config string    a Docker config.json with push access to --registry: a shared dashboard writes declarations and drafts only with this credential of its own, never with the credentials it reads registries with (also PACTO_DASHBOARD_DECLARE_REGISTRY_CONFIG)
@@ -419,6 +421,7 @@ pacto dashboard [sources...] [flags]
       --fulcio-url string                 Fulcio to get the signing certificate from (default "https://fulcio.sigstore.dev")
   -h, --help[=true|false]                 help for dashboard
       --host string                       bind address for the dashboard server (default "127.0.0.1")
+      --index string                      organization index whose every service the dashboard reads, as <registry>/pacto-index; none or unset reads none (also PACTO_DASHBOARD_INDEX; the operator sets it from its registry)
       --mira-source stringArray           base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)
       --mira-url string                   Mira's address, to link health-check citations and open a service in Mira
       --namespace string                  Kubernetes namespaces to read, comma-separated (empty = all namespaces); delivery reads narrow to it only when it names one
@@ -1346,7 +1349,7 @@ pacto export [flags]
 
 Write the services Pacto knows as one multi-document YAML file of Backstage catalog entities: a Component per service, an API per interface, a Resource per external system, a System per business domain and a stub Component, tagged pacto-observed, per observed caller with no contract. Every entity says how Pacto knows it (pacto.trianalab.io/provenance), when (as-of) and how completely (completeness); an inferred value never fills spec.owner, spec.system, spec.dependsOn or spec.consumesApis.
 
-The export reads the same sources as pacto fleet, except that it scans no local directory unless --local is set. When a source could not be read, or the fleet is empty, it writes nothing and exits 2, so a scheduled sync never drops the services that source holds; --allow-partial writes the file anyway. A --namespace scope whose namespaces were all read is not a failure: the file is written and each entity says partial.
+The export reads the same sources as pacto fleet, except that it scans no local directory unless --local is set. When a source could not be read, or the fleet is empty, it writes nothing and exits 2, so a scheduled sync never drops the services that source holds; --allow-partial writes the file anyway. A --namespace scope whose namespaces were all read is not a failure: the file is written and each entity says partial. With --index it reads every service the organization index lists, pulled by digest, and the inferred contracts they name; add --target-snapshot for the inferred services the clusters published.
 
 ```
 pacto export backstage [flags]
@@ -1357,12 +1360,14 @@ pacto export backstage [flags]
 ```
   pacto export backstage --oci ghcr.io/acme/payments --oci ghcr.io/acme/ledger > catalog/pacto-entities.yaml
   pacto export backstage --root oci://ghcr.io/acme/platform --k8s -o catalog/pacto-entities.yaml
+  pacto export backstage --index oci://ghcr.io/acme/pacto-index --target-snapshot oci://ghcr.io/acme/pacto-targets > catalog/pacto-entities.yaml
 ```
 
 **Flags:**
 
 ```
       --allow-partial[=true|false]    write the file even when the fleet is partial or empty
+      --backstage-url string          base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
@@ -1372,7 +1377,7 @@ pacto export backstage [flags]
       --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for backstage
-      --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --index string                  organization index, as <registry>/pacto-index with no tag or digest: pacto impact and pacto ci read the consumers of a change from it (default <registry>/pacto-index from the provider reference; skipped when --root names the consumers) and pacto ci --publish writes its entries there; every other fleet command reads every service it lists as a published revision; none reads none
       --k8s[=true|false]              include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray             local bundle root(s) to scan (repeatable; none unless set)
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -1398,6 +1403,7 @@ pacto fleet [flags]
 **Flags:**
 
 ```
+      --backstage-url string          base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
@@ -1407,7 +1413,7 @@ pacto fleet [flags]
       --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for fleet
-      --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --index string                  organization index, as <registry>/pacto-index with no tag or digest: pacto impact and pacto ci read the consumers of a change from it (default <registry>/pacto-index from the provider reference; skipped when --root names the consumers) and pacto ci --publish writes its entries there; every other fleet command reads every service it lists as a published revision; none reads none
       --k8s[=true|false]              include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -1875,6 +1881,7 @@ pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed
 **Flags:**
 
 ```
+      --backstage-url string            base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --cache[=true|false]              include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray             kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string           the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
@@ -1885,7 +1892,7 @@ pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed
       --freshness duration              mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]               help for impact
       --include-observed[=true|false]   let observed (runtime) relationships raise consumer confidence
-      --index string                    organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --index string                    organization index, as <registry>/pacto-index with no tag or digest: pacto impact and pacto ci read the consumers of a change from it (default <registry>/pacto-index from the provider reference; skipped when --root names the consumers) and pacto ci --publish writes its entries there; every other fleet command reads every service it lists as a published revision; none reads none
       --k8s[=true|false]                include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray               local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray         base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -2170,7 +2177,7 @@ When a bundle reference (local directory or oci:// ref) is given, the server als
 
 With --root, the server exposes a read-only contract catalog: the given roots plus their dependency closure, resolved once at startup and then frozen, so the session keeps its startup view even when a registry tag moves. Roots that fail to resolve stay visible as partial knowledge. The catalog grants no authorization and executes nothing.
 
-With --fleet, the server exposes the read-only operational-graph query tools over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last rebuild attempt. With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, --evidence-url, --traces, --mira-source, --oci, --cache, --k8s, --namespace and --freshness) compose that snapshot and are read in --fleet mode only.
+With --fleet, the server exposes the read-only operational-graph query tools over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last rebuild attempt. With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, --evidence-url, --traces, --mira-source, --backstage-url, --oci, --cache, --k8s, --namespace and --freshness) compose that snapshot and are read in --fleet mode only.
 
 With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, the dashboard's delivery views (caller, inbox, environments, autonomy, published and refusals, scoped by --namespace like the dashboard's), plus propose and cancel only when the apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has no approve tool.
 
@@ -2215,6 +2222,7 @@ pacto mcp [bundle-ref] [flags]
       --audience string                  with --auth-issuer: the audience incoming tokens must carry (default --resource)
       --auth stringArray                 credential for a security scheme as name=value (repeatable)
       --auth-issuer string               OpenID issuer whose bearer tokens every HTTP request must carry
+      --backstage-url string             base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --base-url string                  base URL for live invocation (overrides the OpenAPI servers[] URL)
       --cache[=true|false]               include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray              kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
@@ -2233,7 +2241,7 @@ pacto mcp [bundle-ref] [flags]
       --freshness duration               mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]                help for mcp
       --host string                      bind address for HTTP transport; beyond loopback it needs --auth-issuer, and on loopback without it every request carries the bearer printed at launch (default "127.0.0.1")
-      --index string                     organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --index string                     organization index, as <registry>/pacto-index with no tag or digest: pacto impact and pacto ci read the consumers of a change from it (default <registry>/pacto-index from the provider reference; skipped when --root names the consumers) and pacto ci --publish writes its entries there; every other fleet command reads every service it lists as a published revision; none reads none
       --k8s[=true|false]                 include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray                local bundle root(s) to scan in --fleet mode (repeatable); over HTTP none unless set (default [.])
       --mira-source stringArray          base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -2597,6 +2605,7 @@ pacto stats [flags]
 **Flags:**
 
 ```
+      --backstage-url string          base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --by string                     group the numbers by service, owner, domain, repository, environment
       --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
@@ -2607,7 +2616,7 @@ pacto stats [flags]
       --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for stats
-      --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --index string                  organization index, as <registry>/pacto-index with no tag or digest: pacto impact and pacto ci read the consumers of a change from it (default <registry>/pacto-index from the provider reference; skipped when --root names the consumers) and pacto ci --publish writes its entries there; every other fleet command reads every service it lists as a published revision; none reads none
       --k8s[=true|false]              include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --kind stringArray              total only run records of this kind: diff, impact, publish, operation, coverage (repeatable)
       --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
@@ -2665,6 +2674,7 @@ pacto tui [flags]
 **Flags:**
 
 ```
+      --backstage-url string          base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
@@ -2674,7 +2684,7 @@ pacto tui [flags]
       --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for tui
-      --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --index string                  organization index, as <registry>/pacto-index with no tag or digest: pacto impact and pacto ci read the consumers of a change from it (default <registry>/pacto-index from the provider reference; skipped when --root names the consumers) and pacto ci --publish writes its entries there; every other fleet command reads every service it lists as a published revision; none reads none
       --k8s[=true|false]              include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)

@@ -88,6 +88,7 @@ type ImpactOptions struct {
 // change's blast radius over it (see [Service.ImpactOnSnapshot], with the new
 // revision added when no source holds the changed service).
 func (s *Service) Impact(ctx context.Context, opts ImpactOptions) (*impact.Result, error) {
+	opts.Fleet = opts.Fleet.withoutListings()
 	// Resolve the revisions first, so a bad ref fails before a fleet build.
 	oldBundle, newBundle, err := s.resolveImpactPair(ctx, opts)
 	if err != nil {
@@ -150,6 +151,7 @@ func (s *Service) ImpactWithSnapshot(ctx context.Context, opts ImpactOptions, sn
 // answering from a restricted view must pass false, so no unrestricted rebuild
 // leaks.
 func (s *Service) ImpactOnSnapshot(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, addMissing bool) (*impact.Result, error) {
+	opts.Fleet = opts.Fleet.withoutListings()
 	oldBundle, newBundle, err := s.resolveImpactPair(ctx, opts)
 	if err != nil {
 		return nil, err
@@ -215,7 +217,10 @@ func (s *Service) prepareImpact(ctx context.Context, opts ImpactOptions, snap *f
 	}
 	// An inferred contract is never a fleet service, so it is never added as one.
 	_, inferred := contract.InferredRef(opts.NewPath)
-	added := addMissing && !inferred && snap.Services[fleet.NewServiceKeyDomain(domain, name)] == nil
+	// The rebuild reads no whole index (withoutListings), so a service only
+	// it held is missing there too.
+	held := snap.Services[fleet.NewServiceKeyDomain(domain, name)]
+	added := addMissing && !inferred && (held == nil || (created || dropped) && onlyWholeIndex(held))
 	if added || created || dropped {
 		var err error
 		if snap, err = s.Fleet(ctx, withNewRevision(opts, newBundle, added)); err != nil {
@@ -223,6 +228,11 @@ func (s *Service) prepareImpact(ctx context.Context, opts ImpactOptions, snap *f
 		}
 	}
 	return preparedImpact{opts: opts, snap: snap, skipped: skipped, added: added}, nil
+}
+
+// onlyWholeIndex reports whether the whole-index source alone holds svc.
+func onlyWholeIndex(svc *fleet.ServiceRecord) bool {
+	return len(svc.Sources) > 0 && !slices.ContainsFunc(svc.Sources, func(id string) bool { return id != wholeIndexSourceID })
 }
 
 // analyzePrepared analyses the change over p.
@@ -439,6 +449,7 @@ type ImpactEventOptions struct {
 // ImpactEvent builds a fleet snapshot from the configured sources and
 // answers the event over it (see [Service.ImpactEventOnSnapshot]).
 func (s *Service) ImpactEvent(ctx context.Context, opts ImpactEventOptions) (*impact.Result, error) {
+	opts.Fleet = opts.Fleet.withoutListings()
 	snap, err := s.Fleet(ctx, opts.Fleet)
 	if err != nil {
 		return nil, fmt.Errorf("build fleet snapshot: %w", err)

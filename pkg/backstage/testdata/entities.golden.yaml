@@ -149,6 +149,7 @@ metadata:
     pacto.trianalab.io/completeness: complete
     pacto.trianalab.io/external-key: stripe
     pacto.trianalab.io/provenance: declared+observed
+    pacto.trianalab.io/source: contract,observed
 spec:
   type: vendor-api
   owner: unknown
@@ -165,6 +166,7 @@ metadata:
     pacto.trianalab.io/completeness: complete
     pacto.trianalab.io/external-key: host/legacy-mq.example
     pacto.trianalab.io/provenance: inferred
+    pacto.trianalab.io/source: pod-spec
 spec:
   type: unclassified
   owner: unknown

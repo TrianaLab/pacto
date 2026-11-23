@@ -20,6 +20,9 @@ Controller flags and their exact defaults are captured from the operator's real 
 | --- | --- | --- | --- | --- |
 | `-caller-coverage-ignore-namespace` | `value` |  | chart value | Namespace whose host-network pods are taken not to call workloads, so they leave a Service's caller coverage complete (repeatable). kube-system and the other cluster namespaces and the node agent's are always ignored. |
 | `-dashboard-allow-anonymous` | `bool` |  | chart value | Serve the dashboard without sign-in when neither an issuer nor token sign-in is set; everyone who reaches it reads what its ServiceAccount reads. |
+| `-dashboard-backstage-token-key` | `string` | `token` | chart value | Key of the reader token in that Secret. |
+| `-dashboard-backstage-token-secret` | `string` |  | chart value | Secret in the operator namespace holding the catalog reader token, which the dashboard sends only to --dashboard-backstage-url; the operator never reads it. |
+| `-dashboard-backstage-url` | `string` |  | chart value | Base URL of a Backstage catalog whose owners, systems and dependencies the dashboard shows as inferred values. |
 | `-dashboard-cpu-limit` | `string` |  | chart value | CPU limit for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-cpu-request` | `string` |  | chart value | CPU request for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-declare-registry-secret` | `string` |  | chart value | An existing kubernetes.io/dockerconfigjson Secret in the operator namespace with push access to --dashboard-registry, mounted for the dashboard's Declare writer only. Empty: the dashboard plans only. |
@@ -29,6 +32,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-external-catalog` | `string` |  | chart value | Organization external catalog the dashboard merges over Pacto's default, as oci://REPOSITORY@sha256:DIGEST. |
 | `-dashboard-fingerprints-configmap` | `string` |  | chart value | ConfigMap in the operator namespace holding the workload manager and promoter fingerprints (fingerprints.yaml) the dashboard reads as --fingerprints. |
 | `-dashboard-fulcio-url` | `string` |  | chart value | Fulcio the dashboard gets a person's signing certificate from (empty: public-good Sigstore). |
+| `-dashboard-index` | `=mode` |  | chart value | Organization index the dashboard reads every published service from, written =mode: auto reads &lt;registry&gt;/pacto-index when --registry is set, none reads none. auto by default. |
 | `-dashboard-memory-limit` | `string` |  | chart value | Memory limit for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-memory-request` | `string` |  | chart value | Memory request for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-mira-url` | `string` |  | chart value | Mira's address, to link the dashboard's health-check citations. |

@@ -13,6 +13,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
+	"github.com/trianalab/pacto/v4/pkg/backstage"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -49,6 +50,13 @@ type FleetOptions struct {
 	// MiraURLs are base URLs of Mira nodes whose /api/v1/map supplies observed
 	// edges; operator configuration only, never taken from a request.
 	MiraURLs []string
+	// BackstageURL is the base URL of a Backstage catalog whose owners,
+	// systems and dependencies join the snapshot as inferred values; operator
+	// configuration, never taken from a request.
+	BackstageURL string
+	// BackstageToken is the catalog reader token, from PACTO_BACKSTAGE_TOKEN;
+	// never echoed, sent only to BackstageURL and never to a detected endpoint.
+	BackstageToken string
 	// ObservationSources are offline OTLP/JSON trace files supplying
 	// runtime-observed dependency edges; each becomes an observation source whose
 	// edges Build folds into the snapshot as domain-qualified observed
@@ -120,6 +128,13 @@ type FleetOptions struct {
 	// <registry>/pacto-index from the provider reference, IndexNone reads
 	// none, anything else is the repository. Only impact reads it.
 	Index string
+	// ReadIndex is an organization index repository whose every listed
+	// service joins the snapshot: the newest entry of each, pulled by digest
+	// with the same provenance and owner checks as OCIRefs, and the inferred
+	// contracts they name under the installation's own pacto-inferred. Empty
+	// reads none. Impact rebuilds and registry writes clear it
+	// (withoutListings): an index alone never clears a gate.
+	ReadIndex string
 	// extraSources join the configured ones. Impact uses it to add the new
 	// revision when no configured source holds the changed service.
 	extraSources []fleet.Source
@@ -131,6 +146,13 @@ type FleetOptions struct {
 // target-state file, an Evidence Server or a target snapshot.
 func (o FleetOptions) hasTargetInput() bool {
 	return o.IncludeK8s || len(o.K8sContexts) > 0 || len(o.TargetStateFiles) > 0 || len(o.EvidenceURLs) > 0 || len(o.TargetSnapshot) > 0
+}
+
+// withoutListings is o without the sources that list a whole registry
+// repository: what impact rebuilds and registry writes build from.
+func (o FleetOptions) withoutListings() FleetOptions {
+	o.ReadIndex = ""
+	return o
 }
 
 // addedSources are the sources impact adds: extraSources, then the
@@ -206,7 +228,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		sources = append(sources, fleetsrc.NewTargetStateFileSource(sourceID("target-state", i, len(opts.TargetStateFiles)), path))
 	}
 	// A malformed --detected ref is a usage error, refused before any read.
-	remote, err := httpSources(opts)
+	remote, err := httpSources(opts, s.env().now)
 	fp, fpErr := loadFingerprints(opts.Fingerprints)
 	snaps, snapErr := s.targetSnapshotSources(ctx, opts)
 	if err := errors.Join(err, CheckDetectedRef(opts.Detected), fpErr, snapErr); err != nil {
@@ -219,11 +241,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	if len(opts.OCIRefs) > 0 {
 		if s.BundleStore != nil {
 			src := fleetsrc.NewOCISource("oci", s.BundleStore, opts.OCIRefs)
-			if opts.Provenance != nil {
-				src.Provenance = opts.Provenance.Check
-				src.OwnerRights = opts.Provenance.ownerRights(s.fleetOwnerPolicy(opts.TargetSnapshotTrustFile))
-			}
-			src.RegistryProbe = opts.RegistryProbe
+			s.registryChecks(opts)(src)
 			sources = append(sources, src)
 		} else {
 			sources = append(sources, fleet.NewFailingSource("oci", "oci", errNoBundleStore))
@@ -236,6 +254,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 			sources = append(sources, fleet.NewFailingSource("cache", "cache", errNoBundleStore))
 		}
 	}
+	sources = append(sources, s.indexFleetSources(opts)...)
 	if opts.IncludeK8s || len(opts.K8sContexts) > 0 {
 		sources = append(sources, s.k8sSources(ctx, opts, fp.Promoters)...)
 	}
@@ -260,12 +279,25 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	}, sources...)
 }
 
+// registryChecks sets on a registry source the provenance, owner-right and
+// registry-probe checks opts asks for: every source that pulls published
+// bundles is checked alike.
+func (s *Service) registryChecks(opts FleetOptions) func(*fleetsrc.OCISource) {
+	return func(src *fleetsrc.OCISource) {
+		if opts.Provenance != nil {
+			src.Provenance = opts.Provenance.Check
+			src.OwnerRights = opts.Provenance.ownerRights(s.fleetOwnerPolicy(opts.TargetSnapshotTrustFile))
+		}
+		src.RegistryProbe = opts.RegistryProbe
+	}
+}
+
 // declarationSigners is the installation signer policy a declared
-// revision's signer is judged with. Only the registry source checks
-// provenance, so only it can show a declaration's cluster facts: without it
-// none is read.
+// revision's signer is judged with. Only the registry sources (OCIRefs and
+// ReadIndex) check provenance, so only they can show a declaration's
+// cluster facts: without them none is read.
 func (s *Service) declarationSigners(ctx context.Context, opts FleetOptions) *fleet.DeclarationSignerPolicy {
-	if opts.Provenance == nil || len(opts.OCIRefs) == 0 || s.BundleStore == nil {
+	if opts.Provenance == nil || (len(opts.OCIRefs) == 0 && opts.ReadIndex == "") || s.BundleStore == nil {
 		return nil
 	}
 	return opts.Provenance.DeclarationSigners(ctx)
@@ -410,10 +442,28 @@ func (s *Service) detectionSources(ctx context.Context, opts FleetOptions, assem
 	}
 	rest, taken := detect.SplitEdgeKinds(res, kinds)
 	out := append([]fleet.Source{fleetsrc.NewDetectionResultSource(src.ID(), rest, s.env().now)}, s.liveEdgeSources(res, taken, free(serviceGraphID), opts)...)
+	out = append(out, s.detectedBackstage(res, free(backstage.SourceKind))...)
 	if !slices.ContainsFunc(taken, func(e detect.Entry) bool { return e.Kind == "otel-collector" }) {
 		out = append(out, bare...)
 	}
 	return out
+}
+
+// detectedBackstage is the tokenless Backstage source over the detected
+// catalog's Endpoint, none when the id is taken (a configured --backstage-url
+// wins) or no catalog was detected with one. The entry stays a detection
+// row: a proposal, and the row names the Service read. The source's state
+// says only "detected": a restricted view redacts the row of a namespace the
+// viewer cannot read, never a source's Ref.
+func (s *Service) detectedBackstage(res detect.Result, free bool) []fleet.Source {
+	i := slices.IndexFunc(res.Entries, func(e detect.Entry) bool { return e.Kind == "backstage" && e.Endpoint != "" })
+	if !free || i < 0 {
+		return nil
+	}
+	// Decode kept only an Endpoint detect.CheckEndpoint accepts,
+	// http://<svc>.<ns>.svc[.cluster.local]:<port>, so the source always builds.
+	src, _ := fleetsrc.NewDetectedBackstageSource(backstage.SourceKind, res.Entries[i].Endpoint, "detected", s.env().now)
+	return []fleet.Source{src}
 }
 
 // liveEdgeSources are the live edge sources of the taken entries of res. A
@@ -562,19 +612,26 @@ func TraceFileSources(paths []string) []ObservationSourceSpec {
 	return specs
 }
 
-// httpSources returns the Evidence Server sources, then the Mira sources. Every
-// Mira URL is checked first: a bad one fails the whole build, like a duplicate
-// source id.
-func httpSources(opts FleetOptions) ([]fleet.Source, error) {
+// httpSources returns the Evidence Server sources, then the Mira sources, then
+// the Backstage catalog source. Every Mira and Backstage URL is checked first:
+// a bad one fails the whole build, like a duplicate source id.
+func httpSources(opts FleetOptions, now func() time.Time) ([]fleet.Source, error) {
 	var sources []fleet.Source
 	for i, url := range opts.EvidenceURLs {
 		sources = append(sources, fleetsrc.NewEvidenceHTTPSource(sourceID("evidence-http", i, len(opts.EvidenceURLs)), url))
 	}
 	for i, u := range opts.MiraURLs {
-		if err := fleetsrc.CheckMiraURL(u); err != nil {
+		if err := fleetsrc.CheckSourceURL("mira", u); err != nil {
 			return nil, err
 		}
 		sources = append(sources, fleetsrc.NewMiraSource(sourceID("mira", i, len(opts.MiraURLs)), u))
+	}
+	if opts.BackstageURL != "" {
+		src, err := fleetsrc.NewBackstageSource(backstage.SourceKind, opts.BackstageURL, opts.BackstageToken, now)
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, src)
 	}
 	return sources, nil
 }

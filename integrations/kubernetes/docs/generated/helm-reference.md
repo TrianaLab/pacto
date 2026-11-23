@@ -51,6 +51,9 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `dashboard.auth.session.idleTimeout` | `""` | A session without a request for this long ends, as a Go duration such as `30m` (empty: `1h`). The ID token renews with the refresh token in between |
 | `dashboard.auth.session.maxAge` | `""` | A session ends this long after sign-in, renewed or not, as a Go duration such as `8h` (empty: `12h`) |
 | `dashboard.auth.tokenSignIn.enabled` | `true` | Let people sign in with a Kubernetes token. A ServiceAccount token minted with `--audience pacto-dashboard` reads the fleet only (NOTES prints one for `pacto-viewer`). A person's own token (an OIDC ID token, an EKS token) acts as them and may approve held changes. The chart grants the dashboard `create` on `tokenreviews` and creates the read-only `pacto-viewer` ServiceAccount |
+| `dashboard.backstage.tokenSecret.key` | `token` | The key of the token in that Secret |
+| `dashboard.backstage.tokenSecret.name` | `""` | A Secret in the operator namespace holding the catalog reader token, sent only to `url`. Every dashboard user sees the owners, systems and dependencies this token can read; give it catalog read on entities every dashboard user may see. A named Secret that is missing keeps the dashboard pod pending. Needs `url` |
+| `dashboard.backstage.url` | `""` | Base URL of the Backstage catalog, such as https://backstage.acme.internal. Empty: the dashboard reads the catalog the operator detected in the cluster, if any, without a token |
 | `dashboard.declare.registryCredentials.secretName` | `""` | A `kubernetes.io/dockerconfigjson` Secret in the operator namespace with push access to the bundle repositories under `registry`. Only the dashboard's Declare writer uses it; `dashboard.ociSecrets` stays read-only. Empty: the dashboard plans declarations and shows the CLI command |
 | `dashboard.delivery.miraURL` | `""` | Mira's address, to link the health-check citations in delivery views |
 | `dashboard.delivery.namespace` | `""` | Namespace where Pacto delivery runs. The dashboard reads the identity policy it publishes there (agent, break-glass and human groups, team prefix), so it is never configured twice (empty: `delivery.namespace` when `delivery.enabled`, else `pacto-delivery`) |
@@ -62,6 +65,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `dashboard.httpRoute.hostnames` | `[]` | Hostnames for the HTTPRoute |
 | `dashboard.httpRoute.parentRefs` | `[]` | Parent gateway references |
 | `dashboard.httpRoute.rules` | `[]` | HTTPRoute rules. When empty, a single catch-all rule is generated that routes all traffic to the chart-managed dashboard Service on dashboard.service.port. |
+| `dashboard.index` | `auto` | The organization index the dashboard reads every published service from: `auto` reads `<registry>/pacto-index` when `registry` is set, `none` reads none. The dashboard reads it with `dashboard.ociSecrets` |
 | `dashboard.ingress.annotations` | `{}` | Ingress annotations |
 | `dashboard.ingress.className` | `""` | Ingress class name |
 | `dashboard.ingress.enabled` | `false` | Enable Ingress for the dashboard |

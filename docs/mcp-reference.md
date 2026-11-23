@@ -56,7 +56,11 @@ invocation registers.
 pacto mcp --fleet --k8s --oci ghcr.io/acme/payments-api-pacto:2.1.0
 ```
 
-`--mira-source <url>` adds the calls [Mira](investigate-a-problem.md) saw.
+- `--mira-source <url>` adds the calls [Mira](investigate-a-problem.md) saw.
+- `--backstage-url <url>` adds what a
+  [Backstage catalog](backstage-catalog.md) holds: `pacto_fleet_get` then
+  carries `inferredOwner` and `inferredBusinessDomain`, each with its
+  `source`, `where` and `asOf`. They never fill `owner` or `businessDomain`.
 
 ### Link answers to the dashboard
 

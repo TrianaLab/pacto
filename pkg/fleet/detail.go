@@ -71,6 +71,9 @@ type OwnershipInfo struct {
 	// Source is where an attested owner was read ([ServiceRecord.OwnerSource]),
 	// set only on a service whose owner is attested.
 	Source string `json:"source,omitempty" doc:"Where an attested owner was read: file and line, commit and the CI identity that signed it. Empty for any other provenance"`
+	// Inferred is [ServiceRecord.InferredOwner], set only on a service whose
+	// owner provenance is inferred: presentation only.
+	Inferred *InferredFact `json:"inferred,omitempty" doc:"The owner a source outside every contract reports, set on a service whose owner provenance is inferred"`
 	// Blocked is set only on a revision whose owner the owner rule refused
 	// or could not check ([ownerBlocked]), so its service does not take it.
 	Blocked string `json:"blocked,omitempty" enum:"OWNER_DECLARATION_REFUSED,OWNER_DECLARATION_UNVERIFIED" doc:"Set on a revision whose owner its service does not take: OWNER_DECLARATION_REFUSED when its signer may not set it, OWNER_DECLARATION_UNVERIFIED when the owner rule could not check it. Empty when the owner counts"`
@@ -343,6 +346,9 @@ func keysBounded[V any](m map[string]V, limit int) (keys []string, all bool) {
 type ServiceDetailData struct {
 	Domain    string         `json:"domain,omitempty"`
 	Ownership *OwnershipInfo `json:"ownership,omitempty"`
+	// InferredBusinessDomain is [ServiceRecord.InferredBusinessDomain], set
+	// only when the service declares no business domain: presentation only.
+	InferredBusinessDomain *InferredFact `json:"inferredBusinessDomain,omitempty" doc:"A business domain a source outside every contract reports, set only when the service declares none. Never a domain"`
 	// OwnerRevision is the newest revision that declares an owner, the one the
 	// service owner is taken from and where its contacts are shown. Nil when no
 	// revision declares one (the owner, if any, comes from a target).
@@ -1425,6 +1431,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 	data := &ServiceDetailData{
 		Domain:                 s.Domain,
 		Ownership:              ownership,
+		InferredBusinessDomain: inferredBusinessDomain(s),
 		OwnerRevision:          q.ownerRevision(s),
 		Lifecycle:              serviceLifecycle(newestReadable(view.Revisions)),
 		Capabilities:           stringsPreview(slices.DeleteFunc(q.serviceCapabilities(s), func(c string) bool { return c == "" })),
@@ -2413,6 +2420,9 @@ func (q *Query) entitiesFromSource(key string) []EntityRef {
 func serviceOwnership(snap *FleetSnapshot, s *ServiceRecord) *OwnershipInfo {
 	info := ownerInfo(s.Owner)
 	info.Provenance, info.Source = s.OwnerProvenance, s.OwnerSource
+	if s.OwnerProvenance == OwnerProvenanceInferred {
+		info.Inferred = jsonClone(s.InferredOwner)
+	}
 	var conflicts []string
 	if ownerDisputed(snap, s) {
 		// A conflict is a disagreement of IDENTITY, and it is spelled out with the
@@ -2429,6 +2439,15 @@ func serviceOwnership(snap *FleetSnapshot, s *ServiceRecord) *OwnershipInfo {
 	}
 	info.Conflicts = stringsPreview(conflicts)
 	return info
+}
+
+// inferredBusinessDomain is the business domain a source reports for s, nil
+// when s declares one.
+func inferredBusinessDomain(s *ServiceRecord) *InferredFact {
+	if s.BusinessDomain != "" {
+		return nil
+	}
+	return jsonClone(s.InferredBusinessDomain)
 }
 
 // ownerDisputeRevisions is the revisions behind a service's disputed owner and

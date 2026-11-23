@@ -98,6 +98,18 @@ type Config struct {
 	// StatsRegistry, when set, is the stats repository the Metrics page reads
 	// run records from (PACTO_STATS_REGISTRY).
 	StatsRegistry string
+	// Index is the organization index the dashboard reads every published
+	// service from (PACTO_DASHBOARD_INDEX), <registry>/pacto-index; empty
+	// reads none.
+	Index string
+	// BackstageURL is the Backstage catalog whose owners, systems and
+	// dependencies the dashboard reads as inferred values
+	// (PACTO_DASHBOARD_BACKSTAGE_URL); empty reads none.
+	BackstageURL string
+	// BackstageToken names the Secret, in the operator namespace, holding the
+	// catalog reader token (default key token). The kubelet resolves it into
+	// PACTO_BACKSTAGE_TOKEN; the operator never reads it.
+	BackstageToken KeyRef
 
 	// DeliveryTrust names the ConfigMap, in the operator namespace, holding the
 	// trust config the dashboard verifies delivery records with, so History
