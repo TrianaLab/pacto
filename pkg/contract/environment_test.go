@@ -1,9 +1,30 @@
 package contract
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
+
+// TestEnvironmentFileOmittedWhenEmpty: an environment with no file writes no
+// file key, in YAML or JSON, so a rewrite never adds file: "".
+func TestEnvironmentFileOmittedWhenEmpty(t *testing.T) {
+	e := Environment{Name: "pr-412"}
+	y, err := yaml.Marshal(e)
+	if err != nil || strings.Contains(string(y), "file") {
+		t.Fatalf("yaml: %s %v", y, err)
+	}
+	j, err := json.Marshal(e)
+	if err != nil || strings.Contains(string(j), "file") {
+		t.Fatalf("json: %s %v", j, err)
+	}
+	if j, _ := json.Marshal(Environment{Name: "staging", File: "s.yaml"}); !strings.Contains(string(j), `"file":"s.yaml"`) {
+		t.Fatalf("a set file is written: %s", j)
+	}
+}
 
 func TestEnvironmentExpiresAt(t *testing.T) {
 	if at, ok := (Environment{Expires: "2026-11-20T00:00:00Z"}).ExpiresAt(); !ok || !at.Equal(time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)) {

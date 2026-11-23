@@ -13,14 +13,16 @@ import (
 // Environment names one environment the service runs in and the bundle file
 // holding the configuration values it uses there (pactoVersion 2.3). The file
 // maps a configuration name to that configuration's values, which validation
-// checks against the configuration's schema. Lifetime, Expires and Owner are
+// checks against the configuration's schema. From pactoVersion 2.6 the file
+// is optional: an environment with none adds no values of its own, so each
+// configuration runs on its defaults. Lifetime, Expires and Owner are
 // pactoVersion 2.4: Lifetime is temporary or persistent ("" when not declared,
 // which is never read as persistent), Expires the RFC 3339 time a temporary
 // environment is meant to end, and Owner the team that owns it when that is
 // not the service owner.
 type Environment struct {
 	Name     string `yaml:"name" json:"name"`
-	File     string `yaml:"file" json:"file"`
+	File     string `yaml:"file,omitempty" json:"file,omitempty"`
 	Lifetime string `yaml:"lifetime,omitempty" json:"lifetime,omitempty"`
 	Expires  string `yaml:"expires,omitempty" json:"expires,omitempty"`
 	Owner    *Owner `yaml:"owner,omitempty" json:"owner,omitempty"`

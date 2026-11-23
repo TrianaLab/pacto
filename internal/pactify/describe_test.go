@@ -18,7 +18,7 @@ import (
 // environment the configuration, with no publish section.
 const invoicesContract = `# Written by pacto init from Dockerfile, k8s/configmap.yaml, k8s/deployment.yaml, k8s/service.yaml.
 # Check it, then validate it: pacto validate
-pactoVersion: "2.5"
+pactoVersion: "2.6"
 service:
   name: invoices
   owner:

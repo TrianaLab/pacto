@@ -1492,7 +1492,7 @@ export interface components {
         };
         "Contract.Environment": {
             expires?: string;
-            file: string;
+            file?: string;
             lifetime?: string;
             name: string;
             owner?: components["schemas"]["Contract.Owner"];

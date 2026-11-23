@@ -19,7 +19,7 @@ func behindDoc(name string) string {
 	return "# " + name + " contract\r\npactoVersion: \"" + prevVersion + "\" # as written\r\nservice:\r\n  name: " + name + "\r\n  version: 1.0.0\r\n"
 }
 
-// asBehind is the 2.5 document y declaring prevVersion instead.
+// asBehind is the current document y declaring prevVersion instead.
 func asBehind(y string) string {
 	return strings.Replace(y, strconv.Quote(contract.Current()), strconv.Quote(prevVersion), 1)
 }
@@ -105,12 +105,12 @@ func TestMigrateForCICompletesAfterRaise(t *testing.T) {
 }
 
 // TestMigrateForCIKeepsInferredName: service.name may be left undeclared
-// only from pactoVersion 2.5, so a behind contract without one does not
+// only from pactoVersion 2.5, so a 2.4 contract without one does not
 // validate as written and is kept, its inferred name and the publish
 // refusal naming it intact.
 func TestMigrateForCIKeepsInferredName(t *testing.T) {
 	root := t.TempDir()
-	writeFiles(t, root, map[string]string{"orders/pacto.yaml": "pactoVersion: " + strconv.Quote(prevVersion) + "\nservice:\n  version: 1.0.0\n"})
+	writeFiles(t, root, map[string]string{"orders/pacto.yaml": "pactoVersion: \"2.4\"\nservice:\n  version: 1.0.0\n"})
 	b, nb, m := migrateDir(t, &Service{}, root, "orders")
 	inf, ok := nb.NameInferred()
 	if nb != b || m.State != migrationKept || !ok || nb.Contract.Service.Name != "orders" || inf.Value != "orders" {
@@ -122,13 +122,14 @@ func TestMigrateForCIKeepsInferredName(t *testing.T) {
 }
 
 // TestMigrateForCIInvalidCompletedRecordKeeps: a raised bundle whose
-// completed record does not validate keeps the contract as written. Here
+// completed record does not validate keeps a 2.4 contract, which holds no
+// record, as written. Here
 // the bundle holds another k8s/deploy.yaml than the folder completion
 // reads, so the record cites a digest the bundle does not hold.
 func TestMigrateForCIInvalidCompletedRecordKeeps(t *testing.T) {
 	root := t.TempDir()
 	writeFiles(t, root, map[string]string{
-		"orders/pacto.yaml":      behindDoc("orders"),
+		"orders/pacto.yaml":      strings.Replace(behindDoc("orders"), strconv.Quote(prevVersion), `"2.4"`, 1),
 		"orders/k8s/deploy.yaml": deployment("ghcr.io/acme/orders:1.0"),
 	})
 	dir := filepath.Join(root, "orders")
@@ -141,7 +142,7 @@ func TestMigrateForCIInvalidCompletedRecordKeeps(t *testing.T) {
 		t.Fatal(err)
 	}
 	nb, m := s.migrateForCI(t.Context(), b, dir, root, nil, s.localInputs(dir, ""), nil)
-	if nb != b || m.Reason != "INFERRED_RECORD_INVALID at pacto.inferred.yaml after completion" || m.State != migrationKept || m.To != prevVersion {
+	if nb != b || m.Reason != "INFERRED_RECORD_INVALID at pacto.inferred.yaml after completion" || m.State != migrationKept || m.To != "2.4" {
 		t.Fatalf("migration %+v", m)
 	}
 }

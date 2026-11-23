@@ -423,6 +423,7 @@ func validateEnvironmentFiles(c *contract.Contract, bundleFS fs.FS, result *Vali
 		seen[env.Name] = i
 		path := fmt.Sprintf("environments[%d].file", i)
 		switch {
+		case env.File == "": // 2.6: no values of its own; before 2.6 the schema already refused it
 		case !fs.ValidPath(env.File):
 			result.AddError(path, "FILE_NOT_FOUND", fmt.Sprintf(
 				"environment file %q is not a path in the bundle: write it from the bundle root with no leading / or ./ and no .., such as environments/staging.yaml", env.File))

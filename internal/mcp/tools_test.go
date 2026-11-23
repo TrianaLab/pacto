@@ -610,7 +610,7 @@ func TestSchemaDescribesMinimalContract(t *testing.T) {
 	var schema struct {
 		ID string `json:"$id"`
 	}
-	if err := json.Unmarshal([]byte(parsed.JSONSchema), &schema); err != nil || !strings.HasSuffix(schema.ID, "v2.5") {
+	if err := json.Unmarshal([]byte(parsed.JSONSchema), &schema); err != nil || !strings.HasSuffix(schema.ID, "v2.6") {
 		t.Errorf("schema $id = %q, %v", schema.ID, err)
 	}
 }

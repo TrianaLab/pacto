@@ -424,3 +424,12 @@ func TestComparedEnvironments(t *testing.T) {
 		t.Errorf("one declared environment compares nothing: %v", got)
 	}
 }
+
+// TestFilelessEnvironmentReadsNoFile: an environment with no file reads no
+// file; each configuration is checked on its defaults, so only the required
+// configuration with no valid defaults is reported.
+func TestFilelessEnvironmentReadsNoFile(t *testing.T) {
+	if st := EnvironmentStage(envContract(""), envFS(nil)); codes(st) != "ENVIRONMENT_VALUES_MISSING" || !strings.Contains(st.Errors[0].Message, "configuration chart") {
+		t.Fatalf("got %+v", st.Errors)
+	}
+}

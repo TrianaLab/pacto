@@ -37,7 +37,7 @@ environments:
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Lowercase alphanumeric and hyphens, at most 63 characters. Unique in the contract (`DUPLICATE_ENVIRONMENT_NAME` otherwise) |
-| `file` | string | Yes | Path to a YAML or JSON file, from the bundle root, with no leading `/` or `./` and no `..` (`FILE_NOT_FOUND` otherwise, or when the file is missing) |
+| `file` | string | No (2.6). Yes before 2.6 | Path to a YAML or JSON file, from the bundle root, with no leading `/` or `./` and no `..` (`FILE_NOT_FOUND` otherwise, or when the file is missing) |
 | `lifetime` | string | No | `temporary` or `persistent`. Needs `pactoVersion: "2.4"`. Absent reads "not declared", never persistent |
 | `expires` | string | No | An RFC 3339 time, such as `2026-11-20T00:00:00Z`, and only with `lifetime: temporary` (`INVALID_ENVIRONMENT_EXPIRES`, `ENVIRONMENT_EXPIRES_NOT_TEMPORARY` otherwise). Needs `pactoVersion: "2.4"` |
 | `owner` | object | No | Who owns this environment when it is not the service owner, in the shape of [`service.owner`](sections.md#service) (`team`, `dri`, `contacts`). Needs `pactoVersion: "2.4"` |

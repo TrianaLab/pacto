@@ -1,4 +1,4 @@
-# Field coverage inventory for the Pacto v2.5 contract schema (2.4 plus the 2.5 additions).
+# Field coverage inventory for the Pacto v2.6 contract schema (2.5 with an optional environments[].file).
 #
 # One entry per schema path (dotted, [] for array items) and, under values, one per
 # enum value. pkg/validation/fieldcoverage_test.go walks the schema and fails when a
@@ -29,12 +29,12 @@ fields:
     meaning: Contract format version; selects the JSON Schema the contract is validated against.
     runtime: not-applicable
     evidence: 'none: the field has no runtime counterpart'
-    rule: parse rejects anything but "2.0", "2.1", "2.2", "2.3", "2.4" and "2.5" before any other layer runs; the
+    rule: parse rejects anything but "2.0", "2.1", "2.2", "2.3", "2.4", "2.5" and "2.6" before any other layer runs; the
       version selects the schema; an absent version is the newest the CLI supports, and pack, push and publish write
       it into the bundled pacto.yaml
     outcomes: PARSE_ERROR when unsupported
-    limitations: 2.0, 2.1, 2.2, 2.3 and 2.4 have their own schemas without the fields later versions add; this
-      inventory walks 2.5, the superset
+    limitations: 2.0, 2.1, 2.2, 2.3, 2.4 and 2.5 have their own schemas without the fields and relaxations later
+      versions add; this inventory walks 2.6, the superset
     tests:
       unit:
       - pkg/contract/parse_test.go:TestParse_UnsupportedVersion
@@ -47,15 +47,17 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/absent-is-current
       e2e: []
     values:
-      '2.5':
-        meaning: the newest Operational Contract format; 2.0, 2.1, 2.2, 2.3 and 2.4 contracts keep working unchanged
+      '2.6':
+        meaning: the newest Operational Contract format; 2.0, 2.1, 2.2, 2.3, 2.4 and 2.5 contracts keep working unchanged
         runtime: static-only
         tests:
           unit:
+          - pkg/validation/structural_test.go:TestValidateStructural_V26AcceptsV25Body
           - pkg/validation/structural_test.go:TestValidateStructural_V25AcceptsV24Body
           - pkg/validation/structural_test.go:TestPactoVersion24
           integration:
           - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.5
           - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.4
           - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.3
           - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.2
@@ -1324,14 +1326,15 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].name/invalid
       e2e: []
   environments[].file:
-    meaning: Bundle file mapping each configuration name to the values this environment uses for it.
+    meaning: Bundle file mapping each configuration name to the values this environment uses for it; optional from 2.6.
     runtime: static-only
     evidence: 'none: the values are checked against each configuration schema when the contract is validated'
     rule: 'cross-field: a path in the bundle and the file exists; environments stage: every configuration it names is declared
       and its values merged over the defaults, a null removing its key, satisfy the schema; a required configuration it omits
-      is satisfied by its defaults'
+      is satisfied by its defaults; absent (2.6): no values of its own, checked on the defaults'
     outcomes: FILE_NOT_FOUND, ENVIRONMENT_UNKNOWN_CONFIGURATION, ENVIRONMENT_VALUES_INVALID, ENVIRONMENT_VALUES_MISSING;
-      ENVIRONMENT_VALUES_UNVERIFIED (warning) for a configuration whose schema is behind a ref
+      ENVIRONMENT_VALUES_UNVERIFIED (warning) for a configuration whose schema is behind a ref; SCHEMA_VIOLATION when
+      absent before 2.6
     limitations: a configuration declared by ref has no schema in the bundle, so its values stay unverified
     tests:
       unit:
@@ -1339,9 +1342,14 @@ fields:
       - pkg/validation/environments_test.go:TestEnvironmentStage_InvalidValueIsLocatedInTheValuesFile
       - pkg/validation/environments_test.go:TestEnvironmentStage_Unverified
       - pkg/validation/environments_test.go:TestEnvironmentStage_NullDeletesAKey
+      - pkg/validation/structural_test.go:TestValidateStructural_V26AllowsFilelessEnvironment
+      - pkg/validation/structural_test.go:TestValidateStructural_V25StillRequiresEnvironmentFile
+      - pkg/contract/environment_test.go:TestEnvironmentFileOmittedWhenEmpty
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/absent
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/absent-before-2.6
       e2e: []
   environments[].lifetime:
     meaning: How long the environment is meant to live, temporary or persistent (pactoVersion 2.4); absent reads not declared,

@@ -36,5 +36,5 @@
 - `invoices: owner: billing, declared in registry (rev sha256:5a54bebec06a)`
 - `invoices: dependencies.ledger: >=2.4.0, accepted in registry (rev sha256:5a54bebec06a)`
 - `invoices: service.version: 0.2.0, derived from 0.1.0 (rev sha256:5a54bebec06a)`
-- `ledger: break accepted for reports (ana@acme.com, ghcr.io/acme/reports@<digest>); expires 2026-12-14 (commit 59b72b83dbeb + 30d, inferred)`
+- `ledger: break accepted for reports (ana@acme.com, ghcr.io/acme/reports@<digest>); expires 2026-12-14 (commit 9d8c7bdc8316 + 30d, inferred)`
 - `payments: baseline unverified in plan mode`

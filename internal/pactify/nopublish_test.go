@@ -23,7 +23,7 @@ func TestInitWritesNoPublishSection(t *testing.T) {
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
 	text := string(raw)
-	if strings.Contains(text, "publish:") || strings.Contains(text, "cosign.key") || !strings.Contains(text, "pactoVersion: \"2.5\"\n") {
+	if strings.Contains(text, "publish:") || strings.Contains(text, "cosign.key") || !strings.Contains(text, "pactoVersion: \"2.6\"\n") {
 		t.Fatalf("pacto.yaml:\n%s", text)
 	}
 	if slices.ContainsFunc(r.Files, func(f File) bool { return f.Path == ".pactoignore" }) || hasLine(r.Next, "signing key") {

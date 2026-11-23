@@ -95,8 +95,12 @@ func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bun
 		e.Line, e.Column = contract.LocateSegments(raw, at)
 		r.Errors = append(r.Errors, e)
 	}
-	raw, err := fs.ReadFile(bundleFS, env.File)
+	var raw []byte
 	var values map[string]any
+	var err error
+	if env.File != "" { // 2.6: no file is no values of its own
+		raw, err = fs.ReadFile(bundleFS, env.File)
+	}
 	if err == nil {
 		values, err = contract.ParseEnvironmentValues(raw)
 	}

@@ -164,7 +164,7 @@ func TestInitDomainFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{`pactoVersion: "2.5"`, "team: billing", "domain: payments"} {
+	for _, s := range []string{`pactoVersion: "2.6"`, "team: billing", "domain: payments"} {
 		if !strings.Contains(string(data), s) {
 			t.Errorf("pacto.yaml lacks %q:\n%s", s, data)
 		}
@@ -286,7 +286,7 @@ func TestInitDeliveryDeclaresEnvironments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{`pactoVersion: "2.5"`, "  - name: test\n    file: environments/test.yaml\n", "  - name: pr-1\n    file: environments/pr-1.yaml\n"} {
+	for _, s := range []string{`pactoVersion: "2.6"`, "  - name: test\n    file: environments/test.yaml\n", "  - name: pr-1\n    file: environments/pr-1.yaml\n"} {
 		if !strings.Contains(string(data), s) {
 			t.Errorf("pacto.yaml lacks %q:\n%s", s, data)
 		}

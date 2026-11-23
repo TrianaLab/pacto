@@ -158,7 +158,7 @@ func checkSecondRunAddsNothing(t *testing.T, opts Options) {
 // publish section, which pacto ci --publish derives.
 const fraudContract = `# Written by pacto init from Dockerfile, k8s/deployment.yaml, k8s/service.yaml.
 # Check it, then see what publishing would do: pacto ci
-pactoVersion: "2.5"
+pactoVersion: "2.6"
 service:
   name: fraud
   owner:
@@ -591,7 +591,7 @@ func TestDeliveryWithoutManifests(t *testing.T) {
 	// A 2.0 contract, the installed base: init says how to reach pacto ci
 	// --publish instead of that there is nothing to add.
 	dir := writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": "pactoVersion: \"2.0\"\nservice: {name: p, version: 1.0.0}\n"})
-	if r, _ := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); !hasLine(r.Next, `pacto.yaml declares no publish section, and pacto ci --publish derives one only for pactoVersion 2.5: set pactoVersion: "2.5"`) {
+	if r, _ := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); !hasLine(r.Next, `pacto.yaml declares no publish section, and pacto ci --publish derives one only from pactoVersion 2.5: set pactoVersion: "2.6"`) {
 		t.Fatalf("next: %v", r.Next)
 	}
 	dir = writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": "pactoVersion: \"2.1\"\nservice: {name: p, version: 1.0.0}\n" +
@@ -991,7 +991,7 @@ func planBlank(t *testing.T, opts Options) (*Result, *contract.Contract) {
 // --publish's to resolve.
 func TestBlankHonoursOwnerDomainRegistry(t *testing.T) {
 	r, c := planBlank(t, Options{Owner: "billing", Domain: "payments", Registry: "oci://ghcr.io/acme/"})
-	if c.PactoVersion != "2.5" || c.Service.Owner.Team != "billing" || c.Service.Domain != "payments" || c.Publish != nil {
+	if c.PactoVersion != "2.6" || c.Service.Owner.Team != "billing" || c.Service.Domain != "payments" || c.Publish != nil {
 		t.Fatalf("contract: %+v", c)
 	}
 	if slices.ContainsFunc(r.Files, func(f File) bool { return f.Path == ".pactoignore" }) {
@@ -1012,7 +1012,7 @@ func TestBlankHonoursOwnerDomainRegistry(t *testing.T) {
 // comment, named in Unknown.
 func TestBlankWithoutOwnerIsUnknown(t *testing.T) {
 	r, c := planBlank(t, Options{})
-	if c.PactoVersion != "2.5" || c.Service.Owner.Team != "" || c.Service.Domain != "" || c.Publish != nil {
+	if c.PactoVersion != "2.6" || c.Service.Owner.Team != "" || c.Service.Domain != "" || c.Publish != nil {
 		t.Fatalf("contract: %+v", c)
 	}
 	if !strings.Contains(file(t, r, "pacto.yaml").Content, "  # owner:\n") || !hasLine(r.Unknown, "owner: no team was given; pass --owner") {
@@ -1057,7 +1057,7 @@ func TestPactifiedWritesDomain(t *testing.T) {
 		t.Fatalf("plan: %+v %v", r, err)
 	}
 	c, err := contract.Parse(strings.NewReader(file(t, r, "pacto.yaml").Content))
-	if err != nil || c.PactoVersion != "2.5" || c.Service.Domain != "payments" {
+	if err != nil || c.PactoVersion != "2.6" || c.Service.Domain != "payments" {
 		t.Fatalf("contract: %+v %v", c, err)
 	}
 }
@@ -1112,20 +1112,20 @@ func checkDeclaredEnvironments(t *testing.T, r *Result, version string, envs ...
 // file.
 func TestDeliveryDeclaresEnvironments(t *testing.T) {
 	r, _ := planBlank(t, Options{Delivery: true, Environments: []string{"test", "pr-1"}})
-	checkDeclaredEnvironments(t, r, "2.5", "test", "pr-1")
+	checkDeclaredEnvironments(t, r, "2.6", "test", "pr-1")
 	r, _ = planBlank(t, Options{Delivery: true, Domain: "payments"})
-	checkDeclaredEnvironments(t, r, "2.5", "test", "prod")
+	checkDeclaredEnvironments(t, r, "2.6", "test", "prod")
 
 	r, err := Init(context.Background(), Options{Dir: fraudDir(t), Owner: "risk", Delivery: true, Plan: true}, os.WriteFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkDeclaredEnvironments(t, r, "2.5", "test", "prod")
+	checkDeclaredEnvironments(t, r, "2.6", "test", "prod")
 	r, err = Init(context.Background(), Options{Dir: fixtureDir(t, "invoices"), Owner: "billing", Domain: "billing", Delivery: true, Environments: []string{"dev"}, Plan: true}, os.WriteFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkDeclaredEnvironments(t, r, "2.5", "dev")
+	checkDeclaredEnvironments(t, r, "2.6", "dev")
 }
 
 // TestDeliveryExistingContractSuggestsEnvironments: a contract already there

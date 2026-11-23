@@ -362,8 +362,8 @@ func (p *planner) existing(data []byte) *contract.Contract {
 	if c.Publish != nil || p.opts.DescribeOnly {
 		return c
 	}
-	if cur, behind := contract.Behind(c.PactoVersion); behind {
-		p.next("pacto.yaml declares no publish section, and pacto ci --publish derives one only for pactoVersion %s: set pactoVersion: %q, or add publish (see Pactify a service in the docs)", cur, cur)
+	if validation.InferredRecordNeedsRaise(c.PactoVersion) {
+		p.next("pacto.yaml declares no publish section, and pacto ci --publish derives one only from pactoVersion 2.5: set pactoVersion: %q, or add publish (see Pactify a service in the docs)", contract.Current())
 	} else if p.opts.Delivery {
 		w := cmp.Or(p.sc.Workload, &discover.Workload{})
 		p.pub, p.pubDerived = p.derivedPub(p.registry(w, p.r.Service)), true

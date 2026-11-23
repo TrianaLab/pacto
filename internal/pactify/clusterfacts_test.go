@@ -236,10 +236,10 @@ func TestClusterKeptRecordNeverClaimedWritten(t *testing.T) {
 	}
 }
 
-func TestClusterDraftIsPacto25(t *testing.T) {
+func TestClusterDraftIsPacto26(t *testing.T) {
 	now := time.Now()
 	r := draftInvoices(t, now, t.TempDir(), true, invoicesShop(now)...)
-	if !strings.Contains(file(t, r, "pacto.yaml").Content, "pactoVersion: \"2.5\"\n") {
+	if !strings.Contains(file(t, r, "pacto.yaml").Content, "pactoVersion: \"2.6\"\n") {
 		t.Fatalf("%s", file(t, r, "pacto.yaml").Content)
 	}
 }

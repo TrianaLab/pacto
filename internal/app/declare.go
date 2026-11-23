@@ -687,14 +687,14 @@ func (pl *declarePlanner) judge(ctx context.Context, tm root.TrustedMaterial, di
 }
 
 // checkBaseline refuses a baseline that names another bundle repository or
-// is below pactoVersion 2.5, which a declaration's record needs.
+// is below pactoVersion 2.5, the first a declaration's record has.
 func (pl *declarePlanner) checkBaseline(base *contract.Bundle) error {
 	if pub := base.Contract.Publish; pub != nil && publish.Repo(pub.Bundle) != pl.repo() {
 		return &DeclareError{Code: codeBundleRepoMismatch, Message: fmt.Sprintf("the baseline declares publish.bundle %s, not %s: declare with the registry it publishes to",
 			publish.Repo(pub.Bundle), pl.repo())}
 	}
-	if v := base.Contract.PactoVersion; v != "2.5" {
-		return &DeclareError{Code: codeBaselineNeedsMigration, Message: "the baseline is at pactoVersion " + v + ", and a declaration needs 2.5: migrate it and publish it first",
+	if v := base.Contract.PactoVersion; contract.Older(v, "2.5") {
+		return &DeclareError{Code: codeBaselineNeedsMigration, Message: "the baseline is at pactoVersion " + v + ", and a declaration needs 2.5 or newer: migrate it and publish it first",
 			CLI: "pacto migrate <dir>"}
 	}
 	return nil
@@ -1010,7 +1010,7 @@ func (pl *declarePlanner) pack(raw []byte, rec *contract.InferredRecord) (*decla
 
 // declarationBundle packs the folder dir as a declaration: every file the
 // .pactoignore keeps but manifests.yaml, with rec as its inferred record, in
-// memory. pacto.yaml must be at pactoVersion 2.5, and the bundle must
+// memory. pacto.yaml must be at pactoVersion 2.5 or newer, and the bundle must
 // validate (the declaration stage included), so an invalid declaration is
 // never signed.
 func declarationBundle(dir string, rec *contract.InferredRecord) (*contract.Bundle, error) {
@@ -1018,8 +1018,8 @@ func declarationBundle(dir string, rec *contract.InferredRecord) (*contract.Bund
 	if err != nil {
 		return nil, err
 	}
-	if v := b.Contract.PactoVersion; v != "2.5" {
-		return nil, fmt.Errorf("a declaration is at pactoVersion 2.5, not %q", v)
+	if v := b.Contract.PactoVersion; contract.Older(v, "2.5") {
+		return nil, fmt.Errorf("a declaration is at pactoVersion 2.5 or newer, not %q", v)
 	}
 	files, err := copyFSWithReplace(contract.WithoutFile(contract.WithoutInferredRecord(b.FS), manifestsFile), "", nil)
 	if err != nil {
