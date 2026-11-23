@@ -236,6 +236,8 @@
     padding: var(--sp-2) var(--sp-2); min-height: var(--touch-min);
     background: none; border: none; border-left: 2px solid transparent;
     color: var(--c-text-2); font: inherit; font-size: var(--text-sm); cursor: pointer;
+    /* An entry names a section, and a title can carry a long id: it wraps in the rail. */
+    overflow-wrap: anywhere;
   }
   .toc-link:hover { color: var(--c-accent); background: var(--c-surface-hover); border-left-color: var(--c-accent); }
   /* The marker APPEARS where there was none and the label thickens: both survive

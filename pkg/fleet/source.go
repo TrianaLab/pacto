@@ -290,6 +290,21 @@ type RawRevision struct {
 	// was planned from (pacto ci), or "". An inferred service.name that
 	// baseline declares is the same service, not a competing claim.
 	Baseline string
+	// Contributor is set only by a source that read the revision from a
+	// producer's contribution repository and verified its signature. Build
+	// reads such a revision as a contributed, inferred service.
+	Contributor *Contributor
+}
+
+// Contributor is the producer whose contribution repository a revision was
+// read from. KeyID is the key that verified its signature; ReadAt is when the
+// source read it and AsOf the signed manifest's created time, zero when
+// unknown. NewerRefused is the newest version of the service the source
+// refused before reading this older one, empty when it read the newest.
+type Contributor struct {
+	Producer, KeyID string
+	ReadAt, AsOf    time.Time
+	NewerRefused    string
 }
 
 // OwnerView is raw as the owner rule reads it, before Build: its service,

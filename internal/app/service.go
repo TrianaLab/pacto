@@ -60,6 +60,9 @@ type Service struct {
 	// indexListings remembers organization index reads and, with no cache
 	// directory, their entries.
 	indexListings indexMemo
+	// contributionsVerified remembers which contributed digests a
+	// producer's key verified, across builds.
+	contributionsVerified verifiedMemo
 	// k8sLast remembers, per kubeconfig context, the last cluster identity
 	// and the last collection of each live source read through it, so a
 	// long-running process serves an unreachable cluster stale.

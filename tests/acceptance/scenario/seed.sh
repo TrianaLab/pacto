@@ -127,6 +127,33 @@ while IFS="$TAB" read -r subject payload sequence envelope_id extra; do
 	fi
 done <"$WORK/evidence"
 
+if [ -n "${PACTO_DEMO_CONTRIBUTION:-}" ]; then
+	echo "== a producer outside Pacto contributes a service and reports a target =="
+	: "${PACTO_DEMO_CONTRIBUTOR:?the producer that contributes}"
+	: "${PACTO_DEMO_CONTRIBUTION_STAMP:?the time its report carries}"
+	# The Evidence Server minted the producer's key into the state volume and
+	# granted it its own contribution path; the key never enters the bundle.
+	key="$PACTO_DEMO_KEYS/$PACTO_DEMO_CONTRIBUTOR.key"
+	[ -f "$key" ] || fail "the Evidence Server minted no key at $key"
+	out=$(pacto push "oci://$PACTO_DEMO_PUBLISH_TO/pacto-inferred/$PACTO_DEMO_CONTRIBUTOR/services" \
+		-p "$PACTO_DEMO_CONTRIBUTION/bundle" --sign-key "$key" 2>&1) || {
+		printf '%s\n' "$out" >&2
+		fail "$PACTO_DEMO_CONTRIBUTOR could not push and sign its contribution"
+	}
+	echo "  $PACTO_DEMO_CONTRIBUTOR contributed its record, signed"
+	# The report is stamped now and sequenced by the time, so every start
+	# reports afresh, as a running producer would.
+	now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+	sed "s/$PACTO_DEMO_CONTRIBUTION_STAMP/$now/g" "$PACTO_DEMO_CONTRIBUTION/workload.json" >"$WORK/contribution.json"
+	pacto evidence sign "$WORK/contribution.json" --key "$key" --key-id "$PACTO_DEMO_CONTRIBUTOR" \
+		--producer "$PACTO_DEMO_CONTRIBUTOR" --sequence "$(date -u +%s)" >"$WORK/contribution.envelope.json"
+	out=$(pacto evidence send "$WORK/contribution.envelope.json" --url "$PACTO_DEMO_EVIDENCE_URL" 2>&1) || {
+		printf '%s\n' "$out" >&2
+		fail "the report $PACTO_DEMO_CONTRIBUTOR signed was not accepted"
+	}
+	echo "  $PACTO_DEMO_CONTRIBUTOR reported its target at $now"
+fi
+
 if [ -n "${PACTO_DEMO_DETECTED:-}" ]; then
 	echo "== record what the demo cluster detected =="
 	# The fixture carries a fixed asOf; stamp it at seed time, or the dashboard

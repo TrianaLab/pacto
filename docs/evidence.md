@@ -155,7 +155,7 @@ The ingestion host mounts five endpoints under `/api/evidence/v1`.
 | `POST /api/evidence/v1/envelopes` | Accept, verify, de-duplicate, evaluate and store one envelope. | `202 Accepted` with `{ id, compliance, findings, acceptedAt }` |
 | `GET /api/evidence/v1/health` | Liveness. Independent of the registry. | `200 OK` with `{ "status": "ok" }` |
 | `GET /api/evidence/v1/ready` | Readiness. `503` until every configured subject resolves and answers native Referrers discovery. | `200 OK` with `{ "status": "ready" }` |
-| `GET /api/evidence/v1/producers` | List the trusted producer ids the host advertises. | `200 OK` with `{ "producers": [ … ] }` |
+| `GET /api/evidence/v1/producers` | List the trusted producer ids the host advertises, the reporting adapters and the producers granted a contribution repository, each with its public keys. | `200 OK` with `{ "producers": [ … ], "adapters": [ … ], "contributors": [ { "producer", "repository", "keys": [ { "keyId", "publicKey" } ] } ] }`; `adapters` and `contributors` are left out when empty |
 | `GET /api/evidence/v1/targets` | The latest accepted report per target for a read-only HTTP evidence source, plus the latest provisioning reports. | `200 OK` with the versioned targets DTO: schema `pacto.dev/evidence-source/v5` when it carries a cluster, `pacto.dev/evidence-source/v4` when it carries `usage` records, `pacto.dev/evidence-source/v3` when it carries `provisioning` records, `pacto.dev/evidence-source/v2` otherwise |
 
 The targets endpoint takes no authentication and lists contract references,
@@ -265,6 +265,18 @@ send an empty EvidenceSet.
   again.
 - `pacto evidence verify` holds no consumer contract, so it checks the
   signature, producer, subject and kind only.
+
+- A contribution grant ([Write a source](write-a-source.md)): an `allowedContractRepos` entry of exactly `<registry>/pacto-inferred/<producerId>`
+  lets the producer contribute signed records to
+  `<registry>/pacto-inferred/<producerId>/services`. `GET
+  /api/evidence/v1/producers` advertises the grant with the producer's public
+  keys.
+- Loading refuses an entry under `pacto-inferred` that names another
+  producer, a deeper path or the bare root.
+- The server refuses an envelope whose contract ref is a contribution with
+  `contract_ref_rejected`: a record is never a compliance subject.
+- The endpoint shares the dashboard's network boundary, so CI reads it over
+  https only.
 
 Loading validates the schema version, identifier grammar, duplicate key ids, contradictory producer bindings, missing or traversing key files and malformed patterns.
 

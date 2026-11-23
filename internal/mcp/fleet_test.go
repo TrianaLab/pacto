@@ -1019,3 +1019,43 @@ func TestMCPFleetGetCarriesLink(t *testing.T) {
 		t.Fatalf("link = %+v\n%s", l, resultText(t, res))
 	}
 }
+
+// pacto_fleet_get hands an agent the producer that contributed a service.
+func TestMCPFleetGetCarriesContribution(t *testing.T) {
+	const repo = "ghcr.io/acme/pacto-inferred/my-idp/services"
+	raw := "pactoVersion: \"2.5\"\nservice:\n  name: checkout\n  version: 0.1.0\n"
+	rev := fleet.RawRevision{
+		Bundle:      &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "checkout", Version: "0.1.0"}}, RawYAML: []byte(raw), FS: fstest.MapFS{}},
+		ResolvedRef: repo + "@sha256:c", Digest: "sha256:c",
+		Contributor: &fleet.Contributor{Producer: "my-idp", KeyID: "k", ReadAt: fixedNow, AsOf: fixedNow.Add(-time.Hour)},
+	}
+	src := fleet.NewMemorySource("evidence", fleet.SourceKindEvidenceHTTP, &fleet.Collection{Revisions: []fleet.RawRevision{rev}})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fixedNow }}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := callHandler(t, fleetGetTool(), fleetGetHandler(fleet.NewQuery(snap)), map[string]any{"service": "checkout"})
+	var out struct {
+		Service struct {
+			Declaration  string `json:"declaration"`
+			Contribution *struct {
+				Producer string `json:"producer"`
+			} `json:"contribution"`
+		} `json:"service"`
+	}
+	decode(t, res, &out)
+	if c := out.Service.Contribution; c == nil || c.Producer != "my-idp" || out.Service.Declaration != fleet.DeclarationInferred {
+		t.Fatalf("service = %+v\n%s", out.Service, resultText(t, res))
+	}
+}
+
+// The pacto_fleet_get description tells an agent a contributed service is a
+// producer's record.
+func TestFleetToolDescriptionNamesContributions(t *testing.T) {
+	d := fleetGetTool().Description
+	for _, want := range []string{"A contributed service is inferred: a producer's record, never a contract", "'contribution'", "'reportedBy'"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("pacto_fleet_get description lacks %q", want)
+		}
+	}
+}

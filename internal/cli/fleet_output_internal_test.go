@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -871,7 +872,7 @@ func TestServiceTargetsMarkLinked(t *testing.T) {
 		{Key: "a", Compliance: "Compliant", Link: &fleet.ObservedLink{Signal: fleet.LinkSignalImageDigest}},
 		{Key: "b", Compliance: "Unknown", Link: &fleet.ObservedLink{Signal: fleet.LinkSignalAnnotation}},
 		{Key: "c", Compliance: "Compliant"},
-	})
+	}, time.Time{})
 	want := "Targets (3):\n" +
 		"  a  compliance=Compliant stale=false (observed: image digest)\n" +
 		"  b  compliance=Unknown stale=false (observed: annotation)\n" +
@@ -879,4 +880,71 @@ func TestServiceTargetsMarkLinked(t *testing.T) {
 	if buf.String() != want {
 		t.Errorf("got:\n%s\nwant:\n%s", buf.String(), want)
 	}
+}
+
+// A contributed service says which producer contributed it, from where and
+// how old the record is.
+func TestFleetGetServicePrintsContribution(t *testing.T) {
+	asOf := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	recorded := asOf.Add(-3 * time.Hour)
+	view := &fleet.ServiceView{Meta: fleet.Meta{AsOf: asOf}, Service: &fleet.ServiceRecord{Name: "checkout", Declaration: fleet.DeclarationInferred,
+		Contribution: &fleet.ServiceContribution{Producer: "my-idp", Ref: "ghcr.io/acme/pacto-inferred/my-idp/services@sha256:ab12", AsOf: &recorded}}}
+	out := printed(t, func(c *cobra.Command) error { return printFleetService(c, view, "text") })
+	want := "Contributed by my-idp from ghcr.io/acme/pacto-inferred/my-idp/services@sha256:ab12, recorded 3h ago; inferred, never clears a gate\n"
+	expect(t, strings.Contains(out, want), "get lacks the contribution line:\n%s", out)
+	view.Service.Contribution = nil
+	out = printed(t, func(c *cobra.Command) error { return printFleetService(c, view, "text") })
+	expect(t, !strings.Contains(out, "Contributed by"), "a service with no contribution names a producer:\n%s", out)
+}
+
+// --json carries the contribution as the fleet holds it.
+func TestFleetGetContributionJSON(t *testing.T) {
+	view := &fleet.ServiceView{Service: &fleet.ServiceRecord{Name: "checkout", Declaration: fleet.DeclarationInferred,
+		Contribution: &fleet.ServiceContribution{Producer: "my-idp", Ref: "r@sha256:a"}}}
+	out := printed(t, func(c *cobra.Command) error { return printFleetService(c, view, "json") })
+	var got struct {
+		Service struct {
+			Contribution struct {
+				Producer string `json:"producer"`
+			} `json:"contribution"`
+		} `json:"service"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil || got.Service.Contribution.Producer != "my-idp" {
+		t.Fatalf("json = %s (%v)", out, err)
+	}
+}
+
+// A service's target rows name the producer that reported each one through
+// an Evidence Server, with its evidence age.
+func TestServiceTargetsPrintReportedBy(t *testing.T) {
+	asOf := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	at := asOf.Add(-3 * time.Minute)
+	var buf bytes.Buffer
+	printServiceTargets(&buf, []*fleet.TargetRecord{
+		{Key: "a", Compliance: "Compliant", Scope: "my-idp", ReportedBy: "my-idp", EvidenceAt: &at},
+		{Key: "b", Compliance: "Unknown", Scope: "my-idp", ReportedBy: "my-idp"},
+		{Key: "c", Compliance: "Compliant", Scope: "acme-idp", Kind: "external", EvidenceAt: &at},
+	}, asOf)
+	want := "Targets (3):\n" +
+		"  a  compliance=Compliant stale=false reportedBy=my-idp evidence=3m\n" +
+		"  b  compliance=Unknown stale=false reportedBy=my-idp evidence=unknown\n" +
+		"  c  compliance=Compliant stale=false\n"
+	if buf.String() != want {
+		t.Errorf("got:\n%s\nwant:\n%s", buf.String(), want)
+	}
+}
+
+// A target an Evidence Server delivered says who reported it after its link;
+// a target-state external target says nothing of the kind.
+func TestFleetGetTargetPrintsReportedBy(t *testing.T) {
+	asOf := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	at := asOf.Add(-3 * time.Minute)
+	tv := &fleet.TargetView{Meta: fleet.Meta{AsOf: asOf}, Target: &fleet.TargetRecord{
+		Key: "my-idp/evidence/checkout", Service: "ledger", Compliance: "Compliant", Scope: "my-idp", ReportedBy: "my-idp", EvidenceAt: &at,
+	}}
+	out := printed(t, func(c *cobra.Command) error { return printFleetTarget(c, tv, "text") })
+	expect(t, strings.Contains(out, "Revision: -\nReported by: my-idp (evidence 3m ago)\nStale:"), "missing reported line:\n%s", out)
+	tv.Target.ReportedBy, tv.Target.Kind, tv.Target.Scope = "", "external", "acme-idp"
+	out = printed(t, func(c *cobra.Command) error { return printFleetTarget(c, tv, "text") })
+	expect(t, !strings.Contains(out, "Reported by"), "a target-state target names a reporter:\n%s", out)
 }

@@ -380,6 +380,9 @@ type ServiceDetailData struct {
 	// ContractCompleteness is the service's contract checklist; nil for a golden
 	// path or an inferred service.
 	ContractCompleteness *ServiceCompleteness `json:"contractCompleteness,omitempty"`
+	// Contribution is the producer's record of a service only contributions
+	// describe; nil for any other service.
+	Contribution *ServiceContribution `json:"contribution,omitempty"`
 	// Summary aggregates the COMPLETE target/revision/edge populations. The
 	// previews below are bounded, so a consumer that needs a proportion or a total
 	// must read it here and never count preview Items.
@@ -758,6 +761,7 @@ type TargetDetailData struct {
 	Revision        *EntityRef      `json:"revision,omitempty"`
 	LinkState       string          `json:"linkState" enum:"exact,inferred,ambiguous,unresolved"`
 	Scope           string          `json:"scope,omitempty"`
+	ReportedBy      string          `json:"reportedBy,omitempty" doc:"The producer that reported this target through an Evidence Server"`
 	Kind            string          `json:"kind,omitempty"`
 	Compliance      string          `json:"compliance" enum:"Compliant,NonCompliant,Unknown,Warning,Invalid,Reference,NotEvaluated"`
 	Coverage        *Coverage       `json:"coverage,omitempty"`
@@ -1401,7 +1405,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		return nil, err
 	}
 	s := view.Service
-	if s.Inferred() {
+	if s.inferredWorkload() {
 		return q.inferredServiceDetail(s), nil
 	}
 	summary, inUse := q.serviceSummary(view)
@@ -1437,6 +1441,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Configurations:         cfgs,
 		InferredFields:         q.inferredPreview(cur),
 		ContractCompleteness:   q.serviceCompleteness(s),
+		Contribution:           s.Contribution,
 		Summary:                summary,
 		// Newest first, in revision chronology: a version list ordered by content
 		// digest is unreadable as history.
@@ -1466,9 +1471,14 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		ReplacesHidden:     view.ReplacesHidden,
 		Fields:             view.Fields,
 	}
+	actions := []string{"open-graph", "compare", "impact"}
+	if s.Contribution != nil {
+		// A contribution has no contract to compare or change.
+		actions = actions[:1]
+	}
 	return &EntityDetail{
 		Meta: q.productMetaWith(conflicts), Entity: self, Status: s.Status,
-		Service: data, Actions: []string{"open-graph", "compare", "impact"}, ReplacedFrom: view.ReplacedFrom,
+		Service: data, Actions: actions, ReplacedFrom: view.ReplacedFrom,
 	}, nil
 }
 
@@ -1544,6 +1554,7 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 		Service:    q.serviceRef(t.ServiceKey),
 		LinkState:  targetLinkState(t),
 		Scope:      t.Scope,
+		ReportedBy: t.ReportedBy,
 		Kind:       t.Kind,
 		Compliance: t.Compliance,
 		Coverage:   t.Coverage,

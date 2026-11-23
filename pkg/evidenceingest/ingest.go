@@ -25,6 +25,7 @@ package evidenceingest
 import (
 	"cmp"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -101,6 +102,16 @@ var (
 // with a complete sha256 digest (ErrContractRefPolicy otherwise). A host's repository allowlist is checked
 // on top at ingest.
 func CheckContractRef(ref string) error { return validateContractRef(ref, nil) }
+
+// underInferred reports whether ref lies below a pacto-inferred repository,
+// where [contract.InferredRef] looks: an external's inferred contract, a
+// producer's contribution or anything else below its grant. None is ever a
+// compliance subject.
+func underInferred(ref string) bool {
+	repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(ref))
+	segs := strings.Split(repo, "/")
+	return len(segs) >= 3 && slices.Contains(segs[2:len(segs)-1], contract.InferredRepository)
+}
 
 // validateContractRef enforces the externally-reported contract-ref policy: an
 // immutable oci:// digest reference (a full, well-formed sha256 digest — not
@@ -270,6 +281,12 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 	// The producer was authenticated by Verify, so its trust entry (with any repo
 	// allowlist) is present.
 	entry, _ := a.trust.Entry(env.Producer.KeyID)
+	if underInferred(env.EvidenceSet.ContractRef) {
+		// A producer's grant is also a contract-repo prefix, so this rule, not
+		// configuration, keeps a contribution (or any repository below the
+		// grant) from ever reading Compliant.
+		return Record{}, fmt.Errorf("%w: a contribution is an inferred record, never a compliance subject", ErrContractRefPolicy)
+	}
 	if err := validateContractRef(env.EvidenceSet.ContractRef, entry.ContractRepos); err != nil {
 		return Record{}, err
 	}
@@ -479,6 +496,9 @@ type Handler struct {
 	// adapters are the producers the trust config allows to report a
 	// provider-scoped kind, listed on GET /producers.
 	adapters []ProducerAdapter
+	// contributors are the producers the trust config grants a contribution
+	// repository, listed on GET /producers with their public keys.
+	contributors []ProducerContributor
 }
 
 // ProducerAdapter is a producer the trust config allows to report
@@ -493,8 +513,59 @@ type ProducerAdapter struct {
 // ProducersResponse is the body of GET /producers. Adapters is additive: an
 // older server sends producers alone.
 type ProducersResponse struct {
-	Producers []string          `json:"producers"`
-	Adapters  []ProducerAdapter `json:"adapters,omitempty"`
+	Producers    []string              `json:"producers"`
+	Adapters     []ProducerAdapter     `json:"adapters,omitempty"`
+	Contributors []ProducerContributor `json:"contributors,omitempty"`
+}
+
+// ProducerContributor is a producer the trust config grants its contribution
+// repository (an allowedContractRepos entry of exactly
+// <registry path>/pacto-inferred/<producerId>), with the public keys a reader
+// verifies its signed records against. The keys are public: whoever reads the
+// targets already trusts this endpoint.
+type ProducerContributor struct {
+	Producer   string           `json:"producer"`
+	Repository string           `json:"repository"`
+	Keys       []ContributorKey `json:"keys"`
+}
+
+// ContributorKey is one key of a contributor: its key id and the base64
+// Ed25519 public key its .pub file holds.
+type ContributorKey struct {
+	KeyID     string `json:"keyId"`
+	PublicKey string `json:"publicKey"`
+}
+
+// ContributorsOf are the producers of ts granted a contribution repository,
+// sorted by producer then repository, each with its keys sorted by key id. A
+// key bound to no producer contributes nothing.
+func ContributorsOf(ts evidenceenvelope.MapTrustStore) []ProducerContributor {
+	byRepo := map[[2]string][]ContributorKey{}
+	for id, e := range ts {
+		for _, prefix := range e.ContractRepos {
+			// The loader already refused every malformed grant, so an error
+			// here is a store built in code and grants nothing.
+			if repo, ok, _ := contract.ContributionGrant(prefix, e.ProducerID); ok {
+				k := [2]string{e.ProducerID, repo}
+				byRepo[k] = append(byRepo[k], ContributorKey{KeyID: id, PublicKey: base64.StdEncoding.EncodeToString(e.PublicKey)})
+			}
+		}
+	}
+	out := make([]ProducerContributor, 0, len(byRepo))
+	for k, keys := range byRepo {
+		slices.SortFunc(keys, func(a, b ContributorKey) int { return cmp.Compare(a.KeyID, b.KeyID) })
+		out = append(out, ProducerContributor{Producer: k[0], Repository: k[1], Keys: keys})
+	}
+	slices.SortFunc(out, func(a, b ProducerContributor) int {
+		return cmp.Or(cmp.Compare(a.Producer, b.Producer), cmp.Compare(a.Repository, b.Repository))
+	})
+	return out
+}
+
+// WithContributors sets the contributors GET /producers lists.
+func (h *Handler) WithContributors(contributors []ProducerContributor) *Handler {
+	h.contributors = contributors
+	return h
 }
 
 // ReportingAdapters are the producers of ts allowed to report a
@@ -609,7 +680,7 @@ func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleProducers(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, ProducersResponse{Producers: h.producers, Adapters: h.adapters})
+	writeJSON(w, http.StatusOK, ProducersResponse{Producers: h.producers, Adapters: h.adapters, Contributors: h.contributors})
 }
 
 // TargetsSchemaVersion identifies the read-only evidence-source DTO wire model.
