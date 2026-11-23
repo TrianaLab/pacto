@@ -153,8 +153,7 @@ at most 32 contributing producers.
 
 An [OCI source](operational-graph-reference.md#sources) adds one
 `Registry <host>` row per registry host it read a contract from. Pacto probes
-each host once per process, with the first contract it resolved there, and
-keeps the answer until the process restarts.
+each host once per process, with the first contract it resolved there.
 
 - **Evidence**: what the probe saw, such as `no Referrers, no _catalog` or
   `Referrers, _catalog`.
@@ -172,10 +171,8 @@ PROVIDER          EVIDENCE                   USED FOR
 Registry ghcr.io  no Referrers, no _catalog  write once tags, index listed by tag
 ```
 
-The `_catalog` answer depends on the credentials the probe sends. The output
-above is anonymous. With a GHCR token, which Pacto finds through `gh auth`,
-GHCR serves `_catalog` with every public repository on ghcr.io, and the row
-reads `no Referrers, _catalog` and `write once tags, index listed by catalog`.
+The output above is anonymous. With a GHCR token, which Pacto finds through
+`gh auth`, GHCR serves `_catalog` and the row reads `no Referrers, _catalog` and `write once tags, index listed by catalog`.
 
 A probe that cannot tell (a network error, a server error, an answer that is
 not an OCI index) is never a mode. The row then reads `capabilities unknown`,
@@ -215,8 +212,7 @@ The **Applier** row (`applier`) appears only when the cluster serves none of
 `kustomize.toolkit.fluxcd.io/v1`, `helm.toolkit.fluxcd.io/v2` and
 `argoproj.io/v1alpha1`: it reads
 `none found`, since nothing would apply what Pacto delivery promotes. A failed
-discovery reads `unavailable`, never `none found`. Where Flux or Argo CD is
-served, their own rows speak. Under profile idp without hardened, its hint
+discovery reads `unavailable`, never `none found`. Under profile idp without hardened, its hint
 proposes one value of the Pacto release you run, at the chart version it
 runs, and nothing else:
 
@@ -286,9 +282,8 @@ in the last minute, its row says `won: the OTLP receiver is off` and the
 receiver's row says which source won. If the receiver saw calls the winner
 misses, the receiver turns back on and both rows say how many.
 
-When the Collector has a Prometheus, prefer the service graph: add the
-connector to the Collector's configuration, keep its other exporters and let
-Prometheus scrape the new one.
+When the Collector has a Prometheus, prefer the service graph connector, and
+let Prometheus scrape the new exporter:
 
 ```yaml
 connectors:
@@ -305,8 +300,7 @@ service:
       exporters: [prometheus]
 ```
 
-Otherwise export traces to the receiver as JSON, next to the exporters the
-pipeline already has:
+Otherwise export traces to the receiver as JSON:
 
 ```yaml
 exporters:
