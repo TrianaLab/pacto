@@ -844,3 +844,35 @@ describe('service page: inferred by Pacto', () => {
     done();
   });
 });
+
+describe('service page: a contributed service', () => {
+  beforeEach(() => detailFn.mockReset());
+  const contribution = { producer: 'my-idp', repository: 'ghcr.io/acme/pacto-inferred/my-idp/services', ref: 'ghcr.io/acme/pacto-inferred/my-idp/services@sha256:ab12' };
+  const contributed = () => ({ ...detail({ contribution }), entity: ref('service', KEY, 'payments', { declaration: 'inferred' }) });
+
+  it('hides its Delivery and owner blocks: a producer record sets no owner and delivers nothing', async () => {
+    const { target, done } = await render(contributed());
+    expect(fact(target, 'service-delivery')).toBeNull();
+    expect(fact(target, 'service-owner')).toBeNull();
+    expect(fact(target, 'service-contract')).toBeTruthy();
+    done();
+  });
+
+  it('calls the producer record a record, and credits its values to the producer', async () => {
+    const field = { field: 'dependencies[fraud]', value: 'fraud', source: 'export.json:1', confidence: 'likely', provenance: 'inferred' };
+    const { target, done } = await render({ ...contributed(), service: { ...contributed().service, inferredFields: preview([field]) } });
+    expect(text(fact(target, 'service-contract')!.querySelector('.se-k'))).toBe('Record');
+    const sec = fact(target, 'service-inferred')!;
+    expect(text(sec.querySelector('summary'))).toContain('Contributed by my-idp');
+    expect(text(sec)).not.toContain('Declare one');
+    expect(text(sec)).not.toContain("service's folder");
+    done();
+  });
+
+  it('keeps both blocks on a declared service', async () => {
+    const { target, done } = await render(detail());
+    expect(fact(target, 'service-delivery')).toBeTruthy();
+    expect(fact(target, 'service-owner')).toBeTruthy();
+    done();
+  });
+});

@@ -186,6 +186,9 @@ type EntityRef struct {
 	// DeclarationUnverified marks an inferred service whose namespace's Pacto
 	// targets Pacto could not read, so a contract may describe it.
 	DeclarationUnverified bool `json:"declarationUnverified,omitempty" doc:"On an inferred service: Pacto could not read the Pacto targets of its namespace, so a contract may describe it"`
+	// ContributedBy is the producer whose contribution alone describes an
+	// inferred service, empty for any other.
+	ContributedBy string `json:"contributedBy,omitempty" doc:"On an inferred service only a producer's contribution describes: that producer"`
 	// NameInferred is where a SERVICE reference's name comes from when no
 	// revision declares it (see ServiceRecord.NameInferred).
 	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
@@ -455,8 +458,11 @@ func serviceEntityRef(s *ServiceRecord) EntityRef {
 		Offering: s.Offering, Summary: s.Summary, OfferingProvenance: s.OfferingProvenance, Template: s.Template,
 		NameInferred: clonePtr(s.NameInferred), Declaration: cmp.Or(s.Declaration, DeclarationDeclared),
 	}
-	if s.Inferred() {
+	if s.inferredWorkload() {
 		ref.Scope, ref.Secondary, ref.DeclarationUnverified = s.Workload.Namespace, s.Workload.Kind, s.Workload.DeclarationUnverified
+	}
+	if s.Contribution != nil {
+		ref.ContributedBy = s.Contribution.Producer
 	}
 	return ref
 }
@@ -913,7 +919,7 @@ func (q *Query) Overview() *Overview {
 	for _, s := range q.snap.Services {
 		if s.Inferred() {
 			sum.InferredServices++
-			sum.InferredUnverified += b2i(s.Workload.DeclarationUnverified)
+			sum.InferredUnverified += b2i(s.inferredWorkload() && s.Workload.DeclarationUnverified)
 			continue
 		}
 		if s.Template {

@@ -716,6 +716,13 @@ const (
 	// disagreeing values for one, so those values were left out. Completeness
 	// is unchanged; a restricted view rebuilds it from the services it shows.
 	LimitationServiceFactAmbiguous = "SERVICE_FACT_AMBIGUOUS"
+	// LimitationContributionRefused: bundles a producer contributed declare
+	// more than a name and version, carry a declaration or sit outside its
+	// contribution repository, so none of them is read.
+	LimitationContributionRefused = "CONTRIBUTION_REFUSED"
+	// LimitationContributionSuperseded: services a producer contributed have
+	// a contract in its installation registry; the contract wins.
+	LimitationContributionSuperseded = "CONTRIBUTION_SUPERSEDED"
 )
 
 // RangeReasonInferredProvider is the [Relationship.RangeReason] of a range
@@ -972,14 +979,45 @@ type ServiceRecord struct {
 	// restricted answer.
 	HiddenCreated int `json:"hiddenCreated,omitempty"`
 	// Declaration says whether a contract describes the service.
-	Declaration string `json:"declaration" enum:"declared,inferred" doc:"declared when a contract revision or a Pacto target describes the service; inferred when Pacto only sees a workload no contract Pacto read describes; workload.declarationUnverified says Pacto could not read the Pacto targets there"`
+	Declaration string `json:"declaration" enum:"declared,inferred" doc:"declared when a contract revision or a Pacto target describes the service; inferred when Pacto only sees a workload no contract Pacto read describes, or only a producer's contribution; workload.declarationUnverified says Pacto could not read the Pacto targets there"`
 	// Workload is what Pacto read from the workload of an inferred service.
 	Workload *InferredWorkload `json:"workload,omitempty"`
+	// Contribution is the newest record a producer contributed for a service
+	// only contributions describe; nil for any other service.
+	Contribution *ServiceContribution `json:"contribution,omitempty" doc:"The newest record a producer contributed for this inferred service, read from its contribution repository; set only when contributions alone describe the service"`
+}
+
+// ServiceContribution is the newest record a producer contributed for a
+// service, as its contribution repository holds it.
+type ServiceContribution struct {
+	Producer   string     `json:"producer" doc:"The producer id the evidence trust config grants the contribution repository"`
+	Repository string     `json:"repository" doc:"The producer's contribution repository, <registry>/pacto-inferred/<producer>/services"`
+	Ref        string     `json:"ref" doc:"The repository@digest of the record read"`
+	KeyID      string     `json:"keyId,omitempty" doc:"The key of the producer that verified the record's signature"`
+	ReadAt     *time.Time `json:"readAt,omitempty" doc:"When Pacto read the record"`
+	AsOf       *time.Time `json:"asOf,omitempty" doc:"When the producer made the record, from its signed manifest; absent when unknown"`
+	Stale      bool       `json:"stale,omitempty" doc:"The record is older than the freshness window, its age is unknown or a newer version was refused"`
+	// NewerRefused is the newest version the reader refused (unsigned,
+	// signed by another key or mis-tagged) before reading this older one.
+	NewerRefused string `json:"newerRefused,omitempty" doc:"A newer version of the record that was refused, so this older one is shown stale"`
 }
 
 // Inferred reports whether Pacto only sees a workload of the service and no
 // contract describes it. A record with no Declaration reads as declared.
 func (s *ServiceRecord) Inferred() bool { return s.Declaration == DeclarationInferred }
+
+// inferredWorkload reports whether s is an inferred service Pacto read from a
+// workload; a service only a producer's contribution describes has none.
+func (s *ServiceRecord) inferredWorkload() bool { return s.Inferred() && s.Workload != nil }
+
+// inferredSource is the source an inferred service was read from: its
+// workload's, else the first that read its contribution.
+func (s *ServiceRecord) inferredSource() string {
+	if s.Workload != nil {
+		return s.Workload.Source
+	}
+	return s.Sources[0]
+}
 
 // InferredWorkload is the workload an inferred service is: where it runs and
 // the image, ports and probes Pacto read, each with the object path it read.
@@ -1151,6 +1189,9 @@ type ContractRevision struct {
 	// that changes after Build. The authority is the per-document digest recorded
 	// in Docs, which every read verifies.
 	bundle *contract.Bundle
+	// contributor is RawRevision.Contributor once Build accepted the
+	// revision as a producer's contribution; nil otherwise.
+	contributor *Contributor
 	// guaranteesUnseen is RawRevision.GuaranteesUnseen; see GuaranteesUnseen.
 	guaranteesUnseen string
 	// docConflict, when non-empty, is why this revision's documents cannot be
@@ -1275,6 +1316,9 @@ type TargetRecord struct {
 	ResolvedRef   string `json:"resolvedRef,omitempty"`
 	Digest        string `json:"digest,omitempty"`
 	Compliance    string `json:"compliance"`
+	// ReportedBy is the producer that reported the target through an
+	// Evidence Server (its Scope); empty for a target any other source read.
+	ReportedBy string `json:"reportedBy,omitempty" doc:"The producer that reported this target through an Evidence Server"`
 	// Owner is the owner the observing source read from the contract it
 	// evaluates (the operator reports it in status.contract.owner). It lets a
 	// fleet with no contract revisions still say who owns the service.
@@ -1734,6 +1778,10 @@ type FleetSnapshot struct {
 	// identity in their repository path, until Build attaches them to their
 	// external systems (see attachInferredProviders).
 	inferredProviders map[ExternalKey][]*ContractRevision
+	// supersededBy is, per producer, the declared services whose contract won
+	// over a service the producer contributed, so a restricted view counts
+	// only the ones it may see.
+	supersededBy map[string][]ServiceKey
 	// declarationSigners is BuildOptions.DeclarationSigners.
 	declarationSigners *DeclarationSignerPolicy
 	// inferredLinkNotes are the limitations replaceByInferredFrom raised
@@ -1860,7 +1908,8 @@ type FleetSnapshot struct {
 	// saw: a graph never labels them declared+observed (see reconcileDeclared).
 	cautionPairs map[[2]ServiceKey]bool
 	// inferredReverse/inferredForward are the adjacency of InferredRelationships
-	// between services, apart from the declared and observed indexes.
+	// and of inferred-record edges between services, apart from the declared
+	// and observed indexes; only a neighbourhood walks them.
 	inferredReverse map[ServiceKey][]ServiceKey
 	inferredForward map[ServiceKey][]ServiceKey
 	// replacedNames are the observed names of the workloads a Pacto target

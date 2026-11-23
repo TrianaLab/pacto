@@ -174,6 +174,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	inferred = replaceByInferredFrom(snap, inferred)
 	inferred = replaceByObservedLink(snap, inferred)
 	revalidateConfigRefs(snap)
+	supersedeContributions(snap)
 	aggregateServices(snap)
 	addInferredServices(snap, inferred)
 	resolveOrigins(snap)
@@ -464,12 +465,14 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	// limitations are still reported at snapshot level, where they belong to the
 	// disagreement rather than to a source.
 	recordProblems := slices.Clone(clusters.problems[i])
+	refused := contributionRefusals{}
 	for _, raw := range col.Revisions {
 		rev, lims := revisionFrom(raw, src.ID(), now)
-		if rev != nil && divertInferredProvider(snap, rev, src.ID()) {
+		if rev != nil && divertRevision(snap, rev, raw, src.ID(), refused) {
 			// An inferred contract is never a service: it becomes its
-			// external system's provider. What reading it could not
-			// establish (its record, say) is still said.
+			// external system's provider. A refused contribution is none
+			// either. What reading it could not establish (its record, say)
+			// is still said.
 			snap.Limitations = append(snap.Limitations, lims...)
 			revCount++
 			continue
@@ -507,9 +510,11 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 		}
 		revCount++
 	}
+	snap.Limitations = append(snap.Limitations, refused.limitations(src.ID())...)
 	for _, raw := range col.Targets {
 		tgt, invalid := targetFrom(raw, src.ID(), now, window, clusters.forTarget(src, col, raw))
 		recordProblems = append(recordProblems, invalid...)
+		tgt.ReportedBy = reportedBy(src, tgt.Scope)
 		if existing := snap.Targets[tgt.Key]; existing != nil {
 			// Same target contributed by another source (e.g. platform inventory
 			// + operator evaluation): merge by field ownership and freshness.
@@ -534,7 +539,9 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	st.Advisory, st.CautionOnly = col.Advisory, col.ObservedCautionOnly
 	snap.Limitations = append(snap.Limitations, stateLims...)
 	snap.Sources = append(snap.Sources, st)
+	before := len(snap.Providers)
 	ingestProviders(snap, src.ID(), col)
+	refused.downgradeRows(snap.Providers[before:])
 	cluster := ""
 	if cl, ok := clusters.resolved[rawClusterID(col, RawTarget{})]; ok {
 		cluster = cl.ID
@@ -2115,6 +2122,9 @@ func aggregateServices(snap *FleetSnapshot) {
 	placed := targetPlacementKnown(snap)
 	for _, s := range snap.Services {
 		s.Declaration = DeclarationDeclared
+		if s.Contribution = serviceContribution(snap, s); s.Contribution != nil {
+			s.Declaration = DeclarationInferred
+		}
 		s.Status = serviceStatus(snap, s)
 		s.NameInferred = nameInferred(snap, s)
 		snap.Limitations = append(snap.Limitations, deriveOwner(snap, s)...)
@@ -2759,6 +2769,11 @@ func serviceStatus(snap *FleetSnapshot, s *ServiceRecord) string {
 			return StatusInvalid
 		}
 	}
+	// A contributed service is never a compliance subject: no target speaks
+	// for it, and no contract was evaluated.
+	if s.Contribution != nil {
+		return StatusUnknown
+	}
 	if st := targetAggregateStatus(snap, s); st != "" {
 		return st
 	}
@@ -2827,7 +2842,16 @@ func buildRelationships(snap *FleetSnapshot, cat *externalcatalog.Catalog) {
 			continue
 		}
 		edges := append(revisionDependencyEdges(snap, cat, rk, rev), revisionReferenceEdges(snap, rk, rev)...)
-		edges = append(edges, revisionInferredEdges(snap, rk, rev)...)
+		inferred := revisionInferredEdges(snap, rk, rev)
+		edges = append(edges, inferred...)
+		if !snap.Services[rev.ServiceKey].Template {
+			// A neighbourhood walks a record's inferred edges as it walks the
+			// runtime ones; impact and gates read neither.
+			for _, e := range inferred {
+				snap.inferredForward[e.FromService] = appendUnique(snap.inferredForward[e.FromService], e.ToService)
+				snap.inferredReverse[e.ToService] = appendUnique(snap.inferredReverse[e.ToService], e.FromService)
+			}
+		}
 		// A golden path consumes nothing: every edge of every one of its
 		// revisions stays out of Relationships, routed by the service.
 		if snap.Services[rev.ServiceKey].Template {
@@ -3247,7 +3271,7 @@ func revisionInferredEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRev
 		if !ok || !closed || name == "" || strings.ContainsAny(name, "[]") || declared[name] || f.External != nil { // an external projects through recordExternalUses
 			continue
 		}
-		to, resolved := resolveDepService(snap, rev.Domain, contract.Dependency{Name: name})
+		to, resolved := resolveDepService(snap, resolveDomain(rev), contract.Dependency{Name: name})
 		if !resolved || to == rev.ServiceKey {
 			continue
 		}

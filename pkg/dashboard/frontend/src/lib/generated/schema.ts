@@ -3585,6 +3585,8 @@ export interface components {
             catalogEntry?: string;
             /** Format: int64 */
             consumers?: number;
+            /** @description On an inferred service only a producer's contribution describes: that producer */
+            contributedBy?: string;
             /** Format: int64 */
             created?: number;
             /** @enum {string} */
@@ -5714,6 +5716,30 @@ export interface components {
             /** @description Every section in its fixed order */
             sections: components["schemas"]["Fleet.CompletenessSection"][] | null;
         };
+        "Fleet.ServiceContribution": {
+            /**
+             * Format: date-time
+             * @description When the producer made the record, from its signed manifest; absent when unknown
+             */
+            asOf?: string;
+            /** @description The key of the producer that verified the record's signature */
+            keyId?: string;
+            /** @description A newer version of the record that was refused, so this older one is shown stale */
+            newerRefused?: string;
+            /** @description The producer id the evidence trust config grants the contribution repository */
+            producer: string;
+            /**
+             * Format: date-time
+             * @description When Pacto read the record
+             */
+            readAt?: string;
+            /** @description The repository@digest of the record read */
+            ref: string;
+            /** @description The producer's contribution repository, <registry>/pacto-inferred/<producer>/services */
+            repository: string;
+            /** @description The record is older than the freshness window, its age is unknown or a newer version was refused */
+            stale?: boolean;
+        };
         "Fleet.ServiceHit": {
             businessDomain?: string;
             businessDomainUnknown?: boolean;
@@ -5747,8 +5773,10 @@ export interface components {
         "Fleet.ServiceRecord": {
             businessDomain?: string;
             businessDomainUnknown?: boolean;
+            /** @description The newest record a producer contributed for this inferred service, read from its contribution repository; set only when contributions alone describe the service */
+            contribution?: components["schemas"]["Fleet.ServiceContribution"];
             /**
-             * @description declared when a contract revision or a Pacto target describes the service; inferred when Pacto only sees a workload no contract Pacto read describes; workload.declarationUnverified says Pacto could not read the Pacto targets there
+             * @description declared when a contract revision or a Pacto target describes the service; inferred when Pacto only sees a workload no contract Pacto read describes, or only a producer's contribution; workload.declarationUnverified says Pacto could not read the Pacto targets there
              * @enum {string}
              */
             declaration: "declared" | "inferred";
@@ -6019,6 +6047,8 @@ export interface components {
             readiness?: components["schemas"]["Readiness.Result"];
             /** Format: date-time */
             reconciledAt?: string;
+            /** @description The producer that reported this target through an Evidence Server */
+            reportedBy?: string;
             requestedRef?: string;
             resolvedRef?: string;
             revisionMatch?: string;
@@ -7858,6 +7888,8 @@ export interface components {
             catalogEntry?: string;
             /** Format: int64 */
             consumers?: number;
+            /** @description On an inferred service only a producer's contribution describes: that producer */
+            contributedBy?: string;
             /** Format: int64 */
             created?: number;
             /** @enum {string} */
@@ -8048,6 +8080,7 @@ export interface components {
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             consumedOfferings: components["schemas"]["ProductOfferingUsesPreview"];
             contractCompleteness?: components["schemas"]["Fleet.ServiceCompleteness"];
+            contribution?: components["schemas"]["Fleet.ServiceContribution"];
             creation?: components["schemas"]["Fleet.CreationStep"][] | null;
             currentRevision?: components["schemas"]["ProductRef"];
             dependencies: components["schemas"]["ProductRefPreview"];
@@ -8156,6 +8189,8 @@ export interface components {
             readiness?: components["schemas"]["Fleet.ProductReadiness"];
             /** Format: date-time */
             reconciledAt?: string;
+            /** @description The producer that reported this target through an Evidence Server */
+            reportedBy?: string;
             revision?: components["schemas"]["ProductRef"];
             scope?: string;
             service: components["schemas"]["ProductRef"];

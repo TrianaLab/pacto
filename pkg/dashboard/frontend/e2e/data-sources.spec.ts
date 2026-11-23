@@ -27,14 +27,15 @@ const FLUX_INSTALL_HINT = 'Set idp.flux.install=true on this Pacto release, at t
 const flat = (s: string | null) => (s ?? '').replace(/\s+/g, ' ').trim();
 
 /**
- * The demo fleet: 12 available (the service-graph trace backend, the linked
- * workloads, the hub's two members and the Backstage catalog among them), 1 partial
+ * The demo fleet: 13 available (the service-graph trace backend, the linked
+ * workloads, the hub's two members, the Backstage catalog and the Evidence Server
+ * among them), 1 partial
  * (registry-mirror), 1 unavailable (edge-cluster), all tallied, plus three advisory
  * partial sources: the mesh (k8s-production-mesh), Jaeger (detected-jaeger) and the
  * OTLP receiver (otlp-receiver). The inventory lists them, and the tallies leave them
  * out: an advisory source that is not available never counts against the fleet.
  */
-const DEMO_SOURCES_TALLIED = 14;
+const DEMO_SOURCES_TALLIED = 15;
 const DEMO_UNTALLIED = ['detected-jaeger', 'k8s-production-mesh', 'otlp-receiver'];
 const DEMO_SOURCES_LISTED = DEMO_SOURCES_TALLIED + DEMO_UNTALLIED.length;
 
@@ -83,7 +84,7 @@ test.describe('the overview leads to the data sources', () => {
     // The trust figure counts the sources by state (one carrier per fact, L3), so the
     // section states no second tally; its chips name the sources and agree with the
     // inventory. Each source that needs a look keeps its own chip; more than three
-    // healthy ones fold into one "12 available" chip. The advisory mesh, Jaeger and OTLP
+    // healthy ones fold into one "13 available" chip. The advisory mesh, Jaeger and OTLP
     // receiver sources are partial and not tallied, so they get no warning chip beside
     // the figure that leaves them out; the inventory lists them.
     await expect(band.locator('.ov-tally')).toHaveCount(0);
@@ -92,7 +93,7 @@ test.describe('the overview leads to the data sources', () => {
     const chips = band.locator('a.sh-chip');
     await expect(chips).toHaveCount(3);
     for (const id of DEMO_UNTALLIED) await expect(band.locator('a.sh-chip', { hasText: id })).toHaveCount(0);
-    await expect(band.getByTestId('sources-healthy')).toHaveText(/12 available/);
+    await expect(band.getByTestId('sources-healthy')).toHaveText(/13 available/);
     await expect(band.getByTestId('sources-healthy')).toHaveAttribute('href', /#\/fleet\/sources\?.*sourceHealth=available/);
     // Least healthy first, so the source that costs you data is the first one read.
     expect(flat(await chips.first().textContent())).toContain('Unavailable');
@@ -203,11 +204,12 @@ test.describe('the inventory says what Pacto detected', () => {
     const block = page.getByTestId('detected-providers');
     await expect(block.getByRole('heading', { level: 2, name: 'Detected providers' })).toBeVisible();
     const rows = block.getByTestId('provider-row');
-    // Fifteen reported rows (the Pacto CRD, the kernel-egress row,
+    // Sixteen reported rows (the Pacto CRD, the kernel-egress row,
     // Kubernetes workloads, the Argo CD, Flux and Helm rows that group the
     // inferred services, the Kargo promotion row, the Istio row of the mesh
     // source, the demo and partner registries and five reporting adapter
-    // rows, one producer's signed and unsigned reports apart), the operator's
+    // rows, one producer's signed and unsigned reports apart, and acme-idp's
+    // producer row from the Evidence Server), the operator's
     // declared Installation row, the thirteen the cluster's operator detected
     // (Datadog, three egress readers, Crossplane and the Backstage catalog among them) and the three trace
     // backends their edge sources report: five show, the
@@ -222,9 +224,9 @@ test.describe('the inventory says what Pacto detected', () => {
     await istio.getByText('Why partial').click();
     await expect(istio.locator('.dp-why li')).toHaveText(['1 namespace without sidecars']);
     await expect(block).toContainText('Pacto CRD');
+    await block.getByRole('button', { name: 'Show all 33 providers' }).click();
+    await expect(rows).toHaveCount(33);
     await expect(block).toContainText('reports provisioning');
-    await block.getByRole('button', { name: 'Show all 32 providers' }).click();
-    await expect(rows).toHaveCount(32);
     await expect(block).toContainText('Kubernetes workloads');
     await expect(block).toContainText('service grouping, repository provenance');
     // One registry serves Referrers and _catalog; the other serves neither,
@@ -232,8 +234,8 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(block).toContainText('Registry demo.pacto.local');
     await expect(block).toContainText('Registry partners.demo.pacto.local');
     await expect(block).toContainText('no Referrers, no _catalog');
-    await expect(rows.nth(15)).not.toHaveClass(/dp-inferred/);
-    await expect(rows.nth(16)).toHaveClass(/dp-inferred/);
+    await expect(rows.nth(16)).not.toHaveClass(/dp-inferred/);
+    await expect(rows.nth(17)).toHaveClass(/dp-inferred/);
     // The running Crossplane is one more inferred row in the same block: its
     // version, what it serves and one provenance mark, never a block of its own.
     const crossplane = rows.filter({ has: page.locator('.dp-name bdi[title="Crossplane"]') });

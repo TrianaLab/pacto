@@ -271,13 +271,18 @@ func buildDemoFleet(src, partnersSrc *EmbedSource, claims ...fleet.RawRevision) 
 	if err != nil {
 		return nil, nil, err
 	}
+	// acme-idp speaks through the open seams (source_contribution.go).
+	evidence, err := demoEvidenceServer(prodCluster)
+	if err != nil {
+		return nil, nil, err
+	}
 	cat, err := demoCatalog()
 	if err != nil {
 		return nil, nil, err
 	}
 	// The hub's approved members (source_clusters.go), each one cluster of its own,
 	// and their link facts.
-	sources := append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection, linked, demoMeshSource(prodCluster, demoNow()), catalogSource},
+	sources := append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection, linked, demoMeshSource(prodCluster, demoNow()), catalogSource, evidence},
 		append(traceSources, append(demoMemberSources(), demoMemberLinks())...)...)
 	snap, err := fleet.Build(context.Background(),
 		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat, DeclarationSigners: demoHandoverSigners()},

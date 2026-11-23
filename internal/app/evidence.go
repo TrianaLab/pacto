@@ -666,7 +666,8 @@ func (s *Service) buildEvidenceHost(opts ServeOptions) (*http.ServeMux, evidence
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		return store.Ready(ctx) == nil
-	}).WithCluster(opts.Cluster).WithAdapters(evidenceingest.ReportingAdapters(trust))
+	}).WithCluster(opts.Cluster).WithAdapters(evidenceingest.ReportingAdapters(trust)).
+		WithContributors(evidenceingest.ContributorsOf(trust))
 	mux := http.NewServeMux()
 	handler.Routes(mux)
 	warn := evidenceHostWarnings{provisioning: unscopedProvisioningKeys(trust)}

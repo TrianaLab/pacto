@@ -54,6 +54,9 @@
   // acceptSigned is the intent a signing login for the accept plan came back with.
   let { detail, deliveryState = 'unknown', refreshTick = 0, miraURL = '', changesQuery = {}, acceptSigned = '' } = $props();
   const d = $derived(detail.service ?? {});
+  // A producer's contribution names no owner and is never delivered: its owner and
+  // Delivery blocks would only offer to set what no contract declares.
+  const contributed = $derived(!!d.contribution);
   // The Delivery section's Stage rows, bound out so the Environments section joins them without a second fetch.
   let deliveryRows = $state([]);
   let deliveryCompleteness = $state('');
@@ -198,11 +201,11 @@
              that disagree leave Pacto unable to tell, and it says so. -->
         <IdentityBadge label={businessDomainLabel(UNKNOWN_DOMAIN)} tone="neutral" title="Pacto cannot tell this service's domain: no readable contract revision names one, and its sources report none they agree on." describe />
       {:else}
-        <IdentityBadge label={businessDomainLabel('')} tone="neutral" title="Its contract declares no service.domain." describe />
+        <IdentityBadge label={businessDomainLabel('')} tone="neutral" title={contributed ? 'The contribution declares no service.domain.' : 'Its contract declares no service.domain.'} describe />
       {/if}
       {#if !bd && d.inferredBusinessDomain}<InferredFact fact={d.inferredBusinessDomain} what="domain" />{/if}
     </div>
-    {#if d.ownership}
+    {#if d.ownership && !contributed}
       <div class="se-fact" data-testid="service-owner">
         <span class="se-k">Owner</span>
         <!-- Both unowned states lead to this service's own `unowned` attention item,
@@ -211,7 +214,7 @@
       </div>
     {/if}
     <div class="se-fact" data-testid="service-contract">
-      <span class="se-k">Contract</span>
+      <span class="se-k">{contributed ? 'Record' : 'Contract'}</span>
       {#if contract}
         <EntityLink ref={inService(contract.ref, self)} showStatus={false} showKind={false} />
         <span class="se-note">{contract.note}</span>
@@ -450,7 +453,7 @@
     {/if}
 
     {#if segmentTotal(readiness) > 0 || signed > 0}
-      <h3 class="t-subsection-title">Contract readiness and signatures</h3>
+      <h3 class="t-subsection-title">{contributed ? 'Readiness and signatures' : 'Contract readiness and signatures'}</h3>
       {#if segmentTotal(readiness) > 0}
         <DistributionBar title="Readiness of known revisions" level={4} description="Readiness is declared and gated per revision." segments={readiness} total={sum.revisions ?? null} />
       {/if}
@@ -524,10 +527,12 @@
       kind={changesQuery.kind ?? ''} offset={changesQuery.offset ?? ''} limit={changesQuery.limit ?? ''} section={changesQuery.section ?? ''} />
   </div>
 
+  {#if !contributed}
   <div class="se-wrap" data-testid="service-delivery">
     <ServiceDelivery service={self} domain={detail.entity?.domain ?? ''} state={deliveryState} {refreshTick}
       bind:rows={deliveryRows} bind:completeness={deliveryCompleteness} bind:listing={deliveryListing} />
   </div>
+  {/if}
 
   <div class="se-grid se-grid--two">
     <PreviewSection title="Revisions in use" total={d.activeRevisions?.total ?? 0} count={d.activeRevisions?.count ?? 0} truncated={d.activeRevisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No running target matches a revision yet." help="The revisions at least one running target is matched to. Newest first.">
@@ -640,10 +645,12 @@
        list (muted, filterable), so this block shows only an unreadable record. -->
   {#if d.inferredFields?.unreadable || (d.inferredFields?.total && !d.fields?.items?.some((f) => f.provenance === 'inferred'))}
     <div class="se-wrap" data-testid="service-inferred">
-      <PreviewSection title="Inferred by Pacto" collapsible open={!!acceptSigned} clip={false} total={d.inferredFields.total} count={d.inferredFields.count ?? 0}
+      <PreviewSection title={contributed ? `Contributed by ${d.contribution.producer}` : 'Inferred by Pacto'} collapsible open={!!acceptSigned} clip={false} total={d.inferredFields.total} count={d.inferredFields.count ?? 0}
         summary={d.inferredFields.unreadable ? 'Could not be read' : ''} tone={d.inferredFields.unreadable ? 'warn' : ''}
         empty="Pacto could not read the inferred record"
-        help="Values Pacto read from the service's folder and keeps apart from the contract. Declare one to make it part of the contract.">
+        help={contributed
+          ? `Values ${d.contribution.producer} recorded in its signed contribution. They stay inferred and never clear a gate.`
+          : "Values Pacto read from the service's folder and keeps apart from the contract. Declare one to make it part of the contract."}>
         <InferredFieldList items={d.inferredFields.items ?? []} total={d.inferredFields.total} unreadable={!!d.inferredFields.unreadable} />
         {#if proposesRanges}<AcceptProposedRanges serviceKey={key} service={self} signed={acceptSigned} />{/if}
       </PreviewSection>

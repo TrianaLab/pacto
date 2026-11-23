@@ -1432,7 +1432,7 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 	}
 	c.Provenance = provenance(hasDeclared, seen)
 	c.Confidence = confidence(node.depth, hasDeclared, contract.IsRange(rel.Compatibility), observedCounted)
-	inferredOnly(&c, node, hasDeclared || seen)
+	inferredOnly(snap, &c, node, hasDeclared || seen)
 	if stale {
 		c.Confidence = ConfidenceUnknown
 	}
@@ -1443,14 +1443,20 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 // and when nothing declared or observed backs the consumer, its provenance and
 // confidence are inferred and its verdict unknown. A record value never feeds
 // a verdict, so an inferred edge can never read compatible or clear a gate.
-func inferredOnly(c *AffectedConsumer, node consumerNode, backed bool) {
+// The record of a producer's contribution older than the freshness window
+// reads stale.
+func inferredOnly(snap *fleet.FleetSnapshot, c *AffectedConsumer, node consumerNode, backed bool) {
 	if !node.inferred {
 		return
 	}
 	c.Via = append(c.Via, fleet.ProvenanceInferred)
+	stale := ""
+	if s := snap.Services[node.key]; s != nil && s.Contribution != nil && s.Contribution.Stale {
+		stale = ", contributed by " + s.Contribution.Producer + " and stale"
+	}
 	for _, is := range node.inferredFrom {
 		c.Evidence = append(c.Evidence, Evidence{Kind: EvidenceInferredRecord, Source: is.Source, Provenance: fleet.ProvenanceInferred,
-			Message: "named by its inferred record, read from " + is.Where})
+			Message: "named by its inferred record, read from " + is.Where + stale})
 	}
 	if !backed {
 		c.Provenance, c.Confidence, c.CompatibilityVerdict = fleet.ProvenanceInferred, ConfidenceInferred, CompatibilityUnknown

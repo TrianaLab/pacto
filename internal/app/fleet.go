@@ -255,7 +255,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		sources = append(sources, fleetsrc.NewTargetStateFileSource(sourceID("target-state", i, len(opts.TargetStateFiles)), path))
 	}
 	// A malformed --detected ref is a usage error, refused before any read.
-	remote, err := httpSources(opts, s.env().now)
+	remote, err := s.httpSources(opts)
 	fp, fpErr := loadFingerprints(opts.Fingerprints)
 	snaps, snapErr := s.targetSnapshotSources(ctx, opts)
 	if err := errors.Join(err, CheckDetectedRef(opts.Detected), fpErr, snapErr); err != nil {
@@ -643,11 +643,28 @@ func TraceFileSources(paths []string) []ObservationSourceSpec {
 
 // httpSources returns the Evidence Server sources, then the Mira sources, then
 // the Backstage catalog source. Every Mira and Backstage URL is checked first:
-// a bad one fails the whole build, like a duplicate source id.
-func httpSources(opts FleetOptions, now func() time.Time) ([]fleet.Source, error) {
+// a bad one fails the whole build, like a duplicate source id. With a
+// bundle store, each Evidence Server source reads the records its producers
+// contribute under the registry roots opts reads, remembering verified
+// digests across builds.
+func (s *Service) httpSources(opts FleetOptions) ([]fleet.Source, error) {
+	now, window := s.env().now, opts.FreshnessWindow
+	if opts.Now != nil {
+		now = opts.Now
+	}
+	if window == 0 {
+		window = fleet.RecentEvidenceWindow
+	}
+	var reader fleetsrc.ContributionReader
+	if s.BundleStore != nil {
+		reader = &contributionReader{Store: s.BundleStore, Registry: s.env().publishRegistry(), Roots: contributionRoots(opts),
+			Now: now, Memo: &s.contributionsVerified}
+	}
 	var sources []fleet.Source
 	for i, url := range opts.EvidenceURLs {
-		sources = append(sources, fleetsrc.NewEvidenceHTTPSource(sourceID("evidence-http", i, len(opts.EvidenceURLs)), url))
+		src := fleetsrc.NewEvidenceHTTPSource(sourceID("evidence-http", i, len(opts.EvidenceURLs)), url)
+		src.Contributions, src.Freshness, src.Now = reader, window, now
+		sources = append(sources, src)
 	}
 	for i, u := range opts.MiraURLs {
 		if err := fleetsrc.CheckSourceURL("mira", u); err != nil {
@@ -663,6 +680,20 @@ func httpSources(opts FleetOptions, now func() time.Time) ([]fleet.Source, error
 		sources = append(sources, src)
 	}
 	return sources, nil
+}
+
+// contributionRoots are the registry roots a producer's contribution
+// repository may live under: every root of the registry refs opts reads.
+func contributionRoots(opts FleetOptions) []string {
+	var roots []string
+	for _, ref := range slices.Concat(opts.OCIRefs, opts.TargetSnapshot) {
+		for _, r := range snapshotRoots(ref) {
+			if !slices.Contains(roots, r) {
+				roots = append(roots, r)
+			}
+		}
+	}
+	return roots
 }
 
 // sourceID returns a stable provenance id, suffixing the index only when more

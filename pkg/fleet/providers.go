@@ -61,6 +61,12 @@ const (
 	// UseReporting: the row's product reports provisioning or usage to Pacto,
 	// the reporting adapters row family.
 	UseReporting = "reporting"
+	// UseReportedTargets: the row's producer reports targets through an
+	// Evidence Server.
+	UseReportedTargets = "reported-targets"
+	// UseContributedRecords: the row's producer contributes inferred
+	// services through its signed records.
+	UseContributedRecords = "contributed-records"
 	// ProviderRegistryPrefix prefixes the id of the row of a registry host an
 	// OCI source read: registry:ghcr.io.
 	ProviderRegistryPrefix = "registry:"
@@ -184,6 +190,9 @@ type Provider struct {
 	// Services are the services whose revisions a registry row's host served;
 	// Restrict drops the row when every one is hidden. Never serialised.
 	Services []ServiceKey `json:"-"`
+	// producer is what a producer row was built from (see [ProducerRow]), so
+	// Build and Restrict can build it again. Never serialised.
+	producer *producerInput
 }
 
 // ProviderObject is one object a provider row's evidence names. Namespace is
@@ -349,6 +358,7 @@ const reportingAdapterID = "reporting-adapter/"
 // the Evidence Server lists those producers to anyone on GET /producers.
 func restrictedProviders(out *FleetSnapshot, rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNames []string, visible func(cluster, namespace string) bool, workloadVisible func(cluster, namespace, kind string) bool, srcClusters map[string]string) []Provider {
 	rows = slices.DeleteFunc(slices.Clone(rows), func(p Provider) bool { return strings.HasPrefix(p.ID, reportingAdapterID) })
+	rows = restrictProducerRows(rows, out.Targets, sourceStates(out.Sources))
 	rows = append(restrictProviders(rows, hiddenSvc, hiddenNames, visible, workloadVisible, out.Clusters, srcClusters), finalizeRows(reportingRows(out.Provisioning), sourceStates(out.Sources))...)
 	slices.SortStableFunc(rows, func(a, b Provider) int { return cmp.Or(cmp.Compare(a.Source, b.Source), cmp.Compare(a.ID, b.ID)) })
 	return rows

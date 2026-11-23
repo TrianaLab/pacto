@@ -1239,6 +1239,31 @@ jq -e '.gate == "unverified" and ([.consumers[] | select(.service == "card-payme
 	fail "pacto impact --changed external:stripe did not name card-payments for attention, unverified, with INFERRED_PROVIDER and no pin: $ext_impact_json"
 pass "pacto impact --changed external:stripe names card-payments for attention and stays unverified"
 
+# A producer outside Pacto, compose-idp, used the open seams from the seed:
+# pacto push --sign-key put its signed record of ledger-sync under
+# registry:5000/demo/pacto-inferred/compose-idp/services, and pacto evidence
+# sign and send reported its target of inventory. The fleet reads both
+# through the Evidence Server, which grants compose-idp its own path: one
+# provider row, a contributed service that is inferred and never declared,
+# and a target that names its producer and the age of its evidence.
+contribution_fleet() { # ARGS...: a pacto fleet command over the Evidence Server and inventory
+	docker compose -p "$PROJ1" exec -T dashboard pacto fleet "$@" --local "" \
+		--evidence-url http://evidence:8686 --oci oci://registry:5000/demo/inventory 2>&1
+}
+prov_json=$(contribution_fleet providers --output-format json) || fail "pacto fleet providers failed: $prov_json"
+jq -e '[.providers[] | select(.id == "producer/compose-idp")] | length == 1 and .[0].status == "available" and .[0].asOf != null and (.[0].usedFor | index("contributed-records")) and (.[0].usedFor | index("reported-targets"))' <<<"$prov_json" >/dev/null ||
+	fail "the providers list no available compose-idp row that contributes records and reports targets: $prov_json"
+ctb_json=$(contribution_fleet get ledger-sync --output-format json) || fail "pacto fleet get ledger-sync failed: $ctb_json"
+jq -e '.service.declaration == "inferred" and .service.contribution.producer == "compose-idp" and .service.contribution.repository == "registry:5000/demo/pacto-inferred/compose-idp/services" and (.service.contribution.stale | not)' <<<"$ctb_json" >/dev/null ||
+	fail "ledger-sync is no current inferred service contributed by compose-idp: $ctb_json"
+inv_json=$(contribution_fleet get inventory --output-format json) || fail "pacto fleet get inventory failed: $inv_json"
+ctb_target=$(jq -r '[.targets[] | select(.reportedBy == "compose-idp" and .evidenceAt != null and (.stale | not))] | if length == 1 then .[0].key else empty end' <<<"$inv_json")
+[ -n "$ctb_target" ] || fail "inventory has no current target compose-idp reported: $inv_json"
+tgt_out=$(contribution_fleet get --target "$ctb_target") || fail "pacto fleet get --target $ctb_target failed: $tgt_out"
+grep -q '^Reported by: compose-idp (evidence [0-9][0-9a-z]* ago)$' <<<"$tgt_out" ||
+	fail "the target $ctb_target does not name compose-idp and the age of its evidence: $tgt_out"
+pass "compose-idp's contributed ledger-sync reads inferred, its inventory target names it with its evidence age and it has one available provider row"
+
 # The Metrics page reads the CI run records the seed published to the demo's
 # own registry. Compose runs no delivery, so no record is an operation. The
 # dashboard is shared without sign-in (--allow-anonymous), so it is a restricted

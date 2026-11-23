@@ -25,13 +25,12 @@ import (
 // the registry rows TestDemoRegistryRows's; the grouping rows' evidence is
 // TestDemoGroups's. The mesh source's Istio row is reported too, partial,
 // and left out of the count here: it is TestDemoMeshEdgeAndRow's, as the
-// kernel-egress row is TestDemoEgressRows's.
+// kernel-egress row is TestDemoEgressRows's and the producer row of the
+// Evidence Server TestDemoProducerRow's.
 func TestDemoProviderRows(t *testing.T) {
 	snap := demoFleet(t)
 	reported, reporting := splitReporting(snap.Providers)
-	reported = slices.DeleteFunc(reported, func(p fleet.Provider) bool {
-		return p.Source == demoMeshID || p.ID == fleet.ProviderKernelEgress
-	})
+	reported = slices.DeleteFunc(reported, provedElsewhere)
 	if len(reported) != 6 || len(reporting) != 5 {
 		t.Fatalf("providers = %+v, reporting = %+v, want 6 and 5 rows", reported, reporting)
 	}
@@ -141,6 +140,12 @@ func splitReporting(providers []fleet.Provider) (reported, reporting []fleet.Pro
 	return reported, reporting
 }
 
+// provedElsewhere: the mesh, kernel-egress and Evidence Server rows have
+// tests of their own.
+func provedElsewhere(p fleet.Provider) bool {
+	return p.Source == demoMeshID || p.ID == fleet.ProviderKernelEgress || p.Source == demoEvidenceSource
+}
+
 // demoWorkloadCounts counts what the demo holds per kind: the targets the
 // cluster reports plus the inferred workloads.
 func demoWorkloadCounts(snap *fleet.FleetSnapshot) map[string]int {
@@ -154,7 +159,7 @@ func demoWorkloadCounts(snap *fleet.FleetSnapshot) map[string]int {
 		}
 	}
 	for _, s := range snap.Services {
-		if s.Inferred() {
+		if s.Inferred() && s.Workload != nil { // a contribution names no workload
 			counts[s.Workload.Kind]++
 		}
 	}

@@ -333,7 +333,10 @@ func fleetGetTool() *mcpsdk.Tool {
 			"and 'provider', the inferred contract Pacto published for it, which is never a service. " +
 			"'replaces' lists the inferred services this service replaced when a Pacto target took over their workload or a " +
 			"person's accepted declaration named them ('link'); " +
-			"asked for by such an old key, the answer is the declared service with 'replacedFrom'. " + fleetProvenanceNote + " Read-only.",
+			"asked for by such an old key, the answer is the declared service with 'replacedFrom'. " +
+			"A contributed service is inferred: a producer's record, never a contract; its 'contribution' names the producer, " +
+			"the record read, its 'asOf' and whether it is 'stale', and it never clears a gate. A target's 'reportedBy' names the " +
+			"producer that reported it through an Evidence Server. " + fleetProvenanceNote + " Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"service": {Type: "string", Description: "Logical service name, or external:<identity> for an external system"},
 			"target":  {Type: "string", Description: "Operational target key or name (use instead of service)"},

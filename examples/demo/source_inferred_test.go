@@ -13,7 +13,7 @@ import (
 )
 
 // TestDemoHasInferredServices: the demo reads four workloads no contract
-// describes, and the kernel-style caller legacy-billing stays an uncontracted
+// describes (beside acme-idp's contribution, TestDemoContributionIsInferred's), and the kernel-style caller legacy-billing stays an uncontracted
 // caller of payments-service that links to its inferred entity.
 func TestDemoHasInferredServices(t *testing.T) {
 	snap := demoFleet(t)
@@ -25,7 +25,7 @@ func TestDemoHasInferredServices(t *testing.T) {
 	}
 	inferred := 0
 	for _, s := range snap.Services {
-		if !s.Inferred() {
+		if !s.Inferred() || s.Contribution != nil {
 			continue
 		}
 		inferred++

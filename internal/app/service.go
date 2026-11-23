@@ -63,6 +63,9 @@ type Service struct {
 	// registryListings remembers registry discovery listings and the kinds
 	// of the bundles they classified.
 	registryListings registryMemo
+	// contributionsVerified remembers which contributed digests a
+	// producer's key verified, across builds.
+	contributionsVerified verifiedMemo
 	// k8sLast remembers, per kubeconfig context, the last cluster identity
 	// and the last collection of each live source read through it, so a
 	// long-running process serves an unreachable cluster stale.

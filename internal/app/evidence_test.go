@@ -1869,3 +1869,40 @@ func TestServeEvidenceWarnsContractUnscopedKeysWithPrefix(t *testing.T) {
 		t.Errorf("log = %q, nothing to warn about with no prefix", out)
 	}
 }
+
+// The Evidence Server advertises each producer the trust config grants its
+// contribution repository, with that producer's public keys, on /producers.
+func TestServeEvidenceWiresContributors(t *testing.T) {
+	f := serveTestFixtures(t)
+	dir := t.TempDir()
+	kp, err := (&Service{}).GenerateKey(dir, "", "idp-key", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "trust.yaml")
+	if err := os.WriteFile(cfg, []byte(`apiVersion: pacto.dev/evidence-trust/v1
+keys:
+  - keyId: idp-2026
+    producerId: my-idp
+    publicKeyFile: idp-key.pub
+    allowedContractRepos:
+      - ghcr.io/acme/contracts
+      - ghcr.io/acme/pacto-inferred/my-idp
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mux, _, err := f.svc.buildEvidenceHost(ServeOptions{TrustPath: cfg, Subjects: []string{f.subject}, Producers: []string{"my-idp"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, evidenceingest.ProducersPath, nil))
+	pub, err := os.ReadFile(kp.PublicKeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `"contributors":[{"producer":"my-idp","repository":"ghcr.io/acme/pacto-inferred/my-idp/services","keys":[{"keyId":"idp-2026","publicKey":"` + strings.TrimSpace(string(pub)) + `"}]}]`
+	if body := rec.Body.String(); !strings.Contains(body, want) {
+		t.Errorf("producers body = %s, want %s", body, want)
+	}
+}

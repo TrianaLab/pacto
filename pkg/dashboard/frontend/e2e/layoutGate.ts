@@ -340,7 +340,17 @@ export function installScaleFixture(): void {
         hint: `exporters: {otlphttp/pacto: {endpoint: "http://pacto-dashboard.${'n'.repeat(63)}:4318", encoding: json}}`,
         limitations: [{ code: 'EDGE_SOURCE_PARTIAL', source: 'otlp-receiver', message: `not exporting to pacto-dashboard.${'n'.repeat(63)}:4318; ${longName('requests-used-protobuf-set-encoding-json')}` }],
       });
-      doc.total = 36;
+      // A producer's row (509-S11): a 200-character producer id and a 300-character
+      // contribution repository, stale with its reason, both uses at once.
+      const producer = longName('producer-acme-idp').padEnd(200, 'p').slice(0, 200);
+      const contributions = `registry.example.com/${longName('contributions-org')}/pacto-inferred/${producer}/services`.padEnd(300, 'c').slice(0, 300);
+      (doc.providers as Record<string, unknown>[]).push({
+        id: `producer/${producer}`, source: 'evidence-server', name: producer, cluster: clusters[0], status: 'stale', asOf: new Date(Date.now() - 40 * 86_400_000).toISOString(),
+        usedFor: ['reported-targets', 'contributed-records'],
+        evidence: `reports targets through the Evidence Server; newest report 40d ago; contributes inferred services from ${contributions}`,
+        limitations: [{ code: 'PROVIDER_SOURCE_DEGRADED', message: 'recorded 40d ago' }],
+      });
+      doc.total = 37;
       const meta = doc.meta as Record<string, unknown>;
       meta.sources = [...((meta.sources as unknown[] | undefined) ?? []), ...Array.from({ length: 6 }, (_, i) => ({
         id: longName(`unreadable-cluster-${i}`), kind: 'kubernetes', status: 'unavailable', revisionCount: 0, targetCount: 0,
@@ -850,7 +860,18 @@ export function installScaleFixture(): void {
         ] };
       }
     }
+    // A contributed service (509-S11) at its longest: a 200-character producer, a
+    // 300-character repository, its digest ref and a 64-character key id.
+    const contribution = (doc.service as Record<string, unknown> | undefined)?.contribution as Record<string, unknown> | undefined;
+    if (route === '/api/fleet/entities/service' && contribution) {
+      const producer = longName('producer-acme-idp').padEnd(200, 'p').slice(0, 200);
+      const repository = `registry.example.com/${longName('contributions-org')}/pacto-inferred/${producer}/services`.padEnd(300, 'c').slice(0, 300);
+      Object.assign(contribution, { producer, repository, ref: `${repository}@sha256:${'ab12'.repeat(16)}`, keyId: 'k'.repeat(64) });
+    }
     if (route === '/api/fleet/entities/target') {
+      // A target a producer reported (509-S11), its producer at 200 characters.
+      const t = doc.target as Record<string, unknown> | undefined;
+      if (t?.reportedBy) t.reportedBy = longName('producer-acme-idp').padEnd(200, 'p').slice(0, 200);
       const env = (doc.target as Record<string, unknown> | undefined)?.environment as Record<string, unknown> | undefined;
       if (env?.check) lengthenEnv(env.check as Record<string, unknown>);
       // A cluster name at its longest (63 characters); the UID and the keys stay the engine's.
@@ -1174,7 +1195,8 @@ export function installScaleFixture(): void {
     // An inferred service at its longest: a 63-character namespace, a 253-character
     // name, a digest image, 20 ports, three probes with long paths, a 200-character
     // `from` path and calls at the detail preview bound (200), truncated.
-    if (route === '/api/fleet/entities/service' && (doc.entity as { declaration?: string } | undefined)?.declaration === 'inferred') {
+    if (route === '/api/fleet/entities/service' && (doc.entity as { declaration?: string } | undefined)?.declaration === 'inferred'
+      && !(doc.service as Record<string, unknown>).contribution) { // a contribution names no workload
       const svc = doc.service as Record<string, unknown>;
       const ns = 'paymentsproductionnortheuropewestonealphabravocharliedeltaecho1';
       const name = `legacy-billing-${'reconciliation-settlement-ledger-export-'.repeat(7)}`.slice(0, 253);
@@ -3400,6 +3422,9 @@ export const ROUTES: Route[] = [
     },
   },
   { name: 'service replaced inferred', hash: '#/fleet/services/experiment-service' },
+  // 509-S11: a producer's contributed service and a target it reported.
+  { name: 'contributed service', hash: `#/fleet/services/${encodeURIComponent('registry.example%2Fstory%2Fpacto-inferred%2Facme-idp/ledger-sync')}` },
+  { name: 'reported target', hash: `#/fleet/targets/${encodeURIComponent('acme-idp/external/fraud')}` },
   { name: 'target linked', hash: `#/fleet/targets/${encodeURIComponent('growth/kubernetes/Deployment%2Fcampaigns')}` },
   { name: 'replaced inferred key', hash: `#/fleet/services/${encodeURIComponent('k8s:5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fprod%2FDeployment%2Fexperiments')}` },
   {

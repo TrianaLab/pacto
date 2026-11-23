@@ -388,7 +388,7 @@ func eventConsumer(snap *fleet.FleetSnapshot, subject fleet.ServiceKey, node con
 	declared := hasDeclared || len(refs) > 0
 	c.Provenance = provenance(declared, seen)
 	c.Confidence = confidence(node.depth, declared, contract.IsRange(rel.Compatibility), observedFresh)
-	inferredOnly(&c, node, declared || seen)
+	inferredOnly(snap, &c, node, declared || seen)
 	if stale {
 		c.Confidence = ConfidenceUnknown
 	}

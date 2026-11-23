@@ -67,12 +67,15 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 		printInferredDomain(w, s)
 		_, _ = fmt.Fprintf(w, "Status: %s\n", orDash(s.Status))
 		_, _ = fmt.Fprintf(w, "Sources: %v\n", s.Sources)
+		if s.Contribution != nil {
+			_, _ = fmt.Fprintln(w, s.Contribution.Line(sv.Meta.AsOf))
+		}
 		if s.Workload != nil {
 			_, _ = fmt.Fprintln(w, strings.Join(s.Workload.Lines(), "\n"))
 		}
 		printFields(w, sv.Fields, sv.ReplacesHidden)
 		printRevisions(w, sv.Revisions)
-		printServiceTargets(w, sv.Targets)
+		printServiceTargets(w, sv.Targets, sv.Meta.AsOf)
 		printServiceEdges(w, sv)
 		warnPartial(cmd, sv.Meta)
 		return nil
@@ -168,14 +171,27 @@ func printRevisions(w io.Writer, revs []*fleet.ContractRevision) {
 	}
 }
 
-func printServiceTargets(w io.Writer, targets []*fleet.TargetRecord) {
+func printServiceTargets(w io.Writer, targets []*fleet.TargetRecord, asOf time.Time) {
 	if len(targets) == 0 {
 		return
 	}
 	_, _ = fmt.Fprintf(w, "Targets (%d):\n", len(targets))
 	for _, t := range targets {
-		_, _ = fmt.Fprintf(w, "  %s  compliance=%s stale=%t%s\n", t.Key, t.Compliance, t.Stale, linkedMark(t.Link))
+		_, _ = fmt.Fprintf(w, "  %s  compliance=%s stale=%t%s%s\n", t.Key, t.Compliance, t.Stale, reportedMark(t, asOf), linkedMark(t.Link))
 	}
+}
+
+// reportedMark names the producer that reported a target through an
+// Evidence Server and its evidence age, or nothing.
+func reportedMark(t *fleet.TargetRecord, asOf time.Time) string {
+	if t.ReportedBy == "" {
+		return ""
+	}
+	age := "unknown"
+	if t.EvidenceAt != nil {
+		age = fleet.Age(asOf.Sub(*t.EvidenceAt))
+	}
+	return " reportedBy=" + t.ReportedBy + " evidence=" + age
 }
 
 // linkedMark names how a target was linked with no Pacto, or nothing.
@@ -357,6 +373,9 @@ func printFleetTarget(cmd *cobra.Command, tv *fleet.TargetView, format string) e
 		_, _ = fmt.Fprintf(w, "Revision: %s\n", rev)
 		if t.Link != nil {
 			_, _ = fmt.Fprintf(w, "Linked: %s\n", t.Link.Line(tv.Meta.AsOf))
+		}
+		if l := t.ReportedLine(tv.Meta.AsOf); l != "" {
+			_, _ = fmt.Fprintln(w, l)
 		}
 		_, _ = fmt.Fprintf(w, "Stale: %t\n", t.Stale)
 		if t.Coverage != nil {
