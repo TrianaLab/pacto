@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // TestClustersWireKeys pins the JSON keys of clusters.json, which the
@@ -123,6 +125,7 @@ func TestInventoryByteCutReachesEntry(t *testing.T) {
 func TestClustersFitByteBound(t *testing.T) {
 	c, _ := Inventory(InventoryInput{Sources: []string{SourceArgoCD}, Granted: []string{"argocd"}, Argo: many(200)})
 	for i := range c.Candidates {
+		c.Candidates[i].Labels = map[string]string{}
 		for j := range MaxCandidateLabels {
 			c.Candidates[i].Labels[fmt.Sprint("l", j)] = strings.Repeat("y", 200)
 		}
@@ -140,6 +143,7 @@ func TestClustersFitByteBound(t *testing.T) {
 	c, _ = Inventory(InventoryInput{Sources: []string{SourceArgoCD}, Granted: []string{"argocd"}, Argo: many(250)})
 	c.Sources[0].Reason = "labels not read; " + c.Sources[0].Reason
 	for i := range c.Candidates {
+		c.Candidates[i].Labels = map[string]string{}
 		for j := range MaxCandidateLabels {
 			c.Candidates[i].Labels[fmt.Sprint("l", j)] = strings.Repeat("y", 200)
 		}
@@ -335,5 +339,91 @@ func TestClustersFromKeepsOneSource(t *testing.T) {
 	}
 	if got := c.From(SourceFlux); got != nil {
 		t.Errorf("From(flux) = %+v", got)
+	}
+}
+
+// TestArgoSourcePartialWhenAControlPlaneNamespaceIsNotGranted: a granted
+// namespace other than Argo CD's own leaves its cluster Secrets unread, so
+// the argocd source itself is partial, as is a failed control-plane read.
+func TestArgoSourcePartialWhenAControlPlaneNamespaceIsNotGranted(t *testing.T) {
+	c, _ := Inventory(InventoryInput{Sources: []string{SourceArgoCD}, Granted: []string{"flux-system"}, ArgoControl: []string{"argocd", "argocd"}})
+	if s := c.Sources[0]; s.Completeness != Partial || s.Reason != "Secret reads are not granted in argocd" || !reflect.DeepEqual(s.ControlPlane, []string{"argocd"}) {
+		t.Errorf("ungranted = %+v", s)
+	}
+	c, _ = Inventory(InventoryInput{Sources: []string{SourceArgoCD}, Granted: []string{"argocd"}, ArgoControlErr: errors.New("Forbidden")})
+	if s := c.Sources[0]; s.Completeness != Partial || !strings.Contains(s.Reason, "control-plane namespaces could not be read: Forbidden") {
+		t.Errorf("control plane unread = %+v", s)
+	}
+	if c, _ := Inventory(InventoryInput{Sources: []string{SourceArgoCD}, Granted: []string{"argocd"}, ArgoControl: []string{"argocd"}}); c.Sources[0].Completeness != Complete {
+		t.Errorf("granted = %+v", c.Sources[0])
+	}
+}
+
+// TestFailedSecretNamespaceKeepsTheOthers: one granted namespace whose list
+// failed leaves the Secrets read elsewhere, marks argocd partial naming it and
+// leaves the Flux refs there unlabelled.
+func TestFailedSecretNamespaceKeepsTheOthers(t *testing.T) {
+	c, _ := Inventory(InventoryInput{Sources: []string{SourceArgoCD, SourceFlux}, Granted: []string{"argocd", "flux-system"},
+		Argo:       []Meta{{Kind: "Secret", Namespace: "argocd", Name: "eu"}},
+		SecretErrs: map[string]error{"flux-system": errors.New("Forbidden")},
+		FluxRefs:   []KubeConfigRef{{Kind: "Secret", Namespace: "flux-system", Name: "us"}}})
+	argo, _ := c.Source(SourceArgoCD)
+	flux, _ := c.Source(SourceFlux)
+	if len(c.From(SourceArgoCD)) != 1 || argo.Completeness != Partial || argo.Reason != "Secrets not read in flux-system: Forbidden" ||
+		flux.Completeness != Partial || flux.Reason != "labels not read in flux-system" {
+		t.Errorf("sources = %+v, candidates = %+v", c.Sources, c.Candidates)
+	}
+	if _, ok := c.Source(SourceCAPI); ok {
+		t.Error("an unread source is found")
+	}
+}
+
+// TestScopedInstallLeavesArgoAndFluxPartial: a namespace-list install reads
+// Argo CD and Flux only in the watched namespaces.
+func TestScopedInstallLeavesArgoAndFluxPartial(t *testing.T) {
+	c, e := Inventory(InventoryInput{Sources: []string{SourceFlux, SourceArgoCD, SourceCAPI}, Granted: []string{"argocd"}, Scoped: "read only the watched namespaces"})
+	for _, s := range c.Sources {
+		if want := s.Source != SourceCAPI; (s.Completeness == Partial) != want || want && s.Reason != "read only the watched namespaces" {
+			t.Errorf("%s = %+v", s.Source, s)
+		}
+	}
+	if e.Completeness != Partial {
+		t.Errorf("entry = %+v", e)
+	}
+}
+
+// TestInventoryEntryOfClusterWideReadsIsClusterScoped: Cluster API, OCM and
+// Rancher counts come from cluster-wide reads, so the row is cluster-scoped
+// and restriction hides its details; Secret and Flux reads alone are not.
+func TestInventoryEntryOfClusterWideReadsIsClusterScoped(t *testing.T) {
+	for _, src := range []string{SourceCAPI, SourceOCM, SourceRancher} {
+		if _, e := Inventory(InventoryInput{Sources: []string{SourceArgoCD, src}, Granted: []string{"argocd"}}); e.Scope != fleet.ScopeCluster {
+			t.Errorf("%s: scope %q", src, e.Scope)
+		}
+	}
+	if _, e := Inventory(InventoryInput{Sources: []string{SourceArgoCD, SourceFlux}, Granted: []string{"argocd"}}); e.Scope != "" {
+		t.Errorf("namespaced reads: scope %q", e.Scope)
+	}
+}
+
+// TestLabelCapKeepsEnvironmentLabelsAndSaysSo: an environment label survives
+// the cap even when 16 others sort first, and the source says labels were cut.
+func TestLabelCapKeepsEnvironmentLabelsAndSaysSo(t *testing.T) {
+	labels := map[string]string{"env": "prod"}
+	for i := range MaxCandidateLabels + 2 {
+		labels[fmt.Sprintf("app.kubernetes.io/l%02d", i)] = "x"
+	}
+	c, _ := Inventory(InventoryInput{Sources: []string{SourceArgoCD}, Granted: []string{"argocd"},
+		Argo: []Meta{{Kind: "Secret", Namespace: "argocd", Name: "eu", Labels: labels}, {Kind: "Secret", Namespace: "argocd", Name: "us"}}})
+	got := c.From(SourceArgoCD)[0].Labels
+	if len(got) != MaxCandidateLabels || got["env"] != "prod" {
+		t.Errorf("labels = %v", got)
+	}
+	if s := c.Sources[0]; s.Completeness != Partial || s.Reason != "labels cut to 16 on 1 candidates" {
+		t.Errorf("source = %+v", s)
+	}
+	b, _ := EncodeClusters(c)
+	if again := decodeClusters(t, b); again.Sources[0].Reason != "labels cut to 16 on 1 candidates" {
+		t.Errorf("re-encoded = %+v", again.Sources[0])
 	}
 }

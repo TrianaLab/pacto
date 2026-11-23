@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // ClustersConfigMapKey is the key of the operator's detected ConfigMap that
@@ -50,6 +52,15 @@ type Clusters struct {
 	Total int `json:"total"`
 }
 
+// Source is how c read source, and whether it read it at all.
+func (c Clusters) Source(source string) (InventorySource, bool) {
+	i := slices.IndexFunc(c.Sources, func(s InventorySource) bool { return s.Source == source })
+	if i < 0 {
+		return InventorySource{}, false
+	}
+	return c.Sources[i], true
+}
+
 // From are the candidates of c from source.
 func (c Clusters) From(source string) []Candidate {
 	var out []Candidate
@@ -62,12 +73,15 @@ func (c Clusters) From(source string) []Candidate {
 }
 
 // InventorySource is how one source was read: completeness, why it is short
-// of complete and the namespaces it was read in.
+// of complete and the namespaces it was read in. ControlPlane, for Argo CD,
+// are the namespaces its controllers run in, where a generated ApplicationSet
+// belongs.
 type InventorySource struct {
 	Source       string   `json:"source"`
 	Completeness string   `json:"completeness"`
 	Reason       string   `json:"reason,omitempty"`
 	Namespaces   []string `json:"namespaces,omitempty"`
+	ControlPlane []string `json:"controlPlane,omitempty"`
 }
 
 // Candidate is one cluster an inventory source knows. UID is set only when
@@ -127,11 +141,14 @@ type Meta struct {
 }
 
 // InventoryInput is what one inventory read found. Sources are the sources
-// read (their API is served); Errs holds why a source failed, keyed by
-// source. Argo holds the labelled cluster Secrets of the Granted namespaces
-// and Secrets every Secret of them by namespace/name; FluxRefs are the
-// kubeconfig refs of Flux objects. Proposed are the namespaces the operator
-// would read Secrets in.
+// read (their API is served, or discovery could not tell); Errs holds why a
+// source failed, keyed by source. Argo holds the labelled cluster Secrets of
+// the Granted namespaces and Secrets every Secret of them by namespace/name;
+// SecretErrs why the Secrets of a granted namespace were not listed. FluxRefs
+// are the kubeconfig refs of Flux objects. ArgoControl are the namespaces
+// Argo CD's controllers run in, ArgoControlErr why they were not read.
+// Proposed are the namespaces the operator would read Secrets in. Scoped,
+// when set, is why Argo CD and Flux were read only in part of the cluster.
 type InventoryInput struct {
 	AsOf               time.Time
 	Cluster            string
@@ -140,10 +157,14 @@ type InventoryInput struct {
 	Argo               []Meta
 	FluxRefs           []KubeConfigRef
 	Secrets            map[string]Meta
+	SecretErrs         map[string]error
 	CAPI, OCM, Rancher []Meta
 	Errs               map[string]error
+	ArgoControl        []string
+	ArgoControlErr     error
 	Proposed           []string
 	Hardened           bool
+	Scoped             string
 }
 
 // Inventory builds the candidates of in and the cluster-inventory entry that
@@ -164,10 +185,17 @@ func Inventory(in InventoryInput) (Clusters, Entry) {
 			}
 		}
 		if src == SourceArgoCD {
-			s.Namespaces = slices.Clone(in.Granted)
-			if len(in.Granted) == 0 && s.Completeness != Unknown {
+			s.Namespaces, s.ControlPlane = slices.Clone(in.Granted), sortedSet(in.ArgoControl)
+			switch {
+			case s.Completeness == Unknown:
+			case len(in.Granted) == 0:
 				s.Completeness, s.Reason = Unknown, "no namespace is granted for Secret reads"
+			default:
+				s = partialFor(s, argoGaps(in))
 			}
+		}
+		if (src == SourceArgoCD || src == SourceFlux) && s.Completeness != Unknown {
+			s = partialFor(s, in.Scoped)
 		}
 		c.Sources = append(c.Sources, s)
 	}
@@ -175,6 +203,39 @@ func Inventory(in InventoryInput) (Clusters, Entry) {
 	// read partial in the entry too.
 	_, _ = boundClusters(&c)
 	return c, inventoryEntry(c, in)
+}
+
+// partialFor is s, partial with why added when why is set.
+func partialFor(s InventorySource, why string) InventorySource {
+	if why == "" {
+		return s
+	}
+	s.Completeness, s.Reason = Partial, strings.TrimPrefix(s.Reason+"; "+why, "; ")
+	return s
+}
+
+// argoGaps say which Argo CD cluster Secrets a read with granted namespaces
+// left unread: a granted namespace whose list failed, a control-plane
+// namespace not granted, or control-plane namespaces that could not be read.
+func argoGaps(in InventoryInput) string {
+	var why []string
+	if failed := slices.Sorted(maps.Keys(in.SecretErrs)); len(failed) > 0 {
+		why = append(why, "Secrets not read in "+strings.Join(failed, ", ")+": "+in.SecretErrs[failed[0]].Error())
+	}
+	if ungranted := slices.DeleteFunc(sortedSet(in.ArgoControl), func(ns string) bool { return slices.Contains(in.Granted, ns) }); len(ungranted) > 0 {
+		why = append(why, "Secret reads are not granted in "+strings.Join(ungranted, ", "))
+	}
+	if in.ArgoControlErr != nil {
+		why = append(why, "the Argo CD control-plane namespaces could not be read: "+in.ArgoControlErr.Error())
+	}
+	return strings.Join(why, "; ")
+}
+
+// sortedSet is ss sorted, each once.
+func sortedSet(ss []string) []string {
+	out := slices.Clone(ss)
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // sourceCandidates are the candidates src gave and why its read is partial.
@@ -217,7 +278,7 @@ func fluxCandidates(in InventoryInput) ([]Candidate, string) {
 		switch {
 		case ref.Kind != "Secret":
 			m, configMaps = Meta{}, true
-		case in.Errs[SourceArgoCD] != nil || !slices.Contains(in.Granted, ref.Namespace):
+		case in.Errs[SourceArgoCD] != nil || in.SecretErrs[ref.Namespace] != nil || !slices.Contains(in.Granted, ref.Namespace):
 			m = Meta{}
 			unread = append(unread, ref.Namespace)
 		case !ok:
@@ -282,6 +343,11 @@ func inventoryEntry(c Clusters, in InventoryInput) Entry {
 	e := Entry{Kind: inventoryKind, Completeness: Complete, Value: fmt.Sprintf("%d candidate clusters", c.Total), Namespaces: slices.Clone(in.Granted)}
 	var reasons []string
 	for _, s := range c.Sources {
+		// Cluster API, OCM and Rancher are read cluster-wide, so a restricted
+		// reader learns nothing from the row of their counts.
+		if s.Source == SourceCAPI || s.Source == SourceOCM || s.Source == SourceRancher {
+			e.Scope = fleet.ScopeCluster
+		}
 		e.Details = append(e.Details, sourceDetail(s, c.Candidates))
 		if s.Completeness == Unknown || s.Completeness == Partial && e.Completeness == Complete {
 			e.Completeness = s.Completeness
@@ -415,25 +481,48 @@ func sanitizeClusters(c *Clusters) {
 		s := &c.Sources[i]
 		s.Source, s.Completeness, s.Reason = clean(s.Source), clean(s.Completeness), clean(s.Reason)
 		s.Namespaces = cleanAll(slices.Clone(s.Namespaces), MaxNamed)
+		s.ControlPlane = cleanAll(slices.Clone(s.ControlPlane), MaxNamed)
 	}
+	labelCuts := map[string]int{}
 	for i := range c.Candidates {
 		cand := &c.Candidates[i]
 		for _, s := range []*string{&cand.Source, &cand.Kind, &cand.Namespace, &cand.Name, &cand.DisplayName, &cand.UID, &cand.UIDSource} {
 			*s = clean(*s)
+		}
+		if len(cand.Labels) > MaxCandidateLabels {
+			labelCuts[cand.Source]++
 		}
 		cand.Labels = cleanLabels(cand.Labels)
 		if o := cand.KubeConfig; o != nil {
 			cand.KubeConfig = &KubeConfigRef{Kind: clean(o.Kind), Namespace: clean(o.Namespace), Name: clean(o.Name), Key: clean(o.Key)}
 		}
 	}
+	for i := range c.Sources {
+		if n := labelCuts[c.Sources[i].Source]; n > 0 {
+			// Ahead of the reason, so a cut note stays last for cutCandidates.
+			s := &c.Sources[i]
+			if s.Completeness == Complete {
+				s.Completeness = Partial
+			}
+			s.Reason = strings.TrimSuffix(fmt.Sprintf("labels cut to %d on %d candidates; %s", MaxCandidateLabels, n, s.Reason), "; ")
+		}
+	}
 }
 
-// cleanLabels is the first MaxCandidateLabels labels of l by key, cleaned.
+// environmentLabels are the label keys that name an environment, kept ahead
+// of the label cap since a member's inventory environment comes from them.
+var environmentLabels = []string{"env", "environment", fleet.TargetEnvironmentLabel}
+
+// cleanLabels is l's environment labels, then its first labels by key, up to
+// MaxCandidateLabels, cleaned.
 func cleanLabels(l map[string]string) map[string]string {
 	if len(l) == 0 {
 		return nil
 	}
 	keys := slices.Sorted(maps.Keys(l))
+	slices.SortStableFunc(keys, func(a, b string) int {
+		return cmp.Compare(slices.Index(environmentLabels, b), slices.Index(environmentLabels, a))
+	})
 	out := make(map[string]string, min(len(keys), MaxCandidateLabels))
 	for _, k := range capped(keys, MaxCandidateLabels) {
 		out[clean(k)] = clean(l[k])

@@ -278,7 +278,7 @@ func (d *Detector) detect(ctx context.Context) (detect.Result, *detect.Clusters)
 	if e, ok := detect.Applier(fluxServed || helmServed, argoServed, classed(errors.Join(fluxErr, helmErr, argoErr)), idp); ok {
 		res.Entries = append(res.Entries, e)
 	}
-	inv, clusters := d.inventory(ctx, argoServed, fluxServed, helmServed)
+	inv, clusters := d.inventory(ctx, argoServed, fluxServed, helmServed, argoErr, errors.Join(fluxErr, helmErr))
 	res.Entries = append(res.Entries, inv...)
 	res.Entries = append(res.Entries, d.crossplane(ctx))
 	if d.Pieces != nil {

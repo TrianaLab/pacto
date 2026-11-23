@@ -211,9 +211,84 @@ func TestInventoryServedChecksEachGroup(t *testing.T) {
 		t.Errorf("calls %q, sources %+v", f.calls, cl.Sources)
 	}
 	f = &inv{}
-	_, cl, _ = inventoryRun(t, f, func(string) (bool, error) { return false, errors.New("boom") }, InventoryConfig{Enabled: true})
+	_, cl, _ = inventoryRun(t, f, servedOnly(), InventoryConfig{Enabled: true})
 	if len(f.calls) != 0 || len(cl.Sources) != 0 {
 		t.Errorf("nothing served: calls %q, sources %+v", f.calls, cl.Sources)
+	}
+}
+
+// TestInventoryDiscoveryErrorIsUnknown: a source discovery could not check
+// reads unknown, so a rewrite of clusters.json never drops it unsaid.
+func TestInventoryDiscoveryErrorIsUnknown(t *testing.T) {
+	f := &inv{}
+	_, cl, d := inventoryRun(t, f, func(string) (bool, error) { return false, errors.New("boom") }, InventoryConfig{Enabled: true, SecretNamespaces: []string{"argocd"}})
+	got := make([]string, 0, len(cl.Sources))
+	for _, s := range cl.Sources {
+		if s.Completeness != detect.Unknown {
+			t.Errorf("%s = %+v", s.Source, s)
+		}
+		got = append(got, s.Source)
+	}
+	slices.Sort(got)
+	if !reflect.DeepEqual(got, []string{detect.SourceArgoCD, detect.SourceCAPI, detect.SourceFlux, detect.SourceOCM, detect.SourceRancher}) {
+		t.Errorf("sources %q", got)
+	}
+	_, res := readResult(t, d.Writer)
+	if e := entry(t, res, "cluster-inventory"); e.Completeness != detect.Unknown {
+		t.Errorf("entry = %+v", e)
+	}
+	// One Cluster API version unanswerable, the other served: read it.
+	f = &inv{capi: []metav1.PartialObjectMetadata{objMeta("fleet", "eu", nil, nil)}}
+	_, cl, _ = inventoryRun(t, f, func(gv string) (bool, error) {
+		if gv == capiGroup+"/v1beta2" {
+			return false, errors.New("boom")
+		}
+		return gv == capiGroup+"/v1beta1", nil
+	}, InventoryConfig{Enabled: true})
+	if len(cl.Sources) != 1 || cl.Sources[0].Completeness != detect.Complete || len(cl.Candidates) != 1 {
+		t.Errorf("v1beta1 = %+v", cl)
+	}
+}
+
+// TestFailedSecretNamespaceKeepsArgo: a Forbidden list in one granted
+// namespace keeps the Argo CD Secrets read in the other; all failing is unknown.
+func TestFailedSecretNamespaceKeepsArgo(t *testing.T) {
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "secrets"}, "", errors.New("no"))
+	argo := objMeta("argocd", "eu", map[string]string{"argocd.argoproj.io/secret-type": "cluster"}, nil)
+	f := &inv{secrets: map[string][]metav1.PartialObjectMetadata{"argocd": {argo}}}
+	funcs := f.funcs()
+	list := funcs.List
+	funcs.List = func(ctx context.Context, c client.WithWatch, l client.ObjectList, opts ...client.ListOption) error {
+		if o := (&client.ListOptions{}).ApplyOptions(opts); o.Namespace == "flux-system" {
+			return forbidden
+		}
+		return list(ctx, c, l, opts...)
+	}
+	f.t = t
+	c := newClient(funcs, operatorDeployment())
+	d := newDetector(c, servedOnly(argoGV))
+	d.Inventory = InventoryConfig{Enabled: true, SecretNamespaces: []string{"argocd", "flux-system"}}
+	_, cl := d.detect(context.Background())
+	if s := cl.Sources[0]; len(cl.Candidates) != 1 || s.Completeness != detect.Partial || !strings.Contains(s.Reason, "Secrets not read in flux-system") {
+		t.Errorf("sources %+v, candidates %+v", cl.Sources, cl.Candidates)
+	}
+	d.Inventory.SecretNamespaces = []string{"flux-system"}
+	if _, cl := d.detect(context.Background()); cl.Sources[0].Completeness != detect.Unknown {
+		t.Errorf("every namespace failed: %+v", cl.Sources)
+	}
+}
+
+// TestScopedInventoryIsPartial: a namespace-list install lists Flux objects
+// only in the watched namespaces, so the flux source never reads complete.
+func TestScopedInventoryIsPartial(t *testing.T) {
+	f := &inv{t: t}
+	c := newClient(f.funcs(), operatorDeployment())
+	d := newDetector(c, servedOnly(fluxGV), "apps")
+	d.Inventory = InventoryConfig{Enabled: true}
+	d.LastPush = func() *detect.PushResult { return nil }
+	_, cl := d.detect(context.Background())
+	if s := cl.Sources[0]; s.Source != detect.SourceFlux || s.Completeness != detect.Partial || s.Reason != scopedReason {
+		t.Errorf("flux = %+v", cl.Sources)
 	}
 }
 
@@ -272,7 +347,8 @@ func TestProposedNamespacesAreArgoControlPlaneAndFluxRefs(t *testing.T) {
 		return obj
 	}
 	// An Argo CD workload in a tenant namespace proposes nothing: only the two controllers count.
-	f := &inv{ks: []map[string]any{fluxObj("flux-system", "remote", "secretRef", "eu")}}
+	// A ConfigMap kubeconfig needs no Secret grant, so its namespace is not proposed.
+	f := &inv{ks: []map[string]any{fluxObj("flux-system", "remote", "secretRef", "eu"), fluxObj("tenants-a", "wi", "configMapRef", "us")}}
 	_, _, d := inventoryRun(t, f, servedOnly(argoGV, fluxGV), InventoryConfig{},
 		ctrl(&appsv1.StatefulSet{}, "argocd", "argocd-application-controller", "argocd-application-controller"),
 		ctrl(&appsv1.Deployment{}, "gitops", "argocd-applicationset-controller", "argocd-applicationset-controller"),
@@ -285,8 +361,8 @@ func TestProposedNamespacesAreArgoControlPlaneAndFluxRefs(t *testing.T) {
 	failing := &Detector{Reader: newClient(interceptor.Funcs{List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
 		return errors.New("boom")
 	}})}
-	if got := failing.argoNamespaces(context.Background()); got != nil {
-		t.Errorf("a failed read proposed %q", got)
+	if got, err := failing.argoNamespaces(context.Background()); got != nil || err == nil {
+		t.Errorf("a failed read proposed %q, %v", got, err)
 	}
 }
 

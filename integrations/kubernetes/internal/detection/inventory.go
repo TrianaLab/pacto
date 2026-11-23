@@ -9,6 +9,8 @@ package detection
 
 import (
 	"context"
+	"errors"
+	"maps"
 	"slices"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -50,21 +52,23 @@ type InventoryConfig struct {
 
 // inventory is the cluster-inventory entry and, with the inventory on, the
 // candidates. With it off the entry only proposes the namespaces to grant,
-// and there is none when there is nothing to propose.
-func (d *Detector) inventory(ctx context.Context, argoServed, fluxServed, helmServed bool) ([]detect.Entry, *detect.Clusters) {
+// and there is none when there is nothing to propose. argoErr and fluxErr
+// are why discovery could not tell whether Argo CD or Flux is served: such a
+// source reads unknown, never absent.
+func (d *Detector) inventory(ctx context.Context, argoServed, fluxServed, helmServed bool, argoErr, fluxErr error) ([]detect.Entry, *detect.Clusters) {
 	in := detect.InventoryInput{AsOf: d.Now().UTC(), Cluster: d.Cluster, Granted: d.Inventory.SecretNamespaces, Errs: map[string]error{},
 		Hardened: d.Installation != nil && slices.Contains(d.Installation.Profile, "hardened")}
-	if fluxServed || helmServed {
-		refs, err := d.fluxRefs(ctx, fluxServed, helmServed)
-		in.Sources = append(in.Sources, detect.SourceFlux)
-		in.FluxRefs, in.Errs[detect.SourceFlux] = refs, inventoryErr(err)
-		for _, r := range refs {
-			in.Proposed = append(in.Proposed, r.Namespace)
-		}
+	if len(d.Namespaces) > 0 {
+		in.Scoped = scopedReason
 	}
-	if argoServed {
+	if fluxServed || helmServed || fluxErr != nil {
+		d.readFlux(ctx, &in, fluxServed, helmServed, fluxErr)
+	}
+	if argoServed || argoErr != nil {
 		in.Sources = append(in.Sources, detect.SourceArgoCD)
-		in.Proposed = append(in.Proposed, d.argoNamespaces(ctx)...)
+		in.ArgoControl, in.ArgoControlErr = d.argoNamespaces(ctx)
+		in.ArgoControlErr = inventoryErr(in.ArgoControlErr)
+		in.Proposed = append(in.Proposed, in.ArgoControl...)
 	}
 	if !d.Inventory.Enabled {
 		if e := detect.InventoryProposal(in.Proposed); e.Kind != "" {
@@ -72,14 +76,7 @@ func (d *Detector) inventory(ctx context.Context, argoServed, fluxServed, helmSe
 		}
 		return nil, nil
 	}
-	secrets, err := d.secrets(ctx)
-	in.Secrets, in.Errs[detect.SourceArgoCD] = map[string]detect.Meta{}, inventoryErr(err)
-	for _, m := range secrets {
-		in.Secrets[m.Namespace+"/"+m.Name] = m
-		if m.Labels["argocd.argoproj.io/secret-type"] == "cluster" {
-			in.Argo = append(in.Argo, m)
-		}
-	}
+	d.readSecrets(ctx, &in, argoErr)
 	for _, src := range []struct {
 		name string
 		gvs  []string
@@ -90,27 +87,66 @@ func (d *Detector) inventory(ctx context.Context, argoServed, fluxServed, helmSe
 		{detect.SourceOCM, []string{ocmGV}, &in.OCM, d.managedClusters},
 		{detect.SourceRancher, []string{rancherGV}, &in.Rancher, d.clusterObjects},
 	} {
-		gv := d.servedOf(src.gvs)
-		if gv == "" {
+		gv, err := d.servedOf(src.gvs)
+		if gv == "" && err == nil {
 			continue
 		}
 		in.Sources = append(in.Sources, src.name)
-		*src.into, err = src.list(ctx, gv)
+		if gv != "" {
+			*src.into, err = src.list(ctx, gv)
+		}
 		in.Errs[src.name] = inventoryErr(err)
 	}
 	c, e := detect.Inventory(in)
 	return []detect.Entry{e}, &c
 }
 
-// servedOf is the first of gvs discovery serves, empty when none is or
-// discovery fails: an inventory nobody runs gives no source.
-func (d *Detector) servedOf(gvs []string) string {
-	for _, gv := range gvs {
-		if ok, err := d.Served(gv); err == nil && ok {
-			return gv
+// readFlux adds the flux source to in with its kubeconfig refs, unknown on
+// fluxErr (discovery could not tell), and proposes the namespaces of the
+// Secret refs: a ConfigMap kubeconfig needs no Secret grant.
+func (d *Detector) readFlux(ctx context.Context, in *detect.InventoryInput, kustomizations, helmReleases bool, fluxErr error) {
+	refs, err := d.fluxRefs(ctx, kustomizations, helmReleases)
+	in.Sources = append(in.Sources, detect.SourceFlux)
+	in.FluxRefs, in.Errs[detect.SourceFlux] = refs, inventoryErr(errors.Join(fluxErr, err))
+	for _, r := range refs {
+		if r.Kind == "Secret" {
+			in.Proposed = append(in.Proposed, r.Namespace)
 		}
 	}
-	return ""
+}
+
+// readSecrets fills in with the granted namespaces' Secrets, the Argo CD
+// cluster Secrets among them and why a namespace was not read; with none read
+// (or argoErr, Argo CD's discovery error) the argocd source is unknown.
+func (d *Detector) readSecrets(ctx context.Context, in *detect.InventoryInput, argoErr error) {
+	secrets, failed := d.secrets(ctx)
+	in.Secrets, in.SecretErrs = map[string]detect.Meta{}, failed
+	in.Errs[detect.SourceArgoCD] = inventoryErr(argoErr)
+	if len(failed) > 0 && len(failed) == len(d.Inventory.SecretNamespaces) && argoErr == nil {
+		// No granted namespace was read: the source is unknown, not partial.
+		in.Errs[detect.SourceArgoCD], in.SecretErrs = failed[slices.Sorted(maps.Keys(failed))[0]], nil
+	}
+	for _, m := range secrets {
+		in.Secrets[m.Namespace+"/"+m.Name] = m
+		if m.Labels["argocd.argoproj.io/secret-type"] == "cluster" {
+			in.Argo = append(in.Argo, m)
+		}
+	}
+}
+
+// servedOf is the first of gvs discovery serves; empty with no error when
+// discovery says none is (an inventory nobody runs gives no source), and with
+// the discovery error when it could not tell.
+func (d *Detector) servedOf(gvs []string) (string, error) {
+	var errs []error
+	for _, gv := range gvs {
+		ok, err := d.Served(gv)
+		if err == nil && ok {
+			return gv, nil
+		}
+		errs = append(errs, err)
+	}
+	return "", errors.Join(errs...)
 }
 
 // inventoryErr is err for detect.Inventory: a Forbidden list wraps
@@ -149,10 +185,24 @@ func (d *Detector) listMeta(ctx context.Context, gv, kind string, namespaces []s
 	return out, nil
 }
 
-// secrets lists the metadata of the Secrets in the granted namespaces: no
-// Secret data is ever requested.
-func (d *Detector) secrets(ctx context.Context) ([]detect.Meta, error) {
-	return d.listMeta(ctx, "v1", "Secret", d.Inventory.SecretNamespaces)
+// secrets lists the metadata of the Secrets in the granted namespaces, each
+// on its own so one that fails keeps the others, with why each failed one
+// failed: no Secret data is ever requested.
+func (d *Detector) secrets(ctx context.Context) ([]detect.Meta, map[string]error) {
+	var out []detect.Meta
+	var failed map[string]error
+	for _, ns := range d.Inventory.SecretNamespaces {
+		ms, err := d.listMeta(ctx, "v1", "Secret", []string{ns})
+		if err != nil {
+			if failed == nil {
+				failed = map[string]error{}
+			}
+			failed[ns] = inventoryErr(err)
+			continue
+		}
+		out = append(out, ms...)
+	}
+	return out, failed
 }
 
 // clusterObjects lists the Cluster objects of gv (Cluster API, namespaced, or
@@ -241,18 +291,17 @@ func (d *Detector) fluxRefs(ctx context.Context, kustomizations, helmReleases bo
 // argoNamespaces are the namespaces of Argo CD's application and
 // applicationset controllers, read as metadata: Argo CD keeps its cluster
 // Secrets only there, while Applications may live in tenant namespaces. A
-// failed read proposes nothing.
-func (d *Detector) argoNamespaces(ctx context.Context) []string {
+// failed read proposes what the other kind found and says why.
+func (d *Detector) argoNamespaces(ctx context.Context) ([]string, error) {
 	var out []string
+	errs := make([]error, 0, 2)
 	for _, kind := range []string{"StatefulSet", "Deployment"} {
 		ms, err := d.listMeta(ctx, "apps/v1", kind, d.scopes(),
 			client.MatchingLabelsSelector{Selector: argoControllers})
-		if err != nil {
-			continue
-		}
+		errs = append(errs, err)
 		for _, m := range ms {
 			out = append(out, m.Namespace)
 		}
 	}
-	return out
+	return out, errors.Join(errs...)
 }
