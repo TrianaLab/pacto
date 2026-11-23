@@ -50,7 +50,9 @@ type Installation struct {
 	Pushes   []string    `json:"pushes,omitempty"`
 	LastPush *PushResult `json:"lastPush,omitempty"`
 	// ChartVersion is the chart version the operator runs, the one a
-	// generated member install pins; empty when it is not advertised.
+	// generated member install pins; empty when it is not advertised. A
+	// value with any character outside semver's, a trailing space
+	// included, is dropped rather than trimmed.
 	ChartVersion string `json:"chartVersion,omitempty"`
 }
 

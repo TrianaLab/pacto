@@ -16,7 +16,7 @@ func TestClustersWireKeys(t *testing.T) {
 	c := Clusters{SchemaVersion: SchemaVersion, AsOf: time.Unix(0, 0).UTC(), Cluster: "uid", Total: 1,
 		Sources: []InventorySource{{Source: "flux", Completeness: Partial, Reason: "labels not read", Namespaces: []string{"apps"}}},
 		Candidates: []Candidate{{Source: "flux", Kind: "Secret", Namespace: "apps", Name: "eu", DisplayName: "eu",
-			Labels: map[string]string{"env": "prod"}, UID: "u", UIDSource: "s", KubeConfig: &Object{Kind: "Secret", Namespace: "apps", Name: "eu"}}}}
+			Labels: map[string]string{"env": "prod"}, UID: "u", UIDSource: "s", KubeConfig: &KubeConfigRef{Kind: "Secret", Namespace: "apps", Name: "eu", Key: "value"}}}}
 	data, err := json.Marshal(c)
 	if err != nil {
 		t.Fatal(err)
@@ -24,7 +24,7 @@ func TestClustersWireKeys(t *testing.T) {
 	want := `{"schemaVersion":"1","asOf":"1970-01-01T00:00:00Z","cluster":"uid",` +
 		`"sources":[{"source":"flux","completeness":"partial","reason":"labels not read","namespaces":["apps"]}],` +
 		`"candidates":[{"source":"flux","kind":"Secret","namespace":"apps","name":"eu","displayName":"eu","labels":{"env":"prod"},` +
-		`"uid":"u","uidSource":"s","kubeConfig":{"kind":"Secret","namespace":"apps","name":"eu"}}],"total":1}`
+		`"uid":"u","uidSource":"s","kubeConfig":{"kind":"Secret","namespace":"apps","name":"eu","key":"value"}}],"total":1}`
 	if string(data) != want {
 		t.Errorf("clusters.json = %s", data)
 	}
@@ -63,14 +63,14 @@ func TestClustersCleansAndCaps(t *testing.T) {
 	}
 	long := strings.Repeat("n", 300)
 	b, err := EncodeClusters(Clusters{Cluster: "hub\x07", Sources: make([]InventorySource, 12),
-		Candidates: []Candidate{{Source: "argocd\u2066", Name: long, Labels: labels, KubeConfig: &Object{Kind: "Secret", Name: "x\x1b"}}}})
+		Candidates: []Candidate{{Source: "argocd\u2066", Name: long, Labels: labels, KubeConfig: &KubeConfigRef{Kind: "Secret", Name: "x\x1b", Key: "k\x1b"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := decodeClusters(t, b)
 	cand := c.Candidates[0]
 	if c.Cluster != "hub" || cand.Source != "argocd" || len([]rune(cand.Name)) != MaxRunes || len(cand.Labels) != MaxCandidateLabels ||
-		cand.Labels["k00"] != "v" || cand.Labels["k16"] != "" || cand.KubeConfig.Name != "x" || len(c.Sources) != maxSources {
+		cand.Labels["k00"] != "v" || cand.Labels["k16"] != "" || cand.KubeConfig.Name != "x" || cand.KubeConfig.Key != "k" || len(c.Sources) != maxSources {
 		t.Errorf("cleaned = %+v", c)
 	}
 }
@@ -98,6 +98,25 @@ func TestInventoryCutIsPartial(t *testing.T) {
 	}
 	if e.Completeness != Partial || e.Value != "251 candidate clusters" {
 		t.Errorf("entry = %+v", e)
+	}
+}
+
+// TestInventoryByteCutReachesEntry: a source the byte bound cuts reads
+// partial in the cluster-inventory entry, never complete.
+func TestInventoryByteCutReachesEntry(t *testing.T) {
+	argo := many(MaxCandidates)
+	for i := range argo {
+		for j := range MaxCandidateLabels {
+			argo[i].Labels[fmt.Sprint("l", j)] = strings.Repeat("y", 200)
+		}
+	}
+	c, e := Inventory(InventoryInput{Sources: []string{SourceArgoCD}, Granted: []string{"argocd"}, Argo: argo})
+	if len(c.Candidates) == MaxCandidates || c.Sources[0].Completeness != Partial || e.Completeness != Partial ||
+		!strings.Contains(e.Reason, "listed the first ") {
+		t.Errorf("%d candidates, sources %+v, entry %+v", len(c.Candidates), c.Sources, e)
+	}
+	if b, _ := EncodeClusters(c); len(decodeClusters(t, b).Candidates) != len(c.Candidates) {
+		t.Error("encoding cuts again what Inventory already bounded")
 	}
 }
 
@@ -153,7 +172,7 @@ func TestInventoryArgoFromLabelledSecrets(t *testing.T) {
 }
 
 func TestInventoryFluxFromKubeConfigRefs(t *testing.T) {
-	refs := []Object{{Kind: "Secret", Namespace: "apps", Name: "eu"}, {Kind: "Secret", Namespace: "apps", Name: "eu"},
+	refs := []KubeConfigRef{{Kind: "Secret", Namespace: "apps", Name: "eu", Key: "kubeconfig"}, {Kind: "Secret", Namespace: "apps", Name: "eu", Key: "kubeconfig"},
 		{Kind: "ConfigMap", Namespace: "apps", Name: "us"}, {Kind: "Secret", Namespace: "other", Name: "ap"}}
 	c, _ := Inventory(InventoryInput{Sources: []string{SourceFlux}, Granted: []string{"apps"}, FluxRefs: refs,
 		Secrets: map[string]Meta{"apps/eu": {Labels: map[string]string{"env": "prod"}, Annotations: map[string]string{ClusterUIDAnnotation: uid1}}}})
@@ -167,8 +186,14 @@ func TestInventoryFluxFromKubeConfigRefs(t *testing.T) {
 	if c.Candidates[1].Kind != "ConfigMap" || c.Candidates[2].Labels != nil {
 		t.Errorf("candidates = %+v", c.Candidates)
 	}
-	if s := c.Sources[0]; s.Completeness != Partial || s.Reason != "labels not read in other" {
+	if s := c.Sources[0]; s.Completeness != Partial || s.Reason != "labels not read in other; labels of ConfigMap kubeconfigs not read" {
 		t.Errorf("flux = %+v", s)
+	}
+	// A failed Secret list leaves granted refs unlabelled, and says so.
+	c, _ = Inventory(InventoryInput{Sources: []string{SourceFlux}, Granted: []string{"apps"}, FluxRefs: refs[:1],
+		Errs: map[string]error{SourceArgoCD: errors.New("timeout")}})
+	if s := c.Sources[0]; s.Completeness != Partial || s.Reason != "labels not read in apps" || c.Candidates[0].KubeConfig.Key != "kubeconfig" {
+		t.Errorf("failed Secret list: %+v", c.Sources)
 	}
 	if c, _ := Inventory(InventoryInput{Sources: []string{SourceFlux}, Granted: []string{"apps"}, FluxRefs: refs[:1]}); c.Sources[0].Completeness != Complete {
 		t.Errorf("granted, Secret absent: %+v", c.Sources)

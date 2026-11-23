@@ -209,14 +209,15 @@ func (d *Detector) listUnstructured(ctx context.Context, gvk schema.GroupVersion
 }
 
 // fluxRefs are the kubeconfig refs (spec.kubeConfig.secretRef or
-// configMapRef) of the Flux Kustomizations and HelmReleases in scope; the
-// referenced object sits in the Flux object's namespace.
-func (d *Detector) fluxRefs(ctx context.Context, kustomizations, helmReleases bool) ([]detect.Object, error) {
-	var out []detect.Object
+// configMapRef, with their key) of the Flux Kustomizations and HelmReleases
+// in scope; the referenced object sits in the Flux object's namespace.
+func (d *Detector) fluxRefs(ctx context.Context, kustomizations, helmReleases bool) ([]detect.KubeConfigRef, error) {
+	var out []detect.KubeConfigRef
 	each := func(o unstructured.Unstructured) {
 		for kind, field := range map[string]string{"Secret": "secretRef", "ConfigMap": "configMapRef"} {
 			if name, _, _ := unstructured.NestedString(o.Object, "spec", "kubeConfig", field, "name"); name != "" {
-				out = append(out, detect.Object{Kind: kind, Namespace: o.GetNamespace(), Name: name})
+				key, _, _ := unstructured.NestedString(o.Object, "spec", "kubeConfig", field, "key")
+				out = append(out, detect.KubeConfigRef{Kind: kind, Namespace: o.GetNamespace(), Name: name, Key: key})
 			}
 		}
 	}

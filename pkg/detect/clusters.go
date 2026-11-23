@@ -82,7 +82,17 @@ type Candidate struct {
 	UID         string            `json:"uid,omitempty"`
 	UIDSource   string            `json:"uidSource,omitempty"`
 	// KubeConfig is the kubeconfig Secret or ConfigMap a Flux object names.
-	KubeConfig *Object `json:"kubeConfig,omitempty"`
+	KubeConfig *KubeConfigRef `json:"kubeConfig,omitempty"`
+}
+
+// KubeConfigRef is the kubeconfig a Flux object's spec.kubeConfig names: a
+// Secret or ConfigMap in the object's namespace and, when set, the data key
+// holding the kubeconfig, so a generated HelmRelease names the same key.
+type KubeConfigRef struct {
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace,omitempty"`
+	Name      string `json:"name"`
+	Key       string `json:"key,omitempty"`
 }
 
 // Where a candidate's UID can be stated: the annotation a person or their
@@ -128,7 +138,7 @@ type InventoryInput struct {
 	Sources            []string
 	Granted            []string
 	Argo               []Meta
-	FluxRefs           []Object
+	FluxRefs           []KubeConfigRef
 	Secrets            map[string]Meta
 	CAPI, OCM, Rancher []Meta
 	Errs               map[string]error
@@ -161,9 +171,9 @@ func Inventory(in InventoryInput) (Clusters, Entry) {
 		}
 		c.Sources = append(c.Sources, s)
 	}
-	sortCandidates(c.Candidates)
-	c.Total = len(c.Candidates)
-	cutCandidates(&c, MaxCandidates)
+	// Bounding before the entry is built makes a source the byte bound cuts
+	// read partial in the entry too.
+	_, _ = boundClusters(&c)
 	return c, inventoryEntry(c, in)
 }
 
@@ -190,32 +200,43 @@ func sourceCandidates(src string, in InventoryInput) ([]Candidate, string) {
 }
 
 // fluxCandidates are the distinct kubeconfig refs, labelled from the Secret
-// they name when its namespace is granted.
+// they name when its namespace is granted and the Secret list succeeded. A
+// ConfigMap ref is never labelled, since ConfigMaps are not listed; either
+// gap makes the source partial.
 func fluxCandidates(in InventoryInput) ([]Candidate, string) {
 	var out []Candidate
-	seen := map[Object]bool{}
+	seen := map[KubeConfigRef]bool{}
 	var unread []string
+	configMaps := false
 	for _, ref := range in.FluxRefs {
 		if seen[ref] {
 			continue
 		}
 		seen[ref] = true
 		m, ok := in.Secrets[ref.Namespace+"/"+ref.Name]
-		if ref.Kind != "Secret" || !ok {
+		switch {
+		case ref.Kind != "Secret":
+			m, configMaps = Meta{}, true
+		case in.Errs[SourceArgoCD] != nil || !slices.Contains(in.Granted, ref.Namespace):
 			m = Meta{}
-			if !slices.Contains(in.Granted, ref.Namespace) {
-				unread = append(unread, ref.Namespace)
-			}
+			unread = append(unread, ref.Namespace)
+		case !ok:
+			m = Meta{}
 		}
 		m.Kind, m.Namespace, m.Name = ref.Kind, ref.Namespace, ref.Name
 		cand := clusterCandidate(SourceFlux, m)
-		cand.KubeConfig = &Object{Kind: ref.Kind, Namespace: ref.Namespace, Name: ref.Name}
+		r := ref
+		cand.KubeConfig = &r
 		out = append(out, cand)
 	}
+	var why []string
 	if slices.Sort(unread); len(unread) > 0 {
-		return out, "labels not read in " + strings.Join(slices.Compact(unread), ", ")
+		why = append(why, "labels not read in "+strings.Join(slices.Compact(unread), ", "))
 	}
-	return out, ""
+	if configMaps {
+		why = append(why, "labels of ConfigMap kubeconfigs not read")
+	}
+	return out, strings.Join(why, "; ")
 }
 
 // clusterCandidate is m as a candidate of src: its display name is its name, its
@@ -273,7 +294,7 @@ func inventoryEntry(c Clusters, in InventoryInput) Entry {
 		e.Namespaces = append(e.Namespaces, ungranted...)
 		slices.Sort(e.Namespaces)
 		e.Namespaces = slices.Compact(e.Namespaces)
-		e.Hint = InventoryHint(e.Namespaces)
+		e.Hint = inventoryHint(e.Namespaces)
 		if e.Completeness == Complete {
 			e.Completeness = Partial
 		}
@@ -309,7 +330,7 @@ func InventoryProposal(proposed []string) Entry {
 	slices.Sort(ns)
 	ns = slices.Compact(ns)
 	return Entry{Kind: inventoryKind, Completeness: Partial, Value: "cluster inventory off",
-		Reason: "Argo CD or Flux knows other clusters; a person grants the reads", Namespaces: ns, Hint: InventoryHint(ns)}
+		Reason: "Argo CD or Flux knows other clusters; a person grants the reads", Namespaces: ns, Hint: inventoryHint(ns)}
 }
 
 // sortCandidates sorts cs by source, namespace and name.
@@ -363,20 +384,26 @@ const maxSources = 8
 // MaxCandidateLabels, and trailing candidates dropped until the encoding
 // fits MaxClustersBytes, each cut source marked partial.
 func EncodeClusters(c Clusters) ([]byte, error) {
-	c.SchemaVersion = SchemaVersion
 	c.Sources = slices.Clone(c.Sources)
 	c.Candidates = slices.Clone(c.Candidates)
+	return boundClusters(&c)
+}
+
+// boundClusters sorts, cleans and caps c in place, drops trailing candidates
+// until its encoding fits MaxClustersBytes, and returns that encoding.
+func boundClusters(c *Clusters) ([]byte, error) {
+	c.SchemaVersion = SchemaVersion
 	sortCandidates(c.Candidates)
 	c.Total = max(c.Total, len(c.Candidates))
-	sanitizeClusters(&c)
-	cutCandidates(&c, MaxCandidates)
+	sanitizeClusters(c)
+	cutCandidates(c, MaxCandidates)
 	// ponytail: one encode per dropped candidate; a binary search if 200 encodes ever show up in a profile.
 	for {
 		b, err := json.Marshal(c)
 		if err != nil || len(b) <= MaxClustersBytes || len(c.Candidates) == 0 {
 			return b, err
 		}
-		cutCandidates(&c, len(c.Candidates)-1)
+		cutCandidates(c, len(c.Candidates)-1)
 	}
 }
 
@@ -396,7 +423,7 @@ func sanitizeClusters(c *Clusters) {
 		}
 		cand.Labels = cleanLabels(cand.Labels)
 		if o := cand.KubeConfig; o != nil {
-			cand.KubeConfig = &Object{Kind: clean(o.Kind), Namespace: clean(o.Namespace), Name: clean(o.Name)}
+			cand.KubeConfig = &KubeConfigRef{Kind: clean(o.Kind), Namespace: clean(o.Namespace), Name: clean(o.Name), Key: clean(o.Key)}
 		}
 	}
 }

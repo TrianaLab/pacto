@@ -80,10 +80,12 @@ type MemberInstallResult struct {
 }
 
 var (
-	registryPattern  = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?(/[a-z0-9]([a-z0-9._-]*[a-z0-9])?)*$`)
-	hubURLPattern    = regexp.MustCompile(`^(https|wss)://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$`)
-	chartVerPattern  = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$`)
-	digestPattern    = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	registryPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?(/[a-z0-9]([a-z0-9._-]*[a-z0-9])?)*$`)
+	hubURLPattern   = regexp.MustCompile(`^(https|wss)://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$`)
+	chartVerPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$`)
+	digestPattern   = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	// dataKey is a Secret or ConfigMap data key.
+	dataKey          = regexp.MustCompile(`^[-._a-zA-Z0-9]{1,253}$`)
 	subdomainPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$`)
 )
 
@@ -246,11 +248,15 @@ func fluxInstall(o MemberInstallOptions) ([]installDoc, error) {
 		if ref.Kind == "ConfigMap" {
 			field = "configMapRef"
 		}
+		kubeConfig := ymap("name", ref.Name)
+		if ref.Key != "" {
+			kubeConfig.Content = append(kubeConfig.Content, ystr("key"), ystr(ref.Key))
+		}
 		docs = append(docs, installDoc{ref.Namespace + "/pacto-" + ref.Name + ".yaml", []*yaml.Node{ymap("apiVersion", "helm.toolkit.fluxcd.io/v2", "kind", "HelmRelease",
 			"metadata", ymap("name", "pacto-"+ref.Name, "namespace", ref.Namespace),
 			"spec", ymap("interval", "1h", "releaseName", memberRelease, "targetNamespace", memberNamespace, "storageNamespace", memberNamespace,
 				"chartRef", ymap("kind", "OCIRepository", "name", "pacto-chart"),
-				"kubeConfig", ymap(field, ymap("name", ref.Name)),
+				"kubeConfig", ymap(field, kubeConfig),
 				"install", ymap("createNamespace", true),
 				"values", memberValues(o)))}})
 	}
@@ -261,9 +267,10 @@ func fluxInstall(o MemberInstallOptions) ([]installDoc, error) {
 }
 
 // fluxRefs are the distinct kubeconfig refs of cands, sorted, each validated:
-// none is an error, as is a name that is not a DNS name.
-func fluxRefs(cands []detect.Candidate) ([]detect.Object, error) {
-	var refs []detect.Object
+// none is an error, as is a name that is not a DNS name or a key that is not
+// a data key.
+func fluxRefs(cands []detect.Candidate) ([]detect.KubeConfigRef, error) {
+	var refs []detect.KubeConfigRef
 	for _, c := range cands {
 		if c.KubeConfig == nil {
 			continue
@@ -272,18 +279,21 @@ func fluxRefs(cands []detect.Candidate) ([]detect.Object, error) {
 		if (r.Kind != "Secret" && r.Kind != "ConfigMap") || !dnsLabel(r.Namespace) || !subdomainPattern.MatchString(r.Name) || len(r.Name) > 63-len("pacto-") {
 			return nil, fmt.Errorf("the Flux kubeconfig %s %q in namespace %q: a Secret or ConfigMap with a DNS name of at most 57 characters", r.Kind, r.Name, r.Namespace)
 		}
+		if r.Key != "" && !dataKey.MatchString(r.Key) {
+			return nil, fmt.Errorf("the Flux kubeconfig %s/%s names key %q, which is not a data key", r.Namespace, r.Name, r.Key)
+		}
 		refs = append(refs, r)
 	}
 	if len(refs) == 0 {
 		return nil, errors.New("no Flux kubeconfig ref was detected on the hub: Flux installs a member through a Kustomization or HelmRelease that sets spec.kubeConfig")
 	}
-	slices.SortFunc(refs, func(a, b detect.Object) int {
-		return strings.Compare(a.Namespace+"/"+a.Name+"/"+a.Kind, b.Namespace+"/"+b.Name+"/"+b.Kind)
+	slices.SortFunc(refs, func(a, b detect.KubeConfigRef) int {
+		return strings.Compare(a.Namespace+"/"+a.Name+"/"+a.Kind+"/"+a.Key, b.Namespace+"/"+b.Name+"/"+b.Kind+"/"+b.Key)
 	})
 	refs = slices.Compact(refs)
 	for i := 1; i < len(refs); i++ {
 		if refs[i].Namespace == refs[i-1].Namespace && refs[i].Name == refs[i-1].Name {
-			return nil, fmt.Errorf("the Flux kubeconfig %s/%s names both a Secret and a ConfigMap; one HelmRelease per name is generated", refs[i].Namespace, refs[i].Name)
+			return nil, fmt.Errorf("the Flux kubeconfig %s/%s is named twice, as a Secret and a ConfigMap or with two keys; one HelmRelease per name is generated", refs[i].Namespace, refs[i].Name)
 		}
 	}
 	return refs, nil

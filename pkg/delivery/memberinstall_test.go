@@ -24,7 +24,14 @@ const testDigest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef01234
 
 // fluxCand is a Flux candidate naming the kubeconfig kind ns/name.
 func fluxCand(kind, ns, name string) detect.Candidate {
-	return detect.Candidate{Source: detect.SourceFlux, Kind: kind, Namespace: ns, Name: name, KubeConfig: &detect.Object{Kind: kind, Namespace: ns, Name: name}}
+	return detect.Candidate{Source: detect.SourceFlux, Kind: kind, Namespace: ns, Name: name, KubeConfig: &detect.KubeConfigRef{Kind: kind, Namespace: ns, Name: name}}
+}
+
+// keyed is c with its kubeconfig read from key.
+func keyed(c detect.Candidate, key string) detect.Candidate {
+	r := *c.KubeConfig
+	r.Key, c.KubeConfig = key, &r
+	return c
 }
 
 func installOpts(engine string) MemberInstallOptions {
@@ -195,7 +202,8 @@ func TestArgoInstallGolden(t *testing.T) {
 
 func TestFluxInstallGolden(t *testing.T) {
 	o := installOpts(InstallFlux)
-	o.Flux = append(o.Flux, fluxCand("Secret", "flux-system", "eu-prod"), fluxCand("Secret", "flux-system", "ap-test"), detect.Candidate{Source: detect.SourceFlux})
+	o.Flux[0] = keyed(o.Flux[0], "value.yaml")
+	o.Flux = append(o.Flux, keyed(fluxCand("Secret", "flux-system", "eu-prod"), "value.yaml"), fluxCand("Secret", "flux-system", "ap-test"), detect.Candidate{Source: detect.SourceFlux})
 	res := mustInstall(t, o)
 	var paths []string
 	for _, f := range res.Files {
@@ -333,7 +341,13 @@ func TestMemberInstallRefusesBadOptions(t *testing.T) {
 		}, "57"},
 		"flux twice": {func(o *MemberInstallOptions) {
 			o.Flux = []detect.Candidate{fluxCand("Secret", "ns", "x"), fluxCand("ConfigMap", "ns", "x")}
-		}, "both a Secret and a ConfigMap"},
+		}, "as a Secret and a ConfigMap or with two keys"},
+		"flux two keys": {func(o *MemberInstallOptions) {
+			o.Flux = []detect.Candidate{keyed(fluxCand("Secret", "ns", "x"), "a"), keyed(fluxCand("Secret", "ns", "x"), "b")}
+		}, "with two keys"},
+		"flux key": {func(o *MemberInstallOptions) {
+			o.Flux = []detect.Candidate{keyed(fluxCand("Secret", "ns", "x"), "a\n  b: c")}
+		}, "not a data key"},
 		"flux injected": {func(o *MemberInstallOptions) { o.Flux = []detect.Candidate{fluxCand("Secret", "ns", "x\n  y: z")} }, "DNS name"},
 	} {
 		o := installOpts(InstallFlux)

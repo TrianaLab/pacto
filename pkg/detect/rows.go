@@ -72,7 +72,7 @@ const observedEdges = "observed edges, read by the dashboard; nothing is turned 
 // one declared row; every row built from the entries stays inferred. An
 // Applier row's hint is always [FluxInstallHint]: the ConfigMap decides
 // whether the offer shows, never what a person copies. A cluster-inventory
-// row's hint is rebuilt by [InventoryHint] from its namespaces.
+// row's hint is rebuilt by inventoryHint from its namespaces.
 func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
 	rows := make([]fleet.Provider, 0, len(res.Entries)+1)
 	if res.Installation != nil {
@@ -91,7 +91,7 @@ func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
 		case e.Kind == fleet.ProviderApplier:
 			p.Hint = FluxInstallHint
 		case e.Kind == inventoryKind:
-			p.Hint = InventoryHint(e.Namespaces)
+			p.Hint = inventoryHint(e.Namespaces)
 		}
 		for _, ns := range e.Namespaces {
 			p.Objects = append(p.Objects, fleet.ProviderObject{Kind: "Namespace", Namespace: ns, Name: ns})
@@ -163,11 +163,11 @@ func status(c string, age time.Duration) fleet.SourceStatus {
 	return fleet.SourceAvailable
 }
 
-// InventoryHint is the one proposal a cluster-inventory row carries, rebuilt
+// inventoryHint is the one proposal a cluster-inventory row carries, rebuilt
 // by every reader from the namespaces that are DNS labels, so a hand-edited
 // hint never reaches a person. Like [FluxInstallHint] it names values of the
 // Pacto release the person already runs, at the chart version it runs.
-func InventoryHint(namespaces []string) string {
+func inventoryHint(namespaces []string) string {
 	hint := "Set clusterInventory on this Pacto release, at the chart version it runs: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator" +
 		" --version <version> -n <namespace> --reset-then-reuse-values --set clusterInventory.enabled=true"
 	ns := slices.DeleteFunc(slices.Clone(namespaces), func(n string) bool { return !dnsLabel.MatchString(n) })

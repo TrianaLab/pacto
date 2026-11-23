@@ -85,6 +85,7 @@ spec:
   kubeConfig:
     secretRef:
       name: eu-prod
+      key: value.yaml
   install:
     createNamespace: true
   values:

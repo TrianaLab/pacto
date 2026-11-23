@@ -248,11 +248,13 @@ func TestSyncWritesBothKeysInOneApply(t *testing.T) {
 }
 
 func TestFluxRefsFromListedObjects(t *testing.T) {
-	f := &inv{t: t, ks: []map[string]any{fluxObj("apps", "k", "secretRef", "eu"), {"metadata": map[string]any{"namespace": "apps", "name": "local"}}},
+	keyed := fluxObj("apps", "k", "secretRef", "eu")
+	keyed["spec"].(map[string]any)["kubeConfig"].(map[string]any)["secretRef"].(map[string]any)["key"] = "value.yaml"
+	f := &inv{t: t, ks: []map[string]any{keyed, {"metadata": map[string]any{"namespace": "apps", "name": "local"}}},
 		hr: []map[string]any{fluxObj("edge", "h", "configMapRef", "us")}}
 	d := &Detector{Reader: newClient(f.funcs())}
 	refs, err := d.fluxRefs(context.Background(), true, true)
-	want := []detect.Object{{Kind: "Secret", Namespace: "apps", Name: "eu"}, {Kind: "ConfigMap", Namespace: "edge", Name: "us"}}
+	want := []detect.KubeConfigRef{{Kind: "Secret", Namespace: "apps", Name: "eu", Key: "value.yaml"}, {Kind: "ConfigMap", Namespace: "edge", Name: "us"}}
 	if err != nil || !reflect.DeepEqual(refs, want) {
 		t.Errorf("refs = %+v, %v", refs, err)
 	}

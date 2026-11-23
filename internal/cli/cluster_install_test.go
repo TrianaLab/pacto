@@ -38,7 +38,7 @@ func installHub(t *testing.T, chartVersion string) (*clusterEnv, string) {
 	c, _ := detect.EncodeClusters(detect.Clusters{AsOf: time.Now(), Sources: []detect.InventorySource{{Source: detect.SourceArgoCD, Completeness: detect.Complete},
 		{Source: detect.SourceFlux, Completeness: detect.Complete}},
 		Candidates: []detect.Candidate{{Source: detect.SourceArgoCD, Kind: "Secret", Namespace: "gitops", Name: "eu", UID: euProd, UIDSource: "annotation"},
-			{Source: detect.SourceFlux, Kind: "Secret", Namespace: "flux-system", Name: "us", KubeConfig: &detect.Object{Kind: "Secret", Namespace: "flux-system", Name: "us"}}}})
+			{Source: detect.SourceFlux, Kind: "Secret", Namespace: "flux-system", Name: "us", KubeConfig: &detect.KubeConfigRef{Kind: "Secret", Namespace: "flux-system", Name: "us"}}}})
 	for name, data := range map[string][]byte{detect.ConfigMapKey: b, detect.ClustersConfigMapKey: c} {
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
 			t.Fatal(err)
