@@ -190,7 +190,7 @@
     subtitle={detail?.entity?.summary || ''}
   >
     {#if contribution}
-      <p class="ev-contribution t-meta" data-testid="service-contribution">Contributed by <bdi>{contribution.producer}</bdi> <ProvenanceMark label={`Inferred: contributed by ${contribution.producer}`} text={contributionTip} /></p>
+      <p class="ev-contribution t-meta" data-testid="service-contribution">Contributed by <bdi>{contribution.producer}</bdi>{#if contribution.stale}<span data-testid="service-contribution-stale">, stale</span>{/if} <ProvenanceMark label={`Inferred: contributed by ${contribution.producer}`} text={contributionTip} /></p>
     {/if}
   </PageHeader>
 

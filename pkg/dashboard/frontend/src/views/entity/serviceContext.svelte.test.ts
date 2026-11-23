@@ -835,6 +835,17 @@ describe('service page: a contributed service', () => {
     done();
   });
 
+  it('calls the producer record a record, and credits its values to the producer', async () => {
+    const field = { field: 'dependencies[fraud]', value: 'fraud', source: 'export.json:1', confidence: 'likely', provenance: 'inferred' };
+    const { target, done } = await render({ ...contributed(), service: { ...contributed().service, inferredFields: preview([field]) } });
+    expect(text(fact(target, 'service-contract')!.querySelector('.se-k'))).toBe('Record');
+    const sec = fact(target, 'service-inferred')!;
+    expect(text(sec.querySelector('summary'))).toContain('Contributed by my-idp');
+    expect(text(sec)).not.toContain('Declare one');
+    expect(text(sec)).not.toContain("service's folder");
+    done();
+  });
+
   it('keeps both blocks on a declared service', async () => {
     const { target, done } = await render(detail());
     expect(fact(target, 'service-delivery')).toBeTruthy();

@@ -3484,6 +3484,8 @@ export interface components {
             catalogEntry?: string;
             /** Format: int64 */
             consumers?: number;
+            /** @description On an inferred service only a producer's contribution describes: that producer */
+            contributedBy?: string;
             /** Format: int64 */
             created?: number;
             /** @enum {string} */
@@ -5525,6 +5527,8 @@ export interface components {
             asOf?: string;
             /** @description The key of the producer that verified the record's signature */
             keyId?: string;
+            /** @description A newer version of the record that was refused, so this older one is shown stale */
+            newerRefused?: string;
             /** @description The producer id the evidence trust config grants the contribution repository */
             producer: string;
             /**
@@ -5536,7 +5540,7 @@ export interface components {
             ref: string;
             /** @description The producer's contribution repository, <registry>/pacto-inferred/<producer>/services */
             repository: string;
-            /** @description The record is older than the freshness window, or its age is unknown */
+            /** @description The record is older than the freshness window, its age is unknown or a newer version was refused */
             stale?: boolean;
         };
         "Fleet.ServiceHit": {
@@ -7649,6 +7653,8 @@ export interface components {
             catalogEntry?: string;
             /** Format: int64 */
             consumers?: number;
+            /** @description On an inferred service only a producer's contribution describes: that producer */
+            contributedBy?: string;
             /** Format: int64 */
             created?: number;
             /** @enum {string} */

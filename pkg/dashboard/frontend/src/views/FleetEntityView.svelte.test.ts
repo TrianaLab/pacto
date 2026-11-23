@@ -1189,6 +1189,7 @@ describe('FleetEntityView — contributed service (509-S11)', () => {
     const tip = marks(target)[0].querySelector('.help-body')?.textContent ?? '';
     expect(tip).toContain('record time unknown');
     expect(tip).toContain('stale');
+    expect(marks(target)[0].querySelector('[data-testid="service-contribution-stale"]')?.textContent).toBe(', stale');
     unmount(component); document.body.removeChild(target);
   });
 

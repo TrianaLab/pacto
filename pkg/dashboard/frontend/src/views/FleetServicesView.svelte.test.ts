@@ -579,6 +579,22 @@ describe('FleetServicesView — inferred services (509-S1)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('words a contributed row by its producer, never as a workload', async () => {
+    const contributed = { kind: 'service', key: 'registry.example/pacto-inferred/acme-idp/ledger-sync', label: 'ledger-sync', declaration: 'inferred',
+      secondary: 'registry.example/pacto-inferred/acme-idp', contributedBy: 'acme-idp' };
+    entitiesFn.mockResolvedValue(listResp([contributed], { total: 1 }));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    const row = rows(target)[0] as HTMLElement;
+    expect(row.classList.contains('sv-inferred')).toBe(true);
+    expect(row.textContent).toContain('Contributed by acme-idp');
+    expect(row.textContent).not.toContain('No image read');
+    const tip = row.querySelector('.prov-tip')?.textContent || '';
+    expect(tip).toContain('contributed by acme-idp');
+    expect(tip).not.toContain('namespace');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('mutes an inferred row through the text token, with its mark and its image', async () => {
     entitiesFn.mockResolvedValue(listResp([svc('domain-a'), inferred], { total: 2 }));
     const { target, component } = mountView();

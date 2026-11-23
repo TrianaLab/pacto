@@ -200,7 +200,7 @@
              that disagree leave Pacto unable to tell, and it says so. -->
         <IdentityBadge label={businessDomainLabel(UNKNOWN_DOMAIN)} tone="neutral" title="Pacto cannot tell this service's domain: no readable contract revision names one, and its sources report none they agree on." describe />
       {:else}
-        <IdentityBadge label={businessDomainLabel('')} tone="neutral" title="Its contract declares no service.domain." describe />
+        <IdentityBadge label={businessDomainLabel('')} tone="neutral" title={contributed ? 'The contribution declares no service.domain.' : 'Its contract declares no service.domain.'} describe />
       {/if}
     </div>
     {#if d.ownership && !contributed}
@@ -212,7 +212,7 @@
       </div>
     {/if}
     <div class="se-fact" data-testid="service-contract">
-      <span class="se-k">Contract</span>
+      <span class="se-k">{contributed ? 'Record' : 'Contract'}</span>
       {#if contract}
         <EntityLink ref={inService(contract.ref, self)} showStatus={false} showKind={false} />
         <span class="se-note">{contract.note}</span>
@@ -451,7 +451,7 @@
     {/if}
 
     {#if segmentTotal(readiness) > 0 || signed > 0}
-      <h3 class="t-subsection-title">Contract readiness and signatures</h3>
+      <h3 class="t-subsection-title">{contributed ? 'Readiness and signatures' : 'Contract readiness and signatures'}</h3>
       {#if segmentTotal(readiness) > 0}
         <DistributionBar title="Readiness of known revisions" level={4} description="Readiness is declared and gated per revision." segments={readiness} total={sum.revisions ?? null} />
       {/if}
@@ -643,10 +643,12 @@
        list (muted, filterable), so this block shows only an unreadable record. -->
   {#if d.inferredFields?.unreadable || (d.inferredFields?.total && !d.fields?.items?.some((f) => f.provenance === 'inferred'))}
     <div class="se-wrap" data-testid="service-inferred">
-      <PreviewSection title="Inferred by Pacto" collapsible open={!!acceptSigned} clip={false} total={d.inferredFields.total} count={d.inferredFields.count ?? 0}
+      <PreviewSection title={contributed ? `Contributed by ${d.contribution.producer}` : 'Inferred by Pacto'} collapsible open={!!acceptSigned} clip={false} total={d.inferredFields.total} count={d.inferredFields.count ?? 0}
         summary={d.inferredFields.unreadable ? 'Could not be read' : ''} tone={d.inferredFields.unreadable ? 'warn' : ''}
         empty="Pacto could not read the inferred record"
-        help="Values Pacto read from the service's folder and keeps apart from the contract. Declare one to make it part of the contract.">
+        help={contributed
+          ? `Values ${d.contribution.producer} recorded in its signed contribution. They stay inferred and never clear a gate.`
+          : "Values Pacto read from the service's folder and keeps apart from the contract. Declare one to make it part of the contract."}>
         <InferredFieldList items={d.inferredFields.items ?? []} total={d.inferredFields.total} unreadable={!!d.inferredFields.unreadable} />
         {#if proposesRanges}<AcceptProposedRanges serviceKey={key} service={self} signed={acceptSigned} />{/if}
       </PreviewSection>
