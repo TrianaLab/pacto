@@ -141,6 +141,9 @@ func ValidateStructural(data any) ValidationResult {
 		data, mcp = needs21(&result, data)
 	}
 	addSchemaError(&result, schema.Validate(data))
+	if contract.Older(version, "2.6") {
+		hintEnvironmentFile(&result)
+	}
 	if len(mcp) > 0 {
 		result.Errors = slices.DeleteFunc(result.Errors, func(e contract.ValidationError) bool {
 			if e.Code != "SCHEMA_VIOLATION" {
@@ -156,6 +159,18 @@ func ValidateStructural(data any) ValidationResult {
 		})
 	}
 	return result
+}
+
+// hintEnvironmentFile ends the schema error of an environment missing its
+// file with the version that makes file optional. The frozen schema stays
+// the refusal: no code of its own (plan 511-S5 N8(b)).
+func hintEnvironmentFile(result *ValidationResult) {
+	for i, e := range result.Errors {
+		if e.Code == "SCHEMA_VIOLATION" && strings.HasPrefix(e.Path, "environments.") && !strings.Contains(strings.TrimPrefix(e.Path, "environments."), ".") &&
+			strings.Contains(e.Message, "missing propert") && strings.Contains(e.Message, "'file'") {
+			result.Errors[i].Message += `; pactoVersion "2.6" lets an environment leave out file`
+		}
+	}
 }
 
 // RefValuesAllowed reports whether a contract at version lets a configuration

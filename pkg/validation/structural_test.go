@@ -837,8 +837,25 @@ func TestValidateStructural_V26AllowsFilelessEnvironment(t *testing.T) {
 func TestValidateStructural_V25StillRequiresEnvironmentFile(t *testing.T) {
 	for _, v := range []string{"2.4", "2.5"} {
 		r := ValidateStructural(filelessEnvironment(v))
-		if r.IsValid() || r.Errors[0].Code != "SCHEMA_VIOLATION" || r.Errors[0].Path != "environments.0" || !strings.Contains(r.Errors[0].Message, "file") {
+		if r.IsValid() || r.Errors[0].Code != "SCHEMA_VIOLATION" || r.Errors[0].Path != "environments.0" ||
+			!strings.HasSuffix(r.Errors[0].Message, `missing property 'file'; pactoVersion "2.6" lets an environment leave out file`) {
 			t.Fatalf("%s fileless environment: %v", v, r.Errors)
+		}
+	}
+}
+
+// TestEnvironmentFileHintOnlyForMissingFile: the 2.6 hint is added to an
+// environment missing its file, never to another environment error.
+func TestEnvironmentFileHintOnlyForMissingFile(t *testing.T) {
+	d := map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0"},
+		"environments": []any{map[string]any{"file": "e.yaml"}, map[string]any{"name": "x", "file": 3}}}
+	r := ValidateStructural(d)
+	if r.IsValid() {
+		t.Fatal("want errors")
+	}
+	for _, e := range r.Errors {
+		if strings.Contains(e.Message, "2.6") {
+			t.Fatalf("hint on %v", e)
 		}
 	}
 }
