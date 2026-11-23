@@ -78,6 +78,25 @@ func TestContributedServiceExportsInferred(t *testing.T) {
 	}
 }
 
+// A contributed service a running target shows reads observed, as a
+// workload-inferred service does: the target is the fact, and the
+// contribution never makes it declared.
+func TestContributedServiceWithTargetExportsObserved(t *testing.T) {
+	c0 := contributed("legacy-billing", "", fixed.Add(-time.Hour))
+	running := target("legacy-billing", c0.Digest, contract.Owner{})
+	running.Domain, running.ResolvedRef = ctbRoot+"/pacto-inferred/"+ctbProducer, c0.ResolvedRef
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fixed }, FreshnessWindow: 24 * time.Hour},
+		fleet.NewMemorySource("evidence", fleet.SourceKindEvidenceHTTP, &fleet.Collection{Revisions: []fleet.RawRevision{c0}}),
+		fleet.NewMemorySource("cluster", fleet.SourceKindKubernetes, &fleet.Collection{Targets: []fleet.RawTarget{running}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := byKey(t, mapSnap(snap), ctbKey("legacy-billing"))
+	if ann := c.Metadata.Annotations; ann[AnnotationProvenance] != fleet.ProvenanceObserved || !slices.Equal(c.Metadata.Tags, []string{TagObserved}) || ann[AnnotationContributedBy] != ctbProducer {
+		t.Errorf("component = %+v", c.Metadata)
+	}
+}
+
 func TestStaleContributionExportsPartial(t *testing.T) {
 	refused := contributed("refused", "", fixed.Add(-time.Hour))
 	refused.Contributor.NewerRefused = "2.0.0"

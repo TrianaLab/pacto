@@ -185,7 +185,7 @@ adds `pacto.trianalab.io/caller-ambiguous: "true"` and is `partial`.
 | `pacto.trianalab.io/dependency-ranges` | JSON: for each `dependsOn` ref, the ranges its contract accepts and whether the provider version Pacto sees satisfies each: `satisfied`, `unsatisfied` or `unknown`. A range Pacto could not evaluate reads `unknown`, never absent |
 | `pacto.trianalab.io/conformance` | Runtime conformance of the service in your view: `Compliant`, `Warning`, `Unknown`, `NonCompliant`, `Invalid`, `Reference` or `NotEvaluated` |
 | `pacto.trianalab.io/offering` | The platform offering the Component provides |
-| `pacto.trianalab.io/contributed-by` | The producer whose contribution alone describes an inferred Component |
+| `pacto.trianalab.io/contributed-by` | The producer whose contribution alone describes the Component. It reads `inferred`, or `observed` when a running target shows it, never `declared` |
 | `pacto.trianalab.io/hidden-relations` | How many relations your view hides |
 | `pacto.trianalab.io/unresolved-dependencies` | How many declared dependencies, configuration or policy references did not resolve |
 | `pacto.trianalab.io/external-key` | The external system's key |
