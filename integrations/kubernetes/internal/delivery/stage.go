@@ -71,6 +71,10 @@ type StageReconciler struct {
 	// Publishers is the registry watch of the Stages with
 	// candidates.registry. Nil: such a Stage is not Ready and never promotes.
 	Publishers *Publishers
+	// Environments, when the installation ladder runs, gives the placement
+	// question a promote or trust question of a managed Stage starts with
+	// until a person confirms it; nil asks none.
+	Environments *EnvironmentReconciler
 	// seen is what each Stage last showed (frozen, unwatched), so an Event
 	// marks a change, not every pass. Nil emits none.
 	// ponytail: in memory, so a restart says each once more.
@@ -358,6 +362,9 @@ func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) err
 		Params: delivery.Params{From: stage.Status.Pointer, To: stage.Status.Candidate},
 		Reason: "automatic promote of the newest eligible candidate",
 		Actor:  delivery.Actor{User: r.Policy.ControllerUser},
+	}
+	if q := r.Environments.question(ctx, stage); q != "" {
+		spec.Reason = q + " " + spec.Reason
 	}
 	return r.raise(ctx, stage, "auto", spec)
 }

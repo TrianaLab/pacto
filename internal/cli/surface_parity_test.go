@@ -265,7 +265,7 @@ func deliveryWriteRows() []surfaceRow {
 		alike("delivery approve", "", "", "only the CLI approves from an intent record, signed keyless with the person's fresh login and no kubeconfig; MCP reads approval records and never writes one",
 			"intent", "signers"),
 		[]surfaceRow{{"delivery ladder confirm", "", "", whyNoLadder}},
-		alike("delivery ladder confirm", "", "", whyNoLadder, "proposal", "drop", "issuer"),
+		alike("delivery ladder confirm", "", "", whyNoLadder, "proposal", "drop", "issuer", "create-namespaces"),
 	)
 }
 

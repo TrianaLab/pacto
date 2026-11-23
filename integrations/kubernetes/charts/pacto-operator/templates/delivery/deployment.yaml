@@ -78,6 +78,13 @@ spec:
             {{- if or .Values.delivery.recorder.approvalsRepository (include "pacto-operator.delivery.streamsRepository" .) }}
             - --ladder-repository={{ include "pacto-operator.delivery.approvalsRepository" . }}
             {{- end }}
+            {{- if include "pacto-operator.delivery.createAppliers" . }}
+            - --environment-create-appliers
+            - --environment-deployer-role={{ include "pacto-operator.delivery.fullname" . }}-deployer
+            {{- end }}
+            {{- if include "pacto-operator.delivery.createNamespaces" . }}
+            - --environment-create-namespaces
+            {{- end }}
             {{- end }}
             {{- $fullname := include "pacto-operator.delivery.fullname" . }}
             {{- $policies := list "operation" "cancel" "approval" "pointer" "applier" "promoter-writes" "status" }}

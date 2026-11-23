@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	k8stesting "k8s.io/client-go/testing"
 	"oras.land/oras-go/v2/registry/remote"
@@ -160,5 +162,69 @@ func TestWriteLadderRefuses(t *testing.T) {
 		if _, _, err := c.d.WriteLadder(t.Context(), c.rec, c.signer, c.repo); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Fatalf("want %q, got %v", c.want, err)
 		}
+	}
+}
+
+func TestLadderRungsSignConfirmedAgain(t *testing.T) {
+	v := ladderView()
+	v.Confirmed = []delivery.LadderRung{{Name: "dev", Source: "the cluster name eu-dev", Provenance: delivery.RungConfirmed}}
+	rungs, _, err := LadderRungs(v, []string{"qa"})
+	if err != nil || len(rungs) != 4 || rungs[2] != (delivery.LadderRung{Name: "dev", Source: "the cluster name eu-dev", Provenance: delivery.RungInferred}) {
+		t.Fatalf("%+v %v", rungs, err)
+	}
+}
+
+// placementsConfigMap is the promoter's private ConfigMap listing
+// candidates under its namespaces key.
+func placementsConfigMap(candidates string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "ConfigMap",
+		"metadata": map[string]any{"namespace": delivery.PolicyNamespace, "name": delivery.PlacementsConfigMap},
+		"data":     map[string]any{delivery.NamespaceCandidatesKey: candidates}}}
+}
+
+func TestNamespaceCandidates(t *testing.T) {
+	got, err := ladderDelivery(placementsConfigMap(`["payments-staging","orders-staging"]`)).NamespaceCandidates(t.Context())
+	if err != nil || len(got) != 2 || got[0] != "payments-staging" {
+		t.Fatalf("%v %v", got, err)
+	}
+	if got, err := ladderDelivery().NamespaceCandidates(t.Context()); err != nil || got != nil {
+		t.Fatalf("none: %v %v", got, err)
+	}
+	if got, err := ladderDelivery(placementsConfigMap("")).NamespaceCandidates(t.Context()); err != nil || got != nil {
+		t.Fatalf("empty: %v %v", got, err)
+	}
+	if _, err := ladderDelivery(placementsConfigMap("{")).NamespaceCandidates(t.Context()); err == nil || !strings.Contains(err.Error(), "waiting to be created in pacto-delivery/") {
+		t.Fatalf("bad JSON: %v", err)
+	}
+	for _, c := range []struct {
+		err  error
+		want string
+	}{
+		{apierrors.NewForbidden(schema.GroupResource{Resource: "configmaps"}, delivery.PlacementsConfigMap, errors.New("no")), "you may not read the namespaces"},
+		{errors.New("down"), "reading the namespaces waiting to be created in pacto-delivery: down"},
+	} {
+		d := ladderDelivery()
+		d.Dynamic.(*dynamicfake.FakeDynamicClient).PrependReactor("get", "configmaps", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, c.err
+		})
+		if _, err := d.NamespaceCandidates(t.Context()); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("want %q, got %v", c.want, err)
+		}
+	}
+}
+
+func TestWriteLadderBindsNamespaceCandidates(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	rec := ladderRecord(t)
+	rec.NamespacesDigest = delivery.NamespacesDigest([]string{"payments-staging"})
+	view := ladderConfigMap(viewJSON(ladderView()))
+	if _, _, err := ladderDelivery(view, placementsConfigMap(`["payments-staging"]`)).WriteLadder(t.Context(), rec, e.personSigner(t), e.repo); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ladderDelivery(view, placementsConfigMap(`["orders-staging"]`)).WriteLadder(t.Context(), rec, e.personSigner(t), e.repo); !errors.Is(err, ErrNamespacesChanged) {
+		t.Fatalf("changed: %v", err)
+	}
+	if _, _, err := ladderDelivery(view, placementsConfigMap("{")).WriteLadder(t.Context(), rec, e.personSigner(t), e.repo); err == nil {
+		t.Fatal("unreadable candidates")
 	}
 }

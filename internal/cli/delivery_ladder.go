@@ -37,9 +37,12 @@ func newDeliveryLadderCommand(v *viper.Viper, d deps) *cobra.Command {
 			"each a leaf that takes its versions from the registry. pacto delivery inbox shows the proposal and its digest. " +
 			"The command signs keyless after a fresh login in your browser and records the confirmation in the approvals repository the promoter reads. " +
 			"You need approve on environmentladders.delivery.pacto.trianalab.io in the cluster, granted to your user (" + ladderGrant + "); " +
-			"groups are not checked, because a certificate names none. The operator must list approver signers in delivery.identities.signers.",
-		Example: "  pacto delivery ladder confirm --proposal sha256:5be1...\n  pacto delivery ladder confirm --proposal sha256:5be1... --drop qa",
-		Args:    cobra.NoArgs,
+			"groups are not checked, because a certificate names none. The operator must list approver signers in delivery.identities.signers. " +
+			"With --create-namespaces you also let Pacto create the namespaces it waits to place services in, " +
+			"when delivery.environments.createNamespaces is on: you must be allowed to read them in the ConfigMap " + delivery.PlacementsConfigMap + ".",
+		Example: "  pacto delivery ladder confirm --proposal sha256:5be1...\n  pacto delivery ladder confirm --proposal sha256:5be1... --drop qa\n" +
+			"  pacto delivery ladder confirm --create-namespaces",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return confirmLadder(cmd, v, d)
 		},
@@ -47,6 +50,7 @@ func newDeliveryLadderCommand(v *viper.Viper, d deps) *cobra.Command {
 	confirm.Flags().String("proposal", "", "the proposal digest pacto delivery inbox showed you; nothing is signed when the proposal changed since")
 	confirm.Flags().StringArray("drop", nil, "a proposed rung to leave out, repeatable; Pacto never proposes it again")
 	confirm.Flags().String("issuer", "", "the approver signer's OIDC issuer, when the installation lists several")
+	confirm.Flags().Bool("create-namespaces", false, "also let Pacto create the namespaces it waits to place services in; you sign the list you can read")
 	cmd.AddCommand(confirm)
 	return cmd
 }
@@ -55,12 +59,14 @@ func newDeliveryLadderCommand(v *viper.Viper, d deps) *cobra.Command {
 // installation ladder in order, the rungs dropped, who signed it and where
 // the record is. Note says why nothing was signed.
 type ladderConfirmation struct {
-	Ladder  []delivery.LadderRung      `json:"ladder"`
-	Dropped []string                   `json:"dropped,omitempty"`
-	By      string                     `json:"by,omitempty"`
-	Record  string                     `json:"record,omitempty"`
-	Mode    capabilities.ReferrersMode `json:"mode,omitempty"`
-	Note    string                     `json:"note,omitempty"`
+	Ladder  []delivery.LadderRung `json:"ladder"`
+	Dropped []string              `json:"dropped,omitempty"`
+	// Namespaces are the namespaces the person let Pacto create.
+	Namespaces []string                   `json:"namespaces,omitempty"`
+	By         string                     `json:"by,omitempty"`
+	Record     string                     `json:"record,omitempty"`
+	Mode       capabilities.ReferrersMode `json:"mode,omitempty"`
+	Note       string                     `json:"note,omitempty"`
 }
 
 // ladderConfirm is a confirmation on its way to a signed record.
@@ -75,6 +81,8 @@ type ladderConfirm struct {
 	policy  delivery.ClassPolicy
 	signer  delivery.PersonSigner
 	user    string
+	// namespaces are the namespace candidates --create-namespaces signs.
+	namespaces []string
 }
 
 // confirmLadder signs the person's confirmation of the proposal the
@@ -93,7 +101,15 @@ func confirmLadder(cmd *cobra.Command, v *viper.Viper, d deps) error {
 		return err
 	}
 	format := v.GetString(outputFormatKey)
-	if len(l.view.Proposal) == 0 {
+	if create, _ := cmd.Flags().GetBool("create-namespaces"); create {
+		if l.namespaces, err = l.c.NamespaceCandidates(cmd.Context()); err != nil {
+			return err
+		}
+		if len(l.namespaces) == 0 {
+			return errors.New("no namespace waits to be created: Pacto creates namespaces only with delivery.environments.createNamespaces on")
+		}
+	}
+	if len(l.view.Proposal) == 0 && len(l.namespaces) == 0 {
 		res := ladderConfirmation{Ladder: slices.Concat(l.view.Declared, l.view.Confirmed), Note: "nothing to confirm"}
 		return formatResult(cmd, format, res, func() error {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "nothing to confirm: the installation ladder is %s\n", ladderLine(res.Ladder))
@@ -141,7 +157,8 @@ func (l *ladderConfirm) prepare() (delivery.LadderRecord, error) {
 	if l.user, err = g.check(l.cmd, l.dyn, authn.SubjectAccessReview(l.dyn)); err != nil {
 		return delivery.LadderRecord{}, err
 	}
-	return delivery.LadderRecord{ClusterID: l.cluster, Rungs: rungs, ProposalDigest: view.ProposalDigest, Dropped: dropped}, nil
+	return delivery.LadderRecord{ClusterID: l.cluster, Rungs: rungs, ProposalDigest: view.ProposalDigest, Dropped: dropped,
+		NamespacesDigest: delivery.NamespacesDigest(l.namespaces)}, nil
 }
 
 // pickSigner picks the installation's approver signer of issuer.
@@ -179,7 +196,7 @@ func (l *ladderConfirm) sign(rec delivery.LadderRecord) (ladderConfirmation, err
 	if err != nil {
 		return ladderConfirmation{}, err
 	}
-	return ladderConfirmation{Ladder: rec.Rungs, Dropped: rec.Dropped, By: l.user, Record: ref, Mode: mode}, nil
+	return ladderConfirmation{Ladder: rec.Rungs, Dropped: rec.Dropped, Namespaces: l.namespaces, By: l.user, Record: ref, Mode: mode}, nil
 }
 
 // print prints what was confirmed, and the write-once tag the record sits
@@ -187,6 +204,9 @@ func (l *ladderConfirm) sign(rec delivery.LadderRecord) (ladderConfirmation, err
 func (l *ladderConfirm) print(res ladderConfirmation) {
 	w := l.cmd.OutOrStdout()
 	_, _ = fmt.Fprintf(w, "confirmed %s as %s; recorded %s\n", ladderLine(res.Ladder), res.By, res.Record)
+	if len(res.Namespaces) > 0 {
+		_, _ = fmt.Fprintf(w, "allowed Pacto to create the namespaces %s\n", strings.Join(res.Namespaces, ", "))
+	}
 	if res.Mode == capabilities.ReferrersWriteOnceTags {
 		_, dg, _ := strings.Cut(res.Record, "@")
 		_, _ = fmt.Fprintf(w, "pushed %s:%s (write-once tag; registry has no Referrers)\n", l.view.Repository,

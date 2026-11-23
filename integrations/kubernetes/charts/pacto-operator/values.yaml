@@ -672,6 +672,10 @@ delivery:
     ladder:
       - staging
       - production
+    # -- Create the namespace a service is placed in when it does not exist. A declared or observed
+    # placement gets it at once; any other once a person runs `pacto delivery ladder confirm
+    # --create-namespaces`. Pacto labels it and never deletes it. Refused with `profile: hardened`
+    createNamespaces: false
 
   # Who may publish a version a Stage with `candidates.registry` accepts. These are the only trust
   # inputs the chart holds: the publisher rule's registry, the Sigstore root and the bootstrap

@@ -39,11 +39,14 @@ func LadderStream(clusterID string) string { return clusterID + "/pacto-delivery
 // before), then the proposed rungs the person kept, each a leaf. It binds the
 // digest of the proposal the person saw and names the rungs they dropped.
 type LadderRecord struct {
-	ClusterID      string            `json:"clusterID"`
-	Rungs          []LadderRung      `json:"rungs"`
-	ProposalDigest string            `json:"proposalDigest"`
-	Dropped        []string          `json:"dropped,omitempty"`
-	Signer         PublisherIdentity `json:"signer"`
+	ClusterID      string       `json:"clusterID"`
+	Rungs          []LadderRung `json:"rungs"`
+	ProposalDigest string       `json:"proposalDigest"`
+	Dropped        []string     `json:"dropped,omitempty"`
+	// NamespacesDigest is the NamespacesDigest of the namespaces the person
+	// lets Pacto create: the candidates only PlacementsConfigMap lists.
+	NamespacesDigest string            `json:"namespacesDigest,omitempty"`
+	Signer           PublisherIdentity `json:"signer"`
 	// At is when the person says they signed (RFC 3339). It never orders
 	// records: the verified signing time does.
 	At string `json:"at"`
@@ -56,7 +59,9 @@ var proposalDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 // rung, a name that is not a DNS label or is named twice, a declared chain
 // that is not a chain or does not come first, a kept rung with an upstream
 // (an inferred rung is always a leaf), over 16 rungs of either kind, a
-// proposal digest that is not sha256:<64 hex>, a dropped rung that is kept,
+// proposal or namespaces digest that is not sha256:<64 hex> (the proposal's
+// may be empty only when the record lets Pacto create namespaces, which a
+// person confirms with no proposal open), a dropped rung that is kept,
 // and an At that is not RFC 3339 or is more than 5 minutes from signedAt, the
 // time a timestamp authority or the log saw it signed.
 func (l LadderRecord) Check(signedAt time.Time) error {
@@ -67,8 +72,10 @@ func (l LadderRecord) Check(signedAt time.Time) error {
 		return errors.New("no signer")
 	case len(l.Rungs) == 0:
 		return errors.New("no rung")
-	case !proposalDigestPattern.MatchString(l.ProposalDigest):
+	case !proposalDigestPattern.MatchString(l.ProposalDigest) && (l.ProposalDigest != "" || l.NamespacesDigest == ""):
 		return fmt.Errorf("proposal digest %q is not sha256:<64 hex>", l.ProposalDigest)
+	case l.NamespacesDigest != "" && !proposalDigestPattern.MatchString(l.NamespacesDigest):
+		return fmt.Errorf("namespaces digest %q is not sha256:<64 hex>", l.NamespacesDigest)
 	}
 	if err := checkRungs(l.Rungs); err != nil {
 		return err

@@ -16,6 +16,7 @@ package main
 import (
 	"cmp"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -152,10 +153,21 @@ func runPromoter(args []string) error {
 	ladderRepo := fs.String("ladder-repository", "",
 		"The approvals repository (host/path) people push signed installation ladder confirmations to. "+
 			"Empty reads none, so only the declared installation ladder holds.")
+	createAppliers := fs.Bool("environment-create-appliers", false,
+		"For a service no applier runs yet, create the suspended Flux objects of each placed environment and its "+
+			"deployer identity (profile idp). Needs --environment-deployer-role.")
+	deployerRole := fs.String("environment-deployer-role", "",
+		"The ClusterRole each service's deployer account is bound to in its own namespace by a RoleBinding.")
+	createNamespaces := fs.Bool("environment-create-namespaces", false,
+		"Create the namespace a service is placed in when it does not exist: at once for a declared or observed "+
+			"placement, once a person's installation ladder confirmation allows it for any other.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zopts)))
+	if *createAppliers && *deployerRole == "" {
+		return errors.New("--environment-create-appliers needs --environment-deployer-role")
+	}
 
 	mgr, err := newManager(*metricsAddr, *probeAddr, *leaderElect, "pacto-delivery-promoter", float32(*qps), *burst)
 	if err != nil {
@@ -216,6 +228,16 @@ func runPromoter(args []string) error {
 	if err != nil {
 		return err
 	}
+	envs := &delivery.EnvironmentReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(),
+		Namespace: os.Getenv("POD_NAMESPACE"), ClusterID: clusterID, ClusterName: ident.Name, NameSource: ident.NameSource,
+		Ladder: delivery.SplitList(*ladder), Off: !*environments, Now: time.Now,
+		Resync: *resync, Policy: policy, LadderRepository: *ladderRepo,
+		RecordOptions: recordOpts, Registry: *registry, Cluster: cluster,
+		Accepted: pubs.NewestAccepted, Placement: pubs.VerifiedPlacement,
+		CreateAppliers: *createAppliers, DeployerRole: *deployerRole, CreateNamespaces: *createNamespaces}
+	if err := envs.SetupWithManager(mgr); err != nil {
+		return err
+	}
 	if err := (&delivery.OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Workers: *workers, Gates: gates, Now: time.Now, Poll: *poll, Records: *records,
 		RecordOptions: recordOpts,
@@ -224,23 +246,16 @@ func runPromoter(args []string) error {
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
 		Events:            mgr.GetEventRecorderFor("pacto-delivery"),
 		Stats:             stats,
+		Environments:      envs,
 		AdmissionPolicies: delivery.SplitList(*admissionPolicies)}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := (&delivery.StageReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Workers: *workers, ClusterID: clusterID, Gates: gates, Now: time.Now,
 		Resync: *resync, AdmissionPolicies: delivery.SplitList(*admissionPolicies), Freshness: *authFreshness,
-		Publishers: pubs,
+		Publishers: pubs, Environments: envs,
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
 		Events: mgr.GetEventRecorderFor("pacto-delivery")}).SetupWithManager(mgr); err != nil {
-		return err
-	}
-	if err := (&delivery.EnvironmentReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(),
-		Namespace: os.Getenv("POD_NAMESPACE"), ClusterID: clusterID, ClusterName: ident.Name, NameSource: ident.NameSource,
-		Ladder: delivery.SplitList(*ladder), Off: !*environments, Now: time.Now,
-		Resync: *resync, Policy: policy, LadderRepository: *ladderRepo,
-		RecordOptions: recordOpts, Registry: *registry, Cluster: cluster,
-		Accepted: pubs.NewestAccepted, Placement: pubs.VerifiedPlacement}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	return startPromoter(mgr, user)

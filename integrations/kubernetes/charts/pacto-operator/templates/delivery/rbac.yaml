@@ -99,9 +99,90 @@ rules:
     resources: [gitrepositories]
     verbs: [get, list, watch]
   {{- end }}
+  {{- if include "pacto-operator.delivery.createNamespaces" . }}
+  # It creates the namespace a service is placed in, labelled
+  # managed-by=pacto (the promoter-managed policy holds it to that). It never
+  # deletes one.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [create]
+  {{- end }}
+  {{- if include "pacto-operator.delivery.createAppliers" . }}
+  # Under profile idp it creates, for a service no applier runs, the suspended
+  # Flux objects of each environment and the service's deployer account,
+  # bound to the -deployer ClusterRole alone: bind on that one role, never
+  # escalate. promoter-managed holds every write to labelled objects.
+  - apiGroups: [source.toolkit.fluxcd.io]
+    resources: [ocirepositories]
+    verbs: [get, create, patch, delete]
+  - apiGroups: [kustomize.toolkit.fluxcd.io]
+    resources: [kustomizations]
+    verbs: [get, create, patch, delete]
+  - apiGroups: [helm.toolkit.fluxcd.io]
+    resources: [helmreleases]
+    verbs: [get, create, patch, delete]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    verbs: [get, create, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    verbs: [get, create, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles]
+    resourceNames: [{{ include "pacto-operator.delivery.fullname" . }}-deployer]
+    verbs: [bind]
+  {{- end }}
   {{- end }}
 ---
 {{ include "pacto-operator.binding" (dict "kind" "ClusterRoleBinding" "name" (printf "%s-promoter" (include "pacto-operator.delivery.fullname" .)) "labels" (include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter")) "serviceAccount" (include "pacto-operator.delivery.serviceAccountName" .) "serviceAccountNamespace" (include "pacto-operator.delivery.namespace" .)) }}
+{{- if include "pacto-operator.delivery.createAppliers" . }}
+---
+# What a service's deployer account may touch in its own namespace: the
+# promoter binds it there with a RoleBinding when it creates the Flux objects
+# of a service no applier runs (profile idp), and Flux applies each version as
+# that account. Namespaced workload kinds only: nothing cluster-wide and
+# nothing of Pacto delivery, Flux or RBAC. No ClusterRole names Secrets: a
+# version that ships one applies once a person grants it with a Role there. Without it Flux applies as the
+# namespace's default account, or as the controller, so anyone who can
+# publish a version could have a ClusterRoleBinding applied with no person
+# asked.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pacto-operator.delivery.fullname" . }}-deployer
+  labels:
+    {{- include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, services, serviceaccounts, persistentvolumeclaims]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactos]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # Flux checks a rollout's health as this account, reading its ReplicaSets,
+  # Pods and Endpoints.
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods, endpoints]
+    verbs: [get, list, watch]
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

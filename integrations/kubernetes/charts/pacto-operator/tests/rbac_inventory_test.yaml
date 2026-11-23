@@ -4993,7 +4993,7 @@ tests:
     template: templates/delivery/rbac.yaml
     set: {profile: idp}
     asserts:
-    - hasDocuments: {count: 9}
+    - hasDocuments: {count: 10}
     - equal: {path: kind, value: ClusterRole}
       documentIndex: 1
     - equal: {path: metadata.name, value: pacto-operator-delivery-promoter}
@@ -5058,6 +5058,25 @@ tests:
         - apiGroups: [source.toolkit.fluxcd.io]
           resources: [gitrepositories]
           verbs: [get, list, watch]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [ocirepositories]
+          verbs: [get, create, patch, delete]
+        - apiGroups: [kustomize.toolkit.fluxcd.io]
+          resources: [kustomizations]
+          verbs: [get, create, patch, delete]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
+          verbs: [get, create, patch, delete]
+        - apiGroups: ['']
+          resources: [serviceaccounts]
+          verbs: [get, create, patch, delete]
+        - apiGroups: [rbac.authorization.k8s.io]
+          resources: [rolebindings]
+          verbs: [get, create, patch, delete]
+        - apiGroups: [rbac.authorization.k8s.io]
+          resourceNames: [pacto-operator-delivery-deployer]
+          resources: [clusterroles]
+          verbs: [bind]
       documentIndex: 1
     - equal: {path: kind, value: ClusterRoleBinding}
       documentIndex: 2
@@ -5074,12 +5093,49 @@ tests:
         value:
         - {kind: ServiceAccount, name: pacto-operator-delivery, namespace: pacto-delivery}
       documentIndex: 2
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 3
+    - equal: {path: metadata.name, value: pacto-operator-delivery-deployer}
+      documentIndex: 3
+    - notExists: {path: metadata.namespace}
+      documentIndex: 3
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [configmaps, services, serviceaccounts, persistentvolumeclaims]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [apps]
+          resources: [deployments, statefulsets, daemonsets]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [batch]
+          resources: [jobs, cronjobs]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [autoscaling]
+          resources: [horizontalpodautoscalers]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [policy]
+          resources: [poddisruptionbudgets]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [networking.k8s.io]
+          resources: [ingresses, networkpolicies]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [apps]
+          resources: [replicasets]
+          verbs: [get, list, watch]
+        - apiGroups: ['']
+          resources: [pods, endpoints]
+          verbs: [get, list, watch]
+      documentIndex: 3
     - equal: {path: kind, value: Role}
-      documentIndex: 3
+      documentIndex: 4
     - equal: {path: metadata.name, value: pacto-operator-delivery-leader-election}
-      documentIndex: 3
+      documentIndex: 4
     - equal: {path: metadata.namespace, value: pacto-delivery}
-      documentIndex: 3
+      documentIndex: 4
     - equal:
         path: rules
         value:
@@ -5089,28 +5145,28 @@ tests:
         - apiGroups: ['']
           resources: [events]
           verbs: [create, patch]
-      documentIndex: 3
+      documentIndex: 4
     - equal: {path: kind, value: RoleBinding}
-      documentIndex: 4
+      documentIndex: 5
     - equal: {path: metadata.name, value: pacto-operator-delivery-leader-election}
-      documentIndex: 4
+      documentIndex: 5
     - equal: {path: metadata.namespace, value: pacto-delivery}
-      documentIndex: 4
+      documentIndex: 5
     - equal:
         path: roleRef
         value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-operator-delivery-leader-election}
-      documentIndex: 4
+      documentIndex: 5
     - equal:
         path: subjects
         value:
         - {kind: ServiceAccount, name: pacto-operator-delivery, namespace: pacto-delivery}
-      documentIndex: 4
+      documentIndex: 5
     - equal: {path: kind, value: ClusterRole}
-      documentIndex: 5
+      documentIndex: 6
     - equal: {path: metadata.name, value: pacto-operator-delivery-agent}
-      documentIndex: 5
+      documentIndex: 6
     - notExists: {path: metadata.namespace}
-      documentIndex: 5
+      documentIndex: 6
     - equal:
         path: rules
         value:
@@ -5132,13 +5188,13 @@ tests:
         - apiGroups: [pacto.trianalab.io]
           resources: [pactos]
           verbs: [get, list]
-      documentIndex: 5
+      documentIndex: 6
     - equal: {path: kind, value: ClusterRole}
-      documentIndex: 6
+      documentIndex: 7
     - equal: {path: metadata.name, value: pacto-operator-delivery-approver}
-      documentIndex: 6
+      documentIndex: 7
     - notExists: {path: metadata.namespace}
-      documentIndex: 6
+      documentIndex: 7
     - equal:
         path: rules
         value:
@@ -5163,26 +5219,26 @@ tests:
         - apiGroups: [pacto.trianalab.io]
           resources: [pactos]
           verbs: [get, list]
-      documentIndex: 6
+      documentIndex: 7
     - equal: {path: kind, value: ClusterRole}
-      documentIndex: 7
+      documentIndex: 8
     - equal: {path: metadata.name, value: pacto-operator-delivery-view}
-      documentIndex: 7
+      documentIndex: 8
     - notExists: {path: metadata.namespace}
-      documentIndex: 7
+      documentIndex: 8
     - equal:
         path: rules
         value:
         - apiGroups: [delivery.pacto.trianalab.io]
           resources: [stages, operations, approvals]
           verbs: [get, list, watch]
-      documentIndex: 7
+      documentIndex: 8
     - equal: {path: kind, value: ClusterRole}
-      documentIndex: 8
+      documentIndex: 9
     - equal: {path: metadata.name, value: pacto-operator-delivery-edit}
-      documentIndex: 8
+      documentIndex: 9
     - notExists: {path: metadata.namespace}
-      documentIndex: 8
+      documentIndex: 9
     - equal:
         path: rules
         value:
@@ -5192,7 +5248,7 @@ tests:
         - apiGroups: [delivery.pacto.trianalab.io]
           resources: [operations]
           verbs: [create, delete]
-      documentIndex: 8
+      documentIndex: 9
   - it: 'idp: every rule, roleRef and subject of delivery/recorder.yaml is pinned'
     template: templates/delivery/recorder.yaml
     set: {profile: idp}

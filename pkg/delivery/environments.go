@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -302,4 +303,125 @@ func ManagedStageSpec(service ServiceRef, environment string, upstream *StageRef
 		s.StartLevel, s.Approval.Always = LevelAutonomous, true
 	}
 	return s
+}
+
+// The annotations Pacto writes on what it creates from the installation
+// ladder. Display only: Pacto never reads them back.
+const (
+	// PlacementConfirmedByAnnotation names, on a managed Stage, the person
+	// whose approval of its first promote confirmed its placement.
+	PlacementConfirmedByAnnotation = managedPrefix + "placement-confirmed-by"
+	// KeepAnnotation, "true" on a namespace Pacto created, says Pacto never
+	// deletes it.
+	KeepAnnotation = managedPrefix + "keep"
+)
+
+// NamespaceCandidatesKey is the key of PlacementsConfigMap that lists, as a
+// sorted JSON array, the namespaces Pacto would create once a person allows
+// it (pacto delivery ladder confirm --create-namespaces). Only readers of
+// that ConfigMap see them: a ladder record carries only their digest.
+const NamespaceCandidatesKey = "namespaces.json"
+
+// NamespacesDigest is the sha256 of the sorted namespace names' JSON, the
+// digest a ladder record binds when its signer lets Pacto create them; empty
+// for none.
+func NamespacesDigest(namespaces []string) string {
+	if len(namespaces) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(slices.Sorted(slices.Values(namespaces))) // ponytail: strings only, Marshal cannot fail
+	sum := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// PlacementQuestion is the sentence a held first promote, or the trust
+// question of a new signer, starts with while service's placement p waits
+// for a person: approving it confirms the placement.
+func PlacementQuestion(service string, p Placement) string {
+	q := "deploy " + service + " to namespace " + p.Namespace
+	if p.Evidence != "" {
+		q += " (" + p.Evidence + ")"
+	}
+	return q + "?"
+}
+
+// FluxApplierInput is what FluxApplierObjects builds the Flux objects of one
+// service in one environment from: where it runs, the artifact
+// publish.deploy names (its oci:// ref and whether it is a chart) and the
+// keyless identity of its accepted publisher.
+type FluxApplierInput struct {
+	Service, Environment, Namespace string
+	URL                             string
+	Chart                           bool
+	Publisher                       PublisherIdentity
+}
+
+// DeployerName is the account the Flux objects of service apply as.
+func DeployerName(service string) string { return service + "-deployer" }
+
+// The Flux kinds Pacto creates for a service no applier runs yet.
+const (
+	fluxSourceAPI    = "source.toolkit.fluxcd.io/v1"
+	fluxKustomizeAPI = "kustomize.toolkit.fluxcd.io/v1"
+	fluxHelmAPI      = "helm.toolkit.fluxcd.io/v2"
+)
+
+// FluxApplierObjects are the Flux objects Pacto creates, under profile idp,
+// for a service no applier runs yet in one environment, all named
+// <service>-<environment>: the pointer OCIRepository and the Kustomization
+// (manifests) or HelmRelease (chart) that applies it. Each is labelled
+// ManagedLabel and ApplyRefLabel and created suspended, and the pointer has
+// no ref at all, whatever the placement's provenance: nothing applies until
+// the promoter's first approved promote writes a digest and unsuspends them.
+// The pointer verifies the accepted publisher's keyless signature; the
+// applier runs as DeployerName in its own namespace, and a Kustomization
+// orphans what it applied when it is deleted.
+func FluxApplierObjects(in FluxApplierInput) []map[string]any {
+	name := in.Service + "-" + in.Environment
+	meta := func() map[string]any {
+		labels := map[string]any{ManagedLabel: ManagedBy, managedPrefix + "service": in.Service,
+			managedPrefix + "environment": in.Environment, ApplyRefLabel: name}
+		return map[string]any{"name": name, "namespace": in.Namespace, "labels": labels}
+	}
+	pointer := map[string]any{"interval": "1m", "url": "oci://" + strings.TrimPrefix(in.URL, "oci://"), "suspend": true,
+		"verify": map[string]any{"provider": "cosign", "matchOIDCIdentity": []any{map[string]any{
+			"issuer":  "^" + regexp.QuoteMeta(in.Publisher.Issuer) + "$",
+			"subject": "^" + regexp.QuoteMeta(in.Publisher.Subject) + "$"}}}}
+	source := map[string]any{"kind": "OCIRepository", "name": name}
+	applier := map[string]any{"interval": "10m", "suspend": true, "targetNamespace": in.Namespace,
+		"serviceAccountName": DeployerName(in.Service)}
+	kind, api := "Kustomization", fluxKustomizeAPI
+	if in.Chart {
+		pointer["layerSelector"] = map[string]any{"mediaType": "application/vnd.cncf.helm.chart.content.v1.tar+gzip", "operation": "copy"}
+		applier["chartRef"] = source
+		kind, api = "HelmRelease", fluxHelmAPI
+	} else {
+		applier["sourceRef"], applier["path"], applier["prune"], applier["deletionPolicy"] = source, "./", true, "Orphan"
+	}
+	return []map[string]any{
+		{"apiVersion": fluxSourceAPI, "kind": "OCIRepository", "metadata": meta(), "spec": pointer},
+		{"apiVersion": api, "kind": kind, "metadata": meta(), "spec": applier},
+	}
+}
+
+// DeployerObjects are the account the Flux objects of service apply each
+// version as in namespace, and what it may touch: a ServiceAccount
+// DeployerName and a RoleBinding of it to clusterRole, the chart's
+// <fullname>-deployer ClusterRole that holds only namespaced workload kinds.
+// A RoleBinding grants them in namespace alone: nothing cluster-wide and
+// nothing of Pacto delivery, Flux or RBAC. Without it Flux applies as the
+// namespace's default account, which multi-tenancy lockdown leaves with no
+// rights, or as the controller, cluster-admin in a default install, so anyone
+// who can publish a version could have a ClusterRoleBinding applied with no
+// person asked.
+func DeployerObjects(service, namespace, clusterRole string) []map[string]any {
+	name := DeployerName(service)
+	meta := map[string]any{"name": name, "namespace": namespace,
+		"labels": map[string]any{ManagedLabel: ManagedBy, managedPrefix + "service": service}}
+	return []map[string]any{
+		{"apiVersion": "v1", "kind": "ServiceAccount", "metadata": meta},
+		{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "RoleBinding", "metadata": maps.Clone(meta),
+			"roleRef":  map[string]any{"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": clusterRole},
+			"subjects": []any{map[string]any{"kind": "ServiceAccount", "name": name, "namespace": namespace}}},
+	}
 }

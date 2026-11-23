@@ -911,7 +911,7 @@ pacto delivery ladder [flags]
 
 #### `pacto delivery ladder confirm`
 
-Confirm the installation ladder Pacto proposes: you sign it as yourself, and the promoter then creates Stages for the confirmed rungs. The ladder is the chart value delivery.environments.ladder plus the rungs Pacto proposes from namespaces and cluster names, each a leaf that takes its versions from the registry. pacto delivery inbox shows the proposal and its digest. The command signs keyless after a fresh login in your browser and records the confirmation in the approvals repository the promoter reads. You need approve on environmentladders.delivery.pacto.trianalab.io in the cluster, granted to your user (kubectl create clusterrole pacto-ladder-approver --verb=approve --resource=environmentladders.delivery.pacto.trianalab.io, bound to your user); groups are not checked, because a certificate names none. The operator must list approver signers in delivery.identities.signers.
+Confirm the installation ladder Pacto proposes: you sign it as yourself, and the promoter then creates Stages for the confirmed rungs. The ladder is the chart value delivery.environments.ladder plus the rungs Pacto proposes from namespaces and cluster names, each a leaf that takes its versions from the registry. pacto delivery inbox shows the proposal and its digest. The command signs keyless after a fresh login in your browser and records the confirmation in the approvals repository the promoter reads. You need approve on environmentladders.delivery.pacto.trianalab.io in the cluster, granted to your user (kubectl create clusterrole pacto-ladder-approver --verb=approve --resource=environmentladders.delivery.pacto.trianalab.io, bound to your user); groups are not checked, because a certificate names none. The operator must list approver signers in delivery.identities.signers. With --create-namespaces you also let Pacto create the namespaces it waits to place services in, when delivery.environments.createNamespaces is on: you must be allowed to read them in the ConfigMap pacto-delivery-placements.
 
 ```
 pacto delivery ladder confirm [flags]
@@ -922,15 +922,17 @@ pacto delivery ladder confirm [flags]
 ```
   pacto delivery ladder confirm --proposal sha256:5be1...
   pacto delivery ladder confirm --proposal sha256:5be1... --drop qa
+  pacto delivery ladder confirm --create-namespaces
 ```
 
 **Flags:**
 
 ```
-      --drop stringArray    a proposed rung to leave out, repeatable; Pacto never proposes it again
-  -h, --help[=true|false]   help for confirm
-      --issuer string       the approver signer's OIDC issuer, when the installation lists several
-      --proposal string     the proposal digest pacto delivery inbox showed you; nothing is signed when the proposal changed since
+      --create-namespaces[=true|false]   also let Pacto create the namespaces it waits to place services in; you sign the list you can read
+      --drop stringArray                 a proposed rung to leave out, repeatable; Pacto never proposes it again
+  -h, --help[=true|false]                help for confirm
+      --issuer string                    the approver signer's OIDC issuer, when the installation lists several
+      --proposal string                  the proposal digest pacto delivery inbox showed you; nothing is signed when the proposal changed since
 ```
 
 ### `pacto delivery lifecycle`

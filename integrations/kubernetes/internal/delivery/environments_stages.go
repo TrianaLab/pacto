@@ -53,46 +53,85 @@ type managedObject struct {
 	Environment string    `json:"environment"`
 }
 
-// managedState is the reconciler's private state: the objects it created.
-// What Pacto owns is this UID list, never a label: anyone who may edit a
-// Stage may label it managed-by=pacto.
+// managedState is the reconciler's private state: the objects it created,
+// the placements a person confirmed and the namespaces a person let it
+// create. What Pacto owns is this UID list, never a label: anyone who may
+// edit a Stage may label it managed-by=pacto. Confirmations are read only
+// from here, never from an annotation.
 type managedState struct {
-	Objects []managedObject `json:"objects"`
+	Objects       []managedObject         `json:"objects"`
+	Confirmations []placementConfirmation `json:"confirmations,omitempty"`
+	// AllowedNamespaces are the namespace candidates a person's ladder
+	// record bound by digest: Pacto may create them.
+	AllowedNamespaces []string `json:"allowedNamespaces,omitempty"`
+	// candidates are the namespaces the last pass listed under
+	// NamespaceCandidatesKey, the ones a ladder record's digest binds.
+	candidates []string
+}
+
+// placementConfirmation is a person's approval of the first promote of the
+// managed Stage UID, which confirmed its placement: the operation, its
+// ApprovalRecord.By and when.
+type placementConfirmation struct {
+	Stage     types.UID `json:"stage"`
+	Operation string    `json:"operation"`
+	By        string    `json:"by"`
+	At        string    `json:"at"`
 }
 
 func (s managedState) owns(uid types.UID) bool {
 	return uid != "" && slices.ContainsFunc(s.Objects, func(o managedObject) bool { return o.UID == uid })
 }
 
+// confirmed reports whether a person confirmed the placement of the managed
+// Stage ns/name.
+func (s managedState) confirmed(ns, name string) bool {
+	i := slices.IndexFunc(s.Objects, func(o managedObject) bool { return o.Kind == kindStage && o.Namespace == ns && o.Name == name })
+	return i >= 0 && slices.ContainsFunc(s.Confirmations, func(c placementConfirmation) bool { return c.Stage == s.Objects[i].UID })
+}
+
 // readState reads the private state from PlacementsConfigMap; none yet is
 // empty. A state that cannot be read or decoded is an error: Pacto then
 // cannot tell its Stages from hand-written ones and acts on none.
 func (r *EnvironmentReconciler) readState(ctx context.Context) (managedState, error) {
+	s, _, err := r.readPrivate(ctx)
+	return s, err
+}
+
+// readPrivate reads PlacementsConfigMap: the private state, with the
+// namespace candidates the last pass listed, and the rows.
+func (r *EnvironmentReconciler) readPrivate(ctx context.Context) (managedState, []delivery.PlacementRow, error) {
 	var s managedState
+	var rows []delivery.PlacementRow
 	cm := &corev1.ConfigMap{}
 	err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: r.Namespace, Name: delivery.PlacementsConfigMap}, cm)
 	switch {
 	case apierrors.IsNotFound(err):
-		return s, nil
+		return s, nil, nil
 	case err != nil:
-		return s, err
-	case cm.Data[stateKey] == "":
-		return s, nil
+		return s, nil, err
 	}
-	if err := json.Unmarshal([]byte(cm.Data[stateKey]), &s); err != nil {
-		return s, fmt.Errorf("%s: %w", stateKey, err)
+	for key, into := range map[string]any{stateKey: &s, delivery.NamespaceCandidatesKey: &s.candidates, "rows.json": &rows} {
+		if v := cm.Data[key]; v != "" {
+			if err := json.Unmarshal([]byte(v), into); err != nil {
+				return managedState{}, nil, fmt.Errorf("%s: %w", key, err)
+			}
+		}
 	}
-	return s, nil
+	return s, rows, nil
 }
 
 // placedEnv is one environment of a service in one pass: its row, the
-// environment it takes versions from, and the manager and workload of the
-// service in the namespace it was placed in.
+// environment it takes versions from, the manager and workload of the
+// service in the namespace it was placed in, and what Flux objects for it
+// would apply (nil: its accepted contract names no deploy artifact Pacto
+// can build them for).
 type placedEnv struct {
 	row      *delivery.PlacementRow
 	upstream string
 	manager  workloadmanager.Manager
 	workload *delivery.WorkloadRef
+	deploy   *delivery.FluxApplierInput
 }
 
 // manageService creates or updates the managed Stage of each placed
@@ -136,7 +175,14 @@ func handWrittenRef(st *placementState, svc delivery.ServiceRef, environment str
 func (r *EnvironmentReconciler) applyManaged(ctx context.Context, st *placementState, svc delivery.ServiceRef, e placedEnv, refs map[string]*delivery.StageRef) *delivery.StageRef {
 	row, p := e.row, e.row.Placement
 	ns, name := p.Namespace, svc.Name+"-"+row.Environment
+	if why := r.ensureNamespace(ctx, st, svc, row.Environment, p); why != "" {
+		row.Reason = why
+		return nil
+	}
 	applier, why := r.applierOf(ctx, st, ns, svc.Name, e.manager)
+	if why != "" && r.CreateAppliers && unmanaged(e.manager) {
+		applier, why = r.ensureAppliers(ctx, st, svc, e, name)
+	}
 	var upstream *delivery.StageRef
 	if why == "" && e.upstream != "" {
 		if upstream = refs[e.upstream]; upstream == nil {

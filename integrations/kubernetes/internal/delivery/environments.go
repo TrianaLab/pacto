@@ -16,6 +16,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	authorizationv1 "k8s.io/api/authorization/v1"
@@ -85,6 +86,21 @@ type EnvironmentReconciler struct {
 	// Placement is the verified placement policy and why it could not be
 	// read (Publishers.VerifiedPlacement); nil reads none.
 	Placement func(ctx context.Context) (*delivery.PlacementPolicy, string)
+	// CreateAppliers (profile idp) creates, for a service no applier runs
+	// yet, the suspended Flux objects of each placed environment and its
+	// deployer identity, bound to the ClusterRole DeployerRole.
+	CreateAppliers bool
+	DeployerRole   string
+	// CreateNamespaces creates the namespace a service is placed in when it
+	// does not exist: at once for a declared or observed placement, once a
+	// person's ladder record allows it for any other.
+	CreateNamespaces bool
+
+	// mu serializes a pass and a placement confirmation, which both write
+	// the private state.
+	// ponytail: one lock for the installation; a confirmation waits for a
+	// running pass. Split the state per service if passes get long.
+	mu sync.Mutex
 
 	// records remembers what each ladder record manifest names, and the
 	// records that never count; last is the ladder the last full read gave.
@@ -124,6 +140,8 @@ func (r *EnvironmentReconciler) Reconcile(ctx context.Context, _ reconcile.Reque
 	if r.Off {
 		return reconcile.Result{}, nil
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	view := delivery.EnvironmentsView{AsOf: r.Now().UTC().Format(time.RFC3339), Completeness: fleet.CompletenessComplete}
 	var in delivery.LadderInput
 	var unread []string
@@ -165,8 +183,12 @@ func (r *EnvironmentReconciler) Reconcile(ctx context.Context, _ reconcile.Reque
 	view.Declared = r.declaredRungs()
 	view.Proposal = delivery.ProposeLadder(known, in)
 	view.ProposalDigest = delivery.ProposalDigest(view.Proposal)
-	placed, err := r.place(ctx, &view, placementState{namespaces: map[string]bool{}, pactos: pactos, occupants: map[string][]delivery.NamespaceOccupant{},
-		ladder: slices.Concat(view.Declared, view.Confirmed)}, in.Namespaces)
+	st := placementState{namespaces: map[string]bool{}, pactos: pactos, occupants: map[string][]delivery.NamespaceOccupant{},
+		ladder: slices.Concat(view.Declared, view.Confirmed), candidates: map[string]bool{}}
+	if lr.from != nil {
+		st.namespacesDigest = lr.from.Record.NamespacesDigest
+	}
+	placed, err := r.place(ctx, &view, st, in.Namespaces)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -389,6 +411,11 @@ type placementState struct {
 	policy     []delivery.PlacementRule
 	occupants  map[string][]delivery.NamespaceOccupant
 	unread     []string
+	// namespacesDigest is the NamespacesDigest the counted ladder record
+	// binds; candidates collects the namespaces this pass would create once
+	// a person allows it.
+	namespacesDigest string
+	candidates       map[string]bool
 }
 
 // place reads the organization index and places each delivered service in
@@ -415,6 +442,9 @@ func (r *EnvironmentReconciler) place(ctx context.Context, view *delivery.Enviro
 	if st.state, err = r.readState(ctx); err != nil {
 		view.Idle = "the private state in " + delivery.PlacementsConfigMap + " could not be read (" + err.Error() + "), so Pacto places no service"
 		return append(unread, "the private state: "+err.Error()), nil
+	}
+	if d := st.namespacesDigest; d != "" && d == delivery.NamespacesDigest(st.state.candidates) {
+		st.state.AllowedNamespaces = slices.Compact(slices.Sorted(slices.Values(slices.Concat(st.state.AllowedNamespaces, st.state.candidates))))
 	}
 	if err = r.readStages(ctx, &st); err != nil {
 		view.Idle = "the Stages could not be listed (" + err.Error() + "), so Pacto places no service"
@@ -444,6 +474,7 @@ func (r *EnvironmentReconciler) place(ctx context.Context, view *delivery.Enviro
 			view.UnplacedCount++
 		}
 	}
+	view.NamespaceCandidates = len(st.candidates)
 	return st.unread, r.writePlacements(ctx, rows, &st)
 }
 
@@ -514,17 +545,20 @@ func (r *EnvironmentReconciler) placeService(ctx context.Context, st *placementS
 	}
 	in := delivery.PlacementInput{Service: svc, Owner: c.Service.Owner.Team, HostedRungs: st.hosted, Policy: st.policy,
 		Pactos: st.pactos, Stages: st.stages, BundleRepository: bundleRepo, GitOps: st.gitops, Namespaces: st.namespaces,
-		SystemNamespaces: []string{r.Namespace, "flux-system", "argocd"}, Taken: map[string]string{}}
+		SystemNamespaces: []string{r.Namespace, "flux-system", "argocd"}, Taken: map[string]string{}, CreateNamespaces: r.CreateNamespaces}
 	if rec, _ := contract.ReadInferredRecord(b.FS); rec != nil && rec.Declaration != nil {
 		in.InferredFrom = rec.Declaration.InferredFrom
 	}
 	if v.Identity != nil {
 		in.Repository = v.Identity.Repository
 	}
+	deploy := deployInput(c, v.Identity)
 	var envs []placedEnv
 	for _, d := range delivery.DesiredEnvironments(st.ladder, c.Environments, r.Now()) {
 		if st.hosts(d.Name) { // else another cluster's
-			envs = append(envs, r.placeEnvironment(ctx, st, &in, d))
+			e := r.placeEnvironment(ctx, st, &in, d)
+			e.deploy = deploy
+			envs = append(envs, e)
 		}
 	}
 	r.manageService(ctx, st, svc, envs)
@@ -742,11 +776,14 @@ func (r *EnvironmentReconciler) gitOps(ctx context.Context, st *placementState) 
 	return out
 }
 
-// writePlacements writes rows as rows.json and the private state as
-// stages.json of PlacementsConfigMap, which only the promoter writes and no
-// reader binding names.
+// writePlacements writes rows as rows.json, the private state as
+// stages.json and the namespace candidates as NamespaceCandidatesKey of
+// PlacementsConfigMap, which only the promoter writes and no reader binding
+// names.
 func (r *EnvironmentReconciler) writePlacements(ctx context.Context, rows []delivery.PlacementRow, st *placementState) error {
 	b, _ := json.Marshal(rows)     // ponytail: plain strings and bools: Marshal cannot fail
 	s, _ := json.Marshal(st.state) // and plain strings
-	return r.writeConfigMap(ctx, delivery.PlacementsConfigMap, map[string]string{"rows.json": string(b), stateKey: string(s)})
+	n, _ := json.Marshal(append([]string{}, slices.Sorted(maps.Keys(st.candidates))...))
+	return r.writeConfigMap(ctx, delivery.PlacementsConfigMap, map[string]string{"rows.json": string(b), stateKey: string(s),
+		delivery.NamespaceCandidatesKey: string(n)})
 }

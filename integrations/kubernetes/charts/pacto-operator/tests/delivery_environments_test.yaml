@@ -193,3 +193,87 @@ tests:
           path: rules
           content: {apiGroups: [""], resources: [configmaps], resourceNames: [pacto-delivery-placements], verbs: [get]}
         documentIndex: 2
+
+  - it: profile idp creates the Flux objects and deployer identity of a service no applier runs
+    template: templates/delivery/deployment.yaml
+    set:
+      profile: idp
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-create-appliers
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-deployer-role=d-pacto-operator-delivery-deployer
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-create-namespaces
+
+  - it: outside idp the promoter creates no Flux object and binds no deployer role
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-create-appliers
+        template: templates/delivery/deployment.yaml
+      - notContains:
+          path: rules
+          content: {apiGroups: [rbac.authorization.k8s.io], resources: [clusterroles], resourceNames: [d-pacto-operator-delivery-deployer], verbs: [bind]}
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1
+      - notContains:
+          path: rules
+          content: {apiGroups: [kustomize.toolkit.fluxcd.io], resources: [kustomizations], verbs: [get, create, patch, delete]}
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1
+
+  - it: under idp the promoter binds the deployer ClusterRole alone, which holds namespaced workload kinds only
+    set:
+      profile: idp
+    template: templates/delivery/rbac.yaml
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [rbac.authorization.k8s.io], resources: [clusterroles], resourceNames: [d-pacto-operator-delivery-deployer], verbs: [bind]}
+        documentIndex: 1
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [serviceaccounts], verbs: [get, create, patch, delete]}
+        documentIndex: 1
+      - contains:
+          path: rules
+          content: {apiGroups: [source.toolkit.fluxcd.io], resources: [ocirepositories], verbs: [get, create, patch, delete]}
+        documentIndex: 1
+      - equal:
+          path: metadata.name
+          value: d-pacto-operator-delivery-deployer
+        documentIndex: 3
+      - notContains:
+          path: rules
+          content: {apiGroups: [rbac.authorization.k8s.io], resources: [roles, rolebindings], verbs: [get, list, watch, create, update, patch, delete]}
+        documentIndex: 3
+      - notMatchRegex:
+          path: rules[*].apiGroups[*]
+          pattern: ^(rbac.authorization.k8s.io|delivery.pacto.trianalab.io|.*fluxcd.io)$
+        documentIndex: 3
+
+  - it: createNamespaces renders the flag and the namespace create right
+    set:
+      delivery.environments.createNamespaces: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-create-namespaces
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [namespaces], verbs: [create]}
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1
+
+  - it: without createNamespaces the promoter creates no namespace
+    template: templates/delivery/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [namespaces], verbs: [create]}

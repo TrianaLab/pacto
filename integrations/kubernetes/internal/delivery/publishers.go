@@ -771,6 +771,9 @@ func (r *StageReconciler) trustAsk(ctx context.Context, stage *dv1.Stage, verdic
 	if len(b.pins) > 0 {
 		reason = "signer changed from " + b.pins[0].Subject + " to " + v.Identity.Subject
 	}
+	if q := r.Environments.question(ctx, stage); q != "" {
+		reason = q + " " + reason
+	}
 	return trust{name: name, spec: &delivery.OperationSpec{Type: delivery.TypeTrust, Stage: stage.Name, Facet: delivery.FacetTrust,
 		Params: delivery.Params{From: stage.Status.Pointer, To: v.Digest, Publisher: v.Identity}, Reason: reason,
 		Actor: delivery.Actor{User: r.Policy.ControllerUser}}}, nil

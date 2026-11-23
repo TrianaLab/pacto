@@ -39,6 +39,12 @@ func TestLadderRecordCheck(t *testing.T) {
 	if err := goodLadder().Check(ladderSignedAt); err != nil {
 		t.Fatal(err)
 	}
+	// A record that only lets Pacto create namespaces confirms no proposal.
+	nsOnly := goodLadder()
+	nsOnly.ProposalDigest, nsOnly.NamespacesDigest = "", ladderDigest
+	if err := nsOnly.Check(ladderSignedAt); err != nil {
+		t.Fatal(err)
+	}
 	many := func(prov string, upstream bool) []delivery.LadderRung {
 		var rs []delivery.LadderRung
 		for i := range 17 {
@@ -58,6 +64,8 @@ func TestLadderRecordCheck(t *testing.T) {
 		"no signer":        {func(l *delivery.LadderRecord) { l.Signer.Subject = "" }, "no signer"},
 		"no rung":          {func(l *delivery.LadderRecord) { l.Rungs = nil }, "no rung"},
 		"bad digest":       {func(l *delivery.LadderRecord) { l.ProposalDigest = "5be1" }, "proposal digest"},
+		"no proposal":      {func(l *delivery.LadderRecord) { l.ProposalDigest = "" }, "proposal digest"},
+		"bad namespaces":   {func(l *delivery.LadderRecord) { l.NamespacesDigest = "5be1" }, "namespaces digest"},
 		"not a DNS label":  {func(l *delivery.LadderRecord) { l.Rungs[2].Name = "Preview" }, "DNS label"},
 		"named twice":      {func(l *delivery.LadderRecord) { l.Rungs[2].Name = "staging" }, "named twice"},
 		"declared after":   {func(l *delivery.LadderRecord) { l.Rungs[0], l.Rungs[2] = l.Rungs[2], l.Rungs[0] }, "follows a kept rung"},

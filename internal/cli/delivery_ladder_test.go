@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -244,4 +245,57 @@ func TestConfirmRefusals(t *testing.T) {
 		e.userReview = func(string) (bool, error) { return true, nil }
 	}, "ApproverMismatch: your Kubernetes user is oidc:bob@acme.com and your login signs as "+alice, 1)
 	ladderRefused(t, func(e *ladderEnv) { e.policy.Signers[0].Subjects = "" }, "has no subjects", 1)
+}
+
+// withCandidates makes the promoter list candidates as the namespaces it
+// waits to create, readable by the caller unless forbidden.
+func (e *ladderEnv) withCandidates(t *testing.T, candidates string, forbidden bool) {
+	t.Helper()
+	next := e.d.newDynamic
+	e.d.newDynamic = func() (dynamic.Interface, error) {
+		c, err := next()
+		cm := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "ConfigMap",
+			"metadata": map[string]any{"namespace": delivery.PolicyNamespace, "name": delivery.PlacementsConfigMap},
+			"data":     map[string]any{delivery.NamespaceCandidatesKey: candidates}}}
+		if err := e.client.Tracker().Create(schema.GroupVersionResource{Version: "v1", Resource: "configmaps"}, cm, delivery.PolicyNamespace); err != nil {
+			t.Fatal(err)
+		}
+		if forbidden {
+			e.client.PrependReactor("get", "configmaps", func(a k8stesting.Action) (bool, runtime.Object, error) {
+				if a.(k8stesting.GetAction).GetName() != delivery.PlacementsConfigMap {
+					return false, nil, nil
+				}
+				return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "configmaps"}, delivery.PlacementsConfigMap, errors.New("no"))
+			})
+		}
+		return c, err
+	}
+}
+
+func TestConfirmCreateNamespacesSignsTheirDigest(t *testing.T) {
+	e := newLadderEnv(t, capabilities.ReferrersNative)
+	e.withCandidates(t, `["payments-staging","production"]`, false)
+	out, _, err := e.confirm(t, "--create-namespaces")
+	if err != nil || !strings.Contains(out, "\nallowed Pacto to create the namespaces payments-staging, production\n") {
+		t.Fatalf("%q %v", out, err)
+	}
+	if rec := e.signed(t); rec.NamespacesDigest != delivery.NamespacesDigest([]string{"production", "payments-staging"}) || len(rec.Rungs) != 4 {
+		t.Fatalf("%+v", rec)
+	}
+	// With nothing proposed, the namespaces alone are confirmed.
+	e = newLadderEnv(t, capabilities.ReferrersNative)
+	e.view.Proposal, e.view.ProposalDigest = delivery.LadderProposal{}, ""
+	e.withCandidates(t, `["staging"]`, false)
+	if out, _, err := e.confirm(t, "--create-namespaces"); err != nil || !strings.HasPrefix(out, "confirmed staging -> production as ") {
+		t.Fatalf("%q %v", out, err)
+	}
+	if rec := e.signed(t); rec.ProposalDigest != "" || rec.NamespacesDigest != delivery.NamespacesDigest([]string{"staging"}) {
+		t.Fatalf("%+v", rec)
+	}
+}
+
+func TestConfirmCreateNamespacesRefusals(t *testing.T) {
+	ladderRefused(t, func(e *ladderEnv) { e.withCandidates(t, `[]`, false) }, "no namespace waits to be created", 0, "--create-namespaces")
+	ladderRefused(t, func(e *ladderEnv) { e.withCandidates(t, `["staging"]`, true) },
+		"you may not read the namespaces waiting to be created in pacto-delivery/"+delivery.PlacementsConfigMap+", so you cannot allow them", 0, "--create-namespaces")
 }

@@ -265,6 +265,27 @@ tests:
           pattern: ^--environment
         template: templates/delivery/deployment.yaml
 
+  - it: delivery.environments null under idp creates no Flux object, deployer or namespace
+    set:
+      profile: idp
+      delivery.identities.allowEmptyHumanGroups: true
+      delivery.environments: null
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-create-appliers
+        template: templates/delivery/deployment.yaml
+      - notContains:
+          path: rules
+          content: {apiGroups: [rbac.authorization.k8s.io], resources: [clusterroles], resourceNames: [t-pacto-operator-delivery-deployer], verbs: [bind]}
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [namespaces], verbs: [create]}
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1
+
   - it: delivery.environments null reads no ladder repository
     set:
       registry: ghcr.io/acme

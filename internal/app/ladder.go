@@ -43,9 +43,11 @@ func (d *Delivery) LadderView(ctx context.Context) (delivery.EnvironmentsView, e
 }
 
 // LadderRungs is the installation ladder a person confirms from view: its
-// declared chain, then every proposed rung but those in drop, each a leaf,
-// and the dropped rungs, sorted. A dropped rung must be proposed: a declared
-// one comes from the chart value.
+// declared chain, then the rungs confirmed before and every proposed rung
+// but those in drop, each a leaf, and the dropped rungs, sorted. The newest
+// record is the whole confirmed ladder, so the rungs confirmed before are
+// signed again. A dropped rung must be proposed: a declared one comes from
+// the chart value.
 func LadderRungs(view delivery.EnvironmentsView, drop []string) ([]delivery.LadderRung, []string, error) {
 	dropped := slices.Compact(slices.Sorted(slices.Values(drop)))
 	for _, n := range dropped {
@@ -62,7 +64,7 @@ func LadderRungs(view delivery.EnvironmentsView, drop []string) ([]delivery.Ladd
 		}
 	}
 	rungs := slices.Clone(view.Declared)
-	for _, r := range view.Proposal {
+	for _, r := range slices.Concat([]delivery.LadderRung(view.Confirmed), view.Proposal) {
 		if !slices.Contains(dropped, r.Name) {
 			rungs = append(rungs, delivery.LadderRung{Name: r.Name, Source: r.Source, Provenance: delivery.RungInferred})
 		}
@@ -70,12 +72,44 @@ func LadderRungs(view delivery.EnvironmentsView, drop []string) ([]delivery.Ladd
 	return rungs, dropped, nil
 }
 
+// ErrNamespacesChanged is why a confirmation of namespace candidates other
+// than the ones the promoter lists now gets nothing signed.
+var ErrNamespacesChanged = errors.New("the namespaces waiting to be created changed: run pacto delivery ladder confirm --create-namespaces again")
+
+// NamespaceCandidates reads, with the caller's own credentials, the
+// namespaces the promoter would create once a person allows it
+// (delivery.NamespaceCandidatesKey of delivery.PlacementsConfigMap). Only
+// whoever may read that ConfigMap may sign them.
+func (d *Delivery) NamespaceCandidates(ctx context.Context) ([]string, error) {
+	ns := cmp.Or(d.PolicyNamespace, delivery.PolicyNamespace)
+	var cm struct {
+		Data map[string]string `json:"data"`
+	}
+	err := getInto(ctx, d.Dynamic.Resource(gvrConfigMaps).Namespace(ns), delivery.PlacementsConfigMap, &cm)
+	switch {
+	case apierrors.IsNotFound(err):
+		return nil, nil
+	case apierrors.IsForbidden(err):
+		return nil, fmt.Errorf("you may not read the namespaces waiting to be created in %s/%s, so you cannot allow them: %w", ns, delivery.PlacementsConfigMap, err)
+	case err != nil:
+		return nil, fmt.Errorf("reading the namespaces waiting to be created in %s: %w", ns, err)
+	}
+	var out []string
+	if v := cm.Data[delivery.NamespaceCandidatesKey]; v != "" {
+		if err := json.Unmarshal([]byte(v), &out); err != nil {
+			return nil, fmt.Errorf("the namespaces waiting to be created in %s/%s: %w", ns, delivery.PlacementsConfigMap, err)
+		}
+	}
+	return out, nil
+}
+
 // WriteLadder signs rec, a person's confirmation of the installation ladder,
 // with signer and pushes it on the cluster's ladder stream in repo, the
 // approvals repository the promoter reads ladder records from, anchoring the
 // stream first. It reads the installation ladder again first and refuses when
-// its proposal is no longer the one rec confirms, so a proposal that changed
-// while the person logged in gets nothing signed. It returns where the record
+// its proposal, or the namespaces rec lets Pacto create, are no longer the
+// ones rec confirms, so a proposal that changed while the person logged in
+// gets nothing signed. It returns where the record
 // is and the form it took.
 func (d *Delivery) WriteLadder(ctx context.Context, rec delivery.LadderRecord, signer delivery.Signer, repo string) (string, capabilities.ReferrersMode, error) {
 	view, err := d.LadderView(ctx)
@@ -84,6 +118,15 @@ func (d *Delivery) WriteLadder(ctx context.Context, rec delivery.LadderRecord, s
 	}
 	if view.ProposalDigest != rec.ProposalDigest {
 		return "", "", ErrLadderChanged
+	}
+	if rec.NamespacesDigest != "" {
+		ns, err := d.NamespaceCandidates(ctx)
+		if err != nil {
+			return "", "", err
+		}
+		if delivery.NamespacesDigest(ns) != rec.NamespacesDigest {
+			return "", "", ErrNamespacesChanged
+		}
 	}
 	if err := rec.Check(d.Now()); err != nil {
 		return "", "", err
