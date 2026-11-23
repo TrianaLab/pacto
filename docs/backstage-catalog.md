@@ -1,8 +1,8 @@
 # Read owners from your Backstage catalog
 
 Backstage stays your catalog. When it already records who owns a service, the
-system it belongs to and what it depends on, Pacto reads those values so
-nobody writes them twice. Each one is **inferred**: context for agents and
+system it belongs to, what it depends on and which software templates create
+services, Pacto reads those values so nobody writes them twice. Each one is **inferred**: context for agents and
 people, never authority. Pacto only reads the catalog and never writes to
 Backstage.
 
@@ -67,7 +67,7 @@ is dropped without being counted.
 
 ## What Pacto reads
 
-Pacto reads Components only, 500 per page and at most 5000 per read, with 10
+Pacto reads Components and [software templates](#software-templates), 500 per page and at most 5000 per read, with 10
 seconds per request, 16 MiB per page and no redirects:
 
 | Backstage field | Inferred value |
@@ -114,6 +114,76 @@ Owner: unknown
   muted and filterable like every inferred edge.
 - [`pacto export backstage`](backstage.md#annotations) writes the inferred owner and
   domain to annotations only, with their source.
+
+## Software templates
+
+Pacto reads every Template entity whose `apiVersion` starts with
+`scaffolder.backstage.io/` from the same pages: its name, namespace, title,
+description, owner and type. Each one is an
+[inferred golden path](golden-paths.md#find-one), listed apart from the
+declared ones:
+
+```text
+$ pacto fleet entities --template --backstage-url https://backstage.acme.internal
+1 of 1 entit(ies):
+  golden path http-service                 http-service                     NotEvaluated
+    open: https://backstage.acme.internal/create/templates/default/http-service
+Inferred golden paths (complete, asOf 2026-11-23T09:00:00Z):
+  springboot-service  inferred from Backstage (backstage.acme.internal)  template:default/springboot-service
+    open: https://backstage.acme.internal/create/templates/default/springboot-service
+    accept: pacto declare template:default/springboot-service --registry <registry> --backstage-url https://backstage.acme.internal
+```
+
+- The link is `/create/templates/<namespace>/<name>` under the configured
+  URL. A detected in-cluster Service gets no link, because a browser cannot
+  open it, and no accept command: set the URL to
+  [accept](#accept-a-template-as-a-golden-path) its templates.
+- A template named like a declared golden path is that path: its row shows
+  the link and the template is listed once. A name another service holds is
+  listed with no accept.
+- A name a contract cannot carry is skipped and named in
+  `INFERRED_TEMPLATES_SKIPPED`. At most 200 templates are listed.
+- Every viewer, restricted ones included, sees each template the reader token
+  reads.
+- An unavailable or partial catalog makes the block `partial` with the
+  reason. It never reads as "no templates".
+
+With no Backstage in a watched namespace, Detected providers reads
+`Backstage catalog: not detected`, partial, because an external catalog is
+invisible to the cluster. The dashboard hides that row when a URL is set,
+since the source's own row then speaks for it.
+
+## Accept a template as a golden path
+
+Accepting a software template turns it into a declared golden path, through
+the same flow as [`pacto declare`](publishing.md#declare-a-running-service):
+
+```bash
+export PACTO_BACKSTAGE_TOKEN=...
+pacto declare template:default/springboot-service \
+  --registry ghcr.io/acme/paths --backstage-url https://backstage.acme.internal
+```
+
+Without `--yes` it prints the plan and writes nothing. The plan drafts a
+`pacto.yaml` that names the template, takes its description or title as
+`service.summary` and declares `service.template`. The golden path holds the
+contract only: Backstage keeps the template's steps and skeleton, and "Open in
+Backstage" stays the way to scaffold code from it. The owner Backstage names
+is a plan note: declare `service.owner` in a later version. With `--yes` you
+sign the bundle at `<registry>/<name>`.
+
+An agent calls `pacto_declare` with `service: template:<namespace>/<name>` and
+writes a draft a person accepts with `--from-draft`. The dashboard's **Accept
+as golden path** button opens the same plan.
+
+Pacto accepts a template only when:
+
+- it comes from the catalog `--backstage-url` or `dashboard.backstage.url`
+  names, never from a detected one;
+- `<registry>/<name>` holds no version yet; later versions go through
+  `pacto publish`;
+- on a shared dashboard, you may `update pactos` in the installation
+  namespace.
 
 ## What never changes
 

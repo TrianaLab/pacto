@@ -224,6 +224,11 @@ running workload.
   URL does not name is refused with `GitHostUnknown`. An agent's `repository`
   or `repo_map` steers a pull request only when signed provenance or a GitOps
   source names the same repository.
+- `service` also takes `template:<namespace>/<name>`, a Backstage template
+  to [accept as a golden path](backstage-catalog.md#accept-a-template-as-a-golden-path).
+  A stdio server reads it from its own `--backstage-url`. Over HTTP the
+  caller needs `update pactos` in the installation namespace, and only a
+  template from the configured catalog is accepted.
 - A plan that changes `service.owner` lists who may set it in `mayAccept`;
   see [Who may set a service owner](owner-setting.md). An HTTP server leaves
   it out, with a generic refusal, for a caller who may not see the service.
@@ -256,6 +261,12 @@ the command a person runs:
 | `PullRequestNeedsLocalToken` | Over HTTP: a pull request runs only where your Git token is, so run the `cli` command |
 | `NotAllowed` | Over HTTP: the caller may not update the workload, names someone else in `on_behalf_of`, or the repository belongs to another workload |
 | `ReviewFailed` | Over HTTP: the review of the caller failed or could not be evaluated |
+| `TemplateNotFound` | The catalog holds no template with that name |
+| `TemplateCatalogUnset` | A `template:` subject with no Backstage URL to read it from |
+| `TemplateCatalogUnavailable` | The catalog could not be read |
+| `TemplateNameInvalid` | The subject is no `template:<namespace>/<name>`, or the name is no name a contract can carry |
+| `TemplateNameTaken` | A service already holds the name, or `<registry>/<name>` already holds a version |
+| `TemplateSourceUnverified` | The template comes from a detected catalog: set `dashboard.backstage.url` to accept it |
 | `OWNER_SIGNER_NOT_PERSON` | Only a person sets `service.owner`: an agent, CI or workload signer never does, whoever it acts for |
 | `OWNER_SIGNER_NOT_ALLOWED` | The person is no member of the current owner and no default approver |
 | `OWNER_POLICY_UNVERIFIED` | No verified owner policy was read, so who may set `service.owner` is unknown |
@@ -371,7 +382,11 @@ or schema file already there as it is, listed in `kept`.
   every caller would pull with the server's registry credentials, read its
   directories and write to its paths, so an HTTP server offers only
   `pacto_schema` from the contract tools.
-- `pacto_fleet_entities` with `template: only` lists golden paths.
+- `pacto_fleet_entities` with `template: only` lists golden paths, and
+  `inferredTemplates` the software templates a
+  [Backstage catalog](backstage-catalog.md#software-templates) holds, each
+  `provenance: inferred` with its `url`, `acceptable` and the block's `asOf`
+  and `completeness`. `declaration: inferred` keeps only those.
 - `declaration` on `pacto_fleet_entities` and `pacto_fleet_search` takes
   `inferred`, which keeps only the services Pacto infers from Kubernetes
   workloads no contract describes, or `declared`, which leaves them out. Empty
