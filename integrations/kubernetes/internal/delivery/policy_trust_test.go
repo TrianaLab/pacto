@@ -302,16 +302,26 @@ func TestVerifiedPlacement(t *testing.T) {
 	if pol, why := w.p.VerifiedPlacement(t.Context()); pol == nil || why != "" || pol.Rules[0].Name != "prod" {
 		t.Fatalf("verified: %+v %q", pol, why)
 	}
-	// An older policy pushed over it is ignored: the newest stays.
-	w.signPlacement(w.key, delivery.PlacementPolicy{At: "2026-11-22T10:00:00Z"})
-	if pol, why := w.p.VerifiedPlacement(t.Context()); pol == nil || len(pol.Rules) != 1 || !strings.Contains(why, "older than") {
-		t.Fatalf("rollback: %+v %q", pol, why)
-	}
 	// A stranger's policy is unverified.
 	_, stranger, _ := ed25519.GenerateKey(rand.Reader)
 	w.signPlacement(stranger, delivery.PlacementPolicy{At: "2026-11-24T10:00:00Z"})
 	if pol, why := w.p.VerifiedPlacement(t.Context()); pol != nil || !strings.Contains(why, "could not be verified") {
 		t.Fatalf("stranger: %+v %q", pol, why)
+	}
+}
+
+// An older signed placement policy pushed over a newer one is ignored: the
+// newest stays and the reason names the rollback.
+func TestPlacementPolicyOlderAtIgnored(t *testing.T) {
+	w := newPolicyWorld(t)
+	rule := delivery.PlacementRule{Name: "prod", Environments: []string{"production"}, Namespace: "prod-{service}"}
+	w.signPlacement(w.key, delivery.PlacementPolicy{Rules: []delivery.PlacementRule{rule}, At: "2026-11-23T10:00:00Z"})
+	if pol, why := w.p.VerifiedPlacement(t.Context()); pol == nil || why != "" {
+		t.Fatalf("verified: %+v %q", pol, why)
+	}
+	w.signPlacement(w.key, delivery.PlacementPolicy{At: "2026-11-22T10:00:00Z"})
+	if pol, why := w.p.VerifiedPlacement(t.Context()); pol == nil || len(pol.Rules) != 1 || pol.Rules[0].Name != "prod" || !strings.Contains(why, "older than") {
+		t.Fatalf("rollback: %+v %q", pol, why)
 	}
 }
 
