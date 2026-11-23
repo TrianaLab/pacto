@@ -35,12 +35,23 @@ const (
 // evidence source reports.
 func idpQuery(t *testing.T, base *Collection, evidence *Collection, rows ...Provider) *Query {
 	t.Helper()
-	orders := workload("team-a", "orders")
+	return idpQueryWith(t, base, evidence, nil, nil, rows...)
+}
+
+// ordersIn is a target of orders in environment production in namespace ns.
+func ordersIn(ns string) RawTarget {
+	orders := workload(ns, "orders")
 	orders.Domain, orders.Labels = acme, map[string]string{TargetEnvironmentLabel: "production"}
+	return orders
+}
+
+// idpQueryWith is idpQuery with more targets in staging and in prod-eu.
+func idpQueryWith(t *testing.T, base *Collection, evidence *Collection, staging, prodEU []RawTarget, rows ...Provider) *Query {
+	t.Helper()
 	sources := []Source{
 		NewMemorySource("oci", "oci", base),
-		NewMemorySource("k8s-1", SourceKindKubernetes, &Collection{Cluster: clusterOf("uid-1", "staging", ClusterNameFromContext), Targets: []RawTarget{orders}}),
-		NewMemorySource("k8s-2", SourceKindKubernetes, &Collection{Cluster: clusterOf("uid-2", "prod-eu", ClusterNameFromContext), Targets: []RawTarget{workload("shop", "api")}}),
+		NewMemorySource("k8s-1", SourceKindKubernetes, &Collection{Cluster: clusterOf("uid-1", "staging", ClusterNameFromContext), Targets: append([]RawTarget{ordersIn("team-a")}, staging...)}),
+		NewMemorySource("k8s-2", SourceKindKubernetes, &Collection{Cluster: clusterOf("uid-2", "prod-eu", ClusterNameFromContext), Targets: append([]RawTarget{workload("shop", "api")}, prodEU...)}),
 	}
 	for i, row := range rows {
 		sources = append(sources, NewMemorySource(fmt.Sprintf("detection-%d", i), SourceKindDetection,
@@ -206,4 +217,26 @@ func TestProvisioningSuggestionConcurrentRestrict(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+// A visible cluster with no crossplane row is unknown: one none-found row
+// elsewhere never makes "no provisioner found".
+func TestProvisioningSuggestionNoProvisionerNeedsARowPerCluster(t *testing.T) {
+	wantSuggestion(t, idpQuery(t, ordersFleet(), nil, crossplaneRow("uid-1", "staging", SourceAvailable, crossplaneNone)), "")
+}
+
+// A restricted view may miss a report and keeps the anonymised row of a hidden
+// cluster: neither says "no provisioner found", although every row it names
+// reads none found.
+func TestProvisioningSuggestionRestrictedViewNeverSaysNoProvisioner(t *testing.T) {
+	billing := report(func(r *RawProvisioning) { r.Service, r.Digest = "billing", testDigest(acme, "billing", "1.0.0") })
+	base := ordersFleet()
+	base.Revisions = append(base.Revisions, consumer("billing", "1.0.0", "postgresql"))
+	q := idpQueryWith(t, base, &Collection{Provisioning: []RawProvisioning{billing}}, []RawTarget{workload("ops", "billing")}, nil,
+		crossplaneRow("uid-1", "staging", SourceAvailable, crossplaneNone), crossplaneRow("uid-2", "prod-eu", SourceAvailable, crossplaneRuns))
+	r := q.Restrict(anyCluster(readerOf("team-a")), anyClusterKind(nil))
+	if len(r.SnapshotForSerialization().Provisioning) != 0 {
+		t.Fatal("the hidden billing report reached the view")
+	}
+	wantSuggestion(t, r, "")
 }

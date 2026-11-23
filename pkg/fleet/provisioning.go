@@ -292,39 +292,57 @@ const (
 
 // provisioningHint is what the caller's own view knows of provisioners: the
 // visible clusters a running Crossplane was detected in, sorted by name, and
-// whether every visible Crossplane row found none while no adapter reported.
-// It is computed per call from the view, never kept on a Query, which serves
-// concurrent reads.
+// whether every visible cluster is known to run no Crossplane while no adapter
+// reported. It is computed per call from the view, never kept on a Query,
+// which serves concurrent reads.
 type provisioningHint struct {
 	running       []crossplaneCluster
 	noProvisioner bool
+	// envs indexes the clusters of each service's targets per environment,
+	// built only when a Crossplane runs.
+	envs map[serviceEnv]map[string]bool
 }
 
 // crossplaneCluster is a cluster's id and display name.
 type crossplaneCluster struct{ id, name string }
 
-// provisioningHint reads the detected crossplane rows of the clusters the view
-// shows (Restrict blanks the cluster of the others) and the provisioning
-// reports it holds. A stale, partial or unknown row is neither running nor
-// none found, so it suggests nothing: unknown is never positive.
+// serviceEnv is a service in one environment.
+type serviceEnv struct {
+	svc ServiceKey
+	env string
+}
+
+// provisioningHint reads the detected crossplane rows of the view and the
+// provisioning reports it holds. A stale, partial or unknown row is neither
+// running nor none found, and neither is a row of a cluster the view hides
+// (Restrict blanks its cluster) or a visible cluster with no row: each makes
+// "no provisioner found" unknown. A partial view, a restricted one included,
+// may miss a report, so it never says none either: unknown is never positive.
 func (q *Query) provisioningHint() provisioningHint {
 	clusters := clusterOfSource(q.snap)
 	var h provisioningHint
-	rows, none := 0, 0
+	unknown, none := false, map[string]bool{}
 	for _, p := range q.snap.Providers {
-		if p.ID != ProviderCrossplane || p.Provenance != ProvenanceInferred || p.Cluster == "" {
+		if p.ID != ProviderCrossplane || p.Provenance != ProvenanceInferred {
 			continue
 		}
-		rows++
 		switch {
+		case p.Cluster == "":
+			unknown = true
 		case crossplaneRunning(p):
 			h.running = append(h.running, crossplaneCluster{providerCluster(p, clusters), p.Cluster})
 		case crossplaneNoneFound(p):
-			none++
+			none[providerCluster(p, clusters)] = true
+		default:
+			unknown = true
 		}
 	}
 	slices.SortFunc(h.running, func(a, b crossplaneCluster) int { return cmp.Compare(a.name, b.name) })
-	h.noProvisioner = len(h.running) == 0 && rows > 0 && none == rows && len(q.snap.Provisioning) == 0
+	if len(h.running) > 0 {
+		h.envs = envClusterIndex(q.snap)
+	}
+	h.noProvisioner = len(h.running) == 0 && !unknown && len(none) > 0 && len(q.snap.Provisioning) == 0 &&
+		q.snap.Completeness != CompletenessPartial && !slices.ContainsFunc(q.snap.Clusters, func(c ClusterRecord) bool { return !none[c.ID] })
 	return h
 }
 
@@ -351,7 +369,7 @@ func (q *Query) suggestion(hint provisioningHint, use OfferingUse, env string) s
 		}
 		return ""
 	}
-	in := q.envClusters(ServiceKey(use.Consumer.Key), env)
+	in := hint.envs[serviceEnv{ServiceKey(use.Consumer.Key), env}]
 	for _, c := range hint.running {
 		if in[c.id] {
 			return fmt.Sprintf(suggestCrossplane, c.name)
@@ -360,16 +378,35 @@ func (q *Query) suggestion(hint provisioningHint, use OfferingUse, env string) s
 	return fmt.Sprintf(suggestCrossplane, hint.running[0].name)
 }
 
-// envClusters is the clusters svc's targets in env run in; none for the
-// default environment "".
-func (q *Query) envClusters(svc ServiceKey, env string) map[string]bool {
-	out := map[string]bool{}
-	for _, t := range q.snap.Targets {
-		if env != "" && t.ServiceKey == svc && t.Environment == env && t.Cluster != "" {
-			out[t.Cluster] = true
+// envClusterIndex is the clusters each service's targets run in, per named
+// environment; the default environment "" has none.
+func envClusterIndex(s *FleetSnapshot) map[serviceEnv]map[string]bool {
+	out := map[serviceEnv]map[string]bool{}
+	for _, t := range s.Targets {
+		if t.Environment == "" || t.Cluster == "" {
+			continue
 		}
+		k := serviceEnv{t.ServiceKey, t.Environment}
+		if out[k] == nil {
+			out[k] = map[string]bool{}
+		}
+		out[k][t.Cluster] = true
 	}
 	return out
+}
+
+// reportCluster is the cluster rec is attributed to: its source's, else the
+// one cluster its service's targets in its environment run in, else "".
+func reportCluster(rec *ProvisioningRecord, clusters map[string]string, envs map[serviceEnv]map[string]bool) string {
+	if c := clusters[rec.Source]; c != "" {
+		return c
+	}
+	if cs := envs[serviceEnv{rec.ServiceKey, rec.Environment}]; len(cs) == 1 {
+		for id := range cs {
+			return id
+		}
+	}
+	return ""
 }
 
 // seedProvisioningSlots gives each entry of the current revision a slot in

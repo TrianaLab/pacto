@@ -442,3 +442,49 @@ func TestInstallationEngineUnattributableRecordIsUnknown(t *testing.T) {
 		}
 	}
 }
+
+// A restricted view attributes a report from the unrestricted snapshot: a
+// report the full view cannot place, because orders runs in production in
+// both clusters, never lands on the one cluster the viewer still sees.
+func TestInstallationEngineRestrictedViewKeepsTheFullAttribution(t *testing.T) {
+	q := idpQueryWith(t, ordersFleet(), &Collection{Provisioning: []RawProvisioning{report()}}, nil, []RawTarget{ordersIn("team-b")},
+		installRow("uid-1", "staging"), crossplaneRow("uid-1", "staging", SourceAvailable, crossplaneNone))
+	if p := engineOf(q, "uid-1"); p.Engine != InstallationEngineUnknown {
+		t.Fatalf("unrestricted provisioning = %+v", p)
+	}
+	r := q.Restrict(anyCluster(readerOf("team-a", "shop")), anyClusterKind(nil))
+	if p := engineOf(r, "uid-1"); p.Engine != InstallationEngineUnknown || p.Completeness != InstallationUnknown {
+		t.Errorf("restricted provisioning = %+v", p)
+	}
+}
+
+// A view that hides the service an adapter reported for may not know of that
+// adapter: its none-found row gives unknown, never none.
+func TestInstallationEngineRestrictedViewNeverSaysNone(t *testing.T) {
+	billing := report(func(r *RawProvisioning) { r.Service, r.Digest = "billing", testDigest(acme, "billing", "1.0.0") })
+	base := ordersFleet()
+	base.Revisions = append(base.Revisions, consumer("billing", "1.0.0", "postgresql"))
+	q := idpQueryWith(t, base, &Collection{Provisioning: []RawProvisioning{billing}}, []RawTarget{workload("ops", "billing")}, nil,
+		installRow("uid-1", "staging"), crossplaneRow("uid-1", "staging", SourceAvailable, crossplaneNone))
+	r := q.Restrict(anyCluster(readerOf("team-a")), anyClusterKind(nil))
+	if p := engineOf(r, "uid-1"); p.Engine != InstallationEngineUnknown || !strings.Contains(p.Source, "partial") {
+		t.Errorf("restricted provisioning = %+v", p)
+	}
+}
+
+// Only stale reports never make a fresh, complete adapter: the engine is
+// unknown, dated by the newest report.
+func TestInstallationEngineStaleReportsAreUnknown(t *testing.T) {
+	old := fixedNow().AddDate(0, -8, 0)
+	stale := report(func(r *RawProvisioning) { r.ObservedAt, r.AcceptedAt = old, &old })
+	q := idpQuery(t, ordersFleet(), &Collection{Provisioning: []RawProvisioning{stale}}, installRow("uid-1", "staging"),
+		crossplaneRow("uid-1", "staging", SourceAvailable, crossplaneNone))
+	if p := engineOf(q, "uid-1"); p.Engine != InstallationEngineUnknown || p.AsOf == nil || !p.AsOf.Equal(old) || !strings.Contains(p.Source, "older than the provisioning window") {
+		t.Errorf("provisioning = %+v", p)
+	}
+	// A fresh report is dated by itself, never by the snapshot.
+	q = idpQuery(t, ordersFleet(), &Collection{Provisioning: []RawProvisioning{report()}}, installRow("uid-1", "staging"))
+	if p := engineOf(q, "uid-1"); p.Engine != InstallationEngineAdapter || p.AsOf == nil || !p.AsOf.Equal(fixedNow().Add(-time.Hour)) {
+		t.Errorf("provisioning = %+v", p)
+	}
+}

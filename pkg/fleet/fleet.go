@@ -1734,6 +1734,10 @@ type FleetSnapshot struct {
 	// platform offering (see [Query.Restrict]) and those with a target in a
 	// hidden namespace. What their targets run is not fully known.
 	targetsHidden map[ServiceKey]bool
+	// reportsPlaced is set in a restricted snapshot: each provisioning report
+	// carries the cluster the unrestricted snapshot attributes it to, since
+	// the view's own targets and clusters may have lost the ones that place it.
+	reportsPlaced bool
 	// revisionsHidden holds, in a restricted snapshot, the visible services
 	// that lost a revision to the view (a golden path visible only as one).
 	revisionsHidden map[ServiceKey]bool
@@ -1826,6 +1830,9 @@ type ProvisioningRecord struct {
 	Verified      bool       `json:"verified"`
 	Source        string     `json:"source"`
 	SourceKind    string     `json:"sourceKind,omitempty"`
+	// cluster is, in a restricted snapshot, the cluster Restrict attributed
+	// the report to from the unrestricted snapshot (see reportCluster).
+	cluster string
 }
 
 // UsageRecord is one validated usage report (see [RawUsage]) about the
