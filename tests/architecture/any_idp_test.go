@@ -68,12 +68,12 @@ func TestIDPVendorPatternCatchesNames(t *testing.T) {
 // .claude/worktrees checkouts of other branches never count.
 func TestCoreNamesNoIDPVendor(t *testing.T) {
 	root := repoRoot(t)
-	args := append([]string{"-C", root, "ls-files", "--"}, idpVendorPathspecs...)
+	args := append([]string{"-C", root, "ls-files", "-z", "--"}, idpVendorPathspecs...)
 	out, err := exec.Command("git", args...).Output()
 	if err != nil {
 		t.Fatalf("git ls-files: %v", err)
 	}
-	files := strings.Fields(string(out))
+	files := strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00")
 	if len(files) == 0 {
 		t.Fatal("git ls-files listed no core file")
 	}
