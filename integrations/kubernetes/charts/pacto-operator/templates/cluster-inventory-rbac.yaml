@@ -5,7 +5,8 @@
 {{- range dig "secretNamespaces" list $inventory | uniq | sortAlpha }}
 # clusterInventory.secretNamespaces names {{ . }}: the operator lists Secret
 # metadata here for Argo CD cluster Secrets and Flux kubeconfig Secrets.
-# list only, never get: no Secret data is requested.
+# list only, never get. A list grant permits Secret data; the operator
+# requests metadata only.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

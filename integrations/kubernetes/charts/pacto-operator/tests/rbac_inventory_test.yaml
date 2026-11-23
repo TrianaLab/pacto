@@ -1,6 +1,6 @@
 # The RBAC inventory: every Role, ClusterRole and binding the chart renders, in
-# twelve full renders and ten single-template renders, with its exact rules,
-# roleRef and subjects. A new rule, verb,
+# twelve full renders and eleven narrower renders (one or two templates each),
+# with its exact rules, roleRef and subjects. A new rule, verb,
 # subject or retargeted binding fails here; review it against the least-privilege
 # rules (no cluster-wide Secret read, a namespace list renders no ClusterRole
 # beyond the node agent, the dashboard's delivery half and the dashboard's

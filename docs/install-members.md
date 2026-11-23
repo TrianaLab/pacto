@@ -21,16 +21,20 @@ helm upgrade pacto-operator oci://ghcr.io/trianalab/pacto/charts/pacto-operator 
 ```
 
 The grant lets the operator's ServiceAccount list the Secrets in each named
-namespace. Pacto requests their metadata only, never their data, and no
+namespace, data included. Pacto requests their metadata only, and no
 ClusterRole grants Secrets.
 
 - `clusterInventory.secretNamespaces` renders a Role with `list` on `secrets`
   and its RoleBinding in each namespace, for Argo CD cluster Secrets and Flux
-  kubeconfig Secrets.
+  kubeconfig Secrets. The Roles render only when `clusterInventory.enabled`
+  is also set.
 - `clusterInventory.enabled` adds `list` on Cluster API clusters, OCM managed
   clusters and Rancher clusters, each only when the cluster serves that API.
 
-A source the operator may not list reads `unknown` with the reason.
+A source the operator may not list reads `unknown` with the reason. With
+`clusterInventory.enabled` alone, the Argo CD source reads `unknown` and the
+install notes say "Argo CD and Flux clusters need
+clusterInventory.secretNamespaces."
 
 ## Read candidate clusters
 

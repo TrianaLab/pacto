@@ -232,7 +232,7 @@ clusterInventory:
   secretNamespaces: [argocd, flux-system]
 ```
 
-The grant lets the operator's ServiceAccount list those Secrets. Pacto requests their metadata only, never their data, and no ClusterRole grants Secrets.
+The Roles render only when both values are set. The grant lets the operator's ServiceAccount list those Secrets, data included; Pacto requests their metadata only, and no ClusterRole grants Secrets. [Install members](https://pacto.run/latest/install-members/) lists the candidates and installs the chart on them through Argo CD or Flux.
 
 ## Artifact Verification
 
