@@ -37,7 +37,7 @@ const open = (title: string) => {
 const caps = [
   { type: 'extension', ref: 'x.acme.io/backup', check: { ref: 'x.acme.io/backup', state: 'covered', producer: 'acme-backup', producerKeyId: 'acme-backup-2026', asOf: '2026-11-22T03:00:00Z', source: 'evidence-prod', provenance: 'observed' } },
   { type: 'extension', ref: 'x.acme.io/restore', check: { ref: 'x.acme.io/restore', state: 'failing', producer: 'acme-backup', producerKeyId: 'acme-backup-2026', producers: ['acme-backup', 'dr-audit'], asOf: '2026-11-22T03:00:00Z', source: 'evidence-prod', reason: 'reported absent by acme-backup', provenance: 'observed' } },
-  { type: 'extension', ref: 'x.acme.io/audit', check: { ref: 'x.acme.io/audit', state: 'unknown', producer: 'dr-audit', stale: true, source: 'evidence-prod', reason: 'the last report is older than the freshness window', provenance: 'observed' } },
+  { type: 'extension', ref: 'x.acme.io/audit', check: { ref: 'x.acme.io/audit', state: 'unknown', producer: 'dr-audit', producerKeyId: 'dr-audit-2026', asOf: '2026-11-19T03:00:00Z', stale: true, source: 'evidence-prod', reason: 'the last report is older than the freshness window', provenance: 'observed' } },
   { type: 'extension', ref: 'x.acme.io/quota' },
   { type: 'health' },
 ];
@@ -71,10 +71,22 @@ describe('RevisionEntity, extension checks', () => {
     expect(tip(rows[0])).toContain('through a signed report.');
     expect(tip(rows[0])).toContain('Source: evidence-prod.');
     expect(tip(rows[1])).toContain('acme-backup (key acme-backup-2026) reported it absent');
-    expect(tip(rows[2])).toBe('The last report is older than the freshness window. Source: evidence-prod.');
+    // A stale tip names the producer that went silent, its key and when it last reported.
+    expect(tip(rows[2])).toMatch(/^The last report is older than the freshness window\. Last report: dr-audit \(key dr-audit-2026\) .+\. Source: evidence-prod\.$/);
+    // Each producer sits in its own <bdi>, the separators outside.
+    expect([...rows[1].querySelectorAll('[data-testid="ext-check"] bdi')].map((b) => b.textContent)).toEqual(['acme-backup', 'dr-audit']);
+    expect([...rows[0].querySelectorAll('[data-testid="ext-check"] bdi')].map((b) => b.textContent)).toEqual(['acme-backup']);
   });
 
-  it('falls back to the producer when a failing check lists no producers, and to the source alone for an unknown with no reason', () => {
+  it('keeps the case of a producer id in an unanswered report reason', () => {
+    const unanswered = [{ type: 'extension', ref: 'x.acme.io/backup', check: { ref: 'x.acme.io/backup', state: 'unknown', producer: 'acme-backup', producerKeyId: 'k1',
+      asOf: '2026-11-22T03:00:00Z', source: 'evidence-prod', reason: 'reported unsupported by acme-backup', provenance: 'observed' } }];
+    comp = mount(RevisionEntity, { target, props: { detail: detail({ capabilities: preview(unanswered) }) } });
+    const row = open('Capabilities').querySelector('.re-caps li') as HTMLElement;
+    expect(row.querySelector('.prov-mark [role="note"]')!.textContent).toMatch(/^Reported unsupported by acme-backup\. Last report: acme-backup \(key k1\) /);
+  });
+
+  it('falls back to the producer when a failing check lists no producers, and to the producer and source for an unknown with no reason', () => {
     const fallback = [
       { type: 'extension', ref: 'x.acme.io/restore', check: { ref: 'x.acme.io/restore', state: 'failing', producer: 'acme-backup', producerKeyId: 'acme-backup-2026', asOf: '2026-11-22T03:00:00Z', source: 'evidence-prod', provenance: 'observed' } },
       { type: 'extension', ref: 'x.acme.io/audit', check: { ref: 'x.acme.io/audit', state: 'unknown', producer: 'dr-audit', source: 'evidence-prod', provenance: 'observed' } },
@@ -82,6 +94,6 @@ describe('RevisionEntity, extension checks', () => {
     comp = mount(RevisionEntity, { target, props: { detail: detail({ capabilities: preview(fallback) }) } });
     const rows = [...open('Capabilities').querySelectorAll('.re-caps li')] as HTMLElement[];
     expect(rows[0].querySelector('[data-testid="ext-check"]')!.textContent!.trim()).toBe('Reported absent by acme-backup');
-    expect(rows[1].querySelector('.prov-mark [role="note"]')!.textContent).toBe('Source: evidence-prod.');
+    expect(rows[1].querySelector('.prov-mark [role="note"]')!.textContent).toBe('Last report: dr-audit. Source: evidence-prod.');
   });
 });

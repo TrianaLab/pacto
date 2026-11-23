@@ -130,19 +130,19 @@
     ? joinAnd([['fail', 'failed'], ['unverified', 'not verified'], ['skip', 'not checked']]
       .map(([st, word]) => (envCount(st) ? `${formatCount(envCount(st))} ${word}` : '')).filter(Boolean), 'and')
     : 'Every environment passed');
-  // An extension row with a check says who reported on it; the tip names producer, key
-  // and time. A row without a check is unverified, which the section already says.
-  const CHECK_LABELS = {
-    covered: (k) => `Checked by ${k.producer}`,
-    failing: (k) => `Reported absent by ${joinAnd(k.producers?.length ? k.producers : [k.producer])}`,
-    unknown: () => 'Unknown',
-  };
-  const checkLabel = (k) => CHECK_LABELS[k.state](k);
+  // An extension row with a check says who reported on it, each producer isolated in its
+  // own <bdi>; the tip names producer, key and time. A row without a check is
+  // unverified, which the section already says.
+  const CHECK_VERBS = { covered: 'Checked by', failing: 'Reported absent by' };
+  const checkProducers = (k) => (k.state === 'failing' && k.producers?.length ? k.producers : [k.producer]);
+  const andSep = (j, n) => (j === 0 ? '' : j === n - 1 ? ' and ' : ', ');
+  // Backend reasons start with a plain word, never an identifier, so capitalizing is safe.
   const sentence = (t) => (t ? `${t[0].toUpperCase()}${t.slice(1)}${t.endsWith('.') ? '' : '.'}` : '');
   function checkTip(k) {
-    const said = k.state === 'unknown' ? sentence(k.reason)
-      : `${k.producer} (key ${k.producerKeyId}) reported it ${k.state === 'covered' ? 'present' : 'absent'} ${formatWhen(k.asOf)} through a signed report.`;
-    return [said, k.source && `Source: ${k.source}.`].filter(Boolean).join(' ');
+    const last = [k.producer, k.producerKeyId && `(key ${k.producerKeyId})`, k.asOf && formatWhen(k.asOf)].filter(Boolean).join(' ');
+    const said = k.state === 'unknown' ? [sentence(k.reason), last && `Last report: ${last}.`]
+      : [`${k.producer} (key ${k.producerKeyId}) reported it ${k.state === 'covered' ? 'present' : 'absent'} ${formatWhen(k.asOf)} through a signed report.`];
+    return [...said, k.source && `Source: ${k.source}.`].filter(Boolean).join(' ');
   }
 </script>
 
@@ -479,7 +479,7 @@
             <span class="rc-cat">no binding declared</span>
           {/if}
           {#if c.check}
-            <span class="re-ext re-ext-{c.check.state}" data-testid="ext-check">{checkLabel(c.check)}</span>
+            <span class="re-ext re-ext-{c.check.state}" data-testid="ext-check">{#if CHECK_VERBS[c.check.state]}{@const ps = checkProducers(c.check)}{CHECK_VERBS[c.check.state]} {#each ps as p, j}{andSep(j, ps.length)}<bdi>{p}</bdi>{/each}{:else}Unknown{/if}</span>
             <ProvenanceMark label="About {c.ref}" text={checkTip(c.check)} />
           {/if}
         </li>
@@ -684,7 +684,7 @@
      its nested operations or values stay visibly attached to it rather than running
      together into one undifferentiated list. */
   .re-ifaces, .re-caps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
-  .re-ext { font-weight: 600; }
+  .re-ext { font-weight: 600; overflow-wrap: anywhere; min-inline-size: 0; }
   .re-ext-covered { color: var(--c-ok); }
   .re-ext-failing { color: var(--c-err); }
   .re-ext-unknown { color: var(--c-text-3); }

@@ -800,7 +800,8 @@ export function installScaleFixture(): void {
         const caps = rev.capabilities as { items?: Record<string, unknown>[]; total?: number; count?: number } | undefined;
         if (caps) {
           caps.items = [
-            { type: 'extension', ref: refs[0], check: extCheck(refs[0], 'covered', {}) },
+            // A dotted producer id with no hyphen or space breaks only through overflow-wrap.
+            { type: 'extension', ref: refs[0], check: extCheck(refs[0], 'covered', { producer: longName('producer-acme-backup').replace(/[-\s]/g, '.') }) },
             { type: 'extension', ref: refs[1], check: extCheck(refs[1], 'failing', { producers: [longName('producer-acme-backup'), longName('producer-dr-audit')],
               reason: longName('reported absent by producer-acme-backup') }) },
             { type: 'extension', ref: refs[2], check: extCheck(refs[2], 'unknown', { stale: true, reason: longName('the last report is older than the freshness window') }) },
