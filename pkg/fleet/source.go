@@ -169,6 +169,14 @@ type Collection struct {
 	// inferred edges: they never fill a declared field, never become an owner
 	// claim and never enter an index a gate reads.
 	ServiceFacts []RawServiceFact
+	// InferredTemplates are golden paths a catalog outside every registry
+	// holds. [Build] lists them as inferred, never as services, and never
+	// offers them for creation.
+	InferredTemplates []RawInferredTemplate
+	// ListsTemplates says the source lists inferred templates. It is set even
+	// when the source read none or failed, so an unavailable lister reads as
+	// partial, never as "no templates".
+	ListsTemplates bool
 	// Providers are rows describing what this source detected and read;
 	// Build copies them, fills Source and Cluster and never lets a row claim
 	// better health than the source.
@@ -206,6 +214,37 @@ type RawServiceFact struct {
 	// Exported marks a record Pacto itself wrote to the source: reading it
 	// back would echo Pacto's own values, so [Build] skips it.
 	Exported bool
+}
+
+// RawInferredTemplate is one golden path a catalog outside every registry
+// holds. It is never a service, never signed and never declared until a
+// person accepts it.
+type RawInferredTemplate struct {
+	// Name is the catalog's name for the template, kept only when a contract
+	// can carry it as service.name.
+	Name string
+	// Entity is the source's own reference, such as
+	// template:default/springboot-service.
+	Entity string
+	// Title is the catalog's display title.
+	Title string
+	// Summary is the catalog's description, cut to the service.summary bound.
+	Summary string
+	// Type is the catalog's template type, such as service or website.
+	Type string
+	// Owner is the owner the catalog names; it is shown, never declared.
+	Owner contract.Owner
+	// From is the display origin the source writes, such as
+	// Catalog (catalog.acme.io).
+	From string
+	// URL is where a person opens the template, empty when the source cannot
+	// give one a browser opens.
+	URL string
+	// Acceptable says the source is one an operator configured, so a person
+	// may accept the template as a golden path.
+	Acceptable bool
+	// ObservedAt is when the source read the template.
+	ObservedAt *time.Time
 }
 
 // RawFactRef names a service a [RawServiceFact] depends on, matched like the
