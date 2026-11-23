@@ -17,6 +17,9 @@ const (
 	remoteDeclareSentence = "This server also offers pacto_declare, a registry write tool that plans declaring a running workload with your own cluster " +
 		"credentials; when the server has a registry to write to, dry_run false writes an unsigned draft on your behalf for a person to accept, " +
 		"otherwise its refusal names the pacto declare command a person runs."
+	// serviceNamePattern is a lower-case service name of at most 63
+	// characters, the name a claim publishes under (the dashboard's DeclareInput.name).
+	serviceNamePattern = "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
 )
 
 // errOnBehalfOfRequired refuses a draft that names nobody it is written for.
@@ -49,7 +52,7 @@ func registerDeclare(server *mcpsdk.Server, d Declarer, remote bool) {
 		InputSchema: inputSchema(map[string]property{
 			"service":       {Type: "string", Description: "The workload: name, namespace/name, namespace/Kind/name or k8s:namespace/Kind/name; or external:<identity> to claim an external system"},
 			"owner":         {Type: "string", Description: "The team that owns the external system; required when service is external:<identity>"},
-			"name":          {Type: "string", Description: "The claimed contract's service name, lower case; defaults to the last identity segment"},
+			"name":          {Type: "string", Description: "The claimed contract's service name, lower case; defaults to the last identity segment", Pattern: serviceNamePattern},
 			"namespace":     {Type: "string", Description: "The namespace of the workload (default: every namespace the name is found in)"},
 			"dir":           {Type: "string", Description: dir},
 			"registry":      {Type: "string", Description: "The registry the contract is published to, as host/path"},

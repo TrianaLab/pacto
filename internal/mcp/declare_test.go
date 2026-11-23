@@ -354,3 +354,22 @@ func TestDeclareToolNamesClaim(t *testing.T) {
 		t.Fatalf("%s\n%s", tool.Description, schema)
 	}
 }
+
+// TestDeclareToolRefusesBadClaimName: the schema refuses a name that is no
+// service name before the planner runs.
+func TestDeclareToolRefusesBadClaimName(t *testing.T) {
+	for _, name := range []string{"Bad/Name", "-x", strings.Repeat("a", 64)} {
+		var plans []DeclareArgs
+		res := callToolOn(t, mustNew("test", Authoring{Declare: stubDeclarer{plans: &plans}}, Modes{}), "pacto_declare",
+			map[string]any{"service": "external:stripe", "owner": "team-platform", "name": name, "registry": "ghcr.io/acme"})
+		if !res.IsError || len(plans) != 0 {
+			t.Fatalf("%q: %s", name, resultText(t, res))
+		}
+	}
+	var plans []DeclareArgs
+	res := callToolOn(t, mustNew("test", Authoring{Declare: stubDeclarer{plans: &plans}}, Modes{}), "pacto_declare",
+		map[string]any{"service": "external:stripe", "owner": "team-platform", "name": strings.Repeat("a", 63), "registry": "ghcr.io/acme"})
+	if res.IsError || len(plans) != 1 {
+		t.Fatal(resultText(t, res))
+	}
+}

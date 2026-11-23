@@ -587,6 +587,7 @@ type property struct {
 	Description string
 	Enum        []string // optional: closed set of allowed string values
 	Items       string   // with Type array: the type of each item
+	Pattern     string   // optional: the regular expression a string value matches
 }
 
 // inputSchema builds the tool's declared JSON Schema. It is the schema the SDK
@@ -615,6 +616,9 @@ func inputSchema(props map[string]property, required []string) map[string]any {
 		}
 		if p.Items != "" {
 			entry["items"] = map[string]any{"type": p.Items}
+		}
+		if p.Pattern != "" {
+			entry["pattern"] = p.Pattern
 		}
 		if len(p.Enum) > 0 {
 			vals := make([]any, 0, len(p.Enum)+1)

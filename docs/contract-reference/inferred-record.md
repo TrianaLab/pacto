@@ -306,7 +306,7 @@ declaration:
 | `state` | `declared`, signed through a person's Sigstore login, or `draft`, written by anyone else |
 | `asker` | The identity that signed: `subject`, `issuer` and `class` (`human`, `agent` or `ci`). A declared record needs `human`, a draft never has it. An unsigned draft has exactly `{subject: "", issuer: none, class: agent}`, a draft signed with a key `{subject: "", issuer: key, class: agent}`, and a draft whose token names no readable identity has issuer `unknown` |
 | `onBehalfOf` | On a draft only: the person an agent asserts it acts for, never verified |
-| `inferredFrom` | What it came from: `k8s:<namespace>/<Kind>/<name>` for an inferred service or `external:<identity>` (such as `external:stripe`) for the external system a [claim](../inferred-contracts.md#claim-an-external-system) names, which must match `service.external` |
+| `inferredFrom` | What it came from: `k8s:<namespace>/<Kind>/<name>` for an inferred service or `external:<identity>` (such as `external:stripe`) for the external system a [claim](../inferred-contracts.md#claim-an-external-system) names, which must match `service.external` (`DECLARATION_EXTERNAL_MISMATCH`) |
 | `cluster` | The uid of the cluster's `kube-system` namespace, left out when it could not be read |
 | `baseline` | The published version it starts from, its bundle and its deploy artifact, each pinned by digest |
 | `accepted` | On a declared record only: each proposed range the signer accepted, which `pacto.yaml` declares |

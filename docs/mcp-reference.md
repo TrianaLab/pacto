@@ -190,7 +190,8 @@ running workload.
 - `service: external:<identity>` plans a
   [claim](inferred-contracts.md#claim-an-external-system) of an external
   system instead, with `owner` (the owning team) and `name` (the service name
-  it publishes under, by default the identity's last segment). It reads no
+  it publishes under, by default the identity's last segment; the schema
+  refuses anything other than a lower-case name of at most 63 characters). It reads no
   workload, and `acceptCLI` is the `pacto claim --from-draft` command.
 - `dry_run` defaults to true: the call returns the plan and its `intentDigest`.
   The plan lists the service's `drafts` waiting, newest first, with
