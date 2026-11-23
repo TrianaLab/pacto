@@ -49,6 +49,17 @@ func TestCrossplaneEntryAPIsWithoutControllerIsPartial(t *testing.T) {
 	}
 }
 
+// A core Deployment scaled to zero or crash-looping, with its CRDs still
+// served, is neither a running Crossplane nor none found.
+func TestCrossplaneEntryControllerNotReadyIsPartial(t *testing.T) {
+	for _, api := range []string{"v2", ""} {
+		e := Crossplane(CrossplaneFacts{API: api, Version: "v2.1.0", Controller: CrossplaneControllerNotReady}, true)
+		if e.Value != "Crossplane not available" || e.Completeness != Partial || e.Reason == "" || e.Hint != "" || e.Scope != fleet.ScopeCluster {
+			t.Errorf("api %q: entry = %+v", api, e)
+		}
+	}
+}
+
 func TestCrossplaneEntryControllerWithoutAPIsIsStarting(t *testing.T) {
 	// A Crossplane still creating its CRDs is never none found, so idp
 	// proposes no bootstrap and no "no provisioner found".
@@ -109,7 +120,7 @@ func TestEvidencePieceKeepsSecretOutOfEvidence(t *testing.T) {
 	rows := ProviderRows(Result{AsOf: time.Now(), Entries: []Entry{e}}, "detected", time.Now())
 	p := rows[0]
 	if p.ID != "evidence" || strings.Contains(p.Evidence, secret.Name) || strings.Contains(p.Evidence, "pacto ") ||
-		!slices.Contains(p.Objects, fleet.ProviderObject(secret)) || !strings.HasPrefix(p.Evidence, "on zot.acme.internal") {
+		!slices.Contains(p.Objects, fleet.ProviderObject(secret)) || !strings.HasPrefix(p.Evidence, "on: zot.acme.internal") {
 		t.Errorf("row = %+v", p)
 	}
 }
@@ -126,10 +137,10 @@ func TestEvidencePieceUnknownCarriesReason(t *testing.T) {
 func TestRecorderPieceEveryState(t *testing.T) {
 	want := map[string]string{
 		"on":                "signs every concluded operation",
-		"off":               "delivery.recorder.enabled is false",
-		"no-signer":         "no signing method is set: set one of delivery.recorder.signing",
-		"no-streams":        "no streams repository: set registry",
-		"signer-incomplete": "the signing method fails a recorder check: see helm template with delivery.recorder.enabled=true",
+		"off":               "delivery.recorder.enabled is false (an upgrade with --reuse-values carries the false an earlier chart defaulted to); set it to null to let profile idp decide",
+		"no-signer":         "no signing method is set; set one of delivery.recorder.signing",
+		"no-streams":        "no streams repository; set registry",
+		"signer-incomplete": "the signing method fails a recorder check; see helm template with delivery.recorder.enabled=true",
 		"delivery-off":      "profile hardened renders no Pacto delivery",
 	}
 	if len(RecorderStates) != len(want) {

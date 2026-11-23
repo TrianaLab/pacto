@@ -318,7 +318,7 @@ export function installScaleFixture(): void {
       });
       (doc.providers as Record<string, unknown>[]).push({
         id: 'recorder', source: 'cluster-detection', provenance: 'inferred', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Recorder',
-        evidence: `off the signing method fails a recorder check: see helm template with delivery.recorder.enabled=true (from chart values, cluster ${clusters[0]})`,
+        evidence: `off: the signing method fails a recorder check; see helm template with delivery.recorder.enabled=true (from chart values, cluster ${clusters[0]})`,
         status: 'available', cluster: clusters[0], usedFor: ['signed delivery records (profile idp)'],
       });
       // A live edge-source row (509-S9): the OTLP receiver's Collector row, partial

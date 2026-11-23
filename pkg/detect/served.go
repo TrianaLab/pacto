@@ -36,9 +36,10 @@ func Metrics(served bool, err error) Entry {
 
 // What the detector read of the Crossplane core Deployment.
 const (
-	CrossplaneControllerFound  = "found"
-	CrossplaneControllerNone   = "none"
-	CrossplaneControllerUnread = "unread"
+	CrossplaneControllerFound    = "found"
+	CrossplaneControllerNotReady = "not-ready"
+	CrossplaneControllerNone     = "none"
+	CrossplaneControllerUnread   = "unread"
 )
 
 // CrossplaneFacts is what the detector read of Crossplane: API is the
@@ -49,15 +50,18 @@ type CrossplaneFacts struct {
 	API     string
 	APIErr  error
 	Version string
-	// Controller is CrossplaneControllerFound, CrossplaneControllerNone or
-	// CrossplaneControllerUnread.
+	// Controller is CrossplaneControllerFound (a core Deployment with an
+	// available replica), CrossplaneControllerNotReady (one with none),
+	// CrossplaneControllerNone or CrossplaneControllerUnread.
 	Controller string
 }
 
 // Crossplane says whether Crossplane runs. CRDs outlive Crossplane, so only
 // a served API with a found controller reads complete and running; served
 // APIs without a controller, or with one that could not be read, are
-// partial. A found controller whose APIs discovery does not serve yet is a
+// partial. A core Deployment with no available replica (scaled to zero or
+// crash-looping) is neither running nor none found, partial. A found
+// controller whose APIs discovery does not serve yet is a
 // Crossplane still starting, partial. No API served otherwise is
 // fleet.CrossplaneNoneFound, complete, with the bootstrap hint under profile
 // idp. The Deployment's namespace never enters the entry.
@@ -69,6 +73,9 @@ func Crossplane(c CrossplaneFacts, idp bool) Entry {
 	e := Entry{Kind: kind, Source: "Crossplane Deployment and API discovery", Completeness: Complete}
 	served := "serves apiextensions.crossplane.io/" + c.API
 	switch {
+	case c.Controller == CrossplaneControllerNotReady:
+		e.Value, e.Evidence, e.Completeness = "Crossplane not available", "the core Deployment has no available replica", Partial
+		e.Reason, e.Scope = "the Crossplane Deployment has no available replica", fleet.ScopeCluster
 	case c.API == "" && c.Controller == CrossplaneControllerFound:
 		e.Value, e.Evidence, e.Completeness = "Crossplane starting", "runs and does not serve apiextensions.crossplane.io yet", Partial
 		e.Reason, e.Scope = "a Crossplane Deployment runs but discovery does not serve its APIs yet", fleet.ScopeCluster

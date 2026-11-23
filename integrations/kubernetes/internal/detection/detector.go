@@ -281,11 +281,13 @@ func (d *Detector) crossplane(ctx context.Context) detect.Entry {
 	if c.APIErr == nil {
 		c.Version, c.Controller = d.crossplaneController(ctx)
 	}
-	return detect.Crossplane(c, d.Installation != nil && slices.Contains(d.Installation.Profile, "idp"))
+	// Profile hardened refuses the bootstrap the hint proposes.
+	idp := d.Installation != nil && slices.Contains(d.Installation.Profile, "idp") && !slices.Contains(d.Installation.Profile, "hardened")
+	return detect.Crossplane(c, idp)
 }
 
 // crossplaneController is the image tag of the Crossplane core Deployment and
-// whether it was found. A namespace-list install may not list Deployments
+// whether it was found with an available replica. A namespace-list install may not list Deployments
 // cluster-wide, and a failed list is unread, never none. The rbac-manager
 // carries the core's app.kubernetes.io/name, so it never counts as the core.
 func (d *Detector) crossplaneController(ctx context.Context) (version, controller string) {
@@ -298,9 +300,13 @@ func (d *Detector) crossplaneController(ctx context.Context) (version, controlle
 			return "", detect.CrossplaneControllerUnread
 		}
 		for _, dep := range l.Items {
-			if !strings.HasSuffix(dep.Labels["app"], "-rbac-manager") {
-				return imageTag(dep.Spec.Template.Spec.Containers), detect.CrossplaneControllerFound
+			if strings.HasSuffix(dep.Labels["app"], "-rbac-manager") {
+				continue
 			}
+			if dep.Status.AvailableReplicas == 0 {
+				return imageTag(dep.Spec.Template.Spec.Containers), detect.CrossplaneControllerNotReady
+			}
+			return imageTag(dep.Spec.Template.Spec.Containers), detect.CrossplaneControllerFound
 		}
 	}
 	return "", detect.CrossplaneControllerNone

@@ -732,7 +732,8 @@ func TestDetectorEgressAPIServedAfterStartPartial(t *testing.T) {
 // crossplaneDeployment is a Crossplane core Deployment labelled with labels.
 func crossplaneDeployment(image string, labels map[string]string) *appsv1.Deployment {
 	return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "crossplane-system", Name: "crossplane", Labels: labels},
-		Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "crossplane", Image: image}}}}}}
+		Spec:   appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "crossplane", Image: image}}}}},
+		Status: appsv1.DeploymentStatus{AvailableReplicas: 1}}
 }
 
 // servedCrossplane serves only the Crossplane group versions in versions.
@@ -813,6 +814,17 @@ func TestDetectorCrossplaneStartingIsPartial(t *testing.T) {
 	}
 }
 
+// A core Deployment scaled to zero, whose CRDs stay served, never reads as a
+// running Crossplane.
+func TestDetectorCrossplaneWithNoAvailableReplicaIsPartial(t *testing.T) {
+	core := crossplaneDeployment("x:v2.4.3", map[string]string{"app": "crossplane"})
+	core.Status.AvailableReplicas = 0
+	c := newClient(interceptor.Funcs{}, operatorDeployment(), core)
+	if e := crossplaneEntry(t, newDetector(c, servedCrossplane("v2")), c); e.Value != "Crossplane not available" || e.Completeness != detect.Partial {
+		t.Fatalf("scaled to zero = %+v", e)
+	}
+}
+
 func TestDetectorCrossplaneRBACManagerIsNoCore(t *testing.T) {
 	labels := map[string]string{"app": "crossplane-rbac-manager", "app.kubernetes.io/name": "crossplane"}
 	rbac := crossplaneDeployment("x:v2.4.3", labels)
@@ -869,5 +881,10 @@ func TestDetectorCrossplaneHintUnderIDP(t *testing.T) {
 	d.Installation, d.LastPush = &detect.Installation{Profile: []string{"idp"}}, func() *detect.PushResult { return nil }
 	if e := crossplaneEntry(t, d, c); e.Hint != "helm upgrade <release> <chart> --reuse-values --set idp.crossplane.install=true" {
 		t.Fatalf("crossplane = %+v", e)
+	}
+	// Profile hardened refuses the bootstrap, so it is never proposed.
+	d.Installation = &detect.Installation{Profile: []string{"hardened", "idp"}}
+	if e := crossplaneEntry(t, d, c); e.Value != fleet.CrossplaneNoneFound || e.Hint != "" {
+		t.Fatalf("hardened crossplane = %+v", e)
 	}
 }

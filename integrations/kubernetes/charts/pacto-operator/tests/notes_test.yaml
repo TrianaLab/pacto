@@ -423,7 +423,7 @@ tests:
       apiVersions: [admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy]
     asserts:
       - matchRegexRaw:
-          pattern: "Recorder: off: delivery.recorder.enabled is false\\."
+          pattern: "Recorder: off: delivery.recorder.enabled is false \\(an upgrade with --reuse-values carries the false an earlier chart defaulted to\\); set it to null to let profile idp decide\\."
 
   - it: hardened and idp say delivery is off for the recorder
     set: {profile: [hardened, idp], controller.watchNamespaces: [payments]}

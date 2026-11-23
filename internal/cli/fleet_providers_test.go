@@ -199,7 +199,7 @@ func TestFleetProvidersPrintsIDPRows(t *testing.T) {
 	printProviderTable(&out, rows)
 	want := "PROVIDER               EVIDENCE                                                                                                         USED FOR\n" +
 		"Crossplane (inferred)  Crossplane v2.1.0 runs and serves apiextensions.crossplane.io/v2 (from Crossplane Deployment and API discovery)  provisioning engine; profile idp offers its XRDs once accepted\n" +
-		"Evidence (inferred)    on zot.acme.internal serves OCI Referrers; the trust Secret holds 2 keys (from operator evidence gate)           Evidence Server for provisioning reports (profile idp)\n" +
-		"Recorder (inferred)    off no signing method is set: set one of delivery.recorder.signing (from chart values)                           signed delivery records (profile idp)\n"
+		"Evidence (inferred)    on: zot.acme.internal serves OCI Referrers; the trust Secret holds 2 keys (from operator evidence gate)          Evidence Server for provisioning reports (profile idp)\n" +
+		"Recorder (inferred)    off: no signing method is set; set one of delivery.recorder.signing (from chart values)                          signed delivery records (profile idp)\n"
 	expect(t, out.String() == want, "providers table:\n%s", out.String())
 }

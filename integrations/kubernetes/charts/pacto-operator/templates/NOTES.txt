@@ -168,7 +168,7 @@ render could not look the cluster up, so it did not refuse a second Crossplane.
 {{- end }}
 {{- if $idp }}
 {{- $recorderState := include "pacto-operator.recorderState" . }}
-{{- $recorderWhy := dict "off" "delivery.recorder.enabled is false" "delivery-off" "profile hardened renders no Pacto delivery" }}
+{{- $recorderWhy := dict "off" "delivery.recorder.enabled is false (an upgrade with --reuse-values carries the false an earlier chart defaulted to); set it to null to let profile idp decide" "delivery-off" "profile hardened renders no Pacto delivery" }}
 {{- print "\n" }}
 {{- if not .Values.evidence.enabled }}
 Evidence Server: on when the registry serves OCI Referrers and Secret

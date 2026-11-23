@@ -15,10 +15,10 @@ var RecorderStates = []string{"on", "off", "no-signer", "no-streams", "signer-in
 // recorderWhy says why the recorder is in each of RecorderStates.
 var recorderWhy = map[string]string{
 	"on":                "signs every concluded operation",
-	"off":               "delivery.recorder.enabled is false",
-	"no-signer":         "no signing method is set: set one of delivery.recorder.signing",
-	"no-streams":        "no streams repository: set registry",
-	"signer-incomplete": "the signing method fails a recorder check: see helm template with delivery.recorder.enabled=true",
+	"off":               "delivery.recorder.enabled is false (an upgrade with --reuse-values carries the false an earlier chart defaulted to); set it to null to let profile idp decide",
+	"no-signer":         "no signing method is set; set one of delivery.recorder.signing",
+	"no-streams":        "no streams repository; set registry",
+	"signer-incomplete": "the signing method fails a recorder check; see helm template with delivery.recorder.enabled=true",
 	"delivery-off":      "profile hardened renders no Pacto delivery",
 }
 

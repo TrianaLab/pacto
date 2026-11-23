@@ -164,9 +164,13 @@ func TestFleetStatusProvidersIncludeEgressRows(t *testing.T) {
 func TestFleetStatusToolDescribesIDPRows(t *testing.T) {
 	d := fleetStatusTool().Description
 	for _, want := range []string{"a Crossplane row naming the running version or none found", "under profile idp, Evidence and Recorder rows",
-		"providers is the one MCP surface for these rows"} {
+		"providers is the one MCP surface for these rows", "under profile idp the operator itself starts the Evidence Server"} {
 		if !strings.Contains(d, want) {
 			t.Errorf("description lacks %q:\n%s", want, d)
 		}
+	}
+	// The operator starts the Evidence Server on its own under idp.
+	if strings.Contains(d, "nothing detected is turned on") {
+		t.Errorf("description says nothing detected is turned on:\n%s", d)
 	}
 }
