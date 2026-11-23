@@ -43,9 +43,10 @@ func TestDemoRefusesBackstageEntitiesWhileASourceIsDown(t *testing.T) {
 }
 
 // TestDemoBackstageMarksInferredSources: over the demo fleet's inferred
-// workloads and externals, an inferred Component names its workload and keeps
-// owner unknown, every Resource says where Pacto learned it, and stripe names
-// its inferred contract. The story fleet holds no inferred service, so this
+// workloads, contributions and externals, an inferred Component names its
+// workload or the producer that contributed it and keeps owner unknown, every
+// Resource says where Pacto learned it, and stripe names its inferred
+// contract. The story fleet holds no inferred service, so this
 // reads the shipped demo fleet through the mapper.
 func TestDemoBackstageMarksInferredSources(t *testing.T) {
 	es := backstage.Map(fleet.NewQuery(demoFleet(t)))
@@ -62,7 +63,8 @@ func TestDemoBackstageMarksInferredSources(t *testing.T) {
 			}
 		case e.Kind == "Component" && ann[backstage.AnnotationProvenance] == "inferred":
 			inferred++
-			if ann[backstage.AnnotationSource] != "workload" || !strings.Contains(ann[backstage.AnnotationWorkload], "/") || e.Spec.Owner != "unknown" {
+			fromWorkload := ann[backstage.AnnotationSource] == "workload" && strings.Contains(ann[backstage.AnnotationWorkload], "/")
+			if fromWorkload == (ann[backstage.AnnotationContributedBy] != "") || e.Spec.Owner != "unknown" {
 				t.Errorf("inferred component %s = %v owner %q", e.Metadata.Name, ann, e.Spec.Owner)
 			}
 		}

@@ -24,10 +24,11 @@ var factualOwner = []string{fleet.OwnerProvenanceDeclared, fleet.OwnerProvenance
 func (e *exporter) component(s *fleet.ServiceRecord) []Entity {
 	q := e.q
 	// Declared when a contract was read, observed when only a running target
-	// shows the service exists, inferred when neither does.
+	// shows the service exists, inferred when neither does. A producer's
+	// contribution has revisions yet is never a contract.
 	provenance, tags := provenanceDeclared, []string(nil)
 	switch {
-	case q.HasContractSource(s.Key):
+	case !s.Inferred() && q.HasContractSource(s.Key):
 	case len(s.Targets) > 0:
 		provenance, tags = fleet.ProvenanceObserved, []string{TagObserved}
 	default:
@@ -62,12 +63,29 @@ func (e *exporter) component(s *fleet.ServiceRecord) []Entity {
 	if hidden > 0 || rels.unresolved > 0 || ann[AnnotationOwnerConflict] != "" {
 		ann[AnnotationCompleteness] = string(fleet.CompletenessPartial)
 	}
+	serviceFacts(s, ann)
 	apis := e.apiEntities(s, c)
 	for _, a := range apis {
 		c.Spec.ProvidesAPIs = append(c.Spec.ProvidesAPIs, apiRef(a.Metadata.Name))
 	}
 	slices.Sort(c.Spec.ProvidesAPIs)
 	return append([]Entity{c}, apis...)
+}
+
+// serviceFacts records on ann the offering s provides and, for a service
+// only a producer's contribution describes, the producer, marking the
+// Component partial when that contribution is stale.
+func serviceFacts(s *fleet.ServiceRecord, ann map[string]string) {
+	if s.Offering != "" {
+		ann[AnnotationOffering] = s.Offering
+	}
+	if s.Contribution == nil {
+		return
+	}
+	ann[AnnotationContributedBy] = s.Contribution.Producer
+	if s.Contribution.Stale {
+		ann[AnnotationCompleteness] = string(fleet.CompletenessPartial)
+	}
 }
 
 // inferredSource records on ann the workload Pacto learned inferred service

@@ -45,7 +45,13 @@ const (
 	AnnotationUnresolvedDependency = "pacto.trianalab.io/unresolved-dependencies"
 	AnnotationExternalKey          = "pacto.trianalab.io/external-key"
 	AnnotationCaller               = "pacto.trianalab.io/caller"
-	AnnotationCallerAmbiguous      = "pacto.trianalab.io/caller-ambiguous"
+	// AnnotationOffering names the platform offering (service.offering) a
+	// Component provides.
+	AnnotationOffering = "pacto.trianalab.io/offering"
+	// AnnotationContributedBy names the producer whose contribution alone
+	// describes an inferred Component.
+	AnnotationContributedBy   = "pacto.trianalab.io/contributed-by"
+	AnnotationCallerAmbiguous = "pacto.trianalab.io/caller-ambiguous"
 	// AnnotationSource says how Pacto learned an entity it did not read from
 	// a contract: workload on an inferred Component, the evidence kinds on a
 	// Resource.
