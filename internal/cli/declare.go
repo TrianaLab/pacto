@@ -64,7 +64,14 @@ attested, or a default approver of the installation's owner policy; anyone
 else is refused before anything is pushed. The owner policy is read from
 the signed target snapshots in <registry>/pacto-targets, verified with
 --delivery-trust. An owner read from the workload's team label stays in
-pacto.inferred.yaml as inferred.`,
+pacto.inferred.yaml as inferred.
+
+A golden path a Backstage catalog holds is accepted as
+template:<namespace>/<name>: the template is read from --backstage-url (the
+reader token comes from PACTO_BACKSTAGE_TOKEN) and the plan drafts a
+contract-only golden path at <registry>/<name> that declares service.template.
+Backstage keeps the template's steps and skeleton. Only a repository that holds
+no version yet is accepted into.`,
 		Example: `  # What declaring invoices would publish
   pacto declare billing/invoices --registry ghcr.io/acme
 
@@ -72,10 +79,16 @@ pacto.inferred.yaml as inferred.`,
   pacto declare billing/invoices --registry ghcr.io/acme --accept ledger --yes
 
   # Accept a draft an agent wrote
-  pacto declare invoices --registry ghcr.io/acme --from-draft draft-3 --yes`,
+  pacto declare invoices --registry ghcr.io/acme --from-draft draft-3 --yes
+
+  # What accepting a Backstage template as a golden path would publish
+  pacto declare template:default/springboot-service --registry ghcr.io/acme/paths --backstage-url https://catalog.acme.io`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := declareSubject(&req, args[0]); err != nil {
+				return err
+			}
+			if err := templateFlags(cmd.Flags(), req); err != nil {
 				return err
 			}
 			if req.Draft && req.FromDraft != "" {
@@ -86,6 +99,12 @@ pacto.inferred.yaml as inferred.`,
 				return err
 			}
 			req.Dynamic = dyn
+			if req.TemplateSubject != "" && req.Registry != "" {
+				req.Template, err = svc.InferredTemplate(cmd.Context(), req.BackstageURL, os.Getenv(backstageTokenEnv), req.TemplateSubject)
+				if err != nil {
+					return printDeclare(cmd, v.GetString(outputFormatKey) == "json", nil, nil, err)
+				}
+			}
 			return declareRun(cmd, svc, v, d, req, yes)
 		},
 	}
@@ -99,6 +118,7 @@ pacto.inferred.yaml as inferred.`,
 	f.StringVar(&req.Repository, "repository", "", "the service's source repository URL, used over every source Pacto reads; confirms an image label for --pr")
 	f.StringVar(&req.Folder, "folder", "", "the folder of the repository the contract lives in (default: the folder a source names, else the root)")
 	f.StringVar(&req.RepoMap, "repo-map", "", "a YAML file mapping service names to {repository, folder}; read only with --pr")
+	f.StringVar(&req.BackstageURL, "backstage-url", "", "base URL of the Backstage catalog a template:<namespace>/<name> subject is read from; the reader token comes from "+backstageTokenEnv)
 	f.StringVar(&req.GitHost, "git-host", "", "the Git host API that serves the repository, when its URL does not say: github, gitlab, bitbucket (Cloud) or gitea (Forgejo too)")
 	declareFlags(f, &req, &yes)
 	return cmd
@@ -162,33 +182,57 @@ func declareFlags(f *pflag.FlagSet, req *app.DeclareRequest, yes *bool) {
 		"a YAML file with a key scoped to each cluster (default $"+app.TrustEnv+")")
 }
 
-// declareSubject reads the workload argument into req: name, ns/name,
-// ns/Kind/name or k8s:ns/Kind/name. An external system is claimed with
-// pacto claim; any other <kind>: subject is refused.
+// declareSubject reads the argument into req: a workload (name, ns/name,
+// ns/Kind/name or k8s:ns/Kind/name) or a golden path a catalog holds
+// (template:<namespace>/<name>, its name becoming Service). An external
+// system is claimed with pacto claim; any other <kind>: subject is refused.
 func declareSubject(req *app.DeclareRequest, arg string) error {
 	if kind, rest, ok := strings.Cut(arg, ":"); ok {
-		if kind+":" == fleet.ExternalSubjectPrefix {
+		switch kind + ":" {
+		case fleet.ExternalSubjectPrefix:
 			return errors.New("claim an external system with pacto claim " + rest + " --owner <team>")
+		case fleet.TemplateSubjectPrefix:
+			_, name, _ := strings.Cut(rest, "/")
+			req.TemplateSubject, req.Service = arg, name
+			return nil
+		case "k8s:":
+			arg = rest
+		default:
+			return fmt.Errorf("pacto declare reads a workload or a golden path (template:<namespace>/<name>), not %s: offerings are declared by a later release", kind+":")
 		}
-		if kind != "k8s" {
-			return fmt.Errorf("pacto declare reads a workload, not %s: offerings and templates are declared by a later release", kind+":")
-		}
-		arg = rest
 	}
 	req.Service = arg
 	return nil
 }
 
+// templateFlags refuses, before anything is read, a template: subject with
+// a flag that names a workload, and --backstage-url with a workload.
+func templateFlags(f *pflag.FlagSet, req app.DeclareRequest) error {
+	if req.TemplateSubject == "" {
+		if req.BackstageURL != "" {
+			return errors.New("--backstage-url reads a template:<namespace>/<name> subject; a workload is read from the cluster")
+		}
+		return nil
+	}
+	for _, name := range []string{"dir", "namespace", "accept"} {
+		if f.Changed(name) {
+			return fmt.Errorf("--%s names a workload, and %s is a golden path a catalog holds: drop --%s", name, req.TemplateSubject, name)
+		}
+	}
+	return nil
+}
+
 // declareDynamic is the kubeconfig client the declaration reads the cluster
 // with. A run without a registry is refused before any read, so it builds
-// none; a --dir run or a claim whose client fails declares with its cluster
-// facts dropped (a claim reads only the installation signer policy there).
+// none; a --dir run, a claim or a golden path whose client fails declares
+// with its cluster facts dropped (a claim and a golden path read only the
+// installation signer policy there).
 func declareDynamic(req app.DeclareRequest) (dynamic.Interface, error) {
 	if req.Registry == "" {
 		return nil, nil
 	}
 	dyn, err := initDynamic()
-	if err != nil && req.Dir == "" && !strings.HasPrefix(req.Service, fleet.ExternalSubjectPrefix) {
+	if err != nil && req.Dir == "" && req.TemplateSubject == "" && !strings.HasPrefix(req.Service, fleet.ExternalSubjectPrefix) {
 		return nil, fmt.Errorf("declaring a workload reads the cluster: %w", err)
 	}
 	if err != nil {

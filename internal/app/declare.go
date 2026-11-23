@@ -94,6 +94,14 @@ type DeclareRequest struct {
 	// the team the claim names as owner and the service name it publishes
 	// under (the identity's last segment when empty).
 	Owner, Name string
+	// Template is the inferred golden path the declaration accepts, as the
+	// caller's view or a catalog read names it; when set nothing reads a
+	// cluster workload. TemplateSubject is its template:<namespace>/<name>
+	// subject as typed (Service is then the template's name), and
+	// BackstageURL the catalog a local run or the stdio MCP server reads it
+	// from.
+	Template                      *fleet.InferredTemplate
+	TemplateSubject, BackstageURL string
 }
 
 // DeclareObserved is a workload as the caller's restricted fleet view shows
@@ -354,6 +362,10 @@ func (s *Service) PlanDeclare(ctx context.Context, req DeclareRequest) (*Declare
 			CLI: req.command("")}
 	}
 	req.Signing.Login, req.Signing.Draft = req.Login, req.Draft
+	if req.TemplateSubject != "" && req.Template == nil {
+		return nil, nil, &DeclareError{Code: codeTemplateNotFound, Message: "no template " + req.TemplateSubject + " was read: accepting one reads it from the catalog first",
+			CLI: req.command("")}
+	}
 	if req.FromDraft != "" {
 		return s.fromDraft(ctx, req)
 	}
@@ -436,6 +448,8 @@ func (pl *declarePlanner) prepare(ctx context.Context) ([]byte, error) {
 func (pl *declarePlanner) source(ctx context.Context) error {
 	var err error
 	switch {
+	case pl.req.Template != nil:
+		err = pl.fromTemplate(ctx)
 	case pl.claiming:
 		err = pl.externalSource()
 	case pl.req.Dir != "":
@@ -996,6 +1010,9 @@ func applyAccept(raw []byte, rec *contract.InferredRecord, names []string) ([]by
 // identify names the inferred service the declaration comes from and reads
 // the cluster's kube-system namespace uid, empty when it cannot.
 func (pl *declarePlanner) identify(ctx context.Context) {
+	if pl.req.Template != nil {
+		return // a golden path is inferred from no workload and names no cluster
+	}
 	if pl.claiming {
 		pl.plan.InferredFrom = contract.ExternalInferredFrom(string(pl.claim))
 		return
@@ -1402,6 +1419,9 @@ func (req DeclareRequest) command(intent string) string {
 			parts = append(parts, flag, v)
 		}
 	}
+	if req.TemplateSubject != "" {
+		return req.templateCommand(intent)
+	}
 	if k, ok := req.claimed(); ok {
 		parts = []string{"pacto claim", string(k)}
 		if req.FromDraft == "" {
@@ -1440,6 +1460,10 @@ func (req DeclareRequest) command(intent string) string {
 // AcceptCLI is the command a person accepts the draft tag of service with:
 // pacto claim for a claim.
 func (req DeclareRequest) AcceptCLI(service, tag string) string {
+	if req.TemplateSubject != "" {
+		req.FromDraft = tag
+		return req.templateCommand("")
+	}
 	if k, ok := req.claimed(); ok {
 		cli := "pacto claim " + string(k)
 		if req.Name != "" {
@@ -1532,6 +1556,9 @@ func (s *Service) fromDraft(ctx context.Context, req DeclareRequest) (*DeclarePl
 	}
 	sub := req
 	sub.Dir, sub.FromDraft, sub.draft = dir, "", req.FromDraft
+	if req.Template != nil {
+		sub.Dir = "" // the golden path is drafted again from the template just read
+	}
 	plan, d, err := s.PlanDeclare(ctx, sub)
 	switch {
 	case err != nil || plan.Unchanged != "":
@@ -1539,9 +1566,9 @@ func (s *Service) fromDraft(ctx context.Context, req DeclareRequest) (*DeclarePl
 	case plan.State != contract.DeclarationDeclared:
 		return plan, nil, &DeclareError{Code: codeSignerNotAllowed, Message: "accepting a draft takes a person's Sigstore login: " + plan.Signer.Why}
 	}
-	if _, claim := req.claimed(); !claim {
-		// A claim's folder is written from its name and owner alone: nothing
-		// in it is left to back.
+	if _, claim := req.claimed(); !claim && req.Template == nil {
+		// A claim's folder is written from its name and owner alone, a
+		// golden path's from the template: nothing in it is left to back.
 		plan.Unbacked, plan.UnbackedUnchecked = s.unbacked(ctx, req, dr.object, d.bundle)
 	}
 	plan.Notes = append(plan.Notes, dr.notes(req.Accept)...)
@@ -1578,7 +1605,7 @@ func readDraft(ctx context.Context, reg publish.Registry, repo string, req Decla
 		return nil, &DeclareError{Code: codeRegistryUnreadable, Message: "reading " + ref + ": " + err.Error()}
 	}
 	cli := "pacto declare " + req.Service + " --registry " + req.Registry
-	if _, ok := req.claimed(); ok {
+	if _, ok := req.claimed(); ok || req.TemplateSubject != "" {
 		sub := req
 		sub.FromDraft = ""
 		cli = sub.command("")
@@ -1623,6 +1650,12 @@ func checkDraft(ctx context.Context, reg publish.Registry, repo string, req Decl
 // read from, which it sets on dr.
 func draftSubject(repo string, req DeclareRequest, dr *draftRead, rec *contract.InferredRecord) error {
 	name := dr.bundle.Contract.Service.Name
+	if req.TemplateSubject != "" {
+		if rec.Inputs.Cluster != nil || rec.Declaration.InferredFrom != "" || name != req.Service || dr.bundle.Contract.Service.Template == nil {
+			return &DeclareError{Code: codeDraftNotFound, Message: repo + ":" + req.FromDraft + " holds no draft of the golden path " + req.TemplateSubject}
+		}
+		return nil
+	}
 	if k, ok := req.claimed(); ok {
 		if rec.Declaration.InferredFrom != contract.ExternalInferredFrom(string(k)) || name != req.claimName() {
 			return &DeclareError{Code: codeDraftNotFound, Message: repo + ":" + req.FromDraft + " claims another system, not " + string(k)}

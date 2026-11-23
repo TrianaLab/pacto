@@ -674,6 +674,13 @@ the signed target snapshots in &lt;registry&gt;/pacto-targets, verified with
 --delivery-trust. An owner read from the workload's team label stays in
 pacto.inferred.yaml as inferred.
 
+A golden path a Backstage catalog holds is accepted as
+template:&lt;namespace&gt;/&lt;name&gt;: the template is read from --backstage-url (the
+reader token comes from PACTO_BACKSTAGE_TOKEN) and the plan drafts a
+contract-only golden path at &lt;registry&gt;/&lt;name&gt; that declares service.template.
+Backstage keeps the template's steps and skeleton. Only a repository that holds
+no version yet is accepted into.
+
 ```
 pacto declare <service> [flags]
 ```
@@ -689,12 +696,16 @@ pacto declare <service> [flags]
 
   # Accept a draft an agent wrote
   pacto declare invoices --registry ghcr.io/acme --from-draft draft-3 --yes
+
+  # What accepting a Backstage template as a golden path would publish
+  pacto declare template:default/springboot-service --registry ghcr.io/acme/paths --backstage-url https://catalog.acme.io
 ```
 
 **Flags:**
 
 ```
       --accept strings           a dependency whose proposed range you accept as declared; repeat it for more
+      --backstage-url string     base URL of the Backstage catalog a template:<namespace>/<name> subject is read from; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --call-window duration     how far back a call counts as a dependency (at least 1m, default 24h)
       --delivery-trust string    the trust config the target snapshots that carry the owner policy are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --device[=true|false]      log in with a device code instead of a browser
