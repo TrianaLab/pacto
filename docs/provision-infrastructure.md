@@ -205,6 +205,17 @@ it is neither failure nor success. The status is Unknown when:
 - two producers with current reports disagree, which also adds a
   `PROVISIONING_CONFLICT` limitation.
 
+When no provider has reported, the status may carry one suggestion:
+
+- `Crossplane detected in <cluster>: accept its inferred offerings`, when a
+  cluster in your view runs Crossplane;
+- `no provisioner found: see Write an adapter`, when every cluster in your
+  view runs no Crossplane and no adapter has reported;
+- nothing when Pacto cannot tell.
+
+The CLI appends it to the status, `pacto_fleet_entity` returns it as
+`suggestion` and the dashboard shows it under the status.
+
 Reports from a target-state file show as unsigned. A viewer restricted to some
 namespaces sees a provider with no Kubernetes target, its owner and versions,
 and none of its targets. Consumers the viewer may not read appear only as a

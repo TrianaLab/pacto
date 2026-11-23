@@ -125,6 +125,21 @@ See the [Helm reference](helm-reference.md) for the full value list and
 [Operator configuration](operator-configuration.md) for the controller flags
 each value maps to.
 
+## Under profile idp
+
+With `profile: idp` and `evidence.enabled` unset, the operator runs the
+Evidence Server only while all of these hold:
+
+- the registry serves the OCI Referrers API;
+- a subject or subject prefix is set; the prefix defaults to
+  `oci://<registry>/` when `registry` has a path, such as `ghcr.io/acme`;
+- the trust Secret, `evidence.trust.existingSecret` or
+  `<fullname>-evidence-trust`, holds a `.pub` key.
+
+The `Evidence` row in
+[Detected providers](../../operational-graph-providers.md) says which one is
+missing. See [Choose an installation profile](profiles.md#what-idp-turns-on-when-the-cluster-supports-it).
+
 ## Verifying the install
 
 `evidence.enabled=true` adds a third Deployment, `pacto-evidence`, created by

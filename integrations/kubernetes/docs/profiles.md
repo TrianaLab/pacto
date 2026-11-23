@@ -57,9 +57,90 @@ You choose `idp`, so you choose what it adds:
 - The read of ServiceMonitors and PodMonitors (`get`, `list`, `watch`), in the
   operator ClusterRole, or in each watch Role with `controller.watchNamespaces`.
 - Pacto delivery's cluster roles: the `-promoter`, `-agent`, `-approver`,
-  `-view` and `-edit` ClusterRoles, plus the recorder's ClusterRole when
-  `delivery.recorder.enabled` is `true` (the quickstart sets it). See
-  [Delivery](delivery.md).
+  `-view` and `-edit` ClusterRoles, plus the recorder's ClusterRole when the
+  recorder runs (the table below). See [Delivery](delivery.md).
+- The Evidence Server lifecycle in the release namespace: `create`, `delete`,
+  `get`, `patch` and `update` on Deployments and Services.
+- With `idp.crossplane.install=true` only, the upstream Crossplane chart's
+  RBAC (see [Crossplane](#crossplane)).
+
+### What idp turns on when the cluster supports it
+
+Each piece below runs only where its prerequisite holds. You set no further
+value. The `Evidence`, `Recorder` and `Crossplane` rows of
+`pacto fleet providers`, `pacto_fleet_status.providers` and Detected providers
+on Data sources say whether each piece is on and why.
+
+| Piece | Prerequisite | How to turn it off |
+|---|---|---|
+| Evidence Server | The registry serves OCI Referrers; a subject or subject prefix is set; the trust Secret holds a `.pub` key | Remove the public keys from the trust Secret, or leave profile idp |
+| Recorder | Pacto delivery renders; a streams repository (`registry` or `delivery.recorder.streamsRepository`); exactly one complete signing method; `delivery.recorder.enabled` left unset | `delivery.recorder.enabled=false` |
+| Crossplane | Detected under every profile; idp installs it only with `idp.crossplane.install=true` | `idp.crossplane.install=false` (see [Crossplane](#crossplane)) |
+
+The trust Secret defaults to `<fullname>-evidence-trust`, or
+`evidence.trust.existingSecret`. Pacto never creates a key. With no subjects
+or prefixes set, the subject prefix defaults to `oci://<registry>/` when
+`registry` has a path, such as `ghcr.io/acme`. A bare host gets none, and the
+row asks for `evidence.registry.subjectPrefixes`. When the operator cannot
+tell whether a prerequisite holds, the row reads `unknown` and the Evidence
+Server stays as it was. The operator probes each registry once, so a registry
+that later serves Referrers is seen after an operator restart. See
+[The Evidence Server](evidence-server.md#under-profile-idp).
+
+A running recorder changes how approvals count, and older CLIs and promoters
+refuse its records. Upgrade the CLIs and promoters that follow these streams
+first, or set `delivery.recorder.enabled=false`.
+
+### Crossplane
+
+The operator reads Crossplane from its running core Deployment, so CRDs left
+behind never read as a running Crossplane. Under idp with no Crossplane, the
+row proposes the bootstrap, which installs upstream Crossplane into the
+release namespace with this release:
+
+```bash
+helm upgrade pacto oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
+  --namespace pacto-operator-system --reset-then-reuse-values \
+  --set idp.crossplane.install=true
+```
+
+The install fails with `idp.crossplane.install needs profile idp` outside
+idp, with `profile hardened renders no ClusterRole: leave
+idp.crossplane.install false` under hardened, and with `Crossplane is already
+installed: leave idp.crossplane.install false` when another release or a hand
+install runs a Crossplane Deployment. The last check needs the cluster: under
+`helm template` and Argo CD the chart cannot see another Crossplane, so check
+that none runs before you set the value.
+
+The bootstrap adds the upstream chart's privilege: the `crossplane`
+ServiceAccount writes CRDs, Secrets, ServiceAccounts, Services, Deployments and
+webhook configurations cluster-wide, the `rbac-manager` ServiceAccount may escalate
+and bind ClusterRoles, and the `crossplane:masters` group gets
+`crossplane-admin`.
+
+Crossplane creates its CRDs and webhook configurations at runtime, so Helm
+never owns them. `idp.crossplane.install=false` removes the Crossplane core
+and keeps its CRDs, XRDs, Compositions, Providers and claims. To keep
+Crossplane running, install it as its own release before you turn the value
+off. If Helm refuses objects this release owns, such as the `crossplane`
+ClusterRole, turn the value off and run the install right after:
+
+```bash
+helm repo add crossplane-stable https://charts.crossplane.io/stable
+helm install crossplane crossplane-stable/crossplane \
+  --namespace crossplane-system --create-namespace
+```
+
+If you remove it instead, the leftover webhook configurations call the
+deleted `crossplane-webhooks` Service and refuse writes of Crossplane
+objects. Delete them:
+
+```bash
+kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -o json |
+  jq -r '.items[] | select(any(.webhooks[]?; .clientConfig.service.name? == "crossplane-webhooks"))
+    | "\(.kind | ascii_downcase)/\(.metadata.name)"' |
+  xargs kubectl delete
+```
 
 ## Combine hardened and idp
 
