@@ -3,6 +3,7 @@ package validation
 import (
 	"cmp"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
@@ -123,12 +124,12 @@ func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bun
 	}
 
 	var unverified []string
-	for _, cfg := range c.Configurations {
+	for j, cfg := range c.Configurations {
 		given, ok := values[cfg.Name]
 		if !valuesChecked(c, cfg, ok) {
 			continue
 		}
-		schema, err := loadConfigSchema(cfg, bundleFS, refs)
+		schema, doc, tiered, err := environmentSchema(cfg, bundleFS, refs)
 		if err != nil {
 			r.AddWarning(path, "ENVIRONMENT_VALUES_UNVERIFIED", fmt.Sprintf("environment %s: cannot check the values for configuration %s: %v", env.Name, cfg.Name, err))
 			unverified = append(unverified, env.Name+"/"+cfg.Name)
@@ -138,9 +139,21 @@ func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bun
 		if !ok {
 			code = "ENVIRONMENT_VALUES_MISSING"
 		}
-		for _, v := range schemaViolations(schema.Validate(EffectiveValues(cfg.Values, given))) {
+		legacy := func(v *jsonschema.ValidationError) {
 			at := append([]string{cfg.Name}, v.InstanceLocation...)
 			fail(code, at, raw, environmentViolation(env, cfg, ok, at, v))
+		}
+		if !tiered {
+			for _, v := range schemaViolations(schema.Validate(EffectiveValues(cfg.Values, given))) {
+				legacy(v)
+			}
+			continue
+		}
+		o := offeringParams{r: refs[cfg.Name], doc: doc, cfgIdx: j, subject: func(p []string) string {
+			return "environment " + env.Name + ": " + strings.Join(append([]string{cfg.Name}, p...), ".")
+		}}
+		for _, f := range offeringFindings(o, schema, cfg.Values, given, legacy) {
+			fail(f.code, append([]string{cfg.Name}, f.path...), raw, f.msg)
 		}
 	}
 	return unverified
@@ -170,6 +183,21 @@ func environmentViolation(env contract.Environment, cfg contract.Configuration, 
 // configuration has no defaults, so only given values are checked.
 func valuesChecked(c *contract.Contract, cfg contract.Configuration, given bool) bool {
 	return given || cfg.Required && (cfg.Ref == "" || RefValuesAllowed(c.PactoVersion))
+}
+
+// environmentSchema is the schema environment values for cfg are checked
+// against and, when it comes from a tiered offering, that offering's schema
+// decoded (see [tieredOffering]).
+func environmentSchema(cfg contract.Configuration, bundleFS fs.FS, refs ConfigRefs) (*jsonschema.Schema, any, bool, error) {
+	schema, err := loadConfigSchema(cfg, bundleFS, refs)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	doc, tiered, why := tieredOffering(refs[cfg.Name])
+	if why != "" {
+		return nil, nil, false, errors.New(why)
+	}
+	return schema, doc, tiered, nil
 }
 
 // loadConfigSchema compiles a configuration's schema from the bundle, or

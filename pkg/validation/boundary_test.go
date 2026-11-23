@@ -16,12 +16,16 @@ const modulePrefix = "github.com/trianalab/pacto/v4/"
 // because crossfield.go uses the pure graph.ParseDependencyRef and pkg/graph is
 // itself dependency-pure (verified). pkg/externalid is allowed because
 // crossfield.go checks dependencies[].identity with the pure externalid.Parse.
+// pkg/schemax is allowed because offering.go reads an offering schema's tiers
+// with its pure schemax.TierAt; schemax imports only the standard library and
+// yaml.
 var allowedInternal = map[string]bool{
 	modulePrefix + "pkg/contract":   true,
 	modulePrefix + "pkg/evidence":   true,
 	modulePrefix + "pkg/externalid": true,
 	modulePrefix + "pkg/finding":    true,
 	modulePrefix + "pkg/graph":      true,
+	modulePrefix + "pkg/schemax":    true,
 }
 
 // Impure imports the pure engine must never pull in, even from stdlib or outside
@@ -33,7 +37,7 @@ var forbiddenPrefix = []string{"k8s.io/", "sigs.k8s.io/"}
 func disallowedImport(path string) string {
 	if strings.HasPrefix(path, modulePrefix) {
 		if !allowedInternal[path] {
-			return "internal import not on allowlist (contract, evidence, externalid, finding, graph)"
+			return "internal import not on allowlist (contract, evidence, externalid, finding, graph, schemax)"
 		}
 		return ""
 	}
@@ -85,7 +89,7 @@ func TestDisallowedImport(t *testing.T) {
 		{"fmt", ""},
 		{"strings", ""},
 		// disallowed: module-internal not on allowlist
-		{modulePrefix + "pkg/oci", "internal import not on allowlist (contract, evidence, externalid, finding, graph)"},
+		{modulePrefix + "pkg/oci", "internal import not on allowlist (contract, evidence, externalid, finding, graph, schemax)"},
 		// disallowed: forbidden exact
 		{"os", "forbidden exact import (engine must stay pure)"},
 		{"net", "forbidden exact import (engine must stay pure)"},

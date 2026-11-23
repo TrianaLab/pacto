@@ -26,10 +26,13 @@ type ResolvedConfigRef struct {
 	Selected                      string
 	ProviderName, ProviderVersion string
 	Provider                      *contract.Contract
-	Schema                        *jsonschema.Schema
-	SchemaPath                    string
-	ProviderFS                    fs.FS
-	Err                           error
+	// SchemaProvider is the contract that holds Schema: Provider, or the
+	// last contract of the chain.
+	SchemaProvider *contract.Contract
+	Schema         *jsonschema.Schema
+	SchemaPath     string
+	ProviderFS     fs.FS
+	Err            error
 }
 
 // ConfigRefs holds each resolved configuration ref, keyed by the consumer's
@@ -141,7 +144,7 @@ func resolveConfigRef(ctx context.Context, version string, cfg contract.Configur
 		if err != nil {
 			return fail("", "ref", false, "%s@%s configuration %s: %v", p.Service.Name, p.Service.Version, sel.Name, err)
 		}
-		r.Schema, r.SchemaPath, r.ProviderFS = schema, sel.Schema, bundle.FS
+		r.Schema, r.SchemaPath, r.ProviderFS, r.SchemaProvider = schema, sel.Schema, bundle.FS, p
 		return r, nil
 	}
 	return fail("", "ref", false, "ref %q chains through more than %d configuration refs", cfg.Ref, MaxConfigRefHops)
@@ -256,7 +259,7 @@ func ConfigRefStage(c *contract.Contract, refs ConfigRefs, res ValidationResult,
 		if r.Schema == nil {
 			unverified = append(unverified, cfg.Name)
 		} else {
-			checkRefValues(&res, at+".values", cfg, r.Schema)
+			checkRefValues(&res, at+".values", i, cfg, r)
 		}
 		if r.Provider != nil {
 			checkRefRange(&res, c, at+".ref", cfg, r.Provider)
@@ -273,14 +276,31 @@ func ConfigRefStage(c *contract.Contract, refs ConfigRefs, res ValidationResult,
 	return st
 }
 
-// checkRefValues reports each violation of schema by cfg's inline values.
-func checkRefValues(res *ValidationResult, path string, cfg contract.Configuration, schema *jsonschema.Schema) {
+// checkRefValues reports each violation of r's schema by the inline values
+// of cfg, configuration i. On a tiered offering a violation its parameters
+// cover carries a parameter code; the inline values apply in every
+// environment, so they are never tier-checked.
+func checkRefValues(res *ValidationResult, path string, i int, cfg contract.Configuration, r ResolvedConfigRef) {
 	if len(cfg.Values) == 0 {
 		return
 	}
-	for _, v := range schemaViolations(schema.Validate(EffectiveValues(cfg.Values, nil))) {
+	legacy := func(v *jsonschema.ValidationError) {
 		_, msg, _ := strings.Cut(v.Error()+enumSuggestion(v.ErrorKind), "': ")
 		res.AddError(path, "CONFIG_VALUES_VALIDATION_FAILED", fmt.Sprintf("configuration %s at %s: %s", cfg.Name, "/"+strings.TrimPrefix(jsonPointer(v.InstanceLocation), "/"), msg))
+	}
+	values := EffectiveValues(cfg.Values, nil)
+	doc, tiered, _ := tieredOffering(r) // an inferred or unreadable offering keeps the generic code
+	if !tiered {
+		for _, v := range schemaViolations(r.Schema.Validate(values)) {
+			legacy(v)
+		}
+		return
+	}
+	o := offeringParams{r: r, doc: doc, cfgIdx: i, subject: func(p []string) string {
+		return "configuration " + cfg.Name + ": " + strings.Join(p, ".")
+	}}
+	for _, f := range o.violations(r.Schema, values, legacy) {
+		res.AddError(path, f.code, f.msg)
 	}
 }
 

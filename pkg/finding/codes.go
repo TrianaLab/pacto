@@ -68,13 +68,19 @@ const (
 	CodeEnvironmentExpiresNotTemporary Code = "ENVIRONMENT_EXPIRES_NOT_TEMPORARY" // expires on an environment whose lifetime is not temporary
 	CodeEnvironmentUnknownConfig       Code = "ENVIRONMENT_UNKNOWN_CONFIGURATION" // an environment file names a configuration the contract does not declare
 	CodeEnvironmentValuesInvalid       Code = "ENVIRONMENT_VALUES_INVALID"
-	CodeEnvironmentValuesMissing       Code = "ENVIRONMENT_VALUES_MISSING"     // a required configuration an environment leaves out fails its schema on its defaults
-	CodeEnvironmentValuesUnverified    Code = "ENVIRONMENT_VALUES_UNVERIFIED"  // no schema file in the bundle to check an environment's values against
-	CodeInferredRecordInvalid          Code = "INFERRED_RECORD_INVALID"        // pacto.inferred.yaml is malformed or cites a file the bundle lacks or holds with another digest
-	CodeDeclarationRangeNotAccepted    Code = "DECLARATION_RANGE_NOT_ACCEPTED" // pacto.yaml declares a range the record only proposed and the declaration did not accept
-	CodeDeclarationAcceptedMismatch    Code = "DECLARATION_ACCEPTED_MISMATCH"  // a range the declaration accepted, or a draft requested, is not the compatibility pacto.yaml declares
-	CodeDeclarationExternalMismatch    Code = "DECLARATION_EXTERNAL_MISMATCH"  // a declaration claims an external system the contract's service.external does not name
-	CodeCarriedFieldNotDeclared        Code = "CARRIED_FIELD_NOT_DECLARED"     // pacto.inferred.yaml says a field was carried from a registry declaration, and pacto.yaml does not declare it
+	CodeEnvironmentValuesMissing       Code = "ENVIRONMENT_VALUES_MISSING"    // a required configuration an environment leaves out fails its schema on its defaults
+	CodeEnvironmentValuesUnverified    Code = "ENVIRONMENT_VALUES_UNVERIFIED" // no schema file in the bundle to check an environment's values against
+	// Values for a tiered offering (its configuration schema declares
+	// x-pacto-tier) outside its parameter space.
+	CodeTierNotTunable              Code = "TierNotTunable"                 // an environment sets a field the offering does not mark x-pacto-tier: tunable
+	CodeParameterOutOfRange         Code = "ParameterOutOfRange"            // a value outside the offering's bounds, enum, type or pattern
+	CodeParameterNotDeclared        Code = "ParameterNotDeclared"           // a field the offering's schema does not declare
+	CodeClassNotOffered             Code = "ClassNotOffered"                // a class the offering does not offer
+	CodeInferredRecordInvalid       Code = "INFERRED_RECORD_INVALID"        // pacto.inferred.yaml is malformed or cites a file the bundle lacks or holds with another digest
+	CodeDeclarationRangeNotAccepted Code = "DECLARATION_RANGE_NOT_ACCEPTED" // pacto.yaml declares a range the record only proposed and the declaration did not accept
+	CodeDeclarationAcceptedMismatch Code = "DECLARATION_ACCEPTED_MISMATCH"  // a range the declaration accepted, or a draft requested, is not the compatibility pacto.yaml declares
+	CodeDeclarationExternalMismatch Code = "DECLARATION_EXTERNAL_MISMATCH"  // a declaration claims an external system the contract's service.external does not name
+	CodeCarriedFieldNotDeclared     Code = "CARRIED_FIELD_NOT_DECLARED"     // pacto.inferred.yaml says a field was carried from a registry declaration, and pacto.yaml does not declare it
 
 	// Family 1 — confirmed violations (emitted only by Evaluate). Registry: {RuntimeDrift, Error}.
 	CodeWorkloadMismatch      Code = "WORKLOAD_MISMATCH"
@@ -185,6 +191,10 @@ var registry = map[Code]codeMeta{
 	CodeEnvironmentValuesInvalid:       {CategoryConfigurationViolation, SeverityError},
 	CodeEnvironmentValuesMissing:       {CategoryMissingConfiguration, SeverityError},
 	CodeEnvironmentValuesUnverified:    {CategoryUnresolvedReference, SeverityWarning},
+	CodeTierNotTunable:                 {CategoryConfigurationViolation, SeverityError},
+	CodeParameterOutOfRange:            {CategoryConfigurationViolation, SeverityError},
+	CodeParameterNotDeclared:           {CategoryConfigurationViolation, SeverityError},
+	CodeClassNotOffered:                {CategoryConfigurationViolation, SeverityError},
 	CodeInferredRecordInvalid:          {CategoryInvalidFile, SeverityError},
 	CodeDeclarationRangeNotAccepted:    {CategoryInvalidFile, SeverityError},
 	CodeDeclarationAcceptedMismatch:    {CategoryInvalidFile, SeverityError},
