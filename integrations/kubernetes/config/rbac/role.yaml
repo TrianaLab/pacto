@@ -47,6 +47,15 @@ rules:
   - get
   - list
 - apiGroups:
+  - apiextensions.crossplane.io
+  resources:
+  - compositeresourcedefinitions
+  - compositions
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - apps
   resources:
   - daemonsets

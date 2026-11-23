@@ -550,3 +550,60 @@ func TestOfferingPublisherRegistryFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestOfferingPublisherScopedOperatorRunsNothing(t *testing.T) {
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	for _, cfg := range []Config{
+		{ClusterID: clusterA, Key: key},
+		{Registry: "ghcr.io/acme", ClusterID: clusterA, Key: key, Watched: []string{"team-a"}},
+	} {
+		if p, err := ForOperator(cfg); p != nil || err != nil {
+			t.Fatalf("ForOperator(%+v) = %v, %v", cfg, p, err)
+		}
+	}
+}
+
+func TestOfferingPublisherNeedsKeyAndClusterID(t *testing.T) {
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	for want, cfg := range map[string]Config{
+		"installation key": {Registry: "ghcr.io/acme", ClusterID: clusterA},
+		"cluster id":       {Registry: "ghcr.io/acme", Key: key},
+	} {
+		if _, err := ForOperator(cfg); err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("err = %v, want %q", err, want)
+		}
+	}
+}
+
+func TestOfferingPublisherBuiltWhenAPIUnserved(t *testing.T) {
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	p, err := ForOperator(Config{Registry: "ghcr.io/acme/", ClusterID: clusterA, Key: key,
+		Served: func(string) (bool, error) { t.Fatal("ForOperator asked whether the API is served"); return false, nil }})
+	if err != nil || p == nil {
+		t.Fatalf("ForOperator = %v, %v", p, err)
+	}
+	ad := p.Advertisement()
+	if ad.Producer != "crossplane-"+clusterA || ad.Repository != "ghcr.io/acme/pacto-inferred/crossplane-"+clusterA+"/services" ||
+		ad.Partial != "the first run has not finished" || ad.Observed != nil || ad.AsOf != nil {
+		t.Fatalf("advertisement = %+v", ad)
+	}
+}
+
+func TestOfferingPublisherAdvertisementIsACopy(t *testing.T) {
+	host := testHost(t)
+	p, _, _ := publisher(t, host, clusterA, cluster(xrd("v2", "XBucket", 3, 500)), serves("v2"))
+	p.run(context.Background())
+	ad := p.Advertisement()
+	if !slices.Equal(ad.Observed, []string{"xbucket"}) || ad.Partial != "" || !ad.AsOf.Equal(now) {
+		t.Fatalf("advertisement = %+v", ad)
+	}
+	ad.Observed[0] = "changed"
+	if p.ad.Observed[0] != "xbucket" {
+		t.Fatal("the advertisement shares the publisher's slice")
+	}
+	p.cfg.Served = serves()
+	p.run(context.Background())
+	if ad := p.Advertisement(); ad.Partial != notServed || !slices.Equal(ad.Observed, []string{"xbucket"}) {
+		t.Fatalf("advertisement = %+v", ad)
+	}
+}

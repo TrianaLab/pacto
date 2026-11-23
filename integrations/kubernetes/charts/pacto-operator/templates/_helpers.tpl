@@ -192,6 +192,9 @@ Controller arguments derived from values
 - --registry-push-prefix={{ . }}
 {{- end }}
 {{- end }}
+{{- if not (dig "offerings" "enabled" true (.Values.crossplane | default dict)) }}
+- --crossplane-offerings=false
+{{- end }}
 {{- if include "pacto-operator.member" . }}
 - --hub-url={{ .Values.hub.url }}
 {{- if .Values.hub.caConfigMap }}

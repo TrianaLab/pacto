@@ -60,6 +60,7 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/member"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/offeringpublish"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/scope"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/targetsnapshot"
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
@@ -158,6 +159,7 @@ type options struct {
 	profile              string
 	hubURL               string
 	hubCAFile            string
+	crossplaneOfferings  bool
 	registryPullSecret   string
 	registryPushPrefixes []string
 
@@ -446,6 +448,9 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"The hub's https:// or wss:// URL. Setting it makes this joined cluster a member: the elected leader dials "+
 			"the hub, proves the installation key and answers the hub's per-person reviews with this cluster's own "+
 			"SubjectAccessReview. Nothing listens for the hub; needs --registry.")
+	fs.BoolVar(&o.crossplaneOfferings, "crossplane-offerings", true,
+		"Push each Crossplane XRD as an inferred offering to <registry>/pacto-inferred/crossplane-<clusterID>/services. "+
+			"Needs --registry and a cluster-wide operator; the operator only reads XRDs and Compositions.")
 	fs.StringVar(&o.hubCAFile, "hub-ca-file", "",
 		"File holding the PEM CAs the hub's certificate may chain to, beside the system pool.")
 	fs.StringVar(&o.registryPullSecret, "registry-pull-secret", "",
@@ -773,7 +778,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 	if err != nil {
 		return err
 	}
-	inst, err := addPublishers(mgr, o, namespace, ident, evidenceSourceURL, kc, loaderKC, rec)
+	inst, offerings, err := addPublishers(mgr, o, namespace, ident, evidenceSourceURL, kc, loaderKC, rec)
 	if err != nil {
 		return err
 	}
@@ -815,7 +820,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig()),
 		inst, lastPush.Load, detection.Readers{GatewayLogs: o.egressGatewayLogs, KernelEvidence: o.enableKernelEvidence,
 			ServiceEntries: servesServiceEntries(mgr), CiliumPolicies: servesCiliumPolicies(mgr)}); d != nil {
-		d.Wake = pushed
+		d.Wake, d.Offerings = pushed, offerings
 		d.Pieces = idpPieces(inst, gate, o.enableEvidence, recorder)
 		if err := mgr.Add(d); err != nil {
 			return fmt.Errorf("failed to add detection: %w", err)
@@ -965,24 +970,25 @@ func dashboardIndex(mode string, inst *detect.Installation) string {
 
 // addPublishers runs the linker, the target snapshot publisher and, with --hub-url, the member link (both
 // signing with the one installation key). It returns the installation block detection advertises on every
-// install; only its registry fields need --registry.
+// install, whose registry fields need --registry, and the inferred-offering publisher's advertisement, nil
+// when that publisher does not run.
 func addPublishers(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity,
 	evidenceURL func() string, kc, loaderKC authn.Keychain,
-	rec *controller.PactoReconciler) (*detect.Installation, error) {
+	rec *controller.PactoReconciler) (*detect.Installation, func() *detect.OfferingsAd, error) {
 	linked, err := addLinker(mgr, o, namespace, ident.ID, kc, loaderKC, rec)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	profiles, err := detection.ParseProfile(o.profile)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	inst := &detect.Installation{Profile: profiles}
-	key, err := addTargetSnapshot(mgr, o, namespace, ident, evidenceURL, kc, inst, linked)
+	key, offerings, err := addTargetSnapshot(mgr, o, namespace, ident, evidenceURL, kc, inst, linked)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return inst, addMember(mgr, o, ident, key)
+	return inst, offerings, addMember(mgr, o, ident, key)
 }
 
 // addMember makes this cluster a member when --hub-url is set: the elected leader dials the hub and answers
@@ -1054,24 +1060,25 @@ var firstPush, closeFirstPush = func() (<-chan struct{}, func()) {
 // key, then publishes <registry>/pacto-targets:cluster-<uid> and the inferred contracts under
 // <registry>/pacto-inferred on the elected leader. It fills the registry fields of inst, the installation
 // detection advertises, and leaves them empty without --registry. It returns the installation key, nil
-// without --registry. A member (--hub-url) publishes no inferred contracts: its hub does, from the merged
-// snapshot. Any missing piece stops the operator at start with its reason.
+// without --registry, and the inferred-offering publisher's advertisement, nil when it does not run. A member
+// (--hub-url) publishes no inferred contracts: its hub does, from the merged snapshot. Any missing piece stops
+// the operator at start with its reason.
 func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity,
 	evidenceURL func() string, kc authn.Keychain, inst *detect.Installation,
-	linked func() core.LinkedTargets) (ed25519.PrivateKey, error) {
+	linked func() core.LinkedTargets) (ed25519.PrivateKey, func() *detect.OfferingsAd, error) {
 	if o.registry == "" {
 		setupLog.Info("Target snapshot and inferred contracts are off: set the registry value")
-		return nil, nil
+		return nil, nil, nil
 	}
 	deploy := os.Getenv("OPERATOR_DEPLOYMENT_NAME")
 	if deploy == "" {
-		return nil, fmt.Errorf("--registry needs OPERATOR_DEPLOYMENT_NAME: " +
+		return nil, nil, fmt.Errorf("--registry needs OPERATOR_DEPLOYMENT_NAME: " +
 			"the installation key Secret is named after the operator Deployment")
 	}
 	key, err := installkey.Ensure(context.Background(), mgr.GetAPIReader(), mgr.GetClient(), namespace,
 		installkey.SecretName(deploy))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	pub, err := targetsnapshot.ForOperator(targetsnapshot.Config{Registry: o.registry, ClusterID: ident.ID,
 		ClusterName: ident.Name, ClusterNameSource: ident.NameSource,
@@ -1081,10 +1088,14 @@ func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kub
 		OwnerPolicy: readOwnerPolicy(o.ownerPolicy),
 		Linked:      linked})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := addInferred(mgr, o, key, kc); err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	offerings, err := addOfferings(mgr, o, ident.ID, key, kc)
+	if err != nil {
+		return nil, nil, err
 	}
 	inst.Registry = o.registry
 	inst.Targets = oci.InstallationRepository(o.registry, oci.TargetsRepository)
@@ -1094,7 +1105,30 @@ func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kub
 	inst.SnapshotKey, inst.SnapshotKeyID = installkey.PublicKeyBase64(key), signing.Hint(key.Public())
 	setupLog.Info("Target snapshot is on", "repository", inst.Targets,
 		"snapshotKeyID", inst.SnapshotKeyID, "snapshotKey", inst.SnapshotKey)
-	return key, mgr.Add(pub)
+	return key, offerings, mgr.Add(pub)
+}
+
+// addOfferings publishes each Crossplane XRD as an inferred offering under
+// <registry>/pacto-inferred/crossplane-<clusterID>/services, signed with the installation key, on the elected
+// leader. It runs on a cluster-wide operator with --crossplane-offerings, members included (each cluster
+// writes its own repository), and asks on every tick whether Crossplane is served. It returns the
+// publisher's advertisement, nil when it does not run.
+func addOfferings(mgr ctrl.Manager, o *options, clusterID string, key ed25519.PrivateKey,
+	kc authn.Keychain) (func() *detect.OfferingsAd, error) {
+	if !o.crossplaneOfferings {
+		return nil, nil
+	}
+	dyn, err := dynamic.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		return nil, err
+	}
+	p, err := offeringpublish.ForOperator(offeringpublish.Config{Registry: o.registry, ClusterID: clusterID, Key: key,
+		Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Dynamic: dyn, Served: detection.ServedFor(mgr.GetConfig()),
+		Watched: o.namespaces, Pacto: version})
+	if err != nil || p == nil {
+		return nil, err
+	}
+	return p.Advertisement, mgr.Add(p)
 }
 
 // addInferred publishes the inferred contracts of the externals the Pactos name, signed with the installation

@@ -82,7 +82,29 @@ type Config struct {
 	Served func(gv string) (bool, error)
 	// Pacto is the operator version the records name.
 	Pacto string
+	// Watched is the namespace list of a scoped operator, which reads no
+	// cluster-scoped XRD and so publishes nothing.
+	Watched []string
 }
+
+// ForOperator is the operator's publisher, nil without a registry or on a
+// scoped operator. Whether the Crossplane API is served is asked on every
+// tick, so a Crossplane installed later is published without a restart.
+func ForOperator(cfg Config) (*Publisher, error) {
+	if cfg.Registry == "" || len(cfg.Watched) > 0 {
+		return nil, nil
+	}
+	if len(cfg.Key) != ed25519.PrivateKeySize {
+		return nil, errors.New("the inferred offerings need the installation key")
+	}
+	if cfg.ClusterID == "" {
+		return nil, errors.New("the inferred offerings need the cluster id: the operator could not read the kube-system namespace UID")
+	}
+	return &Publisher{cfg: cfg}, nil
+}
+
+// The publisher only reads XRDs and Compositions; it writes to the registry.
+// +kubebuilder:rbac:groups=apiextensions.crossplane.io,resources=compositeresourcedefinitions;compositions,verbs=get;list;watch
 
 // Publisher maps every XRD at once and then every OfferingInterval, and
 // pushes each offering whose content changed. The manager runs it only on the
@@ -195,6 +217,20 @@ func (p *Publisher) run(ctx context.Context) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.ad = detect.OfferingsAd{Producer: p.producer(), Repository: repo, Observed: observed, AsOf: &now}
+}
+
+// Advertisement is what detection advertises: the producer, its repository,
+// the last complete run's observation and why the newest run stopped short.
+// Before the first run finishes it is partial, so nothing reads as observed.
+func (p *Publisher) Advertisement() *detect.OfferingsAd {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	ad := p.ad
+	ad.Producer, ad.Repository, ad.Observed = p.producer(), p.repository(), slices.Clone(ad.Observed)
+	if ad.AsOf == nil && ad.Partial == "" {
+		ad.Partial = "the first run has not finished"
+	}
+	return &ad
 }
 
 // cmpErr is err's text, or alt without one.

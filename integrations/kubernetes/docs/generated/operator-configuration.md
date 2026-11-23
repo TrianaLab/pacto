@@ -19,6 +19,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | Flag | Type | Default | Via chart | Description |
 | --- | --- | --- | --- | --- |
 | `-caller-coverage-ignore-namespace` | `value` |  | chart value | Namespace whose host-network pods are taken not to call workloads, so they leave a Service's caller coverage complete (repeatable). kube-system and the other cluster namespaces and the node agent's are always ignored. |
+| `-crossplane-offerings` | `bool` | `true` | chart value | Push each Crossplane XRD as an inferred offering to &lt;registry&gt;/pacto-inferred/crossplane-&lt;clusterID&gt;/services. Needs --registry and a cluster-wide operator; the operator only reads XRDs and Compositions. |
 | `-dashboard-allow-anonymous` | `bool` |  | chart value | Serve the dashboard without sign-in when neither an issuer nor token sign-in is set; everyone who reaches it reads what its ServiceAccount reads. |
 | `-dashboard-backstage-token-key` | `string` | `token` | chart value | Key of the reader token in that Secret. |
 | `-dashboard-backstage-token-secret` | `string` |  | chart value | Secret in the operator namespace holding the catalog reader token, which the dashboard sends only to --dashboard-backstage-url; the operator never reads it. |

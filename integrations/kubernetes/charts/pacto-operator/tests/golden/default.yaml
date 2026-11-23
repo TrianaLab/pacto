@@ -2189,6 +2189,12 @@ rules:
   - apiGroups: [""]
     resources: [nodes]
     verbs: [list]
+  # Inferred offerings: each Crossplane XRD and the Compositions that select it
+  # are read, never written, and pushed as an inferred offering under the
+  # registry. Without Crossplane or a registry nothing is read.
+  - apiGroups: [apiextensions.crossplane.io]
+    resources: [compositeresourcedefinitions, compositions]
+    verbs: [get, list, watch]
   # auto reads the target namespace's pacto.trianalab.io/observe label, by
   # name, uncached; names and labels only.
   - apiGroups: [""]
