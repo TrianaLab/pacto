@@ -110,10 +110,12 @@ install_registry
 REG_PF_PID="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
 # reg CMD... — CMD with the forwarded port as a plain-HTTP proxy, so it reaches
 # the registry AS $REG_HOST, the host the cluster reads, and outside any CI
-# context (a pull-request pipeline refuses to publish).
+# context (a pull-request pipeline refuses to publish). The artifacts then name
+# no source repository: the runner's would contradict the one $SOURCE's
+# signing certificate attests, and the promoter refuses that version.
 reg() {
   env -u GITHUB_ACTIONS -u GITHUB_BASE_REF -u GITHUB_STEP_SUMMARY -u GITHUB_REPOSITORY_OWNER -u ACTIONS_ID_TOKEN_REQUEST_URL \
-    -u GITLAB_CI -u CI_MERGE_REQUEST_DIFF_BASE_SHA -u SIGSTORE_ID_TOKEN \
+    -u GITHUB_SERVER_URL -u GITHUB_REPOSITORY -u GITLAB_CI -u CI_MERGE_REQUEST_DIFF_BASE_SHA -u CI_PROJECT_URL -u SIGSTORE_ID_TOKEN \
     HTTP_PROXY="http://127.0.0.1:${LOCAL_REG_PORT}" NO_PROXY="" no_proxy="" PACTO_INSECURE_REGISTRIES="$REG_HOST" COSIGN_PASSWORD="" "$@"
 }
 REPO="$WORK/shop"
