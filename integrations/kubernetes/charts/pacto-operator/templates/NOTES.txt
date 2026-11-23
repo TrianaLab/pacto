@@ -166,6 +166,20 @@ delivery's cluster roles.
 Check that no other Crossplane runs before you set idp.crossplane.install: this
 render could not look the cluster up, so it did not refuse a second Crossplane.
 {{- end }}
+{{- if $idp }}
+{{- $recorderState := include "pacto-operator.recorderState" . }}
+{{- $recorderWhy := dict "off" "delivery.recorder.enabled is false" "delivery-off" "profile hardened renders no Pacto delivery" }}
+{{- print "\n" }}
+{{- if not .Values.evidence.enabled }}
+Evidence Server: on when the registry serves OCI Referrers and Secret
+{{ include "pacto-operator.evidenceTrustSecret" . }} holds a public key; see pacto fleet providers.
+{{- end }}
+Recorder: {{ if eq $recorderState "on" }}on{{ else }}off: {{ get $recorderWhy $recorderState | default ((splitn ": " 2 (include "pacto-operator.recorderCheck" .))._1) }}{{ end }}.
+{{- if and (eq $recorderState "on") (kindIs "invalid" .Values.delivery.recorder.enabled) }}
+Upgrade CLIs and promoters before the recorder signs records; set
+delivery.recorder.enabled=false to keep it off.
+{{- end }}
+{{- end }}
 {{- /* What the operator detected, read back on upgrade only. NOTES is the one
 template that looks the ConfigMap up, so detection changes no manifest. The
 object counts only when the operator wrote it: its managed-by label and an
@@ -259,7 +273,7 @@ so the approve line is ready to hand to the hub's admin. */}}
 {{- $joinKey := toString (get $install "snapshotKeyID") }}
 {{- if not (regexMatch `^[0-9a-f]{64}$` $joinKey) }}{{ $joinKey = "<snapshotKeyID>" }}{{ end }}
 {{- with .Values.registry }}
-{{- $recorder := and (include "pacto-operator.deliveryEnabled" $) $.Values.delivery.recorder.enabled (include "pacto-operator.delivery.streamsRepository" $) }}
+{{- $recorder := and (include "pacto-operator.deliveryEnabled" $) (include "pacto-operator.recorderEnabled" $) (include "pacto-operator.delivery.streamsRepository" $) }}
 {{- $stats := and (include "pacto-operator.deliveryEnabled" $) $.Values.delivery.stats.repository }}
 
 Registry: {{ . }}
@@ -412,7 +426,7 @@ approve its changes. Then:
 No publisher rule: the first signer of each service is confirmed in the delivery inbox.
 Set delivery.publishers.registry to derive one.
 {{- end }}
-{{- if .Values.delivery.recorder.enabled }}
+{{- if include "pacto-operator.recorderEnabled" . }}
 
 The recorder writes a signed record of every concluded operation to
 {{ include "pacto-operator.delivery.streamsRepository" . }} and to the versions it touched. Check that

@@ -782,14 +782,18 @@ delivery:
     signers: []
 
   recorder:
-    # -- Run the recorder, which writes a signed record of every concluded operation to the registry
-    # as OCI referrers. Off by default. When on, the promoter leaves the record finalizer to it. The
-    # recorder detects whether the registry serves the OCI Referrers API and otherwise writes one
-    # write-once, content-addressed tag per record in the streams repository. It also signs every
-    # Approval into the registry, and the promoter then counts an Approval only once its record is
-    # written. Upgrade the CLIs and the promoters that follow these streams first: an older reader
-    # refuses an operation record that names its approvals' records.
-    enabled: false
+    # -- (bool or null) Run the recorder, which writes a signed record of every concluded operation
+    # to the registry as OCI referrers. `true` runs it and fails the render on a missing or incomplete
+    # signing method or streams repository. `false` keeps it off under every profile. Unset (`null`,
+    # the default) is off, except under profile idp, which runs it when a streams repository and
+    # exactly one complete signing method are set. When on, the promoter leaves the record finalizer
+    # to it. The recorder detects whether the registry serves the OCI Referrers API and otherwise
+    # writes one write-once, content-addressed tag per record in the streams repository. It also
+    # signs every Approval into the registry, and the promoter then counts an Approval only once its
+    # record is written. Upgrade the CLIs and the promoters that follow these streams first: an older
+    # reader refuses an operation record that names its approvals' records.
+    # @default -- `null`
+    enabled: null
     # -- Repository (`host/path`) that holds one anchor per Stage stream. Defaults to
     # `<registry>/pacto-streams` when the top-level `registry` is set; required otherwise when enabled.
     streamsRepository: ""

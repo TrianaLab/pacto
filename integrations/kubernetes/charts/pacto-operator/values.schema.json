@@ -1189,7 +1189,10 @@
           "additionalProperties": false,
           "properties": {
             "enabled": {
-              "type": "boolean"
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "streamsRepository": {
               "type": "string"

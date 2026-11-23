@@ -467,21 +467,26 @@ Controller arguments derived from values
 {{- end }}
 {{- end }}
 {{- end }}
+{{- if include "pacto-operator.evidenceManaged" . }}
 {{- if .Values.evidence.enabled }}
 - --enable-evidence-server
 {{- if .Values.evidence.trust.existingSecret }}
 - --evidence-trust-secret={{ .Values.evidence.trust.existingSecret }}
 {{- end }}
-{{- with .Values.evidence.trust.configKey }}
-- --evidence-trust-config-key={{ . }}
-{{- end }}
 {{- if not (or .Values.evidence.registry.subjects .Values.evidence.registry.subjectPrefixes) }}
 {{- fail "evidence.registry.subjects or evidence.registry.subjectPrefixes is required when evidence is enabled: the registry is the evidence store" }}
+{{- end }}
+{{- else }}
+- --evidence-server-auto
+- --evidence-trust-secret={{ include "pacto-operator.evidenceTrustSecret" . }}
+{{- end }}
+{{- with .Values.evidence.trust.configKey }}
+- --evidence-trust-config-key={{ . }}
 {{- end }}
 {{- range .Values.evidence.registry.subjects }}
 - --evidence-subject={{ . }}
 {{- end }}
-{{- range .Values.evidence.registry.subjectPrefixes }}
+{{- range include "pacto-operator.evidenceSubjectPrefixes" . | fromYamlArray }}
 - --evidence-subject-prefix={{ . }}
 {{- end }}
 {{- if .Values.evidence.registry.credentialsSecret }}
@@ -507,10 +512,6 @@ Controller arguments derived from values
 {{- end }}
 {{- end }}
 {{- if include "pacto-operator.idp" . }}
-{{- if not .Values.evidence.enabled }}
-- --evidence-server-auto
-- --evidence-trust-secret={{ .Values.evidence.trust.existingSecret | default (printf "%s-evidence-trust" (include "pacto-operator.fullname" .)) }}
-{{- end }}
 - --idp-recorder={{ include "pacto-operator.recorderState" . }}
 {{- end }}
 {{- end }}
@@ -756,7 +757,7 @@ set (an explicit delivery value may name any repository).
 {{- end }}
 {{- end }}
 {{- if include "pacto-operator.deliveryEnabled" . }}
-{{- if .Values.delivery.recorder.enabled }}
+{{- if include "pacto-operator.recorderEnabled" . }}
 {{- with include "pacto-operator.delivery.streamsRepository" . }}
 {{- $out = append $out . }}
 {{- $out = append $out (include "pacto-operator.delivery.approvalsRepository" $) }}
@@ -777,10 +778,8 @@ keychains and the capped Installation row.
 */}}
 {{- define "pacto-operator.evidenceLedgers" -}}
 {{- $out := list }}
-{{- if .Values.evidence.enabled }}
-{{- range .Values.evidence.registry.subjectPrefixes }}
+{{- range include "pacto-operator.evidenceSubjectPrefixes" . | fromYamlArray }}
 {{- $out = append $out (printf "%spacto-evidence" (trimPrefix "oci://" .)) }}
-{{- end }}
 {{- end }}
 {{- toYaml $out }}
 {{- end }}
@@ -960,12 +959,108 @@ reads it here.
 {{- end }}
 
 {{/*
+The Evidence Server the chart manages: evidence.enabled, or profile idp, where
+the operator runs it only while the registry serves OCI Referrers and the
+trust Secret holds a public key (--evidence-server-auto).
+*/}}
+{{- define "pacto-operator.evidenceManaged" -}}
+{{- if or .Values.evidence.enabled (include "pacto-operator.idp" .) }}true{{ end }}
+{{- end }}
+
+{{/*
+The Evidence Server's trust Secret: evidence.trust.existingSecret, else
+<fullname>-evidence-trust. Pacto never creates it or a key.
+*/}}
+{{- define "pacto-operator.evidenceTrustSecret" -}}
+{{- .Values.evidence.trust.existingSecret | default (printf "%s-evidence-trust" (include "pacto-operator.fullname" .)) }}
+{{- end }}
+
+{{/*
+The subject prefix profile idp defaults to: oci://<registry>/, only under
+--evidence-server-auto with neither subjects nor subjectPrefixes set, and only
+when registry has a path segment. A bare host would scope evidence to every
+repository on it, a scope no person chose, so it gets none and the operator's
+evidence row asks for evidence.registry.subjectPrefixes.
+*/}}
+{{- define "pacto-operator.evidenceDefaultPrefix" -}}
+{{- $registry := regexReplaceAll "/+$" (toString (default "" .Values.registry)) "" }}
+{{- if and (include "pacto-operator.evidenceManaged" .) (not .Values.evidence.enabled) (not .Values.evidence.registry.subjects) (not .Values.evidence.registry.subjectPrefixes) (contains "/" $registry) }}
+{{- printf "oci://%s/" $registry }}
+{{- end }}
+{{- end }}
+
+{{/*
+The subject prefixes the Evidence Server renders with, as a YAML list:
+evidence.registry.subjectPrefixes, else the idp default.
+*/}}
+{{- define "pacto-operator.evidenceSubjectPrefixes" -}}
+{{- $out := list }}
+{{- if include "pacto-operator.evidenceManaged" . }}
+{{- $out = .Values.evidence.registry.subjectPrefixes | default list }}
+{{- with include "pacto-operator.evidenceDefaultPrefix" . }}
+{{- $out = list . }}
+{{- end }}
+{{- end }}
+{{- toYaml $out }}
+{{- end }}
+
+{{/*
+The first recorder check its values fail, as "<state>: <message>", or nothing:
+no-streams (no streams repository), no-signer (no signing method),
+signer-incomplete (more than one signing method, incomplete keyless, an
+Ed25519 key the operator may read, or a ServiceAccount the recorder shares).
+recorder.yaml fails on the message when delivery.recorder.enabled is true;
+under profile idp an unset value turns the recorder on only when this is empty.
+*/}}
+{{- define "pacto-operator.recorderCheck" -}}
+{{- $r := .Values.delivery.recorder }}
+{{- $signers := 0 }}
+{{- if $r.signing.ed25519.secretName }}{{ $signers = add1 $signers }}{{ end }}
+{{- if $r.signing.kms }}{{ $signers = add1 $signers }}{{ end }}
+{{- if $r.signing.keyless.enabled }}{{ $signers = add1 $signers }}{{ end }}
+{{- $k := $r.signing.keyless }}
+{{- $one := "configure exactly one of delivery.recorder.signing.ed25519.secretName, delivery.recorder.signing.kms or delivery.recorder.signing.keyless" }}
+{{- if not (include "pacto-operator.delivery.streamsRepository" .) }}
+{{- print "no-streams: the recorder needs a streams repository: set registry or delivery.recorder.streamsRepository" }}
+{{- else if eq (int $signers) 0 }}
+{{- printf "no-signer: %s" $one }}
+{{- else if gt (int $signers) 1 }}
+{{- printf "signer-incomplete: %s" $one }}
+{{- else if and $k.enabled (or (not $k.identity) (not $k.issuer) (not $k.fulcioURL) (not $k.timestampURL) (not $k.trustedRoot)) }}
+{{- print "signer-incomplete: delivery.recorder.signing.keyless needs identity, issuer, fulcioURL, timestampURL and trustedRoot" }}
+{{- else if and $r.signing.ed25519.secretName (not $r.signing.allowOperatorReadableKey) (include "pacto-operator.delivery.operatorReadsKey" .) }}
+{{- printf "signer-incomplete: delivery.recorder.signing.ed25519.secretName puts the signing key in a Secret the operator may read (%s), so the recorder would not be the key's only holder. Use kms or keyless signing, or set delivery.recorder.signing.allowOperatorReadableKey=true to accept that (for kind and tests)" (include "pacto-operator.delivery.operatorReadsKey" .) }}
+{{- else if eq (include "pacto-operator.delivery.recorderServiceAccountName" .) (include "pacto-operator.delivery.serviceAccountName" .) }}
+{{- print "signer-incomplete: the recorder and the promoter resolve to the same ServiceAccount, so the promoter could sign and write records itself: give delivery.recorder.serviceAccount and delivery.serviceAccount different names" }}
+{{- else if and (eq .Values.delivery.namespace .Release.Namespace) (eq (include "pacto-operator.delivery.recorderServiceAccountName" .) (include "pacto-operator.serviceAccountName" .)) }}
+{{- print "signer-incomplete: the recorder resolves to the operator's own ServiceAccount, so the operator could sign and write records: give delivery.recorder.serviceAccount another name" }}
+{{- end }}
+{{- end }}
+
+{{/*
+Whether the recorder renders: delivery renders and delivery.recorder.enabled
+is true, or it is unset (null) under profile idp and every recorder check
+passes. An explicit false keeps it off under every profile. Every template
+reads it here.
+*/}}
+{{- define "pacto-operator.recorderEnabled" -}}
+{{- $enabled := .Values.delivery.recorder.enabled }}
+{{- if include "pacto-operator.deliveryEnabled" . }}
+{{- if or (eq (toString $enabled) "true") (and (kindIs "invalid" $enabled) (include "pacto-operator.idp" .) (not (include "pacto-operator.recorderCheck" .))) }}true{{ end }}
+{{- end }}
+{{- end }}
+
+{{/*
 What the chart decided about the delivery recorder under profile idp, the
-operator's --idp-recorder: delivery-off where delivery does not render, else
-no-signer.
+operator's --idp-recorder: on, off (delivery.recorder.enabled is false),
+delivery-off where delivery does not render, else the failed check's state.
 */}}
 {{- define "pacto-operator.recorderState" -}}
-{{- if include "pacto-operator.deliveryEnabled" . }}no-signer{{ else }}delivery-off{{ end }}
+{{- if not (include "pacto-operator.deliveryEnabled" .) }}delivery-off
+{{- else if include "pacto-operator.recorderEnabled" . }}on
+{{- else if eq (toString .Values.delivery.recorder.enabled) "false" }}off
+{{- else }}{{ include "pacto-operator.recorderCheck" . | splitList ":" | first }}
+{{- end }}
 {{- end }}
 
 {{/*

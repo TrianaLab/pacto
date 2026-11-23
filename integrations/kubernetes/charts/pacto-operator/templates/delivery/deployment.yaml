@@ -10,7 +10,7 @@
 {{- end }}
 {{- $pubData := include "pacto-operator.delivery.publishersData" . }}
 {{- /* Pins and the recorder's trust config only with a publishers block, so reused 6.x values render the args they had. */}}
-{{- $pins := and .Values.delivery.recorder.enabled (kindIs "map" .Values.delivery.publishers) }}
+{{- $pins := and (include "pacto-operator.recorderEnabled" .) (kindIs "map" .Values.delivery.publishers) }}
 {{- with .Values.delivery.promoter.upstreamTrust }}
 # The recorder keys of other clusters whose records an upstreamRecords Stage
 # promotes on, per stream glob. Public keys only.
@@ -74,9 +74,9 @@ spec:
             {{- $policies := list "operation" "cancel" "approval" "pointer" "applier" "promoter-writes" "status" }}
             {{- if $argocd }}{{ $policies = concat $policies (list "pointer-argocd" "promoter-writes-argocd") }}{{ end }}
             {{- if $fluxHelm }}{{ $policies = append $policies "applier-helmrelease" }}{{ end }}
-            {{- if .Values.delivery.recorder.enabled }}{{ $policies = append $policies "records" }}{{ end }}
+            {{- if include "pacto-operator.recorderEnabled" . }}{{ $policies = append $policies "records" }}{{ end }}
             - --admission-policies={{ range $i, $p := $policies }}{{ if $i }},{{ end }}{{ $fullname }}-{{ $p }}{{ end }}
-            {{- if .Values.delivery.recorder.enabled }}
+            {{- if include "pacto-operator.recorderEnabled" . }}
             - --records
             - --recorded-ttl={{ .Values.delivery.recorder.operationTTL }}
             {{- end }}

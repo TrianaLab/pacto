@@ -136,3 +136,212 @@ tests:
   - it: the default profile renders nothing of Crossplane
     asserts:
       - hasDocuments: {count: 0}
+---
+# The Evidence Server and the recorder under idp (515-S2 P5). The chart renders
+# --evidence-server-auto with the trust Secret default and, only for a registry
+# with a path, the subject prefix oci://<registry>/: the operator gate decides
+# whether the server runs. The recorder renders when delivery.recorder.enabled
+# is unset and every recorder check passes; --idp-recorder says what the chart
+# decided. Exposing the Evidence Server stays explicit (evidence.enabled).
+suite: idp evidence and recorder
+templates:
+  - templates/deployment.yaml
+  - templates/role.yaml
+  - templates/delivery/recorder.yaml
+  - templates/delivery/rbac.yaml
+  - templates/evidence-ingress.yaml
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: idp renders --evidence-server-auto and the default trust Secret
+    template: templates/deployment.yaml
+    set: {profile: idp}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --evidence-server-auto}
+      - contains: {path: "spec.template.spec.containers[0].args", content: --evidence-trust-secret=pacto-operator-evidence-trust}
+      - notContains: {path: "spec.template.spec.containers[0].args", content: --enable-evidence-server}
+
+  - it: idp keeps an existing trust Secret
+    template: templates/deployment.yaml
+    set: {profile: idp, evidence.trust.existingSecret: my-trust, evidence.trust.configKey: trust.yaml}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --evidence-trust-secret=my-trust}
+      - contains: {path: "spec.template.spec.containers[0].args", content: --evidence-trust-config-key=trust.yaml}
+
+  - it: idp with registry defaults the subject prefix
+    template: templates/deployment.yaml
+    set: {profile: idp, registry: ghcr.io/acme}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --evidence-subject-prefix=oci://ghcr.io/acme/}
+
+  - it: idp with a host-only registry renders no prefix
+    template: templates/deployment.yaml
+    set: {profile: idp, registry: zot.acme.internal}
+    asserts:
+      - notMatchRegex: {path: "spec.template.spec.containers[0].args[*]", pattern: ^--evidence-subject}
+
+  - it: idp with evidence.registry.credentialsSecret renders --evidence-credentials-secret
+    template: templates/deployment.yaml
+    set: {profile: idp, evidence.registry.credentialsSecret: evidence-push}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --evidence-credentials-secret=evidence-push}
+
+  - it: idp renders the evidence resource flags
+    template: templates/deployment.yaml
+    set: {profile: idp}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --evidence-cpu-request=25m}
+      - contains: {path: "spec.template.spec.containers[0].args", content: --evidence-memory-request=64Mi}
+      - contains: {path: "spec.template.spec.containers[0].args", content: --evidence-memory-limit=256Mi}
+
+  - it: idp with subjects keeps them and renders no prefix
+    template: templates/deployment.yaml
+    set: {profile: idp, registry: ghcr.io/acme, evidence.registry.subjects: ["oci://ghcr.io/acme/svc@sha256:0000000000000000000000000000000000000000000000000000000000000000"]}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: "--evidence-subject=oci://ghcr.io/acme/svc@sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+      - notMatchRegex: {path: "spec.template.spec.containers[0].args[*]", pattern: ^--evidence-subject-prefix}
+
+  - it: idp with subject prefixes keeps them in place of the default
+    template: templates/deployment.yaml
+    set: {profile: idp, registry: ghcr.io/acme, evidence.registry.subjectPrefixes: ["oci://ghcr.io/acme/team/"]}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --evidence-subject-prefix=oci://ghcr.io/acme/team/}
+      - notContains: {path: "spec.template.spec.containers[0].args", content: --evidence-subject-prefix=oci://ghcr.io/acme/}
+
+  - it: evidence.enabled under idp renders no auto flag
+    template: templates/deployment.yaml
+    set: {profile: idp, registry: ghcr.io/acme, evidence.enabled: true, evidence.registry.subjectPrefixes: ["oci://ghcr.io/acme/"]}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --enable-evidence-server}
+      - notContains: {path: "spec.template.spec.containers[0].args", content: --evidence-server-auto}
+
+  - it: the default profile renders no evidence or recorder flag
+    template: templates/deployment.yaml
+    set: {registry: ghcr.io/acme}
+    asserts:
+      - notMatchRegex: {path: "spec.template.spec.containers[0].args[*]", pattern: ^--(evidence|idp-recorder)}
+
+  - it: idp grants the evidence lifecycle in the release Role
+    template: templates/role.yaml
+    set: {profile: idp}
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [services], verbs: [create, delete, get, patch, update]}
+      - contains:
+          path: rules
+          content: {apiGroups: [apps], resources: [deployments], verbs: [create, delete, get, patch, update]}
+
+  - it: idp exposes no Evidence Server without evidence.enabled
+    template: templates/evidence-ingress.yaml
+    set: {profile: idp, evidence.ingress.enabled: true}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: idp with a signer and registry renders the recorder and --idp-recorder=on
+    set: &signer {profile: idp, registry: ghcr.io/acme, delivery.recorder.signing.kms: "awskms:///alias/pacto-recorder"}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --idp-recorder=on}
+        template: templates/deployment.yaml
+      - containsDocument: {kind: Deployment, apiVersion: apps/v1, name: pacto-operator-delivery-recorder, any: true}
+        template: templates/delivery/recorder.yaml
+
+  - it: idp without a signer renders no recorder and --idp-recorder=no-signer
+    set: {profile: idp, registry: ghcr.io/acme}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --idp-recorder=no-signer}
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/recorder.yaml
+
+  - it: idp without a streams repository renders --idp-recorder=no-streams
+    set: {profile: idp, delivery.recorder.signing.kms: "awskms:///alias/pacto-recorder"}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --idp-recorder=no-streams}
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/recorder.yaml
+
+  - it: idp with two signing methods renders --idp-recorder=signer-incomplete
+    set: {profile: idp, registry: ghcr.io/acme, delivery.recorder.signing.kms: "awskms:///alias/pacto-recorder", delivery.recorder.signing.ed25519.secretName: recorder-key}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --idp-recorder=signer-incomplete}
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/recorder.yaml
+
+  - it: idp with an operator-readable ed25519 key renders no recorder and --idp-recorder=signer-incomplete
+    set: {profile: idp, registry: ghcr.io/acme, controller.watchNamespaces: [pacto-delivery], delivery.recorder.signing.ed25519.secretName: recorder-key}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --idp-recorder=signer-incomplete}
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/recorder.yaml
+
+  - it: idp with incomplete keyless renders no recorder and --idp-recorder=signer-incomplete
+    set: {profile: idp, registry: ghcr.io/acme, delivery.recorder.signing.keyless.enabled: true, delivery.recorder.signing.keyless.identity: "https://kubernetes.io/namespaces/pacto-delivery/serviceaccounts/rec"}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --idp-recorder=signer-incomplete}
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/recorder.yaml
+
+  - it: idp with the recorder sharing the promoter's ServiceAccount renders no recorder
+    set: {profile: idp, registry: ghcr.io/acme, delivery.recorder.signing.kms: "awskms:///alias/pacto-recorder", delivery.serviceAccount.name: shared, delivery.recorder.serviceAccount.name: shared}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --idp-recorder=signer-incomplete}
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/recorder.yaml
+
+  - it: idp with a signer and recorder.enabled=false renders no recorder and --idp-recorder=off
+    set: {profile: idp, registry: ghcr.io/acme, delivery.recorder.signing.kms: "awskms:///alias/pacto-recorder", delivery.recorder.enabled: false}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --idp-recorder=off}
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/recorder.yaml
+
+  - it: idp with recorder.enabled=true renders --idp-recorder=on
+    set: {profile: idp, registry: ghcr.io/acme, delivery.recorder.signing.kms: "awskms:///alias/pacto-recorder", delivery.recorder.enabled: true}
+    template: templates/deployment.yaml
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --idp-recorder=on}
+
+  - it: hardened and idp render --idp-recorder=delivery-off
+    set: {profile: [hardened, idp], controller.watchNamespaces: [payments], registry: ghcr.io/acme, delivery.recorder.signing.kms: "awskms:///alias/pacto-recorder"}
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --idp-recorder=delivery-off}
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/recorder.yaml
+
+  - it: an explicit recorder.enabled without a signer still fails
+    template: templates/delivery/recorder.yaml
+    set: {profile: idp, registry: ghcr.io/acme, delivery.recorder.enabled: true}
+    asserts:
+      - failedTemplate:
+          errorMessage: configure exactly one of delivery.recorder.signing.ed25519.secretName, delivery.recorder.signing.kms or delivery.recorder.signing.keyless
+
+  - it: the recorder adds delete to the promoter's operations rule only when it renders
+    template: templates/delivery/rbac.yaml
+    set: *signer
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [delivery.pacto.trianalab.io], resources: [operations], verbs: [get, list, watch, create, update, patch, delete]}
+
+  - it: the promoter's operations rule has no delete without the recorder
+    template: templates/delivery/rbac.yaml
+    set: {profile: idp, registry: ghcr.io/acme}
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [delivery.pacto.trianalab.io], resources: [operations], verbs: [get, list, watch, create, update, patch]}

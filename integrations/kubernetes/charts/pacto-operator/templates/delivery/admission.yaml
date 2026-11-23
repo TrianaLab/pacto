@@ -207,7 +207,7 @@ spec:
 # groups and no login time (recorderView). The promoter counts such a view
 # only after it verified the record itself.
 {{- $recorderUser := "" }}
-{{- if .Values.delivery.recorder.enabled }}
+{{- if include "pacto-operator.recorderEnabled" . }}
 {{- $recorderUser = printf "system:serviceaccount:%s:%s" (include "pacto-operator.delivery.namespace" .) (include "pacto-operator.delivery.recorderServiceAccountName" .) }}
 {{- end }}
 apiVersion: admissionregistration.k8s.io/v1
@@ -538,7 +538,7 @@ spec:
   validationActions: [Deny]
 {{- end }}
 {{- $writers := list $controller }}
-{{- if .Values.delivery.recorder.enabled }}
+{{- if include "pacto-operator.recorderEnabled" . }}
 {{- $writers = append $writers (printf "system:serviceaccount:%s:%s" (include "pacto-operator.delivery.namespace" .) (include "pacto-operator.delivery.recorderServiceAccountName" .)) }}
 {{- end }}
 ---
@@ -593,7 +593,7 @@ metadata:
 spec:
   policyName: {{ $fullname }}-status
   validationActions: [Deny]
-{{- if .Values.delivery.recorder.enabled }}
+{{- if include "pacto-operator.recorderEnabled" . }}
 {{- $recorder := printf "system:serviceaccount:%s:%s" (include "pacto-operator.delivery.namespace" .) (include "pacto-operator.delivery.recorderServiceAccountName" .) }}
 ---
 # The record fields belong to the recorder: status.record and
