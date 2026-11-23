@@ -20,6 +20,7 @@ var rowNames = map[string]string{
 	"pull-secret": "Pull Secret", "otel-collector": "OTel Collector", "tempo": "Tempo",
 	"jaeger": "Jaeger", "datadog": "Datadog", "traces": "Traces",
 	"istio-egress": "Istio egress", "cilium-fqdn": "Cilium FQDN", "egress-gateway": "Egress gateway",
+	"crossplane": "Crossplane", "evidence": "Evidence", "recorder": "Recorder",
 }
 
 // usedFor says, per kind, what a person may do with the proposal. Nothing is
@@ -41,6 +42,9 @@ var usedFor = map[string]string{
 	"istio-egress":   egressSentence,
 	"cilium-fqdn":    egressSentence,
 	"egress-gateway": egressSentence,
+	"crossplane":     "provisioning engine; profile idp offers its XRDs once accepted",
+	"evidence":       "Evidence Server for provisioning reports (profile idp)",
+	"recorder":       "signed delivery records (profile idp)",
 }
 
 // egressSentence is what an egress reader's row is used for.

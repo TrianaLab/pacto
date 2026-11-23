@@ -75,6 +75,11 @@ const (
 	// UseExternalEgress: Pacto reads calls leaving the cluster, to Externals,
 	// from what the row read.
 	UseExternalEgress = "external-egress"
+	// ProviderCrossplane is the row of the Crossplane the operator detected.
+	ProviderCrossplane = "crossplane"
+	// CrossplaneNoneFound starts the evidence of a Crossplane row that found
+	// no Crossplane, so a reader tells it apart with no detect import.
+	CrossplaneNoneFound = "none found"
 )
 
 // LimitationRegistryProbeFailed: Pacto could not probe a registry host, so it
@@ -522,6 +527,10 @@ func hideCluster(p *Provider, shown map[string]bool) bool {
 		return false
 	}
 	p.Evidence, p.Limitations = hideDetectedCluster(*p)
+	if p.Cluster != "" {
+		// The kept row names no cluster, and its hint is for that cluster.
+		p.ClusterID, p.Hint = "", ""
+	}
 	p.Cluster = ""
 	return true
 }
