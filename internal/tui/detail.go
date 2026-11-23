@@ -181,6 +181,9 @@ func section(b *strings.Builder, title string) {
 // in the Stages hint under its environments.
 func renderServiceDetail(b *strings.Builder, service string, s *fleet.ServiceDetailData, c fleet.Completeness, asOf time.Time) {
 	field(b, "registry", s.Domain)
+	if s.Contribution != nil {
+		field(b, "contribution", s.Contribution.Line(asOf))
+	}
 	if s.Ownership != nil {
 		field(b, "owner", s.Ownership.Owner+OwnerProvenanceMark(s.Ownership.Provenance, s.Ownership.Source))
 	}
@@ -390,7 +393,11 @@ func renderTargetDetail(b *strings.Builder, t *fleet.TargetDetailData, asOf time
 		field(b, "linked", t.Link.Line(asOf))
 	}
 	field(b, "link state", t.LinkState)
-	field(b, "scope", t.Scope)
+	if by := t.ReportedPhrase(asOf); by != "" {
+		field(b, "reported by", by)
+	} else {
+		field(b, "scope", t.Scope)
+	}
 	field(b, "kind", t.Kind)
 	field(b, "compliance", t.Compliance)
 	field(b, "source", t.Source)
