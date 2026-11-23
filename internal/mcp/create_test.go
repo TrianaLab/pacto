@@ -3396,12 +3396,20 @@ func TestCreateToolDeliveryTextNeutral(t *testing.T) {
 	if err := json.Unmarshal(raw, &schema); err != nil {
 		t.Fatal(err)
 	}
-	want := "With pactify or from: also plan, for a manifests deploy, the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; " +
-		"for a chart deploy no applier object, and the Next line names the Stage spec.applyRef " +
+	want := "With pactify or from: also plan, for a manifests deploy, delivery/pacto.yaml, the Pacto resource that ships inside every version " +
+		"(Pacto creates each environment's Stage once delivery is on); for a chart deploy nothing, and the Next line names the Stage spec.applyRef " +
 		"(not with describe_only; with pactify the deploy artifact is the one pacto ci --publish assembles from the folder; " +
 		"with from, the golden path must publish a manifests or chart artifact under publish.deploy)"
 	if got := schema.Properties["delivery"].Description; got != want || strings.Contains(got, "detect") {
 		t.Fatalf("delivery: %s", got)
+	}
+}
+
+// TestCreateHasNoEnvironmentsArgument: pacto_create declares no environments
+// argument: the promoter creates environments from the installation ladder.
+func TestCreateHasNoEnvironmentsArgument(t *testing.T) {
+	if _, ok := createTool().InputSchema.(map[string]any)["properties"].(map[string]any)["environments"]; ok {
+		t.Fatal("pacto_create still takes environments")
 	}
 }
 

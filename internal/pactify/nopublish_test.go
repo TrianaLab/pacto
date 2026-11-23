@@ -61,10 +61,9 @@ func TestInitWritesNoServiceVersion(t *testing.T) {
 	}
 }
 
-// TestInitDeliveryReadsTheLayout: the Pacto resource and the candidate
-// OCIRepository read the repositories publish.Layout names: the bundle at
-// <registry>/<name>, or under contracts when the image is there, and the
-// deploy artifact at <registry>/deploy/<name>.
+// TestInitDeliveryReadsTheLayout: the Pacto resource reads the bundle where
+// publish.Layout puts it: at <registry>/<name>, or under contracts when the
+// image is there.
 func TestInitDeliveryReadsTheLayout(t *testing.T) {
 	for _, tc := range []struct{ image, bundle string }{
 		{"registry.example/story/images/fraud:1.0.0", "oci://registry.example/story/fraud"},
@@ -81,30 +80,6 @@ func TestInitDeliveryReadsTheLayout(t *testing.T) {
 		if res := file(t, r, "delivery/pacto.yaml").Content; !strings.Contains(res, "oci: "+tc.bundle+":@PACTO_VERSION@\n") {
 			t.Errorf("%s: the Pacto resource:\n%s", tc.image, res)
 		}
-		if test := file(t, r, "delivery/test.yaml").Content; !strings.Contains(test, "  url: oci://registry.example/story/deploy/fraud\n") {
-			t.Errorf("%s: delivery/test.yaml:\n%s", tc.image, test)
-		}
-	}
-}
-
-// TestInitDeliveryVerifyPlaceholder: with no publish section the Stages
-// verify keyless against an identity that matches nothing, and Unknown says
-// who has to name the publisher.
-func TestInitDeliveryVerifyPlaceholder(t *testing.T) {
-	r, err := Init(context.Background(), Options{Dir: fraudDir(t), Owner: "risk", Delivery: true, Plan: true}, os.WriteFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "  verify:\n    provider: cosign\n    matchOIDCIdentity:\n      - issuer: '^https://token\\.actions\\.githubusercontent\\.com$'\n" +
-		"        subject: '^<the identity pacto ci --publish prints>$'\n"
-	for _, env := range []string{"test", "prod"} {
-		if text := file(t, r, "delivery/"+env+".yaml").Content; !strings.Contains(text, want) || strings.Contains(text, "secretRef") {
-			t.Errorf("delivery/%s.yaml:\n%s", env, text)
-		}
-	}
-	if !slices.Contains(r.Unknown, "who publishes fraud: set spec.verify.matchOIDCIdentity in delivery/<env>.yaml to the identity pacto ci --publish prints") ||
-		hasLine(r.Next, "cosign-pub") {
-		t.Fatalf("unknown: %v next: %v", r.Unknown, r.Next)
 	}
 }
 
@@ -131,7 +106,7 @@ publish:
 	if r, err = Init(context.Background(), Options{Dir: dir, Delivery: true, Plan: true}, os.WriteFile); err != nil {
 		t.Fatal(err)
 	}
-	if !hasLine(r.Next, "ship delivery/pacto.yaml") || !hasLine(r.Next, "create the Secret cosign-pub") {
+	if !hasLine(r.Next, "ship delivery/pacto.yaml") || hasLine(r.Next, "create the Secret cosign-pub") {
 		t.Fatalf("a declared section got no hint: %v", r.Next)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))

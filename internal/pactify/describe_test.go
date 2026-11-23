@@ -244,7 +244,7 @@ func checkEnvSchema(t *testing.T, schema string) {
 // nothing about a missing publish section in the user's own contract.
 func TestDescribeOnlyRefusalsAndExisting(t *testing.T) {
 	for opts, want := range map[*Options]string{
-		{Delivery: true}:          "describe-only writes no Stages or Pacto resource",
+		{Delivery: true}:          "describe-only writes no Pacto resource",
 		{NoTransparencyLog: true}: "transparencyLog goes under a golden path's publish.sign",
 	} {
 		opts.Dir, opts.DescribeOnly = fixtureDir(t, "invoices"), true

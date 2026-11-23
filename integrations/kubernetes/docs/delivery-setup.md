@@ -246,8 +246,7 @@ Flux Kustomization applies the apply `OCIRepository`, both carry the
 `suspend` or `decryption`, and the `OCIRepository` sets no `spec.ignore`. Without a
 `serviceAccountName` Flux applies each version as kustomize-controller,
 cluster-admin in a default install, and the levels judge only the contract;
-`pacto init --delivery` writes a namespaced deployer account for each
-environment. On
+in IDP mode Pacto creates a namespaced deployer account for each service. On
 Argo CD it is `True` when the Application carries the label, has one source and sets no
 Kustomize images, patches or components, Helm parameters, values or value
 files, or plugin. Otherwise it is `False` and the reason

@@ -2149,8 +2149,8 @@ written, and the Status block says what was checked and what Pacto cannot
 tell yet. Each plugin the path names is listed with the binary it resolves
 to; only the ones you name with --run-plugins run, never with --plan, and
 the files they return are added like the path's own. --delivery plans the
-cluster pieces from the created contract when the path publishes manifests
-under publish.deploy; otherwise the delivery step says why none were planned.
+Pacto resource from the created contract when the path publishes manifests
+under publish.deploy; otherwise the delivery step says why none was planned.
 
 It only adds files and missing .pactoignore lines; any other file already
 there is yours and is left as it is, so running it twice is safe. --plan shows exactly what would be added and
@@ -2181,15 +2181,14 @@ pacto init [dir...] [flags]
       --call-window duration               with --cluster: how far back a call counts as a dependency (at least 1m, default 24h)
       --cluster[=true|false]               draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context
       --continue string                    with --cluster: resume the read where a run --max-items stopped while listing workloads left off
-      --delivery[=true|false]              also declares each --env in pacto.yaml with an empty values file, and writes the cluster pieces of a manifests deploy: the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; a chart deploy gets no applier object
+      --delivery[=true|false]              also writes delivery/pacto.yaml, the Pacto resource that ships inside every version of a manifests deploy; Pacto creates each environment's Stage once delivery is on
       --describe-only[=true|false]         write a contract that only describes the service: its next steps say how to validate it, never how to publish it
       --domain string                      business domain, such as payments
-      --env strings                        environments for --delivery: declared in the contract and given a Stage each, in promotion order (default [test,prod])
       --external-catalog string            organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_EXTERNAL_CATALOG)
       --fleet strings                      folders of other services' contracts to find the services that use this one
       --from string                        a golden path to create the service from: an oci:// reference or a directory
   -h, --help[=true|false]                  help for init
-      --insecure-registry[=true|false]     with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)
+      --insecure-registry[=true|false]     with --delivery: the registry speaks plain HTTP, so the next steps say how the Pacto resource reads its contract over plain HTTP (a local registry only)
       --max-items int                      with --cluster: the most items read per kind of object; a kind cut short reads as partial (default 10000)
       --name string                        service name (default: the workload's name, then the folder's)
       --namespace strings                  with --cluster: a namespace to read; repeat it for more (default: every namespace)
@@ -2198,7 +2197,7 @@ pacto init [dir...] [flags]
       --owner string                       the team that owns the service, as a bare name such as billing (default: the workload's team label)
       --plan[=true|false]                  show what would be added and change nothing
       --registry string                    where to publish, as host/path (default: read from the workload's image)
-      --registry-secret string             with --delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with
+      --registry-secret string             with --delivery: the docker-registry Secret, in the namespace of delivery/pacto.yaml, that the Pacto resource logs in to a private registry with
       --run-plugins strings                run these plugins the golden path names, by name (see the plan's plugin steps); each step prints the binary it runs
       --set stringArray                    set a contract value (e.g. --set service.version=2.0.0)
       --trust string                       the trust config the golden path's signature is verified with: a PEM public key or a trust config file (default $PACTO_DELIVERY_TRUST)

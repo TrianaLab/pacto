@@ -295,7 +295,7 @@ func authoringRows() []surfaceRow {
 			"no-transparency-log", "owner", "registry", "registry-secret", "run-plugins", "set", "values"),
 		[]surfaceRow{
 			{"init [dir...]", "pacto_create.path", "", whyCreateOnly},
-			{"init --env", "pacto_create.environments", "", whyCreateOnly},
+			{"init --env", "", "", "deprecated, ignored: Pacto creates environments from the installation ladder"},
 			{"init --fleet", "pacto_create.fleet_roots", "", whyCreateOnly},
 			{"init --namespace", "pacto_create.namespaces", "", whyCreateOnly},
 			{"init --plan", "pacto_create.dry_run", "", whyCreateOnly},

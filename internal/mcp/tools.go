@@ -79,12 +79,11 @@ func createTool() *mcpsdk.Tool {
 			"dry_run":                      {Type: "boolean", Description: "If true, validate and return result without writing files"},
 			"pactify":                      {Type: "boolean", Description: "Read the existing service folder at path (Dockerfile, Kubernetes manifests, Helm charts, Kustomize, Compose, interface specs, catalog-info.yaml, GitOps objects, and CODEOWNERS from the enclosing repository root) and plan its contract like `pacto init`; uses name, owner, path and dry_run, and ignores the intent arguments"},
 			"describe_only":                {Type: "boolean", Description: "With pactify: the Next lines say how to validate the contract, never how to publish it, and delivery is refused. Use it when you are asked to describe or document a service"},
-			"delivery":                     {Type: "boolean", Description: "With pactify or from: also plan, for a manifests deploy, the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; for a chart deploy no applier object, and the Next line names the Stage spec.applyRef (not with describe_only; with pactify the deploy artifact is the one pacto ci --publish assembles from the folder; with from, the golden path must publish a manifests or chart artifact under publish.deploy)"},
+			"delivery":                     {Type: "boolean", Description: "With pactify or from: also plan, for a manifests deploy, delivery/pacto.yaml, the Pacto resource that ships inside every version (Pacto creates each environment's Stage once delivery is on); for a chart deploy nothing, and the Next line names the Stage spec.applyRef (not with describe_only; with pactify the deploy artifact is the one pacto ci --publish assembles from the folder; with from, the golden path must publish a manifests or chart artifact under publish.deploy)"},
 			"registry":                     {Type: "string", Description: "With pactify: where to publish, as host/path (default: read from the workload's image)"},
-			"environments":                 {Type: "string", Description: "With delivery: JSON array of environments in promotion order (default [\"test\",\"prod\"]); each is declared in pacto.yaml with an empty values file and gets a Stage"},
 			"no_transparency_log":          {Type: "boolean", Description: "With from only: write transparencyLog: false under the golden path's publish.sign"},
-			"insecure_registry":            {Type: "boolean", Description: "With delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)"},
-			"registry_secret":              {Type: "string", Description: "With delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with"},
+			"insecure_registry":            {Type: "boolean", Description: "With delivery: the registry speaks plain HTTP, so the Next lines say how the Pacto resource reads its contract over plain HTTP (a local registry only)"},
+			"registry_secret":              {Type: "string", Description: "With delivery: the docker-registry Secret, in the namespace of delivery/pacto.yaml, that the Pacto resource logs in to a private registry with"},
 			"fleet_roots":                  {Type: "string", Description: "With pactify: JSON array of folders of other services' contracts, searched for the services that use this one"},
 			"paths":                        {Type: "string", Description: "With pactify: JSON array of service folders, each planned like path and named after its folder (name is ignored); dry_run defaults to true"},
 			"cluster":                      {Type: "boolean", Description: "With pactify: draft a contract for every workload in the current kubeconfig context that no Pacto describes, into path/<namespace>/<name>, with each service it was seen calling as a dependency with compatibility unknown and a proposed range, in a comment, from the lowest version the Pactos describing it report when they agree on one contract; dry_run defaults to true"},
@@ -124,7 +123,6 @@ type createArgs struct {
 	DescribeOnly              bool   `json:"describe_only"`
 	Delivery                  bool   `json:"delivery"`
 	Registry                  string `json:"registry"`
-	Environments              string `json:"environments"`
 	FleetRoots                string `json:"fleet_roots"`
 	NoTransparencyLog         bool   `json:"no_transparency_log"`
 	InsecureRegistry          bool   `json:"insecure_registry"`
@@ -209,7 +207,6 @@ func pactifyFolder(ctx context.Context, args createArgs, base pactify.Options) (
 		Catalog: base.Catalog, CatalogUnavailable: base.CatalogUnavailable}
 	var paths []string
 	if err := unmarshalFields([]jsonField{
-		{"environments", args.Environments, &opts.Environments},
 		{"fleet_roots", args.FleetRoots, &opts.FleetRoots},
 		{"paths", args.Paths, &paths},
 		{"namespaces", args.Namespaces, &cluster.Namespaces},
@@ -294,7 +291,6 @@ func createFromPath(ctx context.Context, args createArgs, init Initializer) (*mc
 		Delivery: args.Delivery, InsecureRegistry: args.InsecureRegistry, RegistrySecret: args.RegistrySecret}
 	req := FromRequest{Ref: args.From}
 	if err := unmarshalFields([]jsonField{
-		{"environments", args.Environments, &opts.Environments},
 		{"values", args.Values, &req.Values},
 		{"set", args.Set, &req.Set},
 		{"run_plugins", args.RunPlugins, &req.RunPlugins},

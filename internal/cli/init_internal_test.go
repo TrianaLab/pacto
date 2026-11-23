@@ -217,17 +217,17 @@ func TestInitFromDirectory(t *testing.T) {
 }
 
 // TestInitFromWithDelivery: --delivery and its options go with --from; a path
-// that publishes no manifests plans no cluster pieces and the Status says why.
+// that publishes no manifests plans no Pacto resource and the Status says why.
 func TestInitFromWithDelivery(t *testing.T) {
 	t.Setenv("PACTO_DELIVERY_TRUST", "")
 	path := t.TempDir()
 	_ = os.WriteFile(filepath.Join(path, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\nservice:\n  name: http-service\n  version: 1.0.0\n  template: {}\n"), 0o644)
 	dir := filepath.Join(t.TempDir(), "gift-cards")
-	out, err := runInit(t, dir, "--from", path, "--owner", "checkout", "--delivery", "--env", "qa,prod", "--registry-secret", "creds", "--insecure-registry", "--plan")
+	out, err := runInit(t, dir, "--from", path, "--owner", "checkout", "--delivery", "--registry-secret", "creds", "--insecure-registry", "--plan")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if !regexp.MustCompile(`unknown +delivery +no cluster pieces`).MatchString(out) {
+	if !regexp.MustCompile(`unknown +delivery +no Pacto resource`).MatchString(out) {
 		t.Errorf("no delivery step:\n%s", out)
 	}
 }
@@ -275,24 +275,46 @@ func TestPrintInitSteps(t *testing.T) {
 	}
 }
 
-// TestInitDeliveryDeclaresEnvironments: --delivery --env declares each
-// environment in pacto.yaml with an empty values file.
-func TestInitDeliveryDeclaresEnvironments(t *testing.T) {
+// TestInitEnvFlagDeprecated: --env still parses, prints that it is
+// deprecated and is ignored: pacto.yaml declares no environments and no
+// Stage or values file is written.
+func TestInitEnvFlagDeprecated(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "blank")
-	if out, err := runInit(t, dir, "--owner", "billing", "--delivery", "--env", "test,pr-1"); err != nil {
+	out, err := runInit(t, dir, "--owner", "billing", "--delivery", "--env", "test,prod")
+	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
-	if err != nil {
-		t.Fatal(err)
+	if !strings.Contains(out, "Flag --env has been deprecated, Pacto creates environments from the installation ladder") {
+		t.Errorf("no deprecation warning:\n%s", out)
 	}
-	for _, s := range []string{`pactoVersion: "2.6"`, "  - name: test\n    file: environments/test.yaml\n", "  - name: pr-1\n    file: environments/pr-1.yaml\n"} {
-		if !strings.Contains(string(data), s) {
-			t.Errorf("pacto.yaml lacks %q:\n%s", s, data)
+	data, err := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	if err != nil || strings.Contains(string(data), "environments:") {
+		t.Fatalf("pacto.yaml: %v\n%s", err, data)
+	}
+	for _, f := range []string{"environments", "delivery/test.yaml", "delivery/prod.yaml"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
+			t.Errorf("%s was written", f)
 		}
 	}
-	if raw, err := os.ReadFile(filepath.Join(dir, "environments", "pr-1.yaml")); err != nil || !strings.HasSuffix(string(raw), "{}\n") {
-		t.Errorf("environments/pr-1.yaml: %q %v", raw, err)
+	root := NewRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"})
+	init, _, _ := root.Find([]string{"init"})
+	if f := init.Flags().Lookup("env"); f == nil || !f.Hidden {
+		t.Errorf("--env is not a hidden flag: %+v", f)
+	}
+}
+
+// TestInitDescribeOnlyWithDeliveryStillRefused: the delivery option
+// refusals hold: describe-only with --delivery, and --no-transparency-log
+// without a golden path.
+func TestInitDescribeOnlyWithDeliveryStillRefused(t *testing.T) {
+	for args, want := range map[string]string{
+		"--describe-only --delivery": "describe-only writes no Pacto resource",
+		"--no-transparency-log":      "transparencyLog goes under a golden path's publish.sign",
+	} {
+		dir := filepath.Join(t.TempDir(), "svc")
+		if out, err := runInit(t, append([]string{dir, "--owner", "billing", "--plan"}, strings.Fields(args)...)...); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v\n%s", args, err, out)
+		}
 	}
 }
 

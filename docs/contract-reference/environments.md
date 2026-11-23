@@ -124,7 +124,6 @@ environment with no `owner` shows the service owner, labelled inferred.
 
 | Task | Command |
 |---|---|
-| Create a service with environments | `pacto init --delivery --env test,pr-482` declares each environment with an empty values file and writes a Stage for each |
 | Add environments to a contract | `pacto_edit` with `add_environments`, such as `[{"name":"pr-482","lifetime":"temporary","expires":"2026-11-20T00:00:00Z"}]` |
 | Retire an environment | `pacto_edit` with `remove_environments`, such as `["pr-482"]`. A file no other environment names is deleted. Nothing in a cluster changes |
 | List a service's environments | `pacto fleet entity service <name>`, `pacto_fleet_entity` or the [service page](../dashboard-service-page.md#environments) |
@@ -319,7 +318,6 @@ version's contract declares. The `pacto.environment` check runs the same
 | Declares that environment, and its values pass | Goes on |
 
 Name each environment after the `spec.environment` of the Stages that deliver
-the service there, such as `staging` and `production`. `pacto init --delivery --env` and
-`pacto_create` with `delivery` declare each environment in the contract, with
-an empty values file, beside the Stage they write for it, so the names match
-from the start.
+the service there, such as `staging` and `production`. Pacto names the Stages
+it creates after the environments of the installation ladder, so declare an
+environment under the same name.
