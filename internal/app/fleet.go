@@ -452,7 +452,9 @@ func (s *Service) detectionSources(ctx context.Context, opts FleetOptions, assem
 // detectedBackstage is the tokenless Backstage source over the detected
 // catalog's Endpoint, none when the id is taken (a configured --backstage-url
 // wins) or no catalog was detected with one. The entry stays a detection
-// row: a proposal, with the origin named in the source's state.
+// row: a proposal, and the row names the Service read. The source's state
+// says only "detected": a restricted view redacts the row of a namespace the
+// viewer cannot read, never a source's Ref.
 func (s *Service) detectedBackstage(res detect.Result, free bool) []fleet.Source {
 	i := slices.IndexFunc(res.Entries, func(e detect.Entry) bool { return e.Kind == "backstage" && e.Endpoint != "" })
 	if !free || i < 0 {
@@ -460,9 +462,7 @@ func (s *Service) detectedBackstage(res detect.Result, free bool) []fleet.Source
 	}
 	// Decode kept only an Endpoint detect.CheckEndpoint accepts,
 	// http://<svc>.<ns>.svc[.cluster.local]:<port>, so the source always builds.
-	endpoint := res.Entries[i].Endpoint
-	host := strings.SplitN(strings.TrimPrefix(endpoint, "http://"), ".", 3)
-	src, _ := fleetsrc.NewDetectedBackstageSource(backstage.SourceKind, endpoint, "detected: "+host[0]+"."+host[1], s.env().now)
+	src, _ := fleetsrc.NewDetectedBackstageSource(backstage.SourceKind, res.Entries[i].Endpoint, "detected", s.env().now)
 	return []fleet.Source{src}
 }
 

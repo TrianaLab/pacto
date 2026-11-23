@@ -230,3 +230,25 @@ func TestDetectorTracesOnPartOfTheClusterArePartial(t *testing.T) {
 		t.Errorf("sampled jaeger = %+v", e)
 	}
 }
+
+// TestDetectorSampledBackstageHasNoEndpoint: a Backstage judged on a sample of
+// the pods keeps its row but gives the dashboard no address to read, so a
+// look-alike in a namespace that sorts first never wins the pick.
+func TestDetectorSampledBackstageHasNoEndpoint(t *testing.T) {
+	pages := 0
+	big := func(l client.ObjectList, i int) {
+		if l, ok := l.(*corev1.PodList); ok {
+			l.Items = make([]corev1.Pod, detect.MaxPods/2+1)
+			for j := range l.Items {
+				l.Items[j] = *pod("aaa", "p", "", "registry.example/x/backstage:1")
+				l.Items[j].UID = types.UID(strings.Repeat("u", i) + string(rune(j)))
+			}
+		}
+	}
+	c := newClient(pagedList(&pages, 3, big), operatorDeployment(), service("aaa", "backstage", nil, corev1.ServicePort{Port: 7007}))
+	_ = newDetector(c, servedAll).Sync(context.Background())
+	_, res := readResult(t, c)
+	if e := entry(t, res, "backstage"); e.Endpoint != "" || e.Completeness != detect.Partial || !strings.Contains(e.Reason, "sampled the first 20000 running pods") {
+		t.Errorf("sampled backstage = %+v", e)
+	}
+}

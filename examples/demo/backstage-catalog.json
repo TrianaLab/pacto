@@ -18,8 +18,13 @@
         "annotations": {"pacto.trianalab.io/provenance": "declared"}
       },
       "spec": {"owner": "group:default/someone-else", "system": "echo"}
+    },
+    {
+      "kind": "Component",
+      "metadata": {"name": "analytics-pipeline", "namespace": "default"},
+      "spec": {"owner": "group:default/data-platform", "system": "analytics"}
     }
   ],
-  "totalItems": 3,
+  "totalItems": 4,
   "pageInfo": {}
 }

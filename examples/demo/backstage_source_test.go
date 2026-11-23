@@ -46,6 +46,19 @@ func TestDemoBackstageDeclaredOwnerUnchanged(t *testing.T) {
 	}
 }
 
+// TestDemoBackstageInferredDomainOnAContract: analytics-pipeline's contract
+// declares an owner and no domain, so the catalog's system is an inferred
+// domain on its contract service page and its catalog owner changes nothing.
+func TestDemoBackstageInferredDomainOnAContract(t *testing.T) {
+	s := demoFleet(t).Services["analytics-pipeline"]
+	if s == nil || s.BusinessDomain != "" || s.OwnerProvenance != fleet.OwnerProvenanceDeclared {
+		t.Fatalf("analytics-pipeline = %+v", s)
+	}
+	if f := s.InferredBusinessDomain; f == nil || f.Value != "analytics" || f.Where != "component:default/analytics-pipeline" {
+		t.Errorf("inferred domain = %+v", f)
+	}
+}
+
 // TestDemoBackstageExportSkipped: a component Pacto exported is never read
 // back, so orders-service carries no inferred value.
 func TestDemoBackstageExportSkipped(t *testing.T) {

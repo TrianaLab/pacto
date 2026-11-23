@@ -114,13 +114,14 @@ func ledgerRoot(t *testing.T) string {
 const detectedEndpoint = "http://backstage.idp.svc:7007"
 
 // TestDetectedBackstageEndpointFillsURL: with no URL the dashboard reads the
-// detected catalog without the token, names it and keeps its row.
+// detected catalog without the token, keeps its row and never names the
+// Service in the source's Ref, which no restricted view redacts.
 func TestDetectedBackstageEndpointFillsURL(t *testing.T) {
 	auth := detectedCatalog(t, http.StatusOK)
 	snap := liveFleet(t, FleetOptions{LocalRoots: []string{ledgerRoot(t)}, Detected: backstageDetection(t, detectedEndpoint),
 		LiveEdges: fleetsrc.NewLiveEdges(time.Now), BackstageToken: "reader-token-value"})
 	st := sourceState(snap, backstage.SourceKind)
-	if st == nil || st.Status != fleet.SourceAvailable || st.Ref != "detected: backstage.idp" || !st.Advisory {
+	if st == nil || st.Status != fleet.SourceAvailable || st.Ref != "detected" || !st.Advisory {
 		t.Fatalf("source = %+v", st)
 	}
 	if s := snap.Services["ledger"]; s == nil || s.InferredOwner == nil || s.InferredOwner.Value != "team:team-ledger" {
@@ -137,7 +138,7 @@ func TestDetectedBackstageEndpointFillsURL(t *testing.T) {
 func TestDetectedBackstageRefusedSaysHowToConfigure(t *testing.T) {
 	detectedCatalog(t, http.StatusUnauthorized)
 	st := sourceState(liveFleet(t, FleetOptions{Detected: backstageDetection(t, detectedEndpoint), LiveEdges: fleetsrc.NewLiveEdges(time.Now)}), backstage.SourceKind)
-	if st == nil || st.Status != fleet.SourceUnavailable || st.Ref != "detected: backstage.idp" || st.Error == nil ||
+	if st == nil || st.Status != fleet.SourceUnavailable || st.Ref != "detected" || st.Error == nil ||
 		!strings.Contains(st.Error.Message, "set dashboard.backstage.url and tokenSecret") {
 		t.Fatalf("source = %+v", st)
 	}

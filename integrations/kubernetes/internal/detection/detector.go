@@ -229,6 +229,12 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 		}
 		// A rule judged on part of the cluster proves no single backend.
 		for _, e := range entries {
+			if sampled && e.Kind == "backstage" {
+				// The several-namespaces guard saw only the sampled pods, so a
+				// look-alike in a namespace that sorts first could win: the
+				// dashboard reads a detected catalog without asking, so give it none.
+				e.Endpoint = ""
+			}
 			e = sampledEntry(e, sampled, fmt.Sprintf("sampled the first %d running pods", detect.MaxPods))
 			res.Entries = append(res.Entries, sampledEntry(e, scoped, scopedReason))
 		}
