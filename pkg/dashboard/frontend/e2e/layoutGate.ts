@@ -790,6 +790,24 @@ export function installScaleFixture(): void {
           { code: 'DISCOVERY_TRUNCATED', source: '.', message: 'discovery stopped after 5000 files; 4000 files were not read, so results are partial' },
           ...Array.from({ length: 19 }, (_, i) => ({ code: 'DISCOVERY_UNSUPPORTED_FILE', source: longSource(`helmfile-${i}.yaml`), message: longName(`helmfile-${i}.yaml is not read: a format Pacto does not read`) })),
         ] };
+        // Extension checks (516-S9) at their longest: covered, failing with two producers,
+        // unknown stale with a long reason, and a ref nobody reports on (no check).
+        const extRef = (s: string) => `${longName(`x.${s}.example.io`)}/${longName(s)}`;
+        const extCheck = (ref: string, state: string, more: Record<string, unknown>) => ({ ref, state, provenance: 'observed',
+          producer: longName('producer-acme-backup'), producerKeyId: longName('producer-acme-backup-key-2026'), source: longName('evidence-prod'),
+          asOf: '2026-11-10T07:00:00Z', ...more });
+        const refs = ['backup', 'restore', 'audit', 'quota'].map(extRef);
+        const caps = rev.capabilities as { items?: Record<string, unknown>[]; total?: number; count?: number } | undefined;
+        if (caps) {
+          caps.items = [
+            { type: 'extension', ref: refs[0], check: extCheck(refs[0], 'covered', {}) },
+            { type: 'extension', ref: refs[1], check: extCheck(refs[1], 'failing', { producers: [longName('producer-acme-backup'), longName('producer-dr-audit')],
+              reason: longName('reported absent by producer-acme-backup') }) },
+            { type: 'extension', ref: refs[2], check: extCheck(refs[2], 'unknown', { stale: true, reason: longName('the last report is older than the freshness window') }) },
+            { type: 'extension', ref: refs[3] },
+          ];
+          caps.total = caps.count = caps.items.length;
+        }
       }
     }
     // A contributed service (509-S11) at its longest: a 200-character producer, a
@@ -2809,6 +2827,19 @@ export const ROUTES: Route[] = [
       }
       await expect(page.locator('[data-testid="revision-break"]').first()).toBeVisible({ timeout: 30_000 });
       await expect(page.getByTestId('name-from-ref').first()).toBeAttached();
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
+  {
+    // The scale fixture's extension rows (516-S9) live in the closed Capabilities
+    // section, which mounts nothing: open it so SPEC 22-24 run over the rows.
+    name: 'revision entity, extension checks open',
+    open: async (page) => {
+      await firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/')(page);
+      const sec = page.locator('details').filter({ has: page.locator('summary.ps-head', { hasText: 'Capabilities' }) }).first();
+      await expect(sec, 'Capabilities is on the page').toBeAttached({ timeout: 30_000 });
+      await sec.evaluate((d) => { (d as HTMLDetailsElement).open = true; });
+      await expect(page.locator('[data-testid=ext-check]').first()).toBeVisible({ timeout: 30_000 });
       await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
     },
   },
