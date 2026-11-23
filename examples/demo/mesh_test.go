@@ -25,8 +25,8 @@ func TestDemoMeshEdgeAndRow(t *testing.T) {
 // source observed, never a declared or observed one.
 func checkDemoMeshEdge(t *testing.T, snap *fleet.FleetSnapshot) {
 	t.Helper()
-	worker := fleet.NewServiceKey(fleet.K8sCaller("", "shop", "Deployment", "billing-worker"))
-	billing := fleet.NewServiceKey(fleet.K8sCaller("", "shop", "Deployment", "legacy-billing"))
+	worker := fleet.NewServiceKey(fleet.K8sCaller(prodClusterID, "shop", "Deployment", "billing-worker"))
+	billing := fleet.NewServiceKey(fleet.K8sCaller(prodClusterID, "shop", "Deployment", "legacy-billing"))
 	i := slices.IndexFunc(snap.InferredRelationships, func(r fleet.Relationship) bool {
 		return r.FromService == worker && r.ToService == billing
 	})

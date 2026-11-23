@@ -11,7 +11,7 @@
   var q = window.__pactoTour.q;
   var hashPath = window.__pactoTour.hashPath;
   // legacy-billing's page: the inferred service key, encoded as the services list links it.
-  var BILLING = "#/fleet/services/k8s:shop%252FDeployment%252Flegacy-billing";
+  var BILLING = "#/fleet/services/k8s:5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%252Fshop%252FDeployment%252Flegacy-billing";
 
   var style = document.createElement("style");
   style.textContent =

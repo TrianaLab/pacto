@@ -47,7 +47,7 @@ func post(t *testing.T, h http.Handler, path string, in, out any) {
 	}
 }
 
-var billingKey = string(fleet.NewServiceKey(fleet.K8sCaller("", "shop", "Deployment", "legacy-billing")))
+var billingKey = string(fleet.NewServiceKey(fleet.K8sCaller(prodClusterID, "shop", "Deployment", "legacy-billing")))
 
 // code is r's refusal code, "" when nothing was refused.
 func code(r *dashboard.DeclareRefusal) string {

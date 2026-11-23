@@ -716,7 +716,7 @@ func TestDemoLinked(t *testing.T) {
 		t.Errorf("linked targets = %v, want %v", signals, want)
 	}
 	for _, name := range []string{"recommender", "campaigns"} {
-		if _, ok := snap.Services[fleet.NewServiceKey(fleet.K8sCaller("", "growth", "Deployment", name))]; ok {
+		if _, ok := snap.Services[fleet.NewServiceKey(fleet.K8sCaller(prodClusterID, "growth", "Deployment", name))]; ok {
 			t.Errorf("the linked %s workload is still an inferred service", name)
 		}
 	}
@@ -727,7 +727,7 @@ func TestDemoLinked(t *testing.T) {
 		}
 	}
 	to := fleet.NewServiceKey("recommendations")
-	if len(observed) != 1 || observed[0].From != fleet.NewServiceKey(fleet.K8sCaller("", "growth", "Deployment", "recommender")) ||
+	if len(observed) != 1 || observed[0].From != fleet.NewServiceKey(fleet.K8sCaller(prodClusterID, "growth", "Deployment", "recommender")) ||
 		observed[0].To != to || observed[0].Value != demoLinkedDigest || observed[0].At == nil {
 		t.Fatalf("observed replacements = %+v", observed)
 	}

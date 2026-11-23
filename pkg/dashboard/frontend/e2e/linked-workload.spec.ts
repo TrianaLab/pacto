@@ -47,17 +47,17 @@ test.describe('WASM demo: a workload linked to a published contract with no Pact
     await appReady(page, '/#/fleet/services/recommendations');
 
     const line = page.getByTestId('service-replaces');
-    await expect(line).toContainText('Replaces k8s:growth/Deployment/recommender', { timeout: T });
+    await expect(line).toContainText('Replaces k8s:5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11/growth/Deployment/recommender', { timeout: T });
     await line.getByRole('button', { name: 'About Replaces' }).click();
     await expect(line.getByRole('note')).toContainText(`Linked with no Pacto: the workload runs image ${DIGEST}, which this service published.`);
   });
 
   test('the key of the inferred twin opens the declared service', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    await appReady(page, `/#/fleet/services/${encodeURIComponent('k8s:growth%2FDeployment%2Frecommender')}`);
+    await appReady(page, `/#/fleet/services/${encodeURIComponent('k8s:5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fgrowth%2FDeployment%2Frecommender')}`);
 
     const notice = page.getByTestId('entity-replaced-from');
-    await expect(notice).toHaveText(/^k8s:growth\/Deployment\/recommender was replaced by recommendations .*, linked with no Pacto by its image digest$/, { timeout: T });
+    await expect(notice).toHaveText(/^k8s:5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11\/growth\/Deployment\/recommender was replaced by recommendations .*, linked with no Pacto by its image digest$/, { timeout: T });
     await expect(page.getByTestId('inferred-workload')).toHaveCount(0);
   });
 });

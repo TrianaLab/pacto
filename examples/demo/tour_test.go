@@ -199,7 +199,7 @@ func TestTourDeclaresLegacyBilling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := fleet.NewServiceKey(fleet.K8sCaller("", "shop", "Deployment", "legacy-billing"))
+	key := fleet.NewServiceKey(fleet.K8sCaller(prodClusterID, "shop", "Deployment", "legacy-billing"))
 	if want := `var BILLING = "#/fleet/services/` + strings.ReplaceAll(url.QueryEscape(string(key)), "%3A", ":") + `";`; !strings.Contains(string(js), want) {
 		t.Errorf("tours.js lacks %s", want)
 	}
