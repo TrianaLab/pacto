@@ -13,9 +13,10 @@ keywords:
   - delivery
   - gitops
 # Optional, off by default: a registry and an identity provider for an
-# evaluation install (values-quickstart.yaml), and upstream Crossplane for
-# profile idp (idp.crossplane.install). The archives are vendored in charts/
-# and pinned by Chart.lock, so the chart packages offline.
+# evaluation install (values-quickstart.yaml). The archives are vendored in
+# charts/ and pinned by Chart.lock, so the chart packages offline. Upstream
+# Crossplane (idp.crossplane.install) is no dependency: see
+# templates/idp/crossplane.yaml.
 dependencies:
   - name: zot
     version: 0.1.128
@@ -25,10 +26,6 @@ dependencies:
     version: 0.26.0
     repository: https://charts.dexidp.io
     condition: dex.enabled
-  - name: crossplane
-    version: 2.4.3
-    repository: https://charts.crossplane.io/stable
-    condition: idp.crossplane.install
 icon: https://raw.githubusercontent.com/TrianaLab/pacto/refs/heads/main/docs/assets/images/logo.png
 maintainers:
   - name: edu-diaz

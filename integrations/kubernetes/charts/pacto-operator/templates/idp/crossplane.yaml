@@ -1,0 +1,11 @@
+{{- /*
+Upstream Crossplane under idp.crossplane.install: the upstream chart rendered
+with its defaults by hack/vendor-crossplane.sh (files/crossplane/VERSION).
+A missing key reads as false, so `helm upgrade --reuse-values` from a release
+with no `idp` value renders no Crossplane; a chart dependency would, because
+Helm enables one whose condition path is missing. profileChecks refuses the
+value outside idp, under hardened and over another Crossplane.
+*/}}
+{{- if dig "crossplane" "install" false (.Values.idp | default dict) }}
+{{ .Files.Get "files/crossplane/crossplane.yaml" | replace "xreleasenamespacex" .Release.Namespace | replace "xreleasenamex" .Release.Name }}
+{{- end }}

@@ -1677,10 +1677,6 @@
         }
       }
     },
-    "crossplane": {
-      "description": "Upstream Crossplane, installed with idp.crossplane.install. Every key passes through to the upstream chart.",
-      "type": "object"
-    },
     "dex": {
       "description": "The bundled Dex identity provider. Every key besides enabled passes through to the upstream chart.",
       "type": "object",

@@ -408,7 +408,7 @@ wait_pacto_status() {
 PACTO_REGISTRY_IMAGE="ghcr.io/project-zot/zot-minimal:v2.1.20@sha256:73f26433b341f4a319963f7c5e169858663a10565e4037e71605737daee202ee"
 
 # PACTO_CROSSPLANE_IMAGE is the image of the upstream Crossplane chart the
-# operator chart vendors (charts/crossplane-<v>.tgz, idp.crossplane.install):
+# operator chart vendors (files/crossplane, idp.crossplane.install):
 # the core, its init container and the RBAC manager all run it. Pinned to the
 # chart's appVersion tag and its multi-platform index digest (`docker buildx
 # imagetools inspect xpkg.crossplane.io/crossplane/crossplane:v2.4.3`,

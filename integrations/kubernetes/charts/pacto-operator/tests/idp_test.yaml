@@ -106,12 +106,12 @@ tests:
       - notMatchRegexRaw:
           pattern: Crossplane
 ---
-# The subchart itself: it renders only with idp.crossplane.install, in the
-# release namespace, and templates no CRD (Crossplane's init creates them at
-# runtime, so Helm never owns them and turning the value off keeps them).
-suite: idp crossplane subchart
+# Upstream Crossplane, vendored: it renders only with idp.crossplane.install,
+# in the release namespace, and templates no CRD (Crossplane's init creates them
+# at runtime, so Helm never owns them and turning the value off keeps them).
+suite: idp crossplane bootstrap
 templates:
-  - charts/crossplane/templates/*.yaml
+  - templates/idp/crossplane.yaml
 release:
   name: pacto-operator
   namespace: pacto-operator-system
@@ -120,12 +120,15 @@ capabilities:
     - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
 tests:
   - it: the bootstrap renders under idp
-    template: charts/crossplane/templates/deployment.yaml
     set: {profile: idp, idp.crossplane.install: true}
     asserts:
-      - isKind: {of: Deployment}
-      - equal: {path: metadata.name, value: crossplane}
-      - equal: {path: metadata.namespace, value: pacto-operator-system}
+      - containsDocument: {kind: Deployment, apiVersion: apps/v1, name: crossplane, namespace: pacto-operator-system, any: true}
+      - containsDocument: {kind: Deployment, apiVersion: apps/v1, name: crossplane-rbac-manager, namespace: pacto-operator-system, any: true}
+
+  - it: the bootstrap carries the release name and namespace, never the vendoring placeholders
+    set: {profile: idp, idp.crossplane.install: true}
+    asserts:
+      - notMatchRegexRaw: {pattern: xreleasename}
 
   - it: the bootstrap renders no CustomResourceDefinition
     set: {profile: idp, idp.crossplane.install: true}
@@ -134,6 +137,18 @@ tests:
         not: true
 
   - it: the default profile renders nothing of Crossplane
+    asserts:
+      - hasDocuments: {count: 0}
+
+  # helm upgrade --reuse-values from a release before idp existed hands the
+  # chart values with no idp key: a missing key never installs Crossplane.
+  - it: values with no idp key render nothing of Crossplane
+    set: {idp: null}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: values with no idp key render nothing of Crossplane under profile idp
+    set: {profile: idp, idp: null}
     asserts:
       - hasDocuments: {count: 0}
 ---
