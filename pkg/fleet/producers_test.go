@@ -156,3 +156,30 @@ func TestRefusedContributionMakesRowPartial(t *testing.T) {
 		}
 	}
 }
+
+// A restricted view that hides every target of a producer that only reports
+// drops its row, and a row whose source is unavailable is never rebuilt.
+func TestRestrictProducerRowsDropsWhatNoLongerMakesARow(t *testing.T) {
+	reporter, ok := ProducerRow(ProducerFacts{Producer: "acme-idp", NewestReport: at(time.Hour)}, fixedNow(), RecentEvidenceWindow)
+	if !ok {
+		t.Fatal("a producer that reports makes a row")
+	}
+	reporter.Source = "evidence"
+	if got := restrictProducerRows([]Provider{reporter}, nil, nil); len(got) != 0 {
+		t.Fatalf("a producer whose every target is hidden keeps a row: %+v", got)
+	}
+	kept := map[TargetKey]*TargetRecord{
+		"a": {ReportedBy: "acme-idp", Source: "evidence", EvidenceAt: at(3 * time.Hour)},
+		"b": {ReportedBy: "acme-idp", Source: "other", Sources: []string{"evidence"}, EvidenceAt: at(2 * time.Hour)},
+		"c": {ReportedBy: "acme-idp", Source: "other", EvidenceAt: at(time.Minute)},
+	}
+	got := restrictProducerRows([]Provider{reporter}, kept, nil)
+	if len(got) != 1 || !got[0].AsOf.Equal(*at(2 * time.Hour)) {
+		t.Fatalf("the row reads the newest report a kept target of its source made: %+v", got)
+	}
+	both, _ := ProducerRow(ProducerFacts{Producer: "acme-idp", NewestReport: at(time.Hour), Repository: prodRepo}, fixedNow(), RecentEvidenceWindow)
+	both.Source = "evidence"
+	if got := restrictProducerRows([]Provider{both}, nil, map[string]SourceStatus{"evidence": SourceUnavailable}); len(got) != 0 {
+		t.Fatalf("a row of an unavailable source survives: %+v", got)
+	}
+}

@@ -444,3 +444,13 @@ func servedEvidence(t *testing.T, targets string, producers evidenceingest.Produ
 	t.Cleanup(srv.Close)
 	return srv
 }
+
+// TestContributionAgingUnreadHeadIsNotAging: a record whose head cannot be
+// read says nothing about its age, so the unchanged push stays a no-op.
+func TestContributionAgingUnreadHeadIsNotAging(t *testing.T) {
+	reg := &countingReads{headErr: errors.New("boom")}
+	svc := &Service{sys: sysDeps{publishRegistry: func() publish.Registry { return reg }}}
+	if svc.contributionAging(context.Background(), "host/acme/x:y") || reg.heads != 1 {
+		t.Errorf("an unread head reads aging (heads = %d)", reg.heads)
+	}
+}
