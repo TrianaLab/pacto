@@ -316,9 +316,23 @@ func (g *inferredProviderGroup) nextStep() string {
 	case g.service != "":
 		return "Declare a contract for " + g.name + " with pacto declare, then point the ranges at it"
 	case g.claimHidden:
-		return "Claimed by a service you cannot see; ask the installation's default approvers"
+		return hiddenClaimStep
 	}
 	return InferredExternalNextStep(g.name, g.claimed)
+}
+
+// hiddenClaimStep is the next step of an external system a service the
+// viewer may not read claims: it never invites a second claim.
+const hiddenClaimStep = "Claimed by a service you cannot see; ask the installation's default approvers"
+
+// InferredNextStep is [InferredExternalNextStep] for r, the record of
+// external id as the viewer sees it: a hidden claimer names nothing and
+// invites no second claim.
+func (r *ExternalRecord) InferredNextStep(id string) string {
+	if r != nil && r.Claim != nil && r.Claim.Hidden {
+		return hiddenClaimStep
+	}
+	return InferredExternalNextStep(id, r.ClaimedRepository())
 }
 
 // InferredExternalNextStep is how to replace external id's inferred contract

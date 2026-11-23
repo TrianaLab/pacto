@@ -86,7 +86,7 @@ func analyzeExternalEvent(snap *fleet.FleetSnapshot, q *fleet.Query, opts Option
 	})
 	if p := rec.Provider; p != nil {
 		res.External.Provider, res.External.Change = p.Repository, p.Change
-		res.inferredExternal, res.inferredClaimed = id, rec.ClaimedRepository()
+		res.inferredExternal, res.inferredRecord = id, rec
 		if len(p.Revisions) > 0 {
 			res.inferredVersion = p.Revisions[0].Version
 		}
@@ -100,6 +100,9 @@ func analyzeExternalEvent(snap *fleet.FleetSnapshot, q *fleet.Query, opts Option
 	}
 	if q.ExternalsUnreported() {
 		res.partial(fleet.LimitationExternalsUnreported, "some targets do not report the external systems they use, so the consumers listed may be incomplete")
+	}
+	if note := claimNote(id, rec.Claim); note != "" {
+		res.Notes = append(res.Notes, note)
 	}
 	res.Pin = pinFor(snap, key, rec, res.Consumers)
 	res.collectOwnersAndTargets(snap)
@@ -319,5 +322,24 @@ func (r *Result) externalGateReason() string {
 	return r.inferredExternal + "'s inferred contract " + strings.TrimSpace(r.inferredVersion+" is") +
 		" no contract this organization controls, so no range against it can be verified: " +
 		strconv.Itoa(k) + " of " + strconv.Itoa(n) + " " + plural(n, "consumer pins", "consumers pin") + " a range on it. " +
-		fleet.InferredExternalNextStep(r.inferredExternal, r.inferredClaimed) + seen
+		r.inferredRecord.InferredNextStep(r.inferredExternal) + seen
+}
+
+// claimNote says who claims external id, so the declared contract wins in
+// impact too: the claimed contract and how to ask what a change to it does,
+// or how to claim it. A claimer the viewer may not read says nothing, so a
+// hidden claim never invites a second one. Consumer effects stay the
+// vendor's: the event is about the external system, never the declared
+// contract.
+func claimNote(id string, c *fleet.ExternalClaim) string {
+	switch {
+	case c == nil:
+		return "external " + id + " has no claim: name its owner with pacto claim " + id + " --owner <team>"
+	case c.Hidden:
+		return ""
+	}
+	_, name := fleet.ParseServiceKey(c.Service)
+	repo, _, _ := strings.Cut(c.Ref, "@")
+	return "external " + id + " is claimed by " + name + " " + c.Version +
+		"; the impact of a change to its contract is pacto impact oci://" + repo + ":" + c.Version + " <new>"
 }

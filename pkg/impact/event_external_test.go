@@ -538,3 +538,38 @@ func TestExternalChangedCountMatchesImpact(t *testing.T) {
 		}
 	}
 }
+
+func TestImpactExternalSubjectClaimedNamesDeclared(t *testing.T) {
+	snap := claimedStripeFleet(t, inferredStripe("2023.10.15"))
+	plain := externalEvent(claimedStripeFleet(t, inferredStripe("2023.10.15")), EventChanged, "stripe")
+	res := externalEvent(snap, EventChanged, "stripe")
+	want := "external stripe is claimed by stripe 0.1.0; the impact of a change to its contract is pacto impact oci://ghcr.io/acme/stripe:0.1.0 <new>"
+	if !reflect.DeepEqual(res.Notes, []string{want}) {
+		t.Fatalf("notes %q", res.Notes)
+	}
+	if res.Gate != GateUnverified || res.Gate != plain.Gate || len(res.Consumers) != len(plain.Consumers) {
+		t.Errorf("gate %s, consumers %+v", res.Gate, res.Consumers)
+	}
+	for _, c := range res.Consumers {
+		if c.Effect != EffectAttention {
+			t.Errorf("%s: %s", c.Service, c.Effect)
+		}
+	}
+}
+
+func TestImpactExternalSubjectClaimHiddenSaysNothing(t *testing.T) {
+	snap := claimedStripeFleet(t, inferredStripe("2023.10.15"))
+	snap.Externals["stripe"].Claim = &fleet.ExternalClaim{Hidden: true}
+	res := externalEvent(snap, EventChanged, "stripe")
+	if len(res.Notes) != 0 || strings.Contains(res.GateReason, "ghcr.io/acme/stripe,") || strings.Contains(res.GateReason, "pacto claim") {
+		t.Errorf("notes %q, gate reason %q", res.Notes, res.GateReason)
+	}
+}
+
+func TestImpactExternalSubjectUnclaimedNamesClaim(t *testing.T) {
+	res := externalEvent(externalFleet(t), EventChanged, "stripe")
+	want := "external stripe has no claim: name its owner with pacto claim stripe --owner <team>"
+	if !reflect.DeepEqual(res.Notes, []string{want}) || res.Gate != GateUnverified {
+		t.Errorf("gate %s, notes %q", res.Gate, res.Notes)
+	}
+}

@@ -73,7 +73,7 @@ func (r *Result) inferredProvider() string {
 	}
 	next := "Declare a contract for it with pacto declare and point the ranges at it"
 	if r.inferredExternal != "" {
-		next = fleet.InferredExternalNextStep(r.inferredExternal, r.inferredClaimed)
+		next = r.inferredRecord.InferredNextStep(r.inferredExternal)
 	}
 	return r.Service + " " + r.NewVersion + " is an inferred contract, so no range against it can be verified: " +
 		strconv.Itoa(k) + " of " + strconv.Itoa(n) + " " + plural(n, "consumer pins", "consumers pin") + " a range on it. " + next

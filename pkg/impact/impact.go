@@ -338,9 +338,9 @@ type Result struct {
 	// inferredExternal is the external system whose inferred contract the
 	// answer is about (the ref rule); empty otherwise.
 	inferredExternal string
-	// inferredClaimed is the repository of the contract that claims
-	// inferredExternal, "" when it is unclaimed or the claimer is hidden.
-	inferredClaimed string
+	// inferredRecord is inferredExternal's record as the viewer sees it,
+	// read for its claim; nil when the fleet holds none.
+	inferredRecord *fleet.ExternalRecord
 	// inferredVersion is the version of the inferred contract an external
 	// answer read; empty otherwise.
 	inferredVersion string
@@ -933,7 +933,7 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 			// The ref rule: an inferred contract is never a fleet service, so
 			// its consumers are the ranges pinned on its external system.
 			res.inferredExternal = opts.InferredProvider
-			res.inferredClaimed = snap.Externals[fleet.ExternalKey(opts.InferredProvider)].ClaimedRepository()
+			res.inferredRecord = snap.Externals[fleet.ExternalKey(opts.InferredProvider)]
 			res.Consumers = inferredProviderConsumers(snap, fleet.ExternalKey(opts.InferredProvider))
 			if q.ExternalsUnreported() {
 				// A target that cannot say which external systems it uses may

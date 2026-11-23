@@ -661,3 +661,21 @@ func TestDivertedRevisionKeepsLimitationsAndMergesCopies(t *testing.T) {
 		t.Errorf("merged revision = %+v", r)
 	}
 }
+
+func TestInferredNextStepOfRecord(t *testing.T) {
+	var none *ExternalRecord
+	cases := map[string]struct {
+		rec  *ExternalRecord
+		want string
+	}{
+		"no record": {none, InferredExternalNextStep("stripe", "")},
+		"unclaimed": {&ExternalRecord{}, InferredExternalNextStep("stripe", "")},
+		"claimed":   {&ExternalRecord{Claim: &ExternalClaim{Ref: "ghcr.io/acme/stripe@sha256:a"}}, InferredExternalNextStep("stripe", "ghcr.io/acme/stripe")},
+		"hidden":    {&ExternalRecord{Claim: &ExternalClaim{Hidden: true}}, hiddenClaimStep},
+	}
+	for name, c := range cases {
+		if got := c.rec.InferredNextStep("stripe"); got != c.want {
+			t.Errorf("%s: %q", name, got)
+		}
+	}
+}
