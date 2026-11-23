@@ -125,6 +125,14 @@ compliance evidence that a source carries.
   not see stays `insufficient`. A failed read leaves the source unavailable; a
   truncated or empty map, or calls Pacto cannot attribute to a named service,
   leave it partial.
+- **Backstage catalog** (`--backstage-url <url>`, or
+  `PACTO_DASHBOARD_BACKSTAGE_URL` for `pacto dashboard`, with the reader token
+  in `PACTO_BACKSTAGE_TOKEN`): the owner, system and component dependencies
+  the catalog holds for each service Pacto knows, as `inferredOwner`,
+  `inferredBusinessDomain` and `inferred` edges of source kind `serviceFact`.
+  Source `backstage-catalog` is advisory: an unreachable or capped catalog is
+  its own state and never makes an answer partial. See
+  [Read owners from your Backstage catalog](backstage-catalog.md).
 
 `pacto fleet` and `pacto impact` read every source flag above. `pacto mcp
 --fleet` reads all but `--root`, which on `pacto mcp` selects a frozen catalog
@@ -426,6 +434,8 @@ dashboard labels it Owner unknown and never No declared owner.
 | Field or code | Meaning |
 |---|---|
 | `ownerProvenance` | `declared` (a revision's `pacto.yaml`), `attested`, `declared-via-target` (the running contract the operator read) or `inferred`, in that precedence |
+| `inferredOwner`, `inferredBusinessDomain` | An owner or business domain a source outside every contract reports, such as a [Backstage catalog](backstage-catalog.md), as `value`, `source`, `where` and `asOf`. `ownerProvenance` is `inferred` only when no other owner exists; `owner` stays empty and the value never becomes an owner claim |
+| `SERVICE_FACT_AMBIGUOUS` | A name a source reports matches more than one service, or two of its records give one service different values, so those values are left out |
 | `ownerSource` | For `attested` only: the file and line, the commit and the CI identity that signed it, such as `CODEOWNERS:7 at a1b2c3, signed by github.com/acme/invoices/.github/workflows/ci.yml` |
 | `provenance.signature.signerRepository`, `signerCommit` | On a revision, the repository and commit an accepted CI signer's certificate names |
 | `provenance.ownerRight` | On a revision, the owner rule's verdict on the owner it sets: `allowed`, `code` and `message` |

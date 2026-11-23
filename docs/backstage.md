@@ -3,7 +3,9 @@
 `pacto export backstage` writes the services Pacto knows as one multi-document
 YAML file of Backstage catalog entities. You commit that one file and point
 Backstage at it, so no repository needs its own `catalog-info.yaml`. Every
-entity says how Pacto knows it, when and how completely.
+entity says how Pacto knows it, when and how completely. To read the owners
+Backstage already holds, see
+[Read owners from your Backstage catalog](backstage-catalog.md).
 
 ## Run the export
 
@@ -187,6 +189,10 @@ adds `pacto.trianalab.io/caller-ambiguous: "true"` and is `partial`.
 | `pacto.trianalab.io/source` | How Pacto learned the entity: `workload` on an inferred Component, the sorted source kinds on a Resource, such as `pod-spec,repository` |
 | `pacto.trianalab.io/workload` | The inferred Component's workload, as `<Kind> <namespace>/<name>` or `<Kind> <cluster>/<namespace>/<name>` with the cluster's display name |
 | `pacto.trianalab.io/inferred-contract` | The `pacto-inferred` repository of a Resource's inferred contract |
+| `pacto.trianalab.io/inferred-owner` | An owner only a catalog reported, as `group:default/<team>` or `user:default/<dri>`, while `spec.owner` is `unknown`; see [Read owners from your Backstage catalog](backstage-catalog.md) |
+| `pacto.trianalab.io/inferred-owner-source` | The source id and entity ref of that owner |
+| `pacto.trianalab.io/inferred-business-domain` | A business domain only a catalog reported, while `spec.system` is empty |
+| `pacto.trianalab.io/inferred-business-domain-source` | The source id and entity ref of that domain |
 
 A Component is `partial` when the snapshot is partial, your view hides some of
 its relations, a declared dependency did not resolve or owners conflict. A

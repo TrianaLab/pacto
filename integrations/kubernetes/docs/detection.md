@@ -17,6 +17,7 @@ detection changes no argument, rule or feature.
 | Istio egress and Cilium FQDN | API discovery; see [Calls that leave the cluster](../../operational-graph-egress.md) | `ServiceEntry CRD present` |
 | Egress gateway | Pods labelled `istio=egressgateway` in `istio-system`, only when found | `1 Istio egress gateway found; logs: auto` |
 | OTel Collector, Tempo, Jaeger and Datadog | Running pods and Services, only when found; see [Trace backends](../../operational-graph-providers.md#trace-backends) | `query API on port 16686` |
+| Backstage | A running Backstage image and a Service on port 7007 in its namespace, only when found; see [A detected catalog](../../backstage-catalog.md#a-detected-catalog) | `Backstage` |
 
 The rows show under Data sources in the dashboard, in `helm upgrade` notes
 and in the CLI:

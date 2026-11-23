@@ -55,6 +55,8 @@ To build the image from a checkout instead, `make docker-build` and
 | `PACTO_DASHBOARD_SESSION_IDLE_TIMEOUT`, `PACTO_DASHBOARD_SESSION_MAX_AGE` | How long a session lasts idle and in all | `1h`, `12h` |
 | `PACTO_DASHBOARD_OTLP_RECEIVER` | Address Collectors in the cluster export OTLP/HTTP JSON traces to, as `http://HOST:PORT`. Pacto maps spans to observed calls, keeps no span and serves nothing else there; see [Sources](operational-graph-reference.md#sources) | `""` (off) |
 | `PACTO_DASHBOARD_MIRA_SOURCES` | Mira base URLs whose service map supplies observed calls. **Space-separated** list | `""` |
+| `PACTO_DASHBOARD_BACKSTAGE_URL` | Base URL of a Backstage catalog whose owners, systems and dependencies the dashboard shows as inferred values; see [Read owners from your Backstage catalog](backstage-catalog.md) | `""` (off) |
+| `PACTO_BACKSTAGE_TOKEN` | The catalog reader token, sent only to `PACTO_DASHBOARD_BACKSTAGE_URL`. Every dashboard user sees what it can read | `""` |
 | `PACTO_STATS_REGISTRY` | Stats repository the Metrics page reads; read anonymously when public, otherwise with the registry credentials. Delivery-derived metrics need sign-in | `""` (Metrics explains how to turn recording on) |
 | `PACTO_DASHBOARD_TRACE_SOURCES` | The same input with a stable identity per file: **space-separated** `NAME=PATH` entries, where `NAME` is the Data Source name the API and UI show | `""` |
 | `PACTO_CACHE_DIR` | Directory the dashboard scans for cached OCI bundles (read side) | `/home/pacto/.cache/pacto/oci` |

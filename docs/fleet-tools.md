@@ -37,8 +37,7 @@ owners, business domains and offerings, inspect one and list what
 needs attention, most severe first. [Ask questions about your
 organization](ask-your-organization.md) maps common questions to these
 commands. `pacto fleet neighborhood <service>` lists who a service depends on
-and who depends on it, with their owners, and `--mira-source <url>` adds the
-calls a Mira node saw as observed edges. `pacto fleet versions <offering>`
+and who depends on it, with their owners. `pacto fleet versions <offering>`
 lists each provider's versions of a platform offering and, with `--range`,
 which satisfy it, and `pacto fleet entities --consumes <offering>` lists its
 consumers. `pacto fleet entity offering <slug>` shows each
@@ -48,6 +47,13 @@ consumer's [provisioning status](platform-offerings.md#provisioning-status).
 `graph` and `explain` take `external:<identity>`, such as `external:stripe`.
 `--index` also reads every service
 [the organization index](backstage-registry.md) lists.
+
+Two source flags add what other tools know:
+
+- `--mira-source <url>` adds the calls a Mira node saw as observed edges;
+- `--backstage-url <url>` adds the owner, system and dependencies a Backstage
+  catalog holds as inferred values; see
+  [Read owners from your Backstage catalog](backstage-catalog.md).
 
 For [inferred services](operational-graph-inferred.md):
 
