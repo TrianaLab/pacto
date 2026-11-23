@@ -968,7 +968,7 @@ func classifyAcceptError(err error) (int, string, string) {
 		errors.Is(err, evidenceenvelope.ErrBadSignature), errors.Is(err, evidenceenvelope.ErrUnknownKey),
 		errors.Is(err, evidenceenvelope.ErrUnsignedEnvelope), errors.Is(err, evidenceenvelope.ErrBadAlgorithm),
 		errors.Is(err, evidenceenvelope.ErrProducerMismatch), errors.Is(err, evidenceenvelope.ErrSubjectNotAllowed),
-		errors.Is(err, evidenceenvelope.ErrKindNotAllowed):
+		errors.Is(err, evidenceenvelope.ErrKindNotAllowed), errors.Is(err, evidenceenvelope.ErrExtensionNotAllowed):
 		return http.StatusUnauthorized, "unauthorized_producer", "the envelope could not be authenticated or is not authorized for this producer or subject"
 	case errors.Is(err, ErrContractRefPolicy):
 		return http.StatusUnprocessableEntity, "contract_ref_rejected", "the contract reference is not an approved immutable digest reference"
