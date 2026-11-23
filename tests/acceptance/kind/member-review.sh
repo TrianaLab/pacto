@@ -323,6 +323,12 @@ HUB_SETS=("${SETS[@]}" --set delivery.enabled=true --set 'dashboard.ociSecrets[0
   --set dashboard.auth.oidc.caBundle.configMap=scenario-ca)
 helm install pacto-operator "$PACTO_CHART" -n "$NS" --kube-context "$CTX_H" "${HUB_SETS[@]}" --wait --timeout 240s >/dev/null
 wait_managed_ready pacto-dashboard >/dev/null || fail "the hub dashboard Deployment is not Ready"
+# The dashboard logs warnings only; INFO carries the hub's "member link closed"
+# reasons. The operator applies the Deployment server-side, so an env var it
+# does not own stays.
+kubectl --context "$CTX_H" -n "$NS" set env deploy/pacto-dashboard PACTO_VERBOSE=true >/dev/null
+kubectl --context "$CTX_H" -n "$NS" rollout status deploy/pacto-dashboard --timeout=180s >/dev/null ||
+  fail "the hub dashboard did not roll out with INFO logging"
 # The controller turns available before its admission webhook answers, so the
 # first apply can be refused with "connection refused": retry it until it lands.
 INGRESS_YAML="$(cat <<YAML
