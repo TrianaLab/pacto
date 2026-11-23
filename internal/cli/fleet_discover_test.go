@@ -90,7 +90,7 @@ func TestFleetEntitiesTemplateFromDiscoveryPartial(t *testing.T) {
 // the command with CheckDiscover's message.
 func TestDiscoverFlagRefusesTagAndDigest(t *testing.T) {
 	t.Setenv("PACTO_NO_UPDATE_CHECK", "1")
-	for _, ref := range []string{"ghcr.io/acme/x:1.0.0", "ghcr.io/acme/x@sha256:" + strings.Repeat("a", 64)} {
+	for _, ref := range []string{"ghcr.io/acme/x:1.0.0", "ghcr.io/acme/x@sha256:" + strings.Repeat("a", 64), "https://ghcr.io/acme", "/etc/passwd"} {
 		_, err := execDiscover(t, app.NewService(nil, nil), "fleet", "search", "--local", filepath.Join(t.TempDir(), "none"), "--discover", ref)
 		if err == nil || !strings.Contains(err.Error(), "--discover takes <registry>[/<path>] with no tag or digest") {
 			t.Errorf("--discover %s: %v", ref, err)

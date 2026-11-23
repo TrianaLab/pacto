@@ -656,6 +656,9 @@ var countedLimitations = map[string]func(src string, n int) string{
 	LimitationIndexEntryInvalid: func(src string, _ int) string {
 		return "source " + src + " did not use some index entries; a restricted view does not name them, since they can be services you may not see"
 	},
+	LimitationRegistryListingEntryUnreadable: func(src string, _ int) string {
+		return "source " + src + " left some listed bundles unread; a restricted view does not count them, since they can be services you may not see"
+	},
 }
 
 // limitationCounts drops the countedLimitations from limitations and returns
@@ -721,6 +724,19 @@ func sourceLevelCluster(l Limitation, unavailable map[string]bool) bool {
 	return (l.Code == LimitationClusterUnknown || l.Code == LimitationClusterConflict) && unavailable[l.Source]
 }
 
+// registryListingGap reports whether l is a registry listing limitation whose
+// whole message Pacto writes from server configuration (the host, the prefix
+// and its index repository): a hidden name it contains is the prefix's
+// coincidence, so the hidden-name scrub never applies to it. An unavailable
+// listing quotes the registry's error, so it stays scrubbed.
+func registryListingGap(l Limitation) bool {
+	switch l.Code {
+	case LimitationRegistryListingIndexOnly, LimitationRegistryListingNone, LimitationRegistryListingTruncated, LimitationRegistryListingEntryUnreadable:
+		return true
+	}
+	return false
+}
+
 // restrictLimitations keeps the limitations that name nothing hidden and
 // rebuilds the domain, offering and owner conflicts from what out still holds.
 // With hideBare, each source's countedLimitations of one code become one.
@@ -738,7 +754,7 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	unavailable := unavailableSources(out)
 	mismatches := inferredMismatchCounts(limitations)
 	out.Limitations = slices.DeleteFunc(limitations, func(l Limitation) bool {
-		if sourceLevelCluster(l, unavailable) {
+		if sourceLevelCluster(l, unavailable) || registryListingGap(l) {
 			return false
 		}
 		return rebuiltLimitation(l) || slices.Contains(out.hiddenLinkNotes, l) || slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })

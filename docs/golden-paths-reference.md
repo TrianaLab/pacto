@@ -75,7 +75,9 @@ keeps a pulled revision only when its contract declares `service.template` or
 `service.offering` and its `service.name` matches its repository's last path
 segment, so a bundle pushed under another name never stands in for a real
 path. A discovered offering that runs nowhere is a declared service with no
-target. `pacto impact` and `pacto ci` ignore discovery.
+target. `pacto impact` and `pacto ci` ignore discovery. On a dashboard or MCP
+server that discovers, a partial listing never makes an impact answer
+partial, since templates and offerings consume no service.
 
 Listings are kept for a minute. The source reads complete only when the index
 was read or is absent and `_catalog` was served, with no bound hit. Otherwise it
@@ -88,7 +90,7 @@ index repository, never another repository or a digest:
 | `REGISTRY_LISTING_NONE` | No index and no `_catalog`: the golden paths and offerings under the path are unknown |
 | `REGISTRY_LISTING_TRUNCATED` | A bound (2000 services, the page limit) or the read timeout stopped a listing |
 | `REGISTRY_LISTING_UNAVAILABLE` | A listing failed; when both fail the source is unavailable |
-| `REGISTRY_LISTING_ENTRY_UNREADABLE` | A count of listed bundles that could not be read or that do not match their repository |
+| `REGISTRY_LISTING_ENTRY_UNREADABLE` | A count of listed bundles that could not be read or that do not match their repository; a restricted view gives no count |
 
 ## Filters
 

@@ -178,7 +178,10 @@ func TestCheckDiscover(t *testing.T) {
 		"ghcr.io/acme:1.0.0":  "",
 		"ghcr.io/a/b:latest":  "",
 		"ghcr.io/acme@sha256:" + strings.Repeat("a", 64): "",
-		"": "",
+		"":                     "",
+		"https://ghcr.io/acme": "",
+		"/etc/passwd":          "",
+		"Ghcr.io/ACME":         "",
 	} {
 		got, err := CheckDiscover(in)
 		if got != want || (want == "") != (err != nil) {
@@ -288,7 +291,7 @@ func TestDiscoveryNoListingIsPartialNeverEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st := sourceOf(t, snap, "registry"); st.Kind != "oci" || st.Status != fleet.SourcePartial || st.RevisionCount != 0 || snap.Completeness == fleet.CompletenessComplete {
+	if st := sourceOf(t, snap, "registry"); st.Kind != fleet.SourceKindRegistryListing || st.Status != fleet.SourcePartial || st.RevisionCount != 0 || snap.Completeness == fleet.CompletenessComplete {
 		t.Fatalf("source %+v, completeness %s", st, snap.Completeness)
 	}
 }
@@ -443,6 +446,43 @@ func TestForgedIndexEntryDoesNotHideRealPath(t *testing.T) {
 	}
 	if e.ir.count("HEAD", "/acme/go-http-postgres/manifests/1.0.0") == 0 {
 		t.Fatal("the walk never visited the real repository")
+	}
+}
+
+// TestDiscoveryReadsPastALaggingIndex: a version pushed with no index entry
+// (or whose entry write failed) is still found by _catalog in a repository
+// the index already names, so a stale entry never reads as the newest path.
+func TestDiscoveryReadsPastALaggingIndex(t *testing.T) {
+	e := newIdxEnv(t)
+	e.pushAt(t, "acme/go-http-postgres", tplYAML("go-http-postgres", "1.2.0"), "")
+	e.pushAt(t, "acme/go-http-postgres", tplYAML("go-http-postgres", "1.3.0"), IndexNone)
+	coll := e.discover(t, e.svc, FleetOptions{})
+	if got := discoveredNames(coll); !slices.Contains(got, "go-http-postgres@1.3.0") || coll.State.Status != fleet.SourceAvailable {
+		t.Fatalf("%v %+v %+v", got, coll.State, coll.Limitations)
+	}
+}
+
+// TestDiscoveredForgeryNeverJoinsOwnerHistory: the owner pass sees only the
+// revisions whose name is their repository's, so a bundle pushed to another
+// repository under the prefix cannot steer the verdict of the service it
+// names before keepDiscovered drops it.
+func TestDiscoveredForgeryNeverJoinsOwnerHistory(t *testing.T) {
+	var seen []string
+	pass := discoveredOwnerRights(func(_ context.Context, _ string, revs []fleet.ContractRevision) {
+		for _, r := range revs {
+			seen = append(seen, r.Version)
+		}
+	})
+	revs := []fleet.ContractRevision{
+		{Service: "go-http-postgres", Version: "0.0.1", ResolvedRef: "ghcr.io/acme/evil@sha256:" + strings.Repeat("e", 64)},
+		{Service: "go-http-postgres", Version: "1.2.0", ResolvedRef: "oci://ghcr.io/acme/go-http-postgres@sha256:" + strings.Repeat("a", 64)},
+	}
+	pass(t.Context(), "registry", revs)
+	if !slices.Equal(seen, []string{"1.2.0"}) || len(revs) != 2 {
+		t.Fatalf("owner pass saw %v", seen)
+	}
+	if discoveredOwnerRights(nil) != nil {
+		t.Fatal("no owner pass became one")
 	}
 }
 
@@ -691,7 +731,20 @@ func TestTruncatedWalkIsMemoized(t *testing.T) {
 	if e.ir.count("GET", "/v2/_catalog") != 0 || limMessage(coll.Limitations, fleet.LimitationRegistryListingTruncated) == "" || !coll.State.ObservedAt.Equal(first) {
 		t.Fatalf("%v %+v %+v", e.ir.reqs, coll.State, coll.Limitations)
 	}
+	// A listing the caller cancelled is never kept, though it reads truncated.
+	e.svc.sys.now = func() time.Time { return first.Add(indexListingTTL) }
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if l := e.svc.registryListing(ctx, e.prefix()); l.index.outcome != listTruncated && l.catalog.outcome != listTruncated && !l.cut {
+		t.Fatalf("cancelled listing %+v", l)
+	}
+	e.ir.reset()
+	e.svc.registryListing(t.Context(), e.prefix())
+	if e.ir.count("GET", "/v2/_catalog") == 0 {
+		t.Fatal("a cancelled listing was reused")
+	}
 	// A failed walk is never kept.
+	e.svc.registryListings.listings = nil
 	e.hook(answer(http.StatusBadRequest, http.MethodGet, "/v2/_catalog"))
 	e.svc.sys.now = func() time.Time { return first.Add(indexListingTTL) }
 	e.discover(t, e.svc, FleetOptions{})
@@ -742,7 +795,7 @@ func TestNoDiscoveryNoSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st := sourceOf(t, snap, "registry-2"); st.Status != fleet.SourceUnavailable || st.Kind != "oci" {
+	if st := sourceOf(t, snap, "registry-2"); st.Status != fleet.SourceUnavailable || st.Kind != fleet.SourceKindRegistryListing {
 		t.Fatalf("%+v", snap.Sources)
 	}
 }
@@ -790,6 +843,32 @@ func TestImpactIgnoresDiscover(t *testing.T) {
 	with := e.impact(t, fo)
 	if with.Completeness != without.Completeness || reads() != 0 {
 		t.Fatalf("%s vs %s, %d discovery reads", with.Completeness, without.Completeness, reads())
+	}
+}
+
+// TestImpactOnDiscoverySnapshotStaysComplete: a dashboard or MCP server
+// started with discovery analyses its own snapshot, whose registry source
+// reads partial on a registry with no _catalog; the impact answer is as
+// complete as it is without discovery.
+func TestImpactOnDiscoverySnapshotStaysComplete(t *testing.T) {
+	e := newIdxEnv(t)
+	e.seed(t)
+	e.hook(catalog404)
+	snapOf := func(fo FleetOptions) *fleet.FleetSnapshot {
+		snap, err := e.svc.Fleet(t.Context(), fo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snap
+	}
+	refs := []string{"oci://" + e.prefix() + "/ledger:1.0.0", "oci://" + e.prefix() + "/orders:1.0.0", "oci://" + e.prefix() + "/billing:1.0.0"}
+	without := e.onSnapshot(t, snapOf(FleetOptions{OCIRefs: refs}), false)
+	snap := snapOf(FleetOptions{OCIRefs: refs, Discover: []string{e.prefix()}})
+	if sourceOf(t, snap, "registry").Status != fleet.SourcePartial || snap.Completeness != fleet.CompletenessPartial {
+		t.Fatalf("discovery did not read partial: %s %+v", snap.Completeness, snap.Sources)
+	}
+	if with := e.onSnapshot(t, snap, false); with.Completeness != without.Completeness || with.Completeness == fleet.CompletenessPartial {
+		t.Fatalf("%s vs %s %+v", with.Completeness, without.Completeness, with.Limitations)
 	}
 }
 

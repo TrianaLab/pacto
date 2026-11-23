@@ -13,8 +13,10 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"
 
+	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
@@ -25,14 +27,16 @@ import (
 )
 
 // CheckDiscover is a --discover prefix as host[/path], without oci:// or a
-// trailing slash; a tag or digest is refused.
+// trailing slash; a tag, a digest, another URL scheme and anything that does
+// not parse as a registry and repository path are refused.
 func CheckDiscover(prefix string) (string, error) {
 	p := strings.TrimSuffix(contract.TrimOCIScheme(strings.TrimSpace(prefix)), "/")
 	_, last, nested := strings.Cut(p, "/")
 	if i := strings.LastIndex(last, "/"); i >= 0 {
 		last = last[i+1:]
 	}
-	if p == "" || strings.Contains(p, "@") || nested && strings.Contains(last, ":") {
+	_, perr := registry.ParseReference(oci.InstallationRepository(p, oci.IndexRepository))
+	if p == "" || perr != nil || strings.Contains(p, "://") || strings.Contains(p, "@") || nested && strings.Contains(last, ":") {
 		return "", fmt.Errorf("--discover %q: --discover takes <registry>[/<path>] with no tag or digest", prefix)
 	}
 	return p, nil
@@ -56,7 +60,7 @@ func (s *Service) registrySources(opts FleetOptions) []fleet.Source {
 	for i, p := range opts.Discover {
 		id := sourceID("registry", i, len(opts.Discover))
 		if s.BundleStore == nil {
-			out = append(out, fleet.NewFailingSource(id, "oci", errNoBundleStore))
+			out = append(out, fleet.NewFailingSource(id, fleet.SourceKindRegistryListing, errNoBundleStore))
 			continue
 		}
 		out = append(out, &registrySource{id: id, prefix: p, svc: s, opts: opts})
@@ -81,8 +85,9 @@ type registrySource struct {
 func (s *registrySource) ID() string { return s.id }
 
 // Kind implements [fleet.Source]: its revisions are published bundles, so
-// the owner rule and provenance apply as for --oci.
-func (s *registrySource) Kind() string { return "oci" }
+// the owner rule and provenance apply as for --oci, and its health never
+// makes an impact answer partial (templates and offerings consume nothing).
+func (s *registrySource) Kind() string { return fleet.SourceKindRegistryListing }
 
 // Collect implements [fleet.Source]. It reads once per instance, so a
 // rebuild that carries the same source makes no request.
@@ -94,11 +99,11 @@ func (s *registrySource) Collect(ctx context.Context) (*fleet.Collection, error)
 // collect lists under the read timeout, then pulls under the caller's
 // context, as the whole-index source does.
 func (s *registrySource) collect(ctx context.Context) *fleet.Collection {
-	lctx, cancel := context.WithTimeout(ctx, indexReadTimeout)
-	l := s.svc.registryListing(lctx, s.prefix)
-	cancel()
+	l := s.svc.registryListing(ctx, s.prefix)
 	at := l.at
-	coll, err := s.svc.ociSourceFor(s.id, l.refs, s.opts).Collect(ctx)
+	src := s.svc.ociSourceFor(s.id, l.refs, s.opts)
+	src.OwnerRights = discoveredOwnerRights(src.OwnerRights)
+	coll, err := src.Collect(ctx)
 	if err != nil {
 		return &fleet.Collection{State: &fleet.SourceState{Status: fleet.SourceUnavailable, ObservedAt: &at,
 			Error: &fleet.SourceError{Code: "UNAVAILABLE", Message: redactDigests(err.Error())}}}
@@ -124,6 +129,25 @@ func redactRefFailures(coll *fleet.Collection) int {
 	return n
 }
 
+// discoveredOwnerRights is owners over only the revisions whose name is
+// their repository's: a bundle pushed to another repository under the prefix
+// never joins the owner history of the service it names, so it cannot steer
+// that service's verdict before keepDiscovered drops it.
+func discoveredOwnerRights(owners fleetsrc.OwnerRightsFunc) fleetsrc.OwnerRightsFunc {
+	if owners == nil {
+		return nil
+	}
+	return func(ctx context.Context, source string, revs []fleet.ContractRevision) {
+		owners(ctx, source, slices.DeleteFunc(slices.Clone(revs), func(r fleet.ContractRevision) bool { return !boundToRepository(r.ResolvedRef, r.Service) }))
+	}
+}
+
+// boundToRepository reports whether ref's repository is named name.
+func boundToRepository(ref, name string) bool {
+	repo, _ := contract.SplitOCIDigest(contract.TrimOCIScheme(ref))
+	return contract.DependencyName(repo) == name
+}
+
 // keepDiscovered drops every revision the listing cannot vouch for, with
 // the services the registry rows name for it, and returns how many: its
 // pulled contract is no template or offering (the kind annotation is the
@@ -134,8 +158,7 @@ func keepDiscovered(coll *fleet.Collection) int {
 	kept := map[fleet.ServiceKey]bool{}
 	coll.Revisions = slices.DeleteFunc(coll.Revisions, func(r fleet.RawRevision) bool {
 		c := r.Bundle.Contract
-		repo, _ := contract.SplitOCIDigest(contract.TrimOCIScheme(r.RequestedRef))
-		if k := oci.BundleKind(c); k == oci.KindService || contract.DependencyName(repo) != c.Service.Name {
+		if k := oci.BundleKind(c); k == oci.KindService || !boundToRepository(r.RequestedRef, c.Service.Name) {
 			return true
 		}
 		kept[fleet.NewServiceKeyDomain(r.Domain, c.Service.Name)] = true
@@ -161,10 +184,8 @@ const (
 type listing struct {
 	outcome string
 	// reason is why an unavailable listing failed, with no digest.
-	reason string
-	cands  []candidate
-	// skip holds the repositories of index entries bound to their name.
-	skip       map[string]bool
+	reason     string
+	cands      []candidate
 	unreadable int
 }
 
@@ -195,7 +216,9 @@ type registryMemo struct {
 // maxKinds bounds the kinds a process remembers.
 const maxKinds = 10000
 
-// registryListing is the listing of prefix, reused for indexListingTTL.
+// registryListing is the listing of prefix under the read timeout, reused
+// for indexListingTTL. A listing the caller cancelled is never kept: only
+// the read timeout's own cut is a bound worth remembering.
 func (s *Service) registryListing(ctx context.Context, prefix string) *registryListing {
 	now := s.env().now()
 	m := &s.registryListings
@@ -205,9 +228,11 @@ func (s *Service) registryListing(ctx context.Context, prefix string) *registryL
 	if l != nil && now.Sub(l.at) < indexListingTTL {
 		return l
 	}
-	l = s.listRegistry(ctx, prefix)
+	lctx, cancel := context.WithTimeout(ctx, indexReadTimeout)
+	l = s.listRegistry(lctx, prefix)
+	cancel()
 	l.at = now
-	if l.index.outcome != listUnavailable && l.catalog.outcome != listUnavailable {
+	if ctx.Err() == nil && l.index.outcome != listUnavailable && l.catalog.outcome != listUnavailable {
 		m.mu.Lock()
 		if m.listings == nil {
 			m.listings = map[string]*registryListing{}
@@ -223,7 +248,7 @@ func (s *Service) registryListing(ctx context.Context, prefix string) *registryL
 func (s *Service) listRegistry(ctx context.Context, prefix string) *registryListing {
 	idx := oci.InstallationRepository(prefix, oci.IndexRepository)
 	l := &registryListing{index: s.listIndex(ctx, idx)}
-	l.catalog = s.listCatalog(ctx, prefix, idx, l.index.skip)
+	l.catalog = s.listCatalog(ctx, prefix, idx)
 	l.refs, l.unreadable = s.classifyAll(ctx, slices.Concat(l.index.cands, l.catalog.cands))
 	l.unreadable += l.index.unreadable + l.catalog.unreadable
 	l.cut = ctx.Err() != nil
@@ -235,7 +260,7 @@ func (s *Service) listRegistry(ctx context.Context, prefix string) *registryList
 // an orgindex limitation, whose messages name entries.
 func (s *Service) listIndex(ctx context.Context, idx string) listing {
 	rd := s.IndexEntries(ctx, []string{idx})
-	l := listing{outcome: listRead, skip: map[string]bool{}}
+	l := listing{outcome: listRead}
 	switch rd.status {
 	case impact.IndexNotFound:
 		l.outcome = listAbsent
@@ -253,19 +278,19 @@ func (s *Service) listIndex(ctx context.Context, idx string) listing {
 	l.unreadable = max(0, rd.services-len(rd.entries)-len(rd.unread))
 	for _, e := range rd.entries {
 		repo, dg := contract.SplitOCIDigest(e.Bundle)
-		if contract.DependencyName(repo) == e.Name {
-			l.skip[repo] = true
-		}
 		l.cands = append(l.cands, candidate{repo: repo, ref: dg})
 	}
 	return l
 }
 
 // listCatalog lists the repositories under prefix through _catalog, minus
-// the ones skip holds and every repository a Pacto installation owns:
+// every repository a Pacto installation owns. A repository the index also
+// names is listed again: the index can lag the registry, and its newest tag
+// may be a version no entry holds (a repeated digest costs one Tags and one
+// Resolve, then dedupes). The installation repositories:
 // pacto-index, pacto-targets and pacto-evidence hold no bundle, and
 // pacto-inferred contracts have their own readers and trust rules.
-func (s *Service) listCatalog(ctx context.Context, prefix, idx string, skip map[string]bool) listing {
+func (s *Service) listCatalog(ctx context.Context, prefix, idx string) listing {
 	host, path, _ := strings.Cut(prefix, "/")
 	l := listing{outcome: listRead}
 	r, err := s.env().refusalRepo(idx)
@@ -284,8 +309,8 @@ func (s *Service) listCatalog(ctx context.Context, prefix, idx string, skip map[
 		l.outcome, l.reason = listUnavailable, redactDigests(err.Error())
 	}
 	for _, n := range names {
-		if repo := host + "/" + n; !skip[repo] && !pactoOwned(n) {
-			l.cands = append(l.cands, candidate{repo: repo})
+		if !pactoOwned(n) {
+			l.cands = append(l.cands, candidate{repo: host + "/" + n})
 		}
 	}
 	return l

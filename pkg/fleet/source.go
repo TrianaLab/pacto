@@ -27,6 +27,15 @@ const SourceKindKubernetes = "kubernetes"
 // inferred services and never a target.
 const SourceKindKubernetesWorkloads = "kubernetes-workloads"
 
+// SourceKindRegistryListing is the Kind of a source listing the golden paths
+// and offerings published under a registry prefix (--discover). Templates
+// and offerings never consume a service, so its health never makes an
+// impact or gate answer partial.
+const SourceKindRegistryListing = "registry"
+
+// nonConsumerSourceKinds are the kinds whose sources never name a consumer.
+var nonConsumerSourceKinds = []string{SourceKindKubernetesWorkloads, SourceKindRegistryListing}
+
 // SourceKindEvidenceHTTP and SourceKindTargetState are the Kinds of the
 // sources that report operational targets outside Kubernetes: the Evidence
 // Server and a target state file.

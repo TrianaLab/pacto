@@ -1795,7 +1795,7 @@ type FleetSnapshot struct {
 	// them is available.
 	observingSources map[string]bool
 	// workloadOnlyPartial: Build found the snapshot partial only because of a
-	// workload source. Restrict and the external fold clear it.
+	// workload source or a registry listing (nonConsumerSourceKinds). Restrict and the external fold clear it.
 	workloadOnlyPartial bool
 }
 
