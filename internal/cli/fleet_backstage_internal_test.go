@@ -37,6 +37,11 @@ func TestMCPHelpListsBackstageURL(t *testing.T) {
 	if !strings.Contains(cmd.Long, "--mira-source, --backstage-url, --oci") || cmd.Flag("backstage-url") == nil {
 		t.Fatal(cmd.Long)
 	}
+	// pacto_declare reads it outside --fleet to accept a template.
+	if !strings.Contains(cmd.Long, "except --backstage-url: pacto_declare also reads it in any mode") ||
+		!strings.Contains(cmd.Flag("backstage-url").Usage, "software templates are listed as inferred golden paths") {
+		t.Fatal(cmd.Long)
+	}
 }
 
 // TestWarnPartialNotesAnUnreadCatalog: a complete answer with a Backstage

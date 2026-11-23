@@ -311,7 +311,8 @@ func TestDeclareTemplateRefusesWorkloadFlags(t *testing.T) {
 	noKube(t)
 	var got app.DeclareRequest
 	d := declareDeps(t, &got, declarePlanFixture(), nil, nil)
-	for _, flags := range [][]string{{"--dir", "x"}, {"--namespace", "billing"}, {"--accept", "ledger"}} {
+	for _, flags := range [][]string{{"--dir", "x"}, {"--namespace", "billing"}, {"--accept", "ledger"}, {"--max-items", "3"}, {"--call-window", "1h"},
+		{"--pr", "--yes"}, {"--repository", "https://github.com/acme/x"}, {"--folder", "x"}, {"--repo-map", "m.yaml"}, {"--git-host", "github"}} {
 		args := append([]string{"declare", "template:default/springboot-service", "--registry", "ghcr.io/acme"}, flags...)
 		if _, _, err := runRoot(t, d, nil, args...); err == nil || !strings.Contains(err.Error(), flags[0]+" names a workload") {
 			t.Fatalf("%v: %v", flags, err)

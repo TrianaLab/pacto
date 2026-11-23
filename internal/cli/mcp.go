@@ -53,7 +53,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last rebuild attempt. " +
 			"With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, " +
 			"--evidence-url, --traces, --mira-source, --backstage-url, --oci, --cache, --k8s, --namespace and --freshness) compose " +
-			"that snapshot and are read in --fleet mode only.\n\n" +
+			"that snapshot and are read in --fleet mode only, except --backstage-url: pacto_declare also reads it in any mode to accept a template:<namespace>/<name> " +
+			"subject, a software template that catalog lists, as a golden path.\n\n" +
 			"With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the " +
 			"ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, the dashboard's delivery views " +
 			"(caller, inbox, environments, autonomy, published and refusals, scoped by --namespace like the dashboard's), plus propose and cancel only when the " +

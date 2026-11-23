@@ -214,7 +214,9 @@ func templateFlags(f *pflag.FlagSet, req app.DeclareRequest) error {
 		}
 		return nil
 	}
-	for _, name := range []string{"dir", "namespace", "accept"} {
+	// The same set pacto_declare refuses (DeclareArgs.workloadArgs): a golden
+	// path names no workload, repository or pull request.
+	for _, name := range []string{"dir", "namespace", "accept", "max-items", "call-window", "pr", "repository", "folder", "repo-map", "git-host"} {
 		if f.Changed(name) {
 			return fmt.Errorf("--%s names a workload, and %s is a golden path a catalog holds: drop --%s", name, req.TemplateSubject, name)
 		}
