@@ -422,8 +422,8 @@ func claimRows() []surfaceRow {
 			{"claim --owner", "pacto_declare.owner", plan + " body.owner", ""},
 			{"", "", accept + " body.owner", "the accept route carries out the plan with the owner it named"},
 			{"claim --name", "pacto_declare.name", plan + " body.name", ""},
-			// ponytail: 517-S7 P11 adds the claim panel's Offering field (body.offering) and fills this row's dashboard column.
-			{"claim --offering", "pacto_declare.offering", "", "the dashboard claim panel names no offering yet"},
+			{"claim --offering", "pacto_declare.offering", plan + " body.offering", ""},
+			{"", "", accept + " body.offering", "the accept route carries out the plan with the offering it named"},
 			{"", "", accept + " body.name", "the accept route carries out the plan with the name it named"},
 		},
 		alike("claim", "", "", why, "registry", "yes", "intent", "draft", "from-draft", "delivery-trust"),
