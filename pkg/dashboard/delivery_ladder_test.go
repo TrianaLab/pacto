@@ -198,3 +198,12 @@ func TestInboxLadderUnreadNeverConfirms(t *testing.T) {
 	expect(t, l["canConfirm"] == false && l["unread"] == "the ladder records: 503" && l["completeness"] == "partial" && l["asOf"] == "2026-11-23T10:00:00Z" &&
 		f.cans.Load() == 0, "ladder: %v", l)
 }
+
+func TestUnplacedWithoutPlacement(t *testing.T) {
+	f := ladderCluster()
+	f.placements = append(f.placements, delivery.PlacementRow{Service: "payments", Environment: "preview", Reason: "waiting: publisher not trusted yet"})
+	un := environmentsOf(t, f, "?environment=preview")["unplaced"].([]any)
+	row := un[0].(map[string]any)
+	_, hasPlacement := row["placement"]
+	expect(t, len(un) == 1 && !hasPlacement && row["reason"] == "waiting: publisher not trusted yet", "an environment with no placement has none: %v", un)
+}
