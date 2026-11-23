@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 )
@@ -25,6 +26,13 @@ var chartlessFlags = map[string]string{
 	"metrics-cert-name": "only meaningful with --metrics-cert-path, which the chart does not render",
 	"metrics-cert-key":  "only meaningful with --metrics-cert-path, which the chart does not render",
 	"zap-*":             "logging flags; production JSON logging is fixed in main",
+	// ponytail: P2 of 514-S6 renders these six and removes the entries.
+	"member-requests":           "rendered by the chart in P2 of 514-S6",
+	"member-allow-services":     "rendered by the chart in P2 of 514-S6",
+	"member-allow-namespaces":   "rendered by the chart in P2 of 514-S6",
+	"member-allow-environments": "rendered by the chart in P2 of 514-S6",
+	"delivery-policy-configmap": "rendered by the chart in P2 of 514-S6",
+	"recorded-ttl":              "rendered by the chart in P2 of 514-S6",
 }
 
 // chartlessKey returns the chartlessFlags entry covering name, or "" when none does.
@@ -241,5 +249,13 @@ func TestDashboardRepositoriesDeprecationNamesDiscoveryFlag(t *testing.T) {
 	bindFlags(fs, &options{})
 	if u := fs.Lookup("dashboard-repositories").Usage; !strings.HasPrefix(u, "Deprecated: set --dashboard-registry") {
 		t.Errorf("usage %q", u)
+	}
+}
+
+// TestSchemeKnowsOperation: the operator scheme knows the delivery group, so
+// the member intake creates Operations through the typed client.
+func TestSchemeKnowsOperation(t *testing.T) {
+	if _, _, err := scheme.ObjectKinds(&dv1.Operation{}); err != nil {
+		t.Fatal(err)
 	}
 }

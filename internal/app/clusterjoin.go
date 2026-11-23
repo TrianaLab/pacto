@@ -358,56 +358,18 @@ func supersededJoins(hub, uid string, vs []delivery.VerifiedJoin) []string {
 	return out
 }
 
-// verifyRecord opens f, a join record, as verifyPerson does. ok is false
+// verifyRecord opens f, a join record, as signing.VerifyPersonRecord does. ok is false
 // when it does not verify or names another user than its certificate maps
 // to; then Why says so.
 func verifyRecord(policy delivery.ClassPolicy, f deliveryrecord.Fetched) (delivery.VerifiedJoin, bool) {
 	v := delivery.VerifiedJoin{Ref: f.Manifest}
-	v.User, v.SignedAt, v.Why = verifyPerson(policy, "join record", func(verify func([]byte) error) (string, error) {
+	v.User, v.SignedAt, _, v.Why = signing.VerifyPersonRecord(policy, "join record", func(verify func([]byte) error) (string, error) {
 		st, err := delivery.OpenClusterJoin(f.Bundle, verify)
 		v.Record = st.Predicate
 		return st.Predicate.Approver, err
 	})
 	v.Verified, v.Counted = v.Why == "", v.Why == ""
 	return v, v.Verified
-}
-
-// verifyPerson opens a person's record (a what) through open, under the
-// approver signer whose issuer its certificate names, and maps the
-// certificate to the user the record must name, the approver open returns.
-// It returns that user, the verified signing time and why the record does
-// not verify, "" when it does.
-func verifyPerson(policy delivery.ClassPolicy, what string, open func(verify func([]byte) error) (approver string, err error)) (string, time.Time, string) {
-	var signer delivery.PublisherIdentity
-	var at time.Time
-	approver, err := open(func(b []byte) error {
-		var errs []error
-		for _, s := range policy.Signers {
-			id, t, err := signing.VerifyPerson(b, s.Issuer, s.TrustedRoot)
-			if err == nil {
-				signer, at = id, t
-				return nil
-			}
-			errs = append(errs, err)
-		}
-		return errors.Join(errs...)
-	})
-	if err != nil {
-		return "", at, "a " + what + " was not counted: " + err.Error()
-	}
-	id, source, err := delivery.ApproverIdentity(signer.Issuer, signer.Subject, policy)
-	if err == nil {
-		if code, why := delivery.KeylessRefusal(id, source); code != "" {
-			err = errors.New(why)
-		}
-	}
-	switch {
-	case err != nil:
-		return id.User, at, "a " + what + " signed by " + signer.Subject + " was not counted: " + err.Error()
-	case id.User != approver:
-		return id.User, at, "a " + what + " claiming approver " + approver + " is signed as " + id.User + " and was not counted"
-	}
-	return id.User, at, ""
 }
 
 // joinVerdictCache remembers approve reviews by user and member.

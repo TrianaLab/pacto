@@ -58,3 +58,45 @@ func OpenPersonApproval(bundle []byte, p delivery.ClassPolicy) (PersonApproval, 
 	}
 	return PersonApproval{}, errors.Join(errs...)
 }
+
+// VerifyPersonRecord opens a person's record (a what) through open, under
+// the approver signer of policy whose issuer its certificate names, and maps
+// the certificate to the user the record must name, the one open returns. It
+// returns that user, the verified signing time, the signer's class
+// (delivery.ClassifySigner; empty when the signature did not verify) and why
+// the record does not verify, "" when it does. Every reader of a record a
+// person signs keyless (join records, group mappings, member requests) goes
+// through it.
+func VerifyPersonRecord(policy delivery.ClassPolicy, what string, open func(verify func([]byte) error) (named string, err error)) (string, time.Time, delivery.ActorClass, string) {
+	var signer delivery.PublisherIdentity
+	var at time.Time
+	named, err := open(func(b []byte) error {
+		var errs []error
+		for _, s := range policy.Signers {
+			id, t, err := VerifyPerson(b, s.Issuer, s.TrustedRoot)
+			if err == nil {
+				signer, at = id, t
+				return nil
+			}
+			errs = append(errs, err)
+		}
+		return errors.Join(errs...)
+	})
+	if err != nil {
+		return "", at, "", "a " + what + " was not counted: " + err.Error()
+	}
+	class, _ := delivery.ClassifySigner(signer, nil)
+	id, source, err := delivery.ApproverIdentity(signer.Issuer, signer.Subject, policy)
+	if err == nil {
+		if code, why := delivery.KeylessRefusal(id, source); code != "" {
+			err = errors.New(why)
+		}
+	}
+	switch {
+	case err != nil:
+		return id.User, at, class, "a " + what + " signed by " + signer.Subject + " was not counted: " + err.Error()
+	case id.User != named:
+		return id.User, at, class, "a " + what + " claiming approver " + named + " is signed as " + id.User + " and was not counted"
+	}
+	return id.User, at, class, ""
+}

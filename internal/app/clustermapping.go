@@ -15,6 +15,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
 // Per-cluster limitations of group mapping records.
@@ -127,12 +128,12 @@ func (jr *joinRead) decideMapping(ctx context.Context, uid string, vs []Verified
 	return nil
 }
 
-// verifyMapping opens f, a group mapping record, as verifyPerson does, and
+// verifyMapping opens f, a group mapping record, as signing.VerifyPersonRecord does, and
 // says why it does not verify, "" when it does.
 func verifyMapping(policy delivery.ClassPolicy, f deliveryrecord.Fetched) (VerifiedGroupMapping, string) {
 	v := VerifiedGroupMapping{Ref: f.Manifest}
 	var why string
-	v.User, v.SignedAt, why = verifyPerson(policy, "group mapping", func(verify func([]byte) error) (string, error) {
+	v.User, v.SignedAt, _, why = signing.VerifyPersonRecord(policy, "group mapping", func(verify func([]byte) error) (string, error) {
 		st, err := delivery.OpenClusterGroupMapping(f.Bundle, verify)
 		v.Record = st.Predicate
 		return st.Predicate.Approver, err

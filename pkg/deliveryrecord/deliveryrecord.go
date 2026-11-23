@@ -109,6 +109,10 @@ const (
 	// KindLadder is an installation ladder record, on its cluster's ladder
 	// stream.
 	KindLadder = "ladder"
+	// KindRequest is a member request and KindOutcome its outcome, on the
+	// member's request stream.
+	KindRequest = "request"
+	KindOutcome = "outcome"
 )
 
 // KindTag is the write-once tag of an approval or intent record (kind) of
@@ -229,6 +233,10 @@ func kindOf(predicate string) string {
 		return KindApplyRefusal
 	case delivery.PredicateEnvironmentLadder:
 		return KindLadder
+	case delivery.PredicateOperationRequest:
+		return KindRequest
+	case delivery.PredicateRequestOutcome:
+		return KindOutcome
 	}
 	return KindIntent
 }

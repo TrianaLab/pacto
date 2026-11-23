@@ -32,6 +32,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/dynamic"
@@ -45,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/controller"
@@ -63,9 +65,11 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/scope"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/targetsnapshot"
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	// +kubebuilder:scaffold:imports
@@ -92,6 +96,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(pactov1alpha1.AddToScheme(scheme))
+	utilruntime.Must(dv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -160,6 +165,13 @@ type options struct {
 	hubCAFile            string
 	registryPullSecret   string
 	registryPushPrefixes []string
+
+	memberRequests          bool
+	memberAllowServices     string
+	memberAllowNamespaces   string
+	memberAllowEnvironments string
+	deliveryPolicyConfigMap string
+	recordedTTL             time.Duration
 
 	ownerPolicy        string
 	trustedRoot        string
@@ -446,6 +458,24 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"The hub's https:// or wss:// URL. Setting it makes this joined cluster a member: the elected leader dials "+
 			"the hub, proves the installation key and answers the hub's per-person reviews with this cluster's own "+
 			"SubjectAccessReview. Nothing listens for the hub; needs --registry.")
+	fs.BoolVar(&o.memberRequests, "member-requests", false,
+		"Take member requests: the elected leader reads this cluster's request stream in <registry>/pacto-targets and "+
+			"raises one promote, as an agent on the person's behalf, for each request a person signed that this cluster's "+
+			"approver signers verify, its RBAC allows and its allowlist takes. "+
+			"Needs --registry and --delivery-policy-configmap.")
+	fs.StringVar(&o.memberAllowServices, "member-allow-services", "",
+		"Comma-separated service name patterns member requests are taken for; empty takes every service.")
+	fs.StringVar(&o.memberAllowNamespaces, "member-allow-namespaces", "",
+		"Comma-separated namespaces member requests are taken for, among the watched ones; "+
+			"empty takes every watched namespace.")
+	fs.StringVar(&o.memberAllowEnvironments, "member-allow-environments", "",
+		"Comma-separated environments member requests are taken for, among those the cluster name hosts; "+
+			"empty takes them all.")
+	fs.StringVar(&o.deliveryPolicyConfigMap, "delivery-policy-configmap", "",
+		"namespace/name of the ConfigMap holding the delivery identity policy (policy.json), whose approver "+
+			"signers verify member requests.")
+	fs.DurationVar(&o.recordedTTL, "recorded-ttl", 0,
+		"How long the delivery recorder keeps a concluded Operation: no member request outlives it. 0 adds no bound.")
 	fs.StringVar(&o.hubCAFile, "hub-ca-file", "",
 		"File holding the PEM CAs the hub's certificate may chain to, beside the system pool.")
 	fs.StringVar(&o.registryPullSecret, "registry-pull-secret", "",
@@ -982,7 +1012,47 @@ func addPublishers(mgr ctrl.Manager, o *options, namespace string, ident kubeclu
 	if err != nil {
 		return nil, err
 	}
+	if err := addIntake(mgr, o, ident, key, kc); err != nil {
+		return nil, err
+	}
 	return inst, addMember(mgr, o, ident, key)
+}
+
+// addIntake takes member requests when --member-requests is set: it opens <registry>/pacto-targets through
+// the push scope and signs its outcomes with the installation key the hub already trusts.
+func addIntake(mgr ctrl.Manager, o *options, ident kubecluster.Identity, key ed25519.PrivateKey,
+	kc authn.Keychain) error {
+	if !o.memberRequests {
+		return nil
+	}
+	if key == nil {
+		return errors.New("--member-requests needs --registry: requests and their outcomes sit in <registry>/pacto-targets")
+	}
+	ns, name, ok := strings.Cut(o.deliveryPolicyConfigMap, "/")
+	if !ok {
+		return errors.New("--member-requests needs --delivery-policy-configmap as namespace/name")
+	}
+	repo, err := ocireferrer.Open(oci.InstallationRepository(o.registry, oci.TargetsRepository), ocireferrer.Options{
+		Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Scope: oci.NewPushScope(o.registry)})
+	if err != nil {
+		return fmt.Errorf("the member request repository: %w", err)
+	}
+	kp, _ := signing.FromPrivateKey(key) // a full-size Ed25519 key always loads
+	setupLog.Info("Member requests are on", "cluster", ident.ID)
+	return mgr.Add(&member.Intake{Reader: mgr.GetAPIReader(), Writer: mgr.GetClient(), Records: &deliveryrecord.Reader{},
+		Repo: repo, Signer: signing.Keyed(kp, ""), Key: key,
+		ClusterID: ident.ID, ClusterName: ident.Name, NameSource: ident.NameSource,
+		WhoAmI: member.SelfActor(mgr.GetClient()), Review: member.MayPropose(mgr.GetClient()),
+		Policy: member.ClassPolicyFrom(mgr.GetAPIReader(), types.NamespacedName{Namespace: ns, Name: name}),
+		Allow: core.RequestAllowlist{Services: commaList(o.memberAllowServices),
+			Namespaces: commaList(o.memberAllowNamespaces), Environments: commaList(o.memberAllowEnvironments)},
+		Observed: o.namespaces, RecordedTTL: o.recordedTTL, Now: time.Now, Interval: 30 * time.Second,
+		Log: ctrl.Log.WithName("member-requests")})
+}
+
+// commaList splits a comma-separated flag value, dropping empty items.
+func commaList(v string) []string {
+	return slices.DeleteFunc(strings.Split(v, ","), func(s string) bool { return strings.TrimSpace(s) == "" })
 }
 
 // addMember makes this cluster a member when --hub-url is set: the elected leader dials the hub and answers
