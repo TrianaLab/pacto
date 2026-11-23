@@ -193,11 +193,13 @@ func TestPushContributionRefusesForeignTag(t *testing.T) {
 		t.Fatalf("another tag: %v", err)
 	}
 	dir := writeContribution(t)
-	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.5\"\nservice:\n  name: checkout\n  version: 1.0.0+build.1\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := e.svc.Push(ctx, PushOptions{Ref: "oci://" + repo, Path: dir}); err == nil || !strings.Contains(err.Error(), "version 1.0.0+build.1 holds build metadata") {
-		t.Fatalf("a version with '+': %v", err)
+	for _, v := range []string{"1.0.0+build.1", "v1.2.3"} {
+		if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.5\"\nservice:\n  name: checkout\n  version: "+v+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.svc.Push(ctx, PushOptions{Ref: "oci://" + repo, Path: dir}); err == nil || !strings.Contains(err.Error(), "version "+v+" is no contribution version: a contribution version is MAJOR.MINOR.PATCH semver") {
+			t.Fatalf("version %s: %v", v, err)
+		}
 	}
 	if tags, _ := e.reg.Tags(ctx, repo); len(tags) != 0 {
 		t.Errorf("tags = %v", tags)
@@ -328,5 +330,90 @@ func TestPushContributionKeepsItsRecord(t *testing.T) {
 	bad := override.Overrides{SetValues: []string{"service.version=2.0.0"}, ValueFiles: []string{filepath.Join(dir, "missing.yaml")}}
 	if _, err := e.svc.Push(context.Background(), PushOptions{Ref: ref, Path: dir, Overrides: bad}); err == nil {
 		t.Error("an override that cannot be applied was pushed")
+	}
+}
+
+// TestPushContributionRenewsAgingRecord: the same contribution again renews
+// its created time and signature once its record is half a freshness window
+// old, so a producer that keeps pushing never reads stale.
+func TestPushContributionRenewsAgingRecord(t *testing.T) {
+	e := newPushEnv(t, plainRegistry())
+	ctx := context.Background()
+	now := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
+	e.svc.sys.now = func() time.Time { return now }
+	repo := e.host + "/acme/pacto-inferred/my-idp/services"
+	opts := e.signed(PushOptions{Ref: "oci://" + repo, Path: writeContribution(t)}, filepath.Join(t.TempDir(), "k.key"))
+	res, err := e.svc.Push(ctx, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(13 * time.Hour)
+	again, err := e.svc.Push(ctx, opts)
+	if err != nil || again.Unchanged || again.Digest == res.Digest {
+		t.Fatalf("an aging record was not renewed: %+v %v", again, err)
+	}
+	h, err := e.reg.Head(ctx, again.Ref)
+	if err != nil || h.Digest != again.Digest || h.Annotations[publish.AnnotationCreated] != "2026-11-22T23:00:00Z" {
+		t.Fatalf("head = %+v, %v", h, err)
+	}
+	if err := e.verify(t, "acme/pacto-inferred/my-idp/services", again.Digest); err != nil {
+		t.Errorf("the renewed record is unsigned: %v", err)
+	}
+}
+
+// writeContributionRecord writes a contribution whose record says checkout
+// calls dep, cited from an unchanged export.json.
+func writeContributionRecord(t *testing.T, dir, dep string) {
+	t.Helper()
+	export := []byte(`{"checkout":["ledger"]}`)
+	sum := sha256.Sum256(export)
+	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat,
+		Inputs: contract.InferredInputs{Pacto: "4.6.0", Discovery: "1", Sources: []contract.InferredSourceFile{{Path: "export.json", Digest: "sha256:" + hex.EncodeToString(sum[:])}}},
+		Fields: []contract.Inferred{{Field: "dependencies[" + dep + "]", Value: dep, Source: "export.json:1", Confidence: contract.ConfidenceLikely}}}
+	for name, data := range map[string][]byte{"export.json": export, contract.InferredRecordFile: rec.Marshal()} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestPushContributionChangedRecordConflicts: a contribution whose record
+// fields changed under the same version and cited files is a conflict, never
+// unchanged.
+func TestPushContributionChangedRecordConflicts(t *testing.T) {
+	e := newPushEnv(t, plainRegistry())
+	ctx := context.Background()
+	dir := writeContribution(t)
+	writeContributionRecord(t, dir, "ledgr")
+	opts := PushOptions{Ref: "oci://" + e.host + "/acme/pacto-inferred/my-idp/services", Path: dir}
+	if _, err := e.svc.Push(ctx, opts); err != nil {
+		t.Fatal(err)
+	}
+	writeContributionRecord(t, dir, "ledger")
+	if res, err := e.svc.Push(ctx, opts); !errors.Is(err, ErrArtifactAlreadyExists) {
+		t.Fatalf("a changed record: %+v %v", res, err)
+	}
+}
+
+// TestPushContributionRefusesDeclaredFields: a contribution that declares
+// more than its name and version, by its pacto.yaml or by --set, is refused
+// before anything is pushed, with the reason every reader would give.
+func TestPushContributionRefusesDeclaredFields(t *testing.T) {
+	e := newPushEnv(t, plainRegistry())
+	ctx := context.Background()
+	repo := e.host + "/acme/pacto-inferred/my-idp/services"
+	dir := writeContribution(t)
+	if _, err := e.svc.Push(ctx, PushOptions{Ref: "oci://" + repo, Path: dir, Overrides: override.Overrides{SetValues: []string{"service.owner.team=x"}}}); err == nil ||
+		!strings.Contains(err.Error(), "it declares service.owner; a contribution declares only service.name and service.version") {
+		t.Fatalf("--set service.owner: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.5\"\nservice:\n  name: checkout\n  version: 1.0.0\n  summary: s\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.Push(ctx, PushOptions{Ref: "oci://" + repo, Path: dir}); err == nil || !strings.Contains(err.Error(), "it declares service.summary") {
+		t.Fatalf("a declared summary: %v", err)
+	}
+	if tags, _ := e.reg.Tags(ctx, repo); len(tags) != 0 {
+		t.Errorf("tags = %v", tags)
 	}
 }

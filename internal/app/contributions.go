@@ -125,14 +125,18 @@ func (r *contributionReader) Read(ctx context.Context, source string, c evidence
 	}
 	services, ignored := newestTags(tags)
 	f.Ignored += ignored
+	var lims []fleet.Limitation
 	if len(services) > maxContributedServices {
-		f.Problems = append(f.Problems, strconv.Itoa(len(services))+" services contributed, at most "+strconv.Itoa(maxContributedServices)+" are read")
+		// The services past the bound are unknown, never absent.
+		why := strconv.Itoa(len(services)) + " services contributed, at most " + strconv.Itoa(maxContributedServices) + " are read"
+		f.Problems = append(f.Problems, why)
+		lims = append(lims, unreadLimitation(source, c.Producer, why))
 		services = services[:maxContributedServices]
 	}
 	var (
 		revs             []fleet.RawRevision
 		refused, unread  int
-		mistagged        int
+		mistagged, ahead int
 		firstUnreadCause string
 	)
 	keys := decodeKeys(c.Keys)
@@ -144,6 +148,11 @@ func (r *contributionReader) Read(ctx context.Context, source string, c evidence
 			firstUnreadCause = cmp.Or(firstUnreadCause, fleet.SanitizedReason(out.err))
 		}
 		if rev != nil {
+			if rev.Contributor.AsOf.After(r.Now().Add(fleet.MaxProvisioningClockSkew)) {
+				// A record dated in the future has an unknown age: stale.
+				rev.Contributor.AsOf = time.Time{}
+				ahead++
+			}
 			revs = append(revs, *rev)
 			f.Read++
 			if rev.Contributor.AsOf.IsZero() {
@@ -158,7 +167,9 @@ func (r *contributionReader) Read(ctx context.Context, source string, c evidence
 	if mistagged > 0 {
 		f.Problems = append(f.Problems, strconv.Itoa(mistagged)+" tags name another service or version than their record")
 	}
-	var lims []fleet.Limitation
+	if ahead > 0 {
+		f.Problems = append(f.Problems, strconv.Itoa(ahead)+" records are dated in the future, so their age is unknown")
+	}
 	if unread > 0 {
 		why := strconv.Itoa(unread) + " records could not be read: " + firstUnreadCause
 		f.Problems = append(f.Problems, why)
@@ -215,8 +226,8 @@ func newestTags(tags []string) ([]serviceTags, int) {
 			continue
 		}
 		name, ver, _ := strings.Cut(t, "_")
-		v, err := semver.StrictNewVersion(ver)
-		if err != nil || v.Metadata() != "" || name == "" || contract.SanitizeName(name) != name {
+		v, ok := contributionVersion(ver)
+		if !ok || name == "" || contract.SanitizeName(name) != name {
 			ignored++
 			continue
 		}
@@ -235,6 +246,13 @@ func newestTags(tags []string) ([]serviceTags, int) {
 	return out, ignored
 }
 
+// contributionVersion is v parsed when it is a version a contribution tag
+// can carry: strict MAJOR.MINOR.PATCH semver with no build metadata.
+func contributionVersion(v string) (*semver.Version, bool) {
+	sv, err := semver.StrictNewVersion(v)
+	return sv, err == nil && sv.Metadata() == ""
+}
+
 // readOutcome is what reading one service cost: the versions refused and the
 // error that stopped it, nil when none did.
 type readOutcome struct {
@@ -244,7 +262,8 @@ type readOutcome struct {
 
 // readService reads s's newest version that is signed by one of keys and
 // holds the name and version of its tag, trying older ones while newer are
-// refused. A registry error stops it.
+// refused; an older one read names the newest refused, so it reads stale. A
+// registry error stops it.
 func (r *contributionReader) readService(ctx context.Context, c evidenceingest.ProducerContributor, keys []contributorKey, s serviceTags) (*fleet.RawRevision, readOutcome) {
 	var out readOutcome
 	for _, v := range s.versions[:min(len(s.versions), maxVersionsTried)] {
@@ -258,6 +277,9 @@ func (r *contributionReader) readService(ctx context.Context, c evidenceingest.P
 			out.err = err
 			return nil, out
 		default:
+			if v != s.versions[0] {
+				rev.Contributor.NewerRefused = s.versions[0]
+			}
 			return rev, out
 		}
 	}

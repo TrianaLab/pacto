@@ -234,6 +234,20 @@ func TestContributionReaderAsOfFromManifest(t *testing.T) {
 	}
 }
 
+// TestContributionReaderFutureAsOfIsUnknown: a record dated past the clock
+// skew has an unknown age, said on the row; one within it keeps its time.
+func TestContributionReaderFutureAsOfIsUnknown(t *testing.T) {
+	e := newCtbEnv(t)
+	near := readNow().Add(time.Minute)
+	e.push(t, "ahead_1.0.0", "ahead", "1.0.0", readNow().AddDate(1, 0, 0).Format(time.RFC3339), e.mine)
+	e.push(t, "near_1.0.0", "near", "1.0.0", near.Format(time.RFC3339), e.mine)
+	revs, f, _ := e.read(e.contributor())
+	if len(revs) != 2 || !revs[0].Contributor.AsOf.IsZero() || !revs[1].Contributor.AsOf.Equal(near) ||
+		!hasProblem(f, "1 records are dated in the future, so their age is unknown") || !f.NewestContribution.Equal(near) {
+		t.Errorf("revs = %+v facts = %+v", revs, f)
+	}
+}
+
 // TestContributionReaderRefusesForeignRepository: a repository the reader
 // cannot rebuild under one of its roots for the advertised producer is
 // never listed or pulled.
@@ -283,13 +297,14 @@ func TestContributionReaderDropsUnsigned(t *testing.T) {
 }
 
 // TestContributionReaderDropsForeignKey: a record another producer's key
-// signed is refused, and an older one my-idp signed is read instead.
+// signed is refused, and an older one my-idp signed is read instead, naming
+// the newer version refused.
 func TestContributionReaderDropsForeignKey(t *testing.T) {
 	e := newCtbEnv(t)
 	e.push(t, "ledger-sync_1.0.0", "ledger-sync", "1.0.0", "", e.mine)
 	e.push(t, "ledger-sync_2.0.0", "ledger-sync", "2.0.0", "", e.other)
 	revs, f, lims := e.read(e.contributor())
-	if len(revs) != 1 || revs[0].Bundle.Contract.Service.Version != "1.0.0" || len(lims) != 0 || !hasProblem(f, "1 records were unsigned") {
+	if len(revs) != 1 || revs[0].Bundle.Contract.Service.Version != "1.0.0" || revs[0].Contributor.NewerRefused != "2.0.0" || len(lims) != 0 || !hasProblem(f, "1 records were unsigned") {
 		t.Errorf("revs = %+v facts = %+v lims = %+v", revs, f, lims)
 	}
 }
@@ -304,8 +319,9 @@ func TestContributionReaderBounds(t *testing.T) {
 	r := &contributionReader{Registry: reg, Roots: []string{"ghcr.io/acme"}, Now: readNow}
 	f := fleet.ProducerFacts{Producer: "my-idp"}
 	_, lims := r.Read(context.Background(), "ev", evidenceingest.ProducerContributor{Producer: "my-idp", Repository: contract.ContributionRepository("ghcr.io/acme", "my-idp")}, &f)
-	if reg.heads != maxContributedServices || !hasProblem(f, "201 services contributed, at most 200 are read") || len(lims) != 1 ||
-		!strings.Contains(lims[0].Message, "200 records could not be read: the source is unavailable") {
+	if reg.heads != maxContributedServices || !hasProblem(f, "201 services contributed, at most 200 are read") || len(lims) != 2 ||
+		lims[0].Code != fleet.LimitationContributionUnread || !strings.Contains(lims[0].Message, "201 services contributed, at most 200 are read") ||
+		!strings.Contains(lims[1].Message, "200 records could not be read: the source is unavailable") {
 		t.Errorf("heads = %d facts = %+v lims = %+v", reg.heads, f, lims)
 	}
 

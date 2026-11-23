@@ -291,10 +291,12 @@ type RawRevision struct {
 // Contributor is the producer whose contribution repository a revision was
 // read from. KeyID is the key that verified its signature; ReadAt is when the
 // source read it and AsOf the signed manifest's created time, zero when
-// unknown.
+// unknown. NewerRefused is the newest version of the service the source
+// refused before reading this older one, empty when it read the newest.
 type Contributor struct {
 	Producer, KeyID string
 	ReadAt, AsOf    time.Time
+	NewerRefused    string
 }
 
 // OwnerView is raw as the owner rule reads it, before Build: its service,

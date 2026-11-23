@@ -24,7 +24,11 @@ const targetsJSON = `{"schemaVersion":"pacto.dev/evidence-source/v2","generatedA
 
 func serveJSON(t *testing.T, payload string) *httptest.Server {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == evidenceingest.ProducersPath {
+			http.NotFound(w, r) // a server that predates /producers
+			return
+		}
 		_, _ = w.Write([]byte(payload))
 	}))
 }
@@ -408,7 +412,7 @@ func evidenceNow() time.Time { return time.Date(2026, 7, 29, 12, 0, 0, 0, time.U
 // rows beside the rows of the producers that reported targets; an older
 // server, a failed or unreadable read leaves the target producers alone.
 func TestEvidenceSourceReadsAdapters(t *testing.T) {
-	collect := func(producers http.HandlerFunc) []fleet.Provider {
+	collect := func(producers http.HandlerFunc) ([]fleet.Provider, []fleet.Limitation) {
 		t.Helper()
 		mux := http.NewServeMux()
 		mux.HandleFunc("GET "+evidenceingest.TargetsPath, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(targetsJSON)) })
@@ -421,7 +425,7 @@ func TestEvidenceSourceReadsAdapters(t *testing.T) {
 		if err != nil || len(col.Targets) != 1 {
 			t.Fatalf("collect: %v %+v", err, col)
 		}
-		return col.Providers
+		return publicRows(t, col.Providers), col.Limitations
 	}
 	write := func(body string) http.HandlerFunc {
 		return func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }
@@ -429,22 +433,46 @@ func TestEvidenceSourceReadsAdapters(t *testing.T) {
 	reported := evidenceNow().Add(-time.Hour)
 	prodEU := fleet.Provider{ID: "producer/prod-eu", Name: "prod-eu", UsedFor: []string{fleet.UseReportedTargets}, Status: fleet.SourceAvailable,
 		Evidence: "reports targets through the Evidence Server; newest report 1h ago", AsOf: &reported}
-	got := collect(write(`{"producers":["crossplane"],"adapters":[{"producer":"crossplane","kinds":["ResourceProvisioned","ResourceUsage"]}]}`))
+	got, lims := collect(write(`{"producers":["crossplane"],"adapters":[{"producer":"crossplane","kinds":["ResourceProvisioned","ResourceUsage"]}]}`))
 	want := []fleet.Provider{{ID: "producer/crossplane", Name: "crossplane", UsedFor: []string{fleet.UseReporting}, Status: fleet.SourceAvailable,
 		Evidence: "the trust config allows it to report ResourceProvisioned and ResourceUsage"}, prodEU}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("rows = %+v", got)
+	if !reflect.DeepEqual(got, want) || len(lims) != 0 {
+		t.Errorf("rows = %+v lims = %+v", got, lims)
 	}
-	for name, h := range map[string]http.HandlerFunc{
-		"older server": write(`{"producers":["crossplane"]}`),
-		"not json":     write(`{`),
-		"forbidden":    func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) },
-		"dropped":      func(http.ResponseWriter, *http.Request) { panic(http.ErrAbortHandler) },
+	// A server that lists no adapter, or predates /producers, has no
+	// contributor; any other failed read leaves the contributors unknown.
+	for name, tc := range map[string]struct {
+		h      http.HandlerFunc
+		unread bool
+	}{
+		"older server": {write(`{"producers":["crossplane"]}`), false},
+		"no route":     {http.NotFound, false},
+		"not json":     {write(`{`), true},
+		"forbidden":    {func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) }, true},
+		"unavailable":  {func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }, true},
+		"dropped":      {func(http.ResponseWriter, *http.Request) { panic(http.ErrAbortHandler) }, true},
 	} {
-		if rows := collect(h); !reflect.DeepEqual(rows, []fleet.Provider{prodEU}) {
-			t.Errorf("%s: rows = %+v", name, rows)
+		rows, lims := collect(tc.h)
+		unread := len(lims) == 1 && lims[0].Code == fleet.LimitationContributionUnread && lims[0].Source == "ev" &&
+			strings.HasPrefix(lims[0].Message, "the producer list could not be read (")
+		if !reflect.DeepEqual(rows, []fleet.Provider{prodEU}) || unread != tc.unread || (!tc.unread && len(lims) != 0) {
+			t.Errorf("%s: rows = %+v lims = %+v", name, rows, lims)
 		}
 	}
+}
+
+// publicRows are rows as a client reads them: their serialised fields.
+func publicRows(t *testing.T, rows []fleet.Provider) []fleet.Provider {
+	t.Helper()
+	data, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []fleet.Provider
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 // TestReportingRowsFromEvidenceProducers: the adapters reach the snapshot as
@@ -548,16 +576,19 @@ func TestEvidenceHTTPSilentProducerRowStale(t *testing.T) {
 }
 
 // TestEvidenceHTTPNoBundleStoreRow: with no reader, an advertised
-// contributor's row says nothing reads its records.
+// contributor's row says nothing reads its records, once, naming every
+// repository it is granted.
 func TestEvidenceHTTPNoBundleStoreRow(t *testing.T) {
 	repo := contract.ContributionRepository("ghcr.io/acme", "my-idp")
+	beta := contract.ContributionRepository("ghcr.io/beta", "my-idp")
 	srv := evidenceServer(t, targetsJSON, evidenceingest.ProducersResponse{Producers: []string{},
-		Contributors: []evidenceingest.ProducerContributor{{Producer: "my-idp", Repository: repo}}})
+		Contributors: []evidenceingest.ProducerContributor{{Producer: "my-idp", Repository: repo}, {Producer: "my-idp", Repository: beta}}})
 	col, err := NewEvidenceHTTPSource("ev", srv.URL).Collect(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(col.Providers) != 2 || col.Providers[0].ID != "producer/my-idp" || col.Providers[0].Status != fleet.SourcePartial ||
+		!strings.HasSuffix(col.Providers[0].Evidence, repo+" and "+beta) || len(col.Providers[0].Limitations) != 1 ||
 		col.Providers[0].Limitations[0].Message != "no registry is configured to read contributions" || len(col.Limitations) != 0 {
 		t.Errorf("rows = %+v limitations = %+v", col.Providers, col.Limitations)
 	}

@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
@@ -100,9 +101,10 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 // producers reads the server's GET /producers once and returns the records
 // its contributors hold, the limitations of what could not be read and one
 // row per producer: what it reports, what its trust config allows and what
-// it contributes. ponytail: a server that lists nothing (an older one) or a
-// /producers read that fails reads no contributor and adds no limitation; a
-// missing row claims nothing, and the targets the source exists for were read.
+// it contributes. A server that lists nothing, or predates /producers (404),
+// has no contributor. Any other failed /producers read makes the source
+// partial (CONTRIBUTION_UNREAD): the contributors it would list are unknown,
+// never absent.
 func (s *EvidenceHTTPSource) producers(ctx context.Context, targets []fleet.RawTarget) ([]fleet.RawRevision, []fleet.Limitation, []fleet.Provider) {
 	now := time.Now
 	if s.Now != nil {
@@ -121,11 +123,15 @@ func (s *EvidenceHTTPSource) producers(ctx context.Context, targets []fleet.RawT
 			f.NewestReport = laterOf(f.NewestReport, *t.EvidenceAt)
 		}
 	}
-	body := s.readProducers(ctx)
+	body, err := s.readProducers(ctx)
 	for _, a := range body.Adapters {
 		fact(a.Producer).AdapterKinds = a.Kinds
 	}
 	revs, lims := s.readContributions(ctx, body.Contributors, fact)
+	if err != nil {
+		lims = append(lims, fleet.Limitation{Code: fleet.LimitationContributionUnread, Source: s.id,
+			Message: "the producer list could not be read (" + fleet.SanitizedReason(err) + "); the services producers contribute are unknown"})
+	}
 	var rows []fleet.Provider
 	for _, p := range slices.Sorted(maps.Keys(facts)) {
 		if row, ok := fleet.ProducerRow(*facts[p], now(), s.Freshness); ok {
@@ -153,8 +159,11 @@ func (s *EvidenceHTTPSource) readContributions(ctx context.Context, contributors
 	for _, c := range contributors {
 		f := fact(c.Producer)
 		if s.Contributions == nil {
-			f.Repository = c.Repository
-			f.Problems = append(f.Problems, "no registry is configured to read contributions")
+			// One row per producer, naming every repository, as Read does.
+			f.Repository = strings.TrimPrefix(f.Repository+" and "+c.Repository, " and ")
+			if !slices.Contains(f.Problems, noContributionRegistry) {
+				f.Problems = append(f.Problems, noContributionRegistry)
+			}
 			continue
 		}
 		r, l := s.Contributions.Read(ctx, s.id, c, f)
@@ -163,21 +172,31 @@ func (s *EvidenceHTTPSource) readContributions(ctx context.Context, contributors
 	return revs, lims
 }
 
-// readProducers is the server's GET /producers body, empty when it could
-// not be read.
-func (s *EvidenceHTTPSource) readProducers(ctx context.Context) evidenceingest.ProducersResponse {
+// noContributionRegistry is why a row names contributions nobody reads.
+const noContributionRegistry = "no registry is configured to read contributions"
+
+// readProducers is the server's GET /producers body: empty with no error
+// from a server that predates the route (404), empty with an error when it
+// could not be read.
+func (s *EvidenceHTTPSource) readProducers(ctx context.Context) (evidenceingest.ProducersResponse, error) {
 	var body evidenceingest.ProducersResponse
 	// The targets request on the same base URL was already built.
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+evidenceingest.ProducersPath, nil)
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return body
+		return body, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK || strictjson.Decode(io.LimitReader(resp.Body, evidenceingest.MaxTargetsBodyBytes), &body) != nil {
-		return evidenceingest.ProducersResponse{}
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return body, nil
+	case resp.StatusCode != http.StatusOK:
+		return body, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	return body
+	if err := strictjson.Decode(io.LimitReader(resp.Body, evidenceingest.MaxTargetsBodyBytes), &body); err != nil {
+		return evidenceingest.ProducersResponse{}, err
+	}
+	return body, nil
 }
 
 // laterOf is the later of cur and t.

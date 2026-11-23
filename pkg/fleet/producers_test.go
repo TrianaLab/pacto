@@ -108,3 +108,51 @@ func TestSanitizedReasonNeverEchoes(t *testing.T) {
 		t.Errorf("reason = %q", got)
 	}
 }
+
+// TestRestrictProducerRowHidesReportsOfHiddenTargets: a reader who sees none
+// of the targets a producer reported reads nothing about its reports: not
+// their use, their newest time nor that they stopped.
+func TestRestrictProducerRowHidesReportsOfHiddenTargets(t *testing.T) {
+	facts := ProducerFacts{Producer: "acme-idp", NewestReport: at(30 * time.Hour), Repository: prodRepo, Read: 1, NewestContribution: at(time.Hour)}
+	row, _ := ProducerRow(facts, fixedNow(), 24*time.Hour)
+	tgt := RawTarget{Scope: "acme-idp", Kind: "external", Name: "payments-core-prod", Service: "payments-core", Compliance: StatusCompliant, EvidenceAt: at(30 * time.Hour)}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow, FreshnessWindow: 24 * time.Hour},
+		NewMemorySource("evidence", SourceKindEvidenceHTTP, &Collection{Providers: []Provider{row}, Targets: []RawTarget{tgt}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := NewQuery(snap).Providers().Providers
+	if len(all) != 1 || !slices.Contains(all[0].UsedFor, UseReportedTargets) || all[0].Status != SourceStale {
+		t.Fatalf("all = %+v", all)
+	}
+	none := NewQuery(snap).Restrict(anyCluster(func(string) bool { return false }), nil).Providers().Providers
+	if len(none) != 1 {
+		t.Fatalf("none = %+v", none)
+	}
+	got := none[0]
+	if slices.Contains(got.UsedFor, UseReportedTargets) || strings.Contains(got.Evidence, "report") || got.Status != SourceAvailable ||
+		!got.AsOf.Equal(*at(time.Hour)) || slices.ContainsFunc(got.Limitations, func(l Limitation) bool { return strings.Contains(l.Message, "reported") }) {
+		t.Errorf("a hidden target's report shows: %+v", got)
+	}
+}
+
+// TestRefusedContributionMakesRowPartial: a bundle the reader counted read
+// and Build refused makes its producer row partial, saying why.
+func TestRefusedContributionMakesRowPartial(t *testing.T) {
+	row, _ := ProducerRow(ProducerFacts{Producer: "acme-idp", Repository: prodRepo, Read: 1, NewestContribution: at(time.Hour)}, fixedNow(), 24*time.Hour)
+	declaring := "pactoVersion: \"2.5\"\nservice:\n  name: ledger-sync\n  version: 0.1.0\n  owner: team-a\n"
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow, FreshnessWindow: 24 * time.Hour},
+		NewMemorySource("evidence", SourceKindEvidenceHTTP, &Collection{Providers: []Provider{row},
+			Revisions: []RawRevision{ctbRev("ledger-sync", declaring, ctbRepo, "acme-idp", ctbRecord(), fixedNow())}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []*Query{NewQuery(snap), NewQuery(snap).Restrict(anyCluster(func(string) bool { return false }), nil)} {
+		rows := q.Providers().Providers
+		if len(rows) != 1 || rows[0].Status != SourcePartial || !slices.ContainsFunc(rows[0].Limitations, func(l Limitation) bool {
+			return strings.Contains(l.Message, "refused because it declares service.owner")
+		}) {
+			t.Errorf("rows = %+v", rows)
+		}
+	}
+}

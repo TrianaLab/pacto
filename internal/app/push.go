@@ -14,6 +14,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -123,7 +124,7 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 
 	// The same content again is a successful no-op; different content under
 	// an existing reference is refused unless --force.
-	unchanged, err := s.alreadyPushed(ctx, opts.Force, ref, bundle)
+	unchanged, err := s.alreadyPushed(ctx, opts.Force, ref, bundle, contribution)
 	if err != nil {
 		return nil, err
 	}
@@ -149,8 +150,10 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 
 // alreadyPushed is the digest ref holds when it already holds bundle's
 // content, and "" when ref is absent or force skips the check. Different
-// content is ErrArtifactAlreadyExists.
-func (s *Service) alreadyPushed(ctx context.Context, force bool, ref string, bundle *contract.Bundle) (string, error) {
+// content is ErrArtifactAlreadyExists. A contribution is unchanged only when
+// its files are (its record is what the producer says), and reads absent
+// once its record is aging (see contributionAging).
+func (s *Service) alreadyPushed(ctx context.Context, force bool, ref string, bundle *contract.Bundle, contribution bool) (string, error) {
 	if force {
 		logging.LoggerFromContext(ctx).Debug("force flag set, skipping existence check", "ref", ref)
 		return "", nil
@@ -166,7 +169,10 @@ func (s *Service) alreadyPushed(ctx context.Context, force bool, ref string, bun
 	// A bundle that cannot be packed has no digest and reads as a conflict
 	// below: refused, never overwritten.
 	local, _ := oci.BundleDigest(bundle)
-	if remote == local || s.onlyRecordDiffers(ctx, ref, remote, local, bundle) {
+	if remote == local || s.onlyRecordDiffers(ctx, ref, remote, local, bundle, contribution) {
+		if contribution && s.contributionAging(ctx, ref) {
+			return "", nil // pushed again, with a fresh created time
+		}
 		logging.LoggerFromContext(ctx).Debug("identical artifact already published", "ref", ref, "digest", remote)
 		return remote, nil
 	}
@@ -212,13 +218,13 @@ func pushRef(location string, c *contract.Contract, contribution bool) (string, 
 }
 
 // contributionTag refuses a contribution ref no reader takes: one with no
-// tag or a tag other than <name>_<version>, and a version holding '+', which
-// no OCI tag can hold.
+// tag or a tag other than <name>_<version>, and a version a reader skips
+// (see contributionVersion).
 func contributionTag(ref string, c *contract.Contract) error {
 	repo, tag, _ := contract.SplitOCIRef(ref)
 	want := defaultPushTag(c, true)
-	if strings.Contains(c.Service.Version, "+") {
-		return fmt.Errorf("%s: version %s holds build metadata ('+'), which no OCI tag holds: a contribution is tagged <name>_<version>", ref, c.Service.Version)
+	if _, ok := contributionVersion(c.Service.Version); !ok {
+		return fmt.Errorf("%s: version %s is no contribution version: a contribution version is MAJOR.MINOR.PATCH semver with no build metadata ('+')", ref, c.Service.Version)
 	}
 	if tag != want {
 		return fmt.Errorf("%s: a contribution is pushed by tag, as %s", ref, repo+":"+want)
@@ -257,6 +263,21 @@ func (s *Service) pushContribution(ctx context.Context, ref string, b *contract.
 	return h.String(), nil
 }
 
+// contributionAging reports whether the record ref holds was made more than
+// half the freshness window ago, or says not when: an unchanged push renews
+// it, so a producer that keeps pushing never reads stale. ponytail: half of
+// RecentEvidenceWindow; a reader with a shorter --freshness sees records
+// stale between renewals.
+func (s *Service) contributionAging(ctx context.Context, ref string) bool {
+	env := s.env()
+	head, err := env.publishRegistry().Head(ctx, ref)
+	if err != nil || head == nil {
+		return false
+	}
+	created, err := time.Parse(time.RFC3339, head.Annotations[publish.AnnotationCreated])
+	return err != nil || env.now().Sub(created) > fleet.RecentEvidenceWindow/2
+}
+
 // digestedImage is an image whose streamed layer was read, with the digest
 // that read computed.
 type digestedImage struct {
@@ -292,14 +313,18 @@ func (s *Service) signPushed(ctx context.Context, opts PushOptions, ref, digest 
 // annotations, such as a contribution's push time, or files that differ only
 // in an inferred record with the same cited inputs (a push from another
 // commit or another Pacto of the same content). localDigest is local's
-// digest without annotations.
-func (s *Service) onlyRecordDiffers(ctx context.Context, ref, remote, localDigest string, local *contract.Bundle) bool {
+// digest without annotations. For a contribution only the same files count:
+// its record's fields are the producer's content, not a by-product.
+func (s *Service) onlyRecordDiffers(ctx context.Context, ref, remote, localDigest string, local *contract.Bundle, contribution bool) bool {
 	prev, err := s.BundleStore.Pull(ctx, refRepo(ref)+"@"+remote)
 	if err != nil {
 		return false
 	}
 	if d, err := oci.BundleDigest(prev); err == nil && d == localDigest {
 		return true
+	}
+	if contribution {
+		return false
 	}
 	unchanged, _ := contract.InferredUnchanged(prev, local, oci.BundleDigest)
 	return unchanged
@@ -394,6 +419,15 @@ func loadContribution(ctx context.Context, path string, overrides override.Overr
 	if err != nil {
 		return nil, nil, err
 	}
-	c, _, bundleFS, err := validatedFull(ctx, path, b, store, false)
-	return c, bundleFS, err
+	c, raw, bundleFS, err := validatedFull(ctx, path, b, store, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	// ponytail: an unreadable record is no declaration; validation already
+	// read it, and a reader refuses it on its own.
+	rec, _ := contract.ReadInferredRecord(bundleFS)
+	if why := contract.ContributionRefusal(&contract.Bundle{RawYAML: raw, FS: bundleFS}, rec); why != "" {
+		return nil, nil, fmt.Errorf("%s: %s", path, why)
+	}
+	return c, bundleFS, nil
 }

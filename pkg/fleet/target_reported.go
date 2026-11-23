@@ -23,6 +23,9 @@ func (c *ServiceContribution) Line(asOf time.Time) string {
 	if c.Stale {
 		line += ", stale"
 	}
+	if c.NewerRefused != "" {
+		line += " (newer version " + c.NewerRefused + " was refused)"
+	}
 	if c.ReadAt != nil {
 		line += ", read " + Age(asOf.Sub(*c.ReadAt)) + " ago"
 	}

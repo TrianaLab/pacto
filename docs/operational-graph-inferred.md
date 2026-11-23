@@ -101,8 +101,9 @@ as signed records.
   the producer's registry. They are inferred edges with `compatibility:
   unknown`: impact lists the service as an inferred consumer and the verdict
   never moves.
-- It has no target and no status, so it never reads Compliant.
-- A record older than the freshness window, or one that says no creation time,
+- It has no target and its status is `Unknown`, so it never reads Compliant.
+- A record older than the freshness window, one that says no creation time or
+  is dated in the future, and one read because a newer version was refused,
   reads stale.
 - When a contract declares the same name in the producer's registry, the
   contract wins: the record is dropped and `CONTRIBUTION_SUPERSEDED` counts it.

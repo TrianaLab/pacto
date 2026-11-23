@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -47,7 +48,8 @@ type ProducerFacts struct {
 // nothing it said can be shown. window is the freshness window, 0 for none.
 // The evidence counts nothing a restricted view could hide.
 func ProducerRow(p ProducerFacts, now time.Time, window time.Duration) (Provider, bool) {
-	row := Provider{ID: ProducerRowPrefix + p.Producer, Name: p.Producer, Status: SourceAvailable}
+	row := Provider{ID: ProducerRowPrefix + p.Producer, Name: p.Producer, Status: SourceAvailable,
+		producer: &producerInput{p, now, window}}
 	var evidence []string
 	if p.NewestReport != nil {
 		row.UsedFor = append(row.UsedFor, UseReportedTargets)
@@ -76,6 +78,61 @@ func ProducerRow(p ProducerFacts, now time.Time, window time.Duration) (Provider
 		row.Details = []string{strconv.Itoa(p.Ignored) + " tags name no <service>_<version> and were ignored"}
 	}
 	return row, true
+}
+
+// producerInput is what [ProducerRow] built a row from.
+type producerInput struct {
+	facts  ProducerFacts
+	now    time.Time
+	window time.Duration
+}
+
+// rebuiltProducerRow is p, a producer row of a source whose state is in
+// state, built again from its facts as edit changes them; false when the
+// facts no longer make a row.
+func rebuiltProducerRow(p Provider, state map[string]SourceStatus, edit func(*ProducerFacts)) (Provider, bool) {
+	in := *p.producer
+	in.facts.Problems = slices.Clone(in.facts.Problems)
+	edit(&in.facts)
+	row, ok := ProducerRow(in.facts, in.now, in.window)
+	if !ok {
+		return Provider{}, false
+	}
+	row.Source, row.Cluster = p.Source, p.Cluster
+	if state == nil {
+		return row, true
+	}
+	rows := finalizeRows([]Provider{row}, state)
+	if len(rows) == 0 {
+		return Provider{}, false
+	}
+	return rows[0], true
+}
+
+// restrictProducerRows builds every producer row that reports targets again
+// from the targets a restricted view keeps: the newest report a hidden target
+// made is never shown, and a producer whose every target is hidden says
+// nothing about reports.
+func restrictProducerRows(rows []Provider, targets map[TargetKey]*TargetRecord, state map[string]SourceStatus) []Provider {
+	out := make([]Provider, 0, len(rows))
+	for _, p := range rows {
+		if p.producer == nil || p.producer.facts.NewestReport == nil {
+			out = append(out, p)
+			continue
+		}
+		row, ok := rebuiltProducerRow(p, state, func(f *ProducerFacts) {
+			f.NewestReport = nil
+			for _, t := range targets {
+				if t.ReportedBy == f.Producer && (t.Source == p.Source || slices.Contains(t.Sources, p.Source)) {
+					f.NewestReport = newestOf(f.NewestReport, t.EvidenceAt)
+				}
+			}
+		})
+		if ok {
+			out = append(out, row)
+		}
+	}
+	return out
 }
 
 // producerConcern is one reason a producer row is not available.

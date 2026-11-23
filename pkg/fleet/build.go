@@ -531,7 +531,9 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	st.Advisory, st.CautionOnly = col.Advisory, col.ObservedCautionOnly
 	snap.Limitations = append(snap.Limitations, stateLims...)
 	snap.Sources = append(snap.Sources, st)
+	before := len(snap.Providers)
 	ingestProviders(snap, src.ID(), col)
+	refused.downgradeRows(snap.Providers[before:])
 	cluster := ""
 	if cl, ok := clusters.resolved[rawClusterID(col, RawTarget{})]; ok {
 		cluster = cl.ID
@@ -2747,6 +2749,11 @@ func serviceStatus(snap *FleetSnapshot, s *ServiceRecord) string {
 			return StatusInvalid
 		}
 	}
+	// A contributed service is never a compliance subject: no target speaks
+	// for it, and no contract was evaluated.
+	if s.Contribution != nil {
+		return StatusUnknown
+	}
 	if st := targetAggregateStatus(snap, s); st != "" {
 		return st
 	}
@@ -2815,7 +2822,16 @@ func buildRelationships(snap *FleetSnapshot, cat *externalcatalog.Catalog) {
 			continue
 		}
 		edges := append(revisionDependencyEdges(snap, cat, rk, rev), revisionReferenceEdges(snap, rk, rev)...)
-		edges = append(edges, revisionInferredEdges(snap, rk, rev)...)
+		inferred := revisionInferredEdges(snap, rk, rev)
+		edges = append(edges, inferred...)
+		if !snap.Services[rev.ServiceKey].Template {
+			// A neighbourhood walks a record's inferred edges as it walks the
+			// runtime ones; impact and gates read neither.
+			for _, e := range inferred {
+				snap.inferredForward[e.FromService] = appendUnique(snap.inferredForward[e.FromService], e.ToService)
+				snap.inferredReverse[e.ToService] = appendUnique(snap.inferredReverse[e.ToService], e.FromService)
+			}
+		}
 		// A golden path consumes nothing: every edge of every one of its
 		// revisions stays out of Relationships, routed by the service.
 		if snap.Services[rev.ServiceKey].Template {

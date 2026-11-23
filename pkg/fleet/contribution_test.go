@@ -251,9 +251,10 @@ func TestContributionOlderThanWindowIsStale(t *testing.T) {
 	if s := snap.Services[NewServiceKeyDomain(ctbRoot+"/pacto-inferred/acme-idp", "undated")]; s.Contribution.AsOf != nil {
 		t.Errorf("undated asOf = %v", s.Contribution.AsOf)
 	}
-	// Without a window only an unknown age is stale.
+	// Without a window the age is checked against RecentEvidenceWindow, as
+	// the producer row checks it.
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("e", SourceKindEvidenceHTTP, &Collection{Revisions: []RawRevision{old}}))
-	if err != nil || snap.Services[NewServiceKeyDomain(ctbRoot+"/pacto-inferred/acme-idp", "old")].Contribution.Stale {
+	if err != nil || !snap.Services[NewServiceKeyDomain(ctbRoot+"/pacto-inferred/acme-idp", "old")].Contribution.Stale {
 		t.Errorf("no window: %v", err)
 	}
 }
@@ -271,6 +272,18 @@ func TestContributedServiceActions(t *testing.T) {
 	}
 	if d, _ := q.EntityDetail(KindService, string(NewServiceKeyDomain(ctbRoot, "ledger"))); len(d.Actions) != 3 || d.Service.Contribution != nil {
 		t.Errorf("declared actions = %v", d.Actions)
+	}
+}
+
+// TestContributedServiceRefNamesProducer: a contributed service's reference
+// names its producer, so a list can word it apart from a workload.
+func TestContributedServiceRefNamesProducer(t *testing.T) {
+	snap := ctbFleet(t, []string{"ledger@shop"}, ledgerSync())
+	if ref := ServiceRef(snap.Services[contributedKey("ledger-sync")]); ref.ContributedBy != "acme-idp" || ref.Scope != "" {
+		t.Errorf("contributed ref = %+v", ref)
+	}
+	if ref := ServiceRef(snap.Services[NewServiceKeyDomain(ctbRoot, "ledger")]); ref.ContributedBy != "" {
+		t.Errorf("declared ref = %+v", ref)
 	}
 }
 
@@ -296,7 +309,7 @@ func TestTargetReportedByOnlyFromEvidence(t *testing.T) {
 
 func TestContributedServiceHasNoCompliantStatus(t *testing.T) {
 	q := NewQuery(ctbFleet(t, []string{"ledger@shop"}, ledgerSync()))
-	if s := q.snap.Services[contributedKey("ledger-sync")]; s.Status == StatusCompliant {
+	if s := q.snap.Services[contributedKey("ledger-sync")]; s.Status != StatusUnknown {
 		t.Errorf("status = %q", s.Status)
 	}
 	ex, err := q.Explain(string(contributedKey("ledger-sync")))
@@ -362,5 +375,48 @@ func TestContributionIsDeterministic(t *testing.T) {
 	a, b := ledgerSync(), ctbRev("other", ctbYAML("other"), ctbRepo, "acme-idp", ctbRecord("ledger-sync"), fixedNow())
 	if x, y := build(a, b), build(b, a); !reflect.DeepEqual(x.Services, y.Services) || x.SnapshotID != y.SnapshotID {
 		t.Error("snapshots differ")
+	}
+}
+
+// TestContributedServiceIgnoresTargets: a target keyed like a contributed
+// service never makes it Compliant.
+func TestContributedServiceIgnoresTargets(t *testing.T) {
+	tgt := RawTarget{Scope: "acme-idp", Kind: "external", Name: "ledger-sync-prod", Service: "ledger-sync",
+		Domain: ctbRoot + "/pacto-inferred/acme-idp", Compliance: StatusCompliant}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow, FreshnessWindow: 24 * time.Hour},
+		NewMemorySource("evidence", SourceKindEvidenceHTTP, &Collection{Revisions: []RawRevision{ledgerSync()}, Targets: []RawTarget{tgt}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := snap.Services[contributedKey("ledger-sync")]; s == nil || s.Contribution == nil || s.Status != StatusUnknown {
+		t.Errorf("service = %+v", s)
+	}
+}
+
+// TestContributionNewerRefusedIsStale: a record read in place of a refused
+// newer version reads stale and says so.
+func TestContributionNewerRefusedIsStale(t *testing.T) {
+	refused := ledgerSync()
+	refused.Contributor.NewerRefused = "2.0.0"
+	c := ctbFleet(t, nil, refused).Services[contributedKey("ledger-sync")].Contribution
+	if c == nil || !c.Stale || c.NewerRefused != "2.0.0" || !strings.Contains(c.Line(fixedNow()), ", stale (newer version 2.0.0 was refused)") {
+		t.Errorf("contribution = %+v", c)
+	}
+}
+
+// TestContributedEdgeInNeighborhood: a contributed service's inferred edge
+// is walked by the neighbourhood from either end, and never enters the
+// declared index.
+func TestContributedEdgeInNeighborhood(t *testing.T) {
+	q := NewQuery(ctbFleet(t, []string{"ledger@shop"}, ledgerSync()))
+	ledger := NewServiceKeyDomain(ctbRoot, "ledger")
+	for _, key := range []ServiceKey{contributedKey("ledger-sync"), ledger} {
+		nb, err := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: string(key), Direction: DirectionBoth, Views: allViews()})
+		if err != nil || !slices.ContainsFunc(nb.Edges, func(e NeighborhoodEdge) bool { return e.Provenance == ProvenanceInferred }) {
+			t.Errorf("%s: neighborhood = %+v, %v", key, nb, err)
+		}
+	}
+	if len(q.snap.reverseDeps[ledger]) != 0 {
+		t.Errorf("declared index = %v", q.snap.reverseDeps[ledger])
 	}
 }

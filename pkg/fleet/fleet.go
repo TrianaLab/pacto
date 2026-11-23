@@ -944,7 +944,10 @@ type ServiceContribution struct {
 	KeyID      string     `json:"keyId,omitempty" doc:"The key of the producer that verified the record's signature"`
 	ReadAt     *time.Time `json:"readAt,omitempty" doc:"When Pacto read the record"`
 	AsOf       *time.Time `json:"asOf,omitempty" doc:"When the producer made the record, from its signed manifest; absent when unknown"`
-	Stale      bool       `json:"stale,omitempty" doc:"The record is older than the freshness window, or its age is unknown"`
+	Stale      bool       `json:"stale,omitempty" doc:"The record is older than the freshness window, its age is unknown or a newer version was refused"`
+	// NewerRefused is the newest version the reader refused (unsigned,
+	// signed by another key or mis-tagged) before reading this older one.
+	NewerRefused string `json:"newerRefused,omitempty" doc:"A newer version of the record that was refused, so this older one is shown stale"`
 }
 
 // Inferred reports whether Pacto only sees a workload of the service and no
@@ -1803,7 +1806,8 @@ type FleetSnapshot struct {
 	// saw: a graph never labels them declared+observed (see reconcileDeclared).
 	cautionPairs map[[2]ServiceKey]bool
 	// inferredReverse/inferredForward are the adjacency of InferredRelationships
-	// between services, apart from the declared and observed indexes.
+	// and of inferred-record edges between services, apart from the declared
+	// and observed indexes; only a neighbourhood walks them.
 	inferredReverse map[ServiceKey][]ServiceKey
 	inferredForward map[ServiceKey][]ServiceKey
 	// replacedNames are the observed names of the workloads a Pacto target

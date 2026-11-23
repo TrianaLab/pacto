@@ -1,43 +1,15 @@
 package fleet
 
 import (
+	"cmp"
 	"maps"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
-
-// contributionDeclares is the first field a contributed pacto.yaml declares
-// beyond pactoVersion, service.name and service.version, read from its raw
-// keys so a field no Go type knows yet is refused too. An unreadable
-// pacto.yaml declares "pacto.yaml": nothing it says can be checked.
-func contributionDeclares(b *contract.Bundle) (field string, declares bool) {
-	data, err := b.Raw()
-	var doc map[string]yaml.Node
-	if err != nil || yaml.Unmarshal(data, &doc) != nil {
-		return "pacto.yaml", true
-	}
-	for _, k := range slices.Sorted(maps.Keys(doc)) {
-		if k != "pactoVersion" && k != "service" {
-			return k, true
-		}
-	}
-	var service map[string]yaml.Node
-	if svc, ok := doc["service"]; ok && svc.Decode(&service) != nil {
-		return "service", true
-	}
-	for _, k := range slices.Sorted(maps.Keys(service)) {
-		if k != "name" && k != "version" {
-			return "service." + k, true
-		}
-	}
-	return "", false
-}
 
 // contributionRefusals counts, per producer, the contributed bundles Build
 // refused and the reason of the first.
@@ -65,6 +37,20 @@ func (r contributionRefusals) limitations(source string) []Limitation {
 	return out
 }
 
+// downgradeRows makes the producer row of every producer r refused a bundle
+// of read partial, saying why: the reader counted those bundles read.
+func (r contributionRefusals) downgradeRows(rows []Provider) {
+	for i, p := range rows {
+		ref := r[strings.TrimPrefix(p.ID, ProducerRowPrefix)]
+		if p.producer == nil || ref == nil {
+			continue
+		}
+		rows[i], _ = rebuiltProducerRow(p, nil, func(f *ProducerFacts) {
+			f.Problems = append(f.Problems, refusedMessage(f.Producer, ref))
+		})
+	}
+}
+
 // refusedMessage says how many bundles producer contributed were refused and why.
 func refusedMessage(producer string, r *contributionRefusal) string {
 	if r.n == 1 {
@@ -79,13 +65,7 @@ func contributionReason(rev *ContractRevision, producer string) string {
 	if p, ok := contract.ContributionRef(rev.ResolvedRef); !ok || p != producer {
 		return "the ref names no contribution of " + producer
 	}
-	if rev.Record != nil && rev.Record.Declaration != nil {
-		return "a contribution carries no declaration"
-	}
-	if field, declares := contributionDeclares(rev.bundle); declares {
-		return "it declares " + field + "; a contribution declares only service.name and service.version: move the rest to pacto.inferred.yaml"
-	}
-	return ""
+	return contract.ContributionRefusal(rev.bundle, rev.Record)
 }
 
 // ingestContribution reads rev, which a source marked contributed by c, as a
@@ -182,8 +162,9 @@ func supersededLimitations(by map[string][]ServiceKey, visible func(ServiceKey) 
 
 // serviceContribution is the contribution of a service every revision of
 // which a producer contributed, from its newest one; nil for any other
-// service. It is stale when its age is unknown or older than window (0
-// checks no age).
+// service. It is stale when its age is unknown, older than the freshness
+// window (RecentEvidenceWindow when zero, as the producer row reads it) or a
+// newer version was refused.
 func serviceContribution(snap *FleetSnapshot, s *ServiceRecord) *ServiceContribution {
 	var newest *ContractRevision
 	for _, rk := range s.Revisions {
@@ -202,8 +183,8 @@ func serviceContribution(snap *FleetSnapshot, s *ServiceRecord) *ServiceContribu
 	ref := contract.TrimOCIScheme(newest.ResolvedRef)
 	repo, _, _ := contract.SplitOCIRef(ref)
 	out := &ServiceContribution{Producer: c.Producer, Repository: repo, Ref: ref, KeyID: c.KeyID,
-		ReadAt: optionalTime(c.ReadAt), AsOf: optionalTime(c.AsOf)}
-	out.Stale = c.AsOf.IsZero() || snap.provisioningWindow > 0 && snap.GeneratedAt.Sub(c.AsOf) > snap.provisioningWindow
+		ReadAt: optionalTime(c.ReadAt), AsOf: optionalTime(c.AsOf), NewerRefused: c.NewerRefused}
+	out.Stale = c.AsOf.IsZero() || c.NewerRefused != "" || snap.GeneratedAt.Sub(c.AsOf) > cmp.Or(snap.provisioningWindow, RecentEvidenceWindow)
 	return out
 }
 

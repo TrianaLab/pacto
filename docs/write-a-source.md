@@ -90,7 +90,12 @@ The first run creates the key; hand `my-idp__my-idp-2026.pub` to the platform.
   `service.version`: Pacto refuses a bundle tagged otherwise.
 - `pacto push --sign-key` signs the pushed digest and never writes an
   organization index entry for a contribution. Re-running it on an unchanged
-  bundle signs it again.
+  bundle signs it when no signature verifies, and renews its creation time
+  once it is half the 24h freshness window old, so a producer that keeps
+  pushing never reads stale. Changed content under the same version is
+  refused: push a new version, or use `--force`.
+- The push refuses a version that is not `MAJOR.MINOR.PATCH` semver, and a
+  `pacto.yaml` that declares more than its name and version.
 - The `pacto.yaml` of a record holds only `pactoVersion`, `service.name` and
   `service.version`. Everything else is a field of `pacto.inferred.yaml` with
   its `source` and `confidence`.
