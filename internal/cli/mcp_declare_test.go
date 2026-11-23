@@ -735,9 +735,15 @@ func checkClaimRedacted(t *testing.T, w *declareWorld, name string, mode *pactom
 		refused.Message != "the repository for this name holds a service you may not read: claim with the CLI and --name" {
 		t.Errorf("%s: %s %+v %v", name, raw, refused, err)
 	}
-	// Execute never writes a claim, so it reads nothing to redact.
+	checkClaimExecuteRefused(t, w, name, mode, a)
+}
+
+// checkClaimExecuteRefused: Execute never writes a claim over HTTP, so it
+// reads nothing to redact and names no repository.
+func checkClaimExecuteRefused(t *testing.T, w *declareWorld, name string, mode *pactomcp.FleetMode, a pactomcp.DeclareArgs) {
+	t.Helper()
 	a.IntentDigest = "sha256:" + strings.Repeat("0", 64)
-	raw, refused, err = httpDeclarer(w).withFleet(mode).Execute(callerCtx("alice", newSelfReviewed(true), &bytes.Buffer{}), a)
+	raw, refused, err := httpDeclarer(w).withFleet(mode).Execute(callerCtx("alice", newSelfReviewed(true), &bytes.Buffer{}), a)
 	if err != nil || raw != nil || refused == nil || refused.Code != pactomcp.RefusalExecuteNeedsStdio || strings.Contains(refused.Message, "repository") {
 		t.Errorf("%s execute: %s %+v %v", name, raw, refused, err)
 	}
