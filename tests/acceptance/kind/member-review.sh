@@ -323,7 +323,9 @@ HUB_SETS=("${SETS[@]}" --set delivery.enabled=true --set 'dashboard.ociSecrets[0
   --set dashboard.auth.oidc.caBundle.configMap=scenario-ca)
 helm install pacto-operator "$PACTO_CHART" -n "$NS" --kube-context "$CTX_H" "${HUB_SETS[@]}" --wait --timeout 240s >/dev/null
 wait_managed_ready pacto-dashboard >/dev/null || fail "the hub dashboard Deployment is not Ready"
-kubectl --context "$CTX_H" apply -f - >/dev/null <<YAML
+# The controller turns available before its admission webhook answers, so the
+# first apply can be refused with "connection refused": retry it until it lands.
+INGRESS_YAML="$(cat <<YAML
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -339,6 +341,9 @@ spec:
   - host: $HUB_HOST
     http: {paths: [{path: /, pathType: Prefix, backend: {service: {name: pacto-dashboard, port: {number: 3000}}}}]}
 YAML
+)"
+apply_ingress() { kubectl --context "$CTX_H" apply -f - >/dev/null <<<"$INGRESS_YAML"; }
+eventually 20 apply_ingress || fail "the hub Ingress was not admitted"
 HUB="https://$HUB_HOST"
 # hcurl ARGS... — the runner reaches the hub through the ingress, as a browser would.
 hcurl() { curl -s --cacert "$WORK/ca.crt" --resolve "$HUB_HOST:443:$HUB_IP" "$@"; }
