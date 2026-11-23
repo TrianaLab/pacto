@@ -499,3 +499,26 @@ func TestRecheckClosesRevokedLink(t *testing.T) {
 		t.Fatal("a revoked cluster kept its socket")
 	}
 }
+
+// TestLinkOutlivesPingAfterReview is the regression for a link that dropped
+// at the member's first Ping after a review: the review's write deadline
+// stayed on the hub's connection and failed the Pong the websocket package
+// writes, so every link died about 30s after it came up.
+func TestLinkOutlivesPingAfterReview(t *testing.T) {
+	shorten(t, &writeTimeout, 50*time.Millisecond)
+	shorten(t, &pingInterval, 150*time.Millisecond)
+	f := newFixture(t)
+	f.member(t, func(context.Context, Review) Answer { return Answer{Allowed: true} })
+	first := f.current("c1")
+	review := Review{Group: "apps", Resource: "deployments"}
+	if _, err := f.hub.Review(context.Background(), "c1", review); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(600 * time.Millisecond) // past the write deadline, through several Pings
+	if f.current("c1") != first {
+		t.Fatal("a Ping after a review dropped the link and the member linked again")
+	}
+	if a, err := f.hub.Review(context.Background(), "c1", review); err != nil || !a.Allowed {
+		t.Fatalf("review after the Pings: %+v %v", a, err)
+	}
+}

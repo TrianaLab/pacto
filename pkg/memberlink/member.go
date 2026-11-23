@@ -163,9 +163,8 @@ func (m *Member) ping(ctx context.Context, w *writer, interval time.Duration) {
 		case <-t.C:
 		}
 		w.mu.Lock()
-		_ = w.ws.SetWriteDeadline(time.Now().Add(ReviewTimeout))
 		w.ws.PayloadType = websocket.PingFrame
-		_, err := w.ws.Write([]byte("ping"))
+		err := w.bounded(func() error { _, err := w.ws.Write([]byte("ping")); return err })
 		w.ws.PayloadType = websocket.TextFrame
 		w.mu.Unlock()
 		if err != nil {

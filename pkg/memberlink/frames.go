@@ -152,12 +152,24 @@ type writer struct {
 	mu sync.Mutex
 }
 
-// send writes v as one text frame, bounded by ReviewTimeout.
+// writeTimeout bounds one frame write.
+var writeTimeout = ReviewTimeout
+
+// send writes v as one text frame, bounded by writeTimeout.
 func (w *writer) send(v any) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	_ = w.ws.SetWriteDeadline(time.Now().Add(ReviewTimeout))
-	return codec.Send(w.ws, v)
+	return w.bounded(func() error { return codec.Send(w.ws, v) })
+}
+
+// bounded runs write under writeTimeout, then clears the deadline: the
+// websocket package answers a peer's Ping with a Pong outside writer, and a
+// deadline left behind would fail that Pong once it passed, dropping an idle
+// link at the peer's first Ping. Callers hold mu.
+func (w *writer) bounded(write func() error) error {
+	_ = w.ws.SetWriteDeadline(time.Now().Add(writeTimeout))
+	defer func() { _ = w.ws.SetWriteDeadline(time.Time{}) }()
+	return write()
 }
 
 // SignedMessage is what a member signs: the hub host it dialled, the hub's
