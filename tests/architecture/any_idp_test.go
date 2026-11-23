@@ -73,7 +73,7 @@ func TestCoreNamesNoIDPVendor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("git ls-files: %v", err)
 	}
-	files := strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00")
+	files := nulFields(out)
 	if len(files) == 0 {
 		t.Fatal("git ls-files listed no core file")
 	}
@@ -90,6 +90,52 @@ func TestCoreNamesNoIDPVendor(t *testing.T) {
 			if m := idpVendor.FindString(line); m != "" {
 				t.Errorf("%s:%d names IDP vendor %q; keep vendor code outside core", file, i+1, m)
 			}
+		}
+	}
+}
+
+// nulFields splits NUL-terminated git output into its entries, none empty, so
+// output that lists nothing yields no entry.
+func nulFields(out []byte) []string {
+	return strings.FieldsFunc(string(out), func(r rune) bool { return r == 0 })
+}
+
+func TestNulFieldsListsNothingForEmptyOutput(t *testing.T) {
+	if got := nulFields(nil); len(got) != 0 {
+		t.Errorf("nulFields(empty) = %q, want no entry", got)
+	}
+	if got := nulFields([]byte("a\x00b c\x00")); len(got) != 2 || got[0] != "a" || got[1] != "b c" {
+		t.Errorf("nulFields = %q, want [a, b c]", got)
+	}
+}
+
+// TestAnyIDPGuideClaimsOnlyWhatShips holds the any-IDP guide and the route's
+// annotation table to the code: a range is checked against registry
+// revisions, never against what runs; no contributed-offering seam ships yet;
+// a workload target carries no environment.
+func TestAnyIDPGuideClaimsOnlyWhatShips(t *testing.T) {
+	root := repoRoot(t)
+	read := func(name string) string {
+		raw, err := os.ReadFile(filepath.Join(root, "docs", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+	guide := read("any-idp.md")
+	for _, banned := range []string{"running provider satisfies", "| [Platform offerings]", "runs in `prod`", "four seams"} {
+		if strings.Contains(guide, banned) {
+			t.Errorf("docs/any-idp.md claims %q, which the code does not do", banned)
+		}
+	}
+	for _, want := range []string{"fixture facts", "registry satisfy it"} {
+		if !strings.Contains(guide, want) {
+			t.Errorf("docs/any-idp.md does not say %q", want)
+		}
+	}
+	for _, want := range []string{"`rangeReason` reads `INFERRED_PROVIDER`", "`unresolved-dependencies` counts it"} {
+		if !strings.Contains(read("backstage.md"), want) {
+			t.Errorf("docs/backstage.md's dependency-ranges row does not say %q", want)
 		}
 	}
 }
