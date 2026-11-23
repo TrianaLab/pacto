@@ -258,7 +258,8 @@ func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadV
 	hiddenTargets := unreadableClusterTargets(s, readable, visible)
 	linkedNames := linkedKindHidden(s, workloadHidden(hiddenNS, workloadVisible), clusters, hiddenTargets)
 	hiddenSvc, offeringOnly := hiddenServices(s, hiddenNS, hiddenTargets, restricted, workloadVisible)
-	if len(hiddenNS)+len(hiddenSvc)+len(offeringOnly)+len(hiddenTargets)+len(linkedNames) == 0 && keepsEveryName(s, restricted, workloadHidden(hiddenNS, workloadVisible)) {
+	if len(hiddenNS)+len(hiddenSvc)+len(offeringOnly)+len(hiddenTargets)+len(linkedNames) == 0 && keepsEveryName(s, restricted, workloadHidden(hiddenNS, workloadVisible)) &&
+		!hidesResources(s, visible) {
 		if !providersNarrowed(s, visible, workloadVisible, clusters) {
 			return q
 		}
@@ -305,7 +306,7 @@ func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadV
 	out.hiddenReferrers = hiddenReferrers
 	origins, hiddenCreated := restrictOrigins(s, hiddenSvc)
 	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenCounts{hiddenDeps, hiddenDependents, hiddenReferrers}, origins, hiddenCreated, workloadVisible)...)
-	restrictExternals(&out, s)
+	restrictExternals(&out, s, visible)
 	out.targetsHidden = targetsHidden(&out, s.Services, offeringOnly)
 	out.hiddenProviders = hiddenProviders(&out, s.Services, hiddenSvc)
 	out.hiddenProviderMatch = hiddenProviderMatch(s, out.hiddenProviders, hiddenSvc)

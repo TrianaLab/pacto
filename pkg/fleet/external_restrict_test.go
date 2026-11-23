@@ -271,7 +271,7 @@ func TestRestrictHidesRepositoryExternalOfHiddenService(t *testing.T) {
 		{Kind: ExternalSourceContract, Service: "pay", Provenance: ProvenanceDeclared},
 	}}
 	out.Services["pay"] = &ServiceRecord{}
-	if r := restrictExternal(out, rec); r == nil || r.HiddenConsumers != 1 || !reflect.DeepEqual(r.Consumers, []ServiceKey{"pay"}) {
+	if r := restrictExternal(out, rec, func(string, string) bool { return true }); r == nil || r.HiddenConsumers != 1 || !reflect.DeepEqual(r.Consumers, []ServiceKey{"pay"}) {
 		t.Errorf("restricted = %+v", r)
 	}
 }

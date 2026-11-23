@@ -128,7 +128,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 
 	seenSourceIDs := map[string]bool{}
 	var observed []observedInput
-	var uses []sourcedUse
+	var ext externalInputs
 	var facts []sourcedFact
 	var inferred []inferredInput
 	undeclaredOnly := map[string]bool{}
@@ -159,9 +159,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 		if r.col != nil {
 			undeclaredOnly[src.ID()] = r.col.ObservedUndeclaredOnly
 			observed = append(observed, observedEdgesOf(src.ID(), r.col, clusters)...)
-			for _, u := range r.col.ExternalUses {
-				uses = append(uses, sourcedUse{use: u, source: src.ID()})
-			}
+			ext.add(src.ID(), r.col)
 			facts = append(facts, sourcedFacts(src.ID(), r.col)...)
 		}
 	}
@@ -186,8 +184,9 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	snap.ExternalCatalogs = externalCatalogRefs(cat.Refs())
 	snap.Limitations = append(snap.Limitations, opts.ExternalCatalogLimitations...)
 	buildRelationships(snap, cat)
+	managedUses := ingestManagedResources(snap, cat, ext.resources, ext.refs)
 	foldObservedRelationships(snap, observed)
-	foldExternalUses(snap, append(uses, recordExternalUses(snap)...))
+	foldExternalUses(snap, append(append(ext.uses, managedUses...), recordExternalUses(snap)...))
 	foldServiceFacts(snap, facts)
 	attachInferredProviders(snap, cat)
 	linkExternalClaims(snap)
@@ -3415,6 +3414,8 @@ func finalizeExternal(rec *ExternalRecord) {
 		}
 	}
 	rec.HiddenConsumers = len(rec.hidden)
+	sortResources(rec.Resources)
+	rec.ResourcesTotal = len(rec.Resources)
 }
 
 // externalCatalogRefs projects the catalogs a build classified with.

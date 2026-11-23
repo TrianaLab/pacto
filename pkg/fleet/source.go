@@ -159,6 +159,15 @@ type Collection struct {
 	// system, kept apart from declared and observed ones and out of every
 	// index a gate reads: an inferred use never clears a gate.
 	ExternalUses []RawExternalUse
+	// ManagedResources are the managed cloud resources a source read: a
+	// cluster object, a Terraform state entry or a cloud inventory item.
+	// [Build] puts each on its external system's record, names only, never
+	// a value: no attribute value or Secret content is ever carried.
+	ManagedResources []RawManagedResource
+	// SecretRefs are the Secret names the pod templates of a source's
+	// workloads reference, names only, never a value. [Build] joins a
+	// managed resource's connection Secret to the workloads that use it.
+	SecretRefs []RawSecretRef
 	// InferredServices are workloads no contract describes. [Build] makes each
 	// an inferred service and never a target, so it never counts in
 	// compliance, link or target tallies. Their cluster is [Collection.Cluster].
@@ -266,6 +275,54 @@ type RawExternalUse struct {
 	Confidence, Kind, Where    string
 	Host, Entry, Catalog       string
 	ObservedAt                 *time.Time
+}
+
+// RawManagedResource is one managed cloud resource a source read, as names
+// only: no attribute value or Secret content is ever carried. Identity is
+// the external identity it was classified as by the catalog entry Entry of
+// the catalog whose digest is Catalog; Missing lists the identity segments
+// that were not read, so Identity is then the entry identity.
+type RawManagedResource struct {
+	// Source is the reader: crossplane, ack, config-connector, aso,
+	// terraform, aws-resource-explorer, gcp-cloud-asset or
+	// azure-resource-graph.
+	Source   string   `json:"source"`
+	Identity string   `json:"identity"`
+	Missing  []string `json:"missing,omitempty"`
+	Entry    string   `json:"entry,omitempty"`
+	Catalog  string   `json:"catalog,omitempty"`
+	// Type is the <group>/<Kind> of a cluster object, the Terraform type or
+	// the inventory type.
+	Type string `json:"type"`
+	// Cluster and ClusterName are the cluster that read it, empty for a
+	// state file the CLI read.
+	Cluster     string `json:"cluster,omitempty"`
+	ClusterName string `json:"clusterName,omitempty"`
+	Namespace   string `json:"namespace,omitempty"`
+	// Name is the object name, the Terraform address or the inventory id.
+	Name string `json:"name"`
+	// Location is the state URL or file name, never its contents.
+	Location string `json:"location,omitempty"`
+	// ConnectionSecrets are the <namespace>/<name> of the Secrets the
+	// resource, and its verified claim, write the connection to.
+	ConnectionSecrets []string `json:"connectionSecrets,omitempty"`
+	// Claim is the verified claim, <Kind> <namespace>/<name>.
+	Claim string `json:"claim,omitempty"`
+	// Engine is the observed engine; EngineRequested a desired-only one.
+	Engine          string     `json:"engine,omitempty"`
+	EngineRequested string     `json:"engineRequested,omitempty"`
+	ObservedAt      *time.Time `json:"observedAt,omitempty"`
+}
+
+// RawSecretRef is one Secret name the pod template of a workload (Kind,
+// Name) in Namespace references, read on Cluster: a name only, never a value.
+type RawSecretRef struct {
+	Cluster     string `json:"cluster,omitempty"`
+	ClusterName string `json:"clusterName,omitempty"`
+	Namespace   string `json:"namespace"`
+	Kind        string `json:"kind"`
+	Name        string `json:"name"`
+	Secret      string `json:"secret"`
 }
 
 // RawProvisioning is one provider report about the resource a consumer

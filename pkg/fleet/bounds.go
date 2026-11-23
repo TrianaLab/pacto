@@ -49,6 +49,13 @@ const MaxExternalNodes = 200
 // for one external system; ConsumersTotal and SourcesTotal keep the counts.
 const MaxExternalSources = 50
 
+// MaxExternalResources caps the managed resources one answer lists for one
+// external system; ResourcesTotal keeps the count.
+//
+// ponytail: a fixed page of 20; a cursor over the rest if an external with
+// more resources needs them listed.
+const MaxExternalResources = 20
+
 // MaxExternalChangeAge is how long a checked change of an external system's
 // inferred contract raises EXTERNAL_CHANGED, measured from the newer
 // revision's surface time to the snapshot's.

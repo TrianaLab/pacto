@@ -3861,7 +3861,7 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); serviceFact (a depends-on a source outside every contract reports); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); serviceFact (a depends-on a source outside every contract reports); connectionSecret (a managed resource's connection Secret a workload references); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
             kind: string;
             /**
              * Format: date-time
@@ -3978,6 +3978,11 @@ export interface components {
              */
             hiddenConsumers?: number;
             /**
+             * Format: int64
+             * @description How many of its managed resources the caller's permissions hide
+             */
+            hiddenResources?: number;
+            /**
              * @description How its consumers join it, the strongest match among its sources: identity, catalog-alias, host or normalized-name (joined by name only)
              * @enum {string}
              */
@@ -3988,6 +3993,13 @@ export interface components {
             label: string;
             /** @description The inferred contract published for it under pacto-inferred; never a service, and a range is never checked against it */
             provider?: components["schemas"]["Fleet.ExternalProvider"];
+            /** @description The managed resources sources read for it: a cluster object, a Terraform state entry or a cloud inventory item; at most 20 */
+            resources?: components["schemas"]["Fleet.ManagedResource"][] | null;
+            /**
+             * Format: int64
+             * @description How many managed resources were read for it
+             */
+            resourcesTotal?: number;
             /** @description The evidence that names this external system, one per consumer and dependency position, each with its own provenance */
             sources: components["schemas"]["Fleet.ExternalSource"][] | null;
             /**
@@ -4009,7 +4021,7 @@ export interface components {
              * @enum {string}
              */
             kind: "contract" | "observed" | "pod-spec" | "repository";
-            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value), keyName (a configuration key name only), sdk (a client library in a manifest), resource (a Terraform resource or Crossplane object) or its inferred contract (a ref to its pacto-inferred repository) */
+            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value), keyName (a configuration key name only), sdk (a client library in a manifest), resource (a Terraform resource, a Crossplane object or a managed resource's connection Secret) or its inferred contract (a ref to its pacto-inferred repository) */
             match: string;
             /** @enum {string} */
             provenance: "declared" | "observed" | "inferred";
@@ -4292,7 +4304,7 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); serviceFact (a depends-on a source outside every contract reports); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); serviceFact (a depends-on a source outside every contract reports); connectionSecret (a managed resource's connection Secret a workload references); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
             kind: string;
             /**
              * Format: date-time
@@ -4615,6 +4627,39 @@ export interface components {
             /** Format: int64 */
             total: number;
             truncated: boolean;
+        };
+        "Fleet.ManagedResource": {
+            /** @description The verified claim, <Kind> <namespace>/<name> */
+            claim?: string;
+            /** @description The cluster id of the cluster that read it; empty for a state file the CLI read */
+            cluster?: string;
+            /** @description A display name for the cluster that read it; never an identity */
+            clusterName?: string;
+            /** @description The engine and version the resource reports it runs */
+            engine?: string;
+            /** @description The engine and version the resource requests, when it reports none it runs */
+            engineRequested?: string;
+            /** @description The state URL or file name, never its contents */
+            location?: string;
+            /** @description The identity segments that were not read, so the system is its catalog entry's identity */
+            missing?: string[] | null;
+            /** @description The object name, the Terraform address or the inventory id */
+            name: string;
+            namespace?: string;
+            /**
+             * Format: date-time
+             * @description When the source last read it
+             */
+            observedAt?: string;
+            /** @enum {string} */
+            provenance: "inferred";
+            /**
+             * @description The reader: a cluster object of Crossplane, ACK, Config Connector or ASO, a Terraform state or a cloud inventory
+             * @enum {string}
+             */
+            source: "crossplane" | "ack" | "config-connector" | "aso" | "terraform" | "aws-resource-explorer" | "gcp-cloud-asset" | "azure-resource-graph";
+            /** @description The <group>/<Kind> of a cluster object, the Terraform type or the inventory type */
+            type: string;
         };
         "Fleet.MapAttention": {
             /** Format: int64 */
