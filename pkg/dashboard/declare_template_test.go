@@ -2,7 +2,9 @@ package dashboard
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -59,11 +61,42 @@ func TestDashboardDeclareTemplateUnknownIsNotFound(t *testing.T) {
 	if code, _ := call(t, http.MethodPost, base+"/api/fleet/declare", map[string]string{"serviceKey": "template:default/orders"}); code != http.StatusOK || !d.plans[0].Template.NameTaken {
 		t.Errorf("name taken: %d %+v", code, d.plans)
 	}
-	// A fleet with no catalog lists no templates.
+	// A fleet with no catalog cannot tell: it says why, never "not found".
 	d = &fakeDeclarer{write: true}
 	base = declareServer(t, viewerAuth(true, AuthState{}), nil, d)
-	if code, _ := call(t, http.MethodPost, base+"/api/fleet/declare", map[string]string{"serviceKey": springKey}); code != http.StatusNotFound || len(d.plans) != 0 {
-		t.Errorf("no catalog: %d %v", code, d.plans)
+	if code, out := call(t, http.MethodPost, base+"/api/fleet/declare", map[string]string{"serviceKey": springKey}); code != http.StatusConflict ||
+		!strings.Contains(fmt.Sprint(out), "TemplateCatalogUnset") || len(d.plans) != 0 {
+		t.Errorf("no catalog: %d %v %v", code, out, d.plans)
+	}
+}
+
+// TestDashboardDeclareTemplateCatalogUnavailable: a catalog that could not be
+// read whole leaves a missing template unknown; one past the list cap is
+// still found.
+func TestDashboardDeclareTemplateCatalogUnavailable(t *testing.T) {
+	down := fleet.NewMemorySource("catalog", "catalog", &fleet.Collection{ListsTemplates: true, State: &fleet.SourceState{Status: fleet.SourceUnavailable}})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, down)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	d := &fakeDeclarer{write: true}
+	base := serveOptions(t, Options{Fleet: func(context.Context) (*fleet.Query, error) { return q, nil }, Auth: viewerAuth(true, AuthState{}), Declare: d})
+	if code, out := call(t, http.MethodPost, base+"/api/fleet/declare", map[string]string{"serviceKey": springKey}); code != http.StatusServiceUnavailable ||
+		!strings.Contains(fmt.Sprint(out), "TemplateCatalogUnavailable") || len(d.plans) != 0 {
+		t.Errorf("unavailable: %d %v", code, out)
+	}
+	var raw []fleet.RawInferredTemplate
+	for i := range fleet.MaxInferredTemplates + 2 {
+		raw = append(raw, fleet.RawInferredTemplate{Name: fmt.Sprintf("t%03d", i), Entity: fmt.Sprintf("template:default/t%03d", i), Acceptable: true})
+	}
+	snap, err = fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("catalog", "catalog", &fleet.Collection{ListsTemplates: true, InferredTemplates: raw}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q = fleet.NewQuery(snap)
+	if code, _ := call(t, http.MethodPost, base+"/api/fleet/declare", map[string]string{"serviceKey": "template:default/t201"}); code != http.StatusOK || len(d.plans) != 1 {
+		t.Errorf("past the cap: %d %v", code, d.plans)
 	}
 }
 

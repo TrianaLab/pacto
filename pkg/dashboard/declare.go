@@ -53,8 +53,8 @@ type DeclareWorkload struct {
 	// alone, and from no list RepositoryUnknown says is incomplete.
 	Repositories      []fleet.InferredRepository
 	RepositoryUnknown string
-	// View is the viewer's restricted fleet, set for an external system: a
-	// claim plan names nothing it hides.
+	// View is the viewer's restricted fleet, set for an external system and
+	// a golden path: a plan names nothing it hides.
 	View *fleet.Query
 	// Template is set when the subject is an inferred golden path; the
 	// workload fields are then empty.
@@ -323,8 +323,7 @@ func (s *Server) declareIdentity(ctx context.Context) error {
 // snapshot, after the caller's identity is checked: a hidden service and a
 // declared one answer as a missing one. A key external:<identity> names the
 // external system a claim is for, a key template:<namespace>/<name> the
-// inferred golden path the viewer's snapshot lists (one a declared golden
-// path holds the name of answers as missing).
+// inferred golden path the viewer's snapshot lists.
 func (s *Server) declareWorkload(ctx context.Context, key string) (DeclareWorkload, error) {
 	if err := s.declareIdentity(ctx); err != nil {
 		return DeclareWorkload{}, err
@@ -352,15 +351,20 @@ func (s *Server) declareWorkload(ctx context.Context, key string) (DeclareWorklo
 		Repositories: wl.Repositories, RepositoryUnknown: wl.RepositoriesIncomplete()}, nil
 }
 
-// inferredTemplate is the inferred golden path key names in view q, as a
-// missing service when q lists none.
+// inferredTemplate is the inferred golden path key names in view q, past
+// the list cap too. When q cannot tell (no catalog is read, or one could not
+// be read whole) a missing template is a refusal saying so; only a complete
+// read answers it as a missing service.
 func inferredTemplate(q *fleet.Query, key string) (DeclareWorkload, error) {
-	if l := q.InferredTemplates(""); l != nil {
-		for i, t := range l.Items {
-			if t.Entity == key {
-				return DeclareWorkload{Key: key, Name: t.Name, Template: &l.Items[i]}, nil
-			}
-		}
+	t, known := q.InferredTemplate(key)
+	switch {
+	case t != nil:
+		return DeclareWorkload{Key: key, Name: t.Name, Template: t, View: q}, nil
+	case q.InferredTemplates("") == nil:
+		return DeclareWorkload{}, Refuse(http.StatusConflict, "TemplateCatalogUnset", "this dashboard reads no catalog: set dashboard.backstage.url to accept "+key)
+	case !known:
+		return DeclareWorkload{}, Refuse(http.StatusServiceUnavailable, "TemplateCatalogUnavailable",
+			"the catalog could not be read whole, so Pacto cannot tell whether it holds "+key+": try again once it reads complete")
 	}
 	return DeclareWorkload{}, huma.Error404NotFound("no inferred service with this serviceKey")
 }

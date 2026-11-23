@@ -725,6 +725,20 @@ func (v *Viewer) MayUpdateWorkload(ctx context.Context, p Person, cluster, names
 	return v.ask(ctx, &clusterWork{key: key, review: m[key]}, p, who, namespace, res)
 }
 
+// MayUpdatePactos asks the reviewer of the sign-in cluster, the one Pacto is
+// installed in (the only one when nothing names it), whether p may update
+// pactos in namespace; ErrClusterNotReviewable when no reviewer decides it.
+func (v *Viewer) MayUpdatePactos(ctx context.Context, p Person, namespace string) (bool, error) {
+	m := v.reviews(ctx)
+	key, ok := v.homeKey(ctx, m)
+	if _, has := m[key]; !ok || !has {
+		return false, ErrClusterNotReviewable
+	}
+	res := PactoResource
+	res.Verb = "update"
+	return v.ask(ctx, &clusterWork{key: key, review: m[key]}, p, reviewer(p), namespace, res)
+}
+
 // ask is one cached review in w's cluster. Failures are not cached.
 func (v *Viewer) ask(ctx context.Context, w *clusterWork, p Person, who, ns string, res ResourceAttributes) (bool, error) {
 	key := w.key + "\x01" + who + "\x01" + res.Resource + "." + res.Group + "\x01" + cmp.Or(res.Verb, "list") + "\x01" + res.Name + "\x01" + ns

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -63,6 +64,10 @@ func TestDashboardDeclareTemplateNeedsAuthorization(t *testing.T) {
 	h = newDeclareHost(t, false, true, "uid-prod", "uid-dev")
 	_, err := h.d.Plan(h.req(), tw, dashboard.DeclareInput{ServiceKey: tw.Key})
 	expect(t, forbidden(err, "ClusterNotReviewable"), "two clusters %v", err)
+	// The sign-in cluster is the one Pacto is installed in: asked there.
+	h.d.id.viewer.SignInCluster(func(context.Context) (string, bool) { return "uid-prod", true })
+	expect(t, h.d.MayDeclareTemplate(h.req().Context()) && slices.Equal(h.reviews, []string{"uid-prod/" + h.d.installNamespace() + "/pactos/update/"}),
+		"two clusters with a sign-in cluster: %v", h.reviews)
 	// A host that reviews nobody accepts nothing.
 	h.d.id.viewer = nil
 	expect(t, !h.d.MayDeclareTemplate(h.req().Context()), "no viewer")
@@ -86,6 +91,28 @@ func TestDashboardDeclareDetectedTemplateRefused(t *testing.T) {
 	tw.Template.NameTaken = true
 	p, _ = h.d.Plan(h.req(), tw, dashboard.DeclareInput{ServiceKey: tw.Key})
 	expect(t, p.Refusal != nil && p.Refusal.Code == "TemplateNameTaken", "name taken %+v", p)
+	// So is a name a declared golden path holds.
+	tw = springTemplate(true)
+	tw.Template.DeclaredAs = "ghcr.io/acme/springboot-service"
+	p, _ = h.d.Plan(h.req(), tw, dashboard.DeclareInput{ServiceKey: tw.Key})
+	expect(t, p.Refusal != nil && p.Refusal.Code == "TemplateNameTaken" && strings.Contains(p.Refusal.Message, "golden path ghcr.io/acme/springboot-service"), "declared %+v", p)
+}
+
+// TestDashboardTemplateNameTakenHidden: a repository holding a service the
+// person's view does not show refuses naming nothing it holds.
+func TestDashboardTemplateNameTakenHidden(t *testing.T) {
+	taken := &app.DeclareError{Code: "TemplateNameTaken", CLI: "pacto publish <dir>", Message: "ghcr.io/acme/springboot-service already holds springboot-service 1.0.0"}
+	tw := springTemplate(true)
+	r := claimRedacted(tw, app.DeclareRequest{}, nil, taken)
+	expect(t, r != nil && r.Code == "TemplateNameTaken" && !strings.Contains(r.Message, "1.0.0") && strings.Contains(r.Message, "hidden"), "hidden %+v", r)
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes,
+		&fleet.Collection{Targets: []fleet.RawTarget{{Scope: "shop", Kind: "kubernetes", Name: "springboot-service", Service: "springboot-service"}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tw.View = fleet.NewQuery(snap)
+	expect(t, claimRedacted(tw, app.DeclareRequest{}, nil, taken) == nil, "a visible holder is named as is")
+	expect(t, claimRedacted(springTemplate(true), app.DeclareRequest{}, nil, errors.New("other")) == nil, "other error")
 }
 
 // templatePlan plans tw on h and fails on any refusal.

@@ -354,11 +354,12 @@ func (r remoteDeclarer) refused(a pactomcp.DeclareArgs) *pactomcp.Refused {
 
 // baselineRefusal reports whether err is a refusal built from what the
 // published baseline holds: its tags and signers, publish section or
-// pactoVersion, or the registry read of it.
+// pactoVersion, the registry read of it, or a golden path's repository
+// already holding versions.
 func baselineRefusal(err error) bool {
 	var de *app.DeclareError
 	return errors.As(err, &de) && slices.Contains([]pactomcp.WriteRefusal{pactomcp.RefusalVersionConflict, pactomcp.RefusalBundleRepoMismatch,
-		pactomcp.RefusalBaselineNeedsMigration, pactomcp.RefusalRegistryUnreadable}, pactomcp.WriteRefusal(de.Code))
+		pactomcp.RefusalBaselineNeedsMigration, pactomcp.RefusalRegistryUnreadable, pactomcp.RefusalTemplateNameTaken}, pactomcp.WriteRefusal(de.Code))
 }
 
 // hiddenRefusal is err for a caller who may not see service: a baseline
@@ -465,8 +466,9 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 // Decision 17 (update pactos in the installation namespace, asked with
 // their own client dyn); a refusal when they may not, or when the view lists
 // it from a catalog the installation did not configure or under a name a
-// service already holds. A template the view does not list is left unset:
-// the planner refuses it as not found.
+// golden path or service already holds, or when the view cannot tell
+// whether the catalog holds it. A template a complete view does not list is
+// left unset: the planner refuses it as not found.
 func (r remoteDeclarer) template(ctx context.Context, dyn dynamic.Interface, req *app.DeclareRequest) *pactomcp.Refused {
 	if req.TemplateSubject == "" {
 		return nil
@@ -475,28 +477,18 @@ func (r remoteDeclarer) template(ctx context.Context, dyn dynamic.Interface, req
 		return refused
 	}
 	if q := r.view(ctx); q != nil {
-		req.Template = listedTemplate(q, req.TemplateSubject)
+		t, known := q.InferredTemplate(req.TemplateSubject)
+		if t == nil && !known {
+			return &pactomcp.Refused{Code: pactomcp.RefusalTemplateCatalogUnavailable,
+				Message: "the installation's catalog could not be read whole, so Pacto cannot tell whether it holds " + req.TemplateSubject + ": try again once pacto_fleet_entities reads it complete"}
+		}
+		req.Template = t
 	}
 	if req.Template == nil {
 		return nil
 	}
 	if refusal := templateRefusal(req.Template, req.TemplateSubject); refusal != nil {
 		return &pactomcp.Refused{Code: pactomcp.WriteRefusal(refusal.Code), Message: refusal.Message}
-	}
-	return nil
-}
-
-// listedTemplate is the inferred golden path subject names in view q, nil
-// when q lists none.
-func listedTemplate(q *fleet.Query, subject string) *fleet.InferredTemplate {
-	l := q.InferredTemplates("")
-	if l == nil {
-		return nil
-	}
-	for i, t := range l.Items {
-		if t.Entity == subject {
-			return &l.Items[i]
-		}
 	}
 	return nil
 }

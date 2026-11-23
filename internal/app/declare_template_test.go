@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -185,6 +186,20 @@ func TestDeclareTemplateNotFound(t *testing.T) {
 	}
 }
 
+// TestDeclareTemplatePastListCap: a template past the listing's cap is still
+// found.
+func TestDeclareTemplatePastListCap(t *testing.T) {
+	items := make([]string, 0, fleet.MaxInferredTemplates+5)
+	for i := range fleet.MaxInferredTemplates + 5 {
+		items = append(items, fmt.Sprintf(`{"apiVersion":"scaffolder.backstage.io/v1beta3","kind":"Template","metadata":{"name":"t%03d","namespace":"default"}}`, i))
+	}
+	page := `{"items":[` + strings.Join(items, ",") + `],"pageInfo":{}}`
+	got, err := (&Service{}).InferredTemplate(t.Context(), backstageStub(t, 200, page), "", "template:default/t204")
+	if err != nil || got.Name != "t204" {
+		t.Fatalf("%v %+v", err, got)
+	}
+}
+
 func TestDeclareTemplateCatalogUnset(t *testing.T) {
 	_, err := (&Service{}).InferredTemplate(t.Context(), "", "", templateSubject)
 	if de := refusal(t, err); de.Code != codeTemplateCatalogUnset || !strings.Contains(de.Message, "pass --backstage-url") ||
@@ -199,7 +214,8 @@ func TestDeclareTemplateCatalogUnset(t *testing.T) {
 }
 
 func TestDeclareTemplateNameInvalid(t *testing.T) {
-	for _, s := range []string{"template:springboot-service", "template:/x", "template:default/", "springboot-service"} {
+	// Bad_Name is a name the catalog may hold but the fold skips: never "not found".
+	for _, s := range []string{"template:springboot-service", "template:/x", "template:default/", "springboot-service", "template:default/Bad_Name"} {
 		if _, err := (&Service{}).InferredTemplate(t.Context(), "https://catalog.acme.io", "", s); refusal(t, err).Code != codeTemplateNameInvalid {
 			t.Fatal(s, err)
 		}

@@ -83,3 +83,32 @@ func TestMayUpdateWorkloadUsesClusterReviewer(t *testing.T) {
 		t.Errorf("a Pacto: %v %v %v", ok, err, got)
 	}
 }
+
+// TestMayUpdatePactosAsksTheSignInCluster: with several clusters, the right
+// is asked where Pacto is installed, the sign-in cluster.
+func TestMayUpdatePactosAsksTheSignInCluster(t *testing.T) {
+	var got []string
+	reviewIn := func(cluster string) Review {
+		return func(_ context.Context, _ Person, ns string, res ResourceAttributes) (bool, error) {
+			got = append(got, cluster+"/"+ns+"/"+res.Resource+"/"+res.Verb+"/"+res.Name)
+			return true, nil
+		}
+	}
+	reviews := func(context.Context) map[string]Review {
+		return map[string]Review{"prod": reviewIn("prod"), "dev": reviewIn("dev")}
+	}
+	ctx := context.Background()
+	if _, err := NewViewer(reviews).MayUpdatePactos(ctx, alice, "pacto-system"); !errors.Is(err, ErrClusterNotReviewable) {
+		t.Errorf("no sign-in cluster: %v", err)
+	}
+	home := func(cluster string) func(context.Context) (string, bool) {
+		return func(context.Context) (string, bool) { return cluster, true }
+	}
+	if _, err := NewViewer(reviews).SignInCluster(home("edge")).MayUpdatePactos(ctx, alice, "pacto-system"); !errors.Is(err, ErrClusterNotReviewable) {
+		t.Errorf("an unreviewed sign-in cluster: %v", err)
+	}
+	if ok, err := NewViewer(reviews).SignInCluster(home("prod")).MayUpdatePactos(ctx, alice, "pacto-system"); !ok || err != nil ||
+		len(got) != 1 || got[0] != "prod/pacto-system/pactos/update/" {
+		t.Errorf("%v %v %v", ok, err, got)
+	}
+}

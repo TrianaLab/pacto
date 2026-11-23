@@ -312,9 +312,19 @@ func selfFrom(w dashboard.DeclareWorkload) string {
 
 // claimRedacted is the one refusal a claim of w answers when the repository
 // it writes to holds what the viewer's restricted view hides: it names no
-// service, version, inferredFrom or tag. Nil for a workload, or when the
-// viewer may read everything there.
+// service, version, inferredFrom or tag. A golden path's baseline refusal
+// is redacted the same way. Nil for a workload, or when the viewer may read
+// everything there.
 func claimRedacted(w dashboard.DeclareWorkload, req app.DeclareRequest, p *app.DeclarePlan, err error) *dashboard.DeclareRefusal {
+	if t := w.Template; t != nil {
+		// The registry holds a name the person's view does not show: the
+		// refusal names nothing it holds.
+		if baselineRefusal(err) && !showsService(w.View, t.Name) {
+			refusal, _ := dashRefusal(hiddenRefusal(t.Name, err))
+			return refusal
+		}
+		return nil
+	}
 	id, ok := claimOf(w)
 	if !ok || !claimHidden(w.View, id, cmp.Or(req.Name, inferredcontract.ServiceName(fleet.ExternalKey(id))), p, err) {
 		return nil
@@ -543,11 +553,14 @@ func (d *dashboardDeclarer) templateGate(ctx context.Context, w dashboard.Declar
 }
 
 // templateRefusal refuses a template t a person may not accept: one a
-// detected catalog lists, or one whose name a service already holds.
+// detected catalog lists, or one whose name a golden path or another service
+// the person's view shows already holds.
 func templateRefusal(t *fleet.InferredTemplate, subject string) *dashboard.DeclareRefusal {
 	switch {
 	case !t.Acceptable:
 		return refused(string(pactomcp.RefusalTemplateSourceUnverified), noTemplateSource, "")
+	case t.DeclaredAs != "":
+		return refused(string(pactomcp.RefusalTemplateNameTaken), "the golden path "+t.DeclaredAs+" already holds the name "+t.Name+": "+subject+" is its link, never accepted again", "")
 	case t.NameTaken:
 		return refused(string(pactomcp.RefusalTemplateNameTaken), "a service already holds the name "+t.Name+": "+subject+" is never accepted under it", "")
 	}
@@ -572,7 +585,7 @@ func (d *dashboardDeclarer) mayDeclareTemplate(ctx context.Context) error {
 	if d.id.viewer == nil {
 		return dashboard.Refuse(http.StatusForbidden, "NotAllowed", "this dashboard reviews nobody, so it accepts no golden path: run pacto declare")
 	}
-	ok, err := d.id.viewer.MayUpdateWorkload(ctx, d.id.state(ctx).Person, "", ns, authn.PactoKind, "")
+	ok, err := d.id.viewer.MayUpdatePactos(ctx, d.id.state(ctx).Person, ns)
 	switch {
 	case errors.Is(err, authn.ErrClusterNotReviewable):
 		return dashboard.Refuse(http.StatusForbidden, "ClusterNotReviewable", "Pacto cannot review you in the cluster it is installed in, so it accepts no golden path")

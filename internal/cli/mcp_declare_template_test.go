@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -102,10 +103,10 @@ func TestMCPDeclareTemplateHTTPResolvesFromView(t *testing.T) {
 	// A template the view does not list is not found.
 	_, refused, err := rd.Plan(callerCtx("alice", s, &bytes.Buffer{}), pactomcp.DeclareArgs{Service: "template:default/nope", Registry: w.host + "/acme"})
 	expect(t, err == nil && refused != nil && refused.Code == pactomcp.RefusalTemplateNotFound, "%+v %v", refused, err)
-	// A view no catalog lists templates in, and no fleet view: not found.
+	// A view no catalog lists templates in cannot tell; no fleet view: not found.
 	rd.fleet = &pactomcp.FleetMode{Src: func(context.Context) (*fleet.Query, error) { return fleet.NewQuery(&fleet.FleetSnapshot{}), nil }}
 	_, refused, _ = rd.Plan(callerCtx("alice", s, &bytes.Buffer{}), pactomcp.DeclareArgs{Service: springSubject, Registry: w.host + "/acme"})
-	expect(t, refused != nil && refused.Code == pactomcp.RefusalTemplateNotFound, "no lister %+v", refused)
+	expect(t, refused != nil && refused.Code == pactomcp.RefusalTemplateCatalogUnavailable, "no lister %+v", refused)
 	rd.fleet = nil
 	_, refused, _ = rd.Plan(callerCtx("alice", s, &bytes.Buffer{}), pactomcp.DeclareArgs{Service: springSubject, Registry: w.host + "/acme"})
 	expect(t, refused != nil && refused.Code == pactomcp.RefusalTemplateNotFound, "no view %+v", refused)
@@ -140,4 +141,27 @@ func TestMCPDeclareTemplateDraftNeedsAuthorization(t *testing.T) {
 		tags, _ := publish.NewClient(oci.NewKeychain(oci.EnvCredentialOptions()), w.host).Tags(t.Context(), w.host+"/acme/springboot-service")
 		expect(t, len(tags) == 0, "%s wrote %v", c.name, tags)
 	}
+}
+
+// TestMCPDeclareTemplateCatalogUnavailable: a view whose catalog could not
+// be read refuses as unavailable, never as not found.
+func TestMCPDeclareTemplateCatalogUnavailable(t *testing.T) {
+	w := newDeclareWorld(t)
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("catalog", "catalog",
+		&fleet.Collection{ListsTemplates: true, State: &fleet.SourceState{Status: fleet.SourceUnavailable}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	rd := httpDeclarer(w).withFleet(&pactomcp.FleetMode{Src: func(context.Context) (*fleet.Query, error) { return q, nil }})
+	_, refused, err := rd.Plan(callerCtx("alice", newSelfReviewed(true), &bytes.Buffer{}), pactomcp.DeclareArgs{Service: springSubject, Registry: w.host + "/acme"})
+	expect(t, err == nil && refused != nil && refused.Code == pactomcp.RefusalTemplateCatalogUnavailable, "%+v %v", refused, err)
+}
+
+// TestTemplateNameTakenHiddenRefusal: a golden path's taken repository is a
+// baseline refusal, so a caller who may not see the holder gets no tag.
+func TestTemplateNameTakenHiddenRefusal(t *testing.T) {
+	err := hiddenRefusal("springboot-service", &app.DeclareError{Code: string(pactomcp.RefusalTemplateNameTaken), Message: "r already holds springboot-service 1.0.0"})
+	var de *app.DeclareError
+	expect(t, errors.As(err, &de) && de.Code == string(pactomcp.RefusalTemplateNameTaken) && !strings.Contains(de.Message, "1.0.0"), "%v", err)
 }

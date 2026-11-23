@@ -35,6 +35,10 @@ func (s *Service) InferredTemplate(ctx context.Context, baseURL, token, subject 
 	if !ok || !slash || ns == "" || name == "" {
 		return nil, &DeclareError{Code: codeTemplateNameInvalid, Message: subject + " names no golden path: a catalog template is template:<namespace>/<name>"}
 	}
+	if !contract.ValidSlug(name) {
+		// The fold skips such a name, so it is never found: say why.
+		return nil, &DeclareError{Code: codeTemplateNameInvalid, Message: fmt.Sprintf("%q is no name a contract can carry: a golden path is named in lower-case letters, digits and dashes", name)}
+	}
 	if baseURL == "" {
 		return nil, &DeclareError{Code: codeTemplateCatalogUnset,
 			Message: "accepting a template reads the Backstage catalog: pass --backstage-url (the reader token comes from PACTO_BACKSTAGE_TOKEN)",
@@ -52,13 +56,14 @@ func (s *Service) InferredTemplate(ctx context.Context, baseURL, token, subject 
 	}
 	// ponytail: one memory source does no I/O, so the build cannot fail.
 	snap, _ := fleet.Build(context.WithoutCancel(ctx), fleet.BuildOptions{Now: s.env().now}, fleet.NewMemorySource(src.ID(), src.Kind(), col))
-	for i, t := range snap.InferredTemplates {
-		if t.Entity == subject {
-			return &snap.InferredTemplates[i], nil
-		}
+	// The lookup reaches past the list cap: a listed template is never
+	// refused as missing.
+	t, known := fleet.NewQuery(snap).InferredTemplate(subject)
+	if t != nil {
+		return t, nil
 	}
 	msg := "no template " + ref + " in the catalog at " + host
-	if col.State.Status == fleet.SourcePartial {
+	if !known {
 		msg += " (the catalog read was partial, so it may hold one past the read)"
 	}
 	return nil, &DeclareError{Code: codeTemplateNotFound, Message: msg, CLI: "pacto fleet entities --template --backstage-url " + baseURL}
