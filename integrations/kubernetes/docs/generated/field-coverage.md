@@ -137,7 +137,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `state.dataCriticality` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `workload` | `verified` | `verified` | `unverified` | `unverified` | Compliant; WORKLOAD_MISMATCH (error); Unknown codes when no workload target; SCHEMA_VIOLATION statically |
 | `capabilities` | `not-applicable` | - | - | - | PARSE_ERROR when not a list |
-| `capabilities[]` | `partial` | `partial` | `partial` | `partial` | Compliant; CAPABILITY_ABSENT (error); HEALTH_FAILING (unknown) when the health check answers and reports it is not healthy; OBSERVATION_UNSUPPORTED when unbound; extensions listed under coverage.unverified; DUPLICATE_CAPABILITY statically |
+| `capabilities[]` | `partial` | `partial` | `partial` | `partial` | Compliant; CAPABILITY_ABSENT (error); HEALTH_FAILING (unknown) when the health check answers and reports it is not healthy; OBSERVATION_UNSUPPORTED when unbound; extensions listed under coverage.unverified until a granted producer reports them; DUPLICATE_CAPABILITY statically |
 | `capabilities[].type` | `partial` | `partial` | `partial` | `partial` | Compliant, CAPABILITY_ABSENT or Unknown codes; SCHEMA_VIOLATION statically |
 | `capabilities[].ref` | `static-only` | - | - | - | CAPABILITY_REF_INVALID, SCHEMA_VIOLATION |
 | `capabilities[].binding` | `partial` | `partial` | `partial` | `partial` | OBSERVATION_UNSUPPORTED when missing; SCHEMA_VIOLATION on an extension |
@@ -1723,8 +1723,8 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Runtime | `partial` |
 | Evidence | CapabilityObserved from a health probe or a metrics scrape on the bound endpoint |
 | Rule | an absent endpoint contradicts |
-| Outcomes | Compliant; CAPABILITY_ABSENT (error); HEALTH_FAILING (unknown) when the health check answers and reports it is not healthy; OBSERVATION_UNSUPPORTED when unbound; extensions listed under coverage.unverified; DUPLICATE_CAPABILITY statically |
-| Limitations | extension capabilities have no evaluator |
+| Outcomes | Compliant; CAPABILITY_ABSENT (error); HEALTH_FAILING (unknown) when the health check answers and reports it is not healthy; OBSERVATION_UNSUPPORTED when unbound; extensions listed under coverage.unverified until a granted producer reports them; DUPLICATE_CAPABILITY statically |
+| Limitations | extension capabilities have no built-in evaluator; a granted producer's report checks them |
 | Tests | unit: `pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension`, `pkg/validation/evaluate_health_test.go:TestEvaluateHealthFailingIsUnknown`, `pkg/validation/crossfield_test.go:TestValidateCapabilities_DuplicateStandard`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[]/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[]/invalid`; e2e: `tests/acceptance/kind/runtime-conformance.sh:health-capability`, `tests/acceptance/kind/runtime-conformance.sh:health-failing`, `tests/acceptance/kind/runtime-conformance.sh:metrics-capability` |
 
 | Platform | Evidence | Why | Tests |
@@ -1740,7 +1740,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | Kind of capability. |
 | Runtime | `partial` |
 | Evidence | CapabilityObservation.Present |
-| Rule | health and metrics are observed; extension is never observed |
+| Rule | health and metrics are observed; an extension is checked by a granted producer's report |
 | Outcomes | Compliant, CAPABILITY_ABSENT or Unknown codes; SCHEMA_VIOLATION statically |
 | Limitations | metrics needs --enable-metrics-observation |
 | Tests | unit: `pkg/validation/structural_test.go:TestStructural_V20CapabilityTypes`, `pkg/contract/contract_test.go:TestCapability_StandardTypes`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type/invalid`; e2e: `tests/acceptance/kind/runtime-conformance.sh:health-capability`, `tests/acceptance/kind/runtime-conformance.sh:health-failing`, `tests/acceptance/kind/runtime-conformance.sh:metrics-capability` |
@@ -1755,7 +1755,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | --- | --- | --- | --- | --- | --- | --- |
 | `health` | `verified` | A health endpoint. | tier A: an active probe of binding.path answers; tier B (probing off): an httpGet readiness probe on the bound port whose path equals binding.path, with ready endpoints. A 5xx other than 501, or that readiness probe with no ready endpoint, reports HEALTH_FAILING: the check answered and reports it is not healthy | Compliant, CAPABILITY_ABSENT, HEALTH_FAILING (compliance Unknown) or EVIDENCE_INSUFFICIENT | tier B infers health from the readiness probe instead of calling it | unit: `pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension`, `pkg/validation/evaluate_health_test.go:TestEvaluateHealthFailingIsUnknown`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type=health`; e2e: `tests/acceptance/kind/runtime-conformance.sh:health-capability`, `tests/acceptance/kind/runtime-conformance.sh:health-failing` |
 | `metrics` | `partial` | A Prometheus metrics endpoint. | a scrape of the discovered endpoint (ServiceMonitor, PodMonitor, annotations, named port, then binding.path) returns metrics | Compliant, CAPABILITY_ABSENT or Unknown codes | only with --enable-metrics-observation; only the first metrics capability is observed | unit: `pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type=metrics`; e2e: `tests/acceptance/kind/runtime-conformance.sh:metrics-capability` |
-| `extension` | `static-only` | A namespaced, vendor-defined capability. | no evaluator is registered | listed under coverage.unverified as capabilities[ref=&lt;ref&gt;]; never a finding and never counted as required | Pacto cannot verify an extension, so a Compliant verdict says nothing about it; read coverage.unverified | unit: `pkg/validation/evaluate_test.go:TestEvaluate_ExtensionCapability`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type=extension` |
+| `extension` | `static-only` | A namespaced, vendor-defined capability. | a producer the trust config grants the ref reports present or absent | listed under coverage.unverified as capabilities[ref=&lt;ref&gt;] until a granted producer reports it; Compliant when reported present; CAPABILITY_ABSENT (error) when reported absent; Unknown when the report is not Observed | Pacto has no built-in evaluator for an extension; without a granted producer's report a Compliant verdict says nothing about it, so read coverage.unverified | unit: `pkg/validation/evaluate_test.go:TestEvaluate_ExtensionCapability`, `pkg/validation/evaluate_test.go:TestEvaluateExtensionObservedTable`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type=extension` |
 
 ### `capabilities[].ref`
 

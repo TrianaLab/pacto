@@ -726,3 +726,69 @@ func TestUnknownMessageWithoutDetailUnchanged(t *testing.T) {
 	}
 	t.Fatalf("no OBSERVATION_UNSUPPORTED finding in %v", fs)
 }
+
+// TestEvaluateExtensionObservedTable: a producer's report on an extension is judged by the uniform assert
+// rule; no report keeps the extension listed as unverified.
+func TestEvaluateExtensionObservedTable(t *testing.T) {
+	const ref = "x.acme.io/backup"
+	c := contract.Contract{
+		Service:      contract.Service{Name: "orders", Version: "1"},
+		Capabilities: []contract.Capability{{Type: contract.CapabilityExtension, Ref: ref}},
+	}
+	unobserved := func(o evidence.Outcome) []evidence.Observation {
+		obs, err := evidence.NewUnobserved(evidence.CapabilityObserved, sr("capability", ref), o, prov())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return []evidence.Observation{obs}
+	}
+	present := func(p bool) []evidence.Observation {
+		return []evidence.Observation{evidence.NewCapabilityObserved(sr("capability", ref), p, prov())}
+	}
+	cases := []struct {
+		name                string
+		obs                 []evidence.Observation
+		source              string
+		required, evaluated int
+		unverified          []string
+		code                finding.Code
+		severity            finding.Severity
+		msg                 string
+		status              string
+	}{
+		{name: "none", unverified: []string{"capabilities[ref=" + ref + "]"}, status: finding.StatusCompliant},
+		{name: "present", obs: present(true), required: 1, evaluated: 1, status: finding.StatusCompliant},
+		{name: "absent", obs: present(false), source: "acme-backup", required: 1, evaluated: 1,
+			code: finding.CodeCapabilityAbsent, severity: finding.SeverityError,
+			msg: `extension capability "x.acme.io/backup" is reported absent by acme-backup`, status: finding.StatusNonCompliant},
+		{name: "absent without source", obs: present(false), required: 1, evaluated: 1,
+			code: finding.CodeCapabilityAbsent, severity: finding.SeverityError,
+			msg: `extension capability "x.acme.io/backup" is reported absent by its producer`, status: finding.StatusNonCompliant},
+		{name: "failed", obs: unobserved(evidence.Failed), required: 1, code: finding.CodeCollectionFailed, severity: finding.SeverityUnknown, status: finding.StatusUnknown},
+		{name: "insufficient", obs: unobserved(evidence.Insufficient), required: 1, code: finding.CodeEvidenceInsufficient, severity: finding.SeverityUnknown, status: finding.StatusUnknown},
+		{name: "stale", obs: unobserved(evidence.Stale), required: 1, code: finding.CodeEvidenceStale, severity: finding.SeverityUnknown, status: finding.StatusUnknown},
+		{name: "unsupported", obs: unobserved(evidence.Unsupported), required: 1, code: finding.CodeObservationUnsupported, severity: finding.SeverityUnknown, status: finding.StatusUnknown},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			set := es(tc.obs...)
+			set.Source = tc.source
+			fs, cov := Evaluate(c, set)
+			if cov.Required != tc.required || cov.Evaluated != tc.evaluated || !slices.Equal(cov.Unverified, tc.unverified) {
+				t.Errorf("coverage = %+v, want required %d evaluated %d unverified %v", cov, tc.required, tc.evaluated, tc.unverified)
+			}
+			if tc.code == "" {
+				if len(fs) != 0 {
+					t.Errorf("findings = %v, want none", fs)
+				}
+			} else if len(fs) != 1 || fs[0].Code != tc.code || fs[0].Severity != tc.severity {
+				t.Errorf("findings = %v, want one %s %s", fs, tc.code, tc.severity)
+			} else if tc.msg != "" && fs[0].Message != tc.msg {
+				t.Errorf("message = %q, want %q", fs[0].Message, tc.msg)
+			}
+			if got := DeriveStatus(fs, cov); got != tc.status {
+				t.Errorf("status = %s, want %s", got, tc.status)
+			}
+		})
+	}
+}

@@ -554,3 +554,43 @@ func TestExtensionSubject(t *testing.T) {
 		}
 	}
 }
+
+func TestCapabilityObservationDetailsTable(t *testing.T) {
+	obs := func(name, outcome, value string) string {
+		v := ""
+		if value != "" {
+			v = `"value":` + value + `,`
+		}
+		return `{"kind":"CapabilityObserved","subject":{"kind":"capability","name":"` + name + `"},"outcome":"` + outcome + `",` + v +
+			`"provenance":{"collector":"c","detectedAt":"2026-01-01T00:00:00Z"}}`
+	}
+	big := `{"k":"` + strings.Repeat("x", MaxCapabilityDetailsBytes-7) + `"}`
+	if len(big) != MaxCapabilityDetailsBytes+1 {
+		t.Fatalf("fixture is %d bytes", len(big))
+	}
+	cases := []struct {
+		name, json, wantErr string
+	}{
+		{"details on extension", obs("x.acme.io/backup", "Observed", `{"present":true,"details":{"lastBackup":"2026-11-22T03:00:00Z"}}`), ""},
+		{"extension without details", obs("x.acme.io/backup", "Observed", `{"present":false}`), ""},
+		{"details on health", obs("health", "Observed", `{"present":true,"details":{"a":1}}`), "only an extension capability carries details"},
+		{"details array", obs("x.acme.io/backup", "Observed", `{"present":true,"details":[1]}`), "details must be a JSON object"},
+		{"details null", obs("x.acme.io/backup", "Observed", `{"present":true,"details":null}`), "details must be a JSON object"},
+		{"details too large", obs("x.acme.io/backup", "Observed", `{"present":true,"details":`+big+`}`), "details exceed"},
+		{"healthy on extension", obs("x.acme.io/backup", "Observed", `{"present":true,"healthy":true}`), "reports present only"},
+		{"healthy on health", obs("health", "Observed", `{"present":true,"healthy":true}`), ""},
+		{"details on non-Observed", obs("x.acme.io/backup", "Failed", `{"present":true,"details":{}}`), "must not carry a value payload"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var o Observation
+			err := json.Unmarshal([]byte(c.json), &o)
+			switch {
+			case c.wantErr == "" && err != nil:
+				t.Fatalf("unexpected error: %v", err)
+			case c.wantErr != "" && (err == nil || !strings.Contains(err.Error(), c.wantErr)):
+				t.Fatalf("error = %v, want %q", err, c.wantErr)
+			}
+		})
+	}
+}

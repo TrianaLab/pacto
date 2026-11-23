@@ -2581,9 +2581,9 @@ fields:
     evidence: CapabilityObserved from a health probe or a metrics scrape on the bound endpoint
     rule: an absent endpoint contradicts
     outcomes: Compliant; CAPABILITY_ABSENT (error); HEALTH_FAILING (unknown) when the health check answers and
-      reports it is not healthy; OBSERVATION_UNSUPPORTED when unbound; extensions listed under coverage.unverified;
-      DUPLICATE_CAPABILITY statically
-    limitations: extension capabilities have no evaluator
+      reports it is not healthy; OBSERVATION_UNSUPPORTED when unbound; extensions listed under coverage.unverified
+      until a granted producer reports them; DUPLICATE_CAPABILITY statically
+    limitations: extension capabilities have no built-in evaluator; a granted producer's report checks them
     tests:
       unit:
       - pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension
@@ -2620,7 +2620,7 @@ fields:
     meaning: Kind of capability.
     runtime: partial
     evidence: CapabilityObservation.Present
-    rule: health and metrics are observed; extension is never observed
+    rule: health and metrics are observed; an extension is checked by a granted producer's report
     outcomes: Compliant, CAPABILITY_ABSENT or Unknown codes; SCHEMA_VIOLATION statically
     limitations: metrics needs --enable-metrics-observation
     tests:
@@ -2690,14 +2690,17 @@ fields:
       extension:
         meaning: A namespaced, vendor-defined capability.
         runtime: static-only
-        evidence: none
-        rule: no evaluator is registered
-        outcomes: listed under coverage.unverified as capabilities[ref=<ref>]; never a finding and never counted as
-          required
-        limitations: Pacto cannot verify an extension, so a Compliant verdict says nothing about it; read coverage.unverified
+        evidence: a trusted producer's signed CapabilityObserved through the Evidence Server
+        rule: a producer the trust config grants the ref reports present or absent
+        outcomes: listed under coverage.unverified as capabilities[ref=<ref>] until a granted producer reports it;
+          Compliant when reported present; CAPABILITY_ABSENT (error) when reported absent; Unknown when the report is
+          not Observed
+        limitations: Pacto has no built-in evaluator for an extension; without a granted producer's report a Compliant
+          verdict says nothing about it, so read coverage.unverified
         tests:
           unit:
           - pkg/validation/evaluate_test.go:TestEvaluate_ExtensionCapability
+          - pkg/validation/evaluate_test.go:TestEvaluateExtensionObservedTable
           integration:
           - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type=extension
           e2e: []
