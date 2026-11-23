@@ -23,7 +23,7 @@
   import ProvenanceMark from '../../components/ProvenanceMark.svelte';
   import { lifecycleText, stageBadge } from '../../lib/behavior.ts';
   import { joinAnd } from '../../lib/answers.ts';
-  import { formatDate } from '../../lib/dateFormat.ts';
+  import { formatDate, formatWhen } from '../../lib/dateFormat.ts';
   import { fleetEntityListUrl } from '../../lib/router.ts';
   import RevisionFigures from '../../components/figure/RevisionFigures.svelte';
   import DeliveryLifecycle from '../../components/DeliveryLifecycle.svelte';
@@ -130,6 +130,20 @@
     ? joinAnd([['fail', 'failed'], ['unverified', 'not verified'], ['skip', 'not checked']]
       .map(([st, word]) => (envCount(st) ? `${formatCount(envCount(st))} ${word}` : '')).filter(Boolean), 'and')
     : 'Every environment passed');
+  // An extension row with a check says who reported on it; the tip names producer, key
+  // and time. A row without a check is unverified, which the section already says.
+  const CHECK_LABELS = {
+    covered: (k) => `Checked by ${k.producer}`,
+    failing: (k) => `Reported absent by ${joinAnd(k.producers?.length ? k.producers : [k.producer])}`,
+    unknown: () => 'Unknown',
+  };
+  const checkLabel = (k) => CHECK_LABELS[k.state](k);
+  const sentence = (t) => (t ? `${t[0].toUpperCase()}${t.slice(1)}${t.endsWith('.') ? '' : '.'}` : '');
+  function checkTip(k) {
+    const said = k.state === 'unknown' ? sentence(k.reason)
+      : `${k.producer} (key ${k.producerKeyId}) reported it ${k.state === 'covered' ? 'present' : 'absent'} ${formatWhen(k.asOf)} through a signed report.`;
+    return k.source ? `${said} Source: ${k.source}.` : said;
+  }
 </script>
 
 <div class="rev-entity">
@@ -456,13 +470,17 @@
     <ul class="re-caps">
       {#each d.capabilities?.items ?? [] as c, i (c.type + (c.ref ?? '') + i)}
         <li>
-          <span class="ri-name">{c.type || c.ref}</span>
+          {#if c.type === 'extension'}<span class="ri-name"><bdi>{c.ref}</bdi></span>{:else}<span class="ri-name">{c.type || c.ref}</span>{/if}
           {#if c.binding}
             <span class="rt-method">{c.binding.type || 'binding'}</span>
             {#if c.binding.interface}<span class="rc-cat">via {c.binding.interface}</span>{/if}
             {#if c.binding.path}<span class="rt-path">{c.binding.path}</span>{/if}
           {:else}
             <span class="rc-cat">no binding declared</span>
+          {/if}
+          {#if c.check}
+            <span class="re-ext re-ext-{c.check.state}" data-testid="ext-check">{checkLabel(c.check)}</span>
+            <ProvenanceMark label="About {c.ref}" text={checkTip(c.check)} />
           {/if}
         </li>
       {/each}
@@ -666,6 +684,10 @@
      its nested operations or values stay visibly attached to it rather than running
      together into one undifferentiated list. */
   .re-ifaces, .re-caps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
+  .re-ext { font-weight: 600; }
+  .re-ext-covered { color: var(--c-ok); }
+  .re-ext-failing { color: var(--c-err); }
+  .re-ext-unknown { color: var(--c-text-3); }
   .re-caps li { display: flex; gap: var(--sp-2); align-items: baseline; flex-wrap: wrap; font-size: var(--text-sm); }
   .ri-head { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .ri-name { font-weight: 600; color: var(--c-text); overflow-wrap: anywhere; }

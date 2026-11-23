@@ -229,7 +229,7 @@ const ATTENTION_CAUSES: Record<string, string> = {
   NO_DOMAIN: 'The contract declares no business domain',
   NO_INTERFACE_DOCS: 'An interface declares no document',
   NOT_DEPLOYED: 'No source reports an operational target of this service',
-  UNVERIFIED_CAPABILITY: 'An extension capability no evaluator checks',
+  UNVERIFIED_CAPABILITY: 'An extension capability no evaluator or trusted producer checks',
   INFERRED_PROVIDER: 'A dependency range points at an inferred contract, so Pacto never checks it',
   CROSS_ENVIRONMENT_CALL: 'A workload in one environment calls a workload in another',
   CROSS_ENVIRONMENT_PREVIEW_CALL: 'A workload calls a workload in a preview environment',
