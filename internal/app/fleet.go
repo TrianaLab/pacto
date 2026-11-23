@@ -16,6 +16,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/backstage"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/detect"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
@@ -41,6 +42,9 @@ func bundleStoreCacheDir(store any) string {
 type FleetOptions struct {
 	LocalRoots       []string
 	TargetStateFiles []string
+	// TerraformStates are local Terraform or OpenTofu state files whose
+	// managed resources join the snapshot, type, id and region only.
+	TerraformStates []string
 	// EvidenceURLs are base URLs of Evidence Servers whose read-only Operational
 	// Graph contribution is consumed over HTTP; each becomes a fleet source of
 	// external targets. This is the ONLY way to read accepted evidence: the
@@ -251,9 +255,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	if len(opts.CatalogRoots) > 0 {
 		sources = append(sources, &catalogSource{id: "catalog", svc: s, roots: opts.CatalogRoots})
 	}
-	for i, path := range opts.TargetStateFiles {
-		sources = append(sources, fleetsrc.NewTargetStateFileSource(sourceID("target-state", i, len(opts.TargetStateFiles)), path))
-	}
+	sources = append(sources, s.fileSources(opts, cat)...)
 	// A malformed --detected ref is a usage error, refused before any read.
 	remote, err := s.httpSources(opts)
 	fp, fpErr := loadFingerprints(opts.Fingerprints)
@@ -304,6 +306,19 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		// planner's own build leaves this false.
 		DiscloseUncheckedFreshness: true,
 	}, sources...)
+}
+
+// fileSources are the sources of the local files opts names: target-state
+// fixtures and Terraform states, the states classified with cat.
+func (s *Service) fileSources(opts FleetOptions, cat *externalcatalog.Catalog) []fleet.Source {
+	var out []fleet.Source
+	for i, path := range opts.TargetStateFiles {
+		out = append(out, fleetsrc.NewTargetStateFileSource(sourceID("target-state", i, len(opts.TargetStateFiles)), path))
+	}
+	for i, path := range opts.TerraformStates {
+		out = append(out, fleetsrc.NewTerraformStateSource(sourceID("tf-state", i, len(opts.TerraformStates)), path, cat, s.env().now))
+	}
+	return out
 }
 
 // ociSourceFor is the registry source id over refs with the provenance,

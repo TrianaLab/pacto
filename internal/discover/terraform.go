@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -51,6 +52,10 @@ var (
 	tfResourceRE = regexp.MustCompile(`^\s*resource\s+"([A-Za-z0-9_]+)"\s+"([A-Za-z_][A-Za-z0-9_-]*)"\s*\{`)
 	tfProviderRE = regexp.MustCompile(`^\s*provider\s+"([A-Za-z0-9_-]+)"\s*\{`)
 	tfModuleRE   = regexp.MustCompile(`^\s*module\s+"([A-Za-z_][A-Za-z0-9_-]*)"\s*\{`)
+	tfSettingsRE = regexp.MustCompile(`^\s*terraform\s*\{`)
+	tfBackendRE  = regexp.MustCompile(`^\s*backend\s+"(s3|gcs|azurerm)"\s*\{`)
+	// tfLocationRE is a backend setting a state location may carry as is.
+	tfLocationRE = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
 	tfAttrRE     = regexp.MustCompile(`^\s*([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*(.*)$`)
 	// tfLiteralRE is a quoted string with no interpolation or escape.
 	tfLiteralRE = regexp.MustCompile(`^"([^"\\$%]*)"\s*(?:(?:#|//).*)?$`)
@@ -76,11 +81,17 @@ func terraformResources(file string, data []byte, idAttr func(typ string) string
 				t.header(n, line)
 			case 1:
 				t.attribute(line)
+				t.backendHeader(n, line)
+			case 2:
+				t.backendAttribute(line)
 			}
 		}
 		t.lex.line(line)
+		if t.lex.depth < 2 {
+			t.endBackend()
+		}
 		if t.lex.depth == 0 {
-			t.resource, t.provider = nil, nil
+			t.resource, t.provider, t.settings = nil, nil, false
 		}
 	})
 	return t.resources, t.providers, t.findings
@@ -93,6 +104,8 @@ type tfFile struct {
 	lex       tfLexer
 	resource  *tfResource // the resource block the scan is in
 	provider  *tfProvider // the provider block the scan is in
+	settings  bool        // the scan is in a terraform block
+	backend   *tfBackend  // the backend block the scan is in
 	resources []tfResource
 	providers []tfProvider
 	findings  []contract.InferredFinding
@@ -107,6 +120,8 @@ func (t *tfFile) header(n int, line string) {
 	} else if m := tfProviderRE.FindStringSubmatch(line); m != nil {
 		t.providers = append(t.providers, tfProvider{name: m[1]})
 		t.provider = &t.providers[len(t.providers)-1]
+	} else if tfSettingsRE.MatchString(line) {
+		t.settings = true
 	} else if m := tfModuleRE.FindStringSubmatch(line); m != nil {
 		src := at(t.file, n)
 		t.findings = append(t.findings, contract.InferredFinding{Code: CodeUnsupportedFile, Source: src,
@@ -150,6 +165,72 @@ func (t *tfFile) attribute(line string) {
 			}
 		}
 	}
+}
+
+// tfBackend is a backend block of a terraform block: its type, the line it
+// starts on and the literal settings a state location needs.
+type tfBackend struct {
+	typ      string
+	line     int
+	settings map[string]string
+}
+
+// backendSettings are the settings each backend type's state location is
+// built from, in order.
+var backendSettings = map[string][]string{
+	"s3":      {"bucket", "key", "region"},
+	"gcs":     {"bucket", "prefix"},
+	"azurerm": {"storage_account_name", "container_name", "key"},
+}
+
+// backendHeader reads a line at depth 1 of a terraform block for the start
+// of a backend block.
+func (t *tfFile) backendHeader(n int, line string) {
+	if m := tfBackendRE.FindStringSubmatch(line); m != nil && t.settings {
+		t.backend = &tfBackend{typ: m[1], line: n, settings: map[string]string{}}
+	}
+}
+
+// backendAttribute reads a line at depth 2 of a backend block: only the
+// settings its location needs, and only as literals.
+func (t *tfFile) backendAttribute(line string) {
+	m := tfAttrRE.FindStringSubmatch(line)
+	if t.backend == nil || m == nil || !slices.Contains(backendSettings[t.backend.typ], m[1]) {
+		return
+	}
+	if v := tfLiteral(strings.TrimSpace(m[2])); tfLocationRE.MatchString(v) {
+		t.backend.settings[m[1]] = v
+	}
+}
+
+// endBackend closes the backend block the scan is in, if any, and proposes
+// its state location when every setting it needs was read as a literal. A
+// partial or interpolated backend proposes nothing.
+func (t *tfFile) endBackend() {
+	b := t.backend
+	if b == nil {
+		return
+	}
+	t.backend = nil
+	var v []string
+	for _, k := range backendSettings[b.typ] {
+		if b.settings[k] == "" {
+			return
+		}
+		v = append(v, b.settings[k])
+	}
+	var location string
+	switch b.typ {
+	case "s3":
+		location = "s3://" + v[0] + "/" + v[1] + "?region=" + v[2]
+	case "gcs": // the default workspace's object under the prefix
+		location = "gs://" + v[0] + "/" + v[1] + "/default.tfstate"
+	default:
+		location = "azurerm://" + strings.Join(v, "/")
+	}
+	src := at(t.file, b.line)
+	t.findings = append(t.findings, contract.InferredFinding{Code: CodeTerraformBackend, Source: src,
+		Message: "Terraform backend " + location + " in " + src + "; the operator reads it once it is listed in controller.terraformStates"})
 }
 
 // tfLiteral is the text of a quoted literal, empty when value is anything

@@ -62,3 +62,21 @@ func TestWarnPartialNotesAnUnreadCatalog(t *testing.T) {
 		t.Errorf("stderr =\n%s\nwant\n%s", out.String(), want)
 	}
 }
+
+func TestFleetFlagNamesListsTFState(t *testing.T) {
+	names := fleetFlagNames()
+	if i := slices.Index(names, "tf-state"); i < 0 || names[i-1] != "target-state" {
+		t.Fatalf("fleetFlagNames = %v, want tf-state after target-state", names)
+	}
+	cmd := &cobra.Command{Use: "x"}
+	addFleetSourceFlags(cmd.Flags())
+	if err := cmd.Flags().Parse([]string{"--tf-state=a.tfstate", "--tf-state=b.tfstate"}); err != nil {
+		t.Fatal(err)
+	}
+	if o := fleetOptions(cmd); !slices.Equal(o.TerraformStates, []string{"a.tfstate", "b.tfstate"}) {
+		t.Errorf("TerraformStates = %q", o.TerraformStates)
+	}
+	if f := cmd.Flags().Lookup("tf-state"); f == nil || !strings.Contains(f.Usage, "type, id and region only") {
+		t.Errorf("tf-state flag %+v", f)
+	}
+}

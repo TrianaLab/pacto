@@ -20,6 +20,9 @@ const (
 	CodeUnreadable              = "DISCOVERY_UNREADABLE"
 	CodeUnresolved              = "DISCOVERY_UNRESOLVED"
 	CodeTruncated               = contract.InferredFindingTruncated
+	// CodeTerraformBackend proposes a remote state a backend block names; it
+	// reads nothing.
+	CodeTerraformBackend = "TERRAFORM_BACKEND"
 )
 
 // Why a file is unreadable, each the end of a fixed message.
