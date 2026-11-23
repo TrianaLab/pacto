@@ -187,6 +187,11 @@ running workload.
 - It takes `service`, `namespace`, `dir` (stdio only), `registry`, `accept`,
   `on_behalf_of`, `dry_run`, `intent_digest`, `max_items`, `call_window` and
   `draft` (stdio only).
+- `service: external:<identity>` plans a
+  [claim](inferred-contracts.md#claim-an-external-system) of an external
+  system instead, with `owner` (the owning team) and `name` (the service name
+  it publishes under, by default the identity's last segment). It reads no
+  workload, and `acceptCLI` is the `pacto claim --from-draft` command.
 - `dry_run` defaults to true: the call returns the plan and its `intentDigest`.
   The plan lists the service's `drafts` waiting, newest first, with
   `draftsTotal`.
@@ -232,7 +237,11 @@ the command a person runs:
 | `ExecuteNeedsStdio` | An HTTP server with no registry of its own only plans: run the `cli` command |
 | `BaselineNeedsMigration` | The baseline is below `pactoVersion: "2.5"`: run `pacto migrate` |
 | `BundleRepoMismatch` | The baseline publishes to another repository than `registry` |
-| `NotAllowed` | Over HTTP: the caller may not update the workload, names someone else in `on_behalf_of`, or the repository belongs to another workload |
+| `OwnerRequired` | A claim names no `owner`, or one that differs from the draft it accepts |
+| `ExternalMismatch` | The claim's repository holds a service that describes another external system, or none: claim with `name` |
+| `ExternalUnknown` | The claim names no external system identity |
+| `ClaimRepositoryInferred` | The claim would publish under `pacto-inferred` |
+| `NotAllowed` | Over HTTP: the caller may not update the workload, names someone else in `on_behalf_of`, or the repository belongs to another workload or holds a service the caller may not read |
 | `ReviewFailed` | Over HTTP: the review of the caller failed or could not be evaluated |
 | `OWNER_SIGNER_NOT_PERSON` | Only a person sets `service.owner`: an agent, CI or workload signer never does, whoever it acts for |
 | `OWNER_SIGNER_NOT_ALLOWED` | The person is no member of the current owner and no default approver |

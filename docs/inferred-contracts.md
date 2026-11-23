@@ -150,14 +150,45 @@ and the Stage environment gate never pass it. A range against a revision only
 the operator signed, wherever it is published, reads the same way. An inferred
 contract never clears a gate.
 
-## Declare instead
+## Claim an external system
 
-Each external system with such a range raises one attention item,
-`INFERRED_PROVIDER`, in the knowledge category: "2 services check a range
-against stripe's inferred contract". Its next action is `declare`. `pacto
-declare` reads only workloads, so for an external system write a contract with
-`service.external: <identity>`, publish it outside `pacto-inferred` and point
-the ranges at its repository: the reason then disappears.
+Each external system with such a range raises `INFERRED_PROVIDER` in the
+knowledge category: "2 services check a range against stripe's inferred
+contract". Each one with consumers and no owner raises
+[`UNOWNED_EXTERNAL`](operational-graph-tallies.md#attention-categories),
+routed to the installation's default approvers for routing only. Both name
+the fix:
+
+```text
+$ pacto claim stripe --owner team-platform --registry ghcr.io/acme --yes
+claimed external:stripe -> oci://ghcr.io/acme/stripe:0.1.0
+  signed by alice@acme.com (person), inferredFrom: stripe, no Git write
+```
+
+`pacto claim` is [`pacto declare`](publishing.md#declare-a-running-service)
+for a system with no workload; without `--yes` it prints the plan. It
+publishes `service.external` and `service.owner.team`, signed by your Sigstore
+login, with a [record](contract-reference/inferred-record.md#declaration) that
+names `inferredFrom: external:stripe`, to `<registry>/<name>` (`--name` or the
+identity's last segment), never under `pacto-inferred`. Naming the first
+owner takes a default approver of the [owner policy](owner-setting.md). An
+agent's `pacto_declare` with `service: external:stripe` writes a `draft-<n>` a
+person accepts with `--from-draft`. The dashboard's External page offers
+**Claim** in its Owner line.
+
+## After a claim
+
+The claimed contract wins: the fleet names its owner, explain says
+`EXTERNAL_CLAIMED` and impact names it. The operator keeps publishing under
+`pacto-inferred/stripe`. A range there stays `unknown` until you point it at
+the claimed repository, as `INFERRED_PROVIDER` then says. A ref-less
+`external: true` dependency never resolves to the claimed contract, whose
+versions say nothing about the vendor's API.
+
+Only a declared claim counts. A service that sets `service.external` with no
+claim in its history, two claiming services and an unreadable newest revision
+link nothing and add `INFERRED_LINK_IGNORED`. A claiming service with no
+verified owner keeps `UNOWNED_EXTERNAL`.
 
 The External page on the dashboard shows the inferred contract in a collapsed
 block after Consumers: what its signature check established, when the surface

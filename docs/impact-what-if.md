@@ -92,7 +92,9 @@ days. When no visible service declares, calls or uses the identity, the answer
 raises `EXTERNAL_NOT_IN_FLEET` and is partial; `pacto fleet search` lists the
 identities the fleet holds. With no observation source the answer raises
 `EXTERNAL_EGRESS_UNREAD`: undeclared callers are not listed. A `changed` event asked of a service or an offering
-raises `EVENT_NEEDS_EXTERNAL`. MCP takes `external` in place of `service`, and
+raises `EVENT_NEEDS_EXTERNAL`. A note names the contract that
+[claims the system](inferred-contracts.md#claim-an-external-system), or
+`pacto claim`. MCP takes `external` in place of `service`, and
 the External page links here with **What if it changes?**.
 
 ## The event gate

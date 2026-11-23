@@ -170,12 +170,18 @@ sidebar badge counts only items above `info`.
 | `readiness` | `MISSING_READINESS` | info |
 | `knowledge` | the gap: `NO_SUMMARY`, `NO_DOMAIN`, `NO_INTERFACE_DOCS`, `NOT_DEPLOYED` or `UNVERIFIED_CAPABILITY`; or the cause of an unknown service: `CONTRACT_UNREADABLE`, `INTERFACE_DOCS_UNREAD`, `SUMMARY_UNKNOWN`, `DOMAIN_UNKNOWN` or `PLACEMENT_UNKNOWN`; or `INFERRED_REPLACED`, an inferred service a contract took over: a Pacto target's takeover shows for 24 hours, a declaration's hand-over stays while the declaration holds; or `INFERRED_PROVIDER`, services check a range against an [inferred contract](inferred-contracts.md); or `EXTERNAL_CHANGED`, an external system's checked inferred contract moved its OpenAPI digest (warning) or clients | info |
 | `unowned` | `UNOWNED_SERVICE` | info |
+| `unowned` | `UNOWNED_EXTERNAL`, an external system with consumers that no declared contract claims, or whose claiming service has no verified owner | info |
 
 A revision with no readiness assessment raises a `readiness` item, so
 `noReadiness` raises no `knowledge` item. A service whose contract Pacto cannot
 read raises one `knowledge` item and no `unowned` item. The Overview tile
 "Undeclared runtime dependencies observed" opens both kinds of `undeclared`
-item.
+item. `UNOWNED_EXTERNAL` items rank by how many services use the system, most
+first, ahead of the services with no owner; a restricted view counts the
+consumers it hides and never names them. Each one is routed to the
+installation's default approvers for routing only, which grants no right. The
+Overview tile "Services and external systems with no owner" counts both kinds
+of `unowned` item.
 
 `nextAction` names the operation that fixes an item, `{verb, tool, cli}`:
 `cli` is the command a person runs, always set, and `tool` the MCP tool,
@@ -187,10 +193,16 @@ named only when the answering server registers it.
   `INFERRED_REPLACED`, an `UNCONTRACTED_CALLER` with no workload Pacto can
   name and a range that excludes a provider's successor.
 - `declare` (`pacto_declare`, `pacto declare <workload> --namespace <ns>`) on
-  `INFERRED_PROVIDER` and an `UNCONTRACTED_CALLER` whose workload Pacto can
-  name. The dashboard links it to the inferred service's
+  an inferred service's `INFERRED_PROVIDER` and an `UNCONTRACTED_CALLER` whose
+  workload Pacto can name. The dashboard links it to the inferred service's
   [Declare panel](dashboard-service-page.md#declare-an-inferred-service).
-- `accept`, `claim` and `approve-cluster` are reserved verbs.
+- `claim` (`pacto_declare`, `pacto claim <identity> --owner <team>`) on
+  `UNOWNED_EXTERNAL` and an unclaimed external system's `INFERRED_PROVIDER`
+  ([claim an external system](inferred-contracts.md#claim-an-external-system)).
+  A claimed one's `INFERRED_PROVIDER` carries `edit-contract`, to point the
+  ranges at the claimed contract, and one a service you cannot see claims
+  carries none.
+- `accept` and `approve-cluster` are reserved verbs.
 
 Pacto infers it from the item's code, beside the `nextStep` prose. It grants
 nothing, and an unknown, stale, unresolved or non-compliant item carries

@@ -260,3 +260,8 @@ service**, a fold closed by default.
   `pacto declare <workload> --registry <registry> --from-draft draft-<n>`.
 - **Links.** Attention items and observed callers with no contract link here
   with `?declare=1`, which opens the panel.
+- **Claim.** An external system's page opens the same panel from **Claim**
+  in its Owner line to [claim it](inferred-contracts.md#claim-an-external-system).
+  It asks for the owner team and an optional service name first and needs no
+  workload right, because the owner rule decides. A shared dashboard only
+  signs a claim.

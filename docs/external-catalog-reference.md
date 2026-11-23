@@ -3,8 +3,8 @@
 This page describes how [the operational graph](operational-graph.md) names
 the systems outside your Pacto system that contracts depend on: vendor APIs,
 managed cloud services and legacy hosts. Each one is a single graph node of
-kind `external`, so "who depends on Stripe?" has an answer without anyone
-writing a contract for Stripe. The
+kind `external`, so "who depends on Stripe?" has an answer before anyone
+[claims](inferred-contracts.md#claim-an-external-system) Stripe. The
 [operational graph reference](operational-graph-reference.md#external-systems)
 covers how queries return them.
 
