@@ -323,7 +323,9 @@ HUB_SETS=("${SETS[@]}" --set delivery.enabled=true --set 'dashboard.ociSecrets[0
   --set dashboard.auth.oidc.caBundle.configMap=scenario-ca)
 helm install pacto-operator "$PACTO_CHART" -n "$NS" --kube-context "$CTX_H" "${HUB_SETS[@]}" --wait --timeout 240s >/dev/null
 wait_managed_ready pacto-dashboard >/dev/null || fail "the hub dashboard Deployment is not Ready"
-kubectl --context "$CTX_H" apply -f - >/dev/null <<YAML
+# The controller turns available before its admission webhook answers, so the
+# first apply can be refused with "connection refused": retry it until it lands.
+INGRESS_YAML="$(cat <<YAML
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -339,13 +341,15 @@ spec:
   - host: $HUB_HOST
     http: {paths: [{path: /, pathType: Prefix, backend: {service: {name: pacto-dashboard, port: {number: 3000}}}}]}
 YAML
+)"
+apply_ingress() { kubectl --context "$CTX_H" apply -f - >/dev/null <<<"$INGRESS_YAML"; }
+eventually 20 apply_ingress || fail "the hub Ingress was not admitted"
 HUB="https://$HUB_HOST"
 # hcurl ARGS... — the runner reaches the hub through the ingress, as a browser would.
 hcurl() { curl -s --cacert "$WORK/ca.crt" --resolve "$HUB_HOST:443:$HUB_IP" "$@"; }
 hub_up() { [ "$(hcurl -o /dev/null -w '%{http_code}' "$HUB/")" != 000 ] && [ "$(hcurl -o /dev/null -w '%{http_code}' "$HUB/")" -lt 500 ]; }
 eventually 60 hub_up || fail "the hub dashboard does not answer at $HUB through the ingress"
-kubectl --context "$CTX_H" create clusterrole pacto-cluster-approver --verb=approve --resource=clusterjoins.pacto.trianalab.io \
-  --dry-run=client -o yaml | kubectl --context "$CTX_H" apply -f - >/dev/null
+cluster_approver_role "$CTX_H"
 kubectl --context "$CTX_H" create clusterrolebinding pacto-cluster-approver --clusterrole=pacto-cluster-approver \
   --user=oidc:alice@acme.test --dry-run=client -o yaml | kubectl --context "$CTX_H" apply -f - >/dev/null
 pass "the hub dashboard answers at $HUB with TLS from the scenario CA"
