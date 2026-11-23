@@ -207,3 +207,41 @@ func TestCISnapshotEvidenceOnlyIsConsumerSource(t *testing.T) {
 		t.Fatalf("row %+v, snapshot %+v", r, p.Snapshot)
 	}
 }
+
+// TestSnapshotEvidenceCarriesExtensionReports: a v6 evidence section carries
+// a producer's extension report through the target snapshot exactly as the
+// evidence-http source reads it, and the record keeps the cluster that
+// accepted it.
+func TestSnapshotEvidenceCarriesExtensionReports(t *testing.T) {
+	present := true
+	body, err := json.Marshal(evidenceingest.TargetsResponse{SchemaVersion: evidenceingest.TargetsSchemaVersionExtensions, GeneratedAt: snapNow,
+		Health: evidenceingest.SourceHealth{Status: evidenceingest.HealthReady, Subjects: 1}, Targets: []evidenceingest.TargetDTO{},
+		Cluster: &evidenceingest.ClusterDTO{ID: snapA, Name: "a"},
+		Extensions: []evidenceingest.ExtensionDTO{{Subject: "reg.example/acme/webapp/prod/extension/backup", Service: "webapp",
+			ContractRef: "oci://reg.example/acme/webapp@sha256:" + strings.Repeat("c", 64), Producer: "acme-backup", ProducerKeyID: "acme-backup-2026",
+			Ref: "x.acme.io/backup", Outcome: "Compliant", Present: &present, EvidenceAt: snapNow, AcceptedAt: snapNow, Cluster: snapA}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
+	defer srv.Close()
+	viaHTTP, err := fleetsrc.NewEvidenceHTTPSource("ev", srv.URL).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := newSnapEnv(t)
+	s := evidenceOnlySnapshot(t, snapA, "webapp", fleet.CompletenessComplete)
+	s.Evidence = body
+	e.push(t, e.key, snapA, s)
+	srcs, err := (&Service{}).targetSnapshotSources(t.Context(), snapOpts(trustFile(t, e.scoped("rec", snapA)), "oci://"+e.repo))
+	if err != nil || len(srcs) != 3 {
+		t.Fatalf("sources %d, %v", len(srcs), err)
+	}
+	viaSnapshot, _ := srcs[2].Collect(t.Context())
+	if len(viaSnapshot.Extensions) != 1 || !reflect.DeepEqual(viaHTTP.Extensions, viaSnapshot.Extensions) {
+		t.Fatalf("http %+v\nsnapshot %+v", viaHTTP.Extensions, viaSnapshot.Extensions)
+	}
+	if x := viaSnapshot.Extensions[0]; x.Cluster == nil || x.Cluster.ID != snapA || !x.Verified || x.Ref != "x.acme.io/backup" {
+		t.Fatalf("extension %+v", x)
+	}
+}
