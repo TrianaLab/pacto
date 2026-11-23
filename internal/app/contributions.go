@@ -158,7 +158,7 @@ func (r *contributionReader) Read(ctx context.Context, source string, c evidence
 			if rev.Contributor.AsOf.IsZero() {
 				continue
 			}
-			f.NewestContribution = laterOf(f.NewestContribution, rev.Contributor.AsOf)
+			f.NewestContribution = fleet.NewestOf(f.NewestContribution, &rev.Contributor.AsOf)
 		}
 	}
 	if refused > 0 {
@@ -176,14 +176,6 @@ func (r *contributionReader) Read(ctx context.Context, source string, c evidence
 		lims = append(lims, unreadLimitation(source, c.Producer, why))
 	}
 	return revs, lims
-}
-
-// laterOf is the later of cur and t.
-func laterOf(cur *time.Time, t time.Time) *time.Time {
-	if cur != nil && !t.After(*cur) {
-		return cur
-	}
-	return &t
 }
 
 // unreadLimitation is the CONTRIBUTION_UNREAD of producer's contributions.

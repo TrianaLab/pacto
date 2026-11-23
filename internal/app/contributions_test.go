@@ -229,9 +229,6 @@ func TestContributionReaderAsOfFromManifest(t *testing.T) {
 	if f.NewestContribution == nil || !f.NewestContribution.Equal(made) {
 		t.Errorf("newest = %v", f.NewestContribution)
 	}
-	if !laterOf(&made, made.Add(-time.Hour)).Equal(made) {
-		t.Error("an older time replaced a newer one")
-	}
 }
 
 // TestContributionReaderFutureAsOfIsUnknown: a record dated past the clock

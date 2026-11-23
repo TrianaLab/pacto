@@ -62,7 +62,7 @@ func TestDemoProducerRow(t *testing.T) {
 }
 
 // TestDemoReportedTarget: acme-idp reports one external target through the
-// Evidence Server, so the target names it as its reporting producer.
+// Evidence Server, so the target is reported by it.
 func TestDemoReportedTarget(t *testing.T) {
 	snap := demoFleet(t)
 	var got []*fleet.TargetRecord

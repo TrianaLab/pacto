@@ -67,7 +67,7 @@ func ProducerRow(p ProducerFacts, now time.Time, window time.Duration) (Provider
 		return Provider{}, false
 	}
 	row.Evidence = strings.Join(evidence, "; ")
-	row.AsOf = newestOf(p.NewestReport, p.NewestContribution)
+	row.AsOf = NewestOf(p.NewestReport, p.NewestContribution)
 	for _, c := range producerConcerns(p, now, window) {
 		if sourceHealthRank(c.status) < sourceHealthRank(row.Status) {
 			row.Status = c.status
@@ -124,7 +124,7 @@ func restrictProducerRows(rows []Provider, targets map[TargetKey]*TargetRecord, 
 			f.NewestReport = nil
 			for _, t := range targets {
 				if t.ReportedBy == f.Producer && (t.Source == p.Source || slices.Contains(t.Sources, p.Source)) {
-					f.NewestReport = newestOf(f.NewestReport, t.EvidenceAt)
+					f.NewestReport = NewestOf(f.NewestReport, t.EvidenceAt)
 				}
 			}
 		})
@@ -175,8 +175,8 @@ func producerConcerns(p ProducerFacts, now time.Time, window time.Duration) []pr
 	return out
 }
 
-// newestOf is the later of the times set, nil when neither is.
-func newestOf(times ...*time.Time) *time.Time {
+// NewestOf is the latest of the times set, nil when none is.
+func NewestOf(times ...*time.Time) *time.Time {
 	var out *time.Time
 	for _, t := range times {
 		if t != nil && (out == nil || t.After(*out)) {

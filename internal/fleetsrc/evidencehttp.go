@@ -120,7 +120,7 @@ func (s *EvidenceHTTPSource) producers(ctx context.Context, targets []fleet.RawT
 	for _, t := range targets {
 		if t.Scope != "" && t.EvidenceAt != nil {
 			f := fact(t.Scope)
-			f.NewestReport = laterOf(f.NewestReport, *t.EvidenceAt)
+			f.NewestReport = fleet.NewestOf(f.NewestReport, t.EvidenceAt)
 		}
 	}
 	body, err := s.readProducers(ctx)
@@ -197,12 +197,4 @@ func (s *EvidenceHTTPSource) readProducers(ctx context.Context) (evidenceingest.
 		return evidenceingest.ProducersResponse{}, err
 	}
 	return body, nil
-}
-
-// laterOf is the later of cur and t.
-func laterOf(cur *time.Time, t time.Time) *time.Time {
-	if cur != nil && !t.After(*cur) {
-		return cur
-	}
-	return &t
 }
