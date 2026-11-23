@@ -1522,6 +1522,7 @@ type ExternalClaim struct {
 	Ref     string     `json:"ref,omitempty" doc:"The claimed revision, repository@digest"`
 	Version string     `json:"version,omitempty" doc:"The version of the claimed revision"`
 	By      string     `json:"by,omitempty" doc:"The person whose accepted declaration established the claim"`
+	Owner   string     `json:"owner,omitempty" doc:"The verified owner of the service that claims it; absent when it has none"`
 	Hidden  bool       `json:"hidden,omitempty" doc:"You may not read the service that claims it"`
 	// ownerless says the claiming service has no verified owner, computed on
 	// the full snapshot so a restricted view keeps it for a hidden claimer.

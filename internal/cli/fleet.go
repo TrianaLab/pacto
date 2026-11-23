@@ -534,7 +534,7 @@ func newFleetStatusCommand(svc *app.Service, v *viper.Viper, rec *runRecorder) *
 		Long: "Reports what needs attention: non-compliant, unknown, invalid and stale targets, " +
 			"revisions without readiness, unresolved dependencies, dependencies whose provider " +
 			"version is outside the declared range, services that use a deprecated or past-sunset provider, " +
-			"services with no declared owner and undeclared " +
+			"services and external systems with no owner and undeclared " +
 			"runtime dependencies. With no category flag it reports every category.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -559,7 +559,7 @@ func newFleetStatusCommand(svc *app.Service, v *viper.Viper, rec *runRecorder) *
 	cmd.Flags().Bool("unresolved-deps", false, "report unresolved declared dependencies")
 	cmd.Flags().Bool("unsatisfied-ranges", false, "report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)")
 	cmd.Flags().Bool("lifecycle", false, "report services that use a deprecated or past-sunset provider (DEPENDENCY_SERVICE_DEPRECATED, DEPENDENCY_SERVICE_SUNSET, SUCCESSOR_OUT_OF_RANGE)")
-	cmd.Flags().Bool("unowned", false, "report services with no declared owner")
+	cmd.Flags().Bool("unowned", false, "report services and external systems with no owner")
 	cmd.Flags().Bool("undeclared", false, "report runtime calls no contract declares and callers with no contract")
 	cmd.Flags().Bool("golden-path-deployed", false, "report running services that declare service.template (GOLDEN_PATH_DEPLOYED)")
 	cmd.Flags().Int("limit", 0, fmt.Sprintf("maximum results (0 = %d)", fleet.DefaultStatusLimit))

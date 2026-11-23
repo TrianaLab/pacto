@@ -91,7 +91,7 @@ const (
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
 // the fleet, delivery, impact and contract surfaces to its concept. A story
 // that adds one adds its row here in the same commit.
-var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), acceptRows())
+var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), claimRows(), acceptRows())
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
@@ -396,6 +396,24 @@ func declareRows() []surfaceRow {
 		alike("declare", "pacto_declare", "", "the dashboard reads the workload's namespace from the snapshot, declares into its own --registry and reads the cluster as the person",
 			"namespace", "registry", "max-items", "call-window"),
 		alike("declare", "", "", whyLocal, "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
+			"rekor-url", "trusted-root"),
+	)
+}
+
+// claimRows map pacto claim, pacto declare for an external system. MCP
+// pacto_declare and the dashboard Declare routes claim through the same
+// subject, external:<identity>.
+func claimRows() []surfaceRow {
+	const why = "pacto_declare and the dashboard Declare routes claim with service external:<identity>; their owner and name rows are their surfaces'"
+	const whyLocal = "a person's local signing: MCP callers are agents and never sign a declared record"
+	return slices.Concat(
+		[]surfaceRow{
+			{"claim <identity>", "", "", why},
+			{"claim --owner", "", "", why},
+			{"claim --name", "", "", why},
+		},
+		alike("claim", "", "", why, "registry", "yes", "intent", "draft", "from-draft", "delivery-trust"),
+		alike("claim", "", "", whyLocal, "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
 			"rekor-url", "trusted-root"),
 	)
 }
@@ -938,6 +956,7 @@ func TestUsageErrorsEmitOneJSONDocument(t *testing.T) {
 var jsonRuns = map[string][]string{
 	"accept":                 {"--dry-run", "does-not-exist"},
 	"ci":                     {"."},
+	"claim":                  {"stripe", "--owner", "team-platform"},
 	"declare":                {"invoices", "--dir", "/nonexistent"},
 	"delivery approve":       {"-n", "prod", "held"},
 	"delivery autonomy":      {},

@@ -332,6 +332,74 @@ pacto ci init [dir] [flags]
 
 ---
 
+## `pacto claim`
+
+Claims an external system the fleet lists, such as stripe or
+aws/rds/eu-west-1/orders-db, for a team. The claim is a declared contract:
+service.external names the system, service.owner.team the team, and its
+pacto.inferred.yaml declaration names inferredFrom external:&lt;identity&gt;. It is
+published to &lt;registry&gt;/&lt;name&gt;, where the name is --name or the identity's
+last segment. No workload is read and nothing is copied from the inferred
+contract Pacto publishes under pacto-inferred; the kubeconfig cluster, when
+it is reachable, is read only for the installation signer policy.
+
+Without --yes it prints the plan and writes nothing; the plan ends with its
+intent digest. --yes prints the plan, then publishes it signed keyless by you
+through an interactive Sigstore login (a browser, or a device code with
+--device). No Git access is needed. Only that login writes a declared
+version: a key, an ambient OIDC token or a CI identity writes the next
+draft-&lt;n&gt; tag instead, and the output names the command a person runs to
+accept it with --from-draft.
+
+Naming the first owner of an external system takes a default approver of the
+installation's owner policy; changing it takes a person who belongs to the
+current owner or a default approver. Anyone else is refused before anything is
+pushed. The owner policy is read from the signed target snapshots in
+&lt;registry&gt;/pacto-targets, verified with --delivery-trust. The fleet routes an
+unclaimed external system to the default approvers for routing only: routing
+grants no right.
+
+```
+pacto claim <identity> [flags]
+```
+
+**Examples:**
+
+```
+  # What claiming stripe for team-platform would publish
+  pacto claim stripe --owner team-platform --registry ghcr.io/acme
+
+  # Claim it, signed by you
+  pacto claim stripe --owner team-platform --registry ghcr.io/acme --yes
+
+  # Accept a claim an agent wrote as a draft
+  pacto claim stripe --registry ghcr.io/acme --from-draft draft-1 --yes
+```
+
+**Flags:**
+
+```
+      --delivery-trust string    the trust config the target snapshots that carry the owner policy are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
+      --device[=true|false]      log in with a device code instead of a browser
+      --draft[=true|false]       write a draft-<n> a person accepts later, without a person's login: signed only by --sign-key or an ambient OIDC token when one is set
+      --from-draft string        accept this draft-<n> tag, signed by you (a workload draft reads the workload again)
+      --fulcio-url string        Fulcio to get the signing certificate from (default "https://fulcio.sigstore.dev")
+  -h, --help[=true|false]        help for claim
+      --intent string            the intent digest of the plan you reviewed: a different plan is refused
+      --name string              the service name the claim is published under (default: the identity's last segment)
+      --oidc-client-id string    OpenID Connect client of the Sigstore login (default "sigstore")
+      --oidc-issuer-url string   OpenID Connect issuer of the Sigstore login (default "https://oauth2.sigstore.dev/auth")
+      --owner string             the team that owns the external system (taken from the draft with --from-draft)
+      --registry string          the registry the contract is published to, as host/path
+      --rekor-url string         Rekor transparency log the signature is recorded in (default "https://rekor.sigstore.dev")
+      --sign-key string          sign with this key file: a key names no person, so the run writes a draft
+      --timestamp-url string     timestamp authority to date the signature with
+      --trusted-root string      Sigstore trusted root JSON to verify with (default: public-good Sigstore)
+      --yes[=true|false]         publish the plan (or write a draft) after printing it
+```
+
+---
+
 ## `pacto completion`
 
 Generate the autocompletion script for pacto for the specified shell.
@@ -514,7 +582,7 @@ pacto declare <service> [flags]
       --device[=true|false]      log in with a device code instead of a browser
       --dir string               a folder pacto init --cluster wrote, declared instead of a new draft
       --draft[=true|false]       write a draft-<n> a person accepts later, without a person's login: signed only by --sign-key or an ambient OIDC token when one is set
-      --from-draft string        accept this draft-<n> tag: the workload is read again and you sign
+      --from-draft string        accept this draft-<n> tag, signed by you (a workload draft reads the workload again)
       --fulcio-url string        Fulcio to get the signing certificate from (default "https://fulcio.sigstore.dev")
   -h, --help[=true|false]        help for declare
       --intent string            the intent digest of the plan you reviewed: a different plan is refused
@@ -1421,7 +1489,7 @@ pacto fleet [flags]
 
 ### `pacto fleet attention`
 
-Lists what needs attention, most severe first, each item with its reason and next step. --category undeclared lists runtime calls no contract declares and callers with no contract. --category lifecycle lists services that use a deprecated or past-sunset provider, or whose range refuses its successor.
+Lists what needs attention, most severe first, each item with its reason and next step. --category undeclared lists runtime calls no contract declares and callers with no contract. --category lifecycle lists services that use a deprecated or past-sunset provider, or whose range refuses its successor. --category unowned lists services and external systems with no owner; an external system ranks by how many services use it.
 
 ```
 pacto fleet attention [flags]
@@ -1711,7 +1779,7 @@ pacto fleet snapshot [flags]
 
 ### `pacto fleet status`
 
-Reports what needs attention: non-compliant, unknown, invalid and stale targets, revisions without readiness, unresolved dependencies, dependencies whose provider version is outside the declared range, services that use a deprecated or past-sunset provider, services with no declared owner and undeclared runtime dependencies. With no category flag it reports every category.
+Reports what needs attention: non-compliant, unknown, invalid and stale targets, revisions without readiness, unresolved dependencies, dependencies whose provider version is outside the declared range, services that use a deprecated or past-sunset provider, services and external systems with no owner and undeclared runtime dependencies. With no category flag it reports every category.
 
 ```
 pacto fleet status [flags]
@@ -1733,7 +1801,7 @@ pacto fleet status [flags]
       --stats-registry string               also write a coverage run record of the whole fleet to this stats repository (unsigned statistics; none with --namespace); never read from PACTO_STATS_REGISTRY
       --undeclared[=true|false]             report runtime calls no contract declares and callers with no contract
       --unknown[=true|false]                report targets with unknown compliance
-      --unowned[=true|false]                report services with no declared owner
+      --unowned[=true|false]                report services and external systems with no owner
       --unresolved-deps[=true|false]        report unresolved declared dependencies
       --unsatisfied-ranges[=true|false]     report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)
 ```

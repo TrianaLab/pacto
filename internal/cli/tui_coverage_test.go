@@ -38,6 +38,7 @@ var excludedFromTUI = map[string]string{
 	"accept":               "plans, and later signs, an acceptance record a person writes to a registry; the TUI never acts",
 	"agent":                "a long-running host daemon",
 	"declare":              "logs a person in to Sigstore, signs and writes to a registry; the TUI never acts",
+	"claim":                "pacto declare for an external system: logs a person in to Sigstore, signs and writes to a registry; the TUI never acts",
 	"ci init":              "writes a CI file into the local repository, a step a person reviews and commits; the TUI never writes",
 	"run":                  "wraps a process and lives as long as it does",
 	"fleet reconcile":      "requires a --traces file, which no selection can supply",

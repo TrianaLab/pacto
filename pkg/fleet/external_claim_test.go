@@ -94,7 +94,7 @@ func inShop(q *Query) *Query {
 
 func TestClaimLinksDeclaredPerson(t *testing.T) {
 	q := claimFleet(t, []RawRevision{stripeClaim()}, checkoutStripe())
-	want := &ExternalClaim{Service: NewServiceKey("stripe"), Ref: "ghcr.io/acme/stripe@sha256:stripe-0.1.0", Version: "0.1.0", By: anaSubject}
+	want := &ExternalClaim{Service: NewServiceKey("stripe"), Ref: "ghcr.io/acme/stripe@sha256:stripe-0.1.0", Version: "0.1.0", By: anaSubject, Owner: "team-platform"}
 	if got := q.snap.Externals["stripe"].Claim; !reflect.DeepEqual(got, want) {
 		t.Errorf("claim = %+v, want %+v", got, want)
 	}

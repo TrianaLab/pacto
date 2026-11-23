@@ -3670,6 +3670,8 @@ export interface components {
             by?: string;
             /** @description You may not read the service that claims it */
             hidden?: boolean;
+            /** @description The verified owner of the service that claims it; absent when it has none */
+            owner?: string;
             /** @description The claimed revision, repository@digest */
             ref?: string;
             /** @description The service whose declared contract claims it */

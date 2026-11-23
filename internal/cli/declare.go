@@ -9,12 +9,14 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"k8s.io/client-go/dynamic"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
@@ -73,38 +75,55 @@ pacto.inferred.yaml as inferred.`,
 				return err
 			}
 			if req.Draft && req.FromDraft != "" {
-				return errors.New("--draft writes a new draft and --from-draft accepts one: pass only one of them")
+				return errDraftAndFromDraft
 			}
 			dyn, err := declareDynamic(req)
 			if err != nil {
 				return err
 			}
 			req.Dynamic = dyn
-			asJSON := v.GetString(outputFormatKey) == "json"
-			req.Signing.Prompt = func(s string) { _, _ = fmt.Fprintln(cmd.ErrOrStderr(), s) }
-			req.Signing.FreshLogin = d.freshLogin
-			if !yes {
-				p, err := d.planDeclare(svc, cmd.Context(), req)
-				return printDeclare(cmd, asJSON, p, nil, err)
-			}
-			if !asJSON {
-				req.OnPlan = func(p *app.DeclarePlan) { printDeclarePlan(cmd.OutOrStdout(), p) }
-			}
-			res, err := d.declare(svc, cmd.Context(), req)
-			return printDeclare(cmd, asJSON, nil, res, err)
+			return declareRun(cmd, svc, v, d, req, yes)
 		},
 	}
 	f := cmd.Flags()
 	f.StringVarP(&req.Namespace, "namespace", "n", "", "the namespace of the workload (default: every namespace the name is found in)")
 	f.StringVar(&req.Dir, "dir", "", "a folder pacto init --cluster wrote, declared instead of a new draft")
-	f.StringVar(&req.Registry, "registry", "", "the registry the contract is published to, as host/path")
 	f.StringSliceVar(&req.Accept, "accept", nil, "a dependency whose proposed range you accept as declared; repeat it for more")
-	f.BoolVar(&yes, "yes", false, "publish the plan (or write a draft) after printing it")
-	f.StringVar(&req.IntentDigest, "intent", "", "the intent digest of the plan you reviewed: a different plan is refused")
-	f.BoolVar(&req.Draft, "draft", false, "write a draft-<n> a person accepts later, without a person's login: signed only by --sign-key or an ambient OIDC token when one is set")
-	f.StringVar(&req.FromDraft, "from-draft", "", "accept this draft-<n> tag: the workload is read again and you sign")
 	f.IntVar(&req.MaxItems, "max-items", 0, "the most items read per kind of object; a kind cut short reads as partial (default 10000)")
 	f.DurationVar(&req.CallWindow, "call-window", 0, "how far back a call counts as a dependency (at least 1m, default 24h)")
+	declareFlags(f, &req, &yes)
+	return cmd
+}
+
+// errDraftAndFromDraft refuses a run that would both write and accept a
+// draft.
+var errDraftAndFromDraft = errors.New("--draft writes a new draft and --from-draft accepts one: pass only one of them")
+
+// declareRun plans req, or with yes carries it out, and prints the answer.
+func declareRun(cmd *cobra.Command, svc *app.Service, v *viper.Viper, d deps, req app.DeclareRequest, yes bool) error {
+	asJSON := v.GetString(outputFormatKey) == "json"
+	req.Signing.Prompt = func(s string) { _, _ = fmt.Fprintln(cmd.ErrOrStderr(), s) }
+	req.Signing.FreshLogin = d.freshLogin
+	if !yes {
+		p, err := d.planDeclare(svc, cmd.Context(), req)
+		return printDeclare(cmd, asJSON, p, nil, err)
+	}
+	if !asJSON {
+		req.OnPlan = func(p *app.DeclarePlan) { printDeclarePlan(cmd.OutOrStdout(), p) }
+	}
+	res, err := d.declare(svc, cmd.Context(), req)
+	return printDeclare(cmd, asJSON, nil, res, err)
+}
+
+// declareFlags registers the flags pacto declare and pacto claim share:
+// where the contract is published, who signs it and how a draft is written
+// or accepted.
+func declareFlags(f *pflag.FlagSet, req *app.DeclareRequest, yes *bool) {
+	f.StringVar(&req.Registry, "registry", "", "the registry the contract is published to, as host/path")
+	f.BoolVar(yes, "yes", false, "publish the plan (or write a draft) after printing it")
+	f.StringVar(&req.IntentDigest, "intent", "", "the intent digest of the plan you reviewed: a different plan is refused")
+	f.BoolVar(&req.Draft, "draft", false, "write a draft-<n> a person accepts later, without a person's login: signed only by --sign-key or an ambient OIDC token when one is set")
+	f.StringVar(&req.FromDraft, "from-draft", "", "accept this draft-<n> tag, signed by you (a workload draft reads the workload again)")
 	f.StringVar(&req.Signing.Key, "sign-key", "", "sign with this key file: a key names no person, so the run writes a draft")
 	f.StringVar(&req.Signing.OIDCIssuer, "oidc-issuer-url", "https://oauth2.sigstore.dev/auth", "OpenID Connect issuer of the Sigstore login")
 	f.StringVar(&req.Signing.OIDCClient, "oidc-client-id", "sigstore", "OpenID Connect client of the Sigstore login")
@@ -115,13 +134,16 @@ pacto.inferred.yaml as inferred.`,
 	f.StringVar(&req.Signing.TrustedRoot, "trusted-root", "", "Sigstore trusted root JSON to verify with (default: public-good Sigstore)")
 	f.StringVar(&req.DeliveryTrust, "delivery-trust", "", "the trust config the target snapshots that carry the owner policy are verified with: "+
 		"a YAML file with a key scoped to each cluster (default $"+app.TrustEnv+")")
-	return cmd
 }
 
 // declareSubject reads the workload argument into req: name, ns/name,
-// ns/Kind/name or k8s:ns/Kind/name. Any other <kind>: subject is refused.
+// ns/Kind/name or k8s:ns/Kind/name. An external system is claimed with
+// pacto claim; any other <kind>: subject is refused.
 func declareSubject(req *app.DeclareRequest, arg string) error {
 	if kind, rest, ok := strings.Cut(arg, ":"); ok {
+		if kind+":" == fleet.ExternalSubjectPrefix {
+			return errors.New("claim an external system with pacto claim " + rest + " --owner <team>")
+		}
 		if kind != "k8s" {
 			return fmt.Errorf("pacto declare reads a workload, not %s: offerings and templates are declared by a later release", kind+":")
 		}
@@ -346,15 +368,31 @@ func complete(rows []contract.InferredCoverage) int {
 // printed.
 func printDeclareResult(w io.Writer, res *app.DeclareResult) {
 	p := res.Plan
+	id, claim := contract.InferredFromExternal(p.InferredFrom)
 	switch {
 	case p.Unchanged != "":
 		printDeclarePlan(w, &p)
 	case !res.Executed:
 		return
+	case claim:
+		printClaimResult(w, res, id)
 	case res.Draft:
 		_, _ = fmt.Fprintf(w, "wrote %s (%s): a person accepts it with %s\n", res.Tag, res.Published, p.AcceptCLI)
 	default:
 		_, _ = fmt.Fprintf(w, "signed as %s via %s\n", p.Signer.Subject, p.Signer.Issuer)
 		_, _ = fmt.Fprintf(w, "published %s (inferredFrom %s)\n", res.Published, p.InferredFrom)
 	}
+}
+
+// printClaimResult prints what a claim of external system id wrote: the
+// claimed version and who signed it, or the draft and the command a person
+// accepts it with.
+func printClaimResult(w io.Writer, res *app.DeclareResult, id string) {
+	p := res.Plan
+	if res.Draft {
+		_, _ = fmt.Fprintf(w, "wrote %s of %s%s (%s): a person accepts it with %s --yes\n", res.Tag, fleet.ExternalSubjectPrefix, id, res.Published, p.AcceptCLI)
+		return
+	}
+	_, _ = fmt.Fprintf(w, "claimed %s%s -> oci://%s:%s\n", fleet.ExternalSubjectPrefix, id, p.BundleRepo, p.Version)
+	_, _ = fmt.Fprintf(w, "  signed by %s (person), inferredFrom: %s, no Git write\n", p.Signer.Subject, id)
 }

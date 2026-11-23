@@ -55,9 +55,13 @@ func linkExternalClaims(snap *FleetSnapshot) {
 			continue // no consumer and no inferred contract names it
 		}
 		c := cs[0]
-		b, _ := q.ownershipBucket(snap.Services[c.rev.ServiceKey])
-		rec.Claim = &ExternalClaim{Service: c.rev.ServiceKey, Ref: claimRef(c.rev), Version: c.rev.Version, By: c.by,
-			ownerless: b == OwnershipUnowned || b == OwnershipUnknown}
+		svc := snap.Services[c.rev.ServiceKey]
+		b, _ := q.ownershipBucket(svc)
+		ownerless := b == OwnershipUnowned || b == OwnershipUnknown
+		rec.Claim = &ExternalClaim{Service: c.rev.ServiceKey, Ref: claimRef(c.rev), Version: c.rev.Version, By: c.by, ownerless: ownerless}
+		if !ownerless {
+			rec.Claim.Owner = svc.Owner.DisplayString()
+		}
 	}
 }
 

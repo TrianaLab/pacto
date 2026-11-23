@@ -44,6 +44,7 @@ func TestFleetGetExternalText(t *testing.T) {
 	}
 	d := externalcatalog.Digest(externalcatalog.DefaultBytes())
 	want := "stripe  external, vendor-api  (used by 2 consumers)\n" +
+		"  owner    unclaimed, routed to the default approvers (routing only)\n" +
 		"  sources  checkout pacto.yaml dependencies[0] (name: Stripe)\n" +
 		"           pay-agent pacto.yaml dependencies[1] (name: stripe-api)\n" +
 		"  catalog  default " + d[:19] + "... entry stripe\n"
