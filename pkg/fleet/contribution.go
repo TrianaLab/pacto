@@ -60,9 +60,17 @@ func (r contributionRefusals) limitations(source string) []Limitation {
 	var out []Limitation
 	for _, p := range slices.Sorted(maps.Keys(r)) {
 		out = append(out, Limitation{Code: LimitationContributionRefused, Source: source,
-			Message: strconv.Itoa(r[p].n) + " bundles " + p + " contributed were refused, the first because " + r[p].first})
+			Message: refusedMessage(p, r[p])})
 	}
 	return out
+}
+
+// refusedMessage says how many bundles producer contributed were refused and why.
+func refusedMessage(producer string, r *contributionRefusal) string {
+	if r.n == 1 {
+		return "1 bundle " + producer + " contributed was refused because " + r.first
+	}
+	return strconv.Itoa(r.n) + " bundles " + producer + " contributed were refused, the first because " + r.first
 }
 
 // contributionReason is why rev, read as producer's contribution, cannot be
@@ -166,7 +174,7 @@ func supersededLimitations(by map[string][]ServiceKey, visible func(ServiceKey) 
 	for _, p := range slices.Sorted(maps.Keys(by)) {
 		if n := len(slices.DeleteFunc(slices.Clone(by[p]), func(k ServiceKey) bool { return !visible(k) })); n > 0 {
 			out = append(out, Limitation{Code: LimitationContributionSuperseded, Source: "fleet",
-				Message: strconv.Itoa(n) + " services " + p + " contributed have a contract; the contract wins"})
+				Message: supersededMessage(p, n)})
 		}
 	}
 	return out
@@ -205,4 +213,12 @@ func optionalTime(t time.Time) *time.Time {
 		return nil
 	}
 	return &t
+}
+
+// supersededMessage says how many services producer contributed have a contract.
+func supersededMessage(producer string, n int) string {
+	if n == 1 {
+		return "1 service " + producer + " contributed has a contract; the contract wins"
+	}
+	return strconv.Itoa(n) + " services " + producer + " contributed have a contract; the contract wins"
 }

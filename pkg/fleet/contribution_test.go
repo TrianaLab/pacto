@@ -108,6 +108,25 @@ func TestContributedRevisionIsInferredService(t *testing.T) {
 	}
 }
 
+// TestContributionCitingUnlistedFileHasNoEdges: a record whose field cites
+// a file inputs.sources leaves out is read as nothing; the contributed
+// service stays, with no edge, and the record is named unreadable.
+func TestContributionCitingUnlistedFileHasNoEdges(t *testing.T) {
+	rec := ctbRecord("ledger")
+	rec.Fields[0].Source = "other.json:1"
+	snap := ctbFleet(t, []string{"ledger@shop"}, ctbRev("ledger-sync", ctbYAML("ledger-sync"), ctbRepo, "acme-idp", rec, fixedNow().Add(-time.Hour)))
+	key := NewServiceKeyDomain(ctbRoot+"/pacto-inferred/acme-idp", "ledger-sync")
+	if s := snap.Services[key]; s == nil || s.Contribution == nil {
+		t.Fatalf("service = %+v", s)
+	}
+	if slices.ContainsFunc(snap.Relationships, func(r Relationship) bool { return r.FromService == key }) {
+		t.Errorf("an unreadable record made an edge: %+v", snap.Relationships)
+	}
+	if lims := limitationsCoded(snap.Limitations, LimitationInferredRecordUnreadable); len(lims) != 1 || !strings.Contains(lims[0].Message, "other.json") {
+		t.Errorf("limitations = %+v", snap.Limitations)
+	}
+}
+
 // refusedRows is every pacto.yaml key a contribution may not declare, read
 // from the current schema, so a new key is a row.
 func refusedRows(t *testing.T) map[string]string {
@@ -144,7 +163,7 @@ func TestContributionDeclaringIsRefused(t *testing.T) {
 	for field, raw := range rows {
 		t.Run(field, func(t *testing.T) {
 			snap := ctbFleet(t, nil, ctbRev("x", raw, ctbRepo, "acme-idp", ctbRecord(), fixedNow()))
-			wantRefused(t, snap, "1 bundles acme-idp contributed were refused, the first because it declares "+field+"; ")
+			wantRefused(t, snap, "1 bundle acme-idp contributed was refused because it declares "+field+"; ")
 		})
 	}
 	unread := ctbRev("x", "", ctbRepo, "acme-idp", ctbRecord(), fixedNow())
@@ -188,7 +207,7 @@ func TestContributionSupersededByContract(t *testing.T) {
 	if snap.Services[NewServiceKeyDomain(ctbRoot+"/pacto-inferred/acme-idp", "ledger")] != nil {
 		t.Error("the contributed ledger was kept")
 	}
-	if lims := limitationsCoded(snap.Limitations, LimitationContributionSuperseded); len(lims) != 1 || lims[0].Message != "1 services acme-idp contributed have a contract; the contract wins" {
+	if lims := limitationsCoded(snap.Limitations, LimitationContributionSuperseded); len(lims) != 1 || lims[0].Message != "1 service acme-idp contributed has a contract; the contract wins" {
 		t.Errorf("superseded = %+v", lims)
 	}
 	// A ledger in another registry supersedes nothing.
@@ -210,7 +229,7 @@ func TestRestrictRecountsSuperseded(t *testing.T) {
 		t.Fatalf("unrestricted = %+v", lims)
 	}
 	shop := q.Restrict(anyCluster(func(ns string) bool { return ns == "shop" }), nil).snap
-	if lims := limitationsCoded(shop.Limitations, LimitationContributionSuperseded); len(lims) != 1 || !strings.HasPrefix(lims[0].Message, "1 services") {
+	if lims := limitationsCoded(shop.Limitations, LimitationContributionSuperseded); len(lims) != 1 || !strings.HasPrefix(lims[0].Message, "1 service ") {
 		t.Errorf("shop = %+v", lims)
 	}
 	none := q.Restrict(anyCluster(func(string) bool { return false }), nil).snap

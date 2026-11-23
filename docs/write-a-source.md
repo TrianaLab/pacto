@@ -94,6 +94,10 @@ The first run creates the key; hand `my-idp__my-idp-2026.pub` to the platform.
 - The `pacto.yaml` of a record holds only `pactoVersion`, `service.name` and
   `service.version`. Everything else is a field of `pacto.inferred.yaml` with
   its `source` and `confidence`.
+- A field's `source` cites a file the bundle ships and `inputs.sources`
+  lists with its digest, such as `export.json` above. When a field cites a
+  file the list leaves out, or a listed digest differs, Pacto reads nothing
+  of the record and the service shows with no calls.
 
 ## Map your tool
 

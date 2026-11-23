@@ -257,7 +257,7 @@ func TestDependencyOnContributionRefIsNeverAServiceOrExternal(t *testing.T) {
 	q := infFleet(t, nil, svc("orders", "shop", contract.Dependency{Name: "checkout", Ref: ref, Compatibility: "^1"}), svc("checkout", "shop"))
 	rel := depEdge(t, q, "orders", "checkout")
 	if rel.ToService != "" || rel.ToExternal != "" || rel.Resolved || rel.RangeStatus != RangeUnknown || rel.RangeReason != RangeReasonInferredProvider ||
-		!strings.Contains(rel.Reason, "a producer's contributed record, never a service") || !strings.Contains(rel.Reason, "my-idp") {
+		rel.Reason != "the ref names my-idp's contributed record, never a service" {
 		t.Errorf("edge = %+v", rel)
 	}
 	if items := q.inferredProviderAttention(); len(items) != 0 {

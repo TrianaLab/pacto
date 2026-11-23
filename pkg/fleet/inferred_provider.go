@@ -193,7 +193,7 @@ func joinInferredRef(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk Revis
 	if key == "" {
 		rel.Reason = "the ref names " + contract.InferredRepository + "/" + path + ", which is no external identity, so it joins no external system and is never a service"
 		if producer, ok := contract.ContributionRef(dep.Ref); ok {
-			rel.Reason = "the ref names " + producer + "'s contributed record: a producer's contributed record, never a service"
+			rel.Reason = "the ref names " + producer + "'s contributed record, never a service"
 		}
 		return
 	}
