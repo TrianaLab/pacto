@@ -591,6 +591,14 @@ export function installScaleFixture(): void {
       for (const r of (doc.frozen as Record<string, unknown>[] | undefined) ?? []) {
         for (const o of (r.offers as Record<string, unknown>[] | undefined) ?? []) o.reason = longName(String(o.reason ?? 'offer'));
       }
+      // The installation ladder proposal at its largest (511-S5): 16 proposed rungs with
+      // long names and sources and the full 64-hex digest the command carries.
+      const ladder = doc.ladder as Record<string, unknown> | undefined;
+      if (ladder) {
+        const digest = `sha256:${'5be1c0de'.repeat(8)}`;
+        ladder.proposal = Array.from({ length: 16 }, (_, i) => ({ name: longName(`rung-${i}`), source: longName(`namespaces *-rung-${i}, ${i + 2} found`), provenance: 'inferred' }));
+        Object.assign(ladder, { proposalDigest: digest, command: `pacto delivery ladder confirm --proposal ${digest}` });
+      }
     }
     // The environments figure at fleet scale: 60 environments with long names and a
     // declared chain through them, Stages in the thousands; the board stays the engine's.
@@ -622,6 +630,15 @@ export function installScaleFixture(): void {
         for (const k of ['readyFix', 'readyMessage', 'sourceRevision', 'contractRef']) if (typeof r[k] === 'string') r[k] = longName(r[k] as string);
         const lc = r.lastCheck as { verdicts?: Record<string, unknown>[] } | undefined;
         for (const v of lc?.verdicts ?? []) v.message = longName(String(v.message ?? v.gate));
+        // Every row's placement mark at its longest (511-S5).
+        r.source = i % 2 ? 'inferred-confirmed' : 'ladder';
+        r.placement = { namespace: longName(`placement-${String(r.namespace)}`), provenance: i % 2 ? 'inferred' : 'observed', source: 'gitops-source',
+          evidence: longName(`Argo CD source ${String(r.service)}`), confirmedBy: i % 2 ? `oidc:${longName('alice')}@acme.example` : undefined };
+      }
+      // 2000 environments not placed, each with a long reason, collapsed under the board.
+      if (Array.isArray(doc.environments)) {
+        doc.unplaced = Array.from({ length: 2000 }, (_, i) => ({ service: longName(`unplaced-${i}`), environment: longName(`rung-${i % 16}`), source: 'ladder',
+          placement: { namespace: longName(`namespace-${i}`), provenance: 'inferred', source: 'inferred-from' }, reason: longName(`namespace refused ${i}`) }));
       }
     }
     // The Why card at its longest: many reasons, each with a long message and fix.
@@ -3308,6 +3325,33 @@ export const ROUTES: Route[] = [
       await eu.getByRole('button', { name: 'About cluster eu-prod' }).click();
       await expect(eu.locator('[role="note"]')).toBeVisible();
       await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
+  // 511-S5: the installation ladder proposal opened as a person who may confirm it (the
+  // default persona is an agent, which sees no Confirm), with the long command shown.
+  {
+    name: 'delivery inbox, ladder proposal',
+    open: async (page) => {
+      await page.goto('/#/delivery/inbox');
+      await page.getByTestId('identity-trigger').click({ timeout: 30_000 });
+      await page.getByRole('button', { name: 'Switch person' }).click();
+      await page.getByTestId('demo-persona-alice').click();
+      const ladder = page.getByTestId('inbox-ladder');
+      await ladder.locator('summary').click({ timeout: 30_000 });
+      await ladder.getByRole('button', { name: 'Confirm', exact: true }).click({ timeout: 30_000 });
+      await expect(ladder.getByTestId('ladder-confirm')).toBeVisible();
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  // 511-S5: the environments not placed, opened under the board.
+  {
+    name: 'delivery environments, unplaced open',
+    open: async (page) => {
+      await page.goto('/#/delivery/environments');
+      const unplaced = page.getByTestId('environments-unplaced');
+      await unplaced.locator('summary').click({ timeout: 30_000 });
+      await expect(unplaced.getByTestId('unplaced-row').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
     },
   },
 ];

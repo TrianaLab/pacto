@@ -940,3 +940,72 @@ func TestDemoInspectedPlanComesFromPlanFor(t *testing.T) {
 		t.Fatalf("prod-eu plan %d %+v", code, p.Verdicts)
 	}
 }
+
+// TestDemoStagesAreManaged: payments' Stages are the ones Pacto created from
+// the installation ladder, labelled and annotated as the promoter writes them,
+// so the board marks where each runs and who confirmed it; every other Stage
+// was written by a person.
+func TestDemoStagesAreManaged(t *testing.T) {
+	_, h := demoServer(t)
+	rows := environments(t, h, "")
+	for _, c := range []struct{ ns, svc, source, provenance, by string }{
+		{story.Test, "payments", delivery.DesiredFromLadder, delivery.PlacementObserved, ""},
+		{story.Prod, "payments", delivery.DesiredFromLadder, delivery.PlacementDefault, story.Alice.User},
+		{story.Prod, "orders", delivery.PlacementFromStage, delivery.PlacementDeclared, ""},
+	} {
+		r := rowOf(t, rows, c.ns, c.svc)
+		if r.Source != c.source || r.Placement == nil || r.Placement.Provenance != c.provenance || r.Placement.Namespace != c.ns || r.Placement.ConfirmedBy != c.by {
+			t.Errorf("%s/%s: source %q placement %+v", c.ns, c.svc, r.Source, r.Placement)
+		}
+	}
+	var out struct {
+		Unplaced []dashboard.UnplacedRow `json:"unplaced"`
+	}
+	if code := call(t, h, "GET", "/api/delivery/environments", "", &out); code != 200 {
+		t.Fatalf("environments %d", code)
+	}
+	if len(out.Unplaced) != 1 || out.Unplaced[0].Service != "checkout" || out.Unplaced[0].Environment != demoLeaf ||
+		out.Unplaced[0].Reason != "namespace orders belongs to orders (team-orders)" {
+		t.Errorf("unplaced %+v", out.Unplaced)
+	}
+}
+
+// TestDemoLadderProposal: the inbox offers the open installation ladder
+// proposal with the digest ProposalDigest gives, and only a person may
+// confirm it.
+func TestDemoLadderProposal(t *testing.T) {
+	d, h := demoServer(t)
+	ladder := func() dashboard.InboxLadder {
+		t.Helper()
+		var out struct {
+			Ladder *dashboard.InboxLadder `json:"ladder"`
+		}
+		if code := call(t, h, "GET", "/api/delivery/inbox", "", &out); code != 200 || out.Ladder == nil {
+			t.Fatalf("inbox %d, ladder %v", code, out.Ladder)
+		}
+		return *out.Ladder
+	}
+	l := ladder()
+	names := func(rs []delivery.LadderRung) (out []string) {
+		for _, r := range rs {
+			out = append(out, r.Name)
+		}
+		return out
+	}
+	if !slices.Equal(names(l.Declared), []string{story.Test, story.Prod}) || !slices.Equal(names(l.Confirmed), []string{demoLeaf}) ||
+		len(l.Proposal) != 1 || l.Proposal[0].Name != "perf" || l.Proposal[0].Source != "namespaces *-perf, 3 found" {
+		t.Fatalf("ladder %+v", l)
+	}
+	if l.ProposalDigest != delivery.ProposalDigest(l.Proposal) || l.Command != "pacto delivery ladder confirm --proposal "+l.ProposalDigest {
+		t.Errorf("digest %q command %q", l.ProposalDigest, l.Command)
+	}
+	if l.CanConfirm {
+		t.Error("the agent persona may confirm the installation ladder")
+	}
+	if err := d.SetPersona(story.Alice.Name, true); err != nil {
+		t.Fatal(err)
+	}
+	if !ladder().CanConfirm {
+		t.Error("alice may not confirm the installation ladder")
+	}
+}
