@@ -49,6 +49,14 @@ func reportedAbsent(r *RawExtension) {
 
 func producedBy(p string) func(*RawExtension) { return func(r *RawExtension) { r.Producer = p } }
 
+func underSubject(subject string) func(*RawExtension) {
+	return func(r *RawExtension) { r.Subject = subject }
+}
+
+func acceptedIn(cluster string) func(*RawExtension) {
+	return func(r *RawExtension) { r.Cluster = &Cluster{ID: cluster} }
+}
+
 func reportedFailed(r *RawExtension) { r.Outcome, r.Present = "Failed", nil }
 
 func reportedAt(d time.Duration) func(*RawExtension) {
@@ -110,13 +118,22 @@ func TestExtensionCheckStateTable(t *testing.T) {
 			&ExtensionCheck{State: ExtensionCovered, Producer: "acme-backup", Details: details}},
 		{"failing", []string{"1.3.0"}, 0, []RawExtension{extReport("1.3.0", reportedAbsent)}, "1.3.0",
 			&ExtensionCheck{State: ExtensionFailing, Producer: "acme-backup", Producers: []string{"acme-backup"}, Reason: "reported absent by acme-backup"}},
+		{"failing-with-details", []string{"1.3.0"}, 0, []RawExtension{extReport("1.3.0", reportedAbsent, withDetails)}, "1.3.0",
+			&ExtensionCheck{State: ExtensionFailing, Producer: "acme-backup", Producers: []string{"acme-backup"}, Reason: "reported absent by acme-backup", Details: details}},
+		{"absent-subject-beats-newer-present-subject", []string{"1.3.0"}, 0, []RawExtension{
+			extReport("1.3.0", reportedAbsent, reportedAt(2*time.Hour), underSubject("acme/payments/prod/extension/backup")),
+			extReport("1.3.0", underSubject("acme/payments/staging/extension/backup")),
+		}, "1.3.0", &ExtensionCheck{State: ExtensionFailing, Producer: "acme-backup", Producers: []string{"acme-backup"}, Reason: "reported absent by acme-backup"}},
+		{"absent-cluster-beats-newer-present-cluster", []string{"1.3.0"}, 0, []RawExtension{
+			extReport("1.3.0", reportedAbsent, reportedAt(2*time.Hour), acceptedIn("cluster-a")), extReport("1.3.0", acceptedIn("cluster-b")),
+		}, "1.3.0", &ExtensionCheck{State: ExtensionFailing, Producer: "acme-backup", Producers: []string{"acme-backup"}, Reason: "reported absent by acme-backup"}},
 		{"failing-beats-covered", []string{"1.3.0"}, 0, []RawExtension{
 			extReport("1.3.0", producedBy("c-tool")), extReport("1.3.0", reportedAbsent, producedBy("b-tool")), extReport("1.3.0", reportedAbsent, producedBy("a-tool")),
 		}, "1.3.0", &ExtensionCheck{State: ExtensionFailing, Producer: "a-tool", Producers: []string{"a-tool", "b-tool"}, Reason: "reported absent by a-tool, b-tool"}},
 		{"newest-report-per-producer", []string{"1.3.0"}, 0, []RawExtension{extReport("1.3.0", reportedAbsent, reportedAt(2*time.Hour)), extReport("1.3.0")}, "1.3.0",
 			&ExtensionCheck{State: ExtensionCovered, Producer: "acme-backup"}},
 		{"non-observed", []string{"1.3.0"}, 0, []RawExtension{extReport("1.3.0", reportedFailed), extReport("1.3.0", producedBy("b-tool"))}, "1.3.0",
-			&ExtensionCheck{State: ExtensionUnknown, Producer: "acme-backup", Reason: "acme-backup reported failed"}},
+			&ExtensionCheck{State: ExtensionUnknown, Producer: "acme-backup", Reason: "reported failed by acme-backup"}},
 		{"stale", []string{"1.3.0"}, 2 * time.Hour, []RawExtension{extReport("1.3.0", reportedAt(3*time.Hour))}, "1.3.0",
 			&ExtensionCheck{State: ExtensionUnknown, Producer: "acme-backup", Stale: true, Reason: "the last report is older than the freshness window"}},
 		{"other-revision", []string{"1.2.0", "1.3.0"}, 0, []RawExtension{extReport("1.2.0")}, "1.3.0",
@@ -329,8 +346,25 @@ func TestServiceStatusFoldsCurrentExtensionChecks(t *testing.T) {
 			t.Errorf("%s: status = %s, want %s", tc.name, got, tc.want)
 		}
 	}
+	// A quarantined target never names a revision whose checks count, as it
+	// never drives the aggregate.
+	col := extFleet("1.2.0", "1.3.0")
+	col.Targets = []RawTarget{extTarget("prod", "1.3.0", StatusCompliant), extTarget("edge", "1.2.0", StatusCompliant)}
+	snap := extSnap(t, 0, col, []RawExtension{extReport("1.2.0", reportedAbsent), extReport("1.3.0")})
+	s := snap.Services[extKey]
+	for _, tk := range s.Targets {
+		if tgt := snap.Targets[tk]; tgt.ContractRevision == extRev("1.2.0") {
+			tgt.Quarantined = true
+		}
+	}
+	if got := statusRevisions(snap, s); len(got) != 1 || got[0].Version != "1.3.0" {
+		t.Errorf("status revisions with a quarantined target = %+v", got)
+	}
+	if got := extensionStatus(snap, s); got != "" {
+		t.Errorf("a quarantined target's revision drives the status: %q", got)
+	}
 	// Invalid still wins over a failing check.
-	snap := extSnap(t, 0, extFleet("1.3.0"), []RawExtension{extReport("1.3.0", reportedAbsent)})
+	snap = extSnap(t, 0, extFleet("1.3.0"), []RawExtension{extReport("1.3.0", reportedAbsent)})
 	rev := snap.Revisions[extRev("1.3.0")]
 	rev.validated, rev.Valid = true, false
 	if got := serviceStatus(snap, snap.Services[extKey]); got != StatusInvalid {
@@ -410,6 +444,22 @@ func TestRestrictHidesExtensionChecksOfUnreadableCluster(t *testing.T) {
 	if got := r.snap.Services[extKey].Status; got != want || snap.Services[extKey].Status != StatusNonCompliant {
 		t.Errorf("restricted status = %s, want %s (unrestricted %s)", got, want, snap.Services[extKey].Status)
 	}
+	// A record with no cluster of its own takes its collection's, as targets
+	// do, so a hidden cluster's snapshot evidence neither shows nor counts.
+	inherit, err := Build(context.Background(), BuildOptions{Now: fixedNow},
+		NewMemorySource("oci", "oci", extFleet("1.2.0", "1.3.0")),
+		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Cluster: &Cluster{ID: "cluster-a"}, Targets: []RawTarget{extTarget("prod", "1.3.0", StatusCompliant)}}),
+		NewMemorySource("evidence-x", "evidence-http", &Collection{Cluster: &Cluster{ID: "cluster-x"}, Extensions: []RawExtension{extReport("1.3.0", reportedAbsent)}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := checkOn(inherit, "1.3.0"); c == nil || c.State != ExtensionFailing {
+		t.Fatalf("unrestricted inherited check = %+v", c)
+	}
+	r = NewQuery(inherit).Restrict(noX, nil)
+	if c := checkOn(r.snap, "1.3.0"); c != nil || r.snap.Services[extKey].Status == StatusNonCompliant {
+		t.Errorf("a record inheriting an unreadable cluster shows: %+v, status %s", c, r.snap.Services[extKey].Status)
+	}
 	// A readable record from another cluster still speaks.
 	snap = clusterFleet(t, map[string][]RawExtension{"cluster-x": {extReport("1.3.0", reportedAbsent)}, "cluster-a": {extReport("1.3.0", producedBy("a-tool"))}})
 	r = NewQuery(snap).Restrict(noX, nil)
@@ -431,7 +481,7 @@ func TestExplainServiceNamesExtensionProducer(t *testing.T) {
 	}{
 		{"failing", 0, []RawExtension{extReport("1.3.0", reportedAbsent)}, "CAPABILITY_ABSENT", "reported absent by acme-backup"},
 		{"stale", 2 * time.Hour, []RawExtension{extReport("1.3.0", reportedAt(3*time.Hour))}, LimitationSourceStale, "the last report is older than the freshness window"},
-		{"non-observed", 0, []RawExtension{extReport("1.3.0", reportedFailed)}, LimitationEvidenceMissing, "acme-backup reported failed"},
+		{"non-observed", 0, []RawExtension{extReport("1.3.0", reportedFailed)}, LimitationEvidenceMissing, "reported failed by acme-backup"},
 		{"covered", 0, []RawExtension{extReport("1.3.0")}, "", ""},
 		{"failing on a revision no target runs", 0, []RawExtension{extReport("1.2.0", reportedAbsent), extReport("1.3.0")}, "", ""},
 	}
@@ -475,7 +525,7 @@ func TestAttentionExtensionItemsCurrentRevisionOnly(t *testing.T) {
 		{"stale", 2 * time.Hour, []RawExtension{extReport("1.3.0", reportedAt(3*time.Hour))}, codeExtensionUnreported, categoryStale,
 			"the last report is older than the freshness window", "Have acme-backup report on 1.3.0"},
 		{"non-observed", 0, []RawExtension{extReport("1.3.0", reportedFailed)}, codeExtensionUnreported, categoryUnknown,
-			"acme-backup reported failed", "Have acme-backup report on 1.3.0"},
+			"reported failed by acme-backup", "Have acme-backup report on 1.3.0"},
 		{"covered", 0, []RawExtension{extReport("1.3.0")}, "", "", "", ""},
 		{"failing on a revision no target runs", 0, []RawExtension{extReport("1.2.0", reportedAbsent), extReport("1.3.0")}, "", "", "", ""},
 	}

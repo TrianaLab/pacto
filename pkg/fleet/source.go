@@ -233,11 +233,13 @@ type RawProvisioning struct {
 }
 
 // RawExtension is one producer's report on the extension capability Ref that
-// the consumer revision (Service, Domain, Digest) declares. Present and
+// the consumer revision (Service, Domain, Digest) declares, under the report
+// Subject. Present and
 // Details are set only for an Observed outcome. Cluster is the cluster of the
 // Evidence Server that accepted it. Verified is true only for records accepted
 // through signed envelopes; [Build] drops every other one.
 type RawExtension struct {
+	Subject       string          `json:"subject,omitempty"`
 	Service       string          `json:"service"`
 	Domain        string          `json:"domain,omitempty"`
 	Digest        string          `json:"digest"`

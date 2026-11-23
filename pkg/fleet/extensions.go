@@ -52,7 +52,8 @@ type ExtensionCheck struct {
 
 // extensionRecord is one verified extension report Build matched to a
 // revision. cluster is the id of the cluster whose Evidence Server accepted
-// it, so a restricted view drops what its caller may not read.
+// it (else the collection's), so a restricted view drops what its caller may
+// not read. subject is the report subject, one per environment.
 type extensionRecord struct {
 	service                          ServiceKey
 	digest, ref                      string
@@ -62,17 +63,24 @@ type extensionRecord struct {
 	observedAt                       time.Time
 	acceptedAt                       *time.Time
 	source, sourceKind, cluster      string
+	subject                          string
 }
 
-func (r *extensionRecord) at() time.Time  { return *cmp.Or(r.acceptedAt, &r.observedAt) }
-func (r *extensionRecord) origin() string { return r.source + "\x00" + r.producer }
+func (r *extensionRecord) at() time.Time { return *cmp.Or(r.acceptedAt, &r.observedAt) }
+
+// origin keys the newest report: one per source, producer, subject and
+// cluster, so a newer report from one environment never hides a current
+// report of absence from another.
+func (r *extensionRecord) origin() string {
+	return strings.Join([]string{r.source, r.producer, r.subject, r.cluster}, "\x00")
+}
 
 // ingestExtensions validates one source's extension reports into the
 // snapshot and returns one counted limitation, naming no service, for those
 // it dropped (an unsigned record among them).
-func ingestExtensions(snap *FleetSnapshot, src Source, raws []RawExtension, now time.Time) []Limitation {
+func ingestExtensions(snap *FleetSnapshot, src Source, col *Collection, now time.Time) []Limitation {
 	invalid := 0
-	for _, raw := range raws {
+	for _, raw := range col.Extensions {
 		if !validExtension(raw, now) {
 			invalid++
 			continue
@@ -81,10 +89,8 @@ func ingestExtensions(snap *FleetSnapshot, src Source, raws []RawExtension, now 
 			service: NewServiceKeyDomain(raw.Domain, raw.Service), digest: raw.Digest, ref: raw.Ref,
 			present: clonePtr(raw.Present), details: slices.Clone(raw.Details), outcome: raw.Outcome,
 			producer: raw.Producer, producerKeyID: raw.ProducerKeyID, observedAt: raw.ObservedAt,
-			acceptedAt: copyTime(raw.AcceptedAt), source: src.ID(), sourceKind: src.Kind(),
-		}
-		if raw.Cluster != nil {
-			rec.cluster = raw.Cluster.ID
+			acceptedAt: copyTime(raw.AcceptedAt), source: src.ID(), sourceKind: src.Kind(), subject: raw.Subject,
+			cluster: rawClusterID(col, RawTarget{Cluster: raw.Cluster}),
 		}
 		snap.extensionRecords = append(snap.extensionRecords, rec)
 	}
@@ -253,12 +259,13 @@ func currentExtensionCheck(ref string, current []*extensionRecord) *ExtensionChe
 			chk.Producers = appendUnique(chk.Producers, rec.producer)
 		}
 		chk.Reason = "reported absent by " + strings.Join(chk.Producers, ", ")
+		chk.Details = slices.Clone(absent[0].details)
 		return chk
 	}
 	if len(unanswered) > 0 {
 		rec := newestReport(unanswered)
 		chk := checkFrom(ref, ExtensionUnknown, rec)
-		chk.Reason = rec.producer + " reported " + strings.ToLower(rec.outcome)
+		chk.Reason = "reported " + strings.ToLower(rec.outcome) + " by " + rec.producer
 		return chk
 	}
 	rec := newestReport(current)

@@ -232,9 +232,17 @@ func currentRevision(snap *FleetSnapshot, s *ServiceRecord) *ContractRevision {
 }
 
 // statusRevisions is the revisions whose extension checks count toward s's
-// status: every revision a target runs, else the current one.
+// status: every revision a target runs, else the newest known. A quarantined
+// target names none, as it never drives the aggregate (targetAggregateStatus).
 func statusRevisions(snap *FleetSnapshot, s *ServiceRecord) []*ContractRevision {
+	run := map[RevisionKey]bool{}
+	for _, tk := range s.Targets {
+		if t := snap.Targets[tk]; t != nil && !t.Quarantined {
+			run[t.ContractRevision] = true
+		}
+	}
 	active, all := revisionsInUse(snap, s)
+	active = slices.DeleteFunc(active, func(r *ContractRevision) bool { return !run[r.Key] })
 	if len(active) > 0 {
 		return active
 	}

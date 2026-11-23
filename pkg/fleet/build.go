@@ -522,7 +522,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	}
 	recordProblems = append(recordProblems, ingestProvisioning(snap, src, col.Provisioning, now)...)
 	recordProblems = append(recordProblems, ingestUsage(snap, src, col.Usage, now)...)
-	recordProblems = append(recordProblems, ingestExtensions(snap, src, col.Extensions, now)...)
+	recordProblems = append(recordProblems, ingestExtensions(snap, src, col, now)...)
 	kept, capped := boundInferred(col, src.ID())
 	recordProblems = append(recordProblems, capped...)
 	// A source that reported record-level problems is partial: keep its usable

@@ -90,7 +90,7 @@ func TargetsCollection(source string, data []byte) (*fleet.Collection, error) {
 	for _, x := range body.Extensions {
 		acceptedAt := x.AcceptedAt
 		col.Extensions = append(col.Extensions, fleet.RawExtension{
-			Service: x.Service, Domain: x.Domain, Digest: digestOr(x.Digest, x.ContractRef), Ref: x.Ref,
+			Subject: x.Subject, Service: x.Service, Domain: x.Domain, Digest: digestOr(x.Digest, x.ContractRef), Ref: x.Ref,
 			Present: x.Present, Details: x.Details, Outcome: x.Outcome, Producer: x.Producer, ProducerKeyID: x.ProducerKeyID,
 			ObservedAt: x.EvidenceAt, AcceptedAt: &acceptedAt, Cluster: acceptingCluster(x.Cluster, body.Cluster), Verified: true,
 		})

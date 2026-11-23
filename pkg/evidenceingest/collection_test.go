@@ -122,10 +122,10 @@ func TestTargetsCollectionMapsExtensions(t *testing.T) {
 	at := func(v string) time.Time { tm, _ := time.Parse(time.RFC3339, v); return tm }
 	accepted, absent := at("2026-11-22T09:01:00Z"), false
 	want := []fleet.RawExtension{
-		{Service: "pay", Digest: "sha256:aa", Ref: "x.acme.io/backup", Present: &absent, Details: json.RawMessage(`{"lastBackup":"2026-11-22T03:00:00Z"}`),
+		{Subject: "r/pay/prod/extension/backup", Service: "pay", Digest: "sha256:aa", Ref: "x.acme.io/backup", Present: &absent, Details: json.RawMessage(`{"lastBackup":"2026-11-22T03:00:00Z"}`),
 			Outcome: "Observed", Producer: "acme-backup", ProducerKeyID: "k1", ObservedAt: at("2026-11-22T09:00:00Z"), AcceptedAt: &accepted,
 			Cluster: &fleet.Cluster{ID: "c1", Name: "prod", NameSource: "label"}, Verified: true},
-		{Service: "pay", Digest: "sha256:bb", Ref: "x.acme.io/scan", Outcome: "Failed", Producer: "acme-backup",
+		{Subject: "r/pay/prod/extension/scan", Service: "pay", Digest: "sha256:bb", Ref: "x.acme.io/scan", Outcome: "Failed", Producer: "acme-backup",
 			ObservedAt: at("2026-11-22T09:00:00Z"), AcceptedAt: &accepted, Cluster: &fleet.Cluster{ID: "c2"}, Verified: true},
 	}
 	if !reflect.DeepEqual(col.Extensions, want) {
