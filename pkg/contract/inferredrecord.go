@@ -1354,6 +1354,12 @@ func InferredFromExternal(s string) (string, bool) {
 // from a producer's inferred offering.
 const offeringInferredPrefix = "offering:"
 
+// OfferingInferredFrom is the inferredFrom of an offering accepted from
+// producer's inferred offering service, contributed as digest.
+func OfferingInferredFrom(producer, service, digest string) string {
+	return offeringInferredPrefix + producer + "/" + service + "@" + digest
+}
+
 // InferredFromOffering is the producer, service and contribution digest an
 // accepted offering's inferredFrom (offering:<producer>/<service>@sha256:<hex>)
 // names, and whether s is that form. Like the external form it is checked in

@@ -58,6 +58,14 @@ const (
 	RefusalExternalMismatch        WriteRefusal = "ExternalMismatch"
 	RefusalExternalUnknown         WriteRefusal = "ExternalUnknown"
 	RefusalClaimRepositoryInferred WriteRefusal = "ClaimRepositoryInferred"
+	// The offering acceptance codes: an open parameter schema, a source
+	// that is no contribution or that no producer key verified, a bundle
+	// that offers another name, and no version.
+	RefusalOfferingSchemaOpen       WriteRefusal = "OfferingSchemaOpen"
+	RefusalOfferingSourceInvalid    WriteRefusal = "OfferingSourceInvalid"
+	RefusalOfferingSourceUnverified WriteRefusal = "OfferingSourceUnverified"
+	RefusalOfferingMismatch         WriteRefusal = "OfferingMismatch"
+	RefusalVersionRequired          WriteRefusal = "VersionRequired"
 	// An HTTP server's draft write: the caller may not update the workload,
 	// writes on behalf of someone else or into another workload's
 	// repository (NotAllowed), or the review of the caller failed.
@@ -85,6 +93,7 @@ var writeRefusals = []WriteRefusal{
 	RefusalGitHostUnknown, RefusalGitTokenMissing, RefusalPullRequestFailed, RefusalPullRequestNeedsLocalToken, RefusalNotAllowed, RefusalReviewFailed, RefusalAcceptNothingProposed, RefusalFieldNotAcceptable,
 	RefusalBreakNotAnnounced, RefusalNotPublished, RefusalPersonSigningUnavailable,
 	RefusalOwnerRequired, RefusalExternalMismatch, RefusalExternalUnknown, RefusalClaimRepositoryInferred,
+	RefusalOfferingSchemaOpen, RefusalOfferingSourceInvalid, RefusalOfferingSourceUnverified, RefusalOfferingMismatch, RefusalVersionRequired,
 	RefusalOwnerSignerNotPerson, RefusalOwnerSignerNotAllowed, RefusalOwnerPolicyUnverified, RefusalOwnerSignerUnverified,
 }
 

@@ -1316,6 +1316,13 @@ func TestInferredFromOfferingParses(t *testing.T) {
 	}
 }
 
+func TestOfferingInferredFromRoundTrips(t *testing.T) {
+	p, svc, d, _ := InferredFromOffering(offeringFrom)
+	if got := OfferingInferredFrom(p, svc, d); got != offeringFrom {
+		t.Fatalf("OfferingInferredFrom = %q", got)
+	}
+}
+
 func TestOfferingInferredFromRejectsBadForms(t *testing.T) {
 	digest := offeringFrom[strings.Index(offeringFrom, "@"):]
 	for _, bad := range []string{
