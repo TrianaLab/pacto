@@ -66,7 +66,6 @@ type extensionRecord struct {
 
 func (r *extensionRecord) at() time.Time  { return *cmp.Or(r.acceptedAt, &r.observedAt) }
 func (r *extensionRecord) origin() string { return r.source + "\x00" + r.producer }
-func (r *extensionRecord) env() string    { return "" }
 
 // ingestExtensions validates one source's extension reports into the
 // snapshot and returns one counted limitation, naming no service, for those

@@ -249,7 +249,7 @@ func (q *Query) provisioningFor(use OfferingUse, rels []*Relationship, current *
 // useSlots groups idx's reports about rels by environment and consumer entry,
 // seeds current's entries (see seedProvisioningSlots) and returns the
 // declaring revisions by digest.
-func useSlots[R reportRecord](snap *FleetSnapshot, rels []*Relationship, current *ContractRevision, idx map[provisioningKey][]R) (map[provisioningSlot][]R, map[string]*ContractRevision) {
+func useSlots[R envRecord](snap *FleetSnapshot, rels []*Relationship, current *ContractRevision, idx map[provisioningKey][]R) (map[provisioningSlot][]R, map[string]*ContractRevision) {
 	revs := map[string]*ContractRevision{}
 	slots := map[provisioningSlot][]R{}
 	seen := map[provisioningKey]bool{}
@@ -337,11 +337,16 @@ func (q *Query) provisioningStatuses(use OfferingUse, slots map[provisioningSlot
 	return out, lims
 }
 
-// reportRecord is what latestReports and newestReport need of a provisioning or
-// usage report.
+// reportRecord is what latestReports and newestReport need of a provisioning,
+// usage or extension report.
 type reportRecord interface {
 	at() time.Time
 	origin() string
+}
+
+// envRecord is a reportRecord useSlots can group by environment.
+type envRecord interface {
+	reportRecord
 	env() string
 }
 
