@@ -937,6 +937,10 @@ describe('cluster filter on the services and targets lists', () => {
 });
 
 describe('serviceDeclareUrl', () => {
+  it('opens the Claim panel and round-trips the signed intent through the external system route', () => {
+    expect(parseHash('#/fleet/externals/aws%2Fsqs?declare=1&signed=sha256%3Aabc&changesKind=x').params).toEqual({ kind: 'external', key: 'aws/sqs', declare: '1', signed: 'sha256:abc' });
+  });
+
   it('opens the Declare panel and round-trips the signed intent through the service route', () => {
     const key = 'default/k8s:shop/Deployment/cart';
     expect(serviceDeclareUrl(key)).toBe('#/fleet/services/default%2Fk8s%3Ashop%2FDeployment%2Fcart?declare=1');

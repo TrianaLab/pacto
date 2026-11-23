@@ -204,3 +204,32 @@ func TestTourDeclaresLegacyBilling(t *testing.T) {
 		t.Errorf("tours.js lacks %s", want)
 	}
 }
+
+// TestDemoTourClaimStep: after declaring legacy-billing the fleet tour opens
+// stripe's page and lights its Owner block, where a person claims it; the
+// page it names is the one the external list links.
+func TestDemoTourClaimStep(t *testing.T) {
+	steps := tourSteps(t, "FLEET_TOUR")
+	draft, claim := -1, -1
+	for i, s := range steps {
+		if strings.Contains(s.text, "press Save draft") {
+			draft = i
+		}
+		if strings.Contains(s.text, "stripe") && strings.Contains(s.target, `[data-testid="external-owner"]`) {
+			claim = i
+		}
+	}
+	if claim < 0 || claim < draft || steps[claim].gated {
+		t.Fatalf("claim step at %d after the draft at %d: %+v", claim, draft, steps)
+	}
+	if !strings.Contains(steps[claim].text, "Claim") || !strings.Contains(steps[claim].text, "default approvers") {
+		t.Errorf("the claim step names neither Claim nor the routing: %s", steps[claim].text)
+	}
+	js, err := os.ReadFile("tours.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `var STRIPE = "#/fleet/externals/stripe";`; !strings.Contains(string(js), want) {
+		t.Errorf("tours.js lacks %s", want)
+	}
+}

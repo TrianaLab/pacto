@@ -12,6 +12,7 @@
   var hashPath = window.__pactoTour.hashPath;
   // legacy-billing's page: the inferred service key, encoded as the services list links it.
   var BILLING = "#/fleet/services/k8s:shop%252FDeployment%252Flegacy-billing";
+  var STRIPE = "#/fleet/externals/stripe";
 
   var style = document.createElement("style");
   style.textContent =
@@ -85,7 +86,7 @@
   // for, because a tour that sits there wanting something it has not named is a wall.
   var FLEET_TOUR = [{
     title: "The guided tour",
-    text: NOTICE + " The tour asks nineteen questions about this fleet and opens the screen that answers each one, so press Continue to start.",
+    text: NOTICE + " The tour asks twenty questions about this fleet and opens the screen that answers each one, so press Continue to start.",
     hash: "#/fleet",
     target: "#ov-answer"
   }, {
@@ -321,8 +322,15 @@
       if (b) { b.click(); }
     }
   }, {
+    // An unclaimed external system is routed for routing only; a person's claim
+    // publishes the contract that names its owner (517-S5).
+    title: "Who owns stripe?",
+    text: "stripe has consumers and no owner, so attention routes it to the installation's default approvers until a person presses Claim, names the owning team and signs.",
+    hash: STRIPE,
+    target: '[data-testid="external-owner"]'
+  }, {
     title: "Recap",
-    text: "You have now seen what runs, what state it is in, whether a change breaks anyone, what happens if a service goes away or regresses, who a change reaches, who owns a service and when its changes reached a Stage, what a provider promises, where new services start, whether a platform offering is available and who can move off it and how a workload with no contract is declared, all from contracts and observations.",
+    text: "You have now seen what runs, what state it is in, whether a change breaks anyone, what happens if a service goes away or regresses, who a change reaches, who owns a service and when its changes reached a Stage, what a provider promises, where new services start, whether a platform offering is available and who can move off it, how a workload with no contract is declared and who owns an external system, all from contracts and observations.",
     href: "../examples/demo-tour/",
     linkText: "The same questions from a terminal"
   }];

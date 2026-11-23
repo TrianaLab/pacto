@@ -452,6 +452,16 @@ export function installScaleFixture(): void {
       delete x.catalog; delete rec.catalog;
       Object.assign(rec, { class: 'unclassified', joinedBy: 'normalized-name', consumersTotal: 120, sourcesTotal: 140, hiddenConsumers: 3 });
       x.foldedInto = 'other-egress';
+      // 517-S5: a claim by a service the viewer cannot see.
+      rec.claim = { hidden: true };
+    }
+    // 'external entity, claimed' (517-S5): the Owner block at its longest, a 63-character
+    // owner and claiming service.
+    if (route === '/api/fleet/entities/external' && (window as unknown as { __externalClaimed?: boolean }).__externalClaimed) {
+      const rec = (doc.external as Record<string, unknown>).external as Record<string, unknown>;
+      const name = `payments-${'stripe-gateway-'.repeat(5)}`.slice(0, 63).replace(/-+$/, '');
+      rec.claim = { service: name, version: '0.12.0', owner: `team-${'platform-'.repeat(8)}`.slice(0, 63).replace(/-+$/, ''),
+        by: `${longName('ana')}@acme.example`, ref: `ghcr.io/${longName('acme')}/${name}@sha256:${'c1'.repeat(32)}` };
     }
     // 'external entity, inferred contract' (517-S3): the provider block at its longest, a
     // 200-character managed-cloud identity, operator-signed, from a partial run with long
@@ -2286,6 +2296,23 @@ export const declareRoute = (mode: DeclareMode | '') => async (page: Page) => {
   await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
 };
 
+/** Opens stripe's page with its Claim panel planned (517-S5): the demo's own declarer
+ *  when mode is empty, else the declare fixture's refusal; the owner and name at their
+ *  longest. Reload: the flag is read per answer and the init script runs only on a new
+ *  document. */
+export const claimRoute = (mode: '' | 'refused') => async (page: Page) => {
+  if (mode) await page.addInitScript((m) => { (window as unknown as { __pactoDeclare?: string }).__pactoDeclare = m; }, mode);
+  await page.goto('/#/fleet/externals/stripe?declare=1');
+  await page.reload();
+  const panel = page.getByTestId('declare');
+  await panel.getByTestId('claim-owner').fill(`team-${'platform-'.repeat(8)}`.slice(0, 63).replace(/-+$/, ''));
+  await panel.getByTestId('claim-name').fill(`stripe-${'payments-'.repeat(8)}`.slice(0, 63).replace(/-+$/, ''));
+  await panel.getByTestId('claim-plan').click();
+  await expect(panel.getByTestId(mode === 'refused' ? 'refusal' : 'declare-signer').first()).toBeVisible({ timeout: 30_000 });
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+};
+
 export const acceptPlanRoute = (mode: 'plan' | 'refused' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed') => async (page: Page) => {
   const flag = (m: string) => { (window as unknown as { __pactoAccept?: string }).__pactoAccept = m; };
   await page.addInitScript(flag, mode);
@@ -3218,6 +3245,12 @@ export const ROUTES: Route[] = [
   { name: 'services list, multi-cluster', list: true, open: openMultiCluster('#/fleet/services') },
   { name: 'targets list, multi-cluster filter', list: true, open: openMultiCluster('#/fleet/targets?cluster=5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11') },
   { name: 'sources, multi-cluster scope', list: true, open: openMultiCluster('#/fleet/sources', '[data-testid="source-clusters"]') },
+  // 517-S5: the External page's Owner block claimed, unclaimed with its Claim button
+  // (the demo plans claims), the Claim panel planned and refused.
+  { name: 'external entity, claimed', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __externalClaimed?: boolean }).__externalClaimed = true; }); await page.goto('/#/fleet/externals/stripe'); await page.reload(); await expect(page.getByTestId('external-owner-claimed')).toBeVisible({ timeout: 30_000 }); } }, // reload: the init script only runs on a new document
+  { name: 'external entity, unclaimed with claim', open: async (page) => { await page.goto('/#/fleet/externals/stripe'); await expect(page.getByTestId('external-claim')).toBeVisible({ timeout: 30_000 }); } },
+  { name: 'external entity, claim panel', open: claimRoute('') },
+  { name: 'external entity, claim refused', open: claimRoute('refused') },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

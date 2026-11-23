@@ -83,9 +83,14 @@ export function completenessLine(p: Completeness | null | undefined): string {
  *  this service's panel with the intent it was started for. The accepted ranges ride
  *  on the ticket, never on the URL. */
 export function signUrl(ticket: string, serviceKey: string, intent: string): string {
+  return `/auth/sign?ticket=${encodeURIComponent(ticket)}&return=${encodeURIComponent('/' + signReturn(serviceKey, intent))}`;
+}
+
+/** signReturn is the page a signing login comes back to: this service's (or external
+ *  system's) panel with the intent it was started for. */
+export function signReturn(serviceKey: string, intent: string): string {
   const id = claimId(serviceKey);
-  const ret = '/' + (id ? pagedHash(fleetEntityUrl('external', id), { declare: '1', signed: intent }) : serviceDeclareUrl(serviceKey, { signed: intent }));
-  return `/auth/sign?ticket=${encodeURIComponent(ticket)}&return=${encodeURIComponent(ret)}`;
+  return id ? pagedHash(fleetEntityUrl('external', id), { declare: '1', signed: intent }) : serviceDeclareUrl(serviceKey, { signed: intent });
 }
 
 /** claimId is the external system a claim's subject (external:<identity>) names, or ''

@@ -106,7 +106,10 @@ func demoInstallationConfig() (func(context.Context) (*fleet.InstallationDeclare
 // cluster collector that observes it are not the same thing (section 0b, Data source
 // vs Collector), telemetry comes from a third, and an environment nobody could reach
 // is what makes the snapshot honestly partial.
-func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[string]*contract.Bundle, error) {
+//
+// claims are the revisions a visitor claimed external systems with in this
+// tab (source_declare.go): they join the default registry, never published.
+func buildDemoFleet(src, partnersSrc *EmbedSource, claims ...fleet.RawRevision) (*fleet.FleetSnapshot, map[string]*contract.Bundle, error) {
 	col := &fleet.Collection{}
 	byRef := map[string]*contract.Bundle{}
 	revisions := func(s *EmbedSource, registry string) []fleet.RawRevision {
@@ -136,6 +139,10 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	handover, handoverBundle, handedOver := demoHandover(demoNow(), prodCluster.ID)
 	col.Revisions = append(col.Revisions, handover)
 	byRef[handover.ResolvedRef] = handoverBundle
+	for _, c := range claims {
+		col.Revisions = append(col.Revisions, c)
+		byRef[c.ResolvedRef] = c.Bundle
+	}
 	col.Providers = []fleet.Provider{demoRegistryRow(demoNativeRegistry, col.Revisions)}
 
 	// One more registry, the payments story's own domain: the contracts the

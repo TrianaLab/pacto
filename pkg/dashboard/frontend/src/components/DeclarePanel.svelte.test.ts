@@ -66,6 +66,21 @@ describe('DeclarePanel', () => {
     expect(planFn).toHaveBeenCalledWith({ serviceKey: KEY, intentDigest: undefined, fromDraft: undefined });
   });
 
+  it('a host that signs in itself keeps the tab and comes back to the panel', async () => {
+    const hook = vi.fn();
+    (window as unknown as { __pactoSignIn?: unknown }).__pactoSignIn = hook;
+    try {
+      planFn.mockResolvedValue(answer(FRESH));
+      await render();
+      const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+      q('[data-testid="declare-sign"]')!.dispatchEvent(click);
+      expect(click.defaultPrevented).toBe(true);
+      expect(hook).toHaveBeenCalledWith('#/fleet/services/default%2Fk8s%3Ashop%2FDeployment%2Fcart?declare=1&signed=sha256%3Ai1', true);
+    } finally {
+      delete (window as unknown as { __pactoSignIn?: unknown }).__pactoSignIn;
+    }
+  });
+
   it('with a signing login shows Sign, whose URL holds the ticket and never an accept list', async () => {
     planFn.mockResolvedValue(answer(FRESH));
     await render();

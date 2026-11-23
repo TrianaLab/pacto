@@ -107,7 +107,9 @@
         {/if}
       </div>
       {#if claimable && claimOpen}
-        <div id="xe-claim-panel"><DeclarePanel serviceKey={`external:${rec.key}`} open signed={declareQuery.signed ?? ''} claimedName={claim ? claimer : ''} /></div>
+        <!-- Keyed on the signing login's intent: a host that signs in itself (the WASM demo)
+             comes back to this page without reloading it, and the panel plans again. -->
+        <div id="xe-claim-panel">{#key declareQuery.signed}<DeclarePanel serviceKey={`external:${rec.key}`} open signed={declareQuery.signed ?? ''} claimedName={claim ? claimer : ''} />{/key}</div>
       {/if}
     </section>
   {/if}

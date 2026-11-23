@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"syscall/js"
 	"time"
 
@@ -74,6 +76,7 @@ func main() {
 	// fleet for a generated one of N services, to see the map at real sizes.
 	var snap *fleet.FleetSnapshot
 	var byRef map[string]*contract.Bundle
+	var cur atomic.Pointer[fleet.Query] // a claim signed in the tab refolds it
 	if n := demoFleetSize(js.Global().Get("__pactoFleet").String()); n > 0 {
 		snap, err = buildGeneratedFleet(n)
 	} else {
@@ -83,7 +86,8 @@ func main() {
 		panic(err)
 	} else {
 		q := fleet.NewQuery(snap)
-		opts.Fleet = func(context.Context) (*fleet.Query, error) { return q, nil }
+		cur.Store(q)
+		opts.Fleet = func(context.Context) (*fleet.Query, error) { return cur.Load(), nil }
 		opts.Impact = demoImpactProvider(byRef)
 		// The Metrics page's run records, generated once at load so a session's
 		// numbers hold still; the newest coverage point is the query the
@@ -115,7 +119,11 @@ func main() {
 	d.wire(&opts)
 	// Declare an inferred service from its page (source_declare.go): nobody
 	// signs in the demo, so Save draft keeps a draft-<n> in the tab.
-	opts.Declare = newDemoDeclarer(func(r *http.Request) string { return d.State(r).User })
+	// A claim of an external system is signed with the simulated sign-in and
+	// refolds the narrative fleet with every claimed revision of the tab.
+	declarer := newDemoDeclarer(func(r *http.Request) string { return d.State(r).User })
+	declarer.claimed = refold(src, partners, byRef, &cur, refresh)
+	opts.Declare = declarer
 	if opts.InstallationConfig, err = demoInstallationConfig(); err != nil {
 		panic(err)
 	}
@@ -141,6 +149,25 @@ func main() {
 	}
 
 	select {} // keep the Go runtime alive so __pactoServe stays callable
+}
+
+// refold rebuilds the narrative fleet with the tab's claimed revisions and
+// swaps it in: every view reads it from the next request on. A generated
+// fleet (no byRef) is left as it is.
+func refold(src, partners *EmbedSource, byRef map[string]*contract.Bundle, cur *atomic.Pointer[fleet.Query], refresh func()) func([]fleet.RawRevision) error {
+	if byRef == nil {
+		return nil
+	}
+	return func(claims []fleet.RawRevision) error {
+		s, refs, err := buildDemoFleet(src, partners, claims...)
+		if err != nil {
+			return err
+		}
+		maps.Copy(byRef, refs)
+		cur.Store(fleet.NewQuery(s))
+		refresh()
+		return nil
+	}
 }
 
 // serve answers a single API request in memory. JS calls it as

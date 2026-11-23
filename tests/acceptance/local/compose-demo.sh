@@ -1219,8 +1219,8 @@ svc_json=$(inferred_fleet get card-payments) || fail "pacto fleet get card-payme
 jq -e '[.dependencies[] | select(.to == "stripe-pinned")] | length == 1 and .[0].rangeStatus == "unknown" and .[0].rangeReason == "INFERRED_PROVIDER"' <<<"$svc_json" >/dev/null ||
 	fail "card-payments' stripe-pinned range is not unknown with INFERRED_PROVIDER: $svc_json"
 att_json=$(inferred_fleet attention) || fail "pacto fleet attention failed: $att_json"
-jq -e '[.items[] | select(.code == "INFERRED_PROVIDER")] | length == 1 and .[0].nextAction.verb == "declare"' <<<"$att_json" >/dev/null ||
-	fail "attention does not list exactly one INFERRED_PROVIDER item with the declare next action: $att_json"
+jq -e '[.items[] | select(.code == "INFERRED_PROVIDER")] | length == 1 and .[0].nextAction.verb == "claim"' <<<"$att_json" >/dev/null ||
+	fail "attention does not list exactly one INFERRED_PROVIDER item naming the claim of the unclaimed stripe: $att_json"
 pass "the inferred service published stripe's inferred contract and a range on it reads unknown with INFERRED_PROVIDER"
 
 # A change of stripe, which nobody here controls, asks for attention from
@@ -1292,6 +1292,28 @@ pull_out=$(docker compose -p "$PROJ1" exec -T -e PACTO_INSECURE_REGISTRIES=regis
 	pacto pull oci://registry:5000/demo/invoices:draft-1 --verify-key /tmp/declare.pub --output /tmp/declare-pulled 2>&1) ||
 	fail "pacto pull --verify-key refused the draft pacto declare signed: $pull_out"
 pass "pacto declare wrote a key-signed draft-1 with its cluster facts dropped, and pacto pull verified its signature"
+
+# pacto claim names stripe's owner through the same declaration. A key names
+# no person, so the claim is draft-1 in registry:5000/demo/stripe and claims
+# nothing: the fleet, reading that repository too, still raises one
+# UNOWNED_EXTERNAL for stripe with the claim action, routed to the default
+# approvers for routing only.
+claim_out=$(docker compose -p "$PROJ1" exec -T -e PACTO_INSECURE_REGISTRIES=registry:5000 dashboard \
+	pacto claim stripe --owner team-platform --registry registry:5000/demo --sign-key /tmp/declare.key --yes --output-format json 2>&1) ||
+	fail "pacto claim --sign-key failed in the demo: $claim_out"
+jq -e '.tag == "draft-1" and .plan.inferredFrom == "external:stripe"' <<<"$claim_out" >/dev/null ||
+	fail "pacto claim did not write draft-1 naming inferredFrom external:stripe: $claim_out"
+claim_pull=$(docker compose -p "$PROJ1" exec -T -e PACTO_INSECURE_REGISTRIES=registry:5000 dashboard \
+	pacto pull oci://registry:5000/demo/stripe:draft-1 --verify-key /tmp/declare.pub --output /tmp/claim-pulled 2>&1) ||
+	fail "pacto pull --verify-key refused the claim draft pacto claim signed: $claim_pull"
+claim_fleet() { # ARGS...: inferred_fleet's fleet, plus the repository pacto claim wrote
+	docker compose -p "$PROJ1" exec -T inferred pacto fleet "$@" --local /demo/inferred/card-payments \
+		--oci oci://registry:5000/demo/pacto-inferred/stripe --oci oci://registry:5000/demo/stripe --output-format json
+}
+claim_att=$(claim_fleet attention) || fail "pacto fleet attention over the claim draft failed: $claim_att"
+jq -e '[.items[] | select(.code == "UNOWNED_EXTERNAL" and .entity.key == "stripe")] | length == 1 and .[0].nextAction.verb == "claim" and (.[0].nextStep | contains("default approvers (routing only; it grants no right)"))' <<<"$claim_att" >/dev/null ||
+	fail "a claim draft claimed stripe, or its UNOWNED_EXTERNAL item names no claim action and routing: $claim_att"
+pass "pacto claim wrote a key-signed draft-1 for stripe, and the draft claims nothing: stripe stays routed to the default approvers"
 
 # The same live journeys the Kind vertical runs, against the published demo
 # instead of a cluster. The suite reads the fixture the gate just discovered, so it

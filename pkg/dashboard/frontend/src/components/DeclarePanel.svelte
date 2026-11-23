@@ -1,7 +1,8 @@
 <script>
   import { api } from '../lib/api.ts';
-  import { rangeRows, draftLine, draftMark, signUrl, moved, completenessLine, claimId, claimFieldError } from '../lib/declare.ts';
+  import { rangeRows, draftLine, draftMark, signUrl, signReturn, moved, completenessLine, claimId, claimFieldError } from '../lib/declare.ts';
   import { formatCount } from '../lib/format.ts';
+  import { hostSignsIn, signIn } from '../lib/session.svelte.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
   import FieldProvenanceRow from './FieldProvenanceRow.svelte';
   import Fold from './Fold.svelte';
@@ -144,11 +145,17 @@
     load({ accept: [] });
   }
 
-  function startSign() {
+  function startSign(e) {
     try {
       if (draft) sessionStorage.setItem(draftKey(p.intentDigest), JSON.stringify(draft));
       if (claim) sessionStorage.setItem(claimKey(p.intentDigest), JSON.stringify({ owner: owner.trim(), name: name.trim() }));
     } catch { /* the plan is asked for again by hand */ }
+    // A host that signs in itself (the WASM demo) keeps the tab: it signs the person
+    // in again and comes back to the same return page.
+    if (hostSignsIn()) {
+      e.preventDefault();
+      signIn(signReturn(serviceKey, p.intentDigest), true);
+    }
   }
 
   function planClaim(e) {
