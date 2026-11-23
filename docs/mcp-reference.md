@@ -261,11 +261,11 @@ the command a person runs:
 | `PullRequestNeedsLocalToken` | Over HTTP: a pull request runs only where your Git token is, so run the `cli` command |
 | `NotAllowed` | Over HTTP: the caller may not update the workload, names someone else in `on_behalf_of`, or the repository belongs to another workload |
 | `ReviewFailed` | Over HTTP: the review of the caller failed or could not be evaluated |
-| `TemplateNotFound` | The catalog holds no template with that name |
+| `TemplateNotFound` | The catalog, read whole, holds no template with that name |
 | `TemplateCatalogUnset` | A `template:` subject with no Backstage URL to read it from |
-| `TemplateCatalogUnavailable` | The catalog could not be read |
+| `TemplateCatalogUnavailable` | The catalog could not be read whole, so a missing template is unknown |
 | `TemplateNameInvalid` | The subject is no `template:<namespace>/<name>`, or the name is no name a contract can carry |
-| `TemplateNameTaken` | A service already holds the name, or `<registry>/<name>` already holds a version |
+| `TemplateNameTaken` | A golden path or service already holds the name, or `<registry>/<name>` already holds a version |
 | `TemplateSourceUnverified` | The template comes from a detected catalog: set `dashboard.backstage.url` to accept it |
 | `OWNER_SIGNER_NOT_PERSON` | Only a person sets `service.owner`: an agent, CI or workload signer never does, whoever it acts for |
 | `OWNER_SIGNER_NOT_ALLOWED` | The person is no member of the current owner and no default approver |

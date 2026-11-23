@@ -138,16 +138,19 @@ Inferred golden paths (complete, asOf 2026-11-23T09:00:00Z):
   URL. A detected in-cluster Service gets no link, because a browser cannot
   open it, and no accept command: set the URL to
   [accept](#accept-a-template-as-a-golden-path) its templates.
-- A template named like a declared golden path is that path: its row shows
-  the link and the template is listed once. A name another service holds is
-  listed with no accept.
+- A template with the same name as a declared golden path is linked to it by
+  name: its row shows the link (an inferred link) and the template is not
+  listed again. A name another service you can see holds is listed with no
+  accept.
 - A name a contract cannot carry is skipped and named in
   `INFERRED_TEMPLATES_SKIPPED`. At most 200 templates are listed; past that
   the block is `partial` with `INFERRED_TEMPLATES_CAPPED`.
 - Every viewer, restricted ones included, sees each template the reader token
   reads.
 - An unavailable or partial catalog makes the block `partial` with the
-  reason. It never reads as "no templates".
+  reason. It never reads as "no templates". So does a registry or cluster
+  that could not be read whole, because a listed template may already be
+  declared there.
 
 With no Backstage in a watched namespace, Detected providers reads
 `Backstage catalog: not detected`, partial, because an external catalog is
